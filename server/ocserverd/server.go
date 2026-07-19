@@ -28,10 +28,11 @@ import (
 
 // appVersion is the single app version string. A `var` (not const) so bin/build
 // can stamp it at link time (-X main.appVersion=…), same mechanism as buildSHA;
-// an unstamped build (plain `go build`, the committed prebuilt, dev) keeps the
-// honest "0.0.0" placeholder. The human-facing "how new" label is the r-N
-// release_tag (resolved from the updater by git sha, see update_check.go); this
-// string remains the deploy-probe/back-compat identity.
+// an unstamped build (plain `go build`, self-build, dev) keeps the honest
+// "0.0.0" placeholder. An OFFICIAL package (bin/release) stamps this to the
+// GitHub Release tag, so /api/version's `version` self-identifies the release
+// — the single human-facing version identity (release_check.go compares it
+// against the newest GitHub Release tag).
 var appVersion = "0.0.0"
 
 // ── build identity (handlers.git_sha / git_time; captured once at boot) ─────
@@ -101,11 +102,6 @@ type versionDTO struct {
 	CatalogHash     string  `json:"catalog_hash"`
 	UpdateAvailable bool    `json:"update_available"`
 	LatestVersion   *string `json:"latest_version"` // only meaningful when UpdateAvailable
-	// ReleaseTag is the running build's r-N (T-e9d1), resolved from the updater
-	// by git sha; null when unknown (no updater configured, this build was
-	// never published, or a pre-serial updater). The cockpit shows it as the
-	// human-facing running version alongside git_sha.
-	ReleaseTag *string `json:"release_tag"`
 }
 
 // probeVersionDTO is the bare `/version` deploy-probe shape (autodeploy reads
@@ -458,10 +454,13 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 	api.passwordChangedAt = auth.passwordChangedAt
 	api.ctxhigh = auth.ctxhigh
 	api.outsourceMaxParallel = auth.outsourceMaxParallel
-	api.updaterURL = auth.updaterURL
-	api.updaterInviteCode = auth.updaterInviteCode
 	api.updaterReceiveBeta = auth.updaterReceiveBeta
 	api.updaterAutoUpdate = auth.updaterAutoUpdate
+	// $OC_RELEASE_API_BASE is a HARNESS seam (conformance/e2e): it re-points
+	// the GitHub Releases API base so a black-box run never reaches the real
+	// api.github.com (hermeticity + the anonymous rate limit). "" = the real
+	// GitHub — normal deployments never set it.
+	api.releaseAPIBase = env("OC_RELEASE_API_BASE")
 	api.orgName = auth.orgName
 	api.namespace = cfg.Server.Namespace
 	// The embed-fallback binary cache rides beside the SQLite data file — a

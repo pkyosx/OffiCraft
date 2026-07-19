@@ -24,7 +24,6 @@ var subcommands = []struct{ name, help string }{
 	{"migrate", "apply goose migrations to the resolved [storage] DSN (sqlite)"},
 	{"set-password", "store the owner password's argon2id hash in DB settings ($OC_NEW_PASSWORD)"},
 	{"claim-token", "print the one-shot first-run claim code (exit 3 once a password is set)"},
-	{"set-updater", "store the updater server URL + invite code in DB settings ($OC_UPDATER_URL, $OC_UPDATER_INVITE_CODE)"},
 }
 
 func usage(out io.Writer) {
@@ -88,13 +87,6 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 			return 2
 		}
 		return cmdClaimToken(env, out)
-
-	case "set-updater":
-		if len(rest) != 0 {
-			fmt.Fprintf(out, "[ocserverd] set-updater takes no arguments (values ride $%s and $%s)\n", envUpdaterURL, envUpdaterInviteCode)
-			return 2
-		}
-		return cmdSetUpdater(env, out)
 
 	case "-h", "--help", "help":
 		usage(out)

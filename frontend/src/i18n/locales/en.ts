@@ -747,25 +747,17 @@ export const en: Dict = {
     params: "Parameters",
     currentVersion: "Current version",
     upToDate: "Up to date",
-    // Updater server config (updater_url + invite code; the code is a secret
-    // the server never echoes back)
-    updaterServer: "Updater server",
-    updaterUrl: "Updater server URL",
-    updaterUrlSub:
-      "The updater server's http(s) address · leave empty to disable update checks",
-    updaterInvite: "Invite code",
-    updaterInviteSub:
-      "The updater server's invite credential · write-only, never shown back",
-    updaterInviteSet: "Set (type to replace)",
-    // Invite-code status row (T-1c2e rework: the retired server-settings
-    // view's one non-duplicated line, merged here; only the set/unset bit —
-    // the wire never carries the plaintext)
-    updaterInviteStatus: "Invite code status",
-    updaterInviteStatusSub:
-      "Shows only whether a code is stored · never the code itself",
-    // ── dual-channel toggles (receive_beta / auto_update, both default OFF) ──
+    // Explicit check against GitHub Releases (GET /api/release/check)
+    checkUpdate: "Check for updates",
+    checkingUpdate: "Checking…",
+    checkUnknown:
+      "Could not reach GitHub to check for updates — try again later",
+    checkFailed: "The update check failed — try again",
+    viewRelease: "View release",
+    updateSettings: "Update settings",
+    // ── software-update toggles (receive_beta / auto_update, both default OFF) ──
     receiveBeta: "Receive beta versions",
-    receiveBetaSub: "Update checks follow the beta channel (every publish) · off = stable (GA) only",
+    receiveBetaSub: "Update checks also follow GitHub prereleases · off = official releases only",
     autoUpdate: "Automatic updates",
     autoUpdateSub: "Upgrade and restart in the background when a newer version appears · off by default",
     upgradeFailed: "Upgrade failed",

@@ -213,10 +213,15 @@ export type WireTaskRef = components["schemas"]["TaskRefDTO"];
 
 // ── Settings: build identity + role journal (mirrors service/dto.py) ──────────
 
-/** Mirrors `service/dto.py :: VersionDTO`. Build identity. HONESTY: `version`
- * stays "0.0.0" until a real release; `git_sha` / `git_time` are the
- * human-facing identity. */
+/** Mirrors `VersionDTO`. Build identity. HONESTY: an OFFICIAL package's
+ * `version` is its GitHub Release tag; a self-build keeps the honest "0.0.0"
+ * and `git_sha` / `git_time` compose the fallback build label. */
 export type WireVersion = components["schemas"]["VersionDTO"];
+
+/** Mirrors `ReleaseCheckDTO` (`GET /api/release/check`) — the explicit
+ * 檢查更新 verdict against GitHub Releases: up_to_date / update_available /
+ * unknown (GitHub unreachable — the honest degraded verdict). */
+export type WireReleaseCheck = components["schemas"]["ReleaseCheckDTO"];
 
 /** Mirrors `service/dto.py :: GlobalContextDTO`. The folded global-context
  * doc. `is_default` = seed (true) vs owner-edited (false). */

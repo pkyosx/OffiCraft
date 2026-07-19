@@ -11,6 +11,7 @@ import type {
   Member,
   MonitoringView,
   VersionView,
+  ReleaseCheckView,
   GlobalContextView,
   RoleDefView,
   BootstrapView,
@@ -549,15 +550,11 @@ export interface ServerSettingsView {
    * **-1 ⇒ 無限 (unlimited — no global cap)**; 0 ⇒ outsource assignment is
    * PAUSED — the panel annotates it). */
   outsourceMaxParallel: number;
-  /** The updater server base URL ("" = unset — update checks off). */
-  updaterUrl: string;
-  /** Whether an updater invite code is stored. The code itself is a SECRET:
-   * write-only via the patch — the server NEVER echoes it back. */
-  updaterInviteCodeSet: boolean;
-  /** Whether update checks follow the BETA channel (false = GA, the default). */
+  /** Whether the GitHub-release update check also admits prereleases
+   * (false = official releases only, the default). */
   updaterReceiveBeta: boolean;
-  /** Whether the server self-upgrades in the background when the followed
-   * channel has a newer version (false = manual-only, the default). */
+  /** Whether the server self-upgrades in the background when GitHub has a
+   * newer admissible release (false = manual-only, the default). */
   updaterAutoUpdate: boolean;
   /** The studio display name shown in the topbar (T-d693). "" = never set —
    * the caller falls back to the localized default (`t.orgName`). */
@@ -571,12 +568,7 @@ export interface ServerSettingsPatch {
   tokenTtl?: number;
   handoverPct?: number;
   outsourceMaxParallel?: number;
-  /** Absolute http(s) URL, or "" to clear (server 422s anything else). */
-  updaterUrl?: string;
-  /** The updater invite credential; "" clears it. Write-only (never read back
-   * — reads expose only `updaterInviteCodeSet`). */
-  updaterInviteCode?: string;
-  /** Follow the beta channel for update checks (default false = GA). */
+  /** Also admit GitHub prereleases in update checks (default false). */
   updaterReceiveBeta?: boolean;
   /** Arm unattended background self-upgrade (default false = manual-only). */
   updaterAutoUpdate?: boolean;
@@ -1183,9 +1175,18 @@ export interface Api {
   teardownOnServer(machineId: string): Promise<TeardownHereResultView>;
 
   // ── Settings: build identity + role journal (§3.9 / §3.4 #20–25) ──────────
-  /** Build identity for the software-update card. Honest: version "0.0.0",
-   * update_available static false, no phantom newer version. */
+  /** Build identity for the software-update card. Honest: a self-build's
+   * version stays "0.0.0"; update_available mirrors the server's cached
+   * GitHub Releases check — no phantom newer version. */
   getVersion(): Promise<VersionView>;
+  /**
+   * Explicit 檢查更新 (`GET /api/release/check`): the server asks GitHub
+   * Releases synchronously and answers the fresh verdict — up_to_date /
+   * update_available (with the tag + release link) / unknown (GitHub
+   * unreachable — graceful degradation, never a thrown transport error from
+   * the server side).
+   */
+  checkRelease(): Promise<ReleaseCheckView>;
   /** The folded global-context doc (owner overlay ⊕ file seed). */
   getGlobalContext(): Promise<GlobalContextView>;
   /** Whole-doc replace of the global context → returns the folded doc
@@ -1272,12 +1273,12 @@ export interface Api {
   patchServerSettings(patch: ServerSettingsPatch): Promise<ServerSettingsView>;
   /**
    * Owner's EXPLICIT upgrade trigger (`POST /api/update/upgrade`) — the
-   * software-update card's button; the server never upgrades automatically.
-   * A resolved call means the verified binary swap already LANDED and the
-   * server is restarting into the new build (watch /api/version for the new
-   * git_sha). Rejects honestly: 409 no updater configured / no newer version
-   * known; 502 download-verify-swap failures (the old build keeps serving) —
-   * the caller surfaces the server message.
+   * software-update card's button (the OPT-IN auto-update setting runs the
+   * same verified body unattended). A resolved call means the verified
+   * binary swap already LANDED and the server is restarting into the new
+   * build (watch /api/version for the new git_sha). Rejects honestly: 409
+   * no newer release known; 502 download-verify-swap failures (the old
+   * build keeps serving) — the caller surfaces the server message.
    */
   triggerUpgrade(): Promise<void>;
   /**

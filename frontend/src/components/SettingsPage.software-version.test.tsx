@@ -1,8 +1,9 @@
-// 設定 › 軟體更新 版本顯示 (T-e9d1 — owner final: ONE unified label
-// v<yymmdd>-<hhmm>-<shortsha>, composed frontend-side from git_sha + git_time,
-// and NOTHING else). Locked here:
-//   1. The headline is the unified label (mock fixture: git_sha f6f5e1c
-//      committed 2026-07-04T08:54 → v260704-0854-f6f5e1c) — no r-N anywhere.
+// 設定 › 軟體更新 版本顯示 (t-dc68 — ONE unified identity: an official
+// package headlines its GitHub Release tag (`version` ≠ "0.0.0"); a
+// self-build — the mock fixture — falls back to the composed label
+// v<yymmdd>-<hhmm>-<shortsha> from git_sha + git_time). Locked here:
+//   1. The self-build headline is the composed label (mock fixture: git_sha
+//      f6f5e1c committed 2026-07-04T08:54 → v260704-0854-f6f5e1c).
 //   2. No secondary rows at all — no human-readable commit-time row, no
 //      separate sha row, no update-channel row.
 
@@ -38,10 +39,10 @@ describe("SettingsPage · 軟體更新 版本顯示", () => {
     expect(headline?.textContent).toBe("v260704-0854-f6f5e1c");
   });
 
-  it("never shows the r-N serial", async () => {
+  it("never shows a retired r-N serial", async () => {
     const utils = await openSoftware();
-    // Mock fixture carries release_tag "r-7" on the wire — the UI must not
-    // surface it anywhere on the card.
+    // The r-N serial left the wire with the updater teardown (t-dc68) — the
+    // card must not resurrect one from anywhere.
     expect(utils.container.textContent).not.toContain("r-7");
   });
 

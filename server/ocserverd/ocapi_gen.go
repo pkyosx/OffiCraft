@@ -877,6 +877,24 @@ type ProbeVersionDTO struct {
 	Version     string `json:"version"`
 }
 
+// ReleaseCheckDTO Response of `GET /api/release/check` (owner-gated) — the explicit
+// 檢查更新 button behind the software-update card. The server asks GitHub
+// Releases (repo pkyosx/OffiCraft, anonymous — no token, no configuration)
+// for the newest admissible release SYNCHRONOUSLY (bounded; a short reuse
+// window absorbs repeated clicks) and compares its tag against the running
+// `version`. `status` is "up_to_date" (the running build is the newest — or
+// nothing is published at all), "update_available" (`latest_tag` +
+// `release_url` then point at the newer release; applying it is a MANUAL
+// step — download the asset and follow install.sh — unless the
+// `updater_auto_update` setting is armed), or "unknown" (GitHub unreachable
+// / not answering — the honest degraded verdict, still a 200).
+type ReleaseCheckDTO struct {
+	CurrentVersion string  `json:"current_version"`
+	LatestTag      *string `json:"latest_tag,omitempty"`
+	ReleaseUrl     *string `json:"release_url,omitempty"`
+	Status         string  `json:"status"`
+}
+
 // ReplyCardAnswerBriefDTO The decision DIGEST on a light answered list row (“list_reply_cards“): “option_idx“ (null = free text only) plus “option“ — the picked option's ORIGINAL wording, “text“ truncated to a preview, and “attachments“ as a COUNT. The full answer (the untruncated text, the attachment refs) rides “get_reply_card“.
 type ReplyCardAnswerBriefDTO struct {
 	Attachments *int    `json:"attachments,omitempty"`
@@ -1167,13 +1185,14 @@ type SetPasswordDTO struct {
 }
 
 // SettingsDTO The owner-adjustable settings surface (`GET /api/settings`). `token_ttl` —
-// owner-login JWT lifetime in seconds; `handover_pct` — the context auto-handover
-// threshold (percent).
-// `outsource_max_parallel` — the global cap on concurrently live outsource workers (M3; -1 = 無限/unlimited — no global cap, 0 = assignment paused).
-// `updater_url` — the configured updater server base URL ("" = update checks off);
-// `updater_invite_code_set` — whether an updater invite code is stored. The invite
-// code is a SECRET credential: it is write-only and NEVER echoed back by any read.
-// `updater_receive_beta` — whether update checks follow the BETA channel (false = GA, the default); `updater_auto_update` — whether the server upgrades itself automatically in the background when the followed channel has a newer version (false = manual-only, the default). Both default OFF.
+// the owner-login JWT lifetime (seconds). `handover_pct` — the context
+// handover threshold. `outsource_max_parallel` — the global cap on
+// concurrently live outsource workers (-1 = unlimited, 0 pauses assignment).
+// `updater_receive_beta` — whether the GitHub-release update check also
+// admits prereleases (default false: official releases only).
+// `updater_auto_update` — arms unattended background self-upgrade to the
+// newest admissible GitHub release (default false: upgrading stays an
+// explicit owner action). `org_name` — the studio display name ("" = unset).
 type SettingsDTO struct {
 	HandoverPct int `json:"handover_pct"`
 
@@ -1182,9 +1201,7 @@ type SettingsDTO struct {
 	OutsourceMaxParallel *int    `json:"outsource_max_parallel,omitempty"`
 	TokenTtl             int     `json:"token_ttl"`
 	UpdaterAutoUpdate    *bool   `json:"updater_auto_update,omitempty"`
-	UpdaterInviteCodeSet *bool   `json:"updater_invite_code_set,omitempty"`
 	UpdaterReceiveBeta   *bool   `json:"updater_receive_beta,omitempty"`
-	UpdaterUrl           *string `json:"updater_url,omitempty"`
 }
 
 // SettingsUpdateDTO Partial settings edit (`PATCH /api/settings`) — only supplied fields change,
@@ -1193,12 +1210,10 @@ type SettingsDTO struct {
 // never lock every future login out); `handover_pct` MUST be 40..90 (the warn
 // band sits at 40 — a handover threshold below it would fire before the
 // warning). Anything else is a 422. `outsource_max_parallel` MUST be -1..20 (-1 = 無限/unlimited — no global cap; 0 pauses outsource assignment).
-// `updater_url` MUST be an absolute http(s) URL or "" (clears it — update checks
-// off); `updater_invite_code` is the updater server's invite credential ("" clears
-// it). The code is stored server-side and never echoed back — reads expose only
-// `updater_invite_code_set`.
-// `updater_receive_beta` toggles the beta channel for update checks;
-// `updater_auto_update` toggles unattended background self-upgrade (both booleans, default false; the manual upgrade endpoint is unaffected).
+// `updater_receive_beta` toggles whether the GitHub-release update check also
+// admits prereleases; `updater_auto_update` toggles unattended background
+// self-upgrade to the newest admissible release (both booleans, default false;
+// the manual upgrade endpoint is unaffected).
 type SettingsUpdateDTO struct {
 	HandoverPct *int `json:"handover_pct,omitempty"`
 
@@ -1207,9 +1222,7 @@ type SettingsUpdateDTO struct {
 	OutsourceMaxParallel *int    `json:"outsource_max_parallel,omitempty"`
 	TokenTtl             *int    `json:"token_ttl,omitempty"`
 	UpdaterAutoUpdate    *bool   `json:"updater_auto_update,omitempty"`
-	UpdaterInviteCode    *string `json:"updater_invite_code,omitempty"`
 	UpdaterReceiveBeta   *bool   `json:"updater_receive_beta,omitempty"`
-	UpdaterUrl           *string `json:"updater_url,omitempty"`
 }
 
 // TaskArtifactDTO One pinned deliverable on a task's artifact set (T-3dc5). “kind“ is the closed set file|image|link. FILE/IMAGE artifacts reference the shared chat_attachment blob store: “attachment_id“ is the blob id, “url“ is its serve path (“/api/chat/attachment/{attachment_id}“), and “filename“/“mime“/“is_image“ echo the blob metadata (resolved read-time; empty when the blob is gone). LINK artifacts carry a bare external “url“ (a PR link) with “attachment_id“/“mime“/“filename“ empty and “is_image“ false. “label“ is the display name (a link's title, or a filename override); “created_by“ is the verified token sub of the registrar.
@@ -1481,9 +1494,9 @@ type TokenDTO struct {
 // UpgradeResultDTO Response of `POST /api/update/upgrade` (owner-gated). `status` names the
 // outcome ("restarting" — the new binary is already verified and swapped
 // in place; the process re-execs right after this response) and
-// `target_version` the version being installed. The endpoint never
-// auto-fires — upgrading is ALWAYS an explicit owner action from the
-// software-update card.
+// `target_version` the GitHub release tag being installed. The endpoint
+// fires only on the owner's explicit click; the OPT-IN `updater_auto_update`
+// setting runs the same verified body unattended in the background.
 type UpgradeResultDTO struct {
 	Status        string `json:"status"`
 	TargetVersion string `json:"target_version"`
@@ -1491,29 +1504,26 @@ type UpgradeResultDTO struct {
 
 // VersionDTO Build identity: app version, git sha, and the MCP catalog hash (M1 §3.9).
 //
+// `version` is the single human-facing version identity: an OFFICIAL package
+// (bin/release) is stamped with its GitHub Release tag; a self-build keeps the
+// honest "0.0.0" (the UI then falls back to git_sha + git_time as the build
+// label).
+//
 // `git_time` is the commit time of the running `git_sha` (strict ISO-8601), or
-// None when unavailable (release tarball / no git). Until a stable GitHub
-// release version exists, the UI treats git_sha + git_time as the human-facing
-// build identity (`version` stays "0.0.0").
+// None when unavailable (release tarball / no git).
 //
-// `update_available` drives the software-update card. With no updater server
-// configured (settings `updater_url` / invite code) it stays False and
-// `latest_version` stays None — the M1 honest-static behaviour. With an updater
-// configured the server periodically asks it for the newest published version
-// (cached, refreshed in the background — a dead updater NEVER slows this probe)
-// and reports honestly: `update_available` is True iff the updater's latest
-// version differs from the running build (`latest_version` then carries it).
-//
-// `release_tag` is the running build's pure monotonic serial (r-N), resolved
-// from the updater by git sha; None when unknown (no updater configured, this
-// build was never published, or a pre-serial updater). `latest_version` likewise
-// carries the newest release's r-N when the updater speaks serials.
+// `update_available` drives the software-update card: the server periodically
+// asks GitHub Releases (repo pkyosx/OffiCraft, anonymous) for the newest
+// published release (cached, refreshed in the background — unreachable GitHub
+// NEVER slows this probe) and reports honestly: True iff the newest admissible
+// release tag differs from the running `version` (`latest_version` then
+// carries the tag). Prereleases are admitted only when the
+// `updater_receive_beta` setting is on.
 type VersionDTO struct {
 	CatalogHash     string  `json:"catalog_hash"`
 	GitSha          string  `json:"git_sha"`
 	GitTime         *string `json:"git_time,omitempty"`
 	LatestVersion   *string `json:"latest_version,omitempty"`
-	ReleaseTag      *string `json:"release_tag,omitempty"`
 	UpdateAvailable *bool   `json:"update_available,omitempty"`
 	Version         string  `json:"version"`
 }
@@ -1966,6 +1976,9 @@ type ServerInterface interface {
 	// Stop (停止) an outsource worker (owner-only; kill + hold down).
 	// (POST /api/outsource-workers/{id}/stop)
 	HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(w http.ResponseWriter, r *http.Request, id string)
+	// Check GitHub Releases for a newer official OffiCraft version.
+	// (GET /api/release/check)
+	HandleCheckReleaseApiReleaseCheckGet(w http.ResponseWriter, r *http.Request)
 	// List reply cards — LIGHT rows (?status=waiting|answered|expired; ?limit= caps; get_reply_card for full).
 	// (GET /api/reply-cards)
 	HandleListReplyCardsApiReplyCardsGet(w http.ResponseWriter, r *http.Request, params HandleListReplyCardsApiReplyCardsGetParams)
@@ -2104,7 +2117,7 @@ type ServerInterface interface {
 	// Terminate a task (owner; the only owner status change).
 	// (POST /api/tasks/{task_id}/terminate)
 	HandleTerminateTaskApiTasksTaskIdTerminatePost(w http.ResponseWriter, r *http.Request, taskId string)
-	// Trigger a software upgrade to the updater's latest version.
+	// Trigger a software upgrade to the latest GitHub release.
 	// (POST /api/update/upgrade)
 	HandleUpgradeApiUpdateUpgradePost(w http.ResponseWriter, r *http.Request)
 	// Build identity: version + git sha + MCP catalog hash.
@@ -3579,6 +3592,20 @@ func (siw *ServerInterfaceWrapper) HandleStopOutsourceWorkerApiOutsourceWorkersI
 	handler.ServeHTTP(w, r)
 }
 
+// HandleCheckReleaseApiReleaseCheckGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleCheckReleaseApiReleaseCheckGet(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleCheckReleaseApiReleaseCheckGet(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // HandleListReplyCardsApiReplyCardsGet operation middleware
 func (siw *ServerInterfaceWrapper) HandleListReplyCardsApiReplyCardsGet(w http.ResponseWriter, r *http.Request) {
 
@@ -5013,6 +5040,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/outsource-workers/{id}/relocate", wrapper.HandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/outsource-workers/{id}/restart", wrapper.HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/outsource-workers/{id}/stop", wrapper.HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/release/check", wrapper.HandleCheckReleaseApiReleaseCheckGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/reply-cards", wrapper.HandleListReplyCardsApiReplyCardsGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/reply-cards", wrapper.HandleCreateReplyCardApiReplyCardsPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/reply-cards/count", wrapper.HandleReplyCardCountApiReplyCardsCountGet)

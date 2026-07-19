@@ -1,14 +1,12 @@
-// 設定 › 軟體更新 — the T-1c2e honesty behaviors, at their post-rework home
-// (owner: the standalone 伺服器設定 view duplicated existing edit surfaces and
-// was retired; its one non-duplicated line + the 存檔測連通 read-back rule
-// moved into this card). Pinned here:
-//   - the SECRET status row (updater.invite_code) shows only 已設定/未設定 and
-//     the stored plaintext NEVER appears anywhere in the rendered view (repo
-//     red line — the wire itself only carries the set/unset bit);
+// 設定 › 軟體更新 — the T-1c2e honesty behaviors, post updater-server teardown
+// (t-dc68: updates come from GitHub Releases; the URL/invite-code form is
+// gone). Pinned here:
 //   - the 自動更新 switch verifies a save by reading the settings BACK and
 //     comparing (write → fresh GET → compare): success feedback only after
 //     the read-back matches, and both failure shapes (rejected write /
-//     unverifiable read-back) report failure, never a fabricated success.
+//     unverifiable read-back) report failure, never a fabricated success;
+//   - the explicit 檢查更新 button surfaces the mock server's honest fresh
+//     verdict (up to date — never a phantom newer release).
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
@@ -28,7 +26,7 @@ async function openSoftware() {
     </I18nProvider>
   );
   fireEvent.click(utils.getByText(s.software));
-  await utils.findByLabelText(s.updaterUrl); // settings loaded
+  await utils.findByTestId("settings-auto-update"); // settings loaded
   return utils;
 }
 
@@ -40,23 +38,22 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("SettingsPage · 軟體更新 · 邀請碼狀態 (secret masking)", () => {
-  it("shows 未設定/已設定 and NEVER the stored plaintext", async () => {
-    // Unset first — the badge reads 未設定.
-    let utils = await openSoftware();
-    expect(utils.getByTestId("settings-invite-status").textContent).toBe(
-      s.configValueUnset
-    );
-    utils.unmount();
+describe("SettingsPage · 軟體更新 · 檢查更新 (explicit fresh verdict)", () => {
+  it("clicking 檢查更新 shows the honest up-to-date verdict", async () => {
+    const utils = await openSoftware();
+    fireEvent.click(utils.getByTestId("settings-check-release"));
+    const verdict = await utils.findByTestId("settings-check-verdict");
+    expect(verdict.textContent).toBe(s.upToDate);
+  });
 
-    // Store a secret, reopen: the badge flips to 已設定 and the plaintext is
-    // nowhere in the rendered document (not as value, not as attribute).
-    await api.patchServerSettings({ updaterInviteCode: "hunter2-secret" });
-    utils = await openSoftware();
-    expect(utils.getByTestId("settings-invite-status").textContent).toBe(
-      s.configSecretSet
+  it("a failed check reports the failure line, never a fabricated verdict", async () => {
+    const utils = await openSoftware();
+    vi.spyOn(api, "checkRelease").mockRejectedValue(
+      new Error("boom: transport down")
     );
-    expect(utils.container.innerHTML).not.toContain("hunter2-secret");
+    fireEvent.click(utils.getByTestId("settings-check-release"));
+    await utils.findByText(s.checkFailed);
+    expect(utils.queryByTestId("settings-check-verdict")).toBeNull();
   });
 });
 

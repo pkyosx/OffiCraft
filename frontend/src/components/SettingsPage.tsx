@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useI18n } from "../i18n";
-import type { GlobalContextView, RoleDefView, VersionView } from "../types";
+import type {
+  GlobalContextView,
+  RoleDefView,
+  VersionView,
+  ReleaseCheckView,
+} from "../types";
 import { api, type ServerSettingsView, type ServerSettingsPatch } from "../api";
 import { ApiError } from "../api/errors";
 import { useVersion } from "../hooks/useVersion";
@@ -544,55 +549,25 @@ function ServerParams({
 // ── 軟體更新 ────────────────────────────────────────────────────────────────
 
 /**
- * Split a pasted INVITE LINK — `http://host:8790?code=<invite>`, the one-line
- * form an updater operator hands out — into the clean updater URL + the
- * invite code, so pasting the link into the 更新伺服器位址 field fills BOTH
- * knobs in one go (the code lands in the 邀請碼 field's setting, the URL is
- * stored without the secret riding in it). Returns null when the value is not
- * a URL carrying a code param — plain URLs keep their existing path, and both
- * fields stay independently editable.
- */
-export function splitInviteLink(
-  raw: string
-): { url: string; code: string } | null {
-  let u: URL;
-  try {
-    u = new URL(raw.trim());
-  } catch {
-    return null;
-  }
-  if (u.protocol !== "http:" && u.protocol !== "https:") return null;
-  const code = (u.searchParams.get("code") ?? "").trim();
-  if (code === "") return null;
-  u.searchParams.delete("code");
-  // A bare-origin link ("http://host:8790?code=…") cleans to the origin —
-  // no phantom trailing "/" that the URL class would otherwise append.
-  const clean =
-    u.pathname === "/" && u.search === "" && u.hash === ""
-      ? u.origin
-      : u.toString();
-  return { url: clean, code };
-}
-
-/**
- * HONEST software-update card. `update_available` / `latest_version` are the
- * server's REAL cached updater check now (false/null while no updater server
- * is configured — the M1 honest-static face survives untouched): the card
- * shows git_sha + git_time as the build identity plus the honest badge, and
- * the 升級 button renders ONLY when a real newer version exists. Clicking it
- * is the owner's EXPLICIT trigger (POST /api/update/upgrade — the server
- * never upgrades itself); a rejection surfaces the server's own message
- * (409 preconditions / 502 download-verify-swap failures — the old build
- * keeps serving). A 200 means the verified swap already landed and the
- * server is re-exec'ing: the card shows the restart notice and polls
- * /api/version until git_sha advances, then reloads the page.
+ * HONEST software-update card (GitHub Releases, t-dc68). The version headline
+ * is the single human-facing identity: an OFFICIAL package carries its GitHub
+ * Release tag in `version`; a self-build keeps the honest "0.0.0" and only
+ * then does the composed build label v<yymmdd>-<hhmm>-<shortsha> (git sha +
+ * commit time) stand in. `update_available` / `latest_version` mirror the
+ * server's cached GitHub Releases check; the 升級 button renders ONLY when a
+ * real newer release exists. 檢查更新 is the owner's explicit fresh check
+ * (GET /api/release/check): up_to_date / update_available (tag + release
+ * link) / unknown (GitHub unreachable — the honest degraded verdict).
+ * Clicking 升級 is the owner's EXPLICIT trigger (POST /api/update/upgrade);
+ * a rejection surfaces the server's own message (409 preconditions / 502
+ * download-verify-swap failures — the old build keeps serving). A 200 means
+ * the verified swap already landed and the server is re-exec'ing: the card
+ * shows the restart notice and polls /api/version until git_sha advances,
+ * then reloads the page.
  *
- * Below the card sits the updater-server config (updater_url + invite code,
- * both /api/settings knobs). The invite code is a SECRET: the server never
- * echoes it — the field shows only a "set" placeholder and is write-only; a
- * status row underneath shows the honest set/unset bit (T-1c2e rework: the
- * retired 伺服器設定 view's one non-duplicated line, merged here — the wire
- * only ever carries updater_invite_code_set, never the plaintext).
+ * Below the card sit the two software-update toggles (/api/settings knobs,
+ * both default OFF): 接收 Beta (follow GitHub prereleases too) and 自動更新
+ * (unattended background self-upgrade running the same verified body).
  */
 function SoftwareUpdate({
   version,
@@ -615,10 +590,12 @@ function SoftwareUpdate({
 }) {
   const { t } = useI18n();
 
-  // Drafts commit on blur/Enter (same rule as ServerParams: never PATCH the
-  // server mid-typing). null = no draft — the field mirrors the server value.
-  const [urlDraft, setUrlDraft] = useState<string | null>(null);
-  const [codeDraft, setCodeDraft] = useState<string | null>(null);
+  // Explicit 檢查更新: idle → checking → the server's fresh verdict (kept
+  // until the next click) / "failed" (transport/gate error — NOT the server's
+  // honest "unknown", which arrives as a verdict).
+  const [checkState, setCheckState] = useState<
+    { kind: "idle" } | { kind: "checking" } | { kind: "failed" } | { kind: "done"; verdict: ReleaseCheckView }
+  >({ kind: "idle" });
   // Read-back verdict for the verified auto_update commit (存檔測連通,
   // T-1c2e): idle → saving → ok/fail — "ok" means the write was read BACK and
   // matched, never a local echo.
@@ -670,34 +647,17 @@ function SoftwareUpdate({
     }
   }, [upgradeRestarting, version]);
 
-  function commitUrl() {
-    if (!settings || urlDraft === null) return;
-    const next = urlDraft.trim();
-    setUrlDraft(null);
-    // A pasted invite link (…?code=<邀請碼>) fills both knobs in ONE patch:
-    // the clean URL here, the code into the (write-only) invite-code setting.
-    const invite = splitInviteLink(next);
-    if (invite) {
-      void onSave({
-        updaterUrl: invite.url,
-        updaterInviteCode: invite.code,
-      }).then(scheduleVersionRefresh);
-      return;
-    }
-    if (next === settings.updaterUrl) return;
-    void onSave({ updaterUrl: next }).then(scheduleVersionRefresh);
-  }
-
-  function commitCode() {
-    if (!settings || codeDraft === null) return;
-    const next = codeDraft.trim();
-    setCodeDraft(null);
-    // An untouched-empty draft is "no change" (the secret is write-only, so an
-    // empty field normally just means "not showing the stored value") — the
-    // owner clears the code by clearing the URL or typing then erasing is a
-    // no-op; deliberate clearing rides updater_url="".
-    if (next === "") return;
-    void onSave({ updaterInviteCode: next }).then(scheduleVersionRefresh);
+  function runCheck() {
+    setCheckState({ kind: "checking" });
+    api
+      .checkRelease()
+      .then((verdict) => {
+        setCheckState({ kind: "done", verdict });
+        // The synchronous check also refreshed the server-side cache — re-read
+        // /api/version so the badge follows without waiting out the TTL.
+        scheduleVersionRefresh();
+      })
+      .catch(() => setCheckState({ kind: "failed" }));
   }
 
   // Toggle writes go straight through (no draft: a switch IS its commit);
@@ -777,15 +737,16 @@ function SoftwareUpdate({
           <div className="sw-card__label">{t.settings.currentVersion}</div>
           {version ? (
             <>
-              {/* Owner final (T-e9d1): ONE unified version label,
-               * v<yymmdd>-<hhmm>-<shortsha>, composed frontend-side from the
-               * build's git sha + commit time — no r-N, no separate sha row,
-               * no channel row, and no separate commit-time row (the date-ish
-               * label alone is the whole build identity). */}
+              {/* ONE unified version label (t-dc68): the GitHub Release tag
+               * when this is an official package (version ≠ "0.0.0"); a
+               * self-build falls back to the composed build label
+               * v<yymmdd>-<hhmm>-<shortsha> from git sha + commit time. */}
               <div className="sw-build">
                 <div className="sw-build__headline">
                   <code className="sw-build__version">
-                    {formatBuildVersion(version.gitSha, version.gitTime)}
+                    {version.version !== "0.0.0"
+                      ? version.version
+                      : formatBuildVersion(version.gitSha, version.gitTime)}
                   </code>
                 </div>
               </div>
@@ -824,92 +785,57 @@ function SoftwareUpdate({
         <div className="set-error param-error">{upgradeError}</div>
       )}
 
-      {/* ── updater server config (updater_url + invite code) ── */}
+      {/* ── explicit 檢查更新 (fresh GitHub verdict on the owner's click) ── */}
+      <div className="sw-check">
+        <button
+          type="button"
+          className="btn sw-check__btn"
+          disabled={checkState.kind === "checking"}
+          onClick={runCheck}
+          data-testid="settings-check-release"
+        >
+          {checkState.kind === "checking"
+            ? t.settings.checkingUpdate
+            : t.settings.checkUpdate}
+        </button>
+        {checkState.kind === "failed" && (
+          <span className="set-error param-error">{t.settings.checkFailed}</span>
+        )}
+        {checkState.kind === "done" && (
+          <span className="sw-check__verdict" data-testid="settings-check-verdict">
+            {checkState.verdict.status === "up_to_date" && t.settings.upToDate}
+            {checkState.verdict.status === "unknown" && t.settings.checkUnknown}
+            {checkState.verdict.status === "update_available" && (
+              <>
+                {t.settings.updateAvailable}
+                {checkState.verdict.latestTag ? ` ${checkState.verdict.latestTag}` : ""}
+                {checkState.verdict.releaseUrl && (
+                  <>
+                    {" · "}
+                    <a
+                      href={checkState.verdict.releaseUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {t.settings.viewRelease}
+                    </a>
+                  </>
+                )}
+              </>
+            )}
+          </span>
+        )}
+      </div>
+
+      {/* ── the two software-update toggles (/api/settings; both default OFF) ── */}
       <h2 className="settings__title settings__title--doc">
-        {t.settings.updaterServer}
+        {t.settings.updateSettings}
       </h2>
       {settingsError && (
         <div className="set-error">{t.settings.paramsLoadError}</div>
       )}
       {settings && (
         <div className="param-card">
-          <div className="param-row">
-            <div className="param-row__body">
-              <label className="param-row__name" htmlFor="updater-url">
-                {t.settings.updaterUrl}
-              </label>
-              <div className="param-row__sub">{t.settings.updaterUrlSub}</div>
-            </div>
-            <input
-              id="updater-url"
-              className="param-input param-input--wide"
-              type="text"
-              autoComplete="off"
-              aria-label={t.settings.updaterUrl}
-              placeholder="https://…"
-              value={urlDraft ?? settings.updaterUrl}
-              onChange={(e) => {
-                onClearSaveError();
-                setVerifyStatus("idle");
-                setUrlDraft(e.target.value);
-              }}
-              onBlur={commitUrl}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") commitUrl();
-              }}
-            />
-          </div>
-          <div className="param-row">
-            <div className="param-row__body">
-              <label className="param-row__name" htmlFor="updater-invite">
-                {t.settings.updaterInvite}
-              </label>
-              <div className="param-row__sub">
-                {t.settings.updaterInviteSub}
-              </div>
-            </div>
-            <input
-              id="updater-invite"
-              className="param-input param-input--wide"
-              type="password"
-              autoComplete="new-password"
-              aria-label={t.settings.updaterInvite}
-              placeholder={
-                settings.updaterInviteCodeSet ? t.settings.updaterInviteSet : ""
-              }
-              value={codeDraft ?? ""}
-              onChange={(e) => {
-                onClearSaveError();
-                setVerifyStatus("idle");
-                setCodeDraft(e.target.value);
-              }}
-              onBlur={commitCode}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") commitCode();
-              }}
-            />
-          </div>
-          {/* updater.invite_code status — SECRET tier: only the honest
-           * set/unset bit ever renders (the wire itself carries only
-           * updater_invite_code_set; this row never fabricates the code). */}
-          <div className="param-row">
-            <div className="param-row__body">
-              <span className="param-row__name">
-                {t.settings.updaterInviteStatus}
-              </span>
-              <div className="param-row__sub">
-                {t.settings.updaterInviteStatusSub}
-              </div>
-            </div>
-            <span
-              className={`set-badge${settings.updaterInviteCodeSet ? " set-badge--on" : ""}`}
-              data-testid="settings-invite-status"
-            >
-              {settings.updaterInviteCodeSet
-                ? t.settings.configSecretSet
-                : t.settings.configValueUnset}
-            </span>
-          </div>
           {/* ── the two dual-channel toggles (both default OFF) ── */}
           <div className="param-row">
             <div className="param-row__body">

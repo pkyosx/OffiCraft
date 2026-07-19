@@ -267,26 +267,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/chat/unread-count": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Total chat unread count (the office nav red dot).
-         * @description The office nav red-dot signal: the caller's TOTAL unread chat messages across every peer. A dot shows when > 0. Kept as its own endpoint so the dot can refetch cheaply on ``chat`` / ``chat_read`` SSE deltas without pulling the roster.
-         */
-        get: operations["handle_chat_unread_count_api_chat_unread_count_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/chat/attachment/{attachment_id}": {
         parameters: {
             query?: never;
@@ -482,6 +462,26 @@ export interface paths {
          *     receipt is a per-conversation last-read watermark.
          */
         get: operations["handle_list_chat_reads_api_chat_reads_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/unread-count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Total chat unread count (the office nav red dot).
+         * @description The office nav red-dot signal: the caller's TOTAL unread chat messages across every peer. A dot shows when > 0. Kept as its own endpoint so the dot can refetch cheaply on ``chat`` / ``chat_read`` SSE deltas without pulling the roster.
+         */
+        get: operations["handle_chat_unread_count_api_chat_unread_count_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1501,7 +1501,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/outsource-workers/{id}/relocate": {
+    "/api/outsource-workers/{id}/model": {
         parameters: {
             query?: never;
             header?: never;
@@ -1511,10 +1511,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Relocate an outsource worker to a machine (admin-gated).
-         * @description Relocate an outsource worker to a machine (T-f190): the owner cockpit's 改機器 operation, the worker twin of member activate's machine bind. Writes desired_machine_id, kills the current session, and clears pacing so the next scheduler tick re-spawns on the chosen machine — the same 殺舊 session + 清 pacing + 讓下一 tick 重生 semantics the shared-FSM zombie-takeover uses, WITHOUT touching lifecycle (the worker stays assigned/active). Admin-gated since P7c (requires=admin_agent, the exact member relocate floor).
+         * Change (換 model) an outsource worker's model/effort (owner-only).
+         * @description Change (換 model) an outsource worker's model + effort (T-f190 lifecycle), the worker twin of the member model/effort edit. Persists the new model (blank ⇒ launcher default) and effort; when the worker is ACTIVE + online it kills+respawns so the new model takes effect NOW, otherwise (assigned/stopped) it only persists — the next spawn/restart bakes it in. 404 unknown/released. The owner mental model: an outsource worker is just a member the system creates and deletes, so it reuses the SAME lifecycle mechanisms. Owner-only (route requires=owner), MCP-excluded (workers are server/owner-managed; agents never drive these).
          */
-        post: operations["handle_relocate_outsource_worker_api_outsource_workers__id__relocate_post"];
+        post: operations["handle_set_outsource_worker_model_api_outsource_workers__id__model_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1541,7 +1541,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/outsource-workers/{id}/stop": {
+    "/api/outsource-workers/{id}/relocate": {
         parameters: {
             query?: never;
             header?: never;
@@ -1551,10 +1551,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Stop (停止) an outsource worker (owner-only; kill + hold down).
-         * @description Stop (停止) an outsource worker (T-f190 lifecycle): set desired_state='offline' (a direct mirror of member.desired_state — which makes every scheduler auto-revival path skip it: the shared reconcile-FSM rescue never revives an owner-held-down worker), clear any in-flight refocus, and kill the session WITHOUT re-dispatching. The worker projects presence 'stopping'/'stopped' (honest, never fake-green); the bound task stays in its own status. Idempotent. 404 unknown/released. The owner mental model: an outsource worker is just a member the system creates and deletes, so it reuses the SAME lifecycle mechanisms. Owner-only (route requires=owner), MCP-excluded (workers are server/owner-managed; agents never drive these).
+         * Relocate an outsource worker to a machine (admin-gated).
+         * @description Relocate an outsource worker to a machine (T-f190): the owner cockpit's 改機器 operation, the worker twin of member activate's machine bind. Writes desired_machine_id, kills the current session, and clears pacing so the next scheduler tick re-spawns on the chosen machine — the same 殺舊 session + 清 pacing + 讓下一 tick 重生 semantics the shared-FSM zombie-takeover uses, WITHOUT touching lifecycle (the worker stays assigned/active). Admin-gated since P7c (requires=admin_agent, the exact member relocate floor).
          */
-        post: operations["handle_stop_outsource_worker_api_outsource_workers__id__stop_post"];
+        post: operations["handle_relocate_outsource_worker_api_outsource_workers__id__relocate_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1581,7 +1581,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/outsource-workers/{id}/model": {
+    "/api/outsource-workers/{id}/stop": {
         parameters: {
             query?: never;
             header?: never;
@@ -1591,10 +1591,33 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Change (換 model) an outsource worker's model/effort (owner-only).
-         * @description Change (換 model) an outsource worker's model + effort (T-f190 lifecycle), the worker twin of the member model/effort edit. Persists the new model (blank ⇒ launcher default) and effort; when the worker is ACTIVE + online it kills+respawns so the new model takes effect NOW, otherwise (assigned/stopped) it only persists — the next spawn/restart bakes it in. 404 unknown/released. The owner mental model: an outsource worker is just a member the system creates and deletes, so it reuses the SAME lifecycle mechanisms. Owner-only (route requires=owner), MCP-excluded (workers are server/owner-managed; agents never drive these).
+         * Stop (停止) an outsource worker (owner-only; kill + hold down).
+         * @description Stop (停止) an outsource worker (T-f190 lifecycle): set desired_state='offline' (a direct mirror of member.desired_state — which makes every scheduler auto-revival path skip it: the shared reconcile-FSM rescue never revives an owner-held-down worker), clear any in-flight refocus, and kill the session WITHOUT re-dispatching. The worker projects presence 'stopping'/'stopped' (honest, never fake-green); the bound task stays in its own status. Idempotent. 404 unknown/released. The owner mental model: an outsource worker is just a member the system creates and deletes, so it reuses the SAME lifecycle mechanisms. Owner-only (route requires=owner), MCP-excluded (workers are server/owner-managed; agents never drive these).
          */
-        post: operations["handle_set_outsource_worker_model_api_outsource_workers__id__model_post"];
+        post: operations["handle_stop_outsource_worker_api_outsource_workers__id__stop_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/release/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Check GitHub Releases for a newer official OffiCraft version.
+         * @description Owner-gated explicit update check (檢查更新): synchronously asks GitHub
+         *     Releases (pkyosx/OffiCraft, anonymous) for the newest admissible release
+         *     and compares it against the running version. Failure to reach GitHub
+         *     degrades gracefully to status "unknown" — never a 5xx.
+         */
+        get: operations["handle_check_release_api_release_check_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2271,26 +2294,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/tasks/{task_id}/closeout": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Report the task's close-out follow-ups done (terminal tasks only; idempotent).
-         * @description The executor reports the task's close-out follow-ups DONE (MCP ``report_task_closeout``; SPEC §6.3 step 1): learnings written back (the type's manual / the role's lessons) and the task's scratch data cleaned. TERMINAL tasks only (done/terminated — an open task is a 409); executor-guarded like every agent report row. IDEMPOTENT: the first report stamps ``closeout_reported`` and fans a ``task`` delta; a repeat answers 200 as a no-op. Recording only — the outsource-dismissal consequence (SPEC §6.3 step 2) is the worker-lifecycle batch's hook, deliberately NOT here.
-         */
-        post: operations["handle_report_task_closeout_api_tasks__task_id__closeout_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/tasks/{task_id}/claim": {
         parameters: {
             query?: never;
@@ -2305,6 +2308,26 @@ export interface paths {
          * @description The NEW executor takes over a reassigned task (MCP ``claim_task``; T-9ca5). Clears the ``reassigning`` lock (task.lock -> empty) and fires the predecessor outsource worker -- the takeover that update_task_status's ``reassigning`` to ``in_progress`` performed before ``reassigning`` moved from a status to task.lock. The task status is DERIVED from its steps and is never set here. Executor-guarded: only the task's current executor (the successor the reassign re-pointed to) may claim; owner/admin may drive any task. Guards: 404 unknown task; 403 caller is not the executor; 409 the task is not under the reassigning lock (nothing to claim).
          */
         post: operations["handle_claim_task_api_tasks__task_id__claim_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tasks/{task_id}/closeout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report the task's close-out follow-ups done (terminal tasks only; idempotent).
+         * @description The executor reports the task's close-out follow-ups DONE (MCP ``report_task_closeout``; SPEC §6.3 step 1): learnings written back (the type's manual / the role's lessons) and the task's scratch data cleaned. TERMINAL tasks only (done/terminated — an open task is a 409); executor-guarded like every agent report row. IDEMPOTENT: the first report stamps ``closeout_reported`` and fans a ``task`` delta; a repeat answers 200 as a no-op. Recording only — the outsource-dismissal consequence (SPEC §6.3 step 2) is the worker-lifecycle batch's hook, deliberately NOT here.
+         */
+        post: operations["handle_report_task_closeout_api_tasks__task_id__closeout_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2521,17 +2544,19 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Trigger a software upgrade to the updater's latest version.
+         * Trigger a software upgrade to the latest GitHub release.
          * @description Owner-gated, explicit upgrade trigger (the software-update card's 升級
-         *     button — the server NEVER upgrades itself automatically). Preconditions
-         *     are validated first: no updater configured → 409; no newer version known
-         *     from the update check → 409. A valid trigger runs the execution body
-         *     SYNCHRONOUSLY in the request: download the target binary from the
-         *     updater → sha256-verify → back up the running binary (.bak) → atomic
-         *     swap — any failure answers an honest error and leaves the old binary
-         *     untouched and serving. Only after the swap has landed does it answer
-         *     200 {status:"restarting"}; the process then re-execs itself so the new
-         *     build takes over — poll GET /api/version until git_sha advances.
+         *     button; the armed `updater_auto_update` cadence shares the same body).
+         *     Precondition: no newer release known from the update check → 409. A valid
+         *     trigger runs the execution body SYNCHRONOUSLY in the request: pin the
+         *     newest admissible GitHub release → download its
+         *     officraft-<tag>-darwin-arm64.tar.gz asset → sha256-verify against the
+         *     release's checksums.txt → extract the ocserverd binary → smoke-test → back
+         *     up the running binary (.bak) → atomic swap — any failure answers an honest
+         *     error and leaves the old binary untouched and serving. Only after the swap
+         *     has landed does it answer 200 {status:"restarting"}; the process then
+         *     re-execs itself so the new build takes over — poll GET /api/version until
+         *     git_sha advances.
          */
         post: operations["handle_upgrade_api_update_upgrade_post"];
         delete?: never;
@@ -2551,9 +2576,9 @@ export interface paths {
          * Build identity: version + git sha + MCP catalog hash.
          * @description Report version, git sha/time, and the derived MCP catalog hash.
          *
-         *     `update_available` / `latest_version` reflect the configured updater server's
-         *     newest published version (cached background check; False/None when no updater
-         *     is configured or nothing newer is known).
+         *     `update_available` / `latest_version` reflect the newest admissible GitHub
+         *     Release (cached background check against repo pkyosx/OffiCraft; False/None
+         *     when nothing newer is known or GitHub is unreachable).
          */
         get: operations["handle_version_api_version_get"];
         put?: never;
@@ -4018,31 +4043,6 @@ export interface components {
          * @description One outsource worker row of the panel (SPEC §4.1): the anonymous codename (model prefix + sequence), model/effort, lifecycle status (assigned → active → released), and its ONE bound task's id / title / status.
          */
         OutsourceWorkerDTO: {
-            /** Codename */
-            codename: string;
-            /**
-             * Created Ts
-             * @default 0
-             */
-            created_ts: number;
-            /**
-             * Effort
-             * @default medium
-             */
-            effort: string;
-            /** Id */
-            id: string;
-            /**
-             * Model
-             * @default
-             */
-            model: string;
-            /**
-             * Presence
-             * @description REAL-liveness projection on the ONE member presence vocabulary (A案 P6 — deriveLiveness; replaces the retired ``spawn_state`` closed set starting/stuck/online/stopped). Distinct from lifecycle ``status`` so a worker whose session is not actually up is not rendered as a live green row. Uses the same SSE-presence authority (hub.IsOnline) the member roster reads. Closed set: ``online`` (holding a live SSE connection), ``waking`` (not online with a fresh wake in flight — last start dispatch / row birth within the waking TTL), ``offline`` (not online and no fresh wake — a silently-failing spawn or a died-after-claim session; the FSM rescue owns recovery), ``stopping``/``stopped`` (owner-explicit stop: held down, no auto-revival), ``""`` (released; off-panel). Optional-with-default: absent reads as "" for older clients.
-             * @default
-             */
-            presence: string;
             /**
              * Account
              * @description The Claude account this worker's session runs under (telemetry entry keyed by the worker's actor id — the SAME per-actor telemetry the member roster reads). null when the worker has not reported one (never fabricated). T-f190 additive-optional.
@@ -4053,22 +4053,29 @@ export interface components {
              * @description The worker's persistent historical cumulative cost (migrations/00021), the DIRECT twin of member banked_cost: the live cost is banked through the SAME bankLiveCost fold on every session end / kill+respawn (refocus / model change / relocate / stop / auto-handover), so a handover never zeroes the owner-visible spend. null when nothing banked yet. The panel shows live + banked summed, the member presentation. T-ba6b additive-optional.
              */
             banked_cost?: number | null;
+            /** Codename */
+            codename: string;
             /**
              * Context Pct
              * @description The worker's live context-window fill %, read from the SAME gauge the member roster reads (POST /api/agent/context, keyed by actor id). null when unreported. T-f190 additive-optional.
              */
             context_pct?: number | null;
             /**
+             * Cost
+             * @description The worker's live session cost (telemetry `cost`, keyed by actor id) — the CURRENT session only, kept separate from banked_cost (never overlapping). null when unreported. T-f190 additive-optional.
+             */
+            cost?: number | null;
+            /**
+             * Created Ts
+             * @default 0
+             */
+            created_ts: number;
+            /**
              * Creator Id
              * @description The verified token sub of the bound task's creator (a member id, the literal "owner", or "" on pre-column / server-scheduled rows) — the RAW id behind delegated_by, so the client can honestly distinguish owner vs member vs unassigned rather than fabricating a delegator. T-f190 additive-optional.
              * @default
              */
             creator_id: string;
-            /**
-             * Cost
-             * @description The worker's live session cost (telemetry `cost`, keyed by actor id) — the CURRENT session only, kept separate from banked_cost (never overlapping). null when unreported. T-f190 additive-optional.
-             */
-            cost?: number | null;
             /**
              * Delegated By
              * @description The RESOLVED display name of the bound task's creator (member or owner) — the real 委託人, replacing the former hardcoded "System owner" placeholder. "" when the task's creator_id is blank (pre-column / server-scheduled rows) → the client shows an honest fallback. T-f190 additive-optional.
@@ -4082,6 +4089,19 @@ export interface components {
              */
             desired_machine_id: string;
             /**
+             * Desired State
+             * @description Run-intent, a direct mirror of member.desired_state: 'online' (system wants it running) or 'offline' (owner-explicit stop — held down; presence is then 'stopping'/'stopped', every scheduler auto-revival path skips it). The stop/restart toggle key. Additive-optional.
+             * @default online
+             */
+            desired_state: string;
+            /**
+             * Effort
+             * @default medium
+             */
+            effort: string;
+            /** Id */
+            id: string;
+            /**
              * Last Op
              * @description The last folded warden command receipt verb (worker_start / worker_stop) — the worker twin of member.last_op. "" when none folded yet. T-f190 additive-optional (durable since T-9ccf migrations/00017).
              * @default
@@ -4094,16 +4114,16 @@ export interface components {
              */
             last_op_at: number;
             /**
-             * Last Op Ok
-             * @description Whether the last warden receipt succeeded (three-valued: null = no receipt folded yet), the worker twin of member.last_op_ok. T-f190 additive-optional.
-             */
-            last_op_ok?: boolean | null;
-            /**
              * Last Op Log
              * @description The last warden receipt's verbatim log (surfaced on failure, collapsible) — the worker twin of member.last_op_log. T-f190 additive-optional.
              * @default
              */
             last_op_log: string;
+            /**
+             * Last Op Ok
+             * @description Whether the last warden receipt succeeded (three-valued: null = no receipt folded yet), the worker twin of member.last_op_ok. T-f190 additive-optional.
+             */
+            last_op_ok?: boolean | null;
             /**
              * Last Op Reason
              * @description The last warden receipt's structured one-line failure reason — the worker twin of member.last_op_reason. T-f190 additive-optional.
@@ -4116,6 +4136,23 @@ export interface components {
              * @default
              */
             machine: string;
+            /**
+             * Model
+             * @default
+             */
+            model: string;
+            /**
+             * Presence
+             * @description REAL-liveness projection on the ONE member presence vocabulary (A案 P6 — deriveLiveness; replaces the retired ``spawn_state`` closed set starting/stuck/online/stopped). Distinct from lifecycle ``status`` so a worker whose session is not actually up is not rendered as a live green row. Uses the same SSE-presence authority (hub.IsOnline) the member roster reads. Closed set: ``online`` (holding a live SSE connection), ``waking`` (not online with a fresh wake in flight — last start dispatch / row birth within the waking TTL), ``offline`` (not online and no fresh wake — a silently-failing spawn or a died-after-claim session; the FSM rescue owns recovery), ``stopping``/``stopped`` (owner-explicit stop: held down, no auto-revival), ``""`` (released; off-panel). Optional-with-default: absent reads as "" for older clients.
+             * @default
+             */
+            presence: string;
+            /**
+             * Refocus Since
+             * @description Epoch seconds of the in-flight context-handover stamp (T-32e1), 0 when none. >0 = a refocus (owner 換手 OR context-high auto-handover) is mid-flight; the FE maps 0→null. Additive-optional.
+             * @default 0
+             */
+            refocus_since: number;
             /** Status */
             status: string;
             /** Task Id */
@@ -4136,18 +4173,6 @@ export interface components {
              * @default 0
              */
             unread_count: number;
-            /**
-             * Refocus Since
-             * @description Epoch seconds of the in-flight context-handover stamp (T-32e1), 0 when none. >0 = a refocus (owner 換手 OR context-high auto-handover) is mid-flight; the FE maps 0→null. Additive-optional.
-             * @default 0
-             */
-            refocus_since: number;
-            /**
-             * Desired State
-             * @description Run-intent, a direct mirror of member.desired_state: 'online' (system wants it running) or 'offline' (owner-explicit stop — held down; presence is then 'stopping'/'stopped', every scheduler auto-revival path skips it). The stop/restart toggle key. Additive-optional.
-             * @default online
-             */
-            desired_state: string;
         };
         /**
          * OutsourceWorkerModelDTO
@@ -4191,6 +4216,30 @@ export interface components {
             sha: string;
             /** Version */
             version: string;
+        };
+        /**
+         * ReleaseCheckDTO
+         * @description Response of `GET /api/release/check` (owner-gated) — the explicit
+         *     檢查更新 button behind the software-update card. The server asks GitHub
+         *     Releases (repo pkyosx/OffiCraft, anonymous — no token, no configuration)
+         *     for the newest admissible release SYNCHRONOUSLY (bounded; a short reuse
+         *     window absorbs repeated clicks) and compares its tag against the running
+         *     `version`. `status` is "up_to_date" (the running build is the newest — or
+         *     nothing is published at all), "update_available" (`latest_tag` +
+         *     `release_url` then point at the newer release; applying it is a MANUAL
+         *     step — download the asset and follow install.sh — unless the
+         *     `updater_auto_update` setting is armed), or "unknown" (GitHub unreachable
+         *     / not answering — the honest degraded verdict, still a 200).
+         */
+        ReleaseCheckDTO: {
+            /** Current Version */
+            current_version: string;
+            /** Latest Tag */
+            latest_tag?: string | null;
+            /** Release Url */
+            release_url?: string | null;
+            /** Status */
+            status: string;
         };
         /**
          * ReplyCardAnswerBriefDTO
@@ -4673,13 +4722,14 @@ export interface components {
         /**
          * SettingsDTO
          * @description The owner-adjustable settings surface (`GET /api/settings`). `token_ttl` —
-         *     owner-login JWT lifetime in seconds; `handover_pct` — the context auto-handover
-         *     threshold (percent).
-         *     `outsource_max_parallel` — the global cap on concurrently live outsource workers (M3; -1 = 無限/unlimited — no global cap, 0 = assignment paused).
-         *     `updater_url` — the configured updater server base URL ("" = update checks off);
-         *     `updater_invite_code_set` — whether an updater invite code is stored. The invite
-         *     code is a SECRET credential: it is write-only and NEVER echoed back by any read.
-         *     `updater_receive_beta` — whether update checks follow the BETA channel (false = GA, the default); `updater_auto_update` — whether the server upgrades itself automatically in the background when the followed channel has a newer version (false = manual-only, the default). Both default OFF.
+         *     the owner-login JWT lifetime (seconds). `handover_pct` — the context
+         *     handover threshold. `outsource_max_parallel` — the global cap on
+         *     concurrently live outsource workers (-1 = unlimited, 0 pauses assignment).
+         *     `updater_receive_beta` — whether the GitHub-release update check also
+         *     admits prereleases (default false: official releases only).
+         *     `updater_auto_update` — arms unattended background self-upgrade to the
+         *     newest admissible GitHub release (default false: upgrading stays an
+         *     explicit owner action). `org_name` — the studio display name ("" = unset).
          */
         SettingsDTO: {
             /** Handover Pct */
@@ -4700,17 +4750,10 @@ export interface components {
              */
             updater_auto_update: boolean;
             /**
-             * Updater Invite Code Set
-             * @default false
-             */
-            updater_invite_code_set: boolean;
-            /**
              * Updater Receive Beta
              * @default false
              */
             updater_receive_beta: boolean;
-            /** Updater Url */
-            updater_url?: string;
         };
         /**
          * SettingsUpdateDTO
@@ -4720,12 +4763,10 @@ export interface components {
          *     never lock every future login out); `handover_pct` MUST be 40..90 (the warn
          *     band sits at 40 — a handover threshold below it would fire before the
          *     warning). Anything else is a 422. `outsource_max_parallel` MUST be -1..20 (-1 = 無限/unlimited — no global cap; 0 pauses outsource assignment).
-         *     `updater_url` MUST be an absolute http(s) URL or "" (clears it — update checks
-         *     off); `updater_invite_code` is the updater server's invite credential ("" clears
-         *     it). The code is stored server-side and never echoed back — reads expose only
-         *     `updater_invite_code_set`.
-         *     `updater_receive_beta` toggles the beta channel for update checks;
-         *     `updater_auto_update` toggles unattended background self-upgrade (both booleans, default false; the manual upgrade endpoint is unaffected).
+         *     `updater_receive_beta` toggles whether the GitHub-release update check also
+         *     admits prereleases; `updater_auto_update` toggles unattended background
+         *     self-upgrade to the newest admissible release (both booleans, default false;
+         *     the manual upgrade endpoint is unaffected).
          */
         SettingsUpdateDTO: {
             /** Handover Pct */
@@ -4741,12 +4782,8 @@ export interface components {
             token_ttl?: number | null;
             /** Updater Auto Update */
             updater_auto_update?: boolean | null;
-            /** Updater Invite Code */
-            updater_invite_code?: string | null;
             /** Updater Receive Beta */
             updater_receive_beta?: boolean | null;
-            /** Updater Url */
-            updater_url?: string | null;
         };
         /**
          * TaskArtifactDTO
@@ -4889,11 +4926,6 @@ export interface components {
          * @description One task (M3 任務卡): a workflow with a Definition of Done, executed by a roster member or an anonymous outsource worker. ``task_no`` is the display number derived from the id (never a lookup key). ``status`` is DERIVED from the steps (not agent-reported): the work states not_started/in_progress/waiting_owner/waiting_external plus the terminals done/terminated/duplicated. ``reassigning`` is NO LONGER a status — it is the orthogonal ``lock`` field (the owner/admin handover hold, cleared by the claim action; see ``POST /api/tasks/{task_id}/reassign``); ``priority`` includes ``frozen`` (pause-pushing — a priority, not a status). ``executor_kind='outsource'`` with an empty ``executor_id`` is the transient unassigned state. ``closed_ts`` is null while open. ``deps`` are the blocking task ids (display markers, never a status change); ``progress_done``/``progress_total`` count step leaves (``superseded`` replan history counts toward neither side). ``closeout_reported`` flips true once the executor reports the close-out follow-ups done (``report_task_closeout``; terminal tasks only). ``creator_id`` is the verified token sub of the task's creator (a member id, an outsource worker id, or the literal "owner"); "" on rows created before the column existed. ``duplicate_of`` is the id of the ORIGINAL task this one duplicates — non-empty ONLY while ``status='duplicated'`` (MCP ``mark_duplicate``); the graph is depth-1 by construction so the cockpit link always resolves in one hop.
          */
         TaskDTO: {
-            /**
-             * Lock
-             * @default
-             */
-            lock: string;
             /** Artifacts */
             artifacts?: components["schemas"]["TaskArtifactDTO"][];
             /** Closed Ts */
@@ -4943,6 +4975,11 @@ export interface components {
             inputs?: {
                 [key: string]: unknown;
             };
+            /**
+             * Lock
+             * @default
+             */
+            lock: string;
             /** Priority */
             priority: string;
             /** Progress Done */
@@ -5013,11 +5050,6 @@ export interface components {
          */
         TaskListItemDTO: {
             /**
-             * Lock
-             * @default
-             */
-            lock: string;
-            /**
              * Artifact Count
              * @default 0
              */
@@ -5055,6 +5087,11 @@ export interface components {
             executor_kind: string;
             /** Id */
             id: string;
+            /**
+             * Lock
+             * @default
+             */
+            lock: string;
             /** Priority */
             priority: string;
             /** Progress Done */
@@ -5357,11 +5394,6 @@ export interface components {
          */
         TaskStepDTO: {
             /**
-             * Waiting Reason
-             * @default
-             */
-            waiting_reason: string;
-            /**
              * Dod
              * @default
              */
@@ -5410,19 +5442,24 @@ export interface components {
             status: string;
             /** Task Id */
             task_id: string;
+            /**
+             * Waiting Reason
+             * @default
+             */
+            waiting_reason: string;
         };
         /**
          * TaskStepStatusUpdateDTO
          * @description Agent-reported step status (MCP ``update_step_status``): ``pending`` → ``in_progress`` → ``done`` — ``waiting_owner`` is NOT agent-reportable on either side (a step enters it only by opening a reply card: open_gate / create_reply_card auto-bind, and leaves it only when that card is answered, where the server restores in_progress), so reporting ``waiting_owner`` is a 400 and a move out of it is a 409; other illegal transitions are a 409. ``superseded`` is likewise not the agent's lever: the server freezes a replaced answered-card step itself on submit_plan (T-1aea), so reporting ``superseded`` is a 400 and no report moves a step out of it (409 — terminal).
          */
         TaskStepStatusUpdateDTO: {
+            /** Status */
+            status: string;
             /**
              * Waiting Reason
              * @default
              */
             waiting_reason: string;
-            /** Status */
-            status: string;
         };
         /**
          * TokenDTO
@@ -5449,9 +5486,9 @@ export interface components {
          * @description Response of `POST /api/update/upgrade` (owner-gated). `status` names the
          *     outcome ("restarting" — the new binary is already verified and swapped
          *     in place; the process re-execs right after this response) and
-         *     `target_version` the version being installed. The endpoint never
-         *     auto-fires — upgrading is ALWAYS an explicit owner action from the
-         *     software-update card.
+         *     `target_version` the GitHub release tag being installed. The endpoint
+         *     fires only on the owner's explicit click; the OPT-IN `updater_auto_update`
+         *     setting runs the same verified body unattended in the background.
          */
         UpgradeResultDTO: {
             /** Status */
@@ -5463,23 +5500,21 @@ export interface components {
          * VersionDTO
          * @description Build identity: app version, git sha, and the MCP catalog hash (M1 §3.9).
          *
+         *     `version` is the single human-facing version identity: an OFFICIAL package
+         *     (bin/release) is stamped with its GitHub Release tag; a self-build keeps the
+         *     honest "0.0.0" (the UI then falls back to git_sha + git_time as the build
+         *     label).
+         *
          *     `git_time` is the commit time of the running `git_sha` (strict ISO-8601), or
-         *     None when unavailable (release tarball / no git). Until a stable GitHub
-         *     release version exists, the UI treats git_sha + git_time as the human-facing
-         *     build identity (`version` stays "0.0.0").
+         *     None when unavailable (release tarball / no git).
          *
-         *     `update_available` drives the software-update card. With no updater server
-         *     configured (settings `updater_url` / invite code) it stays False and
-         *     `latest_version` stays None — the M1 honest-static behaviour. With an updater
-         *     configured the server periodically asks it for the newest published version
-         *     (cached, refreshed in the background — a dead updater NEVER slows this probe)
-         *     and reports honestly: `update_available` is True iff the updater's latest
-         *     version differs from the running build (`latest_version` then carries it).
-         *
-         *     `release_tag` is the running build's pure monotonic serial (r-N), resolved
-         *     from the updater by git sha; None when unknown (no updater configured, this
-         *     build was never published, or a pre-serial updater). `latest_version` likewise
-         *     carries the newest release's r-N when the updater speaks serials.
+         *     `update_available` drives the software-update card: the server periodically
+         *     asks GitHub Releases (repo pkyosx/OffiCraft, anonymous) for the newest
+         *     published release (cached, refreshed in the background — unreachable GitHub
+         *     NEVER slows this probe) and reports honestly: True iff the newest admissible
+         *     release tag differs from the running `version` (`latest_version` then
+         *     carries the tag). Prereleases are admitted only when the
+         *     `updater_receive_beta` setting is on.
          */
         VersionDTO: {
             /** Catalog Hash */
@@ -5490,8 +5525,6 @@ export interface components {
             git_time?: string | null;
             /** Latest Version */
             latest_version?: string | null;
-            /** Release Tag */
-            release_tag?: string | null;
             /**
              * Update Available
              * @default false
@@ -6085,53 +6118,6 @@ export interface operations {
             };
         };
     };
-    handle_chat_unread_count_api_chat_unread_count_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ChatUnreadCountDTO"];
-                };
-            };
-            /** @description Validation error (unified error envelope). */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Client error (unified error envelope). */
-            "4XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Server error (unified error envelope). */
-            "5XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-        };
-    };
     handle_get_chat_attachment_api_chat_attachment__attachment_id__get: {
         parameters: {
             query?: never;
@@ -6402,6 +6388,53 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChatReadDTO"][];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_chat_unread_count_api_chat_unread_count_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatUnreadCountDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
@@ -8424,6 +8457,108 @@ export interface operations {
             };
         };
     };
+    handle_set_outsource_worker_model_api_outsource_workers__id__model_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OutsourceWorkerModelDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutsourceWorkerDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_refocus_outsource_worker_api_outsource_workers__id__refocus_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutsourceWorkerDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
     handle_relocate_outsource_worker_api_outsource_workers__id__relocate_post: {
         parameters: {
             query?: never;
@@ -8477,7 +8612,7 @@ export interface operations {
             };
         };
     };
-    handle_refocus_outsource_worker_api_outsource_workers__id__refocus_post: {
+    handle_restart_outsource_worker_api_outsource_workers__id__restart_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -8575,13 +8710,11 @@ export interface operations {
             };
         };
     };
-    handle_restart_outsource_worker_api_outsource_workers__id__restart_post: {
+    handle_check_release_api_release_check_get: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                id: string;
-            };
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
@@ -8592,60 +8725,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OutsourceWorkerDTO"];
-                };
-            };
-            /** @description Validation error (unified error envelope). */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Client error (unified error envelope). */
-            "4XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Server error (unified error envelope). */
-            "5XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-        };
-    };
-    handle_set_outsource_worker_model_api_outsource_workers__id__model_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["OutsourceWorkerModelDTO"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OutsourceWorkerDTO"];
+                    "application/json": components["schemas"]["ReleaseCheckDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
@@ -10368,7 +10448,7 @@ export interface operations {
             };
         };
     };
-    handle_report_task_closeout_api_tasks__task_id__closeout_post: {
+    handle_claim_task_api_tasks__task_id__claim_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -10417,7 +10497,7 @@ export interface operations {
             };
         };
     };
-    handle_claim_task_api_tasks__task_id__claim_post: {
+    handle_report_task_closeout_api_tasks__task_id__closeout_post: {
         parameters: {
             query?: never;
             header?: never;

@@ -38,7 +38,10 @@ done
 # Strip ambient fleet env (OC_ID / OC_TOKEN / OC_BASE) so the isolated serve and
 # any tool we spawn never talk to the fleet/prod server. Critical: without this,
 # ambient OC_* silently redirects auth/telemetry at the real server.
-oc_env() { env -u OC_ID -u OC_TOKEN -u OC_BASE "$@"; }
+# OC_RELEASE_API_BASE (t-dc68): pin the GitHub Releases update check at an
+# unroutable loopback — the harness must never reach the real api.github.com
+# (hermeticity + the anonymous rate limit); checks fail fast and honestly.
+oc_env() { env -u OC_ID -u OC_TOKEN -u OC_BASE OC_RELEASE_API_BASE="http://127.0.0.1:1" "$@"; }
 
 # python3 as a text tool only (tomllib/json parsing) — not a server dependency.
 py() { python3 "$@"; }

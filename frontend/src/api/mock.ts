@@ -9,6 +9,7 @@ import type {
   Member,
   MonitoringView,
   VersionView,
+  ReleaseCheckView,
   GlobalContextView,
   RoleDefView,
   BootstrapView,
@@ -70,6 +71,7 @@ import {
   toMember,
   toMonitoring,
   toVersion,
+  toReleaseCheck,
   toGlobalContext,
   toRoleDef,
   toBootstrap,
@@ -285,8 +287,7 @@ const MOCK_WIRE_MONITORING: MockMonitoring = {
 // git_time (T-e9d1 round 3 — this fixture renders v260704-0854-f6f5e1c), so both
 // fields must stay REAL and parity with the Go wire. `update_available` is static
 // false — the running build IS the latest ("已是最新版", so latest_version null /
-// no phantom newer version). `release_tag` (r-7) stays for wire fidelity only —
-// no UI displays it anymore. These are the running build's REAL identity (git
+// no phantom newer version). These are the running build's REAL identity (git
 // HEAD f6f5e1c, committed 2026-07-04) — NOT the mockup's v1.2.0.
 const MOCK_WIRE_VERSION: WireVersion = {
   version: "0.0.0",
@@ -295,7 +296,6 @@ const MOCK_WIRE_VERSION: WireVersion = {
   catalog_hash: "mock",
   update_available: false,
   latest_version: null,
-  release_tag: "r-7",
 };
 
 // ── Fixture: role-journal seeds, in WIRE shape (mirrors the folded GETs).
@@ -680,19 +680,15 @@ const DEFAULT_MOCK_SETTINGS = {
   handover_pct: 50,
   // M3 global outsource cap — mirrors the server's code-side default (3).
   outsource_max_parallel: 3,
-  // Updater pair — unset out of the box (update checks off), mirroring the
-  // server default. The invite code VALUE is held mock-side only (secret
-  // masking parity: reads expose only the set bit).
-  updater_url: "",
-  updater_invite_code_set: false,
-  // Dual-channel toggles — both OFF out of the box, mirroring the server.
+  // The two software-update toggles — both OFF out of the box, mirroring the
+  // server (updates come from GitHub Releases; there is no updater server to
+  // configure any more).
   updater_receive_beta: false,
   updater_auto_update: false,
   // Studio name (T-d693) — "" out of the box, mirroring the server (the topbar
   // shows the localized default until the owner names the studio).
   org_name: "",
 };
-let mockUpdaterInviteCode = "";
 let mockServerSettings = { ...DEFAULT_MOCK_SETTINGS };
 const MOCK_CLAIM_TOKEN = "mock-claim-token";
 const TOKEN_TTL_CHOICES = new Set([43200, 86400, 604800, 2592000]);
@@ -2395,34 +2391,8 @@ export const mockApi: Api = {
     if (patch.handoverPct !== undefined) {
       mockServerSettings.handover_pct = patch.handoverPct;
     }
-    if (patch.updaterUrl !== undefined && patch.updaterUrl !== "") {
-      // Server parity: absolute http(s) URL or "" — anything else is a 422.
-      let ok = false;
-      try {
-        const u = new URL(patch.updaterUrl);
-        ok = (u.protocol === "http:" || u.protocol === "https:") && !!u.host;
-      } catch {
-        ok = false;
-      }
-      if (!ok) {
-        throw new ApiError(
-          "http 422 for PATCH /api/settings",
-          422,
-          "validation_error",
-          'updater_url must be an absolute http(s) URL, or "" to clear it'
-        );
-      }
-    }
     if (patch.outsourceMaxParallel !== undefined) {
       mockServerSettings.outsource_max_parallel = patch.outsourceMaxParallel;
-    }
-    if (patch.updaterUrl !== undefined) {
-      // Server parity: trailing slash trimmed on store.
-      mockServerSettings.updater_url = patch.updaterUrl.replace(/\/+$/, "");
-    }
-    if (patch.updaterInviteCode !== undefined) {
-      mockUpdaterInviteCode = patch.updaterInviteCode.trim();
-      mockServerSettings.updater_invite_code_set = mockUpdaterInviteCode !== "";
     }
     if (patch.updaterReceiveBeta !== undefined) {
       mockServerSettings.updater_receive_beta = patch.updaterReceiveBeta;
@@ -2436,23 +2406,26 @@ export const mockApi: Api = {
     return toServerSettings(structuredClone(mockServerSettings));
   },
 
+  async checkRelease(): Promise<ReleaseCheckView> {
+    // Server parity: the mock world has no GitHub to ask, so the honest fresh
+    // verdict is "up to date at the running version" (never a phantom newer
+    // release, never a fabricated failure).
+    return toReleaseCheck({
+      status: "up_to_date",
+      current_version: MOCK_WIRE_VERSION.version,
+      latest_tag: null,
+      release_url: null,
+    });
+  },
+
   async triggerUpgrade(): Promise<void> {
-    // Server parity: the mock has no updater configured out of the box → the
-    // honest 409; with one "configured" there is still no real updater to ask,
-    // so the honest face stays a 409 (no newer version known).
-    if (!mockServerSettings.updater_url || !mockServerSettings.updater_invite_code_set) {
-      throw new ApiError(
-        "http 409 for POST /api/update/upgrade",
-        409,
-        "conflict",
-        "no updater server is configured — set updater_url and updater_invite_code in settings first"
-      );
-    }
+    // Server parity: no newer GitHub release is ever known in mock mode → the
+    // honest 409 precondition answer.
     throw new ApiError(
       "http 409 for POST /api/update/upgrade",
       409,
       "conflict",
-      "no newer version is known — the running build is the latest this updater has published"
+      "no newer release is known — the running build is the latest published on GitHub"
     );
   },
 

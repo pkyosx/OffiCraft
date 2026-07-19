@@ -28,6 +28,7 @@ import type {
   Member,
   MonitoringView,
   VersionView,
+  ReleaseCheckView,
   GlobalContextView,
   RoleDefView,
   BootstrapView,
@@ -78,6 +79,7 @@ import {
   toReplyCard,
   toMonitoring,
   toVersion,
+  toReleaseCheck,
   toGlobalContext,
   toRoleDef,
   toBootstrap,
@@ -1168,6 +1170,15 @@ export const httpApi: Api = {
     return toVersion(wire);
   },
 
+  async checkRelease(): Promise<ReleaseCheckView> {
+    // GET /api/release/check -> ReleaseCheckDTO. The explicit 檢查更新: the
+    // server asks GitHub Releases synchronously and answers up_to_date /
+    // update_available / unknown (GitHub unreachable) — always a 200; only
+    // transport/gate failures reject.
+    const wire = unwrap(await client.GET("/api/release/check"));
+    return toReleaseCheck(wire);
+  },
+
   async getAuthStatus(): Promise<boolean> {
     // GET /api/auth/status (PUBLIC) -> AuthStatusDTO. Rides the typed client
     // (a public route never 401s, so the auth-expired middleware is inert).
@@ -1220,8 +1231,6 @@ export const httpApi: Api = {
       token_ttl?: number;
       handover_pct?: number;
       outsource_max_parallel?: number;
-      updater_url?: string;
-      updater_invite_code?: string;
       updater_receive_beta?: boolean;
       updater_auto_update?: boolean;
       org_name?: string;
@@ -1230,10 +1239,6 @@ export const httpApi: Api = {
     if (patch.handoverPct !== undefined) body.handover_pct = patch.handoverPct;
     if (patch.outsourceMaxParallel !== undefined) {
       body.outsource_max_parallel = patch.outsourceMaxParallel;
-    }
-    if (patch.updaterUrl !== undefined) body.updater_url = patch.updaterUrl;
-    if (patch.updaterInviteCode !== undefined) {
-      body.updater_invite_code = patch.updaterInviteCode;
     }
     if (patch.updaterReceiveBeta !== undefined) {
       body.updater_receive_beta = patch.updaterReceiveBeta;

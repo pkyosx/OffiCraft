@@ -9,7 +9,7 @@
 # assumption that a release path existed to opt in. IT DID NOT. Before this file
 # there was NO release-only build script — every signing seam was shared:
 #
-#   bin/build         → signs .deploy/ocserverd (the `ocrelease publish`
+#   bin/build         → signs .deploy/ocserverd (the deploy / `bin/release`
 #                       artifact) — but ALSO runs on the prod host via
 #                       bin/autodeploy, inside `bin/ocserver install`, and by
 #                       hand on any dev Mac (bin/serve / bin/migrate tell you to)
@@ -29,7 +29,7 @@
 # keychain at all.
 #
 #   bash bin/build-release                      # → .deploy/ocserverd, provably signed
-#   ocrelease publish --file .deploy/ocserverd  # then ship it
+#   bin/release <tag> && gh release create <tag> dist/release/…  # then ship it
 #
 # THE COST, ACCEPTED BY THE OWNER: releases will one day stop here (cert expired,
 # login keychain locked, re-imaged release host, wrong machine). That is the
@@ -38,10 +38,10 @@
 # fleet that silently loses its TCC grants.
 #
 # KNOWN GAP (deliberate; NOT closed by this script): this is an opt-in ENTRY
-# POINT, not a gate on shipping. `ocrelease publish` uploads whatever --file it
+# POINT, not a gate on shipping. `gh release create` uploads whatever files it
 # is pointed at and never inspects the artifact's signature, so an operator who
 # runs plain bin/build and publishes THAT is not stopped here. Closing it means
-# teaching `ocrelease publish` to verify the artifact before upload — a separate
+# teaching the release pipeline to verify the artifact before upload — a separate
 # owner call, out of scope for T-da4b.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

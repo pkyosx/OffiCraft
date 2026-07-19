@@ -159,12 +159,21 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			MCPExclude: true, // the owner's cockpit settings, not an agent tool
 		},
 		{
+			Method:     "GET",
+			Path:       "/api/release/check",
+			Handler:    w.HandleCheckReleaseApiReleaseCheckGet,
+			Auth:       authGated,
+			Requires:   principalOwner,
+			Summary:    "Check GitHub Releases for a newer official OffiCraft version.",
+			MCPExclude: true, // the owner's cockpit action, not an agent tool
+		},
+		{
 			Method:     "POST",
 			Path:       "/api/update/upgrade",
 			Handler:    w.HandleUpgradeApiUpdateUpgradePost,
 			Auth:       authGated,
 			Requires:   principalOwner,
-			Summary:    "Trigger a software upgrade to the updater's latest version.",
+			Summary:    "Trigger a software upgrade to the latest GitHub release.",
 			MCPExclude: true, // the owner's explicit action — NEVER an agent tool (no self-upgrade)
 		},
 		// ── Gated infra seams ────────────────────────────────────────────────

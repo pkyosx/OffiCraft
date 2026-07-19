@@ -339,13 +339,21 @@ MATRIX: dict[str, Route] = {
         body={"current_password": "conf-wrong-current", "new_password": "conf-new-password"},
     ),
     "GET /api/settings": Route(requires="owner"),
+    "GET /api/release/check": Route(
+        # The harness pins $OC_RELEASE_API_BASE at an unroutable loopback
+        # (run.sh), so the owner's positive authz face deterministically
+        # answers the honest degraded 200 {"status":"unknown"} — never the
+        # real GitHub. Full verdict semantics live in the server unit tests
+        # (update_check_test.go).
+        requires="owner",
+    ),
     "POST /api/update/upgrade": Route(
-        # The harness runs with NO updater server configured, so the owner's
-        # positive authz face deterministically answers the "no updater
-        # configured" 409 — the trigger's full precondition/execution
-        # semantics (409 no-newer / the real download+verify+swap+restart
-        # body) live in the server unit tests (update_check_test.go /
-        # upgrade_test.go).
+        # With $OC_RELEASE_API_BASE unroutable (run.sh) no newer GitHub
+        # release is ever known, so the owner's positive authz face
+        # deterministically answers the "no newer release known" 409 — the
+        # trigger's full precondition/execution semantics (the real
+        # download+verify+swap+restart body) live in the server unit tests
+        # (update_check_test.go / upgrade_test.go).
         requires="owner",
         overrides={"owner": 409},
     ),

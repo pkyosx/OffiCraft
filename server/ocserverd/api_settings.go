@@ -195,16 +195,6 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			"outsource_max_parallel must be between -1 and 20 (-1 = unlimited)")
 		return
 	}
-	var updaterURL string
-	if body.UpdaterUrl != nil {
-		normalized, ok := validateUpdaterURL(*body.UpdaterUrl)
-		if !ok {
-			writeError(w, http.StatusUnprocessableEntity,
-				`updater_url must be an absolute http(s) URL, or "" to clear it`)
-			return
-		}
-		updaterURL = normalized
-	}
 	var orgName string
 	if body.OrgName != nil {
 		orgName = strings.TrimSpace(*body.OrgName)
@@ -240,30 +230,10 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		}
 		s.outsourceMaxParallel = *body.OutsourceMaxParallel
 	}
+	// A channel flip changes WHO "latest" is (official-only vs prereleases
+	// too) — it re-kicks the GitHub check so the software-update card follows
+	// immediately.
 	updaterChanged := false
-	if body.UpdaterUrl != nil && updaterURL != s.updaterURL {
-		if err := s.dal.PutSetting(settingUpdaterURL, updaterURL); err != nil {
-			s.settingsMu.Unlock()
-			internalError(w, err)
-			return
-		}
-		s.updaterURL = updaterURL
-		updaterChanged = true
-	}
-	if body.UpdaterInviteCode != nil {
-		code := strings.TrimSpace(*body.UpdaterInviteCode)
-		if code != s.updaterInviteCode {
-			if err := s.dal.PutSetting(settingUpdaterInviteCode, code); err != nil {
-				s.settingsMu.Unlock()
-				internalError(w, err)
-				return
-			}
-			s.updaterInviteCode = code
-			updaterChanged = true
-		}
-	}
-	// A channel flip changes WHO "latest" is — it re-kicks the check like a
-	// URL/code change does, so the software-update card follows immediately.
 	if body.UpdaterReceiveBeta != nil && *body.UpdaterReceiveBeta != s.updaterReceiveBeta {
 		if err := s.dal.PutSetting(settingUpdaterReceiveBeta,
 			strconv.FormatBool(*body.UpdaterReceiveBeta)); err != nil {
@@ -296,7 +266,7 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	s.settingsMu.Unlock()
 	if updaterChanged {
 		// Force-expire the update-check cache + refresh in the background so
-		// the software-update card reflects the new updater without waiting
+		// the software-update card reflects the new channel without waiting
 		// out the TTL (never blocks this response).
 		s.kickUpdateCheck()
 	}
@@ -312,9 +282,6 @@ func (s *apiServer) settingsView() settingsDTO {
 		TokenTTL:             s.tokenTTL,
 		HandoverPct:          s.ctxhigh.HandoverPct,
 		OutsourceMaxParallel: s.outsourceMaxParallel,
-		UpdaterURL:           s.updaterURL,
-		// SECRET tier: only the set/unset bit crosses the wire, never the code.
-		UpdaterInviteCodeSet: s.updaterInviteCode != "",
 		UpdaterReceiveBeta:   s.updaterReceiveBeta,
 		UpdaterAutoUpdate:    s.updaterAutoUpdate,
 		OrgName:              s.orgName,

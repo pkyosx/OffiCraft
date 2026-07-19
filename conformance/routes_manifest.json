@@ -79,6 +79,13 @@
   {
     "auth": "gated",
     "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/release/check",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
     "method": "POST",
     "path": "/api/update/upgrade",
     "requires": "owner"

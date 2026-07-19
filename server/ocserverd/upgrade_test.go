@@ -1,16 +1,16 @@
 package main
 
 // upgrade_test.go — the upgrade execution body (upgrade.go): the success path
-// (download → verify → smoke → backup → swap → restart) and the failure paths
-// that MUST leave the old binary untouched and serving.
+// (pin → checksums verify → tarball download → extract → smoke → backup →
+// swap → restart) and the failure paths that MUST leave the old binary
+// untouched and serving.
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -29,40 +29,48 @@ func sha256hex(b []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// fakeUpdaterFull is an httptest ocupdaterd speaking BOTH /api/latest and
-// /api/binary. declaredSHA lets a test lie about the digest (corruption);
-// "" means "declare the payload's true sha".
-func fakeUpdaterFull(t *testing.T, invite, version, gitSHA string, payload []byte, declaredSHA string) *httptest.Server {
+// makeTarGz builds a gzip tarball whose members are name → content (the
+// success shape carries an "ocserverd" member).
+func makeTarGz(t *testing.T, members map[string]string) []byte {
 	t.Helper()
-	if declaredSHA == "" {
-		declaredSHA = sha256hex(payload)
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	for name, content := range members {
+		if err := tw.WriteHeader(&tar.Header{
+			Name: name, Mode: 0o755, Size: int64(len(content)), Typeflag: tar.TypeReg,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write([]byte(content)); err != nil {
+			t.Fatal(err)
+		}
 	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer "+invite {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		switch r.URL.Path {
-		case "/api/latest":
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"version": version, "git_sha": gitSHA, "sha256": declaredSHA,
-				"size": len(payload), "notes": "", "published_at": 1.0,
-			})
-		case "/api/binary":
-			if r.URL.Query().Get("version") != version {
-				w.WriteHeader(http.StatusNotFound)
-				return
-			}
-			w.Header().Set("X-Checksum-Sha256", declaredSHA)
-			w.Header().Set("Content-Type", "application/octet-stream")
-			_, _ = w.Write(payload)
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	t.Cleanup(srv.Close)
-	return srv
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// githubWithRelease stands up a fake GitHub carrying ONE release <tag> whose
+// tarball asset holds binaryContent as the ocserverd member. declaredSHA lets
+// a test lie in checksums.txt (corruption); "" declares the tarball's true
+// sha. withChecksums=false omits the checksums.txt asset entirely.
+func githubWithRelease(t *testing.T, tag, binaryContent, declaredSHA string, withChecksums bool) *fakeGitHub {
+	t.Helper()
+	tarball := makeTarGz(t, map[string]string{"ocserverd": binaryContent})
+	if declaredSHA == "" {
+		declaredSHA = sha256hex(tarball)
+	}
+	assetName := releaseAssetName(tag)
+	assets := map[string][]byte{assetName: tarball}
+	if withChecksums {
+		assets[checksumsAssetName] = []byte(declaredSHA + "  " + assetName + "\n")
+	}
+	return newFakeGitHub(t, fakeRelease{tag: tag, assets: assets})
 }
 
 // newUpgradeTestServer stands up the full handler stack plus the upgrade test
@@ -81,29 +89,48 @@ func newUpgradeTestServer(t *testing.T) (api *apiServer, srvURL, token, exePath 
 	return apiSrv, srv.URL, token, exePath, restarted
 }
 
-// configureUpdater PATCHes the updater settings and waits for the background
-// check to settle so the precondition gate sees the fake's latest.
-func configureUpdater(t *testing.T, api *apiServer, srvURL, token, updaterURL, invite string) {
+// pointAtGitHub wires the fake GitHub in and lets the background check settle
+// so the precondition gate (updateStatus) sees its latest.
+func pointAtGitHub(t *testing.T, api *apiServer, gh *fakeGitHub) {
 	t.Helper()
-	status, _ := doJSON(t, "PATCH", srvURL+"/api/settings", token, fmt.Sprintf(
-		`{"updater_url":%q,"updater_invite_code":%q}`, updaterURL, invite))
-	if status != 200 {
-		t.Fatalf("settings patch: %d", status)
-	}
+	api.releaseAPIBase = gh.srv.URL
+	api.kickUpdateCheck()
 	waitUpdateSettled(t, api)
+}
+
+// assertUpgradeUntouched pins the failure-path invariant: old bytes at the
+// exe path, no .bak, no staging litter, no restart.
+func assertUpgradeUntouched(t *testing.T, exePath string, restarted chan string) {
+	t.Helper()
+	got, err := os.ReadFile(exePath)
+	if err != nil || string(got) != "OLD-BINARY" {
+		t.Fatalf("old binary must be untouched: %q %v", got, err)
+	}
+	if _, err := os.Stat(exePath + ".bak"); !os.IsNotExist(err) {
+		t.Fatalf("no .bak may exist after a refused upgrade: %v", err)
+	}
+	leftovers, _ := filepath.Glob(filepath.Join(filepath.Dir(exePath), ".oc*-upgrade-*"))
+	more, _ := filepath.Glob(filepath.Join(filepath.Dir(exePath), ".officraft-upgrade-*"))
+	if len(leftovers)+len(more) != 0 {
+		t.Fatalf("staging litter left behind: %v %v", leftovers, more)
+	}
+	select {
+	case p := <-restarted:
+		t.Fatalf("restart must not fire: %q", p)
+	case <-time.After(100 * time.Millisecond):
+	}
 }
 
 func TestUpgradeSuccessSwapsBackupsAndRestarts(t *testing.T) {
 	api, srvURL, token, exePath, restarted := newUpgradeTestServer(t)
-	payload := []byte(smokePassingBinary)
-	up := fakeUpdaterFull(t, "inv-1", "v260713-0002", "new-sha", payload, "")
-	configureUpdater(t, api, srvURL, token, up.URL, "inv-1")
+	gh := githubWithRelease(t, "v0.9.0", smokePassingBinary, "", true)
+	pointAtGitHub(t, api, gh)
 
 	status, data := doJSON(t, "POST", srvURL+"/api/update/upgrade", token, "")
 	if status != 200 {
 		t.Fatalf("valid upgrade must 200: %d %v", status, data)
 	}
-	if data["status"] != "restarting" || data["target_version"] != "v260713-0002" {
+	if data["status"] != "restarting" || data["target_version"] != "v0.9.0" {
 		t.Fatalf("UpgradeResultDTO face wrong: %v", data)
 	}
 	// The swap landed BEFORE the 200: new bytes at the exe path...
@@ -119,102 +146,104 @@ func TestUpgradeSuccessSwapsBackupsAndRestarts(t *testing.T) {
 	if err != nil || string(bak) != "OLD-BINARY" {
 		t.Fatalf(".bak must hold the OLD binary: %q %v", bak, err)
 	}
-	// ...and the restart fired (through the seam) at the swapped path.
+	// ...and the restart scheduled through the seam.
 	select {
 	case p := <-restarted:
 		if p != exePath {
 			t.Fatalf("restart pointed at %q, want %q", p, exePath)
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("restart never fired after a successful swap")
-	}
-	// No staging litter left beside the binary.
-	leftovers, _ := filepath.Glob(filepath.Join(filepath.Dir(exePath), ".ocserverd-upgrade-*"))
-	if len(leftovers) != 0 {
-		t.Fatalf("staging temp files left behind: %v", leftovers)
+		t.Fatal("restart never fired")
 	}
 }
 
-func TestUpgradeChecksumMismatchLeavesOldBinary(t *testing.T) {
+func TestUpgradeNoNewerReleaseAnswers409(t *testing.T) {
 	api, srvURL, token, exePath, restarted := newUpgradeTestServer(t)
-	payload := []byte(smokePassingBinary)
-	// The updater DECLARES a digest that is not the payload's: corrupt/tampered.
-	up := fakeUpdaterFull(t, "inv-1", "v260713-0003", "new-sha", payload,
-		sha256hex([]byte("something else entirely")))
-	configureUpdater(t, api, srvURL, token, up.URL, "inv-1")
-
-	status, data := doJSON(t, "POST", srvURL+"/api/update/upgrade", token, "")
-	if status != 502 {
-		t.Fatalf("checksum mismatch must 502: %d %v", status, data)
-	}
-	assertUpgradeUntouched(t, exePath, restarted)
-}
-
-func TestUpgradeUnreachableUpdaterLeavesOldBinary(t *testing.T) {
-	api, srvURL, token, exePath, restarted := newUpgradeTestServer(t)
-	up := fakeUpdaterFull(t, "inv-1", "v260713-0004", "new-sha", []byte(smokePassingBinary), "")
-	configureUpdater(t, api, srvURL, token, up.URL, "inv-1")
-	// The updater dies AFTER the check cached "newer available" (the button is
-	// showing) but BEFORE the click: the trigger-time pin must fail honestly.
-	up.Close()
-
-	status, data := doJSON(t, "POST", srvURL+"/api/update/upgrade", token, "")
-	if status != 502 {
-		t.Fatalf("dead updater at trigger time must 502: %d %v", status, data)
-	}
-	assertUpgradeUntouched(t, exePath, restarted)
-}
-
-func TestUpgradeSmokeTestFailureLeavesOldBinary(t *testing.T) {
-	api, srvURL, token, exePath, restarted := newUpgradeTestServer(t)
-	// Digest-valid artifact that cannot actually run: dies at the smoke gate.
-	up := fakeUpdaterFull(t, "inv-1", "v260713-0005", "new-sha", []byte(smokeFailingBinary), "")
-	configureUpdater(t, api, srvURL, token, up.URL, "inv-1")
-
-	status, data := doJSON(t, "POST", srvURL+"/api/update/upgrade", token, "")
-	if status != 502 {
-		t.Fatalf("smoke-test failure must 502: %d %v", status, data)
-	}
-	assertUpgradeUntouched(t, exePath, restarted)
-}
-
-func TestUpgradeRefusesWhenPinnedLatestIsRunningBuild(t *testing.T) {
-	// The 5-min cache says "newer" (button showing) but the authoritative
-	// trigger-time pin reveals the latest IS the running build (e.g. the
-	// updater rolled back): honest 409, nothing touched.
-	api, srvURL, token, exePath, restarted := newUpgradeTestServer(t)
-	up := fakeUpdaterFull(t, "inv-1", "v260713-0006", "new-sha", []byte(smokePassingBinary), "")
-	configureUpdater(t, api, srvURL, token, up.URL, "inv-1")
-	api.updateMu.Lock()
-	api.updateCheck.latestGitSHA = "new-sha" // cache keeps claiming newer
-	api.updateMu.Unlock()
-	api.processSHA = "new-sha" // ...but the pin will match the running build
-
-	status, data := doJSON(t, "POST", srvURL+"/api/update/upgrade", token, "")
+	// No GitHub check has ever succeeded (default unroutable base) — the
+	// precondition gate refuses before anything reaches out.
+	status, _ := doJSON(t, "POST", srvURL+"/api/update/upgrade", token, "")
 	if status != 409 {
-		t.Fatalf("pin-time same-build must 409: %d %v", status, data)
+		t.Fatalf("no known newer release must 409: %d", status)
+	}
+	_ = api
+	assertUpgradeUntouched(t, exePath, restarted)
+}
+
+func TestUpgradeCorruptDownloadRefusesSwap(t *testing.T) {
+	api, srvURL, token, exePath, restarted := newUpgradeTestServer(t)
+	// checksums.txt promises a digest the tarball does not hash to.
+	gh := githubWithRelease(t, "v0.9.1", smokePassingBinary,
+		"1111111111111111111111111111111111111111111111111111111111111111", true)
+	pointAtGitHub(t, api, gh)
+
+	status, data := doJSON(t, "POST", srvURL+"/api/update/upgrade", token, "")
+	if status != 502 {
+		t.Fatalf("digest mismatch must 502: %d %v", status, data)
 	}
 	assertUpgradeUntouched(t, exePath, restarted)
 }
 
-// assertUpgradeUntouched is every failure path's postcondition: old bytes
-// still at the exe path, no .bak, no staging litter, no restart.
-func assertUpgradeUntouched(t *testing.T, exePath string, restarted chan string) {
-	t.Helper()
-	got, err := os.ReadFile(exePath)
-	if err != nil || string(got) != "OLD-BINARY" {
-		t.Fatalf("old binary must be untouched: %q %v", got, err)
+func TestUpgradeMissingChecksumsRefusesUnverifiable(t *testing.T) {
+	api, srvURL, token, exePath, restarted := newUpgradeTestServer(t)
+	gh := githubWithRelease(t, "v0.9.2", smokePassingBinary, "", false)
+	pointAtGitHub(t, api, gh)
+
+	status, data := doJSON(t, "POST", srvURL+"/api/update/upgrade", token, "")
+	if status != 502 {
+		t.Fatalf("a release without checksums.txt must 502: %d %v", status, data)
 	}
-	if _, err := os.Stat(exePath + ".bak"); !os.IsNotExist(err) {
-		t.Fatalf("no .bak may exist after a failed upgrade: %v", err)
+	assertUpgradeUntouched(t, exePath, restarted)
+}
+
+func TestUpgradeSmokeFailureRefusesSwap(t *testing.T) {
+	api, srvURL, token, exePath, restarted := newUpgradeTestServer(t)
+	// Digest-valid artifact that dies at the smoke gate (the health check):
+	// verified bytes are NOT enough — a binary that cannot run never swaps in.
+	gh := githubWithRelease(t, "v0.9.3", smokeFailingBinary, "", true)
+	pointAtGitHub(t, api, gh)
+
+	status, data := doJSON(t, "POST", srvURL+"/api/update/upgrade", token, "")
+	if status != 502 {
+		t.Fatalf("smoke failure must 502: %d %v", status, data)
 	}
-	leftovers, _ := filepath.Glob(filepath.Join(filepath.Dir(exePath), ".ocserverd-upgrade-*"))
-	if len(leftovers) != 0 {
-		t.Fatalf("staging temp files left behind: %v", leftovers)
+	assertUpgradeUntouched(t, exePath, restarted)
+}
+
+func TestUpgradeTarballWithoutServerBinaryRefused(t *testing.T) {
+	api, srvURL, token, exePath, restarted := newUpgradeTestServer(t)
+	tag := "v0.9.4"
+	tarball := makeTarGz(t, map[string]string{"README.md": "not a binary"})
+	assetName := releaseAssetName(tag)
+	gh := newFakeGitHub(t, fakeRelease{tag: tag, assets: map[string][]byte{
+		assetName:          tarball,
+		checksumsAssetName: []byte(sha256hex(tarball) + "  " + assetName + "\n"),
+	}})
+	pointAtGitHub(t, api, gh)
+
+	status, data := doJSON(t, "POST", srvURL+"/api/update/upgrade", token, "")
+	if status != 502 {
+		t.Fatalf("a tarball without ocserverd must 502: %d %v", status, data)
 	}
-	select {
-	case p := <-restarted:
-		t.Fatalf("restart must NOT fire on failure (got %q)", p)
-	default:
+	assertUpgradeUntouched(t, exePath, restarted)
+}
+
+func TestUpgradePinnedLatestEqualsRunningAnswers409(t *testing.T) {
+	api, srvURL, token, exePath, restarted := newUpgradeTestServer(t)
+	gh := githubWithRelease(t, "v0.9.5", smokePassingBinary, "", true)
+	pointAtGitHub(t, api, gh)
+	// The cache says "newer", but the trigger-time re-pin sees the running
+	// build's own tag (e.g. the stale cache raced a version bump).
+	setAppVersion(t, "v0.9.5")
+	// Rebuild the cache under the old belief: force available by faking the
+	// cached tag as different from appVersion is impossible now — instead pin
+	// the honesty gate directly: make the cache think an update exists.
+	api.updateMu.Lock()
+	api.updateCheck.rel.TagName = "v0.9.6-phantom"
+	api.updateMu.Unlock()
+
+	status, _ := doJSON(t, "POST", srvURL+"/api/update/upgrade", token, "")
+	if status != 409 {
+		t.Fatalf("pinned-latest == running must 409: %d", status)
 	}
+	assertUpgradeUntouched(t, exePath, restarted)
 }

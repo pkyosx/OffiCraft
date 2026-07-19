@@ -686,20 +686,16 @@ export const xian: Dict = {
     params: "法度調校",
     currentVersion: "當前版本",
     upToDate: "已是最新版",
-    // 傳功閣(更新伺服器)設定——入閣令牌乃機密,閣中永不回示
-    updaterServer: "傳功閣",
-    updaterUrl: "傳功閣所在",
-    updaterUrlSub: "傳功閣之 http(s) 所在 · 留空則不探新法",
-    updaterInvite: "入閣令牌",
-    updaterInviteSub: "傳功閣所授之令牌 · 只納不示",
-    updaterInviteSet: "已授(再輸以易之)",
-    // 令牌存錄一列(T-1c2e 改制:原山門法籍唯一不重之列,併入此區;
-    // 唯示已錄與否,永不露真文)
-    updaterInviteStatus: "令牌存錄",
-    updaterInviteStatusSub: "唯示已錄與否 · 永不露真文",
-    // ── 雙道 toggle(receive_beta / auto_update,初始皆閉)──
+    // 探新丹(GET /api/release/check,直問 GitHub 丹房)
+    checkUpdate: "探新丹",
+    checkingUpdate: "探尋中…",
+    checkUnknown: "丹房(GitHub)不通,未能探得新丹——且待片刻再試",
+    checkFailed: "探丹未成,請再試",
+    viewRelease: "觀丹譜",
+    updateSettings: "更新法度",
+    // ── 更新 toggle(receive_beta / auto_update,初始皆閉)──
     receiveBeta: "納 Beta 丹",
-    receiveBetaSub: "尋丹改循 beta 之道(每煉即納)· 閉之則唯納正丹(GA)",
+    receiveBetaSub: "探丹亦納 GitHub 預發佈(prerelease)· 閉之則唯納正丹",
     autoUpdate: "自行升煉",
     autoUpdateSub: "見新丹則於幕後自煉自啟 · 初始閉之",
     upgradeFailed: "升煉未成",

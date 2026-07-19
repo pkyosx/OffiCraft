@@ -237,6 +237,22 @@
   color: var(--color-text-muted);
 }
 
+/* 檢查更新 — the explicit fresh-verdict row under the version card */
+.sw-check {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 12px 0 4px;
+}
+.sw-check__verdict {
+  color: var(--text-secondary, #666);
+  font-size: 13px;
+}
+.sw-check .param-error {
+  margin: 0;
+}
+
 /* ── doc detail card (global context / role def) ── */
 .doc-card {
   border-radius: var(--radius-card);
@@ -561,10 +577,10 @@
   .param-row {
     flex-wrap: wrap;
   }
-  /* The 260px text inputs (更新伺服器位址 / 邀請碼) otherwise starve the label
-     column: param-row__body (flex:1 min-width:0) absorbs all the shrink, the
-     row never overflows, flex-wrap never fires, and the CJK label collapses to
-     a one-character-per-line stack. Force the wide input onto its own row so
+  /* A 260px wide text input otherwise starves the label column:
+     param-row__body (flex:1 min-width:0) absorbs all the shrink, the row
+     never overflows, flex-wrap never fires, and the CJK label collapses to a
+     one-character-per-line stack. Force the wide input onto its own row so
      the label keeps the full width above it. */
   .param-input--wide {
     flex-basis: 100%;

@@ -323,89 +323,48 @@ func TestCmdSetPassword(t *testing.T) {
 	}
 }
 
-func TestCmdSetUpdater(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "set-updater.db")
-	env := func(url, code string) func(string) string {
-		return envOf(map[string]string{
-			"OC_CONFIG":          filepath.Join(t.TempDir(), "absent.toml"),
-			"OC_DATABASE_URL":    "sqlite:///" + dbPath,
-			envUpdaterURL:        url,
-			envUpdaterInviteCode: code,
-		})
-	}
-	loadSetting := func(key string) *string {
-		db, err := openSQLite(dbPath)
-		if err != nil {
-			t.Fatalf("open: %v", err)
-		}
-		defer db.Close()
-		v, err := NewDAL(db).GetSetting(key)
-		if err != nil {
-			t.Fatalf("get %s: %v", key, err)
-		}
-		return v
-	}
-
+// TestSetUpdaterRetired pins the teardown of the ocupdaterd chain (t-dc68):
+// the set-updater subcommand is GONE (unknown-subcommand usage error), and a
+// migrated DB carrying stale updater.url / updater.invite_code rows boots
+// cleanly — the retired keys are simply never read — while the two surviving
+// toggles (updater.receive_beta / updater.auto_update) keep loading under
+// their unchanged DB names (an armed install stays armed).
+func TestSetUpdaterRetired(t *testing.T) {
 	var out strings.Builder
-	// Missing either env var is a usage error — this seam SETS the pair, never
-	// half of it (and never clears: that is the owner UI's decision).
-	if rc := cmdSetUpdater(env("", "ocu-inv-x"), &out); rc != 2 {
-		t.Fatalf("missing url: want rc 2, got %d", rc)
+	if rc := realMain([]string{"set-updater"}, envOf(nil), &out); rc != 2 {
+		t.Fatalf("set-updater must be an unknown subcommand now: want rc 2, got %d", rc)
 	}
-	if rc := cmdSetUpdater(env("http://127.0.0.1:8790", ""), &out); rc != 2 {
-		t.Fatalf("missing code: want rc 2, got %d", rc)
-	}
-	// First set on a fresh (unmigrated) DB: migrates + stores the pair, with
-	// the URL normalized (trailing slash trimmed — validateUpdaterURL, the same
-	// normalization PATCH /api/settings applies).
-	if rc := cmdSetUpdater(env("https://updater.example.com/", "ocu-inv-first"), &out); rc != 0 {
-		t.Fatalf("first set: want rc 0, got %d (out: %s)", rc, out.String())
-	}
-	if v := loadSetting(settingUpdaterURL); v == nil || *v != "https://updater.example.com" {
-		t.Fatalf("stored url: got %v, want normalized https://updater.example.com", v)
-	}
-	if v := loadSetting(settingUpdaterInviteCode); v == nil || *v != "ocu-inv-first" {
-		t.Fatalf("stored code: got %v", v)
-	}
-	// The invite code is a credential: never echoed.
-	if strings.Contains(out.String(), "ocu-inv-first") {
-		t.Fatalf("the invite code must never be echoed: %s", out.String())
+	if !strings.Contains(out.String(), "unknown subcommand") {
+		t.Fatalf("want the unknown-subcommand usage error, got: %s", out.String())
 	}
 
-	// A second call replaces both values (re-running the installer is safe).
-	if rc := cmdSetUpdater(env("http://127.0.0.1:8790", "ocu-inv-second"), &out); rc != 0 {
-		t.Fatalf("overwrite: want rc 0, got %d", rc)
-	}
-	if v := loadSetting(settingUpdaterURL); v == nil || *v != "http://127.0.0.1:8790" {
-		t.Fatalf("overwrite url: got %v", v)
-	}
-	if v := loadSetting(settingUpdaterInviteCode); v == nil || *v != "ocu-inv-second" {
-		t.Fatalf("overwrite code: got %v", v)
-	}
-
-	// A non-URL is refused BEFORE anything is written — a typo'd installer must
-	// not poison the stored settings.
-	if rc := cmdSetUpdater(env("not a url", "ocu-inv-x"), &out); rc != 2 {
-		t.Fatalf("bad url: want rc 2, got %d", rc)
-	}
-	if v := loadSetting(settingUpdaterURL); v == nil || *v != "http://127.0.0.1:8790" {
-		t.Fatalf("a refused call must write nothing: got %v", v)
-	}
-
-	// The boot snapshot picks the pair up — the freshly installed server's
-	// first serve start already knows its updater.
+	dbPath := filepath.Join(t.TempDir(), "stale-updater.db")
 	db, err := openSQLite(dbPath)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
 	defer db.Close()
-	auth, err := loadAuthSettings(NewDAL(db), Config{}, func(string) {})
-	if err != nil {
-		t.Fatalf("loadAuthSettings: %v", err)
+	if err := runMigrations(db); err != nil {
+		t.Fatalf("migrate: %v", err)
 	}
-	if auth.updaterURL != "http://127.0.0.1:8790" || auth.updaterInviteCode != "ocu-inv-second" {
-		t.Fatalf("boot snapshot must carry the pre-filled updater: %q / set=%v",
-			auth.updaterURL, auth.updaterInviteCode != "")
+	d := NewDAL(db)
+	for k, v := range map[string]string{
+		"updater.url":          "http://127.0.0.1:8790",
+		"updater.invite_code":  "ocu-inv-stale",
+		"updater.receive_beta": "true",
+		"updater.auto_update":  "true",
+	} {
+		if err := d.PutSetting(k, v); err != nil {
+			t.Fatalf("seed %s: %v", k, err)
+		}
+	}
+	auth, err := loadAuthSettings(d, Config{}, func(string) {})
+	if err != nil {
+		t.Fatalf("loadAuthSettings must ignore the retired updater.* rows: %v", err)
+	}
+	if !auth.updaterReceiveBeta || !auth.updaterAutoUpdate {
+		t.Fatalf("the surviving toggles must load from their unchanged keys: beta=%v auto=%v",
+			auth.updaterReceiveBeta, auth.updaterAutoUpdate)
 	}
 }
 

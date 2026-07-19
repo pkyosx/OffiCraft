@@ -57,21 +57,23 @@ const (
 	// concurrently live (assigned + active) outsource workers — the Phase 2
 	// assignment scheduler's admission knob; member tasks never count (H7).
 	settingOutsourceMaxParallel = "task.outsource_max_parallel"
-	// settingUpdaterURL is the updater server base URL (server/ocupdaterd) the
-	// update check polls ("" = unset — update checks off; update_check.go).
-	settingUpdaterURL = "updater.url"
-	// settingUpdaterInviteCode is the updater server invite credential. SECRET
-	// tier like the password hash: write-only through PATCH /api/settings —
-	// reads expose only the updater_invite_code_set flag, never the value.
-	settingUpdaterInviteCode = "updater.invite_code"
-	// settingUpdaterReceiveBeta (bool, default false) picks the update-check
-	// channel: false = GA (stable), true = beta (every publish). The check
-	// sends it as ?channel= to ocupdaterd's /api/latest (update_check.go).
+	// The retired updater.url / updater.invite_code keys belonged to the
+	// removed ocupdaterd updater-server chain (updates now ship as GitHub
+	// Releases on pkyosx/OffiCraft — update_check.go). They are no longer
+	// read or written; stale rows in an old DB are simply ignored (the key
+	// set is closed — "keys not listed are never read"). The two toggles
+	// below SURVIVE the teardown with their DB names unchanged (an armed
+	// install stays armed across the migration).
+	//
+	// settingUpdaterReceiveBeta (bool, default false) picks WHICH GitHub
+	// releases the update check follows: false = official releases only,
+	// true = prereleases too (the GitHub `--prerelease` flag replaces the
+	// old updater's beta channel).
 	settingUpdaterReceiveBeta = "updater.receive_beta"
 	// settingUpdaterAutoUpdate (bool, default false) arms the background
-	// self-upgrade loop (auto_update.go): when ON and the followed channel has
-	// a newer version, the server runs the same verified upgrade body as the
-	// manual endpoint and re-execs itself — unattended. Default OFF: upgrading
+	// self-upgrade loop (auto_update.go): when ON and GitHub has a newer
+	// release, the server runs the same verified upgrade body as the manual
+	// endpoint and re-execs itself — unattended. Default OFF: upgrading
 	// stays an explicit owner action unless the owner opts in.
 	settingUpdaterAutoUpdate = "updater.auto_update"
 	// settingOrgName (T-d693) is the studio display name shown in the cockpit
@@ -94,9 +96,7 @@ type authSettings struct {
 	tokenTTL             int64
 	ctxhigh              SseContextHighConfig
 	outsourceMaxParallel int    // task.outsource_max_parallel (default 3)
-	updaterURL           string // updater.url ("" = update checks off)
-	updaterInviteCode    string // updater.invite_code (SECRET — never read back over the wire)
-	updaterReceiveBeta   bool   // updater.receive_beta (default false = GA channel)
+	updaterReceiveBeta   bool   // updater.receive_beta (default false = official releases only)
 	updaterAutoUpdate    bool   // updater.auto_update (default false = manual upgrades only)
 	orgName              string // org.name ("" = never set → localized default in the topbar)
 }
@@ -221,16 +221,6 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 		out.outsourceMaxParallel = n
 	}
 
-	if v, err := d.GetSetting(settingUpdaterURL); err != nil {
-		return out, err
-	} else if v != nil {
-		out.updaterURL = *v
-	}
-	if v, err := d.GetSetting(settingUpdaterInviteCode); err != nil {
-		return out, err
-	} else if v != nil {
-		out.updaterInviteCode = *v
-	}
 	getBool := func(key string, dst *bool) error {
 		v, err := d.GetSetting(key)
 		if err != nil || v == nil {
@@ -412,57 +402,6 @@ func cmdSetPassword(env func(string) string, out io.Writer) int {
 		return 1
 	}
 	fmt.Fprintln(out, "[ocserverd] set-password: owner password hash stored in DB settings (takes effect at the next serve start)")
-	return 0
-}
-
-// envUpdaterURL / envUpdaterInviteCode feed cmdSetUpdater: both ride the
-// environment, never argv — the invite code is a live credential and argv is
-// world-readable via ps (same posture as $OC_NEW_PASSWORD).
-const (
-	envUpdaterURL        = "OC_UPDATER_URL"
-	envUpdaterInviteCode = "OC_UPDATER_INVITE_CODE"
-)
-
-// cmdSetUpdater (ocserverd set-updater) writes the updater server base URL +
-// invite code straight into the DB settings (updater.url / updater.invite_code)
-// — the local pre-fill seam the ocupdaterd-served install.sh runs right after
-// download + sha256 verify, so a freshly installed server's FIRST serve start
-// already knows its updater: loadAuthSettings loads both into the boot
-// snapshot, the very first /api/version update check goes out for real, and
-// the settings page's software-update card lights up with zero manual setup.
-//
-// Trust posture mirrors set-password: shell access on the host is the gate —
-// an installer has no owner token yet (the owner password does not even exist
-// at install time). Later changes go through the owner-gated PATCH
-// /api/settings as usual. This seam only SETS the pair (both env vars
-// required); clearing the updater is an owner decision made in the UI, not an
-// installer's. Exit codes: 0 = written, 1 = fatal, 2 = usage.
-func cmdSetUpdater(env func(string) string, out io.Writer) int {
-	rawURL := env(envUpdaterURL)
-	code := env(envUpdaterInviteCode)
-	if rawURL == "" || code == "" {
-		fmt.Fprintf(out, "[ocserverd] set-updater: %s and %s must both carry values (env, not argv — the invite code leaks via ps)\n", envUpdaterURL, envUpdaterInviteCode)
-		return 2
-	}
-	normalized, ok := validateUpdaterURL(rawURL)
-	if !ok || normalized == "" {
-		fmt.Fprintf(out, "[ocserverd] set-updater: %s must be an absolute http(s) URL, got %q\n", envUpdaterURL, rawURL)
-		return 2
-	}
-	d, _, done, rc := openAuthDAL("set-updater", env, out)
-	defer done()
-	if rc != 0 {
-		return rc
-	}
-	if err := d.PutSetting(settingUpdaterURL, normalized); err != nil {
-		fmt.Fprintf(out, "[ocserverd] FATAL: store updater url: %v\n", err)
-		return 1
-	}
-	if err := d.PutSetting(settingUpdaterInviteCode, code); err != nil {
-		fmt.Fprintf(out, "[ocserverd] FATAL: store updater invite code: %v\n", err)
-		return 1
-	}
-	fmt.Fprintf(out, "[ocserverd] set-updater: updater server %s + invite code stored in DB settings (update checks work from the next serve start)\n", normalized)
 	return 0
 }
 

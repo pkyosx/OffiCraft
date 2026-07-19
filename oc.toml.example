@@ -6,8 +6,9 @@
 # The bind host is hardwired to loopback (127.0.0.1) — expose via a tunnel.
 
 [server]
-# Canonical port 8770 (the default when unset).
-port = 8770
+# OffiCraft standard port 8780 (the default when unset; 8770 belongs to the
+# retired open-company station).
+port = 8780
 
 [storage]
 # Durable store DSN. Default (unset) → sqlite at

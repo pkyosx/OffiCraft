@@ -17,7 +17,7 @@
 #   - bin/build-bindist → the bindist ocwarden/ocagent that ocserverd embeds and
 #     serves to the fleet self-update loop (GET /api/{warden,agent}/binary).
 #     ALSO runs on every bin/ci.sh run and in conformance/run.sh.
-#   - bin/build         → .deploy/ocserverd (the deploy / ocrelease-publish
+#   - bin/build         → .deploy/ocserverd (the deploy / bin/release-package
 #     artifact). ALSO runs on the prod host via bin/autodeploy, inside
 #     `bin/ocserver install`, and by hand on any dev Mac.
 # Hence the default MUST stay warn-and-pass: these are shared seams, and a

@@ -821,20 +821,16 @@ export const zh = {
     // ── 軟體更新 (honest build-identity card) ──
     currentVersion: "目前版本",
     upToDate: "已是最新版",
-    // 更新伺服器設定(updater_url + 邀請碼;邀請碼是機密,伺服器永不回讀)
-    updaterServer: "更新伺服器",
-    updaterUrl: "更新伺服器位址",
-    updaterUrlSub: "更新伺服器的 http(s) 位址 · 留空停用更新檢查",
-    updaterInvite: "邀請碼",
-    updaterInviteSub: "更新伺服器發的邀請憑證 · 只寫入、不回顯",
-    updaterInviteSet: "已設定(輸入以更換)",
-    // 邀請碼狀態列(T-1c2e rework:原「伺服器設定」對帳面唯一不重複的一列,
-    // 併進本區;只顯示 set/unset 位元,線上本來就不載明文)
-    updaterInviteStatus: "邀請碼狀態",
-    updaterInviteStatusSub: "只顯示是否已設定 · 不回顯內容",
-    // ── 雙通道 toggle(receive_beta / auto_update,皆預設關閉)──
+    // 檢查更新(GET /api/release/check,直接問 GitHub Releases)
+    checkUpdate: "檢查更新",
+    checkingUpdate: "檢查中…",
+    checkUnknown: "連不上 GitHub、查不到最新版本——請稍後再試",
+    checkFailed: "檢查更新失敗,請重試",
+    viewRelease: "查看 release",
+    updateSettings: "更新設定",
+    // ── 軟體更新 toggle(receive_beta / auto_update,皆預設關閉)──
     receiveBeta: "接收 Beta 版本",
-    receiveBetaSub: "更新檢查追蹤 beta 通道(每次發佈即入)· 關閉 = 只看正式(GA)版",
+    receiveBetaSub: "更新檢查也納入 GitHub 預發佈(prerelease)· 關閉 = 只看正式 release",
     autoUpdate: "自動更新",
     autoUpdateSub: "偵測到新版本時於背景自動升級並重啟 · 預設關閉",
     upgradeFailed: "升級失敗",

@@ -155,12 +155,14 @@ validate_namespace() {
 # both `cmd_install` (step 3) and the hidden `render-config` subcommand the test
 # drives, so the tested render can never drift from the installed one.
 #
-# Namespaced install (optional args 4=NS 5=PORT, non-empty): the example's fixed
-# `port = 8770` line is rewritten to the instance port and a `namespace = "<ns>"`
-# line is added right under it (still inside the ONE existing [server] table).
-# Both are validated post-parse. An absent/empty NS renders byte-identically to
-# the historical output (zero-diff for the main instance; the 3-arg
-# render-config test seam is untouched).
+# Optional args 4=NS 5=PORT: when PORT is non-empty the example's fixed
+# `port = 8780` line (the OffiCraft standard default, t-dc68) is rewritten to
+# the instance port — an ocserver-managed install always pins its port
+# explicitly (main default = OC_SERVE_PORT, canonically 8770 on the dev
+# station). A non-empty NS additionally adds a `namespace = "<ns>"` line right
+# under it (still inside the ONE existing [server] table). Both are validated
+# post-parse. The 3-arg render-config test seam keeps the example's literal
+# port (its e2e consumers pin the port themselves post-render).
 render_oc_toml() {
   OC_SRC_EXAMPLE="$1" OC_OUT="$2" OC_DSN="$3" OC_NS="${4:-}" OC_PORT="${5:-}" python3 - <<'PY'
 import os
@@ -177,15 +179,19 @@ if "__OC_DSN__" not in src:
         "single-[storage] oc.toml"
     )
 out = src.replace('dsn = "__OC_DSN__"', f'dsn = "{dsn}"')
-if ns:
-    if 'port = 8770' not in out:
+if port:
+    # The example ships the OffiCraft standard default (8780, t-dc68); an
+    # ocserver-managed instance always pins ITS port explicitly (main default
+    # rides OC_SERVE_PORT — the canonical dev station stays on 8770).
+    if 'port = 8780' not in out:
         raise SystemExit(
-            "oc.toml.example is missing the `port = 8770` line — cannot render a "
-            "namespaced [server] table"
+            "oc.toml.example is missing the `port = 8780` line — cannot render "
+            "the [server] table"
         )
-    out = out.replace(
-        "port = 8770", f'port = {int(port)}\nnamespace = "{ns}"', 1
-    )
+    repl = f"port = {int(port)}"
+    if ns:
+        repl += f'\nnamespace = "{ns}"'
+    out = out.replace("port = 8780", repl, 1)
 
 # Fail LOUD before writing if the result is not valid TOML (e.g. a duplicate
 # [storage] slipped in) or a retired [auth] table crept back into the example.

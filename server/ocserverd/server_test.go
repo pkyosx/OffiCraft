@@ -63,9 +63,10 @@ func TestVersionProbeShapeMatchesPython(t *testing.T) {
 		t.Fatalf("status: %d", resp.StatusCode)
 	}
 	// Key ORDER is part of the byte-level contract (pydantic field order):
-	// version, git_sha, git_time, catalog_hash, update_available, latest_version,
-	// then the additive release_tag (T-e9d1) last.
-	wantOrder := []string{`"version":`, `"git_sha":`, `"git_time":`, `"catalog_hash":`, `"update_available":`, `"latest_version":`, `"release_tag":`}
+	// version, git_sha, git_time, catalog_hash, update_available,
+	// latest_version. (release_tag — the retired ocupdaterd r-N serial —
+	// left the shape with the updater teardown, t-dc68.)
+	wantOrder := []string{`"version":`, `"git_sha":`, `"git_time":`, `"catalog_hash":`, `"update_available":`, `"latest_version":`}
 	pos := -1
 	for _, key := range wantOrder {
 		i := strings.Index(string(body), key)
@@ -81,7 +82,6 @@ func TestVersionProbeShapeMatchesPython(t *testing.T) {
 		CatalogHash     string  `json:"catalog_hash"`
 		UpdateAvailable bool    `json:"update_available"`
 		LatestVersion   *string `json:"latest_version"`
-		ReleaseTag      *string `json:"release_tag"`
 	}
 	if err := json.Unmarshal(body, &dto); err != nil {
 		t.Fatalf("unmarshal: %v (%s)", err, body)
@@ -105,10 +105,6 @@ func TestVersionProbeShapeMatchesPython(t *testing.T) {
 	}
 	if dto.UpdateAvailable || dto.LatestVersion != nil {
 		t.Fatalf("update_available/latest_version must be false/null: %s", body)
-	}
-	// No updater configured → the running build's r-N is unknown (honest null).
-	if dto.ReleaseTag != nil {
-		t.Fatalf("release_tag must be null with no updater configured: %v", dto.ReleaseTag)
 	}
 	if !strings.Contains(string(body), `"latest_version":null`) {
 		t.Fatalf("latest_version must serialise as null (not omitted): %s", body)

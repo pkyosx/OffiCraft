@@ -16,8 +16,8 @@ vi.mock("./hooks/useTaskCount", () => ({ useTaskCount: () => 0 }));
 vi.mock("./hooks/useOrgName", () => ({
   useOrgName: (fallback: string) => ({ orgName: fallback, setOrgName: () => {} }),
 }));
-// Feed an already-resolved version WITH a releaseTag: the strongest input for
-// "no topbar chip" — a build that HAS an r-N tag still renders nothing.
+// Feed an already-resolved version: even a fully identified build renders no
+// topbar chip.
 vi.mock("./hooks/useVersion", () => ({
   useVersion: () => ({
     version: {
@@ -27,7 +27,6 @@ vi.mock("./hooks/useVersion", () => ({
       catalogHash: "deadbeef",
       updateAvailable: false,
       latestVersion: null,
-      releaseTag: "r-24",
     },
     loading: false,
     error: false,

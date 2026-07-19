@@ -54,14 +54,10 @@ type apiServer struct {
 	// workers (DB task.outsource_max_parallel; M3 owner ruling ③) — read by
 	// the Phase 2 assignment scheduler.
 	outsourceMaxParallel int
-	// updaterURL / updaterInviteCode configure the software update check
-	// (DB updater.* settings; update_check.go). The invite code is SECRET:
-	// write-only via PATCH /api/settings, never serialised back.
-	updaterURL        string
-	updaterInviteCode string
-	// updaterReceiveBeta picks the update-check channel (false = GA, true =
-	// beta); updaterAutoUpdate arms the background self-upgrade cadence
-	// (auto_update.go). Both default OFF (DB updater.* settings).
+	// updaterReceiveBeta picks which GitHub releases the update check follows
+	// (false = official only, true = prereleases too); updaterAutoUpdate arms
+	// the background self-upgrade cadence (auto_update.go). Both default OFF
+	// (DB updater.* settings).
 	updaterReceiveBeta bool
 	updaterAutoUpdate  bool
 	// orgName is the studio display name shown in the cockpit topbar (DB
@@ -179,11 +175,16 @@ type apiServer struct {
 	// its siblings — a restart forgets the bench (worst case one re-pick of a
 	// still-bad machine, which re-benches on its next failure).
 	workerMachineCooldown map[string]float64
-	// ── software update check state (update_check.go) ────────────────────────
-	// updateMu guards updateCheck — the cached result of the last updater
-	// probe; /api/version reads it lock-briefly and NEVER waits on the network.
+	// ── software update check state (update_check.go; GitHub Releases) ───────
+	// updateMu guards updateCheck — the cached result of the last GitHub
+	// releases probe; /api/version reads it lock-briefly and NEVER waits on
+	// the network.
 	updateMu    sync.Mutex
 	updateCheck updateCheckState
+	// releaseAPIBase ("" = the real https://api.github.com) is a TEST SEAM:
+	// tests point the release check AND the upgrade download at a local
+	// httptest server.
+	releaseAPIBase string
 	// ── upgrade execution state (upgrade.go) ─────────────────────────────────
 	// upgradeMu serializes POST /api/update/upgrade: TryLock — a second click
 	// while a download/swap runs answers an honest 409, never a second swap.
@@ -216,7 +217,8 @@ func (s *apiServer) HandleVersionApiVersionGet(w http.ResponseWriter, r *http.Re
 		gt = &t
 	}
 	// Live update-check answer (update_check.go): cached, background-refreshed
-	// — honest-static (false, nil) while no updater server is configured.
+	// GitHub Releases probe — honest-static (false, nil) while nothing newer
+	// is known.
 	available, latest := s.updateStatus()
 	writeJSON(w, http.StatusOK, versionDTO{
 		Version: appVersion,
@@ -227,7 +229,6 @@ func (s *apiServer) HandleVersionApiVersionGet(w http.ResponseWriter, r *http.Re
 		CatalogHash:     s.catalogHash,
 		UpdateAvailable: available,
 		LatestVersion:   latest,
-		ReleaseTag:      s.runningReleaseTag(),
 	})
 }
 

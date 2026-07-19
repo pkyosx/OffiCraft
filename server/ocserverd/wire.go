@@ -47,15 +47,12 @@ type authStatusDTO struct {
 // settingsDTO is the owner-adjustable settings surface (GET/PATCH
 // /api/settings).
 type settingsDTO struct {
-	TokenTTL             int64  `json:"token_ttl"`
-	HandoverPct          int    `json:"handover_pct"`
-	OutsourceMaxParallel int    `json:"outsource_max_parallel"`
-	UpdaterURL           string `json:"updater_url"`
-	// UpdaterInviteCodeSet is the SECRET-tier read face of updater.invite_code
-	// (the value itself is write-only — same posture as the password hash).
-	UpdaterInviteCodeSet bool `json:"updater_invite_code_set"`
-	// UpdaterReceiveBeta / UpdaterAutoUpdate are the two dual-channel toggles
-	// (default false): follow the beta channel / self-upgrade in the background.
+	TokenTTL             int64 `json:"token_ttl"`
+	HandoverPct          int   `json:"handover_pct"`
+	OutsourceMaxParallel int   `json:"outsource_max_parallel"`
+	// UpdaterReceiveBeta / UpdaterAutoUpdate are the two software-update
+	// toggles (default false): follow GitHub prereleases too / self-upgrade
+	// in the background when a newer release exists.
 	UpdaterReceiveBeta bool `json:"updater_receive_beta"`
 	UpdaterAutoUpdate  bool `json:"updater_auto_update"`
 	// OrgName is the studio display name (org.name; T-d693). "" = never set —

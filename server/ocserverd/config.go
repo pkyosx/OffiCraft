@@ -39,8 +39,14 @@ const (
 
 	// defaultHost is HARDWIRED (B2): the security model is loopback-bind only,
 	// exposure goes through a tunnel. The retired [server].host key is ignored.
-	defaultHost     = "127.0.0.1"
-	defaultPort     = 8770  // FIXED canonical port (Python DEFAULT_PORT)
+	defaultHost = "127.0.0.1"
+	// defaultPort is the OffiCraft standard port (t-dc68 install fix): 8780.
+	// The old 8770 default was a migration leftover — it is the retired
+	// open-company station's port, so a transition-period first install on
+	// the same machine collided with the still-serving old station. Existing
+	// installs pin their port in oc.toml (bin/ocserver renders it explicitly)
+	// and are unaffected; only a config-less `ocserverd serve` moves.
+	defaultPort     = 8780
 	defaultTokenTTL = 86400 // owner JWT lifetime: 24h (DEFAULT_TOKEN_TTL)
 )
 

@@ -19,7 +19,7 @@ func TestLoadConfigMissingFileYieldsDefaults(t *testing.T) {
 	if len(warnings) != 0 {
 		t.Fatalf("missing file must not warn: %v", warnings)
 	}
-	if cfg.Server.Port != 8770 || cfg.Server.Namespace != "" {
+	if cfg.Server.Port != 8780 || cfg.Server.Namespace != "" {
 		t.Fatalf("server defaults: %+v", cfg.Server)
 	}
 	if cfg.Auth.Password != "" || cfg.Auth.Secret != "" || cfg.Auth.TokenTTL != 86400 || cfg.Auth.TokenTTLSet {
@@ -100,7 +100,7 @@ func TestLoadConfigPartialFileKeepsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if cfg.Server.Port != 8770 || cfg.Auth.TokenTTL != 86400 || cfg.Auth.TokenTTLSet || cfg.Auth.Password != "pw" {
+	if cfg.Server.Port != 8780 || cfg.Auth.TokenTTL != 86400 || cfg.Auth.TokenTTLSet || cfg.Auth.Password != "pw" {
 		t.Fatalf("absent keys must keep convention defaults: %+v", cfg)
 	}
 	if len(warnings) != 1 || !strings.Contains(warnings[0], "[auth]") {

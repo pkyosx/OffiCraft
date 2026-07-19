@@ -16,7 +16,7 @@ package main
 //
 // Honesty posture: this loop acts ONLY because the owner armed the toggle.
 // Failures are logged loudly and retried on the natural cadence (the update
-// check's own TTL keeps a dead updater from being hammered); nothing here
+// check's own TTL keeps unreachable GitHub from being hammered); nothing here
 // escalates, retries in a tight loop, or falls back to unverified bytes.
 // Agents cannot reach the toggle's effect: the manual route stays MCPExclude
 // and this loop reads only the owner-written DB setting.
@@ -27,9 +27,9 @@ import (
 )
 
 // autoUpdateCadence is how often the armed loop re-evaluates. One minute:
-// fast enough that "promote → prod picks it up" feels immediate-ish, slow
-// enough to be noise-free (the underlying check is cached with its own
-// 5-minute TTL, so most ticks cost two mutex reads and nothing else).
+// fast enough that "gh release create → fleet picks it up" feels immediate-ish, slow
+// enough to be noise-free (the underlying GitHub check is cached with its
+// own 5-minute TTL, so most ticks cost two mutex reads and nothing else).
 const autoUpdateCadence = time.Minute
 
 // autoUpdateEnabled reads the live toggle under the settings snapshot lock.
@@ -64,7 +64,7 @@ func (s *apiServer) autoUpdateTick() (acted bool) {
 	}
 	version, exePath, fail := s.runUpgrade()
 	if fail != nil {
-		// Loud, then wait out the cadence — a broken updater/download will
+		// Loud, then wait out the cadence — a broken release/download will
 		// answer the same way until it is fixed, and the check cache's TTL
 		// already rate-limits the network side.
 		log.Printf("[auto-update] upgrade to %s not performed: %s", derefOr(latest, "?"), fail.message)

@@ -363,14 +363,13 @@ export interface MonitoringView {
 // ── Settings view models (camelCase; mapped from the Wire* settings shapes) ───
 
 /**
- * Build identity (Settings › 軟體更新). Same honesty rule as the wire: `version`
- * is "0.0.0" until a real release exists → the UI composes its unified label
- * v<yymmdd>-<hhmm>-<shortsha> from `gitSha` + `gitTime` (lib/versionFormat,
- * T-e9d1 round 3; missing `gitTime` degrades to the short sha alone).
- * `updateAvailable` is MVP-static false ("已是最新版"); a phantom newer version
- * is NEVER fabricated. `latestVersion` is meaningful only when `updateAvailable`
- * is true. `releaseTag` (the r-N serial) rides the wire unchanged but is no
- * longer displayed anywhere — kept for wire fidelity only.
+ * Build identity (Settings › 軟體更新). `version` is the single human-facing
+ * version identity: an OFFICIAL package (bin/release) carries its GitHub
+ * Release tag; a self-build keeps the honest "0.0.0" → only then does the UI
+ * fall back to the composed build label v<yymmdd>-<hhmm>-<shortsha> from
+ * `gitSha` + `gitTime` (lib/versionFormat; missing `gitTime` degrades to the
+ * short sha alone). `updateAvailable`/`latestVersion` mirror the server's
+ * cached GitHub Releases check; a phantom newer version is NEVER fabricated.
  */
 export interface VersionView {
   version: string;
@@ -379,7 +378,19 @@ export interface VersionView {
   catalogHash: string;
   updateAvailable: boolean;
   latestVersion: string | null;
-  releaseTag: string | null;
+}
+
+/**
+ * Verdict of the explicit 檢查更新 click (GET /api/release/check): the server
+ * asks GitHub Releases synchronously and answers `status` "up_to_date" |
+ * "update_available" (latestTag + releaseUrl then point at the newer release)
+ * | "unknown" (GitHub unreachable — the honest degraded verdict).
+ */
+export interface ReleaseCheckView {
+  status: "up_to_date" | "update_available" | "unknown";
+  currentVersion: string;
+  latestTag: string | null;
+  releaseUrl: string | null;
 }
 
 /**

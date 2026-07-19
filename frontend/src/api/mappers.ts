@@ -15,6 +15,7 @@ import type {
   MonAccountView,
   MonitoringView,
   VersionView,
+  ReleaseCheckView,
   GlobalContextView,
   RoleDefView,
   BootstrapView,
@@ -38,6 +39,7 @@ import type {
   WireMonAccount,
   WireMonitoring,
   WireVersion,
+  WireReleaseCheck,
   WireGlobalContext,
   WireRoleDef,
   WireBootstrap,
@@ -702,13 +704,9 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     tokenTtl: w.token_ttl,
     handoverPct: w.handover_pct,
     outsourceMaxParallel: w.outsource_max_parallel ?? 0,
-    // Updater pair (schema-optional for DTO-compat; the Go wire always emits
-    // both). The invite code VALUE never crosses the wire — only the set bit.
-    updaterUrl: w.updater_url ?? "",
-    updaterInviteCodeSet: w.updater_invite_code_set ?? false,
-    // The dual-channel toggles (schema-optional for DTO-compat; the Go wire
-    // always emits both — `?? false` only fires against a pre-channel server,
-    // where OFF is exactly the honest reading).
+    // The two software-update toggles (schema-optional for DTO-compat; the
+    // Go wire always emits both — `?? false` only fires against an older
+    // server, where OFF is exactly the honest reading).
     updaterReceiveBeta: w.updater_receive_beta ?? false,
     updaterAutoUpdate: w.updater_auto_update ?? false,
     // Studio name (T-d693; schema-optional for DTO-compat — the Go wire always
@@ -724,11 +722,27 @@ export function toVersion(w: WireVersion): VersionView {
     gitTime: w.git_time ?? null,
     catalogHash: w.catalog_hash,
     updateAvailable: w.update_available,
-    // git_time / latest_version / release_tag are nullable on the wire; a
-    // defaulted-away field arrives as `undefined` — coalesce to null (never
-    // fabricated).
+    // git_time / latest_version are nullable on the wire; a defaulted-away
+    // field arrives as `undefined` — coalesce to null (never fabricated).
     latestVersion: w.latest_version ?? null,
-    releaseTag: w.release_tag ?? null,
+  };
+}
+
+/** WireReleaseCheck → ReleaseCheckView (the explicit 檢查更新 verdict).
+ * Pure passthrough; the closed status set is validated by the generated
+ * schema type — nothing is manufactured here. */
+export function toReleaseCheck(w: WireReleaseCheck): ReleaseCheckView {
+  return {
+    // The wire types status as a bare string; anything outside the closed
+    // verdict set reads as the honest degraded "unknown" (never fabricated
+    // certainty from an unrecognized value).
+    status:
+      w.status === "up_to_date" || w.status === "update_available"
+        ? w.status
+        : "unknown",
+    currentVersion: w.current_version,
+    latestTag: w.latest_tag ?? null,
+    releaseUrl: w.release_url ?? null,
   };
 }
 

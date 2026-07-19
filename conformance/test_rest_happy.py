@@ -467,6 +467,20 @@ HAPPY: dict[str, Happy] = {
             r, lambda d: d["token_ttl"] == 86400 and d["handover_pct"] == 50
         ),
     ),
+    "GET /api/release/check": Happy(
+        # $OC_RELEASE_API_BASE is pinned unroutable (run.sh), so the fresh
+        # check deterministically answers the honest degraded verdict: 200
+        # {"status":"unknown"} with current_version mirroring /api/version and
+        # no fabricated latest tag/link. The reachable-GitHub verdicts are
+        # pinned in the server unit tests (update_check_test.go).
+        check=lambda _c, r: _expect(
+            r,
+            lambda d: d["status"] == "unknown"
+            and d["current_version"]
+            and d["latest_tag"] is None
+            and d["release_url"] is None,
+        ),
+    ),
     # ── infra seams ──────────────────────────────────────────────────────────
     "POST /api/mint": Happy(
         body=lambda ctx: {"member_id": ctx.agent.member_id, "ttl_days": 1},
@@ -1069,13 +1083,14 @@ SKIPPED_HAPPY: dict[str, str] = {
         "positive face runs `ocwarden teardown` on the host — same reasoning."
     ),
     "POST /api/update/upgrade": (
-        "the positive face needs a CONFIGURED, reachable updater server holding "
-        "a newer published version — infrastructure the black-box harness does "
-        "not run. The unconfigured 409 is pinned in the auth matrix owner cell "
-        "and test_upgrade_unconfigured_conflicts below; the precondition and "
-        "execution semantics (409 no-newer / download+sha256-verify+swap+"
-        "restart, failures 502 with the old binary untouched) in the server "
-        "unit tests (update_check_test.go / upgrade_test.go)."
+        "the positive face needs a reachable GitHub Releases repo holding a "
+        "newer published release — the harness pins $OC_RELEASE_API_BASE "
+        "unroutable on purpose (hermeticity). The no-newer-known 409 is pinned "
+        "in the auth matrix owner cell and test_upgrade_no_newer_conflicts "
+        "below; the precondition and execution semantics (pin → download → "
+        "sha256 verify via checksums.txt → swap → restart, failures 502 with "
+        "the old binary untouched) in the server unit tests "
+        "(update_check_test.go / upgrade_test.go)."
     ),
     "GET /api/self/task": (
         "the positive face needs a BOUND outsource worker identity, mintable "
@@ -1392,8 +1407,9 @@ def test_set_password_after_set_conflicts(hctx: HCtx) -> None:
     assert login.status_code == 200, "the credential must be untouched"
 
 
-def test_upgrade_unconfigured_conflicts(hctx: HCtx) -> None:
-    """With no updater server configured (the harness default), the owner's
+def test_upgrade_no_newer_conflicts(hctx: HCtx) -> None:
+    """With GitHub unreachable (the harness pins $OC_RELEASE_API_BASE at an
+    unroutable loopback) no newer release is ever known, so the owner's
     explicit upgrade trigger is an honest 409 — never a fabricated upgrade."""
     r = hctx.client.post(
         "/api/update/upgrade", headers=_auth(hctx.owner_token)
@@ -1403,56 +1419,37 @@ def test_upgrade_unconfigured_conflicts(hctx: HCtx) -> None:
     assert body["error"]["code"] == "conflict", body
 
 
-def test_settings_updater_fields_roundtrip_and_secret_masking(hctx: HCtx) -> None:
-    """The updater settings pair (updater_url + updater_invite_code): PATCH
-    writes both; every read exposes the URL and ONLY the set/unset bit of the
-    invite code — the secret value never crosses the wire again. A non-URL is
-    a 422; "" clears both. The test restores the harness default (unset) so
-    the shared instance's /api/version face stays honest-static."""
+def test_settings_updater_server_fields_retired(hctx: HCtx) -> None:
+    """The updater-server pair (updater_url + updater_invite_code) left the
+    wire with the ocupdaterd teardown (t-dc68 — updates come from GitHub
+    Releases now): reads carry NEITHER field, and a PATCH still writing the
+    retired keys is simply ignored (unknown-key JSON semantics), never an
+    error and never a resurrected setting."""
     h = _auth(hctx.owner_token)
-    try:
-        r = hctx.client.patch(
-            "/api/settings",
-            json={
-                "updater_url": "http://127.0.0.1:59999/",
-                "updater_invite_code": "conf-secret-invite-code",
-            },
-            headers=h,
-        )
-        assert r.status_code == 200, f"{r.status_code} {r.text}"
-        body = r.json()
-        # Normalized echo (trailing slash trimmed) + masked secret.
-        assert body["updater_url"] == "http://127.0.0.1:59999", body
-        assert body["updater_invite_code_set"] is True, body
-        assert "conf-secret-invite-code" not in r.text, "invite code leaked"
-        assert "updater_invite_code" not in body or body.get(
-            "updater_invite_code"
-        ) is None, body
+    r = hctx.client.get("/api/settings", headers=h)
+    assert r.status_code == 200, f"{r.status_code} {r.text}"
+    body = r.json()
+    assert "updater_url" not in body, body
+    assert "updater_invite_code" not in body, body
+    assert "updater_invite_code_set" not in body, body
 
-        r = hctx.client.get("/api/settings", headers=h)
-        assert r.status_code == 200
-        body = r.json()
-        assert body["updater_url"] == "http://127.0.0.1:59999", body
-        assert body["updater_invite_code_set"] is True, body
-        assert "conf-secret-invite-code" not in r.text, "invite code leaked"
-
-        r = hctx.client.patch(
-            "/api/settings", json={"updater_url": "not a url"}, headers=h
-        )
-        assert r.status_code == 422, f"{r.status_code} {r.text}"
-    finally:
-        r = hctx.client.patch(
-            "/api/settings",
-            json={"updater_url": "", "updater_invite_code": ""},
-            headers=h,
-        )
-        assert r.status_code == 200, f"restore failed: {r.status_code} {r.text}"
-        body = r.json()
-        assert body["updater_url"] == "" and body["updater_invite_code_set"] is False
+    r = hctx.client.patch(
+        "/api/settings",
+        json={
+            "updater_url": "http://127.0.0.1:59999/",
+            "updater_invite_code": "conf-retired-invite-code",
+        },
+        headers=h,
+    )
+    assert r.status_code == 200, f"{r.status_code} {r.text}"
+    body = r.json()
+    assert "updater_url" not in body, body
+    assert "updater_invite_code_set" not in body, body
+    assert "conf-retired-invite-code" not in r.text, "retired secret echoed"
 
 
 def test_settings_updater_channel_toggles_roundtrip(hctx: HCtx) -> None:
-    """The dual-channel toggles (updater_receive_beta + updater_auto_update):
+    """The two software-update toggles (updater_receive_beta + updater_auto_update):
     both default false, PATCH flips each independently (partial semantics),
     reads reflect the live value. The test restores both OFF so the shared
     instance never runs with auto-update armed."""

@@ -72,7 +72,7 @@ fi
 # T-33d5: sign the deploy/publish artifact with the stable release identity when
 # this machine holds it (bin/setup-codesign-cert); otherwise warn and ship as
 # built. Stable identity = the server binary's macOS TCC grants survive
-# autodeploy/ocrelease updates, same rationale as bindist signing.
+# autodeploy / GitHub-release upgrades, same rationale as bindist signing.
 #
 # NOT the release path (T-da4b). This script also runs on every dev Mac and on
 # the prod host via bin/autodeploy, so signing stays advisory here: no identity =
