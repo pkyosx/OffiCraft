@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# officraft — release pipeline (minimal viable cut of the §4.4 ocbuilder flow).
+#
+#   bin/release <tag>            # e.g. bin/release v0.1.0
+#
+# From the CURRENT clean HEAD:
+#   1. sanity gates    — clean tree, darwin/arm64 host, tag shape v*.
+#   2. build           — OC_APP_VERSION=<tag> bin/build: frontend SPA
+#                        (VITE_USE_MOCK=false) + seeds + fresh ocwarden/ocagent
+#                        (bindist) all EMBEDDED into .deploy/ocserverd, with
+#                        appVersion stamped to <tag> and buildSHA/buildTime to
+#                        HEAD (so /api/version self-identifies the release).
+#   3. package         — dist/release/officraft-<tag>-darwin-arm64.tar.gz
+#                        containing ocserverd (+ SPA/seeds/bindist embedded),
+#                        ocwarden, ocagent, install.sh, README.md, LICENSE.
+#   4. checksums.txt   — sha256 of the tarball (shasum -a 256 format).
+#
+# The repo tree stays ZERO-BINARY: all artifacts land in dist/release/
+# (gitignored); nothing is committed. Publishing is a separate, explicit step:
+#
+#   gh release create <tag> dist/release/officraft-<tag>-darwin-arm64.tar.gz \
+#       dist/release/checksums.txt --title "OffiCraft <tag>" --notes "…"
+#
+# Codesigning: bin/build's advisory codesign-artifact pass still runs (signs
+# when this machine holds the "OffiCraft Code Signing" identity, warns
+# otherwise). The §4B local re-sign-on-install design supersedes shipping-side
+# signing and is a follow-up ticket — this script does not gate on it.
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+TAG="${1:-}"
+if [[ -z "$TAG" ]]; then
+  echo "usage: bin/release <tag>   (e.g. bin/release v0.1.0)" >&2
+  exit 2
+fi
+if [[ ! "$TAG" =~ ^v[0-9][0-9A-Za-z.-]*$ ]]; then
+  echo "[release] FATAL: tag '$TAG' does not look like a version tag (v…)." >&2
+  exit 2
+fi
+if [[ "$(uname -s)" != "Darwin" || "$(uname -m)" != "arm64" ]]; then
+  echo "[release] FATAL: release builds run on darwin/arm64 (asset is darwin-arm64)." >&2
+  exit 1
+fi
+if [[ -n "$(git -C "$ROOT" status --porcelain)" ]]; then
+  echo "[release] FATAL: working tree is dirty — release builds only from a clean HEAD." >&2
+  git -C "$ROOT" status --short >&2
+  exit 1
+fi
+
+HEAD_SHA="$(git -C "$ROOT" rev-parse --short HEAD)"
+echo "[release] building $TAG from clean HEAD $HEAD_SHA (darwin-arm64)"
+
+# 2. full build with the version stamped in (bin/build owns the embed ordering:
+#    SPA → webdist, seeds → seedsdist, fresh ocwarden/ocagent → bindist, then
+#    the ocserverd build that embeds all three).
+OC_APP_VERSION="$TAG" bash "$ROOT/bin/build"
+
+# 3. package. bindist still holds the exact ocwarden/ocagent builds that were
+#    embedded (bin/build leaves them staged on purpose) — ship those same
+#    bytes rather than rebuilding, so package == embedded.
+NAME="officraft-$TAG-darwin-arm64"
+OUT="$ROOT/dist/release"
+STAGE="$OUT/$NAME"
+rm -rf "$STAGE" "$OUT/$NAME.tar.gz"
+mkdir -p "$STAGE"
+
+cp "$ROOT/.deploy/ocserverd"                "$STAGE/ocserverd"
+cp "$ROOT/server/ocserverd/bindist/ocwarden" "$STAGE/ocwarden"
+cp "$ROOT/server/ocserverd/bindist/ocagent"  "$STAGE/ocagent"
+cp "$ROOT/bin/install.sh"                   "$STAGE/install.sh"
+cp "$ROOT/LICENSE"                          "$STAGE/LICENSE"
+chmod +x "$STAGE/ocserverd" "$STAGE/ocwarden" "$STAGE/ocagent" "$STAGE/install.sh"
+
+cat > "$STAGE/README.md" <<EOF
+# OffiCraft $TAG (darwin-arm64)
+
+Run your own AI staff office on a Mac. This package contains everything —
+no Go/Node toolchain needed.
+
+## Install (one command)
+
+\`\`\`
+./install.sh
+\`\`\`
+
+Installs to \`~/.officraft/bin\`, creates/migrates the database at
+\`~/.officraft/server/data/officraft.db\`, then starts the service in the
+foreground. On first run the log prints a one-time link
+(\`http://127.0.0.1:8770/?code=…\`) — open it to set your owner password.
+
+Stop with Ctrl-C; start again later with \`~/.officraft/bin/ocserverd serve\`.
+
+## Contents
+
+- \`ocserverd\` — the server (web app, seeds and agent binaries embedded)
+- \`ocwarden\`, \`ocagent\` — fleet CLI binaries (also served by ocserverd)
+- \`install.sh\` — the installer above
+- \`LICENSE\` — MIT
+
+Build identity: tag $TAG, git $HEAD_SHA. Verify: \`/api/version\` reports
+\`"version":"$TAG"\`.
+EOF
+
+tar -C "$OUT" -czf "$OUT/$NAME.tar.gz" "$NAME"
+( cd "$OUT" && shasum -a 256 "$NAME.tar.gz" > checksums.txt )
+rm -rf "$STAGE"
+
+echo "[release] ✅ artifacts ready:"
+ls -lh "$OUT/$NAME.tar.gz" "$OUT/checksums.txt" | awk '{print "[release]   " $5 "\t" $9}'
+cat "$OUT/checksums.txt" | sed 's/^/[release]   sha256 /'
+echo "[release] publish with:"
+echo "[release]   gh release create $TAG dist/release/$NAME.tar.gz dist/release/checksums.txt --title \"OffiCraft $TAG\" --notes \"…\""
