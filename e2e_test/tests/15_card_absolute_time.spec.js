@@ -32,7 +32,8 @@ async function createReplyCardAs(request, agentToken, card) {
 }
 
 function repliesTab(page) {
-  return page.locator('.nav-tab', { hasText: '等我回覆' });
+  // T-0004 renamed the owner-facing concept 等我回覆 → 請示 (zh.nav.replies).
+  return page.locator('.nav-tab', { hasText: '請示' });
 }
 
 // A date component (M/D or YYYY/M/D) followed later by an HH:mm clock — the

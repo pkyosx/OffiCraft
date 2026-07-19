@@ -84,7 +84,8 @@ async function expectBadge(page, count) {
 }
 
 function repliesTab(page) {
-  return page.locator('.nav-tab', { hasText: '等我回覆' });
+  // T-0004 renamed the owner-facing concept 等我回覆 → 請示 (zh.nav.replies).
+  return page.locator('.nav-tab', { hasText: '請示' });
 }
 
 function chatCardOf(page, card) {
@@ -161,10 +162,12 @@ test.describe('B13 · reply cards — SPEC full loop over real UI + API', () => 
         return { a: idx(a), b: idx(b) };
       }, [summaryA, summaryB]);
     expect(order.a, 'card A must be listed').toBeGreaterThanOrEqual(0);
+    // RepliesPage display order = 開卡時間 newest first (RepliesPage.tsx
+    // waitingSorted) — B (newer) renders ABOVE A (older).
     expect(
       order.a,
-      'the longest-waiting card must sort first (A created before B)',
-    ).toBeLessThan(order.b);
+      'display order is newest-opened first (B created after A sorts first)',
+    ).toBeGreaterThan(order.b);
 
     // ── answer A on the 等我回覆 page (option chip, NOT the AI pick) ──
     await expect(
@@ -176,6 +179,8 @@ test.describe('B13 · reply cards — SPEC full loop over real UI + API', () => 
       waitingA,
       'an answered card must leave the 待回覆 pane',
     ).toHaveCount(0);
+    // 近期已處理 collapses by default and loads lazily — expand it first.
+    await page.getByTestId('answered-toggle').click();
     const answeredA = page
       .getByTestId('answered-card')
       .filter({ hasText: summaryA });
@@ -241,6 +246,9 @@ test.describe('B13 · reply cards — SPEC full loop over real UI + API', () => 
     const chatCardA = chatCardOf(page, cardA);
     await expect(chatCardA).toBeVisible();
     await expect(chatCardA).toContainText(summaryA);
+    // A mounts ALREADY-answered → collapsed lazy stub (owner 已回覆卡預設
+    // 收合); expand to fetch + render the full card body.
+    await chatCardA.getByTestId('chat-reply-card-expand').click();
     await expect(chatCardA.getByTestId('final-answer')).toContainText(optionsA[0]);
 
     // ── card B: waiting inline in the SAME room — chatCardA (answered) and
@@ -304,6 +312,8 @@ test.describe('B13 · reply cards — SPEC full loop over real UI + API', () => 
     await expect(
       page.getByTestId('waiting-card').filter({ hasText: summaryB }),
     ).toHaveCount(0);
+    // Fresh visit → 近期已處理 starts collapsed again; expand to see B.
+    await page.getByTestId('answered-toggle').click();
     await expect(
       page.getByTestId('answered-card').filter({ hasText: summaryB }),
     ).toBeVisible();
@@ -418,6 +428,8 @@ test.describe('B13 · reply cards — SPEC full loop over real UI + API', () => 
     const waiting = page.getByTestId('waiting-card').filter({ hasText: summary });
     await waiting.locator('.reply-option').first().click();
     await expect(waiting).toHaveCount(0);
+    // 近期已處理 collapses by default and loads lazily — expand it first.
+    await page.getByTestId('answered-toggle').click();
     await expect(
       page.getByTestId('answered-card').filter({ hasText: summary }),
     ).toBeVisible();

@@ -110,7 +110,9 @@ test.describe('B10 · settings roles + monitor — inline create rows & gating',
     await expect(title, 'the title must show the committed rename').toContainText(ROLE_RENAMED);
     // roster follows (single truth role.name): the founding member's card in
     // the office roster reads the NEW role name.
-    await page.locator('.set-detail-back, .backbar, button', { hasText: '返回' }).first().click();
+    // T-8f6e removed the ‹返回 back row — navigate up via the shared breadcrumb
+    // (nav.crumbs; the 角色誌 parent segment jumps back to the roles list).
+    await page.locator('nav.crumbs .crumbs__seg', { hasText: '角色誌' }).click();
     await expect(
       page.locator('.set-entry', { hasText: ROLE_RENAMED }),
       'the roles list must show the renamed role',
