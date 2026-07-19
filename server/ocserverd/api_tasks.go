@@ -835,6 +835,17 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 			continue
 		}
 		st.Status = StepStatusPending
+		// A pending step must read as never-started: started_ts>0 is the
+		// system-wide "ever entered in_progress" oracle (00028's Down recovers
+		// pre-push statuses from it), so leaving it stamped would mint the
+		// dirty "pending but started_ts>0" state. finished_ts can't be set on
+		// a non-terminal row in the current model — zeroing it here is the
+		// same never-started semantic, defensively. waiting_reason belongs to
+		// waiting_external only (update_step_status clears it on every exit
+		// from that state — this fallback is one more exit).
+		st.StartedTS = 0
+		st.FinishedTS = 0
+		st.WaitingReason = ""
 		if err := s.dal.PutTaskStep(st); err != nil {
 			internalError(w, err)
 			return

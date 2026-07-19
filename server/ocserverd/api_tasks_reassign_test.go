@@ -655,6 +655,129 @@ func TestReassignClearsTheWaitingExternalReason(t *testing.T) {
 	}
 }
 
+// T-0e6b: a step falling back to pending on reassign must read as NEVER
+// started — started_ts>0 is the system-wide "ever entered in_progress" oracle
+// (00028's Down recovers pre-push statuses from it), so a "pending but
+// started_ts>0" row is dirty state. finished_ts and waiting_reason ride the
+// same never-started reset; terminal rows keep their history untouched.
+func TestReassignResetsStepBirthmarksWithPending(t *testing.T) {
+	api := newTasksTestServer(t)
+	putActiveMember(t, api, "m-old", "Ken", KindAssistant)
+	putActiveMember(t, api, "m-new", "Rei", KindAssistant)
+	task := createAdHocTask(t, api, "m-old")
+	view := submitPlan(t, api, task.ID, "m-old", []map[string]any{
+		{"name": "done step", "dod": "d"},
+		{"name": "running step", "dod": "d"},
+		{"name": "waiting step", "dod": "d"},
+	})
+	// Drive: step0 done, step1 stays in_progress, step2 parks waiting_external.
+	for _, move := range [][2]string{
+		{view.Steps[0].ID, "in_progress"},
+		{view.Steps[0].ID, "done"},
+		{view.Steps[1].ID, "in_progress"},
+		{view.Steps[1].ID, "done"},
+		{view.Steps[2].ID, "in_progress"},
+	} {
+		if rec := reportStepStatus(t, api, task.ID, move[0], "m-old",
+			move[1], ""); rec.Code != http.StatusOK {
+			t.Fatalf("step drive %v: %d %s", move, rec.Code, rec.Body.String())
+		}
+	}
+	// Rewind step1 into a live non-terminal shape carrying birthmarks: put it
+	// back to in_progress directly (DAL) with a stale finished_ts, so the test
+	// also proves the reset scrubs a dirty finished_ts, not just started_ts.
+	steps, err := api.dal.ListTaskSteps(task.ID)
+	if err != nil {
+		t.Fatalf("steps: %v", err)
+	}
+	for _, st := range steps {
+		if st.Name != "running step" {
+			continue
+		}
+		st.Status = StepStatusInProgress
+		if err := api.dal.PutTaskStep(st); err != nil {
+			t.Fatalf("rewind: %v", err)
+		}
+	}
+	if rec := reportStepStatus(t, api, task.ID, view.Steps[2].ID, "m-old",
+		"waiting_external", "等第三方開通"); rec.Code != http.StatusOK {
+		t.Fatalf("waiting_external: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec := reassign(t, api, task.ID, memberTarget("m-new"), "owner", "owner")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("reassign: %d %s", rec.Code, rec.Body.String())
+	}
+	steps, err = api.dal.ListTaskSteps(task.ID)
+	if err != nil {
+		t.Fatalf("steps: %v", err)
+	}
+	for _, st := range steps {
+		switch st.Name {
+		case "done step":
+			// Terminal history is untouched: both stamps survive.
+			if st.Status != StepStatusDone || st.StartedTS == 0 || st.FinishedTS == 0 {
+				t.Fatalf("done step must keep its history: %+v", st)
+			}
+		case "running step", "waiting step":
+			if st.Status != StepStatusPending {
+				t.Fatalf("step %q must fall back to pending: %+v", st.Name, st)
+			}
+			if st.StartedTS != 0 {
+				t.Fatalf("pending step %q must read never-started (started_ts==0), got %v",
+					st.Name, st.StartedTS)
+			}
+			if st.FinishedTS != 0 {
+				t.Fatalf("pending step %q must carry no finished_ts, got %v",
+					st.Name, st.FinishedTS)
+			}
+			if st.WaitingReason != "" {
+				t.Fatalf("pending step %q must drop its stale waiting_reason, got %q",
+					st.Name, st.WaitingReason)
+			}
+		default:
+			t.Fatalf("unexpected step %q", st.Name)
+		}
+	}
+}
+
+// T-0e6b same-disease sweep companion: submit_plan is the OTHER path that lands
+// pending rows (fresh plan rows via ReplaceTaskPlan). Those are freshly minted
+// with zero-value stamps today — this test pins that invariant so a future
+// handler change (e.g. copying fields off an old row) cannot quietly mint the
+// same "pending but started_ts>0" dirt.
+func TestSubmitPlanFreshStepsAreBornNeverStarted(t *testing.T) {
+	api := newTasksTestServer(t)
+	putActiveMember(t, api, "m-exec", "Ken", KindAssistant)
+	task := createAdHocTask(t, api, "m-exec")
+	view := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
+		{"name": "old step", "dod": "d"},
+	})
+	// Start the old step so a stamped row exists at replan time.
+	startFirstStep(t, api, task.ID, "m-exec")
+	_ = view
+	// Replan: the started old row is replaced by two fresh rows.
+	view2 := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
+		{"name": "fresh a", "dod": "d"},
+		{"name": "fresh b", "dod": "d"},
+	})
+	if len(view2.Steps) != 2 {
+		t.Fatalf("replan must land exactly the fresh plan, got %+v", view2.Steps)
+	}
+	steps, err := api.dal.ListTaskSteps(task.ID)
+	if err != nil {
+		t.Fatalf("steps: %v", err)
+	}
+	for _, st := range steps {
+		if st.Status != StepStatusPending {
+			t.Fatalf("fresh step %q must be pending: %+v", st.Name, st)
+		}
+		if st.StartedTS != 0 || st.FinishedTS != 0 {
+			t.Fatalf("fresh pending step %q must be born never-started: %+v", st.Name, st)
+		}
+	}
+}
+
 func TestReassignGuards(t *testing.T) {
 	api := newTasksTestServer(t)
 	putActiveMember(t, api, "m-old", "Ken", KindAssistant)
