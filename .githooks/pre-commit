@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# open-company pre-commit hook — a FAST local mirror of ci.sh's HARD gates:
+#   - the hygiene gate (ci.sh step 3): path denylist + gitleaks secret scan
+#     (STAGED only)
+#   - the cli/ocwarden golang gate (ci.sh step 1): go vet + go build, but ONLY
+#     when this commit stages a cli/ocwarden/*.go change (skipped otherwise so
+#     non-Go commits stay instant). This catches the "改了 golang 卻沒重編" 漏編
+#     event at commit time instead of at autodeploy.
+#
+# It is a convenience first line of defence, NOT the authority — bin/ci.sh
+# (run by autodeploy) is the canonical hard gate. Enable it once per clone:
+#
+#     git config core.hooksPath .githooks
+#
+# gitleaks/go are resolved by ABSOLUTE path (brew abspath fallback) so they
+# behave the same way the launchd autodeploy environment resolves them.
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+# --- Path denylist over STAGED files (source-exempt token rule, as in ci.sh) ---
+staged="$(git diff --cached --name-only --diff-filter=ACMR)"
+if [[ -n "$staged" ]]; then
+  hits="$(
+    printf '%s\n' "$staged" | grep -iE \
+      -e '(^|/)scratchpad/' \
+      -e '\.bak$' \
+      -e '\.pem$' \
+      -e '\.key$' \
+      -e '\.secret$' \
+      -e '(^|/)oc\.toml$' \
+      -e '(^|/)oc\.lock$' \
+      | { grep -vE '\.py$' || true; }
+    printf '%s\n' "$staged" | grep -iE '_token' | grep -vE '\.py$' || true
+  )"
+  hits="$(printf '%s\n' "$hits" | grep -vE '^$' | sort -u || true)"
+  if [[ -n "$hits" ]]; then
+    echo "[pre-commit] BLOCKED — forbidden files staged (path denylist):"
+    printf '  %s\n' $hits
+    echo "[pre-commit] unstage with: git rm --cached <file>"
+    exit 1
+  fi
+fi
+
+# --- gitleaks secret scan over STAGED content (absolute-path resolve) ---
+GITLEAKS="$(command -v gitleaks 2>/dev/null || echo /opt/homebrew/bin/gitleaks)"
+if [[ ! -x "$GITLEAKS" ]]; then
+  echo "[pre-commit] gitleaks not found — install: brew install gitleaks"
+  exit 1
+fi
+# `git` mode scans staged diffs; --staged limits to what is about to be committed.
+"$GITLEAKS" git --staged --no-banner --config .gitleaks.toml
+
+# --- cli/ocwarden golang gate (mirror of ci.sh step 1), only when *.go is staged ---
+# NOTE: go builds the WORKING TREE, not the staged snapshot, so this is a
+# convenience check (like the rest of this hook) — ci.sh is the authority. It is
+# gated on a staged cli/ocwarden/*.go change so a non-Go commit pays nothing.
+staged_go="$(git diff --cached --name-only --diff-filter=ACMR -- 'cli/ocwarden/*.go')"
+if [[ -n "$staged_go" ]]; then
+  GO="$(command -v go 2>/dev/null || true)"
+  if [[ -z "$GO" ]]; then
+    for cand in /opt/homebrew/bin/go /usr/local/go/bin/go /usr/local/bin/go; do
+      [[ -x "$cand" ]] && { GO="$cand"; break; }
+    done
+  fi
+  if [[ -z "$GO" || ! -x "$GO" ]]; then
+    echo "[pre-commit] go not found — install: brew install go (cli/ocwarden needs it)"
+    exit 1
+  fi
+  echo "[pre-commit] cli/ocwarden/*.go staged → go vet + go build"
+  ( cd "$ROOT/cli/ocwarden" && "$GO" vet ./... && "$GO" build -o ocwarden ./... )
+fi
+
+echo "[pre-commit] hygiene OK"

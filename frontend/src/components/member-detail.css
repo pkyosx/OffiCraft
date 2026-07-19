@@ -1,0 +1,1156 @@
+.mp {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 12px;
+}
+
+/* ‹ 返回 row — PINNED (site-wide sticky back-bar pattern, owner acceptance):
+ * sticky top-0 inside the scrolling .mp column + an OPAQUE page background +
+ * z-index above the cards, stretched to the full row so scrolled content never
+ * peeks through beside the label. (.office__back mirrors this; the settings
+ * tree replaced its back rows with the shared .crumbs breadcrumb — T-8f6e.) */
+.mp__back {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  flex-shrink: 0;
+  align-self: stretch;
+  padding: 4px 6px 4px 2px;
+  border: none;
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  font-size: 14px;
+  font-weight: 500;
+  transition: color 0.15s;
+}
+.mp__back:hover {
+  color: var(--color-text);
+}
+
+.mp-card {
+  /* .mp is a flex column with a bounded height; flex children default to
+   * flex-shrink:1, so a tall expanded card (initial PROMPT / lessons) would be
+   * SQUEEZED to fit and then clipped by .mp-expand's overflow:hidden — never
+   * overflowing, so .mp's overflow-y:auto never engaged (the "can't scroll"
+   * bug). flex-shrink:0 keeps each card its natural height → the column
+   * overflows → .mp scrolls. */
+  flex-shrink: 0;
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--color-card);
+}
+
+.mp-card__title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--color-text-muted);
+}
+
+/* ---- identity card ---- */
+.mp-identity {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 20px;
+}
+.mp-identity__body {
+  flex: 1;
+  min-width: 0;
+}
+.mp-identity__line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.mp-identity__name {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--color-text-strong);
+  font-family: var(--font-title);
+}
+/* The InlineEdit input inherits font via `font: inherit`; give the name row a
+   larger, bold baseline so the edit field matches the display name's weight. */
+.mp-identity__line .inline-edit__input {
+  font-size: 18px;
+  font-weight: 700;
+  min-width: 160px;
+}
+.mp-identity__id {
+  font-family: "SFMono-Regular", ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+  border: 1px solid rgba(111, 214, 176, 0.25);
+  height: 21px;
+  padding: 0 9px;
+}
+.mp-identity__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+/* Shared presence badge (PresenceBadge): lifecycle dot + status word + role /
+   last-seen sub-line, laid out inline. Used on the detail panel status line and
+   the monitor session rows so the presence text renders identically in both. */
+.presence-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.presence-badge__sub {
+  color: var(--color-text-muted);
+}
+/* Right-side action cluster: the state-ized action buttons stacked over the
+   optional "Move agent" button. */
+.mp-identity__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+/* ---- info card 1: model | effort ---- */
+.mp-info2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 0;
+}
+.mp-field {
+  padding: 16px 20px;
+}
+.mp-field--divider {
+  border-left: 1px solid rgba(255, 255, 255, 0.05);
+}
+.mp-field__label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--color-text-muted);
+}
+.mp-field__value {
+  margin-top: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+/* Honest warning tint for a stuck spawn state (T-f190 「啟動卡住」) — the value
+   reads red so the owner sees the worker is NOT actually running. */
+.mp-field__value--warn {
+  color: var(--color-danger, #e5674b);
+}
+.mp-field__hint {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+/* ---- info card 2: runtime ---- */
+.mp-runtime {
+  padding: 16px 20px 18px;
+}
+.mp-runtime__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.mp-runtime__machine {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+.mp-runtime__cells {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 14px;
+}
+.mp-cell {
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.02);
+}
+.mp-cell__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 30px;
+}
+.mp-cell__label {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+.mp-cell__value {
+  margin-top: 6px;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--color-text-strong);
+}
+.mp-refocus {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(111, 214, 176, 0.35);
+  background: transparent;
+  color: var(--color-accent);
+  font-size: 12.5px;
+  font-weight: 500;
+  transition: background 0.15s, opacity 0.15s;
+}
+.mp-refocus:hover:not(:disabled) {
+  background: var(--color-accent-soft);
+}
+.mp-refocus:disabled {
+  color: var(--color-text-muted);
+  border-color: rgba(154, 160, 173, 0.2);
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+/* transient feedback pulse — the refocus fired, so the button says so */
+.mp-refocus--pending:disabled {
+  color: var(--color-accent);
+  border-color: rgba(111, 214, 176, 0.35);
+  opacity: 0.8;
+}
+.mp-refocus--done {
+  color: var(--color-accent);
+  border-color: rgba(111, 214, 176, 0.55);
+  background: var(--color-accent-soft);
+}
+.mp-refocus--error {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+/* inline refocus feedback / offline hint — a persistent line under the runtime
+   cells so an async refocus (or a disabled offline button) reads honestly. */
+.mp-runtime__note {
+  margin-top: 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-accent);
+}
+.mp-runtime__note--muted {
+  color: var(--color-text-muted);
+}
+
+/* ---- info card: 最近操作 (fleet remote-ops stage 1 — last warden op) ---- */
+.mp-lastop {
+  padding: 16px 20px 18px;
+}
+.mp-lastop__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.mp-lastop__head--ok {
+  color: var(--color-success, #2ea043);
+}
+.mp-lastop__head--fail {
+  color: var(--color-danger, #d1242f);
+}
+.mp-lastop__icon {
+  font-weight: 700;
+}
+.mp-lastop__verb {
+  font-weight: 600;
+}
+.mp-lastop__result {
+  color: inherit;
+}
+.mp-lastop__at {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+/* Structured failure cause — the one-line "<code>: <detail>" summary shown
+ * ALWAYS on a failed op (the collapsible log below stays the long-form
+ * detail). Wraps rather than truncates: the reason is the load-bearing WHY. */
+.mp-lastop__reason {
+  margin-top: 6px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-danger, #d1242f);
+  word-break: break-word;
+}
+.mp-lastop__logwrap {
+  margin-top: 8px;
+}
+.mp-lastop__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+.mp-lastop__log {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.45;
+  background: var(--color-surface-sunken, rgba(0, 0, 0, 0.04));
+  border-radius: 6px;
+  color: var(--color-text);
+}
+
+/* ---- info card 3: terminal ---- */
+.mp-terminal {
+  padding: 16px 20px 18px;
+}
+.mp-terminal__title {
+  display: block;
+  margin-bottom: 12px;
+}
+.mp-terminal__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.mp-terminal__cmd {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: "SFMono-Regular", ui-monospace, Menlo, monospace;
+  font-size: 13px;
+}
+.mp-terminal__prompt {
+  color: var(--color-text-muted);
+  margin-right: 8px;
+}
+.mp-terminal__copy {
+  flex: none;
+  height: 42px;
+  padding: 0 16px;
+  color: var(--color-text);
+  background: var(--color-indigo);
+  font-weight: 500;
+}
+.mp-terminal__copy:hover {
+  filter: brightness(1.18);
+}
+.mp-terminal__hint {
+  margin-top: 12px;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+
+/* ---- outsource worker detail: 委託任務 link ---- */
+.mp-worker-task {
+  padding: 16px 20px 18px;
+}
+.mp-worker-task .mp-card__title {
+  display: block;
+  margin-bottom: 12px;
+}
+.mp-worker-task__link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--color-text-strong);
+  font-size: 15px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.mp-worker-task__link:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+.mp-worker-task__link:disabled {
+  cursor: default;
+}
+.mp-worker-task__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mp-worker-task__status {
+  flex: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+.mp-worker-task__chevron {
+  flex: none;
+  color: var(--color-text-muted);
+}
+
+/* ---- expandable rows ---- */
+.mp-expand {
+  overflow: hidden;
+}
+.mp-expand__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 15px 20px;
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+  transition: background 0.15s;
+}
+.mp-expand__head:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+.mp-expand__icon {
+  color: var(--color-text-muted);
+  flex: none;
+}
+.mp-expand__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.mp-expand__hint {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.mp-expand__chevron {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  flex: none;
+}
+.mp-expand__body {
+  padding: 0 20px 18px;
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--color-text);
+  /* (white-space: pre-wrap dropped — the body now renders the boot prompt
+   * through <Markdown className="doc-md">, which builds real block elements;
+   * pre-wrap only made sense for the old raw-source dump.) */
+}
+.mp-expand__empty {
+  color: var(--color-text-muted);
+}
+
+/* ---- lessons card (owner-editable, mirrors role_def DocDetail) ---- */
+.mp-lessons {
+  padding: 15px 20px 18px;
+}
+.mp-lessons__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.mp-lessons__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.mp-lessons__icon {
+  color: var(--color-text-muted);
+  flex: none;
+}
+.mp-lessons__actions {
+  display: flex;
+  gap: 8px;
+}
+.mp-lessons__note {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.mp-lessons__body {
+  margin-top: 12px;
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--color-text);
+}
+.mp-lessons__error {
+  margin-top: 8px;
+  font-size: 12.5px;
+  color: var(--color-danger, #e5484d);
+}
+
+@media (max-width: 720px) {
+  /* Identity card: on a phone the avatar+text row and the action cluster stack
+   * vertically instead of wrapping mid-row (which left the buttons crammed
+   * against the right edge and clipped the id badge). Row 1 = avatar + name/
+   * status; row 2 = the action buttons, full-width. */
+  .mp-identity {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .mp-identity__body {
+    /* keep the avatar + name/status on one row (avatar is flex:none) */
+    flex: 1 1 0;
+  }
+  .mp-identity__actions {
+    flex-basis: 100%;
+    align-items: stretch;
+  }
+  .mp-identity__actions .member-actions {
+    width: 100%;
+  }
+  .mp-identity__actions .member-actions .btn {
+    flex: 1 1 auto;
+  }
+  /* The id badge must never wrap its member id onto two lines or get clipped by
+   * the shrinking name field. */
+  .mp-identity__id {
+    white-space: nowrap;
+    flex: none;
+  }
+  .mp-info2,
+  .mp-runtime__cells {
+    grid-template-columns: 1fr;
+  }
+  .mp-field--divider {
+    border-left: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+  }
+}
+
+/* Force-stop confirm (二次確認): the *stopping*-state Stop button escalates to an
+ * immediate kill, so it opens this modal first. Self-contained, mirrors the
+ * machine-picker / mon-confirm dialog styling. */
+.mp-confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(10, 12, 18, 0.62);
+}
+.mp-confirm__box {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px 22px;
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(233, 110, 110, 0.35);
+  background: var(--color-card);
+}
+.mp-confirm__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.mp-confirm__body {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+.mp-confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.mp-confirm__actions .btn {
+  cursor: pointer;
+}
+.mp-confirm__actions .btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── model / effort inline editor (M2-2 launch intents) ───────────────────── */
+/* Head row of the model/effort cell: label left, the site-wide doc-btn--edit
+ * (accent outline + pencil — the SAME button the lessons card renders) pinned
+ * to the cell's TOP-RIGHT. Mirrors .mp-lessons__head. */
+.mp-field__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.mp-info2__editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+.mp-info2__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.9em;
+}
+.mp-info2__field input,
+.mp-info2__field select {
+  background: #191c24;
+  color: #e7e8ee;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+}
+.mp-info2__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.mp-info2__error {
+  color: #e07a7a;
+}
+
+/* Stacked second field inside one info cell (owner layout: 模型+EFFORT share
+ * the left cell; 機器+Claude Account share the right cell). */
+.mp-field__label--stacked {
+  margin-top: 12px;
+}
+/* The in-cell editor stacks its controls tightly under each label. */
+.mp-info2__editor select,
+.mp-info2__editor input {
+  width: 100%;
+  margin-top: 4px;
+}
+
+/* ---- webhook endpoints (M4 回呼端點) ---- */
+.mp-webhook__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  margin-left: 2px;
+  border-radius: 10px;
+  background: var(--color-indigo);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+.mp-webhook__body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.mp-webhook__empty,
+.mp-webhook__error {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  padding: 4px 0;
+}
+.mp-webhook__error {
+  color: var(--color-danger, #e5674b);
+}
+.mp-webhook__row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.015);
+}
+.mp-webhook__rowhead {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.mp-webhook__dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.mp-webhook__dot--on {
+  background: #34c759;
+  box-shadow: 0 0 0 3px rgba(52, 199, 89, 0.16);
+}
+.mp-webhook__dot--off {
+  background: var(--color-text-muted);
+}
+.mp-webhook__chip {
+  padding: 3px 9px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-text-strong);
+  font-family: "SFMono-Regular", ui-monospace, Menlo, monospace;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.mp-webhook__spacer {
+  flex: 1 1 auto;
+}
+.mp-webhook__statusword {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+.mp-webhook__purpose {
+  font-size: 13px;
+  color: var(--color-text);
+}
+/* per-row observability entry (T-069d) — a compact live summary
+ * (投遞 n · 丟棄 n · 最後 t) sitting right after the endpoint id chip;
+ * clicking it opens the full 事件統計 window. */
+.mp-webhook__statssummary {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  text-align: left;
+}
+.mp-webhook__statssummary:hover {
+  color: var(--color-text);
+}
+/* 事件統計 window — same dim-overlay + card language as the confirm dialogs */
+.mp-webhook__statsmodal {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(10, 12, 18, 0.62);
+}
+.mp-webhook__statsbox {
+  width: 100%;
+  max-width: 480px;
+  max-height: min(78vh, 640px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 20px;
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--color-card);
+}
+.mp-webhook__statshead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mp-webhook__statstitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.mp-webhook__statsclose {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.mp-webhook__statsclose:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-text);
+}
+.mp-webhook__statsbody {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+/* never-received face — the friendly empty state when zero traffic ever hit */
+.mp-webhook__statsempty {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px 4px;
+  text-align: center;
+}
+.mp-webhook__statsempty-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.mp-webhook__statsempty-hint {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--color-text-muted);
+}
+/* two stat blocks — 最後收到 / 丟棄(+reason) */
+.mp-webhook__statsgrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+.mp-webhook__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.mp-webhook__statlabel {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.mp-webhook__statvalue {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+  font-variant-numeric: tabular-nums;
+}
+.mp-webhook__statvalue--dropped {
+  color: #e07a7a;
+}
+.mp-webhook__statnote {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+}
+/* 最近請求 — the raw /in ring buffer (last 5, newest first) */
+.mp-webhook__requeststitle {
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.mp-webhook__requestsnote {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+.mp-webhook__requestlist {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 9px;
+  overflow: hidden;
+}
+.mp-webhook__request + .mp-webhook__request {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.mp-webhook__requestrow {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.mp-webhook__requestrow:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.mp-webhook__outcome {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--color-text);
+}
+.mp-webhook__outcome--delivered {
+  background: rgba(111, 214, 176, 0.14);
+  color: var(--color-accent);
+}
+.mp-webhook__outcome--dropped {
+  background: rgba(224, 122, 122, 0.14);
+  color: #e07a7a;
+}
+.mp-webhook__requesttime {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.mp-webhook__requesttrunc {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  font-size: 10.5px;
+  color: var(--color-text-muted);
+}
+.mp-webhook__requestchevron {
+  flex: none;
+  color: var(--color-text-muted);
+}
+.mp-webhook__requestdetail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px 12px;
+  background: rgba(0, 0, 0, 0.14);
+}
+.mp-webhook__requestsection {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  color: var(--color-text-muted);
+}
+.mp-webhook__requestpre {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.25);
+  font-family: "SFMono-Regular", ui-monospace, Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--color-text);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.mp-webhook__urlrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mp-webhook__url {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 9px 12px;
+  border-radius: 9px;
+  background: var(--color-surface-2, rgba(0, 0, 0, 0.2));
+  color: var(--color-text-muted);
+  font-family: "SFMono-Regular", ui-monospace, Menlo, monospace;
+  font-size: 12.5px;
+}
+.mp-webhook__mask {
+  letter-spacing: 1px;
+}
+.mp-webhook__copy {
+  flex: none;
+  height: 38px;
+  padding: 0 14px;
+  color: var(--color-text);
+  background: var(--color-indigo);
+  font-weight: 500;
+}
+.mp-webhook__copy:hover {
+  filter: brightness(1.18);
+}
+.mp-webhook__delete {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--color-border);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--color-danger, #e5674b);
+  transition: background 0.15s, border-color 0.15s;
+}
+.mp-webhook__delete:hover {
+  background: rgba(229, 103, 75, 0.1);
+  border-color: rgba(229, 103, 75, 0.4);
+}
+/* toggle switch */
+.mp-toggle {
+  flex: none;
+  position: relative;
+  width: 40px;
+  height: 22px;
+  border-radius: 11px;
+  border: none;
+  background: rgba(255, 255, 255, 0.16);
+  cursor: pointer;
+  transition: background 0.18s;
+}
+.mp-toggle--on {
+  background: #34c759;
+}
+.mp-toggle:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.mp-toggle__knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.18s;
+}
+.mp-toggle--on .mp-toggle__knob {
+  transform: translateX(18px);
+}
+/* add + create form */
+.mp-webhook__add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 12px;
+  border: 1px dashed var(--color-border);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  transition: color 0.15s, border-color 0.15s;
+}
+.mp-webhook__add:hover {
+  color: var(--color-text);
+  border-color: var(--color-indigo);
+}
+.mp-webhook__form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.015);
+}
+/* Every form row is label-first: a stacked <label> wrapping the small-caps
+   field name (same voice as .mp-field__label on the info card) + the control,
+   so the create form and the rotate-secret form read as one style. */
+.mp-webhook__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mp-webhook__fieldlabel {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--color-text-muted);
+}
+.mp-webhook__required {
+  color: var(--color-danger, #e5674b);
+}
+.mp-webhook__input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 9px;
+  background: var(--color-surface-2, rgba(0, 0, 0, 0.2));
+  color: var(--color-text);
+  font-size: 13px;
+}
+.mp-webhook__input:focus {
+  outline: none;
+  border-color: var(--color-indigo);
+}
+/* native select restyled to sit flush with the text inputs */
+.mp-webhook__select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 34px;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238b90a0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
+.mp-webhook__helper {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+.mp-webhook__hint {
+  font-size: 12.5px;
+  color: var(--color-danger, #e5674b);
+}
+.mp-webhook__rotate {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mp-webhook__rotatelink {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.mp-webhook__rotatelink:hover {
+  color: var(--color-text);
+}
+.mp-webhook__formactions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.mp-webhook__formactions .btn {
+  height: 38px;
+  padding: 0 16px;
+}
+.mp-webhook__submit {
+  color: #fff;
+  background: var(--color-indigo);
+}
+.mp-webhook__submit:hover:not(:disabled) {
+  filter: brightness(1.18);
+}
+.mp-webhook__submit:disabled {
+  opacity: 0.5;
+}

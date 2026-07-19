@@ -1,0 +1,236 @@
+#!/usr/bin/env bash
+#
+# officraft — DRIFT-BASED auto-deploy watcher (IN-REPO, parameterised).
+#
+# WHY in the repo (not a hand-placed sibling): the historical autodeploy.sh lived
+# OUTSIDE the checkout, so it could never re-clone with the server and every path
+# was hard-coded to one machine. This is the same watcher, moved INTO the repo and
+# parameterised via env so `bin/ocserver install` can render a launchd plist that
+# points straight at it. All machine-specific paths default to the canonical
+# ~/.officraft/server/ layout but are overridable for tests / alt installs:
+#
+#   OC_SERVER_ROOT   canonical server dir      (default ~/.officraft/server)
+#   OC_CLONE         the server checkout        (default $OC_SERVER_ROOT/repo)
+#   OC_LOG_DIR       autodeploy + serve logs    (default $OC_SERVER_ROOT/log)
+#   OC_DATA_DIR      durable state (sqlite, sha)(default $OC_SERVER_ROOT/data)
+#   OC_CONFIG        out-of-repo oc.toml        (default $OC_SERVER_ROOT/oc.toml)
+#   OC_HEALTH_URL    health probe               (default http://127.0.0.1:8770/health)
+#   OC_SERVE_LABEL   serve LaunchAgent label    (default com.officraft.serve)
+#
+# DEPLOY PIPELINE per drift:  ff-pull -> bin/build (webdist + go build ->
+# .deploy/ocserverd) -> bin/migrate (ocserverd migrate, goose) -> kickstart
+# serve -> health -> push. Each gated step (build/migrate) is deterministic: a
+# failure parks the SHA immediately and leaves prod UNTOUCHED (no restart, old
+# version keeps serving). The Python-era venv/pip step is gone with the Python
+# backend (historical rollback = git tag py-final).
+#
+# Safety invariants (unchanged from the ported original):
+#   - Fast-forward pulls ONLY; rollback via `git checkout -B main <sha>` so the
+#     checkout STAYS ON the main branch (never a detached HEAD).
+#   - A parked (repeatedly-failing) SHA is NOT pulled, so the working tree stays
+#     at the last-good commit while parked.
+#   - Never exit on a transient error (network, etc.); log and retry.
+#   - Only ever kickstart the serve LaunchAgent; never touch tunnel/warden.
+#   - oc.toml + the SQLite db live OUTSIDE the clone ($OC_CONFIG / $OC_DATA_DIR),
+#     so they survive a full repo re-clone — the whole point of the canonical
+#     server/ layout.
+#
+# NOTE: health probes 127.0.0.1:8770 (the serve entry, Go ocserverd since M4);
+# /health is unauthenticated-OK.
+
+set -u
+
+# ---------------------------------------------------------------------------
+# parameters (canonical layout defaults; every one overridable via env)
+# ---------------------------------------------------------------------------
+OC_SERVER_ROOT="${OC_SERVER_ROOT:-$HOME/.officraft/server}"
+CLONE="${OC_CLONE:-$OC_SERVER_ROOT/repo}"
+LOG_DIR="${OC_LOG_DIR:-$OC_SERVER_ROOT/log}"
+DATA_DIR="${OC_DATA_DIR:-$OC_SERVER_ROOT/data}"
+# oc.toml lives out-of-repo; export so the child serve/migrate processes and the
+# in-repo config loaders (service.config / dal.engine ENV_CONFIG_PATH) read it.
+export OC_CONFIG="${OC_CONFIG:-$OC_SERVER_ROOT/oc.toml}"
+
+LOG="${LOG_DIR}/autodeploy.log"
+DEPLOYED_SHA_FILE="${DATA_DIR}/deployed-sha"
+HEALTH_URL="${OC_HEALTH_URL:-http://127.0.0.1:8770/health}"
+SERVE_LABEL="${OC_SERVE_LABEL:-com.officraft.serve}"
+BRANCH="main"
+POLL_INTERVAL=30
+HEALTH_TIMEOUT=40
+FAIL_RETRY_LIMIT=3
+
+UID_NUM="$(id -u)"
+GIT="/usr/bin/git"
+# bin/build needs node/npm on PATH; the launchd job has a minimal PATH, so add the
+# locations where node/npm actually live on this host.
+export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
+
+mkdir -p "$LOG_DIR" "$DATA_DIR"
+
+log() {
+    printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S%z')" "$*" >> "$LOG"
+}
+
+read_deployed() { cat "$DEPLOYED_SHA_FILE" 2>/dev/null || echo none; }
+write_deployed() { printf '%s\n' "$1" > "$DEPLOYED_SHA_FILE"; }
+
+poll_health() {
+    local elapsed=0 code
+    while [ "$elapsed" -lt "$HEALTH_TIMEOUT" ]; do
+        code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$HEALTH_URL" 2>/dev/null || echo 000)"
+        [ "$code" = "200" ] && return 0
+        sleep 2
+        elapsed=$((elapsed + 2))
+    done
+    return 1
+}
+
+# PURE decision (no IO). Deploy iff HEAD differs from deployed, UNLESS this exact
+# HEAD has already failed FAIL_RETRY_LIMIT times (parked until HEAD moves).
+should_deploy() {
+    local head="$1" deployed="$2" last_failed="$3" failed_count="$4" limit="$5"
+    [ "$head" = "$deployed" ] && { echo no; return; }
+    if [ "$head" = "$last_failed" ] && [ "$failed_count" -ge "$limit" ]; then
+        echo no; return
+    fi
+    echo yes
+}
+
+# Overridable seams.
+do_kickstart() { launchctl kickstart -k "gui/${UID_NUM}/${SERVE_LABEL}" 2>>"$LOG"; }
+do_health()    { poll_health; }
+# Deploy-binary build: npm webdist + go build -> .deploy/ocserverd (SPA embedded,
+# gitignored). Zero-arg per project convention; serve/migrate exec its output.
+do_build()     { ( cd "$CLONE" && bin/build ) >>"$LOG" 2>&1; }
+# Schema migration: ocserverd migrate (goose; reads OC_CONFIG oc.toml DSN).
+do_migrate()   { ( cd "$CLONE" && bin/migrate ) >>"$LOG" 2>&1; }
+# Roll the checkout back to a known-good SHA, STAYING ON main (checkout -B re-points
+# main and keeps HEAD attached — never a detached HEAD). Out-of-repo oc.toml/db survive.
+do_checkout()  { "$GIT" -C "$CLONE" checkout -B "$BRANCH" "$1" 2>>"$LOG"; }
+# Push the just-deployed SHA to origin as a backup (NEVER --force; best-effort).
+do_push()      { "$GIT" -C "$CLONE" push origin "$1:refs/heads/main" 2>>"$LOG"; }
+
+LAST_FAILED_SHA=""
+FAILED_COUNT=0
+PARKED_LOGGED=""
+
+_record_fail() {
+    local target="$1"
+    if [ "$target" = "$LAST_FAILED_SHA" ]; then
+        FAILED_COUNT=$((FAILED_COUNT + 1))
+    else
+        LAST_FAILED_SHA="$target"; FAILED_COUNT=1
+    fi
+    [ "${2:-}" = "park-now" ] && FAILED_COUNT="$FAIL_RETRY_LIMIT"
+}
+
+deploy_head() {
+    local target="$1"
+    log "DRIFT: HEAD ${target:0:7}"
+    # (a) BUILD — deploy binary (.deploy/ocserverd). Skip cleanly if no bin/build.
+    if [ -x "${CLONE}/bin/build" ]; then
+        log "BUILD: ${target:0:7} — bin/build (webdist + go build → .deploy/ocserverd)"
+        if ! do_build; then
+            _record_fail "$target" park-now
+            log "BUILD-FAIL: ${target:0:7} bin/build failed; NOT restarting — prod unchanged, parked"
+            return 1
+        fi
+    fi
+    # (b) MIGRATE — goose upgrade (ocserverd migrate) before restart.
+    log "MIGRATE: ${target:0:7} — bin/migrate"
+    if ! do_migrate; then
+        _record_fail "$target" park-now
+        log "MIGRATE-FAIL: ${target:0:7} bin/migrate failed; NOT restarting — prod unchanged, parked"
+        return 1
+    fi
+    log "GATES-OK: ${target:0:7}; kickstart ${SERVE_LABEL}"
+    if ! do_kickstart; then
+        _record_fail "$target"
+        log "ERROR: kickstart failed for ${SERVE_LABEL}"
+        return 1
+    fi
+    if do_health; then
+        write_deployed "$target"
+        LAST_FAILED_SHA=""; FAILED_COUNT=0; PARKED_LOGGED=""
+        log "HEALTHY: ${HEALTH_URL} 200; deployed ${target:0:7}"
+        if do_push "$target"; then
+            log "PUSHED: origin/main → ${target:0:7} (backup in sync)"
+        else
+            log "WARN: push to origin failed (deploy still good); origin catches up next deploy"
+        fi
+        return 0
+    fi
+    # (c) AUTO-ROLLBACK — booted unhealthy. Restore to last-healthy SHA, staying on
+    # main (checkout -B, no detach). Migration is NOT downgraded (forward-only).
+    _record_fail "$target"
+    log "ERROR: health did NOT reach 200 for ${target:0:7} (fail #${FAILED_COUNT}/${FAIL_RETRY_LIMIT})"
+    local prev; prev="$(read_deployed)"
+    if [ "$prev" != "none" ] && [ "$prev" != "$target" ]; then
+        log "ROLLBACK: restoring checkout to last-healthy ${prev:0:7} (on main) and restarting"
+        if do_checkout "$prev" && do_kickstart && do_health; then
+            log "ROLLBACK OK: prod restored to ${prev:0:7}"
+        else
+            log "ROLLBACK FAILED: prod may be unhealthy (${target:0:7}/${prev:0:7}) — manual attention needed"
+        fi
+    else
+        log "ROLLBACK SKIPPED: no distinct last-healthy SHA to roll back to"
+    fi
+    return 1
+}
+
+main() {
+    log "=== officraft autodeploy watcher (DRIFT-BASED, in-repo) started (pid $$) ==="
+    log "params: CLONE=$CLONE OC_CONFIG=$OC_CONFIG DATA_DIR=$DATA_DIR"
+    while true; do
+        # Self-heal: a detached HEAD (e.g. a manual checkout) silently disables
+        # pulls. Re-attach to main if we're not already on a branch.
+        if ! "$GIT" -C "$CLONE" symbolic-ref -q HEAD >/dev/null 2>&1; then
+            log "WARN: detached HEAD detected; re-attaching to ${BRANCH}"
+            "$GIT" -C "$CLONE" checkout "$BRANCH" 2>>"$LOG" || true
+        fi
+
+        if ! "$GIT" -C "$CLONE" fetch --quiet origin "$BRANCH" 2>>"$LOG"; then
+            log "WARN: git fetch failed (network?); will retry"
+            sleep "$POLL_INTERVAL"; continue
+        fi
+
+        LOCAL_SHA="$("$GIT" -C "$CLONE" rev-parse "$BRANCH" 2>/dev/null || echo unknown)"
+        REMOTE_SHA="$("$GIT" -C "$CLONE" rev-parse "origin/${BRANCH}" 2>/dev/null || echo unknown)"
+
+        # Pull when origin is strictly ahead and we're on the branch — EXCEPT do
+        # not pull a SHA we've already parked as failing (keep the working tree at
+        # the last-good commit while parked; a new commit clears the park).
+        if [ "$LOCAL_SHA" != "unknown" ] && [ "$REMOTE_SHA" != "unknown" ] \
+           && [ "$LOCAL_SHA" != "$REMOTE_SHA" ] \
+           && "$GIT" -C "$CLONE" symbolic-ref -q HEAD >/dev/null 2>&1 \
+           && "$GIT" -C "$CLONE" merge-base --is-ancestor "$LOCAL_SHA" "$REMOTE_SHA" 2>/dev/null \
+           && ! { [ "$REMOTE_SHA" = "$LAST_FAILED_SHA" ] && [ "$FAILED_COUNT" -ge "$FAIL_RETRY_LIMIT" ]; }; then
+            if "$GIT" -C "$CLONE" pull --ff-only --quiet origin "$BRANCH" 2>>"$LOG"; then
+                log "PULLED: origin → $("$GIT" -C "$CLONE" rev-parse --short HEAD 2>/dev/null)"
+            else
+                log "WARN: ff-only pull failed unexpectedly; leaving checkout as-is"
+            fi
+        fi
+
+        HEAD_SHA="$("$GIT" -C "$CLONE" rev-parse HEAD 2>/dev/null || echo unknown)"
+        if [ "$HEAD_SHA" = "unknown" ]; then
+            log "WARN: could not resolve HEAD; retrying"
+            sleep "$POLL_INTERVAL"; continue
+        fi
+        DEPLOYED_SHA="$(read_deployed)"
+
+        if [ "$(should_deploy "$HEAD_SHA" "$DEPLOYED_SHA" "$LAST_FAILED_SHA" "$FAILED_COUNT" "$FAIL_RETRY_LIMIT")" = "yes" ]; then
+            deploy_head "$HEAD_SHA"
+        elif [ "$HEAD_SHA" != "$DEPLOYED_SHA" ] && [ -z "$PARKED_LOGGED" ]; then
+            log "PARKED: HEAD ${HEAD_SHA:0:7} failed ${FAILED_COUNT}x; not redeploying until HEAD moves"
+            PARKED_LOGGED="$HEAD_SHA"
+        fi
+
+        sleep "$POLL_INTERVAL"
+    done
+}
+
+if [ "${AUTODEPLOY_NO_MAIN:-}" != "1" ]; then
+    main
+fi

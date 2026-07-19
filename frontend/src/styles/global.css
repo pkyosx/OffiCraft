@@ -1,0 +1,89 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Dark, subtle scrollbar (ported from the vibe-clicking dark design system).
+ * The default UA scrollbar reads bright against our dark canvas; this pins a
+ * thin thumb-only bar tinted with the existing dark design tokens so it recedes
+ * on both the default and xian themes. */
+/* Firefox */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-indigo) transparent;
+}
+/* WebKit/Blink */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-indigo);
+  border-radius: var(--radius-pill);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+  background-clip: padding-box;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* ── shared "+ 新增" entry row(角色誌 新增角色定義 / 監控 新增機器)──────────
+ * ONE shared class for both add affordances (owner feedback, 修仙 batch 1):
+ * the "+ label" sits CENTERED in a low-key dark-neutral row — no accent green.
+ * Values map 1:1 onto the design file's normal-dark tokens: bg --btn #191c24 →
+ * --color-bg, frame 1px SOLID --bd #242832 → --color-border (the design has no
+ * dashed row affordance — its only dashed element is the chat coordination
+ * collapse header, a different pattern), text --sec #9aa0ad →
+ * --color-text-muted at weight 600. Hover lifts the frame --bd → --bd2
+ * (#242832 → #2c303a) and the text toward --tx; both expressed as theme-safe
+ * white-alpha / token bumps so the xian theme keeps working. */
+.add-entry {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  transition: border-color 0.15s, color 0.15s;
+}
+.add-entry:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+  color: var(--color-text);
+}
+
+input,
+textarea {
+  font-family: inherit;
+}

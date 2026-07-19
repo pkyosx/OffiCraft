@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# officraft — build the dashboard SPA and stage it for the single binary.
+#
+# frontend/dist/ is a gitignored build artifact and go:embed cannot reach
+# outside the module directory, so an SPA-carrying ocserverd needs the fresh
+# `npm run build` output COPIED into server/ocserverd/webdist/ (gitignored
+# except .gitkeep) before `go build`. Without this staging step the binary
+# still builds and serves the API — "/" answers the friendly build hint
+# (spa.go), the Python mount_spa degradation.
+#
+#   bash bin/build-webdist            # npm build + stage into webdist/
+#   (cd server/ocserverd && go build) # then bakes the SPA into the binary
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+cd "$ROOT/frontend"
+if [[ ! -d node_modules ]]; then
+  npm install
+fi
+npm run build
+
+WEBDIST="$ROOT/server/ocserverd/webdist"
+rm -rf "$WEBDIST"
+mkdir -p "$WEBDIST"
+cp -R "$ROOT/frontend/dist/." "$WEBDIST/"
+touch "$WEBDIST/.gitkeep"
+echo "[build-webdist] staged frontend/dist → server/ocserverd/webdist ($(find "$WEBDIST" -type f | wc -l | tr -d ' ') files)"

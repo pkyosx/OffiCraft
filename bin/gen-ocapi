@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# officraft — regenerate server/ocserverd/ocapi_gen.go from spec/openapi.json.
+#
+# The committed spec (M1 wire freeze SSOT) is OpenAPI 3.1 (dumped by the
+# retired Python implementation — git tag py-final); oapi-codegen supports 3.0
+# only, so this script first DOWNCONVERTS a temp copy:
+#   * `anyOf: [X, {"type":"null"}]` (the only 3.1 construct the spec uses)
+#     folds to X + `nullable: true` (a bare $ref wraps in single-member allOf,
+#     the 3.0 idiom for a nullable ref);
+#   * bare `type: number` gains `format: double` — the wire carries 64-bit
+#     floats; without the format oapi-codegen maps them to float32, which
+#     cannot represent epoch-seconds timestamps exactly.
+# The committed spec itself is NEVER touched (wire freeze). The transform is
+# deterministic, so running this twice yields a byte-identical ocapi_gen.go —
+# same "prebuilt committed, regen script reproduces it" pattern, diffable as a
+# drift gate. (The downconvert runs on system python3, stdlib json only — a
+# rendering tool, not a Python backend dependency.)
+#
+# Codegen config lives in server/ocserverd/ocapi.yaml; the tool version is
+# pinned HERE (go run <module>@<version> — reproducible, nothing installed).
+#
+# Usage: bin/gen-ocapi [<out-file>]
+#   no arg     — regenerate the committed server/ocserverd/ocapi_gen.go in place.
+#   <out-file> — write the generated code to that ABSOLUTE path instead, leaving
+#                the committed file untouched (the ci.sh drift gate regenerates
+#                to a temp file and diffs against the committed one). The
+#                config's `output:` key beats oapi-codegen's -o flag, so the
+#                override rides a temp copy of ocapi.yaml with output rewritten.
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+OUT_OVERRIDE="${1:-}"
+
+OAPI_CODEGEN_VERSION="v2.7.2"
+
+GO="$(command -v go 2>/dev/null || true)"
+if [[ -z "$GO" ]]; then
+  for cand in /opt/homebrew/bin/go /usr/local/go/bin/go /usr/local/bin/go; do
+    [[ -x "$cand" ]] && GO="$cand" && break
+  done
+fi
+if [[ -z "$GO" ]]; then
+  echo "[gen-ocapi] go not found — install: brew install go"
+  exit 1
+fi
+
+TMP_SPEC="$(mktemp -t ocapi-openapi30.XXXXXX.json)"
+TMP_CFG=""
+trap 'rm -f "$TMP_SPEC" "$TMP_CFG"' EXIT
+
+python3 - "$ROOT/spec/openapi.json" "$TMP_SPEC" <<'PY'
+import json
+import sys
+
+spec = json.load(open(sys.argv[1]))
+NULL = {"type": "null"}
+
+
+def fold(node):
+    if isinstance(node, dict):
+        any_of = node.get("anyOf")
+        if isinstance(any_of, list):
+            non_null = [s for s in any_of if s != NULL]
+            if len(non_null) < len(any_of):
+                if len(non_null) == 1:
+                    sub = non_null[0]
+                    del node["anyOf"]
+                    if "$ref" in sub:
+                        node["allOf"] = [sub]
+                    else:
+                        for k, v in sub.items():
+                            node.setdefault(k, v)
+                else:
+                    node["anyOf"] = non_null
+                node["nullable"] = True
+        if node.get("type") == "number" and "format" not in node:
+            node["format"] = "double"
+        for v in node.values():
+            fold(v)
+    elif isinstance(node, list):
+        for v in node:
+            fold(v)
+
+
+fold(spec)
+spec["openapi"] = "3.0.3"
+json.dump(spec, open(sys.argv[2], "w"), indent=2, sort_keys=True)
+PY
+
+cd "$ROOT/server/ocserverd"
+if [[ -n "$OUT_OVERRIDE" ]]; then
+  TMP_CFG="$(mktemp -t ocapi-cfg.XXXXXX.yaml)"
+  sed "s|^output: .*|output: ${OUT_OVERRIDE}|" ocapi.yaml >"$TMP_CFG"
+  "$GO" run "github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@${OAPI_CODEGEN_VERSION}" \
+    -config "$TMP_CFG" "$TMP_SPEC"
+  "$(dirname "$GO")/gofmt" -w "$OUT_OVERRIDE"
+  echo "[gen-ocapi] generated ${OUT_OVERRIDE} (oapi-codegen ${OAPI_CODEGEN_VERSION}; committed file untouched)"
+else
+  "$GO" run "github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@${OAPI_CODEGEN_VERSION}" \
+    -config ocapi.yaml "$TMP_SPEC"
+  "$(dirname "$GO")/gofmt" -w ocapi_gen.go
+  echo "[gen-ocapi] regenerated server/ocserverd/ocapi_gen.go (oapi-codegen ${OAPI_CODEGEN_VERSION})"
+fi

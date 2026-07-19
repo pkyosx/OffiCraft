@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# officraft — zero-argument schema migration (Go server: goose upgrade).
+#
+# Migrations run through the Go implementation (`ocserverd migrate`, goose).
+# Config/DSN resolution matches serve — $OC_CONFIG when set, else repo-root
+# oc.toml. The deploy binary is produced by bin/build (the autodeploy pipeline
+# runs build before migrate); fail loud when it is missing.
+#
+# Rollback (historical): the retired Python implementation lives at git tag
+# py-final (its DB file was never touched by the Go server, which runs on its
+# own SQLite file).
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+BIN="$ROOT/.deploy/ocserverd"
+if [[ ! -x "$BIN" ]]; then
+  echo "[migrate] FATAL: $BIN missing — run 'bash bin/build' first (autodeploy does)." >&2
+  exit 1
+fi
+exec "$BIN" migrate

@@ -1,0 +1,535 @@
+/* 等我回覆 page (M2 reply cards B2). Same design language as the monitor /
+ * office panes: grey small-caps section labels, --color-card panels, the
+ * shared accent/danger tokens — nothing invented. */
+
+.replies {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 12px;
+}
+
+/* Honest failure banner (load reject / answer reject) — same recipe as
+ * .mon-error. */
+.replies__error {
+  padding: 10px 14px;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 14%, transparent);
+  color: var(--color-danger);
+  font-size: 13px;
+}
+
+.replies__section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 0 2px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+.replies__section-hint {
+  font-weight: 400;
+  font-size: 12px;
+}
+
+/* 近期已回覆 title row AS the collapse toggle — same look as
+ * .replies__section-title (a button in section-label clothing), plus the
+ * shared .reply-card__caret chevron for the open/closed cue. */
+.replies__section-toggle {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 0 2px 12px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.replies__section-toggle:hover {
+  color: var(--color-text);
+}
+.replies__section-toggle .reply-card__caret {
+  align-self: center;
+  flex: none;
+}
+
+/* The ✓ all-answered empty state (spec copy). */
+.replies__empty {
+  padding: 26px 20px;
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--color-card);
+  text-align: center;
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+
+.replies__list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ── one reply card ── */
+.reply-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--color-card);
+}
+.reply-card__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.reply-card__who {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+.reply-card__name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.reply-card__role {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+/* Jump-to-origin — a quiet text button (secondary action). */
+.reply-card__jump {
+  flex: none;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.reply-card__jump:hover {
+  color: var(--color-text);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+/* Waiting-card stamp column: absolute opened-at above the ticking waited
+ * counter, right-aligned so both lines hug the card edge. */
+.reply-card__stamps {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.reply-card__opened-at {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.reply-card__waited {
+  flex: none;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.reply-card__answered-at {
+  flex: none;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.reply-card__summary {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--color-text-strong);
+}
+/* Rendered markdown (T-a20b) — the summary used to be plain text held together
+   by `white-space: pre-wrap`. Markdown now builds real blocks, so pre-wrap is
+   not just redundant but harmful: it would resurrect the source's own newlines
+   (list markers, blank lines between paragraphs) as literal whitespace on top
+   of the elements those newlines already became. Same compact-scale treatment
+   as .reply-card__body.doc-md, one step bolder/larger — it is still the title. */
+.reply-card__summary.doc-md {
+  padding: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.reply-card__summary.doc-md > :first-child {
+  margin-top: 0;
+}
+.reply-card__summary.doc-md > :last-child {
+  margin-bottom: 0;
+}
+.reply-card__body {
+  color: var(--color-text);
+}
+/* Rendered markdown (T-13af) — reuse .doc-md's block treatment but at the
+   card's compact scale; not the standalone-document padding/font-size. */
+.reply-card__body.doc-md {
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.reply-card__body.doc-md > :first-child {
+  margin-top: 0;
+}
+.reply-card__body.doc-md > :last-child {
+  margin-bottom: 0;
+}
+
+/* ── quick-reply options ── */
+.reply-card__options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.reply-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: left;
+  padding: 11px 13px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.reply-option:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+/* The AI pick (options[0]) — accent-tinted so the recommendation reads first. */
+.reply-option--ai {
+  border-color: color-mix(in srgb, var(--color-accent) 35%, transparent);
+  background: var(--color-accent-cta-bg);
+  color: var(--color-accent);
+}
+.reply-option--ai:hover:not(:disabled) {
+  background: var(--color-accent-cta-bg-hover);
+}
+/* 當初選項 review mode: chips render but are not pickable (no dead-click
+ * affordance) until 重新決定 re-arms them. */
+.reply-option--static {
+  cursor: default;
+  opacity: 0.72;
+}
+.reply-option--static.reply-option--current,
+.reply-option--current {
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+}
+.reply-option__num {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1.5px solid rgba(255, 255, 255, 0.14);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-text-muted);
+}
+.reply-option--ai .reply-option__num,
+.reply-option--current .reply-option__num {
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+  color: var(--color-accent);
+}
+.reply-option__text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── tags (AI 建議 / 你選的 / 目前) ── */
+.reply-tag {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.reply-tag--ai {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+.reply-tag--pick {
+  background: var(--color-indigo);
+  color: var(--color-text-strong);
+}
+.reply-tag--current {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: var(--color-text-muted);
+}
+/* Shared by the collapsed answered stubs on BOTH inline surfaces (the chat card
+ * here + the task card via tasks.css) — lives with the other reply-tag variants
+ * since both components import replies.css. */
+.reply-tag--answered {
+  color: #6fbf73;
+  border: 1px solid color-mix(in srgb, #6fbf73 45%, transparent);
+  flex-shrink: 0;
+}
+/* The expired terminal (T-1aa4): a grey tag — deliberately NOT green (an
+ * expiry is not an answer) — shared by the 近期已處理 pane row and the inline
+ * chat/task collapsed stubs. */
+.reply-tag--expired {
+  color: var(--color-text-muted);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  flex-shrink: 0;
+}
+
+/* ── expired card: greyed terminal shell ── */
+/* The waiting card's 標為過期 button reuses .reply-card__jump (T-1aa4) so the
+ * two header actions share one outlined style and can never drift. */
+.reply-card--expired {
+  opacity: 0.72;
+}
+.reply-card__expired-note {
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+}
+
+/* ── answered card: final answer row ── */
+.reply-card__answer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 11px 13px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+}
+.reply-card__answer-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--color-text);
+  white-space: pre-wrap;
+}
+.reply-card__answer-atts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.reply-card__answer-image {
+  max-width: 120px;
+  max-height: 84px;
+  width: auto;
+  height: auto;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  object-fit: contain;
+}
+
+/* ── answered card: 查看當初選項 / 重新決定 ── */
+.reply-card__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 4px 2px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.reply-card__toggle:hover {
+  color: var(--color-text);
+}
+.reply-card__caret {
+  transition: transform 0.15s;
+}
+.reply-card__caret--open {
+  transform: rotate(90deg);
+}
+/* Collapsed stub for a not-yet-expanded answered inline chat card (owner rule
+ * 已回覆卡預設不載): one low-emphasis clickable row — caret + 已回覆 tag + the
+ * ask summary — that expands (and only then fetches) the full card. */
+.reply-card--collapsed {
+  padding: 0;
+}
+.reply-card__collapsed-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.reply-card__collapsed-row:hover {
+  color: var(--color-text);
+}
+.reply-card__collapsed-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reply-card__past {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.reply-card__hint {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+.reply-card__redecide {
+  align-self: flex-start;
+  padding: 7px 14px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: transparent;
+  color: var(--color-text);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.reply-card__redecide:hover {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+.reply-card__cancel {
+  align-self: flex-start;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.reply-card__cancel:hover {
+  color: var(--color-text);
+}
+
+/* The composer inside a card (shared chat__composer-row classes size the
+ * inputs; this only stacks the preview strip above the row). */
+.reply-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Inline answer-failure notice on the CHAT card (RepliesPage has its own page
+ * banner; the in-thread card surfaces errors on itself). */
+.reply-card__error {
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 14%, transparent);
+  color: var(--color-danger);
+  font-size: 12.5px;
+}
+
+/* ── B3: the card AS a chat bubble (聊天請示卡) ──
+ * Same card language, sized for the thread: it replaces the message bubble
+ * inside .chat__msg-content, so it needs its own width (a bubble hugs its
+ * text; a card with chips must not collapse). */
+.reply-card--chat {
+  width: min(480px, 100%);
+  padding: 13px 15px;
+  border-color: color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+
+@media (max-width: 720px) {
+  .reply-card {
+    padding: 14px;
+  }
+  /* Identity + meta wrap on a phone; the waited stamp keeps its own line. */
+  .reply-card__head {
+    flex-wrap: wrap;
+  }
+  /* Desktop `flex: 1` expands to 1 1 0% — a zero hypothetical size means the
+   * head never actually wraps and the who column gets squeezed to a few px.
+   * Basing it on content width lets flex-wrap above kick in for real. */
+  .reply-card__who {
+    flex: 1 1 auto;
+  }
+  /* On a phone the chat card takes the whole message column (the 480px cap is
+   * a desktop concern; squeezed chips wrap one character per line). */
+  .reply-card--chat {
+    width: 100%;
+  }
+}
+
+/* ---- §3.6 請示 → 任務: the 精簡任務資訊 row on a TASK-derived ask (type
+ * badge + 查看任務詳情 jump). Adjudicated: never the task number/識別鍵. ---- */
+.reply-card__task {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 2px;
+}
+.reply-card__task-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 12px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--color-text);
+}
+.reply-card__task-label {
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+.reply-card__task-jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--color-accent);
+}
+.reply-card__task-jump:hover {
+  text-decoration: underline;
+}

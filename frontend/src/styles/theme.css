@@ -1,0 +1,76 @@
+:root {
+  --color-bg: #191c24;
+  --color-card: #242832;
+  --color-border: #242832;
+  --color-text: #e7e8ee;
+  --color-text-strong: #f1f2f6;
+  --color-text-muted: #9aa0ad;
+  --color-accent: #6fd6b0;
+  --color-accent-soft: rgba(111, 214, 176, 0.12);
+  /* primary CTA (喚醒): deep-green fill + mint text, per mockup */
+  --color-accent-cta-bg: #13312a;
+  --color-accent-cta-bg-hover: #184035;
+  --color-indigo: #2c3350;
+  /* office sidebar active-tab underline (T-66a8): the mockup's blue indicator
+   * under the selected 正職/外包 tab — a saturated blue, deliberately NOT the
+   * green accent (which reads as CTA/link) nor the dark --color-indigo fill. */
+  --color-tab-active: #4c82f7;
+  /* task-id badge (T-705e): a soft periwinkle blue per owner spec — the badge
+   * is deliberately NOT the green accent (which reads as "type/link"). */
+  --color-task-id: #8ba3e6;
+  /* task-type badge (T-17be): its own teal — deliberately NOT --color-accent,
+   * which the in_progress status badge already owns; two accent-green badges
+   * side by side on the badge row read as one status pair. */
+  --color-task-type: #7fd0c4;
+  --color-dot-offline: #4a5060;
+  --color-dot-waking: #e0b341;
+  --color-dot-online: #6fd6b0;
+  /* Extended lifecycle-visual dots (layer-4 UI). Aligned with the existing
+   * --color-dot-* pattern; one per real backend presence state. online-awake
+   * reuses --color-dot-online. */
+  --color-dot-stopping: #e0873f;
+  --color-dot-stopped: #c4c8d2;
+  /* danger/error text (logout row, login error) — same on both themes */
+  --color-danger: #f0736b;
+
+  --radius-card: 11px;
+  --radius-tab: 10px;
+  --radius-pill: 999px;
+
+  --font-sans: "Schibsted Grotesk", "Noto Sans TC", system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+  /* page-level big headings — office inherits the body family; xian swaps in a
+   * calligraphic display face (see the xian block below) */
+  --font-title: var(--font-sans);
+}
+
+/* 修仙 theme — full immersive dark-ink restyle per the approved 修仙 mockup:
+ * a warm ink-brown canvas (#14100a) with parchment-gold text, jade-green
+ * accents (online / CTA), and amber for waking/warning. Body copy switches to
+ * a serif (明體) stack and page titles to the Ma Shan Zheng calligraphic face
+ * (both loaded via Google Fonts in index.html). Only this xian layer changes;
+ * the office default theme keeps every :root token untouched. The immersive
+ * *copy* is delivered via the `xian` i18n dict. */
+:root[data-theme="xian"] {
+  --color-bg: #14100a;
+  --color-card: #221a11;
+  --color-border: #41341b;
+  --color-text: #ece1c7;
+  --color-text-strong: #f8efd7;
+  --color-text-muted: #cbb585;
+  --color-accent: #8ccba8;
+  --color-accent-soft: rgba(140, 203, 168, 0.12);
+  --color-accent-cta-bg: #213021;
+  --color-accent-cta-bg-hover: #2a3c2a;
+  --color-indigo: #2c3a25;
+  /* On the warm ink canvas a saturated blue clashes; the active-tab indicator
+   * uses the jade accent so it reads as "selected" within the xian palette. */
+  --color-tab-active: #8ccba8;
+  /* slightly lighter periwinkle for contrast on the warm ink canvas */
+  --color-task-id: #a7b4d8;
+  --color-dot-online: #8ccba8;
+  --color-dot-waking: #d8a85a;
+
+  --font-sans: "Noto Serif TC", "Noto Sans TC", serif;
+  --font-title: "Ma Shan Zheng", cursive;
+}

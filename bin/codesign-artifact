@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+# officraft — sign ONE built artifact with the stable self-signed release
+# identity, IF this machine's keychain holds it; otherwise warn and leave the
+# binary exactly as built. Signing NEVER blocks a build or a deploy.
+#
+# WHY (T-33d5): macOS TCC keys permission grants to a binary's code-signing
+# identity. The Go toolchain's default adhoc signature has a different cdhash
+# every build, so each release makes ocwarden/ocagent look like a brand-new app
+# to TCC and the owner is re-prompted for every permission after every update.
+# Signing the RELEASED artifacts with one long-lived self-signed certificate
+# (stable CN + stable --identifier) gives them a stable designated requirement,
+# so TCC grants survive self-updates.
+#
+# WHERE THIS RUNS — it signs release-shaped ARTIFACTS, but the two callers are
+# NOT release-only paths (this was mis-stated here before T-da4b, and that
+# wording is what made "the release path" sound like a place that existed):
+#   - bin/build-bindist → the bindist ocwarden/ocagent that ocserverd embeds and
+#     serves to the fleet self-update loop (GET /api/{warden,agent}/binary).
+#     ALSO runs on every bin/ci.sh run and in conformance/run.sh.
+#   - bin/build         → .deploy/ocserverd (the deploy / ocrelease-publish
+#     artifact). ALSO runs on the prod host via bin/autodeploy, inside
+#     `bin/ocserver install`, and by hand on any dev Mac.
+# Hence the default MUST stay warn-and-pass: these are shared seams, and a
+# missing cert here is the normal state of every dev/CI machine. Releasing is
+# the narrow path — bin/build-release — and it is the ONE caller that turns
+# OC_CODESIGN_REQUIRE on.
+# The COMMITTED prebuilts under bin/ are NEVER signed: they stay plain
+# `go build -ldflags="-s -w"` output, so the CI committed-prebuilt parity gate
+# and rebuilds on any dev machine need no keychain. On a machine WITHOUT the
+# identity this script is a warn-and-return no-op, so repo builds and CI keep
+# working with no keychain at all.
+#
+# BUT DO NOT READ THAT AS "CI NEVER SIGNS" (T-da4b step 2 — this was mis-stated
+# here as "every dev/CI host today" lacks the identity; the CI host this repo
+# actually runs on HOLDS it). Where a dev/CI host IS provisioned, bin/ci.sh's
+# build-bindist step signs server/ocserverd/bindist/{ocwarden,ocagent} for real
+# and logs "identity CONFIRMED present in keychain". That is fine and stays
+# green — the parity gate compares the COMMITTED bin/ prebuilts, which this
+# script never touches — but "CI output is byte-identical everywhere" is FALSE:
+# it depends on whether the host holds the cert. Observed on a real green CI run
+# (grep the log for `identity CONFIRMED` outside the bin/tests section). The
+# hermetic tests in bin/tests/run.sh PATH-shim `security`, so they assert the
+# same result on provisioned and bare hosts alike.
+#
+# usage: codesign-artifact <binary> <identifier>
+#   e.g. codesign-artifact server/ocserverd/bindist/ocwarden com.officraft.ocwarden
+#
+# knobs (env):
+#   OC_CODESIGN_IDENTITY   keychain identity CN (default "OffiCraft Code Signing")
+#   OC_CODESIGN_DISABLE=1  skip signing even when the identity exists
+#   OC_CODESIGN_REQUIRE=1  the identity is MANDATORY: a missing identity is a hard
+#                          error (exit 4) instead of an adhoc-shipping warning.
+#                          bin/build-release is the one caller that sets it
+#                          (owner ruling rc-e43a3aae0912 — block at release, do
+#                          not ship without the cert), because silently shipping
+#                          adhoc defeats the whole point of T-33d5. Default off,
+#                          so dev/CI machines without the cert still build.
+#
+# exit codes:
+#   0  signed, or a deliberate/benign no-op (non-darwin, disabled, identity absent
+#      while OC_CODESIGN_REQUIRE is off, sign/verify failed while REQUIRE is off
+#      → original kept)
+#   1  usage / no such file
+#   3  FAIL-CHECK-BROKEN — the identity check itself could not be trusted
+#   4  FAIL-IDENTITY-MISSING — identity absent while OC_CODESIGN_REQUIRE=1
+#   5  FAIL-SIGN-FAILED — identity PRESENT but sign/verify failed while
+#      OC_CODESIGN_REQUIRE=1 (locked keychain / expired cert). Every way of
+#      ending up with adhoc bytes must be blocked under REQUIRE, not just the
+#      missing-identity one — otherwise the release still ships adhoc, which is
+#      the whole point of the ticket.
+#
+# One-time release-machine provisioning: bash bin/setup-codesign-cert
+set -euo pipefail
+
+BIN="${1:?usage: codesign-artifact <binary> <identifier>}"
+IDENT="${2:?usage: codesign-artifact <binary> <identifier>}"
+IDENTITY="${OC_CODESIGN_IDENTITY:-OffiCraft Code Signing}"
+
+if [[ ! -f "$BIN" ]]; then
+  echo "[codesign-artifact] no such file: $BIN" >&2
+  exit 1
+fi
+if [[ "${OC_CODESIGN_DISABLE:-0}" == "1" ]]; then
+  echo "[codesign-artifact] disabled (OC_CODESIGN_DISABLE=1) — leaving $BIN as built"
+  exit 0
+fi
+if [[ "$(uname -s)" != "Darwin" ]]; then
+  echo "[codesign-artifact] non-darwin host — leaving $BIN as built"
+  exit 0
+fi
+# Identity check: COLLECT FIRST, THEN COMPARE (T-da4b).
+#
+# The old form was `security find-identity ... | grep -Fq "\"$IDENTITY\""`.
+# `grep -Fq` exits at the FIRST match and closes the pipe; if `security` is
+# still writing, it takes SIGPIPE and exits 141, and `set -o pipefail` makes
+# THAT the pipeline's rc — so `if !` reads a PRESENT identity as ABSENT and the
+# artifact silently ships adhoc. Collecting the whole output into a variable
+# first means nothing can close the pipe early, so the comparison can only ever
+# reflect the keychain's real contents.
+SEC_OUT=""
+SEC_RC=0
+SEC_OUT="$(security find-identity -v -p codesigning 2>/dev/null)" || SEC_RC=$?
+
+# A check that MALFUNCTIONED must never be read as "identity absent" — that is
+# the exact failure this ticket exists to kill. `security` prints a trailing
+# "N valid identities found" on every well-formed answer (including N=0), so its
+# absence means we did not get an answer at all. Hard-fail regardless of any
+# opt-out: a broken sentinel must be loud, never a silent downgrade.
+if [[ "$SEC_RC" != "0" ]] || [[ "$SEC_OUT" != *"valid identities found"* ]]; then
+  echo "[codesign-artifact] FAIL-CHECK-BROKEN: could not read the codesigning identity list" >&2
+  echo "[codesign-artifact]   (security find-identity rc=$SEC_RC, output not well-formed)." >&2
+  echo "[codesign-artifact]   Refusing to guess — this is NOT treated as \"identity absent\"." >&2
+  exit 3
+fi
+
+if [[ "$SEC_OUT" == *"\"$IDENTITY\""* ]]; then
+  # POSITIVE marker. A sentinel that only speaks when it fails is indistinguishable
+  # from a sentinel that is itself broken (lesson #44: "the bad thing stopped" and
+  # "we stopped being able to see it" look identical). Say so on the good path too,
+  # so a release log can PROVE the check ran and passed.
+  echo "[codesign-artifact] identity CONFIRMED present in keychain: \"$IDENTITY\""
+else
+  # Identity genuinely absent — the check ran and gave a clean answer.
+  if [[ "${OC_CODESIGN_REQUIRE:-0}" == "1" ]]; then
+    echo "[codesign-artifact] FAIL-IDENTITY-MISSING: codesigning identity \"$IDENTITY\" is not in the keychain," >&2
+    echo "[codesign-artifact]   and OC_CODESIGN_REQUIRE=1 forbids the adhoc fallback." >&2
+    echo "[codesign-artifact]   $BIN would ship ADHOC-signed (TCC grants would NOT survive updates)." >&2
+    echo "[codesign-artifact]   provision this release machine once with: bash bin/setup-codesign-cert" >&2
+    exit 4
+  fi
+  echo "[codesign-artifact] WARNING: codesigning identity \"$IDENTITY\" not in the keychain;"
+  echo "[codesign-artifact]          $BIN ships ADHOC-signed (TCC grants will NOT survive updates)."
+  echo "[codesign-artifact]          provision a release machine once with: bash bin/setup-codesign-cert"
+  exit 0
+fi
+
+# Sign a COPY, verify it, and only then atomically replace the original — a
+# failed sign/verify (e.g. a locked keychain under launchd) keeps the working
+# adhoc binary and warns instead of blocking the deploy ON A DEV MACHINE.
+TMP="$(mktemp "$(dirname "$BIN")/.$(basename "$BIN").codesign.XXXXXX")"
+trap 'rm -f "$TMP"' EXIT
+cp "$BIN" "$TMP"
+# --timestamp=none: a self-signed identity cannot obtain an Apple secure
+# timestamp; be explicit so codesign never stalls on the timestamp service.
+if ! codesign --force --sign "$IDENTITY" --identifier "$IDENT" --timestamp=none "$TMP" ||
+   ! codesign --verify --strict "$TMP"; then
+  # T-da4b review: a DOWNGRADE NEEDS A SENTINEL TOO. Reaching here means the
+  # identity IS present (we just printed "CONFIRMED present") but signing it
+  # failed — a locked login keychain, an expired cert, a revoked key. Keeping
+  # the original bytes means shipping ADHOC, which is the exact outcome the
+  # owner ruled must never leave a release (rc-e43a3aae0912). The identity
+  # check was hard-blocked under REQUIRE=1 while THIS door stayed open, so a
+  # release could still ship adhoc with a green log — and bin/build-release's
+  # own header promises the opposite ("releases will one day stop here … login
+  # keychain locked"). Honour REQUIRE here so that promise is true.
+  if [[ "${OC_CODESIGN_REQUIRE:-0}" == "1" ]]; then
+    echo "[codesign-artifact] FAIL-SIGN-FAILED: the identity \"$IDENTITY\" IS in the keychain but" >&2
+    echo "[codesign-artifact]   signing/verifying $BIN FAILED, and OC_CODESIGN_REQUIRE=1 forbids" >&2
+    echo "[codesign-artifact]   falling back to the adhoc build." >&2
+    echo "[codesign-artifact]   $BIN would ship ADHOC-signed (TCC grants would NOT survive updates)." >&2
+    echo "[codesign-artifact]   is the login keychain unlocked / the cert still valid? see bin/setup-codesign-cert" >&2
+    exit 5
+  fi
+  echo "[codesign-artifact] WARNING: signing/verify FAILED for $BIN — keeping the unsigned build" >&2
+  echo "[codesign-artifact]          (is the login keychain unlocked? see bin/setup-codesign-cert)" >&2
+  exit 0
+fi
+chmod 0755 "$TMP"
+mv -f "$TMP" "$BIN"
+trap - EXIT
+echo "[codesign-artifact] signed $BIN as \"$IDENTITY\" (identifier $IDENT)"

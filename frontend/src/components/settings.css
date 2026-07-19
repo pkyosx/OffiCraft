@@ -1,0 +1,1068 @@
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 12px;
+}
+
+/* Honest load-failure banner (never a silent empty role journal). */
+.set-error {
+  padding: 10px 14px;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-danger);
+  background: var(--color-card);
+  color: var(--color-danger);
+  font-size: 13px;
+}
+
+.settings__title {
+  margin: 4px 2px 6px;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-text-strong);
+  font-family: var(--font-title);
+}
+.settings__title--doc {
+  margin-top: 2px;
+  font-size: 24px;
+}
+
+/* ── breadcrumbs (T-8f6e unified settings navigation) — generalized from the
+ * 任務手冊 detail page's crumbs: 「設定 › 子頁 › …」 heads EVERY settings page
+ * (each segment clickable back up the tree; the trailing segment is the
+ * current page), with the page title directly below. No back button. ── */
+.crumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 10px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+.crumbs__seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.crumbs__link {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.crumbs__link:hover {
+  color: var(--color-text);
+  text-decoration: underline;
+}
+.crumbs__sep {
+  color: rgba(255, 255, 255, 0.25);
+}
+.crumbs__here {
+  color: var(--color-text);
+}
+
+/* grey small-caps group labels (角色誌 zones) */
+.set-group-label {
+  padding: 6px 2px 2px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+/* ── entry rows (landing + roles-log) ── */
+.set-entries {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.set-entry {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 16px 18px;
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--color-card);
+  color: var(--color-text);
+  text-align: left;
+  transition: background 0.15s, border-color 0.15s;
+}
+.set-entry:hover {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.09);
+}
+
+/* rounded icon tile — colour keyed per entry, per mockup */
+.set-entry__icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border-radius: 11px;
+  color: var(--color-text);
+}
+.set-entry__icon--neutral {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-text-muted);
+}
+.set-entry__icon--violet {
+  background: rgba(139, 122, 232, 0.16);
+  color: #a99cf0;
+}
+.set-entry__icon--blue {
+  background: rgba(96, 133, 224, 0.16);
+  color: #8fabf0;
+}
+
+.set-entry__body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+.set-entry__name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.set-entry__sub {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.set-entry__chev {
+  margin-left: auto;
+  flex: none;
+  color: var(--color-text-muted);
+}
+
+/* "預設" (seed) status pill */
+.set-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 19px;
+  padding: 0 9px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  border: 1px solid rgba(154, 160, 173, 0.3);
+}
+
+/* ── 軟體更新 card ── */
+.sw-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--color-card);
+}
+.sw-card__main {
+  min-width: 0;
+}
+.sw-card__label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--color-text-muted);
+}
+/* Two-line layout (owner round-3 final): the unified version label
+ * (v<yymmdd>-<hhmm>-<shortsha>) headlines at the primary size, with the
+ * human-readable commit time as the single secondary row below. */
+.sw-build {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+.sw-build__headline {
+  line-height: 1.2;
+}
+.sw-build__version {
+  font-family: "SFMono-Regular", ui-monospace, Menlo, monospace;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--color-text-strong);
+}
+.sw-build__time {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+.sw-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 21px;
+  margin-top: 10px;
+  padding: 0 10px;
+  border-radius: var(--radius-pill);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.sw-badge--ok {
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+  border: 1px solid rgba(111, 214, 176, 0.25);
+}
+.sw-badge--new {
+  color: var(--color-text-strong);
+  background: var(--color-indigo);
+}
+.sw-upgrade {
+  flex: none;
+}
+/* Post-trigger restart notice: the swap landed, the server is re-exec'ing —
+ * the page reloads by itself once the new build answers. */
+.sw-restarting {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+/* ── doc detail card (global context / role def) ── */
+.doc-card {
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--color-card);
+}
+.doc-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+/* Head-left slot: badge only — the filename chip is gone (docs are presented
+ * as content, not files; internal .md names are implementation detail). */
+.doc-card__file {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.doc-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.doc-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: transparent;
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+}
+.doc-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.04);
+}
+.doc-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.doc-btn--edit {
+  color: var(--color-accent);
+  border-color: rgba(111, 214, 176, 0.35);
+  background: var(--color-accent-soft);
+}
+.doc-btn--edit:hover:not(:disabled) {
+  background: rgba(111, 214, 176, 0.2);
+}
+.doc-btn--accent {
+  color: var(--color-accent);
+  border-color: rgba(111, 214, 176, 0.35);
+  background: var(--color-accent-cta-bg);
+  font-weight: 600;
+}
+.doc-btn--accent:hover:not(:disabled) {
+  background: var(--color-accent-cta-bg-hover);
+}
+
+.doc-card__body {
+  padding: 4px 20px 8px;
+}
+
+/* raw-markdown editor */
+.doc-editor {
+  width: 100%;
+  min-height: 320px;
+  margin: 14px 0;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(111, 214, 176, 0.3);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: "SFMono-Regular", ui-monospace, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.7;
+  resize: vertical;
+  outline: none;
+}
+
+/* ── rendered markdown ── */
+.doc-md {
+  padding: 8px 0 14px;
+  font-size: 14px;
+  line-height: 1.75;
+  color: var(--color-text);
+}
+.doc-md h1 {
+  margin: 18px 0 10px;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--color-text-strong);
+}
+.doc-md h2 {
+  margin: 20px 0 8px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-text-strong);
+}
+.doc-md h3 {
+  margin: 16px 0 6px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-text-strong);
+}
+.doc-md p {
+  margin: 10px 0;
+}
+.doc-md ul,
+.doc-md ol {
+  margin: 8px 0;
+  padding-left: 22px;
+}
+.doc-md li {
+  margin: 4px 0;
+}
+.doc-md blockquote {
+  margin: 10px 0;
+  padding: 8px 14px;
+  border-left: 3px solid rgba(111, 214, 176, 0.4);
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 0 8px 8px 0;
+  color: var(--color-text-muted);
+}
+.doc-md pre {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 10px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.doc-md pre code {
+  padding: 0;
+  background: none;
+}
+.doc-md code {
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  font-family: "SFMono-Regular", ui-monospace, Menlo, monospace;
+  font-size: 0.88em;
+  color: var(--color-accent);
+}
+.doc-md a {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+.doc-md h1:first-child,
+.doc-md h2:first-child {
+  margin-top: 6px;
+}
+
+@media (max-width: 720px) {
+  .sw-card {
+    flex-wrap: wrap;
+  }
+  .doc-card__head {
+    flex-wrap: wrap;
+  }
+}
+
+/* ── 角色定義: 新增 / 刪除 (M2-2) ─────────────────────────────────────────── */
+/* A role row = the navigable entry + an optional overlaid delete affordance
+ * (custom roles only). The wrapper exists because a <button> cannot nest a
+ * button; the entry keeps its full-width click surface. Action layout (owner
+ * feedback): the chevron is pinned at the row's RIGHT EDGE (set-entry's own
+ * margin-left:auto chevron) and the trash icon button sits just LEFT of it.
+ * The delete CONFIRM is a centered modal (ConfirmModal), not inline. */
+.set-entry-row__main {
+  position: relative;
+}
+.set-entry-row .set-entry {
+  width: 100%;
+  /* keep the row text clear of the overlaid trash button + chevron */
+  padding-right: 84px;
+}
+/* The 84px text-clearance padding also pushes the flex-anchored chevron 84px
+ * in from the edge — landing it LEFT of the trash button (right:44px) and
+ * reversing the intended order. Pin the chevron absolutely at the TRUE right
+ * edge instead; the trash button stays to its left. */
+.set-entry-row .set-entry__chev {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.set-entry-row__delete {
+  position: absolute;
+  right: 44px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid rgba(224, 122, 122, 0.35);
+  background: transparent;
+  color: #e07a7a;
+  transition: background 0.15s, border-color 0.15s;
+}
+.set-entry-row__delete:hover {
+  background: rgba(224, 122, 122, 0.12);
+}
+/* The add ENTRY itself is the shared `.add-entry` row (styles/global.css). */
+/* Inline create ROW (owner-aligned pattern): the add entry grows one editable
+ * list row with a single name input — Enter creates, Esc collapses. */
+.set-add-inline {
+  cursor: default;
+  gap: 10px;
+}
+.set-add-inline__input {
+  flex: 1;
+  min-width: 0;
+  background: #191c24;
+  color: #e7e8ee;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+}
+
+/* ── 參數調整 (server parameters, moved here from the profile dropdown) ───────
+ * One card, one row per knob: name + one-line explanation on the left, the
+ * control pinned right — same card chrome as .sw-card / .doc-card, and the
+ * select/input chrome mirrors the old .profile-dd__select/__input it replaces. */
+.param-card {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--color-card);
+}
+
+.param-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 18px;
+}
+.param-row + .param-row {
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.param-row__body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+.param-row__name {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.param-row__sub {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.param-select,
+.param-input {
+  flex: none;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.param-select:focus,
+.param-input:focus {
+  border-color: var(--color-accent);
+}
+.param-select {
+  min-width: 120px;
+}
+
+.param-pct {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.param-input {
+  width: 88px;
+}
+.param-pct__sign {
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+/* updater-server config fields (軟體更新): URL / invite code are real text
+ * inputs — override the numeric fields' narrow 88px default. */
+.param-input--wide {
+  width: 260px;
+  max-width: 100%;
+}
+
+/* save/range error line — reuses the .set-error banner inside the card */
+.param-error {
+  margin: 0 18px 16px;
+}
+
+@media (max-width: 720px) {
+  .param-row {
+    flex-wrap: wrap;
+  }
+  /* The 260px text inputs (更新伺服器位址 / 邀請碼) otherwise starve the label
+     column: param-row__body (flex:1 min-width:0) absorbs all the shrink, the
+     row never overflows, flex-wrap never fires, and the CJK label collapses to
+     a one-character-per-line stack. Force the wide input onto its own row so
+     the label keeps the full width above it. */
+  .param-input--wide {
+    flex-basis: 100%;
+    width: 100%;
+  }
+}
+
+/* ---- 任務手冊 (SPEC §5): list + tabbed detail (任務定義 / 學習經驗) +
+ * 負責成員 card. Reuses the doc-card / set-entry silhouettes; only the
+ * manual-specific interior gets new classes. ---- */
+.manual-key {
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+.manuals-empty {
+  padding: 18px 6px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+.manual-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 14px;
+}
+.manual-tab {
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: none;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+.manual-tab--active {
+  color: var(--color-text-strong);
+  background: var(--color-card);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.manual-def {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+/* The single edit switch for the whole task-definition area (owner T-8a4a r3):
+ * 編輯 in read-only, 取消/完成編輯 while editing — right-aligned above §1. */
+.manual-def__head {
+  display: flex;
+  justify-content: flex-end;
+  min-height: 30px;
+  margin-bottom: -8px;
+}
+/* Read-only purpose paragraph (§1 default view). */
+.manual-readonly-text {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--color-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* Read-only field row (§2 default view): name at the flex start, badges after. */
+.manual-field--view {
+  cursor: default;
+}
+.manual-field__name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+.manual-field--view .manual-pill {
+  cursor: default;
+}
+/* 顯示名稱 renaming moved onto the hub title (owner T-8a4a — the InlineEdit
+ * pencil, same as the 角色設定 role title); the ex-.manual-name-field labelled
+ * field is gone. */
+/* ---- 任務定義 three numbered sections (T-8a4a, mockup att-fed0a5a3d1fa) ----
+ * The section is padded 38px so every body element (full-width textarea, field
+ * list, SOP card) aligns under the title, past the 28px numbered tile + 10px
+ * gap; the head is pulled back the same 38px so the tile sits at the margin.
+ * Padding (not per-element margin) keeps width:100% children from overflowing. */
+.manual-sec {
+  display: flex;
+  flex-direction: column;
+  padding-left: 38px;
+}
+.manual-sec__head {
+  margin-left: -38px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+/* The numbered rounded-square block — a dark indigo tile with a light numeral,
+ * per the spec (deliberately squarer + larger than the old round pip). */
+.manual-sec__num {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--color-indigo);
+  color: var(--color-text-strong);
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.manual-sec__title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-text-strong);
+}
+.manual-sec__aside {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.manual-sec__sub {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-text-muted);
+}
+.manual-q__hint {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+.manual-q__empty {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+.manual-input {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 13px;
+}
+.manual-input--purpose {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  /* Bigger by default (owner T-8a4a r3 — long purpose text is common); the JS
+   * autosize grows it further to fit content so there is no inner scrollbar. */
+  min-height: 140px;
+  box-sizing: border-box;
+  overflow: hidden;
+  line-height: 1.7;
+  resize: vertical;
+  font-family: inherit;
+}
+.manual-input--sop {
+  margin-top: 8px;
+}
+.manual-fields {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.manual-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+}
+.manual-field__name-input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+/* Toggle badges (§2). Resting = muted outline (the toggle is OFF); the ON state
+ * fills with the semantic colour — 必填 amber, 🔑識別鍵 green — per the spec. */
+.manual-pill {
+  flex: none;
+  padding: 4px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: none;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.manual-pill--required.manual-pill--on {
+  color: #e0b341;
+  border-color: color-mix(in srgb, #e0b341 55%, transparent);
+  background: color-mix(in srgb, #e0b341 14%, transparent);
+}
+.manual-pill--key.manual-pill--on {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+}
+.manual-field__remove {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.manual-field__remove:hover {
+  color: var(--color-danger);
+  background: rgba(255, 255, 255, 0.04);
+}
+.manual-add-field {
+  align-self: flex-start;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  background: none;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+.manual-add-field:hover {
+  color: var(--color-text);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+/* §3 SOP card — reuses the .doc-card chrome. The head-left filename chip was
+ * removed (owner T-8a4a): the SOP is content in the DB, not a file, so the
+ * head keeps only the empty spacer + the right-aligned 編輯 action. */
+.manual-sop-card {
+  margin-top: 12px;
+}
+/* ---- 任務手冊 hub (mockup 2026-07-13): breadcrumb (the shared .crumbs),
+ * entry cards, the 負責成員 summary card + the member-panel-style assignee
+ * editor. ---- */
+
+.manual-section-label {
+  margin: 22px 0 10px;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+
+/* 任務規劃 accordion: header is the existing manual-entry button; its
+ * chevron rotates on open and the editor mounts in the body below. */
+.manual-entry__caret {
+  transition: transform 0.15s ease;
+}
+.manual-entry__caret--open {
+  transform: rotate(90deg);
+}
+.manual-accordion__body {
+  margin: 8px 0 14px;
+}
+
+.set-entry__icon--purple {
+  background: rgba(139, 122, 232, 0.16);
+  color: #a99cf0;
+}
+
+/* the 負責成員 summary card (hub top) */
+.manual-assignee-card {
+  margin-top: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-card);
+  padding: 16px 18px;
+}
+.manual-assignee-card__row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.manual-assignee-card__icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border-radius: 12px;
+  background: rgba(224, 176, 96, 0.14);
+  color: #e0b060;
+}
+.manual-assignee-card__icon--member {
+  background: rgba(96, 133, 224, 0.16);
+  color: #8fabf0;
+}
+.manual-assignee-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+.manual-assignee-card__sub {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+.manual-assignee-card__value {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-text-strong);
+}
+
+/* the panel-style editor (expands in place) */
+.manual-assignee-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.manual-assignee-editor__section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.manual-assignee-editor__label {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+.manual-assignee-editor__note {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.manual-assignee-editor__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.manual-assignee-editor__clear {
+  margin-right: auto;
+}
+.manual-assignee__model {
+  min-width: 220px;
+}
+
+/* full-width segmented control (指定成員/外包 · 模型 · 投入程度) */
+.manual-seg {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.manual-seg__cell {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: none;
+  color: var(--color-text-muted);
+  font-size: 13.5px;
+  cursor: pointer;
+  text-align: center;
+}
+.manual-seg__cell:hover {
+  color: var(--color-text);
+}
+.manual-seg__cell--active {
+  background: rgba(96, 118, 186, 0.28);
+  border-color: rgba(120, 140, 200, 0.55);
+  color: var(--color-text-strong);
+  font-weight: 600;
+}
+
+/* pick list (成員 / 機器): row = check + name + right state text */
+.manual-pick-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.manual-pick-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--color-text);
+  font-size: 13.5px;
+  cursor: pointer;
+  text-align: left;
+}
+.manual-pick-row--active {
+  background: rgba(96, 118, 186, 0.22);
+  border-color: rgba(120, 140, 200, 0.55);
+}
+.manual-pick-row__check {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border-radius: 5px;
+  border: 1.5px solid rgba(255, 255, 255, 0.3);
+  display: grid;
+  place-items: center;
+}
+.manual-pick-row__check--on {
+  border-color: transparent;
+  background: #7d90d8;
+}
+.manual-pick-row__check--on::after {
+  content: "✓";
+  font-size: 12px;
+  color: #10131b;
+  font-weight: 700;
+}
+.manual-pick-row__name {
+  font-weight: 600;
+  color: var(--color-text-strong);
+  min-width: 0;
+  flex: 1;
+}
+.manual-pick-row__state {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+/* member row's role label — same secondary-text voice as the machine list's
+ * right-side state text; ellipsize so long custom-role titles never break the
+ * row on narrow (mobile) widths. */
+.manual-pick-row__role {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.manual-pick-row__state--idle {
+  color: var(--color-online, #6fd6b0);
+}
+.manual-pick-row__state--busy {
+  color: #e0b060;
+}
+.manual-pick-row__state--offline {
+  color: var(--color-text-muted);
+}
+
+/* ── software update: dual-channel toggles ── */
+/* settings-local switch (mirrors the member-panel mp-toggle look, kept local
+   so the settings page never leans on another panel's stylesheet) */
+.set-toggle {
+  flex: none;
+  position: relative;
+  width: 40px;
+  height: 22px;
+  border-radius: 11px;
+  border: none;
+  background: rgba(255, 255, 255, 0.16);
+  cursor: pointer;
+  transition: background 0.18s;
+}
+.set-toggle--on {
+  background: #34c759;
+}
+.set-toggle:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.set-toggle__knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.18s;
+}
+.set-toggle--on .set-toggle__knob {
+  transform: translateX(18px);
+}
+
+/* ── verified-save read-back (T-1c2e; lives in the 軟體更新 card after the
+ * rework: the invite-code set/unset badge + the auto-update commit's
+ * read-back verdict line) ──────────────────────────────────────────────────
+ * secret badge: the ON (已設定) state borrows the ok green — the value itself
+ * never renders (the wire only carries the set/unset bit). */
+.set-badge--on {
+  color: var(--color-ok, #6fd6b0);
+  border-color: color-mix(in srgb, #6fd6b0 45%, transparent);
+}
+/* save feedback line — the read-back verdict under the card rows */
+.config-status {
+  margin: 0 18px 16px;
+  font-size: 13px;
+}
+.config-status--saving {
+  color: var(--color-text-muted);
+}
+.config-status--ok {
+  color: var(--color-ok, #6fd6b0);
+}

@@ -1,0 +1,83 @@
+/* ConfirmModal — the shared centered confirm dialog (overlay + card).
+ * Self-contained (own button styles) so any page can use it without pulling
+ * a page-scoped stylesheet. Mirrors the mon-confirm / machine-picker design
+ * language: dim overlay, --color-card box, right-aligned actions. */
+.confirm-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(10, 12, 18, 0.62);
+}
+.confirm-modal__box {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px 22px;
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--color-card);
+}
+.confirm-modal__box--danger {
+  border-color: rgba(224, 122, 122, 0.35);
+}
+.confirm-modal__body {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--color-text);
+}
+.confirm-modal__error {
+  padding: 10px 14px;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-danger);
+  color: var(--color-danger);
+  font-size: 13px;
+}
+.confirm-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.confirm-modal__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: transparent;
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+}
+.confirm-modal__btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.04);
+}
+.confirm-modal__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.confirm-modal__btn--accent {
+  color: var(--color-accent);
+  border-color: rgba(111, 214, 176, 0.35);
+  font-weight: 600;
+}
+.confirm-modal__btn--accent:hover:not(:disabled) {
+  background: rgba(111, 214, 176, 0.12);
+}
+.confirm-modal__btn--danger {
+  color: #e07a7a;
+  border-color: rgba(224, 122, 122, 0.35);
+  font-weight: 600;
+}
+.confirm-modal__btn--danger:hover:not(:disabled) {
+  background: rgba(224, 122, 122, 0.12);
+}

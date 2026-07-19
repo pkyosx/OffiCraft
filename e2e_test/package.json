@@ -1,0 +1,12 @@
+{
+  "name": "officraft-e2e",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Isolated end-to-end smoke suite for officraft (setup -> e2e*N -> teardown).",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1"
+  }
+}

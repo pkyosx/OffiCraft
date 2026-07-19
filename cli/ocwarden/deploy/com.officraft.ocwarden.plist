@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  officraft — EXECUTION-plane warden (golang) launchd job TEMPLATE.
+
+  Label `com.officraft.ocwarden` is the CANONICAL warden label. It is distinct
+  from the retired python daemons' labels (`com.officraft.warden` pull warden,
+  `com.officraft.telemetry` telemetry warden), so the flip installs ONE final
+  label with no coexistence-window collision: launchd cannot load two jobs under
+  one label, and choosing a fresh canonical name (rather than recycling the old
+  `com.officraft.warden`) means the golang job can be bootstrapped WHILE the
+  python jobs still run, then — and only then — the python jobs are booted out.
+  The brief pull+push overlap is idempotent (tmux clobber-guard on spawn,
+  isMemberSession gate on kill). See cli/ocwarden/CUTOVER.md.
+
+  Own log files (ocwarden.*) — NOT the python jobs' warden.* — so nothing
+  interleaves writes during the coexistence window.
+
+  BUILD-TO-READY, NOT INSTALLED. This file lives in-repo as a reviewable template;
+  it is NOT copied into ~/Library/LaunchAgents until the gated flip.
+
+  REFERENCE TEMPLATE — NOT installed verbatim. The __ROOT__ / __OC_BASE__ / __HOME__
+  tokens below are placeholders. The AUTHORITATIVE renderer is `ocwarden install`
+  (renderPlist in cli/ocwarden/install.go; the flip-era bash bin/warden-install is
+  retired), which substitutes the real per-machine repo ROOT, OC_BASE and HOME at install time
+  and writes the result to ~/Library/LaunchAgents/com.officraft.ocwarden.plist.
+  This file is therefore never `cp`'d as-is (it would fail to launch: __ROOT__ is not
+  a path) — it exists to document the shape a reviewer signs off on. There is ONE
+  path truth: the installer; this template deliberately holds no real path.
+
+  Execs the self-contained binary bin/ocwarden DIRECTLY (the former bin/warden-go
+  wrapper is folded in): the binary reads OC_WARDEN_TOKFILE to resolve the
+  execution-plane warden token/id itself, then the command reader starts
+  unconditionally. Distinct from com.officraft.telemetry (hardware telemetry).
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.officraft.ocwarden</string>
+    <key>ProgramArguments</key>
+    <array><string>__ROOT__/bin/ocwarden</string><string>run</string></array>
+    <key>WorkingDirectory</key><string>__ROOT__</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key><string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>OC_BASE</key><string>__OC_BASE__</string>
+        <key>HOME</key><string>__HOME__</string>
+        <key>OC_WARDEN_TOKFILE</key><string>__HOME__/.officraft/warden/exec-warden.tok</string>
+        <!-- CONDITIONAL (renderPlist): OC_NAMESPACE for a namespaced instance, and
+             OC_CLAUDE_BIN when the install resolved a claude executable — the
+             minimal launchd PATH above cannot re-find a version-manager claude at
+             runtime, so the installer stamps the absolute path here (and swaps
+             PATH for the installer's PATH when claude is a shim that needs it).
+        <key>OC_CLAUDE_BIN</key><string>__CLAUDE_BIN__</string>
+        -->
+    </dict>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>ThrottleInterval</key><integer>10</integer>
+    <key>StandardOutPath</key><string>__ROOT__/var/log/ocwarden.out.log</string>
+    <key>StandardErrorPath</key><string>__ROOT__/var/log/ocwarden.err.log</string>
+</dict>
+</plist>

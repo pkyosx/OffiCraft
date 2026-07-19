@@ -1,0 +1,693 @@
+.monitor {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 12px;
+  /* overheated / danger accent (mockup red dot + red 7-day bar) */
+  --color-hot: #e8705f;
+  --color-hot-soft: rgba(232, 112, 95, 0.16);
+  --color-warn: #e0b341;
+}
+
+/* inline-rename failure banner (e.g. server 422 on a blank name) */
+.mon-error {
+  padding: 10px 14px;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-hot);
+  background: var(--color-hot-soft);
+  color: var(--color-hot);
+  font-size: 13px;
+}
+
+/* grey small-caps section labels, per mockup */
+.mon-section__title {
+  padding: 0 2px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.mon-empty {
+  padding: 20px;
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--color-card);
+  font-size: 13.5px;
+  color: var(--color-text-muted);
+}
+
+/* ── §1 account cards ── */
+.mon-accounts {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.mon-acct {
+  padding: 16px 20px 18px;
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--color-card);
+}
+.mon-acct__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.mon-acct__id {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.mon-acct__name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.mon-acct__cost {
+  flex: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.mon-dot--hot {
+  background: var(--color-hot) !important;
+}
+
+.mon-usage + .mon-usage {
+  margin-top: 14px;
+}
+.mon-usage__label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 7px;
+  font-size: 12.5px;
+}
+.mon-usage__window {
+  font-weight: 600;
+  color: var(--color-text);
+}
+.mon-usage__stats {
+  color: var(--color-text-muted);
+}
+.mon-usage__hot {
+  color: var(--color-hot);
+  font-weight: 600;
+}
+.mon-usage__track {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+.mon-usage__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  background: var(--color-accent);
+}
+.mon-usage__fill--hot {
+  background: var(--color-hot);
+}
+.mon-usage__marker {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 2px;
+  transform: translateX(-1px);
+  background: var(--color-text-strong);
+  opacity: 0.5;
+}
+
+/* ── §2 / §3 tables ── */
+.mon-table-wrap {
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--color-card);
+  overflow-x: auto;
+}
+.mon-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.mon-table th {
+  padding: 13px 16px;
+  text-align: right;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.mon-table td {
+  padding: 14px 16px;
+  text-align: right;
+  color: var(--color-text);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.mon-table tbody tr + tr td {
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+.mon-table__left {
+  text-align: left !important;
+}
+.mon-table__strong {
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.mon-muted {
+  color: var(--color-text-muted);
+}
+
+.mon-row--clickable {
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.mon-row--clickable:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* session member cell */
+.mon-member {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+.mon-member__name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.mon-member__sub {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+/* Shared presence badge (PresenceBadge) on the session rows — see member-detail
+   .css for the canonical rule; repeated here so the badge is styled even when the
+   detail panel (which also loads it) has not been opened this session. */
+.presence-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.presence-badge__sub {
+  color: var(--color-text-muted);
+}
+
+.mon-model {
+  color: var(--color-text);
+}
+.mon-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 19px;
+  margin-left: 8px;
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* ── mobile: stack the two wide tables (§2 機器 / §3 AI 會話) into cards ──
+ * The desktop <table> can only scroll horizontally, and that scroll is not
+ * discoverable on a phone (right-most columns get clipped). At ≤720px each row
+ * becomes a card and each cell a "label : value" line, so nothing is truncated.
+ * ALL rules live inside this @media block — desktop (>720px) is untouched.
+ * Column labels come from data-label (real i18n header text) via ::before. */
+@media (max-width: 720px) {
+  /* the wrap's card frame + horizontal scroll are for the desktop table; on
+   * mobile each row carries its own card, so drop them (no phantom scroll) */
+  .mon-table-wrap {
+    border: none;
+    background: none;
+    overflow-x: visible;
+  }
+
+  .mon-table {
+    display: block;
+    width: 100%;
+    font-size: 13.5px;
+  }
+
+  /* headers are redundant once every cell prints its own data-label */
+  .mon-table thead {
+    display: none;
+  }
+
+  .mon-table tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  /* each data row → one card (var-driven colours, dual-theme safe) */
+  .mon-table tr {
+    display: block;
+    padding: 4px 16px;
+    border-radius: var(--radius-card);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: var(--color-card);
+  }
+
+  /* desktop's row-separator rule is redundant between free-standing cards */
+  .mon-table tbody tr + tr td {
+    border-top: none;
+  }
+
+  /* each cell → a label:value line; long values (e.g. model name) wrap, never
+   * clip. text-align reset from the desktop right/left rules. */
+  .mon-table td,
+  .mon-table__left {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 11px 0;
+    text-align: left !important;
+    white-space: normal;
+  }
+
+  /* hairline between cells inside a card (not above the first) */
+  .mon-table td + td {
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
+  }
+
+  /* left key = the real i18n header text carried on data-label */
+  .mon-table td::before {
+    content: attr(data-label);
+    flex: none;
+    /* absorb the free space so the value group aligns to the right edge on
+     * every row — incl. the 3-item model cell (model name + effort badge),
+     * keeping value alignment consistent with the single-value rows */
+    margin-right: auto;
+    color: var(--color-text-muted);
+    font-weight: 600;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  /* the §3 member cell is an avatar+name block — keep it hugging the right */
+  .mon-table .mon-member {
+    flex: 1;
+    justify-content: flex-end;
+    text-align: right;
+  }
+}
+
+/* ── machine lifecycle: onboard (新增機器 / 上線) + teardown (拆除) ──────────── */
+
+/* section header row: title on the left, the "新增機器 / 上線" entry on the right */
+.mon-section__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px 12px;
+}
+.mon-section__head .mon-section__title {
+  padding: 0;
+}
+
+/* machine online/offline badge (machines panel — sourced from GET /api/machines) */
+.mon-online {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.mon-online--on {
+  color: var(--color-accent);
+}
+.mon-online--off {
+  color: var(--color-text-muted);
+}
+
+/* neutral ghost button (cancel / close) — shares the .btn silhouette */
+.btn--ghost {
+  height: 30px;
+  padding: 0 12px;
+  color: var(--color-text-muted);
+  border-color: rgba(154, 160, 173, 0.28);
+  background: transparent;
+  cursor: pointer;
+}
+.btn--ghost:hover {
+  background: rgba(154, 160, 173, 0.12);
+  color: var(--color-text);
+}
+
+.mon-table__right {
+  text-align: right !important;
+}
+/* per-machine action button group (copy boot cmd · bootstrap · teardown) */
+.mon-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.mon-actions .btn {
+  cursor: pointer;
+}
+.mon-actions .btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* machine name cell — display name + the server-self tag */
+.mon-machine-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+/* server-self row: mute the display name to mark the row as special */
+.mon-self-name {
+  color: var(--color-text-muted);
+}
+/* stable machine id badge — mono, GREY (a label, not a status: the green
+ * accent read as "online-ish"; the id chip carries identity only, and it
+ * already says self-ness — m-server-self — so no separate self tag). */
+.mon-machine-id {
+  font-family: "SFMono-Regular", ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+/* "+新增機器" — a standalone add entry BELOW the machine table card (the
+ * entry is the ONLY frame — owner feedback: no frame-in-frame with the card
+ * border). The entry itself wears the SHARED `.add-entry` row
+ * (styles/global.css), identical to 角色誌's 新增角色定義; clicking grows the
+ * inline name-edit row in place. */
+.mon-onboard {
+  margin-top: 12px;
+}
+.mon-onboard .btn {
+  cursor: pointer;
+}
+.mon-onboard .btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.mon-onboard-edit {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.mon-onboard-edit__input {
+  flex: 1;
+  min-width: 0;
+  background: var(--color-bg);
+  color: var(--color-text-strong);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+}
+
+/* command result card (boot_command / teardown_command) */
+.mon-cmd {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 16px 18px;
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(111, 214, 176, 0.28);
+  background: var(--color-card);
+}
+.mon-cmd__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.mon-cmd__title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-accent);
+}
+.mon-cmd__close {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 12.5px;
+}
+.mon-cmd__hint {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+.mon-cmd__row {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+}
+.mon-cmd__code {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text-strong);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+  overflow-x: auto;
+  white-space: pre;
+}
+.mon-cmd__copy {
+  flex-shrink: 0;
+  cursor: pointer;
+}
+/* bootstrap-on-server failure result — red-tinted card + the raw log */
+.mon-cmd--err {
+  border-color: rgba(240, 115, 107, 0.35);
+}
+.mon-cmd__title--err {
+  color: var(--color-danger, #f0736b);
+}
+.mon-log {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text-strong);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+/* accent-tinted confirm box (bootstrap is not destructive like teardown) */
+.mon-confirm__box--accent {
+  border-color: rgba(111, 214, 176, 0.35);
+}
+
+/* teardown confirm dialog (二次確認) */
+.mon-confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(10, 12, 18, 0.62);
+}
+.mon-confirm__box {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px 22px;
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(240, 115, 107, 0.35);
+  background: var(--color-card);
+}
+.mon-confirm__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.mon-confirm__body {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--color-text);
+}
+.mon-confirm__members {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-text);
+}
+.mon-confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.mon-confirm__actions .btn {
+  cursor: pointer;
+}
+.mon-confirm__actions .btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* install dialog — a single copy-command screen (remote machines) */
+.mon-install__box {
+  max-width: 520px;
+  gap: 12px;
+}
+.mon-install__box .btn {
+  align-self: flex-start;
+  cursor: pointer;
+}
+.mon-install__box .btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── 帳號詳情 modal (T-a9a7) — same dim-overlay + card language as
+   member-detail's 事件統計 window (member-detail.css). ── */
+.mon-acct__detailbtn {
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 7px;
+  background: transparent;
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.mon-acct__detailbtn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-text);
+}
+.mon-detailmodal {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(10, 12, 18, 0.62);
+}
+.mon-detailbox {
+  width: 100%;
+  max-width: 480px;
+  max-height: min(78vh, 640px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 20px;
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--color-card);
+}
+.mon-detailhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.mon-detailtitle {
+  flex: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.mon-detailchip {
+  padding: 1px 7px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mon-detailspacer {
+  flex: 1;
+}
+.mon-detailclose {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.mon-detailclose:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-text);
+}
+.mon-detailgrid {
+  display: flex;
+  flex-direction: column;
+}
+.mon-detailrow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 7px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.mon-detailrow:last-child {
+  border-bottom: none;
+}
+.mon-detaillabel {
+  flex: none;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+.mon-detailvalue {
+  font-size: 12.5px;
+  color: var(--color-text);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.mon-detailvalue--code {
+  font-size: 11.5px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+}

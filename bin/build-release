@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# officraft — THE RELEASE BUILD entry point: bin/build with the stable
+# codesigning identity made MANDATORY.
+#
+# WHY THIS FILE EXISTS (T-da4b; owner ruling rc-e43a3aae0912 — "發版時硬擋:
+# 憑證不在就不出貨" / block at release, do not ship without the cert):
+#
+# T-da4b's first pass left "the release path opting in" as an owner call, on the
+# assumption that a release path existed to opt in. IT DID NOT. Before this file
+# there was NO release-only build script — every signing seam was shared:
+#
+#   bin/build         → signs .deploy/ocserverd (the `ocrelease publish`
+#                       artifact) — but ALSO runs on the prod host via
+#                       bin/autodeploy, inside `bin/ocserver install`, and by
+#                       hand on any dev Mac (bin/serve / bin/migrate tell you to)
+#   bin/build-bindist → signs the fleet-served ocwarden/ocagent — but ALSO runs
+#                       on EVERY bin/ci.sh run and in conformance/run.sh
+#
+# So OC_CODESIGN_REQUIRE=1 had nowhere release-only to attach. Setting it inside
+# bin/build or bin/build-bindist would hard-block every dev Mac and every CI run
+# without the release cert — precisely the option the owner did NOT choose.
+#
+# This script IS that missing point: the one entry a release operator runs
+# INSTEAD OF bin/build. It exports OC_CODESIGN_REQUIRE=1 and delegates, so all
+# three codesign-artifact calls in the build (bindist ocwarden, bindist ocagent,
+# and .deploy/ocserverd) inherit it — a genuinely missing identity becomes
+# `FAIL-IDENTITY-MISSING` exit 4 instead of a silent adhoc ship. bin/build is
+# UNCHANGED and stays default-off, so dev Macs and CI keep building with no
+# keychain at all.
+#
+#   bash bin/build-release                      # → .deploy/ocserverd, provably signed
+#   ocrelease publish --file .deploy/ocserverd  # then ship it
+#
+# THE COST, ACCEPTED BY THE OWNER: releases will one day stop here (cert expired,
+# login keychain locked, re-imaged release host, wrong machine). That is the
+# point — it does not fix itself, and a human must go re-provision the release
+# machine (`bash bin/setup-codesign-cert`). A release that stops loudly beats a
+# fleet that silently loses its TCC grants.
+#
+# KNOWN GAP (deliberate; NOT closed by this script): this is an opt-in ENTRY
+# POINT, not a gate on shipping. `ocrelease publish` uploads whatever --file it
+# is pointed at and never inspects the artifact's signature, so an operator who
+# runs plain bin/build and publishes THAT is not stopped here. Closing it means
+# teaching `ocrelease publish` to verify the artifact before upload — a separate
+# owner call, out of scope for T-da4b.
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# MANDATORY here, and nowhere else. export (not a one-shot prefix) on purpose:
+# bin/build shells out to bin/build-bindist, which runs codesign-artifact twice
+# more — every one of those grandchildren must inherit the requirement.
+export OC_CODESIGN_REQUIRE=1
+echo "[build-release] RELEASE build — codesigning identity is MANDATORY (OC_CODESIGN_REQUIRE=1)"
+echo "[build-release]   a missing identity will HARD-FAIL (exit 4) instead of shipping adhoc"
+
+# Delegation seam. Defaults to the real bin/build; overridable so the hermetic
+# tests (bin/tests/run.sh, CI step 0b) can prove the requirement actually reaches
+# codesign-artifact without running a full npm+go build. Same overridable-seam
+# posture as bin/autodeploy's do_build/do_migrate.
+OC_BUILD_CMD="${OC_BUILD_CMD:-$ROOT/bin/build}"
+bash "$OC_BUILD_CMD"
+
+echo "[build-release] release artifact ready: .deploy/ocserverd (identity ENFORCED, not assumed)"

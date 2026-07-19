@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# officraft — zero-argument frontend build: produce frontend/dist to serve.
+#
+# The dashboard (frontend/) is a Vite + React + TypeScript app. Its built output
+# (frontend/dist, gitignored) is the static bundle the server serves at "/" so a
+# single origin is both API and app. This is the canonical build step; the
+# operator autodeploy runs it between the git pull and the restart
+# (pull -> build -> migrate -> restart), so a fresh checkout always serves the
+# current UI. Fail-loud: a non-zero npm exit propagates (set -e), so the
+# autodeploy keeps the previous version instead of serving a broken/absent bundle.
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT/frontend"
+# npm ci = reproducible install from package-lock.json (committed). Fall back to
+# npm install only if no lockfile is present.
+if [[ -f package-lock.json ]]; then
+  npm ci
+else
+  npm install
+fi
+# :8770 serves the REAL backend (M1 wake demo): build with VITE_USE_MOCK=false so
+# the bundle talks to the live gated API (login -> token -> real members/activate),
+# not the mock fixtures. Frontend index.ts reads USE_MOCK = VITE_USE_MOCK !== "false".
+VITE_USE_MOCK=false npm run build
+
+# M4 switch: the deploy artifact is the Go server with the SPA, the seed .md
+# files, AND the prebuilt binaries + frozen MCP catalog baked in (go:embed).
+# Stage the fresh dist into webdist/, the repo-root seeds into seedsdist/, and
+# a fresh ocwarden/ocagent build + spec/mcp-catalog.json into bindist/
+# (chicken-and-egg: the two CLI binaries MUST be built before the ocserverd
+# build that embeds them — bin/build-bindist owns that ordering), then build
+# the deploy binary into .deploy/ (gitignored). Assets are served EMBED-ONLY
+# (server/ocserverd/assets.go — no disk fallback), so the committed bin/ocserverd
+# prebuilt is built with BOTH seedsdist AND bindist staged (it must boot agents
+# AND install-capable standalone); only webdist stays pristine (the SPA-carrying
+# deploy binary comes from .deploy/, not the committed prebuilt).
+# bin/serve and bin/migrate exec this binary; ordering is guaranteed by the
+# autodeploy pipeline (pull -> build -> migrate -> restart).
+cd "$ROOT"
+WEBDIST="$ROOT/server/ocserverd/webdist"
+rm -rf "$WEBDIST"
+mkdir -p "$WEBDIST"
+cp -R "$ROOT/frontend/dist/." "$WEBDIST/"
+touch "$WEBDIST/.gitkeep"
+bash "$ROOT/bin/build-seedsdist"
+bash "$ROOT/bin/build-bindist"
+mkdir -p "$ROOT/.deploy"
+# Stamp the build identity into the deploy artifact: a repo-less standalone
+# binary has no checkout for the /api/version git probe, so link-time -X vars
+# carry the sha/commit-time of the code actually built (server.go buildSHA).
+# Empty on a non-checkout build ON PURPOSE: an empty -X leaves the var "",
+# which keeps the runtime git-probe fallback alive (never stamp "unknown").
+BUILD_SHA="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo '')"
+BUILD_TIME="$(git -C "$ROOT" show -s --format=%cI HEAD 2>/dev/null || echo '')"
+# appVersion (server.go) is stampable the same way (T-e9d1). The r-N release
+# serial is minted by the updater at PUBLISH, so it is NOT knowable at build in
+# the default (build-then-publish) flow — the running build's r-N is instead
+# resolved at runtime from the updater by git sha (update_check.go), and this
+# stays the honest empty default (→ "0.0.0"). $OC_APP_VERSION is the opt-in hook
+# for a reserve-then-build release flow that DID pre-allocate the serial: set it
+# to e.g. "r-42" and the binary self-reports that version. Empty leaves the
+# runtime-resolved r-N as the only source (see the T-e9d1 report's option fork).
+LDFLAGS="-s -w -X main.buildSHA=$BUILD_SHA -X main.buildTime=$BUILD_TIME"
+# Only stamp appVersion when OC_APP_VERSION is set — an empty `-X` would blank
+# the "0.0.0" default rather than leave it, so the unset case adds no flag.
+if [[ -n "${OC_APP_VERSION:-}" ]]; then
+  LDFLAGS="$LDFLAGS -X main.appVersion=$OC_APP_VERSION"
+fi
+(cd "$ROOT/server/ocserverd" && go build \
+  -ldflags="$LDFLAGS" \
+  -o "$ROOT/.deploy/ocserverd" .)
+# T-33d5: sign the deploy/publish artifact with the stable release identity when
+# this machine holds it (bin/setup-codesign-cert); otherwise warn and ship as
+# built. Stable identity = the server binary's macOS TCC grants survive
+# autodeploy/ocrelease updates, same rationale as bindist signing.
+#
+# NOT the release path (T-da4b). This script also runs on every dev Mac and on
+# the prod host via bin/autodeploy, so signing stays advisory here: no identity =
+# warn and carry on, never a block. RELEASING is bin/build-release, which wraps
+# this script with the identity made mandatory (owner ruling rc-e43a3aae0912:
+# 憑證不在就不出貨). Do NOT hoist that requirement into this file — it would
+# hard-block every dev Mac without the cert, the option the owner did not pick.
+# bin/tests/run.sh enforces both halves of that split.
+bash "$ROOT/bin/codesign-artifact" "$ROOT/.deploy/ocserverd" com.officraft.ocserverd
+# Restore webdist to pristine so the checkout stays clean for the next ff-pull.
+# seedsdist AND bindist are left STAGED on purpose: assets are served
+# embed-only, so a follow-up committed-prebuilt rebuild must embed BOTH the
+# seeds and the binaries (all three dirs are gitignored either way — the staged
+# content never reaches git).
+rm -rf "$WEBDIST"
+mkdir -p "$WEBDIST"
+touch "$WEBDIST/.gitkeep"
+echo "[build] deploy binary ready: .deploy/ocserverd (SPA + seeds + binaries embedded)"

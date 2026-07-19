@@ -1,0 +1,250 @@
+/* Profile menu — anchored under the topbar profile pill (see .profile-menu). */
+.profile-menu {
+  position: relative;
+}
+
+.profile-dd {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 50;
+  width: 288px;
+  padding: 6px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--color-card);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* ---- profile header (rename) ---- */
+.profile-dd__head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 10px 12px;
+}
+
+.profile-dd__avatar {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.profile-dd__ident {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.profile-dd__label {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+}
+
+.profile-dd__name {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.profile-dd__iconbtn {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  transition: color 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+.profile-dd__iconbtn:hover {
+  color: var(--color-text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* ---- rows ---- */
+.profile-dd__row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 10px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+  transition: background 0.15s;
+}
+.profile-dd__row:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.profile-dd__row-icon {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.profile-dd__row-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+
+.profile-dd__row-title {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--color-text-strong);
+}
+
+.profile-dd__row-sub {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+}
+
+.profile-dd__row-chevron {
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.profile-dd__row--danger .profile-dd__row-icon,
+.profile-dd__row--danger .profile-dd__row-title {
+  color: var(--color-danger);
+}
+.profile-dd__row--danger:hover {
+  background: rgba(240, 115, 107, 0.1);
+}
+
+.profile-dd__divider {
+  height: 1px;
+  margin: 4px 8px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+/* ---- preferences sub-view ---- */
+.profile-dd__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 8px 8px 8px 6px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-strong);
+  font-size: 13.5px;
+  font-weight: 600;
+  transition: color 0.15s;
+}
+.profile-dd__back:hover {
+  color: var(--color-accent);
+}
+
+.profile-dd__section {
+  padding: 6px 10px 10px;
+}
+
+.profile-dd__section-label {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  margin-bottom: 8px;
+}
+
+.profile-dd__seg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.profile-dd__seg-btn {
+  height: 34px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 13.5px;
+  font-weight: 500;
+  transition: color 0.15s, background 0.15s;
+}
+.profile-dd__seg-btn:hover {
+  color: var(--color-text);
+}
+.profile-dd__seg-btn--active {
+  background: var(--color-indigo);
+  color: var(--color-text-strong);
+}
+
+/* ── change-password (B3) ────────────────────────────────────────────────
+ * The server-parameter controls (select / % field) moved to the 設定 page's
+ * 參數調整 view (settings.css .param-*); only the password form remains here. */
+.profile-dd__input {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.profile-dd__input:focus {
+  border-color: var(--color-accent);
+}
+
+.profile-dd__form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 14px 14px;
+}
+
+.profile-dd__submit {
+  height: 34px;
+  border: none;
+  border-radius: 8px;
+  background: var(--color-accent);
+  color: var(--color-on-accent, #10131a);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.profile-dd__submit:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.profile-dd__error {
+  margin: 0 14px;
+  font-size: 12px;
+  color: var(--color-danger, #e57373);
+}
+.profile-dd__success {
+  margin: 0 14px;
+  font-size: 12px;
+  color: var(--color-ok, #6fd6b0);
+}

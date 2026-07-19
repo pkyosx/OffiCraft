@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# officraft — stage the seed .md files for the single binary.
+#
+# The repo-root seeds/ sits outside the server module and go:embed cannot
+# reach outside the module directory, so a seed-carrying ocserverd needs
+# seeds/*.md COPIED into server/ocserverd/seedsdist/ (gitignored except
+# .gitkeep) before `go build` — the exact webdist pattern (bin/build-webdist).
+# Seed reads are EMBED-ONLY (assets.go — no disk fallback, so a stale seeds/
+# under the CWD can never shadow the embed), so WITHOUT this staging step the
+# binary still builds but boots with an EMPTY seed embed (every seed read errs).
+# Any build/test that boots the server must stage first (bin/build, bin/ci.sh,
+# conformance/run.sh all do).
+#
+#   bash bin/build-seedsdist          # stage seeds/*.md into seedsdist/
+#   (cd server/ocserverd && go build) # then bakes the seeds into the binary
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+SEEDSDIST="$ROOT/server/ocserverd/seedsdist"
+rm -rf "$SEEDSDIST"
+mkdir -p "$SEEDSDIST"
+cp "$ROOT"/seeds/*.md "$SEEDSDIST/"
+touch "$SEEDSDIST/.gitkeep"
+echo "[build-seedsdist] staged seeds → server/ocserverd/seedsdist ($(find "$SEEDSDIST" -type f -name '*.md' | wc -l | tr -d ' ') files)"

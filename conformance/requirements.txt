@@ -1,0 +1,8 @@
+# conformance/ black-box suite — deliberately tiny.
+#
+# HTTP in, HTTP out: pytest drives, httpx speaks. NOTHING from the backend
+# stack (no server-implementation package) may appear
+# here — the suite must stay meaningful against a Go server that shares zero
+# Python code (see conformance/CLAUDE.md 黑箱鐵律).
+pytest>=8
+httpx>=0.27

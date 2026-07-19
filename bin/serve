@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# officraft — zero-argument canonical start command (Go server).
+#
+# The production entry point is the Go implementation (ocserverd). Config
+# resolution: $OC_CONFIG when set, else repo-root oc.toml. The SPA-carrying
+# deploy binary is produced by bin/build into .deploy/ocserverd; fail loud when
+# it is missing so a broken deploy never silently serves nothing (the
+# autodeploy pipeline runs bin/build before restarting this service).
+#
+# Rollback (historical): the retired Python implementation lives at git tag
+# py-final.
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+BIN="$ROOT/.deploy/ocserverd"
+if [[ ! -x "$BIN" ]]; then
+  echo "[serve] FATAL: $BIN missing — run 'bash bin/build' first (autodeploy does)." >&2
+  exit 1
+fi
+exec "$BIN" serve

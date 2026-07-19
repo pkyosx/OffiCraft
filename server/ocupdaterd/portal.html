@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ocupdaterd — 管理 portal</title>
+<style>
+  /* Single-file, zero-dependency portal (repo convention: the updater daemon
+     ships as one binary; this page rides inside it via go:embed). */
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --ink: #1c2530; --sub: #66717e;
+    --line: #e3e7ec; --accent: #2563eb; --ok: #16803c; --warn: #b45309;
+    --bad: #b91c1c; --beta: #7c3aed; --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.55 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+  header.top { display: flex; align-items: baseline; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+  header.top h1 { font-size: 20px; margin: 0; }
+  header.top .sub { color: var(--sub); font-size: 13px; }
+  header.top .spacer { flex: 1; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+          padding: 16px; margin-bottom: 20px; }
+  .card h2 { font-size: 16px; margin: 0 0 4px; }
+  .card .desc { color: var(--sub); font-size: 13px; margin: 0 0 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-top: 1px solid var(--line);
+           white-space: nowrap; }
+  th { color: var(--sub); font-weight: 600; font-size: 12px; border-top: none; }
+  .tablewrap { overflow-x: auto; }
+  code, .mono { font-family: var(--mono); font-size: 13px; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px;
+           border: 1px solid currentColor; }
+  .badge.ga   { color: var(--ok); }
+  .badge.beta { color: var(--beta); }
+  .badge.ok   { color: var(--ok); }
+  .badge.lag  { color: var(--warn); }
+  .badge.off  { color: var(--sub); }
+  .badge.dead { color: var(--bad); }
+  button { font: inherit; border-radius: 8px; border: 1px solid var(--line);
+           background: var(--card); padding: 6px 14px; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger  { color: var(--bad); border-color: var(--bad); background: transparent; }
+  button:disabled { opacity: .5; cursor: default; }
+  input[type=password], input[type=text] {
+    font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+    width: 100%; background: var(--card); color: var(--ink);
+  }
+  form.inline { display: flex; gap: 8px; flex-wrap: wrap; }
+  form.inline input { flex: 1; min-width: 160px; width: auto; }
+  .auth { max-width: 420px; margin: 10vh auto 0; }
+  .auth label { display: block; font-size: 13px; color: var(--sub); margin: 12px 0 4px; }
+  .auth button { width: 100%; margin-top: 16px; }
+  .error { color: var(--bad); font-size: 13px; margin-top: 10px; min-height: 1em; }
+  .notice { border: 1px dashed var(--accent); border-radius: 8px; padding: 10px 12px;
+            margin-top: 12px; font-size: 13px; }
+  .notice code { word-break: break-all; white-space: normal; }
+  .muted { color: var(--sub); }
+  tr.revoked td { color: var(--sub); text-decoration: line-through; }
+  tr.revoked td .badge, tr.revoked td button { text-decoration: none; }
+  .hide { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ── first-run: set password (ocserverd FirstRunPage pattern) ── -->
+  <section id="view-setup" class="card auth hide">
+    <h2>首次設定 — 管理密碼</h2>
+    <p class="desc">這個 portal 尚未設定密碼。設定一次,之後憑密碼登入。</p>
+    <form id="setup-form">
+      <label for="setup-claim">啟用碼(serve log 印出的 claim;由設定連結自動帶入)</label>
+      <input id="setup-claim" type="text" autocomplete="off">
+      <label for="setup-pass">管理密碼(至少 8 字元)</label>
+      <input id="setup-pass" type="password" autocomplete="new-password" minlength="8" required>
+      <button class="primary" type="submit">設定並登入</button>
+      <div id="setup-error" class="error"></div>
+    </form>
+  </section>
+
+  <!-- ── login ── -->
+  <section id="view-login" class="card auth hide">
+    <h2>登入 ocupdaterd portal</h2>
+    <form id="login-form">
+      <label for="login-pass">管理密碼</label>
+      <input id="login-pass" type="password" autocomplete="current-password" required>
+      <button class="primary" type="submit">登入</button>
+      <div id="login-error" class="error"></div>
+    </form>
+  </section>
+
+  <!-- ── dashboard ── -->
+  <div id="view-dash" class="hide">
+    <header class="top">
+      <h1>ocupdaterd 管理 portal</h1>
+      <span class="sub" id="latest-line"></span>
+      <span class="spacer"></span>
+      <button id="btn-logout" type="button">登出</button>
+    </header>
+
+    <section class="card">
+      <h2>下游監控</h2>
+      <p class="desc">每組邀請碼對應一台下游 OC — 依 update-check 心跳回報的版本判斷是否落後。</p>
+      <div class="tablewrap"><table id="fleet-table">
+        <thead><tr>
+          <th>邀請</th><th>目前版本</th><th>狀態</th><th>頻道</th><th>最後檢查</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table></div>
+      <div id="fleet-empty" class="muted hide">還沒有邀請碼 — 在下方鑄一組。</div>
+    </section>
+
+    <section class="card">
+      <h2>版本</h2>
+      <p class="desc">已發佈版本(新→舊)。publish 一律先進 beta;promote 蓋 GA 章(不可逆——出事 forward-fix,promote 更新的版)。</p>
+      <div class="tablewrap"><table id="rel-table">
+        <thead><tr>
+          <th>版本</th><th>頻道</th><th>發佈時間</th><th>git sha</th><th></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table></div>
+      <div id="rel-empty" class="muted hide">還沒有已發佈版本。</div>
+      <div id="rel-error" class="error"></div>
+    </section>
+
+    <section class="card">
+      <h2>邀請碼</h2>
+      <p class="desc">一人一組、長效、可撤銷;同一組碼兼作該台下游的 update-check 身分。</p>
+      <form class="inline" id="mint-form">
+        <input id="mint-name" type="text" placeholder="給誰(名字)" autocomplete="off" required>
+        <button class="primary" type="submit">新增邀請碼</button>
+      </form>
+      <div id="mint-notice" class="notice hide"></div>
+      <div id="inv-error" class="error"></div>
+      <div class="tablewrap"><table id="inv-table">
+        <thead><tr>
+          <th>ID</th><th>名字</th><th>建立時間</th><th>狀態</th><th></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </section>
+  </div>
+</div>
+
+<script>
+"use strict";
+(() => {
+  const TOKEN_KEY = "ocu_portal_token";
+  const $ = (id) => document.getElementById(id);
+
+  // ── tiny api client (Bearer session token; 401 bounces to login) ──
+  async function api(path, opts = {}) {
+    const headers = Object.assign({}, opts.headers);
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (token) headers["Authorization"] = "Bearer " + token;
+    if (opts.body !== undefined) headers["Content-Type"] = "application/json";
+    const resp = await fetch(path, Object.assign({}, opts, { headers }));
+    let body = null;
+    try { body = await resp.json(); } catch { /* non-JSON is fine for errors */ }
+    if (resp.status === 401 && !path.endsWith("/login") && !path.endsWith("/set-password")) {
+      localStorage.removeItem(TOKEN_KEY);
+      show("login");
+      throw new Error("unauthorized");
+    }
+    if (!resp.ok) {
+      const msg = body && body.error && body.error.message ? body.error.message : ("HTTP " + resp.status);
+      const err = new Error(msg); err.status = resp.status; throw err;
+    }
+    return body;
+  }
+
+  function show(view) {
+    for (const v of ["setup", "login", "dash"]) {
+      $("view-" + v).classList.toggle("hide", v !== view);
+    }
+  }
+
+  // ── formatting ──
+  const fmtTime = (unix) => unix ? new Date(unix * 1000).toLocaleString() : "—";
+  function fmtAgo(unix) {
+    if (!unix) return "從未";
+    const s = Math.max(0, Date.now() / 1000 - unix);
+    if (s < 90) return "剛剛";
+    if (s < 3600) return Math.round(s / 60) + " 分鐘前";
+    if (s < 86400) return Math.round(s / 3600) + " 小時前";
+    return Math.round(s / 86400) + " 天前";
+  }
+  const shortSha = (sha) => sha ? sha.slice(0, 9) : "";
+  const esc = (t) => { const d = document.createElement("div"); d.textContent = t; return d.innerHTML; };
+
+  // ── fleet status derivation (mirrors ocserverd's honest up-to-date rule:
+  //    same git sha as the channel latest == same build, version label aside) ──
+  function fleetStatus(inv, latestGA, latestBeta) {
+    if (!inv.last_check_at) return { label: "未回報", cls: "off" };
+    const matches = (rel) => rel &&
+      ((inv.last_sha && inv.last_sha === rel.git_sha) ||
+       (inv.last_version && inv.last_version === rel.version));
+    const target = inv.last_channel === "beta" ? (latestBeta || latestGA) : latestGA;
+    if (!target) return { label: "無可比對版本", cls: "off" };
+    if (matches(target)) return { label: "最新", cls: "ok" };
+    if (!inv.last_sha && !inv.last_version) return { label: "未回報版本", cls: "off" };
+    return { label: "落後最新 " + (inv.last_channel === "beta" ? "beta" : "GA") + "(" + target.version + ")", cls: "lag" };
+  }
+
+  // resolve what the downstream is RUNNING into a display label: a matching
+  // published release's version wins; else the self-reported version; else the
+  // short sha; else an honest dash.
+  function runningLabel(inv, releases) {
+    if (inv.last_sha) {
+      const rel = releases.find((r) => r.git_sha === inv.last_sha);
+      if (rel) return rel.version + " (" + shortSha(inv.last_sha) + ")";
+    }
+    if (inv.last_version && inv.last_version !== "0.0.0") return inv.last_version;
+    if (inv.last_sha) return shortSha(inv.last_sha);
+    return "—";
+  }
+
+  // ── renderers ──
+  function renderDash(ov) {
+    const gaLine = ov.latest_ga ? "GA " + ov.latest_ga.version : "GA —";
+    const betaLine = ov.latest_beta ? "beta " + ov.latest_beta.version : "beta —";
+    $("latest-line").textContent = "最新:" + gaLine + " · " + betaLine;
+
+    // fleet
+    const ftb = $("fleet-table").querySelector("tbody");
+    ftb.innerHTML = "";
+    const live = ov.invites.filter((i) => !i.revoked_at);
+    $("fleet-empty").classList.toggle("hide", live.length > 0);
+    $("fleet-table").classList.toggle("hide", live.length === 0);
+    for (const inv of live) {
+      const st = fleetStatus(inv, ov.latest_ga, ov.latest_beta);
+      const tr = document.createElement("tr");
+      tr.innerHTML =
+        "<td>" + esc(inv.name) + "</td>" +
+        "<td class='mono'>" + esc(runningLabel(inv, ov.releases)) + "</td>" +
+        "<td><span class='badge " + st.cls + "'>" + esc(st.label) + "</span></td>" +
+        "<td>" + esc(inv.last_channel || "—") + "</td>" +
+        "<td title='" + esc(fmtTime(inv.last_check_at)) + "'>" + esc(fmtAgo(inv.last_check_at)) + "</td>";
+      ftb.appendChild(tr);
+    }
+
+    // releases
+    const rtb = $("rel-table").querySelector("tbody");
+    rtb.innerHTML = "";
+    $("rel-empty").classList.toggle("hide", ov.releases.length > 0);
+    $("rel-table").classList.toggle("hide", ov.releases.length === 0);
+    for (const rel of ov.releases) {
+      const tr = document.createElement("tr");
+      const chan = rel.channel_ga
+        ? "<span class='badge ga'>GA</span> <span class='muted'>" + esc(fmtTime(rel.ga_at)) + "</span>"
+        : "<span class='badge beta'>beta</span>";
+      const canPromote = !rel.channel_ga;
+      tr.innerHTML =
+        "<td class='mono'>" + esc(rel.version) + "</td>" +
+        "<td>" + chan + "</td>" +
+        "<td>" + esc(fmtTime(rel.published_at)) + "</td>" +
+        "<td class='mono'>" + esc(shortSha(rel.git_sha) || "—") + "</td>" +
+        "<td></td>";
+      if (canPromote) {
+        const btn = document.createElement("button");
+        btn.textContent = "Promote 成 GA";
+        btn.addEventListener("click", () => promote(rel.version, btn));
+        tr.lastElementChild.appendChild(btn);
+      }
+      rtb.appendChild(tr);
+    }
+
+    // invites
+    const itb = $("inv-table").querySelector("tbody");
+    itb.innerHTML = "";
+    for (const inv of ov.invites.slice().reverse()) {
+      const tr = document.createElement("tr");
+      if (inv.revoked_at) tr.className = "revoked";
+      const status = inv.revoked_at
+        ? "<span class='badge dead'>已撤銷 " + esc(fmtTime(inv.revoked_at)) + "</span>"
+        : "<span class='badge ok'>有效</span>";
+      tr.innerHTML =
+        "<td>" + inv.id + "</td>" +
+        "<td>" + esc(inv.name) + "</td>" +
+        "<td>" + esc(fmtTime(inv.created_at)) + "</td>" +
+        "<td>" + status + "</td>" +
+        "<td></td>";
+      if (!inv.revoked_at) {
+        const btn = document.createElement("button");
+        btn.className = "danger";
+        btn.textContent = "撤銷";
+        btn.addEventListener("click", () => revoke(inv, btn));
+        tr.lastElementChild.appendChild(btn);
+      }
+      itb.appendChild(tr);
+    }
+  }
+
+  async function refresh() {
+    const ov = await api("/portal/api/overview");
+    renderDash(ov);
+    show("dash");
+  }
+
+  // ── actions ──
+  async function promote(version, btn) {
+    if (!window.confirm("把 " + version + " promote 成 GA?\n此動作不可逆 — 出問題只能 forward-fix(promote 更新的版本)。")) return;
+    btn.disabled = true;
+    $("rel-error").textContent = "";
+    try { await api("/portal/api/promote", { method: "POST", body: JSON.stringify({ version }) }); await refresh(); }
+    catch (e) { $("rel-error").textContent = e.message; btn.disabled = false; }
+  }
+
+  async function revoke(inv, btn) {
+    if (!window.confirm("撤銷 " + inv.name + "(id " + inv.id + ")的邀請碼?\n該下游的 update-check 會立即失效。")) return;
+    btn.disabled = true;
+    $("inv-error").textContent = "";
+    try { await api("/portal/api/invites/" + inv.id + "/revoke", { method: "POST", body: "{}" }); await refresh(); }
+    catch (e) { $("inv-error").textContent = e.message; btn.disabled = false; }
+  }
+
+  $("mint-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const name = $("mint-name").value.trim();
+    if (!name) return;
+    $("inv-error").textContent = "";
+    try {
+      const res = await api("/portal/api/invites", { method: "POST", body: JSON.stringify({ name }) });
+      const n = $("mint-notice");
+      n.classList.remove("hide");
+      n.innerHTML = "「" + esc(res.name) + "」的邀請碼(<strong>只顯示這一次</strong>,現在就交給對方):<br><code>" + esc(res.code) + "</code>";
+      $("mint-name").value = "";
+      await refresh();
+    } catch (e) { $("inv-error").textContent = e.message; }
+  });
+
+  $("btn-logout").addEventListener("click", () => {
+    localStorage.removeItem(TOKEN_KEY);
+    show("login");
+  });
+
+  $("login-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    $("login-error").textContent = "";
+    try {
+      const res = await api("/portal/api/login", {
+        method: "POST", body: JSON.stringify({ password: $("login-pass").value }),
+      });
+      localStorage.setItem(TOKEN_KEY, res.token);
+      $("login-pass").value = "";
+      await refresh();
+    } catch (e) { $("login-error").textContent = e.message; }
+  });
+
+  $("setup-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    $("setup-error").textContent = "";
+    try {
+      const res = await api("/portal/api/set-password", {
+        method: "POST",
+        body: JSON.stringify({
+          password: $("setup-pass").value,
+          claim_token: $("setup-claim").value.trim(),
+        }),
+      });
+      localStorage.setItem(TOKEN_KEY, res.token);
+      history.replaceState(null, "", "/portal/"); // drop ?claim= from the URL bar
+      await refresh();
+    } catch (e) { $("setup-error").textContent = e.message; }
+  });
+
+  // ── boot: first-run bit decides the view; a stored session tries the
+  //    dashboard straight away (401 falls back to login) ──
+  (async () => {
+    const claim = new URLSearchParams(location.search).get("claim") || "";
+    let status;
+    try { status = await api("/portal/api/status"); }
+    catch { show("login"); return; }
+    if (!status.password_set) {
+      $("setup-claim").value = claim;
+      show("setup");
+      return;
+    }
+    if (localStorage.getItem(TOKEN_KEY)) {
+      try { await refresh(); return; } catch { /* bounced to login by api() */ }
+    } else {
+      show("login");
+    }
+  })();
+})();
+</script>
+</body>
+</html>

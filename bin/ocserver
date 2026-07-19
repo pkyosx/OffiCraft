@@ -1,0 +1,930 @@
+#!/usr/bin/env bash
+# officraft — one-key SERVER installer CLI (symmetrical to bin/ocwarden).
+#
+# WHAT: `bin/ocserver install` stands up the whole officraft server on THIS
+#   machine into the canonical ~/.officraft/server/ layout and starts it under
+#   launchd. It is the server-side twin of the ocwarden installer: idempotent,
+#   `--force`-repeatable, `--dry-run`-previewable.
+#
+# WHY a canonical out-of-repo layout: the durable state (sqlite db) and the local
+#   config (oc.toml) MUST outlive a repo re-clone (autodeploy rolls back / re-clones
+#   the checkout). So they live under server/data + server/oc.toml, OUTSIDE repo/,
+#   and the code reads oc.toml via $OC_CONFIG. `install` does NOT clone or auth —
+#   the operator already has a checkout; install takes it from "have a repo" to
+#   "server running under launchd + health-green".
+#
+# LAYOUT built under $OC_SERVER_ROOT (default ~/.officraft/server):
+#   repo/                server checkout (bin/build produces repo/.deploy/ocserverd there)
+#   log/                 serve / autodeploy launchd logs
+#   data/officraft.db sqlite (OUT of repo → survives a re-clone; holds the
+#                        owner credential as a DB settings hash — no plaintext file)
+#   oc.toml              rendered from oc.toml.example (OUT of repo; port + DSN
+#                        overrides ONLY — the retired [auth] is never rendered)
+#
+# The server is the Go deploy binary (.deploy/ocserverd, SPA embedded),
+# produced by bin/build (npm webdist + go build) and exec'd by bin/serve /
+# bin/migrate. Install therefore runs build BEFORE migrate — no venv, no pip.
+# Rollback (historical): the retired Python implementation lives at git tag
+# py-final.
+#
+# LAUNCHD (3 jobs, gui/<uid> domain):
+#   com.officraft.serve      -> repo/bin/serve       (the API)
+#   com.officraft.autodeploy -> repo/bin/autodeploy  (drift watcher, in-repo now)
+#   com.officraft.tunnel     -> cloudflared          (host-specific; SKIPPED if no config)
+#
+# USAGE:
+#   bin/ocserver install [--force] [--dry-run] [--namespace <ns> --port <port>]
+#     --force       re-run every step even when already present (reinstall)
+#     --dry-run     print intended actions; touch NOTHING (no writes / no launchctl)
+#     --namespace   same-machine extra instance key ([a-z0-9-]{1,16}): root
+#                   ~/.officraft-<ns>/server, labels com.officraft.*.<ns>,
+#                   oc.toml carries namespace+port. REQUIRES --port (never the
+#                   default 8770 — that is the main instance's). A namespaced
+#                   install gets serve ONLY: no autodeploy, no tunnel (updates
+#                   are pulled manually). The default EMPTY namespace changes
+#                   NOTHING — byte-identical to the historical install.
+#   bin/ocserver uninstall [--keep-data|--purge] [--yes] [--dry-run] [--namespace <ns>]
+#     unload the launchd jobs + remove $OC_SERVER_ROOT. Keeps data/ (sqlite, incl.
+#     the owner credential hash) + oc.toml (live config) by default; --purge
+#     deletes them too (asks unless --yes).
+#     --namespace targets that instance's serve job + root only.
+#
+# ENV OVERRIDES (defaults = canonical layout):
+#   OC_SERVER_ROOT   canonical dir       (default ~/.officraft/server)
+#   OC_SERVE_PORT    serve port          (default 8770)
+#   OC_CLOUDFLARED_CONFIG  tunnel config (default ~/.cloudflared/officraft.yml)
+#
+# GUARDRAILS (hard):
+#   - NEVER pkill / killall. Process actions are launchctl by EXACT label only.
+#   - --dry-run mutates nothing (no file writes, no launchctl).
+#   - Every step idempotent + safe to re-run.
+set -euo pipefail
+
+# Canonical (main-instance) label bases. A non-empty --namespace suffixes each
+# with ".<ns>"; the empty namespace resolves to these exact strings.
+readonly SERVE_LABEL_BASE="com.officraft.serve"
+readonly AUTODEPLOY_LABEL_BASE="com.officraft.autodeploy"
+readonly TUNNEL_LABEL_BASE="com.officraft.tunnel"
+
+log()  { echo "[ocserver] $*" >&2; }
+fail() { echo "[ocserver] FATAL: $*" >&2; exit 1; }
+
+# ── port / process identity probes (read-only; used by the pre-flight AND the
+# post-install health gate) ─────────────────────────────────────────────────
+#
+# WHY these exist: a 200 from /health only proves that SOMETHING answers on the
+# port — not that it is the server we just installed. When a stale officraft
+# instance already holds the port, our launchd job crash-loops (EADDRINUSE)
+# while the SQUATTER happily answers the probe: the install reports SUCCESS and
+# nothing we installed is actually running (the "false green").
+#
+# The truth we need is local and cheap: the process holding the listening socket
+# must BE the process launchd started for our label. bin/serve `exec`s the
+# daemon, so the launchd job pid IS the ocserverd pid IS the socket holder — no
+# self-reported field required, and it works even when the squatter is an older
+# build that predates any identity field.
+
+# port_listeners PORT — pids holding the LISTEN socket on PORT (empty = free).
+# lsof exits 1 when nothing matches; that is "free", not an error.
+port_listeners() {
+  lsof -nP -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null | sort -u | tr '\n' ' ' | sed 's/ $//' || true
+}
+
+# launchd_pid GUI/LABEL — the running pid of a launchd job ("" when not running,
+# e.g. a crash-looping or unloaded job).
+launchd_pid() {
+  launchctl print "$1" 2>/dev/null \
+    | awk -F'=' '/^[[:space:]]*pid[[:space:]]*=/ {gsub(/[^0-9]/,"",$2); print $2; exit}' || true
+}
+
+# describe_pid PID — "<command> (pid N)" for an actionable error message.
+describe_pid() {
+  local pid="$1" cmd
+  cmd="$(ps -p "$pid" -o command= 2>/dev/null | head -1 || true)"
+  [[ -n "$cmd" ]] || cmd="<unknown, not owned by $(id -un)?>"
+  printf 'pid=%s  %s' "$pid" "$cmd"
+}
+
+# probe_oc_sha PORT — git_sha of the officraft server on PORT, "" if whatever
+# is there is not an officraft server. /api/version is public + unauthenticated
+# on EVERY build, so the squatter identifies itself without any wire change.
+probe_oc_sha() {
+  curl -s --max-time 3 "http://127.0.0.1:$1/api/version" 2>/dev/null \
+    | python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("git_sha",""))
+except Exception: pass' 2>/dev/null || true
+}
+
+# report_port_squatter PORT PIDS — the shared actionable diagnosis: WHO holds the
+# port, whether it is another officraft server, and how to get unstuck.
+report_port_squatter() {
+  local port="$1" pids="$2" sha p
+  sha="$(probe_oc_sha "$port")"
+  for p in $pids; do
+    log "  holder: $(describe_pid "$p")"
+  done
+  if [[ -n "$sha" ]]; then
+    log "  → that is ANOTHER officraft server (git_sha=$sha) — not the one being installed."
+    log "    stop it first (launchctl bootout gui/$(id -u)/<its label>, or kill its pid), then re-run;"
+  else
+    log "  → that is not an officraft server; it is some other process holding the port."
+  fi
+  log "    or install this instance on a free port instead:"
+  log "      OC_SERVE_PORT=<other> bin/ocserver install        # main instance"
+  log "      bin/ocserver install --namespace <ns> --port <other>   # side-by-side instance"
+}
+
+# validate_namespace NS — the charset lock shared with cli/ocwarden and
+# ocserverd ([a-z0-9-]{1,16}: the strict intersection of launchd-label / path /
+# tmux-socket syntax). Empty (the main instance) passes.
+validate_namespace() {
+  local ns="$1"
+  [[ -z "$ns" ]] && return 0
+  [[ "$ns" =~ ^[a-z0-9-]{1,16}$ ]] \
+    || fail "--namespace must match [a-z0-9-]{1,16}, got: $ns"
+}
+
+# render_oc_toml SRC_EXAMPLE OUT DSN — render oc.toml from oc.toml.example by
+# replacing anchors IN PLACE, so the output is guaranteed valid single-[storage]
+# TOML: the DSN goes inside the EXISTING [storage] table (never a second [storage]
+# header → no `Cannot declare ('storage',) twice` under tomllib on Python ≥3.11).
+# The rendered file carries port + DSN overrides ONLY — no credential ever lands
+# in it (the owner sets the password through the first-run claim flow; only its
+# argon2id hash lives in the DB).
+# tomllib.loads validates before anything is written. Single source of truth for
+# both `cmd_install` (step 3) and the hidden `render-config` subcommand the test
+# drives, so the tested render can never drift from the installed one.
+#
+# Namespaced install (optional args 4=NS 5=PORT, non-empty): the example's fixed
+# `port = 8770` line is rewritten to the instance port and a `namespace = "<ns>"`
+# line is added right under it (still inside the ONE existing [server] table).
+# Both are validated post-parse. An absent/empty NS renders byte-identically to
+# the historical output (zero-diff for the main instance; the 3-arg
+# render-config test seam is untouched).
+render_oc_toml() {
+  OC_SRC_EXAMPLE="$1" OC_OUT="$2" OC_DSN="$3" OC_NS="${4:-}" OC_PORT="${5:-}" python3 - <<'PY'
+import os
+
+src = open(os.environ["OC_SRC_EXAMPLE"], encoding="utf-8").read()
+dsn = os.environ["OC_DSN"]
+ns = os.environ.get("OC_NS", "")
+port = os.environ.get("OC_PORT", "")
+
+# In-place substitutions on anchors oc.toml.example is guaranteed to ship.
+if "__OC_DSN__" not in src:
+    raise SystemExit(
+        "oc.toml.example is missing the __OC_DSN__ placeholder — cannot render a "
+        "single-[storage] oc.toml"
+    )
+out = src.replace('dsn = "__OC_DSN__"', f'dsn = "{dsn}"')
+if ns:
+    if 'port = 8770' not in out:
+        raise SystemExit(
+            "oc.toml.example is missing the `port = 8770` line — cannot render a "
+            "namespaced [server] table"
+        )
+    out = out.replace(
+        "port = 8770", f'port = {int(port)}\nnamespace = "{ns}"', 1
+    )
+
+# Fail LOUD before writing if the result is not valid TOML (e.g. a duplicate
+# [storage] slipped in) or a retired [auth] table crept back into the example.
+import tomllib
+
+try:
+    parsed = tomllib.loads(out)
+except Exception as exc:  # pragma: no cover - defensive
+    raise SystemExit(f"rendered oc.toml is not valid TOML: {exc}")
+if "auth" in parsed:
+    raise SystemExit(
+        "rendered oc.toml carries a retired [auth] table — credentials live in "
+        "the DB settings, refusing to write"
+    )
+if ns:
+    server = parsed.get("server", {})
+    if server.get("namespace") != ns or server.get("port") != int(port):
+        raise SystemExit(
+            f"rendered oc.toml [server] did not pick up namespace/port: {server}"
+        )
+
+open(os.environ["OC_OUT"], "w", encoding="utf-8").write(out)
+PY
+}
+
+usage() {
+  cat >&2 <<'EOF'
+officraft server installer
+
+usage:
+  bin/ocserver install [--force] [--dry-run] [--namespace <ns> --port <port>]
+  bin/ocserver uninstall [--keep-data|--purge] [--yes] [--dry-run] [--namespace <ns>]
+
+commands:
+  install    build ~/.officraft/server/ and start the server under launchd
+  uninstall  unload the launchd jobs and remove ~/.officraft/server/
+             (keeps data/ + oc.toml by default; --purge deletes them too)
+
+flags (install):
+  --force      re-run every step even when already present (reinstall)
+  --dry-run    print intended actions; mutate nothing
+  --namespace  extra same-machine instance ([a-z0-9-]{1,16}): root
+               ~/.officraft-<ns>/server, label com.officraft.serve.<ns>,
+               serve ONLY (no autodeploy / no tunnel — update manually).
+               REQUIRES --port. Empty (default) = the main instance, unchanged.
+  --port       the namespaced instance's serve port (required with --namespace;
+               rendered into oc.toml — pick a free one, never the main 8770)
+
+flags (uninstall):
+  --keep-data  keep data/ (sqlite db, incl. the owner credential hash) +
+               oc.toml (live config) — default
+  --purge      delete data/ too (irreversible; prompts for confirmation)
+  --yes        skip the --purge confirmation prompt
+  --dry-run    print intended actions; mutate nothing
+  --namespace  target that instance's serve job + root instead of the main one
+EOF
+}
+
+# ===========================================================================
+# install subcommand
+# ===========================================================================
+cmd_install() {
+  local force=0 dryrun=0 NS="" PORT_FLAG=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --force)   force=1 ;;
+      --dry-run) dryrun=1 ;;
+      --namespace)   shift; NS="${1:-}" ;;
+      --namespace=*) NS="${1#*=}" ;;
+      --port)        shift; PORT_FLAG="${1:-}" ;;
+      --port=*)      PORT_FLAG="${1#*=}" ;;
+      -h|--help) usage; exit 0 ;;
+      *) fail "unknown install flag: $1 (see: bin/ocserver install --help)" ;;
+    esac
+    shift
+  done
+  validate_namespace "$NS"
+  if [[ -n "$NS" ]]; then
+    # A namespaced instance must NEVER inherit the main instance's default
+    # port — an explicit free port is part of declaring the instance.
+    [[ -n "$PORT_FLAG" ]] || fail "--namespace requires --port (explicit instance port; the default 8770 is the main instance's)"
+    [[ "$PORT_FLAG" =~ ^[0-9]{2,5}$ ]] || fail "--port must be a port number, got: $PORT_FLAG"
+  elif [[ -n "$PORT_FLAG" ]]; then
+    fail "--port is only valid together with --namespace (the main instance uses OC_SERVE_PORT/oc.toml)"
+  fi
+
+  # Namespace-derived identity: labels get a ".<ns>" suffix, the root a "-<ns>"
+  # suffix. The EMPTY namespace resolves to the exact historical values.
+  local NS_DOT="" NS_DASH=""
+  if [[ -n "$NS" ]]; then NS_DOT=".$NS"; NS_DASH="-$NS"; fi
+  local SERVE_LABEL="$SERVE_LABEL_BASE$NS_DOT"
+  local AUTODEPLOY_LABEL="$AUTODEPLOY_LABEL_BASE$NS_DOT"
+  local TUNNEL_LABEL="$TUNNEL_LABEL_BASE$NS_DOT"
+
+  # run: perform a mutating command, or in dry-run just print it. Read-only probes
+  # for control flow do NOT go through this.
+  run() {
+    if [[ "$dryrun" == "1" ]]; then
+      echo "[ocserver] DRYRUN would run: $*" >&2
+    else
+      "$@"
+    fi
+  }
+
+  # -------------------------------------------------------------------------
+  # 0. resolve identity + canonical paths
+  # -------------------------------------------------------------------------
+  # SRC = the checkout the operator is running this FROM (bin/ocserver → repo root).
+  local SRC HOME_DIR SERVER_ROOT REPO LOG_DIR DATA_DIR OC_TOML DB_PATH
+  SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  HOME_DIR="${HOME:?HOME must be set}"
+  SERVER_ROOT="${OC_SERVER_ROOT:-$HOME_DIR/.officraft$NS_DASH/server}"
+  REPO="$SERVER_ROOT/repo"
+  LOG_DIR="$SERVER_ROOT/log"
+  DATA_DIR="$SERVER_ROOT/data"
+  OC_TOML="$SERVER_ROOT/oc.toml"
+  DB_PATH="$DATA_DIR/officraft.db"
+
+  local PORT HEALTH_URL
+  if [[ -n "$NS" ]]; then
+    PORT="$PORT_FLAG"
+  else
+    PORT="${OC_SERVE_PORT:-8770}"
+  fi
+  HEALTH_URL="http://127.0.0.1:${PORT}/health"
+
+  local UID_NUM GUI
+  UID_NUM="$(id -u)"
+  GUI="gui/$UID_NUM"
+
+  local CF_CONFIG
+  CF_CONFIG="${OC_CLOUDFLARED_CONFIG:-$HOME_DIR/.cloudflared/officraft.yml}"
+
+  log "resolved: SRC=$SRC SERVER_ROOT=$SERVER_ROOT PORT=$PORT force=$force dryrun=$dryrun"
+  [[ -n "$NS" ]] && log "namespace: '$NS' → labels $SERVE_LABEL (serve ONLY: no autodeploy, no tunnel)"
+  log "layout:   REPO=$REPO OC_CONFIG=$OC_TOML DB=$DB_PATH"
+
+  [[ -f "$SRC/server/ocserverd/go.mod" ]] || fail "not an officraft checkout (no server/ocserverd/go.mod at $SRC)"
+  [[ -f "$SRC/oc.toml.example" ]]         || fail "missing oc.toml.example at $SRC — cannot render config"
+
+  # Prerequisites for the Go world: bin/build needs go + npm; render_oc_toml
+  # validates the rendered config via python3's tomllib (>=3.11). Fail loud NOW,
+  # not halfway through the install.
+  command -v go  >/dev/null 2>&1 || fail "go not found — brew install go, then re-run"
+  command -v npm >/dev/null 2>&1 || fail "npm not found — install node (brew install node), then re-run"
+  python3 -c 'import tomllib' 2>/dev/null \
+    || fail "python3 >=3.11 (tomllib) not found — needed only to render/validate oc.toml"
+  command -v lsof >/dev/null 2>&1 \
+    || fail "lsof not found — needed to prove the port is ours (pre-flight + health identity gate)"
+
+  # -------------------------------------------------------------------------
+  # 0b. PRE-FLIGHT: is $PORT already taken by someone who is not us?
+  # -------------------------------------------------------------------------
+  # Fail BEFORE mutating anything (no plists, no build, no migrate) and before
+  # burning the 40s health wait: a port we cannot bind means the job we are
+  # about to install can only crash-loop.
+  #
+  # The one legitimate holder is OUR OWN serve job from a previous install —
+  # a re-install is documented as idempotent and safe, and drop_and_load boots
+  # it out a few steps below. So the test is not "port busy" but "port busy by
+  # a pid that is not our launchd job".
+  local PF_PIDS PF_JOB_PID
+  PF_PIDS="$(port_listeners "$PORT")"
+  if [[ -z "$PF_PIDS" ]]; then
+    log "pre-flight: port $PORT is free"
+  else
+    PF_JOB_PID="$(launchd_pid "$GUI/$SERVE_LABEL")"
+    if [[ -n "$PF_JOB_PID" && "$PF_PIDS" == "$PF_JOB_PID" ]]; then
+      log "pre-flight: port $PORT held by our own $SERVE_LABEL (pid=$PF_JOB_PID) — it will be replaced (idempotent re-install)"
+    else
+      log "pre-flight FAIL: port $PORT is already in use by a process that is NOT this instance's serve job ($SERVE_LABEL)."
+      report_port_squatter "$PORT" "$PF_PIDS"
+      fail "port $PORT unavailable — nothing was installed or changed."
+    fi
+  fi
+
+  # -------------------------------------------------------------------------
+  # 1. canonical dir skeleton
+  # -------------------------------------------------------------------------
+  log "ensuring canonical dirs under $SERVER_ROOT"
+  run mkdir -p "$SERVER_ROOT" "$LOG_DIR" "$DATA_DIR"
+
+  # -------------------------------------------------------------------------
+  # 2. server checkout → repo/  (copy SRC into place unless it IS already repo/)
+  # -------------------------------------------------------------------------
+  # If the operator is already running from the canonical repo/ (re-install), skip
+  # the copy. Otherwise mirror SRC → repo/ so the canonical checkout is self-owned.
+  # The .git, .venv, node_modules and gitignored build junk are excluded so the copy
+  # is the tracked tree; the copied repo/ then gets its own clone lineage via a
+  # plain `git clone` of SRC's origin when SRC has a git dir.
+  if [[ "$SRC" == "$REPO" ]]; then
+    log "SRC already IS the canonical repo/ ($REPO) — skipping checkout copy"
+  elif [[ -e "$REPO/.git" && "$force" != "1" ]]; then
+    log "repo/ already present ($REPO) — skipping checkout copy (use --force to refresh)"
+  else
+    if git -C "$SRC" rev-parse --git-dir >/dev/null 2>&1; then
+      # Clone from the operator's checkout so repo/ has a real .git (autodeploy pulls).
+      local ORIGIN
+      ORIGIN="$(git -C "$SRC" remote get-url origin 2>/dev/null || echo "$SRC")"
+      log "cloning server checkout into repo/ from origin: $ORIGIN"
+      if [[ "$force" == "1" && -e "$REPO/.git" ]]; then
+        run rm -rf "$REPO"
+      fi
+      run git clone --quiet "$ORIGIN" "$REPO"
+    else
+      # No git in SRC (e.g. a tarball) — mirror the tree so serve/migrate have code.
+      log "SRC has no .git; mirroring tree into repo/ (autodeploy pulls need a clone — set origin later)"
+      run mkdir -p "$REPO"
+      run bash -c "cd \"$SRC\" && tar --exclude=.venv --exclude=.deploy --exclude=node_modules --exclude=frontend/dist -cf - . | tar -xf - -C \"$REPO\""
+    fi
+  fi
+
+  # -------------------------------------------------------------------------
+  # 3. oc.toml (out-of-repo) rendered from example; DSN → data/officraft.db
+  # -------------------------------------------------------------------------
+  # Rendered ONCE (idempotent): a pre-existing oc.toml is the operator's live
+  # config — never clobber it, even with --force (--force only refreshes
+  # code/build, not the operator's overrides). The rendered file carries port +
+  # DSN only; the owner sets the credential via the first-run claim flow (the
+  # success banner walks through it) and the DB stores its hash.
+  if [[ -f "$OC_TOML" ]]; then
+    log "oc.toml already present ($OC_TOML) — kept as-is (never clobbered; operator's live config)"
+  else
+    local DSN="sqlite:///$DB_PATH"
+    log "rendering oc.toml from oc.toml.example → $OC_TOML (DSN → $DB_PATH; no credentials — those live in the DB)"
+    [[ -n "$NS" ]] && log "  namespaced instance: oc.toml gets [server] namespace = \"$NS\", port = $PORT"
+    if [[ "$dryrun" == "1" ]]; then
+      echo "[ocserver] DRYRUN would: render oc.toml with [storage].dsn = $DSN (no [auth] — retired)" >&2
+    else
+      render_oc_toml "$SRC/oc.toml.example" "$OC_TOML" "$DSN" "$NS" "$PORT" \
+        || fail "rendering oc.toml failed"
+    fi
+  fi
+  # OC_CONFIG points every child (serve/migrate/autodeploy + config loaders) here.
+  export OC_CONFIG="$OC_TOML"
+
+  # -------------------------------------------------------------------------
+  # 4. build the deploy binary (bin/build: npm webdist + go build → .deploy/ocserverd)
+  # -------------------------------------------------------------------------
+  # bin/serve and bin/migrate exec repo/.deploy/ocserverd and FATAL without it,
+  # so build MUST come before migrate on a fresh machine (same ordering the
+  # autodeploy pipeline guarantees: pull -> build -> migrate -> restart).
+  log "running bin/build (npm webdist + go build → repo/.deploy/ocserverd, SPA embedded)"
+  if [[ "$dryrun" == "1" ]]; then
+    echo "[ocserver] DRYRUN would: (cd $REPO && bash bin/build)" >&2
+  else
+    ( cd "$REPO" && bash bin/build ) || fail "bin/build failed — no deploy binary, aborting before migrate"
+    [[ -x "$REPO/.deploy/ocserverd" ]] || fail "bin/build succeeded but $REPO/.deploy/ocserverd is missing"
+  fi
+
+  # -------------------------------------------------------------------------
+  # 5. migrate (ocserverd migrate: goose upgrade) against the out-of-repo DSN
+  # -------------------------------------------------------------------------
+  log "running bin/migrate (ocserverd migrate, goose; DSN from OC_CONFIG=$OC_TOML)"
+  if [[ "$dryrun" == "1" ]]; then
+    echo "[ocserver] DRYRUN would: (cd $REPO && OC_CONFIG=$OC_TOML bin/migrate)" >&2
+  else
+    ( cd "$REPO" && OC_CONFIG="$OC_TOML" bin/migrate ) || fail "bin/migrate failed"
+  fi
+
+  # -------------------------------------------------------------------------
+  # 6. render + load the launchd plists (serve, autodeploy, tunnel)
+  # -------------------------------------------------------------------------
+  local LA_DIR
+  LA_DIR="$HOME_DIR/Library/LaunchAgents"
+  local COMMON_PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+  # ---- claude resolution for the fleet spawn chain (OC_CLAUDE_BIN stamp) ----
+  # WHY HERE: `ocserver install` is the ONE link of the launchd chain that runs in
+  # the operator's interactive shell (rich PATH — asdf/nvm/volta shims included).
+  # The serve daemon itself runs under launchd with $COMMON_PATH, so when the
+  # cockpit's bootstrap-here makes the SERVER run `ocwarden install --force`, that
+  # install inherits the serve env and could never re-discover a version-manager
+  # claude on its own. Resolving claude NOW and stamping OC_CLAUDE_BIN into the
+  # serve plist closes the chain: serve env carries it → bootstrap-here's env
+  # passthrough hands it to `ocwarden install` → its resolveClaudeBin priority ①
+  # hits → it stamps the same path into the WARDEN plist → the launchd warden can
+  # spawn. Resolution: OC_CLAUDE_BIN env override → command -v (interactive PATH)
+  # → common install dirs. A claude that only runs under the interactive PATH
+  # (shim / env-shebang) additionally promotes the full installer PATH into the
+  # serve plist so the shim keeps working downstream. Missing claude is a loud
+  # WARNING, not fatal: the server itself is fully functional without it.
+  local CLAUDE_BIN SERVE_PATH
+  CLAUDE_BIN="${OC_CLAUDE_BIN:-}"
+  if [[ -z "$CLAUDE_BIN" ]]; then
+    CLAUDE_BIN="$(command -v claude 2>/dev/null || true)"
+  fi
+  if [[ -z "$CLAUDE_BIN" ]]; then
+    local cand
+    for cand in "$HOME_DIR/.local/bin/claude" /opt/homebrew/bin/claude /usr/local/bin/claude; do
+      [[ -x "$cand" ]] && { CLAUDE_BIN="$cand"; break; }
+    done
+  fi
+  SERVE_PATH="$COMMON_PATH"
+  if [[ -n "$CLAUDE_BIN" ]]; then
+    # XML/exec hygiene (same class as the ocwarden-side stampableClaude check).
+    if [[ "$CLAUDE_BIN" != /* || "$CLAUDE_BIN" == *[\ \	\"\'\<\>\&]* ]]; then
+      log "WARN: resolved claude path '$CLAUDE_BIN' is not stampable (must be absolute, no whitespace/XML-special chars) — not stamping OC_CLAUDE_BIN"
+      CLAUDE_BIN=""
+    elif env -i PATH="$COMMON_PATH" HOME="$HOME_DIR" "$CLAUDE_BIN" --version >/dev/null 2>&1; then
+      log "claude resolved: $CLAUDE_BIN (runs under the minimal launchd PATH; stamping OC_CLAUDE_BIN into the serve plist)"
+    elif env -i PATH="$PATH" HOME="$HOME_DIR" "$CLAUDE_BIN" --version >/dev/null 2>&1; then
+      # XML hygiene on the PATH promotion too: a PATH carrying XML-special chars
+      # would corrupt the rendered plist (plutil -lint would fail the install with
+      # an opaque message) — keep the minimal PATH and say why instead.
+      if [[ "$PATH" == *[\"\'\<\>\&]* ]]; then
+        log "WARN: installer PATH contains XML-special chars — cannot stamp it into the serve plist; stamping OC_CLAUDE_BIN only (the shim may fail under the minimal PATH)"
+      else
+        SERVE_PATH="$PATH"
+        log "claude resolved: $CLAUDE_BIN (version-manager shim — needs the installer PATH; stamping OC_CLAUDE_BIN AND the full installer PATH into the serve plist)"
+      fi
+    else
+      log "WARN: claude at $CLAUDE_BIN failed --version under both minimal and installer PATH — stamping OC_CLAUDE_BIN best-effort (spawns via bootstrap-here may fail)"
+    fi
+  fi
+  if [[ -z "$CLAUDE_BIN" ]]; then
+    log "WARNING: claude CLI not found — wardens installed via the cockpit's bootstrap-here on THIS host will refuse every spawn (claude_bin_unresolved)."
+    log "WARNING: fix: install claude, or export OC_CLAUDE_BIN=/absolute/path/to/claude and re-run 'ocserver install' (safe — idempotent)."
+  fi
+  local CLAUDE_ENV_LINE=""
+  if [[ -n "$CLAUDE_BIN" ]]; then
+    CLAUDE_ENV_LINE="
+        <key>OC_CLAUDE_BIN</key><string>$CLAUDE_BIN</string>"
+  fi
+
+  # render_serve_plist — the API (repo/bin/serve → exec .deploy/ocserverd serve).
+  render_serve_plist() {
+    cat <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- RENDERED by bin/ocserver install for SERVER_ROOT=$SERVER_ROOT — re-run the installer to change. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>$SERVE_LABEL</string>
+    <key>ProgramArguments</key>
+    <array><string>$REPO/bin/serve</string></array>
+    <key>WorkingDirectory</key><string>$REPO</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key><string>$SERVE_PATH</string>
+        <key>HOME</key><string>$HOME_DIR</string>
+        <key>OC_CONFIG</key><string>$OC_TOML</string>$CLAUDE_ENV_LINE
+    </dict>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>ThrottleInterval</key><integer>10</integer>
+    <key>StandardOutPath</key><string>$LOG_DIR/serve.out.log</string>
+    <key>StandardErrorPath</key><string>$LOG_DIR/serve.err.log</string>
+</dict>
+</plist>
+PLIST
+  }
+
+  # render_autodeploy_plist — the drift watcher (in-repo repo/bin/autodeploy).
+  render_autodeploy_plist() {
+    cat <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- RENDERED by bin/ocserver install for SERVER_ROOT=$SERVER_ROOT — re-run the installer to change. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>$AUTODEPLOY_LABEL</string>
+    <key>ProgramArguments</key>
+    <array><string>$REPO/bin/autodeploy</string></array>
+    <key>WorkingDirectory</key><string>$REPO</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key><string>$COMMON_PATH</string>
+        <key>HOME</key><string>$HOME_DIR</string>
+        <key>OC_SERVER_ROOT</key><string>$SERVER_ROOT</string>
+        <key>OC_CLONE</key><string>$REPO</string>
+        <key>OC_LOG_DIR</key><string>$LOG_DIR</string>
+        <key>OC_DATA_DIR</key><string>$DATA_DIR</string>
+        <key>OC_CONFIG</key><string>$OC_TOML</string>
+        <key>OC_HEALTH_URL</key><string>$HEALTH_URL</string>
+        <key>OC_SERVE_LABEL</key><string>$SERVE_LABEL</string>
+    </dict>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>ThrottleInterval</key><integer>10</integer>
+    <key>StandardOutPath</key><string>$LOG_DIR/autodeploy.out.log</string>
+    <key>StandardErrorPath</key><string>$LOG_DIR/autodeploy.err.log</string>
+</dict>
+</plist>
+PLIST
+  }
+
+  # render_tunnel_plist — cloudflared, host-specific. Only called when a config +
+  # tunnel id resolve. $1 = tunnel id, $2 = cloudflared binary path.
+  render_tunnel_plist() {
+    local tid="$1" cfbin="$2"
+    cat <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- RENDERED by bin/ocserver install for SERVER_ROOT=$SERVER_ROOT — re-run the installer to change. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>$TUNNEL_LABEL</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$cfbin</string><string>tunnel</string>
+        <string>--config</string><string>$CF_CONFIG</string>
+        <string>run</string><string>$tid</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key><string>$COMMON_PATH</string>
+        <key>HOME</key><string>$HOME_DIR</string>
+    </dict>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>ThrottleInterval</key><integer>10</integer>
+    <key>StandardOutPath</key><string>$LOG_DIR/tunnel.out.log</string>
+    <key>StandardErrorPath</key><string>$LOG_DIR/tunnel.err.log</string>
+</dict>
+</plist>
+PLIST
+  }
+
+  # drop_and_load LABEL <render-fn...> — render → plutil-lint → bootout+bootstrap+kickstart.
+  drop_and_load() {
+    local label="$1"; shift
+    local dst="$LA_DIR/$label.plist"
+    log "rendering plist → $dst"
+    if [[ "$dryrun" == "1" ]]; then
+      if "$@" | plutil -lint - >/dev/null 2>&1; then
+        log "DRYRUN: $label plist is plutil-lint clean (not written)"
+      else
+        fail "DRYRUN: $label rendered plist failed plutil -lint"
+      fi
+      echo "[ocserver] DRYRUN would: launchctl bootout $GUI/$label 2>/dev/null || true" >&2
+      echo "[ocserver] DRYRUN would: launchctl bootstrap $GUI $dst; kickstart -k $GUI/$label" >&2
+      return 0
+    fi
+    mkdir -p "$LA_DIR"
+    "$@" > "$dst"
+    plutil -lint "$dst" >/dev/null || fail "rendered plist failed plutil -lint: $dst"
+    # bootout is ASYNC: the label can linger briefly after the call returns.
+    # bootstrapping while it's still registered fails ("service already bootstrapped")
+    # AND on a re-install can leave the just-torn-down job removed → a running serve
+    # gets killed and never comes back. So bootout, then POLL until the label is truly
+    # gone (short bounded wait) before bootstrap. Makes idempotent re-runs safe.
+    launchctl bootout "$GUI/$label" 2>/dev/null || true
+    local _gone=0 _i
+    for _i in $(seq 1 25); do
+      launchctl print "$GUI/$label" >/dev/null 2>&1 || { _gone=1; break; }
+      sleep 0.2
+    done
+    [[ "$_gone" == "1" ]] || log "WARN: $label still registered ~5s after bootout; bootstrapping anyway"
+    launchctl bootstrap "$GUI" "$dst" || fail "launchctl bootstrap failed for $dst"
+    launchctl kickstart -k "$GUI/$label" || fail "launchctl kickstart failed for $GUI/$label"
+    log "loaded $label"
+  }
+
+  run mkdir -p "$LA_DIR"
+  drop_and_load "$SERVE_LABEL" render_serve_plist
+
+  # A namespaced instance gets serve ONLY (owner-decided): no autodeploy (its
+  # code updates are pulled manually — an auto-tracking test instance would
+  # swap code out from under whatever is being tested) and no tunnel (no
+  # public hostname). The main (empty-namespace) instance keeps both, unchanged.
+  if [[ -n "$NS" ]]; then
+    log "namespace '$NS': SKIP autodeploy + tunnel (serve only; update by re-running install)"
+  else
+    drop_and_load "$AUTODEPLOY_LABEL" render_autodeploy_plist
+
+    # tunnel — host-specific cloudflared. Render+load ONLY if a config + tunnel id +
+    # cloudflared binary all resolve; else skip loudly with a hint (never provision).
+    local CF_BIN TUNNEL_ID
+    CF_BIN="$(command -v cloudflared || echo /opt/homebrew/bin/cloudflared)"
+    if [[ ! -f "$CF_CONFIG" ]]; then
+      log "SKIP tunnel: no cloudflared config at $CF_CONFIG (installer never provisions cloudflare)."
+      log "  → create the config + tunnel yourself, then re-run: bin/ocserver install --force"
+    elif [[ ! -x "$CF_BIN" ]]; then
+      log "SKIP tunnel: cloudflared binary not found ($CF_BIN). brew install cloudflared, then re-run --force."
+    else
+      TUNNEL_ID="$(awk '/^tunnel:/{print $2; exit}' "$CF_CONFIG" 2>/dev/null || true)"
+      if [[ -z "$TUNNEL_ID" ]]; then
+        log "SKIP tunnel: could not parse 'tunnel:' id from $CF_CONFIG — leaving tunnel unmanaged."
+      else
+        log "tunnel config found ($CF_CONFIG, id=$TUNNEL_ID) — rendering tunnel plist"
+        drop_and_load "$TUNNEL_LABEL" render_tunnel_plist "$TUNNEL_ID" "$CF_BIN"
+      fi
+    fi
+  fi
+
+  # -------------------------------------------------------------------------
+  # 7. health check — serve must answer 200 on /health
+  # -------------------------------------------------------------------------
+  if [[ "$dryrun" == "1" ]]; then
+    log "DRYRUN complete — nothing on the machine was changed. Would poll $HEALTH_URL until it answers 200 FROM $SERVE_LABEL's own pid."
+    exit 0
+  fi
+
+  # A 200 is necessary but NOT sufficient: it only proves that something answers
+  # on the port. We require that the process holding the listening socket IS the
+  # process launchd started for OUR label (bin/serve execs the daemon, so the job
+  # pid is the daemon pid is the socket holder). Without this, a stale
+  # officraft instance squatting on the port answers the probe while our job
+  # crash-loops — and the install reports SUCCESS having started nothing.
+  log "waiting for serve health at $HEALTH_URL (up to 40s; must answer from $SERVE_LABEL's own pid)…"
+  local deadline code ok_identity listen_pids job_pid
+  deadline=$(( $(date +%s) + 40 ))
+  code="000"; ok_identity=0; listen_pids=""; job_pid=""
+  while [[ "$(date +%s)" -lt "$deadline" ]]; do
+    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$HEALTH_URL" 2>/dev/null || echo 000)"
+    listen_pids="$(port_listeners "$PORT")"
+    job_pid="$(launchd_pid "$GUI/$SERVE_LABEL")"
+    # All three must agree: it answers, our job is running, and our job is the
+    # one holding the socket. A crash-looping job churns pids, so re-read both
+    # every round rather than sampling once.
+    if [[ "$code" == "200" && -n "$job_pid" && "$listen_pids" == "$job_pid" ]]; then
+      ok_identity=1
+      break
+    fi
+    sleep 2
+  done
+
+  # The false-green case, now caught: healthy 200, but from someone else's pid.
+  if [[ "$code" == "200" && "$ok_identity" != "1" ]]; then
+    log "FAIL: $HEALTH_URL answers 200, but NOT from the server this install just set up."
+    log "  the reply comes from the process holding port $PORT, which is not $SERVE_LABEL's pid (job pid=${job_pid:-<not running>})."
+    report_port_squatter "$PORT" "$listen_pids"
+    log "  your newly installed $SERVE_LABEL did NOT come up (it cannot bind $PORT):"
+    log "    diag: launchctl print $GUI/$SERVE_LABEL ; tail $LOG_DIR/serve.err.log"
+    [[ -f "$LOG_DIR/serve.err.log" ]] && tail -n 20 "$LOG_DIR/serve.err.log" | sed 's/^/[ocserver] serve.err| /' >&2 || true
+    fail "install did NOT bring up this server — port $PORT is served by another process (see above)."
+  fi
+
+  # print_first_run_banner — on a FRESH install (no owner password yet) the
+  # server minted a one-shot claim code at first boot; fetch it back through
+  # the local `ocserverd claim-token` CLI seam (a DB read behind shell access —
+  # the code never rides an unauthenticated HTTP endpoint) and walk the
+  # operator through the browser first-run: open → paste the code → pick a
+  # password. A reinstall over an existing credential prints no credential at
+  # all (claim-token exit 3): log in with the password you already have.
+  print_first_run_banner() {
+    local ct_out ct_rc=0 token=""
+    ct_out="$( cd "$REPO" && OC_CONFIG="$OC_TOML" ".deploy/ocserverd" claim-token 2>/dev/null )" || ct_rc=$?
+    case "$ct_rc" in
+      0)
+        # The claim code is the LAST line; any "[ocserverd]"-prefixed
+        # settings/migration notes come before it (the CLI's print contract).
+        token="$(printf '%s\n' "$ct_out" | grep -v '^\[ocserverd\]' | tail -n 1)"
+        [[ -n "$token" ]] || { log "WARN: claim-token returned no code — read it from $LOG_DIR/serve.out.log instead"; return 0; }
+        log "════════════════════════════════════════════════════════════════"
+        log "  FIRST-RUN SETUP — claim this server and pick your password:"
+        log "    1. open  http://127.0.0.1:$PORT  in a browser"
+        log "    2. paste this one-shot claim code:"
+        log "         $token"
+        log "    3. set the owner password you will sign in with"
+        log "  The code stops working the moment the password is set."
+        log "════════════════════════════════════════════════════════════════"
+        ;;
+      3)
+        log "owner password already set — log in with your existing password (nothing new to claim)"
+        ;;
+      *)
+        log "WARN: ocserverd claim-token failed (exit $ct_rc) — a fresh server prints the claim code in $LOG_DIR/serve.out.log"
+        ;;
+    esac
+  }
+
+  if [[ "$ok_identity" == "1" ]]; then
+    log "SUCCESS: officraft server is up — $HEALTH_URL returned 200 from $SERVE_LABEL (pid=$job_pid)."
+    log "  layout:  $SERVER_ROOT (repo/ code · data/officraft.db · oc.toml · log/)"
+    if [[ -n "$NS" ]]; then
+      log "  launchd: $SERVE_LABEL loaded in $GUI (namespace '$NS' — serve only)"
+    else
+      log "  launchd: $SERVE_LABEL + $AUTODEPLOY_LABEL loaded in $GUI"
+    fi
+    if [[ -n "$NS" ]]; then
+      log "  logs:    $LOG_DIR/serve.{out,err}.log"
+    else
+      log "  logs:    $LOG_DIR/{serve,autodeploy}.{out,err}.log"
+    fi
+    print_first_run_banner
+    exit 0
+  fi
+  log "FAIL: serve did not return 200 within 40s (last=$code)."
+  log "  diag: launchctl print $GUI/$SERVE_LABEL ; tail $LOG_DIR/serve.err.log"
+  [[ -f "$LOG_DIR/serve.err.log" ]] && tail -n 20 "$LOG_DIR/serve.err.log" | sed 's/^/[ocserver] serve.err| /' >&2 || true
+  # No credential to reveal on failure: a fresh install's claim code is
+  # printed by the success banner of a (safe, idempotent) re-run.
+  fail "server failed health check — re-run is safe (idempotent). See diagnostics above."
+}
+
+# ===========================================================================
+# uninstall subcommand
+# ===========================================================================
+# Reverse of install: bootout + delete the 3 launchd plists, then remove the
+# canonical $OC_SERVER_ROOT. data/ (sqlite, incl. the owner credential hash) +
+# oc.toml (live config) are KEPT by default so an
+# uninstall is not silently destructive; --purge deletes it too, gated behind
+# an explicit confirmation (or --yes). Same guardrails as install: idempotent,
+# --dry-run mutates nothing, launchctl by EXACT label only, never pkill.
+cmd_uninstall() {
+  local purge=0 dryrun=0 yes=0 NS=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --keep-data) purge=0 ;;
+      --purge)     purge=1 ;;
+      --yes)       yes=1 ;;
+      --dry-run)   dryrun=1 ;;
+      --namespace)   shift; NS="${1:-}" ;;
+      --namespace=*) NS="${1#*=}" ;;
+      -h|--help)   usage; exit 0 ;;
+      *) fail "unknown uninstall flag: $1 (see: bin/ocserver uninstall --help)" ;;
+    esac
+    shift
+  done
+  validate_namespace "$NS"
+
+  # Namespace-derived identity (mirror of cmd_install): a namespaced uninstall
+  # touches ONLY its own ".<ns>" labels and "-<ns>" root — symmetric with the
+  # namespaced install, which loads serve only.
+  local NS_DOT="" NS_DASH=""
+  if [[ -n "$NS" ]]; then NS_DOT=".$NS"; NS_DASH="-$NS"; fi
+  local SERVE_LABEL="$SERVE_LABEL_BASE$NS_DOT"
+  local AUTODEPLOY_LABEL="$AUTODEPLOY_LABEL_BASE$NS_DOT"
+  local TUNNEL_LABEL="$TUNNEL_LABEL_BASE$NS_DOT"
+
+  # run: perform a mutating command, or in dry-run just print it. Read-only
+  # probes for control flow do NOT go through this.
+  run() {
+    if [[ "$dryrun" == "1" ]]; then
+      echo "[ocserver] DRYRUN would run: $*" >&2
+    else
+      "$@"
+    fi
+  }
+
+  local HOME_DIR SERVER_ROOT DATA_DIR LA_DIR GUI
+  HOME_DIR="${HOME:?HOME must be set}"
+  SERVER_ROOT="${OC_SERVER_ROOT:-$HOME_DIR/.officraft$NS_DASH/server}"
+  DATA_DIR="$SERVER_ROOT/data"
+  LA_DIR="$HOME_DIR/Library/LaunchAgents"
+  GUI="gui/$(id -u)"
+
+  log "resolved: SERVER_ROOT=$SERVER_ROOT purge=$purge dryrun=$dryrun"
+  [[ -n "$NS" ]] && log "namespace: '$NS' → serve label only ($SERVE_LABEL)"
+
+  if [[ "$purge" == "1" && "$dryrun" != "1" && "$yes" != "1" ]]; then
+    log "--purge will DELETE EVERYTHING under $SERVER_ROOT, INCLUDING data/ (the sqlite db — your owner credential lives there) and oc.toml. Irreversible."
+    printf '[ocserver] type "purge" to confirm: ' >&2
+    local answer=""
+    read -r answer
+    [[ "$answer" == "purge" ]] || fail "purge not confirmed — nothing was changed"
+  fi
+
+  # -------------------------------------------------------------------------
+  # 1. launchd jobs: bootout + remove plist, per exact label
+  # -------------------------------------------------------------------------
+  # A namespaced install loads serve ONLY, so its uninstall boots out serve
+  # only (symmetry). The main instance keeps the historical 3-label sweep.
+  local labels=("$SERVE_LABEL" "$AUTODEPLOY_LABEL" "$TUNNEL_LABEL")
+  if [[ -n "$NS" ]]; then labels=("$SERVE_LABEL"); fi
+  local label dst
+  for label in "${labels[@]}"; do
+    if launchctl print "$GUI/$label" >/dev/null 2>&1; then
+      log "unloading launchd job $label"
+      run launchctl bootout "$GUI/$label"
+    else
+      log "launchd job $label not loaded — nothing to bootout"
+    fi
+    dst="$LA_DIR/$label.plist"
+    if [[ -f "$dst" ]]; then
+      log "removing plist $dst"
+      run rm -f "$dst"
+    else
+      log "plist already absent ($dst)"
+    fi
+  done
+
+  # -------------------------------------------------------------------------
+  # 2. canonical layout under SERVER_ROOT
+  # -------------------------------------------------------------------------
+  if [[ ! -e "$SERVER_ROOT" ]]; then
+    log "$SERVER_ROOT already absent — nothing to remove"
+  elif [[ "$purge" == "1" ]]; then
+    log "purging $SERVER_ROOT (INCLUDING data/)"
+    run rm -rf "$SERVER_ROOT"
+  else
+    local entry kept=0
+    shopt -s nullglob dotglob
+    for entry in "$SERVER_ROOT"/*; do
+      # data/ AND oc.toml stay: the db is the user's stuff (incl. the owner
+      # credential hash), oc.toml the operator's live overrides — keeping both
+      # means a later reinstall comes back exactly as it was (install never
+      # clobbers an existing oc.toml or the DB credential; a reinstall's
+      # banner prints no claim code once a password is set).
+      if [[ "$entry" == "$DATA_DIR" || "$entry" == "$SERVER_ROOT/oc.toml" ]]; then
+        kept=1
+        continue
+      fi
+      log "removing $entry"
+      run rm -rf "$entry"
+    done
+    shopt -u nullglob dotglob
+    if [[ "$kept" == "1" ]]; then
+      log "KEPT data/ + oc.toml: your sqlite db (incl. owner credential) and live config stay under $SERVER_ROOT (run with --purge to delete them too)"
+    else
+      log "no data/ or oc.toml under $SERVER_ROOT — removing the now-empty root"
+      run rm -rf "$SERVER_ROOT"
+    fi
+  fi
+
+  if [[ "$dryrun" == "1" ]]; then
+    log "DRYRUN complete — nothing on the machine was changed."
+  else
+    log "uninstall complete."
+  fi
+}
+
+# ===========================================================================
+# dispatch
+# ===========================================================================
+main() {
+  local sub="${1:-}"
+  [[ $# -gt 0 ]] && shift || true
+  case "$sub" in
+    install)      cmd_install "$@" ;;
+    uninstall)    cmd_uninstall "$@" ;;
+    # render-config — HIDDEN test seam (not in usage): render oc.toml from the
+    # example the exact way `install` step 3 does, so a harness can assert the
+    # rendered oc.toml is valid single-[storage] TOML WITHOUT running the whole
+    # install (build/migrate/launchctl). Args: EXAMPLE OUT DSN [NS PORT] — the
+    # optional trailing pair exercises the namespaced render (both or neither).
+    # No password arg since B2: credentials never enter oc.toml (the owner
+    # sets the password through the first-run claim flow; harnesses seed the
+    # DB via `ocserverd set-password`).
+    render-config)
+      [[ $# -eq 3 || $# -eq 5 ]] || fail "render-config needs: EXAMPLE OUT DSN [NS PORT]"
+      if [[ $# -eq 5 ]]; then validate_namespace "$4"; fi
+      render_oc_toml "$1" "$2" "$3" "${4:-}" "${5:-}" || fail "render-config failed"
+      ;;
+    ""|-h|--help) usage; [[ "$sub" == "" ]] && exit 1 || exit 0 ;;
+    *)            fail "unknown command: $sub (see: bin/ocserver --help)" ;;
+  esac
+}
+
+main "$@"

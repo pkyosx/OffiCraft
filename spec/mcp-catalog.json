@@ -1,0 +1,1874 @@
+{
+  "tools": [
+    {
+      "description": "List the owner's roster (presence-derived MemberDTO[]).",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "get_members"
+    },
+    {
+      "description": "Hire a member (server mints the id). Pure seam, no UI (\u00a79.1).",
+      "inputSchema": {
+        "properties": {
+          "effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Effort"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Kind"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Model"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "role_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Role Key"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "hire_member"
+    },
+    {
+      "description": "Read one roster member (removed \u2192 404).",
+      "inputSchema": {
+        "properties": {
+          "member_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "member_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_member"
+    },
+    {
+      "description": "Edit a member (name / model / effort). Blank name / bad effort \u2192 422.",
+      "inputSchema": {
+        "properties": {
+          "effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Effort"
+          },
+          "member_id": {
+            "type": "string"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Model"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Name"
+          }
+        },
+        "required": [
+          "member_id"
+        ],
+        "type": "object"
+      },
+      "name": "update_member"
+    },
+    {
+      "description": "Activate: write desired_state=online intent (does NOT flip online).",
+      "inputSchema": {
+        "properties": {
+          "machine_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Machine Id"
+          },
+          "member_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "member_id"
+        ],
+        "type": "object"
+      },
+      "name": "activate_member"
+    },
+    {
+      "description": "Relocate a member to a machine (placement only; never touches desired_state). Also accepts an outsource-worker id: the same move-one-agent verb relocates the worker.",
+      "inputSchema": {
+        "properties": {
+          "machine_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Machine Id"
+          },
+          "member_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "member_id"
+        ],
+        "type": "object"
+      },
+      "name": "relocate_member"
+    },
+    {
+      "description": "Deactivate: desired_state=offline + stamp stopping_since (retains row).",
+      "inputSchema": {
+        "properties": {
+          "member_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "member_id"
+        ],
+        "type": "object"
+      },
+      "name": "deactivate_member"
+    },
+    {
+      "description": "Force-stop: robust STOP now, bypassing the graceful-stop grace.",
+      "inputSchema": {
+        "properties": {
+          "member_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "member_id"
+        ],
+        "type": "object"
+      },
+      "name": "force_stop_member"
+    },
+    {
+      "description": "report_waking(): stamp the caller's waking + clear recycle markers.",
+      "inputSchema": {
+        "properties": {
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Model"
+          }
+        },
+        "type": "object"
+      },
+      "name": "report_waking"
+    },
+    {
+      "description": "report_stopping(): stamp the caller's stopping_since (graceful stop).",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "report_stopping"
+    },
+    {
+      "description": "report_stopped(): anchor the caller's stopped; fire recycle kill.",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "report_stopped"
+    },
+    {
+      "description": "restart_self(): self-triggered recycle (online-only 409; min-liveness 429).",
+      "inputSchema": {
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Reason"
+          }
+        },
+        "type": "object"
+      },
+      "name": "restart_self"
+    },
+    {
+      "description": "Refocus a member's context (online-only, else 409).",
+      "inputSchema": {
+        "properties": {
+          "member_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "member_id"
+        ],
+        "type": "object"
+      },
+      "name": "refocus_member"
+    },
+    {
+      "description": "Dismiss a member (soft delete). Pure seam, no UI (\u00a79.1).",
+      "inputSchema": {
+        "properties": {
+          "member_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "member_id"
+        ],
+        "type": "object"
+      },
+      "name": "dismiss_member"
+    },
+    {
+      "description": "Post a chat message (sender = verified JWT sub; auto SSE fan-out).",
+      "inputSchema": {
+        "$defs": {
+          "ChatAttachmentInputDTO": {
+            "description": "An attachment carried on a posted chat message \u2014 either INLINE BYTES or a\nREFERENCE to a blob already in the shared attachment store.\n\nInline: ``data_b64`` is the bytes, base64-encoded \u2014 a data-URI\n(``data:<mime>;base64,....``) OR bare base64 (the handler strips a\n``data:...;base64,`` prefix if present). ``mime`` and ``filename`` are\noptional: an omitted ``mime`` is sniffed for images (else\n``application/octet-stream``); an omitted ``filename`` defaults for pasted\nimages.\n\nReference: ``id`` names an EXISTING blob (minted by\n``POST /api/chat/attachments`` \u2014 the streaming upload seam that keeps file\nbytes out of a JSON tool call). The stored blob's mime/filename are\nauthoritative: ``filename``/``mime`` sent alongside ``id`` are IGNORED (so\nthe upload response ``{id, mime, filename}`` can be pasted back verbatim).\nAn unknown ``id`` is a 400; carrying BOTH ``id`` and ``data_b64`` is a 400\n(ambiguous intent). An item with neither ``id`` nor ``data_b64`` is\nsilently dropped (legacy tolerance, unchanged).",
+            "properties": {
+              "data_b64": {
+                "default": "",
+                "title": "Data B64",
+                "type": "string"
+              },
+              "filename": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Filename"
+              },
+              "id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Id"
+              },
+              "mime": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Mime"
+              }
+            },
+            "title": "ChatAttachmentInputDTO",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "attachments": {
+            "items": {
+              "$ref": "#/$defs/ChatAttachmentInputDTO"
+            },
+            "title": "Attachments",
+            "type": "array"
+          },
+          "body": {
+            "default": "",
+            "title": "Body",
+            "type": "string"
+          },
+          "meta": {
+            "additionalProperties": true,
+            "title": "Meta",
+            "type": "object"
+          },
+          "to": {
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "to"
+        ],
+        "type": "object"
+      },
+      "name": "post_chat"
+    },
+    {
+      "description": "List the chat stream (?with=<id>&limit=<n>; oldest\u2192newest). History paging: before_ts + before_id (both together) return the limit messages strictly OLDER than that keyset cursor \u2014 a history page NEVER advances the read watermark.",
+      "inputSchema": {
+        "properties": {
+          "before_id": {
+            "type": "string"
+          },
+          "before_ts": {
+            "type": "number"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "get_chat"
+    },
+    {
+      "description": "List every attachment of a member's conversations (?with=<member_id>; flattened, sender-labelled, newest\u2192oldest).",
+      "inputSchema": {
+        "properties": {
+          "with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "get_chat_attachments"
+    },
+    {
+      "description": "Mark a conversation read up to a watermark (reader = verified sub).",
+      "inputSchema": {
+        "properties": {
+          "last_read_ts": {
+            "default": 0.0,
+            "title": "Last Read Ts",
+            "type": "number"
+          },
+          "peer": {
+            "title": "Peer",
+            "type": "string"
+          }
+        },
+        "required": [
+          "peer"
+        ],
+        "type": "object"
+      },
+      "name": "post_chat_mark-read"
+    },
+    {
+      "description": "List chat read receipts (?with=<peer>; per-conversation watermark).",
+      "inputSchema": {
+        "properties": {
+          "with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "get_chat_reads"
+    },
+    {
+      "description": "Open a reply card: an ask the owner must answer (options \u22644, [0]=AI pick). Auto-binds to your single active task's current step when unambiguous \u2014 that step (and usually the task) enters waiting_owner until the owner answers. Optional attachments ride the question (same shape as post_chat: {id} from `ocagent upload` / POST /api/chat/attachments, or inline data_b64).",
+      "inputSchema": {
+        "$defs": {
+          "ChatAttachmentInputDTO": {
+            "description": "An attachment carried on a posted chat message \u2014 either INLINE BYTES or a\nREFERENCE to a blob already in the shared attachment store.\n\nInline: ``data_b64`` is the bytes, base64-encoded \u2014 a data-URI\n(``data:<mime>;base64,....``) OR bare base64 (the handler strips a\n``data:...;base64,`` prefix if present). ``mime`` and ``filename`` are\noptional: an omitted ``mime`` is sniffed for images (else\n``application/octet-stream``); an omitted ``filename`` defaults for pasted\nimages.\n\nReference: ``id`` names an EXISTING blob (minted by\n``POST /api/chat/attachments`` \u2014 the streaming upload seam that keeps file\nbytes out of a JSON tool call). The stored blob's mime/filename are\nauthoritative: ``filename``/``mime`` sent alongside ``id`` are IGNORED (so\nthe upload response ``{id, mime, filename}`` can be pasted back verbatim).\nAn unknown ``id`` is a 400; carrying BOTH ``id`` and ``data_b64`` is a 400\n(ambiguous intent). An item with neither ``id`` nor ``data_b64`` is\nsilently dropped (legacy tolerance, unchanged).",
+            "properties": {
+              "data_b64": {
+                "default": "",
+                "title": "Data B64",
+                "type": "string"
+              },
+              "filename": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Filename"
+              },
+              "id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Id"
+              },
+              "mime": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Mime"
+              }
+            },
+            "title": "ChatAttachmentInputDTO",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "attachments": {
+            "items": {
+              "$ref": "#/$defs/ChatAttachmentInputDTO"
+            },
+            "title": "Attachments",
+            "type": "array"
+          },
+          "body": {
+            "default": "",
+            "title": "Body",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "summary",
+          "options"
+        ],
+        "type": "object"
+      },
+      "name": "create_reply_card"
+    },
+    {
+      "description": "List reply cards — LIGHT rows: summary (title) + decision digest only, NO body/options full text (?status=waiting longest-first | answered last-24h; ?limit=N caps the rows). Full card via get_reply_card.",
+      "inputSchema": {
+        "properties": {
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Limit"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Status"
+          }
+        },
+        "type": "object"
+      },
+      "name": "list_reply_cards"
+    },
+    {
+      "description": "Read one reply card (full context: options, status, answer).",
+      "inputSchema": {
+        "properties": {
+          "card_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "card_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_reply_card"
+    },
+    {
+      "description": "Ingest an agent's context gauge (in-memory; bad body \u2192 400).",
+      "inputSchema": {
+        "properties": {
+          "context_pct": {
+            "default": null,
+            "title": "Context Pct"
+          },
+          "rate_limits": {
+            "additionalProperties": true,
+            "title": "Rate Limits",
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "name": "ingest_agent_context"
+    },
+    {
+      "description": "Ingest warden telemetry (hardware/limits/tokens/cost/self_update).",
+      "inputSchema": {
+        "properties": {
+          "account": {
+            "default": null,
+            "title": "Account"
+          },
+          "account_label": {
+            "default": null,
+            "title": "Account Label"
+          },
+          "command_result": {
+            "default": null,
+            "title": "Command Result"
+          },
+          "cost": {
+            "default": null,
+            "title": "Cost"
+          },
+          "effort": {
+            "default": null,
+            "title": "Effort"
+          },
+          "hardware": {
+            "default": null,
+            "title": "Hardware"
+          },
+          "machine": {
+            "default": null,
+            "title": "Machine"
+          },
+          "rate_limits": {
+            "default": null,
+            "title": "Rate Limits"
+          },
+          "self_update": {
+            "default": null,
+            "title": "Self Update"
+          },
+          "tokens": {
+            "default": null,
+            "title": "Tokens"
+          }
+        },
+        "type": "object"
+      },
+      "name": "ingest_telemetry"
+    },
+    {
+      "description": "Monitoring telemetry (roster + context + warden push; honest \u2014 else).",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "get_monitoring"
+    },
+    {
+      "description": "Set an account's display name (id = stable tag). Blank name \u2192 422.",
+      "inputSchema": {
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Display Name"
+          }
+        },
+        "required": [
+          "account_id"
+        ],
+        "type": "object"
+      },
+      "name": "update_account"
+    },
+    {
+      "description": "Set a machine's display name (id = stable host). Blank name \u2192 422.",
+      "inputSchema": {
+        "properties": {
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Display Name"
+          },
+          "machine_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "machine_id"
+        ],
+        "type": "object"
+      },
+      "name": "update_machine"
+    },
+    {
+      "description": "List machines (active wardens): machine_id/display_name/online.",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "list_machines"
+    },
+    {
+      "description": "Uninstall a machine: drive the uninstall RPC to its warden.",
+      "inputSchema": {
+        "properties": {
+          "member_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "member_id"
+        ],
+        "type": "object"
+      },
+      "name": "uninstall_machine"
+    },
+    {
+      "description": "Delete a machine: soft-delete its warden record (no command sent).",
+      "inputSchema": {
+        "properties": {
+          "member_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "member_id"
+        ],
+        "type": "object"
+      },
+      "name": "delete_machine"
+    },
+    {
+      "description": "Read the user-custom additive context block (empty = is_default).",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "get_global_context"
+    },
+    {
+      "description": "Whole-block replace of the user-custom additive block ({text}).",
+      "inputSchema": {
+        "properties": {
+          "text": {
+            "default": "",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "replace_global_context"
+    },
+    {
+      "description": "Reset the user-custom block to empty (idempotent tombstone).",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "reset_global_context"
+    },
+    {
+      "description": "List role definitions (seed defaults + owner edits).",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "list_roles"
+    },
+    {
+      "description": "Create a custom role + its founding member (one pair per call).",
+      "inputSchema": {
+        "properties": {
+          "effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Effort"
+          },
+          "member_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Member Name"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Model"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "create_role"
+    },
+    {
+      "description": "Read one role definition (unknown \u2192 404).",
+      "inputSchema": {
+        "properties": {
+          "role": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "role"
+        ],
+        "type": "object"
+      },
+      "name": "get_role"
+    },
+    {
+      "description": "Edit a role definition ({name?, definition_md?}; locked names skip).",
+      "inputSchema": {
+        "properties": {
+          "definition_md": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Definition Md"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Name"
+          },
+          "role": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "role"
+        ],
+        "type": "object"
+      },
+      "name": "update_role"
+    },
+    {
+      "description": "Reset a role definition to seed (idempotent tombstone overlay).",
+      "inputSchema": {
+        "properties": {
+          "role": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "role"
+        ],
+        "type": "object"
+      },
+      "name": "reset_role"
+    },
+    {
+      "description": "Hard-delete a custom role + its members (seed \u2192 403; online \u2192 409).",
+      "inputSchema": {
+        "properties": {
+          "role": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "role"
+        ],
+        "type": "object"
+      },
+      "name": "delete_role"
+    },
+    {
+      "description": "Read a per-role lessons doc (per role_key; overlay \u2295 seed).",
+      "inputSchema": {
+        "properties": {
+          "role_key": {
+            "type": "string"
+          },
+          "task_type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "role_key",
+          "task_type"
+        ],
+        "type": "object"
+      },
+      "name": "get_lessons"
+    },
+    {
+      "description": "Whole-doc replace of a per-role lessons doc ({text}).",
+      "inputSchema": {
+        "properties": {
+          "role_key": {
+            "type": "string"
+          },
+          "task_type": {
+            "type": "string"
+          },
+          "text": {
+            "default": "",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role_key",
+          "task_type"
+        ],
+        "type": "object"
+      },
+      "name": "replace_lessons"
+    },
+    {
+      "description": "Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task).",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "resume_summary"
+    },
+    {
+      "description": "Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO chat/task content). Step one of the two-step boot: call this FIRST to size resume_summary, then either call resume_summary directly (small) or hand the pull to a cheap sub-agent that returns a digest (large).",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "peek_resume_summary_size"
+    },
+    {
+      "description": "List tasks (?executor=&type=&status=; LIGHT list items — id/task_no/title/type_key/status/priority/executor/creator_id/progress/timestamps/deps, WITHOUT steps/description/inputs). Call get_task for a task's full detail (steps, description, inputs).",
+      "inputSchema": {
+        "properties": {
+          "executor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Executor"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Status"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Type"
+          }
+        },
+        "type": "object"
+      },
+      "name": "list_tasks"
+    },
+    {
+      "description": "Create a task (dedupes on the manual's key; ad-hoc when type_key omitted). Pass target.kind=outsource to dispatch the task to a fresh outsource worker (發包); the dispatch passes the owner-approval gate — with per-task-card governance it lands pending_outsource_approval and opens an owner reply card instead of spawning.",
+      "inputSchema": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description"
+          },
+          "executor_member_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Executor Member Id"
+          },
+          "inputs": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Inputs"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Priority"
+          },
+          "target": {
+            "properties": {
+              "effort": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Effort"
+              },
+              "kind": {
+                "title": "Kind",
+                "type": "string"
+              },
+              "machine": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Machine"
+              },
+              "model": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Model"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Type Key"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "type": "object"
+      },
+      "name": "create_task"
+    },
+    {
+      "description": "Read one task (steps, deps, progress, gate cards).",
+      "inputSchema": {
+        "properties": {
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_task"
+    },
+    {
+      "description": "Set a task's priority (owner any value; the executor high|mid|low on their own task; frozen stays owner-only).",
+      "inputSchema": {
+        "properties": {
+          "priority": {
+            "title": "Priority",
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "priority"
+        ],
+        "type": "object"
+      },
+      "name": "set_task_priority"
+    },
+    {
+      "description": "Submit/replace the workflow plan (done and answered-card steps are kept).",
+      "inputSchema": {
+        "properties": {
+          "steps": {
+            "items": {
+              "properties": {
+                "dod": {
+                  "title": "Dod",
+                  "type": "string"
+                },
+                "is_gate": {
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Is Gate"
+                },
+                "name": {
+                  "title": "Name",
+                  "type": "string"
+                },
+                "parallel_group": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Parallel Group"
+                }
+              },
+              "required": [
+                "name",
+                "dod"
+              ],
+              "type": "object"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "steps"
+        ],
+        "type": "object"
+      },
+      "name": "submit_plan"
+    },
+    {
+      "description": "RETIRED (task status is derived from its steps): every call is refused with the lever that replaced it and the task is never mutated. Report step status via update_step_status; take over a reassigned task via claim_task; terminate/duplicate have their own actions.",
+      "inputSchema": {
+        "properties": {
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "waiting_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Waiting Reason"
+          }
+        },
+        "required": [
+          "task_id",
+          "status"
+        ],
+        "type": "object"
+      },
+      "name": "update_task_status"
+    },
+    {
+      "description": "Mark a task duplicated, pointing at the original (executor/owner; terminal).",
+      "inputSchema": {
+        "properties": {
+          "duplicate_of": {
+            "title": "Duplicate Of",
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "duplicate_of"
+        ],
+        "type": "object"
+      },
+      "name": "mark_duplicate"
+    },
+    {
+      "description": "Report a step status (pending/in_progress/waiting_external/done). Entering waiting_external requires a non-blank waiting_reason (422 otherwise); the task status is derived from its steps.",
+      "inputSchema": {
+        "properties": {
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "step_id": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "waiting_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Waiting Reason"
+          }
+        },
+        "required": [
+          "task_id",
+          "step_id",
+          "status"
+        ],
+        "type": "object"
+      },
+      "name": "update_step_status"
+    },
+    {
+      "description": "Arm a gate step: opens the reply card the owner must answer. Optional attachments ride the question (same shape as post_chat: {id} from `ocagent upload` / POST /api/chat/attachments, or inline data_b64).",
+      "inputSchema": {
+        "$defs": {
+          "ChatAttachmentInputDTO": {
+            "description": "An attachment carried on a posted chat message — either INLINE BYTES or a\nREFERENCE to a blob already in the shared attachment store.\n\nInline: ``data_b64`` is the bytes, base64-encoded — a data-URI\n(``data:<mime>;base64,....``) OR bare base64 (the handler strips a\n``data:...;base64,`` prefix if present). ``mime`` and ``filename`` are\noptional: an omitted ``mime`` is sniffed for images (else\n``application/octet-stream``); an omitted ``filename`` defaults for pasted\nimages.\n\nReference: ``id`` names an EXISTING blob (minted by\n``POST /api/chat/attachments`` — the streaming upload seam that keeps file\nbytes out of a JSON tool call). The stored blob's mime/filename are\nauthoritative: ``filename``/``mime`` sent alongside ``id`` are IGNORED (so\nthe upload response ``{id, mime, filename}`` can be pasted back verbatim).\nAn unknown ``id`` is a 400; carrying BOTH ``id`` and ``data_b64`` is a 400\n(ambiguous intent). An item with neither ``id`` nor ``data_b64`` is\nsilently dropped (legacy tolerance, unchanged).",
+            "properties": {
+              "data_b64": {
+                "default": "",
+                "title": "Data B64",
+                "type": "string"
+              },
+              "filename": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Filename"
+              },
+              "id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Id"
+              },
+              "mime": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Mime"
+              }
+            },
+            "title": "ChatAttachmentInputDTO",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "attachments": {
+            "items": {
+              "$ref": "#/$defs/ChatAttachmentInputDTO"
+            },
+            "title": "Attachments",
+            "type": "array"
+          },
+          "body": {
+            "default": "",
+            "title": "Body",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "step_id": {
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "step_id",
+          "kind",
+          "summary",
+          "options"
+        ],
+        "type": "object"
+      },
+      "name": "open_gate"
+    },
+    {
+      "description": "Replace the blocking-deps list wholesale.",
+      "inputSchema": {
+        "properties": {
+          "blocked_by": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Blocked By",
+            "type": "array"
+          },
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "blocked_by"
+        ],
+        "type": "object"
+      },
+      "name": "set_task_deps"
+    },
+    {
+      "description": "Report the task's close-out follow-ups done (terminal tasks only; idempotent).",
+      "inputSchema": {
+        "properties": {
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id"
+        ],
+        "type": "object"
+      },
+      "name": "report_task_closeout"
+    },
+    {
+      "description": "Reassign a task to a member or a fresh outsource worker (the task's executor or an admin; outsource targets pass the owner-approval gate; enters the reassigning handover state).",
+      "inputSchema": {
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Note"
+          },
+          "target": {
+            "properties": {
+              "effort": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Effort"
+              },
+              "kind": {
+                "title": "Kind",
+                "type": "string"
+              },
+              "machine": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Machine"
+              },
+              "member_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Member Id"
+              },
+              "model": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Model"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "target"
+        ],
+        "type": "object"
+      },
+      "name": "reassign_task"
+    },
+    {
+      "description": "Take over a reassigned task (the new executor claims it): clears the reassigning lock and fires the predecessor worker. The task status stays derived from its steps; only the lock is cleared. 409 if the task is not under the reassigning lock.",
+      "inputSchema": {
+        "properties": {
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id"
+        ],
+        "type": "object"
+      },
+      "name": "claim_task"
+    },
+    {
+      "description": "Register a deliverable (file, image, or link) onto the task's artifact set \u2014 the pinned deliverables shown on the task card. Append-only and repeatable: call it again to pin more. For a file or image, first upload the bytes via the chat-attachments upload to get an attachment id, then call this with kind=file|image and that attachment_id. For a link (e.g. a PR url) call it with kind=link and url \u2014 no upload needed. label is an optional display name (a link title such as \"PR #123\").",
+      "inputSchema": {
+        "properties": {
+          "task_id": {
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "attachment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Attachment Id"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Url"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Label"
+          }
+        },
+        "required": [
+          "task_id",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "name": "add_task_artifact"
+    },
+    {
+      "description": "Un-pin (remove) one artifact from a task's artifact set \u2014 the counterpart to add_task_artifact. You may remove artifacts from a task you are the executor of (the owner/assistant may remove on any task). Give the task id and the artifact id (the id returned when it was added, or from get_task's artifacts). The underlying file blob is left intact; only the pin on the card is removed.",
+      "inputSchema": {
+        "properties": {
+          "task_id": {
+            "type": "string"
+          },
+          "artifact_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "artifact_id"
+        ],
+        "type": "object"
+      },
+      "name": "remove_task_artifact"
+    },
+    {
+      "description": "Outsource worker's claim: read the task bound to the caller.",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "get_my_task"
+    },
+    {
+      "description": "List live outsource workers (codename, model, effort, task).",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "list_outsource_workers"
+    },
+    {
+      "description": "List task types (match by display_name/purpose; address by type_key).",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "list_task_manuals"
+    },
+    {
+      "description": "Create a task type: pass display_name; the server mints and returns the tm- type_key id (legacy explicit type_key still accepted; duplicate \u2192 409; assignee = owner-only).",
+      "inputSchema": {
+        "properties": {
+          "assignee": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Assignee"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Display Name"
+          },
+          "type_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Type Key"
+          }
+        },
+        "type": "object"
+      },
+      "name": "create_task_manual"
+    },
+    {
+      "description": "Read one task manual (purpose/fields/SOP/learnings/assignee).",
+      "inputSchema": {
+        "properties": {
+          "type_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type_key"
+        ],
+        "type": "object"
+      },
+      "name": "get_task_manual"
+    },
+    {
+      "description": "Edit a task manual (partial; content fields agent-editable; assignee = owner-only).",
+      "inputSchema": {
+        "properties": {
+          "assignee": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Assignee"
+          },
+          "fields": {
+            "anyOf": [
+              {
+                "items": {
+                  "properties": {
+                    "is_key": {
+                      "default": false,
+                      "title": "Is Key",
+                      "type": "boolean"
+                    },
+                    "name": {
+                      "title": "Name",
+                      "type": "string"
+                    },
+                    "required": {
+                      "default": false,
+                      "title": "Required",
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Fields"
+          },
+          "learnings": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Learnings"
+          },
+          "purpose": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Purpose"
+          },
+          "sop_md": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Sop Md"
+          },
+          "type_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type_key"
+        ],
+        "type": "object"
+      },
+      "name": "update_task_manual"
+    },
+    {
+      "description": "Whole-doc replace of a type's learnings (task-close write-back).",
+      "inputSchema": {
+        "properties": {
+          "text": {
+            "default": "",
+            "title": "Text",
+            "type": "string"
+          },
+          "type_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type_key"
+        ],
+        "type": "object"
+      },
+      "name": "write_task_learnings"
+    }
+  ]
+}

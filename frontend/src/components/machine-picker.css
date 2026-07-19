@@ -1,0 +1,69 @@
+/* Machine picker modal (wake / respawn / move). Self-contained so it renders
+ * correctly in both the Office and Monitor contexts. Dark-themed, mirrors the
+ * Monitor confirm dialog (mon-confirm). */
+.machine-picker {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(10, 12, 18, 0.62);
+}
+.machine-picker__box {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px 22px;
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(111, 214, 176, 0.3);
+  background: var(--color-card);
+}
+.machine-picker__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.machine-picker__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.machine-picker__label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+.machine-picker__select {
+  height: 38px;
+  padding: 0 10px;
+  border-radius: 9px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: 1px solid var(--color-indigo);
+}
+.machine-picker__select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+.machine-picker__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.machine-picker__actions .btn {
+  cursor: pointer;
+  /* .btn--ghost (30px, table-action silhouette) and .btn--accent (38px, CTA
+   * silhouette) sit side by side ONLY here — pin one shared height so the
+   * cancel/confirm pair reads as one row (matches the 38px select above). */
+  height: 38px;
+}
+.machine-picker__actions .btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

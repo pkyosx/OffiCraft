@@ -1,0 +1,29 @@
+/* ModelEffortEditor — shared model/effort quick-pick editor styles.
+ * Chips ride the site-wide .doc-btn look (settings.css); this file carries only
+ * the layout + the field controls. */
+.me-editor__label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--color-text-muted);
+}
+.me-editor__label--stacked {
+  margin-top: 12px;
+}
+.me-editor__chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.me-editor__input,
+.me-editor__select {
+  width: 100%;
+  margin-top: 6px;
+  background: #191c24;
+  color: #e7e8ee;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+}

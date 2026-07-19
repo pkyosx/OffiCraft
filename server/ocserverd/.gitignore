@@ -1,0 +1,7 @@
+/ocserverd
+/webdist/*
+!/webdist/.gitkeep
+/seedsdist/*
+!/seedsdist/.gitkeep
+/bindist/*
+!/bindist/.gitkeep

@@ -1,0 +1,59 @@
+/* stepper.css — the shared −/＋ stepper + 無限 toggle (mockup language).
+ * Used by the manual assignee editor (雇用數量) AND the outsource cap
+ * popover (最多雇用) — one visual source so the two never drift. */
+
+/* 雇用數量: −/＋ stepper + 無限 (shared with the outsource cap popover) */
+.manual-stepper-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.manual-stepper {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--color-border);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.02);
+  overflow: hidden;
+}
+.manual-stepper__btn {
+  width: 42px;
+  padding: 9px 0;
+  border: none;
+  background: none;
+  color: var(--color-text);
+  font-size: 16px;
+  cursor: pointer;
+}
+.manual-stepper__btn:disabled {
+  color: rgba(255, 255, 255, 0.2);
+  cursor: default;
+}
+.manual-stepper__btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
+}
+.manual-stepper__value {
+  min-width: 46px;
+  text-align: center;
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--color-text-strong);
+}
+.manual-unlimited {
+  padding: 9px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--color-text);
+  font-size: 13.5px;
+  cursor: pointer;
+}
+.manual-unlimited:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+}
+.manual-unlimited--active {
+  background: rgba(224, 176, 96, 0.18);
+  border-color: rgba(224, 176, 96, 0.55);
+  color: #e8c283;
+  font-weight: 600;
+}

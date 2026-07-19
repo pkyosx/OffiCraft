@@ -1,0 +1,1795 @@
+/* 任務 page + 任務卡 (M3). Same design language as the replies / office panes:
+ * grey small-caps section labels, --color-card panels, the shared accent /
+ * danger tokens. Status/priority hues follow the mockup's reading (green =
+ * running, yellow = waiting on the owner, violet = waiting on the world,
+ * red/grey = closed) but are expressed through the theme tokens where one
+ * exists. */
+
+.tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 12px;
+}
+
+.tasks__error {
+  padding: 10px 14px;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 14%, transparent);
+  color: var(--color-danger);
+  font-size: 13px;
+}
+
+/* ── 篩選列 ── */
+.tasks__filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.tasks__filter {
+  padding: 7px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--color-card);
+  color: var(--color-text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.tasks__clear-filters {
+  padding: 6px 4px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transition: color 0.15s;
+}
+.tasks__clear-filters:hover {
+  color: var(--color-text);
+}
+
+/* ── multi-select filter dropdown (T-be18) ── */
+.tasks__ms {
+  position: relative;
+}
+/* the trigger reuses the .tasks__filter pill look, plus a trailing caret */
+.tasks__ms-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  /* room so a long summary can ellipsis instead of shoving the row around */
+  max-width: 220px;
+}
+.tasks__ms-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* a constrained axis (a real subset picked) lights the pill so the owner can
+   see, at a glance, that this dropdown is narrowing the list */
+.tasks__ms-trigger--active {
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  color: var(--color-text-strong);
+}
+.tasks__ms-caret {
+  flex: none;
+  color: var(--color-text-muted);
+  transition: transform 0.15s;
+}
+.tasks__ms-caret--open {
+  transform: rotate(180deg);
+}
+.tasks__ms-pop {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 4px);
+  z-index: 20;
+  min-width: 100%;
+  max-width: 280px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--color-card);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.tasks__ms-opt {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.tasks__ms-opt:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.tasks__ms-check {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+.tasks__ms-opt-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* per-owner task count (T-be18 #3) */
+.tasks__ms-count {
+  flex: none;
+  min-width: 1.4rem;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--color-text-muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+/* ── sections / empty states ── */
+.tasks__section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 0 2px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+.tasks__section-toggle {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 0 2px 12px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.tasks__section-toggle:hover {
+  color: var(--color-text);
+}
+.tasks__section-toggle .reply-card__caret {
+  align-self: center;
+  flex: none;
+}
+.tasks__empty {
+  padding: 26px 20px;
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--color-card);
+  text-align: center;
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+.tasks__list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ── one task card (全展開內嵌) ── */
+/* The whole card is the expand/collapse toggle (owner mobile refactor
+   2026-07-17 — the chevron button is gone): cursor:pointer signals it, and
+   focus-visible carries the keyboard affordance (role="button" + tabIndex on
+   the article; same soft accent ring language as the chat header). Nested
+   interactive elements keep their own cursors and are filtered out of the
+   toggle in TaskCard.onCardToggleClick. */
+.task-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--color-card);
+  cursor: pointer;
+  outline: none;
+}
+.task-card:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-accent-soft);
+}
+/* Waiting-on-owner tasks carry a soft accent ring — they are the ones asking
+ * for the owner's hand. */
+.task-card--waiting_owner {
+  border-color: color-mix(in srgb, #e0b341 45%, transparent);
+}
+.task-card--waiting_external {
+  border-color: color-mix(in srgb, #a08bd6 45%, transparent);
+}
+
+/* v4/v5 head: the badge row (☑ #T-xxxx · 優先權 chip · 狀態) leads, sharing row
+   1 with the ▸/▾ expand indicator pinned at the card's top-right (v5 — it took
+   the corner over from the deleted ⋮ menu); the title sits on row 2; then the
+   aligned label column (任務類型 / 負責人 / 建立者 / 識別鍵). No avatar. */
+.task-card__head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.task-card__head-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+/* the badge row takes the slack so the expand indicator is pushed to the card's
+   right edge — the corner anchor survives the v4 swap and the v5 ⋮ removal
+   (T-70fb behaviour 1: a STABLE top-right anchor). */
+.task-card__head-top > .task-card__badge-row {
+  flex: 1;
+  min-width: 0;
+}
+.task-card__title-line {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+/* task id → a bordered mono pill with the ☑ glyph (owner spec). Lives on the
+   badge row between the priority chip and the status badge (v2) — no field
+   label, the pill speaks for itself. */
+.task-card__id-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--color-task-id) 45%, transparent);
+  background: color-mix(in srgb, var(--color-task-id) 12%, transparent);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: var(--color-task-id);
+}
+.task-card__id-badge svg {
+  flex: none;
+}
+/* The id badge is a click-to-copy <button> (owner 2026-07-19): strip the native
+   button chrome so it keeps the pill look, add the copy affordance. */
+button.task-card__id-badge--copy {
+  margin: 0;
+  font: inherit;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+button.task-card__id-badge--copy:hover {
+  background: color-mix(in srgb, var(--color-task-id) 20%, transparent);
+}
+/* the transient 「已複製」pill — sits inline after the number. */
+.task-card__id-badge-copied {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: normal;
+  opacity: 0.85;
+}
+.task-card__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-text-strong);
+  line-height: 1.4;
+  min-width: 0;
+}
+
+/* label column: a two-column grid so every label cell takes the same
+   max-content width (widest label) and the value chips line up across rows —
+   language-agnostic, no hard-coded label width. */
+.task-card__meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  align-items: center;
+  gap: 7px 12px;
+}
+.task-card__meta-label {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  opacity: 0.75;
+}
+/* value chip: a rounded pill holding the value text + a trailing icon (齒輪 /
+   聊天泡泡 / 外連). Clickable chips (link modifier) reset the UA button chrome
+   and light up the accent on hover. justify-self:start keeps the pill hugging
+   its content instead of stretching across the 1fr column. */
+.task-card__chip {
+  justify-self: start;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  text-decoration: none;
+  color: var(--color-text);
+}
+.task-card__chip svg {
+  flex: none;
+  color: var(--color-text-muted);
+}
+button.task-card__chip--link,
+a.task-card__chip--link {
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.task-card__chip--link:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+.task-card__chip--link:hover .task-card__executor,
+.task-card__chip--link:hover .task-card__creator,
+.task-card__chip--link:hover .task-card__type,
+.task-card__chip--link:hover .task-card__key,
+.task-card__chip--link:hover svg {
+  color: var(--color-accent);
+}
+.task-card__executor,
+.task-card__creator,
+.task-card__key {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-card__type {
+  color: var(--color-text);
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-card__key {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+/* 負責人 value cell (owner 2026-07-18): the assignee chip + the 轉派 icon
+   button share ONE grid cell. inline-flex so the icon sits to the right of the
+   name; min-width:0 lets the chip shrink and ellipse (a long 外包
+   代號·模型·投入度 line) BEFORE the flex:none icon is ever squeezed. The chip
+   is left on its default flex (0 1 auto) — deliberately NO flex:1, which would
+   force it to grow to fill the row and shove the icon off the edge at 390px. */
+.task-card__assignee-cell {
+  justify-self: start;
+  min-width: 0;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* 轉派 icon button: a bare muted glyph (SwapIcon — a two-way swap arrow)
+   that lights accent on hover/focus, the same colour language
+   as the link chips beside it. flex:none keeps its size while the name column
+   shrinks. */
+.task-card__reassign {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  margin: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.task-card__reassign:hover,
+.task-card__reassign:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  color: var(--color-accent);
+}
+.task-card__reassign svg {
+  display: block;
+}
+
+/* ── status / priority badges (eight states + four priorities) ── */
+.task-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+}
+.task-badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.task-badge--status-not_started {
+  color: var(--color-text-muted);
+}
+.task-badge--status-in_progress {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+}
+.task-badge--status-waiting_owner {
+  color: #e0b341;
+  border-color: color-mix(in srgb, #e0b341 45%, transparent);
+}
+.task-badge--status-waiting_external {
+  color: #a08bd6;
+  border-color: color-mix(in srgb, #a08bd6 45%, transparent);
+}
+/* 轉派中 — the ORTHOGONAL handover LOCK overlay (T-9ca5), not a status: it now
+   rides alongside the honest derived status badge, so it wears its own COOL hue
+   AND a faint fill to read as a distinct overlay marker (owner review: the old
+   pink sat too near the red 高 priority chip on a shared badge row). A vivid
+   cyan reads clearly against red, and its higher saturation + greener cast keeps
+   it apart from the muted sky-blue 凍結 priority (#8fb6d9) and the periwinkle
+   task-id badge; it is also clear of in_progress green, the amber/purple waiting
+   states, and terminated red. */
+.task-badge--lock-reassigning {
+  color: #38c6d9;
+  border-color: color-mix(in srgb, #38c6d9 45%, transparent);
+  background: color-mix(in srgb, #38c6d9 12%, transparent);
+}
+.task-badge--status-done {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+}
+.task-badge--status-terminated {
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 40%, transparent);
+}
+.task-badge--status-duplicated {
+  color: #8a94a6;
+  border-color: color-mix(in srgb, #8a94a6 45%, transparent);
+}
+.task-badge--prio-high {
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 40%, transparent);
+}
+.task-badge--prio-mid {
+  color: #e0b341;
+  border-color: color-mix(in srgb, #e0b341 40%, transparent);
+}
+.task-badge--prio-low {
+  color: var(--color-text-muted);
+}
+.task-badge--prio-frozen {
+  color: #8fb6d9;
+  border-color: color-mix(in srgb, #8fb6d9 40%, transparent);
+}
+/* 任務類型 badge (v6) — row 1, same badge vocabulary as 優先權/狀態. Its own
+   teal token rather than --color-accent: in_progress is accent green, and two
+   accent badges adjacent read as one status pair. The gear inherits the badge
+   colour (overriding .task-card__chip svg's muted grey) — it belongs to the
+   badge, not to a neutral chip. */
+.task-badge--type {
+  color: var(--color-task-type);
+  border-color: color-mix(in srgb, var(--color-task-type) 40%, transparent);
+}
+/* The dot + gear must not absorb the shrink the wrapping text needs (this is
+   the only badge that shrinks — see .task-badge--type below). */
+.task-badge--type svg,
+.task-badge--type::before {
+  flex: none;
+}
+/* 產物 N — the artifact-set count badge (T-3dc5). Its own dusty-rose hue, clear
+   of every status/priority/type colour on the row; a button (clickable), so it
+   gets a hover lift. The paperclip icon leads, so the badge's leading dot is
+   suppressed (unlike the status/priority badges). */
+.task-badge--artifacts {
+  color: #cf94b0;
+  border-color: color-mix(in srgb, #cf94b0 42%, transparent);
+  cursor: pointer;
+  background: none;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.task-badge--artifacts::before {
+  display: none;
+}
+.task-badge--artifacts svg {
+  flex: none;
+}
+.task-badge--artifacts:hover,
+.task-badge--artifacts[aria-expanded="true"] {
+  background: color-mix(in srgb, #cf94b0 12%, transparent);
+}
+
+/* ── artifact popover (T-3dc5) — the badge's floating panel, styled like the
+   chat 檔案與圖片 gallery: header + segmented tabs + a scrolling list. Anchored
+   under the badge (the row is flex-wrap; the anchor is the positioning context). */
+.task-artifacts-anchor {
+  position: relative;
+  display: inline-flex;
+}
+.task-artifacts {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  width: min(340px, 78vw);
+  display: flex;
+  flex-direction: column;
+  max-height: 60vh;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: var(--color-card);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.42);
+  cursor: default;
+}
+.task-artifacts__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 13px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.task-artifacts__title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.task-artifacts__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.task-artifacts__close:hover {
+  color: var(--color-text-strong);
+  background: rgba(255, 255, 255, 0.06);
+}
+.task-artifacts__tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 4px;
+  margin: 10px 10px 0;
+  padding: 4px;
+  border-radius: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+}
+.task-artifacts__tab {
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    background 0.15s;
+}
+.task-artifacts__tab:hover {
+  color: var(--color-text);
+}
+.task-artifacts__tab--active {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text-strong);
+}
+.task-artifacts__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px;
+}
+.task-artifacts__empty {
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+/* File/image strip (reused AttachmentStrip): each item is a row with the
+   thumbnail/chip and its trailing actions (預覽/移除). */
+.task-artifacts__strip {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.task-artifacts__item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  border-radius: 9px;
+}
+.task-artifacts__item:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.task-artifacts__thumb {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: 8px;
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: zoom-in;
+}
+.task-artifacts__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.task-artifacts__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+.task-artifacts__action:hover {
+  color: var(--color-text-strong);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+.task-artifacts__remove:hover {
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 45%, transparent);
+}
+/* Link tab rows — an external-link chip + optional remove. */
+.task-artifacts__links {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.task-artifacts__link-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.task-artifacts__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.18);
+  color: var(--color-text);
+  text-decoration: none;
+  font-size: 13px;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+.task-artifacts__link:hover {
+  color: var(--color-accent);
+  border-color: rgba(111, 214, 176, 0.4);
+}
+.task-artifacts__link svg {
+  flex: none;
+}
+.task-artifacts__link-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+button.task-card__type-chip {
+  cursor: pointer;
+  background: none;
+  font-family: inherit;
+  transition: border-color 0.15s;
+}
+button.task-card__type-chip:hover {
+  border-color: color-mix(in srgb, var(--color-task-type) 70%, transparent);
+}
+/* The type name is the one badge whose text is user data of unbounded length
+   (a manual's display name), so it — alone among the badges — opts out of
+   .task-badge's flex:none / white-space:nowrap.
+   Row 1 is flex-wrap: a name that does not fit beside 編號·優先權·狀態 wraps to
+   its OWN LINE, whole. That is owner's explicit ruling («手機上 type 自己一行
+   我接受»), taken after 候選 B measured truncation and found that cutting to
+   6 chars +「…」 STILL wrapped at 390px — it cost the name and bought no line
+   back. Do NOT add an ellipsis/max-width to "fix" the wrap; the wrap IS the
+   decision.
+   The shrink + wrap here is the floor UNDER that ruling, for the case the
+   ruling does not cover: a name longer than the whole row (298px at 390vw)
+   has no line to wrap to, and with flex:none it would push the card into
+   horizontal overflow. It wraps inside the badge instead. */
+.task-badge--type {
+  flex: 0 1 auto;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* row 2 — the fixed badge row: 優先權 chip · #T-xxxx id badge · 狀態 badge.
+   flex-wrap keeps a pathological locale/width honest (wraps, never
+   overflows). */
+.task-card__badge-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* in-place priority editor (v2/v3): the chip is a button; clicking it drops a
+   select-style vertical menu right below (the shared popover vocabulary —
+   .task-card__menu-pop / __menu-item) — pick one and it's saved
+   (setTaskPriority), the card never expands. */
+.task-card__prio {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+}
+button.task-card__prio-chip {
+  margin: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+button.task-card__prio-chip:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+/* the dropdown anchors under the chip's LEFT edge — it hangs off the badge,
+   not the card's corner. */
+.task-card__prio-pop {
+  left: 0;
+  right: auto;
+  min-width: 96px;
+}
+
+/* 狀態 badge → owner-action dropdown (v5): 標記重複 / 終止 (+ the 等我回覆 jump
+   while waiting). Same button reset + popover vocabulary as the 優先權 chip;
+   like it, the pop anchors under the badge's LEFT edge. */
+.task-card__status {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+}
+button.task-card__status-chip {
+  margin: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+button.task-card__status-chip:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.task-card__status-pop {
+  left: 0;
+  right: auto;
+  min-width: 132px;
+}
+
+/* ── ▸/▾ expand indicator (v5) ──
+   A pure state mirror of the card's aria-expanded, NOT a control: no pointer
+   cursor, no hover lift, pointer-events pass through to the card so a click
+   lands on the card toggle exactly like a click on the title. It shares the
+   top-right corner — v5: it OWNS that corner, taking over the slot the ⋮ menu
+   held before it was deleted (T-70fb behaviour 1 wanted a stable anchor there,
+   not that particular button). Unlike the ⋮ it also renders on closed cards. */
+   v6: the ▸/▾ TEXT GLYPHS became ChevronRight/ChevronDown ICONS at 18px — the
+   settings page's drill-in size — so "expand" looks the same everywhere. The
+   glyphs measured 5.27×11px, 1/15 the settings chevron's area (T-bc90).
+   pointer-events:none still governs, and it cascades to the inline svg: the
+   icon is not a hit target, the card underneath is. */
+.task-card__expand-mark {
+  flex: none;
+  align-self: center;
+  display: inline-flex;
+  pointer-events: none;
+  line-height: 1;
+  color: var(--color-text-muted);
+  opacity: 0.7;
+}
+
+/* ── shared dropdown popover + items ──
+   The ⋮ owner menu's own chrome (.task-card__menu / __menu-btn) is gone (v5),
+   but the popover/item vocabulary it introduced lives on: the 優先權 chip and
+   the 狀態 badge both drop menus built from these classes. */
+.task-card__menu-pop {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 20;
+  min-width: 150px;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--color-card);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.task-card__menu-item {
+  padding: 7px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.task-card__menu-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+/* 標記重複 / 終止 on a CLOSED card: greyed + unclickable (owner ruling — the
+   menu still opens, these two just cannot fire; the server 409s them). */
+.task-card__menu-item--disabled,
+.task-card__menu-item--disabled:hover {
+  opacity: 0.4;
+  cursor: default;
+  background: transparent;
+}
+.task-card__menu-item--active {
+  color: var(--color-accent);
+  font-weight: 700;
+}
+.task-card__menu-item--danger {
+  color: var(--color-danger);
+}
+
+/* ── deps 「等 T-xxxx」 blocks (v6) ──
+   One full-width block per dep, stacked. They render in the SAME slot the old
+   .task-card__keys row held (between the meta column and the progress bar) —
+   the slot was never the problem, the grey-hairline-mono-box styling was. See
+   .task-card__waiting--dep for the visual language and why it is not row 1. */
+.task-card__deps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* (.task-card__keys / .task-key / .task-key--dep deleted in v6 — the dep chip
+   was their last user. #no and 識別鍵 had already moved to the head (T-e987),
+   and the dep chip became .task-card__waiting--dep.) */
+
+.task-card__desc {
+  margin: 0;
+  color: var(--color-text);
+  /* T-4974 — owner/agent free text can carry an unbreakable long token (a
+     no-whitespace snake_case/slash run like
+     `twin(desired_state/desired_machine_id/refocus_since/...)`). Without a break
+     opportunity it sets the card's min-content to the token's full width, widens
+     the card past a 390px viewport and the whole page scrolls sideways (owner
+     iPhone report). `anywhere` (not break-word) also shrinks min-content so the
+     card can bind to the viewport. */
+  overflow-wrap: anywhere;
+}
+/* Rendered markdown (T-13af) — reuse .doc-md's block treatment but at the
+   card's compact scale; not the standalone-document padding/font-size. */
+.task-card__desc.doc-md {
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.task-card__desc.doc-md > :first-child {
+  margin-top: 0;
+}
+.task-card__desc.doc-md > :last-child {
+  margin-bottom: 0;
+}
+
+/* ── progress + elapsed ── */
+.task-card__progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.task-card__progress-bar {
+  flex: 1;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.07);
+  overflow: hidden;
+}
+.task-card__progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--color-accent);
+  transition: width 0.3s;
+}
+.task-card__progress-fill--waiting_owner {
+  background: #e0b341;
+}
+.task-card__progress-fill--waiting_external {
+  background: #a08bd6;
+}
+.task-card__progress-text {
+  flex: none;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* ── waiting-external reason row ── */
+.task-card__waiting {
+  display: flex;
+  /* T-a20b: was `center`. The reason now renders as markdown blocks, which can
+     be taller than one line (list / fenced code). Centering would float the
+     clock icon and the 等待中 label into the vertical middle of that block;
+     flex-start keeps them pinned to the first line. */
+  align-items: flex-start;
+  /* T-a20b rework: `wrap` is what lets the markdown column take its own line.
+     It is still load-bearing after the always-stack switch — with `nowrap` the
+     column's `flex-basis: 100%` is simply ignored and it gets squeezed back
+     onto the label's line. See .task-card__waiting-md below for the full why. */
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, #a08bd6 35%, transparent);
+  background: color-mix(in srgb, #a08bd6 10%, transparent);
+  color: #c8b8ec;
+  font-size: 12.5px;
+}
+/* The icon must not be squeezed by a long reason, and flex-start would
+   otherwise hang it above the text's leading — nudge it onto the first line. */
+.task-card__waiting > svg {
+  flex: none;
+  margin-top: 2px;
+}
+.task-card__waiting-label {
+  flex: none;
+}
+/* Rendered markdown (T-a20b) — same compact-scale reasoning as
+   .task-card__desc.doc-md, but this one is a flex ITEM in a row, so it also
+   needs to claim the remaining width and be allowed to shrink (min-width: 0,
+   without which a long `code` span would push the row wider than the card). */
+.task-card__waiting-md.doc-md {
+  /* T-a20b rework — ALWAYS-STACK. The label takes line 1, the reason line 2, at
+     every viewport width.
+
+     History, so nobody "optimises" this back: the previous rule was
+     `flex: 1 1 240px`, which wrapped only under ~415px and kept desktop inline.
+     That was a deliberate choice (its whole selling point was "desktop is
+     pixel-identical"), and it was correct for the spec it was built against.
+     Owner changed the spec on 2026-07-17 (rc-91492e026e87): asked "為什麼等待中
+     不是都自己一行?" and chose always-stack for desktop too. So the wrap that
+     240px made conditional is now unconditional — that is the ENTIRE diff.
+     `flex-basis: 100%` was explicitly rejected last round for forcing the wrap
+     at every width; that property is now the requirement, not the objection.
+
+     Why basis 100% and not, say, `display: block` on the row: the row still
+     needs to be a flex container so the icon + label sit on one line with the
+     gap and the flex-start alignment they already have. 100% just means the
+     markdown column can never fit beside them, so `flex-wrap: wrap` always
+     pushes it down.
+
+     Measured by the reviewer (Playwright + getBoundingClientRect, driving the
+     REAL app at #tasks — not a standalone probe page; a probe page that does
+     not load this stylesheet silently measures `flex-basis: auto` and reports
+     the UNFIXED layout, which is exactly how the first rework measurement went
+     wrong). Reason box top minus label top, computed flex-basis = 100%:
+       390px : reason starts +26.75px below the label (column 290px, card 346px)
+       1280px: reason starts +26.75px below the label (column 932px, card 996px)
+     Stacked at BOTH widths for all four reason shapes: 3-char bare text
+     ("等回覆"), inline markdown, fenced code block, and list-first. The 3-char
+     fixture is the one that carries the argument — it trivially fits beside the
+     label, so it can only be on line 2 because this rule put it there. The
+     reason box also starts LEFT of the label (md.x < label.x): it is on a new
+     flex line, not merely text-wrapped inside a shared one.
+
+     A/B control (delete this declaration → basis computes to `auto`): 390px
+     short goes INLINE, 1280px short/markdown/code all go INLINE — only the
+     long-content fixtures still stack at 390, and only by content overflow.
+     So the probe genuinely distinguishes inline from stacked, and the rule is
+     what makes the SHORT fixture stack at all. Absolute y is deliberately not
+     recorded here: it depends on scroll/chrome and is not reproducible across
+     probes — the delta and the inline/stacked verdict are.
+
+     min-width: 0 is still required: without it a long `code` span would push
+     the row wider than the card. */
+  flex: 1 1 100%;
+  min-width: 0;
+  /* T-4974: min-width:0 lets this flex item shrink, but a plain long token
+     (not a `code` span) still needs a break opportunity or it overflows the
+     shrunk item and widens the card — same class of bug as .task-card__desc. */
+  overflow-wrap: anywhere;
+  padding: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  /* T-a20b follow-up: `.doc-md` sets `color: var(--color-text)` for its normal
+     home (the near-white body copy of a settings/description surface). Inside
+     this row that declaration WINS over inheritance and repaints the reason
+     near-white (#e7e8ee) while the sibling 等待中 label keeps the row's
+     lavender (#c8b8ec) — two colors on one line. Before the markdown switch the
+     reason was a bare <span> that simply inherited the row color; `inherit`
+     restores exactly that, and follows .task-card__waiting per theme instead of
+     re-hardcoding the lavender. Code spans/blocks keep their own accent color,
+     which is set on .doc-md code and is unaffected by this. */
+  color: inherit;
+}
+.task-card__waiting-md.doc-md > :first-child {
+  margin-top: 0;
+}
+.task-card__waiting-md.doc-md > :last-child {
+  margin-bottom: 0;
+}
+
+/* ── deps 「等 T-xxxx」 block (v6) ──
+   Same SHAPE as the waiting_external block above (⏱ + rounded tinted block) —
+   that is already this card's word for "waiting", and the old dep chip's grey
+   mono hairline box was a second, worse word for the same idea.
+   Different COLOUR, and that difference is the whole point: waiting_external's
+   purple is the colour of a STATUS (.task-badge--status-waiting_external is
+   the same #a08bd6). Reusing it here would make an in_progress card that
+   happens to be blocked look like it had flipped to 等待外部. Blue #8fb6d9 is
+   the colour the dep chip already carried, so the meaning is inherited, not
+   invented.
+   Why not a row-1 badge: deps are NOT a status. in_progress AND blocked is a
+   real, common state — the work is running, the dep is a note about it. A
+   row-1 badge would sit beside the real 狀態 badge and make the card claim
+   two statuses at once (rendered as 候選 C; owner did not pick it). */
+.task-card__waiting--dep {
+  border-color: color-mix(in srgb, #8fb6d9 40%, transparent);
+  background: color-mix(in srgb, #8fb6d9 10%, transparent);
+  color: #bcd7ee;
+}
+
+.task-card__error {
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 14%, transparent);
+  color: var(--color-danger);
+  font-size: 12.5px;
+}
+
+/* ── duplicated: link to the original ── */
+.task-card__duplicate {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: #8a94a6;
+}
+
+/* ── mark-duplicate picker (inside the confirm modal) ── */
+.task-card__dup-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+}
+.task-card__dup-select {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 13px;
+}
+
+/* ── message box ── */
+.task-card__composer {
+  display: flex;
+  /* Bottom-align: the input is a growing textarea (multi-line drafts) — the
+   * send button stays anchored to its last line, like the chat composer. */
+  align-items: flex-end;
+  gap: 8px;
+}
+.task-card__composer .chat__input {
+  flex: 1;
+}
+/* Unassigned task: the whole composer is inert — the attach button greys out
+ * like the send button (office.css never disables .chat__attach; this box
+ * does, while there is no executor to message). */
+.task-card__composer .chat__attach:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.task-card__send {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 16px;
+  border-radius: 10px;
+  border: none;
+  background: var(--color-indigo);
+  color: var(--color-text-strong);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+.task-card__send:hover:not(:disabled) {
+  filter: brightness(1.15);
+}
+.task-card__send:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ── embedded reply card (task 面) ── */
+.task-reply-card {
+  border-color: color-mix(in srgb, #e0b341 35%, transparent);
+  background: rgba(255, 255, 255, 0.02);
+}
+.task-reply-card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.task-reply-card__title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #e0b341;
+}
+.task-reply-card__jump {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.task-reply-card__jump:hover {
+  color: var(--color-text);
+}
+/* 卡內嵌在所屬 step 內 (owner 2026-07-14) */
+.task-step .task-reply-card {
+  margin-top: 8px;
+}
+/* 已回覆卡收合成一行摘要(可展開) */
+.task-reply-card--collapsed {
+  padding: 0;
+}
+.task-reply-card__collapsed-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.task-reply-card__collapsed-row:hover {
+  color: var(--color-text);
+}
+.task-reply-card__collapsed-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-reply-card__collapsed-answer {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-strong);
+  font-weight: 600;
+}
+/* .reply-tag--answered moved to replies.css (shared with the chat inline card,
+ * next to the other reply-tag variants). */
+.task-reply-card__collapse {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.task-reply-card__collapse:hover {
+  color: var(--color-text);
+}
+
+/* ── workflow timeline ── */
+.task-card__workflow {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.task-card__workflow-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+.task-card__transition {
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  color: var(--color-text-muted);
+  font-size: 13px;
+  text-align: center;
+}
+.task-card__transition--error {
+  border-color: rgba(240, 90, 90, 0.4);
+  color: var(--color-danger, #f05a5a);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.task-card__retry {
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.task-card__retry:hover {
+  background: rgba(240, 90, 90, 0.12);
+}
+.task-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+  padding-left: 18px;
+}
+/* the connecting spine */
+.task-timeline::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 12px;
+  bottom: 12px;
+  width: 2px;
+  background: rgba(255, 255, 255, 0.07);
+}
+.task-timeline__row {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.task-timeline__dot {
+  position: absolute;
+  left: -18px;
+  top: 12px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--color-card);
+  background: var(--color-dot-offline);
+}
+.task-timeline__dot--done {
+  background: var(--color-accent);
+}
+.task-timeline__dot--in_progress {
+  background: #6ea8fe;
+}
+.task-timeline__dot--waiting_owner {
+  background: #e0b341;
+}
+/* superseded (T-1aea) — frozen replan history: stays at the muted offline
+   grey (same as pending's default dot), the row itself carries the fade. */
+.task-timeline__dot--superseded {
+  background: var(--color-dot-offline);
+}
+
+.task-step {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 11px 13px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+}
+/* superseded step (T-1aea) — 已取代 frozen replan history: one grade greyer
+   than a done row (desaturated AND dimmed) so the kept Q&A reads as archive,
+   never as pending work. */
+.task-step--superseded {
+  filter: grayscale(1);
+  opacity: 0.62;
+}
+.task-step__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.task-step__name {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-text-strong);
+}
+/* 審批持久標記:曾開卡/標 gate 的 step,做完後仍看得出 (owner 2026-07-14) */
+.task-step__gate-mark {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, #e0b341 45%, transparent);
+  color: #e0b341;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+.task-step__duration {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 2.75rem;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.task-step__dod {
+  color: var(--color-text-muted);
+}
+.task-step__dod-label {
+  margin-right: 6px;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--color-text-muted) 80%, transparent);
+}
+/* Rendered markdown (T-13af) — same compact-scale reasoning as
+   .task-card__desc.doc-md above. */
+.task-step__dod .doc-md {
+  padding: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  /* T-4974: DoD free text can carry the same unbreakable long token as the
+     description — break it so it never widens the card past the viewport. */
+  overflow-wrap: anywhere;
+}
+.task-step__dod .doc-md > :first-child {
+  margin-top: 0;
+}
+.task-step__dod .doc-md > :last-child {
+  margin-bottom: 0;
+}
+/* ── step-level 等待外部 reason row (T-9ca5) ── shares the task-level waiting
+   purple vocabulary (.task-card__waiting) but nested in a step. Always-stack:
+   the label takes line 1, the markdown reason line 2, at every width, same
+   reasoning as .task-card__waiting-md (a bare-word reason can only be on line 2
+   because flex-basis:100% put it there — jsdom can't see it, the CT guard can). */
+.task-step__waiting {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, #a08bd6 32%, transparent);
+  background: color-mix(in srgb, #a08bd6 9%, transparent);
+  color: #c8b8ec;
+  font-size: 12px;
+}
+.task-step__waiting > svg {
+  flex: none;
+  margin-top: 2px;
+}
+.task-step__waiting-label {
+  flex: none;
+  font-weight: 700;
+}
+.task-step__waiting-md.doc-md {
+  flex-basis: 100%;
+  min-width: 0;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.task-step__waiting-md.doc-md > :first-child {
+  margin-top: 0;
+}
+.task-step__waiting-md.doc-md > :last-child {
+  margin-bottom: 0;
+}
+
+/* step status badges */
+.task-step-badge {
+  flex: none;
+  min-width: 3.25rem;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  text-align: center;
+  color: var(--color-text-muted);
+}
+.task-step-badge--done {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+.task-step-badge--in_progress {
+  color: #6ea8fe;
+  border-color: color-mix(in srgb, #6ea8fe 45%, transparent);
+}
+/* ARMED gate — solid 等我回覆 (a live reply card is bound). */
+.task-step-badge--waiting_owner {
+  color: #17110a;
+  background: #e0b341;
+  border-color: #e0b341;
+}
+/* ANNOUNCED gate — dashed 等我回覆 preview (no card yet). */
+.task-step-badge--gate-announced {
+  color: #e0b341;
+  border: 1px dashed color-mix(in srgb, #e0b341 60%, transparent);
+  background: transparent;
+}
+/* Bound card already ANSWERED (T-d64f) — 等我回覆 would lie; green like the
+   reply-tag--answered stub (replies.css) since the owner's part is done. */
+.task-step-badge--card-answered {
+  color: #6fbf73;
+  border-color: color-mix(in srgb, #6fbf73 45%, transparent);
+  background: transparent;
+}
+/* Bound card EXPIRED (terminal, T-1aa4) — grey like reply-tag--expired:
+   an expiry is not an answer, and nothing waits on the owner any more. */
+.task-step-badge--card-expired {
+  color: var(--color-text-muted);
+  border-color: rgba(255, 255, 255, 0.18);
+  background: transparent;
+}
+/* 等待外部 (T-9ca5) — the step's own external-wait badge; shares the task-level
+   waiting_external purple (.task-badge--status-waiting_external) so the two read
+   as one vocabulary. Distinct from the amber owner-facing 等我回覆. */
+.task-step-badge--waiting-external {
+  color: #a08bd6;
+  border-color: color-mix(in srgb, #a08bd6 45%, transparent);
+  background: transparent;
+}
+/* superseded (T-1aea) — 已取代: plain muted outline; the row-level greyscale
+   (.task-step--superseded) does the visual demotion. */
+.task-step-badge--superseded {
+  color: var(--color-text-muted);
+  border-color: rgba(255, 255, 255, 0.18);
+  background: transparent;
+}
+/* parallel stage block */
+.task-parallel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 11px 13px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+}
+.task-parallel__label {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--color-text-muted);
+}
+
+@media (max-width: 720px) {
+  .task-card {
+    padding: 14px;
+  }
+  /* Row 1 is the badge row + the expand indicator (v5); the badges wrap among
+     themselves, so the row never overflows. */
+  .task-card__head-top {
+    flex-wrap: wrap;
+  }
+  .task-card__title {
+    word-break: break-word;
+  }
+  .task-step__name {
+    overflow-wrap: anywhere;
+  }
+  .task-card__progress {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+  /* 進度條在窄版必須自己撐住 5px 高 (T-ad21).
+   * 這一列翻成 column 之後,主軸就從「寬」變成「高」—— 於是 base rule 的
+   * `flex: 1` (= flex-basis: 0%) 改為接管 bar 的「高度」,直接蓋掉
+   * `height: 5px`,進度條在 ≤720px 塌成 height:0,使用者完全看不見。
+   * bar 需要 flex 的場合只有 row (桌面靠 `flex: 1` 撐滿剩餘寬度);在 column
+   * 分支它的寬度已由上面的 `align-items: stretch` 給滿,不需要也不該再 flex。
+   * `flex: none` (= 0 0 auto) 讓 flex-basis 交還 auto,高度回到 `height: 5px`。
+   * 只改窄版分支 —— 桌面的 `flex: 1` 一個字都沒動,寬度填滿的行為由構造保證。 */
+  .task-card__progress-bar {
+    flex: none;
+  }
+  .task-card__progress-text {
+    align-self: flex-end;
+  }
+  /* 產物浮層 RWD (T-2ca0, owner 定案 v2 — 留在原地夾進畫面,非 bottom sheet)。
+     桌面版 .task-artifacts 相對於 anchor(產物 badge)以 absolute + left:0 +
+     固定寬 min(340px,78vw) 往右展開;窄螢幕下 anchor(徽章列最右)貼右緣時,
+     固定寬從偏右起點往右撐,整片撐出視窗右緣,最右的「連結」分頁被切在畫面外。
+     窄版仍「留在原地」—— 徽章列正下方的 dropdown(與桌面同一位置概念),只做
+     兩件事讓它不溢出:
+       ① 定位參考從那顆小 anchor 改成整條「徽章列」(badge-row —— 滿卡片寬、
+          靠左)。把 anchor 設 static、badge-row 設 relative,浮層的 top/left
+          就相對 badge-row:top 落在徽章列正下方,left:0 落在卡片左內緣,往右展。
+          (桌面不套此規則 → anchor 仍是定位參考,dropdown 緊貼 badge 不變。)
+       ② 寬度夾進畫面:width: min(340px, calc(100vw - 16px)),不再固定撐出去。
+     於是無論產物 badge 落在列的哪個位置,浮層一律從卡片左緣往右展、寬度受夾,
+     right ≤ 視窗、left ≥ 0。桌面(>720px)的 absolute/anchor/left:0/top/min()
+     完全不動,dropdown 緊貼 badge 的外觀與行為不變。
+     兄弟選單(.task-card__prio / .task-card__status)有各自的 position:relative
+     容器,不受 badge-row 轉為定位參考影響。 */
+  .task-card__badge-row {
+    position: relative;
+  }
+  .task-artifacts-anchor {
+    position: static;
+  }
+  .task-artifacts {
+    /* top/left 沿用 base(top:calc(100%+6px); left:0),現在相對 badge-row。 */
+    width: min(340px, calc(100vw - 16px));
+  }
+  /* 分頁列在極窄寬度下也能橫向捲(護欄:即使三格 grid 未來加寬也不溢出)。 */
+  .task-artifacts__tabs {
+    overflow-x: auto;
+  }
+}
+
+/* ---- §3.6 跳轉定位 highlight — the just-located jump target's transient
+ * pulse (same visual language as the chat's 跳到原訊息 flash). ---- */
+.task-card--located {
+  animation: task-card-located 2.4s ease-out;
+}
+@keyframes task-card-located {
+  0% {
+    box-shadow: 0 0 0 2px var(--color-accent);
+  }
+  100% {
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+
+/* ---- 轉派 dialog (T-160e) — rides the shared ConfirmModal shell, so only the
+ * BODY is styled here. Structure mirrors settings.css's AssigneeCard editor
+ * (segmented toggle → pick-list rows with a check dot → the 機器 note); the
+ * classes are re-declared rather than shared because those rules are scoped to
+ * the settings stylesheet and the tasks dialog must not pull it in. ---- */
+.task-reassign {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  /* The outsource face (model chips + free input + effort + the machine list)
+   * is tall: cap it against the viewport and scroll INSIDE the modal, so the
+   * action row stays reachable at 390px (and on a short desktop window). */
+  max-height: min(62vh, 520px);
+  overflow-y: auto;
+  /* Room for the focus ring / active border of the last row. */
+  padding-right: 2px;
+}
+.task-reassign__title {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--color-text-strong);
+}
+.task-reassign__hint {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+.task-reassign__section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.task-reassign__label {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+.task-reassign__note {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.task-reassign__empty {
+  padding: 11px 14px;
+  border: 1px dashed var(--color-border);
+  border-radius: 11px;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+.task-reassign__input,
+.task-reassign__textarea {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13.5px;
+}
+.task-reassign__textarea {
+  resize: vertical;
+  min-height: 56px;
+}
+.task-reassign__input:focus,
+.task-reassign__textarea:focus {
+  outline: none;
+  border-color: rgba(120, 140, 200, 0.55);
+}
+
+.task-reassign__seg {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  /* 4 model chips at 390px would otherwise squeeze past legibility. */
+  flex-wrap: wrap;
+}
+/* 模型 picker only: 4 chips as a fixed 2x2 so haiku never wraps alone into a
+   full-width, centered row (owner review: that read as "broken"). A grid keeps
+   the four chips on an even 2x2 at 390px; the 3-item 投入程度 and 2-item
+   轉給/轉外包 toggles keep the flex row. */
+.task-reassign__seg--grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.task-reassign__seg-cell {
+  flex: 1;
+  min-width: 72px;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: none;
+  color: var(--color-text-muted);
+  font-size: 13.5px;
+  cursor: pointer;
+  text-align: center;
+}
+.task-reassign__seg-cell:hover {
+  color: var(--color-text);
+}
+.task-reassign__seg-cell--active {
+  background: rgba(96, 118, 186, 0.28);
+  border-color: rgba(120, 140, 200, 0.55);
+  color: var(--color-text-strong);
+  font-weight: 600;
+}
+
+.task-reassign__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.task-reassign__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--color-text);
+  font-size: 13.5px;
+  cursor: pointer;
+  text-align: left;
+}
+.task-reassign__row--active {
+  background: rgba(96, 118, 186, 0.22);
+  border-color: rgba(120, 140, 200, 0.55);
+}
+.task-reassign__check {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border-radius: 5px;
+  border: 1.5px solid rgba(255, 255, 255, 0.3);
+  display: grid;
+  place-items: center;
+}
+.task-reassign__check--on {
+  border-color: transparent;
+  background: #7d90d8;
+}
+.task-reassign__check--on::after {
+  content: "✓";
+  font-size: 12px;
+  color: #10131b;
+  font-weight: 700;
+}
+.task-reassign__row-name {
+  font-weight: 600;
+  color: var(--color-text-strong);
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Ellipsized + capped so a long role title / machine name never breaks the row
+ * at 390px (the AssigneeCard's __role precedent). */
+.task-reassign__row-state {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-reassign__row-state--idle {
+  color: var(--color-online, #6fd6b0);
+}
+.task-reassign__row-state--busy {
+  color: #e0b060;
+}
+.task-reassign__row-state--offline {
+  color: var(--color-text-muted);
+}

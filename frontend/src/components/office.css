@@ -1,0 +1,1938 @@
+.office {
+  display: grid;
+  grid-template-columns: 264px 1fr;
+  gap: 18px;
+  height: 100%;
+  min-height: 0;
+}
+
+/* Honest roster load-failure banner (never a silent empty office). */
+.office__error {
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-danger);
+  background: var(--color-card);
+  color: var(--color-danger);
+  font-size: 13px;
+}
+
+/* ---- shared bits ---- */
+/* Plain 2-state dot — now used ONLY by the monitor's MACHINE online/overheat
+ * indicators (MonitorPage). It is NOT a member-presence signal: member presence
+ * is carried solely by the LifecycleDot (below) via the shared PresenceBadge. */
+.status-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.status-dot--offline {
+  background: var(--color-dot-offline);
+}
+.status-dot--online {
+  background: var(--color-dot-online);
+}
+
+/* ---- lifecycle-visual dot (the SINGLE member-presence dot, PURE PRESENTATION)
+ * Isolated from `.status-dot` (which is now only the monitor's machine dots) on
+ * purpose. These classes back the LifecycleDot component — the sole visual
+ * carrier of member presence, rendered everywhere via the shared PresenceBadge.
+ * Colors use the --color-dot-* tokens (no hard-coded hex). offline=dark ·
+ * waking=amber+pulse · online-awake=mint solid · stopping=orange+pulse ·
+ * stopped=grey. One dot per real backend presence state. The two TRANSITION
+ * states (waking / stopping) share the same pulse language so a wind-down is
+ * as visibly "in motion" as a wake-up. */
+.lifecycle-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.lifecycle-dot--offline {
+  background: var(--color-dot-offline);
+}
+.lifecycle-dot--waking {
+  background: var(--color-dot-waking);
+  animation: lifecycle-dot-pulse 1.2s ease-in-out infinite;
+}
+.lifecycle-dot--online-awake {
+  background: var(--color-dot-online);
+}
+.lifecycle-dot--stopping {
+  background: var(--color-dot-stopping);
+  animation: lifecycle-dot-pulse-stopping 1.2s ease-in-out infinite;
+}
+.lifecycle-dot--stopped {
+  background: var(--color-dot-stopped);
+}
+
+/* waking: attention-seeking pulse (opacity + halo) */
+@keyframes lifecycle-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 var(--color-dot-waking);
+  }
+  50% {
+    opacity: 0.55;
+    box-shadow: 0 0 0 3px rgba(224, 179, 65, 0);
+  }
+}
+
+/* stopping: the SAME pulse, keyed to the stopping orange */
+@keyframes lifecycle-dot-pulse-stopping {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 var(--color-dot-stopping);
+  }
+  50% {
+    opacity: 0.55;
+    box-shadow: 0 0 0 3px rgba(224, 135, 63, 0);
+  }
+}
+
+.avatar {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-text-muted);
+  flex: none;
+}
+/* Theme-dependent avatar glyph: Avatar renders BOTH the office user icon and
+ * the xian cultivator SVG; the html[data-theme] attribute selector shows
+ * exactly one (pure-CSS switch, no JS theme read). */
+.avatar__glyph--xian {
+  display: none;
+}
+[data-theme="xian"] .avatar__glyph--office {
+  display: none;
+}
+[data-theme="xian"] .avatar__glyph--xian {
+  display: block;
+}
+/* xian avatar container — circular jade-lit medallion: warm radial glow behind
+ * the head, antique-gold rim, and the robe hem clipped by the circle. */
+[data-theme="xian"] .avatar {
+  border-radius: 50%;
+  overflow: hidden;
+  background: radial-gradient(circle at 50% 32%, #241a10, #14100a);
+  border: 1px solid #5a4c28;
+}
+.badge {
+  display: inline-flex;
+  align-items: center;
+  height: 19px;
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1;
+}
+.badge--muted {
+  color: var(--color-text-muted);
+  border: 1px solid rgba(154, 160, 173, 0.3);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.btn--accent-ghost {
+  height: 30px;
+  padding: 0 12px;
+  color: var(--color-accent);
+  border-color: rgba(111, 214, 176, 0.35);
+  background: var(--color-accent-soft);
+}
+.btn--accent-ghost:hover {
+  background: rgba(111, 214, 176, 0.2);
+}
+.btn--accent {
+  height: 38px;
+  padding: 0 18px;
+  color: var(--color-accent);
+  background: var(--color-accent-cta-bg);
+  border-color: rgba(111, 214, 176, 0.18);
+  font-weight: 600;
+}
+.btn--accent:hover {
+  background: var(--color-accent-cta-bg-hover);
+}
+
+/* destructive-action ghost variant (dismiss / stop / force-kill) — reuses the
+ * ghost silhouette with the shared --color-danger token (no hard-coded hex). */
+.btn--danger-ghost {
+  height: 30px;
+  padding: 0 12px;
+  color: var(--color-danger);
+  border-color: rgba(240, 115, 107, 0.35);
+  background: rgba(240, 115, 107, 0.1);
+}
+.btn--danger-ghost:hover {
+  background: rgba(240, 115, 107, 0.18);
+}
+
+/* ---- member action buttons (layer-4 UI skeleton shell) ---- */
+.member-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.member-actions .btn {
+  cursor: pointer;
+}
+/* honest dead-affordance: no handler → disabled + non-interactive */
+.member-actions .btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ---- member list ---- */
+.office__members {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+/* T-66a8 正職/外包 tab switcher (owner mockup 2026-07-18) — a top text-tab bar
+ * replacing the old two-stacked-groups rail. Two tabs side by side, each half
+ * the width; the row's bottom border is the baseline divider, and the SELECTED
+ * tab overlays it with a blue underline indicator. */
+.office__tabs {
+  display: flex;
+  flex: none;
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: 12px;
+}
+.office__tab {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  /* Bottom padding is tuned (10px → 18px) so this tab row's baseline divider
+   * lands at the SAME Y as the chat header's bottom border on the right column
+   * (owner T-5557: 「兩條底線盡可能對齊」). Both columns share the grid's top
+   * edge, but the chat header is the taller box (a 38px avatar vs the tab's two
+   * short text lines), so the tab needs the extra bottom space to catch up. The
+   * chat header divider is the fixed baseline — do not touch it; only this pad
+   * moves. Measured: the two dividers align within <1px. */
+  padding: 4px 6px 18px;
+  border: none;
+  /* Sit the 2px underline ON the .office__tabs baseline (its own 1px border) so
+   * the active indicator replaces the divider under the selected tab. */
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s;
+}
+.office__tab--active {
+  border-bottom-color: var(--color-tab-active);
+}
+/* line 1 — the tab label + its unread badge. */
+.office__tab-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.office__tab-label {
+  font-size: 15px;
+  /* Weight 600, not 700 (owner T-5557: 「不需要特別是粗體」+「字體跟其他地方
+   * 不一樣」). 600 is the app's standard title weight — it matches the chat
+   * header name (.chat__header-name, 15px/600) sitting right beside these tabs,
+   * so the label now reads identically to the rest of the UI instead of as an
+   * out-of-place bold. The font-family already inherited the global stack. */
+  font-weight: 600;
+  /* Explicit ratio line-height (font-INDEPENDENT), like the chat header name
+   * (global 1.5). `normal` here resolved to a CJK-font-dependent line box, so
+   * this row's height — and thus the T-5557 divider Y — drifted between the
+   * app's font stack and the CT guard's; a ratio pins it deterministically. */
+  line-height: 1.5;
+  color: var(--color-text-muted);
+  transition: color 0.15s;
+}
+.office__tab--active .office__tab-label {
+  color: var(--color-text-strong);
+}
+/* Red unread count pill beside the label — SAME recipe as .member-card__unread
+ * / .nav-tab__badge (shared --color-danger; >99 → "99+"; 0 → not rendered). */
+.office__tab-badge {
+  flex: none;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  background: var(--color-danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+/* line 2 — the small count sub-line (正職「N 人」/ 外包「N 人 · 上限 M」). */
+.office__tab-sub {
+  min-height: 16px;
+  font-size: 12.5px;
+  /* Ratio line-height (same reason as .office__tab-label): keep this row's
+   * height font-independent so the tab divider aligns deterministically. */
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+.office__members-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  /* Only one list shows at a time now (the tab switches 正職/外包), so the
+   * active list fills the rail's leftover between the tabs and the recruit
+   * button, scrolling INSIDE itself. */
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+/* 招攬新成員 — pinned at the sidebar bottom (T-66a8, owner mockup 2026-07-18).
+ * A dashed-outline ghost button (person-plus icon + label) whose click routes
+ * by the active tab (正職 → 角色誌; 外包 → the cap popover). The wrapper is the
+ * popover's positioning anchor (the popover rises above the button). */
+.office__recruit-wrap {
+  position: relative;
+  flex: none;
+  margin-top: 12px;
+}
+.office__recruit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 46px;
+  padding: 0 14px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-card);
+  background: none;
+  color: var(--color-accent);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.office__recruit:hover,
+.office__recruit[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  background: var(--color-accent-soft);
+}
+
+.member-card {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 12px;
+  border-radius: var(--radius-card);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.member-card:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+.member-card--selected {
+  background: var(--color-card);
+  border-color: rgba(255, 255, 255, 0.05);
+}
+.member-card__body {
+  flex: 1;
+  min-width: 0;
+}
+.member-card__line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.member-card__name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+/* (no .member-card__offline — the 離線 text badge beside the name was retired
+ * 2026-07-17; the LifecycleDot's grey already carries offline/stopped.) */
+/* M2-1 unread COUNT badge (the red dot, upgraded) — a red pill at the row's
+ * flex end showing how many messages await the owner (>99 → "99+"; count 0 is
+ * not rendered). Independent of the presence LifecycleDot (different signal,
+ * different axis); uses the shared --color-danger token (no hard-coded hex). */
+.member-card__unread {
+  flex: none;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  background: var(--color-danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+/* Roster presence line — hosts the SHARED PresenceBadge (single presence truth,
+ * same component as the monitor session row + detail panel). Replaces the old
+ * bespoke role / last-seen lines. */
+.member-card__presence {
+  margin-top: 3px;
+  font-size: 12.5px;
+}
+/* Shared presence badge (lifecycle dot + status word + role/last-seen sub-line).
+ * Defined here too so the roster renders it identically to the monitor + detail
+ * surfaces (whose own stylesheets carry the same rule). */
+.presence-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text);
+}
+.presence-badge__sub {
+  color: var(--color-text-muted);
+}
+/* Avatar = the row's SECOND click target (member detail; the row itself is the
+ * chat entry). A bare button wrapper: kill the native chrome, and signal the
+ * separate target with the same soft accent ring the chat header uses on
+ * focus-visible — no new design language. */
+.member-card__avatar {
+  flex: none;
+  display: inline-grid;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 11px; /* match .avatar so the ring hugs the glyph */
+  cursor: pointer;
+  outline: none;
+}
+[data-theme="xian"] .member-card__avatar {
+  border-radius: 50%; /* match the circular xian .avatar */
+}
+.member-card__avatar:hover,
+.member-card__avatar:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-accent-soft);
+}
+
+/* ---- chat area ---- */
+.office__chat {
+  min-width: 0;
+  min-height: 0;
+}
+
+/* "Back to members" — mobile-only single-page-nav affordance (rendered only when
+ * isMobile). Mirrors the member-detail .mp__back silhouette so the two back
+ * controls read identically — including the site-wide PINNED back-bar pattern
+ * (sticky top-0 + opaque page background + z-index, stretched to the full row;
+ * the chat pane scrolls internally today, so this is uniformity + future-proof). */
+.office__back {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  flex: none;
+  align-self: stretch;
+  margin-bottom: 4px;
+  padding: 4px 6px 4px 2px;
+  border: none;
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.office__back:hover {
+  color: var(--color-text);
+}
+.chat {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  border-radius: 14px;
+  /* Anchor for the M2-3 gallery panel overlay (absolute inside the window). */
+  position: relative;
+}
+.chat__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 8px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+/* Only advertise a click when a detail target is wired (chat__header--clickable). */
+.chat__header--clickable {
+  cursor: pointer;
+  border-radius: 10px;
+  transition: background 0.15s;
+  outline: none;
+}
+.chat__header--clickable:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+.chat__header--clickable:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-accent-soft);
+}
+.chat__header-text {
+  flex: 1;
+  min-width: 0;
+}
+/* ── Header identity text: SINGLE-LINE, ellipsised ────────────────────────────
+ * The name and the presence line must never wrap. This is load-bearing, not
+ * cosmetic: `.chat__gallery` (below) is `position:absolute; top:64px` — a
+ * hardcoded offset onto the header's height — so a header that grows a second
+ * line pushes its own bottom edge past the gallery panel's top and tears a gap
+ * open. Before T-dfae the text column was ~234px at 390px wide and no roster
+ * name reached it; the header's new 任務/角色 buttons cut it to ~142px, which a
+ * long name (e.g. 「Eva Rhapsody Inbox」) DOES overflow. Ellipsis keeps the
+ * overflow horizontal, where `min-width:0` on the column already absorbs it,
+ * instead of vertical, where it would break the gallery. */
+.chat__header-name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.chat__header-name > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat__header-sub {
+  margin-top: 2px;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+/* The presence badge is shared (roster / monitor / detail panel), so the
+ * single-line squeeze is scoped to the chat header rather than pushed into the
+ * component: only here is it competing with a button cluster for width. The
+ * lifecycle dot is flex:none inside the badge, so the ROLE text is what gives. */
+.chat__header-sub .presence-badge {
+  max-width: 100%;
+}
+.chat__header-sub .presence-badge__sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat__body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  /* Anchor for the floating "有新訊息" chip (absolute, bottom-center). */
+  position: relative;
+}
+/* ① M2 batch 19: floating "有新訊息" chip — surfaces when a new inbound message
+ * lands while the owner is scrolled up. Low-emphasis grey pill (card surface,
+ * NOT the accent CTA), floating just above the composer edge; click jumps to
+ * the first unseen message; dismissed on reaching the bottom. */
+.chat__new-msg-chip {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-card);
+  color: var(--color-text);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+.chat__new-msg-chip:hover {
+  border-color: var(--color-text-muted);
+}
+/* ② M2 batch 19: the "以下是未讀訊息" divider above the first message that was
+ * unread at conversation entry — a thin low-emphasis rule, same visual language
+ * as the inter-agent toggle (muted, hairline). */
+.chat__unread-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  line-height: 1;
+}
+.chat__unread-divider::before,
+.chat__unread-divider::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--color-border);
+}
+/* T-bf82 scrollback: the "已到最早訊息" marker at the very top of the thread
+ * once the history is exhausted (hasMore=false) — same muted hairline
+ * language as the unread divider, centered text. */
+.chat__history-start {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  line-height: 1;
+}
+.chat__history-start::before,
+.chat__history-start::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--color-border);
+}
+/* LINE/Slack-style day grouping. Each local calendar day of the stream is
+ * wrapped in a .chat__day-group whose first child is the date divider — a
+ * centered low-emphasis pill. The divider is `position: sticky` INSIDE its
+ * group, so while that day's messages scroll through the viewport the pill
+ * floats pinned at the top (the LINE floating date), and the group's bottom
+ * edge pushes it off exactly when the next day's divider arrives. */
+.chat__day-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+.chat__day-divider {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  justify-content: center;
+  /* Never intercept clicks on messages scrolling underneath the floater. */
+  pointer-events: none;
+}
+.chat__day-pill {
+  padding: 4px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-card);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  line-height: 1;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+}
+.chat__offline {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  max-width: 380px;
+}
+.chat__offline-icon {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 18px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-text-muted);
+}
+.chat__offline-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.chat__offline-hint {
+  margin-top: 8px;
+  font-size: 13.5px;
+  color: var(--color-text-muted);
+  line-height: 1.6;
+}
+.chat__empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-muted);
+  font-size: 13.5px;
+}
+
+/* Message thread (rendered when the conversation has ≥1 message). Overrides the
+   body's place-items:center so the list fills the pane and scrolls. */
+.chat__messages {
+  align-self: stretch;
+  justify-self: stretch;
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  /* T-55ad 手機聊天可左右拖動: with only `overflow-y: auto` declared, the CSS
+   * overflow spec COERCES the default `visible` overflow-x to `auto` (visible +
+   * auto is an impossible pair). That silently turns this vertical message list
+   * into a horizontal scroll container, and iOS Safari rubber-band-pans such
+   * containers on touch even when nothing overflows — the owner could drag the
+   * thread sideways. Pinning overflow-x here computes it to `hidden` instead of
+   * auto, killing the sideways pan. Wide content still scrolls IN PLACE: a long
+   * code block owns its own scroll via `.doc-md pre { overflow-x: auto }`, whose
+   * `max-width: 100%` keeps it inside this box (never widening it). */
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-right: 4px;
+}
+.chat__msg {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  max-width: 78%;
+  /* T-84c8 — WITHOUT this, `max-width: 78%` above is a suggestion, not a cap.
+   * A flex item's default `min-width: auto` floors it at its CONTENT's minimum
+   * width, and that floor BEATS max-width. Every child here used to be
+   * wrappable text (`word-break: break-word`), so the floor was tiny and the
+   * cap looked like it worked. Markdown introduced the first UNBREAKABLE child
+   * — <pre> is `white-space: pre` — so the floor became "the longest line of
+   * the code block" (measured: a 390px viewport rendering a bubble 1273.86px
+   * wide, running off-screen). Flooring it at 0 lets the cap bind again and
+   * hands the overflow to `.doc-md pre { overflow-x: auto }`, which is what
+   * that rule was always for. The whole chain down to the <pre> needs the same
+   * release, hence the min-width: 0 on the line/content/bubble below. */
+  min-width: 0;
+}
+.chat__msg--me {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+.chat__msg-meta {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 4px;
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+}
+.chat__msg-name {
+  font-weight: 600;
+}
+/* Inter-agent (agent↔agent) collapsible block: collapsed by default so the
+   owner isn't flooded. The toggle is a low-emphasis, full-width divider row. */
+.chat__inter {
+  margin: 6px 0;
+}
+.chat__inter-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 10px;
+  border: 1px dashed var(--color-border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.chat__inter-toggle:hover {
+  background: var(--color-card);
+}
+.chat__inter-caret {
+  flex: none;
+  transition: transform 0.12s ease;
+}
+.chat__inter-caret--open {
+  transform: rotate(90deg);
+}
+.chat__inter-body {
+  margin-top: 6px;
+  padding-left: 8px;
+  border-left: 2px solid var(--color-border);
+}
+/* THE one bubble per message: text and/or attachments live in the SAME rounded
+ * container (text block on top, attachments stacked below) so a text+attachment
+ * message reads as one message — one radius, one background. */
+.chat__msg-bubble {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* T-84c8: see .chat__msg — clamp to the capped row so an unbreakable
+   * markdown <pre> scrolls inside the bubble instead of widening it. */
+  min-width: 0;
+  max-width: 100%;
+  padding: 9px 13px;
+  border-radius: 12px;
+  background: var(--color-card);
+  color: var(--color-text);
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+/* T-84c8 — the message body renders through <Markdown className="chat__msg-text
+ * doc-md">. `.doc-md` is a DOCUMENT skin (a settings page / task manual: its own
+ * colour, its own page padding, roomy 1.75 leading). A chat bubble is not a
+ * document, so the bits of that skin that fight the bubble are handed back:
+ *
+ *  - `color: inherit` is LOAD-BEARING, not tidiness. `.doc-md` sets
+ *    `color: var(--color-text)`, which would out-specify the bubble's inherited
+ *    colour and repaint MY OWN messages from the accent green
+ *    (`.chat__msg--me .chat__msg-bubble`) back to ordinary body text — the
+ *    exact colour-inheritance break T-a20b hit on the waiting reason
+ *    (tasks.css: `.task-card__waiting-md.doc-md { color: inherit }`).
+ *  - the document page padding / leading go back to the bubble's own.
+ *  - the parser already resolved every newline into block structure (and, with
+ *    `breaks`, into <br>), so the bubble's `pre-wrap` has nothing left to do
+ *    here and would only re-surface source indentation as literal spaces.
+ *    <pre> keeps its own `white-space: pre` (UA rule beats inheritance), so
+ *    fenced code still scrolls instead of wrapping. */
+.chat__msg-text.doc-md {
+  padding: 0;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+  white-space: normal;
+  /* Without this the bubble refuses to shrink below its widest child and a long
+   * code line pushes the whole bubble past its 78% cap instead of scrolling. */
+  min-width: 0;
+}
+/* First/last block sit flush against the bubble padding — a leading <p>/<h*>
+ * margin would otherwise read as an off-centre bubble. */
+.chat__msg-text.doc-md > :first-child {
+  margin-top: 0;
+}
+.chat__msg-text.doc-md > :last-child {
+  margin-bottom: 0;
+}
+/* Tighten the document rhythm to chat density. */
+.chat__msg-text.doc-md p {
+  margin: 6px 0;
+}
+.chat__msg-text.doc-md ul,
+.chat__msg-text.doc-md ol {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+.chat__msg-text.doc-md pre {
+  margin: 6px 0;
+}
+/* `code` keeps .doc-md's accent colour on a peer bubble, but inside MY accent
+ * bubble accent-on-accent-tint loses its contrast — inherit the bubble's own
+ * colour there and let the chip background carry the distinction. */
+.chat__msg--me .chat__msg-text.doc-md code {
+  color: inherit;
+}
+/* Attachment stack inside the bubble: each item (thumbnail / file chip) on its
+ * own row, in message order. */
+.chat__msg-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+.chat__msg--me .chat__msg-bubble {
+  background: var(--color-accent-cta-bg);
+  color: var(--color-accent);
+}
+/* LINE-style outgoing row: the meta column sits to the LEFT of the bubble and
+ * both bottoms line up (flex-end), so "已讀"/time hug the bubble's lower edge. */
+.chat__msg-line {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  /* T-84c8: see .chat__msg — clamp to the capped row. */
+  min-width: 0;
+  max-width: 100%;
+}
+/* Meta column left of the me-bubble: "已讀" stacked above the send time, both
+ * small + faint, right-aligned toward the bubble. */
+.chat__msg-sidemeta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 2px;
+  font-size: 10.5px;
+  line-height: 1.2;
+  color: var(--color-text-muted);
+  /* The column must never be squeezed by a wide bubble: a wrapped "01:39 AM"
+   * breaks onto two lines and the two sides stop mirroring (owner feedback). */
+  flex: none;
+  white-space: nowrap;
+}
+/* Both sides bottom-align the time to the bubble's inner (center-facing) edge:
+ * me → column left of the bubble, right-aligned; peer → column right of the
+ * bubble, left-aligned. Mirror images of each other. */
+.chat__msg--me .chat__msg-sidemeta {
+  align-items: flex-end;
+}
+.chat__msg:not(.chat__msg--me) .chat__msg-sidemeta {
+  align-items: flex-start;
+}
+.chat__msg-content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  /* T-84c8: see .chat__msg — clamp to the capped row. */
+  max-width: 100%;
+}
+.chat__msg--me .chat__msg-content {
+  align-items: flex-end;
+}
+/* B3: a reply-card message — the card replaces the bubble, so the row must
+ * hand its full width down (a bubble hugs its text; a card with option chips
+ * must not collapse). The card's own width cap lives in replies.css. */
+.chat__msg--card .chat__msg-line,
+.chat__msg--card .chat__msg-content {
+  width: 100%;
+  min-width: 0;
+}
+/* B3 跳到原訊息: the located message flashes an accent ring, then settles
+ * back into the thread (the state is cleared after the pulse). */
+.chat__msg--located .chat__msg-bubble,
+.chat__msg--located .reply-card {
+  animation: chat-located-pulse 2.4s ease-out;
+}
+@keyframes chat-located-pulse {
+  0%,
+  55% {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 70%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+/* Read receipt label (LINE-style): small + faint, above the send time in the
+ * left meta column. Shown per own message once the peer's last-read watermark
+ * covers it — driven only by a real recorded watermark, never fabricated. */
+.chat__msg-read {
+  opacity: 0.7;
+}
+/* An image attachment renders INSIDE the message bubble (below the text, in
+ * the attachment stack); capped width, a slightly tighter radius so it nests
+ * cleanly inside the bubble's 12px corners. */
+.chat__msg-image {
+  display: block;
+  max-width: 300px;
+  max-height: 320px;
+  width: auto;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  object-fit: contain;
+}
+/* A clickable image (thread + composer preview) opens the full-size lightbox. */
+.chat__msg-image--clickable {
+  cursor: zoom-in;
+}
+
+/* Full-size image lightbox — a fixed backdrop centring the image; click the
+ * backdrop or press Esc to dismiss. */
+.chat__lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: rgba(0, 0, 0, 0.8);
+  cursor: zoom-out;
+}
+.chat__lightbox-image {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 8px;
+  object-fit: contain;
+  cursor: default;
+}
+.chat__lightbox-close {
+  position: absolute;
+  top: 16px;
+  right: 20px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  line-height: 1;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.chat__lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* ── M2-3 member file & image gallery (batch-16 upgrade) ─────────────────────
+ * Header icon toggle + a right-side overlay panel listing EVERY attachment of
+ * the member's conversations (owner↔member both directions + inter-agent),
+ * newest→oldest, split into 圖片/檔案 tabs, sender + time per row. */
+/* The header's right-hand button cluster: 任務 / 角色設定 (T-dfae) + the gallery
+ * toggle. One shared shape so the three read as siblings — same 34px square,
+ * same muted-until-hover weight. `flex: none` on all three is what keeps the
+ * TEXT column (flex:1, min-width:0) the only thing that shrinks. */
+.chat__header-action,
+.chat__gallery-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    background 0.15s;
+}
+.chat__header-action:hover,
+.chat__header-action:focus-visible,
+.chat__gallery-toggle:hover,
+.chat__gallery-toggle[aria-expanded="true"] {
+  color: var(--color-text-strong);
+  background: rgba(255, 255, 255, 0.06);
+}
+.chat__gallery {
+  position: absolute;
+  top: 64px;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  width: min(340px, 100%);
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 0 0 14px 0;
+  background: var(--color-card);
+  box-shadow: -12px 0 28px rgba(0, 0, 0, 0.35);
+}
+.chat__gallery-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.chat__gallery-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.chat__gallery-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    background 0.15s;
+}
+.chat__gallery-close:hover {
+  color: var(--color-text-strong);
+  background: rgba(255, 255, 255, 0.06);
+}
+/* 圖片 / 檔案 segmented tabs (same seg vocabulary as profile-dd__seg): a muted
+ * two-cell grid under the header; the active tab gets the soft card highlight
+ * (grey — never the accent, these are content filters not actions). */
+.chat__gallery-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin: 10px 10px 0;
+  padding: 4px;
+  border-radius: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+}
+.chat__gallery-tab {
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    background 0.15s;
+}
+.chat__gallery-tab:hover {
+  color: var(--color-text);
+}
+.chat__gallery-tab--active {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text-strong);
+}
+
+/* Uploader filter chips (batch 18) — a wrap row of small grey chips under the
+ * 圖片/檔案 tabs: 「全部」 + one chip per actual sender. Same muted grey
+ * vocabulary as the tabs (never the accent — content filter, not action);
+ * stacks with the tab split. */
+.chat__gallery-senders {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 10px 0;
+}
+.chat__gallery-sender-chip {
+  max-width: 100%;
+  padding: 4px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--color-text-muted);
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    background 0.15s;
+}
+.chat__gallery-sender-chip:hover {
+  color: var(--color-text);
+}
+.chat__gallery-sender-chip--active {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--color-text-strong);
+}
+
+.chat__gallery-empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+.chat__gallery-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.chat__gallery-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 10px;
+  color: var(--color-text);
+  text-decoration: none;
+  transition: background 0.15s;
+}
+.chat__gallery-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.chat__gallery-thumb {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: 8px;
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.04);
+}
+.chat__gallery-fileicon {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--color-text-muted);
+}
+.chat__gallery-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.chat__gallery-name {
+  font-size: 13px;
+  color: var(--color-text-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chat__gallery-sub {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+}
+
+/* A non-image attachment in the thread → a download chip (icon + filename). It
+ * sits INSIDE the message bubble (attachment stack, below the text), so its own
+ * background is a darker nested layer that stays visible on BOTH bubble tints
+ * (incoming card grey and outgoing accent). */
+.chat__msg-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 300px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.18);
+  color: var(--color-text);
+  text-decoration: none;
+  font-size: 13px;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+.chat__msg-file:hover {
+  color: var(--color-accent);
+  border-color: rgba(111, 214, 176, 0.4);
+}
+.chat__msg-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ONE attachment inside a bubble: the thumbnail/chip plus its hover-revealed
+ * 「複製分享連結」 button (top-right overlay). */
+.chat__msg-attachment {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+.chat__share-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s,
+    opacity 0.15s;
+}
+.chat__share-btn:hover {
+  color: var(--color-accent);
+  border-color: rgba(111, 214, 176, 0.4);
+}
+/* In the thread the button floats over the attachment's top-right corner and
+ * only shows while hovering (or focused — keyboard reachable). */
+.chat__msg-attachment .chat__share-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  opacity: 0;
+}
+.chat__msg-attachment:hover .chat__share-btn,
+.chat__msg-attachment .chat__share-btn:focus-visible {
+  opacity: 1;
+}
+/* Gallery row variant: pinned to the row's right edge, revealed on row hover
+ * (or focus), never overlapping the name/sender meta. */
+.chat__gallery-share {
+  flex: none;
+  margin-left: auto;
+  opacity: 0;
+}
+.chat__gallery-item:hover .chat__gallery-share,
+.chat__gallery-share:focus-visible {
+  opacity: 1;
+}
+
+/* T-a1c4: a .md attachment carries TWO hover actions (預覽 + 複製分享連結), so
+   the pair rides in one top-right cluster instead of two buttons stacking on the
+   same corner. The cluster is the absolute element; its buttons are static
+   inside it (overriding the single-button absolute rule above). */
+.chat__msg-attachment .chat__att-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: inline-flex;
+  gap: 4px;
+  opacity: 0;
+}
+.chat__msg-attachment:hover .chat__att-actions,
+.chat__msg-attachment .chat__att-actions:focus-within {
+  opacity: 1;
+}
+.chat__att-actions .chat__share-btn {
+  position: static;
+  opacity: 1;
+}
+.chat__preview-btn:hover {
+  color: var(--color-accent);
+  border-color: rgba(111, 214, 176, 0.4);
+}
+
+/* ── .md preview overlay (T-a1c4) — in-cockpit markdown render, shared by the
+   chat attachment strip and the task artifact popover. A centered modal panel
+   (like the lightbox backdrop) with a header (title + 下載 + close) and a
+   scrolling rendered-markdown body. */
+.md-preview {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: rgba(0, 0, 0, 0.75);
+}
+.md-preview__panel {
+  display: flex;
+  flex-direction: column;
+  width: min(760px, 100%);
+  max-height: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background: var(--color-card);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.md-preview__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.md-preview__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.md-preview__title svg {
+  flex: none;
+}
+.md-preview__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.md-preview__download {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--color-text);
+  text-decoration: none;
+  font-size: 12.5px;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+.md-preview__download:hover {
+  color: var(--color-accent);
+  border-color: rgba(111, 214, 176, 0.4);
+}
+.md-preview__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.md-preview__close:hover {
+  color: var(--color-text-strong);
+  background: rgba(255, 255, 255, 0.06);
+}
+.md-preview__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 20px;
+}
+.md-preview__status {
+  display: grid;
+  place-items: center;
+  padding: 40px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.chat__composer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 8px 4px;
+}
+.chat__composer-row {
+  display: flex;
+  /* Bottom-align: the input is a growing textarea (multi-line drafts) — the
+   * attach/send buttons stay anchored to its last line, LINE-style. */
+  align-items: flex-end;
+  gap: 10px;
+}
+/* The composer input is a TEXTAREA (Enter sends, Shift+Enter breaks a line).
+ * One line reads exactly like the old 44px input (min-height + padding);
+ * JS autosize (lib/autosize.ts) grows it with the draft up to max-height,
+ * beyond which its own overflow-y scrolls — a long draft is always fully
+ * viewable. */
+.chat__input {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  max-height: 132px;
+  height: 44px;
+  padding: 11px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--color-card);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  outline: none;
+  resize: none;
+  overflow-y: auto;
+}
+.chat__input::placeholder {
+  color: var(--color-text-muted);
+}
+.chat__input:focus {
+  border-color: rgba(111, 214, 176, 0.4);
+}
+/* Attach (paperclip) button — same 44px square as send, but a quiet card
+ * surface (it is a secondary action beside the primary indigo send). */
+.chat__attach {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--color-card);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+.chat__attach:hover {
+  color: var(--color-text);
+  border-color: rgba(111, 214, 176, 0.4);
+}
+.chat__send {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: 12px;
+  border: none;
+  background: var(--color-indigo);
+  color: var(--color-text);
+  transition: filter 0.15s;
+}
+.chat__send:hover {
+  filter: brightness(1.2);
+}
+.chat__send:disabled {
+  opacity: 0.45;
+  cursor: default;
+  filter: none;
+}
+/* M2-4 composer lock — replaces the input row while the member is not online.
+ * Same 44px height + card surface as the input it stands in for; one line of
+ * muted centred text either way (div or whole-bar button). */
+.chat__composer-locked {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--color-card);
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 14px;
+}
+/* Whole-bar variant: the bar itself is the entry to the member detail panel
+ * (waking lives only there) — one sentence, one click target. */
+.chat__composer-locked--link {
+  width: 100%;
+  padding: 0;
+  cursor: pointer;
+}
+.chat__composer-locked--link:hover {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+
+/* ---- T-94c1 wake row: offline/stopped queue notice + in-place wake ---- */
+/* One row above the (full-width) composer: an accent-tinted panel with the
+ * "your message will queue" hint on the left and an outline ⚡喚醒 button on the
+ * right. On narrow widths the hint wraps to two lines (owner mockup); the button
+ * stays fixed-width so it never gets crushed. */
+.chat__wake-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 30%, transparent);
+  background: var(--color-accent-soft);
+}
+.chat__wake-row__hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.chat__wake-row__hint svg {
+  flex: none;
+}
+.chat__wake-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1px solid var(--color-accent);
+  background: transparent;
+  color: var(--color-accent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.chat__wake-btn:hover {
+  background: var(--color-accent-soft);
+}
+.chat__wake-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* ---- composer attachment previews (staged pre-send; 0..N tiles) ---- */
+.chat__composer-preview {
+  display: flex;
+  align-items: center;
+  /* Several attachments may be staged at once (M2-5) — tile and wrap. */
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 0 4px;
+}
+.chat__preview-thumb {
+  position: relative;
+  display: inline-block;
+}
+.chat__preview-image {
+  display: block;
+  max-width: 120px;
+  max-height: 84px;
+  width: auto;
+  height: auto;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  object-fit: contain;
+}
+.chat__preview-remove {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  background: var(--color-card);
+  color: var(--color-text);
+  font-size: 15px;
+  line-height: 1;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.chat__preview-remove:hover {
+  color: var(--color-accent);
+}
+/* Non-image staged attachment → a filename chip (icon + name + size + ×). */
+.chat__preview-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 260px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--color-card);
+  color: var(--color-text);
+  font-size: 12.5px;
+}
+.chat__preview-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat__preview-file-size {
+  color: var(--color-text-muted);
+  flex: none;
+}
+/* The × control inside the file chip sits inline (not absolutely positioned like
+ * the thumbnail's corner badge). */
+.chat__preview-remove--inline {
+  position: static;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  box-shadow: none;
+  background: transparent;
+}
+.chat__preview-error {
+  font-size: 12.5px;
+  color: #e2857f;
+}
+
+@media (max-width: 720px) {
+  /* Single-page navigation: OfficePage renders exactly ONE pane (roster XOR
+   * chat), so the grid is a single full-height cell — no stacked second row that
+   * used to render the chat below the roster and duplicate the member. */
+  .office {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr;
+  }
+  /* The chat pane now hosts the back button above the chat, so lay it out as a
+   * column and let the chat fill the remaining height. */
+  .office__chat {
+    display: flex;
+    flex-direction: column;
+  }
+  .office__chat > .chat {
+    flex: 1;
+    min-height: 0;
+  }
+  /* T-5a02 手機版對話窗太窄: the desktop 78% row cap is meant for wide
+   * threads; on a phone it stacks on top of the page/body padding AND the
+   * in-row timestamp column, squeezing the bubble itself to ~175px and
+   * wrapping text into a tall narrow column. Let the row take (almost) the
+   * full thread width instead — the sidemeta column (flex: none + nowrap
+   * above) always reserves exactly the send time's own width so the time
+   * renders whole, and the 10px slack keeps a little breathing room past it
+   * (owner: 正常顯示傳送時間不要跑版,再留一點白). */
+  .chat__msg {
+    max-width: calc(100% - 10px);
+  }
+  /* A reply-card message escapes the bubble cap entirely: the card needs the
+   * full thread width or its option chips collapse on a phone. The full-width
+   * card wraps the sidemeta (time) onto its own line below instead of
+   * squeezing the card by a timestamp column. */
+  .chat__msg--card {
+    max-width: 100%;
+  }
+  .chat__msg--card .chat__msg-line {
+    flex-wrap: wrap;
+  }
+}
+
+/* ---- 外包 worker list (M3 SPEC §4; T-66a8: list-only — the head/toggle/gear
+ * moved out to the tab switcher + recruit button). Row line = 代號 / [綠點 +
+ * T-xxxx chip + task type] — NO model name (the codename implies it), NO
+ * 識別鍵 / task id. ---- */
+.outsource-panel {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* The 外包 tab's content fills the rail's leftover between the tabs and the
+   * recruit button; its list (below) scrolls internally. */
+  flex: 1 1 0;
+}
+/* Cap-setting popover (外包上限設定). Anchored to the recruit button's wrapper
+ * (.office__recruit-wrap, position:relative) and opening UPWARD — the button
+ * sits at the sidebar bottom, so the popover must rise above it, spanning the
+ * rail's full width. */
+.outsource-panel__pop {
+  position: absolute;
+  right: 0;
+  top: 28px;
+  z-index: 30;
+  width: 280px;
+  padding: 12px;
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--color-card);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.outsource-panel__pop--up {
+  top: auto;
+  bottom: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  width: auto;
+}
+.outsource-panel__pop-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.outsource-panel__pop-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, #e0b341 35%, transparent);
+  color: #e0b341;
+  background: color-mix(in srgb, #e0b341 8%, transparent);
+}
+.outsource-panel__pop-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-text-strong);
+}
+.outsource-panel__pop-label {
+  margin-top: 12px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #e0b341;
+}
+.outsource-panel__pop-footer {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+}
+.outsource-panel__pop-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+.outsource-panel__pop-row {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.outsource-panel__pop-input {
+  width: 70px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 13px;
+}
+.outsource-panel__pop-error {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--color-danger);
+}
+.outsource-panel__paused {
+  margin: 2px 6px 4px;
+  font-size: 12px;
+  color: #e0b341;
+}
+.outsource-panel__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  /* T-f074 req 1: fill the panel's 1/4 rail slice (the 3 : 1 flex split on
+   * .outsource-panel now governs the height) and scroll internally past it —
+   * the old fixed vh/px cap is gone, the ratio is the single sizing rule. */
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.outsource-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius-card);
+  border: 1px solid transparent;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.outsource-row:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+.outsource-row--selected {
+  background: var(--color-card);
+  border-color: rgba(255, 255, 255, 0.05);
+}
+.outsource-row__avatar {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, #e0b341 35%, transparent);
+  color: #e0b341;
+  background: color-mix(in srgb, #e0b341 8%, transparent);
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+.outsource-row__avatar:hover,
+.outsource-row__avatar:focus-visible {
+  filter: brightness(1.25);
+}
+.outsource-row__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.outsource-row__line {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+}
+.outsource-row__codename {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+/* line 2's type half — the bound task's TYPE where the member card's role
+ * sits (owner 2026-07-14; since 2026-07-16 it sits AFTER the T-xxxx chip on
+ * the same line, and the 上線綠點 moved out to the LINE START — a direct
+ * task-line child, member-row parity). */
+.outsource-row__type {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The 上線綠點 leads the rail row's task line (owner 2026-07-16: 綠點在行首,
+ * member-row parity) — always the online green, a LIVE worker is by
+ * definition online. The chat header's copy of the line has NO dot. */
+.outsource-row__online-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--color-dot-online);
+}
+/* line 2's single-row container (owner 2026-07-16: ● dot, chip, then type) —
+ * shared by the rail row AND the worker chat header's subtitle (the shared
+ * OutsourceTaskLine component renders both, so they can't drift). */
+.outsource-row__task-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.outsource-row__task-line .outsource-row__chip {
+  flex: none;
+}
+.outsource-row__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 1.5px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The T-xxxx chip is a BUTTON (jump to the task card), not a plain label —
+ * the amber accent it inherits from the old link chip signals "clickable". */
+.outsource-row__chip--task {
+  color: #e0b341;
+  border-color: color-mix(in srgb, #e0b341 35%, transparent);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.outsource-row__chip--task:hover,
+.outsource-row__chip--task:focus-visible {
+  background: color-mix(in srgb, #e0b341 12%, transparent);
+}
+
+/* Outsource chat header subtitle — the SAME task line as the rail row
+ * ([T-xxxx chip → type], shared OutsourceTaskLine; owner 2026-07-16:
+ * 兩邊顯示一樣的東西), minus the dot. REPLACES the member PresenceBadge —
+ * a worker has no presence to project (and the released-peer subtitle still
+ * renders plain text here). */
+.chat__header-outsource {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}

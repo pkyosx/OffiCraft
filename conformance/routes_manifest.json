@@ -1,0 +1,800 @@
+[
+  {
+    "auth": "public",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/health",
+    "requires": "public"
+  },
+  {
+    "auth": "public",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/version",
+    "requires": "public"
+  },
+  {
+    "auth": "public",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/health",
+    "requires": "public"
+  },
+  {
+    "auth": "public",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/version",
+    "requires": "public"
+  },
+  {
+    "auth": "public",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/login",
+    "requires": "public"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/mint",
+    "requires": "owner"
+  },
+  {
+    "auth": "public",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/auth/status",
+    "requires": "public"
+  },
+  {
+    "auth": "public",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/auth/set-password",
+    "requires": "public"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/auth/change-password",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/settings",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "PATCH",
+    "path": "/api/settings",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/update/upgrade",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/events",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/mcp",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "get_members",
+    "method": "GET",
+    "path": "/api/members",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "hire_member",
+    "method": "POST",
+    "path": "/api/members",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "get_member",
+    "method": "GET",
+    "path": "/api/members/{member_id}",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "update_member",
+    "method": "PATCH",
+    "path": "/api/members/{member_id}",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "activate_member",
+    "method": "POST",
+    "path": "/api/members/{member_id}/activate",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "relocate_member",
+    "method": "POST",
+    "path": "/api/members/{member_id}/relocate",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "deactivate_member",
+    "method": "POST",
+    "path": "/api/members/{member_id}/deactivate",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "force_stop_member",
+    "method": "POST",
+    "path": "/api/members/{member_id}/force-stop",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "report_waking",
+    "method": "POST",
+    "path": "/api/self/waking",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "report_stopping",
+    "method": "POST",
+    "path": "/api/self/stopping",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "report_stopped",
+    "method": "POST",
+    "path": "/api/self/stopped",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "restart_self",
+    "method": "POST",
+    "path": "/api/self/refocus",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "refocus_member",
+    "method": "POST",
+    "path": "/api/members/{member_id}/refocus",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "dismiss_member",
+    "method": "DELETE",
+    "path": "/api/members/{member_id}",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/members/{member_id}/webhooks",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/members/{member_id}/webhooks",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "PATCH",
+    "path": "/api/members/{member_id}/webhooks/{endpoint_id}",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "DELETE",
+    "path": "/api/members/{member_id}/webhooks/{endpoint_id}",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/members/{member_id}/webhooks/{endpoint_id}/requests",
+    "requires": "owner"
+  },
+  {
+    "auth": "public",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/in",
+    "requires": "public"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "post_chat",
+    "method": "POST",
+    "path": "/api/chat",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "get_chat",
+    "method": "GET",
+    "path": "/api/chat",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/chat/attachment/{attachment_id}",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "get_chat_attachments",
+    "method": "GET",
+    "path": "/api/chat/attachments",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/chat/attachments",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/chat/attachments/{attachment_id}/share-link",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "post_chat_mark-read",
+    "method": "POST",
+    "path": "/api/chat/mark-read",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "get_chat_reads",
+    "method": "GET",
+    "path": "/api/chat/reads",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "create_reply_card",
+    "method": "POST",
+    "path": "/api/reply-cards",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "list_reply_cards",
+    "method": "GET",
+    "path": "/api/reply-cards",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/reply-cards/count",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/chat/unread-count",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "get_reply_card",
+    "method": "GET",
+    "path": "/api/reply-cards/{card_id}",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/reply-cards/{card_id}/answer",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "PUT",
+    "path": "/api/reply-cards/{card_id}/answer",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/reply-cards/{card_id}/expire",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "ingest_agent_context",
+    "method": "POST",
+    "path": "/api/agent/context",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "ingest_telemetry",
+    "method": "POST",
+    "path": "/api/monitoring/telemetry",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "get_monitoring",
+    "method": "GET",
+    "path": "/api/monitoring",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "update_account",
+    "method": "PATCH",
+    "path": "/api/accounts/{account_id}",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "update_machine",
+    "method": "PATCH",
+    "path": "/api/machines/{machine_id}",
+    "requires": "machine"
+  },
+  {
+    "auth": "public",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/install.sh",
+    "requires": "public"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "list_machines",
+    "method": "GET",
+    "path": "/api/machines",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/machines",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/machines/{machine_id}/boot-command",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "public",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/machines/claim",
+    "requires": "public"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/machines/{machine_id}/bootstrap-here",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/machines/{machine_id}/teardown-here",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "uninstall_machine",
+    "method": "POST",
+    "path": "/api/machines/{member_id}/uninstall",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/machines/{member_id}/upgrade",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "delete_machine",
+    "method": "DELETE",
+    "path": "/api/machines/{member_id}",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "public",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/warden/binary",
+    "requires": "public"
+  },
+  {
+    "auth": "public",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/agent/binary",
+    "requires": "public"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "get_global_context",
+    "method": "GET",
+    "path": "/api/global-context",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "replace_global_context",
+    "method": "POST",
+    "path": "/api/global-context",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "reset_global_context",
+    "method": "POST",
+    "path": "/api/global-context/reset",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "list_roles",
+    "method": "GET",
+    "path": "/api/roles",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "create_role",
+    "method": "POST",
+    "path": "/api/roles",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "get_role",
+    "method": "GET",
+    "path": "/api/roles/{role}",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "update_role",
+    "method": "POST",
+    "path": "/api/roles/{role}",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "reset_role",
+    "method": "POST",
+    "path": "/api/roles/{role}/reset",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "delete_role",
+    "method": "DELETE",
+    "path": "/api/roles/{role}",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "get_lessons",
+    "method": "GET",
+    "path": "/api/lessons/{role_key}/{task_type}",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "replace_lessons",
+    "method": "POST",
+    "path": "/api/lessons/{role_key}/{task_type}",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "resume_summary",
+    "method": "GET",
+    "path": "/api/resume-summary",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "peek_resume_summary_size",
+    "method": "GET",
+    "path": "/api/resume-summary-size",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/bootstrap",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "list_tasks",
+    "method": "GET",
+    "path": "/api/tasks",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "create_task",
+    "method": "POST",
+    "path": "/api/tasks",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/tasks/count",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "get_task",
+    "method": "GET",
+    "path": "/api/tasks/{task_id}",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/tasks/{task_id}/terminate",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "set_task_priority",
+    "method": "POST",
+    "path": "/api/tasks/{task_id}/priority",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/tasks/{task_id}/message",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "submit_plan",
+    "method": "POST",
+    "path": "/api/tasks/{task_id}/plan",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "update_task_status",
+    "method": "POST",
+    "path": "/api/tasks/{task_id}/status",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "mark_duplicate",
+    "method": "POST",
+    "path": "/api/tasks/{task_id}/duplicate",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "update_step_status",
+    "method": "POST",
+    "path": "/api/tasks/{task_id}/steps/{step_id}/status",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "open_gate",
+    "method": "POST",
+    "path": "/api/tasks/{task_id}/steps/{step_id}/gate",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "set_task_deps",
+    "method": "POST",
+    "path": "/api/tasks/{task_id}/deps",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "report_task_closeout",
+    "method": "POST",
+    "path": "/api/tasks/{task_id}/closeout",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "reassign_task",
+    "method": "POST",
+    "path": "/api/tasks/{task_id}/reassign",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "claim_task",
+    "method": "POST",
+    "path": "/api/tasks/{task_id}/claim",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "add_task_artifact",
+    "method": "POST",
+    "path": "/api/tasks/{task_id}/artifact",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "remove_task_artifact",
+    "method": "DELETE",
+    "path": "/api/tasks/{task_id}/artifact/{artifact_id}",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "get_my_task",
+    "method": "GET",
+    "path": "/api/self/task",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "list_outsource_workers",
+    "method": "GET",
+    "path": "/api/outsource-workers",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/outsource-workers/{id}",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/outsource-workers/{id}/boot-context",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/outsource-workers/{id}/relocate",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/outsource-workers/{id}/refocus",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/outsource-workers/{id}/stop",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/outsource-workers/{id}/restart",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/outsource-workers/{id}/model",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "list_task_manuals",
+    "method": "GET",
+    "path": "/api/task-manuals",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "create_task_manual",
+    "method": "POST",
+    "path": "/api/task-manuals",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "get_task_manual",
+    "method": "GET",
+    "path": "/api/task-manuals/{type_key}",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "update_task_manual",
+    "method": "POST",
+    "path": "/api/task-manuals/{type_key}",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "DELETE",
+    "path": "/api/task-manuals/{type_key}",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "write_task_learnings",
+    "method": "POST",
+    "path": "/api/task-manuals/{type_key}/learnings",
+    "requires": "agent"
+  }
+]

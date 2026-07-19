@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# officraft — stage the prebuilt binaries + frozen MCP catalog for the
+# single binary.
+#
+# bootstrap-here / the binary download routes / MCP tools/list serve three
+# repo-file assets (bin/ocwarden, bin/ocagent, spec/mcp-catalog.json)
+# EMBED-ONLY (assets.go + api_machines.go — no disk fallback, so a stale copy
+# under the CWD can never shadow the embed the binary was built with). go:embed
+# cannot reach outside the server module, so this stages them into
+# server/ocserverd/bindist/ (gitignored except .gitkeep) before `go build` —
+# the exact seedsdist pattern (bin/build-seedsdist). WITHOUT this staging the
+# binary still builds but serves an EMPTY bindist embed (tools/list, the binary
+# downloads, and bootstrap-here all fail).
+#
+# ocwarden/ocagent are built FRESH here for the server's own GOOS/GOARCH
+# (single platform on purpose: bootstrap-here installs on the server host
+# itself, which is by definition the same platform; cross-platform remote
+# installs still need the on-disk bin/ artifacts). Chicken-and-egg ordering:
+# this MUST run before the ocserverd build that embeds it.
+#
+#   bash bin/build-bindist            # stage ocwarden + ocagent + catalog
+#   (cd server/ocserverd && go build) # then bakes them into the binary
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+BINDIST="$ROOT/server/ocserverd/bindist"
+rm -rf "$BINDIST"
+mkdir -p "$BINDIST"
+(cd "$ROOT/cli/ocwarden" && go build -ldflags="-s -w" -o "$BINDIST/ocwarden" ./...)
+(cd "$ROOT/cli/ocagent" && go build -ldflags="-s -w" -o "$BINDIST/ocagent" ./...)
+# T-33d5: sign the FLEET-SERVED artifacts with the stable release identity when
+# this machine holds it (the provisioned release host — bin/setup-codesign-cert),
+# so the wardens' self-update swap keeps a stable TCC identity across versions.
+# On every other machine the helper warns and the binaries stay adhoc-signed —
+# dev/CI builds are unchanged, and the COMMITTED bin/ prebuilts are never signed.
+bash "$ROOT/bin/codesign-artifact" "$BINDIST/ocwarden" com.officraft.ocwarden
+bash "$ROOT/bin/codesign-artifact" "$BINDIST/ocagent" com.officraft.ocagent
+cp "$ROOT/spec/mcp-catalog.json" "$BINDIST/"
+touch "$BINDIST/.gitkeep"
+echo "[build-bindist] staged ocwarden + ocagent + mcp-catalog.json → server/ocserverd/bindist"

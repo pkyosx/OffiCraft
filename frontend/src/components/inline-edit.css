@@ -1,0 +1,42 @@
+/* Reusable inline text editor (pencil → input + ✓/✗). Theme via css vars. */
+.inline-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.inline-edit__input {
+  min-width: 0;
+  flex: 1;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--color-accent);
+  background: var(--color-bg);
+  color: var(--color-text-strong);
+  font: inherit;
+  outline: none;
+}
+
+.inline-edit__iconbtn {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
+}
+.inline-edit__iconbtn:hover {
+  color: var(--color-text);
+  background: rgba(255, 255, 255, 0.05);
+}
+.inline-edit__iconbtn--apply:hover {
+  color: var(--color-accent);
+}
+.inline-edit__iconbtn--cancel:hover {
+  color: var(--color-danger);
+}

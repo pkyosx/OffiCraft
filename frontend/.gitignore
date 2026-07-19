@@ -1,0 +1,11 @@
+node_modules
+dist
+dist-ssr
+*.local
+.vite
+
+# Playwright Component-Testing (T-187c): the vite build cache and per-run
+# artifacts. The harness (playwright/index.html, playwright/index.ts) IS
+# tracked — only the generated .cache and results dirs are ignored.
+playwright/.cache
+test-results/

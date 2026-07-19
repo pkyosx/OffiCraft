@@ -1,0 +1,25 @@
+node_modules/
+frontend/dist/
+.env
+var/
+.DS_Store
+
+# Python tooling caches (conformance suite venv + pytest)
+.venv/
+__pycache__/
+.pytest_cache/
+
+# Local config / secrets — only the *.example is tracked.
+oc.toml
+oc.lock
+*.secret
+*.pem
+*.key
+*_token*
+*.bak
+
+# Agent scratch/debug dir — never commit
+scratchpad/
+
+# M4 deploy artifact (SPA-embedded ocserverd built by bin/build) — never commit
+.deploy/

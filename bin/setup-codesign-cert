@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# officraft — ONE-TIME, IDEMPOTENT provisioning of the stable release
+# code-signing identity on a release machine (T-33d5).
+#
+# Creates a long-lived self-signed code-signing certificate (default CN
+# "OffiCraft Code Signing"), imports it + its private key into the login
+# keychain, and trusts it for code signing, so bin/codesign-artifact (called
+# from bin/build-bindist and bin/build) finds the identity and signs the
+# released ocwarden/ocagent/ocserverd artifacts with a STABLE identity — the
+# thing that keeps macOS TCC grants alive across self-updates.
+#
+# Idempotent: if the identity already exists in the keychain this exits 0
+# without touching anything. Re-provisioning on purpose (e.g. after deleting
+# the identity) just re-runs this script — but note a NEW certificate is a NEW
+# TCC identity, so the fleet gets one final round of permission prompts.
+#
+# What it does (macOS only; needs an interactive shell — sudo + keychain
+# prompts):
+#   1. openssl: self-signed cert with the codeSigning EKU + its RSA key
+#      (created in a mktemp dir, shredded on exit — nothing touches the repo)
+#   2. security import: key+cert (as .p12) into the login keychain, with
+#      /usr/bin/codesign pre-authorized to use the key
+#   3. sudo security add-trusted-cert: anchor the cert for codeSign policy in
+#      the System keychain (codesign refuses to sign with an untrusted chain)
+#   4. security set-key-partition-list: let codesign use the key without a
+#      per-build UI prompt (prompts ONCE here for the login keychain password;
+#      best-effort — skipping it only means a UI prompt on first signing)
+#   5. smoke test: sign + verify a scratch copy of a binary via
+#      bin/codesign-artifact and report the result
+#
+# knobs (env):
+#   OC_CODESIGN_IDENTITY  the certificate CN (default "OffiCraft Code Signing")
+#   OC_CODESIGN_DAYS      validity in days (default 3650)
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+IDENTITY="${OC_CODESIGN_IDENTITY:-OffiCraft Code Signing}"
+DAYS="${OC_CODESIGN_DAYS:-3650}"
+
+if [[ "$(uname -s)" != "Darwin" ]]; then
+  echo "[setup-codesign-cert] macOS only (codesign/TCC are darwin concepts)" >&2
+  exit 1
+fi
+
+# COLLECT FIRST, THEN COMPARE (T-da4b) — same SIGPIPE trap as bin/codesign-artifact:
+# `grep -Fq` closes the pipe on the first match, `security` can then die of
+# SIGPIPE (141), and `set -o pipefail` promotes that to the pipeline's rc, so an
+# ALREADY-PROVISIONED identity reads as absent and we re-provision a duplicate.
+SEC_OUT="$(security find-identity -v -p codesigning 2>/dev/null || true)"
+if [[ "$SEC_OUT" == *"\"$IDENTITY\""* ]]; then
+  echo "[setup-codesign-cert] identity \"$IDENTITY\" already provisioned — nothing to do"
+  exit 0
+fi
+
+TMP="$(mktemp -d -t oc-codesign-cert)"
+trap 'rm -rf "$TMP"' EXIT
+
+echo "[setup-codesign-cert] 1/5 generating self-signed code-signing cert (CN=$IDENTITY, ${DAYS}d)"
+# quiet on success, but surface openssl's stderr on failure (a silent exit here
+# under set -e left nothing to debug with)
+if ! openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days "$DAYS" \
+    -keyout "$TMP/key.pem" -out "$TMP/cert.pem" \
+    -subj "/CN=$IDENTITY" \
+    -addext "basicConstraints=critical,CA:FALSE" \
+    -addext "keyUsage=critical,digitalSignature" \
+    -addext "extendedKeyUsage=critical,codeSigning" \
+    >/dev/null 2>"$TMP/openssl-req.err"; then
+  echo "[setup-codesign-cert] ERROR: openssl req failed:" >&2
+  cat "$TMP/openssl-req.err" >&2
+  exit 1
+fi
+
+echo "[setup-codesign-cert] 2/5 importing key+cert into the login keychain"
+P12PASS="$(openssl rand -hex 16)"
+# OpenSSL 3.x defaults `pkcs12 -export` to AES-256-CBC/PBKDF2 with a SHA-256
+# MAC, which macOS SecKeychainItemImport cannot parse — `security import` dies
+# with "MAC verification failed during PKCS12 import (wrong password?)".
+# Force the classic keychain-compatible algorithms (SHA1-3DES PBE + SHA1 MAC);
+# these flags are accepted by both OpenSSL 3.x and the system LibreSSL, so the
+# export works no matter which openssl is first on PATH.
+openssl pkcs12 -export -inkey "$TMP/key.pem" -in "$TMP/cert.pem" \
+  -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1 \
+  -out "$TMP/cert.p12" -passout "pass:$P12PASS" -name "$IDENTITY"
+LOGIN_KEYCHAIN="$(security default-keychain | xargs)"
+security import "$TMP/cert.p12" -k "$LOGIN_KEYCHAIN" -P "$P12PASS" -T /usr/bin/codesign
+
+echo "[setup-codesign-cert] 3/5 trusting the cert for code signing (sudo — System keychain)"
+sudo security add-trusted-cert -d -r trustRoot -p codeSign \
+  -k /Library/Keychains/System.keychain "$TMP/cert.pem"
+
+echo "[setup-codesign-cert] 4/5 pre-authorizing codesign on the key (login keychain password prompt)"
+if ! security set-key-partition-list -S "apple-tool:,apple:,codesign:" \
+    -s "$LOGIN_KEYCHAIN" >/dev/null; then
+  echo "[setup-codesign-cert] WARNING: set-key-partition-list failed/skipped — the first"
+  echo "[setup-codesign-cert]          signing may pop a keychain UI prompt (click Always Allow)."
+fi
+
+echo "[setup-codesign-cert] 5/5 smoke test: sign + verify a scratch binary"
+cp /bin/ls "$TMP/smoke"
+bash "$ROOT/bin/codesign-artifact" "$TMP/smoke" com.officraft.smoketest
+codesign --verify --strict "$TMP/smoke"
+
+echo "[setup-codesign-cert] done — identity \"$IDENTITY\" is ready."
+echo "[setup-codesign-cert] released artifacts (bindist ocwarden/ocagent, .deploy/ocserverd)"
+echo "[setup-codesign-cert] will now be signed by bin/build-bindist / bin/build on this machine."

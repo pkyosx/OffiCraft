@@ -1,0 +1,58 @@
+# gitleaks config for open-company — machine-readable secret-scan policy.
+#
+# Consumed by the CI hygiene gate in bin/ci.sh (step 3 gitleaks) and, if enabled,
+# the .githooks/pre-commit hook. Both resolve gitleaks by ABSOLUTE path so the
+# launchd autodeploy job (minimal PATH, no /opt/homebrew/bin) can find it.
+#
+# Policy: inherit the full gitleaks default ruleset, then allowlist ONLY
+# deterministic test fixtures and the committed prebuilt Go binaries. The
+# fixtures are synthetic signing material used to make login/JWT unit tests
+# reproducible — never real secrets. Real credentials MUST NOT be allowlisted
+# here.
+
+title = "open-company gitleaks policy"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Synthetic unit-test fixtures — deterministic signing material, not real secrets."
+paths = [
+  # bin/ocwarden — the committed, stripped Go executor binary (the go-forward
+  # deploy artifact the launchd plist execs directly). A ~6MB compiled blob trips
+  # gitleaks' entropy heuristics on random machine-code byte runs; it carries no
+  # secret (source is cli/ocwarden/, rebuilt reproducibly). Path-scoped so ONLY
+  # this binary is exempt, never source.
+  '''bin/ocwarden''',
+  # bin/ocagent — the committed, stripped Go agent-runtime (Plane A) binary, the
+  # sibling of bin/ocwarden. Same rationale: a ~6MB compiled blob trips gitleaks'
+  # entropy heuristics on random machine-code byte runs; it carries no secret
+  # (source is cli/ocagent/, rebuilt reproducibly with `-ldflags "-s -w"`).
+  # Path-scoped so ONLY this binary is exempt, never source.
+  '''bin/ocagent''',
+  # bin/ocserverd — the committed, stripped Go server-daemon (plumbing skeleton)
+  # binary, sibling of bin/ocwarden / bin/ocagent. Same rationale: a compiled
+  # blob trips gitleaks' entropy heuristics on random machine-code byte runs; it
+  # carries no secret (source is server/ocserverd/, rebuilt reproducibly with
+  # `-ldflags "-s -w"`). Path-scoped so ONLY this binary is exempt, never source.
+  '''bin/ocserverd''',
+  # server/ocserverd/jwt_test.go — JWT interop fixtures: two SYNTHETIC tokens
+  # minted by the retired Python implementation (git tag py-final) under a
+  # deterministic unit-test signing secret, kept as frozen wire-compat vectors.
+  # gitleaks' generic JWT rule fingerprints any `eyJ...` literal; these are
+  # reproducible test vectors, never real credentials.
+  '''server/ocserverd/jwt_test\.go''',
+]
+# Belt-and-suspenders: the literal fixture values, in case a future rule
+# fingerprints on content rather than path.
+regexes = [
+  '''correct-horse''',
+  '''unit-test-signing-secret''',
+  '''secret-jwt''',
+  # server/ocserverd/githubsig.go — the identifier `xHubSignature256` is the
+  # Go parameter name carrying GitHub's `X-Hub-Signature-256` header value, NOT
+  # a secret. gitleaks' generic-api-key rule fingerprints the `secret,
+  # xHubSignature256` param list as a high-entropy assignment. Content-scoped
+  # (never the whole source file) so real secrets in githubsig.go stay scanned.
+  '''xHubSignature256''',
+]

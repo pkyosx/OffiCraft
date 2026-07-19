@@ -1,0 +1,211 @@
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/* centered content column (~1040px) with side gutters, per mockup */
+.topbar,
+.nav-tabs,
+.app__main {
+  width: 100%;
+  max-width: 1040px;
+  margin-inline: auto;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 22px 10px;
+}
+
+.topbar__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* The logo is a BUTTON (home link): clicking it clears the hash back to the
+   default office view. Hover brightens + lifts slightly so it reads clickable. */
+.topbar__logo {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(160deg, #1f5a48, #123a30);
+  color: var(--color-accent);
+  cursor: pointer;
+  transition:
+    filter 120ms ease,
+    transform 120ms ease;
+}
+.topbar__logo:hover {
+  filter: brightness(1.18);
+  transform: translateY(-1px);
+}
+.topbar__logo:active {
+  transform: none;
+}
+
+.topbar__org {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+  letter-spacing: 0.01em;
+  font-family: var(--font-title);
+}
+
+.topbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.icon-btn {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--color-card);
+  color: var(--color-text-muted);
+  transition: color 0.15s, background 0.15s;
+}
+
+.icon-btn:hover {
+  color: var(--color-text);
+}
+
+.icon-btn--active {
+  color: var(--color-text-strong);
+  background: var(--color-indigo);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.profile-pill {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 34px;
+  padding: 0 11px 0 6px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--color-card);
+  color: var(--color-text);
+}
+
+.profile-pill__avatar {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-text-muted);
+}
+
+.profile-pill__name {
+  font-size: 13.5px;
+  font-weight: 500;
+}
+
+.profile-pill__chevron {
+  color: var(--color-text-muted);
+}
+
+.nav-tabs {
+  display: flex;
+  padding: 2px 22px 12px;
+}
+
+/* segmented control frame around the tabs */
+.nav-tabs__seg {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.nav-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 16px;
+  border: none;
+  border-radius: var(--radius-tab);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: color 0.15s, background 0.15s;
+}
+
+.nav-tab:hover {
+  color: var(--color-text);
+}
+
+.nav-tab--active {
+  background: var(--color-indigo);
+  color: var(--color-text-strong);
+}
+
+/* 等我回覆 waiting-count badge on its nav tab — the SAME red count pill recipe
+ * as the roster's .member-card__unread (>99 → "99+"; count 0 not rendered). */
+.nav-tab__badge {
+  flex: none;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  background: var(--color-danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.app__main {
+  flex: 1;
+  min-height: 0;
+  padding: 4px 22px 20px;
+}
+
+@media (max-width: 720px) {
+  .topbar__org {
+    font-size: 16px;
+  }
+  .profile-pill__name {
+    display: none;
+  }
+  /* Narrow screens can't fit all four tabs at full width; let the segmented
+     control scroll horizontally instead of compressing each tab (which forced
+     CJK labels to wrap character-by-character into a vertical stack under the
+     count badge). */
+  .nav-tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .nav-tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .nav-tabs__seg {
+    flex-shrink: 0;
+  }
+  .nav-tab {
+    flex-shrink: 0;
+    padding: 0 12px;
+  }
+}

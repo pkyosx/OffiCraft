@@ -1,0 +1,20 @@
+# officraft — optional server overrides (copy to oc.toml; oc.toml is gitignored).
+#
+# The file may be entirely ABSENT: every key has a convention default, so a bare
+# `ocserverd serve` boots with zero setup. Credentials live in the DB settings
+# table (set via `ocserverd set-password` / the first-run flow), never here.
+# The bind host is hardwired to loopback (127.0.0.1) — expose via a tunnel.
+
+[server]
+# Canonical port 8770 (the default when unset).
+port = 8770
+
+[storage]
+# Durable store DSN. Default (unset) → sqlite at
+# ~/.officraft/server/data/officraft.db (absolute; created on first boot).
+#
+# `bin/ocserver install` REPLACES the placeholder DSN below in place (it does NOT
+# append a second [storage] header — a duplicate [storage] is a fatal TOML error).
+# Keep this ONE [storage] table with a single `dsn` line; a hand-copied oc.toml
+# can just edit the placeholder to a real DSN.
+dsn = "__OC_DSN__"
