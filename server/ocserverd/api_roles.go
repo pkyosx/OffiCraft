@@ -7,6 +7,8 @@ package main
 // with a complete cascade.
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"sort"
 )
@@ -362,7 +364,7 @@ func (s *apiServer) HandleDeleteRoleApiRolesRoleDelete(w http.ResponseWriter, r 
 // ── lessons ──────────────────────────────────────────────────────────────────
 
 // fillLessonsIdentityArgs folds the identity-derivable defaults into a
-// get_lessons / replace_lessons MCP call so an agent's lessons round-trip lands
+// get_lessons / replace_lessons / patch_lessons MCP call so an agent's lessons round-trip lands
 // on the SAME per-role doc the boot context injects into its persona (T-d483).
 //
 // The two path params are REQUIRED by the route, so an MCP call that omits either
@@ -379,7 +381,7 @@ func (s *apiServer) HandleDeleteRoleApiRolesRoleDelete(w http.ResponseWriter, r 
 // left untouched (that caller must name the role explicitly). The REST wire shape
 // is unchanged — REST callers already pass both segments (conformance happy path).
 func (s *apiServer) fillLessonsIdentityArgs(r *http.Request, name string, arguments map[string]any) {
-	if name != "get_lessons" && name != "replace_lessons" {
+	if name != "get_lessons" && name != "replace_lessons" && name != "patch_lessons" {
 		return
 	}
 	if blankArg(arguments["task_type"]) {
@@ -404,6 +406,32 @@ func blankArg(v any) bool {
 	return ok && str == ""
 }
 
+// lessonsWriteAuthz enforces the per-role lessons WRITE authz shared by
+// replace_lessons and patch_lessons: an agent-scoped caller may write ONLY its
+// own member's role_key (read from the roster by the verified sub, never a
+// client field); any non-agent scope writes any role. Answers the error itself
+// and reports whether the caller may proceed.
+func (s *apiServer) lessonsWriteAuthz(w http.ResponseWriter, r *http.Request, roleKey string) bool {
+	if currentScope(r) != "agent" {
+		return true
+	}
+	member, err := s.dal.GetMember(currentActor(r))
+	if err != nil {
+		internalError(w, err)
+		return false
+	}
+	memberRole := ""
+	if member != nil {
+		memberRole = member.RoleKey
+	}
+	if memberRole != roleKey {
+		writeError(w, http.StatusForbidden,
+			"an agent may only write its own role's lessons")
+		return false
+	}
+	return true
+}
+
 // GET /api/lessons/{role_key}/{task_type} — the folded per-role lessons doc.
 // READ is unrestricted for any authenticated identity.
 func (s *apiServer) HandleGetLessonsApiLessonsRoleKeyTaskTypeGet(w http.ResponseWriter, r *http.Request, roleKey string, taskType string) {
@@ -424,21 +452,8 @@ func (s *apiServer) HandleReplaceLessonsApiLessonsRoleKeyTaskTypePost(w http.Res
 	if !decodeJSONBody(w, r, &body) {
 		return
 	}
-	if currentScope(r) == "agent" {
-		member, err := s.dal.GetMember(currentActor(r))
-		if err != nil {
-			internalError(w, err)
-			return
-		}
-		memberRole := ""
-		if member != nil {
-			memberRole = member.RoleKey
-		}
-		if memberRole != roleKey {
-			writeError(w, http.StatusForbidden,
-				"an agent may only write its own role's lessons")
-			return
-		}
+	if !s.lessonsWriteAuthz(w, r, roleKey) {
+		return
 	}
 	text := strOrEmpty(body.Text)
 	if err := s.dal.PutLessons(Lessons{
@@ -455,6 +470,74 @@ func (s *apiServer) HandleReplaceLessonsApiLessonsRoleKeyTaskTypePost(w http.Res
 		RoleKey:       roleKey,
 		TaskType:      taskType,
 		Text:          text,
+		OwnerID:       wireOwnerID,
+		SchemaVersion: wireSchemaVersion,
+		IsDefault:     false,
+	})
+}
+
+// POST /api/lessons/{role_key}/{task_type}/patch — anchor-addressed patch
+// (T-8327). Write cost ∝ the CHANGE, not the doc: a whole-doc replace_lessons
+// stops fitting in one model output as the doc grows (76k chars observed), so
+// this is the primary write seam and replace stays the last resort.
+//
+// Semantics (spec/openapi.json is normative): edits apply IN ORDER against the
+// doc get_lessons serves (overlay ⊕ seed fold); a non-empty `old` must match
+// exactly once (0/>1 hits → flat 400, WHOLE batch rejected, zero writes — the
+// unique anchor doubling as an optimistic lock under last-write-wins
+// concurrency); an empty `old` appends. A patch that wipes the doc, or shrinks
+// a substantial doc to <10%, is refused without allow_shrink=true (the r-76
+// wipe-guard posture). Same per-role write authz as replace_lessons.
+func (s *apiServer) HandlePatchLessonsApiLessonsRoleKeyTaskTypePatchPost(w http.ResponseWriter, r *http.Request, roleKey string, taskType string) {
+	var body LessonsPatchDTO
+	if !decodeJSONBodyRequired(w, r, &body, "edits") {
+		return
+	}
+	if len(body.Edits) == 0 {
+		writeError(w, http.StatusUnprocessableEntity,
+			"edits requires at least one {old, new} entry")
+		return
+	}
+	if !s.lessonsWriteAuthz(w, r, roleKey) {
+		return
+	}
+	current, err := s.foldLessonsDTO(roleKey, taskType)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	edits := make([]LessonsEdit, len(body.Edits))
+	for i, e := range body.Edits {
+		edits[i] = LessonsEdit{Old: strOrEmpty(e.Old), New: strOrEmpty(e.New)}
+	}
+	next, err := ApplyLessonsEdits(current.Text, edits)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	allowShrink := body.AllowShrink != nil && *body.AllowShrink
+	if !allowShrink && LessonsShrinkBlocked(current.Text, next) {
+		writeError(w, http.StatusBadRequest,
+			"patch would empty (or shrink to under a tenth of) the lessons doc — pass allow_shrink=true if this is intended, or use replace_lessons; nothing was written")
+		return
+	}
+	if err := s.dal.PutLessons(Lessons{
+		RoleKey:    roleKey,
+		TaskType:   taskType,
+		Text:       next,
+		Tombstoned: false,
+	}); err != nil {
+		internalError(w, err)
+		return
+	}
+	s.hub.Publish("lessons", "patch", "lessons", wireOwnerID+"::"+roleKey+"::"+taskType, nil, audienceOwnerOnly(), requestTrigger(r))
+	sum := sha256.Sum256([]byte(next))
+	writeJSON(w, http.StatusOK, lessonsPatchResultDTO{
+		RoleKey:       roleKey,
+		TaskType:      taskType,
+		AppliedEdits:  len(edits),
+		Size:          len(next),
+		Sha256:        hex.EncodeToString(sum[:]),
 		OwnerID:       wireOwnerID,
 		SchemaVersion: wireSchemaVersion,
 		IsDefault:     false,

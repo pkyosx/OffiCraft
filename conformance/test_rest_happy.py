@@ -811,6 +811,20 @@ HAPPY: dict[str, Happy] = {
             r, lambda d: d["text"] == "conformance happy lessons doc"
         ),
     ),
+    "POST /api/lessons/{role_key}/{task_type}/patch": Happy(
+        # Anchor-addressed patch (T-8327): an APPEND edit (empty old) always
+        # lands regardless of the doc's current content; the receipt carries
+        # size/sha256 verification anchors instead of the full text.
+        path="/api/lessons/assistant/general/patch",
+        body={"edits": [{"old": "", "new": "conformance happy patch line"}]},
+        check=lambda _c, r: _expect(
+            r,
+            lambda d: d["applied_edits"] == 1
+            and d["size"] > 0
+            and len(d["sha256"]) == 64
+            and d["is_default"] is False,
+        ),
+    ),
     "GET /api/resume-summary": Happy(
         check=lambda _c, r: _expect(
             r, lambda d: isinstance(d.get("tasks"), list)

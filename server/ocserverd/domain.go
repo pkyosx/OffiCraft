@@ -488,6 +488,66 @@ func FoldLessons(overlay *Lessons, seedText string) (text string, isDefault bool
 	return overlay.Text, false
 }
 
+// ── lessons: anchor-addressed patch (MCP patch_lessons, T-8327) ──────────────
+
+// LessonsEdit is one {old, new} patch instruction: replace the UNIQUE
+// occurrence of Old with New; an empty Old appends New at the end of the doc.
+type LessonsEdit struct {
+	Old string
+	New string
+}
+
+// ApplyLessonsEdits applies edits IN ORDER to text and returns the resulting
+// doc. ATOMIC BY CONSTRUCTION: it works on a value copy and returns an error —
+// with the failing edit's index — the moment any non-empty Old is absent (0
+// hits) or ambiguous (>1 hits) in the text as patched so far; the caller
+// writes nothing on error. The unique-anchor requirement doubles as an
+// optimistic concurrency check: a concurrent write that moved or duplicated
+// the anchor turns this batch into a refusal, never a silent mis-splice.
+func ApplyLessonsEdits(text string, edits []LessonsEdit) (string, error) {
+	result := text
+	for i, edit := range edits {
+		if edit.Old == "" {
+			// Append: join with a newline unless the doc is empty or already
+			// newline-terminated (keeps repeated appends line-clean).
+			if result != "" && !strings.HasSuffix(result, "\n") {
+				result += "\n"
+			}
+			result += edit.New
+			continue
+		}
+		switch n := strings.Count(result, edit.Old); {
+		case n == 0:
+			return "", fmt.Errorf(
+				"edits[%d]: old not found in the current doc — re-read (get_lessons) and re-anchor; nothing was written", i)
+		case n > 1:
+			return "", fmt.Errorf(
+				"edits[%d]: old matches %d locations — widen the anchor until it is unique; nothing was written", i, n)
+		}
+		result = strings.Replace(result, edit.Old, edit.New, 1)
+	}
+	return result, nil
+}
+
+// lessonsShrinkGuardMinChars is the doc size above which a >90% shrink needs
+// the explicit allow_shrink flag (below it, only a full wipe is guarded — a
+// small doc legitimately rewrites wholesale).
+const lessonsShrinkGuardMinChars = 200
+
+// LessonsShrinkBlocked reports whether patching before → after would wipe the
+// doc (non-blank → blank) or shrink a substantial doc to under a tenth of its
+// size — the r-76 wipe-accident guard, bypassed only by an explicit
+// allow_shrink=true (or the whole-doc replace_lessons seam).
+func LessonsShrinkBlocked(before, after string) bool {
+	if strings.TrimSpace(before) == "" {
+		return false // nothing to protect
+	}
+	if strings.TrimSpace(after) == "" {
+		return true
+	}
+	return len(before) >= lessonsShrinkGuardMinChars && len(after)*10 < len(before)
+}
+
 // ── user_context: the ADDITIVE user-custom block fold ────────────────────────
 
 // FoldUserContext folds the owner's user-custom ADDITIVE boot-context block.

@@ -269,11 +269,28 @@ func (s *apiServer) buildBootContext(role string, member *Member, taskType strin
 	if roleTitle == "" {
 		roleTitle = roleDTO.Key
 	}
+	// Lessons section title — injected IDEMPOTENTLY (T-8327). The injection
+	// wraps the authoritative doc in a title the doc itself does not carry;
+	// when a generation treats its boot segment as the doc base and writes it
+	// back (replace_lessons), the title becomes doc content and a naive
+	// re-prepend would then stack one more title per generation (the observed
+	// +38-char drift: server doc 50,625 vs boot segment 50,663). Strip any
+	// leading copies of the EXACT title line before prepending exactly one, so
+	// the boot context always carries a single title AND an already-poisoned
+	// doc self-heals in the assembled context.
+	lessonsTitle := "# Lessons (" + lessons.RoleKey + " / " + lessons.TaskType + ")"
+	lessonsBody := strings.TrimSpace(lessons.Text)
+	for strings.HasPrefix(lessonsBody, lessonsTitle) {
+		rest := lessonsBody[len(lessonsTitle):]
+		if rest != "" && !strings.HasPrefix(rest, "\n") {
+			break // title is a prefix of a longer line, not a duplicate title line
+		}
+		lessonsBody = strings.TrimSpace(rest)
+	}
 	parts := []string{
 		strings.TrimSpace(sysSeed),
 		"# Role: " + roleTitle + "\n\n" + strings.TrimSpace(roleDTO.DefinitionMD),
-		"# Lessons (" + lessons.RoleKey + " / " + lessons.TaskType + ")\n\n" +
-			strings.TrimSpace(lessons.Text),
+		lessonsTitle + "\n\n" + lessonsBody,
 	}
 	if strings.TrimSpace(userCtx.Text) != "" {
 		parts = append(parts,

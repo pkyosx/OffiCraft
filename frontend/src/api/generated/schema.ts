@@ -626,6 +626,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/lessons/{role_key}/{task_type}/patch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Patch a per-role lessons doc by unique anchors ({edits:[{old,new}]}).
+         * @description Anchor-addressed PATCH of a PER-ROLE lessons doc (§3.4 #28b) — the write cost scales with the CHANGE, not the doc (a whole-doc ``replace_lessons`` stops fitting in one model output as the doc grows; keep replace as the last resort).
+         *
+         *     Semantics: ``edits`` apply IN ORDER against the doc ``get_lessons`` serves (overlay ⊕ seed fold); each non-empty ``old`` must match the current text exactly once (0 hits or >1 hits → flat 400, WHOLE batch rejected, zero writes); an empty ``old`` appends ``new`` at the end. Concurrency is last-write-wins with the unique anchor as a natural optimistic lock: a concurrent write that moved the anchor turns the next patch into a 400, never a silent mis-splice. A patch that empties the doc (or shrinks it below a tenth of its size) is refused unless ``allow_shrink=true`` — the r-76 wipe-guard posture.
+         *
+         *     Per-role WRITE authz — identical to ``replace_lessons``: an ``agent``-scoped caller may patch ONLY its OWN member's ``role_key`` (read from the roster by the VERIFIED token sub, never a client field); any non-agent scope patches any role.
+         *
+         *     Writes the owner overlay (``is_default`` → False) and fans a ``lessons`` delta. The receipt carries ``size``/``sha256`` verification anchors over the resulting doc.
+         */
+        post: operations["handle_patch_lessons_api_lessons__role_key___task_type__patch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/login": {
         parameters: {
             query?: never;
@@ -3361,6 +3387,81 @@ export interface components {
              * @default
              */
             text: string;
+        };
+        /**
+         * LessonsEditDTO
+         * @description One ``patch_lessons`` edit (§3.4 #28b): replace the occurrence of ``old`` with ``new``. ``old`` must match the current doc EXACTLY ONCE (0 or >1 hits reject the whole batch — the unique anchor doubles as an optimistic concurrency check); an EMPTY ``old`` appends ``new`` at the end of the doc (joined with a newline when the doc does not already end in one).
+         */
+        LessonsEditDTO: {
+            /**
+             * New
+             * @default
+             */
+            new: string;
+            /**
+             * Old
+             * @default
+             */
+            old: string;
+        };
+        /**
+         * LessonsPatchDTO
+         * @description Anchor-addressed PATCH of a lessons doc (§3.4 #28b): ``{edits: [{old, new}], allow_shrink?}``. ATOMIC — edits apply sequentially to an in-memory copy and any failing anchor (absent or ambiguous ``old``) rejects the ENTIRE batch with a flat 400 and ZERO writes. ``allow_shrink`` (default false) must be set explicitly for a patch that empties the doc or shrinks it to under a tenth of its size — the r-76 wipe-guard posture.
+         */
+        LessonsPatchDTO: {
+            /**
+             * Allow Shrink
+             * @default false
+             */
+            allow_shrink: boolean;
+            /** Edits */
+            edits: components["schemas"]["LessonsEditDTO"][];
+        };
+        /**
+         * LessonsPatchResultDTO
+         * @description Receipt of a lessons PATCH (§3.4 #28b). ``size`` (UTF-8 bytes) and ``sha256`` (hex) are lightweight verification anchors over the RESULTING doc text, so the caller can confirm the write landed without re-reading the full doc.
+         */
+        LessonsPatchResultDTO: {
+            /**
+             * Applied Edits
+             * @default 0
+             */
+            applied_edits: number;
+            /**
+             * Is Default
+             * @default false
+             */
+            is_default: boolean;
+            /**
+             * Owner Id
+             * @default
+             */
+            owner_id: string;
+            /**
+             * Role Key
+             * @default
+             */
+            role_key: string;
+            /**
+             * Schema Version
+             * @default 3
+             */
+            schema_version: number;
+            /**
+             * Sha256
+             * @default
+             */
+            sha256: string;
+            /**
+             * Size
+             * @default 0
+             */
+            size: number;
+            /**
+             * Task Type
+             * @default
+             */
+            task_type: string;
         };
         /**
          * LessonsReplaceDTO
@@ -6778,6 +6879,60 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LessonsDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_patch_lessons_api_lessons__role_key___task_type__patch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                role_key: string;
+                task_type: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LessonsPatchDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LessonsPatchResultDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

@@ -670,6 +670,20 @@ MATRIX: dict[str, Route] = {
         ),
         body={"text": "conformance lessons doc"},
     ),
+    "POST /api/lessons/{role_key}/{task_type}/patch": Route(
+        # anchor-addressed patch (T-8327): SAME per-role write authz seam as
+        # the whole-doc replace above (warden role_key="" → 403; agent B on
+        # assistant → 403; owner/admin/agent-self → 200). Positive faces use an
+        # always-valid APPEND edit (empty old) so cell order never matters.
+        requires="machine",
+        overrides={"warden": 403, "agent_other": 403},
+        path=lambda ctx, i: (
+            f"/api/lessons/{ctx.agent_a.role_key}/general/patch"
+            if i == "agent_self"
+            else "/api/lessons/assistant/general/patch"
+        ),
+        body={"edits": [{"old": "", "new": "conformance patch probe"}]},
+    ),
     "GET /api/resume-summary": Route(requires="machine"),
     "GET /api/resume-summary-size": Route(requires="machine"),
     "POST /api/bootstrap": Route(

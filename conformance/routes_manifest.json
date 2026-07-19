@@ -554,6 +554,13 @@
   },
   {
     "auth": "gated",
+    "mcp_tool": "patch_lessons",
+    "method": "POST",
+    "path": "/api/lessons/{role_key}/{task_type}/patch",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
     "mcp_tool": "resume_summary",
     "method": "GET",
     "path": "/api/resume-summary",

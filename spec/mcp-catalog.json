@@ -983,6 +983,51 @@
       "name": "replace_lessons"
     },
     {
+      "description": "Patch a per-role lessons doc by unique anchors ({edits:[{old,new}]}).",
+      "inputSchema": {
+        "properties": {
+          "allow_shrink": {
+            "default": false,
+            "title": "Allow Shrink",
+            "type": "boolean"
+          },
+          "edits": {
+            "items": {
+              "properties": {
+                "new": {
+                  "default": "",
+                  "title": "New",
+                  "type": "string"
+                },
+                "old": {
+                  "default": "",
+                  "title": "Old",
+                  "type": "string"
+                }
+              },
+              "title": "LessonsEditDTO",
+              "type": "object"
+            },
+            "title": "Edits",
+            "type": "array"
+          },
+          "role_key": {
+            "type": "string"
+          },
+          "task_type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "role_key",
+          "task_type",
+          "edits"
+        ],
+        "type": "object"
+      },
+      "name": "patch_lessons"
+    },
+    {
       "description": "Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task).",
       "inputSchema": {
         "properties": {},

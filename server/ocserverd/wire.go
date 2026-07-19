@@ -358,6 +358,20 @@ type lessonsDTO struct {
 	IsDefault     bool   `json:"is_default"`
 }
 
+// lessonsPatchResultDTO is the patch_lessons receipt (T-8327): size (UTF-8
+// bytes) + sha256 (hex) are verification anchors over the RESULTING doc text
+// so the caller can confirm the write without re-reading the full doc.
+type lessonsPatchResultDTO struct {
+	RoleKey       string `json:"role_key"`
+	TaskType      string `json:"task_type"`
+	AppliedEdits  int    `json:"applied_edits"`
+	Size          int    `json:"size"`
+	Sha256        string `json:"sha256"`
+	OwnerID       string `json:"owner_id"`
+	SchemaVersion int    `json:"schema_version"`
+	IsDefault     bool   `json:"is_default"`
+}
+
 type replyCardAnswerDTO struct {
 	OptionIdx   *int                `json:"option_idx"` // null = free text only
 	Text        string              `json:"text"`

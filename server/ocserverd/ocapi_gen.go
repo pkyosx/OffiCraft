@@ -408,6 +408,30 @@ type LessonsDTO struct {
 	Text          *string `json:"text,omitempty"`
 }
 
+// LessonsEditDTO One “patch_lessons“ edit (§3.4 #28b): replace the occurrence of “old“ with “new“. “old“ must match the current doc EXACTLY ONCE (0 or >1 hits reject the whole batch — the unique anchor doubles as an optimistic concurrency check); an EMPTY “old“ appends “new“ at the end of the doc (joined with a newline when the doc does not already end in one).
+type LessonsEditDTO struct {
+	New *string `json:"new,omitempty"`
+	Old *string `json:"old,omitempty"`
+}
+
+// LessonsPatchDTO Anchor-addressed PATCH of a lessons doc (§3.4 #28b): “{edits: [{old, new}], allow_shrink?}“. ATOMIC — edits apply sequentially to an in-memory copy and any failing anchor (absent or ambiguous “old“) rejects the ENTIRE batch with a flat 400 and ZERO writes. “allow_shrink“ (default false) must be set explicitly for a patch that empties the doc or shrinks it to under a tenth of its size — the r-76 wipe-guard posture.
+type LessonsPatchDTO struct {
+	AllowShrink *bool            `json:"allow_shrink,omitempty"`
+	Edits       []LessonsEditDTO `json:"edits"`
+}
+
+// LessonsPatchResultDTO Receipt of a lessons PATCH (§3.4 #28b). “size“ (UTF-8 bytes) and “sha256“ (hex) are lightweight verification anchors over the RESULTING doc text, so the caller can confirm the write landed without re-reading the full doc.
+type LessonsPatchResultDTO struct {
+	AppliedEdits  *int    `json:"applied_edits,omitempty"`
+	IsDefault     *bool   `json:"is_default,omitempty"`
+	OwnerId       *string `json:"owner_id,omitempty"`
+	RoleKey       *string `json:"role_key,omitempty"`
+	SchemaVersion *int    `json:"schema_version,omitempty"`
+	Sha256        *string `json:"sha256,omitempty"`
+	Size          *int    `json:"size,omitempty"`
+	TaskType      *string `json:"task_type,omitempty"`
+}
+
 // LessonsReplaceDTO Whole-doc replace of a lessons doc (§3.4 #28): “{text}“.
 type LessonsReplaceDTO struct {
 	Text *string `json:"text,omitempty"`
@@ -1683,6 +1707,9 @@ type HandleReplaceGlobalContextApiGlobalContextPostJSONRequestBody = GlobalConte
 // HandleReplaceLessonsApiLessonsRoleKeyTaskTypePostJSONRequestBody defines body for HandleReplaceLessonsApiLessonsRoleKeyTaskTypePost for application/json ContentType.
 type HandleReplaceLessonsApiLessonsRoleKeyTaskTypePostJSONRequestBody = LessonsReplaceDTO
 
+// HandlePatchLessonsApiLessonsRoleKeyTaskTypePatchPostJSONRequestBody defines body for HandlePatchLessonsApiLessonsRoleKeyTaskTypePatchPost for application/json ContentType.
+type HandlePatchLessonsApiLessonsRoleKeyTaskTypePatchPostJSONRequestBody = LessonsPatchDTO
+
 // HandleLoginApiLoginPostJSONRequestBody defines body for HandleLoginApiLoginPost for application/json ContentType.
 type HandleLoginApiLoginPostJSONRequestBody = LoginDTO
 
@@ -1862,6 +1889,9 @@ type ServerInterface interface {
 	// Whole-doc replace of a per-role lessons doc ({text}).
 	// (POST /api/lessons/{role_key}/{task_type})
 	HandleReplaceLessonsApiLessonsRoleKeyTaskTypePost(w http.ResponseWriter, r *http.Request, roleKey string, taskType string)
+	// Patch a per-role lessons doc by unique anchors ({edits:[{old,new}]}).
+	// (POST /api/lessons/{role_key}/{task_type}/patch)
+	HandlePatchLessonsApiLessonsRoleKeyTaskTypePatchPost(w http.ResponseWriter, r *http.Request, roleKey string, taskType string)
 	// Owner login: exchange the password for an owner-scoped JWT.
 	// (POST /api/login)
 	HandleLoginApiLoginPost(w http.ResponseWriter, r *http.Request)
@@ -2681,6 +2711,41 @@ func (siw *ServerInterfaceWrapper) HandleReplaceLessonsApiLessonsRoleKeyTaskType
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleReplaceLessonsApiLessonsRoleKeyTaskTypePost(w, r, roleKey, taskType)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandlePatchLessonsApiLessonsRoleKeyTaskTypePatchPost operation middleware
+func (siw *ServerInterfaceWrapper) HandlePatchLessonsApiLessonsRoleKeyTaskTypePatchPost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "role_key" -------------
+	var roleKey string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "role_key", r.PathValue("role_key"), &roleKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "role_key", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "task_type" -------------
+	var taskType string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "task_type", r.PathValue("task_type"), &taskType, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "task_type", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandlePatchLessonsApiLessonsRoleKeyTaskTypePatchPost(w, r, roleKey, taskType)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5002,6 +5067,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/health", wrapper.HandleHealthApiHealthGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/lessons/{role_key}/{task_type}", wrapper.HandleGetLessonsApiLessonsRoleKeyTaskTypeGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lessons/{role_key}/{task_type}", wrapper.HandleReplaceLessonsApiLessonsRoleKeyTaskTypePost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lessons/{role_key}/{task_type}/patch", wrapper.HandlePatchLessonsApiLessonsRoleKeyTaskTypePatchPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/login", wrapper.HandleLoginApiLoginPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/machines", wrapper.HandleListMachinesApiMachinesGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/machines", wrapper.HandleOnboardMachineApiMachinesPost)

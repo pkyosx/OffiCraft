@@ -785,6 +785,15 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			MCPTool:  "replace_lessons",
 		},
 		{
+			Method:   "POST",
+			Path:     "/api/lessons/{role_key}/{task_type}/patch",
+			Handler:  w.HandlePatchLessonsApiLessonsRoleKeyTaskTypePatchPost,
+			Auth:     authGated,
+			Requires: principalMachine,
+			Summary:  "Patch a per-role lessons doc by unique anchors ({edits:[{old,new}]}).",
+			MCPTool:  "patch_lessons",
+		},
+		{
 			Method:   "GET",
 			Path:     "/api/resume-summary",
 			Handler:  w.HandleResumeSummaryApiResumeSummaryGet,

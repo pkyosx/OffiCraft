@@ -891,6 +891,92 @@
         "title": "LessonsDTO",
         "type": "object"
       },
+      "LessonsEditDTO": {
+        "description": "One ``patch_lessons`` edit (§3.4 #28b): replace the occurrence of ``old`` with ``new``. ``old`` must match the current doc EXACTLY ONCE (0 or >1 hits reject the whole batch — the unique anchor doubles as an optimistic concurrency check); an EMPTY ``old`` appends ``new`` at the end of the doc (joined with a newline when the doc does not already end in one).",
+        "properties": {
+          "new": {
+            "default": "",
+            "title": "New",
+            "type": "string"
+          },
+          "old": {
+            "default": "",
+            "title": "Old",
+            "type": "string"
+          }
+        },
+        "title": "LessonsEditDTO",
+        "type": "object"
+      },
+      "LessonsPatchDTO": {
+        "description": "Anchor-addressed PATCH of a lessons doc (§3.4 #28b): ``{edits: [{old, new}], allow_shrink?}``. ATOMIC — edits apply sequentially to an in-memory copy and any failing anchor (absent or ambiguous ``old``) rejects the ENTIRE batch with a flat 400 and ZERO writes. ``allow_shrink`` (default false) must be set explicitly for a patch that empties the doc or shrinks it to under a tenth of its size — the r-76 wipe-guard posture.",
+        "properties": {
+          "allow_shrink": {
+            "default": false,
+            "title": "Allow Shrink",
+            "type": "boolean"
+          },
+          "edits": {
+            "items": {
+              "$ref": "#/components/schemas/LessonsEditDTO"
+            },
+            "title": "Edits",
+            "type": "array"
+          }
+        },
+        "required": [
+          "edits"
+        ],
+        "title": "LessonsPatchDTO",
+        "type": "object"
+      },
+      "LessonsPatchResultDTO": {
+        "description": "Receipt of a lessons PATCH (§3.4 #28b). ``size`` (UTF-8 bytes) and ``sha256`` (hex) are lightweight verification anchors over the RESULTING doc text, so the caller can confirm the write landed without re-reading the full doc.",
+        "properties": {
+          "applied_edits": {
+            "default": 0,
+            "title": "Applied Edits",
+            "type": "integer"
+          },
+          "is_default": {
+            "default": false,
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "owner_id": {
+            "default": "",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "role_key": {
+            "default": "",
+            "title": "Role Key",
+            "type": "string"
+          },
+          "schema_version": {
+            "default": 3,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "sha256": {
+            "default": "",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "default": 0,
+            "title": "Size",
+            "type": "integer"
+          },
+          "task_type": {
+            "default": "",
+            "title": "Task Type",
+            "type": "string"
+          }
+        },
+        "title": "LessonsPatchResultDTO",
+        "type": "object"
+      },
       "LessonsReplaceDTO": {
         "description": "Whole-doc replace of a lessons doc (§3.4 #28): ``{text}``.",
         "properties": {
@@ -5984,6 +6070,85 @@
           }
         },
         "summary": "Whole-doc replace of a per-role lessons doc ({text})."
+      }
+    },
+    "/api/lessons/{role_key}/{task_type}/patch": {
+      "post": {
+        "description": "Anchor-addressed PATCH of a PER-ROLE lessons doc (§3.4 #28b) — the write cost scales with the CHANGE, not the doc (a whole-doc ``replace_lessons`` stops fitting in one model output as the doc grows; keep replace as the last resort).\n\nSemantics: ``edits`` apply IN ORDER against the doc ``get_lessons`` serves (overlay ⊕ seed fold); each non-empty ``old`` must match the current text exactly once (0 hits or >1 hits → flat 400, WHOLE batch rejected, zero writes); an empty ``old`` appends ``new`` at the end. Concurrency is last-write-wins with the unique anchor as a natural optimistic lock: a concurrent write that moved the anchor turns the next patch into a 400, never a silent mis-splice. A patch that empties the doc (or shrinks it below a tenth of its size) is refused unless ``allow_shrink=true`` — the r-76 wipe-guard posture.\n\nPer-role WRITE authz — identical to ``replace_lessons``: an ``agent``-scoped caller may patch ONLY its OWN member's ``role_key`` (read from the roster by the VERIFIED token sub, never a client field); any non-agent scope patches any role.\n\nWrites the owner overlay (``is_default`` → False) and fans a ``lessons`` delta. The receipt carries ``size``/``sha256`` verification anchors over the resulting doc.",
+        "operationId": "handle_patch_lessons_api_lessons__role_key___task_type__patch_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "role_key",
+            "required": true,
+            "schema": {
+              "title": "Role Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "task_type",
+            "required": true,
+            "schema": {
+              "title": "Task Type",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LessonsPatchDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonsPatchResultDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Patch a per-role lessons doc by unique anchors ({edits:[{old,new}]})."
       }
     },
     "/api/login": {
