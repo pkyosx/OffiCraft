@@ -232,11 +232,10 @@ func (s *apiServer) closeTask(t *Task, status string, now float64, trigger strin
 // mutates t in place. When the derivation lands on done (every step done) it
 // runs the full close (closeTask: release workers, stamp closed_ts, learnings
 // nudge) — that is how a task reaches done now, NOT an agent status report.
-// Already-closed tasks and the pending_outsource_approval hold are left
-// untouched. The lock (task.lock) is orthogonal and never read here.
+// Already-closed tasks are left untouched. The lock (task.lock) is orthogonal
+// and never read here.
 func (s *apiServer) deriveAndPersistTask(t *Task, now float64, trigger string) error {
-	if TaskIsTerminal(t.Status) ||
-		t.Status == TaskStatusPendingOutsourceApproval { // ← O-28 removes (temp pending guard, T-9ca5)
+	if TaskIsTerminal(t.Status) {
 		return nil
 	}
 	steps, err := s.dal.ListTaskSteps(t.ID)
@@ -257,12 +256,11 @@ func (s *apiServer) deriveAndPersistTask(t *Task, now float64, trigger string) e
 
 // reconcileTaskStatusesOnBoot aligns every non-terminal task's stored status
 // with what its steps derive to (owner T-9ca5 ⑤: 上線時既有不一致一次對齊) — a
-// one-shot at startup after task status became fully derived. Terminal and
-// pending_outsource_approval tasks are skipped (their status is not derived).
-// Only rows whose status or display waiting_reason actually drift are written;
-// a task whose steps are all done is properly closed. Returns the number of
-// tasks it corrected, for the boot log. No SSE fan matters here (boot has no
-// subscribers yet).
+// one-shot at startup after task status became fully derived. Terminal tasks are
+// skipped (their status is not derived). Only rows whose status or display
+// waiting_reason actually drift are written; a task whose steps are all done is
+// properly closed. Returns the number of tasks it corrected, for the boot log.
+// No SSE fan matters here (boot has no subscribers yet).
 func (s *apiServer) reconcileTaskStatusesOnBoot() (int, error) {
 	tasks, err := s.dal.ListTasks()
 	if err != nil {
@@ -272,8 +270,7 @@ func (s *apiServer) reconcileTaskStatusesOnBoot() (int, error) {
 	fixed := 0
 	for i := range tasks {
 		t := tasks[i]
-		if TaskIsTerminal(t.Status) ||
-			t.Status == TaskStatusPendingOutsourceApproval { // ← O-28 removes (temp pending guard, T-9ca5)
+		if TaskIsTerminal(t.Status) {
 			continue
 		}
 		steps, err := s.dal.ListTaskSteps(t.ID)
@@ -653,10 +650,10 @@ func (s *apiServer) HandlePostTaskMessageApiTasksTaskIdMessagePost(w http.Respon
 // POST /api/tasks/{task_id}/reassign — the owner/admin handover action
 // (T-160e; MCP reassign_task, requires admin_agent — the owner and the
 // assistant both drive it, the assistant only lives on the MCP face). Hands
-// the task to a NEW executor: a roster member, or a FRESH outsource worker
-// minted on the spot (the reassign is the owner's explicit will, so it
-// bypasses the scheduler's copies/global caps — spec ruling; the dialog's
-// model/effort/machine ride the worker/spawn directly).
+// the task to a NEW executor: a roster member, or an UNASSIGNED outsource slot
+// the scheduler mints a fresh worker for under the global parallel cap (T-35e0:
+// no inline mint at reassign — the task lands unassigned + the reassigning lock;
+// the dialog's model/effort/machine ride the task's outsource_target for the mint).
 //
 // Effects, in order:
 //  1. every WAITING reply card of the task expires (the ask was the OLD
@@ -770,10 +767,11 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 
 	// ④ an outsource target is a 發包 — it funnels through the SAME spawn gate as
 	// create_task and the scheduler (no side door). owner/admin admit (their
-	// reassign carries implicit approval); a subordinate agent's dispatch is
-	// denied (403) or parked for owner approval (pending) BEFORE any of the
-	// handover side effects below run. An admit falls through to the existing
-	// mint+handover flow.
+	// reassign carries implicit approval); a subordinate agent the policy does not
+	// name is denied (403) BEFORE any of the handover side effects below run. An
+	// admit falls through to the handover flow, which lands an UNASSIGNED outsource
+	// task (executor_id='' + outsource_target); the scheduler mints the successor
+	// under the global parallel cap (T-35e0: no inline mint, no per-task card).
 	if kind == TaskExecutorOutsource {
 		principal := s.principalOfRequest(r)
 		var initiator *Member
@@ -788,35 +786,9 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 			internalError(w, err)
 			return
 		}
-		switch gate.Decision {
-		case gateDeny:
+		if gate.Decision == gateDeny {
 			writeError(w, http.StatusForbidden,
 				"not permitted to 發包 to an outsource worker: "+gate.Reason)
-			return
-		case gatePending:
-			if !CanDispatchOutsource(t.Status) {
-				writeError(w, http.StatusConflict,
-					"task '"+taskId+"' cannot dispatch for approval from status "+t.Status)
-				return
-			}
-			if err := s.landPendingOutsource(t, model, effort, machine,
-				currentActor(r), now, trigger); err != nil {
-				internalError(w, err)
-				return
-			}
-			s.writeTask(w, *t)
-			return
-		case gateAdmitSpawn:
-			// fall through to the existing mint + handover flow
-		}
-	}
-
-	// ⑧ a reassign SUPERSEDES any pending outsource dispatch on this task: the
-	// approval card is expired by the card pass below; invalidate the parked
-	// intent too, so a late answer / re-gate finds nothing and never spawns.
-	if t.Status == TaskStatusPendingOutsourceApproval {
-		if err := s.dal.DeleteOutsourceIntent(t.ID); err != nil {
-			internalError(w, err)
 			return
 		}
 	}
@@ -888,52 +860,27 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 		return
 	}
 
-	// 4. Re-point the executor + enter the reassigning handover hold.
-	var newWorker *OutsourceWorker
+	// 4. Re-point the executor + enter the reassigning handover hold. A member
+	// target binds directly; an outsource target lands UNASSIGNED (executor_id=''
+	// + the outsource_target on the row) and the scheduler mints the successor
+	// under the global parallel cap (T-35e0 — no inline mint here). The successor's
+	// boot context folds the same reassigning takeover instruction, so a headless
+	// worker learns whom to hand over WITH even though it is minted later.
 	if kind == TaskExecutorMember {
 		t.ExecutorKind = TaskExecutorMember
 		t.ExecutorID = newMember.ID
+		t.OutsourceModel, t.OutsourceEffort, t.OutsourceMachine = "", "", ""
 	} else {
-		// Mint the fresh worker HERE (owner's explicit will — no scheduler
-		// admission), reusing the tick's mint/bind/fan sequence under the
-		// scheduler lock; the spawn dispatch itself also expects the lock.
-		s.outsourceMu.Lock()
-		existing, err := s.dal.ListOutsourceWorkers()
-		if err != nil {
-			s.outsourceMu.Unlock()
-			internalError(w, err)
-			return
-		}
-		codenames := make([]string, 0, len(existing))
-		for _, ww := range existing {
-			codenames = append(codenames, ww.Codename)
-		}
-		worker := OutsourceWorker{
-			ID:        "ow-" + newHexID(12),
-			Codename:  DeriveCodename(model, codenames),
-			Model:     model,
-			Effort:    effort,
-			TaskID:    t.ID,
-			Status:    WorkerStatusAssigned,
-			CreatedTS: now,
-		}
-		if err := s.dal.PutOutsourceWorker(worker); err != nil {
-			s.outsourceMu.Unlock()
-			internalError(w, err)
-			return
-		}
-		s.workerMachinePref[worker.ID] = machine
-		s.outsourceMu.Unlock()
 		t.ExecutorKind = TaskExecutorOutsource
-		t.ExecutorID = worker.ID
-		newWorker = &worker
+		t.ExecutorID = ""
+		t.OutsourceModel = model
+		t.OutsourceEffort = effort
+		t.OutsourceMachine = machine
 	}
 	// Enter the reassigning LOCK (T-9ca5) — orthogonal to status, which stays
 	// DERIVED. The reassign reset non-terminal steps to pending above, so the
 	// derived status is the honest not_started / in_progress alongside the
-	// reassigning lock badge. Reassign is a definitive re-point, so it also
-	// leaves behind any pending_outsource_approval hold: derive explicitly (the
-	// derivation seam would skip a pending task).
+	// reassigning lock badge.
 	t.Lock = TaskLockReassigning
 	rsteps, err := s.dal.ListTaskSteps(t.ID)
 	if err != nil {
@@ -956,9 +903,6 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 		internalError(w, err)
 		return
 	}
-	if newWorker != nil {
-		s.publishOutsourceWorker(*newWorker, trigger)
-	}
 
 	// 5. Handover PAIRING messages (T-ba04). Both notices are SERVER-authored
 	// (sender = wireSystemSender, not currentActor): an automated handover must
@@ -966,12 +910,12 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	// predecessor: "go hand over TO the successor"; successor: "your
 	// predecessor is X, confirm the handover WITH them, THEN flip the status
 	// yourself". Meta carries the task linkage the task-message route
-	// established. Covers ALL four directions: the predecessor notice fires for
-	// a member OR an outsource predecessor (the outsource one is now kept live
-	// through the hold, so it can answer), and the successor notice fires for a
-	// member OR a freshly-minted outsource worker (its boot context ALSO folds
-	// the same handover instruction — worker_spawn.go — since a headless worker
-	// reads chat only after it boots).
+	// established. The predecessor notice fires for a member OR an outsource
+	// predecessor (the outsource one is kept live through the hold, so it can
+	// answer). An outsource SUCCESSOR is not minted here anymore (T-35e0 — the
+	// scheduler mints it later under the cap), so there is no worker id to DM
+	// yet; its boot context folds the same takeover instruction, so the successor
+	// chat notice is a member-only step below.
 	newExecutorLabel, newExecutorID := "", ""
 	if newMember != nil {
 		newExecutorID = newMember.ID
@@ -980,18 +924,17 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 			newExecutorLabel = newMember.ID
 		}
 	} else {
-		newExecutorID = newWorker.ID
-		newExecutorLabel = "外包 " + newWorker.Codename
+		newExecutorLabel = "外包（待排程指派）"
 	}
 	no := TaskNo(t.ID)
 	if oldExecutor != "" {
 		s.postTaskChat(*t, wireSystemSender, oldExecutor,
-			"["+no+"] 此任務已轉派給 "+newExecutorLabel+"（id `"+newExecutorID+"`）。"+
-				"請停止推進，改為去跟他做交接：主動 post_chat 給他，回答他關於目前進度、在飛事項、要注意的坑的提問，"+
-				"直到他確認交接完成。交接完成後這張任務就不再是你的了。",
+			"["+no+"] 此任務已轉派給 "+newExecutorLabel+"。"+
+				"請停止推進，改為去跟接手人做交接：對方接手後會主動 post_chat 找你，"+
+				"回答他關於目前進度、在飛事項、要注意的坑的提問，直到他確認交接完成。交接完成後這張任務就不再是你的了。",
 			trigger)
 	}
-	if oldExecutor != "" {
+	if oldExecutor != "" && newExecutorID != "" {
 		predecessorLabel := s.executorLabel(oldKind, oldExecutor)
 		msg := "[" + no + "] 你接手了任務「" + t.Title + "」。你的前任是 " +
 			predecessorLabel + "（id `" + oldExecutor + "`）。請先跟他確認交接完成" +
@@ -1023,12 +966,11 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 			audienceMembers(oldExecutor), trigger)
 	}
 
-	// Dispatch the fresh worker's wake AFTER the row is committed (the boot
-	// context folds the task as stored; notifyWorkerSpawn expects the lock).
-	if newWorker != nil {
-		s.outsourceMu.Lock()
-		s.notifyWorkerSpawn(*newWorker, nowSecs())
-		s.outsourceMu.Unlock()
+	// An outsource target landed the task unassigned — fire the event-driven
+	// scheduler tick so the successor is minted NOW (subject to the global cap)
+	// rather than up to a cadence period later, exactly like create_task's seam.
+	if kind == TaskExecutorOutsource {
+		s.outsourceTickNow()
 	}
 	s.writeTask(w, *t)
 }
@@ -1309,6 +1251,11 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 		Priority:     priority,
 		ExecutorKind: executorKind,
 		ExecutorID:   executorID,
+		// The explicit 發包 target rides on the task row (T-35e0): the scheduler
+		// mints from it. Empty for a member/manual-outsource create.
+		OutsourceModel:   dispatchModel,
+		OutsourceEffort:  dispatchEffort,
+		OutsourceMachine: dispatchMachine,
 		// §14 caller-identity: the creator is the verified token sub, never a
 		// request parameter — a member agent, an outsource worker, or "owner".
 		CreatorID: currentActor(r),
@@ -1319,8 +1266,9 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 
 	// ① explicit 發包 (target.kind=outsource): every dispatch funnels through the
 	// SINGLE spawn gate (④) — no side door. Run it BEFORE any PutTask so a deny
-	// leaves NO orphan task (③); a pending lands the approval card; an admit
-	// mints the worker first so a mint fault also leaves nothing persisted (③).
+	// leaves NO orphan task (③). On admit the task lands UNASSIGNED carrying its
+	// outsource_target; the event-driven scheduler tick below mints the worker
+	// under the global parallel cap (T-35e0: no inline mint, no per-task card).
 	if dispatchTarget != nil {
 		principal := s.principalOfRequest(r)
 		var initiator *Member
@@ -1336,43 +1284,9 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 			internalError(w, err)
 			return
 		}
-		switch gate.Decision {
-		case gateDeny:
+		if gate.Decision == gateDeny {
 			writeError(w, http.StatusForbidden,
 				"not permitted to 發包 to an outsource worker: "+gate.Reason)
-			return
-		case gatePending:
-			if err := s.dal.PutTask(t); err != nil {
-				internalError(w, err)
-				return
-			}
-			if err := s.landPendingOutsource(&t, dispatchModel, dispatchEffort,
-				dispatchMachine, currentActor(r), now, trigger); err != nil {
-				internalError(w, err)
-				return
-			}
-			writeJSON(w, http.StatusOK, taskCreateResultDTO{
-				Task: newTaskDTO(t, nil, nil, nil), Deduped: false, Warnings: warnings})
-			return
-		case gateAdmitSpawn:
-			worker, err := s.mintOutsourceWorker(t.ID, dispatchModel, dispatchEffort,
-				dispatchMachine, now)
-			if err != nil {
-				internalError(w, err) // no task persisted yet → no orphan (③)
-				return
-			}
-			t.ExecutorID = worker.ID
-			if err := s.dal.PutTask(t); err != nil {
-				internalError(w, err)
-				return
-			}
-			s.publishOutsourceWorker(*worker, trigger)
-			s.publishTask(t, trigger)
-			s.outsourceMu.Lock()
-			s.notifyWorkerSpawn(*worker, now)
-			s.outsourceMu.Unlock()
-			writeJSON(w, http.StatusOK, taskCreateResultDTO{
-				Task: newTaskDTO(t, nil, nil, nil), Deduped: false, Warnings: warnings})
 			return
 		}
 	}

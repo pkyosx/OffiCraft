@@ -269,6 +269,34 @@ func gooseUpSQL(t *testing.T, path string) string {
 	return up
 }
 
+// gooseDownSQL extracts the executable statements of a goose migration's Down
+// block (everything after +goose Down, comment lines stripped) so a test can
+// exercise the REAL Down SQL for reversibility checks — the gooseUpSQL twin.
+func gooseDownSQL(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	down := ""
+	inDown := false
+	for _, line := range strings.Split(string(raw), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "-- +goose Down") {
+			inDown = true
+			continue
+		}
+		if !inDown || strings.HasPrefix(trimmed, "--") {
+			continue
+		}
+		down += line + "\n"
+	}
+	if strings.TrimSpace(down) == "" {
+		t.Fatalf("no Down SQL extracted from %s", path)
+	}
+	return down
+}
+
 func TestMigration00010BackfillsIsKeyRequired(t *testing.T) {
 	db, err := openSQLite(filepath.Join(t.TempDir(), "mig.db"))
 	if err != nil {

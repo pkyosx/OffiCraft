@@ -521,12 +521,6 @@ const (
 	TaskStatusDone            = "done"
 	TaskStatusTerminated      = "terminated"
 	TaskStatusDuplicated      = "duplicated"
-	// The dispatch-then-approve hold: an outsource task the agent has DISPATCHED
-	// (發包) but whose owner has not yet approved. Entered only by the dispatch
-	// action (never agent-reported, like reassigning); left only by the owner's
-	// cancel / reassign / approve action — see outsourceApprovalTransitions. No
-	// worker is spawned until approval lands (fresh worker on approve, elsewhere).
-	TaskStatusPendingOutsourceApproval = "pending_outsource_approval" // ← O-28 removes (temp pending status value, T-9ca5)
 )
 
 // The task LOCK closed set — an ORTHOGONAL dimension to status (T-9ca5). Since
@@ -624,13 +618,10 @@ func ValidArtifactKind(k string) bool {
 func ValidTaskStatus(s string) bool {
 	switch s {
 	// reassigning is NO LONGER a status (T-9ca5): it moved to task.lock, an
-	// orthogonal dimension. pending_outsource_approval stays a status for now (a
-	// system hold the derivation skips) until the outsource-approval gate退場
-	// half lands. ← O-28 removes (drop pending from this closed set).
+	// orthogonal dimension.
 	case TaskStatusNotStarted, TaskStatusInProgress, TaskStatusWaitingOwner,
 		TaskStatusWaitingExternal, TaskStatusDone,
-		TaskStatusTerminated, TaskStatusDuplicated,
-		TaskStatusPendingOutsourceApproval:
+		TaskStatusTerminated, TaskStatusDuplicated:
 		return true
 	}
 	return false
@@ -694,37 +685,6 @@ var agentTaskTransitions = map[[2]string]bool{
 // task from → to. Pure; the caller supplies the 409 on false.
 func CanAgentTaskTransition(from, to string) bool {
 	return agentTaskTransitions[[2]string{from, to}]
-}
-
-// outsourceApprovalTransitions is the CLOSED legal-transition set around
-// pending_outsource_approval — the owner-gated dispatch hold. It is a SERVER-
-// action table, deliberately separate from agentTaskTransitions: none of these
-// moves is agent-reportable (the dispatch, cancel, reassign and approve levers
-// are the owner/server's), exactly as entering reassigning is off the agent
-// table while only the executor's reassigning → in_progress sits on it.
-//
-// Entry (dispatch / 發包) comes from the active, not-yet-outsourced states.
-// pending → pending is INTENTIONALLY absent: a task already awaiting approval
-// cannot be re-dispatched (the no-double-dispatch guard, CanDispatchOutsource).
-// Exits: reassigning is the approve-then-spawn AND the reassign-to-member
-// landing (identical to the reassign action's landing, so a fresh worker is
-// spawned there); terminated / not_started are the two cancel shapes (owner
-// terminate vs. un-dispatch back to the backlog — the handler node picks one).
-var outsourceApprovalTransitions = map[[2]string]bool{ // ← O-28 removes (whole map + the pending status value, T-9ca5)
-	{TaskStatusNotStarted, TaskStatusPendingOutsourceApproval}: true, // dispatch
-	{TaskStatusInProgress, TaskStatusPendingOutsourceApproval}: true, // dispatch
-	// DEAD post-T-9ca5: reassigning is a lock now, not a status; approve lands
-	// not_started directly (outsource_gate.go) and reassign sets task.lock —
-	// nothing queries pending→reassigning. Kept inert until O-28 drops the map.
-	{TaskStatusPendingOutsourceApproval, TaskStatusReassigning}: true, // (dead) approve/reassign landing
-	{TaskStatusPendingOutsourceApproval, TaskStatusTerminated}:  true, // cancel (terminate)
-	{TaskStatusPendingOutsourceApproval, TaskStatusNotStarted}:  true, // cancel (un-dispatch)
-}
-
-// CanOutsourceApprovalTransition reports whether the outsource dispatch/approval
-// path may move a task from → to. Pure; the caller supplies the 409 on false.
-func CanOutsourceApprovalTransition(from, to string) bool {
-	return outsourceApprovalTransitions[[2]string{from, to}]
 }
 
 // agentStepTransitions is the step twin (contract §B.2): pending →
@@ -837,11 +797,7 @@ func DeriveTaskStatus(steps []TaskStep) string {
 // contradict. It mutates t in place. It leaves the two kinds of state the
 // derivation MUST NOT own untouched:
 //   - explicit terminals (terminated / duplicated) — owner/system decisions,
-//     frozen once set (done is derivable and IS recomputed);
-//   - pending_outsource_approval — a system dispatch hold, not derivable from
-//     steps. This is the TEMPORARY guard line (T-9ca5): it keeps the outsource
-//     approval gate working until that gate退場 half lands, which deletes this
-//     branch together with the status value. ← O-28 removes THIS line.
+//     frozen once set (done is derivable and IS recomputed).
 //
 // The lock (task.lock) is orthogonal and never touched here — a reassigning task
 // keeps its honestly-derived status alongside the lock badge. The display
@@ -849,8 +805,7 @@ func DeriveTaskStatus(steps []TaskStep) string {
 // step is waiting_external), replacing the retired task-level waiting_reason.
 func RecomputeTaskStatus(t *Task, steps []TaskStep) {
 	switch t.Status {
-	case TaskStatusTerminated, TaskStatusDuplicated,
-		TaskStatusPendingOutsourceApproval: // ← temp pending guard; O-28 deletes
+	case TaskStatusTerminated, TaskStatusDuplicated:
 		return
 	}
 	t.Status = DeriveTaskStatus(steps)

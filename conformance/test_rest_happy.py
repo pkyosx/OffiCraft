@@ -859,10 +859,10 @@ HAPPY: dict[str, Happy] = {
         ),
     ),
     "POST /api/tasks/{task_id}/reassign": Happy(
-        # T-160e: reassign to a FRESH outsource worker — the one black-box
-        # worker-minting seam (the scheduler needs a manual assignee; this
-        # mints on the owner's explicit will). The task enters the
-        # reassigning handover hold bound to the fresh ow- executor.
+        # T-35e0: reassign to outsource lands the task UNASSIGNED (発包 → an
+        # unassigned outsource task); the scheduler mints the successor later
+        # under the global cap, so no worker is bound at reassign time. The
+        # task enters the reassigning handover hold with executor_id="".
         path=lambda ctx: f"/api/tasks/{_happy_task(ctx)}/reassign",
         body={"target": {"kind": "outsource", "model": "sonnet",
                          "effort": "low"}},
@@ -872,7 +872,7 @@ HAPPY: dict[str, Happy] = {
             r,
             lambda d: d["lock"] == "reassigning"
             and d["executor_kind"] == "outsource"
-            and d["executor_id"].startswith("ow-"),
+            and d["executor_id"] == "",
         ),
     ),
     "POST /api/tasks/{task_id}/plan": Happy(

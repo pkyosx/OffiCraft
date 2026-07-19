@@ -536,16 +536,6 @@ func (s *apiServer) applyReplyCardAnswer(w http.ResponseWriter, r *http.Request,
 			internalError(w, err)
 			return
 		}
-		// 節點10: if this is the LIVE owner-approval card of a pending dispatch,
-		// the FIRST answer approves (核准 → mint+spawn exactly once) or cancels
-		// (any other answer → un-dispatch to not_started). A PUT re-answer never
-		// re-fires this (firstAnswer is false), so a re-decided card never
-		// double-spawns. A non-approval card is a cheap no-op here.
-		if err := s.settleOutsourceApproval(card,
-			approvalDecisionFromAnswer(body.OptionIdx), nowSecs(), requestTrigger(r)); err != nil {
-			internalError(w, err)
-			return
-		}
 	}
 	s.publishReplyCard(card, requestTrigger(r))
 	s.writeReplyCard(w, card)
@@ -715,13 +705,6 @@ func (s *apiServer) HandleExpireReplyCardApiReplyCardsCardIdExpirePost(w http.Re
 		return
 	}
 	if err := s.releaseCardHold(*card, requestTrigger(r)); err != nil {
-		internalError(w, err)
-		return
-	}
-	// ⑪ TTL/expiry of an owner-approval card is a CANCEL: un-dispatch the pending
-	// task back to not_started and invalidate its intent — no worker spawns. A
-	// non-approval card is a cheap no-op.
-	if err := s.settleOutsourceApproval(*card, false, nowSecs(), requestTrigger(r)); err != nil {
 		internalError(w, err)
 		return
 	}

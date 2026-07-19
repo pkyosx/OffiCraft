@@ -463,3 +463,129 @@ func TestOutsourceTickCodenamesNeverReuse(t *testing.T) {
 		}
 	}
 }
+
+// putUnassignedTargetTask lands an unassigned outsource task carrying an explicit
+// 發包 target directly (the create/reassign dispatch shape) — the sched fixture
+// for the target-aware admission path (T-35e0), self-made, no prod row.
+func putUnassignedTargetTask(t *testing.T, api *apiServer, id, typeKey, model, effort string) {
+	t.Helper()
+	if err := api.dal.PutTask(Task{
+		ID: id, TypeKey: typeKey, Title: id, Status: TaskStatusNotStarted,
+		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorOutsource, ExecutorID: "",
+		OutsourceModel: model, OutsourceEffort: effort, OutsourceMachine: "auto",
+		CreatorID: wireOwnerID, CreatedTS: 1000, UpdatedTS: 1000,
+	}); err != nil {
+		t.Fatalf("put target task %s: %v", id, err)
+	}
+}
+
+// ③ the scheduler mints from a task's explicit outsource_target in preference to
+// the type manual's assignee spec — an owner reassign/create dispatch overrides
+// whatever the type would otherwise mint.
+func TestOutsourceTickPrefersOutsourceTargetOverTypeSpec(t *testing.T) {
+	api := newTasksTestServer(t)
+	api.noOutsource = true
+	// The type manual would mint sonnet/high; the task's explicit target is opus/low.
+	putOutsourceManual(t, api, "review-pr", "claude-sonnet-4-5", 2)
+	putUnassignedTargetTask(t, api, "t-target", "review-pr", "opus", "low")
+
+	api.runOutsourceTick(1000.0)
+
+	bound, _ := api.dal.GetTask("t-target")
+	if bound == nil || bound.ExecutorID == "" {
+		t.Fatalf("target task must be assigned: %+v", bound)
+	}
+	worker, err := api.dal.GetOutsourceWorker(bound.ExecutorID)
+	if err != nil || worker == nil {
+		t.Fatalf("worker missing: %v", err)
+	}
+	if worker.Model != "opus" || worker.Effort != "low" {
+		t.Fatalf("mint must follow the explicit target, not the type spec: %+v", worker)
+	}
+}
+
+// ③b a target task whose type has NO manual assignee is still minted — the
+// target carries the whole spec, so the scheduler never skips it as spec-less
+// (the old type-only decide would have left it queued forever).
+func TestOutsourceTickMintsTargetTaskWithNoTypeManual(t *testing.T) {
+	api := newTasksTestServer(t)
+	api.noOutsource = true
+	putUnassignedTargetTask(t, api, "t-adhoc", "", "sonnet", "medium")
+
+	api.runOutsourceTick(1000.0)
+
+	bound, _ := api.dal.GetTask("t-adhoc")
+	if bound == nil || bound.ExecutorID == "" {
+		t.Fatalf("a type-less target task must still be minted: %+v", bound)
+	}
+	worker, _ := api.dal.GetOutsourceWorker(bound.ExecutorID)
+	if worker == nil || worker.Model != "sonnet" {
+		t.Fatalf("worker must carry the target model: %+v", worker)
+	}
+}
+
+// ④ every 發包 path funnels through the ONE global cap — explicit dispatch
+// targets included. Two target tasks under cap=1 admit exactly one; the other
+// queues (no immediate-spawn side door for explicit dispatches).
+func TestOutsourceTickExplicitTargetsObeyTheGlobalCap(t *testing.T) {
+	api := newTasksTestServer(t)
+	api.noOutsource = true
+	api.outsourceMaxParallel = 1
+	putUnassignedTargetTask(t, api, "t-a", "", "sonnet", "medium")
+	putUnassignedTargetTask(t, api, "t-b", "", "sonnet", "medium")
+
+	api.runOutsourceTick(1000.0)
+
+	assigned := func(id string) bool {
+		task, _ := api.dal.GetTask(id)
+		return task != nil && task.ExecutorID != ""
+	}
+	// FIFO by created_ts tie-break on id: exactly one admits under cap=1.
+	n := 0
+	for _, id := range []string{"t-a", "t-b"} {
+		if assigned(id) {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("cap=1 must admit exactly one target dispatch, got %d", n)
+	}
+
+	// Lifting the cap admits the backlog — still through the scheduler, never inline.
+	api.outsourceMaxParallel = 3
+	api.runOutsourceTick(1001.0)
+	if !assigned("t-a") || !assigned("t-b") {
+		t.Fatalf("raising the cap must admit the queued target dispatch")
+	}
+}
+
+// ④b the sched gate is NOT re-run for an explicit target: an owner reassign of a
+// subordinate-created task lands a target whose CREATOR is not whitelisted, yet
+// the successor still mints (the dispatch was authorized at the handler — a
+// creator-based re-gate here would wrongly orphan it).
+func TestOutsourceTickDoesNotReGateExplicitTargetByCreator(t *testing.T) {
+	api := newTasksTestServer(t)
+	api.noOutsource = true
+	// A non-whitelisted subordinate creator; the default policy names nobody.
+	if err := api.dal.PutMember(Member{
+		ID: "m-plain", Name: "Plain", Kind: KindAssistant, RoleKey: "dev",
+		RosterStatus: RosterStatusActive,
+	}); err != nil {
+		t.Fatalf("seed creator: %v", err)
+	}
+	if err := api.dal.PutTask(Task{
+		ID: "t-owned", Title: "owner reassigned this", Status: TaskStatusNotStarted,
+		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorOutsource, ExecutorID: "",
+		OutsourceModel: "sonnet", OutsourceEffort: "medium", OutsourceMachine: "auto",
+		CreatorID: "m-plain", CreatedTS: 1000, UpdatedTS: 1000,
+	}); err != nil {
+		t.Fatalf("put task: %v", err)
+	}
+
+	api.runOutsourceTick(1000.0)
+
+	bound, _ := api.dal.GetTask("t-owned")
+	if bound == nil || bound.ExecutorID == "" {
+		t.Fatalf("an authorized target dispatch must not be re-gated by creator: %+v", bound)
+	}
+}

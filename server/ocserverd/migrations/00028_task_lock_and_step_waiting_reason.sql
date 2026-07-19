@@ -52,10 +52,22 @@ WHERE task_id IN (SELECT id FROM task WHERE status = 'waiting_external')
 
 -- +goose Down
 -- Reverse the down-push: an older binary has no step-level waiting_external, so
--- restore those steps to in_progress (the state a step under a task-level
--- waiting_external held). task.status / task.waiting_reason are the retired
--- model's own fields — untouched by Up, so the old world is intact.
-UPDATE task_step SET status = 'in_progress', waiting_reason = '' WHERE status = 'waiting_external';
+-- restore each pushed step to the EXACT status it held before Up. The original
+-- status (pending vs in_progress) is recovered from started_ts — an untouched
+-- column with an unambiguous meaning: a step that ever entered in_progress
+-- carries started_ts>0 (api_tasks.go stamps it on the pending→in_progress edge),
+-- a never-started step keeps the 0.0 default. Up never touches started_ts, so it
+-- faithfully records the pre-push state — the Down is now truly reversible
+-- (pending↔waiting_external round-trips back to pending, not a lossy in_progress).
+-- A blanket 'in_progress' here would silently promote a never-started current
+-- step: Joey's prod read shows 2/4 live waiting_external tasks hold a pending
+-- current step, so that loss is half the population, not an edge. task.status /
+-- task.waiting_reason are the retired model's own fields — untouched by Up, so
+-- the old world is intact.
+UPDATE task_step
+SET status = CASE WHEN started_ts > 0 THEN 'in_progress' ELSE 'pending' END,
+    waiting_reason = ''
+WHERE status = 'waiting_external';
 -- Restore the pre-lock world an older binary expects: reassigning back as a
 -- status, columns gone. Any task holding the reassigning lock returns to
 -- status='reassigning' (the old binary's handover hold); other locks don't

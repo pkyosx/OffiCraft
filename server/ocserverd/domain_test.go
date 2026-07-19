@@ -610,11 +610,11 @@ func TestRecomputeTaskStatus(t *testing.T) {
 		return TaskStep{Status: s, WaitingReason: reason}
 	}
 
-	// (a) The guard: explicit terminals and the outsource-approval hold are the
-	// derivation's blind spots — status AND waiting_reason are left untouched.
-	t.Run("terminal and pending_outsource_approval untouched", func(t *testing.T) {
+	// (a) The guard: explicit terminals are the derivation's blind spots —
+	// status AND waiting_reason are left untouched.
+	t.Run("terminal untouched", func(t *testing.T) {
 		for _, frozen := range []string{
-			TaskStatusTerminated, TaskStatusDuplicated, TaskStatusPendingOutsourceApproval,
+			TaskStatusTerminated, TaskStatusDuplicated,
 		} {
 			task := &Task{Status: frozen, WaitingReason: "keep"}
 			RecomputeTaskStatus(task, []TaskStep{step(StepStatusDone), step(StepStatusDone)})

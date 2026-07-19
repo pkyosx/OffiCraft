@@ -56,6 +56,22 @@ type outsourceCandidate struct {
 	TypeKey   string
 	Priority  string
 	CreatedTS float64
+	// TargetModel / TargetEffort / TargetMachine is the task's explicit 發包
+	// target (T-35e0, task.outsource_*): non-empty for a create/reassign
+	// dispatch. When present, the decide uses it (global cap only, no per-type
+	// copy limit — an explicit dispatch was already authorized at the handler)
+	// instead of the type manual's assignee spec.
+	TargetModel   string
+	TargetEffort  string
+	TargetMachine string
+}
+
+// hasExplicitTarget reports whether the candidate carries an explicit 發包
+// target (a create/reassign dispatch). A dispatch always defaults effort→medium
+// and machine→auto, so a plain manual-driven outsource task (all three empty) is
+// reliably distinguished.
+func (c outsourceCandidate) hasExplicitTarget() bool {
+	return c.TargetModel != "" || c.TargetEffort != "" || c.TargetMachine != ""
 }
 
 // outsourceTypeSpec is one manual's outsource assignee spec: how many copies
@@ -71,12 +87,34 @@ type outsourceTypeSpec struct {
 }
 
 // outsourceAssignment is one decided assignment: mint a (Model, Effort)
-// worker and bind it to TaskID.
+// worker on Machine and bind it to TaskID.
 type outsourceAssignment struct {
 	TaskID  string
 	TypeKey string
 	Model   string
 	Effort  string
+	Machine string // "auto" | machine id — the resolved spawn placement preference
+	// FromTarget marks an assignment resolved from an explicit 發包 target (vs a
+	// type manual's assignee spec): the sched gate is skipped for it (already
+	// authorized at the dispatch handler) and it pins its own machine preference.
+	FromTarget bool
+}
+
+// hasTarget reports whether the assignment came from an explicit 發包 target.
+func (a outsourceAssignment) hasTarget() bool { return a.FromTarget }
+
+// outsourceAwaitingAssignment reports whether a task is an UNASSIGNED outsource
+// slot the scheduler should mint for: an outsource track with no bound executor,
+// not frozen, and either not_started (a fresh create / a fully-reset reassign) OR
+// held under the reassigning lock (a handover successor slot — a partially-done
+// task reassigned to outsource derives to in_progress, so status alone would miss
+// it; the lock is the honest "awaiting the successor mint" signal). T-35e0.
+func outsourceAwaitingAssignment(t Task) bool {
+	if t.ExecutorKind != TaskExecutorOutsource || t.ExecutorID != "" ||
+		t.Priority == TaskPriorityFrozen {
+		return false
+	}
+	return t.Status == TaskStatusNotStarted || t.Lock == TaskLockReassigning
 }
 
 // taskPriorityRank orders the queue: high before mid before low; frozen (and
@@ -148,22 +186,36 @@ func outsourceDecide(
 		if c.Priority == TaskPriorityFrozen || admitted[c.TaskID] {
 			continue
 		}
-		spec, ok := specs[c.TypeKey]
-		if !ok || spec.Copies < 0 {
-			continue
-		}
-		// Copies == 0 is 無限 (unlimited per-type copies) — never capped here.
-		if spec.Copies > 0 && byType[c.TypeKey] >= spec.Copies {
-			continue
+		var spec outsourceTypeSpec
+		if c.hasExplicitTarget() {
+			// An explicit 發包 target (create/reassign dispatch) rides the GLOBAL
+			// cap only — no per-type copy limit (it was authorized at the handler,
+			// not a type-copy admission). Copies == 0 = 無限 per-type.
+			spec = outsourceTypeSpec{
+				Copies: 0, Model: c.TargetModel,
+				Effort: c.TargetEffort, Machine: c.TargetMachine,
+			}
+		} else {
+			var ok bool
+			spec, ok = specs[c.TypeKey]
+			if !ok || spec.Copies < 0 {
+				continue
+			}
+			// Copies == 0 is 無限 (unlimited per-type copies) — never capped here.
+			if spec.Copies > 0 && byType[c.TypeKey] >= spec.Copies {
+				continue
+			}
 		}
 		admitted[c.TaskID] = true
 		byType[c.TypeKey]++
 		liveTotal++
 		out = append(out, outsourceAssignment{
-			TaskID:  c.TaskID,
-			TypeKey: c.TypeKey,
-			Model:   spec.Model,
-			Effort:  spec.Effort,
+			TaskID:     c.TaskID,
+			TypeKey:    c.TypeKey,
+			Model:      spec.Model,
+			Effort:     spec.Effort,
+			Machine:    spec.Machine,
+			FromTarget: c.hasExplicitTarget(),
 		})
 	}
 	return out
@@ -347,13 +399,14 @@ func (s *apiServer) runOutsourceTick(now float64) {
 
 	var cands []outsourceCandidate
 	for _, t := range tasks {
-		if t.Status != TaskStatusNotStarted || t.ExecutorKind != TaskExecutorOutsource ||
-			t.ExecutorID != "" || t.Priority == TaskPriorityFrozen {
+		if !outsourceAwaitingAssignment(t) {
 			continue
 		}
 		cands = append(cands, outsourceCandidate{
 			TaskID: t.ID, TypeKey: t.TypeKey,
 			Priority: t.Priority, CreatedTS: t.CreatedTS,
+			TargetModel: t.OutsourceModel, TargetEffort: t.OutsourceEffort,
+			TargetMachine: t.OutsourceMachine,
 		})
 	}
 	if len(cands) == 0 {
@@ -378,42 +431,34 @@ func (s *apiServer) runOutsourceTick(now float64) {
 			outsourceLog("assign %s: re-read failed: %v", d.TaskID, err)
 			continue
 		}
-		if t == nil || t.Status != TaskStatusNotStarted ||
-			t.ExecutorKind != TaskExecutorOutsource || t.ExecutorID != "" ||
-			t.Priority == TaskPriorityFrozen {
+		if t == nil || !outsourceAwaitingAssignment(*t) {
 			continue
 		}
-		// ④ the typed-outsource auto-spawn is a 發包 by the task's CREATOR — it
-		// funnels through the SAME single gate as create_task and reassign (no
-		// side door). A subordinate creator's dispatch parks for owner approval
-		// (pending → the task leaves the not_started queue) or is denied (left
-		// queued); an owner/admin/whitelisted creator admits and mints below.
-		principal, initiator, perr := s.resolveDispatchInitiator(t.CreatorID)
-		if perr != nil {
-			outsourceLog("assign %s: initiator resolve failed: %v", t.ID, perr)
-		}
-		gate, err := s.outsourceSpawnGate(outsourceGateRequest{
-			PrincipalClass: principal, Initiator: initiator, TaskID: t.ID,
-			Model: d.Model, Effort: d.Effort, Machine: specs[d.TypeKey].Machine,
-			IssuedBy: t.CreatorID,
-		})
-		if err != nil {
-			outsourceLog("assign %s: gate failed: %v", t.ID, err)
-			continue
-		}
-		switch gate.Decision {
-		case gateDeny:
-			outsourceLog("assign %s: 發包 denied for creator %q — left queued",
-				t.ID, t.CreatorID)
-			continue
-		case gatePending:
-			if err := s.landPendingOutsource(t, d.Model, d.Effort,
-				specs[d.TypeKey].Machine, t.CreatorID, now, triggerServer); err != nil {
-				outsourceLog("assign %s: pending land failed: %v", t.ID, err)
+		// ④ authz choke. An explicit 發包 target (create/reassign dispatch) was
+		// ALREADY authorized at the handler where the true initiator principal was
+		// known — re-gating it here (by the task's CREATOR, who may differ from the
+		// reassigner) would wrongly deny an owner's reassign of a subordinate's
+		// task. So the gate runs ONLY for a plain manual-driven outsource task,
+		// whose implicit 發包 is by its CREATOR (deny → left queued; admit → mint).
+		if !d.hasTarget() {
+			principal, initiator, perr := s.resolveDispatchInitiator(t.CreatorID)
+			if perr != nil {
+				outsourceLog("assign %s: initiator resolve failed: %v", t.ID, perr)
 			}
-			continue
-		case gateAdmitSpawn:
-			// mint + bind + spawn below
+			gate, err := s.outsourceSpawnGate(outsourceGateRequest{
+				PrincipalClass: principal, Initiator: initiator, TaskID: t.ID,
+				Model: d.Model, Effort: d.Effort, Machine: d.Machine,
+				IssuedBy: t.CreatorID,
+			})
+			if err != nil {
+				outsourceLog("assign %s: gate failed: %v", t.ID, err)
+				continue
+			}
+			if gate.Decision == gateDeny {
+				outsourceLog("assign %s: 發包 denied for creator %q — left queued",
+					t.ID, t.CreatorID)
+				continue
+			}
 		}
 		worker := OutsourceWorker{
 			ID:           "ow-" + newHexID(12),
@@ -429,6 +474,11 @@ func (s *apiServer) runOutsourceTick(now float64) {
 		if err := s.dal.PutOutsourceWorker(worker); err != nil {
 			outsourceLog("assign %s: worker write failed: %v", t.ID, err)
 			continue
+		}
+		if d.hasTarget() {
+			// An explicit 發包 target carries its own placement — the task has no
+			// type manual to fall back to, so pin the spawn-seam preference here.
+			s.workerMachinePref[worker.ID] = d.Machine
 		}
 		t.ExecutorID = worker.ID
 		t.UpdatedTS = now

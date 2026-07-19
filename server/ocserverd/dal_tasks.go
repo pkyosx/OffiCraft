@@ -49,12 +49,23 @@ type Task struct {
 	// reassigned (or pre-column rows).
 	ReassignedFrom     string
 	ReassignedFromKind string
+	// OutsourceModel / OutsourceEffort / OutsourceMachine is the explicit 發包
+	// target (T-35e0, migrations/00029), set ONLY on a create/reassign dispatch to
+	// an outsource worker: the task lands unassigned (executor_kind='outsource',
+	// executor_id='') carrying its target here, and the scheduler mints from it
+	// (preferred over the type manual's assignee spec). '' / '' / '' on a plain
+	// manual-driven outsource task (the scheduler falls back to the type spec) and
+	// on every non-outsource task.
+	OutsourceModel   string
+	OutsourceEffort  string
+	OutsourceMachine string
 }
 
 const taskColumns = `id, type_key, title, dedupe_key, inputs, description,
 	status, lock, priority, executor_kind, executor_id, creator_id, waiting_reason,
 	created_ts, updated_ts, closed_ts, closeout_ts, duplicate_of,
-	reassigned_from, reassigned_from_kind`
+	reassigned_from, reassigned_from_kind,
+	outsource_model, outsource_effort, outsource_machine`
 
 // sqlTerminalStatuses is the SQL IN-list of the terminal statuses — every
 // "open task" filter (dedupe probe, resume block, open counts) excludes these.
@@ -71,6 +82,7 @@ func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 		&t.WaitingReason,
 		&t.CreatedTS, &t.UpdatedTS, &t.ClosedTS, &t.CloseoutTS, &t.DuplicateOf,
 		&t.ReassignedFrom, &t.ReassignedFromKind,
+		&t.OutsourceModel, &t.OutsourceEffort, &t.OutsourceMachine,
 	)
 	if err != nil {
 		return Task{}, err
@@ -205,7 +217,7 @@ func (d *DAL) PutTask(t Task) error {
 	}
 	_, err = d.db.Exec(`
 		INSERT INTO task (`+taskColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
 			type_key = excluded.type_key, title = excluded.title,
 			dedupe_key = excluded.dedupe_key, inputs = excluded.inputs,
@@ -220,12 +232,16 @@ func (d *DAL) PutTask(t Task) error {
 			closed_ts = excluded.closed_ts, closeout_ts = excluded.closeout_ts,
 			duplicate_of = excluded.duplicate_of,
 			reassigned_from = excluded.reassigned_from,
-			reassigned_from_kind = excluded.reassigned_from_kind`,
+			reassigned_from_kind = excluded.reassigned_from_kind,
+			outsource_model = excluded.outsource_model,
+			outsource_effort = excluded.outsource_effort,
+			outsource_machine = excluded.outsource_machine`,
 		t.ID, t.TypeKey, t.Title, t.DedupeKey, string(blob), t.Description,
 		t.Status, t.Lock, t.Priority, t.ExecutorKind, t.ExecutorID, t.CreatorID,
 		t.WaitingReason,
 		t.CreatedTS, t.UpdatedTS, t.ClosedTS, t.CloseoutTS, t.DuplicateOf,
 		t.ReassignedFrom, t.ReassignedFromKind,
+		t.OutsourceModel, t.OutsourceEffort, t.OutsourceMachine,
 	)
 	return err
 }

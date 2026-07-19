@@ -1,10 +1,11 @@
 package main
 
-// outsource_gate_test.go — 節點9 the single spawn gate (④⑦) and its two
-// verdicts on the create_task 發包 path (①): the pure choke's admit/pending/deny
-// decision table, and the create_task dispatch integration (pending lands the
-// approval card + parks the intent + spawns NOTHING; owner's own dispatch admits
-// through the SAME gate; an unauthorized initiator is denied with no orphan task).
+// outsource_gate_test.go — 節點9 the single spawn gate (④⑦) and the create_task
+// 發包 path (①) after T-35e0 (拆核可閘 → 外包上限自動排隊): the gate now returns only
+// admit / deny (no per-task owner-approval PENDING), and an admitted create
+// dispatch LANDS AN UNASSIGNED outsource task carrying its target — the scheduler
+// mints it under the global cap. No approval card, no pending status, no side
+// door to an immediate spawn.
 
 import (
 	"net/http"
@@ -33,44 +34,6 @@ func createTaskAs(t *testing.T, api *apiServer, body map[string]any, sub, scope 
 	return rec
 }
 
-// armPendingDispatch sets up a whitelisted subordinate (m-dev) under the
-// per-task-card default, dispatches a create_task outsource target, and returns
-// the parked task + its live owner-approval card.
-func armPendingDispatch(t *testing.T, api *apiServer) (taskDTO, ReplyCard) {
-	t.Helper()
-	if m, _ := api.dal.GetMember("m-dev"); m == nil {
-		if err := api.dal.PutMember(Member{
-			ID: "m-dev", Name: "Dev", Kind: KindAssistant, RoleKey: "dev",
-			RosterStatus: RosterStatusActive,
-		}); err != nil {
-			t.Fatalf("seed initiator: %v", err)
-		}
-	}
-	setDefaultPolicy(t, api, true, nil, []string{"m-dev"})
-	rec := createTaskAs(t, api, map[string]any{
-		"title":  "review the PR",
-		"target": map[string]any{"kind": "outsource", "model": "sonnet", "effort": "high"},
-	}, "m-dev", "agent")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("arm pending: %d %s", rec.Code, rec.Body.String())
-	}
-	task := decodeBody[taskCreateResultDTO](t, rec).Task
-	if task.Status != TaskStatusPendingOutsourceApproval {
-		t.Fatalf("task must park pending, got %q", task.Status)
-	}
-	cards, err := api.dal.ListReplyCards()
-	if err != nil {
-		t.Fatalf("list cards: %v", err)
-	}
-	for _, c := range cards {
-		if c.TaskID == task.ID && c.Status == replyCardStatusWaiting {
-			return task, c
-		}
-	}
-	t.Fatalf("no waiting approval card for task %s", task.ID)
-	return taskDTO{}, ReplyCard{}
-}
-
 func liveWorkerCount(t *testing.T, api *apiServer) int {
 	t.Helper()
 	workers, err := api.dal.ListOutsourceWorkers()
@@ -78,177 +41,6 @@ func liveWorkerCount(t *testing.T, api *apiServer) int {
 		t.Fatalf("list workers: %v", err)
 	}
 	return len(workers)
-}
-
-func TestOutsourceApprovalApproveSpawnsExactlyOnce(t *testing.T) {
-	api := newTasksTestServer(t)
-	api.noOutsource = true
-	task, card := armPendingDispatch(t, api)
-
-	if rec := answerCard(t, api, card.ID, map[string]any{"option_idx": outsourceApproveOptionIdx}); rec.Code != http.StatusOK {
-		t.Fatalf("approve: %d %s", rec.Code, rec.Body.String())
-	}
-
-	// Exactly one worker minted + bound; task left pending, intent consumed.
-	if n := liveWorkerCount(t, api); n != 1 {
-		t.Fatalf("approve must mint exactly one worker, got %d", n)
-	}
-	bound, err := api.dal.GetTask(task.ID)
-	if err != nil || bound == nil {
-		t.Fatalf("re-read task: %v", err)
-	}
-	if bound.Status != TaskStatusNotStarted || bound.ExecutorKind != TaskExecutorOutsource || bound.ExecutorID == "" {
-		t.Fatalf("approved task must land not_started + bound outsource, got %+v", bound)
-	}
-	worker, err := api.dal.GetOutsourceWorker(bound.ExecutorID)
-	if err != nil || worker == nil || worker.Model != "sonnet" || worker.Effort != "high" {
-		t.Fatalf("minted worker must mirror the intent: %+v (%v)", worker, err)
-	}
-	if intent, _ := api.dal.GetOutsourceIntent(task.ID); intent != nil {
-		t.Fatalf("intent must be consumed on approve, got %+v", intent)
-	}
-}
-
-func TestOutsourceApprovalIsIdempotentAcrossReplayedSettle(t *testing.T) {
-	api := newTasksTestServer(t)
-	api.noOutsource = true
-	task, card := armPendingDispatch(t, api)
-	stored, err := api.dal.GetReplyCard(card.ID)
-	if err != nil || stored == nil {
-		t.Fatalf("get card: %v", err)
-	}
-
-	// A replayed settle (concurrent/duplicate approve) must spawn only once: the
-	// consumed intent is the exactly-once guard.
-	for i := 0; i < 3; i++ {
-		if err := api.settleOutsourceApproval(*stored, true, nowSecs(), "test"); err != nil {
-			t.Fatalf("settle %d: %v", i, err)
-		}
-	}
-	if n := liveWorkerCount(t, api); n != 1 {
-		t.Fatalf("replayed approve must mint exactly one worker, got %d", n)
-	}
-	_ = task
-}
-
-func TestOutsourceApprovalOnNonPendingTaskIsNoop(t *testing.T) {
-	api := newTasksTestServer(t)
-	api.noOutsource = true
-	_, card := armPendingDispatch(t, api)
-	stored, _ := api.dal.GetReplyCard(card.ID)
-
-	// The dispatch is cancelled first (task leaves pending, intent consumed).
-	if err := api.settleOutsourceApproval(*stored, false, nowSecs(), "test"); err != nil {
-		t.Fatalf("cancel: %v", err)
-	}
-	// A late approval of the same card is a CAS no-op — nothing spawns.
-	if err := api.settleOutsourceApproval(*stored, true, nowSecs(), "test"); err != nil {
-		t.Fatalf("late approve: %v", err)
-	}
-	if n := liveWorkerCount(t, api); n != 0 {
-		t.Fatalf("late approve on a non-pending task must spawn nothing, got %d", n)
-	}
-}
-
-func TestOutsourceApprovalCancelReturnsTaskToNotStarted(t *testing.T) {
-	api := newTasksTestServer(t)
-	api.noOutsource = true
-	task, card := armPendingDispatch(t, api)
-
-	if rec := answerCard(t, api, card.ID, map[string]any{"option_idx": outsourceCancelOptionIdx}); rec.Code != http.StatusOK {
-		t.Fatalf("cancel: %d %s", rec.Code, rec.Body.String())
-	}
-	bound, _ := api.dal.GetTask(task.ID)
-	if bound == nil || bound.Status != TaskStatusNotStarted {
-		t.Fatalf("cancelled dispatch must return to not_started, got %+v", bound)
-	}
-	if bound.ExecutorID != "" {
-		t.Fatalf("cancelled dispatch must not bind an executor, got %+v", bound)
-	}
-	if n := liveWorkerCount(t, api); n != 0 {
-		t.Fatalf("cancel must spawn nothing, got %d", n)
-	}
-	if intent, _ := api.dal.GetOutsourceIntent(task.ID); intent != nil {
-		t.Fatalf("intent must be invalidated on cancel, got %+v", intent)
-	}
-}
-
-func TestOutsourceApprovalTTLExpiryReturnsTaskToNotStarted(t *testing.T) {
-	api := newTasksTestServer(t)
-	api.noOutsource = true
-	task, card := armPendingDispatch(t, api)
-
-	rec := httptest.NewRecorder()
-	api.HandleExpireReplyCardApiReplyCardsCardIdExpirePost(rec,
-		taskReq(t, "POST", "/api/reply-cards/"+card.ID+"/expire", nil, wireOwnerID, "owner"), card.ID)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expire: %d %s", rec.Code, rec.Body.String())
-	}
-	bound, _ := api.dal.GetTask(task.ID)
-	if bound == nil || bound.Status != TaskStatusNotStarted {
-		t.Fatalf("expired approval card must return the task to not_started, got %+v", bound)
-	}
-	if n := liveWorkerCount(t, api); n != 0 {
-		t.Fatalf("TTL expiry must spawn nothing, got %d", n)
-	}
-	if intent, _ := api.dal.GetOutsourceIntent(task.ID); intent != nil {
-		t.Fatalf("intent must be invalidated on expiry, got %+v", intent)
-	}
-}
-
-func TestOutsourceApprovalReassignMemberDuringPendingBlocksLateApproval(t *testing.T) {
-	api := newTasksTestServer(t)
-	api.noOutsource = true
-	putActiveMember(t, api, "m-new", "Rei", KindAssistant)
-	task, card := armPendingDispatch(t, api)
-
-	// The owner reassigns the pending task to a MEMBER — it leaves pending, the
-	// approval card expires, the intent is invalidated (⑧).
-	if rec := reassign(t, api, task.ID, memberTarget("m-new"), wireOwnerID, "owner"); rec.Code != http.StatusOK {
-		t.Fatalf("reassign member: %d %s", rec.Code, rec.Body.String())
-	}
-	bound, _ := api.dal.GetTask(task.ID)
-	if bound == nil || bound.ExecutorID != "m-new" || bound.Lock != TaskLockReassigning {
-		t.Fatalf("task must re-point to m-new + reassigning lock, got %+v", bound)
-	}
-	if intent, _ := api.dal.GetOutsourceIntent(task.ID); intent != nil {
-		t.Fatalf("reassign must invalidate the pending intent, got %+v", intent)
-	}
-	if n := liveWorkerCount(t, api); n != 0 {
-		t.Fatalf("member reassign must spawn no outsource worker, got %d", n)
-	}
-	// A late answer of the (now expired) approval card is refused, spawns nothing.
-	if rec := answerCard(t, api, card.ID, map[string]any{"option_idx": outsourceApproveOptionIdx}); rec.Code != http.StatusConflict {
-		t.Fatalf("late answer of an expired card must 409, got %d %s", rec.Code, rec.Body.String())
-	}
-	if n := liveWorkerCount(t, api); n != 0 {
-		t.Fatalf("late approval must not spawn, got %d", n)
-	}
-}
-
-func TestOutsourceApprovalSpawnsFreshAfterInitiatorLeaves(t *testing.T) {
-	api := newTasksTestServer(t)
-	api.noOutsource = true
-	task, card := armPendingDispatch(t, api)
-
-	// The dispatching agent leaves the roster — the parked intent is independent
-	// of the initiator (⑪ orphan take-over), so the owner can still approve.
-	if err := api.dal.PutMember(Member{
-		ID: "m-dev", Name: "Dev", Kind: KindAssistant, RoleKey: "dev",
-		RosterStatus: RosterStatusRemoved,
-	}); err != nil {
-		t.Fatalf("retire initiator: %v", err)
-	}
-	if rec := answerCard(t, api, card.ID, map[string]any{"option_idx": outsourceApproveOptionIdx}); rec.Code != http.StatusOK {
-		t.Fatalf("owner approve after initiator left: %d %s", rec.Code, rec.Body.String())
-	}
-	if n := liveWorkerCount(t, api); n != 1 {
-		t.Fatalf("owner approval must still spawn a fresh worker, got %d", n)
-	}
-	bound, _ := api.dal.GetTask(task.ID)
-	if bound == nil || bound.ExecutorID == "" {
-		t.Fatalf("approved task must bind a fresh worker, got %+v", bound)
-	}
 }
 
 func TestOutsourceSpawnGate(t *testing.T) {
@@ -264,10 +56,12 @@ func TestOutsourceSpawnGate(t *testing.T) {
 		members   []string
 		want      outsourceGateDecision
 	}{
-		{"owner admits even when a card is required", principalOwner, nil, true, nil, gateAdmitSpawn},
-		{"admin admits even when a card is required", principalAdminAgent, assistant, true, nil, gateAdmitSpawn},
-		{"whitelisted agent pends when a card is required", principalAgent, whitelisted, true, []string{"m-dev"}, gatePending},
-		{"whitelisted agent admits when no card is required", principalAgent, whitelisted, false, []string{"m-dev"}, gateAdmitSpawn},
+		// The per-task-card posture no longer pends anyone: authorization is the
+		// only gate now (T-35e0). needs_per_task_card is inert.
+		{"owner admits", principalOwner, nil, true, nil, gateAdmitSpawn},
+		{"admin admits", principalAdminAgent, assistant, true, nil, gateAdmitSpawn},
+		{"whitelisted agent admits even under the card posture", principalAgent, whitelisted, true, []string{"m-dev"}, gateAdmitSpawn},
+		{"whitelisted agent admits with no card posture", principalAgent, whitelisted, false, []string{"m-dev"}, gateAdmitSpawn},
 		{"unlisted agent is denied", principalAgent, plain, true, []string{"m-dev"}, gateDeny},
 		{"nil non-owner initiator is denied", principalAgent, nil, true, nil, gateDeny},
 	}
@@ -293,11 +87,12 @@ func TestOutsourceSpawnGate(t *testing.T) {
 	}
 }
 
-func TestCreateTaskOutsourceDispatchPendsAndOpensCard(t *testing.T) {
+// A whitelisted subordinate's create dispatch is authorized and lands an
+// UNASSIGNED outsource task carrying its target — no approval card, no pending
+// status, no worker (the scheduler mints it later under the cap).
+func TestCreateTaskOutsourceDispatchLandsUnassignedTask(t *testing.T) {
 	api := newTasksTestServer(t)
-	api.noOutsource = true // no scheduler race — the gate alone decides
-	// A whitelisted subordinate: authorized to 發包 but the default per-task-card
-	// posture parks the dispatch for owner approval.
+	api.noOutsource = true // the scheduler is pinned separately — assert the landing
 	if err := api.dal.PutMember(Member{
 		ID: "m-dev", Name: "Dev", Kind: KindAssistant, RoleKey: "dev",
 		RosterStatus: RosterStatusActive,
@@ -314,41 +109,31 @@ func TestCreateTaskOutsourceDispatchPendsAndOpensCard(t *testing.T) {
 		t.Fatalf("create dispatch: %d %s", rec.Code, rec.Body.String())
 	}
 	created := decodeBody[taskCreateResultDTO](t, rec).Task
-	if created.Status != TaskStatusPendingOutsourceApproval {
-		t.Fatalf("task must park pending approval, got %q", created.Status)
+	if created.Status != TaskStatusNotStarted {
+		t.Fatalf("dispatch must land not_started (no pending status), got %q", created.Status)
 	}
 
-	// No worker was minted — the whole point of the gate.
-	workers, err := api.dal.ListOutsourceWorkers()
-	if err != nil {
-		t.Fatalf("list workers: %v", err)
+	stored, err := api.dal.GetTask(created.ID)
+	if err != nil || stored == nil {
+		t.Fatalf("re-read task: %v", err)
 	}
-	if len(workers) != 0 {
-		t.Fatalf("pending dispatch must spawn nothing, got %d workers", len(workers))
+	if stored.ExecutorKind != TaskExecutorOutsource || stored.ExecutorID != "" {
+		t.Fatalf("dispatch must land an unassigned outsource task, got %+v", stored)
 	}
-
-	// An owner approval card opened, bound to the task.
+	if stored.OutsourceModel != "sonnet" || stored.OutsourceEffort != "high" ||
+		stored.OutsourceMachine != "auto" {
+		t.Fatalf("the outsource target must ride the task row, got %+v", stored)
+	}
+	if n := liveWorkerCount(t, api); n != 0 {
+		t.Fatalf("no worker may be minted at dispatch time, got %d", n)
+	}
+	// No approval card — the whole point of退場ing the gate.
 	cards, err := api.dal.ListReplyCards()
 	if err != nil {
 		t.Fatalf("list cards: %v", err)
 	}
-	var card *ReplyCard
-	for i := range cards {
-		if cards[i].TaskID == created.ID {
-			card = &cards[i]
-		}
-	}
-	if card == nil || card.Status != replyCardStatusWaiting {
-		t.Fatalf("a waiting owner card must be bound to the task, got %+v", card)
-	}
-
-	// The dispatch intent is parked for the Pass-2 approve handler.
-	intent, err := api.dal.GetOutsourceIntent(created.ID)
-	if err != nil || intent == nil {
-		t.Fatalf("intent must be persisted: %v %v", intent, err)
-	}
-	if intent.Model != "sonnet" || intent.Effort != "high" || intent.IssuedBy != "m-dev" {
-		t.Fatalf("intent must carry the dispatch target + initiator: %+v", intent)
+	if len(cards) != 0 {
+		t.Fatalf("dispatch must open no approval card, got %d", len(cards))
 	}
 }
 
@@ -379,21 +164,16 @@ func TestCreateTaskOutsourceDispatchDeniesUnauthorizedInitiatorLeavingNoTask(t *
 	if len(tasks) != 0 {
 		t.Fatalf("denied dispatch must persist no task, got %d", len(tasks))
 	}
-	workers, err := api.dal.ListOutsourceWorkers()
-	if err != nil {
-		t.Fatalf("list workers: %v", err)
-	}
-	if len(workers) != 0 {
-		t.Fatalf("denied dispatch must mint nothing, got %d", len(workers))
+	if n := liveWorkerCount(t, api); n != 0 {
+		t.Fatalf("denied dispatch must mint nothing, got %d", n)
 	}
 }
 
+// ⑦ the owner's OWN dispatch traverses the same gate (no back door) and — like
+// every admit now — lands unassigned for the scheduler, never an immediate spawn.
 func TestCreateTaskOutsourceDispatchOwnerAdmitsThroughTheGate(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true
-	// ⑦ the owner's OWN dispatch traverses the same gate (no back door): the
-	// per-task card default still stands, yet the owner is a standing approver so
-	// the dispatch admits and a worker is minted+bound (no pending, no card).
 	rec := createTaskAs(t, api, map[string]any{
 		"title":  "owner dispatch",
 		"target": map[string]any{"kind": "outsource", "model": "opus", "effort": "medium"},
@@ -403,19 +183,17 @@ func TestCreateTaskOutsourceDispatchOwnerAdmitsThroughTheGate(t *testing.T) {
 	}
 	created := decodeBody[taskCreateResultDTO](t, rec).Task
 	if created.Status != TaskStatusNotStarted || created.ExecutorKind != TaskExecutorOutsource {
-		t.Fatalf("admitted dispatch must bind an outsource executor, got %+v", created)
+		t.Fatalf("admitted dispatch must land an outsource track, got %+v", created)
 	}
-	if created.ExecutorID == "" {
-		t.Fatalf("admitted dispatch must mint + bind a worker, got %+v", created)
+	stored, _ := api.dal.GetTask(created.ID)
+	if stored == nil || stored.ExecutorID != "" ||
+		stored.OutsourceModel != "opus" || stored.OutsourceEffort != "medium" {
+		t.Fatalf("owner admit must land unassigned + target, got %+v", stored)
 	}
-	worker, err := api.dal.GetOutsourceWorker(created.ExecutorID)
-	if err != nil || worker == nil {
-		t.Fatalf("minted worker missing: %v", err)
+	// No immediate spawn side door, no approval card.
+	if n := liveWorkerCount(t, api); n != 0 {
+		t.Fatalf("owner admit must not spawn inline, got %d workers", n)
 	}
-	if worker.Model != "opus" || worker.Effort != "medium" || worker.TaskID != created.ID {
-		t.Fatalf("worker must mirror the dispatch target: %+v", worker)
-	}
-	// No approval card for an admitted dispatch.
 	cards, err := api.dal.ListReplyCards()
 	if err != nil {
 		t.Fatalf("list cards: %v", err)

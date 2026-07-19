@@ -259,8 +259,12 @@ func TestReassignMemberToMemberHandsOver(t *testing.T) {
 	}
 }
 
-func TestReassignToOutsourceMintsWorkerWithTheDialogSpec(t *testing.T) {
+// T-35e0: a reassign-to-outsource no longer mints inline — it lands the task
+// UNASSIGNED (executor_id=” + the outsource_target on the row) under the
+// reassigning lock, and the scheduler mints the successor under the global cap.
+func TestReassignToOutsourceLandsUnassignedTarget(t *testing.T) {
 	api := newTasksTestServer(t)
+	api.noOutsource = true // hold the scheduler — assert the landing, then tick by hand
 	putActiveMember(t, api, "m-old", "Ken", KindAssistant)
 	task := createAdHocTask(t, api, "m-old")
 
@@ -275,24 +279,113 @@ func TestReassignToOutsourceMintsWorkerWithTheDialogSpec(t *testing.T) {
 	}
 	out := decodeBody[taskDTO](t, rec)
 	if out.Lock != TaskLockReassigning ||
-		out.ExecutorKind != TaskExecutorOutsource ||
-		!strings.HasPrefix(out.ExecutorID, "ow-") {
-		t.Fatalf("outsource hand-over wrong: %+v", out)
+		out.ExecutorKind != TaskExecutorOutsource || out.ExecutorID != "" {
+		t.Fatalf("outsource hand-over must land unassigned + reassigning: %+v", out)
 	}
-	worker, err := api.dal.GetOutsourceWorker(out.ExecutorID)
+	stored, err := api.dal.GetTask(task.ID)
+	if err != nil || stored == nil {
+		t.Fatalf("re-read: %v", err)
+	}
+	if stored.OutsourceModel != "sonnet" || stored.OutsourceEffort != "high" ||
+		stored.OutsourceMachine != "m-box" {
+		t.Fatalf("the outsource target must ride the task row: %+v", stored)
+	}
+	if n := liveWorkerCount(t, api); n != 0 {
+		t.Fatalf("no worker may be minted at reassign time, got %d", n)
+	}
+
+	// The scheduler mints the successor from the target, under the global cap.
+	api.runOutsourceTick(nowSecs())
+	bound, _ := api.dal.GetTask(task.ID)
+	if bound == nil || !strings.HasPrefix(bound.ExecutorID, "ow-") {
+		t.Fatalf("scheduler must mint + bind the successor: %+v", bound)
+	}
+	worker, err := api.dal.GetOutsourceWorker(bound.ExecutorID)
 	if err != nil || worker == nil {
 		t.Fatalf("minted worker missing: %v %v", worker, err)
 	}
 	if worker.Model != "sonnet" || worker.Effort != "high" ||
-		worker.TaskID != task.ID || worker.Status != WorkerStatusAssigned {
-		t.Fatalf("worker must carry the dialog spec: %+v", worker)
+		worker.TaskID != task.ID {
+		t.Fatalf("worker must carry the target spec: %+v", worker)
 	}
 	if api.workerMachinePref[worker.ID] != "m-box" {
-		t.Fatalf("machine preference must ride the spawn override: %q",
+		t.Fatalf("machine preference must ride the target: %q",
 			api.workerMachinePref[worker.ID])
 	}
 	if !strings.HasPrefix(worker.Codename, "S-") {
 		t.Fatalf("codename must derive from the model: %q", worker.Codename)
+	}
+	// The reassigning lock survives the mint — cleared only by the successor's claim.
+	if bound.Lock != TaskLockReassigning {
+		t.Fatalf("the reassigning lock must survive the mint, got %q", bound.Lock)
+	}
+}
+
+// T-35e0 RED/GREEN pin for the `|| t.Lock == TaskLockReassigning` arm of
+// outsourceAwaitingAssignment: an IN-PROGRESS task (a done leaf keeps the derived
+// status at in_progress even after the reassign resets the running step to
+// pending) reassigned to outsource lands unassigned under the reassigning lock.
+// Its status is in_progress, NOT not_started, so the status arm alone would MISS
+// this successor slot — only the lock arm makes it mintable. Remove that term and
+// this test must go red: the successor is never minted, a silent orphan.
+// (TestReassignToOutsourceLandsUnassignedTarget covers the not_started arm — a
+// bare reassign with no steps — which the status arm alone already catches.)
+func TestReassignInProgressTaskToOutsourceMintsSuccessorUnderReassigningLock(t *testing.T) {
+	api := newTasksTestServer(t)
+	api.noOutsource = true // hold the scheduler — reassign, then tick by hand
+	putActiveMember(t, api, "m-old", "Ken", KindAssistant)
+	task := createAdHocTask(t, api, "m-old")
+	view := submitPlan(t, api, task.ID, "m-old", []map[string]any{
+		{"name": "done step", "dod": "d"},
+		{"name": "running step", "dod": "d"},
+	})
+	// Drive step0 → done, step1 → in_progress. The done leaf is the crux: it keeps
+	// the derived status at in_progress even after reassign resets step1 to pending.
+	for _, move := range []map[string]any{
+		{"id": view.Steps[0].ID, "status": "in_progress"},
+		{"id": view.Steps[0].ID, "status": "done"},
+		{"id": view.Steps[1].ID, "status": "in_progress"},
+	} {
+		rec := httptest.NewRecorder()
+		api.HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost(rec,
+			taskReq(t, "POST", "/x", map[string]any{"status": move["status"]},
+				"m-old", "agent"), task.ID, move["id"].(string))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("step drive: %d %s", rec.Code, rec.Body.String())
+		}
+	}
+
+	rec := reassign(t, api, task.ID, map[string]any{
+		"target": map[string]any{"kind": "outsource", "model": "sonnet", "effort": "high"},
+	}, "owner", "owner")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("reassign: %d %s", rec.Code, rec.Body.String())
+	}
+	out := decodeBody[taskDTO](t, rec)
+	// The crux assertion: a done leaf keeps the reassigned task at in_progress (NOT
+	// not_started), so the scheduler can find this successor slot ONLY via the lock.
+	if out.Status != TaskStatusInProgress {
+		t.Fatalf("a done leaf must keep the reassigned task at in_progress, got %q", out.Status)
+	}
+	if out.Lock != TaskLockReassigning ||
+		out.ExecutorKind != TaskExecutorOutsource || out.ExecutorID != "" {
+		t.Fatalf("in-progress outsource hand-over must land unassigned + reassigning: %+v", out)
+	}
+
+	// The scheduler must mint the successor — reachable ONLY through the lock arm
+	// (status is in_progress, so the not_started arm cannot pick it up).
+	api.runOutsourceTick(nowSecs())
+	bound, _ := api.dal.GetTask(task.ID)
+	if bound == nil || !strings.HasPrefix(bound.ExecutorID, "ow-") {
+		t.Fatalf("scheduler must mint the in-progress reassign successor via the reassigning lock: %+v", bound)
+	}
+	worker, err := api.dal.GetOutsourceWorker(bound.ExecutorID)
+	if err != nil || worker == nil || worker.Model != "sonnet" || worker.TaskID != task.ID {
+		t.Fatalf("minted successor must carry the target spec: %+v %v", worker, err)
+	}
+	// The lock survives the mint (cleared only by the successor's claim).
+	if bound.Lock != TaskLockReassigning {
+		t.Fatalf("the reassigning lock must survive the mint, got %q", bound.Lock)
 	}
 }
 
@@ -370,22 +463,29 @@ func TestReassignDefersOutsourceSourceDismissUntilTakeover(t *testing.T) {
 // RED/GREEN pin for ReleaseWorkerByID.
 func TestReassignOutsourceToOutsourceTakeoverSparesTheNewWorker(t *testing.T) {
 	api := newTasksTestServer(t)
+	api.noOutsource = true // mint the successor by an explicit tick
 	putActiveMember(t, api, "m-old", "Ken", KindAssistant)
 	task := createAdHocTask(t, api, "m-old")
 	bindOutsourceExecutor(t, api, task.ID, "ow-old", "S-1")
 
-	// Reassign to a fresh outsource worker (minted on the same task_id).
+	// Reassign to outsource — the task lands unassigned; the scheduler mints the
+	// fresh successor (on the same task_id) on the next tick.
 	rec := reassign(t, api, task.ID, map[string]any{
 		"target": map[string]any{"kind": "outsource", "model": "sonnet", "effort": "medium"},
 	}, "owner", "owner")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("reassign: %d %s", rec.Code, rec.Body.String())
 	}
-	newWorkerID := decodeBody[taskDTO](t, rec).ExecutorID
-	if newWorkerID == "ow-old" || !strings.HasPrefix(newWorkerID, "ow-") {
-		t.Fatalf("a fresh worker must be minted, got %q", newWorkerID)
+	api.runOutsourceTick(nowSecs())
+	bound, _ := api.dal.GetTask(task.ID)
+	newWorkerID := ""
+	if bound != nil {
+		newWorkerID = bound.ExecutorID
 	}
-	// Both live on the same task_id right after reassign.
+	if newWorkerID == "ow-old" || !strings.HasPrefix(newWorkerID, "ow-") {
+		t.Fatalf("a fresh successor worker must be minted, got %q", newWorkerID)
+	}
+	// Both live on the same task_id right after the mint.
 	if w, _ := api.dal.GetOutsourceWorker("ow-old"); w == nil || w.Status == WorkerStatusReleased {
 		t.Fatalf("predecessor must stay live pre-takeover")
 	}
@@ -404,12 +504,12 @@ func TestReassignOutsourceToOutsourceTakeoverSparesTheNewWorker(t *testing.T) {
 	}
 }
 
-// T-ba04: reassigning to an outsource target posts the NEW worker its OWN
-// handover pairing message (it used to get none — a headless worker was left
-// with only the boot context). The message is server-authored and names the
-// predecessor + the self-flip protocol.
-func TestReassignPostsPairingMessageToNewOutsourceWorker(t *testing.T) {
+// T-35e0: reassigning to an outsource target still notifies the PREDECESSOR to
+// hand over (the successor is minted later by the scheduler and learns the
+// takeover via its boot context, so no chat is posted to it at reassign time).
+func TestReassignToOutsourcePostsPredecessorHandoverNotice(t *testing.T) {
 	api := newTasksTestServer(t)
+	api.noOutsource = true
 	putActiveMember(t, api, "m-old", "Ken", KindAssistant)
 	task := createAdHocTask(t, api, "m-old")
 
@@ -419,27 +519,25 @@ func TestReassignPostsPairingMessageToNewOutsourceWorker(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("reassign: %d %s", rec.Code, rec.Body.String())
 	}
-	newWorkerID := decodeBody[taskDTO](t, rec).ExecutorID
 
 	msgs, err := api.dal.ListChat()
 	if err != nil {
 		t.Fatalf("chat: %v", err)
 	}
-	var toWorker *ChatMessage
+	var toPredecessor *ChatMessage
 	for i := range msgs {
-		if msgs[i].Recipient == newWorkerID {
-			toWorker = &msgs[i]
+		if msgs[i].Recipient == "m-old" {
+			toPredecessor = &msgs[i]
 		}
 	}
-	if toWorker == nil {
-		t.Fatalf("the minted outsource worker must receive a pairing message")
+	if toPredecessor == nil {
+		t.Fatalf("the predecessor must receive a handover notice")
 	}
-	if toWorker.Sender != wireSystemSender {
-		t.Fatalf("pairing message must be system-authored, got %q", toWorker.Sender)
+	if toPredecessor.Sender != wireSystemSender {
+		t.Fatalf("handover notice must be system-authored, got %q", toPredecessor.Sender)
 	}
-	if !strings.Contains(toWorker.Body, "你的前任是") ||
-		!strings.Contains(toWorker.Body, "reassigning→in_progress") {
-		t.Fatalf("pairing message must name the predecessor + the self-flip: %q", toWorker.Body)
+	if !strings.Contains(toPredecessor.Body, "轉派給") {
+		t.Fatalf("handover notice must tell the predecessor to hand over: %q", toPredecessor.Body)
 	}
 }
 
@@ -483,17 +581,23 @@ func TestReassignTakeoverIsTheNewExecutorsAlone(t *testing.T) {
 // path the pre-T-ba04 suite never exercised.
 func TestReassignOutsourceSuccessorClaimsViaGetMyTaskThenTakesOver(t *testing.T) {
 	api := newTasksTestServer(t)
+	api.noOutsource = true
 	putActiveMember(t, api, "m-old", "Ken", KindAssistant)
 	task := createAdHocTask(t, api, "m-old")
 
-	// Reassign the member's task to a fresh outsource worker.
+	// Reassign the member's task to outsource — the scheduler mints the successor.
 	rec := reassign(t, api, task.ID, map[string]any{
 		"target": map[string]any{"kind": "outsource", "model": "sonnet", "effort": "medium"},
 	}, "owner", "owner")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("reassign: %d %s", rec.Code, rec.Body.String())
 	}
-	workerID := decodeBody[taskDTO](t, rec).ExecutorID
+	api.runOutsourceTick(nowSecs())
+	bound, _ := api.dal.GetTask(task.ID)
+	if bound == nil || bound.ExecutorID == "" {
+		t.Fatalf("scheduler must mint the successor: %+v", bound)
+	}
+	workerID := bound.ExecutorID
 
 	// The worker claims via get_my_task: it must land assigned→active and the
 	// task it reads must be `reassigning` with the predecessor stamped.

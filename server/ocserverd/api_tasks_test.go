@@ -2144,61 +2144,13 @@ func TestSetTaskPriorityValidationFaces(t *testing.T) {
 	}
 }
 
-// seedPendingAllDoneSteps lands a pending_outsource_approval task whose steps
-// are ALL DONE — the case where the temp pending guard actually MATTERS: an
-// unguarded derive seam sees DeriveTaskStatus==done and would CLOSE the pending
-// hold via closeTask (a path RecomputeTaskStatus's own guard runs too late to
-// catch). It is the fixture both temp-pending seam guards are tested with.
-func seedPendingAllDoneSteps(t *testing.T, api *apiServer, id string) {
-	t.Helper()
-	if err := api.dal.PutTask(Task{
-		ID: id, TypeKey: "tm-x", Title: id, Status: TaskStatusPendingOutsourceApproval,
-		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorOutsource,
-		CreatedTS: 1000, UpdatedTS: 1000,
-	}); err != nil {
-		t.Fatalf("put task: %v", err)
-	}
-	if err := api.dal.PutTaskStep(TaskStep{
-		ID: id + "-s0", TaskID: id, OrderIdx: 0, Name: "work", Status: StepStatusDone,
-	}); err != nil {
-		t.Fatalf("put step: %v", err)
-	}
-}
-
-// TestDeriveAndPersistTask pins the temporary pending guard on the RUNTIME
-// step-mutation seam (T-9ca5): deriveAndPersistTask must leave a
-// pending_outsource_approval task untouched even though its steps would derive
-// to in_progress — the system dispatch hold is not step-derivable. (The unit
-// guard in RecomputeTaskStatus is separately tested; this pins the actual HTTP
-// funnel the earlier review found unprotected.)
-func TestDeriveAndPersistTask(t *testing.T) {
-	api := newTasksTestServer(t)
-	seedPendingAllDoneSteps(t, api, "t-pending")
-	task, err := api.dal.GetTask("t-pending")
-	if err != nil || task == nil {
-		t.Fatalf("load: %v %v", task, err)
-	}
-	if err := api.deriveAndPersistTask(task, 2000, "test"); err != nil {
-		t.Fatalf("derive: %v", err)
-	}
-	got, err := api.dal.GetTask("t-pending")
-	if err != nil || got == nil {
-		t.Fatalf("reload: %v %v", got, err)
-	}
-	if got.Status != TaskStatusPendingOutsourceApproval {
-		t.Fatalf("pending hold must survive the derive seam, got %q", got.Status)
-	}
-}
-
-// TestReconcileTaskStatusesOnBoot pins the same temp pending guard on the boot
-// reconcile seam: the one-shot alignment pass must skip a
-// pending_outsource_approval task (not re-derive its status) while it still
-// corrects genuinely-drifted rows.
+// TestReconcileTaskStatusesOnBoot pins the boot reconcile seam: the one-shot
+// alignment pass corrects a genuinely-drifted row to its derived status while
+// leaving terminal tasks (not step-derivable) alone.
 func TestReconcileTaskStatusesOnBoot(t *testing.T) {
 	api := newTasksTestServer(t)
-	seedPendingAllDoneSteps(t, api, "t-pending")
-	// A genuinely-drifted control: status not_started but its step is in_progress
-	// → reconcile SHOULD correct this one to in_progress.
+	// A genuinely-drifted row: status not_started but its step is in_progress →
+	// reconcile SHOULD correct this to in_progress.
 	if err := api.dal.PutTask(Task{
 		ID: "t-drift", TypeKey: "tm-x", Title: "drift", Status: TaskStatusNotStarted,
 		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorMember, ExecutorID: "m-1",
@@ -2211,15 +2163,28 @@ func TestReconcileTaskStatusesOnBoot(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("put drift step: %v", err)
 	}
+	// A terminal control: reconcile must not re-derive it.
+	if err := api.dal.PutTask(Task{
+		ID: "t-term", TypeKey: "tm-x", Title: "term", Status: TaskStatusTerminated,
+		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorMember, ExecutorID: "m-1",
+		CreatedTS: 1000, UpdatedTS: 1000,
+	}); err != nil {
+		t.Fatalf("put terminal task: %v", err)
+	}
+	if err := api.dal.PutTaskStep(TaskStep{
+		ID: "t-term-s0", TaskID: "t-term", OrderIdx: 0, Name: "work", Status: StepStatusInProgress,
+	}); err != nil {
+		t.Fatalf("put terminal step: %v", err)
+	}
 	if _, err := api.reconcileTaskStatusesOnBoot(); err != nil {
 		t.Fatalf("reconcile: %v", err)
-	}
-	pending, _ := api.dal.GetTask("t-pending")
-	if pending.Status != TaskStatusPendingOutsourceApproval {
-		t.Fatalf("boot reconcile must skip pending hold, got %q", pending.Status)
 	}
 	drift, _ := api.dal.GetTask("t-drift")
 	if drift.Status != TaskStatusInProgress {
 		t.Fatalf("boot reconcile must correct the drifted task to in_progress, got %q", drift.Status)
+	}
+	term, _ := api.dal.GetTask("t-term")
+	if term.Status != TaskStatusTerminated {
+		t.Fatalf("boot reconcile must leave a terminal task untouched, got %q", term.Status)
 	}
 }

@@ -1044,7 +1044,7 @@
       "name": "list_tasks"
     },
     {
-      "description": "Create a task (dedupes on the manual's key; ad-hoc when type_key omitted). Pass target.kind=outsource to dispatch the task to a fresh outsource worker (發包); the dispatch passes the owner-approval gate — with per-task-card governance it lands pending_outsource_approval and opens an owner reply card instead of spawning.",
+      "description": "Create a task (dedupes on the manual's key; ad-hoc when type_key omitted). Pass target.kind=outsource to drop the task as an unassigned outsource task (發包); the existing outsource scheduler then spawns workers against the global concurrency cap (outsourceParallelCap) — below the cap it starts immediately, at the cap it queues for capacity and is picked up automatically when a slot frees. No owner-approval card and no per-task approval; the owner may reassign a still-queued task at any time.",
       "inputSchema": {
         "properties": {
           "description": {
@@ -1490,7 +1490,7 @@
       "name": "report_task_closeout"
     },
     {
-      "description": "Reassign a task to a member or a fresh outsource worker (the task's executor or an admin; outsource targets pass the owner-approval gate; enters the reassigning handover state).",
+      "description": "Reassign a task to a member or a fresh outsource worker (the task's executor or an admin; an outsource target lands the task unassigned for the scheduler to spawn under the global parallel cap; enters the reassigning handover state).",
       "inputSchema": {
         "properties": {
           "note": {

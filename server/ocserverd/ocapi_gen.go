@@ -1259,7 +1259,7 @@ type TaskCreateResultDTO struct {
 	Warnings *[]string `json:"warnings,omitempty"`
 }
 
-// TaskCreateTargetDTO Optional dispatch target (agent 發包給外包). When present with “kind='outsource'“ the task is created as an outsource dispatch that passes through the single owner-approval gate before any worker spawns: with per-task-card governance the task lands in “pending_outsource_approval“ and an owner reply card opens (no worker minted); a whitelisted/免卡 initiator spawns immediately. “model“ is the worker's model (blank/absent = the runtime default); “effort“ is low|medium|high (absent = “medium“); “machine“ is the spawn placement preference — “auto“ (absent = auto) or a machine id. Absent (or “kind='member'“) keeps the current create semantics (manual assignee / “executor_member_id“).
+// TaskCreateTargetDTO Optional dispatch target (agent 發包給外包). When present with “kind='outsource'“ the task is created as an **unassigned outsource task** — no owner-approval card and no per-task approval. The existing outsource scheduler then picks up unassigned outsource tasks against the global concurrency cap (“outsourceParallelCap“, owner-configurable in the cockpit; default unchanged): below the cap it mints a fresh worker immediately, at the cap it queues for capacity and is picked up automatically when a slot frees. The owner may reassign a still-queued task (to a member or another outsource) at any time. “model“ is the worker's model (blank/absent = the runtime default); “effort“ is low|medium|high (absent = “medium“); “machine“ is the spawn placement preference — “auto“ (absent = auto) or a machine id. Absent (or “kind='member'“) keeps the current create semantics (manual assignee / “executor_member_id“).
 type TaskCreateTargetDTO struct {
 	Effort  *string `json:"effort,omitempty"`
 	Kind    string  `json:"kind"`
@@ -1416,11 +1416,11 @@ type TaskPriorityUpdateDTO struct {
 type TaskReassignDTO struct {
 	Note *string `json:"note,omitempty"`
 
-	// Target The reassignment target. ``kind='member'`` requires ``member_id`` — an ACTIVE roster member below the warden layer (a warden or an inactive/unknown member is a 400). ``kind='outsource'`` mints a fresh worker on the spot: ``model`` is the worker's model (blank/absent = the runtime default); ``effort`` is low|medium|high (absent = ``medium``); ``machine`` is the spawn placement preference — ``auto`` (absent = auto) or a machine id (an offline machine falls back to auto at spawn time, the TaskManualDTO promise).
+	// Target The reassignment target. ``kind='member'`` requires ``member_id`` — an ACTIVE roster member below the warden layer (a warden or an inactive/unknown member is a 400). ``kind='outsource'`` lands the task unassigned for the scheduler to spawn a fresh worker under the global parallel cap (no owner-approval card; T-35e0): ``model`` is the worker's model (blank/absent = the runtime default); ``effort`` is low|medium|high (absent = ``medium``); ``machine`` is the spawn placement preference — ``auto`` (absent = auto) or a machine id (an offline machine falls back to auto at spawn time, the TaskManualDTO promise).
 	Target TaskReassignTargetDTO `json:"target"`
 }
 
-// TaskReassignTargetDTO The reassignment target. “kind='member'“ requires “member_id“ — an ACTIVE roster member below the warden layer (a warden or an inactive/unknown member is a 400). “kind='outsource'“ mints a fresh worker on the spot: “model“ is the worker's model (blank/absent = the runtime default); “effort“ is low|medium|high (absent = “medium“); “machine“ is the spawn placement preference — “auto“ (absent = auto) or a machine id (an offline machine falls back to auto at spawn time, the TaskManualDTO promise).
+// TaskReassignTargetDTO The reassignment target. “kind='member'“ requires “member_id“ — an ACTIVE roster member below the warden layer (a warden or an inactive/unknown member is a 400). “kind='outsource'“ lands the task unassigned for the scheduler to spawn a fresh worker under the global parallel cap (no owner-approval card; T-35e0): “model“ is the worker's model (blank/absent = the runtime default); “effort“ is low|medium|high (absent = “medium“); “machine“ is the spawn placement preference — “auto“ (absent = auto) or a machine id (an offline machine falls back to auto at spawn time, the TaskManualDTO promise).
 type TaskReassignTargetDTO struct {
 	Effort   *string `json:"effort,omitempty"`
 	Kind     string  `json:"kind"`
@@ -2089,7 +2089,7 @@ type ServerInterface interface {
 	// Set a task's priority (owner any value; the executor high|mid|low on their own task; frozen stays owner-only).
 	// (POST /api/tasks/{task_id}/priority)
 	HandleSetTaskPriorityApiTasksTaskIdPriorityPost(w http.ResponseWriter, r *http.Request, taskId string)
-	// Reassign a task to a member or a fresh outsource worker (the task's executor or an admin; outsource targets pass the owner-approval gate; enters the reassigning handover state).
+	// Reassign a task to a member or a fresh outsource worker (the task's executor or an admin; an outsource target lands the task unassigned for the scheduler to spawn under the global parallel cap; enters the reassigning handover state).
 	// (POST /api/tasks/{task_id}/reassign)
 	HandleReassignTaskApiTasksTaskIdReassignPost(w http.ResponseWriter, r *http.Request, taskId string)
 	// Report a task status transition (agent-reported state machine).

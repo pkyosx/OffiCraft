@@ -1591,11 +1591,12 @@ def test_reassign_hands_over_to_a_member_and_only_they_take_over(
     assert r.json()["lock"] == ""
 
 
-def test_reassign_to_outsource_mints_a_fresh_worker(client, owner_token, executor):
-    """T-160e outsource target: the reassign mints the worker ON THE SPOT
-    (owner's explicit will — no scheduler admission), carrying the dialog's
-    model/effort; the task binds to the fresh ow- executor in `reassigning`
-    and the worker shows on the outsource panel."""
+def test_reassign_to_outsource_lands_unassigned(client, owner_token, executor):
+    """T-35e0 outsource target: the reassign no longer mints a worker on the
+    spot — it lands the task UNASSIGNED (発包 → an unassigned outsource task)
+    under the `reassigning` lock, carrying the dialog's model/effort on the
+    row for the scheduler to pick up under the global cap. No worker is bound
+    at reassign time."""
     task = _create_task(client, executor, title="outsource me")["task"]
     r = _reassign(client, owner_token, task["id"],
                   {"kind": "outsource", "model": "haiku", "effort": "high",
@@ -1607,12 +1608,8 @@ def test_reassign_to_outsource_mints_a_fresh_worker(client, owner_token, executo
     assert body["lock"] == "reassigning"
     assert body["status"] == "not_started"
     assert body["executor_kind"] == "outsource"
-    assert body["executor_id"].startswith("ow-")
-
-    workers = client.get("/api/outsource-workers", headers=_auth(owner_token)).json()
-    row = next(w for w in workers if w["id"] == body["executor_id"])
-    assert row["model"] == "haiku" and row["effort"] == "high", row
-    assert row["task_id"] == task["id"], row
+    # unassigned: the scheduler mints the successor later, none bound here.
+    assert body["executor_id"] == ""
 
 
 def test_reassign_guards(client, owner_token, executor):

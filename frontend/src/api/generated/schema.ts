@@ -2421,7 +2421,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reassign a task to a member or a fresh outsource worker (the task's executor or an admin; outsource targets pass the owner-approval gate; enters the reassigning handover state).
+         * Reassign a task to a member or a fresh outsource worker (the task's executor or an admin; an outsource target lands the task unassigned for the scheduler to spawn under the global parallel cap; enters the reassigning handover state).
          * @description Owner/admin reassignment (MCP ``reassign_task``; requires admin_agent — the owner and the assistant): hand the task to a NEW executor — a roster member (``target.kind='member'`` + ``member_id``) or a FRESH outsource worker minted on the spot (``target.kind='outsource'`` with ``model``/``effort``/``machine``). Effects: every WAITING reply card of the task expires (the ask was the old executor's — expired settles it, so a later replan freezes the step as history), non-terminal steps fall back to ``pending`` (done/superseded rows stay untouched), a previously bound outsource worker is dismissed (released + session reclaimed), and the task takes the ``reassigning`` LOCK (``task.lock``, orthogonal to its derived status) — the NEW executor reads the task + the handover notes and CLAIMS it (POST /api/tasks/{task_id}/claim) to clear the lock and take over (update_task_status is retired). The server posts a handover chat message to each member side (``note`` rides the new executor's message; a new worker gets the task through its boot context instead). Identity never changes: type/inputs/dedupe_key/task id/deps stay. Guards: 404 unknown task; 409 terminal task or target == the current executor; 400 frozen task or an invalid target (unknown/inactive member, a warden, ``member_id`` missing for kind=member).
          */
         post: operations["handle_reassign_task_api_tasks__task_id__reassign_post"];
@@ -4863,7 +4863,7 @@ export interface components {
         };
         /**
          * TaskCreateTargetDTO
-         * @description Optional dispatch target (agent 發包給外包). When present with ``kind='outsource'`` the task is created as an outsource dispatch that passes through the single owner-approval gate before any worker spawns: with per-task-card governance the task lands in ``pending_outsource_approval`` and an owner reply card opens (no worker minted); a whitelisted/免卡 initiator spawns immediately. ``model`` is the worker's model (blank/absent = the runtime default); ``effort`` is low|medium|high (absent = ``medium``); ``machine`` is the spawn placement preference — ``auto`` (absent = auto) or a machine id. Absent (or ``kind='member'``) keeps the current create semantics (manual assignee / ``executor_member_id``).
+         * @description Optional dispatch target (agent 發包給外包). When present with ``kind='outsource'`` the task is created as an **unassigned outsource task** — no owner-approval card and no per-task approval. The existing outsource scheduler then picks up unassigned outsource tasks against the global concurrency cap (``outsourceParallelCap``, owner-configurable in the cockpit; default unchanged): below the cap it mints a fresh worker immediately, at the cap it queues for capacity and is picked up automatically when a slot frees. The owner may reassign a still-queued task (to a member or another outsource) at any time. ``model`` is the worker's model (blank/absent = the runtime default); ``effort`` is low|medium|high (absent = ``medium``); ``machine`` is the spawn placement preference — ``auto`` (absent = auto) or a machine id. Absent (or ``kind='member'``) keeps the current create semantics (manual assignee / ``executor_member_id``).
          */
         TaskCreateTargetDTO: {
             /**
@@ -5294,7 +5294,7 @@ export interface components {
         };
         /**
          * TaskReassignTargetDTO
-         * @description The reassignment target. ``kind='member'`` requires ``member_id`` — an ACTIVE roster member below the warden layer (a warden or an inactive/unknown member is a 400). ``kind='outsource'`` mints a fresh worker on the spot: ``model`` is the worker's model (blank/absent = the runtime default); ``effort`` is low|medium|high (absent = ``medium``); ``machine`` is the spawn placement preference — ``auto`` (absent = auto) or a machine id (an offline machine falls back to auto at spawn time, the TaskManualDTO promise).
+         * @description The reassignment target. ``kind='member'`` requires ``member_id`` — an ACTIVE roster member below the warden layer (a warden or an inactive/unknown member is a 400). ``kind='outsource'`` lands the task unassigned for the scheduler to spawn a fresh worker under the global parallel cap (no owner-approval card; T-35e0): ``model`` is the worker's model (blank/absent = the runtime default); ``effort`` is low|medium|high (absent = ``medium``); ``machine`` is the spawn placement preference — ``auto`` (absent = auto) or a machine id (an offline machine falls back to auto at spawn time, the TaskManualDTO promise).
          */
         TaskReassignTargetDTO: {
             /**

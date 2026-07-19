@@ -769,3 +769,126 @@ func TestMigration00028DownPushesWaitingExternalToCurrentStep(t *testing.T) {
 		t.Fatalf("(d) a non-waiting_external task's step must not move, got %q/%q", s, r)
 	}
 }
+
+// TestMigration00028DownRestoresStepStatusByStartedTS pins the REVERSIBILITY of
+// the 00028 data move: Down must restore each down-pushed step to the EXACT
+// status it held before Up, recovered from started_ts (a never-started step
+// keeps started_ts=0 → pending; a step that entered in_progress carries
+// started_ts>0 → in_progress). A blanket in_progress would silently promote a
+// never-started current step — half the live prod population (Joey prod read:
+// 2/4 waiting_external tasks hold a pending current step). Also exercises the
+// reassigning-lock restore and the two no-op boundaries (all-done / stepless).
+// Rules, not counts — the migration set drifts run to run.
+func TestMigration00028DownRestoresStepStatusByStartedTS(t *testing.T) {
+	db, err := openSQLite(filepath.Join(t.TempDir(), "mig28down.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	// pre-00028, post-00004 shape: task_step already carries started_ts (00004);
+	// lock / step.waiting_reason are exactly what 00028 Up adds and Down drops.
+	if _, err := db.Exec(`
+		CREATE TABLE task (
+			id TEXT PRIMARY KEY,
+			status TEXT NOT NULL,
+			waiting_reason TEXT NOT NULL DEFAULT ''
+		);
+		CREATE TABLE task_step (
+			id TEXT PRIMARY KEY,
+			task_id TEXT NOT NULL,
+			order_idx INTEGER NOT NULL DEFAULT 0,
+			status TEXT NOT NULL,
+			started_ts REAL NOT NULL DEFAULT 0.0
+		);`); err != nil {
+		t.Fatalf("create tables: %v", err)
+	}
+	tasks := []struct{ id, status, reason string }{
+		{"we-pending", "waiting_external", "等審批"},  // current step never started
+		{"we-inprog", "waiting_external", "等外部回覆"}, // current step in_progress
+		{"reassign1", "reassigning", ""},           // lock migration + restore (boundary C)
+		{"we-alldone", "waiting_external", "都做完了"}, // boundary A: nothing moves
+		{"we-nosteps", "waiting_external", "沒步驟"},  // boundary B: no step at all
+	}
+	for _, tk := range tasks {
+		if _, err := db.Exec(
+			`INSERT INTO task (id, status, waiting_reason) VALUES (?, ?, ?)`,
+			tk.id, tk.status, tk.reason); err != nil {
+			t.Fatalf("seed task %s: %v", tk.id, err)
+		}
+	}
+	steps := []struct {
+		id, taskID string
+		order      int
+		status     string
+		started    float64
+	}{
+		{"p-done", "we-pending", 0, "done", 100},      // terminal prefix, skipped by Up
+		{"p-cur", "we-pending", 1, "pending", 0},      // pending current step: started_ts=0
+		{"i-cur", "we-inprog", 0, "in_progress", 200}, // in_progress current step: started_ts>0
+		{"r-step", "reassign1", 0, "in_progress", 300},
+		{"ad-done", "we-alldone", 0, "done", 400}, // all terminal → Up moves nothing
+	}
+	for _, st := range steps {
+		if _, err := db.Exec(
+			`INSERT INTO task_step (id, task_id, order_idx, status, started_ts) VALUES (?, ?, ?, ?, ?)`,
+			st.id, st.taskID, st.order, st.status, st.started); err != nil {
+			t.Fatalf("seed step %s: %v", st.id, err)
+		}
+	}
+
+	mig := "migrations/00028_task_lock_and_step_waiting_reason.sql"
+	if _, err := db.Exec(gooseUpSQL(t, mig)); err != nil {
+		t.Fatalf("run 00028 Up: %v", err)
+	}
+
+	stepStatus := func(id string) string {
+		var s string
+		if err := db.QueryRow(`SELECT status FROM task_step WHERE id = ?`, id).Scan(&s); err != nil {
+			t.Fatalf("read step %s: %v", id, err)
+		}
+		return s
+	}
+	taskStatus := func(id string) string {
+		var s string
+		if err := db.QueryRow(`SELECT status FROM task WHERE id = ?`, id).Scan(&s); err != nil {
+			t.Fatalf("read task %s: %v", id, err)
+		}
+		return s
+	}
+
+	// After Up: both live current steps became waiting_external; reassigning
+	// moved onto the lock (status → in_progress placeholder).
+	if s := stepStatus("p-cur"); s != "waiting_external" {
+		t.Fatalf("Up: pending current step must down-push to waiting_external, got %q", s)
+	}
+	if s := stepStatus("i-cur"); s != "waiting_external" {
+		t.Fatalf("Up: in_progress current step must down-push to waiting_external, got %q", s)
+	}
+	if s := taskStatus("reassign1"); s != "in_progress" {
+		t.Fatalf("Up: reassigning task moves onto lock, status → in_progress, got %q", s)
+	}
+
+	// Down drops lock / waiting_reason columns, so read status only afterwards.
+	if _, err := db.Exec(gooseDownSQL(t, mig)); err != nil {
+		t.Fatalf("run 00028 Down: %v", err)
+	}
+
+	// THE reversibility assertion: the never-started current step round-trips
+	// back to pending, NOT a lossy in_progress.
+	if s := stepStatus("p-cur"); s != "pending" {
+		t.Fatalf("Down MUST restore a never-started (started_ts=0) current step to pending, got %q", s)
+	}
+	if s := stepStatus("i-cur"); s != "in_progress" {
+		t.Fatalf("Down must restore a started (started_ts>0) current step to in_progress, got %q", s)
+	}
+	if s := taskStatus("reassign1"); s != "reassigning" {
+		t.Fatalf("Down must restore the reassigning status, got %q", s)
+	}
+	// Boundaries: Up moved no step for these, so Down leaves them exactly as seeded.
+	if s := stepStatus("ad-done"); s != "done" {
+		t.Fatalf("boundary A (all-done): step must stay done, got %q", s)
+	}
+	if s := stepStatus("p-done"); s != "done" {
+		t.Fatalf("the done prefix must stay done through the round-trip, got %q", s)
+	}
+}
