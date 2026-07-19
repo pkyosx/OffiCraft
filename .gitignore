@@ -23,3 +23,7 @@ scratchpad/
 
 # M4 deploy artifact (SPA-embedded ocserverd built by bin/build) — never commit
 .deploy/
+cli/ocagent/ocagent
+cli/ocwarden/ocwarden
+cli/ocwarden/ocwarden.prev
+cli/ocwarden/ocagent
