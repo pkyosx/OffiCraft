@@ -394,9 +394,18 @@ func memberWorkdirForSession(home, session string) string {
 // snapshot pid verified dead). Fail-safe: a kill that did not take, a broken
 // re-probe, or a sweep survivor returns False → the server's next tick re-issues
 // stop rather than trusting a fake ok.
+//
+// noop (T-9adc): True ONLY when the stop was an idempotent NO-OP — the initial
+// probe POSITIVELY found no session (probe ran, has_session false; a broken
+// probe is never a no-op) AND the snapshot found no member process to sweep.
+// stopped stays true (idempotent success, retry semantics unchanged), but the
+// receipt carries the distinct no_such_session reason so the server's last_op
+// fold can tell "I killed it" from "there was nothing here to kill" — an
+// identity-sweep / mis-routed stop's polite OK must never forge a kill story
+// onto a member whose live session (on ANOTHER warden) was never touched.
 // ---------------------------------------------------------------------------
 
-func stop(r CmdRunner, socket, session string, kill killFunc, getpgid pgidFunc, sw sweepSeams) (stopped bool) {
+func stop(r CmdRunner, socket, session string, kill killFunc, getpgid pgidFunc, sw sweepSeams) (stopped, noop bool) {
 	if !isMemberSession(session) && !isWorkerSession(session) {
 		// NEVER kill a session outside the two warden-spawned namespaces —
 		// member-<id> (members AND, since P5b, outsource workers) and the
@@ -404,8 +413,12 @@ func stop(r CmdRunner, socket, session string, kill killFunc, getpgid pgidFunc, 
 		// pre-P5b leftovers stay killable — the transition guard, worker.go).
 		// The telemetry warden's own session, a bare prefix, or any foreign
 		// tmux session is refused outright.
-		return false
+		return false, false
 	}
+	// no-op probe (T-9adc): POSITIVELY-absent BEFORE any kill. Conservative by
+	// construction — nil (broken probe) or true both read "not a no-op".
+	preHas := tmuxHasSession(r, socket, session)
+	positivelyAbsent := preHas != nil && !*preHas
 	// ⓪ SNAPSHOT the full footprint BEFORE any kill (links intact) — pane tree +
 	// workdir-anchored ocagent listeners the pane's SIGHUP can never reach.
 	snap := snapshotMemberPIDs(r, socket, session, sw)
@@ -422,5 +435,9 @@ func stop(r CmdRunner, socket, session string, kill killFunc, getpgid pgidFunc, 
 	// zombie; both are in the snapshot and must be VERIFIED dead before we report
 	// stopped. A sweep timeout is an honest partial → false.
 	swept := sweepPIDs(snap, kill, sw.sleep)
-	return killed && swept
+	stopped = killed && swept
+	// noop ONLY when nothing was ever here: no session before the kill, no
+	// member process in the snapshot, and the ladder (vacuously) succeeded.
+	noop = stopped && positivelyAbsent && len(snap) == 0
+	return stopped, noop
 }

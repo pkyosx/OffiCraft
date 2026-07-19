@@ -50,6 +50,21 @@ type reconcileConfig struct {
 	BackoffCap       float64
 	CircuitThreshold int
 	CircuitCooldown  float64
+	// ZombieConfirmGrace (T-9adc) is the SECOND-CONFIRMATION window before the
+	// zombie-takeover STOP: a START that bounced off the warden clobber-guard
+	// proves a live-but-presence-deaf session squats the slot — but "presence-
+	// deaf" and "reconnecting through a network blip" are indistinguishable at
+	// that instant (2026-07-20 incident: the STOP raced a session that was
+	// seconds from reconnecting on its own). So the takeover STOP is withheld
+	// until the member has been CONTINUOUSLY offline for this long; a reconnect
+	// inside the window is the liveness proof that cancels the kill (the online
+	// converged arm resets OfflineSince). BOUNDED by construction: once the
+	// window lapses with no reconnect the STOP fires — a true zombie is still
+	// reaped, just later; this can never degrade into "never kill".
+	// Sized 2×StartTimeout (180s): covers the agent's worst honest reconnect
+	// (backoff cap 15s + 45s idle-read watchdog + one 30s cadence tick ≈ 90s)
+	// with a full extra START-window of slack.
+	ZombieConfirmGrace float64
 }
 
 func defaultReconcileConfig() reconcileConfig {
@@ -62,6 +77,8 @@ func defaultReconcileConfig() reconcileConfig {
 		BackoffCap:       300.0,
 		CircuitThreshold: 5,
 		CircuitCooldown:  120.0,
+		// 2×StartTimeout — see the field comment (T-9adc zombie second-confirm).
+		ZombieConfirmGrace: 2 * WakingTTLSecs,
 	}
 }
 
@@ -126,6 +143,14 @@ type reconcileState struct {
 	LastCommand          string
 	LastCommandAt        float64
 	StopDeadline         float64
+	// OfflineSince (T-9adc) is the first tick a desired-online member was
+	// OBSERVED offline (0 while online / never observed offline). It feeds the
+	// zombie-takeover second-confirmation window ONLY: the takeover STOP needs
+	// proof of a SUSTAINED absence, not one offline sample. Observation-grained
+	// (stamped at tick resolution, ≤30s after the actual disconnect — always in
+	// the safe direction: the kill is deferred, never hastened). Restart amnesia
+	// re-arms the window from zero, again the safe direction.
+	OfflineSince float64
 }
 
 func newReconcileState() reconcileState {
@@ -217,6 +242,15 @@ func reconcileDecide(
 func decideUp(
 	obs memberObservation, st reconcileState, cfg reconcileConfig, now float64,
 ) reconcileDecision {
+	// T-9adc: maintain the continuous-offline anchor FIRST, on every path. Any
+	// online observation is liveness proof — it clears the anchor, so a member
+	// that reconnects inside the zombie-confirm window is never taken over off
+	// a stale clock. The first offline observation arms it.
+	if obs.Online {
+		st.OfflineSince = 0.0
+	} else if st.OfflineSince == 0.0 {
+		st.OfflineSince = now
+	}
 	if obs.Online && obs.RefocusSince > 0.0 {
 		// RECYCLE (§4.5): a refocus-marked live member is robust-stopped once the
 		// agent reports dump-done OR the dump-stuck grace elapses; desired_state
@@ -308,6 +342,22 @@ func decideUp(
 			// signal-0 verify); st.LastCommand flips to stop, so the next tick's
 			// plain START lands on a clean slot. Covers wake AND refocus — both
 			// converge on this not-online START-clobber path.
+			//
+			// T-9adc SECOND CONFIRMATION: "presence-deaf zombie" and "live session
+			// mid-reconnect" look identical at this instant (the 2026-07-20
+			// SSE-blip incident: the takeover STOP raced a session that reconnected
+			// on its own — killing it would have vaporised its whole context). So
+			// the STOP is withheld until the member has been continuously offline
+			// ≥ ZombieConfirmGrace; a reconnect inside the window resets
+			// OfflineSince (top of decideUp) and the converged arm stands the
+			// takeover down. Bounded: the window lapsing with no reconnect fires
+			// the STOP unconditionally — a true zombie is still reaped.
+			if now-st.OfflineSince < cfg.ZombieConfirmGrace {
+				st.Phase = reconcilePhaseStarting
+				return decisionNone(obs, st,
+					"zombie suspect: START clobbered a live presence-deaf session — "+
+						"withholding takeover stop inside the reconnect-confirm grace")
+			}
 			st.Phase = reconcilePhaseStopping
 			st.LastCommand = reconcileCmdStop
 			st.LastCommandAt = now

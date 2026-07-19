@@ -827,6 +827,9 @@ func TestReconcileWorkerLiveness_ClobberedStartZombieTakeover(t *testing.T) {
 	s.workerSpawnTarget["ow-g"] = ServerSelfHost
 	s.workerReconcileStates["ow-g"] = reconcileState{
 		Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart, LastCommandAt: now - 10,
+		// T-9adc: the takeover STOP now requires a SUSTAINED offline record —
+		// this fixture is a long-confirmed ghost, past the second-confirm grace.
+		OfflineSince: now - s.reconcileCfg.ZombieConfirmGrace - 1,
 	}
 	s.reconcileWorkerLiveness(w, now)
 	_, stillPaced := s.workerSpawnAt["ow-g"]
@@ -942,6 +945,8 @@ func TestReconcileWorkerLiveness_LegacyWorkerStartReceiptStillDetectsZombie(t *t
 	s.workerSpawnTarget["ow-l"] = ServerSelfHost
 	s.workerReconcileStates["ow-l"] = reconcileState{
 		Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart, LastCommandAt: now - 10,
+		// T-9adc: past the zombie second-confirm grace (sustained offline).
+		OfflineSince: now - s.reconcileCfg.ZombieConfirmGrace - 1,
 	}
 	s.reconcileWorkerLiveness(w, now)
 	s.outsourceMu.Unlock()

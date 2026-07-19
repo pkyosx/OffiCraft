@@ -156,7 +156,7 @@ func TestStop_FailSafeInvariants(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := &killRecorder{}
-			if got := stop(tc.run, tmuxSocket, "member-x", rec.fn, leaderPgid, quietSweep()); got != tc.want {
+			if got, _ := stop(tc.run, tmuxSocket, "member-x", rec.fn, leaderPgid, quietSweep()); got != tc.want {
 				t.Fatalf("stop = %v, want %v", got, tc.want)
 			}
 		})
@@ -167,7 +167,7 @@ func TestStop_LightweightSuccess_NoEscalation(t *testing.T) {
 	// The common graceful path: kill-session takes on the first (lightweight) leg →
 	// stop returns true WITHOUT ever touching the irreversible kill seam.
 	rec := &killRecorder{}
-	if got := stop(absentAfterKill(), tmuxSocket, "member-x", rec.fn, leaderPgid, quietSweep()); got != true {
+	if got, _ := stop(absentAfterKill(), tmuxSocket, "member-x", rec.fn, leaderPgid, quietSweep()); got != true {
 		t.Fatalf("stop = %v, want true", got)
 	}
 	if len(rec.calls) != 0 {
@@ -183,7 +183,7 @@ func TestStop_EscalatesWhenLightweightFails(t *testing.T) {
 	// "alive" forever), so a single-pid SIGKILL joins the killpg.
 	run := tmuxFakeRunner{out: map[string]string{panePidKeyX: "4242\n", hasKeyX: ""}}
 	rec := &killRecorder{}
-	if got := stop(run, tmuxSocket, "member-x", rec.fn, leaderPgid, quietSweep()); got != false {
+	if got, _ := stop(run, tmuxSocket, "member-x", rec.fn, leaderPgid, quietSweep()); got != false {
 		t.Fatalf("stop = %v, want false (session never went away)", got)
 	}
 	if kills := rec.sigkills(); !sameInts(kills, -4242, 4242) {
@@ -197,7 +197,7 @@ func TestStop_RefusesNonMemberSessions(t *testing.T) {
 		var killHit bool
 		run := recordingKillRunner(&killHit)
 		rec := &killRecorder{}
-		if got := stop(run, tmuxSocket, sess, rec.fn, leaderPgid, quietSweep()); got != false {
+		if got, _ := stop(run, tmuxSocket, sess, rec.fn, leaderPgid, quietSweep()); got != false {
 			t.Errorf("stop(%q) = %v, want false (refused)", sess, got)
 		}
 		if killHit {
@@ -260,7 +260,7 @@ func TestStop_SweepsDetachedListenerAfterLightweightKill(t *testing.T) {
 		dead:  map[int]bool{4242: true}, // the pane died with the session
 		dieOn: map[int]syscall.Signal{5100: syscall.SIGTERM},
 	}
-	if got := stop(run, tmuxSocket, "member-x", lk.fn, leaderPgid, quietSweep()); got != true {
+	if got, _ := stop(run, tmuxSocket, "member-x", lk.fn, leaderPgid, quietSweep()); got != true {
 		t.Fatalf("stop = %v, want true (listener swept clean)", got)
 	}
 	if !sameInts(lk.terms, 5100) {
@@ -284,7 +284,7 @@ func TestStop_SweepsWorkdirListenerWhenSessionAlreadyGone(t *testing.T) {
 		sleep:      noSleep,
 	}
 	lk := &lifecycleKill{dieOn: map[int]syscall.Signal{9100: syscall.SIGKILL}}
-	if got := stop(run, tmuxSocket, "member-x", lk.fn, leaderPgid, sw); got != true {
+	if got, _ := stop(run, tmuxSocket, "member-x", lk.fn, leaderPgid, sw); got != true {
 		t.Fatalf("stop = %v, want true (zombie listener reaped)", got)
 	}
 	if askedWorkdir != "/agents/x" {
@@ -307,7 +307,7 @@ func TestStop_HonestPartialWhenSurvivorOutlivesSweep(t *testing.T) {
 		sleep:      noSleep,
 	}
 	lk := &lifecycleKill{} // 9100 immortal: probes alive forever
-	if got := stop(run, tmuxSocket, "member-x", lk.fn, leaderPgid, sw); got != false {
+	if got, _ := stop(run, tmuxSocket, "member-x", lk.fn, leaderPgid, sw); got != false {
 		t.Fatalf("stop = %v, want false (survivor outlived the sweep)", got)
 	}
 	if !sameInts(lk.terms, 9100) || !sameInts(lk.kills, 9100) {
@@ -602,4 +602,90 @@ func (r killHitRunner) Run(name string, args ...string) (string, error) {
 		*r.hit = true
 	}
 	return "", fmt.Errorf("unclassifiable")
+}
+
+// ── T-9adc: the noop verdict — "there was nothing here to kill" ──────────────
+
+// statefulTmuxRunner flips has-session from PRESENT to ABSENT once kill-session
+// runs — the minimal stateful fake for "a real session actually died here".
+type statefulTmuxRunner struct{ killed *bool }
+
+func (f statefulTmuxRunner) Run(name string, args ...string) (string, error) {
+	key := strings.Join(append([]string{name}, args...), " ")
+	switch {
+	case strings.Contains(key, "kill-session"):
+		*f.killed = true
+		return "", nil
+	case key == hasKeyX:
+		if *f.killed {
+			return "", fmt.Errorf("can't find session: member-x")
+		}
+		return "", nil // present
+	case key == panePidKeyX:
+		return "", fmt.Errorf("no pane") // keep the snapshot empty (⑤ trivially clean)
+	}
+	return "", fmt.Errorf("unclassifiable tmux failure")
+}
+
+// TestStop_NoopWhenNothingWasEverThere: session positively absent BEFORE any
+// kill + empty snapshot → (stopped=true, noop=true). This is the identity-sweep
+// / mis-routed stop shape whose receipt must carry no_such_session so the
+// server never folds it as a real kill (T-9adc).
+func TestStop_NoopWhenNothingWasEverThere(t *testing.T) {
+	rec := &killRecorder{}
+	stopped, noop := stop(absentAfterKill(), tmuxSocket, "member-x", rec.fn, leaderPgid, quietSweep())
+	if !stopped {
+		t.Fatalf("idempotent stop over an absent session must stay ok, got stopped=%v", stopped)
+	}
+	if !noop {
+		t.Fatal("no session + no member process must report noop=true")
+	}
+}
+
+// TestStop_RealKillIsNotNoop: a session that was PRESENT before the kill (and
+// died on the lightweight leg) is a genuine kill — noop must be false.
+func TestStop_RealKillIsNotNoop(t *testing.T) {
+	killed := false
+	rec := &killRecorder{}
+	stopped, noop := stop(statefulTmuxRunner{killed: &killed}, tmuxSocket, "member-x",
+		rec.fn, leaderPgid, quietSweep())
+	if !stopped {
+		t.Fatalf("the kill took — want stopped=true, got %v", stopped)
+	}
+	if noop {
+		t.Fatal("a REAL kill must never report noop=true (the receipt would lie the other way)")
+	}
+}
+
+// TestStop_SessionGoneButListenerAliveIsNotNoop: the suicide-zombie shape — no
+// tmux session but a workdir-anchored ocagent still alive. Something real was
+// reaped, so noop must be false even though the session was absent.
+func TestStop_SessionGoneButListenerAliveIsNotNoop(t *testing.T) {
+	run := tmuxFakeRunner{err: map[string]error{hasKeyX: fmt.Errorf("can't find session: member-x")}}
+	sw := sweepSeams{
+		listenPIDs: func(string) []int { return []int{9100} },
+		workdir:    "/agents/x",
+		sleep:      noSleep,
+	}
+	lk := &lifecycleKill{dieOn: map[int]syscall.Signal{9100: syscall.SIGTERM}}
+	stopped, noop := stop(run, tmuxSocket, "member-x", lk.fn, leaderPgid, sw)
+	if !stopped {
+		t.Fatalf("listener reaped clean — want stopped=true, got %v", stopped)
+	}
+	if noop {
+		t.Fatal("a swept listener is a real kill — noop must be false")
+	}
+}
+
+// TestStop_BrokenProbeIsNotNoop: a broken has-session probe can never claim
+// no-op (conservative: only a POSITIVE absence reads noop).
+func TestStop_BrokenProbeIsNotNoop(t *testing.T) {
+	rec := &killRecorder{}
+	stopped, noop := stop(brokenAfterKill(), tmuxSocket, "member-x", rec.fn, leaderPgid, quietSweep())
+	if stopped {
+		t.Fatalf("broken probe must stay honest-false, got stopped=%v", stopped)
+	}
+	if noop {
+		t.Fatal("a broken probe must never read as a no-op")
+	}
 }

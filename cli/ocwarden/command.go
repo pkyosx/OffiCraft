@@ -77,6 +77,14 @@ const (
 	// can wait for the fleet to converge, a kill must not.
 	rpcWorkerStop = "worker_stop"
 
+	// stopNoopReason (T-9adc) is the receipt Reason for an idempotent NO-OP stop
+	// (no session, no member process on this warden — nothing was killed). The
+	// server's fold (ocserverd api_monitoring.go stopNoopReasonPrefix) matches
+	// the "no_such_session" prefix and skips the last_op overwrite, so a
+	// sweep/mis-routed stop's polite OK never forges a kill story. Cross-module
+	// contract — do NOT drift the prefix.
+	stopNoopReason = "no_such_session: stop was a no-op (no session, no member process on this warden)"
+
 	// commandResultLogMax bounds the merged stdout+stderr / reason log carried in a
 	// CommandResult (bytes). The server re-clamps to the same cap defensively. Kept
 	// small enough that an occasional command_result POST is never a fat payload.
@@ -182,7 +190,11 @@ type CommandDeps struct {
 	// worker-<ow-id> residuals (the transition sweep + the legacy worker_stop
 	// alias). The closure resolves the sweep workdir per namespace
 	// (transport.go); the kill ladder's own guard is the outermost gate.
-	Stop func(session string) bool
+	// Returns (ok, noop): ok is the robust-stop verdict; noop (T-9adc) is true
+	// when the stop was an idempotent no-op — no session, no member process on
+	// this warden — so the receipt can carry the no_such_session reason instead
+	// of masquerading as a real kill (see stopNoopReason).
+	Stop func(session string) (ok, noop bool)
 	// Teardown removes THIS warden's own install from the machine (launchd bootout +
 	// delete the tokfile + plist), returning (ok, log). It is the injected doTeardown
 	// closure (bound in buildCommandDeps over the resolved teardown paths). It does the
@@ -328,9 +340,12 @@ func dispatchCommand(cmd *Command, deps CommandDeps) error {
 		if deps.Stop == nil {
 			return fmt.Errorf("command: worker_stop for %q refused: stop seam not wired", session)
 		}
-		ok := deps.Stop(session)
+		ok, noop := deps.Stop(session)
 		workerID, _ := argString(cmd.Args, "worker_id")
 		stopReason := "stopped"
+		if noop {
+			stopReason = stopNoopReason
+		}
 		if !ok {
 			stopReason = "stop incomplete (session still present / sweep survivor)"
 		}
@@ -361,7 +376,7 @@ func dispatchCommand(cmd *Command, deps CommandDeps) error {
 			return err
 		}
 		if deps.Stop != nil {
-			ok := deps.Stop(session)
+			ok, noop := deps.Stop(session)
 			// P5b TRANSITION SWEEP: a stop addressed by member_id also reaps the
 			// LEGACY worker-<id> session the pre-convergence naming would have
 			// spawned — an old residual must never become unkillable once the
@@ -378,6 +393,13 @@ func dispatchCommand(cmd *Command, deps CommandDeps) error {
 			// name is the log so "which session this stop targeted" is visible.
 			memberID, _ := argString(cmd.Args, "member_id")
 			reason := "stopped"
+			if noop {
+				// T-9adc: the honest no-op receipt. The server fold reads this
+				// prefix and SKIPS the last_op overwrite — a session-less warden's
+				// idempotent OK (identity sweep / mis-routed stop) must never
+				// read as "member successfully stopped" on get_member.
+				reason = stopNoopReason
+			}
 			if !ok {
 				reason = "stop incomplete (session still present / broken probe / member process survived the sweep)"
 			}

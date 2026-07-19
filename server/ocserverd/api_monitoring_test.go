@@ -526,3 +526,104 @@ func TestFoldCommandResult_NoReasonFoldsEmpty(t *testing.T) {
 		t.Fatalf("the rest of the fold must be untouched, got %+v", got)
 	}
 }
+
+// ── T-9adc: no-op stop receipts must not pollute last_op ─────────────────────
+
+// TestFoldCommandResult_NoopStopDoesNotPolluteLastOp: an idempotent no-op stop
+// receipt (ok=true, reason no_such_session — the warden had no session and no
+// member process; identity sweeps and mis-routed stops produce exactly these)
+// must NOT overwrite the member's last_op* — get_member keeps showing what
+// actually happened, not a forged "successfully stopped" (the 2026-07-20
+// incident's misleading observation surface).
+func TestFoldCommandResult_NoopStopDoesNotPolluteLastOp(t *testing.T) {
+	s := foldTestServer(t)
+	m := fullMember("mira")
+	ok := true
+	m.LastOp, m.LastOpOK, m.LastOpLog, m.LastOpReason, m.LastOpAt =
+		"start", &ok, "spawned", "", 1_000.0
+	if err := s.dal.PutMember(m); err != nil {
+		t.Fatalf("seed member: %v", err)
+	}
+	s.foldCommandResult(map[string]any{
+		"member_id": "mira",
+		"rpc":       "stop",
+		"ok":        true,
+		"reason":    "no_such_session: stop was a no-op (no session, no member process on this warden)",
+		"log":       "session=member-mira: no_such_session",
+		"at":        "2026-07-20T04:30:00Z",
+	}, "w-test")
+	got, err := s.dal.GetMember("mira")
+	if err != nil || got == nil {
+		t.Fatalf("get: %v %v", got, err)
+	}
+	if got.LastOp != "start" {
+		t.Fatalf("no-op stop must NOT overwrite last_op, got %q", got.LastOp)
+	}
+	if got.LastOpOK == nil || !*got.LastOpOK || got.LastOpLog != "spawned" ||
+		got.LastOpAt != 1_000.0 {
+		t.Fatalf("no-op stop must leave the whole last_op* block untouched, got %+v", got)
+	}
+}
+
+// TestFoldCommandResult_FailedStopAlwaysFolds (guard): only the ok=true no-op
+// is skipped — a FAILED stop folds even if its reason ever carried the no-op
+// code (failure must stay visible; the honest-partial contract is untouched).
+func TestFoldCommandResult_FailedStopAlwaysFolds(t *testing.T) {
+	s := foldTestServer(t)
+	m := fullMember("mira")
+	m.LastOp = "start"
+	if err := s.dal.PutMember(m); err != nil {
+		t.Fatalf("seed member: %v", err)
+	}
+	s.foldCommandResult(map[string]any{
+		"member_id": "mira", "rpc": "stop", "ok": false,
+		"reason": "no_such_session: contradictory failed no-op (defensive)",
+	}, "w-test")
+	got, _ := s.dal.GetMember("mira")
+	if got.LastOp != "stop" || got.LastOpOK == nil || *got.LastOpOK {
+		t.Fatalf("a failed stop must fold regardless of reason, got %+v", got)
+	}
+}
+
+// TestFoldCommandResult_RealStopStillFolds (guard): a genuine kill's receipt
+// (ok=true, reason "stopped") keeps folding exactly as before.
+func TestFoldCommandResult_RealStopStillFolds(t *testing.T) {
+	s := foldTestServer(t)
+	m := fullMember("mira")
+	m.LastOp = "start"
+	if err := s.dal.PutMember(m); err != nil {
+		t.Fatalf("seed member: %v", err)
+	}
+	s.foldCommandResult(map[string]any{
+		"member_id": "mira", "rpc": "stop", "ok": true, "reason": "stopped",
+	}, "w-test")
+	got, _ := s.dal.GetMember("mira")
+	if got.LastOp != "stop" || got.LastOpOK == nil || !*got.LastOpOK {
+		t.Fatalf("a real stop receipt must keep folding, got %+v", got)
+	}
+}
+
+// TestFoldWorkerCommandResult_NoopStopSkipped: the worker-row twin — an
+// identity-sweep no-op stop for an outsource worker must not overwrite the
+// worker's last_op* either.
+func TestFoldWorkerCommandResult_NoopStopSkipped(t *testing.T) {
+	s := foldTestServer(t)
+	if err := s.dal.PutOutsourceWorker(OutsourceWorker{
+		ID: "ow-7", Codename: "O-7", Model: "opus", Effort: "high",
+		TaskID: "t-1", Status: WorkerStatusAssigned, CreatedTS: 1.0,
+		LastOp: "start", LastOpAt: 500.0,
+	}); err != nil {
+		t.Fatalf("seed worker: %v", err)
+	}
+	s.foldCommandResult(map[string]any{
+		"worker_id": "ow-7", "rpc": "stop", "ok": true,
+		"reason": "no_such_session: stop was a no-op (no session, no member process on this warden)",
+	}, "w-test")
+	got, err := s.dal.GetOutsourceWorker("ow-7")
+	if err != nil || got == nil {
+		t.Fatalf("get worker: %v %v", got, err)
+	}
+	if got.LastOp != "start" || got.LastOpAt != 500.0 {
+		t.Fatalf("no-op stop must not pollute the worker last_op, got %+v", got)
+	}
+}

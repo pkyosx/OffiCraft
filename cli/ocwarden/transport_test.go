@@ -109,11 +109,11 @@ func (d *recordingDeps) deps() CommandDeps {
 			d.mu.Unlock()
 			return SpawnOutcome{OK: true}
 		},
-		Stop: func(session string) bool {
+		Stop: func(session string) (bool, bool) {
 			d.mu.Lock()
 			d.stops = append(d.stops, session)
 			d.mu.Unlock()
-			return true
+			return true, false
 		},
 	}
 }

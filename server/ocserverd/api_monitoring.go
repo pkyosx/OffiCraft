@@ -108,6 +108,31 @@ func commandResultAtEpoch(value any) float64 {
 	return 0.0
 }
 
+// stopNoopReasonPrefix is the prefix of the warden stop receipt Reason
+// (cli/ocwarden/command.go rpcStop/rpcWorkerStop) when the robust stop was an
+// idempotent NO-OP: the addressed session did not exist on that warden and no
+// member process was found — nothing was actually killed. Twin of the
+// spawnClobberReasonPrefix cross-module contract (reconcile.go).
+const stopNoopReasonPrefix = "no_such_session"
+
+// isStopNoopReceipt reports whether a command_result receipt is a no-op stop:
+// an OK stop whose reason carries the no_such_session code. Such a receipt
+// proves only that ONE warden's tmux view held no session — it is NOT evidence
+// the member was killed (identity sweeps broadcast stop to every other warden;
+// a mis-routed / already-dead stop no-ops the same way), so folding it over
+// last_op would forge a "successfully stopped" story onto a member whose live
+// session was never touched (T-9adc, the 2026-07-20 incident's misleading
+// last_op=stop/ok=true). Callers SKIP the last_op fold for these receipts.
+func isStopNoopReceipt(rpc string, ok *bool, reason string) bool {
+	if rpc != "stop" && rpc != "worker_stop" {
+		return false
+	}
+	if ok == nil || !*ok {
+		return false // a FAILED stop is always folded — failure must stay visible
+	}
+	return strings.HasPrefix(reason, stopNoopReasonPrefix)
+}
+
 // foldCommandResult folds ONE warden command_result receipt onto the
 // addressed member's last_op* fields (handlers._fold_command_result).
 // Fail-safe: a missing/blank member_id or an unknown member is ignored; any
@@ -162,12 +187,21 @@ func (s *apiServer) foldCommandResult(commandResult map[string]any, trigger stri
 	if len(reason) > commandResultReasonMax {
 		reason = reason[:commandResultReasonMax]
 	}
-	m.LastOp = rpc
+	var okPtr *bool
 	if ok, isBool := commandResult["ok"].(bool); isBool {
-		m.LastOpOK = &ok
-	} else {
-		m.LastOpOK = nil
+		okPtr = &ok
 	}
+	// T-9adc: a NO-OP stop receipt (idempotent ok over a session that was never
+	// there) must not overwrite last_op — get_member's 最近操作 must reflect
+	// what actually HAPPENED, not what one session-less warden politely 200'd.
+	if isStopNoopReceipt(rpc, okPtr, reason) {
+		fmt.Fprintf(os.Stderr,
+			"[monitoring] no-op stop receipt for member %q (%s) — last_op NOT folded\n",
+			memberID, reason)
+		return
+	}
+	m.LastOp = rpc
+	m.LastOpOK = okPtr
 	m.LastOpLog = logText
 	m.LastOpReason = reason
 	m.LastOpAt = commandResultAtEpoch(commandResult["at"])
@@ -224,12 +258,21 @@ func (s *apiServer) foldWorkerCommandResult(workerID string, commandResult map[s
 	if len(reason) > commandResultReasonMax {
 		reason = reason[:commandResultReasonMax]
 	}
-	w.LastOp = rpc
 	var okVal *bool
 	if ok, isBool := commandResult["ok"].(bool); isBool {
 		v := ok
 		okVal = &v
 	}
+	// T-9adc: a NO-OP stop receipt never overwrites the worker's last_op —
+	// same honesty rule as the member fold (identity sweeps broadcast stop to
+	// every other warden; their polite idempotent OKs are not kill evidence).
+	if isStopNoopReceipt(rpc, okVal, reason) {
+		fmt.Fprintf(os.Stderr,
+			"[monitoring] no-op stop receipt for worker %q (%s) — last_op NOT folded\n",
+			workerID, reason)
+		return
+	}
+	w.LastOp = rpc
 	w.LastOpOK = okVal
 	w.LastOpLog = logText
 	w.LastOpReason = reason

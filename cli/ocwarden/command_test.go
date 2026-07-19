@@ -127,7 +127,7 @@ func TestDispatch_Start_CallsSpawnWithAll7Fields(t *testing.T) {
 			spawnCalls++
 			return SpawnOutcome{OK: true, SessionID: "member-m-1", PID: "111"}
 		},
-		Stop: func(string) bool { t.Fatal("stop must not be called on start"); return false },
+		Stop: func(string) (bool, bool) { t.Fatal("stop must not be called on start"); return false, false },
 	}
 	err := dispatchCommand(&Command{RPC: rpcStart, Args: fullStartArgs()}, deps)
 	if err != nil {
@@ -256,10 +256,10 @@ func TestDispatch_Stop_CallsStopWithSession(t *testing.T) {
 	var stopCalls int
 	deps := CommandDeps{
 		Spawn: func(StartParams) SpawnOutcome { t.Fatal("spawn must not be called on stop"); return SpawnOutcome{} },
-		Stop: func(session string) bool {
+		Stop: func(session string) (bool, bool) {
 			gotSession = session
 			stopCalls++
-			return true
+			return true, false
 		},
 	}
 	args := map[string]any{"member_id": "m-9", "session_name": "member-m-9"}
@@ -288,7 +288,7 @@ func TestDispatch_Stop_Addressing(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			var got string
-			deps := CommandDeps{Stop: func(s string) bool { got = s; return true }}
+			deps := CommandDeps{Stop: func(s string) (bool, bool) { got = s; return true, false }}
 			if err := dispatchCommand(&Command{RPC: rpcStop, Args: c.args}, deps); err != nil {
 				t.Fatalf("unexpected err: %v", err)
 			}
@@ -302,7 +302,7 @@ func TestDispatch_Stop_Addressing(t *testing.T) {
 func TestDispatch_Stop_NoTarget_NoStop(t *testing.T) {
 	var stopCalls int
 	deps := CommandDeps{
-		Stop: func(string) bool { stopCalls++; return false },
+		Stop: func(string) (bool, bool) { stopCalls++; return false, false },
 	}
 	// args present but carry no addressing field at all.
 	err := dispatchCommand(&Command{RPC: rpcStop, Args: map[string]any{"unrelated": "x"}}, deps)
@@ -323,7 +323,7 @@ func TestDispatch_NilCommand_NoOp(t *testing.T) {
 	var called int
 	deps := CommandDeps{
 		Spawn: func(StartParams) SpawnOutcome { called++; return SpawnOutcome{} },
-		Stop:  func(string) bool { called++; return false },
+		Stop:  func(string) (bool, bool) { called++; return false, false },
 	}
 	if err := dispatchCommand(nil, deps); err != nil {
 		t.Fatalf("nil command: unexpected err %v", err)
@@ -348,7 +348,7 @@ func TestParseThenDispatch_UpdateKicksSelfUpdateSeam(t *testing.T) {
 	kicked := 0
 	deps := CommandDeps{
 		Spawn:  func(StartParams) SpawnOutcome { t.Fatal("must not spawn"); return SpawnOutcome{} },
-		Stop:   func(string) bool { t.Fatal("must not stop"); return false },
+		Stop:   func(string) (bool, bool) { t.Fatal("must not stop"); return false, false },
 		Update: func() { kicked++ },
 		Report: func(CommandResult) error { t.Fatal("update must not report a receipt"); return nil },
 	}
@@ -376,7 +376,7 @@ func TestDispatch_UnknownRPC_Refused(t *testing.T) {
 	// A hand-built Command with an unknown rpc (bypassing parse) is refused.
 	deps := CommandDeps{
 		Spawn: func(StartParams) SpawnOutcome { t.Fatal("must not spawn"); return SpawnOutcome{} },
-		Stop:  func(string) bool { t.Fatal("must not stop"); return false },
+		Stop:  func(string) (bool, bool) { t.Fatal("must not stop"); return false, false },
 	}
 	if err := dispatchCommand(&Command{RPC: "bogus", Args: map[string]any{}}, deps); err == nil {
 		t.Fatal("want err for unknown rpc")
@@ -409,7 +409,7 @@ func TestParseThenDispatch_SkippedTopicIsNoOp(t *testing.T) {
 	var called int
 	deps := CommandDeps{
 		Spawn: func(StartParams) SpawnOutcome { called++; return SpawnOutcome{} },
-		Stop:  func(string) bool { called++; return false },
+		Stop:  func(string) (bool, bool) { called++; return false, false },
 	}
 	if err := dispatchCommand(cmd, deps); err != nil {
 		t.Fatalf("dispatch of skipped frame: %v", err)
@@ -424,7 +424,7 @@ func TestParseThenDispatch_SkippedTopicIsNoOp(t *testing.T) {
 // contract holds and does not blow up on odd input.
 func TestDispatch_Stop_DerivedSessionShape(t *testing.T) {
 	var got []string
-	deps := CommandDeps{Stop: func(s string) bool { got = append(got, s); return true }}
+	deps := CommandDeps{Stop: func(s string) (bool, bool) { got = append(got, s); return true, false }}
 	_ = dispatchCommand(&Command{RPC: rpcStop, Args: map[string]any{"member_id": "AbC"}}, deps)
 	if len(got) == 0 || !strings.HasPrefix(got[0], memberSessionPrefix) {
 		t.Fatalf("primary derived session %v lacks member- prefix", got)
@@ -542,7 +542,7 @@ func TestDispatch_Stop_ReportsCommandResult(t *testing.T) {
 			var got CommandResult
 			var reports int
 			deps := CommandDeps{
-				Stop:   func(string) bool { return c.stopOK },
+				Stop:   func(string) (bool, bool) { return c.stopOK, false },
 				Report: func(cr CommandResult) error { got = cr; reports++; return nil },
 			}
 			args := map[string]any{"member_id": "m-9", "session_name": "member-m-9"}
@@ -574,7 +574,7 @@ func TestDispatch_NilReport_Toothless(t *testing.T) {
 	if err := dispatchCommand(&Command{RPC: rpcStart, Args: fullStartArgs()}, refuseDeps); err == nil {
 		t.Fatal("nil Report must not mask a refused start's error")
 	}
-	stopDeps := CommandDeps{Stop: func(string) bool { return true }}
+	stopDeps := CommandDeps{Stop: func(string) (bool, bool) { return true, false }}
 	args := map[string]any{"member_id": "m-1", "session_name": "member-m-1"}
 	if err := dispatchCommand(&Command{RPC: rpcStop, Args: args}, stopDeps); err != nil {
 		t.Fatalf("nil Report must not change a stop: %v", err)
@@ -616,7 +616,7 @@ func TestDispatch_Uninstall_HappyPath_StopTeardownReportThenExitZero(t *testing.
 	var gotReport CommandResult
 	var exitCode = -1
 	deps := CommandDeps{
-		Stop: func(s string) bool { order = append(order, "stop"); stoppedSession = s; return true },
+		Stop: func(s string) (bool, bool) { order = append(order, "stop"); stoppedSession = s; return true, false },
 		Teardown: func() (bool, string) {
 			order = append(order, "teardown")
 			return true, "[ocwarden teardown] teardown complete for com.officraft.ocwarden\n"
@@ -650,7 +650,7 @@ func TestDispatch_Uninstall_HappyPath_StopTeardownReportThenExitZero(t *testing.
 func TestDispatch_Uninstall_ReportUndelivered_DoesNotExit(t *testing.T) {
 	var exited bool
 	deps := CommandDeps{
-		Stop:     func(string) bool { return true },
+		Stop:     func(string) (bool, bool) { return true, false },
 		Teardown: func() (bool, string) { return true, "torn down" },
 		Report:   func(CommandResult) error { return errors.New("POST status 500") },
 		Exit:     func(int) { exited = true },
@@ -671,7 +671,7 @@ func TestDispatch_Uninstall_TeardownIncomplete_ReportsButStaysAlive(t *testing.T
 	var gotReport CommandResult
 	var reported, exited bool
 	deps := CommandDeps{
-		Stop:     func(string) bool { return true },
+		Stop:     func(string) (bool, bool) { return true, false },
 		Teardown: func() (bool, string) { return false, "could not remove plist" },
 		Report:   func(cr CommandResult) error { reported = true; gotReport = cr; return nil },
 		Exit:     func(int) { exited = true },
@@ -699,7 +699,7 @@ func TestDispatch_Uninstall_MissingSessionTarget_StillTearsDown(t *testing.T) {
 	var toreDown bool
 	var exitCode = -1
 	deps := CommandDeps{
-		Stop:     func(string) bool { stopCalls++; return true },
+		Stop:     func(string) (bool, bool) { stopCalls++; return true, false },
 		Teardown: func() (bool, string) { toreDown = true; return true, "ok" },
 		Report:   func(CommandResult) error { return nil },
 		Exit:     func(code int) { exitCode = code },
@@ -730,5 +730,64 @@ func TestParseCommandFrame_UninstallEnvelope(t *testing.T) {
 	}
 	if cmd == nil || cmd.RPC != rpcUninstall {
 		t.Fatalf("cmd = %+v, want uninstall command", cmd)
+	}
+}
+
+// ── T-9adc: the no-op stop receipt carries no_such_session ───────────────────
+
+// TestDispatch_Stop_NoopReceiptCarriesNoSuchSession: a stop whose ladder was an
+// idempotent no-op must report OK=true with the no_such_session reason — the
+// server's fold keys on that prefix to SKIP the last_op overwrite, so an
+// identity-sweep / mis-routed stop never forges "successfully stopped" onto a
+// member whose live session (on another warden) was never touched.
+func TestDispatch_Stop_NoopReceiptCarriesNoSuchSession(t *testing.T) {
+	var got CommandResult
+	deps := CommandDeps{
+		Stop:   func(string) (bool, bool) { return true, true },
+		Report: func(cr CommandResult) error { got = cr; return nil },
+	}
+	cmd := &Command{RPC: rpcStop, Args: map[string]any{"member_id": "m-9"}}
+	if err := dispatchCommand(cmd, deps); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if !got.OK {
+		t.Fatalf("a no-op stop stays idempotent-ok, got %+v", got)
+	}
+	if !strings.HasPrefix(got.Reason, "no_such_session") {
+		t.Fatalf("no-op receipt must carry the no_such_session reason, got %q", got.Reason)
+	}
+}
+
+// TestDispatch_Stop_RealKillReceiptStaysStopped (guard): a genuine kill's
+// receipt keeps the plain "stopped" reason — the fold keeps folding it.
+func TestDispatch_Stop_RealKillReceiptStaysStopped(t *testing.T) {
+	var got CommandResult
+	deps := CommandDeps{
+		Stop:   func(string) (bool, bool) { return true, false },
+		Report: func(cr CommandResult) error { got = cr; return nil },
+	}
+	cmd := &Command{RPC: rpcStop, Args: map[string]any{"member_id": "m-9"}}
+	if err := dispatchCommand(cmd, deps); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if !got.OK || got.Reason != "stopped" {
+		t.Fatalf("real kill receipt must stay ok/stopped, got %+v", got)
+	}
+}
+
+// TestDispatch_WorkerStop_NoopReceiptCarriesNoSuchSession: the legacy
+// worker_stop alias reports the same honest no-op reason.
+func TestDispatch_WorkerStop_NoopReceiptCarriesNoSuchSession(t *testing.T) {
+	var got CommandResult
+	deps := CommandDeps{
+		Stop:   func(string) (bool, bool) { return true, true },
+		Report: func(cr CommandResult) error { got = cr; return nil },
+	}
+	cmd := &Command{RPC: rpcWorkerStop, Args: map[string]any{"worker_id": "ow-9"}}
+	if err := dispatchCommand(cmd, deps); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if !got.OK || !strings.HasPrefix(got.Reason, "no_such_session") {
+		t.Fatalf("worker_stop no-op receipt must carry no_such_session, got %+v", got)
 	}
 }

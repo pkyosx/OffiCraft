@@ -66,7 +66,7 @@ func TestStop_GuardAdmitsWorkerRefusesForeign(t *testing.T) {
 		{"officraft", false},
 	} {
 		r := &countingRunner{}
-		stopped := stop(r, "sock", tc.session, func(int, syscall.Signal) error { return nil },
+		stopped, _ := stop(r, "sock", tc.session, func(int, syscall.Signal) error { return nil },
 			func(int) (int, error) { return 0, nil }, sweepSeams{})
 		entered := r.calls > 0
 		if entered != tc.want {
@@ -144,7 +144,7 @@ func TestParseCommandFrame_WorkerStopEnvelope(t *testing.T) {
 func TestDispatch_WorkerStop_DerivesExactLegacySession(t *testing.T) {
 	var got []string
 	deps := CommandDeps{
-		Stop: func(session string) bool { got = append(got, session); return true },
+		Stop: func(session string) (bool, bool) { got = append(got, session); return true, false },
 	}
 	cmd := &Command{RPC: rpcWorkerStop, Args: map[string]any{"worker_id": "OW-9"}}
 	if err := dispatchCommand(cmd, deps); err != nil {
@@ -157,7 +157,7 @@ func TestDispatch_WorkerStop_DerivesExactLegacySession(t *testing.T) {
 
 func TestDispatch_WorkerStop_MissingID_Refused(t *testing.T) {
 	called := false
-	deps := CommandDeps{Stop: func(string) bool { called = true; return true }}
+	deps := CommandDeps{Stop: func(string) (bool, bool) { called = true; return true, false }}
 	cmd := &Command{RPC: rpcWorkerStop, Args: map[string]any{}}
 	if err := dispatchCommand(cmd, deps); err == nil {
 		t.Fatal("worker_stop without worker_id must refuse")
@@ -168,7 +168,7 @@ func TestDispatch_WorkerStop_MissingID_Refused(t *testing.T) {
 }
 
 func TestDispatch_WorkerStop_IncompleteStop_ReturnsError(t *testing.T) {
-	deps := CommandDeps{Stop: func(string) bool { return false }}
+	deps := CommandDeps{Stop: func(string) (bool, bool) { return false, false }}
 	cmd := &Command{RPC: rpcWorkerStop, Args: map[string]any{"worker_id": "ow-1"}}
 	if err := dispatchCommand(cmd, deps); err == nil {
 		t.Fatal("an incomplete worker stop must surface as an error")
@@ -185,7 +185,7 @@ func TestDispatch_WorkerStop_IncompleteStop_ReturnsError(t *testing.T) {
 func TestDispatch_Stop_SweepsLegacyWorkerSession(t *testing.T) {
 	var got []string
 	deps := CommandDeps{
-		Stop: func(session string) bool { got = append(got, session); return true },
+		Stop: func(session string) (bool, bool) { got = append(got, session); return true, false },
 	}
 	cmd := &Command{RPC: rpcStop, Args: map[string]any{"member_id": "ow-7"}}
 	if err := dispatchCommand(cmd, deps); err != nil {
@@ -211,7 +211,7 @@ func TestDispatch_Stop_NoLegacySweepOutsideOwNamespace(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			var got []string
 			deps := CommandDeps{
-				Stop: func(session string) bool { got = append(got, session); return true },
+				Stop: func(session string) (bool, bool) { got = append(got, session); return true, false },
 			}
 			if err := dispatchCommand(&Command{RPC: rpcStop, Args: c.args}, deps); err != nil {
 				t.Fatalf("unexpected err: %v", err)
@@ -228,8 +228,8 @@ func TestDispatch_Stop_NoLegacySweepOutsideOwNamespace(t *testing.T) {
 func TestDispatch_Stop_LegacySweepDoesNotAffectReceipt(t *testing.T) {
 	var got CommandResult
 	deps := CommandDeps{
-		Stop: func(session string) bool {
-			return session == "member-ow-7" // legacy leg reports failure
+		Stop: func(session string) (bool, bool) {
+			return session == "member-ow-7", false // legacy leg reports failure
 		},
 		Report: func(cr CommandResult) error { got = cr; return nil },
 	}
@@ -259,7 +259,7 @@ func TestDispatch_WorkerStop_ReportsCommandResult(t *testing.T) {
 			var got CommandResult
 			var reports int
 			deps := CommandDeps{
-				Stop:   func(string) bool { return c.stopOK },
+				Stop:   func(string) (bool, bool) { return c.stopOK, false },
 				Report: func(cr CommandResult) error { got = cr; reports++; return nil },
 			}
 			cmd := &Command{RPC: rpcWorkerStop, Args: map[string]any{"worker_id": "ow-9"}}

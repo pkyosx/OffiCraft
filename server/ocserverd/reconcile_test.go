@@ -399,6 +399,9 @@ func TestReconcileDecide(t *testing.T) {
 		st := newReconcileState()
 		st.LastCommand = reconcileCmdStart
 		st.LastCommandAt = 1000
+		// T-9adc: the takeover additionally requires a SUSTAINED offline record
+		// (second confirmation) — this member has been offline past the grace.
+		st.OfflineSince = 1000 - cfg.ZombieConfirmGrace
 		obs := obsOf("m", DesiredStateOnline, false)
 		obs.LastOpKind = reconcileCmdStart
 		obs.LastOpReason = "session_already_exists: tmux session \"member-m\" is already live (clobber-guard refused to stomp it)"
@@ -412,10 +415,78 @@ func TestReconcileDecide(t *testing.T) {
 		}
 	})
 
+	t.Run("zombie takeover WITHHELD inside the reconnect-confirm grace (T-9adc)", func(t *testing.T) {
+		// 斷線 → 寬限內:the clobber receipt alone must NOT fire the STOP — a
+		// session mid-reconnect (the 2026-07-20 SSE-blip incident) is
+		// indistinguishable from a zombie at this instant.
+		st := newReconcileState()
+		st.LastCommand = reconcileCmdStart
+		st.LastCommandAt = 1000
+		obs := obsOf("m", DesiredStateOnline, false)
+		obs.LastOpKind = reconcileCmdStart
+		obs.LastOpReason = "session_already_exists: tmux session \"member-m\" is already live (clobber-guard refused to stomp it)"
+		// First offline observation: OfflineSince arms NOW → 0 elapsed < grace.
+		d := reconcileDecide(obs, st, cfg, 1010)
+		if d.Command != reconcileCmdNone {
+			t.Fatalf("takeover STOP must be withheld inside the grace: %+v", d)
+		}
+		if d.State.OfflineSince != 1010 {
+			t.Fatalf("first offline tick must arm OfflineSince: %+v", d.State)
+		}
+		if d.State.LastCommand != reconcileCmdStart {
+			t.Fatalf("holding must keep the START context so the arm re-evaluates: %+v", d.State)
+		}
+		// One second before the grace lapses: still withheld (boundary).
+		d2 := reconcileDecide(obs, d.State, cfg, 1010+cfg.ZombieConfirmGrace-1)
+		if d2.Command != reconcileCmdNone {
+			t.Fatalf("still inside the grace — must keep withholding: %+v", d2)
+		}
+		// Grace lapsed with no reconnect: the STOP fires (bounded — a true
+		// zombie is still reaped; the window can never degrade into never-kill).
+		d3 := reconcileDecide(obs, d2.State, cfg, 1010+cfg.ZombieConfirmGrace)
+		if d3.Command != reconcileCmdStop || d3.State.LastCommand != reconcileCmdStop {
+			t.Fatalf("grace lapsed — takeover STOP must fire: %+v", d3)
+		}
+	})
+
+	t.Run("reconnect inside the grace cancels the takeover (T-9adc)", func(t *testing.T) {
+		// 斷線 → 寬限內重連 → 不殺:an online observation is the liveness proof —
+		// it clears OfflineSince and converges; no STOP is ever dispatched.
+		st := newReconcileState()
+		st.LastCommand = reconcileCmdStart
+		st.LastCommandAt = 1000
+		obs := obsOf("m", DesiredStateOnline, false)
+		obs.LastOpKind = reconcileCmdStart
+		obs.LastOpReason = "session_already_exists: tmux session \"member-m\" is already live (clobber-guard refused to stomp it)"
+		hold := reconcileDecide(obs, st, cfg, 1010)
+		if hold.Command != reconcileCmdNone {
+			t.Fatalf("expected the withheld takeover: %+v", hold)
+		}
+		// The session reconnects on its own (the incident's actual outcome).
+		back := obsOf("m", DesiredStateOnline, true)
+		d := reconcileDecide(back, hold.State, cfg, 1040)
+		if d.Command != reconcileCmdNone || d.State.Phase != reconcilePhaseOnline {
+			t.Fatalf("reconnected member must converge, never be stopped: %+v", d)
+		}
+		if d.State.OfflineSince != 0 {
+			t.Fatalf("online observation must clear the offline anchor: %+v", d.State)
+		}
+		// Even if it drops offline again later, the window re-arms from ZERO —
+		// no stale clock can fast-track a kill after a proven reconnect.
+		st2 := d.State
+		st2.LastCommand = reconcileCmdStart
+		st2.LastCommandAt = 2000
+		again := reconcileDecide(obs, st2, cfg, 2010)
+		if again.Command != reconcileCmdNone || again.State.OfflineSince != 2010 {
+			t.Fatalf("post-reconnect offline must re-arm the grace from zero: %+v", again)
+		}
+	})
+
 	t.Run("reaped zombie respawns clean on the next tick", func(t *testing.T) {
 		st := newReconcileState()
 		st.LastCommand = reconcileCmdStart
 		st.LastCommandAt = 1000
+		st.OfflineSince = 1000 - cfg.ZombieConfirmGrace // T-9adc: sustained offline
 		obs := obsOf("m", DesiredStateOnline, false)
 		obs.LastOpKind = reconcileCmdStart
 		obs.LastOpReason = "session_already_exists: tmux session \"member-m\" is already live (clobber-guard refused to stomp it)"

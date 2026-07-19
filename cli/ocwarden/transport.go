@@ -553,7 +553,7 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner) Com
 			sd.Pretrust = func() error { return pretrustWorkdir(claudeJSONPath, workdir) }
 			return sd.start(p)
 		},
-		Stop: func(session string) bool {
+		Stop: func(session string) (bool, bool) {
 			// The sweep seams complete the ladder's ⓪/⑤ legs: lsof-discover any
 			// ocagent still anchored to the session's workdir (the detached
 			// `ocagent listen` SIGHUP never reaches) and reap it exact-pid, pacing
