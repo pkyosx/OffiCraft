@@ -35,13 +35,27 @@ func (s *apiServer) projectWorker(
 	accountDisplay func(string) string,
 ) outsourceWorkerDTO {
 	spawnTarget, spawnAt := s.workerSpawnObs(worker.ID)
+	// T-c23a: the spawn observation is IN-MEMORY (P7d fold) — a server re-exec
+	// forgets it, and a HEALTHY live worker is never re-dispatched, so the
+	// machine cell would read 「尚未分配」 forever while the session keeps
+	// working. Fall back to the restart-proof observed host — the live SSE
+	// machine claim, then the worker's self-reported telemetry `machine` —
+	// the SAME precedence the member roster's observedHost fold and
+	// resolveWorkerKillTarget already trust. Display-only: the identity-sweep
+	// 正身 check keeps reading the strict dispatch memory (workerSpawnObs),
+	// so no kill decision widens. "" when nothing is observed — the panel's
+	// honest 「尚未分配」, never fabricated.
+	machineObserved := spawnTarget
+	if machineObserved == "" {
+		machineObserved = s.observedWorkerHost(worker.ID, tele[worker.ID])
+	}
 	return newOutsourceWorkerDTO(worker, task, outsourceWorkerProjection{
 		unread:      unread,
 		now:         now,
 		online:      s.hub.IsOnline(worker.ID),
 		tele:        tele[worker.ID],
 		gaugeEntry:  gauge[worker.ID],
-		spawnTarget: spawnTarget,
+		spawnTarget: machineObserved,
 		spawnAt:     spawnAt,
 		machineDisplay: func(id string) string {
 			if name := machineNames[id]; name != "" {

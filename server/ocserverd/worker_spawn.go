@@ -715,6 +715,24 @@ func (s *apiServer) resolveWorkerKillTarget(workerID string) string {
 	return s.hub.MachineOf(workerID)
 }
 
+// observedWorkerHost resolves a worker's RESTART-PROOF observed host for the
+// read-path projection (T-c23a — the cockpit machine cell), when the in-memory
+// spawn observation is empty (server re-exec forgot the dispatch, and a healthy
+// live worker never re-dispatches): the live SSE machine claim (hub.MachineOf,
+// the same ground truth resolveWorkerKillTarget and the member observedHost
+// fold trust), else the worker's self-reported telemetry `machine`. Honest ""
+// when neither observes anything. tele is the worker's OWN telemetry entry
+// (nil-safe). Read-only — never feeds a kill/sweep decision.
+func (s *apiServer) observedWorkerHost(workerID string, tele map[string]any) string {
+	if host := s.hub.MachineOf(workerID); host != "" {
+		return host
+	}
+	if m, _ := tele["machine"].(string); m != "" {
+		return m
+	}
+	return ""
+}
+
 // respawnWorkerNow is the shared 殺舊 session + 清 pacing + 立即重生 primitive
 // behind every owner/auto operation that moves a LIVE worker to a fresh session
 // on the same bound task: relocate (改機器), refocus (換手), model change, and the

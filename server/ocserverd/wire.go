@@ -750,10 +750,12 @@ type outsourceWorkerProjection struct {
 	tele           map[string]any      // telemetry[w.ID]; nil-safe
 	gaugeEntry     map[string]any      // gauge[w.ID]; nil-safe
 	machineDisplay func(string) string // machine id → registry display label
-	// spawnTarget is the warden the last worker start was dispatched to — the
-	// IN-MEMORY spawn observation (workerSpawnTarget; the durable
-	// last_spawn_target column retired with the P7d fold). "" = never
-	// dispatched this server run — the panel renders 「尚未分配」.
+	// spawnTarget is the worker's OBSERVED host: the warden the last start was
+	// dispatched to (workerSpawnTarget, in-memory since the P7d fold), or —
+	// when a re-exec forgot that dispatch (T-c23a) — the restart-proof
+	// observed host (live SSE machine claim → telemetry `machine`,
+	// observedWorkerHost). "" = nothing observed — the panel renders
+	// 「尚未分配」.
 	spawnTarget string
 	// spawnAt is the last start-dispatch timestamp (workerSpawnAt) — the wake
 	// anchor of the presence projection (waking while fresh). 0 = never
@@ -1008,9 +1010,10 @@ func newOutsourceWorkerDTO(w OutsourceWorker, task *Task, p outsourceWorkerProje
 		CreatedTS:   w.CreatedTS,
 		UnreadCount: p.unread,
 		Presence:    workerPresence(w, p.now, p.online, p.spawnAt),
-		// Machine = the REAL dispatch target resolved to a display label; "" when
-		// never dispatched this server run (in-memory spawn target empty since
-		// the P7d fold) — the panel renders 「尚未分配」.
+		// Machine = the worker's OBSERVED host (dispatch target, or the
+		// restart-proof fallback folded upstream in projectWorker — T-c23a)
+		// resolved to a display label; "" when nothing is observed — the panel
+		// renders 「尚未分配」.
 		DesiredMachineID: w.DesiredMachineID,
 		LastOp:           w.LastOp,
 		LastOpOK:         w.LastOpOK,

@@ -604,6 +604,66 @@ func TestListOutsourceWorkers_PresenceUsesLivePresence(t *testing.T) {
 	}
 }
 
+// TestListOutsourceWorkers_MachineSurvivesReexec (T-c23a): the cockpit machine
+// cell must survive a server re-exec. The spawn observation (workerSpawnTarget)
+// is in-memory since the P7d fold: a restart forgets it, and a HEALTHY live
+// worker is never re-dispatched, so the cell read 「尚未分配」 forever while the
+// session kept working. The projection now falls back to the restart-proof
+// observed host: live SSE machine claim first, then the worker's self-reported
+// telemetry `machine` — the same precedence the member observedHost fold trusts.
+func TestListOutsourceWorkers_MachineSurvivesReexec(t *testing.T) {
+	api := newTasksTestServer(t)
+	api.noOutsource = true
+	workerID := assignOneWorker(t, api)
+	if err := api.dal.PutMachineAlias(MachineAlias{
+		MachineID: "mach-1", DisplayName: "MBP 5"}); err != nil {
+		t.Fatalf("put alias: %v", err)
+	}
+
+	// Spawn 後: the in-memory dispatch observation drives the cell.
+	api.outsourceMu.Lock()
+	api.workerSpawnTarget[workerID] = "mach-1"
+	api.outsourceMu.Unlock()
+	if rows := listWorkersAs(t, api, wireOwnerID); rows[0].Machine != "MBP 5" {
+		t.Fatalf("after spawn: machine = %q, want MBP 5", rows[0].Machine)
+	}
+
+	// Simulated re-exec: the in-memory spawn maps are reborn EMPTY (restart
+	// amnesia — the exact P7d posture), while the worker's session lives on.
+	api.outsourceMu.Lock()
+	api.workerSpawnTarget = map[string]string{}
+	api.workerSpawnAt = map[string]float64{}
+	api.outsourceMu.Unlock()
+
+	// The live worker reconnects its SSE carrying the machine_id token claim —
+	// the restart-proof ground truth. The cell must keep its value.
+	l, err := api.hub.Connect(workerID, "mach-1")
+	if err != nil {
+		t.Fatalf("connect worker listener: %v", err)
+	}
+	if rows := listWorkersAs(t, api, wireOwnerID); rows[0].Machine != "MBP 5" {
+		t.Fatalf("after re-exec + SSE reconnect: machine = %q, want MBP 5 (尚未分配 regression)",
+			rows[0].Machine)
+	}
+
+	// SSE gone but telemetry still remembers the host → second-rung fallback.
+	api.hub.Disconnect(l)
+	api.telemetry.Set(workerID, map[string]any{"machine": "mach-1"})
+	if rows := listWorkersAs(t, api, wireOwnerID); rows[0].Machine != "MBP 5" {
+		t.Fatalf("after re-exec, telemetry fallback: machine = %q, want MBP 5", rows[0].Machine)
+	}
+
+	// A REAL dispatch this server run outranks both fallbacks — the cell shows
+	// where the server actually sent the last start.
+	api.outsourceMu.Lock()
+	api.workerSpawnTarget[workerID] = "mach-2"
+	api.outsourceMu.Unlock()
+	if rows := listWorkersAs(t, api, wireOwnerID); rows[0].Machine != "mach-2" {
+		t.Fatalf("dispatch memory must outrank fallbacks: machine = %q, want mach-2",
+			rows[0].Machine)
+	}
+}
+
 // listWorkersAs GETs /api/outsource-workers through the handler as `sub`.
 func listWorkersAs(t *testing.T, api *apiServer, sub string) []outsourceWorkerDTO {
 	t.Helper()
