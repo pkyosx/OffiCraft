@@ -861,18 +861,6 @@
   color: var(--color-text-muted);
 }
 
-/* 任務規劃 accordion: header is the existing manual-entry button; its
- * chevron rotates on open and the editor mounts in the body below. */
-.manual-entry__caret {
-  transition: transform 0.15s ease;
-}
-.manual-entry__caret--open {
-  transform: rotate(90deg);
-}
-.manual-accordion__body {
-  margin: 8px 0 14px;
-}
-
 .set-entry__icon--purple {
   background: rgba(139, 122, 232, 0.16);
   color: #a99cf0;

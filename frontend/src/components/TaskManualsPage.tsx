@@ -15,12 +15,14 @@
 //                   任務由他負責」 + one-line setting + 編輯 → the member-
 //                   panel-style editor expands IN PLACE), then the 任務規劃
 //                   section with TWO ENTRY CARDS (任務定義 / 學習經驗, each
-//                   subtitle + chevron) into their own sub-pages.
-//   Sub-pages     — pill tabs (任務定義 / 學習經驗) at the top switch between
-//                   the two; content mirrors the guided three questions /
-//                   the learnings doc. NO internal filename anywhere (owner's
-//                   earlier ruling stands — manuals are content, not files;
-//                   the mockup's review-pr.md chip is deliberately not built).
+//                   subtitle + chevron) that PUSH their own sub-page.
+//   Sub-pages     — 任務定義 / 學習經驗 each get their own breadcrumb page
+//                   (設定 › 任務手冊 › <type> › 任務定義/學習經驗, owner
+//                   2026-07-20 — ex-inline-accordion); content mirrors the
+//                   guided three questions / the learnings doc, editing carried
+//                   over. NO internal filename anywhere (owner's earlier ruling
+//                   stands — manuals are content, not files; the mockup's
+//                   review-pr.md chip is deliberately not built).
 //   Assignee edit — segmented 指定成員/外包 toggle; model = the member panel's
 //                   quick-pick chips (MODEL_QUICK_PICKS — the same source as
 //                   ModelEffortEditor) + free input; 投入程度 = 低/中/高
@@ -56,8 +58,6 @@ import {
   TrashIcon,
   UserIcon,
 } from "./icons";
-
-export type ManualSubTab = "definition" | "learnings";
 
 // ── 列表 (§5.1) ───────────────────────────────────────────────────────────────
 
@@ -288,13 +288,15 @@ export function TaskManualsList({
   );
 }
 
-// ── 詳情 hub (mock-manual-detail: 摘要卡 + 任務規劃手風琴) ─────────────
+// ── 詳情 hub (mock-manual-detail: 摘要卡 + 任務規劃入口卡) ─────────────
 
 export function TaskManualHub({
   manual,
   members,
   crumbs,
   onSave,
+  onOpenDefinition,
+  onOpenLearnings,
 }: {
   manual: TaskManualView;
   /** The office roster (real assistants) — the assignee member picker. */
@@ -302,20 +304,12 @@ export function TaskManualHub({
   /** The unified settings breadcrumb (T-8f6e) — 設定 › 任務手冊 › <type>. */
   crumbs: Crumb[];
   onSave: (patch: TaskManualPatch) => Promise<unknown>;
+  /** Navigate into the 任務定義 / 學習經驗 sub-pages (owner 2026-07-20 — the
+   * two 任務規劃 cards push a child page instead of expanding in place). */
+  onOpenDefinition: () => void;
+  onOpenLearnings: () => void;
 }) {
   const { t } = useI18n();
-  // The two 任務規劃 cards are independent accordions — each toggles its own
-  // editor open/closed in place (owner 2026-07-14, ex-sub-page). Both start
-  // collapsed.
-  const [openSet, setOpenSet] = useState<Set<ManualSubTab>>(new Set());
-  function toggle(tab: ManualSubTab) {
-    setOpenSet((prev) => {
-      const next = new Set(prev);
-      if (next.has(tab)) next.delete(tab);
-      else next.add(tab);
-      return next;
-    });
-  }
   return (
     <div className="settings">
       <Breadcrumbs items={crumbs} />
@@ -335,76 +329,99 @@ export function TaskManualHub({
 
       <AssigneeCard manual={manual} members={members} onSave={onSave} />
 
-      {/* 任務規劃 — the two accordion cards; expanding one inlines its editor. */}
+      {/* 任務規劃 — the two entry cards navigate into their own sub-pages
+       * (owner 2026-07-20). The chevron is now the plain 前往 right-caret the
+       * other settings rows use, matching the push semantics. */}
       <div className="manual-section-label">
         {t.settings.manualPlanningSection}
       </div>
       <div className="set-entries">
-        <div className="manual-accordion">
-          <button
-            type="button"
-            className="set-entry manual-entry"
-            data-testid="manual-entry-definition"
-            aria-expanded={openSet.has("definition")}
-            onClick={() => toggle("definition")}
-          >
-            <span className="set-entry__icon set-entry__icon--blue">
-              <FileTextIcon size={18} />
+        <button
+          type="button"
+          className="set-entry manual-entry"
+          data-testid="manual-entry-definition"
+          onClick={onOpenDefinition}
+        >
+          <span className="set-entry__icon set-entry__icon--blue">
+            <FileTextIcon size={18} />
+          </span>
+          <span className="set-entry__body">
+            <span className="set-entry__name">
+              {t.settings.manualTabDefinition}
             </span>
-            <span className="set-entry__body">
-              <span className="set-entry__name">
-                {t.settings.manualTabDefinition}
-              </span>
-              <span className="set-entry__sub">
-                {t.settings.manualDefEntrySub}
-              </span>
+            <span className="set-entry__sub">
+              {t.settings.manualDefEntrySub}
             </span>
-            <ChevronRightIcon
-              size={18}
-              className={`set-entry__chev manual-entry__caret${
-                openSet.has("definition") ? " manual-entry__caret--open" : ""
-              }`}
-            />
-          </button>
-          {openSet.has("definition") && (
-            <div className="manual-accordion__body">
-              <DefinitionCard manual={manual} onSave={onSave} />
-            </div>
-          )}
-        </div>
-        <div className="manual-accordion">
-          <button
-            type="button"
-            className="set-entry manual-entry"
-            data-testid="manual-entry-learnings"
-            aria-expanded={openSet.has("learnings")}
-            onClick={() => toggle("learnings")}
-          >
-            <span className="set-entry__icon set-entry__icon--purple">
-              <BulbIcon size={18} />
+          </span>
+          <ChevronRightIcon size={18} className="set-entry__chev" />
+        </button>
+        <button
+          type="button"
+          className="set-entry manual-entry"
+          data-testid="manual-entry-learnings"
+          onClick={onOpenLearnings}
+        >
+          <span className="set-entry__icon set-entry__icon--purple">
+            <BulbIcon size={18} />
+          </span>
+          <span className="set-entry__body">
+            <span className="set-entry__name">
+              {t.settings.manualTabLearnings}
             </span>
-            <span className="set-entry__body">
-              <span className="set-entry__name">
-                {t.settings.manualTabLearnings}
-              </span>
-              <span className="set-entry__sub">
-                {t.settings.manualLearnEntrySub}
-              </span>
+            <span className="set-entry__sub">
+              {t.settings.manualLearnEntrySub}
             </span>
-            <ChevronRightIcon
-              size={18}
-              className={`set-entry__chev manual-entry__caret${
-                openSet.has("learnings") ? " manual-entry__caret--open" : ""
-              }`}
-            />
-          </button>
-          {openSet.has("learnings") && (
-            <div className="manual-accordion__body">
-              <LearningsCard manual={manual} onSave={onSave} />
-            </div>
-          )}
-        </div>
+          </span>
+          <ChevronRightIcon size={18} className="set-entry__chev" />
+        </button>
       </div>
+    </div>
+  );
+}
+
+// ── 任務定義 / 學習經驗 sub-pages (owner 2026-07-20 — pushed from the hub) ───
+// Each is a breadcrumb sub-page (設定 › 任務手冊 › <type> › 任務定義/學習經驗)
+// wrapping the SAME card the hub used to expand inline, so the editing
+// affordance is carried over untouched.
+
+export function TaskManualDefinitionPage({
+  manual,
+  crumbs,
+  onSave,
+}: {
+  manual: TaskManualView;
+  crumbs: Crumb[];
+  onSave: (patch: TaskManualPatch) => Promise<unknown>;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="settings">
+      <Breadcrumbs items={crumbs} />
+      <h1 className="settings__title settings__title--doc">
+        {t.settings.manualTabDefinition}
+      </h1>
+      <DefinitionCard manual={manual} onSave={onSave} />
+    </div>
+  );
+}
+
+export function TaskManualLearningsPage({
+  manual,
+  crumbs,
+  onSave,
+}: {
+  manual: TaskManualView;
+  crumbs: Crumb[];
+  onSave: (patch: TaskManualPatch) => Promise<unknown>;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="settings">
+      <Breadcrumbs items={crumbs} />
+      <h1 className="settings__title settings__title--doc">
+        {t.settings.manualTabLearnings}
+      </h1>
+      <LearningsCard manual={manual} onSave={onSave} />
     </div>
   );
 }

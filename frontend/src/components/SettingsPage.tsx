@@ -18,7 +18,10 @@ import { useMembers } from "../hooks/useMembers";
 import {
   TaskManualsList,
   TaskManualHub,
+  TaskManualDefinitionPage,
+  TaskManualLearningsPage,
 } from "./TaskManualsPage";
+import type { TaskManualPatch } from "../api/adapter";
 import {
   SEED_BOOT_SEQUENCE_MD,
   SEED_SYSTEM_INTERACTION_MD,
@@ -60,9 +63,11 @@ type View =
   | { kind: "boot" }
   | { kind: "role"; key: string }
   | { kind: "manuals" }
-  // 任務手冊詳情 = hub (摘要卡 + 任務規劃手風琴): the two 任務規劃 cards
-  // (任務定義/學習經驗) expand their editors inline (owner 2026-07-14).
-  | { kind: "manual"; key: string };
+  // 任務手冊詳情 = hub (摘要卡 + 任務規劃入口卡): the two 任務規劃 cards
+  // (任務定義/學習經驗) PUSH their own sub-page (owner 2026-07-20).
+  | { kind: "manual"; key: string }
+  | { kind: "manualDef"; key: string }
+  | { kind: "manualLearnings"; key: string };
 
 export function SettingsPage({
   initialManualKey,
@@ -235,6 +240,58 @@ export function SettingsPage({
           },
         ]}
         onSave={(patch) => manualsH.update(key, patch)}
+        onOpenDefinition={() => setView({ kind: "manualDef", key })}
+        onOpenLearnings={() => setView({ kind: "manualLearnings", key })}
+      />
+    );
+  }
+
+  // 任務定義 / 學習經驗 sub-pages (owner 2026-07-20) — pushed from the hub. Both
+  // self-heal to the manuals list on an unknown/deleted key (the hub's rule),
+  // and their breadcrumb's <type> segment jumps back to the hub.
+  if (view.kind === "manualDef" || view.kind === "manualLearnings") {
+    const key = view.key;
+    const manual = manualsH.manuals.find((m) => m.typeKey === key);
+    if (!manual) {
+      return (
+        <TaskManualsList
+          manuals={manualsH.manuals}
+          loading={manualsH.loading}
+          error={manualsH.error}
+          crumbs={manualsCrumbs}
+          onOpen={(k) => setView({ kind: "manual", key: k })}
+          onCreate={manualsH.create}
+          onDelete={manualsH.remove}
+        />
+      );
+    }
+    const subCrumbs: Crumb[] = [
+      crumbRoot,
+      { label: t.settings.manuals, onClick: () => setView({ kind: "manuals" }) },
+      {
+        label: manual.displayName || manual.typeKey,
+        mono: !manual.displayName,
+        onClick: () => setView({ kind: "manual", key }),
+      },
+      {
+        label:
+          view.kind === "manualDef"
+            ? t.settings.manualTabDefinition
+            : t.settings.manualTabLearnings,
+      },
+    ];
+    const onSave = (patch: TaskManualPatch) => manualsH.update(key, patch);
+    return view.kind === "manualDef" ? (
+      <TaskManualDefinitionPage
+        manual={manual}
+        crumbs={subCrumbs}
+        onSave={onSave}
+      />
+    ) : (
+      <TaskManualLearningsPage
+        manual={manual}
+        crumbs={subCrumbs}
+        onSave={onSave}
       />
     );
   }

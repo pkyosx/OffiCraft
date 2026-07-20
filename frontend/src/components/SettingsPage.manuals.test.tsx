@@ -4,9 +4,10 @@
 //   2. 新增類型 (T-fa76): the inline row takes a DISPLAY NAME; the system
 //      mints the tm- type_key (never the user's text) and the list row shows
 //      the display name — the key stays out of the UI.
-//   3. The detail is a HUB (owner 2026-07-14): 負責成員 summary card + 任務
-//      規劃 accordion cards — clicking 任務定義 / 學習經驗 expands its editor
-//      INLINE on the hub (independent toggles); never shows a filename.
+//   3. The detail is a HUB: 負責成員 summary card + 任務規劃 entry cards —
+//      clicking 任務定義 / 學習經驗 PUSHES its own breadcrumb sub-page (設定 ›
+//      任務手冊 › <type> › 任務定義/學習經驗, owner 2026-07-20), where the
+//      <type> crumb returns to the hub; never shows a filename.
 //   4. 任務定義 editing (owner T-8a4a r3 — one explicit edit switch for the
 //      whole area): READ-ONLY by default; 編輯 flips Q1 purpose text, Q2 field
 //      list (add/remove, 必填 toggle, 識別鍵 marking — composite allowed) and
@@ -177,42 +178,43 @@ describe("設定 › 任務手冊 — list", () => {
 });
 
 describe("設定 › 任務手冊 — detail", () => {
-  it("hub → 任務定義 entry expands the three-section card, READ-ONLY by default (owner T-8a4a r3: explicit edit mode)", async () => {
+  it("hub → 任務定義 entry pushes the definition sub-page (not inline), READ-ONLY by default; <type> crumb returns to the hub (owner 2026-07-20)", async () => {
     __injectMockTaskManual(
       mkManual({
         typeKey: "review-pr",
+        displayName: "審查 PR",
         purpose: "Review 進來的 PR。",
         fields: [{ name: "PR 連結", required: true, isKey: true }],
         sopMd: "# steps\n1. review",
       })
     );
-    const { findByTestId, getByTestId, queryByTestId } =
+    const { findByTestId, getByTestId, queryByTestId, getByText, container } =
       await renderManualsList();
     fireEvent.click(await findByTestId("manual-open-review-pr"));
 
-    // The HUB shows the two 任務規劃 entry cards, both collapsed — no card yet.
+    // The HUB shows the two 任務規劃 entry cards — no sub-page card inline yet.
     await findByTestId("manual-entry-definition");
     await findByTestId("manual-entry-learnings");
     expect(queryByTestId("manual-definition-card")).toBeNull();
 
-    // Click the 任務定義 entry: the three-section card mounts INLINE on the hub
-    // (assignee card + both entries stay); learnings stays collapsed.
+    // Click 任務定義: it PUSHES a sub-page. The hub-only 負責成員 card and the
+    // entry buttons are gone (a real navigation, not an inline expand)…
     fireEvent.click(getByTestId("manual-entry-definition"));
     await findByTestId("manual-definition-card");
-    expect(
-      getByTestId("manual-entry-definition").getAttribute("aria-expanded")
-    ).toBe("true");
-    expect(queryByTestId("manual-assignee-card")).not.toBeNull();
-    expect(queryByTestId("manual-learnings-card")).toBeNull();
+    expect(queryByTestId("manual-assignee-card")).toBeNull();
+    expect(queryByTestId("manual-entry-learnings")).toBeNull();
 
-    // Default is READ-ONLY: the 編輯 switch is shown, no editors are mounted.
+    // …the breadcrumb reads 設定 › 任務手冊 › 審查 PR › 任務定義.
+    const crumbText = container.querySelector(".crumbs")!.textContent!;
+    expect(crumbText).toContain("設定");
+    expect(crumbText).toContain("任務手冊");
+    expect(crumbText).toContain("審查 PR");
+    expect(crumbText).toContain("任務定義");
+
+    // Default is READ-ONLY on the sub-page: 編輯 switch shown, no editors, and
+    // every section renders the stored content read-only.
     expect(queryByTestId("manual-def-edit")).not.toBeNull();
-    expect(queryByTestId("manual-def-done")).toBeNull();
     expect(queryByTestId("manual-purpose-input")).toBeNull();
-    expect(queryByTestId("manual-fields-editor")).toBeNull();
-    expect(queryByTestId("manual-sop-input")).toBeNull();
-
-    // …and every section renders the stored content as read-only.
     expect(getByTestId("manual-purpose-view").textContent).toBe(
       "Review 進來的 PR。"
     );
@@ -220,6 +222,12 @@ describe("設定 › 任務手冊 — detail", () => {
       "PR 連結"
     );
     expect(getByTestId("manual-section-3").textContent).toContain("review");
+
+    // The 審查 PR crumb navigates back to the hub (assignee card + entries).
+    fireEvent.click(getByText("審查 PR"));
+    await findByTestId("manual-assignee-card");
+    expect(queryByTestId("manual-definition-card")).toBeNull();
+    expect(queryByTestId("manual-entry-definition")).not.toBeNull();
   });
 
   it("編輯 → 完成編輯 persists all three sections in one go (owner T-8a4a r3)", async () => {
@@ -415,24 +423,30 @@ describe("設定 › 任務手冊 — detail", () => {
     });
   });
 
-  it("學習經驗 entry expands the learnings card inline (owner hand edit); both cards can be open together", async () => {
+  it("學習經驗 entry pushes the learnings sub-page; content carries over and hand edit still persists (owner 2026-07-20)", async () => {
     __injectMockTaskManual(
-      mkManual({ typeKey: "review-pr", learnings: "## 經驗\n- 舊經驗" })
+      mkManual({
+        typeKey: "review-pr",
+        displayName: "審查 PR",
+        learnings: "## 經驗\n- 舊經驗",
+      })
     );
-    const { findByTestId, getByTestId, queryByTestId } =
+    const { findByTestId, getByTestId, queryByTestId, container, getByText } =
       await renderManualsList();
     fireEvent.click(await findByTestId("manual-open-review-pr"));
-    // Open definition first, then learnings — the two accordions are
-    // independent, so both editors coexist inline on the hub.
-    fireEvent.click(await findByTestId("manual-entry-definition"));
-    await findByTestId("manual-definition-card");
-    fireEvent.click(await findByTestId("manual-entry-learnings"));
 
+    // Clicking 學習經驗 navigates to its own sub-page (hub entries gone).
+    fireEvent.click(await findByTestId("manual-entry-learnings"));
     const card = await findByTestId("manual-learnings-card");
     expect(card.textContent).toContain("舊經驗");
-    // Definition stayed open — the toggles are independent.
-    expect(queryByTestId("manual-definition-card")).not.toBeNull();
+    expect(queryByTestId("manual-entry-definition")).toBeNull();
+    expect(queryByTestId("manual-assignee-card")).toBeNull();
 
+    const crumbText = container.querySelector(".crumbs")!.textContent!;
+    expect(crumbText).toContain("審查 PR");
+    expect(crumbText).toContain("學習經驗");
+
+    // The edit affordance carried over — the hand edit still persists.
     fireEvent.click(getByTestId("manual-learnings-edit"));
     fireEvent.change(getByTestId("manual-learnings-input"), {
       target: { value: "## 經驗\n- 新經驗" },
@@ -444,6 +458,12 @@ describe("設定 › 任務手冊 — detail", () => {
         "## 經驗\n- 新經驗"
       );
     });
+
+    // The 審查 PR crumb navigates back to the hub.
+    fireEvent.click(getByText("審查 PR"));
+    await findByTestId("manual-assignee-card");
+    expect(queryByTestId("manual-learnings-card")).toBeNull();
+    expect(queryByTestId("manual-entry-learnings")).not.toBeNull();
   });
 
   it("負責成員 editor sets an outsource assignee (chips + segmented + stepper + machine)", async () => {
