@@ -1060,6 +1060,40 @@ button.task-card__waiting--dep:focus-visible {
   flex: none;
   margin-top: 0;
 }
+/* The dep's OWN status badge, leading the row (T-c21e, owner 2026-07-20:
+   「直接在最前面接 label 顯示這些 task 目前的狀態」).
+   🔴 It reuses .task-badge + .task-badge--status-* verbatim — the same pair
+   row 1's 狀態 chip wears — so there is exactly one place that decides what
+   「已完成」 looks like. NO colour is declared here, and none may be added: the
+   moment this rule paints its own hue, the dep row and the card's own badge can
+   drift apart and the reader loses the right to assume they mean the same thing.
+   Only SIZE is touched. .task-badge is built for the 13px badge row; at the dep
+   row's 12.5px it would out-weigh the 編號 + 標題 it is supposed to introduce,
+   and on a 390px card every px it takes comes out of the title. Same reason the
+   ::before dot is scaled with it rather than left at the row-1 size. */
+.task-card__dep-status {
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 600;
+  /* Opaque card-coloured backing, and it is load-bearing (T-c21e).
+     .task-badge itself declares no background, so a badge takes whatever it
+     sits on. On row 1 that is the card (#242832) and all seven statuses clear
+     4.5:1. The dep row adds a 10% #8fb6d9 wash, which lifts the backdrop and
+     drops the SAME seven colours by ~0.85 — enough to fail four of them:
+     not_started 4.79→3.94, waiting_external 5.03→4.14, terminated 5.17→4.26,
+     duplicated 4.82→3.97 (WCAG 2.1, computed over the composited backdrop).
+     Row 1 is the control group and it passes, so this shortfall is not
+     inherited — it is what putting the badge on the washed row created.
+     Restoring the card colour underneath puts every status back on its row-1
+     footing. Colour is NOT touched: the hue still comes from the single
+     .task-badge--status-* source, so this cannot drift from row 1's chip. */
+  background: var(--color-card);
+}
+.task-card__dep-status::before {
+  width: 5px;
+  height: 5px;
+}
+
 .task-card__dep-no {
   flex: none;
   white-space: nowrap;
@@ -1090,6 +1124,23 @@ button.task-card__waiting--dep:focus-visible {
    calculation, not a taste call; owner may still retune the LOOK at 驗收. */
 .task-card__waiting--dep-closed {
   opacity: 0.62;
+}
+/* …but the STATUS badge does not dim with the rest of the row (T-c21e).
+   0.62 was computed for what this row carried in T-1d82: a soft blue label
+   whose job was to recede. The badge is a different kind of payload — it is
+   the row's factual claim, and at 11px/600 it is normal text, so the 4.5:1
+   threshold applies to it in full. Measured on the office default card
+   (#242832) with the dimmer multiplied in, four of the seven statuses fell
+   under it: waiting_external 4.14, done 3.84, terminated 2.62, duplicated
+   2.56 — and done/terminated/duplicated ARE the statuses a 收斂 row shows,
+   so the dimming was worst exactly where it applied.
+   Lifting only this element keeps the 收斂 effect (icon, 編號, title all still
+   recede) while the claim stays readable. Opacity, not colour: the hue still
+   comes from the one .task-badge--status-* source, so this cannot drift from
+   row 1's chip. Restoring it on hover is NOT a fix — a hover is not available
+   on the phone, which is where the cockpit is mostly read. */
+.task-card__waiting--dep-closed .task-card__dep-status {
+  opacity: 1;
 }
 .task-card__waiting--dep-closed:hover,
 .task-card__waiting--dep-closed:focus-visible {

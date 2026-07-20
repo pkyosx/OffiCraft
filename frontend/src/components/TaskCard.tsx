@@ -69,6 +69,7 @@ import { copyText } from "../lib/clipboard";
 import { resolveStepBadge } from "../lib/stepBadge";
 import { autosizeTextarea } from "../lib/autosize";
 import { navigateHash } from "../lib/hashRoute";
+import { deriveTaskNo } from "../lib/taskNo";
 import {
   ATTACH_ACCEPT,
   useAttachmentStaging,
@@ -1372,6 +1373,33 @@ export function TaskCard({
            real 狀態 badge makes the card claim two statuses and read as
            stalled when it is not — owner saw that rendered (候選 C) and did
            not pick it. Keep it out of the badge row. */}
+      {/* ── 新舊並存,不是打架 (T-c21e, owner 2026-07-20 於 T-1d82 驗收) ──
+           Owner: 「還是這些任務可以直接在最前面接 label 顯示這些 task 目前
+           的狀態?」 So each dep row now LEADS with a 狀態 badge. Read next to
+           the 2026-07-17 note above, that looks like a reversal. It is not,
+           and the difference is WHOSE status the badge is about:
+
+           · The old note bans the badge from ROW 1 (the card's own badge row,
+             beside 優先權 / 狀態 / 轉派中). Everything standing there is a
+             claim about THIS card. A dep badge there would read 「這張卡是
+             等待中」, which is false for an in_progress-and-blocked card. That
+             ban still holds — nothing below touches row 1.
+           · The new badge lives INSIDE the dep row, inboard of 「等 T-xxxx
+             <標題>」. Its subject is unambiguous from position alone: it is
+             the status OF THE DEP TASK named on the same line, exactly like
+             the 編號 and 標題 beside it. It says nothing about this card.
+
+           Same widget, two different sentences, because in HTML position is
+           what fixes the subject. The 2026-07-17 concern (a card claiming two
+           statuses) is untouched, so both notes stay true and neither needs
+           to be softened. If a future ticket wants a dep-derived badge on row
+           1, that is the banned shape — re-read the note above first.
+
+           Colour/wording come from the ONE task-level source (task-badge
+           --status-* + t.tasks.status[...]), the same pair row 1's chip uses.
+           Not lib/stepBadge.ts — that vocabulary is the STEP's, and a dep is
+           a task. Nothing new was invented; only the size is trimmed to the
+           row's 12.5px scale (.task-card__dep-status in tasks.css). */}
       {/* T-1d82 (owner 2026-07-20): the row used to be a dead <div> printing
            `等 <task_no>` — and for a dep that had already closed, not even that:
            the lookup missed and it fell back to the raw id (`等 t-35e06c8e63c8`,
@@ -1409,12 +1437,58 @@ export function TaskCard({
                   }`}
                   data-testid="task-dep"
                   data-dep-state={unknown ? "unresolved" : "missing"}
+                  // The FULL id, kept within reach ON DESKTOP (T-c21e).
+                  // Shortening the visible number is what owner asked for, but
+                  // the short form is display-only and can collide — for an
+                  // UNRESOLVABLE dep it is the only handle anyone has, and it
+                  // is now a lossy one. `title` gives the exact id back
+                  // without spending a pixel of the row.
+                  // 🔴 It is NOT a complete answer, and the gap runs the wrong
+                  // way: `title` needs a hover, and owner reads the cockpit
+                  // mostly ON A PHONE, where there is none. So on the surface
+                  // that matters most, an unresolvable dep is the short number
+                  // and nothing else. Recorded here rather than smoothed over
+                  // — if that loss ever bites, this is the line to revisit
+                  // (a tap-to-reveal or an inline id would be the fix, both of
+                  // which cost row width owner did not agree to spend).
+                  // Safe here in a way it would not be on the resolved
+                  // <button> below: a div has no accessible name to displace.
+                  title={depId}
                 >
+                  {/* 🔴 NO status badge on this branch, on purpose (T-c21e).
+                      There is no `dep`, so there is no status to show — and a
+                      badge is the most confident-looking widget on the row.
+                      Defaulting it to 尚未執行 would invent a fact; an empty
+                      pill would look like a real, momentarily-blank status.
+                      Both launder "we don't know" into "we know". That is the
+                      same honesty line the unresolved/missing split above was
+                      drawn for, one element further in.
+                      Silence over a 「狀態不明」 chip: the row's own words
+                      (「等 <id>」 vs 「查無此任務」) already say which of the
+                      two silences this is, so a chip would be a third way to
+                      say what is written right beside it — and it would spend
+                      width on the row this ticket just made tighter (see the
+                      390px guard). Absence of a badge on a row that otherwise
+                      always has one IS the signal. */}
                   <ClockIcon size={13} />
+                  {/* The NUMBER is derived, not the raw id (T-c21e, owner
+                      2026-07-20: 「那些 ID 應該要跟任務卡上面顯示的一樣,任務
+                      卡上的 ID 似乎沒這麼長」). Both of these branches used to
+                      print `depId` whole — `t-1d8292a2f8db` where every other
+                      surface says `T-1d82` — because with no `dep` in hand
+                      there was no server-supplied task_no to print. There
+                      never needed to be one: task_no is a pure projection of
+                      the id (deriveTaskNo mirrors the server's), so the short
+                      form is computable right here.
+                      Resolved rows below still print `dep.taskNo` — same
+                      value, but from the source. Deriving is the fallback,
+                      not the default: if the server ever changes the
+                      projection, the surface that matters most keeps agreeing
+                      with it for free. */}
                   <span>
                     {unknown
-                      ? t.tasks.blockedBy(depId)
-                      : t.tasks.blockedByMissing(depId)}
+                      ? t.tasks.blockedBy(deriveTaskNo(depId))
+                      : t.tasks.blockedByMissing(deriveTaskNo(depId))}
                   </span>
                 </div>
               );
@@ -1441,6 +1515,20 @@ export function TaskCard({
                 title={t.tasks.depJump(dep.taskNo)}
                 onClick={() => navigateHash({ page: "tasks", taskId: depId })}
               >
+                {/* 最前面的 label = THIS DEP's status (T-c21e, owner
+                    2026-07-20). First child, ahead of the ⏱/✓, because owner
+                    asked for it 「在最前面」 and because a reader scanning a
+                    stack of dep rows wants the verdict before the name.
+                    It is plain text in a <span>, so it joins the button's
+                    accessible name ahead of 編號 + 標題 rather than replacing
+                    them — the aria-label trap noted below is exactly the
+                    thing a badge must not re-open. */}
+                <span
+                  className={`task-badge task-badge--status-${dep.status} task-card__dep-status`}
+                  data-testid="task-dep-status"
+                >
+                  {t.tasks.status[dep.status] ?? dep.status}
+                </span>
                 {depClosed ? <CheckIcon size={13} /> : <ClockIcon size={13} />}
                 <span className="task-card__dep-no">
                   {t.tasks.blockedBy(dep.taskNo)}
@@ -1497,9 +1585,15 @@ export function TaskCard({
             }
           >
             <span>
+              {/* Same rule as the dep rows above (T-c21e): prefer the
+                  server's task_no, DERIVE the short number when the original
+                  is not in the loaded population — never print the raw id.
+                  This row was the third mouth of the same regression; the
+                  ticket named only the two dep branches, but a surface owner
+                  reads with the same eyes should not disagree with them. */}
               {t.tasks.duplicateOf(
                 allTasks.find((x) => x.id === task.duplicateOf)?.taskNo ??
-                  task.duplicateOf
+                  deriveTaskNo(task.duplicateOf)
               )}
             </span>
             <ExternalLinkIcon size={11} />

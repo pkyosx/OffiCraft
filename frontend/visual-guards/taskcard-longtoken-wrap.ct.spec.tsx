@@ -76,6 +76,69 @@ async function assertNoOverflow(page: any, width: number) {
     expect(over, `[${width}px] ${sel} missing (never rendered)`).not.toBe(-2);
     expect(over, `[${width}px] ${sel} content overflow`).toBeLessThanOrEqual(1);
   }
+
+  // (3) T-c21e — the dep row's NON-VACUITY sentinels. The row is flex-NOWRAP
+  // and only `.task-card__dep-title` may give way (min-width: 0); the new 狀態
+  // badge, ⏱/✓, 「等 T-xxxx」 and ↗ are all `flex: none; nowrap` and form a
+  // hard floor. Adding the badge raised that floor days after 1ea673e stopped
+  // the phone scrolling sideways, so the row belongs under this guard.
+  //
+  // A per-row `scrollWidth - clientWidth` check IS asserted below, and the
+  // story of why is worth keeping.
+  //
+  // An earlier draft of this file deleted that check and justified the
+  // deletion in a comment beginning "Verified:" — claiming the row's own
+  // overflow number was structurally pinned at 0 because the row is
+  // `width: 100%` of a card that grows with it. Review re-ran the same
+  // mutant. The claim was false: with `min-width: 600px` on
+  // `.task-card__dep-status` the row reports rowOverflow=367 (rowW=358) and
+  // the per-row check fails loudly. The structural argument was wrong too —
+  // at 390px the card is clamped by the viewport, so clientWidth tops out at
+  // 358 rather than following the content.
+  //
+  // So the check was never fake protection; it was working protection deleted
+  // on a measurement nobody took. It is restored. Recorded at length because
+  // the sentence was doing real damage: a confident "Verified:" is exactly
+  // what stops the next reader from re-measuring, and this file's whole
+  // header is about assertions that quietly go vacuous.
+  //
+  // 🔴 What restoring it does NOT buy, measured rather than assumed: extra
+  // DETECTION. Under the 600px mutant both this check and (1) are violated,
+  // and (1) is asserted first, so (1) is what actually reports. No mutant has
+  // been found that trips this check while (1) stays green — the dep row is
+  // inside the card, so a row that cannot fit bursts the page too. What it
+  // buys is LOCALISATION: when it does fire first it names the dep row and
+  // its overflow in px, where (1) only says the page grew by 351. Keep it for
+  // that, and do not credit it with catching anything (1) would miss until
+  // someone produces the mutant that proves otherwise.
+  //
+  // The non-vacuity sentinels below are still owed: they prove (1) and the
+  // per-row check were measuring a dep row that actually had a badge on it —
+  // otherwise a fixture drift retires the dep coverage in silence, exactly
+  // the trap T-c514 walked into.
+  const depSel = ".task-card__waiting--dep";
+  const dep = await page.evaluate((s: string) => {
+    const el = document.querySelector(s);
+    if (!el) return { present: false, badge: false, overflow: 0 };
+    return {
+      present: true,
+      badge: !!el.querySelector('[data-testid="task-dep-status"]'),
+      // Restored (see the note above): this DOES go red — measured 367 under
+      // a 600px-min-width mutant, not the 0 an earlier comment claimed.
+      overflow: el.scrollWidth - el.clientWidth,
+    };
+  }, depSel);
+  expect(dep.present, `[${width}px] ${depSel} missing (never rendered)`).toBe(
+    true
+  );
+  expect(
+    dep.badge,
+    `[${width}px] dep row rendered WITHOUT its 狀態 badge — (1) is no longer measuring what T-c21e added`
+  ).toBe(true);
+  expect(
+    dep.overflow,
+    `[${width}px] the dep row itself overflows by ${dep.overflow}px — the badge + ⏱ + 編號 + ↗ floor no longer fits`
+  ).toBeLessThanOrEqual(1);
 }
 
 test("390px: long-token free text never widens the card/page", async ({
