@@ -376,7 +376,20 @@
   gap: 10px;
 }
 /* T-7bc2: per-attachment wrapper (chip/image + its optional 預覽 button). No
-   gap shows up when there is no button — gap only inserts BETWEEN children. */
+   gap shows up when there is no button — gap only inserts BETWEEN children.
+   owner feedback (2026-07-21): a floating eye button with visible gaps on
+   BOTH sides read as a third, unrelated item between two file chips — fused
+   it into a single two-part pill (zero gap, shared border, chip's right
+   corners + button's left corners squared off) so it visually reads as ONE
+   object attached to its own file, not a stray icon between two files. */
+.reply-card__att:has(.reply-card__preview-btn) {
+  gap: 0;
+}
+.reply-card__att:has(.reply-card__preview-btn) .chat__msg-file {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: none;
+}
 .reply-card__att {
   display: inline-flex;
   align-items: center;
@@ -401,6 +414,10 @@
   transition:
     color 0.15s,
     border-color 0.15s;
+}
+.reply-card__att:has(.reply-card__preview-btn) .reply-card__preview-btn {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
 }
 .reply-card__preview-btn:hover,
 .reply-card__preview-btn:focus-visible {
