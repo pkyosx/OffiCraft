@@ -110,6 +110,32 @@ test("narrow 390: popover stays within the phone viewport", async ({ mount, page
   expect(box!.x + box!.width).toBeLessThanOrEqual(390 + 1);
 });
 
+// T-7bc2: the .md chip's real-browser click + keyboard behaviour, at the
+// width the owner actually uses. jsdom already proved the click→overlay
+// wiring (TaskArtifactsPopover.test.tsx); this proves the button is really
+// reachable/clickable in a laid-out popover and that Enter fires it (a
+// native <button>'s default keyboard activation jsdom does not simulate).
+test("narrow 390: the .md chip opens the preview overlay on click and on Enter", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 780 });
+  const cmp = await mount(<TaskCardArtifactsStory />);
+  await cmp.getByTestId("task-artifacts-badge").click();
+  const popover = cmp.locator(".task-artifacts");
+  await expect(popover).toBeVisible();
+
+  const mdChip = cmp.getByRole("button", { name: "design.md" });
+  await mdChip.click();
+  await expect(cmp.locator(".md-preview")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(cmp.locator(".md-preview")).toHaveCount(0);
+
+  await mdChip.focus();
+  await page.keyboard.press("Enter");
+  await expect(cmp.locator(".md-preview")).toBeVisible();
+});
+
 test("narrow 390: popover stays in-viewport even when its badge is pinned to the right edge (T-2ca0)", async ({ mount, page }) => {
   // The T-2ca0 bug: 產物 is the rightmost badge, so on a phone its anchor sits
   // far right; the then-current absolute/left:0 + fixed-width popover spilled
