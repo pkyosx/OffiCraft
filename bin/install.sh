@@ -10,6 +10,8 @@
 #      ./install.sh --foreground
 #                              # developer mode: run serve in THIS terminal
 #                              # (Ctrl-C stops it), no launchd job is created
+#      ./install.sh --relocate # consent to MOVING an existing service to a
+#                              # different port/config (see the relocation gate)
 #
 #   B. standalone mode (this file alone — no ocserverd next to it), e.g.:
 #      curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash
@@ -53,6 +55,17 @@
 #                           http://127.0.0.1:<port>/?code=… setup link.
 #                           With --foreground: serve runs in the terminal
 #                           instead and NO launchd job is touched.
+#   6b. relocation gate   — replacing a job of OURS must be a reload, not a
+#                           move. If this run resolved a different port or a
+#                           different config than the job already running, that
+#                           is a relocation (usually a different database too)
+#                           and it STOPS unless --relocate is given. This
+#                           matters because the port probe falls back to
+#                           ./oc.toml in the CURRENT DIRECTORY: standing in a
+#                           checkout with a stray oc.toml would otherwise be
+#                           enough to silently move the owner's live server.
+#                           A run that resolves no config of its own INHERITS
+#                           the existing job's OC_CONFIG rather than dropping it.
 #
 # Config: the server reads $OC_CONFIG (or ./oc.toml in CWD) for overrides —
 # default port is 8780 (the OffiCraft standard; 8770 belongs to the retired
@@ -89,6 +102,7 @@ if [[ "$IN_PACKAGE" == 0 ]]; then
       --tag=*) TAG="${1#--tag=}"; shift ;;
       --force) FWD+=("--force"); shift ;;
       --foreground) FWD+=("--foreground"); shift ;;
+      --relocate) FWD+=("--relocate"); shift ;;
       -h|--help)
         cat <<'EOF'
 OffiCraft standalone installer — downloads the latest official release,
@@ -109,7 +123,7 @@ overwritten silently.
 EOF
         exit 0 ;;
       *)
-        echo "[install] FATAL: unknown argument '$1' (supported: --force, --foreground, --tag <vX.Y.Z>)" >&2
+        echo "[install] FATAL: unknown argument '$1' (supported: --force, --foreground, --relocate, --tag <vX.Y.Z>)" >&2
         exit 2 ;;
     esac
   done
@@ -189,16 +203,18 @@ fi
 # ── package mode (original in-tarball flow, unchanged) ───────────────────────
 FORCE=0
 FOREGROUND=0
+RELOCATE=0
 for arg in "$@"; do
   case "$arg" in
     --force) FORCE=1 ;;
     --foreground) FOREGROUND=1 ;;
+    --relocate) RELOCATE=1 ;;
     -h|--help)
-      sed -n '2,60p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      sed -n '2,73p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
-      echo "[install] FATAL: unknown argument '$arg' (supported: --force, --foreground)" >&2
+      echo "[install] FATAL: unknown argument '$arg' (supported: --force, --foreground, --relocate)" >&2
       exit 2
       ;;
   esac
@@ -275,13 +291,27 @@ echo "[install] migrating database (goose)…"
 # CWD of whoever ran the installer, and the daemon has a different CWD. Baking
 # the absolute path into the plist's OC_CONFIG is what keeps the port the
 # installer gated on and the port the daemon binds identical.
-PORT=8780
+#
+# CFG_SRC records WHERE it came from — env (explicit OC_CONFIG), cwd (a
+# ./oc.toml that merely happened to be in the current directory), inherited
+# (carried over from the job we are replacing), or none. "cwd" is the one that
+# bites: it is the difference between a config the operator chose and a file
+# they happen to be standing next to. See the relocation gate below.
+config_port() {
+  # [server].port out of a config file, or "" when it does not set one.
+  sed -n 's/^[[:space:]]*port[[:space:]]*=[[:space:]]*\([0-9]\{2,5\}\).*/\1/p' "$1" 2>/dev/null | head -1
+}
+DEFAULT_PORT=8780
+PORT="$DEFAULT_PORT"
 CFG_ABS=""
-for cfg in "${OC_CONFIG:-}" "./oc.toml"; do
+CFG_SRC="none"
+for cfg_kind in "env:${OC_CONFIG:-}" "cwd:./oc.toml"; do
+  cfg="${cfg_kind#*:}"
   if [[ -n "$cfg" && -f "$cfg" ]]; then
-    p="$(sed -n 's/^[[:space:]]*port[[:space:]]*=[[:space:]]*\([0-9]\{2,5\}\).*/\1/p' "$cfg" | head -1)"
+    p="$(config_port "$cfg")"
     [[ -n "$p" ]] && PORT="$p"
     CFG_ABS="$(cd "$(dirname "$cfg")" && pwd)/$(basename "$cfg")"
+    CFG_SRC="${cfg_kind%%:*}"
     break
   fi
 done
@@ -337,6 +367,71 @@ if [[ "$FOREGROUND" == 0 ]]; then
     echo "[install]        Refusing to overwrite an unidentified job — NOTHING was changed." >&2
     echo "[install]        Install under a different label instead:" >&2
     echo "[install]          OC_LAUNCHD_LABEL=com.officraft.serve.alt ./install.sh --force" >&2
+    exit 1
+  fi
+fi
+
+# ── relocation gate ──────────────────────────────────────────────────────────
+# The ownership gate above only established "this is the same BINARY". What it
+# licenses, though, is far larger: bootout the running service and re-register
+# it with WHATEVER port and config this run happened to resolve. Those two
+# scopes are not the same size, and the gap is a foot-gun with a live trigger.
+#
+# The trigger is the ./oc.toml fallback. Standing in a directory that happens to
+# contain an oc.toml — a repo checkout with a leftover e2e config, say — is
+# enough to move the owner's running server to a different port AND point it at
+# a different database. The port gate cannot catch it: it checks the NEW port,
+# which is free. The result is a service that looks freshly installed and a
+# cockpit that looks like all its data vanished, with nothing printed to connect
+# the two. Before this installer created launchd jobs the same misread was
+# harmless and reversible (it only affected a foreground process you could
+# Ctrl-C); bootout + a persistent plist is what turned it into a destructive act.
+#
+# So when replacing a job of ours, compare the parameters that decide WHERE the
+# service lives and WHAT data it serves:
+#   - no config of our own + the old job had one  -> INHERIT it (a plain reload
+#     must not silently drop the config pointer the running service relies on),
+#     and re-derive the port from it so the port gate checks the real port.
+#   - port or config would actually CHANGE       -> that is a relocation, not a
+#     reload. Hard stop, print the before/after, require --relocate.
+plist_env() {
+  # EnvironmentVariables.<key> of a plist, or "" when absent.
+  plutil -extract "EnvironmentVariables.$2" raw -o - "$1" 2>/dev/null || true
+}
+if [[ "$OURS" == 1 ]]; then
+  OLD_CFG="$(plist_env "$PLIST" OC_CONFIG)"
+
+  if [[ "$CFG_SRC" == "none" && -n "$OLD_CFG" && -f "$OLD_CFG" ]]; then
+    CFG_ABS="$OLD_CFG"
+    CFG_SRC="inherited"
+    p="$(config_port "$CFG_ABS")"
+    [[ -n "$p" ]] && PORT="$p"
+    echo "[install] carrying over the existing service's config: $CFG_ABS (port $PORT)"
+  fi
+
+  # Old port = the old job's own config, else the default it would have bound.
+  OLD_PORT="$DEFAULT_PORT"
+  if [[ -n "$OLD_CFG" && -f "$OLD_CFG" ]]; then
+    p="$(config_port "$OLD_CFG")"
+    [[ -n "$p" ]] && OLD_PORT="$p"
+  fi
+
+  if [[ "$PORT" != "$OLD_PORT" || "$CFG_ABS" != "$OLD_CFG" ]] && [[ "$RELOCATE" == 1 ]]; then
+    echo "[install] --relocate given — MOVING the '$LABEL' service:"
+    echo "[install]        port:    $OLD_PORT  ->  $PORT"
+    echo "[install]        config:  ${OLD_CFG:-<none>}  ->  ${CFG_ABS:-<none>}"
+  elif [[ "$PORT" != "$OLD_PORT" || "$CFG_ABS" != "$OLD_CFG" ]]; then
+    echo "[install] FATAL: this would MOVE the running '$LABEL' service, not just reload it." >&2
+    echo "[install]        port:    $OLD_PORT  ->  $PORT" >&2
+    echo "[install]        config:  ${OLD_CFG:-<none>}  ->  ${CFG_ABS:-<none>}" >&2
+    echo "[install]        A different config usually means a different database, so the" >&2
+    echo "[install]        server would come back up looking empty. NOTHING was changed." >&2
+    if [[ "$CFG_SRC" == "cwd" ]]; then
+      echo "[install]        This came from ./oc.toml in your CURRENT DIRECTORY:" >&2
+      echo "[install]          $CFG_ABS" >&2
+      echo "[install]        If you did not mean to move your service, cd elsewhere and re-run." >&2
+    fi
+    echo "[install]        If you really do want to move it, re-run with --relocate." >&2
     exit 1
   fi
 fi
@@ -403,7 +498,12 @@ if [[ -n "$CFG_ABS" ]]; then
 "
 fi
 
-cat > "$PLIST.new" <<PLIST_EOF
+# Rendered to a sibling temp file first, so a write failure (read-only
+# LaunchAgents, full disk) cannot leave a half-written plist where a valid one
+# used to be. The explicit guard is what keeps this path speaking the same
+# language as every other failure here — without it `set -e` aborts on a raw
+# shell redirection error and the operator gets a bare "Permission denied".
+if ! cat 2>/dev/null > "$PLIST.new" <<PLIST_EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -428,18 +528,41 @@ $cfg_entry    <key>OC_NO_OPEN_BROWSER</key><string>1</string>
 </dict>
 </plist>
 PLIST_EOF
+then
+  rm -f "$PLIST.new" 2>/dev/null || true
+  echo "[install] FATAL: could not write the launchd plist: $PLIST.new" >&2
+  echo "[install]        Check that $LA_DIR exists and is writable." >&2
+  echo "[install]        The binaries are installed and the database is migrated, but no" >&2
+  echo "[install]        service was registered and no existing job was touched." >&2
+  exit 1
+fi
 
 if ! plutil -lint "$PLIST.new" >/dev/null 2>&1; then
   rm -f "$PLIST.new"
   echo "[install] FATAL: the rendered launchd plist failed plutil -lint — refusing to install it." >&2
   exit 1
 fi
-mv "$PLIST.new" "$PLIST"
+if ! mv "$PLIST.new" "$PLIST"; then
+  rm -f "$PLIST.new" 2>/dev/null || true
+  echo "[install] FATAL: could not install the launchd plist to $PLIST" >&2
+  echo "[install]        No service was registered and no existing job was touched." >&2
+  exit 1
+fi
 
 # bootout is ASYNC: the label can linger registered after the call returns, and
 # bootstrapping into that window fails with "service already bootstrapped" AND
 # can leave the job torn down but not re-registered — i.e. a re-run of the
 # installer that ENDS with the server dead. Poll until launchd really lets go.
+
+# Where the serve log ends RIGHT NOW, before this boot appends anything. The
+# claim link is scraped from the bytes after this mark and nowhere else:
+# StandardOutPath APPENDS, so every previous boot's setup link is still sitting
+# in the file. Scanning the whole log means a re-install happily reprints the
+# claim code from the very first install — long since consumed, so the link is
+# dead — and tells the owner to go set a password they already set.
+log_mark=0
+[[ -f "$SERVE_LOG" ]] && log_mark="$(wc -c < "$SERVE_LOG" | tr -d ' ')"
+
 launchctl bootout "$TARGET" >/dev/null 2>&1 || true
 gone=0
 for _ in $(seq 1 25); do
@@ -475,9 +598,12 @@ fi
 
 # On a FRESH install serve logs a one-time setup link carrying the claim code;
 # without it the owner cannot claim the server, so the URL we print IS that
-# link when one exists. Keeps the closing report to three facts.
+# link when one exists. Keeps the closing report to three facts. Only THIS
+# boot's output is searched (see log_mark) — an already-claimed server logs no
+# new link, and then the plain URL is the honest thing to print.
 URL="http://127.0.0.1:${PORT}/"
-claim_url="$(grep -o "http://[^ ]*/?code=[A-Za-z0-9_-]*" "$SERVE_LOG" 2>/dev/null | tail -1 || true)"
+claim_url="$(tail -c "+$((log_mark + 1))" "$SERVE_LOG" 2>/dev/null \
+  | grep -o "http://[^ ]*/?code=[A-Za-z0-9_-]*" | tail -1 || true)"
 [[ -n "$claim_url" ]] && URL="$claim_url"
 
 echo
