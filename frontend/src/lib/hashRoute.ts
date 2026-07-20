@@ -12,7 +12,12 @@
  *                                                   with a "[<taskNo>] " prefix
  *   #office/chat/<memberId>/member/<detailId>     → member detail over that chat
  *   #office/member/<detailId>                     → member detail (no chat pick)
+ *   #office/member/<detailId>/from/replies        → member detail, 返回 lands
+ *                                                   on #replies instead of the
+ *                                                   default chat-view reset
  *   #office/worker/<workerId>                     → outsource worker detail
+ *   #office/worker/<workerId>/from/replies        → worker detail, same 返回
+ *                                                   override as above
  *   #replies                                      → awaiting-reply page
  *   #tasks                                        → tasks page (M3)
  *   #tasks/<taskId>                               → tasks page, located on <taskId>
@@ -89,6 +94,15 @@ export interface HashRoute {
   /** office only — the outsource worker whose detail panel is open (mutually
    * exclusive with detailId; an anonymous live worker's lean detail view). */
   workerId?: string;
+  /** office only, requires detailId or workerId — where a same-page 返回 on
+   * the open detail/worker panel should land INSTEAD of the office page's own
+   * chat-view reset (T-a706: a card avatar elsewhere, e.g. RepliesPage, deep-
+   * links straight into #office/member/<id> with no chat context of its own;
+   * without this marker 返回 fell through to the roster's default chat,
+   * dropping the owner into an unrelated chat room instead of back where they
+   * came from). Only "replies" exists today — extend the union as more
+   * surfaces deep-link in. */
+  backTo?: "replies";
 }
 
 export function parseHash(raw: string): HashRoute {
@@ -156,8 +170,13 @@ export function parseHash(raw: string): HashRoute {
   }
   if (rest[i] === "member" && rest[i + 1]) {
     route.detailId = rest[i + 1];
+    i += 2;
   } else if (rest[i] === "worker" && rest[i + 1]) {
     route.workerId = rest[i + 1];
+    i += 2;
+  }
+  if ((route.detailId || route.workerId) && rest[i] === "from" && rest[i + 1] === "replies") {
+    route.backTo = "replies";
   }
   return route;
 }
@@ -202,6 +221,10 @@ export function formatHash(route: HashRoute): string {
   if (route.detailId) segs.push("member", encodeURIComponent(route.detailId));
   else if (route.workerId)
     segs.push("worker", encodeURIComponent(route.workerId));
+  // backTo is meaningless without an open detail/worker panel — same
+  // drop-if-dangling rule as msg/compose above.
+  if ((route.detailId || route.workerId) && route.backTo)
+    segs.push("from", route.backTo);
   // Bare office is the canonical HOME → clean root (no lone "#office" clutter).
   return segs.length ? `#office/${segs.join("/")}` : "";
 }

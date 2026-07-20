@@ -325,22 +325,26 @@ describe("RepliesPage", () => {
   // in the cockpit whose avatar did NOT open the member panel — every other
   // surface (roster row, etc.) already does. Mirrors MemberCard's avatar
   // click semantics + the SAME hash seam (frontend/src/lib/hashRoute.ts).
-  it("clicking the avatar opens that member's detail panel (#office/member/<id>)", async () => {
+  it("clicking the avatar opens that member's detail panel (#office/member/<id>), tagged so 返回 lands back on 請示", async () => {
     __injectMockReplyCard(mkCard({}));
     const { findAllByTestId } = renderPage();
     const [card] = await findAllByTestId("waiting-card");
 
     fireEvent.click(card.querySelector(".reply-card__avatar")!);
-    expect(window.location.hash).toBe("#office/member/mira");
+    // T-a706 owner-acceptance finding: without the /from/replies tag,
+    // OfficePage's own 返回 button reset to its default chat view instead of
+    // back here — see OfficePage.member-detail-backto.test.tsx for the fix
+    // proven from the OTHER side of this hash contract.
+    expect(window.location.hash).toBe("#office/member/mira/from/replies");
   });
 
-  it("clicking an outsource asker's avatar opens the worker panel (#office/worker/<id>), not the member one", async () => {
+  it("clicking an outsource asker's avatar opens the worker panel (#office/worker/<id>), not the member one, same 返回 tag", async () => {
     __injectMockReplyCard(mkCard({ id: "rc-ow", from: "ow-rel" }));
     const { findAllByTestId } = renderPage();
     const [card] = await findAllByTestId("waiting-card");
 
     fireEvent.click(card.querySelector(".reply-card__avatar")!);
-    expect(window.location.hash).toBe("#office/worker/ow-rel");
+    expect(window.location.hash).toBe("#office/worker/ow-rel/from/replies");
   });
 
   it("the avatar has an accessible name (aria-label) — Avatar's inner glyphs are aria-hidden", async () => {

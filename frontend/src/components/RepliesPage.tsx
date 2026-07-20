@@ -176,12 +176,19 @@ export function RepliesPage() {
   // outsource asker (never in the roster) through #office/worker/<id>
   // (workerId) — OfficePage self-heals to the plain roster view if the id
   // doesn't resolve (e.g. a released worker), so this never dead-ends.
+  //
+  // backTo: "replies" (owner acceptance-round finding, T-a706): without it,
+  // OfficePage's own 返回 button resets to its default chat view (roster[0])
+  // — correct when the panel was opened FROM the office page itself, but a
+  // silent wrong-room landing when opened via this cross-page deep link,
+  // since there was never a chat selected to return to. The marker tells
+  // OfficePage's 返回 to land back on THIS page instead.
   function openProfile(card: ReplyCard) {
     const isRosterMember = members.some((m) => m.id === card.from);
     setRoute(
       isRosterMember
-        ? { page: "office", detailId: card.from }
-        : { page: "office", workerId: card.from },
+        ? { page: "office", detailId: card.from, backTo: "replies" }
+        : { page: "office", workerId: card.from, backTo: "replies" },
     );
   }
 

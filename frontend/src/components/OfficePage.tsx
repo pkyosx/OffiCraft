@@ -102,6 +102,19 @@ export function OfficePage() {
       chatId: route.chatId,
       workerId: id ?? undefined,
     });
+  // 返回 from a detail/worker panel (T-a706): a panel deep-linked in from
+  // elsewhere (e.g. RepliesPage's card avatar) carries route.backTo — land
+  // there instead of falling through to this page's own chat-view reset,
+  // which would otherwise silently drop the owner into an unrelated chat
+  // room (there was never a chat selected on the way in).
+  const backFromDetail = () =>
+    route.backTo === "replies"
+      ? setRoute({ page: "replies" })
+      : setDetailId(null);
+  const backFromWorkerDetail = () =>
+    route.backTo === "replies"
+      ? setRoute({ page: "replies" })
+      : setWorkerDetailId(null);
   // T-e987 compose seed: a #office/chat/<id>/compose/<taskNo> deep-link (the
   // 任務卡 負責人/建立者 label) seeds that chat's composer with "[<taskNo>] ".
   // Only the EXPLICITLY routed peer gets it (never the roster[0] fallback) —
@@ -261,7 +274,7 @@ export function OfficePage() {
     return (
       <WorkerDetailPanel
         worker={workerDetail}
-        onBack={() => setWorkerDetailId(null)}
+        onBack={backFromWorkerDetail}
         onOpenTask={
           workerDetail.taskId
             ? () => setRoute({ page: "tasks", taskId: workerDetail.taskId })
@@ -300,7 +313,7 @@ export function OfficePage() {
     return (
       <MemberDetailPanel
         member={detail}
-        onBack={() => setDetailId(null)}
+        onBack={backFromDetail}
         // Presence contract: activate writes desired_state=online INTENT only; we
         // refetch and let server-driven presence surface waking → online. No
         // optimistic green here.
