@@ -93,6 +93,11 @@ export const zh = {
       in_progress: "進行中",
       done: "完成",
       waiting_owner: "等我回覆",
+      // 等待外部(T-6f11):與任務層 status.waiting_external / 特殊徽章
+      // stepWaitingExternal 同詞 —— 三處必須一致,兩層才讀成同一件事。
+      // resolver(lib/stepBadge.ts)平常走特殊徽章;這條 map 項是它的後防,
+      // 讓任何走到 plain status 徽章的 waiting_external 都不會漏出原始 key。
+      waiting_external: "等待外部",
       // re-plan 凍結的已答卡節點(T-1aea):終態、灰階、只留問答史料
       superseded: "已取代",
     } as Record<string, string>,

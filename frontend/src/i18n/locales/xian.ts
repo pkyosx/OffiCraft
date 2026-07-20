@@ -76,6 +76,9 @@ export const xian: Dict = {
       in_progress: "行功中",
       done: "已成",
       waiting_owner: "待示下",
+      // 與任務層 status.waiting_external / stepWaitingExternal 同詞(T-6f11)
+      // —— map 項為後防,任何路徑都不得漏出原始 key。
+      waiting_external: "候外緣",
       superseded: "已更替",
     } as Record<string, string>,
     // 節點候外之印(T-9ca5):步驟自身之「候外緣」,別於待示下。

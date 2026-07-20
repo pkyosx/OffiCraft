@@ -86,6 +86,10 @@ export const en: Dict = {
       in_progress: "In progress",
       done: "Done",
       waiting_owner: "Awaiting my reply",
+      // Same wording as task-level status.waiting_external and the special
+      // stepWaitingExternal badge (T-6f11) — the map entry is the backstop so
+      // no path can leak the raw key.
+      waiting_external: "Waiting on external",
       superseded: "Superseded",
     } as Record<string, string>,
     // Step-level external-wait badge (T-9ca5): the step's own 等待外部, distinct

@@ -29,6 +29,20 @@ export type StepBadge =
   /** The plain step-status badge (t.tasks.stepStatus[status]). */
   | { kind: "status"; status: string };
 
+/** The step-status CLOSED SET (mirrors server domain.go StepStatus* and the
+ * TaskStepView doc) — the ONE enumeration the i18n guard test walks (T-6f11):
+ * every value here must carry a translation in EVERY locale's
+ * `tasks.stepStatus` map, so a newly added status without its translations
+ * turns the suite red instead of leaking a raw key into the cockpit. */
+export const STEP_STATUSES = [
+  "pending",
+  "in_progress",
+  "waiting_owner",
+  "waiting_external",
+  "done",
+  "superseded",
+] as const;
+
 /** The step's terminal statuses (done / superseded — T-1aea): nothing waits
  * on these any more, so the announced-gate preview must not render. */
 const TERMINAL_STEP = new Set(["done", "superseded"]);

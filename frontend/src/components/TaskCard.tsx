@@ -701,6 +701,12 @@ export function TaskCard({
       default:
         return (
           <span className={`task-step-badge task-step-badge--${badge.status}`}>
+            {/* Map miss → show the raw key DELIBERATELY (honest, debuggable —
+             * never a blank badge). This branch must stay unreachable for the
+             * closed set: stepBadge.i18n.test.ts enumerates STEP_STATUSES ×
+             * every locale and goes red the moment a status lacks its
+             * translations (T-6f11), so the raw key can only surface for a
+             * value the whole frontend doesn't know yet. */}
             {t.tasks.stepStatus[badge.status] ?? badge.status}
           </span>
         );
