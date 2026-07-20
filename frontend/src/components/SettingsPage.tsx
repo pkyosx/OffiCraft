@@ -874,11 +874,18 @@ function SoftwareUpdate({
                  * not to the status chip's line. Why: the status text is
                  * variable-length (已是最新版 / 有可用的新版本 vX · 查看
                  * release / the two-clause error sentences), so anchoring the
-                 * icon to it made the icon's position move with the verdict —
-                 * and on a 375px phone the `unknown` sentence wrapped the icon
-                 * down to a second row, orphaned at the bottom-left. The
-                 * version number is a short, bounded string, so this row's
-                 * geometry is stable across every state. */}
+                 * icon to it let a long verdict wrap the icon down to a second
+                 * row, orphaned at the bottom-left. The version number is a
+                 * short, bounded string, so this row's geometry is stable
+                 * across every state.
+                 *
+                 * MEASURED on the pre-fix layout (real Chromium), so the next
+                 * reader inherits the numbers rather than a guess: the state
+                 * that actually orphans the icon is `update_available` with a
+                 * long release tag (v0.9.9-rc.4+build.20260720.arm64) —
+                 * WRAPPED=true at 320/360/375/390/414px alike, icon landing at
+                 * x=21. `unknown` does NOT wrap at 375px (badge width 262.2,
+                 * icon still inline at x=291.2); it only wraps at 320px. */}
                 <div className="sw-build__headline">
                   <code className="sw-build__version">
                     {version.version !== "0.0.0"

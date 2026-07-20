@@ -197,7 +197,13 @@
 /* The version row carries the 檢查更新 refresh control at its right (owner
  * round-2): a short, bounded string, so unlike the status chip's line this
  * row's geometry never changes with the verdict and the icon can never be
- * wrapped away. */
+ * wrapped away.
+ *
+ * Measured on the pre-fix layout: the state that orphaned the icon was
+ * `update_available` carrying a LONG release tag — it wrapped at every phone
+ * width tried (320/360/375/390/414). `unknown`, despite its long sentence,
+ * did NOT wrap at 375px; it needs 320px. So this is a long-tag problem, not a
+ * narrow-phone one. */
 .sw-build__headline {
   line-height: 1.2;
   display: flex;
