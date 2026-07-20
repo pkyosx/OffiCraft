@@ -42,8 +42,8 @@ describe("SettingsPage · 軟體更新 · 檢查更新 (explicit fresh verdict)"
   it("clicking 檢查更新 shows the honest up-to-date verdict", async () => {
     const utils = await openSoftware();
     fireEvent.click(utils.getByTestId("settings-check-release"));
-    const verdict = await utils.findByTestId("settings-check-verdict");
-    expect(verdict.textContent).toBe(s.upToDate);
+    const status = await utils.findByTestId("settings-update-status");
+    await vi.waitFor(() => expect(status.textContent).toBe(s.upToDate));
   });
 
   it("a failed check reports the failure line, never a fabricated verdict", async () => {
@@ -53,7 +53,36 @@ describe("SettingsPage · 軟體更新 · 檢查更新 (explicit fresh verdict)"
     );
     fireEvent.click(utils.getByTestId("settings-check-release"));
     await utils.findByText(s.checkFailed);
-    expect(utils.queryByTestId("settings-check-verdict")).toBeNull();
+    expect(utils.queryByText(s.upToDate)).toBeNull();
+  });
+
+  // ── owner 2026-07-20, the whole point of this fixup ──
+  // "資訊應該直接 refresh 已是最新版那邊,而不是再產生新的 message":
+  // the card already carries a 已是最新版 chip, and the old build appended a
+  // SECOND one below it after a check. Pin that the check REPLACES the one
+  // status line and creates no additional result element.
+  it("checking does not add a second result element — 已是最新版 stays a single node", async () => {
+    const utils = await openSoftware();
+    // Before: exactly one status line, carrying the cached verdict.
+    expect(utils.getAllByText(s.upToDate)).toHaveLength(1);
+    const status = utils.getByTestId("settings-update-status");
+
+    fireEvent.click(utils.getByTestId("settings-check-release"));
+    // The SAME node goes through the in-flight state — not a new one.
+    await vi.waitFor(() => expect(status.textContent).toBe(s.checkingUpdate));
+    await vi.waitFor(() => expect(status.textContent).toBe(s.upToDate));
+
+    // After: still exactly one. A regression that re-adds the separate
+    // verdict row makes this 2.
+    expect(utils.getAllByText(s.upToDate)).toHaveLength(1);
+    expect(utils.getAllByTestId("settings-update-status")).toHaveLength(1);
+  });
+
+  // The refresh control is icon-only: its accessible name must survive.
+  it("the refresh control is reachable by its accessible name", async () => {
+    const utils = await openSoftware();
+    const btn = utils.getByRole("button", { name: s.checkUpdate });
+    expect(btn).toBe(utils.getByTestId("settings-check-release"));
   });
 });
 
