@@ -54,7 +54,7 @@
 #                           direct CLI use).
 #   4. migrate            — `ocserverd migrate` (goose; creates
 #                           ~/.officraft/server/data/officraft.db on first run).
-#   5. port gate          — the effective serve port (default 8780) must be
+#   5. port gate          — the effective serve port (default 7755) must be
 #                           FREE: a taken port fails here with a clear message
 #                           instead of a silent install that cannot start.
 #   6. launchd service    — render ~/Library/LaunchAgents/com.officraft.serve.plist
@@ -84,8 +84,9 @@
 #                           the existing job's OC_CONFIG rather than dropping it.
 #
 # Config: the server reads $OC_CONFIG (or ./oc.toml in CWD) for overrides —
-# default port is 8780 (the OffiCraft standard; 8770 belongs to the retired
-# open-company station), default data root ~/.officraft. No config is written
+# default port is 7755 (the OffiCraft standard; 8770 belongs to the retired
+# open-company station and 8780 was the previous standard), default data root
+# ~/.officraft. No config is written
 # by this installer; convention defaults just work on a clean machine.
 set -euo pipefail
 
@@ -448,9 +449,10 @@ done
 echo "[install] migrating database (goose)…"
 "$BIN_DIR/ocserverd" migrate
 
-# Effective port: $OC_CONFIG / ./oc.toml [server].port override, else 8780
+# Effective port: $OC_CONFIG / ./oc.toml [server].port override, else 7755
 # (the OffiCraft standard port — NOT 8770, which belongs to the retired
-# open-company station and collides on transition-period machines).
+# open-company station and collides on transition-period machines, and NOT the
+# previous 8780 standard).
 #
 # CFG_ABS records WHICH config file that port came from, as an ABSOLUTE path.
 # It matters for the launchd path: a relative ./oc.toml is resolved against the
@@ -467,7 +469,7 @@ config_port() {
   # [server].port out of a config file, or "" when it does not set one.
   sed -n 's/^[[:space:]]*port[[:space:]]*=[[:space:]]*\([0-9]\{2,5\}\).*/\1/p' "$1" 2>/dev/null | head -1
 }
-DEFAULT_PORT=8780
+DEFAULT_PORT=7755
 PORT="$DEFAULT_PORT"
 CFG_ABS=""
 CFG_SRC="none"

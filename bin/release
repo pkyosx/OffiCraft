@@ -95,7 +95,7 @@ no Go/Node toolchain needed.
 Installs to \`~/.officraft/bin\`, creates/migrates the database at
 \`~/.officraft/server/data/officraft.db\`, then starts the service in the
 foreground. On first run the log prints a one-time link
-(\`http://127.0.0.1:8780/?code=…\`) — open it to set your owner password.
+(\`http://127.0.0.1:7755/?code=…\`) — open it to set your owner password.
 Already have OffiCraft installed? The installer detects it, warns, and asks
 before overwriting (\`--force\` skips the prompt in scripts).
 
