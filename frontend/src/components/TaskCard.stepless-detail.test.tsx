@@ -160,7 +160,7 @@ describe("TaskCard transitional copy (T-71e8 · B)", () => {
     fireEvent.click(await findByTestId("task-card"));
     await act(async () => {});
     expect((await findByTestId("task-transition")).textContent).toBe(
-      "等待 O-7 建立 Steps"
+      "等待 外包 · O-7 建立 Steps"
     );
   });
 

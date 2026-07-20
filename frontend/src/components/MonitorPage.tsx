@@ -1213,8 +1213,7 @@ function OutsourceSessionRow({
           <Avatar size={34} />
           <div className="mon-member__body">
             <div className="mon-member__name">
-              {worker.codename || dash}
-              <span className="mon-badge">{t.monitor.sessionOutsourceTag}</span>
+              {worker.codename ? t.office.outsource.label(worker.codename) : dash}
             </div>
             <div className="mon-member__sub">
               <span>{context}</span>

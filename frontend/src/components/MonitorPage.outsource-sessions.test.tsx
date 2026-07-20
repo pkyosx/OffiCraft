@@ -86,8 +86,10 @@ describe("MonitorPage AI Sessions — outsource workers", () => {
 
     const row = await screen.findByTestId("mon-outsource-row");
     const cells = within(row);
-    // codename + task-context sub-line (so the reader sees WHAT it is doing)
-    expect(cells.getByText("O-7")).toBeTruthy();
+    // outsource identity label 「外包 · 代號」 (T-3ed8, owner 2026-07-20: the
+    // 「外包 · 」prefix now carries the outsource distinction — the standalone
+    // badge is gone) + task-context sub-line (so the reader sees WHAT it does)
+    expect(cells.getByText("外包 · O-7")).toBeTruthy();
     expect(cells.getByText("Migrate the billing importer")).toBeTruthy();
     // machine / account / model
     expect(cells.getByText("mbp5")).toBeTruthy();
@@ -97,8 +99,9 @@ describe("MonitorPage AI Sessions — outsource workers", () => {
     expect(cells.getByText("71%")).toBeTruthy();
     // est.$ = live + banked = 5.25 + 1.75 = 7 (formatCost renders "$7")
     expect(cells.getByText("$7")).toBeTruthy();
-    // an outsource tag distinguishes the row from a member row
-    expect(cells.getByText("外包")).toBeTruthy();
+    // the row is distinguished from a member row by the 「外包 · 」label prefix
+    // (asserted above), no longer by a standalone tag chip.
+    expect(cells.queryByText("外包")).toBeNull();
   });
 
   it("shows an honest dash for every column the worker never reported", async () => {
@@ -121,7 +124,7 @@ describe("MonitorPage AI Sessions — outsource workers", () => {
 
     const row = await screen.findByTestId("mon-outsource-row");
     // codename still shows; every unreported column is a dash (never fabricated)
-    expect(within(row).getByText("O-9")).toBeTruthy();
+    expect(within(row).getByText("外包 · O-9")).toBeTruthy();
     const dashCells = within(row).getAllByText("—");
     // machine, account, model, context, est.$, and the task-context sub-line
     expect(dashCells.length).toBeGreaterThanOrEqual(5);

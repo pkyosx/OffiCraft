@@ -351,8 +351,11 @@ describe("WorkerDetailPanel — header matches the sidebar 外包 row (T-f190 UI
         presence: "online",
       }),
     );
-    const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
+    const { findByTestId, findByText } = renderOfficeAt("#office/worker/ow-1");
     const header = await findByTestId("worker-detail-header-task");
+    // The codename line shows the outsource identity label 「外包 · 代號」,
+    // matching the sidebar 外包 row (T-3ed8, owner 2026-07-20 完全一致).
+    await findByText("外包 · O-19");
     expect((await findByTestId("worker-detail-header-chip")).textContent).toBe("T-e9f4");
     expect(header.textContent).toContain("Planning for big change");
     // The old raw ow-id chip is gone (the header no longer renders worker.id).

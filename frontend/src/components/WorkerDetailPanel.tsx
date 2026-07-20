@@ -166,7 +166,9 @@ export function WorkerDetailPanel({
       </span>
       <div className="mp-identity__body">
         <div className="mp-identity__line">
-          <span className="outsource-row__codename">{worker.codename}</span>
+          <span className="outsource-row__codename">
+            {t.office.outsource.label(worker.codename)}
+          </span>
         </div>
         <div
           className="outsource-row__task-line"

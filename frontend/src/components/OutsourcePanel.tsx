@@ -181,7 +181,9 @@ export function OutsourcePanel({
                 {/* line 1 — the worker's name (代號; an outsource has no
                  * other name), mirroring the member card's name line. */}
                 <span className="outsource-row__line">
-                  <span className="outsource-row__codename">{w.codename}</span>
+                  <span className="outsource-row__codename">
+                    {t.office.outsource.label(w.codename)}
+                  </span>
                 </span>
                 {/* line 2 — ONE line (owner 2026-07-16, second ruling):
                  * 上線綠點 at the LINE START (member-row parity), then the

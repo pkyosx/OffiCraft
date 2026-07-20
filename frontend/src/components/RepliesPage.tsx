@@ -149,7 +149,7 @@ export function RepliesPage() {
     const m = members.find((x) => x.id === card.from);
     if (!m) {
       const cn = codenames.get(card.from);
-      return { name: cn ? `${t.tasks.outsource} ${cn}` : card.from, role: "" };
+      return { name: cn ? t.office.outsource.label(cn) : card.from, role: "" };
     }
     const role =
       (t.office.role as Record<string, string>)[m.role] ??
