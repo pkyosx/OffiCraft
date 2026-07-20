@@ -67,12 +67,19 @@ describe("httpApi · global-context wire methods", () => {
     expect(view.isDefault).toBe(false);
   });
 
-  it("saveGlobalContext POSTs /api/global-context with {text} (NOT PUT)", async () => {
+  it("saveGlobalContext POSTs /api/global-context with {text, allow_shrink} (NOT PUT)", async () => {
     await httpApi.saveGlobalContext("owner additions");
     const { url, method, body } = await lastCall();
     expect(url).toBe("/api/global-context");
     expect(method).toBe("POST");
-    expect(JSON.parse(String(body))).toEqual({ text: "owner additions" });
+    // allow_shrink (T-2d99): the server refuses a non-empty → empty whole-doc
+    // replace unless the caller opts in. That guard is aimed at BLIND agent
+    // write-backs; the owner clearing this textarea has already expressed the
+    // intent, so this seam always opts in.
+    expect(JSON.parse(String(body))).toEqual({
+      text: "owner additions",
+      allow_shrink: true,
+    });
   });
 
   it("resetGlobalContext POSTs /api/global-context/reset (NOT DELETE)", async () => {
