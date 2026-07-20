@@ -113,6 +113,98 @@ func TestParseAgentEnv_MalformedLineSkippedOthersSurvive(t *testing.T) {
 	}
 }
 
+// ── trailing '#' (reviewer F-4) ─────────────────────────────────────────────
+
+// A QUOTED value states its own boundary, so a comment after the closing quote
+// is unambiguously not part of the value: strip it, silently, because nothing
+// was guessed.
+func TestParseAgentEnv_QuotedValueDropsTrailingComment(t *testing.T) {
+	var log []string
+	body := strings.Join([]string{
+		`DQ="abc" # comment`,
+		"SQ='abc' # comment",
+		`SPACED="a b"   #  lots of space`,
+		`HASH_INSIDE="a#b" # real comment`,
+	}, "\n")
+	got := parseAgentEnv(body, "env", capturingLogf(&log))
+
+	want := map[string]string{"DQ": "abc", "SQ": "abc", "SPACED": "a b", "HASH_INSIDE": "a#b"}
+	if len(got) != len(want) {
+		t.Fatalf("got %d pairs, want %d: %+v", len(got), len(want), got)
+	}
+	for _, p := range got {
+		if w := want[p.Key]; p.Value != w {
+			t.Errorf("%s = %q, want %q — a quoted value delimits itself", p.Key, p.Value, w)
+		}
+	}
+	// Nothing was guessed, so nothing to warn about.
+	if strings.Contains(joinLog(log), "kept LITERALLY") {
+		t.Errorf("an explicitly quoted value must not warn; log:\n%s", joinLog(log))
+	}
+}
+
+// An UNQUOTED value has no stated boundary. '#' is legal inside a password, so
+// stripping would silently truncate a credential. Keep it literal — but the
+// silence is the actual bug this ticket exists to kill, so it MUST warn.
+func TestParseAgentEnv_UnquotedTrailingHashIsLiteralAndWarns(t *testing.T) {
+	var log []string
+	got := parseAgentEnv("BARE=abc # comment\n", "env", capturingLogf(&log))
+
+	if len(got) != 1 || got[0].Value != "abc # comment" {
+		t.Fatalf("an unquoted value must be kept literal (a '#' may be part of a credential); got %+v", got)
+	}
+	if !strings.Contains(joinLog(log), "kept LITERALLY") {
+		t.Fatalf("SILENT WRONG VALUE: the ambiguous case must warn; log:\n%s", joinLog(log))
+	}
+	// The warning must tell the owner how to get the other reading.
+	if !strings.Contains(joinLog(log), `KEY="value" # comment`) {
+		t.Errorf("the warning must show the fix; log:\n%s", joinLog(log))
+	}
+}
+
+// A '#' with no preceding whitespace is ordinary value text, not a comment
+// shape — it must neither be stripped nor warned about.
+func TestParseAgentEnv_HashWithoutSpaceIsPlainValue(t *testing.T) {
+	var log []string
+	got := parseAgentEnv("PASS=abc#def\n", "env", capturingLogf(&log))
+
+	if len(got) != 1 || got[0].Value != "abc#def" {
+		t.Fatalf("a '#' inside a value must be untouched; got %+v", got)
+	}
+	if strings.Contains(joinLog(log), "kept LITERALLY") {
+		t.Errorf("no comment shape ⇒ no warning; log:\n%s", joinLog(log))
+	}
+}
+
+// The regression this whole item is about: the pre-fix behaviour dragged the
+// quotes AND the comment into the value, with no signal at all.
+func TestParseAgentEnv_NeverYieldsQuotePlusCommentGarbage(t *testing.T) {
+	var log []string
+	got := parseAgentEnv(`K="abc" # comment`+"\n", "env", capturingLogf(&log))
+	if len(got) != 1 {
+		t.Fatalf("got %+v", got)
+	}
+	if strings.Contains(got[0].Value, `"`) || strings.Contains(got[0].Value, "#") {
+		t.Errorf("value = %q — quotes/comment must never survive into a quoted value", got[0].Value)
+	}
+}
+
+// ── NUL (reviewer F-1) ──────────────────────────────────────────────────────
+
+// A NUL cannot survive into the agent's environment, so delivering the line
+// would hand over a truncated value that looks fine. Refuse it, loudly.
+func TestParseAgentEnv_RefusesNULValue(t *testing.T) {
+	var log []string
+	got := parseAgentEnv("HAS_NUL=ab\x00cd\nGOOD="+fxEnvValue+"\n", "env", capturingLogf(&log))
+
+	if len(got) != 1 || got[0].Key != "GOOD" {
+		t.Fatalf("a NUL-bearing value must be refused, not truncated; got %+v", got)
+	}
+	if !strings.Contains(joinLog(log), "NUL byte") {
+		t.Errorf("the refusal must state its reason; log:\n%s", joinLog(log))
+	}
+}
+
 // ── NEGATIVE: the file is data, never code (failure mode ③) ────────────────
 
 // The env file must NOT become a second .zshrc. Shell metacharacters are values,

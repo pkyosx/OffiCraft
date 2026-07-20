@@ -81,6 +81,34 @@ bin/ocserver install --force    # 重跑每一步(reinstall;不動既有密碼)
 
 除此之外不碰你機器上任何其他東西。
 
+## agent 的環境變數
+
+agent 由 launchd → tmux → **非互動 zsh** 啟動,而 zsh **只有互動 shell 才讀 `~/.zshrc`**。
+所以你 `.zshrc` 裡的 API key、token、PATH 補充,**agent 一個都拿不到**。
+
+要給 agent 環境變數,寫進 `~/.officraft/env`:
+
+```bash
+touch ~/.officraft/env && chmod 600 ~/.officraft/env    # 會裝憑證,權限收緊
+```
+
+```bash
+# 一行一個 KEY=value,井號開頭是註解
+ANTHROPIC_API_KEY=sk-xxxxxxxx
+MY_MESSAGE="有 空 格 要 用 引號"
+```
+
+檔案不存在完全沒關係 —— agent 照常啟動,只是沒有額外變數。改完不必重啟 warden,
+下一次 spawn 的 agent 就會吃到。
+
+> ⚠️ **兩個會踩到而且踩了看不出來的地方**
+> 1. **值是字面的,不展開 `$VAR`** —— `TOOLS=$HOME/bin` 的值真的就是字串 `$HOME/bin`。請寫絕對路徑。
+>    (能展開就等於能執行,這個檔只承載資料,不承載邏輯。)
+> 2. **行尾註解只有加了引號才有效** —— `KEY="abc" # 註解` 的值是 `abc`;
+>    `KEY=abc # 註解` 的值是「`abc # 註解`」整串(`#` 是密碼的合法字元,不能亂猜)。這種情況 log 會警告。
+>
+> 完整格式規則、`OC_*` 保留字、以及怎麼從 log 確認有沒有生效,見 **[docs/agent-env.md](docs/agent-env.md)**。
+
 ## 移除
 
 ```bash
