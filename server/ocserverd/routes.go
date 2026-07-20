@@ -957,10 +957,11 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		},
 		{
 			// T-9ca5: the NEW executor takes over a reassigned task — clears the
-			// reassigning LOCK and fires the predecessor worker (the takeover that
-			// update_task_status's reassigning→in_progress did before reassigning
-			// became a lock). Executor-guarded (callerMayDriveTask §14); status
-			// stays derived, never set here.
+			// reassigning LOCK and fires the predecessor worker (the takeover the
+			// retired task-status report used to perform on the successor's
+			// reassigning→in_progress before reassigning became a lock).
+			// Executor-guarded (callerMayDriveTask §14); status stays derived,
+			// never set here.
 			Method:   "POST",
 			Path:     "/api/tasks/{task_id}/claim",
 			Handler:  w.HandleClaimTaskApiTasksTaskIdClaimPost,
