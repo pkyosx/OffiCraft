@@ -166,8 +166,19 @@ function ArtifactsPopover({
     const art = artifacts.find((a) => a.id === att.id);
     const canPreview =
       art?.kind === "file" && isMarkdownAttachment(att.mime, att.filename);
+    // An image row is [thumbnail][name chip][actions] — the name chip is added
+    // here rather than inside AttachmentStrip so the image branch (and its
+    // Lightbox click) stays untouched. It gives the image row the SAME
+    // three-part shape as a file/link row, and the same hover-for-full-name.
+    const imageName = art?.kind === "image" ? att.filename : "";
     return (
-      <span className="task-artifacts__actions">
+      <>
+        {imageName && (
+          <span className="task-artifacts__chip" title={imageName}>
+            <span className="task-artifacts__chip-name">{imageName}</span>
+          </span>
+        )}
+        <span className="task-artifacts__actions">
         {canPreview && (
           <button
             type="button"
@@ -179,8 +190,9 @@ function ArtifactsPopover({
             <EyeIcon size={13} />
           </button>
         )}
-        {onRemoveArtifact && <RemoveButton taskId={taskId} artifactId={att.id} onRemove={onRemoveArtifact} />}
-      </span>
+          {onRemoveArtifact && <RemoveButton taskId={taskId} artifactId={att.id} onRemove={onRemoveArtifact} />}
+        </span>
+      </>
     );
   };
 
@@ -220,20 +232,26 @@ function ArtifactsPopover({
         ) : tab === "links" ? (
           <div className="task-artifacts__links">
             {links.map((a) => (
-              <div key={a.id} className="task-artifacts__link-row">
+              <div key={a.id} className="task-artifacts__item">
+                {/* `title` carries the FULL name (the label truncates), while
+                    aria-label keeps describing the ACTION for screen readers
+                    — the two are not interchangeable here (T-90df). */}
                 <a
-                  className="task-artifacts__link"
+                  className="task-artifacts__chip task-artifacts__link"
                   href={a.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  title={t.tasks.artifacts.openLinkHint}
+                  title={a.label || a.url}
+                  aria-label={t.tasks.artifacts.openLinkHint}
                 >
                   <ExternalLinkIcon size={14} />
-                  <span className="task-artifacts__link-label">{a.label || a.url}</span>
+                  <span className="task-artifacts__chip-name">{a.label || a.url}</span>
                 </a>
-                {onRemoveArtifact && (
-                  <RemoveButton taskId={taskId} artifactId={a.id} onRemove={onRemoveArtifact} />
-                )}
+                <span className="task-artifacts__actions">
+                  {onRemoveArtifact && (
+                    <RemoveButton taskId={taskId} artifactId={a.id} onRemove={onRemoveArtifact} />
+                  )}
+                </span>
               </div>
             ))}
           </div>
@@ -243,6 +261,8 @@ function ArtifactsPopover({
             className="task-artifacts__strip"
             itemClassName="task-artifacts__item"
             imageClassName="task-artifacts__thumb"
+            fileChipClassName="task-artifacts__chip"
+            fileNameClassName="task-artifacts__chip-name"
             onOpenImage={(src) => setLightboxSrc(src)}
             renderExtra={renderExtra}
           />

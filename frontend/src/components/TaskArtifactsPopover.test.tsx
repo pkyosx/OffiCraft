@@ -123,6 +123,94 @@ describe("產物 popover — the three-tab split", () => {
     ).toBe(0);
   });
 
+  it("truncates an overlong name in a CHIP that keeps the full name in title=", async () => {
+    // T-90df: the chip must not size to its text (that was the bug — a long
+    // filename stretched the row and pushed the actions out of column). It
+    // truncates via CSS, so the whole name has to survive on `title=`.
+    const longName =
+      "2026-07-20-座艙產物彈窗列表對齊-超長檔名回歸測試用-really-long-artifact-filename.pdf";
+    const { container } = renderBadge(
+      [mkArtifact({ id: "ta-long", kind: "file", filename: longName, mime: "application/pdf", url: "/api/chat/attachment/ta-long" })],
+      { count: 1 },
+    );
+    fireEvent.click(screen.getByTestId("task-artifacts-badge"));
+    await waitFor(() => expect(screen.getByText(longName)).toBeTruthy());
+
+    const chip = container.querySelector(".task-artifacts__chip");
+    expect(chip).toBeTruthy();
+    // The full name is recoverable on hover…
+    expect(chip!.getAttribute("title")).toBe(longName);
+    // …and the visible text sits in the element the ellipsis rule targets.
+    const name = chip!.querySelector(".task-artifacts__chip-name");
+    expect(name).toBeTruthy();
+    expect(name!.textContent).toBe(longName);
+  });
+
+  it("gives all three kinds the SAME row shape: item > chip(title=full name) + actions", async () => {
+    // The consistency assertion behind 「三個 tab 列樣式統一」. Per tab: exactly
+    // one row, that row is a .task-artifacts__item, it holds a .task-artifacts__chip
+    // whose title is the FULL name, and the actions live in one trailing
+    // .task-artifacts__actions column (so they align).
+    const cases: Array<{ tab: RegExp; artifact: TaskArtifactView; fullName: string }> = [
+      {
+        tab: /檔案/,
+        artifact: mkArtifact({ id: "ta-f", kind: "file", filename: "a-file-with-a-long-name.pdf", mime: "application/pdf", url: "/api/chat/attachment/ta-f" }),
+        fullName: "a-file-with-a-long-name.pdf",
+      },
+      {
+        tab: /圖片/,
+        artifact: mkArtifact({ id: "ta-i", kind: "image", filename: "an-image-with-a-long-name.png", mime: "image/png", isImage: true, url: "/api/chat/attachment/ta-i" }),
+        fullName: "an-image-with-a-long-name.png",
+      },
+      {
+        tab: /連結/,
+        artifact: mkArtifact({ id: "ta-l", kind: "link", label: "a link with a rather long label", url: "https://example.com/very/long/path" }),
+        fullName: "a link with a rather long label",
+      },
+    ];
+
+    for (const c of cases) {
+      const view = renderBadge([c.artifact], { count: 1, onRemove: async () => {} });
+      fireEvent.click(screen.getByTestId("task-artifacts-badge"));
+      fireEvent.click(screen.getByRole("tab", { name: c.tab }));
+      await waitFor(() =>
+        expect(view.container.querySelectorAll(".task-artifacts__item").length).toBe(1),
+      );
+
+      const row = view.container.querySelector(".task-artifacts__item")!;
+      const chip = row.querySelector(".task-artifacts__chip");
+      expect(chip, `${c.fullName}: row must carry a chip`).toBeTruthy();
+      expect(chip!.getAttribute("title")).toBe(c.fullName);
+      expect(chip!.querySelector(".task-artifacts__chip-name")!.textContent).toBe(c.fullName);
+      // Exactly one trailing actions column, and it is the row's LAST child —
+      // that is what makes the buttons line up across rows and tabs.
+      const actions = row.querySelectorAll(".task-artifacts__actions");
+      expect(actions.length).toBe(1);
+      expect(row.lastElementChild).toBe(actions[0]);
+      view.unmount();
+    }
+  });
+
+  it("keeps the link row's navigation behaviour while title= carries the name", async () => {
+    // Behaviour freeze (owner requirement ③): title= moved to the full name,
+    // so the ACTION description has to survive on aria-label, and the anchor
+    // must still open in a new tab with the safe rel.
+    const { container } = renderBadge(
+      [mkArtifact({ id: "ta-link2", kind: "link", label: "PR #999", url: "https://github.com/x/y/pull/999" })],
+      { count: 1 },
+    );
+    fireEvent.click(screen.getByTestId("task-artifacts-badge"));
+    fireEvent.click(screen.getByRole("tab", { name: /連結/ }));
+    await waitFor(() => expect(screen.getByText("PR #999")).toBeTruthy());
+
+    const anchor = container.querySelector("a.task-artifacts__link") as HTMLAnchorElement;
+    expect(anchor.getAttribute("href")).toBe("https://github.com/x/y/pull/999");
+    expect(anchor.getAttribute("target")).toBe("_blank");
+    expect(anchor.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(anchor.getAttribute("title")).toBe("PR #999");
+    expect(anchor.getAttribute("aria-label")).toBe("開啟連結");
+  });
+
   it("shows a per-tab empty state when a kind has no artifacts", async () => {
     renderBadge([mkArtifact({ id: "ta-only-link", kind: "link", label: "only a link" })], { count: 1 });
     fireEvent.click(screen.getByTestId("task-artifacts-badge"));

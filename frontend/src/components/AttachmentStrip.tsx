@@ -23,6 +23,8 @@ export function AttachmentStrip({
   className,
   itemClassName,
   imageClassName,
+  fileChipClassName = "chat__msg-file",
+  fileNameClassName = "chat__msg-file-name",
   onOpenImage,
   renderExtra,
 }: {
@@ -36,6 +38,14 @@ export function AttachmentStrip({
   itemClassName?: string;
   /** The `<img>` class for image items (call-site conservation). */
   imageClassName: string;
+  /** The non-image download chip's class. Defaults to the chat bubble's
+   * `chat__msg-file` so every existing call site stays byte-identical; the
+   * artifacts popover (T-90df) overrides it because the chat chip is sized
+   * for a bubble (`max-width:300px`, non-flexible) and cannot align inside a
+   * 340px panel. */
+  fileChipClassName?: string;
+  /** The chip's filename `<span>` class — same defaulting contract. */
+  fileNameClassName?: string;
   /** Makes image thumbnails clickable (role=button + keyboard): the caller
    * receives the token-authed src and opens its own Lightbox. Absent ⇒ a
    * static thumbnail (the answered-card strip's existing behaviour). */
@@ -77,17 +87,20 @@ export function AttachmentStrip({
     // Non-image → a download chip/link (Content-Disposition: attachment on
     // the serve side downloads it under its stored filename). Same gated
     // blob → same ?token= auth as the image.
+    // `title` = the full filename: the chip name truncates with an ellipsis
+    // when it outgrows its row, so hovering must still yield the whole name
+    // (T-90df). Presentation only — href/download are untouched.
+    const fullName = att.filename || t.chat.downloadAttachment;
     return (
       <a
         key={itemClassName ? undefined : att.id}
-        className="chat__msg-file"
+        className={fileChipClassName}
         href={authedAttachmentUrl(att.url)}
         download={att.filename || undefined}
+        title={fullName}
       >
         <PaperclipIcon size={15} />
-        <span className="chat__msg-file-name">
-          {att.filename || t.chat.downloadAttachment}
-        </span>
+        <span className={fileNameClassName}>{fullName}</span>
       </a>
     );
   }

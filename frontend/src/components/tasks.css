@@ -638,6 +638,11 @@ a.task-card__chip--link {
   flex-direction: column;
   gap: 6px;
 }
+/* ONE row shape for all three artifact kinds (T-90df) — file, image and link
+   rows are all `.task-artifacts__item`: [icon-or-thumbnail][name chip][actions].
+   The chip takes the remaining width (`flex:1; min-width:0`) rather than a
+   hard px width, so every row's chip is the same width and the trailing
+   actions all land on one right-aligned column — at any panel width. */
 .task-artifacts__item {
   position: relative;
   display: flex;
@@ -645,9 +650,40 @@ a.task-card__chip--link {
   gap: 8px;
   padding: 6px;
   border-radius: 9px;
+  min-width: 0;
 }
 .task-artifacts__item:hover {
   background: rgba(255, 255, 255, 0.04);
+}
+/* The name chip: same box for all three kinds. It must NOT size to its text —
+   that was the bug (the chat bubble's `.chat__msg-file` is `max-width:300px`
+   and non-flexible, so short names gave narrow chips and long ones overflowed
+   the 340px panel, leaving the action buttons ragged). */
+.task-artifacts__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.18);
+  color: var(--color-text);
+  text-decoration: none;
+  font-size: 13px;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+.task-artifacts__chip svg {
+  flex: none;
+}
+/* Overlong names truncate here; the full name stays reachable via `title=`. */
+.task-artifacts__chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .task-artifacts__thumb {
   width: 44px;
@@ -688,45 +724,17 @@ a.task-card__chip--link {
   color: var(--color-danger);
   border-color: color-mix(in srgb, var(--color-danger) 45%, transparent);
 }
-/* Link tab rows — an external-link chip + optional remove. */
+/* Link tab — same `.task-artifacts__item` rows and `.task-artifacts__chip`
+   box as the other two kinds; `.task-artifacts__link` now only carries the
+   "this one navigates" hover accent. */
 .task-artifacts__links {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
-.task-artifacts__link-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.task-artifacts__link {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  flex: 1;
-  padding: 8px 10px;
-  border-radius: 9px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(0, 0, 0, 0.18);
-  color: var(--color-text);
-  text-decoration: none;
-  font-size: 13px;
-  transition:
-    color 0.15s,
-    border-color 0.15s;
-}
 .task-artifacts__link:hover {
   color: var(--color-accent);
   border-color: rgba(111, 214, 176, 0.4);
-}
-.task-artifacts__link svg {
-  flex: none;
-}
-.task-artifacts__link-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 button.task-card__type-chip {
   cursor: pointer;
