@@ -177,6 +177,159 @@ func TestWorkerSharedCoreExclusionAnchorsAllResolve(t *testing.T) {
 	}
 }
 
+// TestWorkerSharedCoreRewriteAnchorsAllResolve is the same drift guard for the
+// in-place rewrites. A rewrite that stops matching is worse than an exclusion
+// that stops matching: the member-only clause silently stays in the worker's
+// copy, and every test asserting "the corrected wording is present" can still
+// be satisfied by some other line. filteredSeed fails closed on both halves
+// (anchor missing, Find missing); this pins it as an explicit expectation.
+func TestWorkerSharedCoreRewriteAnchorsAllResolve(t *testing.T) {
+	s := newWorkerTestServer(t)
+	for _, tc := range []struct {
+		seed string
+		ex   []sharedCoreExclusion
+		rw   []sharedCoreRewrite
+	}{
+		{"system_interaction.md", workerSharedCoreExclusions, workerSharedCoreRewrites},
+		{"boot_sequence.md", workerBootSequenceExclusions, workerBootSequenceRewrites},
+	} {
+		if _, err := s.filteredSeed(tc.seed, tc.ex, tc.rw); err != nil {
+			t.Errorf("filteredSeed(%s) must resolve every exclusion AND rewrite: %v",
+				tc.seed, err)
+		}
+	}
+}
+
+// ── zero residue: member-only instructions are GONE, not merely contradicted ─
+
+// TestWorkerBootContextHasZeroMemberOnlyResidue pins the six residues the
+// independent review found. Five were "overridden" by the overlay 47% of the
+// document later; one — the 發包 item pointing at §10.1c — was not overridden
+// by anything at all, and was a ✅ POSITIVE example encouraging the worker to
+// do the exact thing the exclusion list removed §10.1c for ("worker 就是被發包
+// 的那一方，不轉包").
+//
+// Each case carries a positive control: the same text MUST still be present in
+// the member fold. Without that, deleting the shared core wholesale would make
+// every assertion here pass.
+func TestWorkerBootContextHasZeroMemberOnlyResidue(t *testing.T) {
+	worker := workerCtx(t)
+	_, bc := memberCtx(t)
+	member := bc.Context
+
+	for _, tc := range []struct{ name, text, why string }{
+		{
+			"§10.4 發包給外包（指向已排除的 §10.1c）",
+			"想把**當下這一張**任務發包給外包",
+			"worker 就是被發包的那一方，不轉包。這條先前完全沒有任何 overlay 覆寫。",
+		},
+		{
+			"§10.4 照手冊的負責設定走 §10.1 三條路",
+			"照手冊的負責設定走 §10.1 三條路",
+			"§10.1 接案已排除；worker 只做綁給它的那一張任務。",
+		},
+		{
+			"§10.4 你是 scrum master、不下場",
+			"你是 scrum master",
+			"對 worker 是反的——它正是被授權自己下場的角色。",
+		},
+		{
+			"§10.4 等待不是停下——開下一張",
+			"等待不是停下——開下一張",
+			"worker 一綁一任務，沒有下一張可開。",
+		},
+		{
+			"§8b 換手 SOP 第 3 步 lessons",
+			"用 lessons 工具整併耐久教訓",
+			"指向已排除的 §9，且在 ~120 秒寬限下會被照著執行。",
+		},
+		{
+			"§1 世界觀 lessons 指標",
+			"掛在你的角色身上，見 §9",
+			"worker 沒有角色，§9 也不在它讀到的文件裡。",
+		},
+		{
+			"§10.5 角色 lessons 那一軌",
+			"照 §9 整併進你角色的學習筆記",
+			"同上；worker 只有手冊學習經驗這一軌。",
+		},
+
+		// ── 以下三處不在 review 清單上，是修這包時從實際組出來的內容量到的 ──
+		// review 只掃了 §10.4 的 DO/DON'T 一行版本，漏了 §10.3 的政策本體
+		// （更長、更實質、語氣更權威），以及 §10.4 的 resume_summary 那段。
+		{
+			"§10.3 等待不是停下（多任務調度）政策本體",
+			"等待不是停下（多任務調度）",
+			"叫 worker「回頭掃自己手上的任務佇列，開下一張」——它一綁一任務，沒有佇列。",
+		},
+		{
+			"§10.3 你當 scrum master 政策本體",
+			"吃 context 的重活交給 sub-agent，你當 scrum master",
+			"「不自己下場做重活」對 worker 完全相反——它正是被授權下場的角色（overlay §4）。",
+		},
+		{
+			"§10.4 resume_summary 接手路徑",
+			"先用 MCP `peek_resume_summary_size` 探快照多大",
+			"這兩個工具正是因為對 worker 不成立而被排除；叫它去用一條它沒有的路。",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// positive control — the member still gets it.
+			if !strings.Contains(member, tc.text) {
+				t.Fatalf("positive control failed: %q is not in the MEMBER fold either, "+
+					"so its absence from the worker proves nothing (seed reworded?)", tc.text)
+			}
+			if strings.Contains(worker, tc.text) {
+				t.Errorf("member-only instruction survived in the worker's copy: %q\n%s\n"+
+					"不要靠 overlay 覆寫——「後面覆寫前面」正是這份文件已經失敗過一次的機制。",
+					tc.text, tc.why)
+			}
+		})
+	}
+}
+
+// TestWorkerHandoverSOPIsSelfConsistent checks the OTHER half of "zero
+// residue": removing step 3 must not leave a 1/2/4/5 list still calling itself
+// 五步. Half a change reads as a document that lost a step, which invites the
+// worker to go looking for it.
+func TestWorkerHandoverSOPIsSelfConsistent(t *testing.T) {
+	ctx := workerCtx(t)
+
+	if strings.Contains(ctx, "五步") {
+		t.Error("worker handover SOP still says 五步 but only four steps survive")
+	}
+	if !strings.Contains(ctx, "照四步走完") {
+		t.Error("worker handover SOP should read 四步 after the lessons step is removed")
+	}
+	// The surviving steps must be numbered 1..4 with no gap.
+	for _, want := range []string{
+		"1. **MCP `report_stopping()`**",
+		"2. **把還在飛的工作寫回 task step note**",
+		"3. **post chat 給「自己」一則交接 baton**",
+		"4. **MCP `report_stopped()`**",
+	} {
+		if !strings.Contains(ctx, want) {
+			t.Errorf("renumbered handover step missing: %q", want)
+		}
+	}
+	if strings.Contains(ctx, "5. **MCP `report_stopped()`**") {
+		t.Error("handover step 5 was not renumbered — orphan numbering left behind")
+	}
+}
+
+// TestWorkerBootSequenceHasNoOrphanNumbering covers the same defect in block 3.
+// Steps 1 and 2 are excluded; shipping a lone "3." with no 1, no 2 and no intro
+// tells the worker it is missing two steps.
+func TestWorkerBootSequenceHasNoOrphanNumbering(t *testing.T) {
+	ctx := workerCtx(t)
+	if strings.Contains(ctx, "3. **全部就緒後，才掛") {
+		t.Error("worker boot sequence still ships an orphan \"3.\" with no 1 and no 2")
+	}
+	if !strings.Contains(ctx, "**掛 `ocagent listen`") {
+		t.Error("worker boot sequence lost the ocagent listen step entirely")
+	}
+}
+
 // ── the three 全域情境 blocks all reach the worker, grouped, at the front ─────
 
 func TestWorkerGlobalContextCarriesAllThreeBlocks(t *testing.T) {
