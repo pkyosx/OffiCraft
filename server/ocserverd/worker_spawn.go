@@ -115,19 +115,34 @@ const (
 
 // ── boot context (worker-specific assembly — NEVER the member fold) ──────────
 
-// buildWorkerBootContext assembles the worker persona: the worker_context.md
-// seed (identity rules + task-lifecycle policy + boot procedure) followed by
-// the concrete assignment — who the worker is, the bound task in full, and
-// the type manual (Q1/Q2/Q3 + learnings). Deliberately NOT buildBootContext:
-// a worker has no role doc, no lessons shard, no member boot sequence, and
-// borrowing the member fold would drag all three in.
+// buildWorkerBootContext assembles the worker persona, in this order:
+//
+//  1. GLOBAL CONTEXT — all three 全域情境 blocks (系統互動 ⊕ 使用者自訂 ⊕
+//     啟動程序), grouped, minus the member-only regions (worker_sharedcore.go).
+//     Global Context is the FIRST section: owner requirement, T-108b, pinned by
+//     TestWorkerBootContextStartsWithGlobalContext.
+//  2. the worker OVERLAY — seeds/worker_context.md, now only "how a worker
+//     differs from a member" rather than a second full copy of the policy.
+//  3. the concrete assignment — who the worker is, the bound task in full, and
+//     the type manual (Q1/Q2/Q3 + learnings).
+//
+// Still deliberately NOT buildBootContext: a worker has no role doc, no lessons
+// shard and no member boot sequence, and borrowing the member fold would drag
+// all three in. The member fold is untouched by T-108b — it consumes the same
+// shared core UNFILTERED, and conformance pins it byte-for-byte.
 func (s *apiServer) buildWorkerBootContext(w OutsourceWorker, t Task, manual *TaskManual) (string, error) {
+	core, err := s.workerGlobalContext()
+	if err != nil {
+		return "", err
+	}
 	seed, err := s.root.readSeedFile("worker_context.md")
 	if err != nil {
 		return "", err
 	}
 
 	var b strings.Builder
+	b.WriteString(core)
+	b.WriteString("\n\n---\n\n")
 	b.WriteString(strings.TrimSpace(seed))
 
 	b.WriteString("\n\n---\n\n# 你的身分\n\n")

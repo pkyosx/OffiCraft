@@ -112,7 +112,10 @@ func TestBuildWorkerBootContext_FullAssembly(t *testing.T) {
 		t.Errorf("the worker_context.md seed must have its %s placeholder substituted", ownerPlaceholder)
 	}
 	for _, want := range []string{
-		"外包工作者 boot context",            // the embedded seed leads
+		// T-108b: the worker OVERLAY no longer LEADS — Global Context does
+		// (order pinned by worker_sharedcore_test.go). The overlay is now a
+		// "how I differ from a member" section rather than a second full copy.
+		"外包工作者 —— 你與正職成員的差異",
 		"ow-abc", "O-7", "opus", "high", // identity block
 		TaskNo(task.ID), "Review PR 42", "review-pr", "https://pr/42",
 		"把 42 號 PR 看完", "pr_url", // task block
