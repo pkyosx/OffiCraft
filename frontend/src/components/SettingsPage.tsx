@@ -42,6 +42,7 @@ import {
   BoltIcon,
   GearIcon,
   TrashIcon,
+  RefreshIcon,
 } from "./icons";
 import { ConfirmModal } from "./ConfirmModal";
 import { InlineEdit } from "./InlineEdit";
@@ -717,6 +718,62 @@ function SoftwareUpdate({
       .catch(() => setCheckState({ kind: "failed" }));
   }
 
+  /** The card's ONE status line. A live explicit check (checking / failed /
+   * done) wins over the cached /api/version verdict; once it settles it just
+   * REPLACES the badge's content. All three post-click states — 檢查中 /
+   * 有新版 / 錯誤 — resolve here, so none of them can spawn a second line.
+   * Only ever called with `version` non-null (the caller's guard). */
+  function renderStatus(): ReactNode {
+    if (checkState.kind === "checking")
+      return (
+        <span className="sw-badge sw-badge--busy">
+          {t.settings.checkingUpdate}
+        </span>
+      );
+    if (checkState.kind === "failed")
+      return (
+        <span className="sw-badge sw-badge--bad">{t.settings.checkFailed}</span>
+      );
+    if (checkState.kind === "done") {
+      const v = checkState.verdict;
+      // GitHub unreachable — the server's HONEST degraded verdict, not a
+      // fabricated "up to date".
+      if (v.status === "unknown")
+        return (
+          <span className="sw-badge sw-badge--bad">
+            {t.settings.checkUnknown}
+          </span>
+        );
+      if (v.status === "update_available")
+        return (
+          <span className="sw-badge sw-badge--new">
+            {t.settings.updateAvailable}
+            {v.latestTag ? ` ${v.latestTag}` : ""}
+            {v.releaseUrl && (
+              <>
+                {" · "}
+                <a href={v.releaseUrl} target="_blank" rel="noreferrer">
+                  {t.settings.viewRelease}
+                </a>
+              </>
+            )}
+          </span>
+        );
+      return (
+        <span className="sw-badge sw-badge--ok">{t.settings.upToDate}</span>
+      );
+    }
+    // idle: the cached verdict that came with /api/version.
+    return version?.updateAvailable ? (
+      <span className="sw-badge sw-badge--new">
+        {t.settings.updateAvailable}
+        {version.latestVersion ? ` ${version.latestVersion}` : ""}
+      </span>
+    ) : (
+      <span className="sw-badge sw-badge--ok">{t.settings.upToDate}</span>
+    );
+  }
+
   // Toggle writes go straight through (no draft: a switch IS its commit);
   // flipping the channel re-kicks the server-side check, so re-read the
   // version shortly after — same best-effort refresh as the URL/code saves.
@@ -807,16 +864,35 @@ function SoftwareUpdate({
                   </code>
                 </div>
               </div>
-              {version.updateAvailable ? (
-                <span className="sw-badge sw-badge--new">
-                  {t.settings.updateAvailable}
-                  {version.latestVersion ? ` ${version.latestVersion}` : ""}
+              {/* ── THE status line (owner 2026-07-20 verdict on T-dc68) ──
+               * One row, one truth. The cached /api/version verdict and the
+               * explicit fresh check share this single node: clicking the
+               * refresh icon mutates THIS badge in place (checking → verdict)
+               * instead of appending a second result line below the card,
+               * which is what put "已是最新版" on screen twice. */}
+              <div className="sw-status">
+                <span className="sw-status__badge" data-testid="settings-update-status">
+                  {renderStatus()}
                 </span>
-              ) : (
-                <span className="sw-badge sw-badge--ok">
-                  {t.settings.upToDate}
-                </span>
-              )}
+                <button
+                  type="button"
+                  className="sw-status__refresh"
+                  disabled={checkState.kind === "checking"}
+                  onClick={runCheck}
+                  data-testid="settings-check-release"
+                >
+                  {/* Icon-only button: the accessible name comes from real
+                   * (visually clipped) text content, NOT aria-label — this
+                   * repo has been bitten by aria-label REPLACING an element's
+                   * name. The svg is hidden so the name is exactly the text. */}
+                  <span className="sw-status__refresh-icon" aria-hidden="true">
+                    <RefreshIcon size={15} />
+                  </span>
+                  <span className="sw-status__refresh-label">
+                    {t.settings.checkUpdate}
+                  </span>
+                </button>
+              </div>
             </>
           ) : (
             <div className="sw-build__time">{t.mp.dash}</div>
@@ -842,47 +918,10 @@ function SoftwareUpdate({
         <div className="set-error param-error">{upgradeError}</div>
       )}
 
-      {/* ── explicit 檢查更新 (fresh GitHub verdict on the owner's click) ── */}
-      <div className="sw-check">
-        <button
-          type="button"
-          className="btn sw-check__btn"
-          disabled={checkState.kind === "checking"}
-          onClick={runCheck}
-          data-testid="settings-check-release"
-        >
-          {checkState.kind === "checking"
-            ? t.settings.checkingUpdate
-            : t.settings.checkUpdate}
-        </button>
-        {checkState.kind === "failed" && (
-          <span className="set-error param-error">{t.settings.checkFailed}</span>
-        )}
-        {checkState.kind === "done" && (
-          <span className="sw-check__verdict" data-testid="settings-check-verdict">
-            {checkState.verdict.status === "up_to_date" && t.settings.upToDate}
-            {checkState.verdict.status === "unknown" && t.settings.checkUnknown}
-            {checkState.verdict.status === "update_available" && (
-              <>
-                {t.settings.updateAvailable}
-                {checkState.verdict.latestTag ? ` ${checkState.verdict.latestTag}` : ""}
-                {checkState.verdict.releaseUrl && (
-                  <>
-                    {" · "}
-                    <a
-                      href={checkState.verdict.releaseUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      {t.settings.viewRelease}
-                    </a>
-                  </>
-                )}
-              </>
-            )}
-          </span>
-        )}
-      </div>
+      {/* NOTE (T-dc68 fixup): there is deliberately NO separate 檢查更新 row
+       * here any more. The check's result is rendered by renderStatus() into
+       * the card's single status line above — no second result element is
+       * ever created. */}
 
       {/* ── the two software-update toggles (/api/settings; both default OFF) ── */}
       <h2 className="settings__title settings__title--doc">
