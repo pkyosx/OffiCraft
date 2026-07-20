@@ -224,7 +224,17 @@ func (s *apiServer) HandleGetTaskManualApiTaskManualsTypeKeyGet(w http.ResponseW
 // owner-only governance face — a non-owner supplying it is a 403.
 func (s *apiServer) HandleUpdateTaskManualApiTaskManualsTypeKeyPost(w http.ResponseWriter, r *http.Request, typeKey string) {
 	var body TaskManualUpdateDTO
-	if !decodeJSONBody(w, r, &body) {
+	// T-2d99 (mirror direction): strict decode, but NO required names. This is
+	// a partial update — "only supplied fields change" is the contract, so an
+	// absent key must stay legal. What must NOT stay legal is an UNKNOWN key:
+	// this handler writes the SAME learnings document as write_task_learnings,
+	// and the two tools spell the field differently (`learnings` here, `text`
+	// there). The observed incident was that confusion in one direction; the
+	// mirror — update_task_manual{text: "..."} — was answering 200 while
+	// dropping the key, so the caller's new learnings silently vanished. That
+	// is not a wipe (pointer fields, nil = unchanged) but it is the same bug
+	// class: report success while doing nothing. Unknown key ⇒ 422, no write.
+	if !decodeJSONBodyStrict(w, r, &body) {
 		return
 	}
 	if body.Assignee != nil && !s.callerMaySetAssignee(r) {
