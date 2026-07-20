@@ -300,6 +300,25 @@ job_pid_of() {
   printf '%s\n' "$out" | sed -n 's/^[[:space:]]*pid = \([0-9]*\).*/\1/p' | head -1
 }
 
+listening_ports_of() {
+  # Space-separated TCP ports a pid holds in LISTEN, or "" when it holds none.
+  #
+  # Same pipefail trap as job_pid_of, spelled out again because this file has
+  # now fallen into it TWICE: real lsof exits NON-ZERO when the pid has no
+  # listening socket, and that is an ordinary state — a job still starting up,
+  # one that is crash-looping, or one bound only to a unix socket. Left at the
+  # head of a pipeline under `set -o pipefail`, that rc propagates out of the
+  # command substitution and `set -e` kills the installer RIGHT HERE, before a
+  # single one of the warning lines below has run. The operator gets exit 1 and
+  # a COMPLETELY BLANK screen — the worst possible outcome for a gate whose
+  # entire job is to explain itself. The port list is cosmetic; it must never
+  # be able to abort the run.
+  local out
+  out="$(lsof -nP -iTCP -sTCP:LISTEN -a -p "$1" 2>/dev/null || true)"
+  printf '%s\n' "$out" \
+    | sed -n 's/.*:\([0-9]\{2,5\}\) (LISTEN).*/\1/p' | sort -u | tr '\n' ' ' | sed 's/ $//'
+}
+
 # ── live-service gate ────────────────────────────────────────────────────────
 # The gates that already existed here reason about FILES: is there a binary, a
 # database, a plist naming our program, a config that would move. None of them
@@ -330,8 +349,7 @@ if [[ "$FOREGROUND" == 0 ]]; then
   LIVE_PID="$(job_pid_of "$TARGET")"
 fi
 if [[ -n "$LIVE_PID" ]]; then
-  live_ports="$(lsof -nP -iTCP -sTCP:LISTEN -a -p "$LIVE_PID" 2>/dev/null \
-    | sed -n 's/.*:\([0-9]\{2,5\}\) (LISTEN).*/\1/p' | sort -u | tr '\n' ' ' | sed 's/ $//')"
+  live_ports="$(listening_ports_of "$LIVE_PID")"
   echo "[install] ⚠️  A LIVE OffiCraft service is running on this machine RIGHT NOW."
   echo "[install]      launchd job: $LABEL (pid $LIVE_PID)"
   echo "[install]      plist:       ${PLIST}"

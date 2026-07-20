@@ -78,6 +78,16 @@ SH
 #   running → registered AND serving (pid line present) — this is the outage case
 # Output mimics the real `launchctl print` layout, including the nested
 # `state = active` entries that the pid parser must not be confused by.
+#
+# LABEL-AWARE ON PURPOSE. An earlier version of this stub ignored $2 entirely,
+# which quietly weakened every assertion below: a label-blind oracle answers
+# "running" no matter WHICH job the script asks about, so the suite could only
+# prove "install.sh consults launchctl and obeys the answer" — never "it asks
+# about the right label". Since the whole defect is that the default label
+# collides with the live station's, that is the property most worth pinning.
+# Now anything other than the expected target reads as NOT REGISTERED, so a
+# script that resolved the wrong label sees "absent", skips the gate, and the
+# live-job cases go red.
 cat > "$SHIMDIR/launchctl" <<'SH'
 #!/usr/bin/env bash
 echo "launchctl $*" >> "$SHIM_TRIPWIRE"
@@ -85,6 +95,8 @@ case "${1:-}" in
   print)
     # once booted out, the label really is gone — lets the poll loop exit
     [[ -f "$SHIM_STATE/.booted-out" ]] && exit 1
+    # asked about a label that is not the one under test → nothing registered
+    [[ "${2:-}" == "$SHIM_EXPECT_TARGET" ]] || exit 1
     case "${SHIM_JOB:-absent}" in
       running)
         cat <<'OUT'
@@ -126,11 +138,23 @@ SH
 #   -iTCP:<port>    → the port gate (before bootstrap: free) and the health gate
 #                     (after bootstrap: listening). Keyed on the bootstrap flag
 #                     so one stub serves both without a call counter.
+#
+# EXIT CODES MATTER MORE THAN OUTPUT HERE. The real lsof exits NON-ZERO when a
+# query matches nothing, including the ordinary case of a running pid that holds
+# no listening socket. An earlier stub returned 0 unconditionally for -p, which
+# is LOOSER than the real tool — and that single mismatch hid a fatal bug: the
+# gate's own port-lookup aborted the whole installer under `set -e -o pipefail`,
+# producing exit 1 with a blank screen, and the suite still went green. A stub
+# that is more forgiving than the tool it stands in for does not test the code,
+# it tests a fiction. SHIM_NO_LISTEN=1 reproduces that real-world state.
 cat > "$SHIMDIR/lsof" <<'SH'
 #!/usr/bin/env bash
 for a in "$@"; do
   case "$a" in
-    -p) echo "ocserverd 4242 tester 5u IPv4 0x0 0t0 TCP 127.0.0.1:8780 (LISTEN)"; exit 0 ;;
+    -p)
+      [[ "${SHIM_NO_LISTEN:-0}" == "1" ]] && exit 1
+      echo "ocserverd 4242 tester 5u IPv4 0x0 0t0 TCP 127.0.0.1:8780 (LISTEN)"
+      exit 0 ;;
   esac
 done
 if [[ -f "$SHIM_STATE/.bootstrapped" ]]; then
@@ -182,16 +206,25 @@ PL
 # run_install <job-state> [args…] — NOTE: OC_LAUNCHD_LABEL is never set, so the
 # run resolves the DEFAULT label, exactly as a real user's re-install does.
 # stdin is </dev/null → non-interactive, the `curl | bash` shape.
+# The target the script MUST resolve when nobody overrides the label. Every
+# assertion about the gate firing is therefore also an assertion that it asked
+# launchd about THIS job and no other.
+EXPECT_TARGET="gui/$(id -u)/com.officraft.serve"
+
 run_install() {
   local job="$1"; shift
   OUT="$(cd "$WORK" && env -i \
     PATH="$SHIMDIR:/usr/bin:/bin:/usr/sbin:/sbin" \
     HOME="$FAKEHOME" SHIM_JOB="$job" SHIM_TRIPWIRE="$WORK/.tripwire" SHIM_STATE="$WORK" \
+    SHIM_EXPECT_TARGET="$EXPECT_TARGET" SHIM_NO_LISTEN="${SHIM_NO_LISTEN:-0}" \
     bash "$PKG/install.sh" "$@" </dev/null 2>&1)"
   RC=$?
 }
 
 booted_out() { [[ -f "$WORK/.booted-out" ]] && echo yes || echo no; }
+# The tripwire records every launchctl invocation. Asserting ON it is what turns
+# "the script did something" into "the script did it TO THE RIGHT JOB".
+tripwire_has() { grep -qF "$1" "$WORK/.tripwire"; }
 
 echo "install.sh live-service gate — hermetic tests (default label, stubbed launchd)"
 
@@ -211,6 +244,28 @@ case "$OUT" in *"OC_LAUNCHD_LABEL"*) ok "live job: offers the install-alongside 
 # the binaries are copied, so a declined run cannot even have half-installed.
 check "live job + non-interactive: leaves the old binaries untouched" "OLD-BINARY" "$(cat "$FAKEHOME/.officraft/bin/ocwarden")"
 
+# THE LABEL ITSELF. Everything above would pass just as happily if install.sh
+# interrogated some other job and got lucky; this pins that the job it asked
+# about is the DEFAULT label — the one the live station actually runs under.
+if tripwire_has "launchctl print $EXPECT_TARGET"; then
+  ok "live job: install.sh interrogated the DEFAULT label ($EXPECT_TARGET)"
+else
+  bad "live job: install.sh interrogated the DEFAULT label ($EXPECT_TARGET) — tripwire: $(cat "$WORK/.tripwire")"
+fi
+
+# ── 1b. the gate must survive a live pid that holds NO listening socket ──────
+# Real lsof exits non-zero for such a pid (a job still starting, crash-looping,
+# or bound only to a unix socket). The port list is decoration; if looking it up
+# can abort the run, the gate dies before printing anything and the operator
+# gets exit 1 against a blank screen — strictly worse than the bug being fixed.
+reset_fixture preinstalled
+SHIM_NO_LISTEN=1 run_install running
+unset SHIM_NO_LISTEN
+check "live job w/o listening socket: still aborts" "1" "$RC"
+check "live job w/o listening socket: never boots the service out" "no" "$(booted_out)"
+case "$OUT" in *"A LIVE OffiCraft service is running"*) ok "live job w/o listening socket: STILL EXPLAINS ITSELF (does not die silently)";; *) bad "live job w/o listening socket: gate produced no explanation (output was: '$OUT')";; esac
+if [[ -n "$OUT" ]]; then ok "live job w/o listening socket: output is not empty"; else bad "live job w/o listening socket: output was EMPTY — the gate aborted before it could speak"; fi
+
 # ── 2. --force must NOT authorize an outage ─────────────────────────────────
 # The conflation that made this reachable: --force is documented as overwriting
 # FILES. Letting it also drop every live connection is the bug, not the feature.
@@ -226,6 +281,17 @@ run_install running --force --restart-live
 check "live job + --restart-live: proceeds" "0" "$RC"
 check "live job + --restart-live: boots the old job out" "yes" "$(booted_out)"
 case "$OUT" in *"--restart-live given"*) ok "live job + --restart-live: announces the restart";; *) bad "live job + --restart-live: announces the restart";; esac
+# and it boots out THAT job, by its full target — not merely "some job".
+if tripwire_has "launchctl bootout $EXPECT_TARGET"; then
+  ok "live job + --restart-live: bootout targeted the DEFAULT label ($EXPECT_TARGET)"
+else
+  bad "live job + --restart-live: bootout targeted the DEFAULT label — tripwire: $(cat "$WORK/.tripwire")"
+fi
+if tripwire_has "launchctl bootstrap"; then
+  ok "live job + --restart-live: the service is bootstrapped back up (not left down)"
+else
+  bad "live job + --restart-live: the service is bootstrapped back up"
+fi
 
 # ── 4. no job registered → gate stays silent (fresh install must not regress) ─
 reset_fixture fresh
@@ -276,6 +342,7 @@ run_interactive() {
   OUT="$(cd "$WORK" && { sleep 0.6; printf '%s\n' "$answer"; sleep 1.2; } | env \
     PATH="$SHIMDIR:/usr/bin:/bin:/usr/sbin:/sbin" \
     HOME="$FAKEHOME" SHIM_JOB="$job" SHIM_TRIPWIRE="$WORK/.tripwire" SHIM_STATE="$WORK" \
+    SHIM_EXPECT_TARGET="$EXPECT_TARGET" SHIM_NO_LISTEN="${SHIM_NO_LISTEN:-0}" \
     script -q /dev/null bash "$PKG/install.sh" "$@" 2>&1)"
   RC=$?
 }
