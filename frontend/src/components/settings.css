@@ -410,6 +410,36 @@
   color: var(--color-accent);
   text-decoration: underline;
 }
+/* T-bc3e: GFM tables. `display: block + overflow-x` makes a wide table scroll
+ * inside its container (chat bubble, task card, settings doc) instead of
+ * widening it — same posture as .doc-md pre; `width: max-content` keeps a
+ * narrow table shrink-wrapped instead of full-bleed. Borders/zebra use
+ * white-alpha overlays (like the blockquote/pre backgrounds above) rather than
+ * --color-border, which in the default theme equals --color-card and would
+ * vanish inside a chat bubble; both cockpit themes are dark-canvas, so the
+ * overlays stay readable in each. */
+.doc-md table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 10px 0;
+  border-collapse: collapse;
+}
+.doc-md th,
+.doc-md td {
+  padding: 5px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  text-align: left;
+}
+.doc-md th {
+  font-weight: 700;
+  color: var(--color-text-strong);
+  background: rgba(255, 255, 255, 0.05);
+}
+.doc-md tbody tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.025);
+}
 .doc-md h1:first-child,
 .doc-md h2:first-child {
   margin-top: 6px;

@@ -10,7 +10,11 @@
 //
 // Block-level:  # / ## / ### headings, "- " / "* " unordered lists,
 //               "1. " ordered lists (source numbering preserved), "> "
-//               blockquotes, ``` fenced code blocks, and paragraphs. List items
+//               blockquotes, ``` fenced code blocks, GFM tables (T-bc3e:
+//               header row + |---| delimiter row + data rows; :--- / :---: /
+//               ---: alignment; leading/trailing pipes optional; a header row
+//               whose column count does not match the delimiter row is NOT a
+//               table and falls through as text), and paragraphs. List items
 //               absorb their indented continuation (sub-lists, code, prose) and
 //               render it nested — so a numbered step with indented sub-bullets
 //               stays ONE list with continuous numbering instead of collapsing
@@ -84,6 +88,59 @@ const ULIST_RE = /^[-*]\s+(.*)$/;
 const OLIST_RE = /^(\d+)\.\s+(.*)$/;
 const QUOTE_RE = /^>\s?(.*)$/;
 const FENCE_RE = /^```/;
+
+// ── GFM tables (T-bc3e) ──────────────────────────────────────────────────────
+// A table starts where a line containing "|" is IMMEDIATELY followed by a valid
+// delimiter row with the SAME column count (the GFM gate). Anything that fails
+// that gate — header only, malformed delimiter, column-count mismatch — is not
+// a table and falls through to the paragraph path as plain text.
+
+type CellAlign = "left" | "center" | "right" | null;
+
+// Split one table row into trimmed cell strings, GFM style: one optional
+// leading and trailing pipe is decoration, inner pipes separate cells.
+function splitRow(line: string): string[] {
+  let s = line.trim();
+  if (s.startsWith("|")) s = s.slice(1);
+  if (s.endsWith("|")) s = s.slice(0, -1);
+  return s.split("|").map((c) => c.trim());
+}
+
+// Parse a candidate delimiter row ("| --- | :---: |") into per-column
+// alignments, or null if any cell is not `:?-+:?` (then the whole construct is
+// not a table).
+function parseDelimiterRow(line: string): CellAlign[] | null {
+  const t = line.trim();
+  // Cheap reject + guarantee there is at least one dash (`|  |` is no delimiter).
+  if (!t.includes("-") || !/^[|\s:-]+$/.test(t)) return null;
+  const aligns: CellAlign[] = [];
+  for (const cell of splitRow(t)) {
+    if (!/^:?-+:?$/.test(cell)) return null;
+    const left = cell.startsWith(":");
+    const right = cell.endsWith(":");
+    aligns.push(left && right ? "center" : right ? "right" : left ? "left" : null);
+  }
+  return aligns;
+}
+
+// True when lines[i] opens a table: it carries a "|", the NEXT line is a valid
+// delimiter row, and the column counts agree. Shared by the block dispatcher
+// and the paragraph accumulator (so a table right after a paragraph line still
+// starts a table instead of being swallowed as prose — matters in `breaks`
+// mode, where every chat line is paragraph-shaped).
+function isTableStart(lines: string[], i: number): boolean {
+  const line = lines[i];
+  if (!line.includes("|") || line.trim() === "") return false;
+  if (i + 1 >= lines.length) return false;
+  const aligns = parseDelimiterRow(lines[i + 1]);
+  return aligns !== null && splitRow(line).length === aligns.length;
+}
+
+function alignStyle(
+  a: CellAlign
+): { textAlign: "left" | "center" | "right" } | undefined {
+  return a ? { textAlign: a } : undefined;
+}
 
 function indentOf(line: string): number {
   return line.length - line.trimStart().length;
@@ -222,6 +279,56 @@ function renderBlocks(source: string, breaks = false): ReactNode[] {
       continue;
     }
 
+    // GFM table (T-bc3e) — header row + delimiter row + data rows. The rows
+    // are consumed as WHOLE lines here (never through renderParagraph), so
+    // chat's `breaks` mode cannot inject <br> into a table. Data rows are
+    // normalized to the header's column count (extra cells dropped, missing
+    // cells empty — GFM behaviour), and cell content goes through renderInline
+    // so bold/code/links work inside cells.
+    if (isTableStart(lines, i)) {
+      const headerCells = splitRow(line);
+      const aligns = parseDelimiterRow(lines[i + 1])!;
+      i += 2;
+      const rows: string[][] = [];
+      while (
+        i < lines.length &&
+        lines[i].trim() !== "" &&
+        lines[i].includes("|")
+      ) {
+        const cells = splitRow(lines[i]).slice(0, headerCells.length);
+        while (cells.length < headerCells.length) cells.push("");
+        rows.push(cells);
+        i++;
+      }
+      blocks.push(
+        <table key={key++}>
+          <thead>
+            <tr>
+              {headerCells.map((c, ci) => (
+                <th key={ci} style={alignStyle(aligns[ci])}>
+                  {renderInline(c)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          {rows.length > 0 ? (
+            <tbody>
+              {rows.map((r, ri) => (
+                <tr key={ri}>
+                  {r.map((c, ci) => (
+                    <td key={ci} style={alignStyle(aligns[ci])}>
+                      {renderInline(c)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          ) : null}
+        </table>
+      );
+      continue;
+    }
+
     // Blockquote — consume consecutive "> " lines.
     if (QUOTE_RE.test(line)) {
       const quoted: string[] = [];
@@ -247,7 +354,8 @@ function renderBlocks(source: string, breaks = false): ReactNode[] {
         HEADING_RE.test(l) ||
         ULIST_RE.test(l) ||
         OLIST_RE.test(l) ||
-        QUOTE_RE.test(l)
+        QUOTE_RE.test(l) ||
+        isTableStart(lines, i)
       ) {
         break;
       }

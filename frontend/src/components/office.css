@@ -833,6 +833,10 @@
 .chat__msg-text.doc-md pre {
   margin: 6px 0;
 }
+/* T-bc3e: table joins the tightened chat rhythm (base skin in settings.css). */
+.chat__msg-text.doc-md table {
+  margin: 6px 0;
+}
 /* `code` keeps .doc-md's accent colour on a peer bubble, but inside MY accent
  * bubble accent-on-accent-tint loses its contrast — inherit the bubble's own
  * colour there and let the chip background carry the distinction. */

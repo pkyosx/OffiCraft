@@ -150,4 +150,123 @@ describe("Markdown", () => {
       expect(container.querySelectorAll("pre br").length).toBe(0);
     });
   });
+
+  // T-bc3e — GFM tables. The trigger was an owner screenshot: an agent posted
+  // a table in chat and the bubble showed the raw pipes. The renderer stays
+  // minimal: header + |---| delimiter + rows become a real <table>; anything
+  // that fails the GFM gate (no delimiter row, malformed delimiter, header /
+  // delimiter column-count mismatch) falls through as plain text — same
+  // safe-by-construction posture as every other unknown syntax.
+  describe("GFM tables (T-bc3e)", () => {
+    it("renders header + delimiter + data rows as a real table", () => {
+      const c = renderMd(
+        "| Name | Role |\n| --- | --- |\n| Kyle | dev |\n| Seth | owner |",
+      );
+      expect(c.querySelectorAll("table").length).toBe(1);
+      const ths = c.querySelectorAll("thead th");
+      expect(ths.length).toBe(2);
+      expect(ths[0].textContent).toBe("Name");
+      const rows = c.querySelectorAll("tbody tr");
+      expect(rows.length).toBe(2);
+      expect(rows[1].querySelectorAll("td")[1].textContent).toBe("owner");
+      // The raw delimiter row must NOT leak into the rendered output.
+      expect(c.textContent).not.toContain("---");
+    });
+
+    it("accepts rows without leading/trailing pipes (GFM optional decoration)", () => {
+      const c = renderMd("a | b\n--- | ---\n1 | 2");
+      expect(c.querySelectorAll("table").length).toBe(1);
+      expect(c.querySelectorAll("thead th").length).toBe(2);
+      expect(c.querySelector("tbody td")?.textContent).toBe("1");
+    });
+
+    it("runs cell content through renderInline (bold / code / safe links work)", () => {
+      const c = renderMd(
+        "| a | b |\n| --- | --- |\n| **bold** | `code` and [docs](https://x.dev) |",
+      );
+      const cell = c.querySelectorAll("tbody td");
+      expect(cell[0].querySelector("strong")?.textContent).toBe("bold");
+      expect(cell[1].querySelector("code")?.textContent).toBe("code");
+      expect(cell[1].querySelector("a")?.getAttribute("href")).toBe(
+        "https://x.dev",
+      );
+    });
+
+    it("applies :--- / :---: / ---: alignment to header and body cells", () => {
+      const c = renderMd(
+        "| l | c | r | n |\n| :--- | :---: | ---: | --- |\n| 1 | 2 | 3 | 4 |",
+      );
+      const ths = c.querySelectorAll("thead th");
+      expect((ths[0] as HTMLElement).style.textAlign).toBe("left");
+      expect((ths[1] as HTMLElement).style.textAlign).toBe("center");
+      expect((ths[2] as HTMLElement).style.textAlign).toBe("right");
+      expect((ths[3] as HTMLElement).style.textAlign).toBe("");
+      const tds = c.querySelectorAll("tbody td");
+      expect((tds[1] as HTMLElement).style.textAlign).toBe("center");
+      expect((tds[2] as HTMLElement).style.textAlign).toBe("right");
+    });
+
+    it("normalizes ragged data rows to the header width (GFM pad/truncate)", () => {
+      const c = renderMd(
+        "| a | b | c |\n| --- | --- | --- |\n| only |\n| 1 | 2 | 3 | extra |",
+      );
+      const rows = c.querySelectorAll("tbody tr");
+      expect(rows.length).toBe(2);
+      expect(rows[0].querySelectorAll("td").length).toBe(3);
+      expect(rows[1].querySelectorAll("td").length).toBe(3);
+      expect(rows[1].textContent).not.toContain("extra");
+    });
+
+    it("falls through as text when header/delimiter column counts mismatch", () => {
+      const c = renderMd("| a | b | c |\n| --- | --- |\n| 1 | 2 |");
+      expect(c.querySelector("table")).toBeNull();
+      expect(c.textContent).toContain("| a | b | c |");
+    });
+
+    it("falls through as text for a header row with no delimiter row", () => {
+      const c = renderMd("| just | a | header |");
+      expect(c.querySelector("table")).toBeNull();
+      expect(c.textContent).toContain("| just | a | header |");
+    });
+
+    it("falls through as text when the delimiter row is malformed", () => {
+      const c = renderMd("| a | b |\n| --x-- | --- |\n| 1 | 2 |");
+      expect(c.querySelector("table")).toBeNull();
+      expect(c.textContent).toContain("--x--");
+    });
+
+    it("falls through for a delimiter cell with a misplaced colon (--:-)", () => {
+      // `--:-` is built only of [|:-] characters, so it slips past any cheap
+      // charset check — the per-cell `:?-+:?` shape rule must reject it.
+      const c = renderMd("| a | b |\n| --:- | --- |\n| 1 | 2 |");
+      expect(c.querySelector("table")).toBeNull();
+      expect(c.textContent).toContain("--:-");
+    });
+
+    it("renders a header-plus-delimiter-only table (empty body) without crashing", () => {
+      const c = renderMd("| a | b |\n| --- | --- |");
+      expect(c.querySelectorAll("table").length).toBe(1);
+      expect(c.querySelectorAll("thead th").length).toBe(2);
+      expect(c.querySelector("tbody")).toBeNull();
+    });
+
+    // The chat surface: `breaks` turns every intra-paragraph newline into
+    // <br> — table lines must be exempt (they are consumed whole, never via
+    // renderParagraph), and a paragraph butting directly against a table must
+    // still yield a table instead of swallowing it as prose.
+    it("breaks mode: table renders with no <br> inside it, prose around it still hard-breaks", () => {
+      const { container } = render(
+        <Markdown
+          source={"line1\nline2\n| a | b |\n| --- | --- |\n| 1 | 2 |"}
+          breaks
+        />,
+      );
+      expect(container.querySelectorAll("table").length).toBe(1);
+      expect(container.querySelectorAll("table br").length).toBe(0);
+      expect(container.querySelectorAll("tbody tr").length).toBe(1);
+      // line1/line2 remain a hard-broken paragraph before the table.
+      expect(container.querySelectorAll("p br").length).toBe(1);
+      expect(container.textContent).not.toContain("|");
+    });
+  });
 });
