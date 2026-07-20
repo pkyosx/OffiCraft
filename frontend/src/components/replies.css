@@ -263,6 +263,13 @@
 .reply-option__text {
   flex: 1;
   min-width: 0;
+  /* T-d451 — an option's label is owner/agent free text and can carry an
+     unbreakable long token. `min-width: 0` alone is not enough: it lets the
+     flex item shrink, but the token then overflows the shrunk item and widens
+     the page anyway (measured at 375px: this element +293px, page +264px).
+     This surface renders no markdown, so it cannot inherit the `.doc-md` base
+     fix — it needs its own break opportunity. */
+  overflow-wrap: anywhere;
 }
 
 /* ── tags (AI 建議 / 你選的 / 目前) ── */
@@ -336,6 +343,11 @@
   line-height: 1.45;
   color: var(--color-text);
   white-space: pre-wrap;
+  /* T-d451 — `pre-wrap` preserves the author's newlines and wraps at spaces,
+     but a token with NO whitespace in it has nothing to wrap at, so it still
+     overflows (measured at 375px: +233px). Plain text surface, no markdown, so
+     no `.doc-md` base fix to inherit. */
+  overflow-wrap: anywhere;
 }
 .reply-card__answer-atts {
   display: flex;

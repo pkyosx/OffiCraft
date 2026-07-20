@@ -307,6 +307,40 @@
     justify-content: flex-end;
     text-align: right;
   }
+
+  /* T-d451 — the card mode drops the desktop wrap's `overflow-x: auto` (above),
+   * so on a phone there is NO scroller left to absorb a too-wide cell: whatever
+   * does not fit pushes the PAGE sideways instead. The cell is a flex row
+   * (label ::before + value), and a flex item defaults to `min-width: auto`,
+   * so an unbreakable value (a machine id, a session id, a model name) refuses
+   * to shrink below its own width.
+   *
+   * Fix the content, not the scroller: give the value somewhere to break.
+   * Restoring `overflow-x: auto` on the wrap instead would satisfy "page must
+   * not scroll" while growing a phantom scrollbar inside every card — exactly
+   * what the card mode was built to remove (see the wrap comment above).
+   *
+   * `overflow-wrap` goes on the CELL (it inherits) rather than on `td > *`,
+   * because several cells print their value as BARE TEXT with no wrapper
+   * element — a `> *` rule matches element children only and would sail past
+   * them. The `::before` label keeps its own `flex: none` + `nowrap`, so the
+   * "label : value" shape is unchanged.
+   *
+   * NO `min-width: 0` companion here, on purpose. It is the usual partner for a
+   * flex item that will not shrink, and the first draft carried it — but
+   * `anywhere` already collapses the item's min-content, so `min-width: auto`
+   * stops binding, and a mutant removing it left the guard green. An inert rule
+   * reads to the next person as load-bearing, so it was dropped. */
+  .mon-table td {
+    overflow-wrap: anywhere;
+  }
+
+  /* the id chip's desktop `nowrap` (monitor.css:396) is what makes it
+   * unbreakable; inside a card there is no horizontal scroller to reach the
+   * clipped tail, so wrapping is the honest behaviour. */
+  .mon-table .mon-machine-id {
+    white-space: normal;
+  }
 }
 
 /* ── machine lifecycle: onboard (新增機器 / 上線) + teardown (拆除) ──────────── */

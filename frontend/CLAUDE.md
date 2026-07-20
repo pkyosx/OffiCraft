@@ -174,5 +174,26 @@ one-shot,可重跳);未知/過期 id 誠實自癒(消費 anchor、不高亮)。
 - **`member.effort`(MemberDetailPanel 資訊卡)= owner-intent**:passthrough `w.effort`(缺省 fallback `medium`),是「想要多少」的意圖、非即時值;M2-2 起 owner 可在詳情面板編輯 model/effort(`patchMember`,變更於下次喚醒生效——spawn `--effort` 已改吃 server 下推的 member.effort,空值才 fallback medium)。
 - ⚠️ 別在 MonitorPage 拿 roster 的 member.effort 當徽章——那是假值;一律用 session 自己 telemetry 的 `session.effort`。
 
+## 長 token 溢出:單一來源在 `.doc-md` 基底(T-d451)
+owner/agent 自由文字會帶**不可斷的長 token**(長 URL、40-hex sha、無空白長字)。
+沒有斷點時它把容器 min-content 撐到 token 全寬,容器不肯縮、撐破手機視窗,**整頁**
+就能左右滑。**修在 `.doc-md` 基底(`settings.css`)的 `overflow-wrap: anywhere`**,
+17 處 render site 與**未來新增的**一起繼承——這是唯一來源,**別再逐 surface 貼**
+(T-4974 就是逐處貼,結果同一個病從沒貼到的頁面復發,才有 T-d451)。
+- `anywhere` 不是 `break-word`:兩者都斷已溢出的行,但**只有 `anywhere` 收縮
+  min-content**,那才是容器肯縮回視窗的原因(flex/grid 宿主尤其吃這點)。
+- **不渲染 markdown 的自由文字欄位收不到這個繼承**,要自己宣告(現有:
+  `replies.css` 的 `.reply-option__text` / `.reply-card__answer-text`、
+  `monitor.css` 手機卡片模式的 `.mon-table td`)。加新的純文字欄位時記得。
+- **橫向滾動只允許出現在明確的可滾動子區**:`.doc-md pre`(`white-space: pre`
+  使 `overflow-wrap` 對它無效,實測仍正常橫捲)與 `.doc-md table`。修這類問題時
+  **不可**為了消滅整頁橫滑而拿掉它們的 `overflow-x: auto`。
+- 護欄:`visual-guards/docmd-longtoken-wrap.ct.spec.tsx`(文件面)、
+  `monitor-table-longtoken.ct.spec.tsx`(監控表格)、
+  `taskcard-longtoken-wrap.ct.spec.tsx`(任務卡)。都是**雙向**契約:整頁不許滑
+  **且** pre/table 仍要能滑——單向斷言會讓「修過頭」靜靜通過。
+- ⚠️ 重驗 mutant 時當心**斷言互相掩護**:整頁那條先炸會中止測試,底下 per-surface
+  斷言根本沒跑。要證明後者,先暫時放寬整頁斷言再跑 mutant。
+
 ## verify(root §13)
 純 FE UI 改動:headless build → `preview:4173` → Playwright,CI 綠即 land、**不上 prod 驗**。公開 URL https://officraft.hardcoretech.link/。`Monitor.tsx` 的 mock 部分無 telemetry backend(純前端 mock)。

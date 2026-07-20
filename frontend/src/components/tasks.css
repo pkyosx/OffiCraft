@@ -925,14 +925,12 @@ button.task-card__status-chip:hover {
 .task-card__desc {
   margin: 0;
   color: var(--color-text);
-  /* T-4974 — owner/agent free text can carry an unbreakable long token (a
-     no-whitespace snake_case/slash run like
-     `twin(desired_state/desired_machine_id/refocus_since/...)`). Without a break
-     opportunity it sets the card's min-content to the token's full width, widens
-     the card past a 390px viewport and the whole page scrolls sideways (owner
-     iPhone report). `anywhere` (not break-word) also shrinks min-content so the
-     card can bind to the viewport. */
-  overflow-wrap: anywhere;
+  /* T-d451 — the long-token break rule that used to live here (T-4974) moved to
+     the `.doc-md` base (settings.css). This element is rendered only by
+     TaskCard.tsx:1417 and always carries `doc-md`, so it inherits the fix; a
+     duplicate here would be a second source of truth for the same contract.
+     Guarded by taskcard-longtoken-wrap.ct.spec.tsx, which measures this exact
+     surface. */
 }
 /* Rendered markdown (T-13af) — reuse .doc-md's block treatment but at the
    card's compact scale; not the standalone-document padding/font-size. */
@@ -1430,9 +1428,8 @@ button.task-card__waiting--dep:focus-visible {
   padding: 0;
   font-size: 12px;
   line-height: 1.5;
-  /* T-4974: DoD free text can carry the same unbreakable long token as the
-     description — break it so it never widens the card past the viewport. */
-  overflow-wrap: anywhere;
+  /* T-d451: the long-token break rule moved to the `.doc-md` base
+     (settings.css), which this selector already requires. */
 }
 .task-step__dod .doc-md > :first-child {
   margin-top: 0;
@@ -1473,7 +1470,7 @@ button.task-card__waiting--dep:focus-visible {
   padding: 0;
   font-size: 12px;
   line-height: 1.5;
-  overflow-wrap: anywhere;
+  /* T-d451: long-token break inherited from the `.doc-md` base (settings.css). */
 }
 .task-step__waiting-md.doc-md > :first-child {
   margin-top: 0;

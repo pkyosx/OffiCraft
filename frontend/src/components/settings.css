@@ -348,6 +348,30 @@
   font-size: 14px;
   line-height: 1.75;
   color: var(--color-text);
+  /* T-d451 — owner/agent free text can carry an UNBREAKABLE long token (a long
+     URL, a 40-hex sha, a no-whitespace snake_case/slash run). Without a break
+     opportunity such a token sets this container's min-content to its own full
+     width; the container then refuses to shrink, outgrows a phone viewport, and
+     the whole PAGE gains a horizontal scrollbar (owner phone report 2026-07-20:
+     角色誌 / 學習經驗 could be dragged sideways).
+
+     `anywhere`, not `break-word`: both break an already-overflowing line, but
+     only `anywhere` SHRINKS min-content — which is what lets the container bind
+     to the viewport (and what makes the fix hold inside flex/grid hosts).
+
+     This lives on the `.doc-md` BASE deliberately. T-4974 fixed the same bug by
+     patching the three task-card surfaces individually, so every other host of
+     this skin (角色誌, 學習經驗, 任務手冊, reply cards, chat bubbles, boot prompt)
+     stayed unprotected and the bug came back from a different page. On the base,
+     all 17 present render sites — and any future one — inherit it by
+     construction.
+
+     Scroll stays legal where it is the right answer: `.doc-md pre` and
+     `.doc-md table` below own their own `overflow-x: auto`, and code keeps
+     `white-space: pre`, which `overflow-wrap` does not touch. The T-d451 CT
+     guard asserts BOTH directions (page must not scroll AND pre/table must
+     still scroll), so over-fixing cannot pass silently. */
+  overflow-wrap: anywhere;
 }
 .doc-md h1 {
   margin: 18px 0 10px;

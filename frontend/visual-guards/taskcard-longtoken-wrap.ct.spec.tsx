@@ -68,6 +68,11 @@ async function assertNoOverflow(page: any, width: number) {
     // rotted or a fixture that stopped producing the surface would retire this
     // assertion in silence — exactly the trap T-c514 walked into when the
     // task-level waiting row was deleted out from under this list.
+    //
+    // T-d451 raised the stakes: it removed the per-surface `overflow-wrap`
+    // rules from tasks.css, so the surfaces below now inherit the fix from the
+    // `.doc-md` base (settings.css) and THIS guard is the only thing measuring
+    // that the inheritance actually reaches them.
     expect(over, `[${width}px] ${sel} missing (never rendered)`).not.toBe(-2);
     expect(over, `[${width}px] ${sel} content overflow`).toBeLessThanOrEqual(1);
   }
