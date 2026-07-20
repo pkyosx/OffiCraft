@@ -1116,9 +1116,10 @@ button.task-card__waiting--dep:focus-visible {
    (T-c21e).
    The 收斂 mostly survives, and the part that did not is worth naming: icon,
    編號 and title all still recede at 0.62, but the row's own CHROME no longer
-   does. Its fill pixel-samples [47,55,67], identical to a live row, where the
-   old whole-row dimmer put it at [43,49,60] — so a closed row now sits about
-   half as far back from the card as it used to. Judged acceptable (the
+   does. Its fill pixel-samples [47,55,67] — identical to a live row, where
+   the old whole-row dimmer put it at [43,49,60]. So the chrome's recede is
+   now zero: it used to be pulled about 40% of the way toward the card
+   colour, and that is gone entirely. Judged acceptable (the
    per-channel difference is 4–7 and every other recede cue is intact) but it
    IS a visible change, and it is on the 驗收 card for owner to overrule.
    🔴 If the chrome needs pushing back again, do it with the border/background
@@ -1144,13 +1145,17 @@ button.task-card__waiting--dep:focus-visible {
    Colour is NOT touched by any of this: the hue still comes from the single
    .task-badge--status-* source, so it cannot drift from row 1's chip.
    🔴 If you re-measure any of the above across themes, ASSERT THE THEME IN
-   THE SAME BREATH as the sample (read --color-card at capture time and check
-   it). Setting data-theme by hand does not stick — the app's theme provider
-   writes it back — and the failure is silent: you get the OTHER theme's
-   numbers, which look like a clean result rather than an error. Two people
-   hit this on this ticket, and both times the tell was that the numbers came
-   back IDENTICAL across two themes with different palettes. Identical is not
-   agreement, it is the same measurement twice.
+   THE SAME BREATH as the sample: read --color-card at capture time and check
+   it against the theme you meant to measure. Two people got a theme switch
+   silently wrong on this ticket — once by seeding localStorage too late for
+   the provider's initializer, once by setting data-theme early enough that
+   the mount-time effect overwrote it. Different causes, same failure mode:
+   you get the OTHER theme's numbers, and they look like a clean result
+   rather than an error. Asserting at capture time catches both without
+   needing to know which one you hit.
+   The tell, both times, was that the numbers came back IDENTICAL across two
+   themes with different palettes. Identical is not agreement, it is the same
+   measurement twice.
    Hover is NOT part of the fix — the cockpit is mostly read on a phone, where
    there is no hover; it only restores the rest of the row for a mouse user. */
 .task-card__waiting--dep-closed > svg,
