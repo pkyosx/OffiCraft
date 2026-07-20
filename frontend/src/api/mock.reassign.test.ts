@@ -147,7 +147,8 @@ describe("mock reassign — member target", () => {
     const notice = inbox.map((m) => m.body).join("\n");
     expect(notice).toContain(task.taskNo);
     expect(notice).toContain("你的前任是");
-    expect(notice).toContain("reassigning→in_progress");
+    expect(notice).toContain("claim_task");
+    expect(notice).not.toContain("update_task_status");
     expect(notice).toContain("先看 PR #12");
 
     // The OLD executor is told to go hand over to the successor (also system).
@@ -253,7 +254,8 @@ describe("mock reassign — outsource target", () => {
     const mintedNotice = mintedInbox.map((m) => m.body).join("\n");
     expect(mintedInbox.some((m) => m.from === "system")).toBe(true);
     expect(mintedNotice).toContain("你的前任是");
-    expect(mintedNotice).toContain("reassigning→in_progress");
+    expect(mintedNotice).toContain("claim_task");
+    expect(mintedNotice).not.toContain("update_task_status");
   });
 
   it("defaults a blank effort to medium and rejects an out-of-vocabulary one", async () => {
