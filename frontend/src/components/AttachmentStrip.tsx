@@ -16,6 +16,7 @@ import type { ReactNode } from "react";
 import { useI18n } from "../i18n";
 import type { ChatAttachmentView } from "../api/adapter";
 import { authedAttachmentUrl } from "../api/http";
+import { isMarkdownAttachment } from "./MarkdownPreviewOverlay";
 import { PaperclipIcon } from "./icons";
 
 export function AttachmentStrip({
@@ -27,6 +28,7 @@ export function AttachmentStrip({
   fileNameClassName = "chat__msg-file-name",
   fileNameColClassName,
   onOpenImage,
+  onPreviewMarkdown,
   renderExtra,
   renderMeta,
 }: {
@@ -58,6 +60,12 @@ export function AttachmentStrip({
    * receives the token-authed src and opens its own Lightbox. Absent ⇒ a
    * static thumbnail (the answered-card strip's existing behaviour). */
   onOpenImage?: (src: string) => void;
+  /** T-7bc2: makes a `.md` attachment's chip itself the preview trigger — a
+   * `<button>` instead of the download `<a>` (mirrors `onOpenImage`'s
+   * image-thumbnail contract: the caller owns the overlay's open state).
+   * Absent ⇒ every non-image chip (markdown included) stays a plain download
+   * link, byte-identical to before this knob existed. */
+  onPreviewMarkdown?: (att: ChatAttachmentView) => void;
   /** Per-item extra node rendered after the image/chip (ChatArea's hover
    * 複製分享連結 button). */
   renderExtra?: (att: ChatAttachmentView) => ReactNode;
@@ -104,14 +112,8 @@ export function AttachmentStrip({
     // (T-90df). Presentation only — href/download are untouched.
     const fullName = att.filename || t.chat.downloadAttachment;
     const meta = renderMeta?.(att);
-    return (
-      <a
-        key={itemClassName ? undefined : att.id}
-        className={fileChipClassName}
-        href={authedAttachmentUrl(att.url)}
-        download={att.filename || undefined}
-        title={fullName}
-      >
+    const content = (
+      <>
         <PaperclipIcon size={15} />
         {meta ? (
           <span className={fileNameColClassName}>
@@ -121,6 +123,42 @@ export function AttachmentStrip({
         ) : (
           <span className={fileNameClassName}>{fullName}</span>
         )}
+      </>
+    );
+    // A markdown file with `onPreviewMarkdown` wired ⇒ the chip itself opens
+    // the in-cockpit preview (same click-target contract as the image
+    // thumbnail's `onOpenImage`) instead of downloading. Accessible name
+    // stays the VISIBLE filename text — no `aria-label` override (T-a706 /
+    // T-5e8a lesson: `aria-label` replaces, not appends, so overriding it
+    // here would just re-say the filename and add nothing).
+    if (onPreviewMarkdown && isMarkdownAttachment(att.mime, att.filename)) {
+      return (
+        <button
+          type="button"
+          key={itemClassName ? undefined : att.id}
+          className={fileChipClassName}
+          title={fullName}
+          onClick={() => onPreviewMarkdown(att)}
+        >
+          {content}
+        </button>
+      );
+    }
+    // Non-image → a download chip/link (Content-Disposition: attachment on
+    // the serve side downloads it under its stored filename). Same gated
+    // blob → same ?token= auth as the image.
+    // `title` = the full filename: the chip name truncates with an ellipsis
+    // when it outgrows its row, so hovering must still yield the whole name
+    // (T-90df). Presentation only — href/download are untouched.
+    return (
+      <a
+        key={itemClassName ? undefined : att.id}
+        className={fileChipClassName}
+        href={authedAttachmentUrl(att.url)}
+        download={att.filename || undefined}
+        title={fullName}
+      >
+        {content}
       </a>
     );
   }

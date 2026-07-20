@@ -1224,6 +1224,14 @@
     color 0.15s,
     border-color 0.15s;
 }
+/* T-7bc2: a `.md` chip can render as a <button> (onPreviewMarkdown wired) —
+   strip the browser's default button chrome so it's visually identical to
+   the <a> download chip; every OTHER property above still applies as-is. */
+button.chat__msg-file {
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
 .chat__msg-file:hover {
   color: var(--color-accent);
   border-color: rgba(111, 214, 176, 0.4);

@@ -111,16 +111,17 @@ describe("產物 popover — the one list (T-49fb)", () => {
     expect(rows.map(kindOf)).toEqual(["file", "file", "image", "link"]);
   });
 
-  it("shows a .md 預覽 action only on the markdown file", async () => {
+  it("T-7bc2: the markdown file's chip IS the preview trigger (a <button>); report.pdf stays a download <a>", async () => {
     const { container } = renderBadge(artifacts, { count: 4 });
     fireEvent.click(screen.getByTestId("task-artifacts-badge"));
     await waitFor(() => expect(screen.getByText("design.md")).toBeTruthy());
-    // design.md is markdown; report.pdf is not — so exactly one preview action
-    // shows across the whole list.
-    const previews = container.querySelectorAll(
-      '[aria-label="預覽"], [title="預覽"]',
-    );
-    expect(previews.length).toBe(1);
+    // design.md is markdown ⇒ its chip renders as a <button> (click opens the
+    // preview overlay); report.pdf is not ⇒ stays an <a href download>.
+    expect(container.querySelectorAll("button.task-artifacts__chip").length).toBe(1);
+    const mdChip = screen.getByText("design.md").closest("button.task-artifacts__chip");
+    expect(mdChip).not.toBeNull();
+    const pdfChip = screen.getByText("report.pdf").closest("a.task-artifacts__chip");
+    expect(pdfChip).not.toBeNull();
   });
 
   it("renders the owner 移除 affordance only when onRemoveArtifact is wired", async () => {

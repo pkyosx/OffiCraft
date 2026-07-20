@@ -1,7 +1,8 @@
-// T-a1c4: a .md chat attachment gets an in-cockpit 預覽 action (distinct from
-// download). The button shows ONLY on markdown attachments; clicking it opens
-// the MarkdownPreviewOverlay, which fetches the blob text and renders it. A
-// non-markdown attachment (pdf) gets no preview button — only the share button.
+// T-a1c4 / T-7bc2: a .md chat attachment's chip IS the in-cockpit 預覽
+// trigger (a <button>, not the download <a>) — owner 2026-07-21 moved this
+// off a separate hover-revealed 眼睛 button onto the chip itself, same
+// click-target contract as an image thumbnail. A non-markdown attachment
+// (pdf) stays a plain download <a>.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";
@@ -67,8 +68,8 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
-describe("chat .md preview action (T-a1c4)", () => {
-  it("shows a 預覽 button on a .md attachment but not on a pdf", () => {
+describe("chat .md preview action (T-a1c4 / T-7bc2)", () => {
+  it("renders the .md chip as a <button> (preview) and the pdf chip as an <a> (download)", () => {
     messages = [
       msgWith([
         { id: "a-md", url: "/api/chat/attachment/a-md", filename: "design.md", mime: "text/markdown", isImage: false },
@@ -80,8 +81,8 @@ describe("chat .md preview action (T-a1c4)", () => {
         <ChatArea member={mkMember()} />
       </I18nProvider>,
     );
-    const previews = container.querySelectorAll('[aria-label="預覽"]');
-    expect(previews.length).toBe(1);
+    expect(container.querySelectorAll("button.chat__msg-file").length).toBe(1);
+    expect(container.querySelectorAll("a.chat__msg-file").length).toBe(1);
   });
 
   it("opens the preview overlay and renders the markdown on click", async () => {
@@ -99,7 +100,7 @@ describe("chat .md preview action (T-a1c4)", () => {
         <ChatArea member={mkMember()} />
       </I18nProvider>,
     );
-    fireEvent.click(container.querySelector('[aria-label="預覽"]')!);
+    fireEvent.click(container.querySelector("button.chat__msg-file")!);
     await waitFor(() => expect(getByRole("heading", { name: "Design" })).toBeTruthy());
     // Preview and download are separate: the overlay carries its own 下載 link.
     const dl = container.querySelector(".md-preview__download") as HTMLAnchorElement;

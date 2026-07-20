@@ -28,38 +28,24 @@ import { useState } from "react";
 import { useI18n } from "../i18n";
 import type { ChatAttachmentView, ReplyCard, ReplyCardAnswerInput } from "../api/adapter";
 import { AttachmentStrip } from "./AttachmentStrip";
-import {
-  MarkdownPreviewOverlay,
-  isMarkdownAttachment,
-} from "./MarkdownPreviewOverlay";
+import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
 import { ReplyComposer } from "./ReplyComposer";
-import { ChevronRightIcon, EyeIcon } from "./icons";
+import { ChevronRightIcon } from "./icons";
 
-/** Shared by both attachment strips below (question-side and answer-side): a
- * per-item 預覽 action for `.md` files that opens the SAME in-cockpit overlay
+/** Shared by both attachment strips below (question-side and answer-side):
+ * T-7bc2 (owner 2026-07-21) — a `.md` file's chip IS the preview trigger
+ * (`AttachmentStrip`'s `onPreviewMarkdown`, same click-target contract as an
+ * image thumbnail's `onOpenImage`), opening the SAME in-cockpit overlay
  * ChatArea and the task artifacts popover use (T-a1c4 / T-90df) — one preview
- * surface, not a third copy. Non-markdown items get no extra action, so the
- * existing download-chip behaviour is untouched. */
-function useMarkdownPreviewExtra() {
+ * surface, not a third copy. No separate 眼睛 button, no ambiguity about
+ * which file it belongs to. */
+function useMarkdownPreview() {
   const { t } = useI18n();
   const [preview, setPreview] = useState<{ title: string; url: string } | null>(
     null,
   );
-  function renderExtra(att: ChatAttachmentView) {
-    if (!isMarkdownAttachment(att.mime, att.filename)) return null;
-    return (
-      <button
-        type="button"
-        className="reply-card__preview-btn"
-        aria-label={t.chat.mdPreview.action}
-        title={t.chat.mdPreview.action}
-        onClick={() =>
-          setPreview({ title: att.filename || t.chat.downloadAttachment, url: att.url })
-        }
-      >
-        <EyeIcon size={13} />
-      </button>
-    );
+  function onPreviewMarkdown(att: ChatAttachmentView) {
+    setPreview({ title: att.filename || t.chat.downloadAttachment, url: att.url });
   }
   const overlay = preview ? (
     <MarkdownPreviewOverlay
@@ -68,7 +54,7 @@ function useMarkdownPreviewExtra() {
       onClose={() => setPreview(null)}
     />
   ) : null;
-  return { renderExtra, overlay };
+  return { onPreviewMarkdown, overlay };
 }
 
 /** The quick-reply option chips. `pickable: false` renders them as a static
@@ -128,15 +114,14 @@ export function ReplyOptionChips({
  * under this card face's existing classes. Renders nothing when the answer
  * carries none. */
 function ReplyAnswerAttachments({ card }: { card: ReplyCard }) {
-  const { renderExtra, overlay } = useMarkdownPreviewExtra();
+  const { onPreviewMarkdown, overlay } = useMarkdownPreview();
   return (
     <>
       <AttachmentStrip
         attachments={card.answer?.attachments ?? []}
         className="reply-card__answer-atts"
-        itemClassName="reply-card__att"
         imageClassName="reply-card__answer-image"
-        renderExtra={renderExtra}
+        onPreviewMarkdown={onPreviewMarkdown}
       />
       {overlay}
     </>
@@ -155,16 +140,15 @@ export function ReplyCardQuestionAttachments({
   card: ReplyCard;
   onOpenImage?: (src: string) => void;
 }) {
-  const { renderExtra, overlay } = useMarkdownPreviewExtra();
+  const { onPreviewMarkdown, overlay } = useMarkdownPreview();
   return (
     <>
       <AttachmentStrip
         attachments={card.attachments}
         className="reply-card__answer-atts reply-card__question-atts"
-        itemClassName="reply-card__att"
         imageClassName="reply-card__answer-image chat__msg-image--clickable"
         onOpenImage={onOpenImage}
-        renderExtra={renderExtra}
+        onPreviewMarkdown={onPreviewMarkdown}
       />
       {overlay}
     </>

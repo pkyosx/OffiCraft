@@ -1,7 +1,8 @@
 // T-7bc2: a .md attachment on a reply card (question side AND answer side)
-// gets the SAME in-cockpit 預覽 action ChatArea's chat attachments and the
-// task artifacts popover already have (T-a1c4 / T-90df) — one preview
-// surface, not a third copy. Mirrors ChatArea.md-preview.test.tsx.
+// gets the SAME in-cockpit 預覽 trigger ChatArea's chat attachments and the
+// task artifacts popover already have — the chip itself renders as a
+// <button> instead of the download <a> (owner 2026-07-21: no separate 眼睛
+// button). Mirrors ChatArea.md-preview.test.tsx.
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";
@@ -55,21 +56,23 @@ afterEach(() => {
 });
 
 describe("reply-card question attachments: .md preview (T-7bc2)", () => {
-  it("shows a 預覽 button on a .md attachment but not on a pdf", async () => {
+  it("renders the .md chip as a <button> (preview) and the pdf chip as an <a> (download)", async () => {
     __resetMock();
     __injectMockReplyCard(mkCard({ attachments: [mdAtt(), pdfAtt()] }));
-    const { container, findByTestId, getByRole } = render(
+    const { container, findByTestId } = render(
       <I18nProvider>
         <RepliesPage />
       </I18nProvider>
     );
     await findByTestId("waiting-card");
-    const buttons = container.querySelectorAll(".reply-card__preview-btn");
-    expect(buttons.length).toBe(1);
-    // Accessible name resolves via getByRole too (aria-label is set, so this
-    // is NOT the title-fallback trap T-a706 caught — see the CT guard for the
-    // attribute-level check).
-    expect(getByRole("button", { name: "預覽" })).toBe(buttons[0]);
+    const mdButtons = container.querySelectorAll(
+      ".reply-card__question-atts button.chat__msg-file"
+    );
+    const pdfLinks = container.querySelectorAll(
+      ".reply-card__question-atts a.chat__msg-file"
+    );
+    expect(mdButtons.length).toBe(1);
+    expect(pdfLinks.length).toBe(1);
   });
 
   it("opens the preview overlay and renders the markdown on click", async () => {
@@ -85,7 +88,7 @@ describe("reply-card question attachments: .md preview (T-7bc2)", () => {
       </I18nProvider>
     );
     await findByTestId("waiting-card");
-    fireEvent.click(container.querySelector(".reply-card__preview-btn")!);
+    fireEvent.click(container.querySelector("button.chat__msg-file")!);
     await waitFor(() =>
       expect(getByRole("heading", { name: "design-proposal" })).toBeTruthy()
     );
@@ -93,7 +96,7 @@ describe("reply-card question attachments: .md preview (T-7bc2)", () => {
     expect(dl.getAttribute("download")).toBe("design-proposal.md");
   });
 
-  it("renders NO preview button when the card carries no .md attachment", async () => {
+  it("renders no preview <button> when the card carries no .md attachment (pdf stays a plain <a>)", async () => {
     __resetMock();
     __injectMockReplyCard(mkCard({ attachments: [pdfAtt()] }));
     const { container, findByTestId } = render(
@@ -102,12 +105,13 @@ describe("reply-card question attachments: .md preview (T-7bc2)", () => {
       </I18nProvider>
     );
     await findByTestId("waiting-card");
-    expect(container.querySelector(".reply-card__preview-btn")).toBeNull();
+    expect(container.querySelector("button.chat__msg-file")).toBeNull();
+    expect(container.querySelector("a.chat__msg-file")).not.toBeNull();
   });
 });
 
 describe("reply-card ANSWER attachments: .md preview (T-7bc2)", () => {
-  it("shows a 預覽 button on the answer's .md attachment and opens the overlay", async () => {
+  it("renders the answer's .md chip as a <button> and opens the overlay on click", async () => {
     globalThis.fetch = vi.fn(async () => ({
       ok: true,
       text: async () => "# answer-doc",
@@ -125,7 +129,7 @@ describe("reply-card ANSWER attachments: .md preview (T-7bc2)", () => {
         <ReplyCardAnsweredBody card={card} onReanswer={() => Promise.resolve()} />
       </I18nProvider>
     );
-    const btn = container.querySelector(".reply-card__preview-btn");
+    const btn = container.querySelector("button.chat__msg-file");
     expect(btn).not.toBeNull();
     fireEvent.click(btn!);
     await waitFor(() =>

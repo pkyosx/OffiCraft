@@ -27,14 +27,10 @@ import { api } from "../api";
 import type { TaskArtifactView, ChatAttachmentView } from "../api/adapter";
 import { formatAbsolute } from "../lib/dateFormat";
 import { AttachmentStrip, Lightbox } from "./AttachmentStrip";
-import {
-  MarkdownPreviewOverlay,
-  isMarkdownAttachment,
-} from "./MarkdownPreviewOverlay";
+import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
 import {
   CloseIcon,
   ExternalLinkIcon,
-  EyeIcon,
   PaperclipIcon,
   TrashIcon,
 } from "./icons";
@@ -213,12 +209,14 @@ function ArtifactsPopover({
   const links = artifacts.filter((a) => a.kind === "link");
   const blobs = [...files, ...images];
 
-  // Per-item extra actions on the file/image strip: 預覽 for a .md file, plus
-  // the owner un-pin ×. Bound by artifact id (the strip carries att views).
+  // Per-item extra: the owner un-pin ×. T-7bc2 (owner 2026-07-21): the .md
+  // preview trigger moved OFF this cluster and onto the file chip itself
+  // (AttachmentStrip's `onPreviewMarkdown` — click-the-filename-to-preview,
+  // same contract as the image thumbnail's `onOpenImage`), so this no longer
+  // renders a separate 眼睛 button. Bound by artifact id (the strip carries
+  // att views).
   const renderExtra = (att: ChatAttachmentView): ReactNode => {
     const art = artifacts.find((a) => a.id === att.id);
-    const canPreview =
-      art?.kind === "file" && isMarkdownAttachment(att.mime, att.filename);
     // An image row is [thumbnail][name chip][actions] — the name chip is added
     // here rather than inside AttachmentStrip so the image branch (and its
     // Lightbox click) stays untouched. It gives the image row the SAME
@@ -240,20 +238,11 @@ function ArtifactsPopover({
             </span>
           </span>
         )}
-        <span className="task-artifacts__actions">
-        {canPreview && (
-          <button
-            type="button"
-            className="task-artifacts__action"
-            aria-label={t.tasks.artifacts.previewHint}
-            title={t.tasks.artifacts.previewHint}
-            onClick={() => setPreview({ title: att.filename, url: att.url })}
-          >
-            <EyeIcon size={13} />
-          </button>
+        {onRemoveArtifact && (
+          <span className="task-artifacts__actions">
+            <RemoveButton taskId={taskId} artifactId={att.id} onRemove={onRemoveArtifact} />
+          </span>
         )}
-          {onRemoveArtifact && <RemoveButton taskId={taskId} artifactId={att.id} onRemove={onRemoveArtifact} />}
-        </span>
       </>
     );
   };
@@ -290,6 +279,7 @@ function ArtifactsPopover({
               fileNameClassName="task-artifacts__chip-name"
               fileNameColClassName="task-artifacts__chip-text"
               onOpenImage={(src) => setLightboxSrc(src)}
+              onPreviewMarkdown={(att) => setPreview({ title: att.filename, url: att.url })}
               renderExtra={renderExtra}
               renderMeta={(att) => {
                 const art = artifacts.find((a) => a.id === att.id);

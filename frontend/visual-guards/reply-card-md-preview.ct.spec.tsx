@@ -1,32 +1,34 @@
-// GUARD (T-7bc2) — 請示卡問題側附件的 .md 預覽:入口存在性、可及名稱、鍵盤可達、
-// 排版(390 手機寬 + 1280 桌面寬)。jsdom 已經證過「.md 才有按鈕、點了會開
-// overlay」的邏輯(見 ReplyCardBody.md-preview.test.tsx);這裡補 jsdom 量不到
-// 的三件事:①真瀏覽器版面下按鈕真的可點(沒有被其他元素蓋住)②Enter/Space
-// 這個原生 <button> 預設鍵盤啟動行為 jsdom 不模擬③ overlay 面板在窄版是否溢出。
+// GUARD (T-7bc2) — 請示卡問題側附件的 .md 預覽:owner 2026-07-21 把預覽入口從
+// 一顆獨立的「眼睛」按鈕(跟兩側檔案間距一樣、看不出歸屬)改成「檔名 chip 本身
+// 就是預覽入口」(原生 <button>,取代下載 <a>)。jsdom 已經證過「.md 才會變成
+// button、點了會開 overlay」的邏輯(見 ReplyCardBody.md-preview.test.tsx);這裡
+// 補 jsdom 量不到的三件事:①真瀏覽器版面下按鈕真的可點(沒有被其他元素蓋住)
+// ②Enter/Space 這個原生 <button> 預設鍵盤啟動行為 jsdom 不模擬③ overlay 面板
+// 在窄版是否溢出。
 //
-// MUTANT 前提(依 T-a706 的教訓 —— getByRole name 可能被 title fallback 混
-// 過):下面的 aria-label 斷言直接讀 attribute,不只靠 getByRole name。
+// a11y:此按鈕刻意不設 aria-label——依 §5 教訓「aria-label 會取代連結的可及
+// 名稱,不是附加」,可見的檔名文字本身就是可及名稱,不需要(也不該)再蓋一層。
 import { test, expect } from "@playwright/experimental-ct-react";
 import { ReplyCardMdPreviewStory } from "./stories/ReplyCardMdPreviewStory";
-import { zh } from "../src/i18n/locales/zh";
 
 for (const width of [390, 1280]) {
-  test(`width ${width}: .md attachment shows a 預覽 button, .pdf does not`, async ({
+  test(`width ${width}: the .md chip renders as a <button>, the .pdf chip stays an <a>`, async ({
     mount,
     page,
   }) => {
     await page.setViewportSize({ width, height: 800 });
     const cmp = await mount(<ReplyCardMdPreviewStory />);
-    await expect(cmp.locator(".reply-card__preview-btn")).toHaveCount(1);
+    await expect(cmp.locator("button.chat__msg-file")).toHaveCount(1);
+    await expect(cmp.locator("a.chat__msg-file")).toHaveCount(1);
   });
 
-  test(`width ${width}: clicking 預覽 opens the overlay and renders the markdown body`, async ({
+  test(`width ${width}: clicking the .md chip opens the overlay and renders the markdown body`, async ({
     mount,
     page,
   }) => {
     await page.setViewportSize({ width, height: 800 });
     const cmp = await mount(<ReplyCardMdPreviewStory />);
-    await cmp.locator(".reply-card__preview-btn").click();
+    await cmp.locator("button.chat__msg-file").click();
     const panel = cmp.locator(".md-preview__panel");
     await expect(panel).toBeVisible();
     await expect(
@@ -40,18 +42,17 @@ for (const width of [390, 1280]) {
     expect(box!.x + box!.width).toBeLessThanOrEqual(width + 1);
   });
 
-  test(`width ${width}: the preview button is keyboard-reachable (Tab) and Enter/Space both activate it`, async ({
+  test(`width ${width}: the .md chip is keyboard-reachable (Tab) and Enter/Space both activate it`, async ({
     mount,
     page,
   }) => {
     await page.setViewportSize({ width, height: 800 });
     const cmp = await mount(<ReplyCardMdPreviewStory />);
-    const btn = cmp.locator(".reply-card__preview-btn");
+    const btn = cmp.locator("button.chat__msg-file");
 
-    // Tab order: [.md download chip][.md 預覽 button][.pdf download chip] —
-    // the story mounts a .md attachment BEFORE the .pdf one, and the download
-    // chip <a> is itself tabbable, so the preview button is the SECOND stop.
-    await page.keyboard.press("Tab");
+    // Tab order: [.md chip button][.pdf chip <a>] — the story mounts the .md
+    // attachment FIRST, so the button is the FIRST tab stop now (no separate
+    // preview button ahead of it anymore).
     await page.keyboard.press("Tab");
     await expect(btn).toBeFocused();
 
@@ -65,17 +66,14 @@ for (const width of [390, 1280]) {
   });
 }
 
-test("the preview button carries an aria-label (checked as a raw attribute, not just getByRole name — T-a706)", async ({
+test("the .md chip's accessible name is the VISIBLE filename text (no aria-label override, §5 lesson)", async ({
   mount,
 }) => {
   const cmp = await mount(<ReplyCardMdPreviewStory />);
-  const ariaLabel = await cmp
-    .locator(".reply-card__preview-btn")
-    .getAttribute("aria-label");
-  expect(ariaLabel).toBe(zh.chat.mdPreview.action);
-  // Independent confirmation the real accessibility tree resolves the SAME
-  // name.
+  const btn = cmp.locator("button.chat__msg-file");
+  const ariaLabel = await btn.getAttribute("aria-label");
+  expect(ariaLabel).toBeNull();
   await expect(
-    cmp.getByRole("button", { name: zh.chat.mdPreview.action })
+    cmp.getByRole("button", { name: "design-proposal.md" })
   ).toBeVisible();
 });

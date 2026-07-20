@@ -30,17 +30,13 @@ import { ChatGalleryPanel } from "./ChatGalleryPanel";
 import { ChatReplyCard } from "./ChatReplyCard";
 import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { Markdown } from "./Markdown";
-import {
-  MarkdownPreviewOverlay,
-  isMarkdownAttachment,
-} from "./MarkdownPreviewOverlay";
+import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
 import { PresenceBadge } from "./PresenceBadge";
 import {
   BoltIcon,
   CheckIcon,
   ChevronRightIcon,
   CopyIcon,
-  EyeIcon,
   ImageIcon,
   MoonIcon,
   PaperclipIcon,
@@ -867,32 +863,13 @@ export function ChatArea({
     );
   }
 
-  // Per-attachment hover actions: a 預覽 button for a markdown file (T-a1c4 —
-  // in-cockpit render, distinct from download) PLUS the 複製分享連結 button.
-  // Preview and download stay separate: the chip itself still downloads.
+  // Per-attachment hover action: 複製分享連結. T-7bc2 (owner 2026-07-21):
+  // a markdown file's preview trigger moved from a separate hover-revealed
+  // 眼睛 button to the chip itself (AttachmentStrip's `onPreviewMarkdown`,
+  // always-visible, click-the-filename-to-preview) — one less ambiguous
+  // floating icon between two file chips.
   function renderAttachmentExtras(att: ChatAttachmentView) {
-    return (
-      <span className="chat__att-actions">
-        {isMarkdownAttachment(att.mime, att.filename) && (
-          <button
-            type="button"
-            className="chat__share-btn chat__preview-btn"
-            aria-label={t.chat.mdPreview.action}
-            title={t.chat.mdPreview.action}
-            onClick={(e) => {
-              e.stopPropagation();
-              setMdPreview({
-                title: att.filename || t.chat.downloadAttachment,
-                url: att.url,
-              });
-            }}
-          >
-            <EyeIcon size={13} />
-          </button>
-        )}
-        {renderShareButton(att.id)}
-      </span>
-    );
+    return <span className="chat__att-actions">{renderShareButton(att.id)}</span>;
   }
 
   // Render ONE message row (the LINE-style outgoing/incoming bubble). Extracted so
@@ -955,6 +932,12 @@ export function ChatArea({
           itemClassName="chat__msg-attachment"
           imageClassName="chat__msg-image chat__msg-image--clickable"
           onOpenImage={(src) => setLightboxSrc(src)}
+          onPreviewMarkdown={(att) =>
+            setMdPreview({
+              title: att.filename || t.chat.downloadAttachment,
+              url: att.url,
+            })
+          }
           renderExtra={(att) => renderAttachmentExtras(att)}
         />
       </div>
