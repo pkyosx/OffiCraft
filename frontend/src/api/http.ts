@@ -197,10 +197,14 @@ async function credentialPost(
 // errors, only on last-unsubscribe.
 const sseSubscribers = new Set<(topic: string) => void>();
 let sseSource: EventSource | null = null;
+// The document/window foreground listener that drives the foreground-restore
+// resync (installed with the connection, torn down with it). Held module-level
+// so the last-unsubscribe teardown can remove exactly the one it added.
+let sseVisibilityHandler: (() => void) | null = null;
 
 // The CLOSED SSE topic vocabulary (spec/sse.md §3.1 / §4.1). Replayed one
-// synthetic delta per topic to every subscriber on RECONNECT so each hook
-// refetches its snapshot — see es.onopen below. New topics MUST be added here.
+// synthetic delta per topic to every subscriber on a full resync so each hook
+// refetches its snapshot — see resyncAll below. New topics MUST be added here.
 const SSE_RESYNC_TOPICS = [
   "member",
   "chat",
@@ -215,6 +219,23 @@ const SSE_RESYNC_TOPICS = [
   "context",
   "monitoring",
 ] as const;
+
+// Fan one synthetic delta per closed topic to EVERY current subscriber — the
+// missed-gap correction. The stream has NO replay (spec §2.1): a delta emitted
+// while the client wasn't receiving is gone, so the client must full-resync
+// whenever it may have missed deltas. Shared by BOTH triggers — a genuine
+// EventSource reconnect (es.onopen) AND a return to the foreground (a mobile
+// tab often PAUSES the connection in the background without a reconnect, so
+// onopen never re-fires) — so every delta-backed view (unread badge, roster,
+// tasks, reply cards…) re-pulls its truth in ONE place. Snapshot the set: a
+// callback may (un)subscribe during the fan-out. Each subscriber's refetch has
+// its own .catch (verified per-hook), so a fan into an unstable network fails
+// as "keep the stale value + warn", never an unhandled rejection.
+function resyncAll(): void {
+  for (const topic of SSE_RESYNC_TOPICS) {
+    for (const cb of [...sseSubscribers]) cb(topic);
+  }
+}
 
 function ensureSseSource(): void {
   if (sseSource) return;
@@ -231,11 +252,10 @@ function ensureSseSource(): void {
   // after a reconnect, while chat/task badges self-healed on their next frame).
   let opened = false;
   es.onopen = () => {
-    if (opened) {
-      for (const topic of SSE_RESYNC_TOPICS) {
-        for (const cb of [...sseSubscribers]) cb(topic);
-      }
-    }
+    // FIRST open needs no resync — every hook refetched on mount. Only a
+    // SUBSEQUENT open (a genuine reconnect after the browser dropped and
+    // re-established the stream) replays the missed gap.
+    if (opened) resyncAll();
     opened = true;
   };
   es.onmessage = (e: MessageEvent) => {
@@ -249,6 +269,28 @@ function ensureSseSource(): void {
     }
   };
   sseSource = es;
+
+  // Foreground-restore resync (T-b86c). A mobile browser tab sent to the
+  // background often PAUSES the EventSource without closing it: no reconnect
+  // fires, so es.onopen never re-runs and the reconnect resync above never
+  // happens — deltas emitted while backgrounded are lost (no replay) and every
+  // badge/list stays stale until a manual reload (owner: 手機切走再切回, 未讀
+  // 徽章 stuck). On return to the foreground, run the SAME full resync.
+  // BOTH visibilitychange AND window focus, mirroring useChat's own foreground
+  // hook — owner's case is switching whole APPS on a phone, where the two
+  // events do not fire identically across iOS Safari / Android Chrome; listening
+  // to both maximises the chance the restore is caught. A double fire is
+  // harmless (resyncAll's refetches are idempotent). Guarded for non-DOM
+  // environments (SSR / tests without document/window).
+  if (typeof document !== "undefined") {
+    sseVisibilityHandler = () => {
+      if (document.visibilityState === "visible") resyncAll();
+    };
+    document.addEventListener("visibilitychange", sseVisibilityHandler);
+    if (typeof window !== "undefined") {
+      window.addEventListener("focus", sseVisibilityHandler);
+    }
+  }
 }
 
 /** Unwrap an openapi-fetch result. The client middleware (client.ts) throws on
@@ -1434,6 +1476,16 @@ export const httpApi: Api = {
       if (sseSubscribers.size === 0 && sseSource) {
         sseSource.close();
         sseSource = null;
+        // Tear down the foreground-restore listeners with the connection so a
+        // visibilitychange/focus never fans a resync onto an empty subscriber
+        // set (and nothing leaks across a close→reopen cycle).
+        if (sseVisibilityHandler && typeof document !== "undefined") {
+          document.removeEventListener("visibilitychange", sseVisibilityHandler);
+          if (typeof window !== "undefined") {
+            window.removeEventListener("focus", sseVisibilityHandler);
+          }
+        }
+        sseVisibilityHandler = null;
       }
     };
   },

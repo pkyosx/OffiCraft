@@ -173,4 +173,96 @@ describe("httpApi · shared SSE downlink (subscribeEvents pool)", () => {
     offA();
     offB();
   });
+
+  // T-b86c: a mobile browser tab sent to the background often PAUSES the
+  // EventSource WITHOUT closing it — no reconnect fires, so `onopen` never
+  // re-runs and the reconnect resync above never happens. Any delta emitted
+  // while backgrounded is gone (spec §2.1 NO replay), so on return to the
+  // foreground every delta-backed view (unread badge, roster, tasks, reply
+  // cards…) is stale until a manual reload — exactly owner's report (手機切走
+  // 再切回, 未讀徽章 stuck). The foreground-restore resync closes that gap by
+  // running the SAME full resync — the whole CLASS, not just the badge.
+  function goForeground() {
+    Object.defineProperty(document, "visibilityState", {
+      value: "visible",
+      configurable: true,
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  }
+  function goBackground() {
+    Object.defineProperty(document, "visibilityState", {
+      value: "hidden",
+      configurable: true,
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  }
+  // Returning to the app can surface as a window `focus` instead of (or as well
+  // as) a visibilitychange, depending on the mobile browser — the hook listens
+  // to both. visibilityState is "visible" by the time focus lands.
+  function fireWindowFocus() {
+    Object.defineProperty(document, "visibilityState", {
+      value: "visible",
+      configurable: true,
+    });
+    window.dispatchEvent(new Event("focus"));
+  }
+
+  it("FOREGROUND RESTORE (visibilitychange → visible, NO reconnect) fans a full resync to every subscriber", () => {
+    const a: string[] = [];
+    const b: string[] = [];
+    const offA = httpApi.subscribeEvents((t) => a.push(t));
+    const offB = httpApi.subscribeEvents((t) => b.push(t));
+
+    // Connection stayed OPEN the whole time (mobile paused it, no `open` fired).
+    // MUTANT: drop the visibilitychange listener and both stay []. This is the
+    // whole fix for owner's case — a paused-not-dropped connection self-heals.
+    goForeground();
+    expect(a).toEqual(CLOSED_TOPICS);
+    expect(b).toEqual(CLOSED_TOPICS);
+    offA();
+    offB();
+  });
+
+  it("window FOCUS (return via focus, not visibilitychange) ALSO fans a full resync", () => {
+    const seen: string[] = [];
+    const off = httpApi.subscribeEvents((t) => seen.push(t));
+    // MUTANT: drop the window `focus` listener and this stays [] on browsers
+    // that surface the app-return as focus without a visibilitychange.
+    fireWindowFocus();
+    expect(seen).toEqual(CLOSED_TOPICS);
+    off();
+  });
+
+  it("going to the BACKGROUND (visibilitychange → hidden) does NOT resync — only a return to the foreground does", () => {
+    const seen: string[] = [];
+    const off = httpApi.subscribeEvents((t) => seen.push(t));
+    goBackground();
+    expect(seen).toEqual([]);
+    off();
+  });
+
+  it("last-unsubscribe REMOVES the foreground listener — a later connection's handler does not double-fire (no leaked listener)", () => {
+    // A leaked visibilitychange/focus handler is INVISIBLE to an empty
+    // subscriber set: resyncAll fans over [...sseSubscribers] = [], so
+    // `expect(seen).toEqual([])` after teardown is FALSE-GREEN — it cannot
+    // observe whether the handler was actually removed (the old form of this
+    // test passed even with the teardown deleted; the leak was only caught
+    // incidentally by cross-test handler pollution). Observe the leak by its
+    // BEHAVIOUR instead: after the last unsubscribe (teardown must remove the
+    // handler), re-subscribe (installs exactly ONE fresh handler) and fire a
+    // single foreground event. A clean teardown → exactly ONE resync; a LEAKED
+    // old handler fires alongside the new one → the fresh subscriber sees the
+    // resync TWICE.
+    // MUTANT: neuter either removeEventListener in http.ts's last-unsubscribe
+    // teardown → the old handler survives → doubled fan → this test reddens.
+    const offA = httpApi.subscribeEvents(() => {});
+    offA(); // last subscriber gone → connection closed, handler MUST be removed
+
+    const seen: string[] = [];
+    const offB = httpApi.subscribeEvents((t) => seen.push(t));
+    goForeground();
+    // exactly ONE fan of the closed topics; a leaked handler would make it ×2.
+    expect(seen).toEqual(CLOSED_TOPICS);
+    offB();
+  });
 });
