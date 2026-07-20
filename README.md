@@ -12,7 +12,18 @@ single-owner 的 AI 工作室平台：一位人類 **owner** 帶著若干 **AI m
 curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash
 ```
 
-它會自動抓最新 release 的 `officraft-<tag>-darwin-arm64.tar.gz` 與 `checksums.txt`,**sha256 驗證通過才安裝**(驗證失敗直接中止,什麼都不裝),解到暫存目錄後委派包內的 install.sh 執行安裝。要裝特定版本:`bash -s -- --tag v0.4.1`(或 `OC_INSTALL_TAG=v0.4.1`);要覆蓋既有安裝:`bash -s -- --force`。
+它會自動抓最新 release 的 `officraft-<tag>-darwin-arm64.tar.gz` 與 `checksums.txt`,**sha256 驗證通過才安裝**(驗證失敗直接中止,什麼都不裝),解到暫存目錄後委派包內的 install.sh 執行安裝。要裝特定版本:`bash -s -- --tag v0.4.1`(或 `OC_INSTALL_TAG=v0.4.1`);要覆蓋既有安裝:`bash -s -- --force`;**如果那台機器上有服務正在跑**,`--force` 不夠,還要 `--restart-live`(見下方警告)。
+
+> ⚠️ **如果這台機器上已經有一個 OffiCraft 服務正在跑**,重裝會把它 bootout 再 bootstrap ——
+> 那是一次**真正的重啟**,期間所有開著的座艙與連著的 agent 都會斷線(埠與資料庫會被繼承,
+> 資料不會掉,掉的是連線)。這件事**需要它自己的同意**:`--force` 只講「覆寫檔案」,
+> **不**授權斷線。管線安裝沒有 tty 可問,所以會直接中止;要接受重啟請明確加上 `--restart-live`:
+>
+> ```bash
+> curl -fsSL … | bash -s -- --force --restart-live
+> ```
+>
+> 不想動到現役服務的話,可以用不同 label 併裝:`OC_LAUNCHD_LABEL=com.officraft.serve.alt ./install.sh --force`。
 
 也可以手動:到 [GitHub Releases](https://github.com/pkyosx/OffiCraft/releases) 下載
 `officraft-<tag>-darwin-arm64.tar.gz`,解開後跑 `./install.sh`。
@@ -21,9 +32,10 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 
 1. 只支援 macOS Apple Silicon(darwin/arm64),其他平台直接拒絕。
 2. **偵測既有安裝**(`~/.officraft/bin` 的 binary 或既有資料庫):有的話大聲警告並要求確認(互動 y/N,預設否;非互動要帶 `--force` 才會覆蓋),否則中止、什麼都不動。
-3. 裝 `ocserverd`/`ocwarden`/`ocagent` 到 `~/.officraft/bin`,跑資料庫 migration(資料保留、原地升級)。
-4. **預設埠 8780**(OffiCraft 標準埠;`$OC_CONFIG` / `./oc.toml` 可覆蓋)。埠被占用時明確報錯並提示換埠,不會默默裝下去。
-5. 前景啟動 server;首次安裝 log 會印一次性設定連結(`http://127.0.0.1:8780/?code=…`),打開設定 owner 密碼。Ctrl-C 停止,之後用 `~/.officraft/bin/ocserverd serve` 再啟動(launchd 自動啟動是後續 ticket)。
+3. **偵測現役服務**(launchd job 已註冊**且有 pid**,亦即真的正在服務):重裝必須 bootout 再 bootstrap,是一次真正的重啟,會斷掉所有座艙與 agent 連線。這需要獨立同意 —— 互動時 y/N 詢問(預設否),非互動時**必須明確帶 `--restart-live`**,`--force` 單獨**不**授權斷線;都沒有就中止,且是在任何檔案被寫入之前中止。job 已註冊但沒在跑(沒有 pid)時不發問,直接照常安裝——重啟一個沒在跑的服務不會讓任何人掉線。`--foreground` 不走 launchd,故跳過這道 gate。
+4. 裝 `ocserverd`/`ocwarden`/`ocagent` 到 `~/.officraft/bin`,跑資料庫 migration(資料保留、原地升級)。
+5. **預設埠 8780**(OffiCraft 標準埠;`$OC_CONFIG` / `./oc.toml` 可覆蓋)。埠被占用時明確報錯並提示換埠,不會默默裝下去。
+6. 前景啟動 server;首次安裝 log 會印一次性設定連結(`http://127.0.0.1:8780/?code=…`),打開設定 owner 密碼。Ctrl-C 停止,之後用 `~/.officraft/bin/ocserverd serve` 再啟動(launchd 自動啟動是後續 ticket)。
 
 之後的升級不必重跑 install.sh:設定 › 軟體更新 有「檢查更新」與一鍵升級(從 GitHub Releases 下載、sha256 驗證後原地抽換重啟);打開「自動更新」則在背景自動升級。「接收 Beta」= 也吃 GitHub prerelease。
 
