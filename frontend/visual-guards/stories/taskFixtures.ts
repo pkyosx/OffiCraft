@@ -156,6 +156,68 @@ export const WITH_ARTIFACTS: TaskView = mkTask({
 
 export const NO_ARTIFACTS: TaskView = mkTask({ artifactCount: 0, artifacts: [] });
 
+// T-90df ragged-row fixture (owner 2026-07-20): the reported bug was that the
+// 檔案 tab's chips sized to their filenames, so a short name and a long one
+// produced different-width chips and the trailing 預覽/移除 buttons came out
+// ragged. This set pairs a SHORT and an OVERLONG filename in the same tab —
+// the only shape that can prove equal chip widths and a single action column
+// in real layout (jsdom computes none). One image + one link ride along so the
+// cross-tab shape can be checked too.
+export const RAGGED_ARTIFACTS: TaskView = mkTask({
+  artifactCount: 4,
+  artifacts: [
+    {
+      id: "ta-short",
+      kind: "file",
+      url: "/api/chat/attachment/ta-short",
+      label: "",
+      filename: "a.md",
+      mime: "text/markdown",
+      isImage: false,
+      attachmentId: "ta-short",
+      createdTs: 0,
+      createdBy: "mira",
+    },
+    {
+      id: "ta-long",
+      kind: "file",
+      url: "/api/chat/attachment/ta-long",
+      label: "",
+      filename:
+        "2026-07-20-座艙產物彈窗列表對齊-超長檔名回歸測試用-really-long-artifact-filename.md",
+      mime: "text/markdown",
+      isImage: false,
+      attachmentId: "ta-long",
+      createdTs: 0,
+      createdBy: "mira",
+    },
+    {
+      id: "ta-img-long",
+      kind: "image",
+      url: "/api/chat/attachment/ta-img-long",
+      label: "",
+      filename: "一張檔名也很長的截圖-artifacts-popover-alignment-before.png",
+      mime: "image/png",
+      isImage: true,
+      attachmentId: "ta-img-long",
+      createdTs: 0,
+      createdBy: "mira",
+    },
+    {
+      id: "ta-link-long",
+      kind: "link",
+      url: "https://github.com/hardcoretech/officraft/pull/12345",
+      label: "PR #12345 — 一個標籤也很長的連結產物用來驗證截斷與對齊",
+      filename: "",
+      mime: "",
+      isImage: false,
+      attachmentId: "",
+      createdTs: 0,
+      createdBy: "mira",
+    },
+  ],
+});
+
 // The 負責人 + 轉派 icon stress fixture (owner 2026-07-18): a live card whose
 // assignee display name is long enough to force the chip to ellipse at 390px.
 // The 轉派 icon shares the 負責人 value cell — the guard proves a long name

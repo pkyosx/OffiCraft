@@ -4,7 +4,14 @@
 // same fixture so the popover fills in a real browser.
 import { I18nProvider } from "../../src/i18n";
 import { TaskCard } from "../../src/components/TaskCard";
-import { WITH_ARTIFACTS, NO_ARTIFACTS, MIRA, NOOP, WORKERS } from "./taskFixtures";
+import {
+  WITH_ARTIFACTS,
+  NO_ARTIFACTS,
+  RAGGED_ARTIFACTS,
+  MIRA,
+  NOOP,
+  WORKERS,
+} from "./taskFixtures";
 
 function Card({ task }: { task: typeof WITH_ARTIFACTS }) {
   return (
@@ -32,4 +39,10 @@ export function TaskCardArtifactsStory() {
 
 export function TaskCardNoArtifactsStory() {
   return <Card task={NO_ARTIFACTS} />;
+}
+
+/** T-90df: a short filename next to an overlong one — the shape that exposed
+ * the ragged-chip bug. */
+export function TaskCardRaggedArtifactsStory() {
+  return <Card task={RAGGED_ARTIFACTS} />;
 }

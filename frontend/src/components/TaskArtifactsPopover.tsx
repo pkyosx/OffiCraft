@@ -170,7 +170,11 @@ function ArtifactsPopover({
     // here rather than inside AttachmentStrip so the image branch (and its
     // Lightbox click) stays untouched. It gives the image row the SAME
     // three-part shape as a file/link row, and the same hover-for-full-name.
-    const imageName = art?.kind === "image" ? att.filename : "";
+    // Both filename and label are optional server-side, so fall back the way
+    // the file branch does — an image row must never lose its chip, or it
+    // stops matching the other two kinds.
+    const imageName =
+      art?.kind === "image" ? att.filename || t.chat.imageAlt : "";
     return (
       <>
         {imageName && (
@@ -233,16 +237,17 @@ function ArtifactsPopover({
           <div className="task-artifacts__links">
             {links.map((a) => (
               <div key={a.id} className="task-artifacts__item">
-                {/* `title` carries the FULL name (the label truncates), while
-                    aria-label keeps describing the ACTION for screen readers
-                    — the two are not interchangeable here (T-90df). */}
+                {/* `title` carries the FULL name (the label truncates). The
+                    aria-label must keep the NAME in it — a bare 「開啟連結」
+                    would override the link text and make every link row
+                    announce identically to a screen reader (T-90df). */}
                 <a
                   className="task-artifacts__chip task-artifacts__link"
                   href={a.url}
                   target="_blank"
                   rel="noopener noreferrer"
                   title={a.label || a.url}
-                  aria-label={t.tasks.artifacts.openLinkHint}
+                  aria-label={`${t.tasks.artifacts.openLinkHint}: ${a.label || a.url}`}
                 >
                   <ExternalLinkIcon size={14} />
                   <span className="task-artifacts__chip-name">{a.label || a.url}</span>

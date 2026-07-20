@@ -679,6 +679,12 @@ a.task-card__chip--link {
 .task-artifacts__chip svg {
   flex: none;
 }
+/* A chip that navigates (file download / link) gets the hover accent the chat
+   bubble's chip had; a plain image name chip is not interactive. */
+a.task-artifacts__chip:hover {
+  color: var(--color-accent);
+  border-color: rgba(111, 214, 176, 0.4);
+}
 /* Overlong names truncate here; the full name stays reachable via `title=`. */
 .task-artifacts__chip-name {
   overflow: hidden;

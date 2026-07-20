@@ -208,7 +208,11 @@ describe("產物 popover — the three-tab split", () => {
     expect(anchor.getAttribute("target")).toBe("_blank");
     expect(anchor.getAttribute("rel")).toBe("noopener noreferrer");
     expect(anchor.getAttribute("title")).toBe("PR #999");
-    expect(anchor.getAttribute("aria-label")).toBe("開啟連結");
+    // The accessible name must still IDENTIFY this link — an aria-label of
+    // just the action would make every link row announce identically.
+    const ariaLabel = anchor.getAttribute("aria-label")!;
+    expect(ariaLabel).toContain("PR #999");
+    expect(ariaLabel).toContain("開啟連結");
   });
 
   it("shows a per-tab empty state when a kind has no artifacts", async () => {
