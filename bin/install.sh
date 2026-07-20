@@ -286,17 +286,94 @@ for cfg in "${OC_CONFIG:-}" "./oc.toml"; do
   fi
 done
 
+# ── launchd job identity ─────────────────────────────────────────────────────
+# Resolved BEFORE the port gate on purpose: on a re-install the process holding
+# the port is usually OUR OWN previous service, and the gate has to be able to
+# tell that apart from a genuine conflict (see below).
+LABEL="${OC_LAUNCHD_LABEL:-com.officraft.serve}"
+LA_DIR="$HOME/Library/LaunchAgents"
+PLIST="$LA_DIR/$LABEL.plist"
+GUI="gui/$(id -u)"
+TARGET="$GUI/$LABEL"
+LOG_DIR="$ROOT_DIR/server/log"
+SERVE_LOG="$LOG_DIR/serve.log"
+
+# ── same-label ownership gate ────────────────────────────────────────────────
+# The label is a machine-wide singleton in the user's gui domain. If something
+# is ALREADY registered under it, blindly rendering over the plist and booting
+# it out would silently hijack — or kill — a service this installer did not
+# create (a hand-built job, or a repo-layout `bin/ocserver install` instance
+# that runs serve from a completely different path). So: adopt the label only
+# when the existing plist demonstrably points at the binary WE just installed;
+# anything else is a hard stop that changes nothing.
+#
+# OURS=1 additionally licenses the port gate below to treat that job's own
+# listener as "not a conflict".
+plist_program() {
+  # ProgramArguments[0] of an existing plist, or "" if unreadable/absent.
+  plutil -extract ProgramArguments.0 raw -o - "$1" 2>/dev/null || true
+}
+OURS=0
+if [[ "$FOREGROUND" == 0 ]]; then
+  if [[ -f "$PLIST" ]]; then
+    existing_prog="$(plist_program "$PLIST")"
+    if [[ "$existing_prog" != "$BIN_DIR/ocserverd" ]]; then
+      echo "[install] FATAL: launchd label '$LABEL' is already taken by a DIFFERENT service." >&2
+      echo "[install]        plist:   $PLIST" >&2
+      echo "[install]        program: ${existing_prog:-<unreadable>}" >&2
+      echo "[install]        expected: $BIN_DIR/ocserverd" >&2
+      echo "[install]        Refusing to overwrite it — NOTHING was changed about that job." >&2
+      echo "[install]        The binaries are installed and the database is migrated; either retire" >&2
+      echo "[install]        that job yourself, or install under a different label:" >&2
+      echo "[install]          OC_LAUNCHD_LABEL=com.officraft.serve.alt ./install.sh --force" >&2
+      exit 1
+    fi
+    OURS=1
+    echo "[install] existing '$LABEL' job points at our binary — reloading it in place."
+  elif launchctl print "$TARGET" >/dev/null 2>&1; then
+    # Registered with no plist on disk (bootstrapped from elsewhere). Same rule:
+    # we cannot prove it is ours, so we do not touch it.
+    echo "[install] FATAL: launchd label '$LABEL' is already registered (no plist at $PLIST)." >&2
+    echo "[install]        Refusing to overwrite an unidentified job — NOTHING was changed." >&2
+    echo "[install]        Install under a different label instead:" >&2
+    echo "[install]          OC_LAUNCHD_LABEL=com.officraft.serve.alt ./install.sh --force" >&2
+    exit 1
+  fi
+fi
+
 # ── port gate ────────────────────────────────────────────────────────────────
 # Serving on a taken port would just die with EADDRINUSE after a seemingly
 # successful install — check first and fail with an actionable message.
+#
+# EXCEPT when the listener is the service we are about to replace. Re-running
+# the installer over a healthy install is supposed to be idempotent, but our own
+# running job holds the port, so a naive gate turns every second run into a
+# FATAL — an install that "already worked" reported as broken. When every
+# listener PID belongs to our own launchd job the port is not contended: we
+# boot that job out further down and the port is released before the new one
+# binds. A foreign squatter — or ANY listener in --foreground mode, where
+# nothing gets booted out — still fails exactly as before.
 if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
-  echo "[install] FATAL: port $PORT is already in use on this machine:" >&2
-  lsof -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null | sed 's/^/[install]   /' >&2 || true
-  echo "[install] The binaries are installed and the database is migrated, but the server was" >&2
-  echo "[install] NOT started. Pick a free port by writing an oc.toml next to where you run serve:" >&2
-  echo "[install]   printf '[server]\\nport = <free-port>\\n' > oc.toml" >&2
-  echo "[install]   $BIN_DIR/ocserverd serve" >&2
-  exit 1
+  port_conflict=1
+  if [[ "$OURS" == 1 ]]; then
+    job_pid="$(launchctl print "$TARGET" 2>/dev/null | sed -n 's/^[[:space:]]*pid = \([0-9]*\).*/\1/p' | head -1)"
+    if [[ -n "$job_pid" ]]; then
+      foreign="$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null | grep -vx "$job_pid" || true)"
+      if [[ -z "$foreign" ]]; then
+        port_conflict=0
+        echo "[install] port $PORT is held by our own '$LABEL' job (pid $job_pid) — it will be replaced."
+      fi
+    fi
+  fi
+  if [[ "$port_conflict" == 1 ]]; then
+    echo "[install] FATAL: port $PORT is already in use on this machine:" >&2
+    lsof -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null | sed 's/^/[install]   /' >&2 || true
+    echo "[install] The binaries are installed and the database is migrated, but the server was" >&2
+    echo "[install] NOT started. Pick a free port by writing an oc.toml next to where you run serve:" >&2
+    echo "[install]   printf '[server]\\nport = <free-port>\\n' > oc.toml" >&2
+    echo "[install]   $BIN_DIR/ocserverd serve" >&2
+    exit 1
+  fi
 fi
 
 if [[ "$FOREGROUND" == 1 ]]; then
@@ -315,50 +392,7 @@ fi
 # Registering serve as a launchd user agent is what makes "installed" mean the
 # same thing an hour later: RunAtLoad starts it at login, KeepAlive restarts it
 # after a crash, and it is not tied to the terminal that ran the installer.
-LABEL="${OC_LAUNCHD_LABEL:-com.officraft.serve}"
-LA_DIR="$HOME/Library/LaunchAgents"
-PLIST="$LA_DIR/$LABEL.plist"
-GUI="gui/$(id -u)"
-TARGET="$GUI/$LABEL"
-LOG_DIR="$ROOT_DIR/server/log"
-SERVE_LOG="$LOG_DIR/serve.log"
-
-# ── same-label ownership gate ────────────────────────────────────────────────
-# The label is a machine-wide singleton in the user's gui domain. If something
-# is ALREADY registered under it, blindly rendering over the plist and booting
-# it out would silently hijack — or kill — a service this installer did not
-# create (a hand-built job, or a repo-layout `bin/ocserver install` instance
-# that runs serve from a completely different path). So: adopt the label only
-# when the existing plist demonstrably points at the binary WE just installed;
-# anything else is a hard stop that changes nothing.
-plist_program() {
-  # ProgramArguments[0] of an existing plist, or "" if unreadable/absent.
-  plutil -extract ProgramArguments.0 raw -o - "$1" 2>/dev/null || true
-}
-if [[ -f "$PLIST" ]]; then
-  existing_prog="$(plist_program "$PLIST")"
-  if [[ "$existing_prog" != "$BIN_DIR/ocserverd" ]]; then
-    echo "[install] FATAL: launchd label '$LABEL' is already taken by a DIFFERENT service." >&2
-    echo "[install]        plist:   $PLIST" >&2
-    echo "[install]        program: ${existing_prog:-<unreadable>}" >&2
-    echo "[install]        expected: $BIN_DIR/ocserverd" >&2
-    echo "[install]        Refusing to overwrite it — NOTHING was changed about that job." >&2
-    echo "[install]        The binaries are installed and the database is migrated; either retire" >&2
-    echo "[install]        that job yourself, or install under a different label:" >&2
-    echo "[install]          OC_LAUNCHD_LABEL=com.officraft.serve.alt ./install.sh --force" >&2
-    exit 1
-  fi
-  echo "[install] existing '$LABEL' job points at our binary — reloading it in place."
-elif launchctl print "$TARGET" >/dev/null 2>&1; then
-  # Registered with no plist on disk (bootstrapped from elsewhere). Same rule:
-  # we cannot prove it is ours, so we do not touch it.
-  echo "[install] FATAL: launchd label '$LABEL' is already registered (no plist at $PLIST)." >&2
-  echo "[install]        Refusing to overwrite an unidentified job — NOTHING was changed." >&2
-  echo "[install]        Install under a different label instead:" >&2
-  echo "[install]          OC_LAUNCHD_LABEL=com.officraft.serve.alt ./install.sh --force" >&2
-  exit 1
-fi
-
+# Identity and the same-label ownership gate were resolved above the port gate.
 mkdir -p "$LA_DIR" "$LOG_DIR"
 
 # OC_CONFIG is emitted ONLY when a config file actually backed the port probe —
