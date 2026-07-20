@@ -30,7 +30,7 @@ This file is read by Claude Code agents working in this repo.
 
 10. **命名鐵律 folder = go-module = binary 同名**:一個可執行 / 可 import 的單元,其**資料夾名、模組 / 套件名、產出 binary 名三者必須同名**,不用連字號變體或縮寫別名。範例:`cli/ocagent/`(資料夾)→ `module ocagent`(go.mod)→ `ocagent`(binary),不是 `cli/ocagent/`。理由:讓人與 AI 從任一名字都能直接推到其他兩者,消除「folder 叫 A、binary 叫 B」的定位摩擦。⚠️ **介面名已對齊(2026-07-09 owner 定案)**:CLI 的**呼叫子命令名**(spawn 寫的 bare `ocagent` shim)與 **launchd label**(`com.officraft.ocwarden`)已一併收斂到 ocagent/ocwarden 命名。它們仍是**獨立的介面契約**(boot-prompt 呼叫名 + launchd 註冊 label,不是 folder/module/binary),改動需 **host 端協調**(重寫 shim / warden bootout+relaunch),不在 folder=module=binary 的 CI gate 覆蓋內(見 §13)。
 
-11. **commit 訊息格式 `[why]` / `[how]`**:每個 commit 用 `[why] <為什麼要改:講清問題 / 動機,讓後人不必考古就懂意圖>` 換行 `[how] <怎麼改的:改了哪些關鍵處>`;body **避免 emoji**;結尾固定一行 `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`。理由:`[why]` 讓未來的人與 AI 直接讀到改動意圖,對齊 §8 context-with-code。
+11. **commit 訊息格式 `[why]` / `[how]`**:每個 commit 用 `[why] <為什麼要改:講清問題 / 動機,讓後人不必考古就懂意圖>` 換行 `[how] <怎麼改的:改了哪些關鍵處>`;body **避免 emoji**;結尾固定一行 `Co-Authored-By: <實際執行的 Claude 模型名> <noreply@anthropic.com>`(例:`Claude Fable 5`、`Claude Opus 4.8`——署真實模型,不為符合慣例署不實名稱)。理由:`[why]` 讓未來的人與 AI 直接讀到改動意圖,對齊 §8 context-with-code。
 
 12. **結構約定**:
     - **路由 table-driven**:新增 server 端點 = 在 route 表(`server/ocserverd/routes.go`)加一行 `RouteSpec` + handler + test,不散寫 mount(且 wire 已凍結——先走 spec,見 §13)。
