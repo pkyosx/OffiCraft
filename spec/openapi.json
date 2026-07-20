@@ -10070,7 +10070,7 @@
         "summary": "Read one task manual (purpose/fields/SOP/learnings/assignee)."
       },
       "post": {
-        "description": "Partial manual edit — only supplied fields change. Agent floor: content fields (purpose / fields / sop_md / learnings) are agent-editable; ``assignee`` is OWNER-ONLY governance — a non-owner supplying it is a 403. ``assignee`` is {\"kind\":\"member\",\"member_id\":…} or {\"kind\":\"outsource\",\"model\":…,\"effort\":…,\"copies\":N}; {} unsets it.",
+        "description": "Partial manual edit — only supplied fields change. Agent floor: content fields (purpose / fields / sop_md / learnings) are agent-editable; ``assignee`` is OWNER-ONLY governance — a non-owner supplying it is a 403. ``assignee`` is {\"kind\":\"member\",\"member_id\":…} or {\"kind\":\"outsource\",\"model\":…,\"effort\":…,\"copies\":N}; {} unsets it. Unknown keys are REJECTED (422) rather than silently dropped: this endpoint writes the same learnings document as ``write_task_learnings``, which spells the field ``text`` instead of ``learnings`` — sending the wrong name used to answer 200 having written nothing (T-2d99). Omitting a field remains legal; only unrecognised names are refused.",
         "operationId": "handle_update_task_manual_api_task_manuals__type_key__post",
         "parameters": [
           {

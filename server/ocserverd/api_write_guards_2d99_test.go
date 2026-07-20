@@ -177,6 +177,94 @@ func TestWriteTaskLearningsRejectsUnknownKeyAlongsideText(t *testing.T) {
 	}
 }
 
+// ── update_task_manual (the incident's MIRROR direction) ─────────────────────
+
+func updateManual(t *testing.T, api *apiServer, typeKey string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	api.HandleUpdateTaskManualApiTaskManualsTypeKeyPost(rec, taskReq(t, "POST",
+		"/api/task-manuals/"+typeKey, body, "m-exec", "agent"), typeKey)
+	return rec
+}
+
+// TestUpdateTaskManualRejectsTheTextKey is the MIRROR of
+// TestWriteTaskLearningsRejectsTheLearningsKey. Same document, same two
+// easily-confused field names, opposite direction: here the caller reaches for
+// write_task_learnings' `text` on update_task_manual (which spells it
+// `learnings`). Before this fix the unknown key was dropped, every pointer
+// field stayed nil, and the handler answered 200 having written NOTHING — the
+// caller's new learnings silently discarded. Unlike the original incident this
+// does not wipe (nil = unchanged), which makes it HARDER to notice, not safer:
+// the doc simply never grows.
+func TestUpdateTaskManualRejectsTheTextKey(t *testing.T) {
+	api := newTasksTestServer(t)
+	const seeded = "learnings the mirror-direction typo must not silently discard"
+	key := seedManualWithLearnings(t, api, seeded)
+
+	rec := updateManual(t, api, key, map[string]any{"text": "the doc the caller believes they just wrote"})
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("the mirror wrong-key write must be refused (422), got %d %s",
+			rec.Code, rec.Body.String())
+	}
+	if got := storedLearnings(t, api, key); got != seeded {
+		t.Fatalf("learnings must be untouched by a refused write:\n got: %q\nwant: %q", got, seeded)
+	}
+}
+
+// TestUpdateTaskManualRejectsUnknownKeyAlongsideValidField isolates
+// DisallowUnknownFields from every other check on this handler. A plain typo
+// ({learnigns: ...}) would also be caught, but so would a request that simply
+// named nothing the DTO knows; here a VALID `learnings` rides along, so the
+// only possible reason to refuse is the unknown-field guard. Drop the guard
+// and this becomes a 200 that writes the valid half — failing on both the
+// status and the read-back below.
+func TestUpdateTaskManualRejectsUnknownKeyAlongsideValidField(t *testing.T) {
+	api := newTasksTestServer(t)
+	const seeded = "learnings guarded on the mirror side by the unknown-field check alone"
+	key := seedManualWithLearnings(t, api, seeded)
+
+	rec := updateManual(t, api, key, map[string]any{
+		"learnings": "the half that parses", "text": "the half that does not",
+	})
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("an unknown key alongside a valid field must be refused (422), got %d %s",
+			rec.Code, rec.Body.String())
+	}
+	if got := storedLearnings(t, api, key); got != seeded {
+		t.Fatalf("a refused partial update must write NOTHING, not its valid half:\n got: %q\nwant: %q",
+			got, seeded)
+	}
+}
+
+// TestUpdateTaskManualPartialUpdateStillWorks: the strict decoder must NOT
+// have acquired required-key semantics. This is a partial update — naming only
+// one field, or none, stays entirely legal. This is the test that would catch
+// someone "tidying up" decodeJSONBodyStrict(w, r, &body) into a call that
+// passes required names.
+func TestUpdateTaskManualPartialUpdateStillWorks(t *testing.T) {
+	api := newTasksTestServer(t)
+	key := seedManualWithLearnings(t, api, "the original learnings")
+
+	// One field named — the others must be left alone, not zeroed.
+	const want = "the folded-in experience"
+	rec := updateManual(t, api, key, map[string]any{"learnings": want})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a well-formed partial update must land, got %d %s", rec.Code, rec.Body.String())
+	}
+	if got := storedLearnings(t, api, key); got != want {
+		t.Fatalf("partial update did not persist:\n got: %q\nwant: %q", got, want)
+	}
+
+	// No fields named at all — legal, and a no-op rather than a wipe.
+	rec = updateManual(t, api, key, map[string]any{})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("an empty partial update must stay legal, got %d %s", rec.Code, rec.Body.String())
+	}
+	if got := storedLearnings(t, api, key); got != want {
+		t.Fatalf("an empty partial update must change nothing:\n got: %q\nwant: %q", got, want)
+	}
+}
+
 // ── patch_lessons ────────────────────────────────────────────────────────────
 
 // TestPatchLessonsRejectsUnknownEditKeys pins the nested face of
@@ -302,7 +390,14 @@ func TestReplaceLessonsGuards(t *testing.T) {
 		want       int
 	}{
 		{"missing text", `{}`, http.StatusUnprocessableEntity},
-		{"unknown key", `{"lessons":"oops wrong field name"}`, http.StatusUnprocessableEntity},
+		// NOTE the VALID `text` alongside the stray key. Without it the
+		// required-key check fires first and masks the unknown-field guard,
+		// so the case passes even with DisallowUnknownFields removed — a
+		// false positive. Carrying a well-formed `text` makes the unknown key
+		// the ONLY reason to refuse: drop the guard and this write lands (200,
+		// doc becomes "valid"), failing on both the status and the
+		// doc-untouched assertion below.
+		{"unknown key", `{"text":"valid","lessons":"oops wrong field name"}`, http.StatusUnprocessableEntity},
 		{"unguarded wipe", `{"text":""}`, http.StatusBadRequest},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -356,7 +451,10 @@ func TestReplaceGlobalContextGuards(t *testing.T) {
 		want       int
 	}{
 		{"missing text", `{}`, http.StatusUnprocessableEntity},
-		{"unknown key", `{"context":"oops wrong field name"}`, http.StatusUnprocessableEntity},
+		// Valid `text` alongside the stray key — see the note in
+		// TestReplaceLessonsGuards. Without it this case is a false positive
+		// that survives removing DisallowUnknownFields.
+		{"unknown key", `{"text":"valid","context":"oops wrong field name"}`, http.StatusUnprocessableEntity},
 		{"unguarded wipe", `{"text":""}`, http.StatusBadRequest},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

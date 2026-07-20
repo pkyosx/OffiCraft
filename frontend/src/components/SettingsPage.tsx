@@ -1519,6 +1519,15 @@ function DocDetail({
               type="button"
               className="doc-btn doc-btn--edit"
               onClick={startEdit}
+              /* T-2d99: a null doc means the mount fetch has not landed (or
+               * failed) — NOT "an empty doc". Editing then seeds draft from
+               * text="" and the editor opens blank over content the user has
+               * never seen; committing that sends a whole-doc replace of ""
+               * which, because this call site passes allow_shrink, sails past
+               * the server's wipe guard. Gate the affordance on the load
+               * instead of weakening the guard: you cannot edit what has not
+               * arrived. */
+              disabled={doc === null}
             >
               <PencilIcon size={14} />
               <span>{t.settings.edit}</span>

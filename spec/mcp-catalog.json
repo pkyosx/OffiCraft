@@ -967,7 +967,7 @@
       "name": "get_lessons"
     },
     {
-      "description": "Whole-doc replace of a per-role lessons doc ({text}).",
+      "description": "Whole-doc replace of a per-role lessons doc ({text}). text is REQUIRED; unknown keys are rejected. Replacing existing content with an empty doc needs allow_shrink=true.",
       "inputSchema": {
         "properties": {
           "allow_shrink": {
@@ -1780,7 +1780,7 @@
       "name": "get_task_manual"
     },
     {
-      "description": "Edit a task manual (partial; content fields agent-editable; assignee = owner-only).",
+      "description": "Edit a task manual (partial; content fields agent-editable; assignee = owner-only). Only the fields you name change, so omitting a field is safe — but unknown keys are rejected rather than dropped: the learnings doc goes in learnings (NOT text — that is write_task_learnings' field name).",
       "inputSchema": {
         "properties": {
           "assignee": {
