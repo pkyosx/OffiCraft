@@ -1603,9 +1603,10 @@ def test_reassign_to_outsource_lands_unassigned(client, owner_token, executor):
 
 def test_reassign_guards(client, owner_token, executor):
     """T-160e guards: frozen 400, terminal 409, warden/unknown target 400,
-    same-executor 409. ② owner G1: reassign is opened to `agent` + an executor
-    guard — the task's OWN executor may hand it over (2xx), a NON-executor agent
-    is 403 (not the admin floor any more)."""
+    same-executor 409. ② the route is opened to `agent` + an executor guard —
+    a NON-executor agent is 403. 正職授權矩陣 (T-23cf) rule 7: the OWN executor (a
+    一般正職) may 發包 its task (outsource → 2xx) but may NOT hand it to another
+    member (member target → 403 — owner/Mira's channel only)."""
     task = _create_task(client, executor, title="guard me")["task"]
     member_target = {"kind": "member", "member_id": executor.member_id}
 
@@ -1616,11 +1617,17 @@ def test_reassign_guards(client, owner_token, executor):
     intruder = mint_member_token(client, owner_token, intruder_id, ttl_days=1)
     assert _reassign(client, intruder, task["id"],
                      {"kind": "member", "member_id": fresh}).status_code == 403
-    # ② the task's OWN executor MAY hand it over — on a SEPARATE fresh task so
-    # the mutation (executor re-point + reassigning) never disturbs the guards.
+    # rule 7: the OWN executor (一般正職) reassigning to another MEMBER is 403 —
+    # a member handover is owner/Mira's alone.
     own = _create_task(client, executor, title="my own to hand over")["task"]
     assert _reassign(client, executor.token, own["id"],
-                     {"kind": "member", "member_id": fresh}).status_code == 200
+                     {"kind": "member", "member_id": fresh}).status_code == 403
+    # rule 7 positive: the OWN executor MAY turn it into a 發包 (outsource → 2xx),
+    # on a SEPARATE fresh task so the mutation never disturbs the checks below.
+    outsourced = _create_task(client, executor, title="my own to 發包")["task"]
+    assert _reassign(client, executor.token, outsourced["id"],
+                     {"kind": "outsource", "model": "sonnet",
+                      "effort": "low"}).status_code == 200
     # target == current executor → 409.
     assert _reassign(client, owner_token, task["id"], member_target).status_code == 409
     # warden target / unknown member → 400.

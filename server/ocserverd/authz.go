@@ -47,6 +47,16 @@ const (
 	machineKind  = "warden"
 )
 
+// isOutsourceMember reports whether a caller's roster row is an outsourced
+// worker (kind=="outsource" — the ow- members). A nil row (owner scope, or an
+// unknown sub) is never outsource. The T-23cf phase-2 正職授權矩陣 keys the
+// "outsource may not create/reassign" hard rules on this — classifyMember alone
+// cannot tell a 正職 from an 外包 (both rank principalAgent), so the durable
+// Member.Kind is the discriminator.
+func isOutsourceMember(m *Member) bool {
+	return m != nil && m.Kind == KindOutsource
+}
+
 // classifyMember classifies an AGENT-scoped caller's member row into its
 // principal class (service.authz.classify_member). Derived entirely from the
 // durable fields: kind=="warden" wins first (a warden is a machine regardless

@@ -61,36 +61,38 @@ func TestReassignRouteRowIsAgentGatedAndMCPExposed(t *testing.T) {
 	t.Fatal("route table has no /api/tasks/{task_id}/reassign row")
 }
 
-// ② the route is agent-open now — the handler's executor guard is what keeps an
-// agent to tasks it drives; owner/admin may drive any task.
-func TestReassignAgentMayOnlyHandOverItsOwnTask(t *testing.T) {
+// ② the route is agent-open — the handler's executor guard keeps an agent to
+// tasks it drives. 正職授權矩陣 (T-23cf phase 2, rule 7): a 一般正職 may only turn
+// its OWN task into a 發包; handing it to another 正職 (a member target) is
+// owner/Mira's alone — even the executor is a flat 403. (The executor's positive
+// 發包 path is TestReassignToOutsourceByPlainExecutorAdmits; owner→member is
+// TestReassignMemberToMemberHandsOver.)
+func TestReassignPlainAgentMayNotHandToAnotherMember(t *testing.T) {
 	api := newTasksTestServer(t)
 	putActiveMember(t, api, "m-new", "Rei", KindAssistant)
+	putActiveMember(t, api, "m-exec", "Exec", KindAssistant) // a 一般正職 (no RoleKey)
 	task := createAdHocTask(t, api, "m-exec")
 
-	// A DIFFERENT agent (not the executor) is forbidden.
+	// A DIFFERENT agent (not the executor) is forbidden by the executor guard.
 	if rec := reassign(t, api, task.ID, memberTarget("m-new"),
 		"m-intruder", "agent"); rec.Code != http.StatusForbidden {
 		t.Fatalf("non-executor agent must be 403, got %d %s", rec.Code, rec.Body.String())
 	}
 
-	// The executor itself may hand its own task over to a member (no 發包 gate on
-	// a member target).
+	// The executor itself clears the guard (it IS the executor) yet still may NOT
+	// hand its own task to another member (rule 7 — 發包 or nothing).
 	rec := reassign(t, api, task.ID, memberTarget("m-new"), "m-exec", "agent")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("executor agent must hand over: %d %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("plain executor reassign to a member must be 403 (rule 7), got %d %s",
+			rec.Code, rec.Body.String())
 	}
+	// The task is untouched — no re-point, no lock.
 	bound, err := api.dal.GetTask(task.ID)
 	if err != nil || bound == nil {
 		t.Fatalf("re-read: %v", err)
 	}
-	if bound.ExecutorID != "m-new" || bound.Lock != TaskLockReassigning {
-		t.Fatalf("task must re-point to m-new and enter the reassigning lock, got %+v", bound)
-	}
-	// The status stays DERIVED (T-9ca5) — a stepless task is not_started, never
-	// the retired 'reassigning' status.
-	if bound.Status != TaskStatusNotStarted {
-		t.Fatalf("reassigned task status must be the derived not_started, got %s", bound.Status)
+	if bound.ExecutorID != "m-exec" || bound.Lock != TaskLockNone {
+		t.Fatalf("denied reassign must leave the task on m-exec unlocked, got %+v", bound)
 	}
 }
 
@@ -124,6 +126,50 @@ func TestReassignToOutsourceByPlainExecutorAdmits(t *testing.T) {
 	}
 	if len(workers) != 0 {
 		t.Fatalf("admit must mint nothing at reassign time, got %d", len(workers))
+	}
+}
+
+// 正職授權矩陣 rule 8: an outsource worker may not reassign — not even the task
+// it executes (it clears the executor guard AS the executor, so the deny is
+// explicit).
+func TestReassignOutsourceCallerIsForbidden(t *testing.T) {
+	api := newTasksTestServer(t)
+	putActiveMember(t, api, "ow-exec", "S-exec", KindOutsource)
+	putActiveMember(t, api, "m-new", "Rei", KindAssistant)
+	now := nowSecs()
+	if err := api.dal.PutTask(Task{
+		ID: "t-owx", Title: "owned by outsource", Status: TaskStatusNotStarted,
+		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorOutsource,
+		ExecutorID: "ow-exec", CreatedTS: now, UpdatedTS: now,
+	}); err != nil {
+		t.Fatalf("put task: %v", err)
+	}
+	// A member target AND a 發包 target are both refused — the caller is the wall.
+	for _, target := range []map[string]any{
+		memberTarget("m-new"),
+		{"target": map[string]any{"kind": "outsource", "model": "sonnet"}},
+	} {
+		if rec := reassign(t, api, "t-owx", target, "ow-exec", "agent"); rec.Code != http.StatusForbidden {
+			t.Fatalf("outsource caller reassign must be 403, got %d %s", rec.Code, rec.Body.String())
+		}
+	}
+}
+
+// 正職授權矩陣 rule 6: the owner and an admin agent (Mira) may hand a task to any
+// active member (full admin reassign channel). The owner face is
+// TestReassignMemberToMemberHandsOver; this pins Mira.
+func TestReassignAdminAgentMayHandToAnyMember(t *testing.T) {
+	api := newTasksTestServer(t)
+	putMemberRow(t, api, "m-mira", KindAssistant, adminRoleKey)
+	putActiveMember(t, api, "m-new", "Rei", KindAssistant)
+	task := createAdHocTask(t, api, "m-old")
+	rec := reassign(t, api, task.ID, memberTarget("m-new"), "m-mira", "agent")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("admin_agent reassign to a member must be 200, got %d %s", rec.Code, rec.Body.String())
+	}
+	bound, _ := api.dal.GetTask(task.ID)
+	if bound == nil || bound.ExecutorID != "m-new" || bound.Lock != TaskLockReassigning {
+		t.Fatalf("admin reassign must re-point to m-new + take the lock, got %+v", bound)
 	}
 }
 

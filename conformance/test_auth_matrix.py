@@ -696,7 +696,14 @@ MATRIX: dict[str, Route] = {
     # (caller == executor unless admin capability) shows as agent_other=403.
     "GET /api/tasks": Route(requires="machine"),
     "POST /api/tasks": Route(
+        # 正職授權矩陣 (T-23cf): create's caller gate. The body assigns the task to
+        # agent A, so agent_self (A) creates its OWN ad-hoc task (2xx) while
+        # agent_other (B, a 一般正職) pointing the executor at another member is a
+        # flat 403 (rule 5 — self, or 發包, only). owner/admin_agent are exempt
+        # (2xx); warden is below the agent floor (403). The framework's
+        # requires-rank cannot model a caller-vs-executor rule — hence the override.
         requires="agent",
+        overrides={"agent_other": 403},
         body=lambda ctx, _i: {"title": "conf matrix create",
                               "executor_member_id": ctx.agent_a.member_id},
     ),
@@ -779,26 +786,25 @@ MATRIX: dict[str, Route] = {
         path=lambda ctx, _i: f"/api/tasks/{_matrix_closed_task(ctx)}/closeout",
     ),
     "POST /api/tasks/{task_id}/reassign": Route(
-        # ② owner G1: reassign is opened to `agent` (was admin_agent). The route
-        # floor is now `agent`; the handler's executor guard then keeps a plain
+        # ② the route floor is `agent`; the handler's executor guard keeps a plain
         # agent to its OWN task — the scratch task is executed by agent A, so
-        # agent_self (A) hands it over → 2xx, while agent_other (B, NOT the
+        # agent_self (A) reassigns it → 2xx, while agent_other (B, NOT the
         # executor) is 403 despite clearing the class floor (hence the explicit
         # override — the framework's requires-rank cannot model a task-level
-        # executor guard). owner/admin drive any task; warden is below-floor 403.
-        # Positive faces hand a fresh scratch task to a fresh scratch member
-        # (admin) / to agent_b (agent_self — an active hired member, valid target).
+        # executor guard). 正職授權矩陣 (T-23cf): owner/admin (the admin faces) may
+        # hand a task to any active member — they aim at a FRESH scratch member;
+        # a 一般正職 (agent_self, the executor) may only 發包 its own task, so its
+        # positive face targets OUTSOURCE (a member target would be a rule-7 403).
+        # warden is below-floor 403.
         requires="agent",
         overrides={"agent_other": 403},
         path=lambda ctx, _i: f"/api/tasks/{_matrix_task(ctx)}/reassign",
-        body=lambda ctx, identity: {
-            "target": {
-                "kind": "member",
-                "member_id": ctx.fresh_member()
-                if identity in _ADMIN_FACES
-                else ctx.agent_b.member_id,
-            }
-        },
+        body=lambda ctx, identity: (
+            {"target": {"kind": "member", "member_id": ctx.fresh_member()}}
+            if identity in _ADMIN_FACES
+            else {"target": {"kind": "outsource", "model": "sonnet",
+                             "effort": "low"}}
+        ),
     ),
     "POST /api/tasks/{task_id}/claim": Route(
         # T-9ca5 claim (takeover): the NEW executor takes over a reassigned task,

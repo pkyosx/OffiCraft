@@ -180,6 +180,81 @@ func (s *apiServer) callerMayDriveTask(r *http.Request, t Task) bool {
 	return currentActor(r) == t.ExecutorID
 }
 
+// taskCaller captures the create/reassign caller's identity facets for the
+// 正職授權矩陣 (T-23cf phase 2, owner 2026-07-20): its principal class, the
+// verified actor id, and the roster row (nil for owner scope or an unknown
+// sub). The matrix needs more than the principal ladder — a 正職 and an 外包
+// both rank principalAgent, so Member.Kind is the discriminator (isOutsource).
+type taskCaller struct {
+	principal string
+	actorID   string
+	member    *Member
+}
+
+func (c taskCaller) isOutsource() bool    { return isOutsourceMember(c.member) }
+func (c taskCaller) isAdminCapable() bool { return principalAtLeast(c.principal, principalAdminAgent) }
+
+// taskCallerOf resolves the caller's facets from the verified claims (the twin
+// of resolvePrincipal that also hands back the member row). Owner scope needs no
+// lookup (the owner has no roster row); any other scope classifies its row.
+func (s *apiServer) taskCallerOf(r *http.Request) (taskCaller, error) {
+	actorID := currentActor(r)
+	if currentScope(r) == "owner" {
+		return taskCaller{principal: principalOwner, actorID: actorID}, nil
+	}
+	m, err := s.dal.GetMember(actorID)
+	if err != nil {
+		return taskCaller{principal: principalAgent, actorID: actorID}, err
+	}
+	return taskCaller{principal: classifyMember(m), actorID: actorID, member: m}, nil
+}
+
+// authorizeTaskCreate is the caller-side create gate of the 正職授權矩陣 (T-23cf
+// phase 2). It runs AFTER the executor intent is resolved and BEFORE any
+// dedupe/persist, orthogonal to outsourceSpawnGate (that gate meters the 發包;
+// this decides WHO may create). Returns ("" reason) when permitted, else the
+// 403 code+reason. willOutsource is set when the resolved executor is an
+// outsource dispatch; manualAssigneeMember is the MANUAL's assignee member id
+// when the type designates a 正職 (rule 3's strict subject), "" otherwise;
+// executorID is the final member executor (rule 5's subject) when not
+// outsourcing.
+func authorizeTaskCreate(c taskCaller, willOutsource bool, manualAssigneeMember, executorID string) (int, string) {
+	// Rule 1 (hard, every identity): an outsource worker never creates a task.
+	// (machine/warden is already below the route's agent floor — a 403 there.)
+	if c.isOutsource() {
+		return http.StatusForbidden, "outsource workers may not create tasks"
+	}
+	// Rule 3 (hard, NO admin exemption, NOT bypassable by a 發包 override): a typed
+	// task the MANUAL assigns to a 正職 X may be created ONLY by X — owner/Mira are
+	// not exempt. This precedes the willOutsource early-exit ON PURPOSE (F1): a
+	// non-X caller must not slip past by adding target.kind=outsource, which would
+	// both create X's task AND consume X's dedupe slot (the manual-derived
+	// dedupe_key still keys on X's type). When X itself is the caller it may of
+	// course choose to 發包 its own typed task (falls through to 200 either way).
+	if manualAssigneeMember != "" {
+		if c.actorID != manualAssigneeMember {
+			return http.StatusForbidden,
+				"a typed task assigned to member '" + manualAssigneeMember +
+					"' may only be created by that member"
+		}
+		return 0, ""
+	}
+	// Rules 4 & 5-outsource: a 發包 create with NO member assignee — any 正職
+	// (owner/Mira included) may dispatch to an outsource worker; outsourceSpawnGate
+	// meters/authenticates it.
+	if willOutsource {
+		return 0, ""
+	}
+	// Rule 5: an ad-hoc (or manual-assignee-less) task with a caller-named member
+	// executor — a 一般正職 may only self-execute (or 發包); it may not hand the
+	// work to another 正職. owner/Mira are not bound by this restriction.
+	if !c.isAdminCapable() && c.actorID != executorID {
+		return http.StatusForbidden,
+			"an ad-hoc task may only name yourself as executor (or be dispatched to an outsource worker)"
+	}
+	return 0, ""
+}
+
 // closeTask applies the terminal-status side effects (done AND terminated):
 // stamp closed_ts, release every bound outsource worker (the panel row
 // disappears; the row itself is the audit trail) and fan their deltas.
@@ -695,6 +770,20 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 		writeError(w, http.StatusForbidden, "caller is not the task's executor")
 		return
 	}
+	// 正職授權矩陣 (T-23cf phase 2). Rule 8: an outsource worker may not reassign
+	// — not even the task it executes (it clears the executor guard above AS the
+	// executor, so this is a distinct, explicit deny). The member-target rule 7
+	// (a 一般正職 may only 發包, never hand to another 正職) is enforced in the
+	// member branch below.
+	caller, err := s.taskCallerOf(r)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	if caller.isOutsource() {
+		writeError(w, http.StatusForbidden, "outsource workers may not reassign tasks")
+		return
+	}
 	if TaskIsTerminal(t.Status) {
 		writeError(w, http.StatusConflict,
 			"task '"+taskId+"' is already closed ("+t.Status+")")
@@ -711,6 +800,14 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	model, effort, machine := "", "", ""
 	switch kind {
 	case TaskExecutorMember:
+		// Rule 7: a 一般正職 may only turn its OWN task into a 發包 (an outsource
+		// target); handing it to another 正職 (a member target) is owner/Mira's
+		// alone (rule 6). Deny before target probing (the reply-card posture).
+		if !caller.isAdminCapable() {
+			writeError(w, http.StatusForbidden,
+				"only the owner or an admin agent may reassign a task to another member; 發包 to an outsource worker instead")
+			return
+		}
 		memberID := trimmedOrEmpty(body.Target.MemberId)
 		if memberID == "" {
 			writeError(w, http.StatusBadRequest,
@@ -1123,6 +1220,11 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 	executorKind := TaskExecutorMember
 	executorID := ""
 	dedupeKey := ""
+	// The MANUAL's assignee member id when the type designates a 正職 (rule 3's
+	// strict "only that member may create it" subject); "" when the type has no
+	// member assignee. Kept distinct from a caller-supplied executor_member_id,
+	// which is the softer rule-5 subject.
+	manualAssigneeMemberID := ""
 	// Warnings ride the 200 answer (typed tasks only); they never block. nil for
 	// ad-hoc — an ad-hoc task has no manual, so it has no "undefined" fields.
 	var warnings []string
@@ -1197,25 +1299,7 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 			executorKind = TaskExecutorOutsource // unassigned; the scheduler picks
 		case kind == TaskExecutorMember && memberID != "":
 			executorID = memberID
-		}
-		// Dedupe only where an identity key EXISTS (a keyless type has no
-		// dedupe basis) and only against non-terminal tasks (H2).
-		if dedupeKey != "" {
-			existing, err := s.dal.FindOpenTaskByDedupe(typeKey, dedupeKey)
-			if err != nil {
-				internalError(w, err)
-				return
-			}
-			if existing != nil {
-				dto, err := s.taskDTOOf(*existing)
-				if err != nil {
-					internalError(w, err)
-					return
-				}
-				writeJSON(w, http.StatusOK,
-					taskCreateResultDTO{Task: dto, Deduped: true, Warnings: warnings})
-				return
-			}
+			manualAssigneeMemberID = memberID
 		}
 	}
 	// The dispatch target forces the outsource track (its model/effort/machine
@@ -1251,6 +1335,42 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 			return
 		}
 	}
+
+	// 正職授權矩陣 (T-23cf phase 2): the caller-side create gate, resolved AFTER
+	// the executor intent and BEFORE any dedupe/persist so an unauthorized caller
+	// is a flat 403 and never receives the deduped twin.
+	caller, err := s.taskCallerOf(r)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	if code, reason := authorizeTaskCreate(caller,
+		executorKind == TaskExecutorOutsource, manualAssigneeMemberID, executorID); reason != "" {
+		writeError(w, code, reason)
+		return
+	}
+
+	// Dedupe only where an identity key EXISTS (a keyless type has no dedupe
+	// basis) and only against non-terminal tasks (H1/H2) — after the authz gate,
+	// so a caller who may not create never receives the existing task.
+	if dedupeKey != "" {
+		existing, err := s.dal.FindOpenTaskByDedupe(typeKey, dedupeKey)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		if existing != nil {
+			dto, err := s.taskDTOOf(*existing)
+			if err != nil {
+				internalError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusOK,
+				taskCreateResultDTO{Task: dto, Deduped: true, Warnings: warnings})
+			return
+		}
+	}
+
 	now := nowSecs()
 	t := Task{
 		ID:           "t-" + newHexID(12),

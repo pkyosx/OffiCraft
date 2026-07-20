@@ -744,6 +744,182 @@ func TestCreateTaskDedupesOnNonTerminalAndReopensPastTerminal(t *testing.T) {
 	}
 }
 
+// ── 正職授權矩陣: create caller gate (T-23cf phase 2) ─────────────────────────
+
+// putMemberRow inserts one active member with an explicit role_key (the Mira
+// admin_agent seed needs role_key="assistant"; a plain 正職 leaves it empty).
+func putMemberRow(t *testing.T, api *apiServer, id, kind, roleKey string) {
+	t.Helper()
+	if err := api.dal.PutMember(Member{
+		ID: id, Name: id, Kind: kind, RoleKey: roleKey, Effort: "medium",
+		RosterStatus: RosterStatusActive,
+	}); err != nil {
+		t.Fatalf("put member %s: %v", id, err)
+	}
+}
+
+// Rule 1 (hard, every identity): an outsource worker never creates a task.
+func TestCreateTaskOutsourceCallerIsForbidden(t *testing.T) {
+	api := newTasksTestServer(t)
+	putMemberRow(t, api, "ow-1", KindOutsource, "")
+	// Even a self-assigned ad-hoc create — the outsource caller is refused first.
+	rec := createTaskAs(t, api, map[string]any{
+		"title": "t", "executor_member_id": "ow-1"}, "ow-1", "agent")
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("outsource caller create must be 403, got %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// Rule 3 (hard, NO admin exemption): a typed task the manual assigns to member X
+// may be created ONLY by X — a plain other, the owner, and Mira are all 403 —
+// and (F1) the rule is NOT bypassable by a target.kind=outsource override.
+func TestCreateTypedTaskAssignedToMemberIsThatMembersAlone(t *testing.T) {
+	api := newTasksTestServer(t)
+	api.noOutsource = true
+	if err := api.dal.PutTaskManual(TaskManual{
+		TypeKey:  "review",
+		Fields:   `[{"name":"pr","required":true,"is_key":true}]`,
+		Assignee: `{"kind":"member","member_id":"m-exec"}`,
+	}); err != nil {
+		t.Fatalf("seed manual: %v", err)
+	}
+	putMemberRow(t, api, "m-exec", KindAssistant, "")           // the assignee (seeded for the 發包 gate)
+	putMemberRow(t, api, "m-y", KindAssistant, "")              // another 正職 WITH a member row: the 發包 gate would ADMIT it, so only rule 3 blocks the override
+	putMemberRow(t, api, "m-mira", KindAssistant, adminRoleKey) // an admin_agent
+	body := func(pr string, extra map[string]any) map[string]any {
+		b := map[string]any{"title": "review " + pr, "type_key": "review",
+			"inputs": map[string]any{"pr": pr}}
+		for k, v := range extra {
+			b[k] = v
+		}
+		return b
+	}
+	outsourceOverride := map[string]any{
+		"target": map[string]any{"kind": "outsource", "model": "sonnet"}}
+
+	// The assignee themselves → 200.
+	if rec := createTaskAs(t, api, body("9", nil), "m-exec", "agent"); rec.Code != http.StatusOK {
+		t.Fatalf("the assignee must create it (200), got %d %s", rec.Code, rec.Body.String())
+	}
+	// Everyone else is 403 — including the owner and Mira (no admin exemption).
+	// The deny precedes dedupe, so the already-created twin never leaks.
+	for _, who := range []struct{ sub, scope string }{
+		{"m-other", "agent"}, {"owner", "owner"}, {"m-mira", "agent"},
+	} {
+		if rec := createTaskAs(t, api, body("9", nil), who.sub, who.scope); rec.Code != http.StatusForbidden {
+			t.Fatalf("%s creating m-exec's typed task must be 403, got %d %s",
+				who.sub, rec.Code, rec.Body.String())
+		}
+	}
+	// F1: a target.kind=outsource override does NOT let a non-assignee create it
+	// — (a) a 正職 and (b) even the owner are still 403, so they neither create
+	// the task NOR squat m-exec's dedupe slot.
+	for _, who := range []struct{ sub, scope string }{
+		{"m-y", "agent"}, {"owner", "owner"},
+	} {
+		if rec := createTaskAs(t, api, body("42", outsourceOverride), who.sub, who.scope); rec.Code != http.StatusForbidden {
+			t.Fatalf("%s 發包-override create of m-exec's typed task must be 403, got %d %s",
+				who.sub, rec.Code, rec.Body.String())
+		}
+	}
+	// (c) the assignee itself MAY choose to 發包 its own typed task (200, lands
+	// outsource-tracked) — and the pr=42 slot is FREE (deduped:false), proving
+	// the blocked override attempts above never consumed it.
+	rec := createTaskAs(t, api, body("42", outsourceOverride), "m-exec", "agent")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("assignee 發包-override of its own typed task must be 200, got %d %s", rec.Code, rec.Body.String())
+	}
+	out := decodeBody[taskCreateResultDTO](t, rec)
+	if out.Deduped {
+		t.Fatalf("blocked override must not have squatted the assignee's dedupe slot: %+v", out)
+	}
+	if out.Task.ExecutorKind != TaskExecutorOutsource {
+		t.Fatalf("assignee 發包 must land outsource-tracked, got %+v", out.Task)
+	}
+}
+
+// Rule 4: a typed task whose manual assignee is an OUTSOURCE worker is a 發包 —
+// open to any 正職 (owner included); the task lands outsource-tracked.
+func TestCreateTypedTaskWithOutsourceAssigneeAdmitsAny正職(t *testing.T) {
+	api := newTasksTestServer(t)
+	api.noOutsource = true
+	if err := api.dal.PutTaskManual(TaskManual{
+		TypeKey:  "deploy",
+		Assignee: `{"kind":"outsource","model":"sonnet"}`,
+	}); err != nil {
+		t.Fatalf("seed manual: %v", err)
+	}
+	putMemberRow(t, api, "m-x", KindAssistant, "") // a plain 正職 with a member row
+	// (d) rule 4 is untouched by the F1 fix: a manual OUTSOURCE assignee has no
+	// member subject (manualAssigneeMember==""), so any 正職 may create it — with
+	// OR without an explicit target.kind=outsource override.
+	cases := []struct {
+		sub, scope string
+		extra      map[string]any
+	}{
+		{"m-x", "agent", nil},
+		{"owner", "owner", nil},
+		{"m-x", "agent", map[string]any{"target": map[string]any{"kind": "outsource", "model": "sonnet"}}},
+		{"owner", "owner", map[string]any{"target": map[string]any{"kind": "outsource", "model": "sonnet"}}},
+	}
+	for _, tc := range cases {
+		body := map[string]any{"title": "ship it", "type_key": "deploy"}
+		for k, v := range tc.extra {
+			body[k] = v
+		}
+		rec := createTaskAs(t, api, body, tc.sub, tc.scope)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s 發包 create (override=%v) must be 200, got %d %s",
+				tc.sub, tc.extra != nil, rec.Code, rec.Body.String())
+		}
+		out := decodeBody[taskCreateResultDTO](t, rec)
+		if out.Task.ExecutorKind != TaskExecutorOutsource || out.Task.ExecutorID != "" {
+			t.Fatalf("%s: 發包 create must land unassigned outsource, got %+v", tc.sub, out.Task)
+		}
+	}
+}
+
+// Rule 5: an ad-hoc task with a member executor — a 一般正職 may name only itself
+// (or 發包); owner/Mira may hand it to any member.
+func TestCreateAdHocMemberExecutorIsSelfOnlyForPlain正職(t *testing.T) {
+	api := newTasksTestServer(t)
+	api.noOutsource = true
+	putMemberRow(t, api, "m-self", KindAssistant, "")
+	putMemberRow(t, api, "m-mira", KindAssistant, adminRoleKey)
+
+	// A 一般正職 pointing the executor at ANOTHER member → 403.
+	if rec := createTaskAs(t, api, map[string]any{
+		"title": "hand off", "executor_member_id": "m-other"},
+		"m-self", "agent"); rec.Code != http.StatusForbidden {
+		t.Fatalf("plain agent assigning another member must be 403, got %d %s",
+			rec.Code, rec.Body.String())
+	}
+	// Self-assigned → 200.
+	if rec := createTaskAs(t, api, map[string]any{
+		"title": "mine", "executor_member_id": "m-self"},
+		"m-self", "agent"); rec.Code != http.StatusOK {
+		t.Fatalf("self-assigned ad-hoc must be 200, got %d %s", rec.Code, rec.Body.String())
+	}
+	// A 發包 (target outsource) by the same 一般正職 → 200.
+	if rec := createTaskAs(t, api, map[string]any{
+		"title": "outsource me", "executor_member_id": "m-self",
+		"target": map[string]any{"kind": "outsource", "model": "sonnet"}},
+		"m-self", "agent"); rec.Code != http.StatusOK {
+		t.Fatalf("plain agent 發包 must be 200, got %d %s", rec.Code, rec.Body.String())
+	}
+	// owner and Mira may hand an ad-hoc task to any member (admin exemption).
+	for _, who := range []struct{ sub, scope string }{
+		{"owner", "owner"}, {"m-mira", "agent"},
+	} {
+		if rec := createTaskAs(t, api, map[string]any{
+			"title": "admin assigns", "executor_member_id": "m-other"},
+			who.sub, who.scope); rec.Code != http.StatusOK {
+			t.Fatalf("%s assigning an ad-hoc task to a member must be 200, got %d %s",
+				who.sub, rec.Code, rec.Body.String())
+		}
+	}
+}
+
 // ── submit_plan keeps done steps ─────────────────────────────────────────────
 
 func TestSubmitPlanReplacesOnlyTheNotDoneSteps(t *testing.T) {
