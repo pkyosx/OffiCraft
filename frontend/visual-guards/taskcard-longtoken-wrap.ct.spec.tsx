@@ -115,11 +115,11 @@ async function assertNoOverflow(page: any, width: number) {
   //   + .task-card { overflow: hidden }            0 ✓   367 ✗
   //   + .task-card__deps { overflow: hidden }      0 ✓   367 ✗
   //
-  // Adding `overflow: hidden` to a container is the most common way anyone
-  // "fixes" a page that scrolls sideways. It turns (1) green while the layout
-  // is still broken — worse than before, because the content is now CLIPPED
-  // rather than reachable by scrolling. That regression is invisible to (1)
-  // and visible only here.
+  // `overflow: hidden` on a container is a plausible "fix" for a page that
+  // scrolls sideways, and it turns (1) green while the layout is still broken
+  // — worse than before, because the content is now CLIPPED rather than
+  // reachable by scrolling. That regression is invisible to (1) and visible
+  // only here.
   //
   // Note the shape of the mistake, since this file keeps attracting it: the
   // first version of this block deleted a working guard by claiming a
@@ -128,11 +128,11 @@ async function assertNoOverflow(page: any, width: number) {
   // available. If the next reader wants to weaken this check, take the
   // measurement.
   //
-  // Known slack, measured and left alone: assertion (1) needs roughly +160px
-  // of extra badge width before it trips at 390px (a min-width sweep found
-  // 60/90/120/160 all green, 600 red). It is a cliff detector, not a
-  // crowding detector. Not tightened here — the threshold is shared with
-  // other tickets' surfaces and narrowing it is their call, not this row's.
+  // Known slack, measured and left alone: at 390px a min-width sweep on the
+  // badge puts assertion (1)'s trip point between +200px (green) and +300px
+  // (red). It is a cliff detector, not a crowding detector. Not tightened
+  // here — the threshold is shared with other tickets' surfaces and narrowing
+  // it is their call, not this row's.
   //
   // The non-vacuity sentinels below are still owed: they prove (1) and the
   // per-row check were measuring a dep row that actually had a badge on it —

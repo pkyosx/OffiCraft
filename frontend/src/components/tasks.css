@@ -1061,9 +1061,10 @@ button.task-card__waiting--dep:focus-visible {
      .task-badge itself declares no background, so a badge takes whatever it
      sits on. On row 1 that is the card (#242832) and all seven statuses clear
      4.5:1. The dep row adds a 10% #8fb6d9 wash, which lifts the backdrop and
-     drops the SAME colours by ~0.4-0.6 — enough to fail three of them
-     (pixel-sampled on the rendered row): not_started 5.62→4.62,
-     terminated 5.17→4.26, duplicated 4.82→3.97.
+     drops the SAME colours by 0.85–1.48 — enough to fail three of them
+     (pixel-sampled on the rendered row): waiting_external 5.03→4.14,
+     terminated 5.17→4.26, duplicated 4.82→3.97. not_started drops too
+     (5.62→4.62) but stays above the line.
      Row 1 is the CONTROL GROUP and it passes, which is the whole reason this
      rule exists: the shortfall is not an inherited defect to be filed
      elsewhere, it is what putting the badge on the washed row created. That
@@ -1113,8 +1114,17 @@ button.task-card__waiting--dep:focus-visible {
 /* 🔴 The dimmer is applied to the row's CHILDREN, one by one, and NOT to the
    row — that shape is load-bearing and cost two review rounds to get right
    (T-c21e).
-   The 收斂 is unchanged: icon, 編號 and title all still recede at 0.62. What
-   changed is that the STATUS badge is no longer inside the dimmed set. It is
+   The 收斂 mostly survives, and the part that did not is worth naming: icon,
+   編號 and title all still recede at 0.62, but the row's own CHROME no longer
+   does. Its fill pixel-samples [47,55,67], identical to a live row, where the
+   old whole-row dimmer put it at [43,49,60] — so a closed row now sits about
+   half as far back from the card as it used to. Judged acceptable (the
+   per-channel difference is 4–7 and every other recede cue is intact) but it
+   IS a visible change, and it is on the 驗收 card for owner to overrule.
+   🔴 If the chrome needs pushing back again, do it with the border/background
+   ALPHA — never by putting `opacity` back on the row, which would fold the
+   badge into the compositing group again and silently undo everything below.
+   What changed is that the STATUS badge is no longer inside the dimmed set. It is
    a different kind of payload from what this row carried in T-1d82: back then
    everything here was a soft blue label whose job was to recede, whereas the
    badge is the row's factual CLAIM, and at 11px/600 it is normal text, so the
@@ -1133,6 +1143,14 @@ button.task-card__waiting--dep:focus-visible {
    they were 4.15 / 2.81 / 2.75, i.e. every closed dep row on the site failed.)
    Colour is NOT touched by any of this: the hue still comes from the single
    .task-badge--status-* source, so it cannot drift from row 1's chip.
+   🔴 If you re-measure any of the above across themes, ASSERT THE THEME IN
+   THE SAME BREATH as the sample (read --color-card at capture time and check
+   it). Setting data-theme by hand does not stick — the app's theme provider
+   writes it back — and the failure is silent: you get the OTHER theme's
+   numbers, which look like a clean result rather than an error. Two people
+   hit this on this ticket, and both times the tell was that the numbers came
+   back IDENTICAL across two themes with different palettes. Identical is not
+   agreement, it is the same measurement twice.
    Hover is NOT part of the fix — the cockpit is mostly read on a phone, where
    there is no hover; it only restores the rest of the row for a mouse user. */
 .task-card__waiting--dep-closed > svg,
