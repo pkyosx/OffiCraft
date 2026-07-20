@@ -33,7 +33,7 @@ import { useMembers } from "../hooks/useMembers";
 import { useReplyCards } from "../hooks/useReplyCards";
 import { useWorkerCodenames } from "../hooks/useWorkerCodenames";
 import { useHashRoute } from "../lib/hashRoute";
-import { Avatar } from "./Avatar";
+import { ReplyCardAvatarButton } from "./ReplyCardAvatarButton";
 import { ChevronRightIcon } from "./icons";
 import { ConfirmModal } from "./ConfirmModal";
 import { Markdown } from "./Markdown";
@@ -168,6 +168,23 @@ export function RepliesPage() {
     });
   }
 
+  // Avatar → member panel (owner 2026-07-21: "也要可以" — every other avatar
+  // in the cockpit already opens the detail panel; this card's was the one
+  // hold-out). Mirrors MemberCard's avatar-as-second-target pattern and rides
+  // the SAME hash seam (frontend/src/lib/hashRoute.ts) OfficePage already
+  // reads: roster members go through #office/member/<id> (detailId), an
+  // outsource asker (never in the roster) through #office/worker/<id>
+  // (workerId) — OfficePage self-heals to the plain roster view if the id
+  // doesn't resolve (e.g. a released worker), so this never dead-ends.
+  function openProfile(card: ReplyCard) {
+    const isRosterMember = members.some((m) => m.id === card.from);
+    setRoute(
+      isRosterMember
+        ? { page: "office", detailId: card.from }
+        : { page: "office", workerId: card.from },
+    );
+  }
+
   // §3.6 請示 → 任務: a TASK-derived ask (card.task non-null) shows the 精簡
   // 任務資訊 row — the TYPE plus a 查看任務詳情 jump (adjudicated: never the
   // task number / 識別鍵). The route carries the task id so the tasks page can
@@ -240,7 +257,7 @@ export function RepliesPage() {
     const who = whoOf(card);
     return (
       <header className="reply-card__head">
-        <Avatar size={34} />
+        <ReplyCardAvatarButton onClick={() => openProfile(card)} />
         <div className="reply-card__who">
           <span className="reply-card__name">{who.name}</span>
           {who.role && <span className="reply-card__role">{who.role}</span>}

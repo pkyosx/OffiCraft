@@ -21,6 +21,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
+import { zh } from "../i18n/locales/zh";
 import { RepliesPage } from "./RepliesPage";
 import {
   __resetMock,
@@ -318,6 +319,38 @@ describe("RepliesPage", () => {
 
     fireEvent.click(getByText("跳到原訊息"));
     expect(window.location.hash).toBe("#office/chat/mira/msg/msg-1");
+  });
+
+  // T-a706 (owner 2026-07-21 screenshot): the header avatar was the one place
+  // in the cockpit whose avatar did NOT open the member panel — every other
+  // surface (roster row, etc.) already does. Mirrors MemberCard's avatar
+  // click semantics + the SAME hash seam (frontend/src/lib/hashRoute.ts).
+  it("clicking the avatar opens that member's detail panel (#office/member/<id>)", async () => {
+    __injectMockReplyCard(mkCard({}));
+    const { findAllByTestId } = renderPage();
+    const [card] = await findAllByTestId("waiting-card");
+
+    fireEvent.click(card.querySelector(".reply-card__avatar")!);
+    expect(window.location.hash).toBe("#office/member/mira");
+  });
+
+  it("clicking an outsource asker's avatar opens the worker panel (#office/worker/<id>), not the member one", async () => {
+    __injectMockReplyCard(mkCard({ id: "rc-ow", from: "ow-rel" }));
+    const { findAllByTestId } = renderPage();
+    const [card] = await findAllByTestId("waiting-card");
+
+    fireEvent.click(card.querySelector(".reply-card__avatar")!);
+    expect(window.location.hash).toBe("#office/worker/ow-rel");
+  });
+
+  it("the avatar has an accessible name (aria-label) — Avatar's inner glyphs are aria-hidden", async () => {
+    __injectMockReplyCard(mkCard({}));
+    const { findAllByTestId } = renderPage();
+    const [card] = await findAllByTestId("waiting-card");
+
+    const avatarBtn = card.querySelector(".reply-card__avatar")!;
+    expect(avatarBtn.tagName).toBe("BUTTON");
+    expect(avatarBtn.getAttribute("aria-label")).toBe(zh.office.viewProfile);
   });
 
   it("標為過期 double-confirms, closes the card without an answer, and lands it 已過期 in 近期已處理", async () => {

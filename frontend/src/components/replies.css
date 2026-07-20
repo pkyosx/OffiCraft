@@ -95,6 +95,26 @@
   align-items: center;
   gap: 10px;
 }
+/* Avatar → member panel (mirrors .member-card__avatar in office.css): a bare
+ * button wrapper, native chrome killed, same soft focus ring so the click
+ * target reads consistently across the cockpit. */
+.reply-card__avatar {
+  flex: none;
+  display: inline-grid;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 11px; /* match .avatar so the ring hugs the glyph */
+  cursor: pointer;
+  outline: none;
+}
+[data-theme="xian"] .reply-card__avatar {
+  border-radius: 50%; /* match the circular xian .avatar */
+}
+.reply-card__avatar:hover,
+.reply-card__avatar:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-accent-soft);
+}
 .reply-card__who {
   display: flex;
   flex-direction: column;
