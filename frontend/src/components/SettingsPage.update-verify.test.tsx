@@ -78,6 +78,81 @@ describe("SettingsPage · 軟體更新 · 檢查更新 (explicit fresh verdict)"
     expect(utils.getAllByTestId("settings-update-status")).toHaveLength(1);
   });
 
+  // ── owner round-2 item ④: the two verdicts the mock server never returns ──
+  // The mock's checkRelease() only ever answers up_to_date, so update_available
+  // and unknown had ZERO behavioural coverage — their render paths were carried
+  // by tsc alone. Both are forced here through the api seam (spyOn), which is
+  // how every other honesty test in this file forces a server answer.
+
+  it("update_available renders the tag + release link in the ONE status line", async () => {
+    const utils = await openSoftware();
+    vi.spyOn(api, "checkRelease").mockResolvedValue({
+      status: "update_available",
+      currentVersion: "0.4.7",
+      latestTag: "v0.9.9",
+      releaseUrl: "https://github.com/pkyosx/OffiCraft/releases/tag/v0.9.9",
+    });
+    fireEvent.click(utils.getByTestId("settings-check-release"));
+
+    const status = await utils.findByTestId("settings-update-status");
+    await vi.waitFor(() =>
+      expect(status.textContent).toContain(s.updateAvailable)
+    );
+    // The server's tag is shown verbatim — never a fabricated or omitted one.
+    expect(status.textContent).toContain("v0.9.9");
+    // The link points at the server's release_url and opens out-of-app.
+    const link = utils.getByText(s.viewRelease) as HTMLAnchorElement;
+    expect(link.tagName).toBe("A");
+    expect(link.getAttribute("href")).toBe(
+      "https://github.com/pkyosx/OffiCraft/releases/tag/v0.9.9"
+    );
+    expect(link.getAttribute("target")).toBe("_blank");
+    // Still ONE status line, and the stale 已是最新版 is gone.
+    expect(utils.getAllByTestId("settings-update-status")).toHaveLength(1);
+    expect(utils.queryByText(s.upToDate)).toBeNull();
+  });
+
+  // ── owner round-2 item ③ ──
+  // The 升級 button used to be gated on the CACHED /api/version flag while the
+  // badge showed the FRESH verdict, so a fresh update_available produced a card
+  // that announced a new version with no way to take it. Same source now.
+  it("update_available also offers the 升級 button — badge and button share one source", async () => {
+    const utils = await openSoftware();
+    // The cache says up to date (the mock's /api/version), so ONLY the fresh
+    // verdict can put this button on screen.
+    expect(utils.queryByText(s.upgrade)).toBeNull();
+    vi.spyOn(api, "checkRelease").mockResolvedValue({
+      status: "update_available",
+      currentVersion: "0.4.7",
+      latestTag: "v0.9.9",
+      releaseUrl: null,
+    });
+    fireEvent.click(utils.getByTestId("settings-check-release"));
+    await utils.findByText(s.upgrade);
+  });
+
+  it("unknown reports GitHub-unreachable, never a fabricated up-to-date or upgrade offer", async () => {
+    const utils = await openSoftware();
+    vi.spyOn(api, "checkRelease").mockResolvedValue({
+      status: "unknown",
+      currentVersion: "0.4.7",
+      latestTag: null,
+      releaseUrl: null,
+    });
+    fireEvent.click(utils.getByTestId("settings-check-release"));
+
+    const status = await utils.findByTestId("settings-update-status");
+    await vi.waitFor(() => expect(status.textContent).toBe(s.checkUnknown));
+    // The honest degraded verdict must not read as either good news…
+    expect(utils.queryByText(s.upToDate)).toBeNull();
+    expect(utils.queryByText(s.updateAvailable)).toBeNull();
+    // …nor as a transport failure (a different, distinct sentence).
+    expect(utils.queryByText(s.checkFailed)).toBeNull();
+    // …and it must never offer an upgrade it cannot substantiate.
+    expect(utils.queryByText(s.upgrade)).toBeNull();
+    expect(utils.getAllByTestId("settings-update-status")).toHaveLength(1);
+  });
+
   // The refresh control is icon-only: its accessible name must survive.
   it("the refresh control is reachable by its accessible name", async () => {
     const utils = await openSoftware();
