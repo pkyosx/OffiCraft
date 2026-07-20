@@ -26,10 +26,50 @@
 
 import { useState } from "react";
 import { useI18n } from "../i18n";
-import type { ReplyCard, ReplyCardAnswerInput } from "../api/adapter";
+import type { ChatAttachmentView, ReplyCard, ReplyCardAnswerInput } from "../api/adapter";
 import { AttachmentStrip } from "./AttachmentStrip";
+import {
+  MarkdownPreviewOverlay,
+  isMarkdownAttachment,
+} from "./MarkdownPreviewOverlay";
 import { ReplyComposer } from "./ReplyComposer";
-import { ChevronRightIcon } from "./icons";
+import { ChevronRightIcon, EyeIcon } from "./icons";
+
+/** Shared by both attachment strips below (question-side and answer-side): a
+ * per-item 預覽 action for `.md` files that opens the SAME in-cockpit overlay
+ * ChatArea and the task artifacts popover use (T-a1c4 / T-90df) — one preview
+ * surface, not a third copy. Non-markdown items get no extra action, so the
+ * existing download-chip behaviour is untouched. */
+function useMarkdownPreviewExtra() {
+  const { t } = useI18n();
+  const [preview, setPreview] = useState<{ title: string; url: string } | null>(
+    null,
+  );
+  function renderExtra(att: ChatAttachmentView) {
+    if (!isMarkdownAttachment(att.mime, att.filename)) return null;
+    return (
+      <button
+        type="button"
+        className="reply-card__preview-btn"
+        aria-label={t.chat.mdPreview.action}
+        title={t.chat.mdPreview.action}
+        onClick={() =>
+          setPreview({ title: att.filename || t.chat.downloadAttachment, url: att.url })
+        }
+      >
+        <EyeIcon size={13} />
+      </button>
+    );
+  }
+  const overlay = preview ? (
+    <MarkdownPreviewOverlay
+      title={preview.title}
+      url={preview.url}
+      onClose={() => setPreview(null)}
+    />
+  ) : null;
+  return { renderExtra, overlay };
+}
 
 /** The quick-reply option chips. `pickable: false` renders them as a static
  * review (當初選項 before 重新決定 re-arms them); `currentIdx` marks the
@@ -88,12 +128,18 @@ export function ReplyOptionChips({
  * under this card face's existing classes. Renders nothing when the answer
  * carries none. */
 function ReplyAnswerAttachments({ card }: { card: ReplyCard }) {
+  const { renderExtra, overlay } = useMarkdownPreviewExtra();
   return (
-    <AttachmentStrip
-      attachments={card.answer?.attachments ?? []}
-      className="reply-card__answer-atts"
-      imageClassName="reply-card__answer-image"
-    />
+    <>
+      <AttachmentStrip
+        attachments={card.answer?.attachments ?? []}
+        className="reply-card__answer-atts"
+        itemClassName="reply-card__att"
+        imageClassName="reply-card__answer-image"
+        renderExtra={renderExtra}
+      />
+      {overlay}
+    </>
   );
 }
 
@@ -109,13 +155,19 @@ export function ReplyCardQuestionAttachments({
   card: ReplyCard;
   onOpenImage?: (src: string) => void;
 }) {
+  const { renderExtra, overlay } = useMarkdownPreviewExtra();
   return (
-    <AttachmentStrip
-      attachments={card.attachments}
-      className="reply-card__answer-atts reply-card__question-atts"
-      imageClassName="reply-card__answer-image chat__msg-image--clickable"
-      onOpenImage={onOpenImage}
-    />
+    <>
+      <AttachmentStrip
+        attachments={card.attachments}
+        className="reply-card__answer-atts reply-card__question-atts"
+        itemClassName="reply-card__att"
+        imageClassName="reply-card__answer-image chat__msg-image--clickable"
+        onOpenImage={onOpenImage}
+        renderExtra={renderExtra}
+      />
+      {overlay}
+    </>
   );
 }
 

@@ -375,6 +375,38 @@
   flex-wrap: wrap;
   gap: 10px;
 }
+/* T-7bc2: per-attachment wrapper (chip/image + its optional 預覽 button). No
+   gap shows up when there is no button — gap only inserts BETWEEN children. */
+.reply-card__att {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+/* Always visible (not hover-revealed like the chat bubble's cluster, T-a1c4)
+   — the owner reviews reply cards mainly on a phone, which has no hover. */
+.reply-card__preview-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+.reply-card__preview-btn:hover,
+.reply-card__preview-btn:focus-visible {
+  color: var(--color-accent);
+  border-color: rgba(111, 214, 176, 0.4);
+}
 .reply-card__answer-image {
   max-width: 120px;
   max-height: 84px;
