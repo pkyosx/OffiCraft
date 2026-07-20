@@ -100,13 +100,16 @@ test("desktop 1024: a short and an overlong name give EQUAL chip widths and one 
   // Chip width must be name-INDEPENDENT: the short and long rows agree.
   expect(Math.abs(chipBoxes[0] - chipBoxes[1])).toBeLessThanOrEqual(1);
 
-  // …and every name stays inside its chip (the ellipsis did its job) rather
-  // than pushing the row wider than the panel.
+  // …and the CHIP itself stays inside the panel (the ellipsis did its job).
+  // Measure the chip, NOT the row: `.task-artifacts__item` is a block-level
+  // flex container whose width is parent-determined, so an overflowing child
+  // never widens its rect — asserting on the row would pass even when a long
+  // chip spills hundreds of px past the panel edge.
   const panel = (await cmp.locator(".task-artifacts").boundingBox())!;
-  const rowRights = await cmp
-    .locator(".task-artifacts__item")
-    .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().right));
-  for (const right of rowRights) {
+  const chipRights = await chips.evaluateAll((els) =>
+    els.map((el) => el.getBoundingClientRect().right),
+  );
+  for (const right of chipRights) {
     expect(right).toBeLessThanOrEqual(panel.x + panel.width + 1);
   }
 

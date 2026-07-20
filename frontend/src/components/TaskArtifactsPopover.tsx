@@ -174,7 +174,7 @@ function ArtifactsPopover({
     // the file branch does — an image row must never lose its chip, or it
     // stops matching the other two kinds.
     const imageName =
-      art?.kind === "image" ? att.filename || t.chat.imageAlt : "";
+      art?.kind === "image" ? att.filename || t.tasks.artifacts.tabImages : "";
     return (
       <>
         {imageName && (
@@ -240,14 +240,17 @@ function ArtifactsPopover({
                 {/* `title` carries the FULL name (the label truncates). The
                     aria-label must keep the NAME in it — a bare 「開啟連結」
                     would override the link text and make every link row
-                    announce identically to a screen reader (T-90df). */}
+                    announce identically to a screen reader (T-90df). The
+                    visible text comes FIRST so the accessible name begins with
+                    what the eye reads (WCAG 2.5.3 Label in Name, and speech
+                    input matches on the visible words). */}
                 <a
                   className="task-artifacts__chip task-artifacts__link"
                   href={a.url}
                   target="_blank"
                   rel="noopener noreferrer"
                   title={a.label || a.url}
-                  aria-label={`${t.tasks.artifacts.openLinkHint}: ${a.label || a.url}`}
+                  aria-label={`${a.label || a.url} — ${t.tasks.artifacts.openLinkHint}`}
                 >
                   <ExternalLinkIcon size={14} />
                   <span className="task-artifacts__chip-name">{a.label || a.url}</span>
