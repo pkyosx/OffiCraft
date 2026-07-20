@@ -1,10 +1,21 @@
 #!/usr/bin/env bash
-# OffiCraft — one-command installer (ships INSIDE the release tarball).
+# OffiCraft — one-command installer. DUAL MODE:
 #
-# Usage (from the unpacked officraft-<tag>-darwin-arm64/ directory):
-#   ./install.sh            # install to ~/.officraft/bin, migrate, start serve
-#   ./install.sh --force    # overwrite an EXISTING install without the prompt
-#                           # (the only way to proceed non-interactively)
+#   A. package mode (ships INSIDE the release tarball, binaries next to it):
+#      ./install.sh            # install to ~/.officraft/bin, migrate, start serve
+#      ./install.sh --force    # overwrite an EXISTING install without the prompt
+#                              # (the only way to proceed non-interactively)
+#
+#   B. standalone mode (this file alone — no ocserverd next to it), e.g.:
+#      curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash
+#      It bootstraps: resolves the latest release tag (override with
+#      OC_INSTALL_TAG=vX.Y.Z or `--tag vX.Y.Z`), downloads the official
+#      officraft-<tag>-darwin-arm64.tar.gz + checksums.txt from GitHub
+#      Releases, verifies sha256 (a mismatch ABORTS before anything touches
+#      the machine), unpacks to a temp dir and DELEGATES to the install.sh
+#      inside the package — one code path, no duplicated install logic.
+#      `--force` is forwarded. Piped stdin is not a tty, so over an existing
+#      install the safe default still applies: abort unless --force.
 #
 # What it does, in order:
 #   1. platform gate      — macOS Apple Silicon only (darwin/arm64).
@@ -36,12 +47,133 @@
 # by this installer; convention defaults just work on a clean machine.
 set -euo pipefail
 
+# ── mode detection ───────────────────────────────────────────────────────────
+# Package mode = this file sits next to the three release binaries (unpacked
+# tarball). Anything else — including `curl … | bash`, where BASH_SOURCE is
+# empty because the script comes from stdin — is standalone bootstrap mode.
+SELF="${BASH_SOURCE[0]:-}"
+IN_PACKAGE=0
+if [[ -n "$SELF" && -f "$SELF" ]]; then
+  SELF_DIR="$(cd "$(dirname "$SELF")" && pwd)"
+  if [[ -f "$SELF_DIR/ocserverd" && -f "$SELF_DIR/ocwarden" && -f "$SELF_DIR/ocagent" ]]; then
+    IN_PACKAGE=1
+  fi
+fi
+
+if [[ "$IN_PACKAGE" == 0 ]]; then
+  # ── standalone bootstrap (curl | bash) ─────────────────────────────────────
+  OC_REPO="${OC_INSTALL_REPO:-pkyosx/OffiCraft}"
+  TAG="${OC_INSTALL_TAG:-}"
+  FWD=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --tag)
+        if [[ $# -lt 2 || -z "$2" ]]; then
+          echo "[install] FATAL: --tag needs a value (e.g. --tag v0.4.1)" >&2
+          exit 2
+        fi
+        TAG="$2"; shift 2 ;;
+      --tag=*) TAG="${1#--tag=}"; shift ;;
+      --force) FWD+=("--force"); shift ;;
+      -h|--help)
+        cat <<'EOF'
+OffiCraft standalone installer — downloads the latest official release,
+verifies its sha256 against the published checksums.txt, unpacks it and runs
+the packaged install.sh (which installs to ~/.officraft/bin, migrates the
+database, then starts the server in the foreground).
+
+  curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash
+  curl -fsSL … | bash -s -- --force            # overwrite an existing install
+  curl -fsSL … | bash -s -- --tag v0.4.1       # install a specific release
+  OC_INSTALL_TAG=v0.4.1 curl -fsSL … | bash    # same, via environment
+
+Over an existing install (~/.officraft binaries or database) the installer
+aborts unless --force — piped stdin is non-interactive, so nothing is ever
+overwritten silently.
+EOF
+        exit 0 ;;
+      *)
+        echo "[install] FATAL: unknown argument '$1' (supported: --force, --tag <vX.Y.Z>)" >&2
+        exit 2 ;;
+    esac
+  done
+
+  if [[ "$(uname -s)" != "Darwin" || "$(uname -m)" != "arm64" ]]; then
+    echo "[install] FATAL: OffiCraft v0.x supports macOS Apple Silicon (darwin/arm64) only." >&2
+    echo "[install]        This machine reports: $(uname -s)/$(uname -m)" >&2
+    exit 1
+  fi
+
+  if [[ -z "$TAG" ]]; then
+    echo "[install] resolving latest release of $OC_REPO …"
+    api_json="$(curl -fsSL "https://api.github.com/repos/$OC_REPO/releases/latest")" || {
+      echo "[install] FATAL: could not query GitHub for the latest release of $OC_REPO." >&2
+      echo "[install]        Check network access, or pin a version: --tag vX.Y.Z / OC_INSTALL_TAG=vX.Y.Z" >&2
+      exit 1
+    }
+    TAG="$(printf '%s' "$api_json" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+    if [[ -z "$TAG" ]]; then
+      echo "[install] FATAL: could not parse tag_name from the GitHub API response." >&2
+      exit 1
+    fi
+  fi
+
+  ASSET="officraft-$TAG-darwin-arm64.tar.gz"
+  # OC_INSTALL_BASE_URL: optional override of the asset download base
+  # (mirrors / hermetic tests). Default: the official GitHub release.
+  BASE_URL="${OC_INSTALL_BASE_URL:-https://github.com/$OC_REPO/releases/download/$TAG}"
+
+  TMP="$(mktemp -d -t officraft-install.XXXXXX)"
+  # The delegated installer ends with `exec ocserverd serve` in a CHILD process,
+  # so this shell stays alive as its parent and the trap fires once serve exits
+  # (Ctrl-C) — the unpacked temp dir is then removed.
+  trap 'rm -rf "$TMP"' EXIT INT TERM
+
+  echo "[install] downloading $ASSET (release $TAG)…"
+  curl -fSL --progress-bar -o "$TMP/$ASSET" "$BASE_URL/$ASSET" || {
+    echo "[install] FATAL: download failed: $BASE_URL/$ASSET" >&2
+    exit 1
+  }
+  echo "[install] downloading checksums.txt…"
+  curl -fsSL -o "$TMP/checksums.txt" "$BASE_URL/checksums.txt" || {
+    echo "[install] FATAL: download failed: $BASE_URL/checksums.txt" >&2
+    exit 1
+  }
+
+  # sha256 gate — a bad or missing checksum ABORTS; nothing is installed.
+  CHECK_LINE="$(grep -F "  $ASSET" "$TMP/checksums.txt" | head -1 || true)"
+  if [[ -z "$CHECK_LINE" ]]; then
+    echo "[install] FATAL: checksums.txt has no entry for $ASSET — refusing to install." >&2
+    exit 1
+  fi
+  if ! (cd "$TMP" && printf '%s\n' "$CHECK_LINE" | shasum -a 256 -c - >/dev/null 2>&1); then
+    echo "[install] FATAL: sha256 verification FAILED for $ASSET." >&2
+    echo "[install]        expected: $CHECK_LINE" >&2
+    echo "[install]        actual:   $(cd "$TMP" && shasum -a 256 "$ASSET")" >&2
+    echo "[install]        The download is corrupt or tampered with — NOTHING was installed." >&2
+    exit 1
+  fi
+  echo "[install] sha256 verified OK."
+
+  tar -xzf "$TMP/$ASSET" -C "$TMP"
+  PKG_DIR="$TMP/officraft-$TAG-darwin-arm64"
+  if [[ ! -f "$PKG_DIR/install.sh" ]]; then
+    echo "[install] FATAL: unpacked package has no install.sh at $PKG_DIR — refusing to continue." >&2
+    exit 1
+  fi
+
+  echo "[install] delegating to the packaged installer…"
+  bash "$PKG_DIR/install.sh" ${FWD[@]+"${FWD[@]}"}
+  exit $?
+fi
+
+# ── package mode (original in-tarball flow, unchanged) ───────────────────────
 FORCE=0
 for arg in "$@"; do
   case "$arg" in
     --force) FORCE=1 ;;
     -h|--help)
-      sed -n '2,37p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      sed -n '2,47p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)

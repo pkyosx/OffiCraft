@@ -13,12 +13,20 @@
 #   3. package         — dist/release/officraft-<tag>-darwin-arm64.tar.gz
 #                        containing ocserverd (+ SPA/seeds/bindist embedded),
 #                        ocwarden, ocagent, install.sh, README.md, LICENSE.
-#   4. checksums.txt   — sha256 of the tarball (shasum -a 256 format).
+#                        install.sh is ALSO staged as dist/release/install.sh —
+#                        published as its own release asset so the README
+#                        one-liner works:
+#                          curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash
+#                        (standalone mode: it downloads the tarball, verifies
+#                        sha256 against checksums.txt, then delegates to the
+#                        packaged install.sh).
+#   4. checksums.txt   — sha256 of the tarball + install.sh (shasum format).
 #
 # The repo tree stays ZERO-BINARY: all artifacts land in dist/release/
 # (gitignored); nothing is committed. Publishing is a separate, explicit step:
 #
 #   gh release create <tag> dist/release/officraft-<tag>-darwin-arm64.tar.gz \
+#       dist/release/install.sh \
 #       dist/release/checksums.txt --title "OffiCraft <tag>" --notes "…"
 #
 # Codesigning: bin/build's advisory codesign-artifact pass still runs (signs
@@ -105,11 +113,15 @@ Build identity: tag $TAG, git $HEAD_SHA. Verify: \`/api/version\` reports
 EOF
 
 tar -C "$OUT" -czf "$OUT/$NAME.tar.gz" "$NAME"
-( cd "$OUT" && shasum -a 256 "$NAME.tar.gz" > checksums.txt )
+# install.sh doubles as a standalone release asset (curl | bash bootstrap) —
+# publish the SAME bytes that went into the tarball.
+cp "$STAGE/install.sh" "$OUT/install.sh"
+chmod +x "$OUT/install.sh"
+( cd "$OUT" && shasum -a 256 "$NAME.tar.gz" install.sh > checksums.txt )
 rm -rf "$STAGE"
 
 echo "[release] ✅ artifacts ready:"
-ls -lh "$OUT/$NAME.tar.gz" "$OUT/checksums.txt" | awk '{print "[release]   " $5 "\t" $9}'
+ls -lh "$OUT/$NAME.tar.gz" "$OUT/install.sh" "$OUT/checksums.txt" | awk '{print "[release]   " $5 "\t" $9}'
 cat "$OUT/checksums.txt" | sed 's/^/[release]   sha256 /'
 echo "[release] publish with:"
-echo "[release]   gh release create $TAG dist/release/$NAME.tar.gz dist/release/checksums.txt --title \"OffiCraft $TAG\" --notes \"…\""
+echo "[release]   gh release create $TAG dist/release/$NAME.tar.gz dist/release/install.sh dist/release/checksums.txt --title \"OffiCraft $TAG\" --notes \"…\""

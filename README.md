@@ -6,14 +6,18 @@ single-owner 的 AI 工作室平台：一位人類 **owner** 帶著若干 **AI m
 
 ### 方式一:官方 release(建議)
 
-到 [GitHub Releases](https://github.com/pkyosx/OffiCraft/releases) 下載
-`officraft-<tag>-darwin-arm64.tar.gz`,解開後跑一句:
+一行安裝:
 
 ```bash
-./install.sh
+curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash
 ```
 
-它會:
+它會自動抓最新 release 的 `officraft-<tag>-darwin-arm64.tar.gz` 與 `checksums.txt`,**sha256 驗證通過才安裝**(驗證失敗直接中止,什麼都不裝),解到暫存目錄後委派包內的 install.sh 執行安裝。要裝特定版本:`bash -s -- --tag v0.4.1`(或 `OC_INSTALL_TAG=v0.4.1`);要覆蓋既有安裝:`bash -s -- --force`。
+
+也可以手動:到 [GitHub Releases](https://github.com/pkyosx/OffiCraft/releases) 下載
+`officraft-<tag>-darwin-arm64.tar.gz`,解開後跑 `./install.sh`。
+
+安裝流程(兩種方式同一套):
 
 1. 只支援 macOS Apple Silicon(darwin/arm64),其他平台直接拒絕。
 2. **偵測既有安裝**(`~/.officraft/bin` 的 binary 或既有資料庫):有的話大聲警告並要求確認(互動 y/N,預設否;非互動要帶 `--force` 才會覆蓋),否則中止、什麼都不動。
