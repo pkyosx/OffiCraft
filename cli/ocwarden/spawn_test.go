@@ -115,7 +115,10 @@ func TestGolden_BuildLaunchCommand(t *testing.T) {
 		"--append-system-prompt",
 		"--model claude-sonnet-4",
 		"--settings " + fxSettings,
-		`export OC_TOKEN="$(cat ` + fxTokenFile + `)"`,
+		// ABSOLUTE /bin/cat (T-426d G-1): the owner's env file is sourced earlier
+		// in this line and can leave PATH without /bin, which would make a bare
+		// `cat` fail and silently empty OC_TOKEN.
+		`export OC_TOKEN="$(/bin/cat ` + fxTokenFile + `)"`,
 		`export PATH=/home/oc/.officraft/agents/alice:"$PATH";`,
 		"exec /Users/x/.local/bin/claude",
 	} {

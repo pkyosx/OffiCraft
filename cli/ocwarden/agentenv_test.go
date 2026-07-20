@@ -575,6 +575,164 @@ func TestStart_RenderWriteFailureIsNonFatal(t *testing.T) {
 	}
 }
 
+// ── G-1: the prologue must SURVIVE a hostile env file, EXECUTED not inspected ──
+
+// runLaunchPrologue takes a real launch command, replaces the terminal `exec
+// <claude> …` with a probe that prints the env vars we care about, and runs the
+// result in a REAL shell.
+//
+// This exists because the previous round's only PATH-related assertion compared
+// strings.Index positions — it proved the source line came before the OC_*
+// exports, which was true, and entirely missed that this very ordering let an
+// env-file PATH break the `$(cat)` that fills OC_TOKEN. Ordering asserted in the
+// string domain cannot tell you what the ordering DOES. Only running it can.
+func runLaunchPrologue(t *testing.T, shell, cmd string) (string, string) {
+	t.Helper()
+	i := strings.Index(cmd, "exec ")
+	if i < 0 {
+		t.Fatalf("launch command has no exec: %s", cmd)
+	}
+	probe := cmd[:i] + `printf 'TOKEN=[%s] BASE=[%s] EXTRA=[%s]' "$OC_TOKEN" "$OC_BASE" "$FIXTURE_EXTRA"`
+	out, err := exec.Command(shell, "-c", probe).CombinedOutput()
+	if err != nil {
+		t.Fatalf("%s failed to run the prologue: %v\n%s", shell, err, out)
+	}
+	return string(out), probe
+}
+
+// buildRealPrologue writes a real token file + rendered env file on disk and
+// returns the launch command that points at them.
+func buildRealPrologue(t *testing.T, envBody string) string {
+	t.Helper()
+	wd := t.TempDir()
+	tokenFile := filepath.Join(wd, ".oc-token")
+	if err := os.WriteFile(tokenFile, []byte(fxToken), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rendered := ""
+	if pairs := parseAgentEnv(envBody, "env", func(string, ...any) {}); len(pairs) > 0 {
+		rendered = filepath.Join(wd, agentEnvRenderedName)
+		if err := os.WriteFile(rendered, []byte(renderAgentEnvFile(pairs)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return buildLaunchCommandWithEnv(fxClaudeBin, wd, fxMCPPath, "persona",
+		tokenFile, "alice", fxBase, "member-alice", fxSocket, "", "", "",
+		[][2]string{{"OC_EFFORT", "medium"}}, rendered)
+}
+
+// THE REGRESSION TEST FOR G-1. An owner who writes `PATH=/opt/homebrew/sbin`
+// (expecting append, getting replace) strips /bin from PATH. A bare `cat` in the
+// OC_TOKEN substitution then fails to resolve and the agent boots with an EMPTY
+// token — alive, but unable to authenticate, which is far worse than not booting.
+// Absolute /bin/cat is the only layer of the fix that does not depend on the
+// owner getting the file right.
+func TestLaunchPrologue_TokenSurvivesHostileEnvPATH(t *testing.T) {
+	for _, shell := range []string{"sh", "zsh"} {
+		for _, envBody := range []string{
+			"PATH=/opt/homebrew/sbin\n",             // the exact shape from the docs bug
+			"PATH=\n",                               // PATH emptied outright
+			"PATH=/nonexistent\nFIXTURE_EXTRA=ok\n", // plus an unrelated var
+		} {
+			t.Run(shell+" "+strings.ReplaceAll(strings.TrimSpace(envBody), "\n", ";"), func(t *testing.T) {
+				cmd := buildRealPrologue(t, envBody)
+				out, probe := runLaunchPrologue(t, shell, cmd)
+				if !strings.Contains(out, "TOKEN=["+fxToken+"]") {
+					t.Fatalf("OC_TOKEN did not survive an env-file PATH — the agent would boot UNAUTHENTICATED.\ngot: %s\nprologue: %s", out, probe)
+				}
+				if !strings.Contains(out, "BASE=["+fxBase+"]") {
+					t.Errorf("OC_BASE lost; got: %s", out)
+				}
+			})
+		}
+	}
+}
+
+// The prologue must still actually DELIVER the env file's variables (the whole
+// point of the feature) — the G-1 fix must not have been a silent disabling.
+func TestLaunchPrologue_DeliversEnvVarsForReal(t *testing.T) {
+	for _, shell := range []string{"sh", "zsh"} {
+		t.Run(shell, func(t *testing.T) {
+			cmd := buildRealPrologue(t, "FIXTURE_EXTRA="+fxEnvValue+"\n")
+			out, _ := runLaunchPrologue(t, shell, cmd)
+			if !strings.Contains(out, "EXTRA=["+fxEnvValue+"]") {
+				t.Errorf("the env file's variable never reached the shell; got: %s", out)
+			}
+			if !strings.Contains(out, "TOKEN=["+fxToken+"]") {
+				t.Errorf("OC_TOKEN lost; got: %s", out)
+			}
+		})
+	}
+}
+
+// warden identity must win over an env file that tries to set the same names —
+// verified by EXECUTION, not by comparing string offsets.
+func TestLaunchPrologue_WardenIdentityWinsWhenExecuted(t *testing.T) {
+	// OC_BASE is refused by the parser, so it never even reaches the render;
+	// this asserts the end-to-end outcome regardless of which layer stopped it.
+	cmd := buildRealPrologue(t, "OC_BASE=http://evil.example\nOC_TOKEN=forged\n")
+	out, _ := runLaunchPrologue(t, "sh", cmd)
+	if !strings.Contains(out, "BASE=["+fxBase+"]") || !strings.Contains(out, "TOKEN=["+fxToken+"]") {
+		t.Errorf("env file overrode warden identity; got: %s", out)
+	}
+}
+
+// ── G-1 layer 2 / G-2 / G-3 signals ────────────────────────────────────────
+
+func TestParseAgentEnv_PATHWarnsAboutReplaceSemantics(t *testing.T) {
+	var log []string
+	got := parseAgentEnv("PATH=/opt/homebrew/sbin\n", "env", capturingLogf(&log))
+	if len(got) != 1 || got[0].Value != "/opt/homebrew/sbin" {
+		t.Fatalf("PATH must still be delivered literally; got %+v", got)
+	}
+	if !strings.Contains(joinLog(log), "REPLACES the whole search path") {
+		t.Fatalf("SILENT: PATH's replace-not-append semantics must be signalled; log:\n%s", joinLog(log))
+	}
+	// The warning must also kill the follow-on misconception.
+	if !strings.Contains(joinLog(log), "$PATH is NOT expanded") {
+		t.Errorf("the warning must say $PATH is not expanded; log:\n%s", joinLog(log))
+	}
+}
+
+func TestParseAgentEnv_NonPATHKeyDoesNotWarnAboutPATH(t *testing.T) {
+	var log []string
+	parseAgentEnv("MYPATH=/x\nPATH_HELPER=/y\n", "env", capturingLogf(&log))
+	if strings.Contains(joinLog(log), "REPLACES the whole search path") {
+		t.Errorf("only the exact key PATH may warn; log:\n%s", joinLog(log))
+	}
+}
+
+// G-2: the empty-value-then-comment form. Before the fix the call site trimmed
+// the whitespace away, so this was indistinguishable from `K=#note` and produced
+// the value "# note" with NO warning — the one outcome ruled out entirely.
+func TestParseAgentEnv_EmptyValueThenCommentIsNotSilent(t *testing.T) {
+	for _, line := range []string{"K= # note", "K=  \t # note", "K= #note"} {
+		t.Run(line, func(t *testing.T) {
+			var log []string
+			got := parseAgentEnv(line+"\n", "env", capturingLogf(&log))
+			if len(got) != 1 {
+				t.Fatalf("got %+v", got)
+			}
+			if !strings.Contains(joinLog(log), "kept LITERALLY") {
+				t.Fatalf("SILENT WRONG VALUE (G-2): %q produced %q with no warning; log:\n%s",
+					line, got[0].Value, joinLog(log))
+			}
+		})
+	}
+}
+
+// G-3: quotes that do not wrap the whole value must not be silently kept.
+func TestParseAgentEnv_TrailingTextAfterClosingQuoteWarns(t *testing.T) {
+	var log []string
+	got := parseAgentEnv(`K="a" x`+"\n", "env", capturingLogf(&log))
+	if len(got) != 1 || got[0].Value != `"a" x` {
+		t.Fatalf("value must be kept literal; got %+v", got)
+	}
+	if !strings.Contains(joinLog(log), "quotes do not wrap the whole value") {
+		t.Fatalf("SILENT (G-3): quote-plus-trailing-text must warn; log:\n%s", joinLog(log))
+	}
+}
+
 // ── default path resolution ─────────────────────────────────────────────────
 
 func TestDefaultAgentEnvFile(t *testing.T) {

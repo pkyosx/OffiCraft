@@ -248,7 +248,8 @@ func ocAgentSymlinkTarget(repoRoot, ocAgentBin string) string {
 // LITERALLY (OC_TOKEN=<jwt>), leaking it machine-wide via the tmux argv (`ps` shows
 // the full new-session command line). Here the line carries only tokenFile — the
 // 0600 workdir token file start() writes — and defers the read to the spawned
-// shell: OC_TOKEN="$(cat <tokenFile>)". Same pattern as the warden's own
+// shell: OC_TOKEN="$(/bin/cat <tokenFile>)" (absolute — see the builder body,
+// T-426d G-1). Same pattern as the warden's own
 // exec-warden tokfile (main.go readTokfile).
 //
 // The workdir is prepended to PATH so a bare `ocagent` resolves — the ocagent
@@ -293,7 +294,21 @@ func buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath, appendSys, tok
 	kvs := make([]string, 0, len(pairs)+1)
 	// OC_TOKEN reads the 0600 token file at exec time — only the PATH rides the
 	// argv, never the token value (the tmux command line is visible machine-wide).
-	kvs = append(kvs, `OC_TOKEN="$(cat `+shellQuote(tokenFile)+`)"`)
+	//
+	// ABSOLUTE /bin/cat, NOT a bare `cat` (T-426d G-1, measured — not reasoned).
+	// The env file is sourced EARLIER in this same line, so by the time this
+	// substitution runs, PATH is whatever the OWNER's env file left it as. An
+	// owner who writes `PATH=/opt/homebrew/sbin` (expecting it to APPEND, which
+	// it does not) removes /bin from PATH, a bare `cat` then fails to resolve,
+	// and OC_TOKEN silently becomes EMPTY — the agent boots and can never
+	// authenticate. Verified in real zsh and sh: bare `cat` yields TOKEN=[],
+	// /bin/cat yields the token even with PATH set to the empty string.
+	//
+	// This is a DELIBERATE divergence from the Python origin's golden output
+	// (goldens updated to match). It is the only layer of this defence that does
+	// not depend on the owner filling the env file in correctly, which is
+	// exactly why it has to exist: docs and warnings are advisory, this is not.
+	kvs = append(kvs, `OC_TOKEN="$(/bin/cat `+shellQuote(tokenFile)+`)"`)
 	for _, p := range pairs {
 		kvs = append(kvs, p[0]+"="+shellQuote(p[1]))
 	}
@@ -689,7 +704,7 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	}
 	// .oc-token → the member token at 0600, so the launch command's argv carries
 	// only this PATH and the spawned shell reads the value itself
-	// (OC_TOKEN="$(cat …)") — a literal export would leak the JWT machine-wide
+	// (OC_TOKEN="$(/bin/cat …)") — a literal export would leak the JWT machine-wide
 	// via `ps` on the tmux command line. Overwritten on every START, so a
 	// handover/recycle re-mint always lands the fresh token.
 	if err := d.WriteFile(tokenFile, p.MemberToken, 0o600); err != nil {
