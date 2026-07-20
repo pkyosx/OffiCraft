@@ -774,15 +774,23 @@
       "name": "get_global_context"
     },
     {
-      "description": "Whole-block replace of the user-custom additive block ({text}).",
+      "description": "Whole-block replace of the user-custom additive block ({text}). text is REQUIRED; unknown keys are rejected. Replacing existing content with an empty block needs allow_shrink=true (or use reset_global_context).",
       "inputSchema": {
         "properties": {
+          "allow_shrink": {
+            "default": false,
+            "title": "Allow Shrink",
+            "type": "boolean"
+          },
           "text": {
             "default": "",
             "title": "Text",
             "type": "string"
           }
         },
+        "required": [
+          "text"
+        ],
         "type": "object"
       },
       "name": "replace_global_context"
@@ -962,6 +970,11 @@
       "description": "Whole-doc replace of a per-role lessons doc ({text}).",
       "inputSchema": {
         "properties": {
+          "allow_shrink": {
+            "default": false,
+            "title": "Allow Shrink",
+            "type": "boolean"
+          },
           "role_key": {
             "type": "string"
           },
@@ -976,7 +989,8 @@
         },
         "required": [
           "role_key",
-          "task_type"
+          "task_type",
+          "text"
         ],
         "type": "object"
       },
@@ -1864,9 +1878,14 @@
       "name": "update_task_manual"
     },
     {
-      "description": "Whole-doc replace of a type's learnings (task-close write-back).",
+      "description": "Whole-doc replace of a type's learnings (task-close write-back). The doc text goes in text (NOT learnings — that is update_task_manual's field name); text is REQUIRED and unknown keys are rejected. Wiping existing learnings needs allow_shrink=true.",
       "inputSchema": {
         "properties": {
+          "allow_shrink": {
+            "default": false,
+            "title": "Allow Shrink",
+            "type": "boolean"
+          },
           "text": {
             "default": "",
             "title": "Text",
@@ -1877,7 +1896,8 @@
           }
         },
         "required": [
-          "type_key"
+          "type_key",
+          "text"
         ],
         "type": "object"
       },

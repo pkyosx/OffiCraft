@@ -504,9 +504,17 @@ type LessonsEdit struct {
 // writes nothing on error. The unique-anchor requirement doubles as an
 // optimistic concurrency check: a concurrent write that moved or duplicated
 // the anchor turns this batch into a refusal, never a silent mis-splice.
-func ApplyLessonsEdits(text string, edits []LessonsEdit) (string, error) {
+// It also returns the number of edits that ACTUALLY CHANGED the doc (T-2d99).
+// The receipt's applied_edits used to report len(edits) — the count REQUESTED,
+// which is structurally incapable of being 0 and therefore carries zero
+// information about whether anything landed. A no-op edit (appending "", or a
+// replace whose new equals its old) now decrements that count, so "0 applied"
+// becomes expressible and a silent no-op stops looking like a success.
+func ApplyLessonsEdits(text string, edits []LessonsEdit) (string, int, error) {
 	result := text
+	applied := 0
 	for i, edit := range edits {
+		before := result
 		if edit.Old == "" {
 			// Append: join with a newline unless the doc is empty or already
 			// newline-terminated (keeps repeated appends line-clean).
@@ -514,19 +522,37 @@ func ApplyLessonsEdits(text string, edits []LessonsEdit) (string, error) {
 				result += "\n"
 			}
 			result += edit.New
+			if result != before {
+				applied++
+			}
 			continue
 		}
 		switch n := strings.Count(result, edit.Old); {
 		case n == 0:
-			return "", fmt.Errorf(
+			return "", 0, fmt.Errorf(
 				"edits[%d]: old not found in the current doc — re-read (get_lessons) and re-anchor; nothing was written", i)
 		case n > 1:
-			return "", fmt.Errorf(
+			return "", 0, fmt.Errorf(
 				"edits[%d]: old matches %d locations — widen the anchor until it is unique; nothing was written", i, n)
 		}
 		result = strings.Replace(result, edit.Old, edit.New, 1)
+		if result != before {
+			applied++
+		}
 	}
-	return result, nil
+	return result, applied, nil
+}
+
+// WholeDocWipeBlocked reports whether a whole-doc REPLACE would wipe an
+// existing doc (non-blank → blank) — the LessonsShrinkBlocked posture narrowed
+// to the wipe case only (T-2d99). A whole-doc replace legitimately shrinks a
+// lot (that is what "rewrite it shorter" means), so the <10% shrink rule that
+// guards an anchor-addressed patch would fire on honest edits here. Emptying a
+// doc that had content, though, is never something a caller should reach by
+// accident — and it is precisely what the dropped-unknown-key bug produced.
+// Bypassed by an explicit allow_shrink=true.
+func WholeDocWipeBlocked(before, after string) bool {
+	return strings.TrimSpace(before) != "" && strings.TrimSpace(after) == ""
 }
 
 // lessonsShrinkGuardMinChars is the doc size above which a >90% shrink needs

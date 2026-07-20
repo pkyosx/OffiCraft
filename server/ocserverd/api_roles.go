@@ -9,6 +9,7 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"sort"
 )
@@ -28,10 +29,25 @@ func (s *apiServer) HandleGetGlobalContextApiGlobalContextGet(w http.ResponseWri
 // POST /api/global-context — whole-block replace ({text}).
 func (s *apiServer) HandleReplaceGlobalContextApiGlobalContextPost(w http.ResponseWriter, r *http.Request) {
 	var body GlobalContextReplaceDTO
-	if !decodeJSONBody(w, r, &body) {
+	if !decodeJSONBodyStrict(w, r, &body, "text") {
 		return
 	}
-	text := strOrEmpty(body.Text)
+	text := body.Text
+	// T-2d99 wipe guard: emptying a block that had content needs to be said
+	// out loud. /api/global-context/reset is the dedicated way back to empty.
+	if !(body.AllowShrink != nil && *body.AllowShrink) {
+		current, err := s.foldUserContextDTO()
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		if WholeDocWipeBlocked(current.Text, text) {
+			writeError(w, http.StatusBadRequest,
+				"this would replace the existing global context with an empty one — pass allow_shrink=true "+
+					"if that is intended, or use reset_global_context; nothing was written")
+			return
+		}
+	}
 	if err := s.dal.PutUserContext(UserContext{Text: text, Tombstoned: false}); err != nil {
 		internalError(w, err)
 		return
@@ -449,13 +465,29 @@ func (s *apiServer) HandleGetLessonsApiLessonsRoleKeyTaskTypeGet(w http.Response
 // any non-agent scope writes any role.
 func (s *apiServer) HandleReplaceLessonsApiLessonsRoleKeyTaskTypePost(w http.ResponseWriter, r *http.Request, roleKey string, taskType string) {
 	var body LessonsReplaceDTO
-	if !decodeJSONBody(w, r, &body) {
+	if !decodeJSONBodyStrict(w, r, &body, "text") {
 		return
 	}
 	if !s.lessonsWriteAuthz(w, r, roleKey) {
 		return
 	}
-	text := strOrEmpty(body.Text)
+	text := body.Text
+	// T-2d99 wipe guard: replace_lessons was the one destructive whole-doc
+	// seam with NO guard at all — patch_lessons has had LessonsShrinkBlocked
+	// since r-76. Emptying a doc that had content now needs allow_shrink.
+	if !(body.AllowShrink != nil && *body.AllowShrink) {
+		current, err := s.foldLessonsDTO(roleKey, taskType)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		if WholeDocWipeBlocked(current.Text, text) {
+			writeError(w, http.StatusBadRequest,
+				"this would replace the existing lessons doc with an empty one — pass allow_shrink=true "+
+					"if that is intended; nothing was written")
+			return
+		}
+	}
 	if err := s.dal.PutLessons(Lessons{
 		RoleKey:    roleKey,
 		TaskType:   taskType,
@@ -490,7 +522,7 @@ func (s *apiServer) HandleReplaceLessonsApiLessonsRoleKeyTaskTypePost(w http.Res
 // wipe-guard posture). Same per-role write authz as replace_lessons.
 func (s *apiServer) HandlePatchLessonsApiLessonsRoleKeyTaskTypePatchPost(w http.ResponseWriter, r *http.Request, roleKey string, taskType string) {
 	var body LessonsPatchDTO
-	if !decodeJSONBodyRequired(w, r, &body, "edits") {
+	if !decodeJSONBodyStrict(w, r, &body, "edits") {
 		return
 	}
 	if len(body.Edits) == 0 {
@@ -508,9 +540,21 @@ func (s *apiServer) HandlePatchLessonsApiLessonsRoleKeyTaskTypePatchPost(w http.
 	}
 	edits := make([]LessonsEdit, len(body.Edits))
 	for i, e := range body.Edits {
+		// T-2d99: an edit that carries NEITHER old NOR new is a malformed
+		// entry, not a request to append nothing. Folding nil→"" here used to
+		// route it into the empty-old APPEND branch, where appending "" is a
+		// perfect no-op — so a batch whose keys never parsed answered 200 with
+		// an unchanged doc. Refuse it instead; the whole batch is rejected and
+		// nothing is written, matching the anchor-miss posture.
+		if e.Old == nil && e.New == nil {
+			writeError(w, http.StatusUnprocessableEntity, fmt.Sprintf(
+				"edits[%d]: neither old nor new was given — an edit needs at least one of them "+
+					"(empty old appends new); nothing was written", i))
+			return
+		}
 		edits[i] = LessonsEdit{Old: strOrEmpty(e.Old), New: strOrEmpty(e.New)}
 	}
-	next, err := ApplyLessonsEdits(current.Text, edits)
+	next, applied, err := ApplyLessonsEdits(current.Text, edits)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -535,7 +579,7 @@ func (s *apiServer) HandlePatchLessonsApiLessonsRoleKeyTaskTypePatchPost(w http.
 	writeJSON(w, http.StatusOK, lessonsPatchResultDTO{
 		RoleKey:       roleKey,
 		TaskType:      taskType,
-		AppliedEdits:  len(edits),
+		AppliedEdits:  applied,
 		Size:          len(next),
 		Sha256:        hex.EncodeToString(sum[:]),
 		OwnerID:       wireOwnerID,

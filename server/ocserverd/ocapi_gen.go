@@ -386,9 +386,10 @@ type GlobalContextDTO struct {
 }
 
 // GlobalContextReplaceDTO Whole-block replace of the user-custom additive block (§3.4 #21):
-// “{text}“.
+// “{text}“. “text“ is REQUIRED — a whole-doc replace must never infer "empty" from a missing key (T-2d99). “allow_shrink“ (default false) must be set explicitly to replace existing content with an empty doc — the r-76 wipe-guard posture.
 type GlobalContextReplaceDTO struct {
-	Text *string `json:"text,omitempty"`
+	AllowShrink *bool  `json:"allow_shrink,omitempty"`
+	Text        string `json:"text"`
 }
 
 // HealthDTO Liveness probe response.
@@ -432,9 +433,10 @@ type LessonsPatchResultDTO struct {
 	TaskType      *string `json:"task_type,omitempty"`
 }
 
-// LessonsReplaceDTO Whole-doc replace of a lessons doc (§3.4 #28): “{text}“.
+// LessonsReplaceDTO Whole-doc replace of a lessons doc (§3.4 #28): “{text}“. “text“ is REQUIRED — a whole-doc replace must never infer "empty" from a missing key (T-2d99). “allow_shrink“ (default false) must be set explicitly to replace existing content with an empty doc — the r-76 wipe-guard posture.
 type LessonsReplaceDTO struct {
-	Text *string `json:"text,omitempty"`
+	AllowShrink *bool  `json:"allow_shrink,omitempty"`
+	Text        string `json:"text"`
 }
 
 // LoginDTO Owner login request: the password exchanged at `/api/login` for a JWT.
@@ -1344,9 +1346,10 @@ type TaskDepsDTO struct {
 	BlockedBy []string `json:"blocked_by"`
 }
 
-// TaskLearningsReplaceDTO Whole-doc replace of a type's learnings (MCP “write_task_learnings“ — the agent's task-close write-back; the replace_lessons shape).
+// TaskLearningsReplaceDTO Whole-doc replace of a type's learnings (MCP “write_task_learnings“ — the agent's task-close write-back; the replace_lessons shape). “text“ is REQUIRED — a whole-doc replace must never infer "empty" from a missing key (T-2d99). “allow_shrink“ (default false) must be set explicitly to replace existing content with an empty doc — the r-76 wipe-guard posture.
 type TaskLearningsReplaceDTO struct {
-	Text *string `json:"text,omitempty"`
+	AllowShrink *bool  `json:"allow_shrink,omitempty"`
+	Text        string `json:"text"`
 }
 
 // TaskListItemDTO One task in the LIGHT list projection (“GET /api/tasks“ / MCP “list_tasks“): the fields the 任務清單 card needs to render collapsed. Drops the heavy per-task detail (“steps“, “description“, “inputs“) which the list never shows collapsed — fetch the full “TaskDTO“ with “GET /api/tasks/{task_id}“ (MCP “get_task“) to read those. “progress_done“/“progress_total“ are still counted (from step leaves) so the card's progress bar renders without the steps payload. “creator_id“ is the verified token sub of the task's creator (a member id, an outsource worker id, or the literal "owner"); "" on rows created before the column existed.
