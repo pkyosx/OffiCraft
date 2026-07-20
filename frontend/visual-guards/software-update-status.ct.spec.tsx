@@ -2,12 +2,26 @@
 // link's contrast (owner round-2 acceptance, T-dc68).
 //
 // Bug ① (owner, phone screenshot): the 檢查更新 refresh icon was anchored to the
-// STATUS CHIP's row. The chip's text is variable-length — 已是最新版 /
-// 有可用的新版本 v0.9.9 · 查看 release / 連不上 GitHub、查不到最新版本——請稍後
-// 再試 — so at 375px the `unknown` sentence consumed the whole row and
-// flex-wrap pushed the icon down to a second line, orphaned at the bottom-left.
-// Owner's verdict: pin the icon to the VERSION NUMBER's row, whose string is
-// short and bounded, so its geometry is identical in every state.
+// STATUS CHIP's row. The chip's text is variable-length, so a long verdict
+// consumed the whole row and flex-wrap pushed the icon down to a second line,
+// orphaned at the bottom-left. Owner's verdict: pin the icon to the VERSION
+// NUMBER's row, whose string is short and bounded, so its geometry is
+// identical in every state.
+//
+// WHICH state actually orphans it — MEASURED on the reconstructed pre-fix
+// layout, because the first write-up of this fix guessed wrong and the wrong
+// causality would have been inherited by whoever reads this next:
+//
+//   [OLD] update_available + long tag  WRAPPED=true  at 320/360/375/390/414
+//                                      (icon lands at x=21, bottom-left)
+//   [OLD] unknown @375                 WRAPPED=false (badge 262.2, icon 291.2)
+//   [OLD] unknown @320                 WRAPPED=true
+//
+// So the orphan is driven by a LONG RELEASE TAG, not by the `unknown`
+// sentence and not by narrow phones as such — a long tag wraps even at 414px.
+// `unknown` only reaches it at 320px. The fix is indifferent to which state
+// triggered it (the icon simply is not on that row any more), but the record
+// has to match the measurement.
 //
 // Bug ②: the 查看 release <a> inside the indigo pill carried no styling at all,
 // so it rendered in the UA default link blue (#0000EE) — jarring on the dark
@@ -23,6 +37,13 @@
 // relaxed so the intended one failed ALONE. Full log in kyle-dc68-fixup2.md:
 //   M1 move the <button> back inside .sw-status (+ restore its wrapping flex
 //      row) → "icon must share the version row" red in all 8 layout cases.
+//      WHAT M1 PROVES: the assertion is bound to the button's placement — if
+//      the button ever migrates back off the version row, this guard fails.
+//      WHAT M1 DOES NOT PROVE: that any particular verdict wrapped. M1 goes
+//      red because .sw-status simply SITS BELOW the version row, so the icon
+//      is off-row whether or not the chip wrapped. The wrap behaviour is a
+//      separate question, answered by the measurements in the header above —
+//      do not cite M1 as evidence for it.
 //   M4 render .sw-status before .sw-build → "version row sits above the status
 //      chip" red.
 //   M2 delete `.sw-badge a { color: inherit }` → link falls back to the UA
@@ -30,9 +51,13 @@
 //      assertion reds on its own at 1.32:1 (office) / 1.28:1 (xian).
 //   M5 `text-decoration: none` → "the link must stay underlined" red.
 //   Overflow assertions are regression nets rather than fix-carriers (nothing
-//   overflows today, long tag included). Their liveness was proven by probe:
+//   overflows today, long tag included). Their liveness is only HALF proven:
 //   forcing the chip to min-width 900px reds `.sw-card` at 547px, and with
-//   that relaxed reds the chip's own rect-vs-content-box check at 567px.
+//   that relaxed reds the chip's own rect-vs-content-box check at 567px — but
+//   the OTHER TWO ("page has no horizontal overflow" and the
+//   `.sw-build__headline` check) have never been observed red, because
+//   `.sw-card` clamps the overflow before it can reach either. Treat those two
+//   as UNPROVEN, not as verified nets.
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Page } from "@playwright/test";
 import { SoftwareUpdateStory } from "./stories/SoftwareUpdateStory";
