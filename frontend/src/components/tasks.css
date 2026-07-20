@@ -678,6 +678,25 @@ a.task-artifacts__chip:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* T-6338: stacks the name above its upload-time/ref line so two artifacts
+   pinned under the IDENTICAL filename still read as two distinct rows.
+   `min-width: 0` is load-bearing — without it a flex child refuses to shrink
+   below its content's intrinsic width and `.task-artifacts__chip-name`'s
+   ellipsis never engages, same mechanism as the chip itself (T-90df). */
+.task-artifacts__chip-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  gap: 1px;
+}
+.task-artifacts__chip-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
 .task-artifacts__thumb {
   width: 44px;
   height: 44px;

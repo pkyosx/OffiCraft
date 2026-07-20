@@ -12,6 +12,7 @@ import {
   TaskCardArtifactsStory,
   TaskCardNoArtifactsStory,
   TaskCardRaggedArtifactsStory,
+  TaskCardSameNameArtifactsStory,
 } from "./stories/TaskCardArtifactsStory";
 import { TaskArtifactsRightEdgeStory } from "./stories/TaskArtifactsRightEdgeStory";
 import { TaskArtifactsOverflowStory } from "./stories/TaskArtifactsOverflowStory";
@@ -344,3 +345,76 @@ test("empty set: NO 產物 badge renders (the load-bearing negative)", async ({ 
   const cmp = await mount(<TaskCardNoArtifactsStory />);
   await expect(cmp.getByTestId("task-artifacts-badge")).toHaveCount(0);
 });
+
+// ── T-6338 — two artifacts pinned under the IDENTICAL filename must still
+// read as two distinct, safely-deletable rows (owner 2026-07-20 report). The
+// fixture also pins an IDENTICAL createdTs on both, which is the worst case
+// the ticket calls out: a minute-resolution timestamp alone would print the
+// same string on both rows, so the guard is only non-vacuous if it forces
+// that collision and still finds the rows distinct (via the per-row id ref
+// tag). Desktop AND phone width both run this — jsdom cannot see either.
+for (const vp of [
+  { label: "desktop 1024", width: 1024, height: 800 },
+  { label: "narrow 390", width: 390, height: 780 },
+] as const) {
+  test(`${vp.label}: two same-named artifacts render as two DISTINCT, in-viewport rows (T-6338)`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: vp.width, height: vp.height });
+    const cmp = await mount(<TaskCardSameNameArtifactsStory />);
+    await cmp.getByTestId("task-artifacts-badge").click();
+    const popover = cmp.locator(".task-artifacts");
+    await expect(popover).toBeVisible();
+
+    const rows = cmp.locator(".task-artifacts__item");
+    await expect(rows).toHaveCount(2);
+
+    // Both rows do share the identical filename — that premise must hold, or
+    // this guard is testing nothing.
+    const names = await cmp
+      .locator(".task-artifacts__chip-name")
+      .evaluateAll((els) => els.map((el) => el.textContent ?? ""));
+    expect(names.length).toBe(2);
+    expect(names[0]).toBe("DEMO-CUST_demo.mp4");
+    expect(names[0]).toBe(names[1]);
+
+    // …yet the FULL row text must differ — the load-bearing assertion. This
+    // only passes if some rendered text (the meta line's time + ref tag)
+    // breaks the tie; deleting that line collapses both rows back to
+    // "DEMO-CUST_demo.mp4" and reddens here.
+    const rowTexts = await rows.evaluateAll((els) =>
+      els.map((el) => el.textContent ?? ""),
+    );
+    expect(rowTexts.length).toBe(2);
+    expect(rowTexts[0]).not.toBe(rowTexts[1]);
+
+    // The meta line itself must be present and non-empty on both rows (not
+    // just "some other text differed by accident" — e.g. a stray key prop).
+    const metas = await cmp
+      .locator(".task-artifacts__chip-meta")
+      .evaluateAll((els) => els.map((el) => el.textContent ?? ""));
+    expect(metas.length).toBe(2);
+    for (const m of metas) expect(m.length).toBeGreaterThan(0);
+    expect(metas[0]).not.toBe(metas[1]);
+
+    // Each row keeps its own delete button (nothing about disambiguation may
+    // cost the owner the ability to remove either one).
+    await expect(cmp.locator(".task-artifacts__remove")).toHaveCount(2);
+
+    // Still a laid-out panel fully inside the viewport at this width — the
+    // second line must not push the popover off-screen.
+    const box = (await popover.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(vp.width + 1);
+
+    // No row's chip spills past the panel edge either (T-49fb's failure mode
+    // for a two-line chip would be the meta line forcing extra width).
+    const chipRights = await cmp
+      .locator(".task-artifacts__chip")
+      .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().right));
+    for (const right of chipRights) {
+      expect(right).toBeLessThanOrEqual(box.x + box.width + 1);
+    }
+  });
+}

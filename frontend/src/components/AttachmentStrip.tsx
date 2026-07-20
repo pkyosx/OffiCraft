@@ -25,8 +25,10 @@ export function AttachmentStrip({
   imageClassName,
   fileChipClassName = "chat__msg-file",
   fileNameClassName = "chat__msg-file-name",
+  fileNameColClassName,
   onOpenImage,
   renderExtra,
+  renderMeta,
 }: {
   attachments: ChatAttachmentView[];
   /** The container element's class (e.g. `chat__msg-attachments`,
@@ -46,6 +48,12 @@ export function AttachmentStrip({
   fileChipClassName?: string;
   /** The chip's filename `<span>` class — same defaulting contract. */
   fileNameClassName?: string;
+  /** Wrapper class stacking the filename above `renderMeta`'s output
+   * (T-6338 — the artifacts popover's per-row upload time/ref). Only used
+   * (and only rendered at all) when `renderMeta` is supplied — absent ⇒ the
+   * filename `<span>` renders bare exactly as before, so every OTHER caller
+   * (chat bubble, reply-card strip) stays byte-identical. */
+  fileNameColClassName?: string;
   /** Makes image thumbnails clickable (role=button + keyboard): the caller
    * receives the token-authed src and opens its own Lightbox. Absent ⇒ a
    * static thumbnail (the answered-card strip's existing behaviour). */
@@ -53,6 +61,10 @@ export function AttachmentStrip({
   /** Per-item extra node rendered after the image/chip (ChatArea's hover
    * 複製分享連結 button). */
   renderExtra?: (att: ChatAttachmentView) => ReactNode;
+  /** Per-item node rendered BELOW the filename, inside the chip (T-6338 —
+   * lets a non-image download chip carry a second line without every other
+   * call site knowing about it). Undefined ⇒ no second line, no wrapper. */
+  renderMeta?: (att: ChatAttachmentView) => ReactNode;
 }) {
   const { t } = useI18n();
   if (attachments.length === 0) return null;
@@ -91,6 +103,7 @@ export function AttachmentStrip({
     // when it outgrows its row, so hovering must still yield the whole name
     // (T-90df). Presentation only — href/download are untouched.
     const fullName = att.filename || t.chat.downloadAttachment;
+    const meta = renderMeta?.(att);
     return (
       <a
         key={itemClassName ? undefined : att.id}
@@ -100,7 +113,14 @@ export function AttachmentStrip({
         title={fullName}
       >
         <PaperclipIcon size={15} />
-        <span className={fileNameClassName}>{fullName}</span>
+        {meta ? (
+          <span className={fileNameColClassName}>
+            <span className={fileNameClassName}>{fullName}</span>
+            {meta}
+          </span>
+        ) : (
+          <span className={fileNameClassName}>{fullName}</span>
+        )}
       </a>
     );
   }

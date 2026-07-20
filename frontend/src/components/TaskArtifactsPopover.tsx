@@ -25,6 +25,7 @@ import type { ReactNode } from "react";
 import { useI18n } from "../i18n";
 import { api } from "../api";
 import type { TaskArtifactView, ChatAttachmentView } from "../api/adapter";
+import { formatAbsolute } from "../lib/dateFormat";
 import { AttachmentStrip, Lightbox } from "./AttachmentStrip";
 import {
   MarkdownPreviewOverlay,
@@ -49,6 +50,17 @@ function asAttachmentView(a: TaskArtifactView): ChatAttachmentView {
     mime: a.mime,
     isImage: a.isImage,
   };
+}
+
+/** T-6338: two pinned artifacts can carry the IDENTICAL filename (the same
+ * demo file re-uploaded) — the row must still let the owner tell them apart
+ * and trust the delete button they're about to click. `formatAbsolute` only
+ * has minute resolution, which is not enough on its own (two uploads in the
+ * same minute would print the same string); `a.id` (server-minted, always
+ * unique) is appended as a short ref tag so the two rows are NEVER
+ * character-identical regardless of how close the timestamps land. */
+function artifactMetaLabel(a: TaskArtifactView, nowTs: number): string {
+  return `${formatAbsolute(a.createdTs, nowTs)} · #${a.id.slice(-6)}`;
 }
 
 export function TaskArtifactsBadge({
@@ -144,6 +156,10 @@ function ArtifactsPopover({
 }) {
   const { t } = useI18n();
   const [artifacts, setArtifacts] = useState<TaskArtifactView[]>(seed ?? []);
+  // A pinned artifact's timestamp never ticks live — this only decides
+  // whether formatAbsolute prefixes the year, so a plain render-time read is
+  // fine (no state/interval needed, unlike RepliesPage's counters).
+  const nowTs = Date.now() / 1000;
   // Open overlays (mutually exclusive; the caller-owned state pattern).
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ title: string; url: string } | null>(
@@ -208,9 +224,14 @@ function ArtifactsPopover({
       art?.kind === "image" ? att.filename || t.tasks.artifacts.imageName : "";
     return (
       <>
-        {imageName && (
+        {imageName && art && (
           <span className="task-artifacts__chip" title={imageName}>
-            <span className="task-artifacts__chip-name">{imageName}</span>
+            <span className="task-artifacts__chip-text">
+              <span className="task-artifacts__chip-name">{imageName}</span>
+              <span className="task-artifacts__chip-meta">
+                {artifactMetaLabel(art, nowTs)}
+              </span>
+            </span>
           </span>
         )}
         <span className="task-artifacts__actions">
@@ -261,8 +282,17 @@ function ArtifactsPopover({
               imageClassName="task-artifacts__thumb"
               fileChipClassName="task-artifacts__chip"
               fileNameClassName="task-artifacts__chip-name"
+              fileNameColClassName="task-artifacts__chip-text"
               onOpenImage={(src) => setLightboxSrc(src)}
               renderExtra={renderExtra}
+              renderMeta={(att) => {
+                const art = artifacts.find((a) => a.id === att.id);
+                return art ? (
+                  <span className="task-artifacts__chip-meta">
+                    {artifactMetaLabel(art, nowTs)}
+                  </span>
+                ) : null;
+              }}
             />
             {links.length > 0 && (
               <div className="task-artifacts__links">
@@ -284,7 +314,12 @@ function ArtifactsPopover({
                       aria-label={`${a.label || a.url} — ${t.tasks.artifacts.openLinkHint}`}
                     >
                       <ExternalLinkIcon size={14} />
-                      <span className="task-artifacts__chip-name">{a.label || a.url}</span>
+                      <span className="task-artifacts__chip-text">
+                        <span className="task-artifacts__chip-name">{a.label || a.url}</span>
+                        <span className="task-artifacts__chip-meta">
+                          {artifactMetaLabel(a, nowTs)}
+                        </span>
+                      </span>
                     </a>
                     <span className="task-artifacts__actions">
                       {onRemoveArtifact && (

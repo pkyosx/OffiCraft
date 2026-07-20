@@ -218,6 +218,44 @@ export const RAGGED_ARTIFACTS: TaskView = mkTask({
   ],
 });
 
+// T-6338 (owner 2026-07-20 report): two artifacts pinned under the IDENTICAL
+// filename — the exact shape from the owner's screenshot (`DEMO-CUST_demo.mp4`
+// twice, each row with its own delete button, nothing to tell them apart).
+// `createdTs` is deliberately identical too — the worst case where the
+// minute-resolution timestamp alone would ALSO print identically, which is
+// exactly the failure mode the ticket calls out ("兩個時間剛好相近或格式讓人
+// 看不出差異"). Only `id` differs, which is what the per-row ref tag must
+// fall back on to keep the two rows provably distinct.
+export const SAME_NAME_ARTIFACTS: TaskView = mkTask({
+  artifactCount: 2,
+  artifacts: [
+    {
+      id: "ta-demo1a2b3c",
+      kind: "file",
+      url: "/api/chat/attachment/ta-demo1a2b3c",
+      label: "",
+      filename: "DEMO-CUST_demo.mp4",
+      mime: "video/mp4",
+      isImage: false,
+      attachmentId: "ta-demo1a2b3c",
+      createdTs: 1784550000,
+      createdBy: "mira",
+    },
+    {
+      id: "ta-demo4d5e6f",
+      kind: "file",
+      url: "/api/chat/attachment/ta-demo4d5e6f",
+      label: "",
+      filename: "DEMO-CUST_demo.mp4",
+      mime: "video/mp4",
+      isImage: false,
+      attachmentId: "ta-demo4d5e6f",
+      createdTs: 1784550000,
+      createdBy: "mira",
+    },
+  ],
+});
+
 // The 負責人 + 轉派 icon stress fixture (owner 2026-07-18): a live card whose
 // assignee display name is long enough to force the chip to ellipse at 390px.
 // The 轉派 icon shares the 負責人 value cell — the guard proves a long name

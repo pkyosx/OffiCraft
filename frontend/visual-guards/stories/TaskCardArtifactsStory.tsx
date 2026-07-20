@@ -8,6 +8,7 @@ import {
   WITH_ARTIFACTS,
   NO_ARTIFACTS,
   RAGGED_ARTIFACTS,
+  SAME_NAME_ARTIFACTS,
   MIRA,
   NOOP,
   WORKERS,
@@ -45,4 +46,10 @@ export function TaskCardNoArtifactsStory() {
  * the ragged-chip bug. */
 export function TaskCardRaggedArtifactsStory() {
   return <Card task={RAGGED_ARTIFACTS} />;
+}
+
+/** T-6338: two artifacts pinned under the identical filename — the owner's
+ * reported shape. */
+export function TaskCardSameNameArtifactsStory() {
+  return <Card task={SAME_NAME_ARTIFACTS} />;
 }
