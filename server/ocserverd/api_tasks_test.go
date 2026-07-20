@@ -264,16 +264,6 @@ func createAdHocTask(t *testing.T, api *apiServer, executor string) taskDTO {
 	return decodeBody[taskCreateResultDTO](t, rec).Task
 }
 
-// driveTaskStatus posts one status report as the executor.
-func driveTaskStatus(t *testing.T, api *apiServer, taskID, executor string, body map[string]any) *httptest.ResponseRecorder {
-	t.Helper()
-	rec := httptest.NewRecorder()
-	api.HandleUpdateTaskStatusApiTasksTaskIdStatusPost(rec,
-		taskReq(t, "POST", "/api/tasks/"+taskID+"/status", body, executor, "agent"),
-		taskID)
-	return rec
-}
-
 // submitPlan replaces the plan as the executor and returns the task view.
 func submitPlan(t *testing.T, api *apiServer, taskID, executor string, steps []map[string]any) taskDTO {
 	t.Helper()
@@ -327,8 +317,8 @@ func startFirstStep(t *testing.T, api *apiServer, taskID, executor string) {
 }
 
 // driveTaskDone plans a single step and reports it in_progress→done, deriving
-// the task to done (auto-close, T-9ca5). Replaces the retired
-// update_task_status done report for tests that just need a closed task.
+// the task to done (auto-close, T-9ca5) — the standard closer for tests that
+// just need a closed task (task status is derived, never reported).
 func driveTaskDone(t *testing.T, api *apiServer, taskID, executor string) {
 	t.Helper()
 	view := submitPlan(t, api, taskID, executor, []map[string]any{
@@ -436,9 +426,10 @@ func answerCard(t *testing.T, api *apiServer, cardID string, body map[string]any
 }
 
 // TestManualWaitingOwnerReportIsRejected pins T-68b7 ②: waiting_owner is NOT an
-// agent-reportable status. A report of it on the task OR the step is a 400 (not
-// the state-machine 409) — waiting_owner is reachable only by opening a card
-// (open_gate / create_reply_card), and a rejected report moves nothing.
+// agent-reportable status. A report of it on the step is a 400 (not the
+// state-machine 409) — waiting_owner is reachable only by opening a card
+// (open_gate / create_reply_card), and a rejected report moves nothing. (The
+// task-level status report route is gone — task status is derived, T-8449.)
 func TestManualWaitingOwnerReportIsRejected(t *testing.T) {
 	api := newTasksTestServer(t)
 	task := createAdHocTask(t, api, "m-exec")
@@ -446,19 +437,6 @@ func TestManualWaitingOwnerReportIsRejected(t *testing.T) {
 		{"name": "build", "dod": "done"},
 	})
 	startFirstStep(t, api, task.ID, "m-exec")
-	taskRec := driveTaskStatus(t, api, task.ID, "m-exec",
-		map[string]any{"status": "waiting_owner"})
-	if taskRec.Code != http.StatusBadRequest {
-		t.Fatalf("manual task waiting_owner report must 400, got %d %s",
-			taskRec.Code, taskRec.Body.String())
-	}
-	// The 400 must point the agent at the card-open paths (owner cockpit
-	// behaviour stays consistent — the guidance is not a bare rejection).
-	if !strings.Contains(taskRec.Body.String(), "open_gate") ||
-		!strings.Contains(taskRec.Body.String(), "create_reply_card") {
-		t.Fatalf("task 400 must name open_gate + create_reply_card: %s",
-			taskRec.Body.String())
-	}
 	rec := httptest.NewRecorder()
 	api.HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost(rec,
 		taskReq(t, "POST", "/x", map[string]any{"status": "waiting_owner"},
@@ -480,8 +458,7 @@ func TestManualWaitingOwnerReportIsRejected(t *testing.T) {
 
 // TestAnsweringACardResumesTheTaskAndStep pins T-68b7 ③⑤ "答卡→回前態": the SERVER
 // restores the held step and task from waiting_owner back to in_progress when
-// the owner answers the bound card (releaseCardHold). Before the
-// answer the agent cannot bail out of waiting_owner (409); after it the agent
+// the owner answers the bound card (releaseCardHold); after it the agent
 // finishes the work itself (in_progress → done). This supersedes ruling H4.
 func TestAnsweringACardResumesTheTaskAndStep(t *testing.T) {
 	api := newTasksTestServer(t)
@@ -492,15 +469,6 @@ func TestAnsweringACardResumesTheTaskAndStep(t *testing.T) {
 	gateStep := view.Steps[0]
 	startFirstStep(t, api, task.ID, "m-exec")
 	card := openGateCard(t, api, task.ID, "m-exec", gateStep.ID, "go?")
-
-	// While the card still waits, the agent CANNOT report the task out of
-	// waiting_owner — update_task_status is retired (the card lifecycle owns the
-	// exit), so the report is refused.
-	if rec := driveTaskStatus(t, api, task.ID, "m-exec",
-		map[string]any{"status": "in_progress"}); rec.Code != http.StatusConflict {
-		t.Fatalf("report out of waiting_owner before the answer must 409, got %d %s",
-			rec.Code, rec.Body.String())
-	}
 
 	if rec := answerCard(t, api, card.ID,
 		map[string]any{"option_idx": 0}); rec.Code != http.StatusOK {
@@ -689,25 +657,30 @@ func TestOpenGateArmsANonGatePlainStep(t *testing.T) {
 }
 
 func TestExecutorGuardDeniesAForeignAgentButAdmitsAdminCapability(t *testing.T) {
+	// Hosted on the step-status report route (update_step_status) — the former
+	// host, the retired task-status report route, is gone (T-8449). The guard
+	// contract is unchanged: a foreign plain agent is turned away at 403, while
+	// owner scope (admin capability) passes the executor guard and reaches the
+	// handler proper.
 	api := newTasksTestServer(t)
 	task := createAdHocTask(t, api, "m-exec")
+	view := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
+		{"name": "work", "dod": "done"},
+	})
+	stepID := view.Steps[0].ID
 	// A foreign plain agent is 403.
-	rec := driveTaskStatus(t, api, task.ID, "m-intruder",
-		map[string]any{"status": "in_progress"})
+	rec := reportStepStatus(t, api, task.ID, stepID, "m-intruder", "in_progress", "")
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("foreign agent must 403, got %d %s", rec.Code, rec.Body.String())
 	}
-	// Owner scope (admin capability) passes the guard: the executor guard runs
-	// BEFORE the retirement refusal, so an admitted caller reaches the retired
-	// endpoint (409 "retired") rather than being turned away at the 403 guard.
+	// Owner scope (admin capability) passes the guard and the report lands.
 	rec = httptest.NewRecorder()
-	api.HandleUpdateTaskStatusApiTasksTaskIdStatusPost(rec,
+	api.HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost(rec,
 		taskReq(t, "POST", "/x", map[string]any{"status": "in_progress"},
 			"owner", "owner"),
-		task.ID)
-	if rec.Code != http.StatusConflict ||
-		!strings.Contains(rec.Body.String(), "retired") {
-		t.Fatalf("owner must pass the guard and hit the retired endpoint (409), got %d %s",
+		task.ID, stepID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("owner must pass the guard and land the report (200), got %d %s",
 			rec.Code, rec.Body.String())
 	}
 }
@@ -1301,9 +1274,9 @@ func TestTerminalStatesReleaseTheBoundWorker(t *testing.T) {
 			if err != nil || task2 == nil || task2.ClosedTS == 0 {
 				t.Fatalf("closed_ts must stamp: %+v %v", task2, err)
 			}
-			// A closed task refuses every later agent push.
-			rec := driveTaskStatus(t, api, task.ID, "ow-worker1",
-				map[string]any{"status": "in_progress"})
+			// A closed task refuses every later agent push (set_priority here —
+			// the task-status report route is gone, T-8449).
+			rec := setPriority(t, api, task.ID, "ow-worker1", "agent", "high")
 			if rec.Code != http.StatusConflict {
 				t.Fatalf("post-terminal push must 409, got %d", rec.Code)
 			}
@@ -1693,8 +1666,8 @@ func TestResumeSummaryTaskBlockIsBounded(t *testing.T) {
 		ids = append(ids, createAdHocTask(t, api, "m-exec").ID)
 	}
 	// Touch the OLDEST task last — recency is by updated_ts, not creation. A
-	// priority change is a live write that bumps updated_ts (update_task_status
-	// is retired, T-9ca5).
+	// priority change is a live write that bumps updated_ts (task status is
+	// derived, never reported — T-9ca5).
 	if rec := setPriority(t, api, ids[0], "m-exec", "agent", "high"); rec.Code != http.StatusOK {
 		t.Fatalf("touch: %d %s", rec.Code, rec.Body.String())
 	}

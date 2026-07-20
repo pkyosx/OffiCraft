@@ -1310,38 +1310,6 @@
       "name": "submit_plan"
     },
     {
-      "description": "RETIRED (task status is derived from its steps): every call is refused with the lever that replaced it and the task is never mutated. Report step status via update_step_status; take over a reassigned task via claim_task; terminate/duplicate have their own actions.",
-      "inputSchema": {
-        "properties": {
-          "status": {
-            "title": "Status",
-            "type": "string"
-          },
-          "task_id": {
-            "type": "string"
-          },
-          "waiting_reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Waiting Reason"
-          }
-        },
-        "required": [
-          "task_id",
-          "status"
-        ],
-        "type": "object"
-      },
-      "name": "update_task_status"
-    },
-    {
       "description": "Mark a task duplicated, pointing at the original (executor/owner; terminal).",
       "inputSchema": {
         "properties": {

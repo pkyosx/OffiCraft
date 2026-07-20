@@ -1052,14 +1052,6 @@ HAPPY: dict[str, Happy] = {
 # Manifest rows deliberately NOT happy-tested (reason required — the coverage
 # tooth enforces the union).
 SKIPPED_HAPPY: dict[str, str] = {
-    "POST /api/tasks/{task_id}/status": (
-        "update_task_status is RETIRED (T-9ca5): task status is DERIVED from the "
-        "steps, so the endpoint has NO 2xx face — it always refuses (409 for "
-        "not_started/in_progress/done/waiting_external/terminated/duplicated, 400 "
-        "for waiting_owner) and never mutates. The full retirement contract is "
-        "pinned in test_update_task_status_is_retired below; the at-floor 409 + "
-        "executor-guard 403 in the auth matrix."
-    ),
     "POST /api/auth/set-password": (
         "the positive face needs an UNSET password + the serve-log claim token; "
         "the harness seeds the password before serve, so no claim token exists. "
@@ -1255,24 +1247,17 @@ def test_bootstrap_with_member_mints_token(hctx: HCtx) -> None:
     assert probe.status_code == 200, "minted bootstrap token failed to authenticate"
 
 
-def test_update_task_status_is_retired(hctx: HCtx) -> None:
-    """T-9ca5: the task-level status report is retired. Every reportable status
-    is refused and the task never mutates — 400 for waiting_owner (a
-    card-lifecycle hold), 409 for the rest — and the executor (the happy agent)
-    is the caller, so this is the retirement refusal, not the executor guard."""
+def test_update_task_status_route_is_gone(hctx: HCtx) -> None:
+    """T-8449: the retired task-level status report route is REMOVED from the
+    wire — the executor's report lands on no handler at all (404), and the task
+    never mutates. (The step-level report route stays — the derivation input.)"""
     task_id = _happy_task(hctx)
     h = _auth(hctx.agent.token)
-    for status in ("not_started", "in_progress", "done",
-                   "waiting_external", "terminated", "duplicated"):
-        r = hctx.client.post(
-            f"/api/tasks/{task_id}/status", json={"status": status}, headers=h)
-        assert r.status_code == 409, (
-            f"update_task_status({status}) must 409, got {r.status_code} {r.text[:200]}")
     r = hctx.client.post(
-        f"/api/tasks/{task_id}/status",
-        json={"status": "waiting_owner"}, headers=h)
-    assert r.status_code == 400, (
-        f"update_task_status(waiting_owner) must 400, got {r.status_code} {r.text[:200]}")
+        f"/api/tasks/{task_id}/status", json={"status": "in_progress"}, headers=h)
+    assert r.status_code == 404, (
+        f"POST /api/tasks/{{id}}/status must be gone (404), got "
+        f"{r.status_code} {r.text[:200]}")
     # Nothing mutated — the task is still not_started.
     got = hctx.client.get(f"/api/tasks/{task_id}", headers=_auth(hctx.owner_token))
     assert got.status_code == 200 and got.json()["status"] == "not_started", got.text

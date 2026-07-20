@@ -857,7 +857,7 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	// predecessor BEFORE any handover dialogue with the successor could happen
 	// (the `reassigning` hold exists precisely to host that dialogue). Instead
 	// the predecessor stays live through the hold and is fired the moment the
-	// successor reports reassigning→in_progress (update_task_status handler),
+	// successor claims the task (claim_task handler),
 	// or when the timeout reaper gives up on that report — dismissed by its own
 	// WORKER ID (dismissOutsourceWorkerByID), never by task_id, so an
 	// outsource→outsource takeover does not kill the fresh worker minted below
@@ -949,8 +949,8 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 		predecessorLabel := s.executorLabel(oldKind, oldExecutor)
 		msg := "[" + no + "] 你接手了任務「" + t.Title + "」。你的前任是 " +
 			predecessorLabel + "（id `" + oldExecutor + "`）。請先跟他確認交接完成" +
-			"（直接 post_chat 給他，問清楚目前進度與在飛事項），確認後再由你自己用 update_task_status " +
-			"把狀態從 reassigning 轉成 in_progress（reassigning→in_progress，只有你這個新負責人報得動）再開始推進。"
+			"（直接 post_chat 給他，問清楚目前進度與在飛事項），確認後再由你自己呼叫 claim_task" +
+			"（認領）解除轉派鎖——只有你這個新負責人動得了；任務狀態一律照步驟推導，不必也不能自己報。"
 		if note := trimmedOrEmpty(body.Note); note != "" {
 			msg += "\n\n交接備註：" + note
 		}
@@ -960,7 +960,7 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 		// with) — the plain "you are now the executor" notice, member side only
 		// (a fresh worker learns it through the boot context).
 		msg := "[" + no + "] 你接手了任務「" + t.Title +
-			"」。請先讀任務內容，準備好後用 update_task_status 把狀態轉回 in_progress（reassigning→in_progress）再開始執行。"
+			"」。請先讀任務內容，準備好後由你自己呼叫 claim_task（認領）解除轉派鎖再開始執行；任務狀態一律照步驟推導，不必也不能自己報。"
 		if note := trimmedOrEmpty(body.Note); note != "" {
 			msg += "\n\n交接備註：" + note
 		}
@@ -1480,65 +1480,6 @@ func (s *apiServer) HandleSubmitTaskPlanApiTasksTaskIdPlanPost(w http.ResponseWr
 		return
 	}
 	writeJSON(w, http.StatusOK, newTaskDTO(*t, steps, deps, s.replyCardStatusesForSteps(steps)))
-}
-
-// POST /api/tasks/{task_id}/status — the agent-reported task state machine
-// (contract §B.1 rows 2/4/5/6/7). waiting_owner is not an agent-reportable
-// status at all — reporting it is a 400 (the card lifecycle owns that entry:
-// open_gate / create_reply_card); terminated is the owner's terminate alone
-// (409). Any other illegal move within the reportable set is a 409.
-func (s *apiServer) HandleUpdateTaskStatusApiTasksTaskIdStatusPost(w http.ResponseWriter, r *http.Request, taskId string) {
-	var body TaskStatusUpdateDTO
-	if !decodeJSONBodyRequired(w, r, &body, "status") {
-		return
-	}
-	status := trimString(body.Status)
-	if !ValidTaskStatus(status) {
-		writeError(w, http.StatusBadRequest,
-			"status must be one of not_started, in_progress, waiting_owner, waiting_external, done, terminated, duplicated")
-		return
-	}
-	t, err := s.resolveTask(taskId)
-	if err != nil {
-		writeResolveError(w, err, "task", taskId)
-		return
-	}
-	if !s.callerMayDriveTask(r, *t) {
-		writeError(w, http.StatusForbidden, "caller is not the task's executor")
-		return
-	}
-	// T-9ca5 「任務狀態全推導」: the agent no longer reports TASK status — it is
-	// DERIVED from the steps. This endpoint is RETIRED: every report is gently
-	// refused (溫和拒絕不壞) with the lever that replaced it, and the task is
-	// NEVER mutated. An old agent still calling it gets a clear 409/400, not a
-	// broken task.
-	switch status {
-	case TaskStatusTerminated:
-		writeError(w, http.StatusConflict,
-			"terminate is the owner's action (POST /api/tasks/{id}/terminate)")
-	case TaskStatusDuplicated:
-		writeError(w, http.StatusConflict,
-			"duplicated is set via the dedicated mark_duplicate action "+
-				"(POST /api/tasks/{id}/duplicate), not the status report")
-	case TaskStatusWaitingOwner:
-		writeError(w, http.StatusBadRequest,
-			"waiting_owner is not an agent-reportable status; a task enters it only "+
-				"by opening a reply card (open_gate or create_reply_card)")
-	case TaskStatusWaitingExternal:
-		writeError(w, http.StatusConflict,
-			"task status is derived from its steps now (T-9ca5): report the STEP as "+
-				"waiting_external with a waiting_reason (update_step_status) and the "+
-				"task derives to waiting_external")
-	case TaskStatusDone:
-		writeError(w, http.StatusConflict,
-			"update_task_status is retired: a task reaches done when EVERY step is done "+
-				"— report the last step done (update_step_status), not the task")
-	default: // not_started / in_progress
-		writeError(w, http.StatusConflict,
-			"update_task_status is retired (T-9ca5): task status is derived from its "+
-				"steps — report step status via update_step_status. To take over a "+
-				"reassigned task use the claim action (POST /api/tasks/{id}/claim).")
-	}
 }
 
 // POST /api/tasks/{task_id}/duplicate — mark a task duplicated, pointing at the
