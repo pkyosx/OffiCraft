@@ -47,9 +47,10 @@ test("desktop 1024: 產物 badge is visible and opens a laid-out popover listing
   expect(popBox!.x).toBeGreaterThanOrEqual(0);
   expect(popBox!.x + popBox!.width).toBeLessThanOrEqual(1024 + 1);
 
-  // The .md file row keeps its 預覽 action.
-  await expect(cmp.getByText("design.md")).toBeVisible();
-  await expect(cmp.locator('.task-artifacts [aria-label="預覽"]')).toBeVisible();
+  // The .md file row's chip IS the preview trigger now (T-7bc2): a <button>
+  // whose accessible name is the visible filename text, not a separate
+  // 眼睛 button.
+  await expect(cmp.getByRole("button", { name: "design.md" })).toBeVisible();
 });
 
 test("desktop 1024: the three kinds keep their visual distinction inside the one list", async ({ mount, page }) => {
@@ -262,7 +263,8 @@ test("opening the image Lightbox does not dismiss the popover (T-49fb)", async (
   await expect(popover).toBeVisible();
 
   // Same contract for the .md 預覽 overlay — the other in-popover overlay.
-  await cmp.locator('.task-artifacts [aria-label="預覽"]').click();
+  // T-7bc2: the file chip itself is the trigger now (no separate 眼睛 button).
+  await cmp.getByRole("button", { name: "design.md" }).click();
   await expect(cmp.locator(".md-preview")).toBeVisible();
   await expect(popover).toBeVisible();
 });
