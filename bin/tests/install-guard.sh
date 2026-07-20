@@ -147,18 +147,28 @@ SH
 # producing exit 1 with a blank screen, and the suite still went green. A stub
 # that is more forgiving than the tool it stands in for does not test the code,
 # it tests a fiction. SHIM_NO_LISTEN=1 reproduces that real-world state.
+# PORT-AWARE ON PURPOSE (default-port change to 7755). The stub used to print a
+# HARDCODED `127.0.0.1:8780` for every query, which made it blind to WHICH port
+# install.sh probed: a regression that moved the effective default back would
+# still see a listener and still read the same line back. Now the stub echoes
+# the port it was actually ASKED about, and every invocation is recorded in the
+# tripwire — so a case can assert the probe went to the port the default
+# resolves to, not merely that a probe happened.
 cat > "$SHIMDIR/lsof" <<'SH'
 #!/usr/bin/env bash
+echo "lsof $*" >> "$SHIM_TRIPWIRE"
+QPORT=""
 for a in "$@"; do
   case "$a" in
     -p)
       [[ "${SHIM_NO_LISTEN:-0}" == "1" ]] && exit 1
-      echo "ocserverd 4242 tester 5u IPv4 0x0 0t0 TCP 127.0.0.1:8780 (LISTEN)"
+      echo "ocserverd 4242 tester 5u IPv4 0x0 0t0 TCP 127.0.0.1:${SHIM_LIVE_PORT:-7755} (LISTEN)"
       exit 0 ;;
+    -iTCP:*) QPORT="${a#-iTCP:}" ;;
   esac
 done
 if [[ -f "$SHIM_STATE/.bootstrapped" ]]; then
-  echo "ocserverd 4242 tester 5u IPv4 0x0 0t0 TCP 127.0.0.1:8780 (LISTEN)"
+  echo "ocserverd 4242 tester 5u IPv4 0x0 0t0 TCP 127.0.0.1:${QPORT:-7755} (LISTEN)"
   exit 0
 fi
 exit 1
@@ -224,7 +234,11 @@ run_install() {
 booted_out() { [[ -f "$WORK/.booted-out" ]] && echo yes || echo no; }
 # The tripwire records every launchctl invocation. Asserting ON it is what turns
 # "the script did something" into "the script did it TO THE RIGHT JOB".
-tripwire_has() { grep -qF "$1" "$WORK/.tripwire"; }
+# `-e` is not optional: needles that START WITH A DASH (an lsof flag such as
+# -iTCP:7755) are otherwise parsed by grep as options and the call fails with a
+# usage error, which reads as "not found" — a false FAIL that looks like a real
+# one.
+tripwire_has() { grep -qF -e "$1" "$WORK/.tripwire"; }
 
 echo "install.sh live-service gate — hermetic tests (default label, stubbed launchd)"
 
@@ -368,6 +382,29 @@ if [[ "$OUT" == *"Restart the running service?"* ]]; then
 else
   echo "  skip — no usable pty via script(1); interactive prompt branch NOT verified here"
 fi
+
+# ── 9. the DEFAULT port a fresh install actually resolves is 7755 ───────────
+# Not a string check on install.sh — this walks the real fresh-install path with
+# NO config anywhere (env -i, temp HOME, CWD=$WORK which holds no oc.toml), so
+# the port can only come from DEFAULT_PORT. Two independent witnesses, each its
+# own assertion so a break names itself:
+#   (a) the PORT GATE probe — install.sh asks lsof about the effective port
+#       before writing anything; the port-aware stub records exactly which one.
+#   (b) the SETUP LINK the operator is told to open at the end.
+# Plus a negative: the retired 8780 must appear nowhere in the run's output. The
+# negative alone would be satisfied by an installer that resolved some third
+# port, and the positives alone would be satisfied by one that printed 7755
+# while probing something else — together they pin the port end to end.
+reset_fixture fresh
+run_install absent
+check "fresh install: succeeds on the default path" "0" "$RC"
+if tripwire_has "-iTCP:7755"; then
+  ok "fresh install: the port gate probed 7755 (the default is what gets gated)"
+else
+  bad "fresh install: the port gate did NOT probe 7755 — tripwire: $(cat "$WORK/.tripwire")"
+fi
+case "$OUT" in *"http://127.0.0.1:7755/"*) ok "fresh install: the setup link the operator is handed is on 7755";; *) bad "fresh install: setup link is not on 7755 (output was: '$OUT')";; esac
+case "$OUT" in *8780*) bad "fresh install: the retired 8780 still appears in the run's output ('$OUT')";; *) ok "fresh install: no trace of the retired 8780 in the output";; esac
 
 echo "install-guard tests: $PASS ok, $FAIL failed"
 [[ "$FAIL" == "0" ]] || exit 1

@@ -431,6 +431,22 @@ else
   bad "bin/tests/install-guard.sh is missing"
 fi
 
+# ── default-port contract (oc.toml.example ↔ bin/ocserver render guard) ─────
+# Own file, own tempdir. The template and render_oc_toml's literal guard are a
+# contract with no compiler behind it: drift in either direction is invisible
+# until an install detonates at render time. Folded in here so it reddens CI.
+PORTS="$HERE/port-default.sh"
+echo
+if [[ -f "$PORTS" ]]; then
+  if bash "$PORTS"; then
+    ok "default-port contract suite passed"
+  else
+    bad "default-port contract suite FAILED (see output above)"
+  fi
+else
+  bad "bin/tests/port-default.sh is missing"
+fi
+
 echo "bin tests (incl. install guard): $PASS ok, $FAIL failed"
 [[ "$FAIL" == "0" ]] || exit 1
 exit 0
