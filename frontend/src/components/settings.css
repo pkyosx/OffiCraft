@@ -194,14 +194,26 @@
   gap: 4px;
   margin-top: 8px;
 }
+/* The version row carries the 檢查更新 refresh control at its right (owner
+ * round-2): a short, bounded string, so unlike the status chip's line this
+ * row's geometry never changes with the verdict and the icon can never be
+ * wrapped away. */
 .sw-build__headline {
   line-height: 1.2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* the version <code> may be a long build label — let it shrink/ellipsize
+   * rather than push the icon off the row */
+  min-width: 0;
 }
 .sw-build__version {
   font-family: "SFMono-Regular", ui-monospace, Menlo, monospace;
   font-size: 17px;
   font-weight: 700;
   color: var(--color-text-strong);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .sw-build__time {
   font-size: 12.5px;
@@ -218,6 +230,21 @@
   border-radius: var(--radius-pill);
   font-size: 11.5px;
   font-weight: 600;
+}
+/* ── the 查看 release link inside a badge (owner round-2 item ②) ──
+ * A bare <a> inside the pill renders in the UA's default link blue
+ * (#0000EE) — on the indigo #2c3350 / #2c3a25 pill that is both jarring
+ * and far below 4.5:1. Inheriting the pill's own foreground keeps the card's
+ * palette and rides the pill's already-verified text contrast; the underline
+ * (not colour) is what marks it as a link, so the affordance survives. */
+.sw-badge a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.sw-badge a:hover,
+.sw-badge a:focus-visible {
+  text-decoration-thickness: 2px;
 }
 .sw-badge--ok {
   color: var(--color-accent);
@@ -241,22 +268,17 @@
   border: 1px solid rgba(229, 128, 122, 0.28);
 }
 
-/* ── the status row: badge + the 檢查更新 refresh icon at its right ──
- * (T-dc68 fixup, owner: "檢查更新用一個 refresh 圖示放到已是最新版那行的
- * 右邊", and the result must refresh THAT line, not spawn a new message.) */
+/* ── the status row: the badge alone ──
+ * (T-dc68 fixup round 2 — the refresh icon moved UP to .sw-build__headline;
+ * the result must refresh THIS line, never spawn a new message.) */
 .sw-status {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
   margin-top: 10px;
-  /* wrap so a long error verdict pushes the icon to the next line on a
-   * narrow phone instead of forcing the row wider than the viewport */
-  flex-wrap: wrap;
+  min-width: 0;
 }
 .sw-status__badge {
   min-width: 0;
 }
-.sw-status__refresh {
+.sw-refresh {
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -264,7 +286,6 @@
   /* 28px keeps the tap target usable on a phone without crowding the badge */
   width: 28px;
   height: 28px;
-  margin-top: -3px;
   padding: 0;
   border: 0;
   border-radius: var(--radius-pill);
@@ -272,18 +293,18 @@
   color: var(--color-text-muted);
   cursor: pointer;
 }
-.sw-status__refresh:hover:not(:disabled) {
+.sw-refresh:hover:not(:disabled) {
   color: var(--color-text-strong);
   background: rgba(255, 255, 255, 0.06);
 }
-.sw-status__refresh:disabled {
+.sw-refresh:disabled {
   opacity: 0.5;
   cursor: default;
 }
 /* The button's accessible name is real text, kept out of sight (never
  * display:none / visibility:hidden — both would drop it from the a11y tree
  * and leave the icon button nameless). */
-.sw-status__refresh-label {
+.sw-refresh__label {
   position: absolute;
   width: 1px;
   height: 1px;

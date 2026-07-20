@@ -774,6 +774,19 @@ function SoftwareUpdate({
     );
   }
 
+  /** Does a REAL newer release exist right now? The single source both the
+   * status badge and the 升級 button answer to. Precedence mirrors
+   * renderStatus() exactly: a settled explicit check is FRESHER than the
+   * cached /api/version flag, so it wins outright — including when it says
+   * "no" (a stale-positive cache must not offer an upgrade the server would
+   * reject with 409). While a check is in flight, or when it failed / came
+   * back `unknown`, there is no fresh answer to trust, so the cached flag
+   * stands: an unreachable GitHub must not retract a known-good offer. */
+  const upgradeOffered =
+    checkState.kind === "done" && checkState.verdict.status !== "unknown"
+      ? checkState.verdict.status === "update_available"
+      : !!version?.updateAvailable;
+
   // Toggle writes go straight through (no draft: a switch IS its commit);
   // flipping the channel re-kicks the server-side check, so re-read the
   // version shortly after — same best-effort refresh as the URL/code saves.
@@ -856,12 +869,40 @@ function SoftwareUpdate({
                * self-build falls back to the composed build label
                * v<yymmdd>-<hhmm>-<shortsha> from git sha + commit time. */}
               <div className="sw-build">
+                {/* ── the version row (owner round-2, 2026-07-20) ──
+                 * The refresh control is PINNED to the version-number line,
+                 * not to the status chip's line. Why: the status text is
+                 * variable-length (已是最新版 / 有可用的新版本 vX · 查看
+                 * release / the two-clause error sentences), so anchoring the
+                 * icon to it made the icon's position move with the verdict —
+                 * and on a 375px phone the `unknown` sentence wrapped the icon
+                 * down to a second row, orphaned at the bottom-left. The
+                 * version number is a short, bounded string, so this row's
+                 * geometry is stable across every state. */}
                 <div className="sw-build__headline">
                   <code className="sw-build__version">
                     {version.version !== "0.0.0"
                       ? version.version
                       : formatBuildVersion(version.gitSha, version.gitTime)}
                   </code>
+                  <button
+                    type="button"
+                    className="sw-refresh"
+                    disabled={checkState.kind === "checking"}
+                    onClick={runCheck}
+                    data-testid="settings-check-release"
+                  >
+                    {/* Icon-only button: the accessible name comes from real
+                     * (visually clipped) text content, NOT aria-label — this
+                     * repo has been bitten by aria-label REPLACING an element's
+                     * name. The svg is hidden so the name is exactly the text. */}
+                    <span className="sw-refresh__icon" aria-hidden="true">
+                      <RefreshIcon size={15} />
+                    </span>
+                    <span className="sw-refresh__label">
+                      {t.settings.checkUpdate}
+                    </span>
+                  </button>
                 </div>
               </div>
               {/* ── THE status line (owner 2026-07-20 verdict on T-dc68) ──
@@ -874,24 +915,6 @@ function SoftwareUpdate({
                 <span className="sw-status__badge" data-testid="settings-update-status">
                   {renderStatus()}
                 </span>
-                <button
-                  type="button"
-                  className="sw-status__refresh"
-                  disabled={checkState.kind === "checking"}
-                  onClick={runCheck}
-                  data-testid="settings-check-release"
-                >
-                  {/* Icon-only button: the accessible name comes from real
-                   * (visually clipped) text content, NOT aria-label — this
-                   * repo has been bitten by aria-label REPLACING an element's
-                   * name. The svg is hidden so the name is exactly the text. */}
-                  <span className="sw-status__refresh-icon" aria-hidden="true">
-                    <RefreshIcon size={15} />
-                  </span>
-                  <span className="sw-status__refresh-label">
-                    {t.settings.checkUpdate}
-                  </span>
-                </button>
               </div>
             </>
           ) : (
@@ -899,8 +922,17 @@ function SoftwareUpdate({
           )}
         </div>
         {/* Upgrade button appears ONLY when a real newer version exists —
-         * and only ever fires on the owner's click (no auto-upgrade). */}
-        {version?.updateAvailable && (
+         * and only ever fires on the owner's click (no auto-upgrade).
+         * SAME SOURCE as the status badge (owner round-2 item ③): once an
+         * explicit check has answered, ITS fresh verdict decides, exactly as
+         * renderStatus() does. Gating on the cached /api/version flag alone
+         * produced the split screen owner saw — the badge saying 有可用的新版本
+         * while no 升級 button existed, because the cache had not yet caught
+         * up (the frontend only re-reads /api/version 1.5s later, and that
+         * re-read can silently fail). The fresh verdict also correctly HIDES
+         * the button when the cache is stale-positive but GitHub now says up
+         * to date — a button that would only ever 409. */}
+        {upgradeOffered && (
           <button
             type="button"
             className="btn btn--accent sw-upgrade"
