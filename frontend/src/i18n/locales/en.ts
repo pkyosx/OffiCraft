@@ -253,7 +253,10 @@ export const en: Dict = {
       // (omitted when settings are not loaded).
       workerSub: (n: number) => `${n} ${n === 1 ? "person" : "people"}`,
       capSuffix: (cap: string) => ` · cap ${cap}`,
-      chatTitle: (codename: string) => `Outsource · ${codename}`,
+      // Single source of the outsource identity label (T-3ed8): chat header /
+      // sender label, task-card chips, sidebar 外包 row and monitor session row
+      // all render through this so 「Outsource · 代號」never drifts.
+      label: (codename: string) => `Outsource · ${codename}`,
       paused: "Assignment paused",
       capTitle: "Outsource cap",
       capHint:
@@ -621,9 +624,6 @@ export const en: Dict = {
     accountsTitle: "Accounts",
     machinesTitle: "Machines",
     sessionsTitle: "AI Sessions",
-    // Small chip on an outsource worker's row in the AI Sessions table, so an
-    // O-xx line is distinguishable at a glance from a member row.
-    sessionOutsourceTag: "Outsource",
     renameMachine: "Rename machine",
     renameAccount: "Rename account",
     renamePlaceholder: "Enter display name",

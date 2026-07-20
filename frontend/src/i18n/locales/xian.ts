@@ -229,7 +229,9 @@ export const xian: Dict = {
       // 頁籤小字:客卿「N 人」+「· 至多 M」後綴(未載到則省略)。
       workerSub: (n: number) => `${n} 人`,
       capSuffix: (cap: string) => ` · 至多 ${cap}`,
-      chatTitle: (codename: string) => `客卿 · ${codename}`,
+      // 客卿身分標籤單一來源(T-3ed8):聊天、任務卡 chip、側欄客卿列、監控頁
+      // session 全走這支,「客卿 · 代號」四處一致。
+      label: (codename: string) => `客卿 · ${codename}`,
       paused: "已停延聘",
       capTitle: "客卿之限",
       capHint: "定同時可延聘的客卿之數；定為無涯則不設限。",
@@ -571,7 +573,6 @@ export const xian: Dict = {
     accountsTitle: "靈脈總覽",
     machinesTitle: "法器總覽",
     sessionsTitle: "弟子神識",
-    sessionOutsourceTag: "外門",
     renameMachine: "法器易名",
     renameAccount: "靈脈易名",
     renamePlaceholder: "輸入顯化之名",

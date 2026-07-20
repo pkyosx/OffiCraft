@@ -298,7 +298,10 @@ export const zh = {
       // tab 下小字計數:外包「N 人」+「· 上限 M」後綴(cap 未載到則省略後綴)。
       workerSub: (n: number) => `${n} 人`,
       capSuffix: (cap: string) => ` · 上限 ${cap}`,
-      chatTitle: (codename: string) => `外包 · ${codename}`,
+      // 外包身分標籤的單一來源(T-3ed8,owner 2026-07-20 裁決 完全一致):聊天
+      // header/寄件者標籤、任務卡 chip、側欄外包列、監控頁 session 全走這支,
+      // 「外包 · 代號」四處一致、不漂移。
+      label: (codename: string) => `外包 · ${codename}`,
       // 並行上限;0 ＝ 暫停指派（要註明）
       paused: "已暫停指派",
       // 上限 popover（照 seth-member-2 mockup，owner 2026-07-13）；
@@ -690,8 +693,6 @@ export const zh = {
     accountsTitle: "帳號資訊",
     machinesTitle: "機器資訊",
     sessionsTitle: "AI 會話",
-    // AI 會話表內外包 worker 列的小標籤,讓 O-xx 列與正職列一眼可辨。
-    sessionOutsourceTag: "外包",
     // inline-rename affordances (machine + account display_name)
     renameMachine: "機器改名",
     renameAccount: "帳號改名",

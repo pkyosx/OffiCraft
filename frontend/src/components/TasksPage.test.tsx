@@ -393,7 +393,7 @@ describe("TasksPage", () => {
     expect(
       byTitle("外包任務").querySelector('[data-testid="task-executor"]')
         ?.textContent
-    ).toBe("外包 O-7 · Opus 4.6 · 高投入");
+    ).toBe("外包 · O-7 · Opus 4.6 · 高投入");
     expect(
       byTitle("未指派任務").querySelector('[data-testid="task-executor"]')
         ?.textContent

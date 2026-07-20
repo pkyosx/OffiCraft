@@ -130,7 +130,7 @@ describe("RepliesPage", () => {
     const names = cards.map(
       (c) => c.querySelector(".reply-card__name")?.textContent
     );
-    expect(names).toContain("外包 R-2");
+    expect(names).toContain("外包 · R-2");
     expect(names).toContain("ow-9");
     expect(names).not.toContain("ow-rel");
   });

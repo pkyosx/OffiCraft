@@ -135,8 +135,9 @@ describe("OutsourcePanel", () => {
 
     const { findByTestId } = renderOutsource();
     const row = await findByTestId("outsource-row-ow-a");
-    // line 1 — the codename is the worker's name.
-    expect(row.textContent).toContain("O-7");
+    // line 1 — the worker's name is the outsource identity label 「外包 · 代號」
+    // (T-3ed8, owner 2026-07-20: consistent with the chat header / task chips).
+    expect(row.textContent).toContain("外包 · O-7");
     // line 2 — ONE line (owner 2026-07-16, second ruling): the online green
     // dot at the LINE START (member-row parity; a LIVE worker is by
     // definition online — owner report 2026-07-14), THEN the T-xxxx chip,

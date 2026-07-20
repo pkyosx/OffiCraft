@@ -237,7 +237,7 @@ export function ChatArea({
     // cache.
     const codename =
       workers.find((w) => w.id === id)?.codename ?? codenames.get(id);
-    if (codename !== undefined) return t.office.outsource.chatTitle(codename);
+    if (codename !== undefined) return t.office.outsource.label(codename);
     return id;
   };
   // Is the owner ACTUALLY looking (window focused + tab visible)? Read side

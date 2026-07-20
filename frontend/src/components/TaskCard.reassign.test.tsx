@@ -224,7 +224,7 @@ describe("TaskCard 轉派 commit", () => {
     await waitFor(() => {
       expect(
         document.querySelector('[data-testid="task-card"]')?.textContent
-      ).toContain("外包 S-1 · sonnet · 低投入");
+      ).toContain("外包 · S-1 · sonnet · 低投入");
     });
   });
 

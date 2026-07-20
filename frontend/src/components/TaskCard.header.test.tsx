@@ -269,7 +269,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     const link = await findByTestId("task-assignee-link");
     expect(
       link.querySelector('[data-testid="task-executor"]')?.textContent
-    ).toBe("外包 O-7 · Opus 4.6 · 高投入");
+    ).toBe("外包 · O-7 · Opus 4.6 · 高投入");
   });
 
   it("released 外包 executor resolves its codename via the lazy cache", async () => {
@@ -286,7 +286,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     const link = await findByTestId("task-assignee-link");
     expect(
       link.querySelector('[data-testid="task-executor"]')?.textContent
-    ).toBe("外包 R-2");
+    ).toBe("外包 · R-2");
   });
 
   it("released 前任 resolves its codename via the lazy cache, not the raw id", async () => {
@@ -299,7 +299,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     );
     const { findByTestId } = renderPage();
     const chip = await findByTestId("task-previous-assignee");
-    expect(chip.textContent).toBe("外包 R-2");
+    expect(chip.textContent).toBe("外包 · R-2");
   });
 
   it("未指派 assignee chip is plain text (no chat to open, no icon)", async () => {
@@ -454,7 +454,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
       const link = await findByTestId("task-creator-link");
       expect(
         link.querySelector('[data-testid="task-creator"]')?.textContent
-      ).toBe("外包 O-3");
+      ).toBe("外包 · O-3");
       fireEvent.click(link);
       expect(window.location.hash).toBe("#office/chat/ow-3/compose/" +
         encodeURIComponent(task.taskNo));
@@ -467,7 +467,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
       const link = await findByTestId("task-creator-link");
       expect(
         link.querySelector('[data-testid="task-creator"]')?.textContent
-      ).toBe("外包 R-2");
+      ).toBe("外包 · R-2");
     });
 
     it("an UNRESOLVABLE outsource creator falls back to the raw id, still clickable", async () => {

@@ -218,11 +218,11 @@ export function TaskCard({
     : task.executorKind === "member"
       ? member?.name || task.executorId
       : worker
-        ? `${t.tasks.outsource} ${worker.codename} · ${worker.model || "—"} · ${
+        ? `${t.office.outsource.label(worker.codename)} · ${worker.model || "—"} · ${
             t.tasks.effortOf[worker.effort] ?? worker.effort
           }`
         : releasedExecutorCodename
-          ? `${t.tasks.outsource} ${releasedExecutorCodename}`
+          ? t.office.outsource.label(releasedExecutorCodename)
           : t.tasks.outsource;
   // 類型 chip text: the manual's display name (T-fa76), falling back to the
   // raw key (deleted manual / legacy type), then the ad-hoc word.
@@ -261,7 +261,7 @@ export function TaskCard({
         workers.find((x) => x.id === task.creatorId)?.codename ??
         releasedCodenames.get(task.creatorId);
       return {
-        text: cn ? `${t.tasks.outsource} ${cn}` : task.creatorId,
+        text: cn ? t.office.outsource.label(cn) : task.creatorId,
         peerId: task.creatorId,
       };
     }
@@ -279,7 +279,7 @@ export function TaskCard({
     if (task.reassignedFromKind === "outsource" || id.startsWith("ow-")) {
       const cn =
         workers.find((x) => x.id === id)?.codename ?? releasedCodenames.get(id);
-      return { text: cn ? `${t.tasks.outsource} ${cn}` : id, peerId: id };
+      return { text: cn ? t.office.outsource.label(cn) : id, peerId: id };
     }
     const m = members.find((x) => x.id === id);
     return { text: m ? m.name : id, peerId: id };
@@ -1373,7 +1373,7 @@ export function TaskCard({
               : task.executorKind === "member"
                 ? member?.name || task.executorId
                 : worker
-                  ? `${t.tasks.outsource} ${worker.codename}`
+                  ? t.office.outsource.label(worker.codename)
                   : t.tasks.outsource
           )}
           data-testid="task-msg-input"
@@ -1475,7 +1475,9 @@ export function TaskCard({
               {t.tasks.planningBy(
                 task.executorKind === "member"
                   ? member?.name || task.executorId
-                  : worker?.codename || t.tasks.outsource
+                  : worker
+                    ? t.office.outsource.label(worker.codename)
+                    : t.tasks.outsource
               )}
             </div>
           )

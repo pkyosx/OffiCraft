@@ -196,7 +196,7 @@ export function OfficePage() {
     ? {
         ...blankChatPeer(
           workerPeer.id,
-          t.office.outsource.chatTitle(workerPeer.codename),
+          t.office.outsource.label(workerPeer.codename),
           "outsource",
         ),
         status: "online",
