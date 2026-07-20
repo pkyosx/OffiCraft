@@ -102,15 +102,37 @@ async function assertNoOverflow(page: any, width: number) {
   // what stops the next reader from re-measuring, and this file's whole
   // header is about assertions that quietly go vacuous.
   //
-  // 🔴 What restoring it does NOT buy, measured rather than assumed: extra
-  // DETECTION. Under the 600px mutant both this check and (1) are violated,
-  // and (1) is asserted first, so (1) is what actually reports. No mutant has
-  // been found that trips this check while (1) stays green — the dep row is
-  // inside the card, so a row that cannot fit bursts the page too. What it
-  // buys is LOCALISATION: when it does fire first it names the dep row and
-  // its overflow in px, where (1) only says the page grew by 351. Keep it for
-  // that, and do not credit it with catching anything (1) would miss until
-  // someone produces the mutant that proves otherwise.
+  // It buys REAL detection, and the case that proves it is the one someone
+  // will actually write. Under the plain 600px mutant both this check and (1)
+  // fail, and (1) is asserted first — which is what an earlier revision of
+  // this comment saw before concluding, wrongly, that this check could only
+  // ever localise what (1) already caught. The argument offered for that was
+  // "the dep row is inside the card, so a row that cannot fit bursts the page
+  // too". Measured at 390px, it is false:
+  //
+  //   mutant                                    (1)      per-row
+  //   badge min-width:600px                     +351 ✗   367 ✗
+  //   + .task-card { overflow: hidden }            0 ✓   367 ✗
+  //   + .task-card__deps { overflow: hidden }      0 ✓   367 ✗
+  //
+  // Adding `overflow: hidden` to a container is the most common way anyone
+  // "fixes" a page that scrolls sideways. It turns (1) green while the layout
+  // is still broken — worse than before, because the content is now CLIPPED
+  // rather than reachable by scrolling. That regression is invisible to (1)
+  // and visible only here.
+  //
+  // Note the shape of the mistake, since this file keeps attracting it: the
+  // first version of this block deleted a working guard by claiming a
+  // measurement it never took; the second restored it but talked it down with
+  // an unmeasured structural argument. Both were reasoning where a number was
+  // available. If the next reader wants to weaken this check, take the
+  // measurement.
+  //
+  // Known slack, measured and left alone: assertion (1) needs roughly +160px
+  // of extra badge width before it trips at 390px (a min-width sweep found
+  // 60/90/120/160 all green, 600 red). It is a cliff detector, not a
+  // crowding detector. Not tightened here — the threshold is shared with
+  // other tickets' surfaces and narrowing it is their call, not this row's.
   //
   // The non-vacuity sentinels below are still owed: they prove (1) and the
   // per-row check were measuring a dep row that actually had a badge on it —
