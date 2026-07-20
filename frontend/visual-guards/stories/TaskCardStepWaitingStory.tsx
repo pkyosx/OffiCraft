@@ -1,8 +1,11 @@
 // CT story (T-9ca5): an expanded TaskCard whose live step is waiting_external
 // with a SHORT 3-char reason. The step gets its OWN 等待外部 badge
 // (.task-step-badge--waiting-external) and a .task-step__waiting reason row that
-// always-stacks (label line 1, reason line 2) — same argument as card-reflow,
-// but on the step's own row inside the timeline. jsdom is blind to the layout.
+// always-stacks (label line 1, reason line 2) — the argument the task-level
+// card-reflow guard used to make, on the step's own row inside the timeline.
+// (That guard and its WAITING_SHORT fixture were removed in T-c514 with the
+// task-level block; this story is what carries the contract now.)
+// jsdom is blind to the layout.
 import { I18nProvider } from "../../src/i18n";
 import { TaskCard } from "../../src/components/TaskCard";
 import { STEP_WAITING_EXTERNAL, MIRA, NOOP, WORKERS } from "./taskFixtures";

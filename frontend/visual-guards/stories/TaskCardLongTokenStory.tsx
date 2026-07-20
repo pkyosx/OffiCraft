@@ -6,7 +6,10 @@
 // The three owner/agent free-text renders on a card all go through `.doc-md`:
 //   • description        → `.task-card__desc.doc-md`      (expanded-only)
 //   • step DoD           → `.task-step__dod .doc-md`      (expanded-only)
-//   • waiting reason      → `.task-card__waiting-md.doc-md`(a flex row item)
+//   • waiting reason     → `.task-step__waiting-md.doc-md`(a flex row item)
+// (T-c514: the waiting reason used to render at the TASK level too; that
+// duplicate block was removed, so the step's row is the surface under test.
+// The first step is waiting_external here so that row actually renders.)
 // None of them declared overflow-wrap before T-4974, so a no-whitespace token
 // set the card's min-content to the token's full width, pushed the card past a
 // 390px viewport and the whole PAGE scrolled sideways. Real TaskCard + real
@@ -29,7 +32,8 @@ const LONG_TASK = mkTask({
   progressTotal: 2,
   steps: [
     mkStep({
-      status: "in_progress",
+      status: "waiting_external",
+      waitingReason: `等 member ${TOKEN} 遷移完成`,
       dod: `寫碼坐實溢出容器層級後,390px 下 member ${TOKEN} 折行、頁面無橫向捲軸。`,
     }),
     mkStep({ status: "pending" }),

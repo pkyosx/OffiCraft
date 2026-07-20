@@ -966,18 +966,18 @@ button.task-card__status-chip:hover {
   white-space: nowrap;
 }
 
-/* ── waiting-external reason row ── */
+/* ── ⏱ + tinted rounded row ──
+   Born as the task-level waiting_external reason row (T-a20b); that block was
+   removed as duplicate in T-c514 (the reason now lives only in the step). The
+   RULE stays because the deps 「等 T-xxxx」 chip below extends it — this is the
+   card's shared "waiting" shape, and .task-card__waiting--dep is now its only
+   consumer. Kept as a base + modifier pair rather than folded into --dep so the
+   shape stays reusable and the dep chip's own diff stays about colour. */
 .task-card__waiting {
   display: flex;
-  /* T-a20b: was `center`. The reason now renders as markdown blocks, which can
-     be taller than one line (list / fenced code). Centering would float the
-     clock icon and the 等待中 label into the vertical middle of that block;
-     flex-start keeps them pinned to the first line. */
+  /* flex-start, not center: keeps the clock icon pinned to the text's first
+     line rather than floating to the vertical middle of a taller row. */
   align-items: flex-start;
-  /* T-a20b rework: `wrap` is what lets the markdown column take its own line.
-     It is still load-bearing after the always-stack switch — with `nowrap` the
-     column's `flex-basis: 100%` is simply ignored and it gets squeezed back
-     onto the label's line. See .task-card__waiting-md below for the full why. */
   flex-wrap: wrap;
   gap: 8px;
   padding: 9px 12px;
@@ -993,88 +993,10 @@ button.task-card__status-chip:hover {
   flex: none;
   margin-top: 2px;
 }
-.task-card__waiting-label {
-  flex: none;
-}
-/* Rendered markdown (T-a20b) — same compact-scale reasoning as
-   .task-card__desc.doc-md, but this one is a flex ITEM in a row, so it also
-   needs to claim the remaining width and be allowed to shrink (min-width: 0,
-   without which a long `code` span would push the row wider than the card). */
-.task-card__waiting-md.doc-md {
-  /* T-a20b rework — ALWAYS-STACK. The label takes line 1, the reason line 2, at
-     every viewport width.
-
-     History, so nobody "optimises" this back: the previous rule was
-     `flex: 1 1 240px`, which wrapped only under ~415px and kept desktop inline.
-     That was a deliberate choice (its whole selling point was "desktop is
-     pixel-identical"), and it was correct for the spec it was built against.
-     Owner changed the spec on 2026-07-17 (rc-91492e026e87): asked "為什麼等待中
-     不是都自己一行?" and chose always-stack for desktop too. So the wrap that
-     240px made conditional is now unconditional — that is the ENTIRE diff.
-     `flex-basis: 100%` was explicitly rejected last round for forcing the wrap
-     at every width; that property is now the requirement, not the objection.
-
-     Why basis 100% and not, say, `display: block` on the row: the row still
-     needs to be a flex container so the icon + label sit on one line with the
-     gap and the flex-start alignment they already have. 100% just means the
-     markdown column can never fit beside them, so `flex-wrap: wrap` always
-     pushes it down.
-
-     Measured by the reviewer (Playwright + getBoundingClientRect, driving the
-     REAL app at #tasks — not a standalone probe page; a probe page that does
-     not load this stylesheet silently measures `flex-basis: auto` and reports
-     the UNFIXED layout, which is exactly how the first rework measurement went
-     wrong). Reason box top minus label top, computed flex-basis = 100%:
-       390px : reason starts +26.75px below the label (column 290px, card 346px)
-       1280px: reason starts +26.75px below the label (column 932px, card 996px)
-     Stacked at BOTH widths for all four reason shapes: 3-char bare text
-     ("等回覆"), inline markdown, fenced code block, and list-first. The 3-char
-     fixture is the one that carries the argument — it trivially fits beside the
-     label, so it can only be on line 2 because this rule put it there. The
-     reason box also starts LEFT of the label (md.x < label.x): it is on a new
-     flex line, not merely text-wrapped inside a shared one.
-
-     A/B control (delete this declaration → basis computes to `auto`): 390px
-     short goes INLINE, 1280px short/markdown/code all go INLINE — only the
-     long-content fixtures still stack at 390, and only by content overflow.
-     So the probe genuinely distinguishes inline from stacked, and the rule is
-     what makes the SHORT fixture stack at all. Absolute y is deliberately not
-     recorded here: it depends on scroll/chrome and is not reproducible across
-     probes — the delta and the inline/stacked verdict are.
-
-     min-width: 0 is still required: without it a long `code` span would push
-     the row wider than the card. */
-  flex: 1 1 100%;
-  min-width: 0;
-  /* T-4974: min-width:0 lets this flex item shrink, but a plain long token
-     (not a `code` span) still needs a break opportunity or it overflows the
-     shrunk item and widens the card — same class of bug as .task-card__desc. */
-  overflow-wrap: anywhere;
-  padding: 0;
-  font-size: 12.5px;
-  line-height: 1.5;
-  /* T-a20b follow-up: `.doc-md` sets `color: var(--color-text)` for its normal
-     home (the near-white body copy of a settings/description surface). Inside
-     this row that declaration WINS over inheritance and repaints the reason
-     near-white (#e7e8ee) while the sibling 等待中 label keeps the row's
-     lavender (#c8b8ec) — two colors on one line. Before the markdown switch the
-     reason was a bare <span> that simply inherited the row color; `inherit`
-     restores exactly that, and follows .task-card__waiting per theme instead of
-     re-hardcoding the lavender. Code spans/blocks keep their own accent color,
-     which is set on .doc-md code and is unaffected by this. */
-  color: inherit;
-}
-.task-card__waiting-md.doc-md > :first-child {
-  margin-top: 0;
-}
-.task-card__waiting-md.doc-md > :last-child {
-  margin-bottom: 0;
-}
-
 /* ── deps 「等 T-xxxx」 block (v6) ──
-   Same SHAPE as the waiting_external block above (⏱ + rounded tinted block) —
-   that is already this card's word for "waiting", and the old dep chip's grey
-   mono hairline box was a second, worse word for the same idea.
+   Extends the ⏱ + rounded tinted shape above — that is already this card's word
+   for "waiting", and the old dep chip's grey mono hairline box was a second,
+   worse word for the same idea.
    Different COLOUR, and that difference is the whole point: waiting_external's
    purple is the colour of a STATUS (.task-badge--status-waiting_external is
    the same #a08bd6). Reusing it here would make an in_progress card that
@@ -1416,11 +1338,12 @@ button.task-card__status-chip:hover {
 .task-step__dod .doc-md > :last-child {
   margin-bottom: 0;
 }
-/* ── step-level 等待外部 reason row (T-9ca5) ── shares the task-level waiting
-   purple vocabulary (.task-card__waiting) but nested in a step. Always-stack:
-   the label takes line 1, the markdown reason line 2, at every width, same
-   reasoning as .task-card__waiting-md (a bare-word reason can only be on line 2
-   because flex-basis:100% put it there — jsdom can't see it, the CT guard can). */
+/* ── step-level 等待外部 reason row (T-9ca5) ── shares the waiting purple
+   vocabulary but nested in a step. Since T-c514 this is the ONLY rendering of a
+   waiting reason — the task-level copy was removed as duplicate. Always-stack:
+   the label takes line 1, the markdown reason line 2, at every width (a
+   bare-word reason can only be on line 2 because flex-basis:100% put it there —
+   jsdom can't see it, the CT guard can). */
 .task-step__waiting {
   display: flex;
   align-items: flex-start;

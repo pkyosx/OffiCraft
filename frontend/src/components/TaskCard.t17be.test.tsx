@@ -481,10 +481,16 @@ describe("T-17be deps 區塊: 不是 status、不上第一排", () => {
     // The old grey mono chip is gone for good.
     expect(dep.classList.contains("task-key")).toBe(false);
     expect(dep.classList.contains("task-key--dep")).toBe(false);
-    // A blocked card is NOT thereby waiting_external — the real waiting banner
-    // must not appear just because a dep does.
+    // A blocked card is NOT thereby waiting_external. This used to be pinned by
+    // asserting the task-level waiting banner stayed absent; that banner was
+    // removed outright in T-c514 (duplicate of the step's own reason), so the
+    // absence became vacuous — it now holds for every card, dep or not, and
+    // would keep passing even if the dep chip DID impersonate the status.
+    // Assert the surviving carrier of that distinction instead: the 狀態 pill,
+    // which still says 進行中 and must not have been flipped to 等待外部 by a
+    // mere dep. Non-vacuous in both directions — a vanished pill fails too.
     expect(
-      card.querySelector('[data-testid="task-waiting-reason"]')
-    ).toBeNull();
+      card.querySelector('[data-testid="task-status"]')?.textContent
+    ).toBe("進行中");
   });
 });

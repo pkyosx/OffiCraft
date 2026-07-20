@@ -758,9 +758,10 @@ export function TaskCard({
             <Markdown source={step.dod} className="doc-md" />
           </div>
         )}
-        {/* 等待外部 reason (T-9ca5): the step's own one-line reason, mirrored
-            up to the task's waiting block. Agent free text → <Markdown>; label
-            on its own line (always-stack, same rule as the task waiting row). */}
+        {/* 等待外部 reason (T-9ca5): the step's own one-line reason. Since
+            T-c514 this is the ONLY place the reason is rendered — the task-card
+            copy it used to mirror up to was removed as duplicate. Agent free
+            text → <Markdown>; label on its own line (always-stack). */}
         {step.status === "waiting_external" && step.waitingReason && (
           <div className="task-step__waiting" data-testid="step-waiting-reason">
             <ClockIcon size={12} />
@@ -1272,34 +1273,16 @@ export function TaskCard({
         </span>
       </div>
 
-      {/* ── waiting-external reason (T-a20b) — waitingReason is agent-authored
-           free text (owner's screenshot had `**fms #20054**` / `` `919fe961` ``
-           landing as literal asterisks/backticks), so it renders through the
-           shared Markdown component. The 等待中 label stays OUTSIDE the
-           <Markdown> — feeding the whole i18n template in would hand the
-           prefix to the markdown parser.
-
-           The label carries NO trailing "·" separator: the row puts the markdown
-           on its own line at EVERY width (tasks.css always-stack), and a
-           separator whose job is to join "label · reason" on one line becomes an
-           orphan dangling at the end of the label's line the moment they stop
-           sharing one. The label reads as a heading for the block below it
-           instead. (This held even when the stack was mobile-only — owner's
-           2026-07-17 rc-91492e026e87 ruling made it unconditional, which only
-           makes the separator MORE orphaned, never less.)
-           Note this is a JSX literal, NOT part of the i18n string — the
-           `waitingLabel` entries are bare words ("等待中"/"Waiting"/"候緣"), so
-           no locale needed touching. ── */}
-      {task.status === "waiting_external" && task.waitingReason && (
-        <div className="task-card__waiting" data-testid="task-waiting-reason">
-          <ClockIcon size={13} />
-          <span className="task-card__waiting-label">{t.tasks.waitingLabel}</span>
-          <Markdown
-            source={task.waitingReason}
-            className="task-card__waiting-md doc-md"
-          />
-        </div>
-      )}
+      {/* The task-level 等待中 + waitingReason block that used to sit here
+          (T-a20b) is GONE (T-c514, owner 2026-07-20). waiting_external is
+          reported per-STEP, and the step renders its own reason inside the
+          node (see renderStep → .task-step__waiting) — so this block was a
+          second copy of the same sentence, one level further from the work it
+          describes. What survives at the task level is the 狀態 badge pill
+          ("等待外部", row 1): the STATUS still belongs on the card, only the
+          duplicated REASON text left. Verified before removing that the step
+          block really renders (step-waiting-external.ct.spec.tsx) so the
+          reason is never homeless. ── */}
 
       {/* ── duplicated: link to the original it duplicates (§3.6 jump, depth-1
            so this always resolves in one hop) ── */}

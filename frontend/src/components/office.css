@@ -795,8 +795,10 @@
  *    `color: var(--color-text)`, which would out-specify the bubble's inherited
  *    colour and repaint MY OWN messages from the accent green
  *    (`.chat__msg--me .chat__msg-bubble`) back to ordinary body text — the
- *    exact colour-inheritance break T-a20b hit on the waiting reason
- *    (tasks.css: `.task-card__waiting-md.doc-md { color: inherit }`).
+ *    exact colour-inheritance break T-a20b hit when the task card's waiting
+ *    reason first went through `.doc-md` (that block was later removed as a
+ *    duplicate of the step's own reason, T-c514; the LESSON is what survives:
+ *    `.doc-md` inside a tinted row needs `color: inherit` handed back).
  *  - the document page padding / leading go back to the bubble's own.
  *  - the parser already resolved every newline into block structure (and, with
  *    `breaks`, into <br>), so the bubble's `pre-wrap` has nothing left to do

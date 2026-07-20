@@ -5,8 +5,10 @@
 // and a .task-step__waiting reason row that ALWAYS-STACKS — the 等待中 label on
 // line 1, the markdown reason on line 2 — at every width. The fixture reason is
 // 3 chars, so it trivially fits beside the label; its landing on line 2 is the
-// CSS (flex-basis:100% in a wrap row), not overflow — same argument as
-// card-reflow, on the step's own row.
+// CSS (flex-basis:100% in a wrap row), not overflow — the same argument the
+// task-level card-reflow guard used to make (that guard was removed in T-c514
+// along with the task-level waiting block it measured; this is now the only
+// place the always-stack contract is pinned).
 //
 // jsdom is blind to the layout (no engine, offsetHeight 0), so this is a CT
 // guard in real Chromium at 390 (phone) + 1280 (desktop).

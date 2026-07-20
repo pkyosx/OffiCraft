@@ -3,13 +3,21 @@
 // Bug (owner, iPhone screenshot 2026-07-19): a task card's baton/description
 // text carried an unbreakable long token
 // (`twin(desired_state/desired_machine_id/refocus_since/bank_balance/...)`).
-// `.task-card__desc.doc-md` / `.task-step__dod .doc-md` /
-// `.task-card__waiting-md.doc-md` declared NO overflow-wrap, so the token set the
-// card's min-content to its full width, pushed the card past the 390px viewport
-// and the whole PAGE gained a horizontal scrollbar — the owner could drag the
-// page left/right. Fix: `overflow-wrap: anywhere` on those three free-text
-// surfaces (anywhere, not break-word, so min-content shrinks and the card binds
-// to the viewport).
+// `.task-card__desc.doc-md` / `.task-step__dod .doc-md` / the waiting reason's
+// `.doc-md` declared NO overflow-wrap, so the token set the card's min-content
+// to its full width, pushed the card past the 390px viewport and the whole PAGE
+// gained a horizontal scrollbar — the owner could drag the page left/right.
+// Fix: `overflow-wrap: anywhere` on those three free-text surfaces (anywhere,
+// not break-word, so min-content shrinks and the card binds to the viewport).
+//
+// T-c514: the waiting reason's surface used to be `.task-card__waiting-md`;
+// that task-level block was removed as a duplicate, so this guard now measures
+// the reason where it actually renders — `.task-step__waiting-md`, which
+// carries its own `overflow-wrap: anywhere` and is the same class of bug.
+// Retargeted rather than dropped: leaving the dead selector in the list would
+// have gone VACUOUS, not red (assertion (2) scores a missing element as -1,
+// which passes `toBeLessThanOrEqual(1)`), silently retiring a third of the
+// guard. The story's step was given the long token to match.
 //
 // jsdom is blind to this (no layout engine, no @media, offsetWidth 0), so it is
 // a CT guard measured in real Chromium against the real tasks.css — width is an
@@ -49,12 +57,18 @@ async function assertNoOverflow(page: any, width: number) {
   for (const sel of [
     ".task-card__desc",
     ".task-step__dod .doc-md",
-    ".task-card__waiting-md",
+    ".task-step__waiting-md",
   ]) {
     const over = await page.evaluate((s: string) => {
       const el = document.querySelector(s) as HTMLElement | null;
-      return el ? el.scrollWidth - el.clientWidth : -1;
+      return el ? el.scrollWidth - el.clientWidth : -2;
     }, sel);
+    // -2 = the surface never rendered. Scored as a FAILURE, not a pass: the
+    // old sentinel (-1) satisfied `toBeLessThanOrEqual(1)`, so a selector that
+    // rotted or a fixture that stopped producing the surface would retire this
+    // assertion in silence — exactly the trap T-c514 walked into when the
+    // task-level waiting row was deleted out from under this list.
+    expect(over, `[${width}px] ${sel} missing (never rendered)`).not.toBe(-2);
     expect(over, `[${width}px] ${sel} content overflow`).toBeLessThanOrEqual(1);
   }
 }

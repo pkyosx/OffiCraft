@@ -69,17 +69,10 @@ export const REPLANNED_2_OF_5: TaskView = mkTask({
   ],
 });
 
-// The always-stack fixture (T-a20b): a waiting_external card whose reason is
-// short 3-char text — it trivially FITS beside the 等待中 label, so if it lands
-// on its own line that can only be because `flex: 1 1 100%` put it there. This
-// is the fixture the tasks.css:731 comment calls "the one that carries the
-// argument".
-export const WAITING_SHORT: TaskView = mkTask({
-  status: "waiting_external",
-  waitingReason: "等回覆",
-  progressDone: 1,
-  progressTotal: 3,
-});
+// (T-c514 removed WAITING_SHORT here — the task-level always-stack fixture. Its
+// consumer, card-reflow.ct.spec.tsx, went with the task-level waiting block it
+// measured. The always-stack argument it carried lives on in
+// STEP_WAITING_EXTERNAL below, on the row that still renders.)
 
 // T-9ca5 轉派中 LOCK overlay: a reassigned task keeps its honest derived status
 // (in_progress) AND carries lock="reassigning". The guard proves the lock badge
@@ -91,8 +84,10 @@ export const LOCKED_REASSIGNING: TaskView = mkTask({
 });
 
 // T-9ca5 step-level 等待外部: an expanded card whose live step is waiting_external
-// with a SHORT 3-char reason — same always-stack argument as WAITING_SHORT, but
-// on the step's own .task-step__waiting row inside the timeline.
+// with a SHORT 3-char reason — it trivially FITS beside the 等待中 label, so if
+// it lands on its own line that can only be because flex-basis:100% put it
+// there. Since T-c514 this is the ONLY fixture carrying that always-stack
+// argument (the task-level WAITING_SHORT was removed with its block).
 export const STEP_WAITING_EXTERNAL: TaskView = mkTask({
   id: "t-swx1",
   taskNo: "T-swx1",
