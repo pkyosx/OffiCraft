@@ -186,7 +186,6 @@ export const en: Dict = {
       close: "Close artifacts",
       remove: "Remove artifact",
       removeConfirm: "Remove this artifact from the task card? (The file itself is kept.)",
-      previewHint: "Preview",
       downloadHint: "Download",
       openLinkHint: "Open link",
     },
@@ -488,8 +487,8 @@ export const en: Dict = {
     shareLinkCopied: "Link copied",
     // In-cockpit preview of a .md attachment (T-a1c4): a separate action from
     // download; the overlay renders via Markdown.tsx (not the raw-source new tab).
+    // T-7bc2: the chip itself is the trigger now — no separate "action" label.
     mdPreview: {
-      action: "Preview",
       download: "Download",
       close: "Close preview",
       loading: "Loading preview…",

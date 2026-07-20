@@ -163,7 +163,6 @@ export const xian: Dict = {
       close: "掩產物",
       remove: "撤產物",
       removeConfirm: "自任務牌撤此產物?(檔本身不刪)",
-      previewHint: "預覽",
       downloadHint: "取回",
       openLinkHint: "啟連結",
     },
@@ -437,8 +436,8 @@ export const xian: Dict = {
     copyShareLink: "錄下共賞符鏈",
     shareLinkCopied: "符鏈已錄",
     // .md 附卷之座艙內預覽(T-a1c4):與取回為二事;於閣內以 Markdown 現形。
+    // T-7bc2: the chip itself is the trigger now — no separate "action" label.
     mdPreview: {
-      action: "預覽",
       download: "取回",
       close: "掩預覽",
       loading: "預覽現形中…",

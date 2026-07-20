@@ -215,7 +215,6 @@ export const zh = {
       close: "關閉產物",
       remove: "移除產物",
       removeConfirm: "從任務卡移除這個產物?(不會刪除檔案本身)",
-      previewHint: "預覽",
       downloadHint: "下載",
       openLinkHint: "開啟連結",
     },
@@ -555,8 +554,8 @@ export const zh = {
     shareLinkCopied: "已複製連結",
     // .md 附件的座艙內預覽(T-a1c4):與下載分開的動作;overlay 內用
     // Markdown.tsx render(不是開新分頁看原始碼)。
+    // T-7bc2: the chip itself is the trigger now — no separate "action" label.
     mdPreview: {
-      action: "預覽",
       download: "下載",
       close: "關閉預覽",
       loading: "載入預覽中…",
