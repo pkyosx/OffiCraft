@@ -766,10 +766,11 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	trigger := requestTrigger(r)
 
 	// ④ an outsource target is a 發包 — it funnels through the SAME spawn gate as
-	// create_task and the scheduler (no side door). owner/admin admit (their
-	// reassign carries implicit approval); a subordinate agent the policy does not
-	// name is denied (403) BEFORE any of the handover side effects below run. An
-	// admit falls through to the handover flow, which lands an UNASSIGNED outsource
+	// create_task and the scheduler (no side door). Any authenticated initiator
+	// admits (T-23cf: no whitelist — cost is bounded by the global parallel cap);
+	// an unauthenticated identity is denied (403) BEFORE any of the handover side
+	// effects below run. An admit falls through to the handover flow, which lands
+	// an UNASSIGNED outsource
 	// task (executor_id='' + outsource_target); the scheduler mints the successor
 	// under the global parallel cap (T-35e0: no inline mint, no per-task card).
 	if kind == TaskExecutorOutsource {

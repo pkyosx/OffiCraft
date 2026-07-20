@@ -94,30 +94,36 @@ func TestReassignAgentMayOnlyHandOverItsOwnTask(t *testing.T) {
 	}
 }
 
-// ④ a reassign-to-outsource is a 發包 and passes the SAME gate: a subordinate
-// executor the policy does not name is denied before any handover side effect.
-func TestReassignToOutsourceByUnauthorizedExecutorIsDenied(t *testing.T) {
+// ④ a reassign-to-outsource is a 發包 and passes the SAME gate. T-23cf: a plain
+// subordinate executor admits (no whitelist — the global parallel cap bounds
+// cost) and its handover lands the task UNASSIGNED under the reassigning lock.
+func TestReassignToOutsourceByPlainExecutorAdmits(t *testing.T) {
 	api := newTasksTestServer(t)
+	api.noOutsource = true
 	putActiveMember(t, api, "m-exec", "Exec", KindAssistant) // plain agent (no RoleKey)
 	task := createAdHocTask(t, api, "m-exec")
 
 	rec := reassign(t, api, task.ID, map[string]any{
 		"target": map[string]any{"kind": "outsource", "model": "sonnet", "effort": "high"},
 	}, "m-exec", "agent")
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("unauthorized 發包 via reassign must be 403, got %d %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("plain executor 發包 via reassign must admit, got %d %s", rec.Code, rec.Body.String())
 	}
-	// The gate denied BEFORE the handover: no worker minted, status untouched.
+	bound, _ := api.dal.GetTask(task.ID)
+	if bound == nil || bound.ExecutorKind != TaskExecutorOutsource ||
+		bound.ExecutorID != "" || bound.Lock != TaskLockReassigning {
+		t.Fatalf("admit must land an unassigned outsource task under the reassigning lock, got %+v", bound)
+	}
+	if bound.OutsourceModel != "sonnet" || bound.OutsourceEffort != "high" {
+		t.Fatalf("the outsource target must ride the task row, got %+v", bound)
+	}
+	// No inline mint — the scheduler picks it up under the cap.
 	workers, err := api.dal.ListOutsourceWorkers()
 	if err != nil {
 		t.Fatalf("list workers: %v", err)
 	}
 	if len(workers) != 0 {
-		t.Fatalf("denied dispatch must mint nothing, got %d", len(workers))
-	}
-	bound, _ := api.dal.GetTask(task.ID)
-	if bound == nil || bound.Lock == TaskLockReassigning {
-		t.Fatalf("denied reassign must not enter the reassigning lock, got %+v", bound)
+		t.Fatalf("admit must mint nothing at reassign time, got %d", len(workers))
 	}
 }
 

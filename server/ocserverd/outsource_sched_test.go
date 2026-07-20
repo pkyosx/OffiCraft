@@ -560,13 +560,13 @@ func TestOutsourceTickExplicitTargetsObeyTheGlobalCap(t *testing.T) {
 }
 
 // ④b the sched gate is NOT re-run for an explicit target: an owner reassign of a
-// subordinate-created task lands a target whose CREATOR is not whitelisted, yet
-// the successor still mints (the dispatch was authorized at the handler — a
-// creator-based re-gate here would wrongly orphan it).
+// subordinate-created task still mints its successor (the dispatch was
+// authorized at the handler — a creator-based re-gate here would wrongly
+// orphan it).
 func TestOutsourceTickDoesNotReGateExplicitTargetByCreator(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true
-	// A non-whitelisted subordinate creator; the default policy names nobody.
+	// A plain subordinate creator.
 	if err := api.dal.PutMember(Member{
 		ID: "m-plain", Name: "Plain", Kind: KindAssistant, RoleKey: "dev",
 		RosterStatus: RosterStatusActive,

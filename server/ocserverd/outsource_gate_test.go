@@ -1,30 +1,19 @@
 package main
 
 // outsource_gate_test.go — 節點9 the single spawn gate (④⑦) and the create_task
-// 發包 path (①) after T-35e0 (拆核可閘 → 外包上限自動排隊): the gate now returns only
-// admit / deny (no per-task owner-approval PENDING), and an admitted create
-// dispatch LANDS AN UNASSIGNED outsource task carrying its target — the scheduler
-// mints it under the global cap. No approval card, no pending status, no side
-// door to an immediate spawn.
+// 發包 path (①) after T-23cf (廢發包白名單): the gate admits ANY authenticated
+// initiator (owner/admin, or any principal with a member row) — cost is bounded
+// by the scheduler's global parallel cap, not per-agent authorization. The only
+// deny left is an unauthenticated identity (non-owner sub with no member row).
+// An admitted create dispatch LANDS AN UNASSIGNED outsource task carrying its
+// target — the scheduler mints it under the global cap. No approval card, no
+// pending status, no side door to an immediate spawn.
 
 import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
-
-// setDefaultPolicy overwrites the seeded global-default delegation policy.
-func setDefaultPolicy(t *testing.T, api *apiServer, needsCard bool, roles, members []string) {
-	t.Helper()
-	if err := api.dal.PutDelegationPolicy(DelegationPolicy{
-		PrincipalID:      delegationPolicyDefaultID,
-		AllowedRoles:     roles,
-		AllowedMembers:   members,
-		NeedsPerTaskCard: needsCard,
-	}); err != nil {
-		t.Fatalf("put default policy: %v", err)
-	}
-}
 
 // createTaskAs posts a create_task request as (sub, scope) and returns the recorder.
 func createTaskAs(t *testing.T, api *apiServer, body map[string]any, sub, scope string) *httptest.ResponseRecorder {
@@ -44,31 +33,26 @@ func liveWorkerCount(t *testing.T, api *apiServer) int {
 }
 
 func TestOutsourceSpawnGate(t *testing.T) {
-	whitelisted := &Member{ID: "m-dev", RoleKey: "dev"}
-	plain := &Member{ID: "m-plain", RoleKey: "dev"}
+	dev := &Member{ID: "m-dev", RoleKey: "dev"}
 	assistant := &Member{ID: "m-asst", RoleKey: adminRoleKey}
 
 	cases := []struct {
 		name      string
 		class     string
 		initiator *Member
-		needsCard bool
-		members   []string
 		want      outsourceGateDecision
 	}{
-		// The per-task-card posture no longer pends anyone: authorization is the
-		// only gate now (T-35e0). needs_per_task_card is inert.
-		{"owner admits", principalOwner, nil, true, nil, gateAdmitSpawn},
-		{"admin admits", principalAdminAgent, assistant, true, nil, gateAdmitSpawn},
-		{"whitelisted agent admits even under the card posture", principalAgent, whitelisted, true, []string{"m-dev"}, gateAdmitSpawn},
-		{"whitelisted agent admits with no card posture", principalAgent, whitelisted, false, []string{"m-dev"}, gateAdmitSpawn},
-		{"unlisted agent is denied", principalAgent, plain, true, []string{"m-dev"}, gateDeny},
-		{"nil non-owner initiator is denied", principalAgent, nil, true, nil, gateDeny},
+		// T-23cf: authentication is the only gate — any member row admits, no
+		// whitelist, no per-task card.
+		{"owner admits", principalOwner, nil, gateAdmitSpawn},
+		{"admin admits", principalAdminAgent, assistant, gateAdmitSpawn},
+		{"plain member admits without any whitelist", principalAgent, dev, gateAdmitSpawn},
+		{"nil non-owner initiator is denied", principalAgent, nil, gateDeny},
+		{"machine with no member row is denied", principalMachine, nil, gateDeny},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			api := newTasksTestServer(t)
-			setDefaultPolicy(t, api, tc.needsCard, nil, tc.members)
 			issuedBy := "owner"
 			if tc.initiator != nil {
 				issuedBy = tc.initiator.ID
@@ -87,9 +71,10 @@ func TestOutsourceSpawnGate(t *testing.T) {
 	}
 }
 
-// A whitelisted subordinate's create dispatch is authorized and lands an
-// UNASSIGNED outsource task carrying its target — no approval card, no pending
-// status, no worker (the scheduler mints it later under the cap).
+// Any hired subordinate's create dispatch is authorized (T-23cf: no whitelist)
+// and lands an UNASSIGNED outsource task carrying its target — no approval
+// card, no pending status, no worker (the scheduler mints it later under the
+// cap).
 func TestCreateTaskOutsourceDispatchLandsUnassignedTask(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true // the scheduler is pinned separately — assert the landing
@@ -99,7 +84,6 @@ func TestCreateTaskOutsourceDispatchLandsUnassignedTask(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed initiator: %v", err)
 	}
-	setDefaultPolicy(t, api, true, nil, []string{"m-dev"})
 
 	rec := createTaskAs(t, api, map[string]any{
 		"title":  "review the PR",
@@ -137,23 +121,19 @@ func TestCreateTaskOutsourceDispatchLandsUnassignedTask(t *testing.T) {
 	}
 }
 
-func TestCreateTaskOutsourceDispatchDeniesUnauthorizedInitiatorLeavingNoTask(t *testing.T) {
+// An unauthenticated identity — a non-owner sub with NO member row (warden
+// tokens, outsource workers) — is the one deny left after T-23cf.
+func TestCreateTaskOutsourceDispatchDeniesUnauthenticatedInitiatorLeavingNoTask(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true
-	if err := api.dal.PutMember(Member{
-		ID: "m-plain", Name: "Plain", Kind: KindAssistant, RoleKey: "dev",
-		RosterStatus: RosterStatusActive,
-	}); err != nil {
-		t.Fatalf("seed initiator: %v", err)
-	}
-	// Default policy names nobody — deny-by-default for a subordinate.
+	// "ow-ghost" is deliberately NOT hired — no member row behind the sub.
 
 	rec := createTaskAs(t, api, map[string]any{
 		"title":  "sneaky dispatch",
 		"target": map[string]any{"kind": "outsource", "model": "sonnet"},
-	}, "m-plain", "agent")
+	}, "ow-ghost", "agent")
 	if rec.Code != http.StatusForbidden {
-		t.Fatalf("unauthorized 發包 must be 403, got %d %s", rec.Code, rec.Body.String())
+		t.Fatalf("unauthenticated 發包 must be 403, got %d %s", rec.Code, rec.Body.String())
 	}
 
 	// ③ atomicity: a denied dispatch leaves NO orphan task and no worker.
