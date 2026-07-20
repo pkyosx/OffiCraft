@@ -48,6 +48,10 @@ for (const width of [390, 1280]) {
     const cmp = await mount(<ReplyCardMdPreviewStory />);
     const btn = cmp.locator(".reply-card__preview-btn");
 
+    // Tab order: [.md download chip][.md 預覽 button][.pdf download chip] —
+    // the story mounts a .md attachment BEFORE the .pdf one, and the download
+    // chip <a> is itself tabbable, so the preview button is the SECOND stop.
+    await page.keyboard.press("Tab");
     await page.keyboard.press("Tab");
     await expect(btn).toBeFocused();
 
