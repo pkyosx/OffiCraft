@@ -341,8 +341,13 @@ func (s *apiServer) HandleDeleteTaskManualApiTaskManualsTypeKeyDelete(w http.Res
 // write-back: whole-doc replace (the replace_lessons posture — the agent
 // reads, folds its experience in, writes the whole doc back).
 func (s *apiServer) HandleWriteTaskLearningsApiTaskManualsTypeKeyLearningsPost(w http.ResponseWriter, r *http.Request, typeKey string) {
+	// T-2d99 — this is the handler that actually destroyed a manual. It used
+	// the lenient decoder, so write_task_learnings{learnings: "..."} (the key
+	// update_task_manual uses for THIS SAME document) had its only meaningful
+	// key silently dropped, leaving body.Text nil → "" → the whole doc wiped,
+	// with the 200 response echoing learnings: "". Strict + required now.
 	var body TaskLearningsReplaceDTO
-	if !decodeJSONBody(w, r, &body) {
+	if !decodeJSONBodyStrict(w, r, &body, "text") {
 		return
 	}
 	m, err := s.resolveTaskManual(typeKey)
@@ -350,7 +355,15 @@ func (s *apiServer) HandleWriteTaskLearningsApiTaskManualsTypeKeyLearningsPost(w
 		writeResolveError(w, err, "task manual", typeKey)
 		return
 	}
-	m.Learnings = strOrEmpty(body.Text)
+	// Belt to the strict decoder's braces: even a well-formed {"text": ""}
+	// must not silently erase accumulated learnings.
+	if !(body.AllowShrink != nil && *body.AllowShrink) && WholeDocWipeBlocked(m.Learnings, body.Text) {
+		writeError(w, http.StatusBadRequest,
+			"this would replace the existing learnings with an empty doc — pass allow_shrink=true "+
+				"if that is intended; nothing was written")
+		return
+	}
+	m.Learnings = body.Text
 	m.UpdatedTS = nowSecs()
 	if err := s.dal.PutTaskManual(*m); err != nil {
 		internalError(w, err)

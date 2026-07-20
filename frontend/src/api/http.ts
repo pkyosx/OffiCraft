@@ -1275,7 +1275,11 @@ export const httpApi: Api = {
     // registers POST, not PUT; a PUT here 405s against the real backend — and
     // is now ALSO a compile error (the schema's /api/global-context has no put).
     const wire = unwrap(
-      await client.POST("/api/global-context", { body: { text } }),
+      // allow_shrink: see saveLessons — the T-2d99 wipe guard targets blind
+      // agent write-backs; the owner clearing this textarea is explicit intent.
+      await client.POST("/api/global-context", {
+        body: { text, allow_shrink: true },
+      }),
     );
     return toGlobalContext(wire);
   },
@@ -1394,7 +1398,11 @@ export const httpApi: Api = {
     const wire = unwrap(
       await client.POST("/api/lessons/{role_key}/{task_type}", {
         params: { path: { role_key: roleKey, task_type: taskType } },
-        body: { text },
+        // allow_shrink: the server's T-2d99 wipe guard refuses a non-empty →
+        // empty whole-doc replace unless the caller says so explicitly. That
+        // guard exists for BLIND agent write-backs; here a human is looking at
+        // the editor they just cleared, so the intent is already explicit.
+        body: { text, allow_shrink: true },
       }),
     );
     return toLessons(wire);

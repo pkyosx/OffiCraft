@@ -3310,9 +3310,14 @@ export interface components {
         /**
          * GlobalContextReplaceDTO
          * @description Whole-block replace of the user-custom additive block (§3.4 #21):
-         *     ``{text}``.
+         *     ``{text}``. ``text`` is REQUIRED — a whole-doc replace must never infer "empty" from a missing key (T-2d99). ``allow_shrink`` (default false) must be set explicitly to replace existing content with an empty doc — the r-76 wipe-guard posture.
          */
         GlobalContextReplaceDTO: {
+            /**
+             * Allow Shrink
+             * @default false
+             */
+            allow_shrink: boolean;
             /**
              * Text
              * @default
@@ -3445,9 +3450,14 @@ export interface components {
         };
         /**
          * LessonsReplaceDTO
-         * @description Whole-doc replace of a lessons doc (§3.4 #28): ``{text}``.
+         * @description Whole-doc replace of a lessons doc (§3.4 #28): ``{text}``. ``text`` is REQUIRED — a whole-doc replace must never infer "empty" from a missing key (T-2d99). ``allow_shrink`` (default false) must be set explicitly to replace existing content with an empty doc — the r-76 wipe-guard posture.
          */
         LessonsReplaceDTO: {
+            /**
+             * Allow Shrink
+             * @default false
+             */
+            allow_shrink: boolean;
             /**
              * Text
              * @default
@@ -5117,9 +5127,14 @@ export interface components {
         };
         /**
          * TaskLearningsReplaceDTO
-         * @description Whole-doc replace of a type's learnings (MCP ``write_task_learnings`` — the agent's task-close write-back; the replace_lessons shape).
+         * @description Whole-doc replace of a type's learnings (MCP ``write_task_learnings`` — the agent's task-close write-back; the replace_lessons shape). ``text`` is REQUIRED — a whole-doc replace must never infer "empty" from a missing key (T-2d99). ``allow_shrink`` (default false) must be set explicitly to replace existing content with an empty doc — the r-76 wipe-guard posture.
          */
         TaskLearningsReplaceDTO: {
+            /**
+             * Allow Shrink
+             * @default false
+             */
+            allow_shrink: boolean;
             /**
              * Text
              * @default

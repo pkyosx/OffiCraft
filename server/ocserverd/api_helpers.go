@@ -6,6 +6,7 @@ package main
 // member-DTO projection builders every members-face handler shares.
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -97,6 +98,51 @@ func decodeJSONBodyRequired(w http.ResponseWriter, r *http.Request, dst any, req
 			return false
 		}
 		if err := json.Unmarshal(raw, dst); err != nil {
+			writeError(w, http.StatusUnprocessableEntity, "invalid request body: "+err.Error())
+			return false
+		}
+	}
+	for _, name := range required {
+		if _, ok := keys[name]; !ok {
+			writeError(w, http.StatusUnprocessableEntity, "field required: "+name)
+			return false
+		}
+	}
+	return true
+}
+
+// decodeJSONBodyStrict is the DESTRUCTIVE-WRITE decoder (T-2d99). It differs
+// from decodeJSONBody in two ways that exist solely to stop a malformed
+// request from masquerading as a valid one:
+//
+//  1. DisallowUnknownFields — any key the DTO does not declare is a 422, not a
+//     silent drop. This is the single highest-leverage guard: the observed data
+//     loss was an agent sending write_task_learnings{learnings: "..."} (the key
+//     update_task_manual uses for the same document) — the unknown key was
+//     dropped, body.Text stayed nil, strOrEmpty folded it to "" and the whole
+//     doc was wiped, with the response cheerfully echoing learnings: "". Note
+//     encoding/json applies this to NESTED objects too, so it also catches
+//     edits[i].old_text in a patch_lessons batch.
+//  2. required names — a whole-doc replace must never infer "the caller wants
+//     it empty" from "the caller did not say". Absent key ⇒ 422, never a write.
+//
+// Both faults answer 422 (the wire-frozen validation_error source), matching
+// decodeJSONBodyRequired. Semantic refusals (anchor miss, wipe guard) stay 400.
+func decodeJSONBodyStrict(w http.ResponseWriter, r *http.Request, dst any, required ...string) bool {
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "could not read request body")
+		return false
+	}
+	var keys map[string]json.RawMessage
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &keys); err != nil {
+			writeError(w, http.StatusUnprocessableEntity, "invalid request body: "+err.Error())
+			return false
+		}
+		dec := json.NewDecoder(bytes.NewReader(raw))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(dst); err != nil {
 			writeError(w, http.StatusUnprocessableEntity, "invalid request body: "+err.Error())
 			return false
 		}
