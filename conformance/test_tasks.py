@@ -63,14 +63,6 @@ def _create_task(client, executor, title="conf task", **extra) -> dict:
     return r.json()
 
 
-def _set_status(client, token, task_id, status, reason=None):
-    body = {"status": status}
-    if reason is not None:
-        body["waiting_reason"] = reason
-    return client.post(
-        f"/api/tasks/{task_id}/status", json=body, headers=_auth(token))
-
-
 def _plan(client, token, task_id, steps):
     return client.post(
         f"/api/tasks/{task_id}/plan", json={"steps": steps},
@@ -600,8 +592,10 @@ def test_terminated_task_refuses_every_agent_push(client, owner_token, executor)
     assert r.status_code == 200 and r.json()["status"] == "terminated"
 
     h = _auth(executor.token)
-    assert _set_status(client, executor.token, task["id"],
-                       "in_progress").status_code == 409
+    # (The task-level status report route is gone, T-8449 — priority stands in
+    # as the plain agent push here.)
+    assert client.post(f"/api/tasks/{task['id']}/priority",
+                       json={"priority": "high"}, headers=h).status_code == 409
     assert _plan(client, executor.token, task["id"],
                  [{"name": "x", "dod": "y"}]).status_code == 409
     assert client.post(f"/api/tasks/{task['id']}/deps",
@@ -625,23 +619,10 @@ def test_terminated_task_refuses_every_agent_push(client, owner_token, executor)
 
 def test_status_machine_wire_guards(client, owner_token, executor):
     task = _create_task(client, executor)["task"]
-    h = _auth(executor.token)
-    # update_task_status is RETIRED (T-9ca5): task status is DERIVED from the
-    # steps, so every task-level report is gently refused and never mutates.
-    # waiting_owner → 400 (a card-lifecycle hold, never an agent lever);
-    # terminated / done → 409 (owner terminate / all-steps-done derivation).
-    assert _set_status(client, executor.token, task["id"],
-                       "waiting_owner").status_code == 400
-    assert _set_status(client, executor.token, task["id"],
-                       "terminated").status_code == 409
-    # An unknown status is still a 400 (validated before the retirement refusal).
-    r = client.post(f"/api/tasks/{task['id']}/status",
-                    json={"status": "paused"}, headers=h)
-    assert r.status_code == 400
-    assert _set_status(client, executor.token, task["id"],
-                       "done").status_code == 409
-    assert _set_status(client, executor.token, task["id"],
-                       "in_progress").status_code == 409
+    # Task status is DERIVED from the steps (T-9ca5) and the task-level status
+    # report route is GONE from the wire (T-8449) — its absence is pinned in
+    # test_rest_happy (404) and the MCP catalog. The remaining wire guards live
+    # on the STEP report below.
 
     # waiting_external moved DOWN to the STEP (T-9ca5): the task DERIVES it.
     # Entering it requires a one-line reason (422 without), and it clears on exit.
@@ -660,7 +641,7 @@ def test_status_machine_wire_guards(client, owner_token, executor):
 
 def test_waiting_owner_is_a_card_lifecycle_hold(client, owner_token, executor):
     """T-68b7: waiting_owner is bracketed entirely by the reply card. A manual
-    STEP report of it is a 400 (the task twin lives in the wire-guards test);
+    STEP report of it is a 400 (the task-level report route is gone, T-8449);
     opening a card enters it; answering the card LEAVES it (the server restores
     in_progress) — and with two cards on one task, the task resumes only once
     the LAST is answered (SPEC §3.2)."""
@@ -1027,8 +1008,9 @@ def test_foreign_agent_cannot_drive_anothers_task(client, owner_token, executor)
     task = _create_task(client, executor)["task"]
     intruder_id = hire_member(client, owner_token, "conf-task-intruder")
     intruder = mint_member_token(client, owner_token, intruder_id, ttl_days=1)
-    r = client.post(f"/api/tasks/{task['id']}/status",
-                    json={"status": "in_progress"}, headers=_auth(intruder))
+    # (The task-level status report route is gone, T-8449 — the plan submit is
+    # the executor-guarded agent push probed here.)
+    r = _plan(client, intruder, task["id"], [{"name": "x", "dod": "y"}])
     assert r.status_code == 403, f"{r.status_code} {r.text}"
     # The executor itself still passes the guard — it drives its task via the
     # step report (the task status is derived from there, T-9ca5).
@@ -1470,13 +1452,10 @@ def test_mark_duplicate_closes_and_guards_depth1(client, owner_token, executor):
     """T-02c9: mark_duplicate is a DEDICATED terminal action. It closes the task
     with status=duplicated + duplicate_of set (closed_ts stamps), the graph is
     kept depth-1 (no self, no pointing at a duplicate, no marking an original,
-    no re-marking a closed task), and update_task_status still refuses
-    'duplicated' (it is not on the agent status-report path)."""
+    no re-marking a closed task); 'duplicated' is reachable ONLY through this
+    dedicated action (task status is derived, never agent-reported)."""
     original = _create_task(client, executor, title="original")["task"]
     dup = _create_task(client, executor, title="dup shell")["task"]
-
-    # update_task_status must NOT accept 'duplicated' — dedicated action only.
-    assert _set_status(client, executor.token, dup["id"], "duplicated").status_code in (400, 409)
 
     # validation: self → 409, unknown original → 404, blank → 422.
     assert _mark_duplicate(client, executor.token, dup["id"], dup["id"]).status_code == 409
@@ -1580,6 +1559,16 @@ def test_reassign_hands_over_to_a_member_and_only_they_take_over(
     by_name = {s["name"]: s["status"] for s in view["steps"]}
     assert by_name == {"finished": "done", "unfinished": "pending",
                        "ask owner": "pending"}, by_name
+
+    # The server-authored handover message teaches the NEW executor the claim
+    # action — never the removed task-status report (T-8449).
+    msgs = client.get(f"/api/chat?with={new_id}&limit=-1",
+                      headers=_auth(owner_token)).json()
+    handover = [m for m in msgs if "你接手了任務" in m["body"]]
+    assert handover, "reassign must post a handover chat message to the new executor"
+    for m in handover:
+        assert "claim_task" in m["body"], m["body"]
+        assert "update_task_status" not in m["body"], m["body"]
 
     # the OLD executor is out: it is no longer the executor, so it cannot claim.
     assert client.post(f"/api/tasks/{task['id']}/claim",

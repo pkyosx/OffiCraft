@@ -131,6 +131,26 @@ def test_tools_list_equals_frozen_snapshot_elementwise(client, owner_token) -> N
     )
 
 
+def test_update_task_status_tool_is_unlisted(client, owner_token) -> None:
+    """T-8449: the retired update_task_status tool is REMOVED — absent from a
+    live tools/list (positive control: update_step_status, the lever that
+    replaced it, IS listed)."""
+    names = [t["name"] for t in _result(_rpc(client, owner_token, "tools/list"))["tools"]]
+    assert "update_step_status" in names, names  # positive control
+    assert "update_task_status" not in names, names
+
+
+def test_update_task_status_call_is_unknown_tool(client, owner_token) -> None:
+    """T-8449: calling the removed update_task_status is the STANDARD
+    unknown-tool error (-32602, spec §3 — a params error, not a bespoke
+    refusal or a live dispatch)."""
+    _error(
+        _rpc(client, owner_token, "tools/call",
+             {"name": "update_task_status",
+              "arguments": {"task_id": "t-x", "status": "in_progress"}}),
+        -32602, id=1)
+
+
 def test_notification_answers_202_no_body(client, owner_token) -> None:
     """spec §2: notifications/* OR any id-less request → HTTP 202, no body,
     no JSON-RPC envelope."""

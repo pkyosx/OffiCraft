@@ -1675,7 +1675,7 @@ export const mockApi: Api = {
         body:
           `[${t.taskNo}] 你接手了任務「${t.title}」。你的前任是 ${predecessorLabel}（id \`${oldExecutor}\`）。` +
           `請先跟他確認交接完成（直接 post_chat 給他，問清楚目前進度與在飛事項），` +
-          `確認後再由你自己用 update_task_status 把狀態從 reassigning 轉成 in_progress（reassigning→in_progress，只有你這個新負責人報得動）再開始推進。` +
+          `確認後再由你自己呼叫 claim_task（認領）解除轉派鎖——只有你這個新負責人動得了；任務狀態一律照步驟推導，不必也不能自己報。` +
           (note ? `\n\n交接備註：${note}` : ""),
         ts: stamp / 1000,
         attachments: [],
@@ -1688,7 +1688,7 @@ export const mockApi: Api = {
         to: newMember.id,
         body:
           `[${t.taskNo}] 你接手了任務「${t.title}」。請先讀任務內容，` +
-          `準備好後用 update_task_status 把狀態轉回 in_progress（reassigning→in_progress）再開始執行。` +
+          `準備好後由你自己呼叫 claim_task（認領）解除轉派鎖再開始執行；任務狀態一律照步驟推導，不必也不能自己報。` +
           (note ? `\n\n交接備註：${note}` : ""),
         ts: stamp / 1000,
         attachments: [],

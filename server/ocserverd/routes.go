@@ -899,15 +899,6 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		},
 		{
 			Method:   "POST",
-			Path:     "/api/tasks/{task_id}/status",
-			Handler:  w.HandleUpdateTaskStatusApiTasksTaskIdStatusPost,
-			Auth:     authGated,
-			Requires: principalAgent,
-			Summary:  "Report a task status transition (agent-reported state machine).",
-			MCPTool:  "update_task_status",
-		},
-		{
-			Method:   "POST",
 			Path:     "/api/tasks/{task_id}/duplicate",
 			Handler:  w.HandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost,
 			Auth:     authGated,

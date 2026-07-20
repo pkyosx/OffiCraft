@@ -2331,7 +2331,7 @@ export interface paths {
         put?: never;
         /**
          * Take over a reassigned task (the new executor claims it -- clears the reassigning lock).
-         * @description The NEW executor takes over a reassigned task (MCP ``claim_task``; T-9ca5). Clears the ``reassigning`` lock (task.lock -> empty) and fires the predecessor outsource worker -- the takeover that update_task_status's ``reassigning`` to ``in_progress`` performed before ``reassigning`` moved from a status to task.lock. The task status is DERIVED from its steps and is never set here. Executor-guarded: only the task's current executor (the successor the reassign re-pointed to) may claim; owner/admin may drive any task. Guards: 404 unknown task; 403 caller is not the executor; 409 the task is not under the reassigning lock (nothing to claim).
+         * @description The NEW executor takes over a reassigned task (MCP ``claim_task``; T-9ca5). Clears the ``reassigning`` lock (task.lock -> empty) and fires the predecessor outsource worker -- ``reassigning`` is the handover LOCK on the task (task.lock), not a status. The task status is DERIVED from its steps and is never set here. Executor-guarded: only the task's current executor (the successor the reassign re-pointed to) may claim; owner/admin may drive any task. Guards: 404 unknown task; 403 caller is not the executor; 409 the task is not under the reassigning lock (nothing to claim).
          */
         post: operations["handle_claim_task_api_tasks__task_id__claim_post"];
         delete?: never;
@@ -2471,29 +2471,9 @@ export interface paths {
         put?: never;
         /**
          * Reassign a task to a member or a fresh outsource worker (the task's executor or an admin; an outsource target lands the task unassigned for the scheduler to spawn under the global parallel cap; enters the reassigning handover state).
-         * @description Owner/admin reassignment (MCP ``reassign_task``; requires admin_agent — the owner and the assistant): hand the task to a NEW executor — a roster member (``target.kind='member'`` + ``member_id``) or a FRESH outsource worker minted on the spot (``target.kind='outsource'`` with ``model``/``effort``/``machine``). Effects: every WAITING reply card of the task expires (the ask was the old executor's — expired settles it, so a later replan freezes the step as history), non-terminal steps fall back to ``pending`` (done/superseded rows stay untouched), a previously bound outsource worker is dismissed (released + session reclaimed), and the task takes the ``reassigning`` LOCK (``task.lock``, orthogonal to its derived status) — the NEW executor reads the task + the handover notes and CLAIMS it (POST /api/tasks/{task_id}/claim) to clear the lock and take over (update_task_status is retired). The server posts a handover chat message to each member side (``note`` rides the new executor's message; a new worker gets the task through its boot context instead). Identity never changes: type/inputs/dedupe_key/task id/deps stay. Guards: 404 unknown task; 409 terminal task or target == the current executor; 400 frozen task or an invalid target (unknown/inactive member, a warden, ``member_id`` missing for kind=member).
+         * @description Owner/admin reassignment (MCP ``reassign_task``; requires admin_agent — the owner and the assistant): hand the task to a NEW executor — a roster member (``target.kind='member'`` + ``member_id``) or a FRESH outsource worker minted on the spot (``target.kind='outsource'`` with ``model``/``effort``/``machine``). Effects: every WAITING reply card of the task expires (the ask was the old executor's — expired settles it, so a later replan freezes the step as history), non-terminal steps fall back to ``pending`` (done/superseded rows stay untouched), a previously bound outsource worker is dismissed (released + session reclaimed), and the task takes the ``reassigning`` LOCK (``task.lock``, orthogonal to its derived status) — the NEW executor reads the task + the handover notes and CLAIMS it (POST /api/tasks/{task_id}/claim) to clear the lock and take over. The server posts a handover chat message to each member side (``note`` rides the new executor's message; a new worker gets the task through its boot context instead). Identity never changes: type/inputs/dedupe_key/task id/deps stay. Guards: 404 unknown task; 409 terminal task or target == the current executor; 400 frozen task or an invalid target (unknown/inactive member, a warden, ``member_id`` missing for kind=member).
          */
         post: operations["handle_reassign_task_api_tasks__task_id__reassign_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/tasks/{task_id}/status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Report a task status transition (agent-reported state machine).
-         * @description RETIRED (T-9ca5 全推導): task status is now DERIVED from the steps, never agent-reported. Every status posted here is gently refused and the task is NEVER mutated — not_started/in_progress/done → 409 (report step status via update_step_status; the task status derives), waiting_external → 409 (report the STEP as waiting_external carrying its waiting_reason — the wait moved to the step level), reassigning → 400 (taking over a reassigned task is the dedicated claim action, POST /api/tasks/{task_id}/claim), waiting_owner → 400 (reply cards drive it), terminated/duplicated → 409 (their explicit owner actions). Kept only so an older agent's task-status report fails safe (the gentle-refusal compat net).
-         */
-        post: operations["handle_update_task_status_api_tasks__task_id__status_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5366,7 +5346,7 @@ export interface components {
         };
         /**
          * TaskMarkDuplicateDTO
-         * @description Mark a task duplicated (MCP ``mark_duplicate``), pointing at the ORIGINAL it duplicates. The caller must be the task's executor (owner/admin may act on any task); ``duplicated`` is a terminal status alongside done/terminated, but this dedicated action is NOT the agent status-report path (``update_task_status`` rejects it). ``duplicate_of`` is required and must name an EXISTING task that is not this one (409 self-reference) and is not itself already ``duplicated`` (409 — point at the FINAL original, the server never chases a chain); a task already pointed at as an original cannot itself be marked duplicated (409). An already-terminal task is a 409.
+         * @description Mark a task duplicated (MCP ``mark_duplicate``), pointing at the ORIGINAL it duplicates. The caller must be the task's executor (owner/admin may act on any task); ``duplicated`` is a terminal status alongside done/terminated, reachable only through this dedicated action (task status is otherwise derived from the steps and is never agent-reported). ``duplicate_of`` is required and must name an EXISTING task that is not this one (409 self-reference) and is not itself already ``duplicated`` (409 — point at the FINAL original, the server never chases a chain); a task already pointed at as an original cannot itself be marked duplicated (409). An already-terminal task is a 409.
          */
         TaskMarkDuplicateDTO: {
             /** Duplicate Of */
@@ -5475,19 +5455,6 @@ export interface components {
              * @default
              */
             type_key: string;
-        };
-        /**
-         * TaskStatusUpdateDTO
-         * @description RETIRED (T-9ca5 全推導): task status is now DERIVED from the steps, never agent-reported. Every status posted here is gently refused and the task is NEVER mutated — not_started/in_progress/done → 409 (report step status via update_step_status; the task status derives), waiting_external → 409 (report the STEP as waiting_external carrying its waiting_reason — the wait moved to the step level), reassigning → 400 (taking over a reassigned task is the dedicated claim action, POST /api/tasks/{task_id}/claim), waiting_owner → 400 (reply cards drive it), terminated/duplicated → 409 (their explicit owner actions). Kept only so an older agent's task-status report fails safe (the gentle-refusal compat net).
-         */
-        TaskStatusUpdateDTO: {
-            /** Status */
-            status: string;
-            /**
-             * Waiting Reason
-             * @default null
-             */
-            waiting_reason: string | null;
         };
         /**
          * TaskStepDTO
@@ -10978,59 +10945,6 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["TaskReassignDTO"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TaskDTO"];
-                };
-            };
-            /** @description Validation error (unified error envelope). */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Client error (unified error envelope). */
-            "4XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Server error (unified error envelope). */
-            "5XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-        };
-    };
-    handle_update_task_status_api_tasks__task_id__status_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                task_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TaskStatusUpdateDTO"];
             };
         };
         responses: {

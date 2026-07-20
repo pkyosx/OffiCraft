@@ -1420,7 +1420,7 @@ type TaskManualUpdateDTO struct {
 	SopMd       *string                 `json:"sop_md,omitempty"`
 }
 
-// TaskMarkDuplicateDTO Mark a task duplicated (MCP “mark_duplicate“), pointing at the ORIGINAL it duplicates. The caller must be the task's executor (owner/admin may act on any task); “duplicated“ is a terminal status alongside done/terminated, but this dedicated action is NOT the agent status-report path (“update_task_status“ rejects it). “duplicate_of“ is required and must name an EXISTING task that is not this one (409 self-reference) and is not itself already “duplicated“ (409 — point at the FINAL original, the server never chases a chain); a task already pointed at as an original cannot itself be marked duplicated (409). An already-terminal task is a 409.
+// TaskMarkDuplicateDTO Mark a task duplicated (MCP “mark_duplicate“), pointing at the ORIGINAL it duplicates. The caller must be the task's executor (owner/admin may act on any task); “duplicated“ is a terminal status alongside done/terminated, reachable only through this dedicated action (task status is otherwise derived from the steps and is never agent-reported). “duplicate_of“ is required and must name an EXISTING task that is not this one (409 self-reference) and is not itself already “duplicated“ (409 — point at the FINAL original, the server never chases a chain); a task already pointed at as an original cannot itself be marked duplicated (409). An already-terminal task is a 409.
 type TaskMarkDuplicateDTO struct {
 	DuplicateOf string `json:"duplicate_of"`
 }
@@ -1471,12 +1471,6 @@ type TaskRefDTO struct {
 	Id      string  `json:"id"`
 	Title   *string `json:"title,omitempty"`
 	TypeKey *string `json:"type_key,omitempty"`
-}
-
-// TaskStatusUpdateDTO RETIRED (T-9ca5 全推導): task status is now DERIVED from the steps, never agent-reported. Every status posted here is gently refused and the task is NEVER mutated — not_started/in_progress/done → 409 (report step status via update_step_status; the task status derives), waiting_external → 409 (report the STEP as waiting_external carrying its waiting_reason — the wait moved to the step level), reassigning → 400 (taking over a reassigned task is the dedicated claim action, POST /api/tasks/{task_id}/claim), waiting_owner → 400 (reply cards drive it), terminated/duplicated → 409 (their explicit owner actions). Kept only so an older agent's task-status report fails safe (the gentle-refusal compat net).
-type TaskStatusUpdateDTO struct {
-	Status        string  `json:"status"`
-	WaitingReason *string `json:"waiting_reason,omitempty"`
 }
 
 // TaskStepDTO One workflow node on the task timeline. Every row is one progress leaf (parallel items are separate rows sharing “parallel_group“). A parallel stage is CONSECUTIVE rows sharing a non-empty “parallel_group“ — submit_plan refuses (400) split groups, one-lane groups and gates inside a group, so stored plans always fold cleanly. “status“ is the closed set “pending“ | “in_progress“ | “waiting_owner“ | “done“ | “superseded“. “done“ and “superseded“ are the step's terminal states: “superseded“ (T-1aea) is stamped by submit_plan alone — a replan freezes a step whose latest bound reply card was already answered/expired as kept history (original order, ahead of the fresh plan) unless the fresh plan re-lists the node by name; a superseded row counts toward neither “progress_done“ nor “progress_total“, is never the current node, is not agent-reportable and cannot be re-armed; its “finished_ts“ is the freeze moment. Gate projection: “is_gate“ with an empty “reply_card_id“ is the ANNOUNCED (dashed) gate; a non-empty “reply_card_id“ is a step carrying a live reply card — an ARMED gate, or a plain step a “create_reply_card“ ask auto-bound to. “reply_card_id“ always points at the LATEST bound card and persists after the step finishes (the permanent approval mark).
@@ -1809,9 +1803,6 @@ type HandleSetTaskPriorityApiTasksTaskIdPriorityPostJSONRequestBody = TaskPriori
 // HandleReassignTaskApiTasksTaskIdReassignPostJSONRequestBody defines body for HandleReassignTaskApiTasksTaskIdReassignPost for application/json ContentType.
 type HandleReassignTaskApiTasksTaskIdReassignPostJSONRequestBody = TaskReassignDTO
 
-// HandleUpdateTaskStatusApiTasksTaskIdStatusPostJSONRequestBody defines body for HandleUpdateTaskStatusApiTasksTaskIdStatusPost for application/json ContentType.
-type HandleUpdateTaskStatusApiTasksTaskIdStatusPostJSONRequestBody = TaskStatusUpdateDTO
-
 // HandleOpenTaskGateApiTasksTaskIdStepsStepIdGatePostJSONRequestBody defines body for HandleOpenTaskGateApiTasksTaskIdStepsStepIdGatePost for application/json ContentType.
 type HandleOpenTaskGateApiTasksTaskIdStepsStepIdGatePostJSONRequestBody = ReplyCardCreateDTO
 
@@ -2135,9 +2126,6 @@ type ServerInterface interface {
 	// Reassign a task to a member or a fresh outsource worker (the task's executor or an admin; an outsource target lands the task unassigned for the scheduler to spawn under the global parallel cap; enters the reassigning handover state).
 	// (POST /api/tasks/{task_id}/reassign)
 	HandleReassignTaskApiTasksTaskIdReassignPost(w http.ResponseWriter, r *http.Request, taskId string)
-	// Report a task status transition (agent-reported state machine).
-	// (POST /api/tasks/{task_id}/status)
-	HandleUpdateTaskStatusApiTasksTaskIdStatusPost(w http.ResponseWriter, r *http.Request, taskId string)
 	// Arm a gate step: opens the reply card the owner must answer.
 	// (POST /api/tasks/{task_id}/steps/{step_id}/gate)
 	HandleOpenTaskGateApiTasksTaskIdStepsStepIdGatePost(w http.ResponseWriter, r *http.Request, taskId string, stepId string)
@@ -4653,32 +4641,6 @@ func (siw *ServerInterfaceWrapper) HandleReassignTaskApiTasksTaskIdReassignPost(
 	handler.ServeHTTP(w, r)
 }
 
-// HandleUpdateTaskStatusApiTasksTaskIdStatusPost operation middleware
-func (siw *ServerInterfaceWrapper) HandleUpdateTaskStatusApiTasksTaskIdStatusPost(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "task_id" -------------
-	var taskId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "task_id", r.PathValue("task_id"), &taskId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "task_id", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandleUpdateTaskStatusApiTasksTaskIdStatusPost(w, r, taskId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // HandleOpenTaskGateApiTasksTaskIdStepsStepIdGatePost operation middleware
 func (siw *ServerInterfaceWrapper) HandleOpenTaskGateApiTasksTaskIdStepsStepIdGatePost(w http.ResponseWriter, r *http.Request) {
 
@@ -5149,7 +5111,6 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/plan", wrapper.HandleSubmitTaskPlanApiTasksTaskIdPlanPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/priority", wrapper.HandleSetTaskPriorityApiTasksTaskIdPriorityPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/reassign", wrapper.HandleReassignTaskApiTasksTaskIdReassignPost)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/status", wrapper.HandleUpdateTaskStatusApiTasksTaskIdStatusPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/steps/{step_id}/gate", wrapper.HandleOpenTaskGateApiTasksTaskIdStepsStepIdGatePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/steps/{step_id}/status", wrapper.HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/terminate", wrapper.HandleTerminateTaskApiTasksTaskIdTerminatePost)

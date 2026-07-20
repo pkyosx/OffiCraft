@@ -739,17 +739,6 @@ MATRIX: dict[str, Route] = {
         path=lambda ctx, _i: f"/api/tasks/{_matrix_task(ctx)}/plan",
         body={"steps": [{"name": "conf", "dod": "asserted"}]},
     ),
-    "POST /api/tasks/{task_id}/status": Route(
-        # update_task_status is RETIRED (T-9ca5): task status is DERIVED from the
-        # steps, so the endpoint refuses every report AFTER the authz gate. The
-        # executor guard still runs first (agent_other → 403); the at-floor faces
-        # (owner/admin/agent_self) reach the 409 retirement refusal.
-        requires="agent",
-        overrides={"agent_other": 403, "agent_self": 409,
-                   "admin_agent": 409, "owner": 409},
-        path=lambda ctx, _i: f"/api/tasks/{_matrix_task(ctx)}/status",
-        body={"status": "in_progress"},
-    ),
     "POST /api/tasks/{task_id}/duplicate": Route(
         # T-02c9: executor-guarded like every agent report row (agent B on
         # agent A's task → 403); admin capability (owner/admin_agent) passes.
