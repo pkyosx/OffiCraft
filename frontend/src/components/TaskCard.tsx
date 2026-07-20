@@ -345,6 +345,12 @@ export function TaskCard({
   // below (after the hydrate wiring) fires on every detail/expand change
   // until the card exists.
   const [replyScrollPending, setReplyScrollPending] = useState(false);
+  // Same pending-flag shape for the 等待外部 step jump (T-c514). Kept as its own
+  // flag rather than a shared "scroll to something" one: the two resolve their
+  // target differently (reply card id vs step status) and can in principle both
+  // be armed on one card, so collapsing them would make the second click cancel
+  // the first instead of queueing.
+  const [stepScrollPending, setStepScrollPending] = useState(false);
   const rootRef = useRef<HTMLElement>(null);
 
   // Whole-card toggle with an interaction filter: clicks that land on (or
@@ -482,6 +488,57 @@ export function TaskCard({
       setReplyScrollPending(false);
     }
   }, [replyScrollPending, expanded, detail, hydrating, view.steps]);
+
+  // 等待外部 step jump (T-c514, owner 2026-07-20). Mirrors the reply-card jump
+  // above: the click arms a pending flag, and this effect resolves it once the
+  // expanded card has actually rendered its timeline (post-hydrate).
+  //
+  // Why this exists at all: T-c514 removed the task-level reason block, so the
+  // waitingReason now lives ONLY inside the step. Reading it went from "glance
+  // at the card top" to "expand, then find the right step" — the jump is what
+  // pays that cost back.
+  //
+  // Target = the FIRST waiting_external step. First, not last: steps run in
+  // order, so the earliest one still waiting is the one actually blocking. No
+  // fallback to "some other step" if none matches — silently scrolling to an
+  // unrelated step would be worse than not moving (the reply-card jump's
+  // cards[0] fallback is for a DIFFERENT case: the card raced a refetch).
+  //
+  // THE FLAG MUST SURVIVE THE HYDRATE. The click arms this from a COLLAPSED
+  // card, where view.steps is still [] — steps only arrive with the detail
+  // fetch. Clearing the flag on "no target yet" would therefore cancel the jump
+  // in the very case owner asked for it: by the time the steps land the flag is
+  // already false and nothing scrolls. So an empty step list means WAIT (leave
+  // the flag armed, the effect re-runs on detail/hydrating/steps), while a
+  // loaded list with no waiting step means genuinely nothing to jump to → clear.
+  // The reply-card jump above has this property implicitly (it never clears on
+  // a miss); spelling it out here because the first version of this effect did
+  // clear, and a review caught it — the menu item still opened the card, so the
+  // bug looked like a working feature.
+  useEffect(() => {
+    if (!stepScrollPending) return;
+    if (!expanded) {
+      setStepScrollPending(false);
+      return;
+    }
+    const target = view.steps.find((s) => s.status === "waiting_external");
+    if (!target) {
+      // Only give up once we actually HAVE the steps to look through.
+      if (view.steps.length > 0) setStepScrollPending(false);
+      return;
+    }
+    // Attribute compare rather than a `[data-step-id="…"]` selector: step ids
+    // are server-minted, and building a selector out of them would need
+    // CSS.escape, which does not exist in the jsdom the unit tests run in (it
+    // would throw there while working in a browser — an untestable branch).
+    const el = Array.from(
+      rootRef.current?.querySelectorAll('[data-testid="task-step"]') ?? []
+    ).find((n) => n.getAttribute("data-step-id") === target.id);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      setStepScrollPending(false);
+    }
+  }, [stepScrollPending, expanded, detail, hydrating, view.steps]);
 
   // ── owner actions (狀態 badge menu / terminate confirm) ────────────────────
   // 狀態 badge dropdown (v5, owner 2026-07-17): clicking the status badge ALWAYS
@@ -745,6 +802,10 @@ export function TaskCard({
         key={step.id}
         className={`task-step task-step--${step.status}`}
         data-testid="task-step"
+        /* T-c514: the 等待外部 menu jump needs to land on a SPECIFIC step, and
+           data-testid alone can't tell two steps apart. Same addressing trick
+           the reply-card jump already uses (data-reply-card-id). */
+        data-step-id={step.id}
       >
         <div className="task-step__row">
           <span className="task-step__name">{step.name}</span>
@@ -920,6 +981,87 @@ export function TaskCard({
                   aria-label={t.tasks.statusMenuLabel}
                   data-testid="task-status-options"
                 >
+                  {/* ── JUMPS FIRST (T-c514, owner 2026-07-20) ──
+                      Both jumps mean "take me to where this is stuck", and both
+                      now sit ABOVE 標記重複/終止. Owner's wording: 「跳到等我回覆
+                      卡或是跳到這個等待外部的地方,都應該在第一個選項」.
+
+                      The ordering argument, so nobody "tidies" it back: these
+                      are frequent NAVIGATION, while 標記重複/終止 are rare and
+                      DESTRUCTIVE. Putting navigation underneath two destructive
+                      items made the common case travel past the dangerous ones.
+                      (This supersedes only the POSITION of the v5 jump item —
+                      owner's 2026-07-17 ruling that the jump is a menu item
+                      rather than a one-click badge still stands.)
+
+                      Both are conditional, so on an ordinary card the menu is
+                      unchanged and 標記重複 is still the first item. */}
+                  {task.status === "waiting_owner" && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="task-card__menu-item"
+                      data-testid="task-status-jump"
+                      onClick={() => {
+                        setStatusOpen(false);
+                        setExpanded(true);
+                        setReplyScrollPending(true);
+                      }}
+                    >
+                      {t.tasks.statusJump}
+                    </button>
+                  )}
+                  {/* 等待外部 jump — the gate is a UNION, and both halves earn
+                      their place:
+
+                      • task.status === "waiting_external" — the ONLY signal
+                        available on a COLLAPSED card. Steps arrive with the
+                        detail hydrate, so an unexpanded card has view.steps
+                        empty; gating on steps alone hid the item exactly where
+                        owner asks for it (the status badge of a card you have
+                        not opened yet). Caught by the DOM-order test, not by
+                        reading the code.
+                      • a step being waiting_external — because the derived task
+                        status can be something ELSE while a step waits on a
+                        third party. The real case is 等我回覆 winning the
+                        precedence: RecomputeTaskStatus (server domain.go) ranks
+                        anyWaitingOwner ABOVE anyWaitingExternal, so a task with
+                        one gate awaiting the owner AND one step blocked on a
+                        vendor reads waiting_owner, and the step-side reason
+                        would be unreachable from the menu without this half.
+                        (An earlier revision of this comment claimed the case
+                        was in_progress + a waiting step; a review checked the
+                        server and showed that ordering makes it unreachable.
+                        The half stays — the justification was wrong, not the
+                        code.)
+
+                      Neither half subsumes the other, so it is an OR.
+
+                      `!closed` gates the whole thing: closeTask does not roll
+                      steps back and RecomputeTaskStatus returns early on a
+                      terminal task, so a task terminated while waiting keeps a
+                      frozen waiting_external step forever. Offering to jump
+                      "to what we are waiting for" on a task nobody waits for
+                      any more is a lie; it also read inconsistently (absent
+                      while collapsed, since the closed task's own status is
+                      terminal, then appearing once expanded). */}
+                  {!closed &&
+                    (task.status === "waiting_external" ||
+                      view.steps.some((s) => s.status === "waiting_external")) && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="task-card__menu-item"
+                      data-testid="task-status-jump-external"
+                      onClick={() => {
+                        setStatusOpen(false);
+                        setExpanded(true);
+                        setStepScrollPending(true);
+                      }}
+                    >
+                      {t.tasks.statusJumpExternal}
+                    </button>
+                  )}
                   {/* 標記重複 / 終止 are non-terminal-only — the server 409s both
                       on a closed task (已完成/已終止/已標為重複). Owner's ruling
                       (2026-07-17, spec ② follow-up): the badge drops the menu
@@ -961,25 +1103,6 @@ export function TaskCard({
                   >
                     {t.tasks.terminate}
                   </button>
-                  {/* The 等我回覆 jump — an EXTRA item, present only while the
-                      task really waits on the owner (v5: the v3 one-click
-                      badge jump folded into this menu). A closed task can never
-                      be 等我回覆, so this never pairs with the greyed items. */}
-                  {task.status === "waiting_owner" && (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="task-card__menu-item"
-                      data-testid="task-status-jump"
-                      onClick={() => {
-                        setStatusOpen(false);
-                        setExpanded(true);
-                        setReplyScrollPending(true);
-                      }}
-                    >
-                      {t.tasks.statusJump}
-                    </button>
-                  )}
                 </div>
               )}
             </div>

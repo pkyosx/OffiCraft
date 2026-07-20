@@ -172,6 +172,269 @@ describe("spec ② 狀態 badge → 下拉選單", () => {
     }
   });
 
+  // ── T-c514 (owner 2026-07-20): jumps go FIRST ──────────────────────────
+  // 「跳到等我回覆卡或是跳到這個等待外部的地方,都應該在第一個選項」.
+  // These assert POSITION, not presence — the item already existed, it was just
+  // last. A presence-only assertion would have passed before this change and
+  // after it, i.e. it would pin nothing. So every assertion below reads the
+  // menu's actual child order via [role="menuitem"] and indexes into it.
+  function menuItemIds(card: Element): (string | null)[] {
+    return Array.from(
+      card.querySelectorAll('[data-testid="task-status-options"] [role="menuitem"]')
+    ).map((el) => el.getAttribute("data-testid"));
+  }
+
+  it("等我回覆 jump is the FIRST menu item, ahead of 標記重複/終止", async () => {
+    __injectMockTask(mkTask({ title: "等我回覆的", status: "waiting_owner" }));
+    const { findByTestId } = renderPage();
+    const card = await findByTestId("task-card");
+    fireEvent.click(within(card).getByTestId("task-status"));
+
+    const ids = menuItemIds(card);
+    // positive control: the menu really rendered its full set, so the index
+    // assertion below cannot pass by measuring an empty/partial menu.
+    expect(ids).toContain("task-mark-duplicate");
+    expect(ids).toContain("task-terminate");
+    // the assertion that matters — FIRST, not merely present.
+    expect(ids[0]).toBe("task-status-jump");
+    // and strictly ahead of both destructive items (survives future inserts
+    // between them that would leave index 0 intact but reorder the rest).
+    expect(ids.indexOf("task-status-jump")).toBeLessThan(
+      ids.indexOf("task-mark-duplicate")
+    );
+    expect(ids.indexOf("task-status-jump")).toBeLessThan(
+      ids.indexOf("task-terminate")
+    );
+  });
+
+  // The two halves of the union gate get a test each, because they cover
+  // genuinely different moments and the first one is the one that broke:
+  // a COLLAPSED card has no steps yet (they arrive with the detail hydrate), so
+  // a steps-only gate rendered nothing exactly where owner wants the item.
+  it("等待外部 jump: on a COLLAPSED waiting_external card, first in the menu, and expands the card", async () => {
+    __injectMockTask(
+      mkTask({
+        title: "等外部的",
+        status: "waiting_external",
+        waitingReason: "等第三方開通",
+        progressDone: 0,
+        progressTotal: 2,
+        steps: [
+          {
+            id: "s-1", name: "節點一", dod: "d", status: "waiting_external",
+            isGate: false, replyCardId: "", parallelGroup: "", orderIdx: 0,
+            startedTs: 1, finishedTs: 0, waitingReason: "等第三方開通",
+          },
+        ] as never,
+      })
+    );
+    const { findByTestId } = renderPage();
+    const card = await findByTestId("task-card");
+    // NOT expanded — this is the state the owner actually clicks from.
+    fireEvent.click(within(card).getByTestId("task-status"));
+
+    const ids = menuItemIds(card);
+    expect(ids).toContain("task-mark-duplicate"); // positive control
+    expect(ids[0]).toBe("task-status-jump-external");
+    expect(ids.indexOf("task-status-jump-external")).toBeLessThan(
+      ids.indexOf("task-mark-duplicate")
+    );
+
+    // Clicking it must do BOTH halves: expand, and actually scroll the step
+    // into view. Asserting only the expand half is what let the first version
+    // of this ship broken — the flag was cleared before the hydrate delivered
+    // the steps, so the card opened and nothing ever scrolled. jsdom computes
+    // no layout, but scrollIntoView is still a callable it records, so the
+    // "did we scroll, and to WHICH element" question is answerable here.
+    // jsdom implements no layout and therefore does NOT define
+    // Element.prototype.scrollIntoView — spyOn would throw "does not exist".
+    // Install it, then spy. (Also why this assertion can only ever check THAT
+    // we scrolled and to which node, never where the pixels ended up.)
+    const scrolled: Element[] = [];
+    const proto = Element.prototype as unknown as Record<string, unknown>;
+    const had = "scrollIntoView" in proto;
+    if (!had) proto.scrollIntoView = function () {};
+    const spy = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(function (this: Element) {
+        scrolled.push(this);
+      });
+    try {
+      fireEvent.click(within(card).getByTestId("task-status-jump-external"));
+      await waitFor(() => {
+        expect(card.querySelector('[data-testid="task-step"]')).toBeTruthy();
+      });
+      // the scroll lands AFTER the hydrate — wait for it rather than sampling
+      // once, otherwise this races the very thing it is meant to pin.
+      await waitFor(() => {
+        expect(scrolled.length).toBeGreaterThan(0);
+      });
+      // …and on the RIGHT step: the one that is waiting_external (s-1), not
+      // merely the first step in the timeline.
+      expect(
+        scrolled.some((el) => el.getAttribute("data-step-id") === "s-1")
+      ).toBe(true);
+    } finally {
+      spy.mockRestore();
+      if (!had) delete proto.scrollIntoView;
+    }
+  });
+
+  it("等待外部 jump: shown when 等我回覆 wins the status precedence but a step still waits on a vendor", async () => {
+    // The real reachable case for the step half of the OR gate. The server's
+    // RecomputeTaskStatus ranks waiting_owner ABOVE waiting_external, so this
+    // task reads 等我回覆 at the task level while a step is genuinely blocked
+    // on a third party — task.status alone would never reveal it.
+    __injectMockTask(
+      mkTask({
+        title: "等我回覆但也有等外部節點",
+        status: "waiting_owner",
+        progressDone: 0,
+        progressTotal: 2,
+        steps: [
+          {
+            id: "s-x", name: "節點甲", dod: "d", status: "waiting_external",
+            isGate: false, replyCardId: "", parallelGroup: "", orderIdx: 0,
+            startedTs: 1, finishedTs: 0, waitingReason: "等海關放行",
+          },
+          {
+            id: "s-y", name: "節點乙", dod: "d", status: "waiting_owner",
+            isGate: true, replyCardId: "", parallelGroup: "", orderIdx: 1,
+            startedTs: 1, finishedTs: 0,
+          },
+        ] as never,
+      })
+    );
+    const { findByTestId } = renderPage();
+    const card = await findByTestId("task-card");
+    fireEvent.click(card.querySelector(".task-card__head")!);
+    await waitFor(() => {
+      expect(card.querySelector('[data-testid="task-step"]')).toBeTruthy();
+    });
+
+    fireEvent.click(within(card).getByTestId("task-status"));
+    const ids = menuItemIds(card);
+    // BOTH jumps are live here, and both sit ahead of the destructive items.
+    expect(ids).toContain("task-mark-duplicate"); // positive control
+    expect(ids.indexOf("task-status-jump")).toBeLessThan(
+      ids.indexOf("task-mark-duplicate")
+    );
+    expect(ids.indexOf("task-status-jump-external")).toBeLessThan(
+      ids.indexOf("task-mark-duplicate")
+    );
+  });
+
+  it("等待外部 jump is ABSENT on a CLOSED task, even though its frozen step still says waiting_external", async () => {
+    // closeTask does not roll steps back and RecomputeTaskStatus returns early
+    // on a terminal task, so a task terminated mid-wait keeps a waiting_external
+    // step forever. Nobody is waiting on it any more — offering the jump would
+    // be a lie, and it used to appear only after expanding (absent collapsed),
+    // which read as a glitch.
+    __injectMockTask(
+      mkTask({
+        title: "終止但殘留等外部節點",
+        status: "terminated",
+        closedTs: Date.now() / 1000 - 10,
+        progressDone: 0,
+        progressTotal: 1,
+        steps: [
+          {
+            id: "s-z", name: "節點", dod: "d", status: "waiting_external",
+            isGate: false, replyCardId: "", parallelGroup: "", orderIdx: 0,
+            startedTs: 1, finishedTs: 0, waitingReason: "等第三方",
+          },
+        ] as never,
+      })
+    );
+    const { findByTestId } = renderPage();
+    // Terminals are hidden by default: tick the 狀態 filter AND open the
+    // 已結束 section (same two-step the existing closed-card test uses).
+    toggleFilter("filter-status", "terminated");
+    fireEvent.click(await findByTestId("closed-toggle"));
+    const card = await findByTestId("task-card");
+    fireEvent.click(card.querySelector(".task-card__head")!);
+    await waitFor(() => {
+      expect(card.querySelector('[data-testid="task-step"]')).toBeTruthy();
+    });
+
+    fireEvent.click(within(card).getByTestId("task-status"));
+    const ids = menuItemIds(card);
+    // positive control: the menu really opened and carries the greyed pair, so
+    // the absence below is real and not an unopened menu.
+    expect(ids).toContain("task-mark-duplicate");
+    expect(ids).toContain("task-terminate");
+    expect(ids).not.toContain("task-status-jump-external");
+  });
+
+  it("等待外部 jump: also on an in_progress task whose STEP waits — the derived status hides it, the step does not", async () => {
+    __injectMockTask(
+      mkTask({
+        title: "進行中但有等外部節點",
+        // The derived task status reads in_progress (other steps are running),
+        // yet one step really is blocked on a third party. Gating on
+        // task.status alone would hide the jump here.
+        status: "in_progress",
+        progressDone: 0,
+        progressTotal: 2,
+        steps: [
+          {
+            id: "s-a", name: "節點甲", dod: "d", status: "waiting_external",
+            isGate: false, replyCardId: "", parallelGroup: "", orderIdx: 0,
+            startedTs: 1, finishedTs: 0, waitingReason: "等海關放行",
+          },
+          {
+            id: "s-b", name: "節點乙", dod: "d", status: "in_progress",
+            isGate: false, replyCardId: "", parallelGroup: "", orderIdx: 1,
+            startedTs: 1, finishedTs: 0,
+          },
+        ] as never,
+      })
+    );
+    const { findByTestId } = renderPage();
+    const card = await findByTestId("task-card");
+    // Expand first: this half of the gate reads view.steps, which only exist
+    // after the detail hydrate. Asserting it on a collapsed card would be
+    // asserting something the client cannot know yet.
+    fireEvent.click(card.querySelector(".task-card__head")!);
+    await waitFor(() => {
+      expect(card.querySelector('[data-testid="task-step"]')).toBeTruthy();
+    });
+
+    fireEvent.click(within(card).getByTestId("task-status"));
+    const ids = menuItemIds(card);
+    expect(ids).toContain("task-mark-duplicate"); // positive control
+    expect(ids[0]).toBe("task-status-jump-external");
+  });
+
+  it("等待外部 jump is ABSENT when no step waits on a third party", async () => {
+    __injectMockTask(
+      mkTask({
+        title: "沒有等外部節點的",
+        status: "in_progress",
+        progressDone: 0,
+        progressTotal: 1,
+        steps: [
+          {
+            id: "s-9", name: "節點", dod: "d", status: "in_progress",
+            isGate: false, replyCardId: "", parallelGroup: "", orderIdx: 0,
+            startedTs: 1, finishedTs: 0,
+          },
+        ] as never,
+      })
+    );
+    const { findByTestId } = renderPage();
+    const card = await findByTestId("task-card");
+    fireEvent.click(within(card).getByTestId("task-status"));
+
+    const ids = menuItemIds(card);
+    // positive control FIRST — the menu is genuinely open and populated, so the
+    // absence below is a real absence and not an unopened menu (the classic way
+    // a negative assertion goes vacuous).
+    expect(ids.length).toBeGreaterThan(0);
+    expect(ids).toContain("task-mark-duplicate");
+    expect(ids).not.toContain("task-status-jump-external");
+  });
+
   it("MOVED, not copied: the card carries exactly ONE 標記重複 / 終止, on the status menu", async () => {
     __injectMockTask(mkTask({ title: "只有一份" }));
     const { findByTestId } = renderPage();

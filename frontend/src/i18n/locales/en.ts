@@ -130,6 +130,12 @@ export const en: Dict = {
     // status dropdown (owner's informed ruling — the old one-click badge jump
     // is now two steps).
     statusJump: "Show the waiting reply card",
+    // Jump to the waiting_external STEP (T-c514, owner 2026-07-20). Same family
+    // as statusJump — both mean "take me to where this is stuck" — so the two
+    // sit together at the TOP of the menu. This one only became necessary once
+    // T-c514 removed the task-level reason: the reason now lives in the step
+    // alone, which turns navigating to it from convenience into a requirement.
+    statusJumpExternal: "Show the waiting-external step",
     terminate: "Terminate",
     terminateConfirmBody: (title: string) =>
       `Terminate “${title}”? The task moves to Closed and cannot be resumed; the backend will notify the executor to wind it down.`,

@@ -156,6 +156,11 @@ export const zh = {
     // 等我回覆:跳到卡內嵌的等我回覆卡。v5 起這是狀態下拉裡的一個選項(owner 明示
     // 知情裁示:原本點 badge 一步到位跳卡,現在收進下拉變兩步)。
     statusJump: "查看等我回覆卡",
+    // 等待外部:跳到那個 waiting_external 的節點(T-c514, owner 2026-07-20)。
+    // 與 statusJump 同一族——兩者都是「帶我去卡住的地方」,所以並列在選單最前。
+    // 這條在 T-c514 移除任務層 reason 顯示後才有必要:reason 現在只活在節點內,
+    // 導航到節點就從方便變成必要。
+    statusJumpExternal: "查看等待外部節點",
     terminate: "終止",
     terminateConfirmBody: (title: string) =>
       `確定要終止「${title}」嗎？任務將移入已結束區，無法恢復；後端會通知負責人做結束處理。`,

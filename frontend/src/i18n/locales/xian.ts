@@ -114,6 +114,9 @@ export const xian: Dict = {
     taskNoCopied: "已錄",
     // 候覆之跳轉:捲至內嵌候覆牌。v5 起收入狀牌下拉,為其一令(山門明示)。
     statusJump: "觀候覆之牌",
+    // 候外緣之跳轉(T-c514,山門 2026-07-20)。與候覆同族——皆為「引我至滯處」,
+    // 故並列於下拉之首。「候外緣」承 stepWaitingExternal 之詞,三處同字。
+    statusJumpExternal: "觀候外緣之節",
     terminate: "作廢",
     terminateConfirmBody: (title: string) =>
       `當真作廢「${title}」？此差事將移入已了結，不可復起；山門自會知會經手弟子收尾。`,
