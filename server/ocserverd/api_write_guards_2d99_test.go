@@ -154,6 +154,29 @@ func TestWriteTaskLearningsWipeNeedsAllowShrink(t *testing.T) {
 	}
 }
 
+// TestWriteTaskLearningsRejectsUnknownKeyAlongsideText isolates
+// DisallowUnknownFields from the required-key check. The tests above would
+// still pass on a lenient decoder, because dropping `learnings` also leaves
+// `text` missing and the required check fires. Here `text` IS present, so the
+// ONLY thing that can reject the request is the unknown-field guard — and it
+// must, because a caller sending both names does not know which one wins.
+func TestWriteTaskLearningsRejectsUnknownKeyAlongsideText(t *testing.T) {
+	api := newTasksTestServer(t)
+	const seeded = "learnings guarded by the unknown-field check alone"
+	key := seedManualWithLearnings(t, api, seeded)
+
+	rec := writeLearnings(t, api, key, map[string]any{
+		"text": "which of us wins?", "learnings": "or me?",
+	})
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("an unknown key alongside a valid text must be refused (422), got %d %s",
+			rec.Code, rec.Body.String())
+	}
+	if got := storedLearnings(t, api, key); got != seeded {
+		t.Fatalf("learnings must be untouched:\n got: %q\nwant: %q", got, seeded)
+	}
+}
+
 // ── patch_lessons ────────────────────────────────────────────────────────────
 
 // TestPatchLessonsRejectsUnknownEditKeys pins the nested face of
@@ -170,6 +193,30 @@ func TestPatchLessonsRejectsUnknownEditKeys(t *testing.T) {
 		`{"edits":[{"old_text":"line two","new_text":"line two changed"}]}`)
 	if status != http.StatusUnprocessableEntity {
 		t.Fatalf("unknown edit keys must be refused (422), got %d: %v", status, data)
+	}
+	if got := getLessonsText(t, srv.URL, ownerTok, "assistant", "general"); got != seeded {
+		t.Fatalf("doc must be untouched:\n got: %q\nwant: %q", got, seeded)
+	}
+}
+
+// TestPatchLessonsRejectsUnknownKeyAlongsideValidEdit isolates the NESTED
+// unknown-field guard. The test above would still pass on a lenient decoder
+// (dropping both keys leaves {nil,nil}, which the neither-old-nor-new check
+// catches). Here the edit carries a perfectly valid old/new PLUS a stray key,
+// so only DisallowUnknownFields descending into the array element can reject
+// it — and it must, since the stray key is evidence the caller's model of the
+// shape is wrong.
+func TestPatchLessonsRejectsUnknownKeyAlongsideValidEdit(t *testing.T) {
+	srv, dal, secret := newLessonsTestServer(t)
+	ownerTok, _ := mintJWT("owner", "owner", 300, secret, time.Now().Unix(), "")
+	const seeded = "line one\nline two\n"
+	seedLessonsOverlay(t, dal, "assistant", "general", seeded)
+
+	status, data := patchLessons(t, srv.URL, ownerTok, "assistant", "general",
+		`{"edits":[{"old":"line two","new":"line two changed","old_text":"stray"}]}`)
+	if status != http.StatusUnprocessableEntity {
+		t.Fatalf("a stray key on an otherwise valid edit must be refused (422), got %d: %v",
+			status, data)
 	}
 	if got := getLessonsText(t, srv.URL, ownerTok, "assistant", "general"); got != seeded {
 		t.Fatalf("doc must be untouched:\n got: %q\nwant: %q", got, seeded)
