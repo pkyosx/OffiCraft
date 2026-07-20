@@ -12,8 +12,13 @@
 // MUTANT (verified red→green, see task conclusion doc): delete the `onClick`
 // prop wiring in ReplyCardAvatarButton.tsx → every test below goes red
 // (click and keyboard alike, since both ultimately fire the same handler).
-// Deleting the `aria-label`/`title` leaves click/keyboard green but reddens
-// the accessible-name assertion.
+// Deleting `aria-label` alone (title still set) leaves click/keyboard green
+// and reddens ONLY the aria-label assertion below — checked via the raw
+// attribute, NOT getByRole name matching: Chromium's accname algorithm falls
+// back to `title` when aria-label is absent, so a role/name query alone
+// would have stayed green on that mutant (caught while authoring this guard
+// — a role-name assertion here would have been unfalsifiable against exactly
+// the regression it claims to catch).
 import { test, expect } from "@playwright/experimental-ct-react";
 import { ReplyCardAvatarStory } from "./stories/ReplyCardAvatarStory";
 import { zh } from "../src/i18n/locales/zh";
@@ -49,12 +54,20 @@ for (const width of [1280, 390]) {
   });
 }
 
-test("the avatar exposes an accessible name (aria-label survives real CSS: Avatar's inner glyphs are aria-hidden)", async ({
+test("the avatar carries aria-label (Avatar's inner glyphs are aria-hidden, so the button's OWN label is the only accessible name)", async ({
   mount,
 }) => {
   const cmp = await mount(<ReplyCardAvatarStory />);
-  const byRole = cmp.getByRole("button", { name: zh.office.viewProfile });
-  await expect(byRole).toBeVisible();
+  const ariaLabel = await cmp
+    .locator(".reply-card__avatar")
+    .getAttribute("aria-label");
+  expect(ariaLabel).toBe(zh.office.viewProfile);
+  // Independent confirmation the real accessibility tree resolves the SAME
+  // name (not required for the mutant to redden — see comment above — but a
+  // second, real-Chromium-computed signal that the name is actually exposed).
+  await expect(
+    cmp.getByRole("button", { name: zh.office.viewProfile })
+  ).toBeVisible();
 });
 
 test("focus-visible paints a non-transparent ring on the avatar button", async ({
