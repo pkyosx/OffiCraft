@@ -218,7 +218,8 @@ func TestReassignMemberToMemberHandsOver(t *testing.T) {
 		t.Fatalf("old-executor handover message wrong: %+v", toOld)
 	}
 	if toNew == nil || !strings.Contains(toNew.Body, "接手了任務") ||
-		!strings.Contains(toNew.Body, "reassigning") ||
+		!strings.Contains(toNew.Body, "claim_task") ||
+		strings.Contains(toNew.Body, "update_task_status") ||
 		!strings.Contains(toNew.Body, "你的前任是 Ken") ||
 		!strings.Contains(toNew.Body, "分支在 kyle-160e") {
 		t.Fatalf("new-executor handover message wrong (predecessor + note must ride): %+v", toNew)
