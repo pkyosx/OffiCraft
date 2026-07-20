@@ -587,41 +587,17 @@ a.task-card__chip--link {
   color: var(--color-text-strong);
   background: rgba(255, 255, 255, 0.06);
 }
-.task-artifacts__tabs {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 4px;
-  margin: 10px 10px 0;
-  padding: 4px;
-  border-radius: 11px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.03);
-}
-.task-artifacts__tab {
-  height: 30px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--color-text-muted);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition:
-    color 0.15s,
-    background 0.15s;
-}
-.task-artifacts__tab:hover {
-  color: var(--color-text);
-}
-.task-artifacts__tab--active {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--color-text-strong);
-}
+/* T-49fb: the 檔案/圖片/連結 segmented tabs are gone — the body IS the list.
+   It owns the row gap so the three kinds (which arrive from two different
+   renderers) sit on one rhythm; see `__strip`/`__links` below. */
 .task-artifacts__body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 .task-artifacts__empty {
   display: grid;
@@ -631,12 +607,23 @@ a.task-card__chip--link {
   font-size: 13px;
   color: var(--color-text-muted);
 }
-/* File/image strip (reused AttachmentStrip): each item is a row with the
-   thumbnail/chip and its trailing actions (預覽/移除). */
-.task-artifacts__strip {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+/* File/image strip (reused AttachmentStrip) and the link list are two boxes
+   only because they come from two renderers. `display: contents` dissolves
+   both so every row — file, image, link — is a direct flex child of
+   `.task-artifacts__body`, and the row rhythm is declared ONCE (on the body)
+   instead of three times.
+   Honesty note (the T-d451 rule: a rule with no measurement behind it gets
+   read as load-bearing by the next person): this is a DRY choice, not a
+   layout fix. Measured — giving these two wrappers their own
+   `flex-direction: column; gap: 6px` back renders IDENTICALLY, because the
+   body's own gap already spaces the two wrappers at the seam. What IS
+   load-bearing is `.task-artifacts__body` being the flex column: as a plain
+   block the seam between the last blob row and the first link row collapses
+   to 0. The even-rhythm contract is guarded either way in
+   artifacts-badge.ct.spec.tsx. */
+.task-artifacts__strip,
+.task-artifacts__links {
+  display: contents;
 }
 /* ONE row shape for all three artifact kinds (T-90df) — file, image and link
    rows are all `.task-artifacts__item`: [icon-or-thumbnail][name chip][actions].
@@ -730,14 +717,9 @@ a.task-artifacts__chip:hover {
   color: var(--color-danger);
   border-color: color-mix(in srgb, var(--color-danger) 45%, transparent);
 }
-/* Link tab — same `.task-artifacts__item` rows and `.task-artifacts__chip`
-   box as the other two kinds; `.task-artifacts__link` now only carries the
-   "this one navigates" hover accent. */
-.task-artifacts__links {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
+/* Link rows — same `.task-artifacts__item` row and `.task-artifacts__chip`
+   box as the other two kinds; `.task-artifacts__link` only carries the
+   "this one navigates" hover accent (its kind cue is the ExternalLinkIcon). */
 .task-artifacts__link:hover {
   color: var(--color-accent);
   border-color: rgba(111, 214, 176, 0.4);
@@ -1648,29 +1630,48 @@ button.task-card__waiting--dep:focus-visible {
      固定寬從偏右起點往右撐,整片撐出視窗右緣,最右的「連結」分頁被切在畫面外。
      窄版仍「留在原地」—— 徽章列正下方的 dropdown(與桌面同一位置概念),只做
      兩件事讓它不溢出:
-       ① 定位參考從那顆小 anchor 改成整條「徽章列」(badge-row —— 滿卡片寬、
-          靠左)。把 anchor 設 static、badge-row 設 relative,浮層的 top/left
-          就相對 badge-row:top 落在徽章列正下方,left:0 落在卡片左內緣,往右展。
+       ① 定位參考從那顆小 anchor 改成整條徽章列(滿卡片寬、靠左;T-49fb 起是
+          head-top)。把 anchor 設 static、那條列設 relative,浮層的 top/left
+          就相對它:top 落在徽章列正下方,left:0 落在卡片左內緣,往右展。
           (桌面不套此規則 → anchor 仍是定位參考,dropdown 緊貼 badge 不變。)
        ② 寬度夾進畫面:width: min(340px, calc(100vw - 16px)),不再固定撐出去。
      於是無論產物 badge 落在列的哪個位置,浮層一律從卡片左緣往右展、寬度受夾,
      right ≤ 視窗、left ≥ 0。桌面(>720px)的 absolute/anchor/left:0/top/min()
      完全不動,dropdown 緊貼 badge 的外觀與行為不變。
      兄弟選單(.task-card__prio / .task-card__status)有各自的 position:relative
-     容器,不受 badge-row 轉為定位參考影響。 */
-  .task-card__badge-row {
+     容器,不受轉為定位參考影響。
+
+     T-49fb 修正 T-2ca0 的 ② —— 寬度的夾法錯了座標系。實測(375px,真 app):
+     浮層左緣 x=37(= app__main padding 22 + 卡片 border 1 + 卡片 padding 14),
+     但寬度是 `min(340px, calc(100vw - 16px))`;100vw 從「視窗左緣」起算,浮層
+     卻不是從視窗左緣長出來的。375px 時 calc = 359,min() 永遠選 340,於是右緣
+     落在 37+340 = 377 > 375 —— 溢出 +2px,再加上卡片 padding 一路往上累積,
+     `.task-card` 溢出 +25、`.tasks` 溢出 +24。`.tasks` 有 overflow-y:auto
+     (CSS 規定 overflow-x 跟著變 auto),所以整片列表自己長出橫向捲軸:owner
+     手機上一滑,#T-23cf / 自由代辦 兩顆 chip 的左緣就被捲出畫面外。
+     (實測排除其他候選:浮層 scrollWidth == clientWidth,連結列的長 branch 名
+     早已被 T-90df 的 ellipsis 截斷、tab 列也在浮層內,兩者都沒有參與撐寬。)
+     改法:別再用 vw 猜自己的左偏移,直接讓兩個橫向邊界都由「卡片自己」給——
+     定位參考改成 `.task-card__head-top`(整條 row 1,滿卡片內容寬、靠左),
+     浮層 `left:0; right:0; width:auto`。left/right 同時給定 ⇒ 可用寬 = 卡片
+     內容寬,右緣**構造上**等於卡片右內緣,卡片在視窗內浮層就一定在視窗內,
+     與視窗寬無關。over-constrained 時 LTR 忽略 right、維持靠左展開,所以
+     `max-width` 仍把它收在 340px(桌面同寬),窄機則自然縮到卡片寬。
+     定位參考從 badge-row 換成 head-top 只差一顆 expand chevron 的寬度,
+     top: calc(100%+6px) 仍是「徽章列正下方」(head-top 高度 = 徽章列高度),
+     T-2ca0「留在原地、從卡片左緣往右展」的裁決不變。 */
+  .task-card__head-top {
     position: relative;
   }
   .task-artifacts-anchor {
     position: static;
   }
   .task-artifacts {
-    /* top/left 沿用 base(top:calc(100%+6px); left:0),現在相對 badge-row。 */
-    width: min(340px, calc(100vw - 16px));
-  }
-  /* 分頁列在極窄寬度下也能橫向捲(護欄:即使三格 grid 未來加寬也不溢出)。 */
-  .task-artifacts__tabs {
-    overflow-x: auto;
+    /* top 沿用 base(calc(100%+6px)),現在相對 head-top。 */
+    left: 0;
+    right: 0;
+    width: auto;
+    max-width: 340px;
   }
 }
 

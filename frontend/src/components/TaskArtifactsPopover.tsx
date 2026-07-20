@@ -1,14 +1,17 @@
 // components/TaskArtifactsPopover.tsx — the task card's 「產物 N」 badge + its
-// artifact popover (T-3dc5, owner-chosen A design: a count badge in the badge
-// row + a tabbed popover). The badge renders ONLY when the count > 0 (0 ⇒ no
-// badge, by construction — the empty-set assertion). Clicking it opens a
-// popover styled like the chat 檔案與圖片 gallery: three segmented tabs 檔案 /
-// 圖片 / 連結.
+// artifact popover (T-3dc5). The badge renders ONLY when the count > 0 (0 ⇒ no
+// badge, by construction — the empty-set assertion).
 //
-// LINK gets its OWN tab (not folded into 檔案): a link has no blob and a wholly
-// different interaction (open in a new tab) from a file (download) or an image
-// (Lightbox), so one tab per interaction model keeps each tab uniform — the
-// 「較自然」 choice the spec left to the implementer.
+// T-49fb (owner 2026-07-20): the popover used to be TABBED (檔案 N / 圖片 N /
+// 連結 N). The tabs are gone — a task's artifact set is small (the whole point
+// of pinning is that it is the short list), so paging three near-empty tabs
+// cost a click to discover a row that would have fitted on screen anyway. One
+// list now shows every artifact at once. What survives is the per-KIND visual
+// distinction, which was never the tabs' job: a file leads with the paperclip
+// chip, an image with its 44px thumbnail, a link with the external-link glyph
+// and the navigate hover accent. Within the list the kinds stay grouped in the
+// old tab order (檔案 → 圖片 → 連結) so the eye still reads them as three
+// families without a control to operate.
 //
 // File/image artifacts REUSE the shared attachment renderer (AttachmentStrip +
 // Lightbox) and the .md preview overlay — deliverable #2's 「復用聊天附件那套
@@ -17,7 +20,7 @@
 // The owner may un-pin any artifact (a small × per row) when onRemoveArtifact
 // is wired — the executing agent pins via MCP but does not remove.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useI18n } from "../i18n";
 import { api } from "../api";
@@ -34,8 +37,6 @@ import {
   PaperclipIcon,
   TrashIcon,
 } from "./icons";
-
-type ArtifactTab = "files" | "images" | "links";
 
 /** Project a file/image artifact onto the ChatAttachmentView the shared
  * AttachmentStrip renders (id/url/filename/mime/isImage — the exact reuse
@@ -65,12 +66,38 @@ export function TaskArtifactsBadge({
   const { t } = useI18n();
   const count = task.artifactCount ?? 0;
   const [open, setOpen] = useState(false);
+  const anchorRef = useRef<HTMLSpanElement>(null);
+
+  // Click-outside dismissal (T-49fb, owner 2026-07-20: 「點其他地方都不會自動
+  // 關閉,一定要點 X」). Same shape as every other popover in the cockpit —
+  // TaskCard's 優先度/狀態 menus, MultiSelectFilter, OfficePage, ProfileDropdown
+  // all run `mousedown` + `anchorRef.contains(e.target)`; there is no shared
+  // hook to reuse, so this follows the majority spelling rather than inventing
+  // a fourth one.
+  //
+  // The ref is on the ANCHOR, which wraps BOTH the badge and the popover. Two
+  // things fall out of that and are the reason this doesn't need extra guards:
+  //   · a mousedown on the badge is INSIDE, so it never closes-then-reopens —
+  //     the badge's own onClick stays the single toggle (the classic bug).
+  //   · the Lightbox and the MarkdownPreviewOverlay render INSIDE the popover
+  //     (neither uses createPortal), so opening a preview and clicking its
+  //     backdrop stays inside the anchor and leaves the popover open.
+  // `mousedown` (not `click`) matches the siblings and fires before the anchor
+  // is torn down. Esc is handled by the popover itself (see ArtifactsPopover).
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e: MouseEvent) {
+      if (!anchorRef.current?.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
 
   // 0 artifacts ⇒ NO badge (the empty-set assertion — nothing to show).
   if (count === 0) return null;
 
   return (
-    <span className="task-artifacts-anchor">
+    <span className="task-artifacts-anchor" ref={anchorRef}>
       <button
         type="button"
         className="task-badge task-badge--artifacts"
@@ -117,7 +144,6 @@ function ArtifactsPopover({
 }) {
   const { t } = useI18n();
   const [artifacts, setArtifacts] = useState<TaskArtifactView[]>(seed ?? []);
-  const [tab, setTab] = useState<ArtifactTab>("files");
   // Open overlays (mutually exclusive; the caller-owned state pattern).
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ title: string; url: string } | null>(
@@ -155,10 +181,15 @@ function ArtifactsPopover({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, lightboxSrc, preview]);
 
+  // ONE list, grouped 檔案 → 圖片 → 連結 (the old tab order). File and image
+  // rows share the AttachmentStrip renderer, so they are handed to it in a
+  // single call; links are anchors and render after. The two wrappers this
+  // leaves behind are dissolved in tasks.css so the rows read as one list —
+  // the row rhythm lives on `.task-artifacts__body`, which is the flex column.
   const files = artifacts.filter((a) => a.kind === "file");
   const images = artifacts.filter((a) => a.kind === "image");
   const links = artifacts.filter((a) => a.kind === "link");
-  const shown = tab === "files" ? files : tab === "images" ? images : links;
+  const blobs = [...files, ...images];
 
   // Per-item extra actions on the file/image strip: 預覽 for a .md file, plus
   // the owner un-pin ×. Bound by artifact id (the strip carries att views).
@@ -174,7 +205,7 @@ function ArtifactsPopover({
     // the file branch does — an image row must never lose its chip, or it
     // stops matching the other two kinds.
     const imageName =
-      art?.kind === "image" ? att.filename || t.tasks.artifacts.tabImages : "";
+      art?.kind === "image" ? att.filename || t.tasks.artifacts.imageName : "";
     return (
       <>
         {imageName && (
@@ -218,62 +249,53 @@ function ArtifactsPopover({
           <CloseIcon size={15} />
         </button>
       </div>
-      {/* 檔案 / 圖片 / 連結 segmented tabs — the gallery seg vocabulary. */}
-      <div className="task-artifacts__tabs" role="tablist">
-        <TabButton label={`${t.tasks.artifacts.tabFiles} ${files.length}`} active={tab === "files"} onClick={() => setTab("files")} />
-        <TabButton label={`${t.tasks.artifacts.tabImages} ${images.length}`} active={tab === "images"} onClick={() => setTab("images")} />
-        <TabButton label={`${t.tasks.artifacts.tabLinks} ${links.length}`} active={tab === "links"} onClick={() => setTab("links")} />
-      </div>
       <div className="task-artifacts__body">
-        {shown.length === 0 ? (
-          <div className="task-artifacts__empty">
-            {tab === "files"
-              ? t.tasks.artifacts.emptyFiles
-              : tab === "images"
-                ? t.tasks.artifacts.emptyImages
-                : t.tasks.artifacts.emptyLinks}
-          </div>
-        ) : tab === "links" ? (
-          <div className="task-artifacts__links">
-            {links.map((a) => (
-              <div key={a.id} className="task-artifacts__item">
-                {/* `title` carries the FULL name (the label truncates). The
-                    aria-label must keep the NAME in it — a bare 「開啟連結」
-                    would override the link text and make every link row
-                    announce identically to a screen reader (T-90df). The
-                    visible text comes FIRST so the accessible name begins with
-                    what the eye reads (WCAG 2.5.3 Label in Name, and speech
-                    input matches on the visible words). */}
-                <a
-                  className="task-artifacts__chip task-artifacts__link"
-                  href={a.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title={a.label || a.url}
-                  aria-label={`${a.label || a.url} — ${t.tasks.artifacts.openLinkHint}`}
-                >
-                  <ExternalLinkIcon size={14} />
-                  <span className="task-artifacts__chip-name">{a.label || a.url}</span>
-                </a>
-                <span className="task-artifacts__actions">
-                  {onRemoveArtifact && (
-                    <RemoveButton taskId={taskId} artifactId={a.id} onRemove={onRemoveArtifact} />
-                  )}
-                </span>
-              </div>
-            ))}
-          </div>
+        {artifacts.length === 0 ? (
+          <div className="task-artifacts__empty">{t.tasks.artifacts.empty}</div>
         ) : (
-          <AttachmentStrip
-            attachments={shown.map(asAttachmentView)}
-            className="task-artifacts__strip"
-            itemClassName="task-artifacts__item"
-            imageClassName="task-artifacts__thumb"
-            fileChipClassName="task-artifacts__chip"
-            fileNameClassName="task-artifacts__chip-name"
-            onOpenImage={(src) => setLightboxSrc(src)}
-            renderExtra={renderExtra}
-          />
+          <>
+            <AttachmentStrip
+              attachments={blobs.map(asAttachmentView)}
+              className="task-artifacts__strip"
+              itemClassName="task-artifacts__item"
+              imageClassName="task-artifacts__thumb"
+              fileChipClassName="task-artifacts__chip"
+              fileNameClassName="task-artifacts__chip-name"
+              onOpenImage={(src) => setLightboxSrc(src)}
+              renderExtra={renderExtra}
+            />
+            {links.length > 0 && (
+              <div className="task-artifacts__links">
+                {links.map((a) => (
+                  <div key={a.id} className="task-artifacts__item">
+                    {/* `title` carries the FULL name (the label truncates). The
+                        aria-label must keep the NAME in it — a bare 「開啟連結」
+                        would override the link text and make every link row
+                        announce identically to a screen reader (T-90df). The
+                        visible text comes FIRST so the accessible name begins
+                        with what the eye reads (WCAG 2.5.3 Label in Name, and
+                        speech input matches on the visible words). */}
+                    <a
+                      className="task-artifacts__chip task-artifacts__link"
+                      href={a.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={a.label || a.url}
+                      aria-label={`${a.label || a.url} — ${t.tasks.artifacts.openLinkHint}`}
+                    >
+                      <ExternalLinkIcon size={14} />
+                      <span className="task-artifacts__chip-name">{a.label || a.url}</span>
+                    </a>
+                    <span className="task-artifacts__actions">
+                      {onRemoveArtifact && (
+                        <RemoveButton taskId={taskId} artifactId={a.id} onRemove={onRemoveArtifact} />
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
       <Lightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
@@ -285,20 +307,6 @@ function ArtifactsPopover({
         />
       )}
     </div>
-  );
-}
-
-function TabButton({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      className={`task-artifacts__tab${active ? " task-artifacts__tab--active" : ""}`}
-      onClick={onClick}
-    >
-      {label}
-    </button>
   );
 }
 

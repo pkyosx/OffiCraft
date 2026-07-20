@@ -1,8 +1,12 @@
 // T-3dc5 artifact set — real-browser layout guards the jsdom suite can't see:
 // the 「產物 N」 badge occupies a visible box in the badge row, its popover opens
-// with a laid-out three-tab header that stays inside the viewport, and the
-// empty-set case renders NO badge box at all (the design's load-bearing
-// negative, proven in real layout — not just DOM absence).
+// with a laid-out list that stays inside the viewport, and the empty-set case
+// renders NO badge box at all (the design's load-bearing negative, proven in
+// real layout — not just DOM absence).
+//
+// T-49fb reshaped this file twice over: the popover lost its 檔案/圖片/連結
+// tabs (one list now), and it gained a page-overflow contract + click-outside
+// dismissal.
 import { test, expect } from "@playwright/experimental-ct-react";
 import {
   TaskCardArtifactsStory,
@@ -10,8 +14,9 @@ import {
   TaskCardRaggedArtifactsStory,
 } from "./stories/TaskCardArtifactsStory";
 import { TaskArtifactsRightEdgeStory } from "./stories/TaskArtifactsRightEdgeStory";
+import { TaskArtifactsOverflowStory } from "./stories/TaskArtifactsOverflowStory";
 
-test("desktop 1024: 產物 badge is visible and opens a laid-out tabbed popover", async ({ mount, page }) => {
+test("desktop 1024: 產物 badge is visible and opens a laid-out popover listing every kind", async ({ mount, page }) => {
   await page.setViewportSize({ width: 1024, height: 800 });
   const cmp = await mount(<TaskCardArtifactsStory />);
 
@@ -24,22 +29,71 @@ test("desktop 1024: 產物 badge is visible and opens a laid-out tabbed popover"
   expect(badgeBox!.width).toBeGreaterThan(24);
   await expect(badge).toContainText("3");
 
-  // Open the popover — its three tabs must lay out (not overlap/collapse) and the
-  // panel must stay inside the viewport width.
   await badge.click();
   const popover = cmp.locator(".task-artifacts");
   await expect(popover).toBeVisible();
-  const tabs = cmp.locator(".task-artifacts__tab");
-  await expect(tabs).toHaveCount(3);
+
+  // T-49fb: NO tabs — and all three kinds are on screen at once, which is the
+  // whole point of dropping them. A mutant that restores the tabbed body shows
+  // only the 檔案 rows and reddens the row count.
+  await expect(cmp.locator(".task-artifacts__tab")).toHaveCount(0);
+  await expect(cmp.getByRole("tab")).toHaveCount(0);
+  await expect(cmp.locator(".task-artifacts__item")).toHaveCount(3);
+
   const popBox = await popover.boundingBox();
   expect(popBox).not.toBeNull();
   expect(popBox!.height).toBeGreaterThan(60);
   expect(popBox!.x).toBeGreaterThanOrEqual(0);
   expect(popBox!.x + popBox!.width).toBeLessThanOrEqual(1024 + 1);
 
-  // The default 檔案 tab shows the .md file row with its 預覽 action.
+  // The .md file row keeps its 預覽 action.
   await expect(cmp.getByText("design.md")).toBeVisible();
   await expect(cmp.locator('.task-artifacts [aria-label="預覽"]')).toBeVisible();
+});
+
+test("desktop 1024: the three kinds keep their visual distinction inside the one list", async ({ mount, page }) => {
+  // Dropping the tabs must NOT flatten the kinds. Each row still announces what
+  // it is by its leading mark: an image by its 44px thumbnail, a link by the
+  // anchor chip that navigates, a file by a plain download chip.
+  await page.setViewportSize({ width: 1024, height: 800 });
+  const cmp = await mount(<TaskCardArtifactsStory />);
+  await cmp.getByTestId("task-artifacts-badge").click();
+  await expect(cmp.locator(".task-artifacts")).toBeVisible();
+
+  // Image: a real thumbnail box, not a text chip.
+  const thumb = cmp.locator(".task-artifacts__thumb");
+  await expect(thumb).toHaveCount(1);
+  const thumbBox = await thumb.boundingBox();
+  expect(thumbBox!.width).toBeGreaterThanOrEqual(40);
+  expect(thumbBox!.height).toBeGreaterThanOrEqual(40);
+
+  // Link: the only row whose chip is an <a class="task-artifacts__link">.
+  await expect(cmp.locator("a.task-artifacts__link")).toHaveCount(1);
+
+  // Rows all sit on ONE rhythm even though they arrive from two renderers.
+  // Measure the GAP (previous bottom → next top), not top-to-top: the rows
+  // have different heights (the image row is as tall as its 44px thumbnail),
+  // so a top-to-top delta would vary for a perfectly even list.
+  //
+  // The seam that matters is file/image → link, which crosses the renderer
+  // boundary. The mutant this catches is `.task-artifacts__body` losing its
+  // flex column: the seam then collapses to 0 while the in-group gaps stay
+  // 6px. (Measured: swapping `display: contents` on the two wrappers for their
+  // own flex columns renders identically and does NOT redden this — the body's
+  // gap already spaces them. See the note in tasks.css.)
+  const rects = await cmp
+    .locator(".task-artifacts__item")
+    .evaluateAll((els) =>
+      els.map((el) => {
+        const r = el.getBoundingClientRect();
+        return { top: r.top, bottom: r.bottom };
+      }),
+    );
+  expect(rects.length).toBe(3);
+  const gaps = rects.slice(1).map((r, i) => r.top - rects[i].bottom);
+  for (const g of gaps) expect(Math.abs(g - gaps[0])).toBeLessThanOrEqual(1.5);
+  // …and the rhythm is the list's real gap, not a collapsed 0.
+  expect(gaps[0]).toBeGreaterThan(3);
 });
 
 test("narrow 390: popover stays within the phone viewport", async ({ mount, page }) => {
@@ -50,17 +104,15 @@ test("narrow 390: popover stays within the phone viewport", async ({ mount, page
   await expect(popover).toBeVisible();
   const box = await popover.boundingBox();
   expect(box).not.toBeNull();
-  // width min(340px, 78vw) — must not spill past the 390px screen.
   expect(box!.x).toBeGreaterThanOrEqual(0);
   expect(box!.x + box!.width).toBeLessThanOrEqual(390 + 1);
 });
 
 test("narrow 390: popover stays in-viewport even when its badge is pinned to the right edge (T-2ca0)", async ({ mount, page }) => {
-  // The reported bug: 產物 is the rightmost badge, so on a phone its anchor sits
-  // far right; the old absolute/left:0 + fixed-width popover then spilled past
-  // the right edge and clipped the 連結 tab. This story forces that anchor
-  // position, which the pre-existing 390 guard never did (its badge wrapped to
-  // the left). Assert the panel — AND its rightmost 連結 tab — stay in-viewport.
+  // The T-2ca0 bug: 產物 is the rightmost badge, so on a phone its anchor sits
+  // far right; the then-current absolute/left:0 + fixed-width popover spilled
+  // past the right edge. This story forces that anchor position, which the
+  // pre-existing 390 guard never did (its badge wrapped to the left).
   await page.setViewportSize({ width: 390, height: 780 });
   const cmp = await mount(<TaskArtifactsRightEdgeStory />);
   await cmp.getByTestId("task-artifacts-badge").click();
@@ -71,13 +123,147 @@ test("narrow 390: popover stays in-viewport even when its badge is pinned to the
   expect(box).not.toBeNull();
   expect(box!.x).toBeGreaterThanOrEqual(0);
   expect(box!.x + box!.width).toBeLessThanOrEqual(390 + 1);
+});
 
-  // The rightmost tab (連結) must be reachable, not clipped off-screen.
-  const linksTab = cmp.locator(".task-artifacts__tab").last();
-  await expect(linksTab).toBeVisible();
-  const tabBox = await linksTab.boundingBox();
-  expect(tabBox).not.toBeNull();
-  expect(tabBox!.x + tabBox!.width).toBeLessThanOrEqual(390 + 1);
+// ── T-49fb ① — the sideways-scroll contract ────────────────────────────────
+// The owner's report was NOT "the panel is clipped" (T-2ca0 fixed that) but
+// "the whole page scrolls sideways and the left chips are cut off". Measured at
+// 375px in the real app, the popover's box (left = card content edge = 37px,
+// width = a flat 340px) put its right edge at 377 > 375; the surplus climbed
+// the card's padding and landed on `.tasks`, whose overflow-y:auto forces
+// overflow-x:auto — so the LIST grew a horizontal scrollbar and swiping it
+// carried #T-23cf / 自由代辦 off the left edge.
+//
+// The contract is two-way on purpose: nothing may scroll sideways, AND the
+// panel must stay a usable width. A one-way "no overflow" assertion would go
+// green on a popover clamped to 0.
+test("narrow 375: opening the popover grows NO horizontal scroll anywhere (T-49fb)", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  const cmp = await mount(<TaskArtifactsOverflowStory />);
+
+  const overflow = () =>
+    page.evaluate(() => {
+      const de = document.documentElement;
+      const list = document.querySelector(".tasks") as HTMLElement | null;
+      const card = document.querySelector(".task-card") as HTMLElement | null;
+      // -2 is the never-rendered sentinel, matching the repo spelling in
+      // taskcard-longtoken-wrap.ct.spec.tsx (T-c514) so both guards grep alike.
+      //
+      // Measured, so nobody over-trusts the number: the VALUE buys no detection
+      // power on its own. -2 passes `toBeLessThanOrEqual(1)` just as -1 did, so
+      // swapping -1→-2 does not by itself survive someone relaxing the exact
+      // assertions below to a tolerance (verified: rotted selector + relaxed
+      // assertions + no `missing` check ⇒ green under BOTH sentinels).
+      // What actually makes this guard non-vacuous is the explicit `missing`
+      // boolean, asserted on both sides below — the same role T-c514's
+      // companion `.not.toBe(-2)` line plays there. Keep that assertion; the
+      // sentinel is a readability convention, not the safety net.
+      if (!list || !card) return { missing: true, page: -2, tasks: -2, card: -2 };
+      return {
+        missing: false,
+        page: de.scrollWidth - de.clientWidth,
+        tasks: list.scrollWidth - list.clientWidth,
+        card: card.scrollWidth - card.clientWidth,
+      };
+    });
+
+  // Surfaces must EXIST — a renamed class must report missing, not pass quietly.
+  const before = await overflow();
+  expect(before.missing, ".tasks / .task-card surfaces must exist").toBe(false);
+  expect(before.page).toBe(0);
+  expect(before.tasks).toBe(0);
+
+  await cmp.getByTestId("task-artifacts-badge").click();
+  await expect(cmp.locator(".task-artifacts")).toBeVisible();
+
+  const after = await overflow();
+  // Re-checked on BOTH sides, not just `before`: the surfaces are re-queried
+  // after the click, so a change that unmounts the card while the popover is
+  // open would otherwise reach the `toBe(0)` lines with sentinel values.
+  expect(after.missing, ".tasks / .task-card surfaces must still exist").toBe(false);
+  expect(after.page, "documentElement must not scroll sideways").toBe(0);
+  expect(after.tasks, ".tasks must not scroll sideways").toBe(0);
+  expect(after.card, ".task-card must not scroll sideways").toBe(0);
+
+  // …and the panel is still a panel: inside the card, and wide enough to read.
+  const pop = (await cmp.locator(".task-artifacts").boundingBox())!;
+  const card = (await cmp.locator(".task-card").boundingBox())!;
+  expect(pop.width).toBeGreaterThanOrEqual(240);
+  expect(pop.x).toBeGreaterThanOrEqual(card.x - 1);
+  expect(pop.x + pop.width).toBeLessThanOrEqual(card.x + card.width + 1);
+
+  // The long branch label is truncated by T-90df's ellipsis, not by widening
+  // the row — the chip stays inside the panel.
+  const chipRight = await cmp
+    .locator(".task-artifacts__chip")
+    .first()
+    .evaluate((el) => el.getBoundingClientRect().right);
+  expect(chipRight).toBeLessThanOrEqual(pop.x + pop.width + 1);
+});
+
+// ── T-49fb ③ — click-outside dismissal ─────────────────────────────────────
+test("click outside closes the popover; clicks inside and on the badge do not (T-49fb)", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1024, height: 800 });
+  const cmp = await mount(<TaskCardArtifactsStory />);
+  const badge = cmp.getByTestId("task-artifacts-badge");
+  const popover = cmp.locator(".task-artifacts");
+
+  await badge.click();
+  await expect(popover).toBeVisible();
+
+  // Inside → stays open. The header is inert chrome, so this isolates the
+  // dismissal logic from any row's own click handler.
+  await cmp.locator(".task-artifacts__header").click();
+  await expect(popover).toBeVisible();
+
+  // Outside → closes.
+  await page.mouse.click(900, 700);
+  await expect(popover).toHaveCount(0);
+
+  // The badge must still OPEN on the next click. This is the classic bug in
+  // this pattern: if the outside-click listener treated the trigger as
+  // "outside", mousedown would close and the click would re-open (or the two
+  // would race and the panel would never appear).
+  await badge.click();
+  await expect(popover).toBeVisible();
+  await badge.click();
+  await expect(popover).toHaveCount(0);
+});
+
+test("Esc closes the popover (T-49fb)", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1024, height: 800 });
+  const cmp = await mount(<TaskCardArtifactsStory />);
+  await cmp.getByTestId("task-artifacts-badge").click();
+  await expect(cmp.locator(".task-artifacts")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(cmp.locator(".task-artifacts")).toHaveCount(0);
+});
+
+test("opening the image Lightbox does not dismiss the popover (T-49fb)", async ({ mount, page }) => {
+  // The portal trap: if the Lightbox / MarkdownPreviewOverlay were portalled to
+  // <body>, a `contains()`-based outside check would call them "outside" and
+  // clicking a thumbnail or 預覽 would kill the popover under them. They render
+  // INSIDE the popover subtree — this pins that, so a future refactor to a
+  // portal reddens here instead of silently regressing.
+  await page.setViewportSize({ width: 1024, height: 800 });
+  const cmp = await mount(<TaskCardArtifactsStory />);
+  await cmp.getByTestId("task-artifacts-badge").click();
+  const popover = cmp.locator(".task-artifacts");
+  await expect(popover).toBeVisible();
+
+  await cmp.locator(".task-artifacts__thumb").click();
+  await expect(cmp.locator(".chat__lightbox")).toBeVisible();
+  await expect(popover).toBeVisible();
+
+  // Dismissing the Lightbox by its own backdrop leaves the popover standing.
+  await cmp.locator(".chat__lightbox").click({ position: { x: 5, y: 5 } });
+  await expect(cmp.locator(".chat__lightbox")).toHaveCount(0);
+  await expect(popover).toBeVisible();
+
+  // Same contract for the .md 預覽 overlay — the other in-popover overlay.
+  await cmp.locator('.task-artifacts [aria-label="預覽"]').click();
+  await expect(cmp.locator(".md-preview")).toBeVisible();
+  await expect(popover).toBeVisible();
 });
 
 // T-90df — the alignment guard. This is the ONLY layer that can prove the
@@ -91,13 +277,13 @@ test("desktop 1024: a short and an overlong name give EQUAL chip widths and one 
   await cmp.getByTestId("task-artifacts-badge").click();
   await expect(cmp.locator(".task-artifacts")).toBeVisible();
 
-  // 檔案 tab (default): a.md and the overlong name.
+  // The two FILE rows (the short name and the overlong one) lead the list.
   const chips = cmp.locator(".task-artifacts__item .task-artifacts__chip");
-  await expect(chips).toHaveCount(2);
   const chipBoxes = await chips.evaluateAll((els) =>
-    els.map((el) => el.getBoundingClientRect().width),
+    els.slice(0, 2).map((el) => el.getBoundingClientRect().width),
   );
   // Chip width must be name-INDEPENDENT: the short and long rows agree.
+  expect(chipBoxes.length).toBe(2);
   expect(Math.abs(chipBoxes[0] - chipBoxes[1])).toBeLessThanOrEqual(1);
 
   // …and the CHIP itself stays inside the panel (the ellipsis did its job).
@@ -114,38 +300,43 @@ test("desktop 1024: a short and an overlong name give EQUAL chip widths and one 
   }
 
   // The trailing action columns start at the SAME x — that is 「動作鈕垂直
-  // 對齊成一欄」 in measurable form.
+  // 對齊成一欄」 in measurable form. Compared between the two FILE rows only:
+  // an image row legitimately starts its actions 44px+gap further right
+  // (the thumbnail sits outside the chip), which is why the cross-kind
+  // contract is stated on the RIGHT edge in the next test, not the left.
   const actionLefts = await cmp
     .locator(".task-artifacts__item .task-artifacts__actions")
-    .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().left));
+    .evaluateAll((els) =>
+      els.slice(0, 2).map((el) => el.getBoundingClientRect().left),
+    );
   expect(actionLefts.length).toBe(2);
   expect(Math.abs(actionLefts[0] - actionLefts[1])).toBeLessThanOrEqual(1);
 });
 
-test("desktop 1024: all three tabs put their action column on the same right edge", async ({ mount, page }) => {
-  // Cross-tab consistency (requirement ①). Chip widths differ by the 44px
-  // thumbnail on an image row — what must agree is the RIGHT edge the action
-  // buttons flush to, since that is what the eye reads as 「對齊」.
+test("desktop 1024: every kind puts its action column on the same right edge", async ({ mount, page }) => {
+  // Cross-kind consistency (T-90df requirement ①). Chip widths differ by the
+  // 44px thumbnail on an image row — what must agree is the RIGHT edge the
+  // action buttons flush to, since that is what the eye reads as 「對齊」.
+  // Pre-T-49fb this needed three tab clicks; the one list makes it one shot.
   await page.setViewportSize({ width: 1024, height: 800 });
   const cmp = await mount(<TaskCardRaggedArtifactsStory />);
   await cmp.getByTestId("task-artifacts-badge").click();
   await expect(cmp.locator(".task-artifacts")).toBeVisible();
 
-  const rights: number[] = [];
-  for (const tabName of [/檔案/, /圖片/, /連結/]) {
-    await cmp.getByRole("tab", { name: tabName }).click();
-    const actions = cmp.locator(".task-artifacts__item .task-artifacts__actions");
-    await expect(actions.first()).toBeVisible();
-    const right = await actions
-      .first()
-      .evaluate((el) => el.getBoundingClientRect().right);
-    rights.push(right);
-    // Every kind renders a chip whose full name is on title= (requirement ②).
-    const chip = cmp.locator(".task-artifacts__item .task-artifacts__chip").first();
-    await expect(chip).toHaveAttribute("title", /.+/);
+  const rights = await cmp
+    .locator(".task-artifacts__item .task-artifacts__actions")
+    .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().right));
+  expect(rights.length).toBeGreaterThanOrEqual(3);
+  for (const right of rights) {
+    expect(Math.abs(right - rights[0])).toBeLessThanOrEqual(1);
   }
-  expect(Math.abs(rights[0] - rights[1])).toBeLessThanOrEqual(1);
-  expect(Math.abs(rights[0] - rights[2])).toBeLessThanOrEqual(1);
+
+  // Every kind renders a chip whose full name is on title= (requirement ②).
+  const titles = await cmp
+    .locator(".task-artifacts__item .task-artifacts__chip")
+    .evaluateAll((els) => els.map((el) => el.getAttribute("title") ?? ""));
+  expect(titles.length).toBeGreaterThanOrEqual(3);
+  for (const title of titles) expect(title.length).toBeGreaterThan(0);
 });
 
 test("empty set: NO 產物 badge renders (the load-bearing negative)", async ({ mount, page }) => {

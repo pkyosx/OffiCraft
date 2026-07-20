@@ -1,11 +1,12 @@
-// TaskArtifactsPopover — the 「產物 N」 badge + tabbed popover (T-3dc5).
+// TaskArtifactsPopover — the 「產物 N」 badge + its popover (T-3dc5).
 //
 // The load-bearing assertion is the EMPTY-SET one the design pins: 0 artifacts ⇒
 // NO badge. It carries a positive control (count > 0 ⇒ the badge renders with
 // the count) so a mutant that drops the `count === 0` guard reddens on the empty
 // case, and a mutant that always returns null reddens on the populated case.
-// The popover cases cover the three-tab split (each kind lands in its own tab),
-// the per-tab empty state, the .md 預覽 action, and the owner-only 移除 affordance.
+// The popover cases cover the ONE list (T-49fb dropped the 檔案/圖片/連結 tabs —
+// every kind is listed at once), the .md 預覽 action, the owner-only 移除
+// affordance, and click-outside dismissal.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, fireEvent, waitFor, screen } from "@testing-library/react";
@@ -70,7 +71,7 @@ describe("產物 badge visibility (the empty-set assertion + positive control)",
   });
 });
 
-describe("產物 popover — the three-tab split", () => {
+describe("產物 popover — the one list (T-49fb)", () => {
   const artifacts = [
     mkArtifact({ id: "ta-file", kind: "file", filename: "report.pdf", mime: "application/pdf", url: "/api/chat/attachment/ta-file" }),
     mkArtifact({ id: "ta-img", kind: "image", filename: "shot.png", mime: "image/png", isImage: true, url: "/api/chat/attachment/ta-img" }),
@@ -78,28 +79,44 @@ describe("產物 popover — the three-tab split", () => {
     mkArtifact({ id: "ta-md", kind: "file", filename: "design.md", mime: "text/markdown", url: "/api/chat/attachment/ta-md" }),
   ];
 
-  it("opens on click, hydrates, and lands each kind in its own tab", async () => {
-    renderBadge(artifacts, { count: 4 });
+  it("opens on click, hydrates, and lists EVERY kind at once with no tabs", async () => {
+    const { container } = renderBadge(artifacts, { count: 4 });
     fireEvent.click(screen.getByTestId("task-artifacts-badge"));
 
-    // Files tab is the default: the two file rows (report.pdf + design.md).
+    // All four artifacts are on screen simultaneously — no control to operate.
     await waitFor(() => expect(screen.getByText("report.pdf")).toBeTruthy());
     expect(screen.getByText("design.md")).toBeTruthy();
-    // The image + link are NOT in the files tab.
-    expect(screen.queryByText("PR #123")).toBeNull();
-
-    // Switch to the 連結 tab → the link chip shows, the files do not.
-    fireEvent.click(screen.getByRole("tab", { name: /連結/ }));
     expect(screen.getByText("PR #123")).toBeTruthy();
-    expect(screen.queryByText("report.pdf")).toBeNull();
+    expect(container.querySelectorAll(".task-artifacts__item").length).toBe(4);
+
+    // The tabs are GONE (the T-49fb decision, asserted negatively so a revert
+    // to the tabbed body reddens here).
+    expect(screen.queryAllByRole("tab").length).toBe(0);
+    expect(container.querySelectorAll(".task-artifacts__tab").length).toBe(0);
+  });
+
+  it("groups the list 檔案 → 圖片 → 連結 so the kinds still read as families", async () => {
+    const { container } = renderBadge(artifacts, { count: 4 });
+    fireEvent.click(screen.getByTestId("task-artifacts-badge"));
+    await waitFor(() =>
+      expect(container.querySelectorAll(".task-artifacts__item").length).toBe(4),
+    );
+    const rows = Array.from(container.querySelectorAll(".task-artifacts__item"));
+    const kindOf = (row: Element) =>
+      row.querySelector(".task-artifacts__thumb")
+        ? "image"
+        : row.querySelector("a.task-artifacts__link")
+          ? "link"
+          : "file";
+    expect(rows.map(kindOf)).toEqual(["file", "file", "image", "link"]);
   });
 
   it("shows a .md 預覽 action only on the markdown file", async () => {
     const { container } = renderBadge(artifacts, { count: 4 });
     fireEvent.click(screen.getByTestId("task-artifacts-badge"));
     await waitFor(() => expect(screen.getByText("design.md")).toBeTruthy());
-    // The eye/preview action is present in the files tab (design.md is .md);
-    // report.pdf is not markdown, so exactly one preview action shows.
+    // design.md is markdown; report.pdf is not — so exactly one preview action
+    // shows across the whole list.
     const previews = container.querySelectorAll(
       '[aria-label="預覽"], [title="預覽"]',
     );
@@ -147,23 +164,21 @@ describe("產物 popover — the three-tab split", () => {
   });
 
   it("gives all three kinds the SAME row shape: item > chip(title=full name) + actions", async () => {
-    // The consistency assertion behind 「三個 tab 列樣式統一」. Per tab: exactly
-    // one row, that row is a .task-artifacts__item, it holds a .task-artifacts__chip
-    // whose title is the FULL name, and the actions live in one trailing
+    // The consistency assertion behind 「三型列樣式統一」 (T-90df), now that the
+    // tabs are gone: rendered ALONE, each kind gives exactly one row, that row
+    // is a .task-artifacts__item, it holds a .task-artifacts__chip whose title
+    // is the FULL name, and the actions live in one trailing
     // .task-artifacts__actions column (so they align).
-    const cases: Array<{ tab: RegExp; artifact: TaskArtifactView; fullName: string }> = [
+    const cases: Array<{ artifact: TaskArtifactView; fullName: string }> = [
       {
-        tab: /檔案/,
         artifact: mkArtifact({ id: "ta-f", kind: "file", filename: "a-file-with-a-long-name.pdf", mime: "application/pdf", url: "/api/chat/attachment/ta-f" }),
         fullName: "a-file-with-a-long-name.pdf",
       },
       {
-        tab: /圖片/,
         artifact: mkArtifact({ id: "ta-i", kind: "image", filename: "an-image-with-a-long-name.png", mime: "image/png", isImage: true, url: "/api/chat/attachment/ta-i" }),
         fullName: "an-image-with-a-long-name.png",
       },
       {
-        tab: /連結/,
         artifact: mkArtifact({ id: "ta-l", kind: "link", label: "a link with a rather long label", url: "https://example.com/very/long/path" }),
         fullName: "a link with a rather long label",
       },
@@ -172,7 +187,6 @@ describe("產物 popover — the three-tab split", () => {
     for (const c of cases) {
       const view = renderBadge([c.artifact], { count: 1, onRemove: async () => {} });
       fireEvent.click(screen.getByTestId("task-artifacts-badge"));
-      fireEvent.click(screen.getByRole("tab", { name: c.tab }));
       await waitFor(() =>
         expect(view.container.querySelectorAll(".task-artifacts__item").length).toBe(1),
       );
@@ -200,7 +214,6 @@ describe("產物 popover — the three-tab split", () => {
       { count: 1 },
     );
     fireEvent.click(screen.getByTestId("task-artifacts-badge"));
-    fireEvent.click(screen.getByRole("tab", { name: /連結/ }));
     await waitFor(() => expect(screen.getByText("PR #999")).toBeTruthy());
 
     const anchor = container.querySelector("a.task-artifacts__link") as HTMLAnchorElement;
@@ -215,13 +228,50 @@ describe("產物 popover — the three-tab split", () => {
     expect(ariaLabel).toContain("開啟連結");
   });
 
-  it("shows a per-tab empty state when a kind has no artifacts", async () => {
+  it("lists a lone link with no empty state — one list, one kind present", async () => {
+    // Pre-T-49fb this case opened on an EMPTY 檔案 tab and the owner had to
+    // hunt for the link. Now the single artifact is simply there.
     renderBadge([mkArtifact({ id: "ta-only-link", kind: "link", label: "only a link" })], { count: 1 });
     fireEvent.click(screen.getByTestId("task-artifacts-badge"));
-    // Default files tab is empty (the one artifact is a link).
-    await waitFor(() => expect(screen.getByText("還沒有檔案")).toBeTruthy());
-    // The 連結 tab has the row.
-    fireEvent.click(screen.getByRole("tab", { name: /連結/ }));
-    expect(screen.getByText("only a link")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("only a link")).toBeTruthy());
+    expect(screen.queryByText("還沒有產物")).toBeNull();
+  });
+});
+
+describe("產物 popover — click-outside dismissal (T-49fb)", () => {
+  it("closes on an outside mousedown, stays open on an inside one", async () => {
+    const { container } = renderBadge(
+      [mkArtifact({ id: "ta-x", kind: "link", label: "PR #1" })],
+      { count: 1 },
+    );
+    fireEvent.click(screen.getByTestId("task-artifacts-badge"));
+    await waitFor(() => expect(container.querySelector(".task-artifacts")).toBeTruthy());
+
+    // Inside the panel → still open.
+    fireEvent.mouseDown(container.querySelector(".task-artifacts__header")!);
+    expect(container.querySelector(".task-artifacts")).toBeTruthy();
+
+    // Outside → dismissed.
+    fireEvent.mouseDown(document.body);
+    await waitFor(() => expect(container.querySelector(".task-artifacts")).toBeNull());
+  });
+
+  it("does NOT swallow the badge's own toggle (the close-then-reopen trap)", async () => {
+    // The badge lives INSIDE the anchor the outside-check measures, so a
+    // mousedown on it is never 'outside'. If it were, the panel would close on
+    // mousedown and reopen on click — or never appear at all.
+    const { container } = renderBadge(
+      [mkArtifact({ id: "ta-y", kind: "link", label: "PR #2" })],
+      { count: 1 },
+    );
+    const badge = screen.getByTestId("task-artifacts-badge");
+    fireEvent.mouseDown(badge);
+    fireEvent.click(badge);
+    await waitFor(() => expect(container.querySelector(".task-artifacts")).toBeTruthy());
+
+    // A second badge press closes it (the toggle still works).
+    fireEvent.mouseDown(badge);
+    fireEvent.click(badge);
+    await waitFor(() => expect(container.querySelector(".task-artifacts")).toBeNull());
   });
 });

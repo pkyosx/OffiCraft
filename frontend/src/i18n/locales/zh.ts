@@ -207,12 +207,11 @@ export const zh = {
       badge: "產物",
       open: "查看產物",
       panelTitle: "產物",
-      tabFiles: "檔案",
-      tabImages: "圖片",
-      tabLinks: "連結",
-      emptyFiles: "還沒有檔案",
-      emptyImages: "還沒有圖片",
-      emptyLinks: "還沒有連結",
+      // T-49fb: the three tabs are gone (one list). What is left of the trio
+      // is the image row's name fallback — an image artifact may carry neither
+      // filename nor label, and its chip must never render empty.
+      imageName: "圖片",
+      empty: "還沒有產物",
       close: "關閉產物",
       remove: "移除產物",
       removeConfirm: "從任務卡移除這個產物?(不會刪除檔案本身)",

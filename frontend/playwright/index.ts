@@ -14,3 +14,9 @@ import "../src/components/office.css";
 // wide code keeps its OWN horizontal scroll, so the guard must measure with this
 // sheet loaded too — else it measures a browser-default <pre> that never ships.
 import "../src/components/settings.css";
+// T-49fb: the artifact-popover overflow guard measures the card at its REAL
+// x-offset, which comes from `.app__main`'s 22px side padding — an app-shell
+// rule that lives here. Without this sheet the card mounts ~22px further left,
+// the popover's old over-wide box happens to fit, and the guard is a false
+// green (the precise reason the pre-existing 390px guards missed the bug).
+import "../src/components/chrome.css";
