@@ -164,9 +164,28 @@ func parseAgentEnv(raw, path string, warn func(string, ...any)) []agentEnvPair {
 			warn("agent env: %s:%d skipped — %s is warden-reserved (OC_* is the agent's own identity)", path, lineno, key)
 			continue
 		}
-		val, valWarn := parseAgentEnvValue(strings.TrimSpace(s[eq+1:]))
+		// The RAW right-hand side is passed UNTRIMMED (G-2). Trimming here would
+		// eat the very whitespace the trailing-comment detector keys on, making
+		// `K= # note` and `K=#note` indistinguishable — the former would then
+		// silently become the value "# note". parseAgentEnvValue trims internally,
+		// after it has had a chance to look at the original spacing.
+		val, valWarn := parseAgentEnvValue(s[eq+1:])
 		if valWarn != "" {
 			warn("agent env: %s:%d %s — %s", path, lineno, key, valWarn)
+		}
+		// PATH REPLACES, it does not append (T-426d G-1 layer 2). An owner writing
+		// `PATH=/opt/homebrew/sbin` almost always means "also search here", but a
+		// literal assignment DROPS /bin, /usr/bin and everything else. That is the
+		// same "wrong in a way that looks right" shape as the trailing-# case, so
+		// it gets the same treatment: never silent. The launch line survives this
+		// (OC_TOKEN reads via absolute /bin/cat), but the AGENT's own subprocesses
+		// would not, so the owner has to know.
+		if key == "PATH" {
+			warn("agent env: %s:%d PATH REPLACES the whole search path, it does not append to it — "+
+				"this value drops /bin, /usr/bin and everything else from the agent's PATH. "+
+				"$PATH is NOT expanded in this file, so `PATH=/x:$PATH` does not work either. "+
+				"Write every directory you need explicitly, e.g. PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+				path, lineno)
 		}
 		// F-1: a NUL cannot survive the trip through the rendered file into the
 		// shell (C strings end at the first NUL), so the agent would silently
@@ -212,11 +231,19 @@ var trailingCommentRe = regexp.MustCompile(`\s#`)
 //     truncate a credential that legitimately contains " #", which is a worse
 //     bug than the one being fixed and is invisible when it happens.
 //
-// Neither branch ever silently produces a value the owner did not intend: the
-// explicit case is honoured, the ambiguous case is preserved AND announced. That
-// matters because this whole ticket exists to kill a class of silent-wrong-env
-// failure that looks like "the tool is broken" rather than "I mistyped".
-func parseAgentEnvValue(v string) (string, string) {
+// The intent is that no branch silently produces a value the owner did not
+// intend: the explicit case is honoured, every ambiguous case is preserved AND
+// announced. That matters because this whole ticket exists to kill a class of
+// silent-wrong-env failure that looks like "the tool is broken" rather than
+// "I mistyped". Known remaining silent case, stated rather than glossed:
+// `K=#note` (a '#' with NO preceding whitespace) is taken as a literal value,
+// per the documented "no space before # ⇒ ordinary character" rule.
+//
+// raw is the UNTRIMMED right-hand side. It must stay untrimmed on the way in:
+// the comment detector keys on the whitespace before '#', and trimming first
+// collapses `K= # note` into `K=#note` (G-2 — that bug shipped once already).
+func parseAgentEnvValue(raw string) (string, string) {
+	v := strings.TrimSpace(raw)
 	// (1) Fully quoted, nothing after the closing quote — the common case.
 	// Handled first so every previously-accepted form stays byte-identical.
 	if len(v) >= 2 {
@@ -224,19 +251,30 @@ func parseAgentEnvValue(v string) (string, string) {
 			return v[1 : len(v)-1], ""
 		}
 	}
-	// (2) Quoted value followed by a trailing comment: the quote delimits the
-	// value, so the comment is unambiguously not part of it.
+	// (2) Opens with a quote and has a closing partner: what follows decides.
 	if len(v) >= 2 && (v[0] == '"' || v[0] == '\'') {
 		if j := strings.IndexByte(v[1:], v[0]); j >= 0 {
 			closing := j + 1
-			if rest := strings.TrimSpace(v[closing+1:]); strings.HasPrefix(rest, "#") {
+			rest := strings.TrimSpace(v[closing+1:])
+			// (2a) …followed by a comment: the quote delimits the value, so the
+			// comment is unambiguously not part of it. Strip both.
+			if strings.HasPrefix(rest, "#") {
 				return v[1:closing], ""
+			}
+			// (2b) …followed by anything else (G-3): the quotes do NOT wrap the
+			// whole value, so stripping them would be a guess. Keep it literal —
+			// quotes and all — and say so, because a value that still contains
+			// its own quote characters is almost never what was meant.
+			if rest != "" {
+				return v, "value kept LITERALLY including the quote characters — the quotes do not wrap the whole value " +
+					"(there is trailing text after the closing quote); quote the WHOLE value, e.g. KEY=\"a x\""
 			}
 		}
 	}
 	// (3) Unquoted with a comment-shaped tail: keep it literal, but say so —
 	// the owner must not discover this by watching the agent misbehave.
-	if trailingCommentRe.MatchString(v) {
+	// Matched against RAW so a leading-space form like `K= # note` is caught.
+	if trailingCommentRe.MatchString(raw) {
 		return v, "value kept LITERALLY including the trailing '#...' — this file has no end-of-line comments on unquoted values; " +
 			"write KEY=\"value\" # comment if you meant a comment, or ignore this if '#' is part of the value"
 	}
