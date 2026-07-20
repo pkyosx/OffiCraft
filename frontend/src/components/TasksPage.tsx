@@ -74,6 +74,7 @@ export function TasksPage() {
     getDetail,
     removeArtifact,
     setIncludeClosed,
+    closedLoaded,
   } = useTasks();
 
   // Ticking clock (30s) — drives 已歷時 and running-step 耗時 on every card.
@@ -143,10 +144,29 @@ export function TasksPage() {
   // hot path re-optimises. matches()'s status gate makes the 已結束 partition
   // empty whenever the filter excludes terminals, so this is exactly the set of
   // views that need closed data — no more, no less.
+  // T-1d82 adds a FOURTH view that needs closed data, and it is not a filter:
+  // a card carrying deps RENDERS one row per dep resolved out of this very
+  // list (TaskCard looks each depId up in allTasks). Under the open-only fast
+  // path a dep that has already closed is simply absent → the row degraded to
+  // the raw id (owner's 「等 t-35e06c8e63c8」 screenshot) and could show neither
+  // title nor its 已完成 state. So: the moment any loaded task has a dep, we
+  // need the full population to resolve those deps against.
+  // Stability: this reads `tasks`, which the flag itself refetches — but the
+  // widened fetch is a SUPERSET, so a task with deps still has deps after it
+  // lands. The boolean settles on the first pass and cannot oscillate.
+  // 🔴 The NON-TERMINAL guard is what keeps it from LATCHING. Without it the
+  // clause reads the widened population it just caused, and any CLOSED task
+  // carrying a dep (an ordinary thing in an archive) pins the flag true
+  // forever: leaving the 全部 view no longer returns to the open-only fast
+  // path, and every subsequent task SSE refetches the whole archive — T-2b9d's
+  // optimisation silently switched off. A closed task's own dep rows are not
+  // lost by this: whenever a closed task is VISIBLE at all, one of the three
+  // filter clauses above is already true.
   const needClosed =
     taskIdFilter !== undefined ||
     statusFilter.size === 0 ||
-    [...statusFilter].some((s) => TERMINAL.has(s));
+    [...statusFilter].some((s) => TERMINAL.has(s)) ||
+    tasks.some((x) => !TERMINAL.has(x.status) && x.deps.length > 0);
   useEffect(() => {
     setIncludeClosed(needClosed);
   }, [needClosed, setIncludeClosed]);
@@ -306,6 +326,9 @@ export function TasksPage() {
         key={task.id}
         task={task}
         allTasks={tasks}
+        // Only the closed-inclusive population can tell a deleted dep from one
+        // that merely closed (T-1d82).
+        depsResolvable={closedLoaded}
         members={members}
         workers={workers}
         typeNames={typeNames}

@@ -447,7 +447,11 @@ describe("T-17be deps 區塊: 不是 status、不上第一排", () => {
     ).toBe("進行中");
     // …and the dep block says who is blocking.
     const dep = card.querySelector('[data-testid="task-dep"]')!;
-    expect(dep.textContent).toBe("等 T-70fb");
+    // T-1d82 split the row into 編號 + 標題 spans; T-17be's claim is about the
+    // 編號 being present and off row 1, so it reads the 編號 span.
+    expect(dep.querySelector(".task-card__dep-no")?.textContent).toBe(
+      "等 T-70fb"
+    );
 
     // 🔴 The line owner drew: the dep is NOT a row-1 badge. Standing it beside
     // the real 狀態 badge would make the card claim two statuses (候選 C —
@@ -469,7 +473,9 @@ describe("T-17be deps 區塊: 不是 status、不上第一排", () => {
 
     // Positive control before the negatives: it renders and says the right
     // thing.
-    expect(dep.textContent).toBe("等 T-70fc");
+    expect(dep.querySelector(".task-card__dep-no")?.textContent).toBe(
+      "等 T-70fc"
+    );
     // It borrows waiting's block shape + clock icon…
     expect(dep.classList.contains("task-card__waiting")).toBe(true);
     expect(dep.querySelector("svg")).toBeTruthy();

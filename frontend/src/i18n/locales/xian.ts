@@ -100,6 +100,9 @@ export const xian: Dict = {
     stepsRetry: "再試",
     waitingLabel: "候緣",
     blockedBy: (taskNo: string) => `候 ${taskNo}`,
+    // T-1d82:所候之事查無蹤跡(已散 / 符號有誤)。
+    blockedByMissing: (depId: string) => `候 ${depId}(查無此事)`,
+    depJump: (taskNo: string) => `赴 ${taskNo}`,
     openKeyLink: "赴外鏈",
     messagePlaceholder: (name: string) => `傳音予 ${name}…`,
     send: "傳音",

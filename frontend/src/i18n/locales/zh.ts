@@ -134,6 +134,10 @@ export const zh = {
     waitingLabel: "等待中",
     // deps:「等 T-xxxx」chip 可多筆(mockup 樣式,owner 2026-07-13)
     blockedBy: (taskNo: string) => `等 ${taskNo}`,
+    // T-1d82:dep 指向的任務查不到(已刪 / 壞 id)。保留原始 id(那是僅剩的線索),
+    // 但明說「查無此任務」,免得這列被讀成「連結壞了」。
+    blockedByMissing: (depId: string) => `等 ${depId}(查無此任務)`,
+    depJump: (taskNo: string) => `跳到 ${taskNo}`,
     // 識別鍵徽章(值為 URL 時外連)
     openKeyLink: "開啟連結",
     // 卡上訊息框(未指派時 disabled)

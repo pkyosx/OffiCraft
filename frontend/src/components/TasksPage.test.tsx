@@ -424,8 +424,11 @@ describe("TasksPage", () => {
     const link = card.querySelector('[data-testid="task-key-link"]');
     expect(link?.getAttribute("target")).toBe("_blank");
     expect(link?.getAttribute("href")).toBe("https://github.com/x/y/pull/482");
+    // T-1d82: the row now carries 編號 + 標題 in two spans, so the assertion
+    // targets the 編號 span rather than the row's whole textContent.
     expect(
-      card.querySelector('[data-testid="task-dep"]')?.textContent
+      card.querySelector('[data-testid="task-dep"] .task-card__dep-no')
+        ?.textContent
     ).toBe("等 T-7d40");
   });
 

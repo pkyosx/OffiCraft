@@ -52,6 +52,11 @@ interface UseTasks {
    * refetches the FULL population. */
   includeClosed: boolean;
   setIncludeClosed: (v: boolean) => void;
+  /** Whether `tasks` as it stands came from a closed-inclusive fetch (T-1d82).
+   * Distinguishes "not in the list because it has not been loaded" from "not
+   * in the list because it does not exist" — the only honest basis for telling
+   * the owner a dep is 查無此任務. */
+  closedLoaded: boolean;
 }
 
 export function useTasks(): UseTasks {
@@ -63,6 +68,13 @@ export function useTasks(): UseTasks {
   // Default: 未結束-only (the page opens on that partition). The page flips this
   // true when a view could show a terminal task, refetching the full list.
   const [includeClosed, setIncludeClosed] = useState(false);
+  // T-1d82: whether the tasks CURRENTLY in state came from a closed-inclusive
+  // fetch. `includeClosed` alone cannot answer that — it flips the moment the
+  // page asks, while `tasks` still holds the open-only rows until the refetch
+  // lands. Anything that must distinguish 「找不到，因為還沒載到」 from
+  // 「找不到，因為真的不存在」 has to read THIS, or it will state the second
+  // during the frames that are only the first (see TaskCard's dep rows).
+  const [closedLoaded, setClosedLoaded] = useState(false);
 
   const refetch = useCallback(async () => {
     const [t, w] = await Promise.all([
@@ -71,6 +83,9 @@ export function useTasks(): UseTasks {
     ]);
     setTasks(t);
     setWorkers(w);
+    // Set from the value this fetch actually USED, together with its rows —
+    // never from the live flag, which may already have moved on.
+    setClosedLoaded(includeClosed);
     setError(false);
   }, [includeClosed]);
 
@@ -172,5 +187,6 @@ export function useTasks(): UseTasks {
     removeArtifact,
     includeClosed,
     setIncludeClosed,
+    closedLoaded,
   };
 }

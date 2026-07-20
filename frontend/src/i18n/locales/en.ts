@@ -112,6 +112,11 @@ export const en: Dict = {
     stepsRetry: "Retry",
     waitingLabel: "Waiting",
     blockedBy: (taskNo: string) => `Waiting on ${taskNo}`,
+    // T-1d82: a dep row whose task cannot be resolved (deleted / bad id). Keeps
+    // the raw id — it is the only handle left — but says plainly that there is
+    // nothing to open, so the row is not mistaken for a broken link.
+    blockedByMissing: (depId: string) => `Waiting on ${depId} (task not found)`,
+    depJump: (taskNo: string) => `Open ${taskNo}`,
     openKeyLink: "Open link",
     messagePlaceholder: (name: string) => `Message ${name}…`,
     send: "Send",

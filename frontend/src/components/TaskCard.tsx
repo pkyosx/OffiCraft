@@ -136,6 +136,7 @@ export function TaskCard({
   typeNames,
   nowTs,
   located = false,
+  depsResolvable = true,
   onTerminate,
   onMarkDuplicate,
   onSetPriority,
@@ -147,6 +148,13 @@ export function TaskCard({
   task: TaskView;
   /** The whole list — dep ids resolve to display task_no through it. */
   allTasks: TaskView[];
+  /** Whether `allTasks` is the FULL population, so an unresolved dep id can be
+   * called 查無此任務 honestly (T-1d82). False while the list is still the
+   * open-only fast path: a dep that merely CLOSED is absent then, and saying
+   * 查無此任務 about a perfectly healthy task would be a lie the owner acts on.
+   * Defaults true so hand-built fixtures (which pass the whole list) keep
+   * working. */
+  depsResolvable?: boolean;
   members: Member[];
   /** LIVE outsource workers — resolves the 外包 codename/model/effort. */
   workers: OutsourceWorkerView[];
@@ -1241,19 +1249,87 @@ export function TaskCard({
            real 狀態 badge makes the card claim two statuses and read as
            stalled when it is not — owner saw that rendered (候選 C) and did
            not pick it. Keep it out of the badge row. */}
+      {/* T-1d82 (owner 2026-07-20): the row used to be a dead <div> printing
+           `等 <task_no>` — and for a dep that had already closed, not even that:
+           the lookup missed and it fell back to the raw id (`等 t-35e06c8e63c8`,
+           what owner screenshotted). Two fixes, one cause — TasksPage now loads
+           the closed population whenever any card carries a dep, so `dep`
+           resolves for terminal deps too (see TasksPage's needClosed).
+           Here the row gains what the id never carried: the dep's TITLE (that is
+           what "看不出在等什麼" was asking for) and a click through to that card,
+           reusing the duplicated-link vocabulary right below (navigateHash +
+           ExternalLinkIcon) rather than inventing a second way to jump.
+           Terminal deps stay IN the list but recede — CheckIcon + dimmed — so a
+           long-blocked card keeps its history without spending attention on it
+           (Kyle's default; owner may retune at 驗收).
+           A dep whose task cannot be resolved AT ALL (deleted / bad id) is the
+           one shape that must not be clickable: the anchor would land on an
+           empty filter. It says so in words instead. */}
       {task.deps.length > 0 && (
         <div className="task-card__deps">
           {task.deps.map((depId) => {
             const dep = allTasks.find((x) => x.id === depId);
+            if (!dep) {
+              // Two different silences, and only one of them is 查無此任務.
+              // While the list is still the open-only fast path, a dep that
+              // simply CLOSED is missing from it too — claiming the task does
+              // not exist during those frames would be a confident lie about a
+              // healthy task (worse than the raw id it replaced). So until the
+              // full population is in hand, the row says only what is true:
+              // it is waiting on this id, and cannot name it yet.
+              const unknown = !depsResolvable;
+              return (
+                <div
+                  key={depId}
+                  className={`task-card__waiting task-card__waiting--dep${
+                    unknown ? "" : " task-card__waiting--dep-missing"
+                  }`}
+                  data-testid="task-dep"
+                  data-dep-state={unknown ? "unresolved" : "missing"}
+                >
+                  <ClockIcon size={13} />
+                  <span>
+                    {unknown
+                      ? t.tasks.blockedBy(depId)
+                      : t.tasks.blockedByMissing(depId)}
+                  </span>
+                </div>
+              );
+            }
+            const depClosed = TERMINAL.has(dep.status);
             return (
-              <div
+              <button
                 key={depId}
-                className="task-card__waiting task-card__waiting--dep"
+                type="button"
+                className={`task-card__waiting task-card__waiting--dep${
+                  depClosed ? " task-card__waiting--dep-closed" : ""
+                }`}
                 data-testid="task-dep"
+                data-dep-state={depClosed ? "closed" : "open"}
+                // 🔴 NOT aria-label. An aria-label WINS over the button's own
+                // text in accname computation, so labelling this 「跳到 T-35e0」
+                // would delete the dep's TITLE from the accessibility tree —
+                // the one thing this ticket exists to add, removed for exactly
+                // the users who cannot see the truncated row. `title` (the
+                // duplicated-link's convention right below) describes the
+                // action WITHOUT displacing the name, and leaves the full
+                // title readable to a screen reader even though CSS truncates
+                // it visually.
+                title={t.tasks.depJump(dep.taskNo)}
+                onClick={() => navigateHash({ page: "tasks", taskId: depId })}
               >
-                <ClockIcon size={13} />
-                <span>{t.tasks.blockedBy(dep?.taskNo ?? depId)}</span>
-              </div>
+                {depClosed ? <CheckIcon size={13} /> : <ClockIcon size={13} />}
+                <span className="task-card__dep-no">
+                  {t.tasks.blockedBy(dep.taskNo)}
+                </span>
+                {/* Full text on hover: the row truncates at one line, and the
+                    title attribute is the only affordance that survives both
+                    the truncation and a keyboard-less read of the card. */}
+                <span className="task-card__dep-title" title={dep.title}>
+                  {dep.title}
+                </span>
+                <ExternalLinkIcon size={11} />
+              </button>
             );
           })}
         </div>

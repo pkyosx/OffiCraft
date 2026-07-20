@@ -124,11 +124,13 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     expect(card.querySelector('[data-testid="task-key"]')?.textContent).toBe(
       "PO-42"
     );
-    // The dep marker still says who is blocking (v6 restyled it — see
-    // TaskCard.t17be.test.tsx — but the text is unchanged).
-    expect(card.querySelector('[data-testid="task-dep"]')?.textContent).toBe(
-      "等 T-7d40"
-    );
+    // The dep marker still says who is blocking (v6 restyled it, T-1d82 added
+    // the title + jump — see TaskCard.t17be.test.tsx — but the 編號 is
+    // unchanged, and that is what this header test is about).
+    expect(
+      card.querySelector('[data-testid="task-dep"] .task-card__dep-no')
+        ?.textContent
+    ).toBe("等 T-7d40");
   });
 
   it("shows every value under its field label in the shared label column", async () => {

@@ -1027,6 +1027,94 @@ button.task-card__status-chip:hover {
   color: #bcd7ee;
 }
 
+/* T-1d82: the row is now a <button> (click → that task's card). It must keep
+   .task-card__waiting's LOOK exactly — the block is not becoming a button
+   visually, it is becoming reachable — so this only undoes the UA button
+   defaults and makes the line behave as one truncating row. */
+button.task-card__waiting--dep {
+  width: 100%;
+  /* .task-card__waiting is flex-wrap: wrap for the waiting_external markdown
+     column. A dep row has no such column: one line, truncated. */
+  flex-wrap: nowrap;
+  align-items: center;
+  text-align: left;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+}
+button.task-card__waiting--dep:hover,
+button.task-card__waiting--dep:focus-visible {
+  background: color-mix(in srgb, #8fb6d9 18%, transparent);
+  border-color: color-mix(in srgb, #8fb6d9 60%, transparent);
+}
+/* A div-turned-button owes the keyboard the same affordance the mouse gets —
+   the card and the 轉派 button already ring this way. */
+button.task-card__waiting--dep:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-accent-soft);
+}
+/* Icons/label hold their size; only the title gives way. `margin-top: 2px`
+   comes from .task-card__waiting > svg, which nudges the icon onto the first
+   line of a multi-line waiting_external reason. This row is single-line and
+   align-items: center, so that nudge just sits both icons 2px low. */
+.task-card__waiting--dep > svg {
+  flex: none;
+  margin-top: 0;
+}
+.task-card__dep-no {
+  flex: none;
+  white-space: nowrap;
+}
+.task-card__dep-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* Slightly quieter than the task-no: the number is the identity, the title
+     is the gloss. Same hue, so the row still reads as one thing.
+     🔴 A SOLID colour, not `color-mix(... , transparent)`. An alpha here would
+     MULTIPLY with the 收斂 row's opacity below (0.78 × 0.62 ≈ 0.48 effective),
+     and the thing it faded hardest is the title — the very text this ticket
+     adds. Dimming is the row's job; the title only shifts hue. */
+  color: #a9c2d8;
+}
+
+/* Terminal dep (done / terminated / duplicated) — Kyle's default, owner may
+   retune at 驗收: it STAYS in the list (the blocking history is context) but
+   recedes, so a card blocked by four deps of which three have closed spends
+   attention only on the one still live. Dimming + the ✓ (vs ⏱) carry it;
+   nothing is removed, so the row is still clickable and still readable.
+   0.62, not 0.55: 收斂 must not cost legibility. At 0.55 the 12.5px title fell
+   under the 4.5:1 normal-text threshold on the dark card (#242832) — a row you
+   cannot read is not 收斂, it is broken. The number is a floor from that
+   calculation, not a taste call; owner may still retune the LOOK at 驗收. */
+.task-card__waiting--dep-closed {
+  opacity: 0.62;
+}
+.task-card__waiting--dep-closed:hover,
+.task-card__waiting--dep-closed:focus-visible {
+  opacity: 1;
+}
+
+/* Unresolvable dep — NOT a button (nothing to open). Drops the blue: this row
+   is not "waiting on something", it is "waiting on something we cannot find",
+   and painting it like a healthy dep would hide that.
+   The colour is WARM (#a89484), deliberately not the cool #8a94a6 this file
+   already spends on `duplicated` (the badge at ~L483 and the 跳原票 row): same
+   trap the v6 note called out for waiting_external's purple — borrowing a
+   colour that already means something else makes the row assert that meaning.
+   Not danger red either: a dangling dep id is an anomaly worth naming, not an
+   alarm worth shouting. Warm-muted + italic says "this one is off" without
+   claiming the card is broken. First pass; owner may retune at 驗收. */
+.task-card__waiting--dep-missing {
+  border-color: color-mix(in srgb, #a89484 35%, transparent);
+  background: color-mix(in srgb, #a89484 8%, transparent);
+  color: #a89484;
+  font-style: italic;
+}
+
 .task-card__error {
   padding: 8px 12px;
   border-radius: 10px;
