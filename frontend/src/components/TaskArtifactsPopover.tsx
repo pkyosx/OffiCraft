@@ -56,11 +56,17 @@ function asAttachmentView(a: TaskArtifactView): ChatAttachmentView {
  * demo file re-uploaded) — the row must still let the owner tell them apart
  * and trust the delete button they're about to click. `formatAbsolute` only
  * has minute resolution, which is not enough on its own (two uploads in the
- * same minute would print the same string); `a.id` (server-minted, always
- * unique) is appended as a short ref tag so the two rows are NEVER
- * character-identical regardless of how close the timestamps land. */
+ * same minute would print the same string); `a.id` is appended as a ref tag
+ * so the two rows are NEVER character-identical regardless of how close the
+ * timestamps land. This must be a GUARANTEE, not just unlikely-to-collide —
+ * so this uses the id IN FULL (minus its `ta-` kind prefix, which is the same
+ * on every artifact and buys nothing): it is exactly the identifier the
+ * server already treats as this artifact's unique identity (`"ta-" +
+ * newHexID(12)`, server/ocserverd/api_tasks.go), so truncating it would
+ * reintroduce a collision risk on top of an already-unique value for no
+ * reason. */
 function artifactMetaLabel(a: TaskArtifactView, nowTs: number): string {
-  return `${formatAbsolute(a.createdTs, nowTs)} · #${a.id.slice(-6)}`;
+  return `${formatAbsolute(a.createdTs, nowTs)} · #${a.id.replace(/^ta-/, "")}`;
 }
 
 export function TaskArtifactsBadge({
@@ -304,14 +310,19 @@ function ArtifactsPopover({
                         announce identically to a screen reader (T-90df). The
                         visible text comes FIRST so the accessible name begins
                         with what the eye reads (WCAG 2.5.3 Label in Name, and
-                        speech input matches on the visible words). */}
+                        speech input matches on the visible words). T-6338: the
+                        aria-label REPLACES all DOM content for AT, so the
+                        `.task-artifacts__chip-meta` line (visible to sighted
+                        users) must be folded in here too — otherwise two
+                        same-named link rows still announce identically to a
+                        screen reader even after the sighted fix. */}
                     <a
                       className="task-artifacts__chip task-artifacts__link"
                       href={a.url}
                       target="_blank"
                       rel="noopener noreferrer"
                       title={a.label || a.url}
-                      aria-label={`${a.label || a.url} — ${t.tasks.artifacts.openLinkHint}`}
+                      aria-label={`${a.label || a.url} — ${artifactMetaLabel(a, nowTs)} — ${t.tasks.artifacts.openLinkHint}`}
                     >
                       <ExternalLinkIcon size={14} />
                       <span className="task-artifacts__chip-text">
