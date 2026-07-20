@@ -988,9 +988,9 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 
 // HandleClaimTaskApiTasksTaskIdClaimPost — the NEW executor takes over a
 // reassigned task (MCP claim_task; T-9ca5). It CLEARS the reassigning lock and
-// fires the predecessor outsource worker — the takeover that
-// update_task_status's reassigning→in_progress used to do before reassigning
-// became a lock (status is DERIVED, never set here). Executor-guarded: only the
+// fires the predecessor outsource worker — the takeover the retired task-status
+// report used to do on the successor's reassigning→in_progress before
+// reassigning became a lock (status is DERIVED, never set here). Executor-guarded: only the
 // task's current executor (the successor the reassign re-pointed to) may claim;
 // owner/admin may drive any task. A task not under the reassigning lock → 409
 // (nothing to claim). Idempotent side effects: the predecessor dismiss is by
