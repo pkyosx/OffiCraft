@@ -80,11 +80,17 @@ interface AgentDetailPanelProps {
   /** Modal-ish overlays (machine pickers, confirms) — rendered right after
    * the identity card, same as both panels always did. */
   overlays?: ReactNode;
+  /** Pluggable cards between overlays and the 模型/機器 info card (worker:
+   * 委託任務, T-b0e3 — owner wants it above 模型/機器, not buried after 最近操作).
+   * Undefined ⇒ renders nothing, so the member page (no caller passes this) is
+   * unaffected. */
+  afterIdentityCards?: ReactNode;
   /** Pluggable cards between the info card and the runtime card (worker:
    * 狀態 + 委託人). */
   afterInfoCards?: ReactNode;
-  /** Pluggable cards between the 最近操作 card and the terminal card (worker:
-   * 委託任務). */
+  /** Pluggable cards between the 最近操作 card and the terminal card. Unused by
+   * the worker panel since T-b0e3 (委託任務 moved to afterIdentityCards); kept
+   * for any future kind-specific card that belongs after 最近操作. */
   beforeTerminalCards?: ReactNode;
   /** Pluggable expand cards after the terminal card, BEFORE the initial-prompt
    * card (member: 回呼端點 webhook). */
@@ -104,6 +110,7 @@ export function AgentDetailPanel({
   onBack,
   identity,
   overlays,
+  afterIdentityCards,
   afterInfoCards,
   beforeTerminalCards,
   extraExpandCards,
@@ -260,6 +267,7 @@ export function AgentDetailPanel({
 
       {identity}
       {overlays}
+      {afterIdentityCards}
 
       {/* info card: LEFT 模型 + 投入度 (editable launch intents), RIGHT 機器 +
        * Claude Account — the member page's mp-info2 layout, now the ONE layout. */}

@@ -193,9 +193,9 @@ export function WorkerDetailPanel({
               {worker.taskNo}
             </button>
           )}
-          {worker.taskTitle && (
-            <span className="outsource-row__type">{worker.taskTitle}</span>
-          )}
+          <span className="outsource-row__type">
+            {worker.taskTypeName || worker.taskTypeKey || t.tasks.adhoc}
+          </span>
         </div>
       </div>
     </div>
@@ -253,7 +253,8 @@ export function WorkerDetailPanel({
     </div>
   );
 
-  // ── beforeTerminalCards slot: 委託任務 (clickable → #tasks/<taskId>). ─────────
+  // ── afterIdentityCards slot: 委託任務 (clickable → #tasks/<taskId>). Moved
+  // above 模型/機器 per owner 2026-07-20 截圖 (T-b0e3) — was buried after 最近操作. ──
   const taskCard = (
     <div className="mp-card mp-worker-task">
       <div className="mp-card__title">{t.workerDetail.task}</div>
@@ -282,8 +283,8 @@ export function WorkerDetailPanel({
       onBack={onBack}
       identity={identity}
       overlays={relocatePicker}
+      afterIdentityCards={taskCard}
       afterInfoCards={statusDelegatorCard}
-      beforeTerminalCards={taskCard}
       vm={{
         testIdPrefix: "worker-detail",
         online,

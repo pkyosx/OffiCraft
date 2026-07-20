@@ -21,6 +21,7 @@ import {
   __resetMock,
   __injectMockTask,
   __injectMockOutsourceWorker,
+  __injectMockTaskType,
   __setMockMemberOnline,
 } from "../api/mock";
 import type { TaskView, OutsourceWorkerView } from "../api/adapter";
@@ -339,8 +340,25 @@ describe("WorkerDetailPanel — worker-specific bits carry over", () => {
 // are asserted; pure styling (the refocus pulse tint) is NOT (jsdom does not
 // compute it) — an honest "測不到" gap, not a decorative assertion.
 describe("WorkerDetailPanel — header matches the sidebar 外包 row (T-f190 UI spec)", () => {
-  it("header shows codename + clickable task chip + title + a real (online) dot", async () => {
-    __injectMockTask(mkTask({ id: "t-1", taskNo: "T-e9f4", title: "Planning for big change" }));
+  it("header shows codename + clickable task chip + a SHORT task-type label (same as the roster row, T-b0e3) + a real (online) dot", async () => {
+    // The detail page's `worker` comes from the SAME useOutsourceWorkers() join
+    // the roster reads (OfficePage.tsx) — taskTypeName/Key are derived there
+    // from the task's typeKey + the registered manual, overwriting anything set
+    // directly on the injected worker fixture. So exercising the real label
+    // means registering the manual, not stubbing taskTypeName on the worker.
+    __injectMockTaskType({
+      typeKey: "tm-officraft-dev",
+      displayName: "OffiCraft 開發",
+      purpose: "",
+    });
+    __injectMockTask(
+      mkTask({
+        id: "t-1",
+        taskNo: "T-e9f4",
+        title: "Planning for big change",
+        typeKey: "tm-officraft-dev",
+      }),
+    );
     __injectMockOutsourceWorker(
       mkWorker({
         id: "ow-1",
@@ -357,7 +375,11 @@ describe("WorkerDetailPanel — header matches the sidebar 外包 row (T-f190 UI
     // matching the sidebar 外包 row (T-3ed8, owner 2026-07-20 完全一致).
     await findByText("外包 · O-19");
     expect((await findByTestId("worker-detail-header-chip")).textContent).toBe("T-e9f4");
-    expect(header.textContent).toContain("Planning for big change");
+    // T-b0e3: the slot that used to hold the FULL task title now renders the
+    // SAME short type label the roster row shows (taskTypeName), never the
+    // full title/description sentence.
+    expect(header.textContent).toContain("OffiCraft 開發");
+    expect(header.textContent).not.toContain("Planning for big change");
     // The old raw ow-id chip is gone (the header no longer renders worker.id).
     expect(header.textContent).not.toContain("ow-1");
     // Real presence: online → the default green dot (no muted inline override).
@@ -366,6 +388,25 @@ describe("WorkerDetailPanel — header matches the sidebar 外包 row (T-f190 UI
     // Clicking the chip routes to the bound task.
     fireEvent.click(await findByTestId("worker-detail-header-chip"));
     await waitFor(() => expect(window.location.hash).toBe("#tasks/t-1"));
+  });
+
+  it("header falls back to 自由代辦 when the task has no type (adhoc, blank typeKey)", async () => {
+    __injectMockTask(
+      mkTask({ id: "t-1", taskNo: "T-adhc", title: "隨手需求", typeKey: "" }),
+    );
+    __injectMockOutsourceWorker(
+      mkWorker({
+        id: "ow-1",
+        taskId: "t-1",
+        taskNo: "T-adhc",
+        taskTitle: "隨手需求",
+        presence: "online",
+      }),
+    );
+    const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
+    const header = await findByTestId("worker-detail-header-task");
+    expect(header.textContent).toContain("自由代辦");
+    expect(header.textContent).not.toContain("隨手需求");
   });
 
   it("a non-online worker header shows a muted (honest, not-green) dot", async () => {
