@@ -257,7 +257,7 @@ func ocAgentSymlinkTarget(repoRoot, ocAgentBin string) string {
 // wiring lands, a spawned agent on a clean host has no ocagent on PATH.
 func buildLaunchCommand(claudeBin, workdir, mcpConfigPath, appendSys, tokenFile, agentID, base, session, socket, model, effort, settingsPath string) string {
 	return buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath, appendSys,
-		tokenFile, agentID, base, session, socket, model, effort, settingsPath, nil)
+		tokenFile, agentID, base, session, socket, model, effort, settingsPath, nil, "")
 }
 
 // buildLaunchCommandWithEnv is buildLaunchCommand plus optional EXTRA env pairs
@@ -266,8 +266,22 @@ func buildLaunchCommand(claudeBin, workdir, mcpConfigPath, appendSys, tokenFile,
 // one sse-cursor/context_report.stamp dir and trample each other). nil/empty
 // extra keeps the line byte-identical to the historical output, which is the
 // entire zero-diff guarantee for the empty namespace.
-func buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath, appendSys, tokenFile, agentID, base, session, socket, model, effort, settingsPath string, extraEnv [][2]string) string {
+//
+// envRendered (T-426d) is the workdir 0600 file holding the owner's agent env
+// vars, already PARSED AND VALIDATED by loadAgentEnv and re-rendered as pure
+// `export K='v'` lines (see agentenv.go). Empty ⇒ nothing is emitted and the
+// line stays byte-identical to the pre-T-426d output. Non-empty ⇒ it is sourced
+// FIRST, before the OC_* exports, for two reasons: (a) the warden's own OC_*
+// identity must win over anything the file could carry, and (b) the launch
+// line's own `export PATH=<workdir>:"$PATH"` then composes ON TOP of an
+// env-file PATH rather than being erased by it. The source is guarded by a
+// `[ -f ]` test so a file deleted between render and exec degrades to "no extra
+// env" instead of a shell error on the agent's very first line.
+func buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath, appendSys, tokenFile, agentID, base, session, socket, model, effort, settingsPath string, extraEnv [][2]string, envRendered string) string {
 	cd := "cd " + shellQuote(workdir) + "; "
+	if envRendered != "" {
+		cd += "[ -f " + shellQuote(envRendered) + " ] && . " + shellQuote(envRendered) + "; "
+	}
 	pairs := [][2]string{
 		{"OC_BASE", base},
 		{"OC_SESSION", session},
@@ -408,6 +422,30 @@ func defaultAgentHome(env func(string) string) string {
 	return filepath.Join(officraftRootFor(home, ns), "agents")
 }
 
+// defaultAgentEnvFile resolves the owner's agent env file: <officraft root>/env,
+// namespace-aware exactly like defaultAgentHome (a namespaced instance reads its
+// OWN env file, so two instances cannot cross-contaminate credentials). Note this
+// sits at the officraft ROOT, a sibling of the agents/ dir — it is owner-authored
+// configuration, not per-agent state.
+//
+// OC_AGENT_ENV_FILE overrides it outright, which is also how tests and the
+// conformance suite point it at a fixture without touching the real ~/.officraft.
+func defaultAgentEnvFile(env func(string) string) string {
+	if p := env("OC_AGENT_ENV_FILE"); p != "" {
+		return p
+	}
+	ns, _ := namespaceFromEnv(env)
+	home, _ := os.UserHomeDir()
+	return filepath.Join(officraftRootFor(home, ns), "env")
+}
+
+// logf is the nil-skipped diagnostic channel (SpawnDeps.Logf).
+func (d SpawnDeps) logf(format string, a ...any) {
+	if d.Logf != nil {
+		d.Logf(format, a...)
+	}
+}
+
 // osWriteFile is the real file-write seam (write-then-chmod, mirroring write_file).
 // Tests inject a capturing fake instead.
 func osWriteFile(path, content string, mode os.FileMode) error {
@@ -534,6 +572,15 @@ type SpawnDeps struct {
 	// the agent's own cursor/stamp state lands under the namespaced root (R8);
 	// empty keeps the launch line byte-identical to the historical output.
 	Namespace string
+	// EnvFile (T-426d) is the path to the owner's agent env file, default
+	// <officraft root>/env. Empty ⇒ the feature is off and the launch line is
+	// byte-identical to the pre-T-426d output. An ABSENT file at this path is
+	// not an error — the spawn proceeds with no extra env (fail-open).
+	EnvFile string
+	// Logf (nil-skipped) is where env-file diagnostics go — warden stderr, which
+	// launchd captures into <logDir>/ocwarden.err.log. It receives KEY NAMES and
+	// reasons ONLY; a value from EnvFile must never be formatted into it.
+	Logf      func(string, ...any)
 	ClaudeBin string // pre-resolved claude executable (Phase 4 resolves it)
 	// RepoRoot is the officraft checkout root, injected at construction (from
 	// os.Executable — ocwarden lives at <repoRoot>/cli/ocwarden/ocwarden). It is the
@@ -685,8 +732,37 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 		effortEnv = "medium"
 	}
 	extraEnv = append(extraEnv, [2]string{"OC_EFFORT", effortEnv})
+
+	// T-426d: the owner's agent env file. loadAgentEnv NEVER fails the spawn —
+	// an absent/unreadable/oversized file yields nil pairs and the agent boots
+	// exactly as it does today. Only a NON-EMPTY validated set produces the
+	// workdir 0600 render and the source line.
+	//
+	// The stale render is removed FIRST, unconditionally: if the owner deletes a
+	// credential from the env file, the next spawn must not keep handing the
+	// agent yesterday's copy out of the workdir. Remove failures are non-fatal
+	// (the write below overwrites anyway, and no-file is the common case).
+	envRendered := ""
+	renderPath := filepath.Join(workdir, agentEnvRenderedName)
+	if err := d.Remove(renderPath); err != nil && !os.IsNotExist(err) {
+		d.logf("agent env: could not clear stale %s (%v); continuing", renderPath, err)
+	}
+	if pairs := loadAgentEnv(d.EnvFile, d.logf); len(pairs) > 0 {
+		// 0600: this file holds the credentials the whole feature exists to
+		// deliver. A write failure is NON-FATAL — the agent boots without the
+		// extra env rather than not booting at all.
+		if err := d.WriteFile(renderPath, renderAgentEnvFile(pairs), 0o600); err != nil {
+			d.logf("agent env: could not write %s (%v); spawning without extra env", renderPath, err)
+		} else {
+			envRendered = renderPath
+			// Names only — proving WHAT was loaded without printing a value.
+			d.logf("agent env: loaded %d var(s) from %s: %s",
+				len(pairs), d.EnvFile, strings.Join(agentEnvKeyNames(pairs), " "))
+		}
+	}
+
 	command := buildLaunchCommandWithEnv(d.ClaudeBin, workdir, mcpConfigPath, appendSys,
-		tokenFile, p.MemberID, base, session, socket, p.Model, p.Effort, settingsPath, extraEnv)
+		tokenFile, p.MemberID, base, session, socket, p.Model, p.Effort, settingsPath, extraEnv, envRendered)
 
 	// pretrust the workdir BEFORE launch (LOAD-BEARING): without it claude's trust
 	// dialog can intercept and eat the boot nudge → dead-on-boot. Phase 2 leaves the
