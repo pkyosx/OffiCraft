@@ -418,3 +418,68 @@ func TestFetchMaxRespectsDraftAndPrereleaseFilters(t *testing.T) {
 		t.Fatalf("beta channel must admit v5.0.0 yet still exclude the draft v9.9.9, got %q", rel.TagName)
 	}
 }
+
+// ── non-semver tags: semverOutranks' two !ok branches (T-05ab review) ────────
+//
+// A repo can carry a label that is not semver at all ("nightly", "latest",
+// a date stamp). These two tests pin semverOutranks' asymmetry, and they are
+// NOT a neighbouring nicety: a flipped !ok branch produces THIS TICKET'S OWN
+// failure mode — a junk tag pins the selection to itself and the real newest
+// release goes unreported, same function, same path, same symptom.
+
+// TestFetchUnorderableIncumbentIsDisplaced covers the !okI branch: a non-semver
+// tag sitting FIRST must not pin the selection to itself. Pre-fix (take row 0)
+// this answered "nightly"; a semverOutranks that returned false on an
+// unorderable incumbent would answer "nightly" too — the bug rebuilt one layer
+// down. The real v0.1.0 must win.
+func TestFetchUnorderableIncumbentIsDisplaced(t *testing.T) {
+	gh := newFakeGitHub(t,
+		fakeRelease{tag: "nightly"},
+		fakeRelease{tag: "v0.1.0"},
+	)
+	rel, none, err := fetchLatestOffiCraftRelease(gh.srv.URL, false)
+	if err != nil || none {
+		t.Fatalf("fetch: err=%v none=%v", err, none)
+	}
+	if rel.TagName != "v0.1.0" {
+		t.Fatalf("a non-semver incumbent must be displaced by a real release, got %q", rel.TagName)
+	}
+}
+
+// TestFetchUnorderableCandidateNeverWins covers the !okC branch, the safety
+// direction: an unorderable tag must never be CHOSEN. Order is reversed from
+// the test above so "nightly" is the challenger. It must lose — an unorderable
+// tag cannot be ordered against the running version, so letting it win would
+// only ever produce a warning and a silent no-update while hiding v0.1.0.
+func TestFetchUnorderableCandidateNeverWins(t *testing.T) {
+	gh := newFakeGitHub(t,
+		fakeRelease{tag: "v0.1.0"},
+		fakeRelease{tag: "nightly"},
+	)
+	rel, none, err := fetchLatestOffiCraftRelease(gh.srv.URL, false)
+	if err != nil || none {
+		t.Fatalf("fetch: err=%v none=%v", err, none)
+	}
+	if rel.TagName != "v0.1.0" {
+		t.Fatalf("an unorderable tag must never be chosen over a real release, got %q", rel.TagName)
+	}
+}
+
+// TestFetchAllUnorderableFallsBackToFirstRow pins the documented degenerate
+// case: when NOTHING in the list orders, there is no semver max to take, so
+// selection falls back to the first admissible row — exactly the pre-fix
+// behaviour. This change must not invent a new answer for lists it cannot
+// rank; downstream releaseIsNewer rejects the tag anyway (with its warning).
+func TestFetchAllUnorderableFallsBackToFirstRow(t *testing.T) {
+	gh := newFakeGitHub(t,
+		fakeRelease{tag: "nightly"},
+		fakeRelease{tag: "latest"},
+	)
+	rel, none, err := fetchLatestOffiCraftRelease(gh.srv.URL, false)
+	if err != nil || none {
+		t.Fatalf("fetch: err=%v none=%v", err, none)
+	}
+	if rel.TagName != "nightly" {
+		t.Fatalf("an all-unorderable list must keep the pre-fix first-row answer, got %q", rel.TagName)
+	}
+}
