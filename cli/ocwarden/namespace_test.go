@@ -274,7 +274,7 @@ func TestBuildLaunchCommandWithEnv_AgentHomeExport(t *testing.T) {
 		fxTokenFile, fxID, fxBase, fxSession, "officraft-seth", fxModel, "", fxSettings)
 	got := buildLaunchCommandWithEnv(fxClaudeBin, fxWorkdir, fxMCPPath, appendSys,
 		fxTokenFile, fxID, fxBase, fxSession, "officraft-seth", fxModel, "", fxSettings,
-		[][2]string{{"OC_AGENT_HOME", "/home/oc/.officraft-seth/agents"}})
+		[][2]string{{"OC_AGENT_HOME", "/home/oc/.officraft-seth/agents"}}, "")
 	// The extra export lands INSIDE the frozen export statement, right after
 	// OC_TMUX_SOCKET and before the PATH export; everything else is unchanged.
 	if !strings.Contains(got, "OC_TMUX_SOCKET=officraft-seth OC_AGENT_HOME=/home/oc/.officraft-seth/agents; export PATH=") {
@@ -282,7 +282,7 @@ func TestBuildLaunchCommandWithEnv_AgentHomeExport(t *testing.T) {
 	}
 	// nil extra == the historical line (the delegation identity).
 	if buildLaunchCommandWithEnv(fxClaudeBin, fxWorkdir, fxMCPPath, appendSys,
-		fxTokenFile, fxID, fxBase, fxSession, "officraft-seth", fxModel, "", fxSettings, nil) != base {
+		fxTokenFile, fxID, fxBase, fxSession, "officraft-seth", fxModel, "", fxSettings, nil, "") != base {
 		t.Error("nil extraEnv must reproduce buildLaunchCommand byte-for-byte")
 	}
 }

@@ -520,6 +520,14 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner) Com
 		Socket:    socket,
 		Home:      defaultAgentHome(env),
 		Namespace: ns,
+		// T-426d: the owner's agent env file (<officraft root>/env, 0600). Absent
+		// is the normal state and is NOT an error — the spawn proceeds without it.
+		EnvFile: defaultAgentEnvFile(env),
+		// Diagnostics land on warden stderr → <logDir>/ocwarden.err.log per the
+		// plist's StandardErrorPath. Key names and reasons only, never values.
+		Logf: func(format string, a ...any) {
+			fmt.Fprintf(os.Stderr, "[ocwarden spawn] "+format+"\n", a...)
+		},
 		ClaudeBin: claudeBin,
 		// RepoRoot is the in-tree dev fallback base for the ocagent shim. OcAgentBin is
 		// the resolved exec target: a home-installed warden finds ocagent as its OWN

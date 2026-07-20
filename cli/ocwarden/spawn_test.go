@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -274,7 +275,7 @@ func TestStart_HappyPath(t *testing.T) {
 	// extra env pair, so the expected command must carry it too.
 	wantCmd := buildLaunchCommandWithEnv(fxClaudeBin, fxWorkdir, fxMCPPath, appendSys,
 		fxTokenFile, "alice", fxBase, "member-alice", fxSocket, fxModel, "", fxSettings,
-		[][2]string{{"OC_EFFORT", "medium"}})
+		[][2]string{{"OC_EFFORT", "medium"}}, "")
 	if !run.sawArgv("tmux", "-L", fxSocket, "new-session", "-d", "-s", "member-alice", "-x", "160", "-y", "50", wantCmd) {
 		t.Errorf("expected tmux new-session -x 160 -y 50 with the golden launch command; calls:\n%v", run.calls)
 	}
@@ -387,8 +388,10 @@ func TestStart_PublishesOcAgentSymlink(t *testing.T) {
 	if _, wrote := modes[fxOcAgent]; wrote {
 		t.Errorf("ocagent must be a symlink, not a WriteFile'd path")
 	}
-	// stale link cleared first (idempotent re-spawn).
-	if len(removed) != 1 || removed[0] != fxOcAgent {
+	// stale link cleared first (idempotent re-spawn). T-426d adds a second,
+	// unrelated Remove — the stale .oc-env render — so assert the ocagent link is
+	// among the removals rather than that it is the only one.
+	if !slices.Contains(removed, fxOcAgent) {
 		t.Errorf("must Remove the stale ocagent link before symlinking; removed=%v", removed)
 	}
 	// the data files stay 0600 (unchanged), including the token file.
@@ -625,7 +628,7 @@ func TestStart_NewSessionFailure(t *testing.T) {
 	appendSys := buildAppendSystemPrompt("alice", "agent", fxPersona)
 	cmd := buildLaunchCommandWithEnv(fxClaudeBin, fxWorkdir, fxMCPPath, appendSys,
 		fxTokenFile, "alice", fxBase, "member-alice", fxSocket, "", "", fxSettings,
-		[][2]string{{"OC_EFFORT", "medium"}})
+		[][2]string{{"OC_EFFORT", "medium"}}, "")
 	nsKey := strings.Join([]string{"tmux", "-L", fxSocket, "new-session", "-d", "-s", "member-alice", "-x", "160", "-y", "50", cmd}, " ")
 	run.err[nsKey] = errAbsent() // any error
 	files := map[string]string{}
