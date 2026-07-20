@@ -4304,9 +4304,10 @@ export interface components {
          *     檢查更新 button behind the software-update card. The server asks GitHub
          *     Releases (repo pkyosx/OffiCraft, anonymous — no token, no configuration)
          *     for the newest admissible release SYNCHRONOUSLY (bounded; a short reuse
-         *     window absorbs repeated clicks) and compares its tag against the running
-         *     `version`. `status` is "up_to_date" (the running build is the newest — or
-         *     nothing is published at all), "update_available" (`latest_tag` +
+         *     window absorbs repeated clicks) and orders its tag against the running
+         *     `version` (semver). `status` is "up_to_date" (the running build is the
+         *     newest — running >= latest, nothing is published at all, or a version
+         *     label is unorderable — logged server-side, never presented as an update), "update_available" (`latest_tag` +
          *     `release_url` then point at the newer release; applying it is a MANUAL
          *     step — download the asset and follow install.sh — unless the
          *     `updater_auto_update` setting is armed), or "unknown" (GitHub unreachable
@@ -5580,8 +5581,12 @@ export interface components {
          *     asks GitHub Releases (repo pkyosx/OffiCraft, anonymous) for the newest
          *     published release (cached, refreshed in the background — unreachable GitHub
          *     NEVER slows this probe) and reports honestly: True iff the newest admissible
-         *     release tag differs from the running `version` (`latest_version` then
-         *     carries the tag). Prereleases are admitted only when the
+         *     release tag is STRICTLY NEWER than the running `version` under semver
+         *     ordering (`latest_version` then carries the tag); running >= latest reads
+         *     False, and a version label that does not parse as semver on either side
+         *     reads False (with a server-side log warning) — never a prompt. A
+         *     self-build's "0.0.0" sorts below any published release and therefore
+         *     still prompts. Prereleases are admitted only when the
          *     `updater_receive_beta` setting is on.
          */
         VersionDTO: {

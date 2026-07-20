@@ -343,9 +343,13 @@ func (s *apiServer) executeUpgrade() (string, *upgradeFailure) {
 	}
 	// The honesty gate re-runs against the PINNED release: the cache that
 	// enabled the button may be stale (e.g. the release was deleted since).
-	if rel.TagName == appVersion {
+	// The pinned tag must be STRICTLY NEWER than the running build (semver
+	// ordering, T-9374) — a lagging release list can therefore never turn an
+	// upgrade into a downgrade, on the auto-update path or any other.
+	if !releaseIsNewer(rel.TagName, appVersion) {
 		return "", upgradeFail(http.StatusConflict,
-			"GitHub's current latest (%s) IS the running build — nothing newer to install", rel.TagName)
+			"GitHub's current latest (%s) is not newer than the running build (%s) — nothing newer to install",
+			rel.TagName, appVersion)
 	}
 
 	asset, fail := findReleaseAsset(rel, releaseAssetName(rel.TagName))

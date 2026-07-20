@@ -21,11 +21,14 @@ package main
 //     answers synchronously (bounded by updateCheckTimeout) with the fresh
 //     verdict — up_to_date / update_available (tag + release link) / unknown
 //     (GitHub unreachable — the honest degraded verdict, still a 200).
-//   - Comparison rule: the newest release tag vs the RUNNING appVersion
-//     (/api/version's `version`). Official packages are stamped with the tag
-//     (bin/release → OC_APP_VERSION), so tag == version means up to date. A
-//     self-build keeps the honest "0.0.0" and simply reads as "not the
-//     official latest" — which is true.
+//   - Comparison rule (T-9374): the newest release tag vs the RUNNING
+//     appVersion (/api/version's `version`) under SEMVER ORDERING
+//     (version_compare.go) — update_available only when the tag is STRICTLY
+//     newer; running >= latest is up to date (a lagging release list can
+//     never read as "an update", let alone downgrade). A self-build keeps
+//     the honest "0.0.0", which sorts below any real release and therefore
+//     still prompts. An unorderable label on either side reads as no update
+//     (plus a log warning) — never a download trigger.
 //   - Upgrading is the owner's call, expressed one of two ways: the EXPLICIT
 //     trigger POST /api/update/upgrade (always available), or the OPT-IN
 //     `updater.auto_update` toggle (default OFF) whose background cadence
@@ -130,7 +133,7 @@ func (s *apiServer) updateStatus() (available bool, latest *string) {
 	st := s.updateCheck
 	s.updateMu.Unlock()
 
-	if !st.ok || st.none || st.rel.TagName == "" || st.rel.TagName == appVersion {
+	if !st.ok || st.none || st.rel.TagName == "" || !releaseIsNewer(st.rel.TagName, appVersion) {
 		return false, nil
 	}
 	v := st.rel.TagName
@@ -255,10 +258,12 @@ func (s *apiServer) HandleCheckReleaseApiReleaseCheckGet(w http.ResponseWriter, 
 		if htmlURL != "" {
 			dto.ReleaseURL = &htmlURL
 		}
-		if tag == appVersion {
-			dto.Status = releaseStatusUpToDate
-		} else {
+		if releaseIsNewer(tag, appVersion) {
 			dto.Status = releaseStatusUpdate
+		} else {
+			// running >= latest (or an unorderable label): up to date —
+			// silence over misleading (releaseIsNewer logs the warning).
+			dto.Status = releaseStatusUpToDate
 		}
 	}
 	writeJSON(w, http.StatusOK, dto)
