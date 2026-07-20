@@ -12,6 +12,12 @@
 #                              # (Ctrl-C stops it), no launchd job is created
 #      ./install.sh --relocate # consent to MOVING an existing service to a
 #                              # different port/config (see the relocation gate)
+#      ./install.sh --restart-live
+#                              # consent to RESTARTING a service that is LIVE
+#                              # right now (see the live-service gate). NOT
+#                              # implied by --force: overwriting files and
+#                              # dropping every connected client are different
+#                              # acts and take separate consent.
 #
 #   B. standalone mode (this file alone — no ocserverd next to it), e.g.:
 #      curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash
@@ -26,12 +32,22 @@
 #
 # What it does, in order:
 #   1. platform gate      — macOS Apple Silicon only (darwin/arm64).
-#   2. existing-install gate — if ~/.officraft already carries an install
+#   2. live-service gate  — if the launchd label this run would claim is
+#                           ALREADY REGISTERED AND RUNNING, installing means
+#                           bootout+bootstrap: a REAL restart that DISCONNECTS
+#                           every open cockpit and every connected agent. That
+#                           is an outage, so it takes its own consent:
+#                           interactive = y/N prompt (default NO);
+#                           non-interactive = ABORT (fail-closed); explicit
+#                           override = --restart-live. Deliberately NOT covered
+#                           by --force, which speaks only about files on disk.
+#                           Runs BEFORE anything is written, so declining leaves
+#                           the machine byte-for-byte untouched.
+#   2b. existing-install gate — if ~/.officraft already carries an install
 #                           (binaries or a database), say so LOUDLY and ask
-#                           before overwriting: a running server would be
-#                           swapped out under its own feet on its next
-#                           restart. Interactive = y/N prompt (default NO);
-#                           non-interactive = abort unless --force.
+#                           before overwriting. Interactive = y/N prompt
+#                           (default NO); non-interactive = abort unless
+#                           --force.
 #   3. install binaries   — ocserverd/ocwarden/ocagent → ~/.officraft/bin
 #                           (ocserverd embeds the SPA + seeds + warden/agent
 #                           binaries; ocwarden/ocagent ship alongside for
@@ -103,6 +119,7 @@ if [[ "$IN_PACKAGE" == 0 ]]; then
       --force) FWD+=("--force"); shift ;;
       --foreground) FWD+=("--foreground"); shift ;;
       --relocate) FWD+=("--relocate"); shift ;;
+      --restart-live) FWD+=("--restart-live"); shift ;;
       -h|--help)
         cat <<'EOF'
 OffiCraft standalone installer — downloads the latest official release,
@@ -120,10 +137,17 @@ running after you close the terminal, and comes back after a crash or reboot).
 Over an existing install (~/.officraft binaries or database) the installer
 aborts unless --force — piped stdin is non-interactive, so nothing is ever
 overwritten silently.
+
+If a launchd OffiCraft service is RUNNING right now, re-installing restarts it
+and disconnects every open cockpit and connected agent. That is gated
+separately and --force does NOT authorize it; a piped run aborts unless you
+pass --restart-live:
+
+  curl -fsSL … | bash -s -- --force --restart-live
 EOF
         exit 0 ;;
       *)
-        echo "[install] FATAL: unknown argument '$1' (supported: --force, --foreground, --relocate, --tag <vX.Y.Z>)" >&2
+        echo "[install] FATAL: unknown argument '$1' (supported: --force, --foreground, --relocate, --restart-live, --tag <vX.Y.Z>)" >&2
         exit 2 ;;
     esac
   done
@@ -204,17 +228,19 @@ fi
 FORCE=0
 FOREGROUND=0
 RELOCATE=0
+RESTART_LIVE=0
 for arg in "$@"; do
   case "$arg" in
     --force) FORCE=1 ;;
     --foreground) FOREGROUND=1 ;;
     --relocate) RELOCATE=1 ;;
+    --restart-live) RESTART_LIVE=1 ;;
     -h|--help)
-      sed -n '2,73p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      sed -n '2,89p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
-      echo "[install] FATAL: unknown argument '$arg' (supported: --force, --foreground, --relocate)" >&2
+      echo "[install] FATAL: unknown argument '$arg' (supported: --force, --foreground, --relocate, --restart-live)" >&2
       exit 2
       ;;
   esac
@@ -238,6 +264,116 @@ for b in ocserverd ocwarden ocagent; do
   fi
 done
 
+# ── launchd job identity ─────────────────────────────────────────────────────
+# Resolved FIRST, before any gate and before a single byte is written. Two
+# things depend on it: the live-service gate immediately below (which must be
+# able to abort while the machine is still untouched) and the ownership/port
+# gates further down.
+#
+# NOTE, and this is the whole reason the gate below exists: the label names a
+# singleton in the user's launchd GUI DOMAIN, and that domain is keyed on the
+# UID — it does NOT follow $HOME. Pointing HOME at a scratch directory relocates
+# ROOT_DIR/BIN_DIR/PLIST but leaves TARGET resolving to the SAME job the real
+# station runs under. "I ran it with a different HOME" is therefore NOT
+# isolation, and a run that believes it is sandboxed can still bootout the live
+# service. Only OC_LAUNCHD_LABEL actually changes which job is at stake.
+LABEL="${OC_LAUNCHD_LABEL:-com.officraft.serve}"
+LA_DIR="$HOME/Library/LaunchAgents"
+PLIST="$LA_DIR/$LABEL.plist"
+GUI="gui/$(id -u)"
+TARGET="$GUI/$LABEL"
+LOG_DIR="$ROOT_DIR/server/log"
+SERVE_LOG="$LOG_DIR/serve.log"
+
+job_pid_of() {
+  # pid of a registered launchd job, or "" when absent/loaded-but-not-running.
+  # launchd prints a nested `state = ` for subordinate entries, so anchor on the
+  # top-level `pid = ` line and take the first match only.
+  #
+  # `launchctl print` is run SEPARATELY rather than at the head of the pipe on
+  # purpose: an unregistered label exits non-zero, and under `set -o pipefail`
+  # that rc propagates out of the command substitution and `set -e` kills the
+  # installer — turning "no job is registered", the most ordinary state on a
+  # clean machine, into a silent abort with no diagnostic at all.
+  local out
+  out="$(launchctl print "$1" 2>/dev/null || true)"
+  printf '%s\n' "$out" | sed -n 's/^[[:space:]]*pid = \([0-9]*\).*/\1/p' | head -1
+}
+
+# ── live-service gate ────────────────────────────────────────────────────────
+# The gates that already existed here reason about FILES: is there a binary, a
+# database, a plist naming our program, a config that would move. None of them
+# ask the one question that decides whether re-installing is disruptive — IS A
+# SERVER SERVING RIGHT NOW? On the maintainer's own machine every file-based
+# gate answers "same paths, same port, same config, this is a plain reload" and
+# waves the run through to `launchctl bootout` (line ~640), which drops the
+# running process and every client attached to it.
+#
+# That outage was reachable through a gate whose text explicitly PROMISED it
+# would not happen ("keeps serving its old code until its next restart"), and
+# through --force, whose documented meaning is only about overwriting files.
+# Consent obtained against a wrong description of the harm is not consent, so
+# the restart now gets a gate of its own, phrased in the currency the operator
+# actually cares about: connected clients.
+#
+# Ordering is deliberate — this runs BEFORE the binaries are copied and before
+# `ocserverd migrate` touches the database, so declining leaves the machine
+# byte-for-byte as it was. The ownership gate downstream stays exactly as it is;
+# it answers "is this job MINE", which is a different question from "is it BUSY",
+# and a hijack of someone else's job must keep failing closed on its own terms.
+#
+# --foreground is exempt: it never registers or boots out a launchd job. A live
+# service still blocks it, but as a port conflict, which is the honest diagnosis
+# there.
+LIVE_PID=""
+if [[ "$FOREGROUND" == 0 ]]; then
+  LIVE_PID="$(job_pid_of "$TARGET")"
+fi
+if [[ -n "$LIVE_PID" ]]; then
+  live_ports="$(lsof -nP -iTCP -sTCP:LISTEN -a -p "$LIVE_PID" 2>/dev/null \
+    | sed -n 's/.*:\([0-9]\{2,5\}\) (LISTEN).*/\1/p' | sort -u | tr '\n' ' ' | sed 's/ $//')"
+  echo "[install] ⚠️  A LIVE OffiCraft service is running on this machine RIGHT NOW."
+  echo "[install]      launchd job: $LABEL (pid $LIVE_PID)"
+  echo "[install]      plist:       ${PLIST}"
+  [[ -n "$live_ports" ]] && echo "[install]      listening on: port(s) $live_ports"
+  echo "[install]"
+  echo "[install]    Installing REPLACES that job: this script runs 'launchctl bootout'"
+  echo "[install]    and bootstraps it again. That is a REAL restart, not a hot swap —"
+  echo "[install]    the server goes DOWN and comes back, so every open cockpit tab and"
+  echo "[install]    every connected agent is DISCONNECTED for the duration."
+  echo "[install]    The port and the database are inherited, so no data is lost; what"
+  echo "[install]    you lose is uptime and every session attached to it."
+  echo "[install]"
+  if [[ "$RESTART_LIVE" == 1 ]]; then
+    echo "[install]    --restart-live given — proceeding with the restart."
+  elif [[ -t 0 ]]; then
+    printf '[install]    Restart the running service? [y/N] '
+    read -r reply
+    case "$reply" in
+      y|Y|yes|YES) echo "[install]    confirmed — continuing." ;;
+      *) echo "[install] aborted — the running service was NOT touched and nothing was changed."; exit 1 ;;
+    esac
+  else
+    # Fail CLOSED. `curl … | bash` has no tty, so silence here is not assent —
+    # it is the absence of anyone to ask. Never treat it as a yes.
+    echo "[install] FATAL: this run would restart the LIVE '$LABEL' service, but nothing is" >&2
+    echo "[install]        attached to stdin to confirm it (piped/non-interactive run)." >&2
+    echo "[install]        NOTHING was changed — no binaries, no database, no launchd job." >&2
+    echo "[install]" >&2
+    echo "[install]        Your options:" >&2
+    echo "[install]          • re-run it in a terminal to get the confirmation prompt, or" >&2
+    echo "[install]          • accept the restart explicitly:" >&2
+    echo "[install]              curl -fsSL … | bash -s -- --force --restart-live" >&2
+    echo "[install]          • install alongside it instead, leaving the live one running:" >&2
+    echo "[install]              OC_LAUNCHD_LABEL=$LABEL.alt ./install.sh --force" >&2
+    echo "[install]          • or stop it first, on your own schedule:" >&2
+    echo "[install]              launchctl bootout $TARGET" >&2
+    echo "[install]        (--force alone does NOT authorize this: it speaks about" >&2
+    echo "[install]         overwriting files, not about dropping live connections.)" >&2
+    exit 1
+  fi
+fi
+
 # ── existing-install gate ────────────────────────────────────────────────────
 # An existing binary OR an existing database means this machine already runs
 # (or ran) OffiCraft: overwriting silently would swap the binary out from
@@ -250,8 +386,20 @@ fi
 if [[ -n "$EXISTING" ]]; then
   echo "[install] ⚠️  EXISTING OffiCraft install detected: $EXISTING"
   echo "[install]    Continuing will OVERWRITE the installed binaries (the database is kept"
-  echo "[install]    and migrated in place). A currently running server keeps serving its old"
-  echo "[install]    code until its next restart, which then comes up on the new binaries."
+  echo "[install]    and migrated in place)."
+  # Do NOT reassure the operator that a running server keeps serving until some
+  # later restart — on the launchd path this script boots it out a few hundred
+  # lines below, so the restart is IMMEDIATE and this prompt used to describe
+  # the wrong harm. When a live job exists the live-service gate above has
+  # already obtained consent for that outage in the correct terms; say which
+  # case applies rather than asserting the comfortable one.
+  if [[ -n "$LIVE_PID" ]]; then
+    echo "[install]    The live '$LABEL' service will be RESTARTED as part of this run"
+    echo "[install]    (you confirmed that above)."
+  else
+    echo "[install]    No OffiCraft service is currently running, so nothing is interrupted;"
+    echo "[install]    the new binaries take effect when the service is next started."
+  fi
   if [[ "$FORCE" == 1 ]]; then
     echo "[install]    --force given — continuing."
   elif [[ -t 0 ]]; then
@@ -316,19 +464,12 @@ for cfg_kind in "env:${OC_CONFIG:-}" "cwd:./oc.toml"; do
   fi
 done
 
-# ── launchd job identity ─────────────────────────────────────────────────────
-# Resolved BEFORE the port gate on purpose: on a re-install the process holding
-# the port is usually OUR OWN previous service, and the gate has to be able to
-# tell that apart from a genuine conflict (see below).
-LABEL="${OC_LAUNCHD_LABEL:-com.officraft.serve}"
-LA_DIR="$HOME/Library/LaunchAgents"
-PLIST="$LA_DIR/$LABEL.plist"
-GUI="gui/$(id -u)"
-TARGET="$GUI/$LABEL"
-LOG_DIR="$ROOT_DIR/server/log"
-SERVE_LOG="$LOG_DIR/serve.log"
-
 # ── same-label ownership gate ────────────────────────────────────────────────
+# (LABEL / PLIST / GUI / TARGET / LOG_DIR / SERVE_LOG were resolved at the top,
+# ahead of the live-service gate, which has to be able to abort before anything
+# is written. They are deliberately still resolved BEFORE the port gate: on a
+# re-install the process holding the port is usually OUR OWN previous service,
+# and that gate has to tell it apart from a genuine conflict.)
 # The label is a machine-wide singleton in the user's gui domain. If something
 # is ALREADY registered under it, blindly rendering over the plist and booting
 # it out would silently hijack — or kill — a service this installer did not
@@ -451,7 +592,7 @@ fi
 if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
   port_conflict=1
   if [[ "$OURS" == 1 ]]; then
-    job_pid="$(launchctl print "$TARGET" 2>/dev/null | sed -n 's/^[[:space:]]*pid = \([0-9]*\).*/\1/p' | head -1)"
+    job_pid="$(job_pid_of "$TARGET")"
     if [[ -n "$job_pid" ]]; then
       foreign="$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null | grep -vx "$job_pid" || true)"
       if [[ -z "$foreign" ]]; then

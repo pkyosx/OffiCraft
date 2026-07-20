@@ -413,5 +413,24 @@ SH
 fi
 
 echo "bin tests: $PASS ok, $FAIL failed"
+
+# ── bin/install.sh live-service gate (T-eefc) ────────────────────────────────
+# Own file, own PATH shim (launchctl/lsof/uname) and own temp HOME, so it cannot
+# share or disturb the fixtures above. Its exit code is folded in here rather
+# than left to a human to run — the thing it guards is an OUTAGE of the live
+# station, which is precisely the class of regression nobody re-tests by hand.
+GUARD="$HERE/install-guard.sh"
+echo
+if [[ -f "$GUARD" ]]; then
+  if bash "$GUARD"; then
+    ok "install.sh live-service gate suite passed"
+  else
+    bad "install.sh live-service gate suite FAILED (see output above)"
+  fi
+else
+  bad "bin/tests/install-guard.sh is missing"
+fi
+
+echo "bin tests (incl. install guard): $PASS ok, $FAIL failed"
 [[ "$FAIL" == "0" ]] || exit 1
 exit 0
