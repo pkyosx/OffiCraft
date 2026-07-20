@@ -271,9 +271,11 @@ func buildLaunchCommand(claudeBin, workdir, mcpConfigPath, appendSys, tokenFile,
 // vars, already PARSED AND VALIDATED by loadAgentEnv and re-rendered as pure
 // `export K='v'` lines (see agentenv.go). Empty ⇒ nothing is emitted and the
 // line stays byte-identical to the pre-T-426d output. Non-empty ⇒ it is sourced
-// FIRST, before the OC_* exports, for two reasons: (a) the warden's own OC_*
-// identity must win over anything the file could carry, and (b) the launch
-// line's own `export PATH=<workdir>:"$PATH"` then composes ON TOP of an
+// FIRST, before the OC_* exports, for two reasons: (a) the OC_* names this line
+// actually exports then override anything the file set under those SAME names —
+// note this is a positional override of those specific names only, NOT a second
+// enforcement of the OC_* prefix rule (that rule lives solely in the parser),
+// and (b) the launch line's own `export PATH=<workdir>:"$PATH"` then composes ON TOP of an
 // env-file PATH rather than being erased by it. The source is guarded by a
 // `[ -f ]` test so a file deleted between render and exec degrades to "no extra
 // env" instead of a shell error on the agent's very first line.

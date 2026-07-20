@@ -154,11 +154,29 @@ func parseAgentEnv(raw, path string, warn func(string, ...any)) []agentEnvPair {
 		// OC_SESSION, OC_TMUX_SOCKET, OC_AGENT_HOME, OC_EFFORT). Letting the env
 		// file set those would let it repoint an agent at another server or
 		// impersonate another member. Refused outright — not merely overridden.
+		//
+		// THIS IS THE ONLY ENFORCEMENT of the OC_* rule. The launch line's export
+		// ordering happens to override the ~6 OC_* names it actually exports, but
+		// that is a side effect of ordering, not a backstop: it does nothing for
+		// any other OC_* name. Do not weaken this check on the belief that
+		// something downstream re-checks it — nothing does.
 		if strings.HasPrefix(key, "OC_") {
 			warn("agent env: %s:%d skipped — %s is warden-reserved (OC_* is the agent's own identity)", path, lineno, key)
 			continue
 		}
-		val := unquoteAgentEnvValue(strings.TrimSpace(s[eq+1:]))
+		val, valWarn := parseAgentEnvValue(strings.TrimSpace(s[eq+1:]))
+		if valWarn != "" {
+			warn("agent env: %s:%d %s — %s", path, lineno, key, valWarn)
+		}
+		// F-1: a NUL cannot survive the trip through the rendered file into the
+		// shell (C strings end at the first NUL), so the agent would silently
+		// receive a TRUNCATED or empty value. Same failure shape as the trailing
+		// `#` above — a wrong value that looks like a working one — so it gets
+		// the same treatment: refuse the line and say why, never half-deliver it.
+		if strings.ContainsRune(val, 0) {
+			warn("agent env: %s:%d skipped — %s contains a NUL byte, which cannot survive into the agent's environment", path, lineno, key)
+			continue
+		}
 		if i, dup := index[key]; dup {
 			warn("agent env: %s:%d %s redefined — later value wins", path, lineno, key)
 			pairs[i].Value = val
@@ -170,17 +188,59 @@ func parseAgentEnv(raw, path string, warn func(string, ...any)) []agentEnvPair {
 	return pairs
 }
 
-// unquoteAgentEnvValue strips ONE matched surrounding quote pair so
-// `K="a b"` and `K='a b'` both mean the two-word value. Everything inside is
-// literal either way — there is no difference between the quote styles here,
-// unlike in a shell. An unmatched or absent quote is left as-is.
-func unquoteAgentEnvValue(v string) string {
+// trailingCommentRe matches the "whitespace then #" shape of an intended
+// end-of-line comment on an UNQUOTED value.
+var trailingCommentRe = regexp.MustCompile(`\s#`)
+
+// parseAgentEnvValue turns the raw right-hand side into the final value, plus a
+// warning string ("" when there is nothing to say).
+//
+// It strips ONE matched surrounding quote pair, so `K="a b"` and `K='a b'` both
+// mean the two-word value. Everything inside is literal either way — there is no
+// difference between the quote styles here, unlike in a shell.
+//
+// TRAILING `#` (reviewer F-4). `K=value # comment` is genuinely ambiguous: `#`
+// is a perfectly legal character inside a password, so there is no reading of a
+// bare line that is right in every case. The resolution turns on whether the
+// owner told us where the value ENDS:
+//
+//   - QUOTED, comment outside the quotes — `K="abc" # note` — the closing quote
+//     states the boundary explicitly. Intent is unambiguous, so the comment is
+//     stripped and the value is `abc`. No warning: nothing was guessed.
+//   - UNQUOTED — `K=abc # note` — the boundary is unknown. The value is kept
+//     LITERAL (`abc # note`) and a warning fires. Guessing here would silently
+//     truncate a credential that legitimately contains " #", which is a worse
+//     bug than the one being fixed and is invisible when it happens.
+//
+// Neither branch ever silently produces a value the owner did not intend: the
+// explicit case is honoured, the ambiguous case is preserved AND announced. That
+// matters because this whole ticket exists to kill a class of silent-wrong-env
+// failure that looks like "the tool is broken" rather than "I mistyped".
+func parseAgentEnvValue(v string) (string, string) {
+	// (1) Fully quoted, nothing after the closing quote — the common case.
+	// Handled first so every previously-accepted form stays byte-identical.
 	if len(v) >= 2 {
 		if (v[0] == '"' && v[len(v)-1] == '"') || (v[0] == '\'' && v[len(v)-1] == '\'') {
-			return v[1 : len(v)-1]
+			return v[1 : len(v)-1], ""
 		}
 	}
-	return v
+	// (2) Quoted value followed by a trailing comment: the quote delimits the
+	// value, so the comment is unambiguously not part of it.
+	if len(v) >= 2 && (v[0] == '"' || v[0] == '\'') {
+		if j := strings.IndexByte(v[1:], v[0]); j >= 0 {
+			closing := j + 1
+			if rest := strings.TrimSpace(v[closing+1:]); strings.HasPrefix(rest, "#") {
+				return v[1:closing], ""
+			}
+		}
+	}
+	// (3) Unquoted with a comment-shaped tail: keep it literal, but say so —
+	// the owner must not discover this by watching the agent misbehave.
+	if trailingCommentRe.MatchString(v) {
+		return v, "value kept LITERALLY including the trailing '#...' — this file has no end-of-line comments on unquoted values; " +
+			"write KEY=\"value\" # comment if you meant a comment, or ignore this if '#' is part of the value"
+	}
+	return v, ""
 }
 
 // renderAgentEnvFile renders validated pairs into the content of the workdir
