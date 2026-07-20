@@ -200,19 +200,36 @@ func TestWorkerSharedCoreRewriteAnchorsAllResolve(t *testing.T) {
 	}
 }
 
-// ── zero residue: member-only instructions are GONE, not merely contradicted ─
+// ── known member-only residues: GONE, not merely contradicted ────────────────
 
-// TestWorkerBootContextHasZeroMemberOnlyResidue pins the six residues the
-// independent review found. Five were "overridden" by the overlay 47% of the
-// document later; one — the 發包 item pointing at §10.1c — was not overridden
-// by anything at all, and was a ✅ POSITIVE example encouraging the worker to
-// do the exact thing the exclusion list removed §10.1c for ("worker 就是被發包
-// 的那一方，不轉包").
+// TestWorkerBootContextKnownMemberOnlyResidueStaysRemoved is a REGRESSION LIST,
+// not a completeness proof. Read the name literally: every residue that someone
+// has actually FOUND stays removed. It does not — and structurally cannot —
+// assert that no residue remains.
+//
+// This test used to be called TestWorkerBootContextHasZeroMemberOnlyResidue.
+// That name was a lie by construction: the body is a hard-coded list of today's
+// strings, so it can only ever be as complete as the last person's reading of
+// the seed. The enumeration history says exactly how incomplete that is:
+//
+//	round 1 (review #1)      →  6 residues
+//	round 2 (implementer)    →  9 residues (+3)
+//	round 3 (review #3)      → 12 residues (+3)
+//
+// Three rounds, every round found what the previous one missed, and the
+// increment did not shrink. A name promising "zero residue" invites the next
+// reader to treat a green run as proof of absence. It is proof of no
+// regression on twelve known strings — which is worth having, and is all this
+// is. Every one of the twelve was found by reading the assembled document by
+// hand; neither this list nor the §N cross-reference guard can find a
+// thirteenth. Making residue a decidable property needs the structural fix
+// (mark every seed region shared / member-only, fail closed on unmarked) that
+// is deliberately scoped to a separate ticket.
 //
 // Each case carries a positive control: the same text MUST still be present in
 // the member fold. Without that, deleting the shared core wholesale would make
 // every assertion here pass.
-func TestWorkerBootContextHasZeroMemberOnlyResidue(t *testing.T) {
+func TestWorkerBootContextKnownMemberOnlyResidueStaysRemoved(t *testing.T) {
 	worker := workerCtx(t)
 	_, bc := memberCtx(t)
 	member := bc.Context
@@ -271,6 +288,35 @@ func TestWorkerBootContextHasZeroMemberOnlyResidue(t *testing.T) {
 			"§10.4 resume_summary 接手路徑",
 			"先用 MCP `peek_resume_summary_size` 探快照多大",
 			"這兩個工具正是因為對 worker 不成立而被排除；叫它去用一條它沒有的路。",
+		},
+
+		// ── 第三輪 independent review 找到的四處（10–12 ＋ report_waking 祈使句）──
+		// 共同結構：全部**沒有 §N 指標**，所以交叉引用守衛看不到；overlay 對前三處
+		// 零覆蓋。它們是逐行人工閱讀才找得到的那一類。
+		{
+			"§10.4 create_task_manual 建類型（正面 ✅ 示範）",
+			"`create_task_manual` 建類型",
+			"叫 worker 建任務類型、寫手冊 SOP、請 owner 設負責——正是 §10.1／§10.1b 被排除的" +
+				"白紙黑字理由（接案與手冊維護是成員治理職責）。它的兩個兄弟 ✅ 都被排除了，只有它漏掉。",
+		},
+		{
+			"§10.4 你是窗口：轉交／喚醒外包",
+			"你是窗口：轉交負責成員，或建好交伺服器喚醒外包",
+			"直接指派讀者身分為派工窗口並叫它轉包——與已排除的 §10.1c「worker 就是被發包的" +
+				"那一方，不轉包」是同一件事，只是換了措辭、沒有 §N 指標。",
+		},
+		{
+			"§10.5 你這個協調窗口不代勞",
+			"你這個協調窗口不代勞",
+			"用第二人稱送給 worker，字面意思翻轉成「§10.5 這三步不用我做」——而 overlay §6" +
+				"在其後 ~80 行才說「這三步就是你的退場程序」。同一份文件兩種相反讀法，錯的在前面。",
+		},
+		{
+			"§5 presence：report_waking 祈使開機指示",
+			"boot 起手你主動用 MCP `report_waking()` 報一次",
+			"帶順序的祈使開機指示（「發生在掛 listen 之前」），與 overlay §2「report_waking " +
+				"不在你的開機序列」直接矛盾，而且在它之前 ~180 行。前一輪把它與附錄 A 的工具目錄" +
+				"列舉一起判成「描述性」，那個判準對附錄 A 成立、對這一句不成立。",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -473,5 +519,34 @@ func TestWorkerOverlayDropsCodeContradictingClaims(t *testing.T) {
 	}
 	if !strings.Contains(ctx, "與正職完全相同的") {
 		t.Error("worker overlay must state the context thresholds are identical to a member's")
+	}
+}
+
+// TestWorkerOverlayDoesNotClaimBlanketRemoval is the OTHER half of the
+// cross-commit coupling, and it lives here — in the CODE commit — on purpose.
+//
+// Its sibling TestWorkerOverlayReportWakingClaimIsTrue ships in the docs commit
+// and catches a revert of the code commit. It cannot catch a revert of its OWN
+// commit, because that deletes the file it lives in. This assertion, shipping in
+// the other commit, closes that direction: revert the docs commit alone and the
+// overlay goes back to claiming report_waking was "已從你這份裡拿掉" while 附錄 A
+// still lists the tool — a false self-description, and this goes red.
+//
+// Measured, both directions, before writing this: without it, `git revert -n`
+// of the docs commit left `go test ./...` fully green (30.0s, ok).
+func TestWorkerOverlayDoesNotClaimBlanketRemoval(t *testing.T) {
+	ctx := workerCtx(t)
+
+	// Positive control: prove we are looking at a document that contains the
+	// overlay at all, so a clean result means something.
+	if !strings.Contains(ctx, "啟動程序（Boot Sequence）") {
+		t.Fatal("overlay's boot-sequence paragraph is missing entirely — a clean scan " +
+			"below would be vacuous")
+	}
+	if strings.Contains(ctx, "`resume_summary` 對你都不適用（已從你這份裡拿掉）") {
+		t.Error("overlay claims report_waking/resume_summary were removed outright, but " +
+			"report_waking still appears in the 附錄 A tool directory — the document is " +
+			"making a false statement about its own contents.\n" +
+			"若你剛 revert 了 T-108b 的文件那一顆：這兩顆必須一起進退。")
 	}
 }
