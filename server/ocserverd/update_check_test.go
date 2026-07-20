@@ -342,3 +342,79 @@ func TestReleaseCheckButtonReusesFreshCache(t *testing.T) {
 		t.Fatalf("button mashing must reuse the fresh cache: %d GitHub hits", gh.hits)
 	}
 }
+
+// ── list ordering: the newest release is the SEMVER max, not row 0 (T-05ab) ──
+//
+// GitHub orders /releases by CREATION time, not by version. These three tests
+// are the guardrail behind that: each isolates ONE property and asserts it as
+// its first (and effectively only) claim, so a failure names the property.
+
+// TestFetchPicksSemverMaxNotFirstRow is Joey's reported symptom, reduced: the
+// list is out of version order and the real newest release sits SECOND. Taking
+// list[0] answers v0.4.1 — which, to a v0.4.2 server, reads "you are already
+// up to date" while a v0.9.9 sits published. Underreporting, not a downgrade,
+// but the user never learns the release exists.
+func TestFetchPicksSemverMaxNotFirstRow(t *testing.T) {
+	gh := newFakeGitHub(t,
+		fakeRelease{tag: "v0.4.1"},
+		fakeRelease{tag: "v0.9.9"},
+	)
+	rel, none, err := fetchLatestOffiCraftRelease(gh.srv.URL, false)
+	if err != nil || none {
+		t.Fatalf("fetch: err=%v none=%v", err, none)
+	}
+	if rel.TagName != "v0.9.9" {
+		t.Fatalf("out-of-order list must yield the semver max v0.9.9, got %q", rel.TagName)
+	}
+}
+
+// TestFetchOrdersV0_10_0AboveV0_9_9 is the case string comparison gets WRONG:
+// lexicographically "v0.9.9" > "v0.10.0" (the character '9' outranks '1'), but
+// under semver 0.10.0 is the newer minor. A sort-by-string implementation
+// passes the test above and fails this one — which is exactly why both exist.
+func TestFetchOrdersV0_10_0AboveV0_9_9(t *testing.T) {
+	gh := newFakeGitHub(t,
+		fakeRelease{tag: "v0.9.9"},
+		fakeRelease{tag: "v0.10.0"},
+	)
+	rel, none, err := fetchLatestOffiCraftRelease(gh.srv.URL, false)
+	if err != nil || none {
+		t.Fatalf("fetch: err=%v none=%v", err, none)
+	}
+	if rel.TagName != "v0.10.0" {
+		t.Fatalf("v0.10.0 must outrank v0.9.9 under SEMVER (string compare says otherwise), got %q", rel.TagName)
+	}
+}
+
+// TestFetchMaxRespectsDraftAndPrereleaseFilters pins the non-regression the
+// max-picker could plausibly have broken: the filters gate ADMISSION, and the
+// semver max is taken only among admitted rows. Both inadmissible rows here
+// are deliberately the highest tags in the list, so a filter that stopped
+// applying would be the winner and this test would name it.
+func TestFetchMaxRespectsDraftAndPrereleaseFilters(t *testing.T) {
+	gh := newFakeGitHub(t,
+		fakeRelease{tag: "v0.2.0"},
+		fakeRelease{tag: "v9.9.9", draft: true},
+		fakeRelease{tag: "v5.0.0", prerelease: true},
+		fakeRelease{tag: "v0.3.0"},
+	)
+
+	// Official channel: draft AND prerelease excluded → the max of {0.2.0, 0.3.0}.
+	rel, none, err := fetchLatestOffiCraftRelease(gh.srv.URL, false)
+	if err != nil || none {
+		t.Fatalf("fetch(official): err=%v none=%v", err, none)
+	}
+	if rel.TagName != "v0.3.0" {
+		t.Fatalf("official channel must exclude the draft v9.9.9 and prerelease v5.0.0, got %q", rel.TagName)
+	}
+
+	// Beta channel: the prerelease is admitted and IS the max — but the draft
+	// stays excluded in every channel (draft is not a channel, it is unpublished).
+	rel, none, err = fetchLatestOffiCraftRelease(gh.srv.URL, true)
+	if err != nil || none {
+		t.Fatalf("fetch(beta): err=%v none=%v", err, none)
+	}
+	if rel.TagName != "v5.0.0" {
+		t.Fatalf("beta channel must admit v5.0.0 yet still exclude the draft v9.9.9, got %q", rel.TagName)
+	}
+}

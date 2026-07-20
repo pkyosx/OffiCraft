@@ -180,9 +180,10 @@ func (s *apiServer) refreshUpdateCheck(includePre bool) {
 	}
 }
 
-// fetchLatestOffiCraftRelease asks GitHub for the repo's releases (newest
-// first) and picks the first non-draft one the channel admits (prereleases
-// only when includePre). A 404 or an empty/filtered-out list is the honest
+// fetchLatestOffiCraftRelease asks GitHub for the repo's releases and picks
+// the SEMVER-GREATEST non-draft one the channel admits (prereleases only when
+// includePre). GitHub orders that list by creation time, NOT by version, so
+// position is not a version ranking. A 404 or an empty/filtered-out list is the honest
 // "nothing published yet" → (zero, true, nil); any other non-200 / transport
 // / decode failure is an error (the caller keeps its last-known state).
 func fetchLatestOffiCraftRelease(base string, includePre bool) (githubRelease, bool, error) {
@@ -208,6 +209,16 @@ func fetchLatestOffiCraftRelease(base string, includePre bool) (githubRelease, b
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&list); err != nil {
 		return githubRelease{}, false, err
 	}
+	// Pick the SEMVER-MAXIMUM admissible release, not the first row. GitHub's
+	// /releases list is ordered by CREATION TIME, not by version — a v0.9.9
+	// created before a v0.4.1 (backfilled tag, re-cut release, out-of-order
+	// publishing) lands SECOND in the body, and taking list[0] would report
+	// v0.4.1 as "the newest" and silently hide the real v0.9.9 from anyone
+	// running something in between. The draft/prerelease filters below are
+	// unchanged and still gate admission; only the tie-break among the
+	// admitted rows moved from position to semver ordering.
+	best := githubRelease{}
+	found := false
 	for _, rel := range list {
 		if rel.Draft || rel.TagName == "" {
 			continue
@@ -215,9 +226,14 @@ func fetchLatestOffiCraftRelease(base string, includePre bool) (githubRelease, b
 		if rel.Prerelease && !includePre {
 			continue
 		}
-		return rel, false, nil
+		if !found || semverOutranks(rel.TagName, best.TagName) {
+			best, found = rel, true
+		}
 	}
-	return githubRelease{}, true, nil
+	if !found {
+		return githubRelease{}, true, nil
+	}
+	return best, false, nil
 }
 
 // The closed release-check verdict set (releaseCheckDTO.Status).

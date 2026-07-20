@@ -66,3 +66,26 @@ func releaseIsNewer(candidateTag, running string) bool {
 	}
 	return semver.Compare(c, r) > 0
 }
+
+// semverOutranks reports whether candidate should displace incumbent as "the
+// newest release" while walking a release LIST (fetchLatestOffiCraftRelease).
+// It differs from releaseIsNewer in two deliberate ways:
+//   - SILENT. The list walk visits every admissible tag; a repo that carries
+//     one non-semver label would otherwise emit a warning line per fetch.
+//     releaseIsNewer still warns at the single decision point that matters
+//     (the chosen tag vs the running version).
+//   - An unorderable INCUMBENT is outranked by any orderable candidate, so a
+//     stray non-semver tag cannot pin the selection to itself. An unorderable
+//     CANDIDATE never wins — an unorderable tag must not reach the download
+//     path (it also cannot pass releaseIsNewer downstream).
+func semverOutranks(candidate, incumbent string) bool {
+	c, okC := canonicalSemver(candidate)
+	if !okC {
+		return false
+	}
+	i, okI := canonicalSemver(incumbent)
+	if !okI {
+		return true
+	}
+	return semver.Compare(c, i) > 0
+}
