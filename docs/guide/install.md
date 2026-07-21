@@ -154,5 +154,5 @@ bin/ocserver uninstall --dry-run   # 只印出會做什麼，什麼都不動
 
 ---
 
-**agent 的環境變數怎麼設** → [agent-env.md](agent-env.md)
-**技術棧、repo 結構、怎麼跑測試與 CI** → [dev.md](dev.md)
+**agent 的環境變數怎麼設** → [../dev/agent-env.md](../dev/agent-env.md)
+**技術棧、repo 結構、怎麼跑測試與 CI** → [../dev/](../dev/)
