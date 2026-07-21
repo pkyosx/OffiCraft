@@ -79,7 +79,7 @@ bin/ocserver install --force    # 重跑每一步(reinstall;不動既有密碼)
 
 | job | 做什麼 |
 | --- | --- |
-| `com.officraft.serve` | server 本體（`bin/ocserver` 路徑沿用 port 8770;oc.toml 可改，只綁 loopback） |
+| `com.officraft.serve` | server 本體（`bin/ocserver` 路徑預設 port 7755;oc.toml 可改，只綁 loopback） |
 | `com.officraft.autodeploy` | 盯 git 遠端，有新 code 自動 pull → build → 重啟 |
 | `com.officraft.tunnel` | cloudflared 對外通道（**選用**：機器上沒有 cloudflared 設定就自動略過） |
 

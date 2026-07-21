@@ -39,7 +39,7 @@
 #     --namespace   same-machine extra instance key ([a-z0-9-]{1,16}): root
 #                   ~/.officraft-<ns>/server, labels com.officraft.*.<ns>,
 #                   oc.toml carries namespace+port. REQUIRES --port (never the
-#                   default 8770 — that is the main instance's). A namespaced
+#                   default 7755 — that is the main instance's). A namespaced
 #                   install gets serve ONLY: no autodeploy, no tunnel (updates
 #                   are pulled manually). The default EMPTY namespace changes
 #                   NOTHING — byte-identical to the historical install.
@@ -51,7 +51,7 @@
 #
 # ENV OVERRIDES (defaults = canonical layout):
 #   OC_SERVER_ROOT   canonical dir       (default ~/.officraft/server)
-#   OC_SERVE_PORT    serve port          (default 8770)
+#   OC_SERVE_PORT    serve port          (default 7755)
 #   OC_CLOUDFLARED_CONFIG  tunnel config (default ~/.cloudflared/officraft.yml)
 #
 # GUARDRAILS (hard):
@@ -158,7 +158,7 @@ validate_namespace() {
 # Optional args 4=NS 5=PORT: when PORT is non-empty the example's fixed
 # `port = 7755` line (the OffiCraft standard default) is rewritten to
 # the instance port — an ocserver-managed install always pins its port
-# explicitly (main default = OC_SERVE_PORT, canonically 8770 on the dev
+# explicitly (main default = OC_SERVE_PORT, canonically 7755 on the dev
 # station). A non-empty NS additionally adds a `namespace = "<ns>"` line right
 # under it (still inside the ONE existing [server] table). Both are validated
 # post-parse. The 3-arg render-config test seam keeps the example's literal
@@ -182,7 +182,7 @@ out = src.replace('dsn = "__OC_DSN__"', f'dsn = "{dsn}"')
 if port:
     # The example ships the OffiCraft standard default (7755); an
     # ocserver-managed instance always pins ITS port explicitly (main default
-    # rides OC_SERVE_PORT — the canonical dev station stays on 8770).
+    # rides OC_SERVE_PORT — the canonical dev station stays on 7755).
     if 'port = 7755' not in out:
         raise SystemExit(
             "oc.toml.example is missing the `port = 7755` line — cannot render "
@@ -238,7 +238,7 @@ flags (install):
                serve ONLY (no autodeploy / no tunnel — update manually).
                REQUIRES --port. Empty (default) = the main instance, unchanged.
   --port       the namespaced instance's serve port (required with --namespace;
-               rendered into oc.toml — pick a free one, never the main 8770)
+               rendered into oc.toml — pick a free one, never the main 7755)
 
 flags (uninstall):
   --keep-data  keep data/ (sqlite db, incl. the owner credential hash) +
@@ -272,7 +272,7 @@ cmd_install() {
   if [[ -n "$NS" ]]; then
     # A namespaced instance must NEVER inherit the main instance's default
     # port — an explicit free port is part of declaring the instance.
-    [[ -n "$PORT_FLAG" ]] || fail "--namespace requires --port (explicit instance port; the default 8770 is the main instance's)"
+    [[ -n "$PORT_FLAG" ]] || fail "--namespace requires --port (explicit instance port; the default 7755 is the main instance's)"
     [[ "$PORT_FLAG" =~ ^[0-9]{2,5}$ ]] || fail "--port must be a port number, got: $PORT_FLAG"
   elif [[ -n "$PORT_FLAG" ]]; then
     fail "--port is only valid together with --namespace (the main instance uses OC_SERVE_PORT/oc.toml)"
@@ -314,7 +314,7 @@ cmd_install() {
   if [[ -n "$NS" ]]; then
     PORT="$PORT_FLAG"
   else
-    PORT="${OC_SERVE_PORT:-8770}"
+    PORT="${OC_SERVE_PORT:-7755}"
   fi
   HEALTH_URL="http://127.0.0.1:${PORT}/health"
 

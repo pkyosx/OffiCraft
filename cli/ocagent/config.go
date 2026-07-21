@@ -23,7 +23,7 @@ import (
 // this struct carries the agent's extra identity fields (Home/Role/TaskType)
 // that agent/oc_agent.py's AgentConfig has and the warden does not.
 
-const defaultBase = "http://127.0.0.1:8770"
+const defaultBase = "http://127.0.0.1:7755"
 
 // Config is the resolved ocagent identity. Base always has a value; Token/ID are
 // empty when unset (a mis-wired launch must degrade, never crash — mirrors the
