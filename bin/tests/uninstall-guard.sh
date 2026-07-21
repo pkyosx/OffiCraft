@@ -446,6 +446,11 @@ reset_fixture none running
 run_uninstall
 check "partial install: exits 0" "0" "$RC"
 case "$OUT" in *"what moved: bin/"*) bad "partial install: claims it moved bin/ when there was no bin/ ('$OUT')";; *) ok "partial install: does not claim moves that did not happen";; esac
+# The up-front announcement has to agree with the after-the-fact report. Naming
+# bin/ in "will touch" and then not in "what moved" is the same over-claim, just
+# earlier in the run.
+case "$OUT" in *"will touch:"*"$FAKEHOME/.officraft/bin"*) bad "partial install: 'will touch' announces a bin/ that is not there ('$OUT')";; *) ok "partial install: 'will touch' only names what is actually present";; esac
+case "$OUT" in *"will touch:"*"launchd job $LABEL and its plist"*) ok "partial install: 'will touch' does name the plist, which IS present (control)";; *) bad "partial install: 'will touch' omitted the plist it does touch ('$OUT')";; esac
 case "$OUT" in *"the launchd plist only"*) ok "partial install: says the plist was the only thing moved";; *) bad "partial install: does not describe what actually moved ('$OUT')";; esac
 BAK="$(find "$FAKEHOME" -maxdepth 1 -name '.officraft.bak-*' 2>/dev/null | head -1)"
 check "partial install: the plist really is in the backup" "1" "$([[ -f "$BAK/launchd/$LABEL.plist" ]] && echo 1 || echo 0)"

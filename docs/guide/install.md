@@ -105,7 +105,7 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 
 腳本執行時會把上面這份清單連同 agent 工作區的數量一起印出來，`--dry-run` 也印同一份。
 
-> ⚠️ **舊版行為（v0.5.11 及更早）**：只要 `~/.officraft/server/repo/` 不存在
+> ⚠️ **舊版行為（v0.5.12 及更早，也就是這個修正發佈之前的每一版）**：只要 `~/.officraft/server/repo/` 不存在
 > （也就是這台機器**沒有**用方式二從原始碼裝過——release 安裝的機器都是這樣），預設就會把
 > **整個** `~/.officraft` 搬走，含 `agents/` 與 `warden/`，而訊息只說 "nothing was deleted"、
 > 一個字都沒提。反而是有 `repo/` 的機器不受影響。那是可回復的（是 `mv` 不是 `rm`），

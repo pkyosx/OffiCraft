@@ -93,14 +93,20 @@
 #      download so it never fetches a release just to delete one:
 #      curl -fsSL … | bash -s -- --uninstall            # stop + move to a backup
 #      curl -fsSL … | bash -s -- --uninstall --dry-run  # print only, nothing changes
-#      curl -fsSL … | bash -s -- --uninstall --purge    # DELETE (asks unless --yes)
+#      curl -fsSL … | bash -s -- --uninstall --purge --yes   # DELETE, no way back
 #      Default keeps the database — it MOVES ~/.officraft's release-path pieces
-#      to ~/.officraft.bak-<timestamp> rather than deleting them; --purge deletes
-#      instead (confirm by typing "purge", or pass --yes). Ownership is decided
-#      from ~/.officraft/bin/ocserverd (this installer's own signature — a
-#      from-source `bin/ocserver install` never writes there) and from the
-#      launchd plist's ProgramArguments[0] (OC_LAUNCHD_LABEL is respected); a
-#      label claimed by a different program is refused, loudly, untouched.
+#      to ~/.officraft.bak-<timestamp> (plist inside it, under launchd/) rather
+#      than deleting them, and prints a restore command that puts back both the
+#      files and the launchd registration. --purge deletes instead.
+#      --purge asks you to type "purge" unless --yes — but that prompt reads
+#      stdin, which over `curl … | bash` is the pipe carrying this script, so it
+#      cannot be typed into and always aborts: over a pipe, --purge does nothing
+#      without --yes. See the note at the confirmation itself.
+#      Ownership is decided from ~/.officraft/bin/ocserverd (this installer's own
+#      signature — a from-source `bin/ocserver install` never writes there) and
+#      from the launchd plist's ProgramArguments[0] (OC_LAUNCHD_LABEL is
+#      respected); a label claimed by a different program is refused, loudly,
+#      untouched.
 #
 #      SCOPE — removal touches ONLY what this installer created: bin/, the
 #      release-path pieces of server/ (data, oc.toml, log), and the launchd
@@ -108,7 +114,9 @@
 #      programs and is LEFT IN PLACE, by name: agents/ (every agent workspace
 #      on this machine) and warden/ (plus its own com.officraft.ocwarden job,
 #      which this installer never registered and therefore never removes —
-#      `ocwarden teardown` is that subsystem's own removal path). A from-source
+#      `~/.officraft/warden/ocwarden teardown` is that subsystem's own removal
+#      path; the absolute path matters because bin/ moves into the backup and
+#      this installer never puts it on PATH). A from-source
 #      install sharing the same ~/.officraft/server root (visible as
 #      server/repo/) is likewise never touched. This is not a courtesy: an
 #      earlier version moved the WHOLE of ~/.officraft aside while printing
@@ -298,7 +306,22 @@ EOF
     [[ -n "$agent_count" ]] || agent_count="unknown"
   fi
 
-  echo "[install] will touch:   $BIN_DIR (the whole directory), $SERVER_DIR/{data,oc.toml,log}, launchd job $LABEL"
+  # Announce what is actually PRESENT, not the full menu: on a half-installed
+  # machine a fixed list names things that are not there, which is the same
+  # over-claiming the "what moved" line below was fixed for. Both ends of the
+  # run now describe the same reality.
+  local will=() ent
+  [[ -e "$BIN_DIR" ]] && will+=("$BIN_DIR (the whole directory)")
+  for ent in data oc.toml log; do
+    [[ -e "$SERVER_DIR/$ent" ]] && will+=("$SERVER_DIR/$ent")
+  done
+  [[ -f "$PLIST" ]] && will+=("launchd job $LABEL and its plist")
+  if [[ "${#will[@]}" -gt 0 ]]; then
+    echo "[install] will touch:"
+    for ent in "${will[@]}"; do echo "[install]     $ent"; done
+  else
+    echo "[install] will touch: nothing — none of this installer's files or its plist are present"
+  fi
   if [[ "${#kept[@]}" -gt 0 ]]; then
     echo "[install] will NOT touch, under $ROOT_DIR — left exactly where they are:"
     # One per line: joining with "${kept[*]}" renders a name containing a space
