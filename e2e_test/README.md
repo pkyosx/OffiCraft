@@ -83,9 +83,16 @@ bash teardown.sh         # clean up
 ## Isolation & prod safety (hard rules)
 
 - Runs on a **non-prod port (:8791)** with an **isolated SQLite** DB. `common.sh`
-  **hard-refuses** to run against :8770 / :8766 — the *retired* former prod ports
-  it still lists (current prod is :7755; the guard's port list has not been
-  updated — tracked separately).
+  **hard-refuses** to run against a prod port. The officraft one is **derived at
+  run time** from `server/ocserverd/config.go`'s `defaultPort` (7755 today) —
+  *not* a number hand-copied into the harness; an unparseable config.go is a
+  FATAL exit 2, never a silently-skipped guard. On top of that it refuses the
+  hand-maintained set that nothing in this repo can derive: **8770 / 8780**
+  (officraft's own *retired* former defaults — see config.go's migration
+  history — kept for installs that still pin one in `oc.toml`) and **8766**
+  (a *different* product's live port). Earlier revisions of this line said
+  "prod ports :8770 / :8766", which named only retired/foreign ports and never
+  the actual current one (T-a3ba).
 - Ambient fleet env (`OC_ID` / `OC_TOKEN` / `OC_BASE`) is **stripped** before
   starting the service or any tool, so nothing authenticates against or emits to
   the fleet/prod server.
