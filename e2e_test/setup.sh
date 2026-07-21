@@ -69,6 +69,22 @@ if [ "${OC_E2E_SKIP_BUILD:-}" != "1" ]; then
   echo "[setup] staged frontend/dist → server/ocserverd/webdist"
 fi
 
+# 2b2. stage the product-guide docs for go:embed. UNCONDITIONAL (not gated on
+#      OC_E2E_SKIP_BUILD): it is a directory copy, needs no npm, and the `go
+#      build` right below is what bakes the embed in — skipping it would hand
+#      the API specs a server whose every doc read 404s.
+#
+#      This step was MISSING until T-68f1 round 2. bin/build, bin/ci.sh and
+#      conformance/run.sh all stage docsdist; only this harness did not. Because
+#      doc reads are embed-only (assets.go, no disk fallback), anyone following
+#      the README straight into run_all.sh got a server whose 使用說明 page was
+#      EMPTY and whose /api/docs/<slug> all 404'd — unless a previous bin/build
+#      happened to have left docsdist populated. That is the structural reason
+#      the REAL embedded docs had never once been rendered end to end.
+echo "[setup] staging product-guide docs (docs/guide → docsdist, go:embed)…"
+bash "$REPO_ROOT/bin/build-docsdist" \
+  || { echo "[setup] FATAL: build-docsdist failed" >&2; exit 1; }
+
 # 2c. build ocserverd fresh from source (with the staged SPA baked in), then
 #     migrate. The daemon runs with CWD = repo root so its oc.toml / DSN /
 #     repo-file assets resolve exactly like bin/serve (conformance/run.sh
