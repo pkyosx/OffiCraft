@@ -103,10 +103,11 @@ bin/ocserver install --force    # 重跑每一步（不動既有密碼）
 **這條路額外需要**：Go、node/npm、python3 ≥ 3.11；`cloudflared` 只有要開 tunnel 才需要。
 
 > [!IMPORTANT]
-> **兩條路的預設埠不一樣，這不是筆誤：**
-> 一鍵安裝（`install.sh`）走 **7755**（server 的內建預設）；
-> `bin/ocserver` 這支開發腳本走 **8770**（`OC_SERVE_PORT` 的預設）。
-> 兩者都可以用 `oc.toml` 覆蓋。**判斷你連的是哪一個，看網址列的埠，不要猜。**
+> **標準埠是 7755。**
+> 一鍵安裝走的就是 7755；`bin/ocserver` 這支開發腳本目前還停在舊的 **8770**（`OC_SERVE_PORT` 的預設）——
+> 那是已退役的舊站留下來的歷史遺留，**正在收斂到 7755**，不是刻意的設計。
+> 在它改好之前，用這條路裝的機器可能還是 8770：**看網址列的埠，不要猜。**
+> 兩條路都可以用 `oc.toml` 覆蓋。
 
 ### 這條路裝完機器上多了什麼
 
@@ -124,7 +125,7 @@ bin/ocserver install --force    # 重跑每一步（不動既有密碼）
 
 | job | 做什麼 |
 | --- | --- |
-| `com.officraft.serve` | server 本體（這條路預設 port 8770，`oc.toml` 可改，只綁 loopback） |
+| `com.officraft.serve` | server 本體（這條路目前預設 port 8770，見上方說明；`oc.toml` 可改，只綁 loopback） |
 | `com.officraft.autodeploy` | 盯 git 遠端，有新 code 自動 pull → build → 重啟 |
 | `com.officraft.tunnel` | cloudflared 對外通道（**選用**：機器上沒有 cloudflared 設定就自動略過） |
 
