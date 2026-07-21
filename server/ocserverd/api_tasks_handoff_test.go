@@ -880,9 +880,24 @@ func TestSubmitPlanCannotBeUsedToCloseAroundTheGate(t *testing.T) {
 			after.Status, after.Handoff, after.ClosedTS)
 	}
 	// And the refusal must NOT send the caller back to submit_plan — that would
-	// be a loop pointing at the hole this test just closed.
-	if msg := errorMessage(t, rec); strings.Contains(msg, "submit_plan still works") {
-		t.Fatalf("the refusal must not advertise submit_plan as the way out: %s", msg)
+	// be a loop pointing at the hole this test just closed. Asserted on what
+	// the message MUST say, not on the absence of one historical sentence: the
+	// old wording ("the plan is still editable, submit_plan still works") never
+	// appeared in a 422 body at all — it lived in a file-header comment — so
+	// grepping for it passed even against a full revert. An assertion that
+	// cannot fail is dead code inside a test, and panic probes only ever look
+	// at production code, so nothing else would have caught it.
+	msg := errorMessage(t, rec)
+	if strings.Contains(msg, "submit_plan") {
+		t.Fatalf("the refusal must not mention submit_plan at all — the caller is "+
+			"already IN submit_plan and it is the door being refused: %s", msg)
+	}
+	for _, want := range []string{"update_step_status", "create_task",
+		HandoffReturnToCreator, HandoffFollowUp, HandoffNone} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("the refusal must name the real way out verbatim, missing %q: %s",
+				want, msg)
+		}
 	}
 }
 
@@ -1078,5 +1093,69 @@ func TestSentinelReplanThatKeepsDoneStepsAndAddsMoreIsNeverGated(t *testing.T) {
 	after := mustTask(t, api, task.ID)
 	if TaskIsTerminal(after.Status) {
 		t.Fatalf("a plan with pending work must not close the task: %+v", after)
+	}
+}
+
+// 🔴 The FREEZE path of the replan side door — the one the drop path above does
+// NOT cover, and the one the second door's projection got wrong.
+//
+// The replan split has TWO fates for an unfinished existing step: a card-less
+// one is DROPPED (covered by TestSubmitPlanCannotBeUsedToCloseAroundTheGate),
+// and one whose bound reply card has settled (answered / expired) is KEPT and
+// FROZEN to superseded by ReplaceTaskPlan. DeriveTaskStatus skips superseded
+// rows entirely, so freezing moves the step set STRICTLY CLOSER to all-done.
+//
+// A projection built from the pre-write rows therefore reads "still working"
+// for a plan that lands "done" — the error is one-directional and it is
+// fail-OPEN: the task closes with handoff="", no 422 and no log, which is the
+// precise failure this ticket exists to kill. The premise builds itself, too:
+// expireWaitingCards settles cards server-side without the owner acting.
+func TestSubmitPlanCannotCloseAroundTheGateByFreezingASettledCardStep(t *testing.T) {
+	api := newTasksTestServer(t)
+	seedActiveMember(t, api, "m-creator")
+	task := seedHandoffTask(t, api, "t-jjjj00000001", "m-creator", "m-exec", "a", "b")
+	card := answeredCard("rc-jjjj0001", 100, 200)
+	if err := api.dal.PutReplyCard(card); err != nil {
+		t.Fatalf("put card: %v", err)
+	}
+	steps, err := api.dal.ListTaskSteps(task.ID)
+	if err != nil {
+		t.Fatalf("list steps: %v", err)
+	}
+	for _, st := range steps {
+		switch st.Name {
+		case "a":
+			st.Status = StepStatusDone
+		case "b":
+			// Unfinished, but its card has been answered — the KEPT-and-FROZEN
+			// fate, not the dropped one.
+			st.Status = StepStatusInProgress
+			st.ReplyCardID = card.ID
+		}
+		if err := api.dal.PutTaskStep(st); err != nil {
+			t.Fatalf("put step: %v", err)
+		}
+	}
+	// The front door is shut, exactly as in the card-less case.
+	if rec := closeReport(t, api, task.ID, task.ID+"-sb", "m-exec", nil); rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("front door must refuse: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// The side door: replan down to only the already-finished node. "b" is not
+	// named, so it freezes — and the stored timeline derives DONE.
+	rec := httptest.NewRecorder()
+	api.HandleSubmitTaskPlanApiTasksTaskIdPlanPost(rec,
+		taskReq(t, "POST", "/api/tasks/"+task.ID+"/plan",
+			map[string]any{"steps": []map[string]any{{"name": "a", "dod": "done when done"}}},
+			"m-exec", "agent"), task.ID)
+	after := mustTask(t, api, task.ID)
+	if TaskIsTerminal(after.Status) || after.Handoff != HandoffUndeclared {
+		t.Fatalf("GATE BYPASSED via submit_plan freeze path: code=%d status=%q "+
+			"handoff=%q closed_ts=%v body=%s", rec.Code, after.Status,
+			after.Handoff, after.ClosedTS, rec.Body.String())
+	}
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("a replan that FREEZES its way to all-done must be gated exactly "+
+			"like the closing step report: %d %s", rec.Code, rec.Body.String())
 	}
 }

@@ -51,6 +51,19 @@ package main
 // server declares that itself (api_tasks.go). owner terminate is deliberately
 // ungated: routes.go marks it principalOwner + MCPExclude, so it is the owner's
 // escape hatch and never an agent's key.
+//
+// ⚠️ THIS LIST IS NOT A PROOF OF EXHAUSTIVENESS — it is an enumeration, and an
+// enumeration of the ways a DERIVED status can be reached is exactly the shape
+// that misses one. Two known non-agent doors are outside it:
+//
+//	reconcileTaskStatuses (api_tasks.go) — boot-reconcile closes an all-done
+//	  task with no gate at all. Not gated on purpose (no caller exists at boot
+//	  to answer a 422), but it now LOGS when it closes an undeclared cross task,
+//	  because the one thing it must not be is silent.
+//	owner terminate — see above, ungated by design.
+//
+// If you add a write that can change the step set, it is a door: check it here
+// rather than trusting this comment to still be complete.
 
 import (
 	"net/http"
@@ -103,19 +116,31 @@ func handoffGateReason(t Task, door string) string {
 	if door == handoffDoorReplan {
 		// A replan carries no declaration field, so pointing the caller back at
 		// update_step_status has to come with the step to report it ON —
-		// otherwise this is the same dead end the ticket is about. Both routes
-		// below are always available: create_task is never gated, and a replan
-		// that closes the task by definition had unfinished steps to drop.
+		// otherwise this is the same dead end the ticket is about.
+		//
+		// Route (1) is listed FIRST because it is the only one that is always
+		// available to the caller. Route (2) is genuine but conditional, and
+		// the condition is invisible from here: set_task_deps is guarded by
+		// callerMayDriveTask, which passes only for an admin/owner or the
+		// successor's OWN executor — and a handover is by definition assigned
+		// to somebody else, so the ordinary case 403s. Naming a route without
+		// naming its precondition is how a fail-closed guard turns into an
+		// outage, which is the failure mode this whole gate is about.
 		return who + ": this plan leaves EVERY step done, which CLOSES the task, " +
 			"and a closed task can never be replanned. A plan carries no handoff " +
 			"declaration, so hand the ball over first, one of two ways: " +
-			"(1) create the successor task (create_task) and point its blocked_by " +
-			"at this task (set_task_deps) — this gate then stands aside by itself, " +
-			"and closing this task releases the successor; or " +
-			"(2) keep ONE unfinished step in this plan, then declare the handover " +
+			"(1) keep ONE unfinished step in this plan, then declare the handover " +
 			"on the update_step_status report that closes it (handoff='" +
 			HandoffReturnToCreator + "' | '" + HandoffFollowUp +
-			"' + handoff_task_id | '" + HandoffNone + "' + handoff_note)."
+			"' + handoff_task_id | '" + HandoffNone + "' + handoff_note) — " +
+			"this route always works, and the server adds the dependency edge " +
+			"itself; or " +
+			"(2) create the successor task (create_task) and point its blocked_by " +
+			"at this task (set_task_deps) — this gate then stands aside by itself, " +
+			"and closing this task releases the successor. NOTE: set_task_deps " +
+			"requires you to be the successor's executor (or an owner), so this " +
+			"route only works when the successor is assigned to you; otherwise " +
+			"it answers 403 and you want route (1)."
 	}
 	return who +
 		": this report would CLOSE it, and a closed task can never be replanned " +

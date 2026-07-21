@@ -397,6 +397,25 @@ func (s *apiServer) reconcileTaskStatusesOnBoot() (int, error) {
 			continue // already consistent
 		}
 		if derived == TaskStatusDone {
+			// T-74f8: the FOURTH way a task reaches a terminal status, and the
+			// one an enumerated door list misses. It is deliberately NOT gated:
+			// there is no caller here to answer a 422, so "fail-closed" has no
+			// shape at boot — the only two options are "close it" and "leave it
+			// inconsistent forever", and neither is a handover. It is also not
+			// agent-reachable (it needs a server restart), so it cannot be used
+			// to route around the gate.
+			//
+			// What it MUST NOT be is silent, which it was. If this task was in
+			// the gate's population and never declared, the ball is being
+			// dropped right here and nobody would ever know.
+			if TaskNeedsHandoffDeclaration(t.CreatorID, t.ExecutorID, t.Handoff) {
+				outsourceLog("boot-reconcile %s: closing a cross-executor task "+
+					"(creator=%s executor=%s) that never declared a handoff — "+
+					"the ball on this task is on NOBODY. It got here without "+
+					"passing the T-74f8 gate, which means a crash between the "+
+					"step write and the task write, or a door not on the list "+
+					"in api_tasks_handoff.go.", t.ID, t.CreatorID, t.ExecutorID)
+			}
 			if err := s.closeTask(&t, TaskStatusDone, now, "boot-reconcile"); err != nil {
 				return fixed, err
 			}
@@ -1186,7 +1205,12 @@ func (s *apiServer) postTaskChat(t Task, sender, recipient, body, trigger string
 		},
 	}
 	if err := s.dal.PutChat(msg); err != nil {
-		outsourceLog("reassign %s: handover chat to %s failed: %v", t.ID, recipient, err)
+		// Not only reassign any more — T-74f8's dependency release posts the
+		// durable "you are unblocked" row through here too, and that row IS the
+		// handover. A log line naming the wrong caller is a log line nobody
+		// finds, so say which task and which recipient and leave it at that.
+		outsourceLog("task-chat %s: durable message to %s failed (the recipient "+
+			"will NOT be told): %v", t.ID, recipient, err)
 		return
 	}
 	s.hub.Publish("chat", "patch", "chat", wireOwnerID+"::"+msg.ID,
@@ -1613,11 +1637,30 @@ func (s *apiServer) HandleSubmitTaskPlanApiTasksTaskIdPlanPost(w http.ResponseWr
 	//
 	// Same projection rule, same verdict function, same population — only the
 	// prose differs (a plan carries no declaration field). Run it over the
-	// timeline exactly as it is about to be stored and BEFORE ReplaceTaskPlan
-	// writes anything, so a refusal leaves the plan fully editable.
+	// timeline as it is about to be stored and BEFORE ReplaceTaskPlan writes
+	// anything, so a refusal leaves the plan fully editable.
+	//
+	// 🔴 The projection MUST apply the freeze itself. ReplaceTaskPlan flips
+	// every freezeIDs row to `superseded` (dal_tasks.go), and DeriveTaskStatus
+	// SKIPS superseded rows outright — so freezing moves the step set strictly
+	// CLOSER to all-done. A projection made of the pre-write rows reads
+	// "still working" (in_progress / waiting_owner) for a plan that lands
+	// "done": the error is one-directional and it is fail-OPEN — the task
+	// closes with handoff="", no 422, no log. That is the exact bug this gate
+	// exists to kill, so the projection is not allowed to be an approximation
+	// of the stored timeline; it has to BE it.
 	var replanHandoff *handoffPlan
+	frozen := make(map[string]bool, len(freezeIDs))
+	for _, id := range freezeIDs {
+		frozen[id] = true
+	}
 	projected := make([]TaskStep, 0, len(kept)+len(fresh))
-	projected = append(projected, kept...)
+	for _, st := range kept {
+		if frozen[st.ID] {
+			st.Status = StepStatusSuperseded
+		}
+		projected = append(projected, st)
+	}
 	projected = append(projected, fresh...)
 	if DeriveTaskStatus(projected) == TaskStatusDone {
 		p, code, msg := s.handoffGateVerdict(*t, handoffDoorReplan, "", "", "")

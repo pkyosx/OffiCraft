@@ -435,8 +435,10 @@ func rpcResult(w http.ResponseWriter, id any, result any) {
 // DTO schema — a second drifting list. The tool NAME surface (tools/call
 // routing + catalog_hash) IS table-derived (mcp.go mcpToolIndex), and the
 // conformance suite pins snapshot ≡ live list ≡ table order, so the two views
-// cannot drift silently. Disk-first with the bindist embed as the
-// single-binary fallback (assets.go).
+// cannot drift silently. EMBED-ONLY — the bindist copy is the sole source and
+// disk is never consulted (assets.go readMCPCatalogFrom). This sentence used to
+// say "disk-first with the embed as fallback"; it was wrong, and a reviewer
+// reading it "corrected" a correct implementation on its authority.
 func (s *apiServer) mcpCatalogTools() ([]any, error) {
 	raw, err := s.root.readMCPCatalogFrom(bindistFS())
 	if err != nil {
