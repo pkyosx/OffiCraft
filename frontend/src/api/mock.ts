@@ -479,7 +479,9 @@ let taskManuals: TaskManualView[] = [];
 //                                  has a fixture with discriminating power
 //                                  (before this, removing that guard left the
 //                                  whole suite green — review3 §2.5)
-// plus a `> [!NOTE]` alert, so the marker-stripping has a fixture too.
+// plus a `> [!NOTE]` alert AND a plain blockquote in the same doc, so both the
+// marker-stripping and "an alert must not look like an ordinary quote" have a
+// fixture (the latter is only decidable in a real browser — see the CT spec).
 const mockDocs: DocView[] = [
   {
     slug: "install",
@@ -490,7 +492,9 @@ const mockDocs: DocView[] = [
       "> [!NOTE]\n" +
       "> 控制台只綁 loopback(`127.0.0.1`)。\n\n" +
       "下載頁 → [GitHub Releases](https://github.com/pkyosx/OffiCraft/releases)\n\n" +
-      "**agent 的環境變數怎麼設** → [../dev/agent-env.md](../dev/agent-env.md)\n",
+      "**agent 的環境變數怎麼設** → [../dev/agent-env.md](../dev/agent-env.md)\n\n" +
+      "> 一般引言,沒有 alert marker。\n" +
+      "> 它和上面那個提示框必須看起來不一樣。\n",
   },
   {
     slug: "interface",

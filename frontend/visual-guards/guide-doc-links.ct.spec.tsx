@@ -122,6 +122,46 @@ test("an UNSHIPPED target stays literal text (never a dead button)", async ({
   await expect(cmp.locator("blockquote.md-alert--note")).toHaveCount(1);
 });
 
+// The renderer eats the `[!NOTE]` line and leaves only a class — so if the
+// sheet has no rule for that class, the reader is left with LESS signal than
+// the literal marker gave them. `--note` and `--tip` had no rule at all, which
+// the real-page render caught: the NOTE's border-left-color was byte-identical
+// to an ordinary quote's. jsdom applies no stylesheet, so this is decidable
+// only here.
+//
+// MUTANT: delete the `.doc-md blockquote.md-alert--note` rule from
+// settings.css → "an alert must not look like an ordinary blockquote" goes red
+// on border-left-color (verified).
+test("a [!NOTE] alert must not look like an ordinary blockquote", async ({
+  mount,
+}) => {
+  const cmp = await mount(<GuideDocLinksStory start="install" />);
+  await expect(cmp.locator(DOC_H1)).toHaveText("安裝、升級與移除");
+
+  const edge = (el: HTMLElement) => {
+    const cs = getComputedStyle(el);
+    return { border: cs.borderLeftColor, bg: cs.backgroundColor };
+  };
+
+  // The same doc carries both, so this compares against the sheet's own
+  // baseline instead of hardcoding a colour the guard would have to chase.
+  const plain = cmp.locator("blockquote:not([class])").first();
+  await expect(plain).toBeVisible();
+  const base = await plain.evaluate(edge);
+
+  const note = cmp.locator("blockquote.md-alert--note");
+  await expect(note).toBeVisible();
+  const got = await note.evaluate(edge);
+
+  expect(
+    got.border,
+    "an alert must not reuse the plain blockquote's accent colour"
+  ).not.toBe(base.border);
+  expect(got.bg, "an alert must not reuse the plain blockquote's fill").not.toBe(
+    base.bg
+  );
+});
+
 test("a javascript: target is inert literal text in the real browser", async ({
   mount,
 }) => {

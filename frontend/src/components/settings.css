@@ -543,9 +543,27 @@
 .doc-md blockquote.md-alert--warning,
 .doc-md blockquote.md-alert--caution {
   border-left-color: rgba(240, 138, 138, 0.6);
+  background: rgba(240, 138, 138, 0.06);
 }
 .doc-md blockquote.md-alert--important {
   border-left-color: rgba(190, 150, 240, 0.6);
+  background: rgba(190, 150, 240, 0.06);
+}
+/* NOTE / TIP were missing entirely, so `> [!NOTE]` fell back to the plain
+ * blockquote green and looked EXACTLY like an ordinary quote — measured on the
+ * real page: identical border-left-color. Since the marker line is consumed,
+ * that made writing `> [!NOTE]` strictly worse than writing nothing, and the
+ * node's "render it as a callout" DoD unmet for the two most common types.
+ * Blue = informational, green = advice, matching the severity ladder the other
+ * three already use. The tint is what separates ANY alert from a plain quote
+ * without adding label text (and therefore without adding i18n strings). */
+.doc-md blockquote.md-alert--note {
+  border-left-color: rgba(120, 175, 240, 0.7);
+  background: rgba(120, 175, 240, 0.06);
+}
+.doc-md blockquote.md-alert--tip {
+  border-left-color: rgba(111, 214, 176, 0.9);
+  background: rgba(111, 214, 176, 0.06);
 }
 /* T-bc3e: GFM tables. `display: block + overflow-x` makes a wide table scroll
  * inside its container (chat bubble, task card, settings doc) instead of
