@@ -44,7 +44,7 @@ test("a repo-relative doc link is a real control that switches the doc", async (
   // The literal source text — the owner's actual symptom — is gone.
   await expect(cmp).not.toContainText("](interface.md)");
 
-  const link = cmp.locator("button.md-doclink", { hasText: "介面說明" });
+  const link = cmp.getByRole("button", { name: "介面說明", exact: true });
   await expect(
     link,
     "the in-app link must be a real control, not literal text"
@@ -60,7 +60,7 @@ test("a repo-relative doc link is a real control that switches the doc", async (
   );
 
   // And it chains: the destination doc's own link goes back.
-  await cmp.locator("button.md-doclink", { hasText: "為什麼是 OffiCraft" }).click();
+  await cmp.getByRole("button", { name: "為什麼是 OffiCraft", exact: true }).click();
   await expect(cmp.locator(DOC_H1)).toHaveText("為什麼是 OffiCraft");
 });
 
@@ -131,7 +131,7 @@ test("a javascript: target is inert literal text in the real browser", async ({
   // Nothing in the document carries the javascript: payload as a target, and
   // nothing labelled with it is clickable.
   await expect(cmp.locator('a[href^="javascript:"]')).toHaveCount(0);
-  await expect(
-    cmp.locator("button.md-doclink", { hasText: "別點我" })
-  ).toHaveCount(0);
+  await expect(cmp.locator("button.md-doclink", { hasText: "別點我" })).toHaveCount(
+    0
+  );
 });

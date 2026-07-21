@@ -505,6 +505,7 @@ const mockDocs: DocView[] = [
       "## 使用說明\n\n" +
       "在「設定 › 使用說明」裡閱讀各項功能的說明。\n\n" +
       "- 介面上的欄位是什麼意思 → [介面說明](interface.md)\n" +
+      "- 同一份、從 repo root 看的路徑 → [介面說明(長路徑)](docs/guide/interface.md)\n" +
       "- 完整安裝、升級與移除 → [安裝、升級與移除](install.md)\n" +
       "- 不該點的東西 → [別點我](javascript:alert(1))\n",
   },

@@ -216,6 +216,19 @@ describe("SettingsPage · 使用說明 in-app doc links (T-68f1)", () => {
     expectHeader(utils, [s.title, s.guide, "為什麼是 OffiCraft"]);
   });
 
+  // The same doc is reachable by two different written forms, because the
+  // repo's own docs are written for TWO base directories: README-style
+  // `docs/guide/x.md` (read from the repo root) and guide-internal `x.md`.
+  // build-docsdist flattens both onto one slug — a mapping that kept the
+  // directory prefix would silently drop every repo-root-relative link.
+  it("a repo-root-relative form of the same target lands on the same doc", async () => {
+    const utils = renderSettings();
+    await openDoc(utils, "為什麼是 OffiCraft");
+    fireEvent.click(utils.getByRole("button", { name: "介面說明(長路徑)" }));
+    await waitForDocBody(utils, "介面說明");
+    expectHeader(utils, [s.title, s.guide, "介面說明"]);
+  });
+
   it("an UNSHIPPED target (../dev/agent-env.md) stays literal, not a dead button", async () => {
     const utils = renderSettings();
     await openDoc(utils, "安裝、升級與移除");
