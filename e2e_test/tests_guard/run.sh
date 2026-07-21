@@ -85,6 +85,15 @@ run_snippet() {
   echo $?
 }
 
+# Discover the CURRENT canonical serve port from the single source of truth
+# (same derivation the lib itself does from server/ocserverd/config.go) —
+# NOT a hardcoded literal, so this test file doesn't become a drift site of
+# its own the next time the port changes (T-b76b follow-up: Kyle's review
+# note — hardcoding "7755" here would just be swapping one stale literal for
+# another).
+CANON_PORT="$(run_snippet 'printf "PORT=%s\n" "$OC_CANONICAL_SERVE_PORT"' >/dev/null; grep '^PORT=' "$GLOG" | cut -d= -f2)"
+[[ -n "$CANON_PORT" ]] || { echo "FATAL: could not discover OC_CANONICAL_SERVE_PORT via $LIB" >&2; exit 2; }
+
 echo "[tests_guard] hermetic isolation-layer unit tests"
 
 # ── 1) live warden + CANONICAL mode → guard DIES ─────────────────────────────
@@ -106,10 +115,10 @@ rc="$(SHIM_WARDEN=0 SHIM_LISTEN_PORTS="" SHIM_SESSIONS="member-m-abc123" \
       run_snippet 'oc_detect_live_canonical_fleet | grep -q "canonical tmux socket"')"
 check "member-* on canonical socket is detected" "0" "$rc"
 
-# ── 5) detection fires on a canonical 7755 listener ──────────────────────────
-rc="$(SHIM_WARDEN=0 SHIM_LISTEN_PORTS="7755" SHIM_SESSIONS="" \
-      run_snippet 'oc_detect_live_canonical_fleet | grep -q "serve port 7755"')"
-check "canonical 7755 listener is detected" "0" "$rc"
+# ── 5) detection fires on a canonical-port listener (port from CANON_PORT) ───
+rc="$(SHIM_WARDEN=0 SHIM_LISTEN_PORTS="$CANON_PORT" SHIM_SESSIONS="" \
+      run_snippet "oc_detect_live_canonical_fleet | grep -q 'serve port $CANON_PORT'")"
+check "canonical $CANON_PORT listener is detected" "0" "$rc"
 
 # ── 6) detection is EMPTY on a clean host ────────────────────────────────────
 rc="$(SHIM_WARDEN=0 SHIM_LISTEN_PORTS="" SHIM_SESSIONS="" \
@@ -131,7 +140,7 @@ WARDEN="$(grep '^WARDEN=' "$GLOG" | cut -d= -f2)"
 ROOT="$(grep '^ROOT=' "$GLOG" | cut -d= -f2)"
 SOCK="$(grep '^SOCK=' "$GLOG" | cut -d= -f2)"
 [[ "$NS" =~ ^[a-z0-9-]{1,16}$ ]] && ok "ns '$NS' matches product charset [a-z0-9-]{1,16}" || bad "ns '$NS' violates charset"
-[[ "$PORT" != "7755" && "$PORT" != "8766" && "$PORT" != "8790" && "$PORT" != "8791" && "$PORT" != "8795" ]] \
+[[ "$PORT" != "$CANON_PORT" && "$PORT" != "8766" && "$PORT" != "8790" && "$PORT" != "8791" && "$PORT" != "8795" ]] \
   && ok "port $PORT is non-canonical/non-reserved" || bad "port $PORT collides with a reserved port"
 [[ "$SERVE" == "com.officraft.serve.$NS" ]] && ok "serve label namespaced ($SERVE)" || bad "serve label wrong: $SERVE"
 [[ "$WARDEN" == "com.officraft.ocwarden.$NS" && "$WARDEN" != "com.officraft.ocwarden" ]] \
@@ -146,7 +155,7 @@ run_snippet 'export OC_E2E_ALLOW_CANONICAL=1; oc_resolve_instance
   printf "NS=[%s]\n" "$OC_NS"
   printf "PORTS=%s\n" "${SINGLE_PROD_PORTS[*]}"' >/dev/null
 [[ "$(grep '^NS=' "$GLOG")" == "NS=[]" ]] && ok "canonical escape hatch → OC_NS empty" || bad "canonical OC_NS not empty: $(grep '^NS=' "$GLOG")"
-[[ "$(grep '^PORTS=' "$GLOG")" == "PORTS=7755 8766" ]] && ok "canonical guard ports = 7755 8766" || bad "canonical ports wrong: $(grep '^PORTS=' "$GLOG")"
+[[ "$(grep '^PORTS=' "$GLOG")" == "PORTS=$CANON_PORT 8766" ]] && ok "canonical guard ports = $CANON_PORT 8766" || bad "canonical ports wrong: $(grep '^PORTS=' "$GLOG")"
 
 # ── 9) agent_workdir is namespace-aware (a1_zombie kill-anchor safety) ────────
 rc="$(run_snippet 'OC_NS="e2ex"; wd="$(agent_workdir /Users/x mira)"; [[ "$wd" == "/Users/x/.officraft-e2ex/agents/mira" ]]')"
