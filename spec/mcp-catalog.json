@@ -1908,6 +1908,47 @@
         "type": "object"
       },
       "name": "write_task_learnings"
+    },
+    {
+      "description": "Patch a type's learnings by unique anchors ({edits:[{old,new}]}) — the learnings twin of patch_lessons, so the write cost scales with the CHANGE, not the whole (30k-char) doc, and re-typing the whole doc can no longer silently drop content. Edits apply in order; a non-empty old must match the current learnings EXACTLY ONCE (0 or >1 hits reject the WHOLE batch with a 400, zero writes — the unique anchor also acts as an optimistic lock); an empty old appends. Wiping the doc, or shrinking it below a tenth, needs allow_shrink=true.",
+      "inputSchema": {
+        "properties": {
+          "allow_shrink": {
+            "default": false,
+            "title": "Allow Shrink",
+            "type": "boolean"
+          },
+          "edits": {
+            "items": {
+              "properties": {
+                "new": {
+                  "default": "",
+                  "title": "New",
+                  "type": "string"
+                },
+                "old": {
+                  "default": "",
+                  "title": "Old",
+                  "type": "string"
+                }
+              },
+              "title": "LessonsEditDTO",
+              "type": "object"
+            },
+            "title": "Edits",
+            "type": "array"
+          },
+          "type_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type_key",
+          "edits"
+        ],
+        "type": "object"
+      },
+      "name": "patch_task_learnings"
     }
   ]
 }

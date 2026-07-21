@@ -413,6 +413,20 @@ type lessonsPatchResultDTO struct {
 	IsDefault     bool   `json:"is_default"`
 }
 
+// taskLearningsPatchResultDTO is the patch_task_learnings receipt (T-9ffd): the
+// task-manual learnings twin of lessonsPatchResultDTO. size (UTF-8 bytes) +
+// sha256 (hex) are verification anchors over the RESULTING learnings text so
+// the caller can confirm the write without re-reading the full 30k-char doc;
+// applied_edits is the count that ACTUALLY changed the doc (a no-op does not
+// count). No owner_id/is_default — a manual's learnings is not a per-owner
+// overlay the way a role's lessons doc is.
+type taskLearningsPatchResultDTO struct {
+	TypeKey      string `json:"type_key"`
+	AppliedEdits int    `json:"applied_edits"`
+	Size         int    `json:"size"`
+	Sha256       string `json:"sha256"`
+}
+
 type replyCardAnswerDTO struct {
 	OptionIdx   *int                `json:"option_idx"` // null = free text only
 	Text        string              `json:"text"`

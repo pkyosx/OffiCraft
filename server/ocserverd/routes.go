@@ -1152,5 +1152,14 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary:  "Whole-doc replace of a type's learnings (task-close write-back).",
 			MCPTool:  "write_task_learnings",
 		},
+		{
+			Method:   "POST",
+			Path:     "/api/task-manuals/{type_key}/learnings/patch",
+			Handler:  w.HandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchPost,
+			Auth:     authGated,
+			Requires: principalAgent,
+			Summary:  "Patch a type's learnings by unique anchors ({edits:[{old,new}]}).",
+			MCPTool:  "patch_task_learnings",
+		},
 	}
 }

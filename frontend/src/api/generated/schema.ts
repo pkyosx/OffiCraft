@@ -2222,6 +2222,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/task-manuals/{type_key}/learnings/patch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Patch a type's learnings by unique anchors ({edits:[{old,new}]}).
+         * @description Anchor-addressed PATCH of a type's learnings (MCP ``patch_task_learnings`` — the learnings twin of ``patch_lessons``). The write cost scales with the CHANGE, not the doc: a whole-doc ``write_task_learnings`` stops fitting in one model output as the learnings grow (30k chars observed, and re-typing the whole doc silently risks transcription loss), so this is the primary write seam and whole-doc replace stays the last resort.
+         *
+         *     Semantics: ``edits`` apply IN ORDER against the manual's current learnings; each non-empty ``old`` must match the current text exactly once (0 hits or >1 hits → flat 400, WHOLE batch rejected, zero writes); an empty ``old`` appends ``new`` at the end. Concurrency is last-write-wins with the unique anchor as a natural optimistic lock: a concurrent write that moved the anchor turns the next patch into a 400, never a silent mis-splice. A patch that empties the doc (or shrinks it below a tenth of its size) is refused unless ``allow_shrink=true`` — the r-76 wipe-guard posture. Unknown type → 404.
+         *
+         *     Write authz is the agent floor — identical to ``write_task_learnings`` (manual CONTENT is agent-editable). The receipt carries ``size``/``sha256`` verification anchors over the resulting learnings.
+         */
+        post: operations["handle_patch_task_learnings_api_task_manuals__type_key__learnings_patch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tasks": {
         parameters: {
             query?: never;
@@ -5224,6 +5248,45 @@ export interface components {
         TaskDepsDTO: {
             /** Blocked By */
             blocked_by: string[];
+        };
+        /**
+         * TaskLearningsPatchDTO
+         * @description Anchor-addressed PATCH of a type's learnings (MCP ``patch_task_learnings`` — the learnings twin of ``patch_lessons``): ``{edits: [{old, new}], allow_shrink?}``. The write cost scales with the CHANGE, not the doc — a whole-doc ``write_task_learnings`` stops fitting in one model output as the learnings grow (30k chars observed), so this is the primary write seam and whole-doc replace stays the last resort. ATOMIC — edits apply sequentially to an in-memory copy and any failing anchor (absent or ambiguous ``old``) rejects the ENTIRE batch with a flat 400 and ZERO writes. ``allow_shrink`` (default false) must be set explicitly for a patch that empties the doc or shrinks it to under a tenth of its size — the r-76 wipe-guard posture.
+         */
+        TaskLearningsPatchDTO: {
+            /**
+             * Allow Shrink
+             * @default false
+             */
+            allow_shrink: boolean;
+            /** Edits */
+            edits: components["schemas"]["LessonsEditDTO"][];
+        };
+        /**
+         * TaskLearningsPatchResultDTO
+         * @description Receipt of a task-learnings PATCH (MCP ``patch_task_learnings``). ``size`` (UTF-8 bytes) and ``sha256`` (hex) are lightweight verification anchors over the RESULTING learnings text, so the caller can confirm the write landed without re-reading the full doc. ``applied_edits`` is the number of edits that ACTUALLY changed the doc (a no-op append/replace does not count), so "0 applied" is expressible and a silent no-op cannot masquerade as success.
+         */
+        TaskLearningsPatchResultDTO: {
+            /**
+             * Applied Edits
+             * @default 0
+             */
+            applied_edits: number;
+            /**
+             * Sha256
+             * @default
+             */
+            sha256: string;
+            /**
+             * Size
+             * @default 0
+             */
+            size: number;
+            /**
+             * Type Key
+             * @default
+             */
+            type_key: string;
         };
         /**
          * TaskLearningsReplaceDTO
@@ -10357,6 +10420,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskManualDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_patch_task_learnings_api_task_manuals__type_key__learnings_patch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                type_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskLearningsPatchDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskLearningsPatchResultDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

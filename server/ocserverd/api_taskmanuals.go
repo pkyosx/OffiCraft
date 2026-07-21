@@ -11,7 +11,10 @@ package main
 // tombstone); delete is refused while non-terminal tasks of the type exist.
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 )
 
@@ -381,4 +384,84 @@ func (s *apiServer) HandleWriteTaskLearningsApiTaskManualsTypeKeyLearningsPost(w
 	}
 	s.publishTaskManual(typeKey, requestTrigger(r))
 	s.writeTaskManual(w, *m)
+}
+
+// POST /api/task-manuals/{type_key}/learnings/patch — anchor-addressed patch of
+// a type's learnings (T-9ffd; the patch_lessons twin for task manuals).
+// ApplyLessonsEdits is the SHARED engine — it is generic over the doc text, so
+// the anchor/append/atomicity semantics are byte-identical to patch_lessons.
+//
+// Why this exists: the ONLY write face for learnings was whole-doc replace
+// (write_task_learnings / update_task_manual.learnings). As a manual's
+// learnings grows (30k chars observed on tm-05f7c776d6ff) re-typing the whole
+// doc to add three lines stops fitting in one model output AND every re-type
+// silently risks transcription loss (the tool answers 200 either way). This
+// makes the write cost scale with the CHANGE, not the doc — and the unique
+// anchor doubles as an optimistic lock under last-write-wins, so a concurrent
+// write that moved the anchor turns the next patch into a 400 rather than a
+// silent mis-splice. (It does NOT solve section-level concurrent overwrite of
+// DIFFERENT anchors — that needs a version/etag lock, tracked separately.)
+//
+// Semantics: edits apply IN ORDER; a non-empty old must match exactly once
+// (0/>1 → flat 400, WHOLE batch rejected, zero writes); an empty old appends.
+// A patch that wipes the doc, or shrinks a substantial doc to <10%, is refused
+// without allow_shrink=true (the r-76 wipe-guard posture). Same agent-floor
+// authz as write_task_learnings (route Requires: principalAgent — manual
+// CONTENT is agent-editable). Unknown type → 404.
+func (s *apiServer) HandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchPost(w http.ResponseWriter, r *http.Request, typeKey string) {
+	var body TaskLearningsPatchDTO
+	if !decodeJSONBodyStrict(w, r, &body, "edits") {
+		return
+	}
+	if len(body.Edits) == 0 {
+		writeError(w, http.StatusUnprocessableEntity,
+			"edits requires at least one {old, new} entry")
+		return
+	}
+	m, err := s.resolveTaskManual(typeKey)
+	if err != nil {
+		writeResolveError(w, err, "task manual", typeKey)
+		return
+	}
+	edits := make([]LessonsEdit, len(body.Edits))
+	for i, e := range body.Edits {
+		// T-2d99 shape (shared with patch_lessons): an edit carrying NEITHER old
+		// NOR new is malformed, not a request to append nothing. Folding nil→""
+		// would route it into the empty-old APPEND branch where appending "" is a
+		// perfect no-op — the whole batch would answer 200 with an unchanged doc.
+		// Refuse it; the whole batch is rejected and nothing is written, matching
+		// the anchor-miss posture.
+		if e.Old == nil && e.New == nil {
+			writeError(w, http.StatusUnprocessableEntity, fmt.Sprintf(
+				"edits[%d]: neither old nor new was given — an edit needs at least one of them "+
+					"(empty old appends new); nothing was written", i))
+			return
+		}
+		edits[i] = LessonsEdit{Old: strOrEmpty(e.Old), New: strOrEmpty(e.New)}
+	}
+	next, applied, err := ApplyLessonsEdits(m.Learnings, edits)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	allowShrink := body.AllowShrink != nil && *body.AllowShrink
+	if !allowShrink && LessonsShrinkBlocked(m.Learnings, next) {
+		writeError(w, http.StatusBadRequest,
+			"patch would empty (or shrink to under a tenth of) the learnings doc — pass allow_shrink=true if this is intended, or use write_task_learnings; nothing was written")
+		return
+	}
+	m.Learnings = next
+	m.UpdatedTS = nowSecs()
+	if err := s.dal.PutTaskManual(*m); err != nil {
+		internalError(w, err)
+		return
+	}
+	s.publishTaskManual(typeKey, requestTrigger(r))
+	sum := sha256.Sum256([]byte(next))
+	writeJSON(w, http.StatusOK, taskLearningsPatchResultDTO{
+		TypeKey:      typeKey,
+		AppliedEdits: applied,
+		Size:         len(next),
+		Sha256:       hex.EncodeToString(sum[:]),
+	})
 }

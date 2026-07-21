@@ -1388,6 +1388,20 @@ type TaskDepsDTO struct {
 	BlockedBy []string `json:"blocked_by"`
 }
 
+// TaskLearningsPatchDTO Anchor-addressed PATCH of a type's learnings (MCP “patch_task_learnings“ — the learnings twin of “patch_lessons“): “{edits: [{old, new}], allow_shrink?}“. The write cost scales with the CHANGE, not the doc — a whole-doc “write_task_learnings“ stops fitting in one model output as the learnings grow (30k chars observed), so this is the primary write seam and whole-doc replace stays the last resort. ATOMIC — edits apply sequentially to an in-memory copy and any failing anchor (absent or ambiguous “old“) rejects the ENTIRE batch with a flat 400 and ZERO writes. “allow_shrink“ (default false) must be set explicitly for a patch that empties the doc or shrinks it to under a tenth of its size — the r-76 wipe-guard posture.
+type TaskLearningsPatchDTO struct {
+	AllowShrink *bool            `json:"allow_shrink,omitempty"`
+	Edits       []LessonsEditDTO `json:"edits"`
+}
+
+// TaskLearningsPatchResultDTO Receipt of a task-learnings PATCH (MCP “patch_task_learnings“). “size“ (UTF-8 bytes) and “sha256“ (hex) are lightweight verification anchors over the RESULTING learnings text, so the caller can confirm the write landed without re-reading the full doc. “applied_edits“ is the number of edits that ACTUALLY changed the doc (a no-op append/replace does not count), so "0 applied" is expressible and a silent no-op cannot masquerade as success.
+type TaskLearningsPatchResultDTO struct {
+	AppliedEdits *int    `json:"applied_edits,omitempty"`
+	Sha256       *string `json:"sha256,omitempty"`
+	Size         *int    `json:"size,omitempty"`
+	TypeKey      *string `json:"type_key,omitempty"`
+}
+
 // TaskLearningsReplaceDTO Whole-doc replace of a type's learnings (MCP “write_task_learnings“ — the agent's task-close write-back; the replace_lessons shape). “text“ is REQUIRED — a whole-doc replace must never infer "empty" from a missing key (T-2d99). “allow_shrink“ (default false) must be set explicitly to replace existing content with an empty doc — the r-76 wipe-guard posture.
 type TaskLearningsReplaceDTO struct {
 	AllowShrink *bool  `json:"allow_shrink,omitempty"`
@@ -1829,6 +1843,9 @@ type HandleUpdateTaskManualApiTaskManualsTypeKeyPostJSONRequestBody = TaskManual
 // HandleWriteTaskLearningsApiTaskManualsTypeKeyLearningsPostJSONRequestBody defines body for HandleWriteTaskLearningsApiTaskManualsTypeKeyLearningsPost for application/json ContentType.
 type HandleWriteTaskLearningsApiTaskManualsTypeKeyLearningsPostJSONRequestBody = TaskLearningsReplaceDTO
 
+// HandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchPostJSONRequestBody defines body for HandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchPost for application/json ContentType.
+type HandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchPostJSONRequestBody = TaskLearningsPatchDTO
+
 // HandleCreateTaskApiTasksPostJSONRequestBody defines body for HandleCreateTaskApiTasksPost for application/json ContentType.
 type HandleCreateTaskApiTasksPostJSONRequestBody = TaskCreateDTO
 
@@ -2134,6 +2151,9 @@ type ServerInterface interface {
 	// Whole-doc replace of a type's learnings (task-close write-back).
 	// (POST /api/task-manuals/{type_key}/learnings)
 	HandleWriteTaskLearningsApiTaskManualsTypeKeyLearningsPost(w http.ResponseWriter, r *http.Request, typeKey string)
+	// Patch a type's learnings by unique anchors ({edits:[{old,new}]}).
+	// (POST /api/task-manuals/{type_key}/learnings/patch)
+	HandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchPost(w http.ResponseWriter, r *http.Request, typeKey string)
 	// List tasks (?executor=&type=&status=; light list items — get_task for full).
 	// (GET /api/tasks)
 	HandleListTasksApiTasksGet(w http.ResponseWriter, r *http.Request, params HandleListTasksApiTasksGetParams)
@@ -4296,6 +4316,32 @@ func (siw *ServerInterfaceWrapper) HandleWriteTaskLearningsApiTaskManualsTypeKey
 	handler.ServeHTTP(w, r)
 }
 
+// HandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchPost operation middleware
+func (siw *ServerInterfaceWrapper) HandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchPost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "type_key" -------------
+	var typeKey string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "type_key", r.PathValue("type_key"), &typeKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "type_key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchPost(w, r, typeKey)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // HandleListTasksApiTasksGet operation middleware
 func (siw *ServerInterfaceWrapper) HandleListTasksApiTasksGet(w http.ResponseWriter, r *http.Request) {
 
@@ -5147,6 +5193,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/task-manuals/{type_key}", wrapper.HandleGetTaskManualApiTaskManualsTypeKeyGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/task-manuals/{type_key}", wrapper.HandleUpdateTaskManualApiTaskManualsTypeKeyPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/task-manuals/{type_key}/learnings", wrapper.HandleWriteTaskLearningsApiTaskManualsTypeKeyLearningsPost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/task-manuals/{type_key}/learnings/patch", wrapper.HandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tasks", wrapper.HandleListTasksApiTasksGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks", wrapper.HandleCreateTaskApiTasksPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tasks/count", wrapper.HandleTaskCountApiTasksCountGet)
