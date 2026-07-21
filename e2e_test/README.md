@@ -92,7 +92,13 @@ bash teardown.sh         # clean up
   history — kept for installs that still pin one in `oc.toml`) and **8766**
   (a *different* product's live port). Earlier revisions of this line said
   "prod ports :8770 / :8766", which named only retired/foreign ports and never
-  the actual current one (T-a3ba).
+  the actual current one (T-a3ba). The *same* refusal list exists in
+  `conformance/run.sh`; both sites are now pinned by `tests_guard` cases (15)
+  and (16) — asserted **separately**, so one site drifting cannot mask the
+  other — each checking that the current prod port is refused, that the retired
+  ports are still refused (this is an ADD, not a swap), that the legitimate
+  isolated port is still ALLOWED, and that an unparseable config.go FATALs out
+  loud instead of degrading to an empty list (T-191d).
 - Ambient fleet env (`OC_ID` / `OC_TOKEN` / `OC_BASE`) is **stripped** before
   starting the service or any tool, so nothing authenticates against or emits to
   the fleet/prod server.
@@ -169,10 +175,13 @@ script below — NOT in the Playwright suite.
 ## cross_machine.sh — DESTRUCTIVE multi-machine full-reset regression
 
 `cross_machine.sh` is a MANUAL, **DESTRUCTIVE** end-to-end regression that runs
-against the CANONICAL server layout (not :8791) — note :8770 here is the retired
-former prod port that `cross_machine.sh` still hard-codes as its serve/public
-port, which no longer matches `oc_lifecycle.sh`'s canonical port (:7755, read
-from config.go); tracked separately: it tears down and
+against the CANONICAL server layout (not :8791). Its `LOCAL_BASE` default — the
+port it seeds into `oc.toml` and therefore the port the server actually BINDS —
+is now derived from `oc_lifecycle.sh`'s `OC_CANONICAL_SERVE_PORT` (config.go's
+`defaultPort`, :7755 today), so it matches the port the live-fleet guard
+watches. It used to hard-code the retired :8770, which meant the run bound one
+port while the guard cleared another (T-191d; guarded by `tests_guard` case
+(14)). An explicit `LOCAL_BASE=` still overrides. It tears down and
 re-installs the local server + wardens from zero, spawns the seed agent,
 onboards a REAL second machine over ssh (default `eva-m5`), relocates the agent
 there, and asserts zero self-repair before AND after the move. It wipes the
