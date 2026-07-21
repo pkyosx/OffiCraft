@@ -699,6 +699,13 @@ type SpawnDeps struct {
 	// 4 wires the real ~/.claude.json write); a nil seam is skipped, a failing one
 	// aborts the spawn (a live trust gate WOULD eat the nudge → dead-on-boot).
 	Pretrust func() error
+	// PurgeTrash (T-684c, nil-skipped) reaps <workdir>/trash at spawn time — the
+	// scratch the PREVIOUS generation of this agent mv'd there instead of rm-ing it
+	// (the harness's un-waivable dangerous-rm prompt hangs a headless agent; see
+	// trash.go). Bound PER-SPAWN by the transport wiring because it needs this
+	// member's workdir, exactly like Pretrust. Purely best-effort: it never fails
+	// a spawn.
+	PurgeTrash func()
 	// Sleep paces the boot-nudge settle/retry between Enter presses. nil ⇒ no wait
 	// (the test default — fakes drive readiness synchronously); production wires
 	// time.Sleep so a cold claude REPL gets real time to become input-ready.
@@ -753,6 +760,14 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	if err := d.MkdirAll(workdir, 0o700); err != nil {
 		return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
 			"mkdir_failed: workdir %s: %v", workdir, err)}
+	}
+	// T-684c: reap whatever the PREVIOUS generation of this agent mv'd into
+	// <workdir>/trash before the fresh session starts (the seeds tell agents to mv,
+	// never rm — see trash.go for why the delete has to happen HERE, outside claude).
+	// nil-skipped seam; a refusal/failure is logged inside purgeTrash and NEVER
+	// aborts the spawn — a stale trash dir must not be able to take an agent offline.
+	if d.PurgeTrash != nil {
+		d.PurgeTrash()
 	}
 	personaFile := filepath.Join(workdir, "persona.md")
 	mcpConfigPath := filepath.Join(workdir, ".mcp.json")

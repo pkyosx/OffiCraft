@@ -255,6 +255,15 @@ type sweepSeams struct {
 	listenPIDs func(workdir string) []int
 	workdir    string
 	sleep      func(time.Duration)
+	// purgeTrash (T-684c, nil-skipped) reaps <workdir>/trash after the kill ladder
+	// finishes — the teardown half of "agents mv, warden rm" (trash.go). Bound by
+	// the transport wiring over the SAME workdir resolved above, because only the
+	// wiring knows which root (agents/ vs the legacy workers/) this session belongs
+	// to. Runs unconditionally at the END of stop(), including on a partial stop:
+	// deleting files the agent already disowned is safe regardless of whether its
+	// process died, and a stop that did not take is re-issued anyway (the second
+	// purge is a no-op).
+	purgeTrash func()
 }
 
 // snapshotMemberPIDs captures the member's full process footprint: the live pane
@@ -439,5 +448,11 @@ func stop(r CmdRunner, socket, session string, kill killFunc, getpgid pgidFunc, 
 	// noop ONLY when nothing was ever here: no session before the kill, no
 	// member process in the snapshot, and the ladder (vacuously) succeeded.
 	noop = stopped && positivelyAbsent && len(snap) == 0
+	// T-684c: reap <workdir>/trash on the way out. Deliberately AFTER the sweep —
+	// the agent's own processes are gone (or being re-stopped), so nothing is
+	// writing into trash while we remove it. Never affects the stop verdict.
+	if sw.purgeTrash != nil {
+		sw.purgeTrash()
+	}
 	return stopped, noop
 }

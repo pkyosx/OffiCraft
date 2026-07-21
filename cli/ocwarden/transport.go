@@ -565,6 +565,11 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner) Com
 			sd := spawnDeps
 			workdir := agentWorkdir(sd.Home, p.MemberID)
 			sd.Pretrust = func() error { return pretrustWorkdir(claudeJSONPath, workdir) }
+			// T-684c: bind the trash reaper over THIS member's agents-root +
+			// workdir pair. purgeTrash re-derives and re-validates the whole shape
+			// itself (direct-child containment, symlink refusal) — passing the root
+			// is what lets it do the containment check at all.
+			sd.PurgeTrash = func() { purgeTrash(sd.Home, workdir, stderrLogf) }
 			return sd.start(p)
 		},
 		Stop: func(session string) (bool, bool) {
@@ -575,14 +580,25 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner) Com
 			// both namespaces (P5b): member-<id> resolves the agents/ workdir;
 			// a LEGACY worker-<ow-id> residual resolves the retired workers/
 			// sibling root, so its detached listener is still reaped.
-			workdir := memberWorkdirForSession(defaultAgentHome(env), session)
+			// T-684c: keep the ROOT that resolved the workdir, so the trash
+			// reaper's direct-child containment check compares against the right
+			// base (agents/ for members + P5b workers, the legacy workers/ sibling
+			// for pre-P5b residuals). "" root ⇒ purgeTrash refuses (G1) — an
+			// unresolvable session never reaches a delete.
+			root := defaultAgentHome(env)
+			workdir := memberWorkdirForSession(root, session)
 			if workdir == "" {
-				workdir = workerWorkdirForSession(defaultWorkerHome(env), session)
+				root = defaultWorkerHome(env)
+				workdir = workerWorkdirForSession(root, session)
+			}
+			if workdir == "" {
+				root = ""
 			}
 			return stop(runner, socket, session, realKill, realGetpgid, sweepSeams{
 				listenPIDs: func(wd string) []int { return ocagentPIDsByCwd(runner, wd) },
 				workdir:    workdir,
 				sleep:      time.Sleep,
+				purgeTrash: func() { purgeTrash(root, workdir, stderrLogf) },
 			})
 		},
 		// Teardown removes THIS warden's own install (bootout + delete tokfile/plist),

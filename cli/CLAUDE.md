@@ -23,6 +23,13 @@
 - **server 409 拒連 fail-closed**:`/api/events` pre-stream 409(server 殭屍 stop gate 或 dual-SSE)是權威「你不該在線」;**連續** `sseRefusalMin`(4)次 ∧ 跨滿 `sseRefusalGrace`(120s,鏡 stop_grace)→ 自我了斷(`suicide` 殺自己 tmux session,headless 則純退出)。任何其他結果(連上、網路錯、5xx、server 短暫掛掉)都**重置**計數——絕不因 server 抖動誤殺健康 agent。
 warden `spawn.go` 寫一支 bare `ocagent` shim script → exec 真正的 golang `ocagent` binary。binary 解析順序:`OC_AGENT_BIN` 覆蓋 → home-install sibling `~/.officraft/warden/ocagent` → fallback repoRoot-relative `<repoRoot>/cli/ocagent/ocagent`(dev layout)。`resolveOcAgentBin`(`transport.go`)擁有此邏輯。⚠️ 改 spawn / 路徑前先讀 `spawn_test.go` 斷言(shim 內容精確比對)。
 
+## trash 清理(T-684c;`cli/ocwarden/trash.go`)
+「agent `mv`、warden `rm`」的 **rm 半邊**。**基石不是「mv 比 rm 安全」**(實測相對/絕對 × mv/rm 四種組合鑑別力為零)——基石是**刪除的執行者從 agent 換成 warden**:Claude Code harness 有一道**任何 settings/permission 都豁免不掉**的 dangerous-rm 確認提示(`Dangerous rm operation on working directory or its ancestor` + Yes/No),headless agent 前面沒有人按 → **靜默卡死**。warden 是 launchd 直起的獨立 Go 常駐程式、鏈上沒有 claude,它刪檔不在那道檢查的管轄內。seeds(`seeds/system_interaction.md` §10.5 / `seeds/worker_context.md` §6 / 前端逐字副本 `frontend/src/api/seeds.ts` / server 的 task-close nudge `sse_bands.go`)因此改教 agent:**暫存 `mv` 進 `<workdir>/trash/`,不要自己 `rm`**。
+
+- **兩個掛點**:spawn(`spawn.go` `SpawnDeps.start`,MkdirAll workdir 之後,`PurgeTrash` seam)與 teardown(`kill.go` `stop()` 尾端,`sweepSeams.purgeTrash` seam);兩個 seam 都在 `transport.go` `buildCommandDeps` 綁定真實 `purgeTrash`。兩者皆 **nil-skipped、best-effort**:清不掉絕不 fail spawn、也絕不改 stop 的死亡判定。
+- **fail-closed**:`purgeTrash(root, workdir, logf)` 只刪 `<workdir>/trash`。root/workdir 任一為空、非絕對路徑、非 `filepath.Clean` 正規形、`Dir(workdir) != root`(直屬子目錄的**精確**判定,不是 HasPrefix——`/x/agentsEVIL` 會被前綴法放行)、`trash` 是 symlink(`Lstat` 不是 `Stat`)、`trash` 不是目錄、或 `EvalSymlinks` 顯示 trash 被祖先 symlink 導出自己的 workdir → **一律拒絕不動,並在 warden stderr(`<logDir>/ocwarden.err.log`)留 `REFUSED` 行**,不靜默跳過。trash 不存在 = 正常狀態,安靜 no-op、不當異常。
+- 測試在 `trash_test.go`,**兩個方向都釘**:trash 內的東西會被清掉;trash 以外(workdir 的 `tmp/`、`keep.txt`、`.oc-token`、鄰居 agent 的 workdir 與其 trash、agents root 本身、以及被 symlink 指到的 workdir 外資料)一個都不准動——每個拒絕案例都額外斷言「受害者檔案還在」當**負向控制組**,只斷言回傳 false 不算數。
+
 ## 外包 worker 臨時 session 形態(M3 Phase 6;`cli/ocwarden/worker.go`)
 owner 拍板「乾淨新建」:warden 長出**臨時 session** 形態伺候外包 worker(ow- id),**不借道成員通道、不污染成員生命週期**。與成員共享的只有純機制(Phase 2 spawn executor + Phase 3 robust-stop ladder + §7 PUSH band transport);不同的全在 worker.go:
 - **A案 P5b 命名收斂:外包走成員動詞**——worker spawn 就是 `start`(member_id=ow-id、role="outsource-worker"),session = `member-<ow-id>`、workdir 在 agents/;kill 就是 `stop` {member_id}。
