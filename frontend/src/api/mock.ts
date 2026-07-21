@@ -461,17 +461,51 @@ let taskManuals: TaskManualView[] = [];
 
 // Product-guide docs (設定 › 使用說明) — a representative fixture so mock-mode
 // (dev screenshots / vitest) renders the same list→doc flow the real embed
-// serves. NOT the authoritative content (that is README + docs/guide/, embedded
-// server-side); one real-shaped doc keeps the mock honest about the shape.
+// serves. NOT the authoritative content (that is docs/guide/, embedded
+// server-side); real-SHAPED docs keep the mock honest about the shape.
+//
+// T-68f1 widened this from one link-free doc to three, because the shape the
+// page must now handle is CROSS-DOC LINKS, and a single doc with no links can
+// neither exercise nor regress them. The slugs mirror real embedded ones, the
+// list is slug-sorted like listDocsFrom, and the link targets deliberately
+// cover all four classes the renderer distinguishes:
+//   • `interface.md` / `why.md`  — embedded → an in-app doc button
+//   • `../dev/agent-env.md`      — a real repo path that is NOT shipped → the
+//                                  literal-text fallback (the 404 that isn't)
+//   • an https:// target         — the external anchor, unchanged
+//   • `javascript:`              — the scheme that must never become clickable
+// plus a `> [!NOTE]` alert, so the marker-stripping has a fixture too.
 const mockDocs: DocView[] = [
   {
-    slug: "readme",
-    title: "OffiCraft",
+    slug: "install",
+    title: "安裝、升級與移除",
     markdownMd:
-      "# OffiCraft\n\n" +
-      "OffiCraft 是一個 single-owner AI 工作室。\n\n" +
+      "# 安裝、升級與移除\n\n" +
+      "一行指令裝好,服務常駐在背景。\n\n" +
+      "> [!NOTE]\n" +
+      "> 控制台只綁 loopback(`127.0.0.1`)。\n\n" +
+      "下載頁 → [GitHub Releases](https://github.com/pkyosx/OffiCraft/releases)\n\n" +
+      "**agent 的環境變數怎麼設** → [../dev/agent-env.md](../dev/agent-env.md)\n",
+  },
+  {
+    slug: "interface",
+    title: "介面說明",
+    markdownMd:
+      "# 介面說明\n\n" +
+      "控制台分成辦公室、任務、Ask、監控、設定五塊。\n\n" +
+      "想知道為什麼這樣設計 → [為什麼是 OffiCraft](why.md)\n",
+  },
+  {
+    slug: "why",
+    title: "為什麼是 OffiCraft",
+    markdownMd:
+      "# 為什麼是 OffiCraft\n\n" +
+      "OffiCraft 是一間跑在你自己 Mac 上的 AI 工作室。\n\n" +
       "## 使用說明\n\n" +
-      "在「設定 › 使用說明」裡閱讀各項功能的說明。\n",
+      "在「設定 › 使用說明」裡閱讀各項功能的說明。\n\n" +
+      "- 介面上的欄位是什麼意思 → [介面說明](interface.md)\n" +
+      "- 完整安裝、升級與移除 → [安裝、升級與移除](install.md)\n" +
+      "- 不該點的東西 → [別點我](javascript:alert(1))\n",
   },
 ];
 

@@ -333,10 +333,12 @@ export function SettingsPage({
     return (
       <UserGuideDoc
         slug={view.slug}
+        docs={docsH.docs}
         crumbs={[
           crumbRoot,
           { label: t.settings.guide, onClick: () => setView({ kind: "guide" }) },
         ]}
+        onOpenDoc={(slug) => setView({ kind: "guideDoc", slug })}
       />
     );
   }

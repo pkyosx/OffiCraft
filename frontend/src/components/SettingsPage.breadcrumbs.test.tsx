@@ -12,7 +12,7 @@
 // Runs against the REAL mock adapter, like the sibling SettingsPage tests.
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, fireEvent } from "@testing-library/react";
+import { render, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { SettingsPage } from "./SettingsPage";
@@ -35,6 +35,19 @@ function crumbSegs(utils: Utils): string[] {
   return Array.from(
     utils.container.querySelectorAll("nav.crumbs .crumbs__seg")
   ).map((el) => (el.textContent ?? "").replace(/^›/, ""));
+}
+
+/** Wait until the RENDERED DOC BODY is the doc titled `title`.
+ * Deliberately keyed on `.doc-md h1` (the markdown's own heading), not on
+ * getByRole("heading"): the page ALSO prints the doc title as its page header,
+ * so a role query matches two nodes and cannot tell "the body switched" from
+ * "the header switched". */
+async function waitForDocBody(utils: Utils, title: string) {
+  await waitFor(() => {
+    expect(
+      utils.container.querySelector(".doc-md h1")?.textContent
+    ).toBe(title);
+  });
 }
 
 /** The unified header contract: breadcrumb segments + NO back button. */
@@ -141,20 +154,113 @@ describe("SettingsPage · unified breadcrumb header (T-8f6e)", () => {
   it("使用說明列表: 設定 › 使用說明 + title; doc: 設定 › 使用說明 › <title>", async () => {
     const utils = renderSettings();
     fireEvent.click(utils.getByTestId("settings-guide-entry"));
-    const entry = await utils.findByTestId("guide-doc-entry");
+    const entries = await utils.findAllByTestId("guide-doc-entry");
     expectHeader(utils, [s.title, s.guide]);
     expect(utils.getByRole("heading", { name: s.guide })).toBeTruthy();
 
     // Open the doc — its markdown renders and its title trails the crumb.
+    const entry = entries[0];
     const docTitle = entry.textContent ?? "";
     fireEvent.click(entry);
-    await utils.findByText("各項功能的說明", { exact: false });
+    await waitForDocBody(utils, docTitle);
     expectHeader(utils, [s.title, s.guide, docTitle]);
 
     // The 使用說明 crumb jumps back to the list.
     fireEvent.click(utils.getByRole("button", { name: s.guide }));
-    await utils.findByTestId("guide-doc-entry");
+    await utils.findAllByTestId("guide-doc-entry");
     expectHeader(utils, [s.title, s.guide]);
+  });
+});
+
+// ── T-68f1 · in-app doc links inside 使用說明 ────────────────────────────────
+// The defect owner saw: a doc's `[介面說明](interface.md)` printed as literal
+// `[…](…)` source text and could not be clicked. The fix is opt-in per surface,
+// so this suite pins BOTH halves — the link navigates HERE, and the shapes that
+// must never become clickable still are not, ON THIS PAGE (the unit tests pin
+// the renderer; this pins the wiring, which is where a resolver can be
+// forgotten or handed the wrong slug rule).
+describe("SettingsPage · 使用說明 in-app doc links (T-68f1)", () => {
+  /** Open 使用說明 and then the doc whose list entry title matches. */
+  async function openDoc(utils: Utils, title: string) {
+    fireEvent.click(utils.getByTestId("settings-guide-entry"));
+    const entries = await utils.findAllByTestId("guide-doc-entry");
+    const entry = entries.find((e) => (e.textContent ?? "").includes(title));
+    if (!entry) throw new Error(`no guide entry titled ${title}`);
+    fireEvent.click(entry);
+    await waitForDocBody(utils, title);
+  }
+
+  it("a cross-doc link is a real control and switches to THAT doc", async () => {
+    const utils = renderSettings();
+    await openDoc(utils, "介面說明");
+
+    // The literal source text is GONE — that alone was the visible symptom.
+    expect(utils.container.textContent).not.toContain("](why.md)");
+
+    const link = utils.getByRole("button", { name: "為什麼是 OffiCraft" });
+    expect(link.className).toContain("md-doclink");
+    fireEvent.click(link);
+
+    // The destination doc is showing, and the crumb trail followed it.
+    await waitForDocBody(utils, "為什麼是 OffiCraft");
+    expectHeader(utils, [s.title, s.guide, "為什麼是 OffiCraft"]);
+  });
+
+  it("chains: doc → doc → doc, each hop landing on the linked doc", async () => {
+    const utils = renderSettings();
+    await openDoc(utils, "為什麼是 OffiCraft");
+    fireEvent.click(utils.getByRole("button", { name: "介面說明" }));
+    await waitForDocBody(utils, "介面說明");
+    fireEvent.click(utils.getByRole("button", { name: "為什麼是 OffiCraft" }));
+    await waitForDocBody(utils, "為什麼是 OffiCraft");
+    expectHeader(utils, [s.title, s.guide, "為什麼是 OffiCraft"]);
+  });
+
+  it("an UNSHIPPED target (../dev/agent-env.md) stays literal, not a dead button", async () => {
+    const utils = renderSettings();
+    await openDoc(utils, "安裝、升級與移除");
+    expect(utils.container.textContent).toContain(
+      "[../dev/agent-env.md](../dev/agent-env.md)",
+    );
+    expect(
+      utils.queryByRole("button", { name: "../dev/agent-env.md" }),
+    ).toBeNull();
+  });
+
+  it("an external link stays an external anchor (new tab, noopener)", async () => {
+    const utils = renderSettings();
+    await openDoc(utils, "安裝、升級與移除");
+    const a = utils.container.querySelector(".doc-md a") as HTMLAnchorElement;
+    expect(a.getAttribute("href")).toBe(
+      "https://github.com/pkyosx/OffiCraft/releases",
+    );
+    expect(a.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(a.getAttribute("target")).toBe("_blank");
+  });
+
+  it("a javascript: target stays inert literal text on this page too", async () => {
+    const utils = renderSettings();
+    await openDoc(utils, "為什麼是 OffiCraft");
+    // No anchor and no in-app button carries the javascript: payload — it is
+    // still the literal source text the renderer falls back to.
+    expect(utils.container.textContent).toContain(
+      "[別點我](javascript:alert(1))",
+    );
+    expect(utils.queryByRole("button", { name: "別點我" })).toBeNull();
+    expect(
+      Array.from(utils.container.querySelectorAll(".doc-md a")).map((el) =>
+        el.getAttribute("href"),
+      ),
+    ).not.toContain("javascript:alert(1)");
+  });
+
+  it("strips the [!NOTE] marker instead of printing it as text", async () => {
+    const utils = renderSettings();
+    await openDoc(utils, "安裝、升級與移除");
+    expect(utils.container.textContent).not.toContain("[!NOTE]");
+    const q = utils.container.querySelector(".doc-md blockquote");
+    expect(q?.className).toContain("md-alert--note");
+    expect(q?.textContent).toContain("loopback");
   });
 });
 
