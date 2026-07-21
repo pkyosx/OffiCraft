@@ -397,9 +397,38 @@ func (s *apiServer) runOutsourceTick(now float64) {
 		}
 	}
 
+	// T-74f8 half B: deps become a real hold on the 發包 queue. A follow-up task
+	// created with a dep on its blocker ("開個 task 掛上 design task 作為
+	// dependency") must NOT be minted while the blocker is still running — that
+	// wait is the whole point of the dependency — and it must be minted the
+	// moment the blocker closes (closeTask → releaseDependentsOnClose →
+	// outsourceTickNow). Blocking is by the blocker's LIVE status only, so every
+	// dep row whose blocker is already terminal changes nothing (all 10 live
+	// rows at implementation time).
+	deps, err := s.dal.AllTaskDeps()
+	if err != nil {
+		outsourceLog("tick: dep read failed: %v", err)
+		return
+	}
+	statusOf := make(map[string]string, len(tasks))
+	for _, t := range tasks {
+		statusOf[t.ID] = t.Status
+	}
+	// Deliberately ONE check, on the candidate filter, over this tick's
+	// snapshot — no second copy at the bind site. A set_task_deps landing
+	// between the snapshot and the bind is at worst one cadence period late
+	// (the next tick holds it), and a duplicated guard that can only ever agree
+	// with the first is a tautology nobody can test.
+	blocked := func(taskID string) bool {
+		return taskHasLiveBlocker(deps[taskID], statusOf)
+	}
+
 	var cands []outsourceCandidate
 	for _, t := range tasks {
 		if !outsourceAwaitingAssignment(t) {
+			continue
+		}
+		if blocked(t.ID) {
 			continue
 		}
 		cands = append(cands, outsourceCandidate{

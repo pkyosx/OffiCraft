@@ -306,6 +306,12 @@ func (s *apiServer) closeTask(t *Task, status string, now float64, trigger strin
 	// seam the close-out report handler calls) or, when no report ever
 	// arrives, from the scheduler's workerReclaimGraceSecs backstop.
 	s.publishTask(*t, trigger)
+	// T-74f8 half B: a dep is no longer a display marker. Every task blocked BY
+	// this one whose blockers are now all terminal is released — durable notice
+	// to its executor, task delta, and (for an unassigned outsource dependent)
+	// an immediate scheduler tick, which is what makes "設計完成 → 自動轉開發"
+	// actually happen. Best-effort; never fails the close.
+	s.releaseDependentsOnClose(*t, now, trigger)
 	// Task-close nudge band (spec/sse.md §8): remind the executor down its own
 	// SSE connection to fold this run's learnings back into the type's manual.
 	// Typed tasks only (ad-hoc has no manual); done AND terminated both nudge.
@@ -1777,6 +1783,33 @@ func (s *apiServer) HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPos
 	} else {
 		step.WaitingReason = ""
 	}
+	// ── T-74f8 交棒閘 ─────────────────────────────────────────────────────────
+	// The LAST instant a handover can be arranged. If applying this report would
+	// derive the task to done, the close is irreversible (closed_ts stamps →
+	// submit_plan is a permanent 409), so a creator≠executor task must say where
+	// the ball goes HERE. Run over a PROJECTION, before any row is written: a
+	// refused close leaves the plan fully editable, and a gate placed after the
+	// step write would deadlock the task (all steps done, no legal transition
+	// out, no replan). See api_tasks_handoff.go for the full rationale.
+	var plan *handoffPlan
+	if status == StepStatusDone {
+		allSteps, err := s.dal.ListTaskSteps(taskId)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		if wouldCloseTask(allSteps, step.ID) {
+			p, code, msg := s.handoffGateVerdict(*t,
+				trimmedOrEmpty(body.Handoff),
+				trimmedOrEmpty(body.HandoffNote),
+				trimmedOrEmpty(body.HandoffTaskId))
+			if code != 0 {
+				writeError(w, code, msg)
+				return
+			}
+			plan = p
+		}
+	}
 	now := nowSecs()
 	step.Status = status
 	if status == StepStatusInProgress && step.StartedTS == 0 {
@@ -1786,6 +1819,13 @@ func (s *apiServer) HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPos
 		step.FinishedTS = now
 	}
 	if err := s.dal.PutTaskStep(*step); err != nil {
+		internalError(w, err)
+		return
+	}
+	// Record the handover BEFORE the derivation closes the task: the successor
+	// task (and its dep edge) must already exist when closeTask walks its
+	// dependents, and t's handoff fields ride the PutTask closeTask performs.
+	if err := s.applyHandoffPlan(t, plan, now, requestTrigger(r)); err != nil {
 		internalError(w, err)
 		return
 	}
