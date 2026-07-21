@@ -350,7 +350,26 @@ check "station/purge: \$ROOT_DIR is NOT removed" "1" "$([[ -d "$FAKEHOME/.officr
 # had a "if the root looks empty, rm -rf it" branch whose preview was silently
 # omitted under --dry-run, because the delete before it had only been printed.
 # The branch is gone; this asserts nobody reintroduces a root-level rm.
-case "$OUT" in *"rm -rf $FAKEHOME/.officraft "*|*"rm -rf $FAKEHOME/.officraft"$'\n'*) bad "station/purge: something removes \$ROOT_DIR wholesale again";; *) ok "station/purge: no wholesale \$ROOT_DIR removal";; esac
+#
+# It has to run under --dry-run: `run` only ECHOES the command in that mode, so
+# dry-run output is the only place where the string "rm -rf <root>" can appear
+# at all. An earlier version of this assertion sat in the --purge --yes case
+# above, where `run` executes instead of printing — it could not have matched
+# under any implementation, and a mutant reintroducing the root-level rm left it
+# green. A guard that cannot go red is worse than no guard: it reads as coverage.
+reset_fixture station running
+run_uninstall --purge --yes --dry-run
+check "station/purge/dry-run: exits 0" "0" "$RC"
+case "$OUT" in
+  *"rm -rf $FAKEHOME/.officraft"[[:space:]]*|*"rm -rf $FAKEHOME/.officraft")
+    bad "station/purge/dry-run: announces a wholesale \$ROOT_DIR removal (the T-fa39 C1 branch is back)";;
+  *) ok "station/purge/dry-run: no wholesale \$ROOT_DIR removal announced";;
+esac
+# Positive control for the assertion above: prove the dry-run output really does
+# contain rm -rf lines for the things that SHOULD be removed. Without this, the
+# check would also pass on output that contained no rm at all (e.g. if the purge
+# path stopped emitting anything), which is the vacuous way to be green.
+case "$OUT" in *"DRYRUN would run: rm -rf $FAKEHOME/.officraft/bin"*) ok "station/purge/dry-run: control — it DOES announce the removals it should";; *) bad "station/purge/dry-run: no rm announced at all, so the negative check above proves nothing ('$OUT')";; esac
 
 # ── 14. CONTROL for 12/13: the survival assertions must be able to FAIL ───────
 # clean-install has no agents/ at all. If the checks above were passing merely
@@ -415,6 +434,83 @@ case "$OUT" in *"nothing to remove"*"Already clean"*) ok "worker-only machine: s
 check "worker-only machine: never calls launchctl" "" "$(cat "$WORK/.tripwire" 2>/dev/null)"
 check "worker-only machine: its agent workspace is untouched" "WORKER-ONLY" "$(cat "$FAKEHOME/.officraft/agents/ow-worker1/persona.md" 2>/dev/null)"
 check "worker-only machine: no backup dir was created" "0" "$(find "$FAKEHOME" -maxdepth 1 -name '.officraft.bak-*' 2>/dev/null | wc -l | tr -d ' ')"
+
+# ── 18. partially-installed machine: plist is ours, but the files are gone ────
+# Someone deleted ~/.officraft by hand, or an install half-finished. The old
+# wording announced "what moved: bin/ and server/{...}" unconditionally — a move
+# report for files that were never there. And the restore one-liner started with
+# `cp -R "$backup/bin"`, which does not exist in this shape, so the && chain died
+# on its first command and the plist half never ran: a restore command that
+# looked complete and silently failed to re-register the service.
+reset_fixture none running
+run_uninstall
+check "partial install: exits 0" "0" "$RC"
+case "$OUT" in *"what moved: bin/"*) bad "partial install: claims it moved bin/ when there was no bin/ ('$OUT')";; *) ok "partial install: does not claim moves that did not happen";; esac
+case "$OUT" in *"the launchd plist only"*) ok "partial install: says the plist was the only thing moved";; *) bad "partial install: does not describe what actually moved ('$OUT')";; esac
+BAK="$(find "$FAKEHOME" -maxdepth 1 -name '.officraft.bak-*' 2>/dev/null | head -1)"
+check "partial install: the plist really is in the backup" "1" "$([[ -f "$BAK/launchd/$LABEL.plist" ]] && echo 1 || echo 0)"
+check "partial install: no empty server/ dir was invented in the backup" "0" "$([[ -d "$BAK/server" ]] && echo 1 || echo 0)"
+# The point of the case: the restore line must still work in this shape.
+RESTORE_CMD="$(printf '%s\n' "$OUT" | sed -n 's/^\[install\][[:space:]]*restore: //p' | head -1)"
+check "partial install: a restore command was printed" "1" "$([[ -n "$RESTORE_CMD" ]] && echo 1 || echo 0)"
+rm -f "$WORK/.tripwire"; : > "$WORK/.tripwire"
+( export PATH="$SHIMDIR:/usr/bin:/bin:/usr/sbin:/sbin"; eval "$RESTORE_CMD" ) >/dev/null 2>&1
+RESTORE_RC=$?
+check "partial install: the restore one-liner still runs clean (no dangling cp of a missing bin/)" "0" "$RESTORE_RC"
+check "partial install: the plist is back where launchd looks for it" "1" "$([[ -f "$FAKEHOME/Library/LaunchAgents/$LABEL.plist" ]] && echo 1 || echo 0)"
+check "partial install: it still re-registers the job" "yes" "$(tripwire_has "bootstrap" && echo yes || echo no)"
+
+# ── 19. the warden disclosure must be a PROBE, not an assertion ───────────────
+# "its own launchd job is registered and this script leaves it that way" is a
+# claim about external state. Printing it without looking is the same defect
+# class this ticket is about (saying more than was measured), so both directions
+# get pinned: a warden job that exists, and one that does not.
+reset_fixture station running
+run_uninstall --dry-run
+case "$OUT" in *"no com.officraft.ocwarden job is registered"*) ok "warden probe: correctly reports NO warden job when none is registered";; *) bad "warden probe: asserts a warden job that this fixture does not have ('$OUT')";; esac
+case "$OUT" in *"registered and this script leaves it that way"*) bad "warden probe: claims 'registered' without a plist present";; *) ok "warden probe: does not claim registration it never checked";; esac
+
+reset_fixture station running
+cat > "$FAKEHOME/Library/LaunchAgents/com.officraft.ocwarden.plist" <<'PL'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.officraft.ocwarden</string>
+  <key>ProgramArguments</key><array><string>/somewhere/warden/ocwarden</string></array>
+</dict></plist>
+PL
+run_uninstall --dry-run
+case "$OUT" in *"registered and this script leaves it that way"*) ok "warden probe: reports the job as registered when its plist IS there";; *) bad "warden probe: failed to notice a registered warden job ('$OUT')";; esac
+# The remediation command has to be runnable. bin/ is about to move into the
+# backup and this installer never puts it on PATH, so a bare `ocwarden teardown`
+# would be command-not-found — the message must give the warden's own copy.
+case "$OUT" in *"$FAKEHOME/.officraft/warden/ocwarden teardown"*) ok "warden probe: teardown hint uses an absolute path that survives the uninstall";; *) bad "warden probe: teardown hint is not runnable after bin/ moves ('$OUT')";; esac
+check "warden probe: the warden's own plist is left alone" "1" "$([[ -f "$FAKEHOME/Library/LaunchAgents/com.officraft.ocwarden.plist" ]] && echo 1 || echo 0)"
+
+# ── 20. an unreadable agents/ must not kill the script silently ───────────────
+# The count runs `find … | wc -l` under `set -euo pipefail`; when agents/ is
+# unreadable the pipeline returns non-zero and the whole script died with rc=1
+# and NO output — the silent failure this ticket exists to remove.
+reset_fixture station running
+chmod 000 "$FAKEHOME/.officraft/agents"
+run_uninstall --dry-run
+RC_UNREADABLE=$RC
+chmod 755 "$FAKEHOME/.officraft/agents"
+check "unreadable agents/: script still completes instead of dying silently" "0" "$RC_UNREADABLE"
+case "$OUT" in *"agent workspace(s)"*) ok "unreadable agents/: still says something about the workspaces";; *) bad "unreadable agents/: went silent ('$OUT')";; esac
+case "$OUT" in *"holds unknown agent workspace(s)"*) ok "unreadable agents/: reports the count as unknown rather than inventing 0";; *) bad "unreadable agents/: did not degrade honestly ('$OUT')";; esac
+
+# ── 21. agents/ as a symlink must not be reported as empty ───────────────────
+# `find <symlink> -mindepth 1` does not follow the argument itself, so without
+# -H a relocated agents/ holding dozens of workspaces reports 0 — the disclosure
+# would understate exactly the thing it exists to disclose.
+reset_fixture station running
+mv "$FAKEHOME/.officraft/agents" "$FAKEHOME/agents-real"
+ln -s "$FAKEHOME/agents-real" "$FAKEHOME/.officraft/agents"
+run_uninstall --dry-run
+check "symlinked agents/: exits 0" "0" "$RC"
+case "$OUT" in *"agents/ holds 3 agent workspace(s)"*) ok "symlinked agents/: counts through the symlink (not reported as 0)";; *) bad "symlinked agents/: miscounted through the symlink ('$OUT')";; esac
+check "symlinked agents/: the real workspaces are untouched" "3" "$(find "$FAKEHOME/agents-real" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')"
 
 echo "uninstall-guard tests: $PASS ok, $FAIL failed"
 [[ "$FAIL" == "0" ]] || exit 1

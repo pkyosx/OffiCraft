@@ -150,7 +150,10 @@ package-mode ./install.sh run).
   curl -fsSL … | bash -s -- --uninstall --purge      # DELETE (asks unless --yes)
 
 WHAT IT TOUCHES — only what this installer itself created:
-  ~/.officraft/bin/                        (ocserverd, ocwarden, ocagent)
+  ~/.officraft/bin/                        the WHOLE directory, not just the
+                                           three binaries it put there — if you
+                                           keep anything else in bin/ (old
+                                           backups, rollback copies), it goes too
   ~/.officraft/server/data, oc.toml, log   (the database lives in data/)
   the launchd job + plist for OC_LAUNCHD_LABEL (default com.officraft.serve)
 
@@ -165,10 +168,16 @@ installer, so removal has no business moving them:
   ~/.officraft itself is never removed.
 
 Default: stops the launchd job, MOVES the pieces listed above to
-~/.officraft.bak-<timestamp> (plist to ~/.officraft.bak-<timestamp>.plist) and
-prints a restore command that actually re-registers the service — the database
-is kept, just relocated, not deleted. --purge deletes them instead (no backup);
-it asks you to type "purge" to confirm unless --yes is given.
+~/.officraft.bak-<timestamp> (the plist goes inside it, under launchd/) and
+prints a restore command that puts back both the files AND the launchd
+registration — the database is kept, just relocated, not deleted.
+
+--purge deletes them instead (no backup, no way back). It asks you to type
+"purge" to confirm unless --yes is given — BUT note that the confirmation reads
+stdin, which over `curl … | bash` is the pipe carrying this script, so typing
+cannot reach it and the gate always aborts. Over a pipe, --purge therefore does
+nothing unless you also pass --yes. Save the script to a file and run it if you
+want the interactive confirmation.
 
 Respects OC_LAUNCHD_LABEL if the install used a non-default label. Refuses,
 loudly and without changing anything, if that label belongs to a different
@@ -277,46 +286,73 @@ EOF
   done
   shopt -u nullglob dotglob
 
+  # -H so that an agents/ that is itself a symlink is followed: `find` does not
+  # descend the argument's own symlink otherwise, and this would report 0 for a
+  # directory holding dozens of workspaces — under-reporting in exactly the
+  # place the whole disclosure hangs on. `|| agent_count=unknown` because the
+  # pipeline returns non-zero when agents/ is unreadable, and under
+  # `set -euo pipefail` that would kill the script here with no output at all.
   local agent_count=0
   if [[ -d "$ROOT_DIR/agents" ]]; then
-    agent_count="$(find "$ROOT_DIR/agents" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')"
+    agent_count="$(find -H "$ROOT_DIR/agents" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')" || agent_count="unknown"
+    [[ -n "$agent_count" ]] || agent_count="unknown"
   fi
 
-  echo "[install] will touch:   $BIN_DIR, $SERVER_DIR/{data,oc.toml,log}, launchd job $LABEL"
+  echo "[install] will touch:   $BIN_DIR (the whole directory), $SERVER_DIR/{data,oc.toml,log}, launchd job $LABEL"
   if [[ "${#kept[@]}" -gt 0 ]]; then
-    echo "[install] will NOT touch: ${kept[*]} (under $ROOT_DIR) — left exactly where they are"
+    echo "[install] will NOT touch, under $ROOT_DIR — left exactly where they are:"
+    # One per line: joining with "${kept[*]}" renders a name containing a space
+    # or newline as if it were several entries.
+    for base in "${kept[@]}"; do echo "[install]     $base"; done
     if [[ -d "$ROOT_DIR/agents" ]]; then
       echo "[install]   agents/ holds $agent_count agent workspace(s) on this machine — this script never removes them"
     fi
     if [[ -d "$ROOT_DIR/warden" ]]; then
-      echo "[install]   warden/ belongs to the ocwarden daemon, which keeps its own launchd job (com.officraft.ocwarden)"
-      echo "[install]   registered and RUNNING after this script finishes. To remove the warden too: ocwarden teardown"
+      # Probe the warden's job rather than asserting it: claiming "still
+      # registered and RUNNING" without looking is the same class of defect
+      # this ticket is about (saying more than was measured).
+      local warden_label="com.officraft.ocwarden"
+      if [[ -f "$LA_DIR/$warden_label.plist" ]]; then
+        echo "[install]   warden/ belongs to the ocwarden daemon; its own launchd job ($warden_label) is"
+        echo "[install]   registered and this script leaves it that way."
+      else
+        echo "[install]   warden/ belongs to the ocwarden daemon; this script never touches it."
+        echo "[install]   (no $warden_label job is registered for this user right now)"
+      fi
+      # Absolute path on purpose: bin/ is about to move into the backup and this
+      # installer never puts ~/.officraft/bin on PATH, so a bare `ocwarden` would
+      # be command-not-found. The warden installs its own stable copy here.
+      echo "[install]   to remove the warden too, afterwards: $ROOT_DIR/warden/ocwarden teardown"
     fi
   fi
   echo "[install] $ROOT_DIR itself is never removed."
 
   if [[ "$purge" == "1" && "$dryrun" != "1" && "$yes" != "1" ]]; then
     echo "[install] --purge will DELETE $BIN_DIR and the release-path parts of $SERVER_DIR, INCLUDING the database (your owner credential hash lives there). Irreversible." >&2
-    # Read the confirmation from the TERMINAL, not from stdin: the documented
-    # invocation is `curl … | bash -s -- --uninstall --purge`, where fd 0 is the
-    # pipe carrying THIS SCRIPT. Reading fd 0 there consumes script bytes / hits
-    # EOF, so under `set -e` the prompt died with a bare exit 1 and no message —
-    # a confirmation gate that looked present but could never be satisfied
-    # (T-fa39). Fall back to fd 0 when there is no controlling terminal (CI,
-    # test harnesses), which is also the only shape the test suite can drive.
-    # NOTE the brace group around exec: a bare `exec 3<>/dev/tty 2>/dev/null`
-    # would make that stderr redirect PERMANENT for the rest of the script,
-    # silently swallowing every later diagnostic. Scoping it to the group keeps
-    # the suppression to this one probe.
-    local answer="" use_tty=0
-    if [[ -e /dev/tty ]] && { exec 3<>/dev/tty; } 2>/dev/null; then use_tty=1; fi
+    # KNOWN LIMITATION, stated out loud here and in --help rather than papered
+    # over: this reads fd 0, and in the documented
+    # `curl … | bash -s -- --uninstall --purge` shape fd 0 is the pipe carrying
+    # THIS SCRIPT. bash reads a non-seekable script line by line, so `read`
+    # consumes the script's NEXT LINE rather than anything you type. It can
+    # never equal "purge", so over a pipe this gate ALWAYS aborts: --purge is
+    # effectively unreachable without --yes.
+    #
+    # That is fail-closed and it is audible (the abort message below), which is
+    # why it is deliberately NOT "fixed" here. Reading /dev/tty instead would
+    # make this destructive path genuinely reachable for the first time, and
+    # this suite cannot drive a controlling terminal — the newly-reachable
+    # branch would ship with zero coverage, and an earlier revision of this very
+    # change also hung `bin/ci.sh` forever on any machine that had a tty.
+    # Tracked separately; doing it right needs pty-based tests, which is its own
+    # change and not this ticket's subject.
+    #
+    # `|| answer=""` matters: on EOF (`./install.sh --uninstall --purge </dev/null`)
+    # a bare `read` returns non-zero and `set -e` would kill the script right
+    # here with NO output at all. Falling through to the abort message keeps the
+    # refusal audible — silence is the failure mode this ticket exists to remove.
+    local answer=""
     printf '[install] type "purge" to confirm: ' >&2
-    if [[ "$use_tty" == "1" ]]; then
-      read -r answer <&3 || answer=""
-      exec 3>&-
-    else
-      read -r answer || answer=""
-    fi
+    read -r answer || answer=""
     [[ "$answer" == "purge" ]] || { echo "[install] aborted — nothing was changed." >&2; exit 1; }
   fi
 
@@ -340,14 +376,20 @@ EOF
     echo "[install] stopping launchd job $LABEL (pid $job_pid)"
     run launchctl bootout "$TARGET"
   elif [[ "$plist_ours" == "1" ]]; then
-    echo "[install] launchd job $LABEL is registered but not running — removing its plist"
+    if [[ "$purge" == "1" ]]; then
+      echo "[install] launchd job $LABEL is registered but not running — removing its plist"
+    else
+      echo "[install] launchd job $LABEL is registered but not running — moving its plist into the backup"
+    fi
   fi
+  local plist_saved=0
   if [[ -f "$PLIST" ]]; then
     if [[ "$purge" == "1" ]]; then
       run rm -f "$PLIST"
     else
       run mkdir -p "$backup/launchd"
       run mv "$PLIST" "$plist_backup"
+      plist_saved=1
     fi
   fi
 
@@ -366,26 +408,64 @@ EOF
     done
     echo "[install] purge complete — $BIN_DIR and this release's server data are gone."
     if [[ "${#kept[@]}" -gt 0 ]]; then
-      echo "[install]   $ROOT_DIR was NOT removed — it still holds: ${kept[*]}"
+      echo "[install]   $ROOT_DIR was NOT removed — it still holds:"
+      for base in "${kept[@]}"; do echo "[install]     $base"; done
     else
       echo "[install]   $ROOT_DIR was NOT removed."
     fi
   else
-    run mkdir -p "$backup/server"
-    [[ -e "$BIN_DIR" ]] && run mv "$BIN_DIR" "$backup/bin"
-    for entry in data oc.toml log; do
-      [[ -e "$SERVER_DIR/$entry" ]] && run mv "$SERVER_DIR/$entry" "$backup/server/$entry"
-    done
-    echo "[install] moved to $backup — the service is stopped but nothing was deleted."
-    echo "[install]   what moved: bin/ and server/{data,oc.toml,log} only."
-    if [[ "${#kept[@]}" -gt 0 ]]; then
-      echo "[install]   what stayed in $ROOT_DIR: ${kept[*]} — untouched, still in place."
+    # Record what ACTUALLY moved rather than announcing a fixed list. On a
+    # partially-installed machine (plist ours, but bin/ or server/ already gone
+    # by hand) the fixed wording claimed moves that never happened — the same
+    # "says more than it did" defect this ticket is about, pointed the other way.
+    local moved=() restore_files=()
+    if [[ -e "$BIN_DIR" ]]; then
+      run mkdir -p "$backup"
+      run mv "$BIN_DIR" "$backup/bin"
+      moved+=("bin/")
+      restore_files+=("cp -R \"$backup/bin\" \"$ROOT_DIR/\"")
     fi
+    local moved_server=0
+    for entry in data oc.toml log; do
+      if [[ -e "$SERVER_DIR/$entry" ]]; then
+        run mkdir -p "$backup/server"
+        run mv "$SERVER_DIR/$entry" "$backup/server/$entry"
+        moved+=("server/$entry")
+        moved_server=1
+      fi
+    done
+    [[ "$moved_server" == "1" ]] && restore_files+=("mkdir -p \"$SERVER_DIR\"" "cp -R \"$backup/server/.\" \"$SERVER_DIR/\"")
+
+    if [[ "${#moved[@]}" -gt 0 || "$plist_saved" == "1" ]]; then
+      echo "[install] moved to $backup — the service is stopped but nothing was deleted."
+      if [[ "${#moved[@]}" -gt 0 ]]; then
+        echo "[install]   what moved: ${moved[*]}"
+      else
+        echo "[install]   what moved: the launchd plist only — no installed files were present."
+      fi
+    else
+      echo "[install] nothing needed moving — no installed files and no plist of ours were present."
+    fi
+    if [[ "${#kept[@]}" -gt 0 ]]; then
+      echo "[install]   what stayed in $ROOT_DIR (untouched, still in place):"
+      for base in "${kept[@]}"; do echo "[install]     $base"; done
+    fi
+
     # The restore line has to put back BOTH halves — the files AND the launchd
     # registration — or it hands you a way back that does not actually work.
-    # $ROOT_DIR and $SERVER_DIR are still there (we never remove them), but the
-    # mkdir -p keeps the line correct even on a root that was cleaned up by hand.
-    echo "[install]   restore: mkdir -p \"$SERVER_DIR\" && cp -R \"$backup/bin\" \"$ROOT_DIR/\" && cp -R \"$backup/server/.\" \"$SERVER_DIR/\" && cp \"$plist_backup\" \"$PLIST\" && launchctl bootstrap \"$GUI\" \"$PLIST\""
+    # It is assembled from what was really moved: a fixed line referencing
+    # "$backup/bin" breaks its own `&&` chain on the first cp when bin/ was
+    # never there, and then the plist half never runs at all.
+    [[ "$plist_saved" == "1" ]] && restore_files+=("cp \"$plist_backup\" \"$PLIST\"" "launchctl bootstrap \"$GUI\" \"$PLIST\"")
+    if [[ "${#restore_files[@]}" -gt 0 ]]; then
+      local restore_cmd="${restore_files[0]}" i
+      for ((i = 1; i < ${#restore_files[@]}; i++)); do restore_cmd+=" && ${restore_files[$i]}"; done
+      echo "[install]   restore: $restore_cmd"
+      # cp overwrites. Restoring ON TOP of a fresh install would silently put the
+      # old database back over the new one, so say so instead of letting someone
+      # find out afterwards.
+      echo "[install]   (only run that if you have NOT reinstalled since — it overwrites, it does not merge)"
+    fi
   fi
 
   if [[ "$dryrun" == "1" ]]; then

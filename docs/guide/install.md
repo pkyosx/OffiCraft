@@ -105,14 +105,22 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 
 腳本執行時會把上面這份清單連同 agent 工作區的數量一起印出來，`--dry-run` 也印同一份。
 
-> ⚠️ 在 2026-07-21 之前的版本上，「同一台機器既是 server 又是 worker」時預設會把**整個**
-> `~/.officraft` 搬走（含 `agents/` 與 `warden/`），而訊息只說 "nothing was deleted"、
-> 一個字都沒提。那是可回復的（是 `mv` 不是 `rm`），但訊息不足以讓人預判後果。已修正。
+> ⚠️ **舊版行為（v0.5.11 及更早）**：只要 `~/.officraft/server/repo/` 不存在
+> （也就是這台機器**沒有**用方式二從原始碼裝過——release 安裝的機器都是這樣），預設就會把
+> **整個** `~/.officraft` 搬走，含 `agents/` 與 `warden/`，而訊息只說 "nothing was deleted"、
+> 一個字都沒提。反而是有 `repo/` 的機器不受影響。那是可回復的（是 `mv` 不是 `rm`），
+> 但訊息不足以讓人預判後果。**如果你手上跑的是舊版安裝腳本，這件事仍然成立。**
 
 ```bash
 curl -fsSL … | bash -s -- --uninstall --dry-run   # 只印出會做什麼，什麼都不動
-curl -fsSL … | bash -s -- --uninstall --purge     # 真的刪光，含資料庫（輸入 "purge" 確認；--yes 跳過）
+curl -fsSL … | bash -s -- --uninstall --purge --yes  # 真的刪光，含資料庫，不可回復
 ```
+
+> ⚠️ **`--purge` 的打字確認在 `curl … | bash` 這個形式下按不下去。** 那個提示讀的是標準輸入，
+> 而標準輸入正被用來把腳本本身餵給 bash，所以你打的字送不進去、確認必定失敗 ——
+> 結果是**什麼都不會被刪**（fail-closed，而且畫面會印出中止訊息）。
+> 也就是說：走管線時 `--purge` 一定要配 `--yes` 才有作用。想要互動確認就先把腳本存成檔案再跑。
+> （這是已知限制，另案處理；在這裡寫出來是因為「以為有一道確認、其實按不到」本身就會誤導。）
 
 **所有權判斷**：只認「這支安裝器裝的那一套」（比對 launchd plist 的 `ProgramArguments[0]`
 與 release-path 專屬檔案），尊重 `OC_LAUNCHD_LABEL`（用 alt label 併裝的那一套，移除時也要
