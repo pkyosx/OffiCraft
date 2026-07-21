@@ -528,7 +528,16 @@ oc_resolve_instance() {
   local home="${HOME:?HOME must be set}" port
   if [[ "${OC_E2E_ALLOW_CANONICAL:-0}" == "1" ]]; then
     OC_NS=""
+    # The port the 0c guard verifies free (SINGLE_PROD_PORTS[0]) and the port this
+    # run actually OWNS (LOCAL_BASE/PUBLIC_HOST → oc_fresh_install pins serve to
+    # ${LOCAL_BASE##*:}) MUST be the same canonical port. Derive BOTH from the one
+    # SSOT (OC_CANONICAL_SERVE_PORT ← config.go defaultPort) on adjacent lines so
+    # they can never drift apart again. T-191d: T-b76b moved the guard to the
+    # dynamic 7755 but left LOCAL_BASE hardcoded at the retired 8770 → the guard
+    # watched 7755 while the install bound 8770 (guard decoupled from what ran).
     SINGLE_PROD_PORTS=("$OC_CANONICAL_SERVE_PORT" "$OC_CANONICAL_TUNNEL_PORT")
+    LOCAL_BASE="http://127.0.0.1:$OC_CANONICAL_SERVE_PORT"
+    PUBLIC_HOST="127.0.0.1:$OC_CANONICAL_SERVE_PORT"
     log "instance: CANONICAL (OC_E2E_ALLOW_CANONICAL=1 escape hatch) — port $OC_CANONICAL_SERVE_PORT, labels com.officraft.*, root ~/.officraft, socket $OC_CANONICAL_TMUX_SOCKET. Still gated by live-fleet guard + hardware/state whitelist."
     return 0
   fi

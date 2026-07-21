@@ -4,10 +4,10 @@
 # PURPOSE
 #   A DESTRUCTIVE, FULL-RESET, MANUAL end-to-end regression that proves the A1
 #   "presence-deaf zombie auto-takeover" reconcile behavior on ONE real machine,
-#   on the CANONICAL port 8770, WITHOUT any human ssh-kill:
+#   on the CANONICAL serve port, WITHOUT any human ssh-kill:
 #
 #     PHASE 0 preflight guards → PHASE 1 teardown old server →
-#     PHASE 2 fresh `ocserver install` (canonical 8770) →
+#     PHASE 2 fresh `ocserver install` (canonical serve port) →
 #     PHASE 3 bootstrap server-self warden →
 #     PHASE 4 activate a TARGET agent + a CONTROL agent → both presence online →
 #     PHASE 5 make the TARGET a zombie (STOP its claude pane + KILL its listener; SSE
@@ -45,8 +45,8 @@
 #     LocalHostName AND joey fleet-infra dir). On any other machine it dies in
 #     PHASE 0, before a single destructive action.
 #
-# ⚠️  CANONICAL port 8770, NO --namespace. Isolation from prod = "seth-m1 (no
-#     prod) + canonical 8770 + machine/state whitelist", NOT a namespace.
+# ⚠️  CANONICAL serve port, NO --namespace. Isolation from prod = "seth-m1 (no
+#     prod) + canonical serve port + machine/state whitelist", NOT a namespace.
 #
 # TEARDOWN + KILL SAFETY (fleet zero-touch — the A1 guardrail bedrock):
 #   * teardown uses ONLY oc_teardown_bounded (EXACT launchd labels
@@ -87,10 +87,10 @@ source "$HERE/lib/common.sh"         # oc_env(), PROD_PORTS, py(), REPO_ROOT (is
 # ---------------------------------------------------------------------------
 TARGET_AGENT="${TARGET_AGENT:-mira}"      # the seed agent we turn into a zombie
 CONTROL_NAME="${CONTROL_NAME:-a1-control}"  # display name of the hired control agent
-# Canonical loopback base — port 8770 (kyle route A), NO namespace.
-LOCAL_BASE="http://127.0.0.1:8770"
-# summarize() (from lib) reads these for its footer; single-machine has no 2nd host.
-PUBLIC_HOST="127.0.0.1:8770"
+# LOCAL_BASE / PUBLIC_HOST (loopback base + summarize() footer) are set
+# authoritatively by oc_resolve_instance below in BOTH modes — canonical → the
+# current prod port (OC_CANONICAL_SERVE_PORT, from config.go); namespace → a
+# per-run free port — so no stale port literal lives here.
 SECOND_MACHINE="(none — single-machine)"
 TEST_AGENT="$TARGET_AGENT"   # summarize() footer reads TEST_AGENT
 # Deterministic owner password: caller-provided, else a fresh uuid we seed + reuse.
@@ -150,9 +150,9 @@ TMUX_SOCKET_LOCAL="officraft"   # tmux -L <socket>; TMUX_SOCKET (same value) is 
 # The server-self warden member is auto-seeded by the DB. Agents desire it.
 SERVER_SELF_ID="m-server-self"
 
-# Canonical prod ports we must own/guard (canonical serve = 8770; tunnel 8766).
-# NOTE: oc_resolve_instance (below) OVERRIDES these in the default namespace mode.
-SINGLE_PROD_PORTS=(8770 8766)
+# SINGLE_PROD_PORTS (the prod ports the 0c guard verifies free) is set by
+# oc_resolve_instance below in BOTH modes (canonical → serve+tunnel from the SSOT;
+# namespace → this run's own port).
 
 # ── INSTANCE RESOLUTION (T-8aa1) — construction-enforced isolation ───────────
 # Default = a fresh run-scoped NAMESPACE (isolated port/labels/root/socket). The
@@ -179,7 +179,7 @@ for tool in curl sqlite3 uuidgen launchctl ioreg scutil lsof tmux pgrep ps; do
 done
 [[ -x "$OCSERVER" ]] || die "bin/ocserver not found/executable at $OCSERVER"
 
-log "params: TARGET_AGENT=$TARGET_AGENT CONTROL_NAME='$CONTROL_NAME' LOCAL_BASE=$LOCAL_BASE (canonical 8770, no namespace)"
+log "params: TARGET_AGENT=$TARGET_AGENT CONTROL_NAME='$CONTROL_NAME' LOCAL_BASE=$LOCAL_BASE"
 log "layout: SERVER_ROOT=$SERVER_ROOT DB=$DB_PATH serve.err=$SERVE_ERR_LOG  backups→$BACKUP_DIR"
 
 # ---------------------------------------------------------------------------
@@ -331,9 +331,9 @@ oc_teardown_bounded "pre-install"
 pass_stage
 
 # ===========================================================================
-# PHASE 2 — FRESH INSTALL SERVER (canonical 8770) + seed KNOWN owner password
+# PHASE 2 — FRESH INSTALL SERVER (canonical serve port) + seed KNOWN owner password
 # ===========================================================================
-stage "2. fresh install server (ocserver install --force, canonical 8770) + seed owner password"
+stage "2. fresh install server (ocserver install --force, canonical serve port) + seed owner password"
 oc_fresh_install   # sets OWNER_TOKEN + GIT_SHA; runs the 15s serve-stability window
 pass_stage
 
@@ -616,7 +616,12 @@ fi
 # 9b. the ONLY teardown path: EXACT labels + EXACT member-/worker- tmux sessions.
 oc_teardown_bounded "post-run"
 
-# 9c. clean-slate corroboration: ~/.officraft back to empty/absent AND 8770 free.
+# 9c. clean-slate corroboration: ~/.officraft back to empty/absent AND the port
+#     THIS run owned (resolve-set LOCAL_BASE; canonical → 7755, namespace → the
+#     run's own free port) free again. Assert the OWNED port, not a hardcoded
+#     literal — a literal we never bound is a vacuous check that stays green even
+#     when teardown leaks our real listener (T-191d family: guard the port the run
+#     actually used, not a stale constant).
 if [[ -d "$OC_ROOT" && -z "$(ls -A "$OC_ROOT" 2>/dev/null)" ]]; then
   log "restored: $OC_ROOT is empty (clean slate)"
 elif [[ ! -e "$OC_ROOT" ]]; then
@@ -626,12 +631,12 @@ else
   ls -A "$OC_ROOT" 2>/dev/null | sed 's/^/[a1-zombie] residue| /' >&2
   fail_stage "post-teardown residue under $OC_ROOT — clean-slate invariant broken (next run's PHASE 0 state whitelist would refuse)"
 fi
-# 8770 must be free of a listener again (we owned it; teardown released it).
-if lsof -nP -iTCP:8770 -sTCP:LISTEN >/dev/null 2>&1; then
-  lsof -nP -iTCP:8770 -sTCP:LISTEN 2>/dev/null | sed 's/^/[a1-zombie] port8770| /' >&2
-  fail_stage "post-teardown: port 8770 still has a LISTENER — teardown did not release the canonical port (see port8770| lines)"
+owned_port="${LOCAL_BASE##*:}"
+if lsof -nP -iTCP:"$owned_port" -sTCP:LISTEN >/dev/null 2>&1; then
+  lsof -nP -iTCP:"$owned_port" -sTCP:LISTEN 2>/dev/null | sed "s/^/[a1-zombie] port$owned_port| /" >&2
+  fail_stage "post-teardown: port $owned_port (this run's serve port) still has a LISTENER — teardown did not release it (see port$owned_port| lines)"
 fi
-log "clean-slate corroborated: $OC_ROOT empty/absent AND port 8770 free"
+log "clean-slate corroborated: $OC_ROOT empty/absent AND port $owned_port free"
 pass_stage
 
 # ===========================================================================

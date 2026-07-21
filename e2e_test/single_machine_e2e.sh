@@ -4,10 +4,10 @@
 # PURPOSE
 #   A DESTRUCTIVE, FULL-RESET, MANUAL end-to-end regression that exercises the
 #   whole officraft server+warden+agent lifecycle on ONE real machine, in one
-#   key, on the CANONICAL port 8770:
+#   key, on the CANONICAL serve port:
 #
 #     PHASE 0 preflight guards  →  PHASE 1 teardown old server  →
-#     PHASE 2 fresh `ocserver install` (canonical 8770)  →
+#     PHASE 2 fresh `ocserver install` (canonical serve port)  →
 #     PHASE 3 bootstrap server-self warden  →  PHASE 4 spawn a test agent  →
 #     PHASE 5 assert the agent booted with ZERO self-repair (two-track)  →
 #     PHASE 6 teardown → clean slate.
@@ -27,8 +27,8 @@
 #     the joey fleet-infra dir. On any other machine it dies in PHASE 0, before a
 #     single destructive action. There is no second-machine / relocate leg.
 #
-# ⚠️  CANONICAL port 8770, NO --namespace (kyle route A). Isolation from prod
-#     comes from "seth-m1 (no prod) + canonical 8770 + machine/state whitelist",
+# ⚠️  CANONICAL serve port, NO --namespace (kyle route A). Isolation from prod
+#     comes from "seth-m1 (no prod) + canonical serve port + machine/state whitelist",
 #     NOT from a namespace.
 #
 # TEARDOWN SAFETY (fleet zero-touch): teardown boots-out ONLY the four EXACT
@@ -55,10 +55,10 @@ source "$HERE/lib/common.sh"         # oc_env(), PROD_PORTS, py(), REPO_ROOT (is
 # 0. params + constants (canonical, single-machine)
 # ---------------------------------------------------------------------------
 TEST_AGENT="${TEST_AGENT:-mira}"
-# Canonical loopback base — port 8770 (kyle route A), NO namespace.
-LOCAL_BASE="http://127.0.0.1:8770"
-# summarize() (from lib) reads these for its footer; single has no 2nd machine.
-PUBLIC_HOST="127.0.0.1:8770"
+# LOCAL_BASE / PUBLIC_HOST (loopback base + summarize() footer) are set
+# authoritatively by oc_resolve_instance below in BOTH modes — canonical → the
+# current prod port (OC_CANONICAL_SERVE_PORT, from config.go); namespace → a
+# per-run free port — so no stale port literal lives here.
 SECOND_MACHINE="(none — single-machine)"
 # Deterministic owner password: caller-provided, else a fresh uuid we seed + reuse.
 OWNER_PASSWORD="${OWNER_PASSWORD:-$(uuidgen | tr '[:upper:]' '[:lower:]')}"
@@ -105,9 +105,9 @@ TMUX_SOCKET_LOCAL="officraft"   # tmux -L <socket>; TMUX_SOCKET (same value) is 
 # The server-self warden member is auto-seeded by the DB.
 SERVER_SELF_ID="m-server-self"
 
-# Canonical prod ports we must own/guard (canonical serve = 8770; tunnel-side 8766).
-# NOTE: oc_resolve_instance (below) OVERRIDES these in the default namespace mode.
-SINGLE_PROD_PORTS=(8770 8766)
+# SINGLE_PROD_PORTS (the prod ports the 0c guard verifies free) is set by
+# oc_resolve_instance below in BOTH modes (canonical → serve+tunnel from the SSOT;
+# namespace → this run's own port).
 
 # ── INSTANCE RESOLUTION (T-8aa1) — construction-enforced isolation ───────────
 # By DEFAULT allocate a fresh run-scoped NAMESPACE and re-derive every resource
@@ -115,8 +115,9 @@ SINGLE_PROD_PORTS=(8770 8766)
 # DESTRUCTIVE suite is isolated by construction and touches NOTHING canonical on
 # a live fleet host. Canonical is the explicit OC_E2E_ALLOW_CANONICAL=1 escape
 # hatch (still gated by the live-fleet guard + seth-m1 whitelist in PHASE 0).
-# Overrides LOCAL_BASE / PUBLIC_HOST / *_LABEL / OC_ROOT / SERVER_ROOT / OC_TOML /
-# DB_PATH / TMUX_SOCKET_LOCAL / TMUX_SOCKET / SINGLE_PROD_PORTS set above.
+# Sets LOCAL_BASE / PUBLIC_HOST / SINGLE_PROD_PORTS in BOTH modes; in namespace mode
+# also *_LABEL / OC_ROOT / SERVER_ROOT / OC_TOML / DB_PATH / TMUX_SOCKET_LOCAL /
+# TMUX_SOCKET (their canonical values stay as set above).
 oc_resolve_instance
 
 # ── claude resolvability (PHASE 0 preflight 0e) ─────────────────────────────
@@ -144,7 +145,7 @@ for tool in curl sqlite3 uuidgen launchctl ioreg scutil lsof tmux; do
 done
 [[ -x "$OCSERVER" ]] || die "bin/ocserver not found/executable at $OCSERVER"
 
-log "params: TEST_AGENT=$TEST_AGENT LOCAL_BASE=$LOCAL_BASE (canonical 8770, no namespace)"
+log "params: TEST_AGENT=$TEST_AGENT LOCAL_BASE=$LOCAL_BASE"
 log "layout: SERVER_ROOT=$SERVER_ROOT DB=$DB_PATH  backups→$BACKUP_DIR"
 
 # ===========================================================================
@@ -174,9 +175,9 @@ oc_teardown_bounded "pre-install"
 pass_stage
 
 # ===========================================================================
-# PHASE 2 — FRESH INSTALL SERVER (canonical 8770) + seed KNOWN owner password
+# PHASE 2 — FRESH INSTALL SERVER (canonical serve port) + seed KNOWN owner password
 # ===========================================================================
-stage "2. fresh install server (ocserver install --force, canonical 8770) + seed owner password"
+stage "2. fresh install server (ocserver install --force, canonical serve port) + seed owner password"
 
 # The full PHASE 2 sequence (seed owner password via render-config + set-password,
 # `ocserver install --force` under oc_env, /health + /api/version sanity, owner
