@@ -1291,6 +1291,13 @@ export function ChatArea({
                     onClick={() => {
                       setWakePending(true);
                       setWakeUndispatched(false);
+                      // 🔴 WHOSE wake this is (review r2 SHOULD-1). The
+                      // peer-keyed reset effect above is a reset, not a CANCEL:
+                      // an activate still in flight when the owner switches
+                      // peers resolves AFTER the reset and writes A's verdict
+                      // into a room that is already B's. `peerIdRef` is the
+                      // render-time mirror of the CURRENT peer.
+                      const firedFor = member.id;
                       // Revert the optimistic pending if the activate POST
                       // rejects (else the button sticks on "喚醒中…" forever) —
                       // same discipline as MemberDetailPanel's wake. The success
@@ -1301,12 +1308,16 @@ export function ChatArea({
                       // from sitting on 「喚醒中…」 for a wake nobody sent.
                       Promise.resolve(onWake())
                         .then((result) => {
+                          if (peerIdRef.current !== firedFor) return;
                           if (result?.activationPending) {
                             setWakePending(false);
                             setWakeUndispatched(true);
                           }
                         })
-                        .catch(() => setWakePending(false));
+                        .catch(() => {
+                          if (peerIdRef.current !== firedFor) return;
+                          setWakePending(false);
+                        });
                     }}
                     disabled={wakePending}
                   >

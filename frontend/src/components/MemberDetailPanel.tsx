@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useI18n } from "../i18n";
 import { api } from "../api";
 import type {
@@ -145,6 +145,15 @@ export function MemberDetailPanel({
     setWakePending(false);
     setWakeUndispatched(false);
   }, [member.id]);
+  // 🔴 …and that reset is a RESET, not a CANCEL (review r2 SHOULD-1). An
+  // activate still in flight when the owner switches members resolves AFTER the
+  // reset has run, and writes A's verdict into a panel that is already showing
+  // B — the identical on-screen lie ("B's wake was never sent") the reset above
+  // was added to remove, one code path over. Written during render rather than
+  // in an effect because a promise can settle between commit and effect flush;
+  // same guarded render-time ref pattern ChatArea uses for its peer switch.
+  const shownMemberIdRef = useRef(member.id);
+  shownMemberIdRef.current = member.id;
   const wakePendingActive = wakePending && !wakePendingClears;
 
   // Map the REAL five-state lifecycle onto the one-per-state visual union the
@@ -174,9 +183,13 @@ export function MemberDetailPanel({
     // offline visual so the owner can retry (no stuck fake-waking).
     setWakePending(true);
     setWakeUndispatched(false); // a fresh attempt clears the previous verdict
+    // WHOSE wake this is. Both branches below drop the verdict when the panel
+    // has moved on to another member (review r2 SHOULD-1).
+    const firedFor = member.id;
     void (async () => {
       try {
         const result = await onActivate?.(machineId);
+        if (shownMemberIdRef.current !== firedFor) return;
         // 🔴 THE FIX (T-7fa1). An activate answers 200 either way; this is the
         // ONLY thing that distinguishes "a START went out" from "nothing was
         // dispatched". Without this branch the panel keeps painting the amber
@@ -186,6 +199,7 @@ export function MemberDetailPanel({
           setWakeUndispatched(true);
         }
       } catch {
+        if (shownMemberIdRef.current !== firedFor) return;
         setWakePending(false);
       }
     })();
@@ -212,6 +226,7 @@ export function MemberDetailPanel({
   // Placement-only: re-pin the member to another machine (the server reconciles a
   // live member onto it). Mirrors the spawn picker's 0/1/2+ online rule.
   const { relocateAction, relocatePicker, relocateUndispatched } = useRelocateMachine({
+    subjectId: member.id,
     machines,
     boundMachineId,
     onRelocate,
@@ -221,9 +236,16 @@ export function MemberDetailPanel({
     noOnlineTitle: t.machine.noOnlineMachine,
     withIcon: true,
     // Self-heal signal for the "move scheduled, not landed" notice (review r1
-    // SHOULD-2): where the member ACTUALLY is, vs boundMachineId = where it was
+    // SHOULD-2): where the member is OBSERVED, vs boundMachineId = where it was
     // pinned. Convergence means the background retry landed the move.
-    currentMachineId: member.machine,
+    //
+    // 🔴 Gated on the SAME `awake` flag as the 機器 cell above (review r2).
+    // Outside online/waking, `member.machine` is not an observation — the
+    // server's observed_host falls back to desired_machine_id, so it equals the
+    // pin by construction and would read as "the move landed" for a member
+    // nobody can see. The panel already refuses to PRINT that value; it must
+    // not silently believe it either.
+    currentMachineId: awake ? member.machine : null,
   });
 
   // ── 回呼端點 · WEBHOOK (M4) ───────────────────────────────────────────────

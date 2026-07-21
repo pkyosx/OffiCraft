@@ -40,8 +40,32 @@ import "./dispatch-alert.css";
  * the two possible causes in PARALLEL rather than asserting one, and points
  * back at `last_op_reason`, which is more precise whenever it exists.
  *
+ * 🔴 WHY RELOCATE GETS ITS OWN STEPS, AND A CAUSE (review r2). The two flags are
+ * NOT the same shape, so one set of steps cannot serve both:
+ *   • `activation_pending` is the NEGATIVE catch-all above — it knows only that
+ *     no START went out, never why. Its steps must stay parallel-hedged.
+ *   • `relocation_pending` is `dec.DispatchUnlanded` (`api_members.go:370`),
+ *     and reconcileOne sets THAT only where a decided STOP/START was refused by
+ *     `enqueueToWarden` (`reconcile.go:686-691` / `:708-713`), whose only
+ *     rejection is `warden == "" || !hub.IsOnline(warden)` (`reconcile.go:579`).
+ *     So this half DOES know the cause: the machine that had to take the
+ *     command is not connected. Hedging it into "maybe an earlier command is
+ *     still retrying" told the owner LESS than the bool knows — the mirror of
+ *     the r1 lie, and just as useless.
+ * Deliberately NOT said: WHICH machine. A recycle STOP is addressed to the
+ * machine the member is RUNNING on and the follow-up START to the pinned one
+ * (`reconcile.go:702-706`), so the unreachable one can be either. Review r2
+ * proved with a server probe that `relocation_pending` also fires while the
+ * member is on NO machine at all (`running == ""`), which is why the copy no
+ * longer says "the member is still on its old machine" — the same panel's 機器
+ * cell renders 「—」 in exactly that state.
+ * (Residual, accepted: `buildTargetFrame` failing would also set the flag
+ * without a warden problem — but it only marshals `{rpc, {member_id}}`, which
+ * cannot fail for a string field.)
+ *
  * Single component, two kinds: wake and relocate render the SAME shape with
- * different leading text — the two surfaces must never drift apart.
+ * different leading text AND their own steps — the two surfaces must never
+ * drift apart, and must never borrow each other's certainty.
  */
 export type DispatchAlertKind = "wake" | "relocate";
 
@@ -55,20 +79,21 @@ export function DispatchAlert({
 }) {
   const { t } = useI18n();
   const a = t.dispatchAlert;
+  const wake = kind === "wake";
   return (
     // role="status" (not "alert"): the owner's own click is what produced this,
     // so it is a polite result, not an interruption — same register as the
     // onboarding banner.
     <div className="dispatch-alert" role="status" data-testid={testId}>
       <strong className="dispatch-alert__title">
-        {kind === "wake" ? a.wakeTitle : a.relocateTitle}
+        {wake ? a.wakeTitle : a.relocateTitle}
       </strong>
       <p className="dispatch-alert__body">
-        {kind === "wake" ? a.wakeBody : a.relocateBody}
+        {wake ? a.wakeBody : a.relocateBody}
       </p>
       <ul className="dispatch-alert__steps">
-        <li>{a.step1}</li>
-        <li>{a.step2}</li>
+        <li>{wake ? a.wakeStep1 : a.relocateStep1}</li>
+        <li>{wake ? a.wakeStep2 : a.relocateStep2}</li>
       </ul>
     </div>
   );

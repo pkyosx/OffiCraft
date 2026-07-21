@@ -143,6 +143,38 @@ describe("ChatArea · in-chat wake that was never dispatched (T-7fa1)", () => {
     );
   });
 
+  it("an IN-FLIGHT wake's verdict never lands on the peer switched to (review r2 SHOULD-1)", async () => {
+    // 🔴 The peer-keyed reset above is a RESET, not a CANCEL. Owner presses
+    // ⚡喚醒 on A, and clicks over to B while the request is still out: the
+    // reset fires on the switch, then A's verdict resolves into a room that is
+    // already B's. Same sentence, same lie, one code path over — and the
+    // reviewer's probe showed it leaking on HEAD.
+    let resolveWake: (r: MemberActivateResult) => void = () => {};
+    const onWake = vi.fn(
+      () =>
+        new Promise<MemberActivateResult>((res) => {
+          resolveWake = res;
+        }),
+    );
+    const { wakeBtn, queryByTestId, rerender } = renderChat(onWake);
+
+    fireEvent.click(wakeBtn());
+    await waitFor(() => expect(onWake).toHaveBeenCalledTimes(1));
+
+    rerender(
+      <I18nProvider>
+        <ChatArea
+          member={makeMember({ id: "m2", name: "Kyle" })}
+          onWake={onWake}
+        />
+      </I18nProvider>,
+    );
+
+    resolveWake({ activationPending: true });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(queryByTestId("chat-wake-undispatched")).toBeNull();
+  });
+
   it("a RETRY clears the previous verdict (mutant MC)", async () => {
     let pending = true;
     const onWake = vi.fn(async () => ({ activationPending: pending }));

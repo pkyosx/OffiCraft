@@ -63,6 +63,7 @@ export function WorkerDetailPanel({
   // 改機器 (shared control — the member panel's, 文案統一 to 編輯): the picker's
   // bound entry is the owner-pinned placement (raw machine id).
   const { relocateAction, relocatePicker } = useRelocateMachine({
+    subjectId: worker.id,
     machines,
     boundMachineId: worker.desiredMachineId || null,
     onRelocate,

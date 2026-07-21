@@ -413,13 +413,17 @@ export const en: Dict = {
     wakeTitle: "No wake command went out this time",
     wakeBody:
       "Nothing was dispatched on this attempt, so this click will not wake the member. The intent is saved and the server keeps retrying in the background.",
+    wakeStep1:
+      "The target machine (or its warden) may not be connected — check whether it is online under Monitor.",
+    wakeStep2:
+      "Or an earlier command may still be retrying — if this member's Last operation shows a reason, trust that line: it is more precise than this one.",
     relocateTitle: "No move command went out this time",
     relocateBody:
-      "The new machine is pinned, but nothing was dispatched on this attempt — the member is still on its old machine. The server keeps retrying in the background.",
-    step1:
-      "The target machine (or its warden) may not be connected — check whether it is online under Monitor.",
-    step2:
-      "Or an earlier command may still be retrying — if this member's Last operation shows a reason, trust that line: it is more precise than this one.",
+      "The new machine is pinned, but nothing was dispatched on this attempt — the machine that had to take the command is not connected. The server keeps retrying in the background.",
+    relocateStep1:
+      "Check under Monitor which machines are offline — this command could not go out because the one that had to take it is not connected.",
+    relocateStep2:
+      "Once that machine connects, the background retry sends this move out — no need to press again, the new machine is already saved.",
   },
   profile: {
     title: "Profile",

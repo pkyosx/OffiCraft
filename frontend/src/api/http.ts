@@ -366,11 +366,12 @@ export const httpApi: Api = {
     // object (MemberActivateDTO) — `{}` is the honest "no machine override".
     //
     // 🔴 The response body is READ, not discarded (T-7fa1). `activation_pending`
-    // is the server's only report that the decided START never reached a warden;
-    // a 200 alone cannot say that, because the intent is persisted before any
-    // dispatch is attempted. Absent/null is the honest "a START actually went
-    // out" — the field is set ONLY on the failure shape, so `?? false` is the
-    // wire default, not a guess.
+    // is the server's only report that no START went out on this attempt; a 200
+    // alone cannot say that, because the intent is persisted before any dispatch
+    // is attempted. The field is set ONLY on that shape (never `false`), and the
+    // schema types it `boolean | null`, optional — so absent, null and false all
+    // mean the same thing and `=== true` reads the wire without inventing a
+    // default.
     const body = machineId !== undefined ? { machine_id: machineId } : {};
     const wire = unwrap(
       await client.POST("/api/members/{member_id}/activate", {
@@ -393,8 +394,10 @@ export const httpApi: Api = {
     // flip online; the caller refetches and lets server-driven presence surface
     // the migration.
     // Same read-the-response discipline as activateMember (T-7fa1):
-    // `relocation_pending` is set ONLY when the recycle STOP/START could not be
-    // delivered, so absent/null is the honest "the move landed".
+    // `relocation_pending` is set ONLY when a decided recycle STOP/START was
+    // refused by the warden it was addressed to. Absent/null therefore means
+    // "nothing was left undelivered" — NOT "the member is now running on the
+    // pin"; a delivered STOP still needs the next tick's START to land.
     const wire = unwrap(
       await client.POST("/api/members/{member_id}/relocate", {
         params: { path: { member_id: id } },
