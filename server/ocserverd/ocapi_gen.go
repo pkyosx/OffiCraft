@@ -801,11 +801,13 @@ type MonitoringSessionDTO struct {
 	Cost       *float64        `json:"cost,omitempty"`
 	Effort     *string         `json:"effort,omitempty"`
 	Id         string          `json:"id"`
+	IdleSecs   *float64        `json:"idle_secs,omitempty"`
 	Machine    *string         `json:"machine,omitempty"`
 	Model      *string         `json:"model,omitempty"`
 	Name       string          `json:"name"`
 	Presence   *string         `json:"presence,omitempty"`
 	Role       *string         `json:"role,omitempty"`
+	Stuck      *bool           `json:"stuck,omitempty"`
 	Tokens     *map[string]int `json:"tokens,omitempty"`
 }
 

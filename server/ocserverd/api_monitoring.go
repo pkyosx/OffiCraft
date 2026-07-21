@@ -533,6 +533,16 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 		return resolveAccountDisplay(accountNames, acctLabels, raw)
 	}
 
+	// Liveness (T-5896): the owner-visible stuck-suspect field, from the SAME
+	// pure decideLiveness the reconcile tick logs/pushes with (one source, two
+	// consumers). Computed once for the whole roster; the expensive unread scan
+	// inside is paid only when some session is already online-silent.
+	memberIDs := make([]string, len(members))
+	for i := range members {
+		memberIDs[i] = members[i].ID
+	}
+	liveness := s.livenessForMembers(memberIDs, now)
+
 	sessions := []monitoringSessionDTO{}
 	for _, m := range members {
 		entry := tele(m.ID)
@@ -548,6 +558,7 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 		// Runtime facts fold through the SAME foldActorRuntime the outsource
 		// worker DTO reads (P7b read-path convergence — one fold, two wires).
 		rt := foldActorRuntime(entry, gauge[m.ID], m.BankedCost)
+		sig := liveness[m.ID]
 		sessions = append(sessions, monitoringSessionDTO{
 			ID:         m.ID,
 			Name:       m.Name,
@@ -561,6 +572,8 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 			Cost:       rt.cost,
 			BankedCost: rt.bankedCost,
 			Tokens:     entryObj(entry, "tokens"),
+			Stuck:      sig.Stuck,
+			IdleSecs:   sig.IdleSecs,
 		})
 	}
 

@@ -116,6 +116,12 @@ type apiServer struct {
 	// amnesia is contract (the next tick re-decides from presence).
 	reconcileStates map[string]reconcileState
 	reconcileCfg    reconcileConfig
+	// stuckFlagged is the liveness edge map (T-5896): member id → currently
+	// flagged a stuck suspect, so the reconcile tick pushes the owner cockpit
+	// ONLY on the stuck-state transition, never every 30s. Guarded by
+	// reconcileMu (same as reconcileStates); restart amnesia is fine — a lost
+	// map just re-pushes each still-stuck member once on the next tick.
+	stuckFlagged map[string]bool
 	// noReconcile is the --no-reconcile serve flag: disables the cadence loop
 	// AND every event-driven warden-command dispatch (the shadow-deployment
 	// kill-switch) while the rest of the server runs unchanged.

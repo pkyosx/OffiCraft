@@ -275,6 +275,14 @@ type monitoringSessionDTO struct {
 	Cost       *float64       `json:"cost"`
 	BankedCost *float64       `json:"banked_cost"`
 	Tokens     map[string]any `json:"tokens"`
+	// Stuck / IdleSecs are the liveness signal (T-5896, additive-optional):
+	// Stuck is true when this online session has made no context report past
+	// the silence window WHILE inbound unread waits on it (a stuck suspect,
+	// signal only — no remedy is ever taken). IdleSecs is seconds since its
+	// last report, null when unreported (fail-open). Both honest by
+	// construction: a non-candidate session is Stuck=false, IdleSecs may be null.
+	Stuck    bool     `json:"stuck"`
+	IdleSecs *float64 `json:"idle_secs"`
 }
 
 type monitoringMachineDTO struct {

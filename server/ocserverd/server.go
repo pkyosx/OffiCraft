@@ -331,6 +331,7 @@ func newAPIServer(dal *DAL, hub *Hub, secret []byte, tokenTTL int64, root assetR
 		root:                  root,
 		binHashes:             bindistBinaryHashesFrom(bindistFS()),
 		reconcileStates:       map[string]reconcileState{},
+		stuckFlagged:          map[string]bool{},
 		reconcileCfg:          defaultReconcileConfig(),
 		identitySweepAt:       map[string]float64{},
 		workerSpawnAt:         map[string]float64{},

@@ -1884,6 +1884,17 @@
             "title": "Id",
             "type": "string"
           },
+          "idle_secs": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idle Secs"
+          },
           "machine": {
             "default": "",
             "title": "Machine",
@@ -1907,6 +1918,11 @@
             "default": "",
             "title": "Role",
             "type": "string"
+          },
+          "stuck": {
+            "default": false,
+            "title": "Stuck",
+            "type": "boolean"
           },
           "tokens": {
             "anyOf": [

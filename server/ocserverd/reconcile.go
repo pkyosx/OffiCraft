@@ -869,6 +869,86 @@ func (s *apiServer) clearStaleStoppingOnOnline(members []Member) {
 	}
 }
 
+// ── liveness (T-5896): stuck-suspect detection, SIGNAL ONLY ──────────────────
+
+// livenessForMembers computes the stuck-suspect verdict for each member id via
+// the SINGLE pure decideLiveness — the one source both consumers share (the
+// reconcile-tick log/push below, and the monitoring DTO's owner-visible field).
+// The expensive leg (the whole-chat unread scan) is paid ONCE and ONLY when
+// some member is already an online-silent candidate (the cheap gate): a fleet
+// that is all reporting-fresh pays nothing. A chat read error leaves unread at
+// 0 → the verdict FAILS OPEN (never a stuck light invented from a DB hiccup).
+func (s *apiServer) livenessForMembers(ids []string, now float64) map[string]livenessSignal {
+	records := make(map[string]map[string]any, len(ids))
+	anyCandidate := false
+	for _, id := range ids {
+		rec := s.gauge.Get(id)
+		records[id] = rec
+		idle := gaugeLastReportSecs(rec, now)
+		if s.hub.IsOnline(id) && idle != nil && *idle > stuckSilenceSecs {
+			anyCandidate = true
+		}
+	}
+	unread := map[string]int{}
+	if anyCandidate {
+		messages, mErr := s.dal.ListChat()
+		receipts, rErr := s.dal.ListChatReads("", "")
+		if mErr == nil && rErr == nil {
+			for _, id := range ids {
+				unread[id] = totalUnread(UnreadCounts(messages, receipts, id))
+			}
+		} else {
+			reconcileLog("liveness: unread scan failed (m=%v r=%v) — fail open, no stuck flag this pass",
+				mErr, rErr)
+		}
+	}
+	out := make(map[string]livenessSignal, len(ids))
+	for _, id := range ids {
+		out[id] = decideLiveness(records[id], unread[id], s.hub.IsOnline(id), stuckSilenceSecs, now)
+	}
+	return out
+}
+
+// flagStuckMembers is the reconcile-tick liveness pass: log a member the tick
+// newly judges stuck, and — on the stuck-state EDGE — nudge the owner cockpit
+// to refetch the monitoring roster (where the stuck row surfaces). This tick is
+// the ONLY liveness pusher: a stuck agent has by definition gone silent and
+// will fire NO delta of its own, so the always-alive server must speak for it
+// (persona §8 — make the silence audible). Caller MUST hold reconcileMu (the
+// stuckFlagged edge map rides it, same as reconcileStates). It NEVER dispatches
+// a remedy — signal only (the owner-fixed boundary).
+func (s *apiServer) flagStuckMembers(members []Member, now float64) {
+	ids := make([]string, len(members))
+	for i := range members {
+		ids[i] = members[i].ID
+	}
+	sigs := s.livenessForMembers(ids, now)
+	for _, id := range ids {
+		stuck := sigs[id].Stuck
+		was := s.stuckFlagged[id]
+		if stuck == was {
+			continue // no edge — hold the marker, stay quiet
+		}
+		if stuck {
+			s.stuckFlagged[id] = true
+			reconcileLog("liveness: %s STUCK suspect — %s (idle %.0fs)",
+				id, sigs[id].Reason, deref(sigs[id].IdleSecs))
+		} else {
+			delete(s.stuckFlagged, id)
+			reconcileLog("liveness: %s recovered — %s", id, sigs[id].Reason)
+		}
+		s.hub.Publish("monitoring", "signal", "monitoring", id, nil, audienceOwnerOnly(), triggerServer)
+	}
+}
+
+// deref is a nil-safe *float64 read for the log line (nil → 0).
+func deref(p *float64) float64 {
+	if p == nil {
+		return 0
+	}
+	return *p
+}
+
 // ── the cadence tick + the event-driven seams ─────────────────────────────────
 
 // runReconcileTick runs ONE producer tick over the roster snapshot: the three
@@ -903,6 +983,7 @@ func (s *apiServer) runReconcileTick(now float64) {
 	s.clearRecycleMarkersOnRespawn(members)
 	s.clearStaleStoppingOnOnline(members)
 	s.consumeUninstallIntentOnOffline(members)
+	s.flagStuckMembers(members, now)
 	reconcileLog("tick: %d candidate(s)", len(members))
 	for i := range members {
 		s.reconcileTickMemberLocked(members[i], now)
