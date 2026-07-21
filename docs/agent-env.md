@@ -1,14 +1,71 @@
-# agent 的環境變數(`~/.officraft/env`)
+# agent 的環境變數
 
-## 為什麼需要這個檔
+agent 的環境是**兩層疊起來的**:
+
+| 層 | 來源 | 誰維護 | 什麼時候需要動它 |
+|---|---|---|---|
+| **1. 基底** | 你的**互動 shell**(`~/.zshrc` 等)—— spawn 時自動撈 | 不用維護,自動 | 平常都不用動 |
+| **2. 覆寫** | `~/.officraft/env` | 你手寫 | 只在要**單獨蓋掉某個變數**、或給 agent 一個互動 shell 沒有的值時 |
+
+**同名時第 2 層贏。** 檔案不存在(或空的)⇒ 第 2 層完全沒作用,agent 就拿你互動 shell 的環境。
+
+## 為什麼需要第 1 層(自動繼承)
 
 agent 不是你手動開的 shell。它由 launchd 啟動 → `tmux new-session` → **非互動、非 login 的 `zsh -c`**。
 
-zsh **只有互動 shell 才讀 `~/.zshrc`**。所以你放在 `.zshrc` 裡的 API key、token、PATH 補充,
-對每一個 agent 來說**都是不存在的** —— 這不是 bug,是 zsh 的設計。
+三層原因疊在一起:
+1. warden 的 launchd plist 只給一組寫死的最小 `EnvironmentVariables`;
+2. **launchd 從不 source `~/.zshrc`**;
+3. 啟動鏈路走的是**非互動** shell,而 zsh **只有互動 shell 才讀 `~/.zshrc`**。
 
-`~/.officraft/env` 就是補這個洞的地方:**只有 agent 啟動這條路徑會讀它**,
-不影響你機器上任何其他 shell。
+2026-07-20 實測:互動 shell 有、agent 沒有的變數共 **20 個**(其中 11 個是憑證),
+外加 `PATH` 少三條(`~/.local/bin`、`~/.asdf/shims`、`/opt/homebrew/sbin`)。這不是 bug,是 zsh 的設計。
+
+所以 warden 在**每次 spawn 時**都直接問一個互動 shell:
+
+```
+/bin/zsh -i -c '/usr/bin/env -0'
+```
+
+拿到的變數當作 agent 的環境基底。實測成本約 **0.12 秒**,每次 spawn 付一次。
+
+> **為什麼是 `env -0` 而不是 `export -p`?** zsh 的 `export -p` 會把 `PATH` / `FPATH` 這種
+> **tied array** 印成 `export -T PATH path=( ... )` 陣列語法。用 `KEY=value` 解析器讀它會
+> **靜靜地整個漏掉 `PATH`** —— 而 `PATH` 正是這件事最重要的那個變數。`env -0` 是 NUL 分隔的
+> `KEY=VALUE`,沒有引號方言、沒有陣列語法,值裡面可以有 `=`、換行、引號、空白,每個 byte 都是字面值。
+
+### 有幾個變數**不會**被繼承
+
+這些不是憑證,是**描述「撈取當下那個 shell」的簿記變數**,搬到 agent 身上會是錯的:
+
+| 變數 | 為什麼不繼承 |
+|---|---|
+| `PWD` / `OLDPWD` | 啟動行先 `cd <workdir>` 再套環境。繼承會讓 `$PWD` **從此說謊**(shell 實際在 workdir,但 `$PWD` 指向 warden 的目錄) |
+| `TMUX` / `TMUX_PANE` | 從 tmux pane 裡跑 ocwarden 時會有。繼承會讓 agent 的 tmux 指令**打到你自己的 session** |
+| `TERM` / `COLUMNS` / `LINES` | 描述撈取當下的終端。agent 的終端是它自己的 tmux pane,覆蓋掉會讓 claude TUI 畫面亂掉 |
+| `SHLVL` / `_` | shell 簿記,搬過去沒有意義 |
+| `OC_*` | warden 自己的身分命名空間(`OC_TOKEN` / `OC_BASE` / `OC_SESSION` …)。`.zshrc` 裡不小心 export 到不能改到 agent 的身分 |
+
+**其他全給** —— 包含全部憑證,正職與外包一致。
+
+### 關掉自動繼承
+
+萬一哪天繼承本身出問題,不用改碼就能退回舊行為:
+
+```bash
+launchctl setenv OC_AGENT_ENV_INHERIT 0   # 然後重啟 warden
+```
+
+設成 `0` / `false` / `no` / `off` 都算關。關掉之後 agent 就只剩最小環境 + `~/.officraft/env`。
+
+## 為什麼還需要第 2 層(`~/.officraft/env`)
+
+`~/.officraft/env` 是**覆寫層**:**只有 agent 啟動這條路徑會讀它**,
+不影響你機器上任何其他 shell。用它來:
+
+- 給 agent 一個**跟你自己不一樣**的值(例如指向 staging 的 token);
+- 給 agent 一個**互動 shell 根本沒有**的變數;
+- 你不填 ⇒ 完全沒作用。
 
 ## 怎麼用
 
@@ -115,6 +172,15 @@ grep "agent env" ~/.officraft/warden/log/ocwarden.err.log
 會看到像這樣的行 —— **只有變數名稱和原因,永遠不會印出值**:
 
 ```
-[ocwarden spawn] agent env: loaded 3 var(s) from /Users/you/.officraft/env: ANTHROPIC_API_KEY GITHUB_TOKEN PATH
+[ocwarden spawn] interactive env: inherited 24 var(s): PATH JIRA_TOKEN GEMINI_API_KEY HOMEBREW_PREFIX ...
+[ocwarden spawn] agent env: /Users/you/.officraft/env overrides the interactive shell for: JIRA_TOKEN
+[ocwarden spawn] agent env: 25 var(s) for the agent (24 inherited from the interactive shell, 2 from /Users/you/.officraft/env): PATH JIRA_TOKEN ...
 [ocwarden spawn] agent env: WARNING /Users/you/.officraft/env mode is 0644, wider than 0600 — it holds credentials; run: chmod 600 ...
+```
+
+撈不到互動環境時(shell 壞掉、逾時、輸出畸形),**spawn 不會失敗** —— 退回最小環境繼續起,
+並留下一行說明。warden 負責起機器上**每一個** agent,這條路徑絕不能有辦法把整個工作室弄掛:
+
+```
+[ocwarden spawn] interactive env: capture failed (timed out after 10s); spawning with the minimal environment — the agent will be missing whatever ~/.zshrc exports
 ```

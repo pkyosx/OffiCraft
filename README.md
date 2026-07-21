@@ -83,10 +83,13 @@ bin/ocserver install --force    # 重跑每一步(reinstall;不動既有密碼)
 
 ## agent 的環境變數
 
-agent 由 launchd → tmux → **非互動 zsh** 啟動,而 zsh **只有互動 shell 才讀 `~/.zshrc`**。
-所以你 `.zshrc` 裡的 API key、token、PATH 補充,**agent 一個都拿不到**。
+**預設就會繼承你互動 shell 的環境。** warden 在每次 spawn 時跑一次 `/bin/zsh -i -c '/usr/bin/env -0'`,
+把你 `.zshrc` 裡的 API key、token、PATH 補充原封不動交給 agent(約 0.12 秒)。
+撈不到就退回最小環境繼續起,**絕不會讓 spawn 失敗**。
 
-要給 agent 環境變數,寫進 `~/.officraft/env`:
+(`PWD` / `TMUX` / `TERM` 這類描述「撈取當下那個 shell」的變數不繼承 —— 搬過去會是錯的;`OC_*` 是 warden 身分,拒絕。)
+
+要**覆寫**某個變數,或給 agent 一個互動 shell 沒有的值,寫進 `~/.officraft/env`(同名時它贏):
 
 ```bash
 touch ~/.officraft/env && chmod 600 ~/.officraft/env    # 會裝憑證,權限收緊

@@ -523,6 +523,12 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner) Com
 		// T-426d: the owner's agent env file (<officraft root>/env, 0600). Absent
 		// is the normal state and is NOT an error — the spawn proceeds without it.
 		EnvFile: defaultAgentEnvFile(env),
+		// T-426d follow-up: the BASE env layer — the owner's interactive shell,
+		// captured per spawn (~0.12s measured). EnvFile above layers on top as the
+		// override. nil (OC_AGENT_ENV_INHERIT=0) restores the previous behaviour.
+		// A capture failure is never fatal: start() falls back to the minimal
+		// environment and warns on stderr.
+		CaptureEnv: defaultCaptureEnv(env),
 		// Diagnostics land on warden stderr → <logDir>/ocwarden.err.log per the
 		// plist's StandardErrorPath. Key names and reasons only, never values.
 		Logf: func(format string, a ...any) {

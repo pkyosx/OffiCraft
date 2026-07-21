@@ -456,11 +456,70 @@ func defaultAgentEnvFile(env func(string) string) string {
 	return filepath.Join(officraftRootFor(home, ns), "env")
 }
 
+// defaultCaptureEnv resolves the production CaptureEnv seam.
+//
+// Returns nil — inheritance OFF, launch line byte-identical to before — when
+// OC_AGENT_ENV_INHERIT is set to a disabling value. That kill switch exists
+// because this feature runs on EVERY spawn on the machine: if some rc file
+// interaction turns out to break agents in a way nobody predicted, the owner
+// needs a way back to the previous behaviour that does not require a rebuild.
+//
+// OC_AGENT_ENV_SHELL redirects the shell, which is how tests and the
+// conformance suite point this at a stub without a real ~/.zshrc.
+func defaultCaptureEnv(env func(string) string) func() (string, error) {
+	switch strings.ToLower(strings.TrimSpace(env("OC_AGENT_ENV_INHERIT"))) {
+	case "0", "false", "no", "off":
+		return nil
+	}
+	shell := env("OC_AGENT_ENV_SHELL")
+	if shell == "" {
+		shell = interactiveEnvShell
+	}
+	return func() (string, error) { return captureInteractiveEnv(shell, interactiveEnvTimeout) }
+}
+
 // logf is the nil-skipped diagnostic channel (SpawnDeps.Logf).
 func (d SpawnDeps) logf(format string, a ...any) {
 	if d.Logf != nil {
 		d.Logf(format, a...)
 	}
+}
+
+// interactiveEnvPairs is the FAIL-SAFE wrapper around the CaptureEnv seam. It
+// is the single place where "the interactive shell could not be read" is turned
+// into "spawn on the minimal environment" instead of "do not spawn".
+//
+// EVERY degraded case returns nil and lets the spawn continue: seam not wired
+// (inheritance off), shell missing, non-zero exit, timeout, oversized output,
+// output that contains no parseable record at all. warden starts every agent on
+// the machine — a spawn that can be killed by a bad rc file is a single point of
+// failure for the entire studio, which is strictly worse than an agent that is
+// merely missing some tools.
+//
+// The warning it emits names the FAILURE, never the output. d.logf goes to
+// warden stderr, which launchd captures into ocwarden.err.log.
+func (d SpawnDeps) interactiveEnvPairs() []agentEnvPair {
+	if d.CaptureEnv == nil {
+		return nil
+	}
+	raw, err := d.CaptureEnv()
+	if err != nil {
+		d.logf("interactive env: capture failed (%v); spawning with the minimal environment "+
+			"— the agent will be missing whatever ~/.zshrc exports", err)
+		return nil
+	}
+	pairs := parseNulEnv(raw, d.logf)
+	if len(pairs) == 0 {
+		// A shell that exits 0 having printed nothing usable is a real failure
+		// mode (an rc file that exec'd something else, a stubbed shell), and it
+		// is INVISIBLE unless it is called out — the spawn otherwise looks
+		// completely normal while the agent silently has no credentials.
+		d.logf("interactive env: capture produced no usable variables; spawning with the minimal environment")
+		return nil
+	}
+	d.logf("interactive env: inherited %d var(s): %s",
+		len(pairs), strings.Join(agentEnvKeyNames(pairs), " "))
+	return pairs
 }
 
 // osWriteFile is the real file-write seam (write-then-chmod, mirroring write_file).
@@ -594,9 +653,25 @@ type SpawnDeps struct {
 	// byte-identical to the pre-T-426d output. An ABSENT file at this path is
 	// not an error — the spawn proceeds with no extra env (fail-open).
 	EnvFile string
+	// CaptureEnv (T-426d follow-up) returns the OWNER'S INTERACTIVE SHELL
+	// environment as a NUL-delimited `KEY=VALUE` dump — see interactiveenv.go for
+	// why an interactive shell has to be asked at all (launchd never sources
+	// ~/.zshrc, and the spawn path is a non-interactive `zsh -c`), and why the
+	// dump is `env -0` rather than `export -p`.
+	//
+	// This is the BASE env layer; EnvFile is layered on top of it as the
+	// OVERRIDE. nil ⇒ inheritance is off and the launch line is byte-identical
+	// to the pre-inheritance output (also what OC_AGENT_ENV_INHERIT=0 wires).
+	//
+	// FAIL-SAFE CONTRACT: an error from this seam is NEVER fatal. start() logs a
+	// value-free warning and spawns on the minimal environment. warden starts
+	// every agent on the machine; this path must not be able to take the studio
+	// offline.
+	CaptureEnv func() (string, error)
 	// Logf (nil-skipped) is where env-file diagnostics go — warden stderr, which
 	// launchd captures into <logDir>/ocwarden.err.log. It receives KEY NAMES and
-	// reasons ONLY; a value from EnvFile must never be formatted into it.
+	// reasons ONLY; a value from EnvFile or from CaptureEnv must never be
+	// formatted into it.
 	Logf      func(string, ...any)
 	ClaudeBin string // pre-resolved claude executable (Phase 4 resolves it)
 	// RepoRoot is the officraft checkout root, injected at construction (from
@@ -764,7 +839,19 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	if err := d.Remove(renderPath); err != nil && !os.IsNotExist(err) {
 		d.logf("agent env: could not clear stale %s (%v); continuing", renderPath, err)
 	}
-	if pairs := loadAgentEnv(d.EnvFile, d.logf); len(pairs) > 0 {
+	// LAYER 1 (base): the owner's INTERACTIVE shell environment. Everything about
+	// this call is fail-safe — see interactiveEnvPairs.
+	interactive := d.interactiveEnvPairs()
+	// LAYER 2 (override): the owner's env file, layered ON TOP so a single
+	// variable can be pinned or supplied that the interactive shell lacks. An
+	// unwritten file contributes nothing, which keeps the pre-existing
+	// four-rounds-reviewed behaviour of agentenv.go exactly as it was.
+	fileEnv := loadAgentEnv(d.EnvFile, d.logf)
+	if names := overriddenKeyNames(interactive, fileEnv); len(names) > 0 {
+		d.logf("agent env: %s overrides the interactive shell for: %s",
+			d.EnvFile, strings.Join(names, " "))
+	}
+	if pairs := mergeAgentEnv(interactive, fileEnv); len(pairs) > 0 {
 		// 0600: this file holds the credentials the whole feature exists to
 		// deliver. A write failure is NON-FATAL — the agent boots without the
 		// extra env rather than not booting at all.
@@ -773,8 +860,9 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 		} else {
 			envRendered = renderPath
 			// Names only — proving WHAT was loaded without printing a value.
-			d.logf("agent env: loaded %d var(s) from %s: %s",
-				len(pairs), d.EnvFile, strings.Join(agentEnvKeyNames(pairs), " "))
+			d.logf("agent env: %d var(s) for the agent (%d inherited from the interactive shell, %d from %s): %s",
+				len(pairs), len(interactive), len(fileEnv), d.EnvFile,
+				strings.Join(agentEnvKeyNames(pairs), " "))
 		}
 	}
 
