@@ -71,7 +71,14 @@ export function UserGuideList({
  * Deriving a slug is NOT the same as it existing: `../dev/agent-env.md` yields
  * "agent-env", which is deliberately NOT embedded. Existence is checked
  * separately against the list the server actually served, so an unshipped
- * target degrades to the literal-text fallback instead of a 404 button. */
+ * target degrades to the literal-text fallback instead of a 404 button.
+ *
+ * This basename reduction is also the CONTAINMENT layer, not just a mapping:
+ * Markdown's DOC_REL_PATH_RE lets `../../../etc/passwd.md` and `evil.com/x.md`
+ * through to the resolver (both match its character class). Taking the
+ * basename discards every directory prefix — traversal or host alike — and the
+ * `docs.some(...)` check downstream then requires the survivor to be a doc the
+ * server really served. The target is NEVER used as a path here; do not start. */
 export function docSlugForRef(target: string): string {
   const base = target.slice(target.lastIndexOf("/") + 1);
   return base.endsWith(".md") ? base.slice(0, -3) : base;

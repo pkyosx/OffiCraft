@@ -69,7 +69,22 @@ interface MarkdownProps {
    * cannot start with "/") are ever handed to the resolver, so `javascript:`,
    * `data:` and protocol-relative `//evil.com` never reach it and stay literal
    * text. The result is a <button>, not an <a href>, so there is no URL for an
-   * open redirect to target. */
+   * open redirect to target.
+   *
+   * INPUT CONTRACT — what the allowlist does NOT promise. DOC_REL_PATH_RE is a
+   * SHAPE filter, not a sanitiser: `..`, `.` and `/` are all inside its
+   * character class, so a target handed to this resolver may legitimately look
+   * like a traversal (`../../../etc/passwd.md`) or like a bare host
+   * (`evil.com/x.md`) — both MATCH and both DO reach the resolver
+   * (reviewer-measured, review3 §1.2). What keeps that harmless today is the
+   * resolver, not the regex: the one call site (UserGuideDoc) reduces the
+   * target to its BASENAME and then requires that slug to be in the list the
+   * server actually served, so the worst case is "navigate to a doc that
+   * already exists".
+   * Therefore any resolver — this one or a future one — MUST NOT use the
+   * target as a path: no `fetch('/api/docs/' + target)`, no path.join, no
+   * filesystem or URL construction from it. Treat it as an opaque token to be
+   * matched against a known-good list. */
   resolveDocLink?: (target: string) => (() => void) | null;
 }
 
@@ -87,7 +102,12 @@ const SAFE_IMG_SRC_RE = /^(https?:\/\/|\/)/i;
 //     vbscript:, http:) can match, so a scheme can never reach the resolver;
 //   • the first segment cannot start with "/" → "/abs/x.md" and the
 //     protocol-relative "//evil.com/x.md" are both excluded;
-//   • it must END in ".md" → "#anchor", "?q=…", "evil.com" are excluded.
+//   • it must END in ".md" → "#anchor", "?q=…", a bare "evil.com" (no .md
+//     tail) are excluded.
+// What it does NOT exclude, and was once documented as if it did: "..", "."
+// and "/" are all inside the class, so "../../../etc/passwd.md" and
+// "evil.com/x.md" both MATCH and are both handed to the resolver. Containing
+// them is the RESOLVER's job — see the resolveDocLink prop's INPUT CONTRACT.
 // Matching here only makes a target ELIGIBLE; the resolver still has to
 // recognise it (the doc page checks it against the docs actually embedded), and
 // a null answer keeps the literal-text fallback.
