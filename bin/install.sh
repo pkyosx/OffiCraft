@@ -100,9 +100,20 @@
 #      from ~/.officraft/bin/ocserverd (this installer's own signature — a
 #      from-source `bin/ocserver install` never writes there) and from the
 #      launchd plist's ProgramArguments[0] (OC_LAUNCHD_LABEL is respected); a
-#      label claimed by a different program is refused, loudly, untouched. A
-#      from-source install sharing the same ~/.officraft/server root (visible
-#      as server/repo/) is never touched.
+#      label claimed by a different program is refused, loudly, untouched.
+#
+#      SCOPE — removal touches ONLY what this installer created: bin/, the
+#      release-path pieces of server/ (data, oc.toml, log), and the launchd
+#      job. Everything else under ~/.officraft is created at RUNTIME by other
+#      programs and is LEFT IN PLACE, by name: agents/ (every agent workspace
+#      on this machine) and warden/ (plus its own com.officraft.ocwarden job,
+#      which this installer never registered and therefore never removes —
+#      `ocwarden teardown` is that subsystem's own removal path). A from-source
+#      install sharing the same ~/.officraft/server root (visible as
+#      server/repo/) is likewise never touched. This is not a courtesy: an
+#      earlier version moved the WHOLE of ~/.officraft aside while printing
+#      "nothing was deleted", which silently took every agent workspace and the
+#      warden with it (T-fa39).
 set -euo pipefail
 
 # ProgramArguments[0] of an existing plist, or "" if unreadable/absent. Shared
@@ -132,18 +143,32 @@ cmd_uninstall_release() {
       -h|--help)
         cat <<'EOF'
 Removes an OffiCraft install created by THIS installer (curl | bash, or a
-package-mode ./install.sh run). Never touches a from-source `bin/ocserver
-install`'s repo/ checkout, even when it shares the same ~/.officraft/server
-root.
+package-mode ./install.sh run).
 
   curl -fsSL … | bash -s -- --uninstall              # stop + move to a backup
   curl -fsSL … | bash -s -- --uninstall --dry-run    # print only, change nothing
   curl -fsSL … | bash -s -- --uninstall --purge      # DELETE (asks unless --yes)
 
-Default: stops the launchd job, removes its plist, and MOVES the release-path
-pieces of ~/.officraft to ~/.officraft.bak-<timestamp> — the database is kept,
-just relocated, not deleted. --purge deletes them instead (no backup); it asks
-you to type "purge" to confirm unless --yes is given.
+WHAT IT TOUCHES — only what this installer itself created:
+  ~/.officraft/bin/                        (ocserverd, ocwarden, ocagent)
+  ~/.officraft/server/data, oc.toml, log   (the database lives in data/)
+  the launchd job + plist for OC_LAUNCHD_LABEL (default com.officraft.serve)
+
+WHAT IT LEAVES ALONE — created at runtime by other programs, never by this
+installer, so removal has no business moving them:
+  ~/.officraft/agents/   EVERY agent workspace on this machine
+  ~/.officraft/warden/   plus its own com.officraft.ocwarden launchd job,
+                         which stays registered — remove it with
+                         `ocwarden teardown`, not with this script
+  ~/.officraft/server/repo/  a from-source `bin/ocserver install` sharing
+                             this root
+  ~/.officraft itself is never removed.
+
+Default: stops the launchd job, MOVES the pieces listed above to
+~/.officraft.bak-<timestamp> (plist to ~/.officraft.bak-<timestamp>.plist) and
+prints a restore command that actually re-registers the service — the database
+is kept, just relocated, not deleted. --purge deletes them instead (no backup);
+it asks you to type "purge" to confirm unless --yes is given.
 
 Respects OC_LAUNCHD_LABEL if the install used a non-default label. Refuses,
 loudly and without changing anything, if that label belongs to a different
@@ -233,53 +258,134 @@ EOF
     echo "[install] NOTE: $SERVER_DIR/repo exists — a from-source install shares this root. Leaving repo/ (and anything else under $SERVER_DIR that isn't ours) untouched."
   fi
 
+  # ── what we are NOT touching ───────────────────────────────────────────────
+  # $ROOT_DIR holds runtime state this installer never created — agents/ (one
+  # workspace per agent that has ever run on this machine) and warden/ (a
+  # separate daemon with its OWN launchd job). A previous version moved the
+  # whole root aside while printing "nothing was deleted", so the blast radius
+  # silently covered both. We now enumerate what stays, BY NAME, so the message
+  # is sufficient to predict the outcome (T-fa39).
+  local kept=() base
+  shopt -s nullglob dotglob
+  local top
+  for top in "$ROOT_DIR"/*; do
+    base="$(basename "$top")"
+    case "$base" in
+      bin|server) ;; # ours (server/ only partially — see the repo/ note above)
+      *) kept+=("$base") ;;
+    esac
+  done
+  shopt -u nullglob dotglob
+
+  local agent_count=0
+  if [[ -d "$ROOT_DIR/agents" ]]; then
+    agent_count="$(find "$ROOT_DIR/agents" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')"
+  fi
+
+  echo "[install] will touch:   $BIN_DIR, $SERVER_DIR/{data,oc.toml,log}, launchd job $LABEL"
+  if [[ "${#kept[@]}" -gt 0 ]]; then
+    echo "[install] will NOT touch: ${kept[*]} (under $ROOT_DIR) — left exactly where they are"
+    if [[ -d "$ROOT_DIR/agents" ]]; then
+      echo "[install]   agents/ holds $agent_count agent workspace(s) on this machine — this script never removes them"
+    fi
+    if [[ -d "$ROOT_DIR/warden" ]]; then
+      echo "[install]   warden/ belongs to the ocwarden daemon, which keeps its own launchd job (com.officraft.ocwarden)"
+      echo "[install]   registered and RUNNING after this script finishes. To remove the warden too: ocwarden teardown"
+    fi
+  fi
+  echo "[install] $ROOT_DIR itself is never removed."
+
   if [[ "$purge" == "1" && "$dryrun" != "1" && "$yes" != "1" ]]; then
     echo "[install] --purge will DELETE $BIN_DIR and the release-path parts of $SERVER_DIR, INCLUDING the database (your owner credential hash lives there). Irreversible." >&2
+    # Read the confirmation from the TERMINAL, not from stdin: the documented
+    # invocation is `curl … | bash -s -- --uninstall --purge`, where fd 0 is the
+    # pipe carrying THIS SCRIPT. Reading fd 0 there consumes script bytes / hits
+    # EOF, so under `set -e` the prompt died with a bare exit 1 and no message —
+    # a confirmation gate that looked present but could never be satisfied
+    # (T-fa39). Fall back to fd 0 when there is no controlling terminal (CI,
+    # test harnesses), which is also the only shape the test suite can drive.
+    # NOTE the brace group around exec: a bare `exec 3<>/dev/tty 2>/dev/null`
+    # would make that stderr redirect PERMANENT for the rest of the script,
+    # silently swallowing every later diagnostic. Scoping it to the group keeps
+    # the suppression to this one probe.
+    local answer="" use_tty=0
+    if [[ -e /dev/tty ]] && { exec 3<>/dev/tty; } 2>/dev/null; then use_tty=1; fi
     printf '[install] type "purge" to confirm: ' >&2
-    local answer=""
-    read -r answer
+    if [[ "$use_tty" == "1" ]]; then
+      read -r answer <&3 || answer=""
+      exec 3>&-
+    else
+      read -r answer || answer=""
+    fi
     [[ "$answer" == "purge" ]] || { echo "[install] aborted — nothing was changed." >&2; exit 1; }
   fi
 
-  # 1. launchd job: stop it (if running) and drop the plist.
+  # 1. launchd job: stop it (if running) and take the plist out of the way.
+  #    On the default (move) path the plist is MOVED next to the backup rather
+  #    than deleted: `rm`-ing it made the printed restore command a lie, since
+  #    putting the files back could not re-register a service whose plist no
+  #    longer existed (T-fa39). --purge still deletes it — that path promises
+  #    no way back.
+  #    The plist is kept INSIDE the backup (launchd/ subdir), not beside it as
+  #    "$backup.plist": that sibling name matches the very same
+  #    ".officraft.bak-*" glob the backup directory uses, so anything counting
+  #    or globbing backups would see two where there is one.
+  local backup="" plist_backup=""
+  if [[ "$purge" != "1" ]]; then
+    backup="$ROOT_DIR.bak-$(date +%Y%m%d%H%M%S)"
+    plist_backup="$backup/launchd/$LABEL.plist"
+  fi
+
   if [[ -n "$job_pid" ]]; then
     echo "[install] stopping launchd job $LABEL (pid $job_pid)"
     run launchctl bootout "$TARGET"
   elif [[ "$plist_ours" == "1" ]]; then
     echo "[install] launchd job $LABEL is registered but not running — removing its plist"
   fi
-  [[ -f "$PLIST" ]] && run rm -f "$PLIST"
+  if [[ -f "$PLIST" ]]; then
+    if [[ "$purge" == "1" ]]; then
+      run rm -f "$PLIST"
+    else
+      run mkdir -p "$backup/launchd"
+      run mv "$PLIST" "$plist_backup"
+    fi
+  fi
 
-  # 2. files: bin/ + server/{data,oc.toml,log} — never server/repo.
+  # 2. files: bin/ + server/{data,oc.toml,log}. NEVER server/repo, NEVER
+  #    agents/, NEVER warden/, and never $ROOT_DIR itself. There is deliberately
+  #    no "and if the root looks empty, remove it too" branch any more: that was
+  #    the shape that let the blast radius depend on what happened to be lying
+  #    around, and it also under-reported itself under --dry-run (the preceding
+  #    delete had only been printed, so the root never looked empty and the
+  #    rm -rf was silently omitted from the preview). Same list, both modes.
+  local entry
   if [[ "$purge" == "1" ]]; then
     [[ -e "$BIN_DIR" ]] && run rm -rf "$BIN_DIR"
-    if [[ "$coexists_source" == "1" ]]; then
-      local entry
-      for entry in data oc.toml log; do
-        [[ -e "$SERVER_DIR/$entry" ]] && run rm -rf "$SERVER_DIR/$entry"
-      done
-    else
-      [[ -e "$SERVER_DIR" ]] && run rm -rf "$SERVER_DIR"
-      shopt -s nullglob dotglob
-      local leftover=("$ROOT_DIR"/*)
-      shopt -u nullglob dotglob
-      [[ "${#leftover[@]}" == 0 ]] && run rm -rf "$ROOT_DIR"
-    fi
+    for entry in data oc.toml log; do
+      [[ -e "$SERVER_DIR/$entry" ]] && run rm -rf "$SERVER_DIR/$entry"
+    done
     echo "[install] purge complete — $BIN_DIR and this release's server data are gone."
-  else
-    local backup="$ROOT_DIR.bak-$(date +%Y%m%d%H%M%S)"
-    if [[ "$coexists_source" == "1" ]]; then
-      run mkdir -p "$backup/server"
-      [[ -e "$BIN_DIR" ]] && run mv "$BIN_DIR" "$backup/bin"
-      local entry
-      for entry in data oc.toml log; do
-        [[ -e "$SERVER_DIR/$entry" ]] && run mv "$SERVER_DIR/$entry" "$backup/server/$entry"
-      done
+    if [[ "${#kept[@]}" -gt 0 ]]; then
+      echo "[install]   $ROOT_DIR was NOT removed — it still holds: ${kept[*]}"
     else
-      run mv "$ROOT_DIR" "$backup"
+      echo "[install]   $ROOT_DIR was NOT removed."
     fi
+  else
+    run mkdir -p "$backup/server"
+    [[ -e "$BIN_DIR" ]] && run mv "$BIN_DIR" "$backup/bin"
+    for entry in data oc.toml log; do
+      [[ -e "$SERVER_DIR/$entry" ]] && run mv "$SERVER_DIR/$entry" "$backup/server/$entry"
+    done
     echo "[install] moved to $backup — the service is stopped but nothing was deleted."
-    echo "[install]   restore: mv $backup $ROOT_DIR"
+    echo "[install]   what moved: bin/ and server/{data,oc.toml,log} only."
+    if [[ "${#kept[@]}" -gt 0 ]]; then
+      echo "[install]   what stayed in $ROOT_DIR: ${kept[*]} — untouched, still in place."
+    fi
+    # The restore line has to put back BOTH halves — the files AND the launchd
+    # registration — or it hands you a way back that does not actually work.
+    # $ROOT_DIR and $SERVER_DIR are still there (we never remove them), but the
+    # mkdir -p keeps the line correct even on a root that was cleaned up by hand.
+    echo "[install]   restore: mkdir -p \"$SERVER_DIR\" && cp -R \"$backup/bin\" \"$ROOT_DIR/\" && cp -R \"$backup/server/.\" \"$SERVER_DIR/\" && cp \"$plist_backup\" \"$PLIST\" && launchctl bootstrap \"$GUI\" \"$PLIST\""
   fi
 
   if [[ "$dryrun" == "1" ]]; then

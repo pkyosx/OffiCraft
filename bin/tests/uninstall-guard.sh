@@ -81,11 +81,20 @@ chmod +x "$SHIMDIR/launchctl"
 tripwire_has() { grep -qF -e "$1" "$WORK/.tripwire" 2>/dev/null; }
 booted_out()   { [[ -f "$WORK/.booted-out" ]] && echo yes || echo no; }
 
-# reset_fixture <none|clean-install|source-coexist> [job-state]
+# reset_fixture <none|clean-install|source-coexist|station> [job-state]
 #   none           — nothing under $FAKEHOME/.officraft at all.
 #   clean-install  — a plain release-path install: bin/ + server/{data,oc.toml,log}.
+#                    NOTE this shape has NO agents/ or warden/ — it is the
+#                    deliberate CONTROL for the station shape below, so that
+#                    "agents/ survived" cannot pass vacuously on a fixture that
+#                    never had agents/ in the first place.
 #   source-coexist — clean-install PLUS server/repo/ (a from-source install
 #                    sharing the same root — must survive untouched).
+#   station        — clean-install PLUS the runtime state a machine that is BOTH
+#                    server and worker accumulates: warden/ and agents/<id>/.
+#                    This is the shape production actually has, and the shape
+#                    the old code moved wholesale into the backup while printing
+#                    "nothing was deleted" (T-fa39).
 # job-state (default "absent") feeds SHIM_JOB for launchctl print, and — when
 # not "absent" — a plist pointing at OUR binary is written so the ownership
 # check adopts the label.
@@ -97,7 +106,7 @@ reset_fixture() {
   SHIM_JOB="$job"
 
   case "$shape" in
-    clean-install|source-coexist)
+    clean-install|source-coexist|station)
       mkdir -p "$FAKEHOME/.officraft/bin" "$FAKEHOME/.officraft/server/data" "$FAKEHOME/.officraft/server/log"
       printf '#!/usr/bin/env bash\nexit 0\n' > "$FAKEHOME/.officraft/bin/ocserverd"
       chmod +x "$FAKEHOME/.officraft/bin/ocserverd"
@@ -107,6 +116,16 @@ reset_fixture() {
       if [[ "$shape" == "source-coexist" ]]; then
         mkdir -p "$FAKEHOME/.officraft/server/repo/.git"
         printf 'FROM-SOURCE-MARKER' > "$FAKEHOME/.officraft/server/repo/marker.txt"
+      fi
+      if [[ "$shape" == "station" ]]; then
+        mkdir -p "$FAKEHOME/.officraft/warden/log"
+        printf 'WARDEN-TOKEN-MARKER' > "$FAKEHOME/.officraft/warden/exec-warden.tok"
+        printf 'WARDEN-LOG\n' > "$FAKEHOME/.officraft/warden/log/warden.log"
+        local a
+        for a in ow-aaa111 ow-bbb222 m-ccc333; do
+          mkdir -p "$FAKEHOME/.officraft/agents/$a/tmp"
+          printf 'WORKSPACE-OF-%s' "$a" > "$FAKEHOME/.officraft/agents/$a/persona.md"
+        done
       fi
       ;;
     none) : ;;
@@ -206,7 +225,14 @@ BAK="$(find "$FAKEHOME" -maxdepth 1 -name '.officraft.bak-*' 2>/dev/null | head 
 check "default uninstall: exactly one backup dir was created" "1" "$(find "$FAKEHOME" -maxdepth 1 -name '.officraft.bak-*' 2>/dev/null | wc -l | tr -d ' ')"
 check "default uninstall: the database moved into the backup, byte-identical" "FAKE-DB-CONTENT" "$(cat "$BAK/server/data/officraft.db" 2>/dev/null)"
 check "default uninstall: the binary moved into the backup too" "1" "$([[ -x "$BAK/bin/ocserverd" ]] && echo 1 || echo 0)"
-case "$OUT" in *"restore: mv"*) ok "default uninstall: prints a restore command";; *) bad "default uninstall: no restore command in output";; esac
+case "$OUT" in *"restore: "*) ok "default uninstall: prints a restore command";; *) bad "default uninstall: no restore command in output";; esac
+# The restore command must put back BOTH halves. Moving the files back is not a
+# restore if the launchd registration cannot come back with them — the plist was
+# rm'd, so the old one-liner (`mv $backup $ROOT_DIR`) left the service dead and
+# said nothing about it. Asserting the FILES half alone would re-accept exactly
+# that bug, so both are pinned, plus the plist actually being in the backup.
+case "$OUT" in *"launchctl bootstrap"*) ok "default uninstall: restore re-registers the launchd job, not just the files";; *) bad "default uninstall: restore command does not re-register the service ('$OUT')";; esac
+check "default uninstall: the plist was preserved in the backup (not just deleted)" "1" "$([[ -f "$BAK/launchd/$LABEL.plist" ]] && echo 1 || echo 0)"
 
 # ── 6. job registered but NOT running: plist removed, bootout NOT called ───
 # Booting out a job with no pid is harmless in reality, but asserting we don't
@@ -285,6 +311,110 @@ check "flag order: --uninstall not first still exits 0" "0" "$RC"
 case "$OUT" in *"purge=1 dryrun=1"*) ok "flag order: both flags parsed regardless of position";; *) bad "flag order: wrong resolution ('$OUT')";; esac
 case "$OUT" in *"DRYRUN would run"*) ok "flag order: dry-run guarantee held (only announced, did not purge)";; *) bad "flag order: dry-run guarantee broken ('$OUT')";; esac
 check "flag order: database survives (dry-run must mutate nothing)" "FAKE-DB-CONTENT" "$(cat "$FAKEHOME/.officraft/server/data/officraft.db" 2>/dev/null)"
+
+# ── 12. THE T-fa39 CASE: on a server+worker station, agents/ and warden/ must ─
+# ── survive BOTH modes, and the message must name them ───────────────────────
+# The old code took the non-coexist branch to `mv $ROOT_DIR $backup`, which
+# swept up every agent workspace and the warden daemon's whole directory while
+# printing "the service is stopped but nothing was deleted". The blast radius
+# was larger than the message, which is the actual defect — the move was
+# recoverable, the misleading message was not.
+reset_fixture station running
+run_uninstall
+check "station/default: exits 0" "0" "$RC"
+check "station/default: agents/ still in place (NOT moved into the backup)" "WORKSPACE-OF-ow-aaa111" "$(cat "$FAKEHOME/.officraft/agents/ow-aaa111/persona.md" 2>/dev/null)"
+check "station/default: every agent workspace survives" "3" "$(find "$FAKEHOME/.officraft/agents" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')"
+check "station/default: warden/ still in place" "WARDEN-TOKEN-MARKER" "$(cat "$FAKEHOME/.officraft/warden/exec-warden.tok" 2>/dev/null)"
+check "station/default: \$ROOT_DIR itself still exists" "1" "$([[ -d "$FAKEHOME/.officraft" ]] && echo 1 || echo 0)"
+BAK="$(find "$FAKEHOME" -maxdepth 1 -name '.officraft.bak-*' 2>/dev/null | head -1)"
+check "station/default: exactly one backup dir" "1" "$(find "$FAKEHOME" -maxdepth 1 -name '.officraft.bak-*' 2>/dev/null | wc -l | tr -d ' ')"
+check "station/default: agents/ did NOT leak into the backup" "0" "$([[ -e "$BAK/agents" ]] && echo 1 || echo 0)"
+check "station/default: warden/ did NOT leak into the backup" "0" "$([[ -e "$BAK/warden" ]] && echo 1 || echo 0)"
+check "station/default: the release-path DB still made it into the backup" "FAKE-DB-CONTENT" "$(cat "$BAK/server/data/officraft.db" 2>/dev/null)"
+# Surviving is necessary but not sufficient: the ticket's defect was the MESSAGE
+# under-describing the blast radius, so the disclosure is asserted on its own.
+case "$OUT" in *"will NOT touch"*) ok "station/default: message states what it will not touch";; *) bad "station/default: no 'will NOT touch' disclosure ('$OUT')";; esac
+case "$OUT" in *"agents/ holds 3 agent workspace(s)"*) ok "station/default: names the agent-workspace count";; *) bad "station/default: does not disclose the agent workspaces";; esac
+case "$OUT" in *"ocwarden teardown"*) ok "station/default: points at the warden's own removal path";; *) bad "station/default: does not say how to remove the warden";; esac
+case "$OUT" in *"com.officraft.ocwarden"*) ok "station/default: discloses the warden job it leaves registered";; *) bad "station/default: silent about the leftover warden job";; esac
+
+# ── 13. same station, --purge: deletion must be just as contained ──────────────
+reset_fixture station running
+run_uninstall --purge --yes
+check "station/purge: exits 0" "0" "$RC"
+check "station/purge: the release DB really is gone" "0" "$([[ -e "$FAKEHOME/.officraft/server/data/officraft.db" ]] && echo 1 || echo 0)"
+check "station/purge: agents/ survives deletion too" "WORKSPACE-OF-m-ccc333" "$(cat "$FAKEHOME/.officraft/agents/m-ccc333/persona.md" 2>/dev/null)"
+check "station/purge: warden/ survives deletion too" "WARDEN-TOKEN-MARKER" "$(cat "$FAKEHOME/.officraft/warden/exec-warden.tok" 2>/dev/null)"
+check "station/purge: \$ROOT_DIR is NOT removed" "1" "$([[ -d "$FAKEHOME/.officraft" ]] && echo 1 || echo 0)"
+# Regression pin for the dry-run under-reporting bug (T-fa39 C1): the old code
+# had a "if the root looks empty, rm -rf it" branch whose preview was silently
+# omitted under --dry-run, because the delete before it had only been printed.
+# The branch is gone; this asserts nobody reintroduces a root-level rm.
+case "$OUT" in *"rm -rf $FAKEHOME/.officraft "*|*"rm -rf $FAKEHOME/.officraft"$'\n'*) bad "station/purge: something removes \$ROOT_DIR wholesale again";; *) ok "station/purge: no wholesale \$ROOT_DIR removal";; esac
+
+# ── 14. CONTROL for 12/13: the survival assertions must be able to FAIL ───────
+# clean-install has no agents/ at all. If the checks above were passing merely
+# because "the file we looked for was never there", this control would look
+# identical. Asserting the count is 0 here — and 3 there — is what proves the
+# station assertions have discriminating power rather than being vacuous.
+reset_fixture clean-install running
+run_uninstall
+check "control (no agents/): fixture genuinely has none, so 12's '3' means something" "0" "$(find "$FAKEHOME/.officraft/agents" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')"
+case "$OUT" in *"agent workspace(s)"*) bad "control (no agents/): claims agent workspaces on a fixture that has none";; *) ok "control (no agents/): stays silent about agents rather than inventing them";; esac
+
+# ── 15. DoD#4 — the printed restore one-liner must ACTUALLY restore ───────────
+# Not a re-implementation of it: the exact string the script printed is pulled
+# out of the output and executed. A restore command that is merely plausible is
+# the failure mode this case exists to catch (the previous one looked fine and
+# could not re-register the service).
+reset_fixture station running
+run_uninstall
+RESTORE_CMD="$(printf '%s\n' "$OUT" | sed -n 's/^\[install\][[:space:]]*restore: //p' | head -1)"
+check "restore: a command line was actually printed" "1" "$([[ -n "$RESTORE_CMD" ]] && echo 1 || echo 0)"
+check "restore: precondition — the live binary really is gone before restoring" "0" "$([[ -e "$FAKEHOME/.officraft/bin/ocserverd" ]] && echo 1 || echo 0)"
+check "restore: precondition — the plist really is gone before restoring" "0" "$([[ -f "$FAKEHOME/Library/LaunchAgents/$LABEL.plist" ]] && echo 1 || echo 0)"
+rm -f "$WORK/.tripwire"; : > "$WORK/.tripwire"
+( export PATH="$SHIMDIR:/usr/bin:/bin:/usr/sbin:/sbin"; eval "$RESTORE_CMD" ) >/dev/null 2>&1
+RESTORE_RC=$?
+check "restore: the printed one-liner runs clean" "0" "$RESTORE_RC"
+check "restore: the binary is back on the live path" "1" "$([[ -x "$FAKEHOME/.officraft/bin/ocserverd" ]] && echo 1 || echo 0)"
+check "restore: the database is back, byte-identical" "FAKE-DB-CONTENT" "$(cat "$FAKEHOME/.officraft/server/data/officraft.db" 2>/dev/null)"
+check "restore: oc.toml is back" "1" "$([[ -f "$FAKEHOME/.officraft/server/oc.toml" ]] && echo 1 || echo 0)"
+check "restore: the plist is back where launchd looks for it" "1" "$([[ -f "$FAKEHOME/Library/LaunchAgents/$LABEL.plist" ]] && echo 1 || echo 0)"
+check "restore: it re-registers the job (this is the half the old command silently dropped)" "yes" "$(tripwire_has "bootstrap" && echo yes || echo no)"
+check "restore: agents/ were never involved either way" "3" "$(find "$FAKEHOME/.officraft/agents" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')"
+
+# ── 16. --dry-run on a station: announces, and touches nothing at all ─────────
+reset_fixture station running
+run_uninstall --dry-run
+check "station/dry-run: exits 0" "0" "$RC"
+check "station/dry-run: binary untouched" "1" "$([[ -x "$FAKEHOME/.officraft/bin/ocserverd" ]] && echo 1 || echo 0)"
+check "station/dry-run: database untouched" "FAKE-DB-CONTENT" "$(cat "$FAKEHOME/.officraft/server/data/officraft.db" 2>/dev/null)"
+check "station/dry-run: plist untouched" "1" "$([[ -f "$FAKEHOME/Library/LaunchAgents/$LABEL.plist" ]] && echo 1 || echo 0)"
+check "station/dry-run: agents/ untouched" "3" "$(find "$FAKEHOME/.officraft/agents" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')"
+check "station/dry-run: warden/ untouched" "WARDEN-TOKEN-MARKER" "$(cat "$FAKEHOME/.officraft/warden/exec-warden.tok" 2>/dev/null)"
+check "station/dry-run: no backup dir created" "0" "$(find "$FAKEHOME" -maxdepth 1 -name '.officraft.bak-*' 2>/dev/null | wc -l | tr -d ' ')"
+# The preview has to disclose the same scope the real run has, or it is not a
+# preview. Both halves: what moves, and what is spared.
+case "$OUT" in *"DRYRUN would run: mv"*) ok "station/dry-run: announces the moves";; *) bad "station/dry-run: no announced mv";; esac
+case "$OUT" in *"will NOT touch"*) ok "station/dry-run: discloses the spared paths too";; *) bad "station/dry-run: preview omits the spared paths";; esac
+
+# ── 17. fail-closed must be PRECISE: a pure worker machine is still clean ─────
+# A machine that only ever ran agents has agents/ and warden/ but no bin/
+# ocserverd and no plist of ours. The new disclosure/enumeration code walks
+# $ROOT_DIR, so it must not turn this into an error, a prompt, or a removal —
+# "already clean, exit 0" has to keep meaning exactly what it meant before.
+# This is the second direction the ticket's DoD asks for: the guard must not be
+# widened into blocking machines that were never in danger.
+reset_fixture none
+mkdir -p "$FAKEHOME/.officraft/agents/ow-worker1" "$FAKEHOME/.officraft/warden"
+printf 'WORKER-ONLY' > "$FAKEHOME/.officraft/agents/ow-worker1/persona.md"
+run_uninstall
+check "worker-only machine: still exits 0 (not blocked by the new enumeration)" "0" "$RC"
+case "$OUT" in *"nothing to remove"*"Already clean"*) ok "worker-only machine: still reports already-clean";; *) bad "worker-only machine: message changed ('$OUT')";; esac
+check "worker-only machine: never calls launchctl" "" "$(cat "$WORK/.tripwire" 2>/dev/null)"
+check "worker-only machine: its agent workspace is untouched" "WORKER-ONLY" "$(cat "$FAKEHOME/.officraft/agents/ow-worker1/persona.md" 2>/dev/null)"
+check "worker-only machine: no backup dir was created" "0" "$(find "$FAKEHOME" -maxdepth 1 -name '.officraft.bak-*' 2>/dev/null | wc -l | tr -d ' ')"
 
 echo "uninstall-guard tests: $PASS ok, $FAIL failed"
 [[ "$FAIL" == "0" ]] || exit 1
