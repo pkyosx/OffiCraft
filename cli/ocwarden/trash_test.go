@@ -212,6 +212,43 @@ func TestPurgeTrash_RefusesMalformedShapes(t *testing.T) {
 			},
 		},
 		{
+			// R1 (found in review, NOT by the first cut of these tests): the
+			// WORKDIR ITSELF is a symlink pointing out of the agents root. It
+			// satisfies every STRING-level guard — absolute, clean, and
+			// Dir(workdir)==root textually — so before G7 was fixed this deleted
+			// <symlink target>/trash outside the tree and reported success. Same
+			// pathology as the agentsEVIL prefix-sibling case, via the filesystem
+			// instead of via the string.
+			name: "workdir is a symlink out of the agents root",
+			mutate: func(t *testing.T, root, workdir string) (string, string, string) {
+				outside := filepath.Join(filepath.Dir(root), "precious-home")
+				if err := os.MkdirAll(filepath.Join(outside, "trash", "ownerdata"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(outside, "trash", "ownerdata", "irreplaceable.txt"), []byte("owner data"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				link := filepath.Join(root, "m-linked")
+				if err := os.Symlink(outside, link); err != nil {
+					t.Fatal(err)
+				}
+				return root, link, filepath.Join(outside, "trash", "ownerdata", "irreplaceable.txt")
+			},
+		},
+		{
+			// R2: the same trick aimed INSIDE the tree — one agent's workdir
+			// symlinked at a NEIGHBOUR's dir. Textually impeccable; would have
+			// reaped somebody else's trash.
+			name: "workdir is a symlink to a neighbour agent",
+			mutate: func(t *testing.T, root, workdir string) (string, string, string) {
+				link := filepath.Join(root, "m-linked")
+				if err := os.Symlink(filepath.Join(root, "m-other"), link); err != nil {
+					t.Fatal(err)
+				}
+				return root, link, filepath.Join(root, "m-other", "trash", "theirs.txt")
+			},
+		},
+		{
 			// THE headline case: `trash` is a symlink pointing OUT of the workdir.
 			name: "trash is a symlink out of the workdir",
 			mutate: func(t *testing.T, root, workdir string) (string, string, string) {

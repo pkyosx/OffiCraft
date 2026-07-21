@@ -263,6 +263,17 @@ type sweepSeams struct {
 	// deleting files the agent already disowned is safe regardless of whether its
 	// process died, and a stop that did not take is re-issued anyway (the second
 	// purge is a no-op).
+	//
+	// KNOWN BOUNDARY (do NOT read a mutual-exclusion guarantee into the ordering):
+	// sitting after the kill ladder makes "the agent is dead by now" the COMMON
+	// case, not a guarantee. On a PARTIAL stop (stopped=false — a sweep survivor is
+	// still alive) that premise does NOT hold and the purge races a live process.
+	// Accepted, not overlooked: the only target is what the agent itself already
+	// mv'd into trash and disowned, and a genuine collision surfaces as a LOUD
+	// RemoveAll error rather than silent damage. The spawn-side hook has the
+	// analogous hole — its clobber-guard lets a BROKEN tmux probe (has == nil)
+	// through — so neither hook may be described as "cannot run against a live
+	// agent"; both are "almost never does".
 	purgeTrash func()
 }
 

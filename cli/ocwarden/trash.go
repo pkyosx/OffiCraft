@@ -56,13 +56,16 @@ const trashDirName = "trash"
 //	                                     Clean-equality rejects the input before
 //	                                     the escape is even computed.
 //	G4 workdir not a DIRECT child of
-//	   root                            — the positive containment check. Not a
+//	   root, TEXTUALLY                 — the string-level containment check. Not a
 //	                                     HasPrefix test (that admits
 //	                                     "/x/agentsEVIL"); Dir(workdir)==root is
 //	                                     exact, and it also rejects
 //	                                     workdir==root itself (Dir(root)!=root),
 //	                                     so the whole agents tree can never be
-//	                                     the target.
+//	                                     the target. NOT SUFFICIENT ALONE — it
+//	                                     proves the PATH STRING is well-formed,
+//	                                     not that the FILESYSTEM agrees. G7 is
+//	                                     what closes that gap.
 //	G5 trash is a SYMLINK              — lstat (never stat): a `trash -> /` symlink
 //	                                     planted in a workdir would otherwise make
 //	                                     RemoveAll follow it. RemoveAll actually
@@ -70,13 +73,46 @@ const trashDirName = "trash"
 //	                                     but we refuse anyway rather than depend on
 //	                                     that implementation detail.
 //	G6 trash is not a directory        — a plain file named trash is not ours.
-//	G7 symlinked ANCESTOR redirection  — EvalSymlinks(workdir)/trash must equal
-//	                                     EvalSymlinks(trash). Ancestor symlinks are
-//	                                     legitimate on macOS (/var -> /private/var),
-//	                                     so we compare the workdir-relative resolved
-//	                                     paths instead of demanding trash resolve to
-//	                                     itself; any redirection that moves trash out
-//	                                     from under its own workdir is refused.
+//	G7 resolved workdir is not the
+//	   id-named child of resolved root — EvalSymlinks(workdir) must equal
+//	                                     EvalSymlinks(root)/Base(workdir). Note this
+//	                                     is STRICTER than "is still a direct child":
+//	                                     a workdir symlinked at a NEIGHBOUR agent
+//	                                     passes a mere Dir()==root test (the
+//	                                     neighbour is a direct child too) and would
+//	                                     reap the neighbour's trash. Demanding the
+//	                                     basename survive resolution encodes the
+//	                                     property we depend on: this id OWNS this
+//	                                     directory. THIS is the guard that
+//	                                     stops a workdir which is ITSELF a symlink
+//	                                     (planted, or an owner moving one agent's
+//	                                     dir onto an external disk) from walking the
+//	                                     delete out of the agents tree entirely, or
+//	                                     onto a NEIGHBOUR agent's dir. Comparing
+//	                                     both sides post-resolution is what makes a
+//	                                     legitimate ANCESTOR symlink (macOS
+//	                                     /var -> /private/var) still pass: the root
+//	                                     is carried through the same resolution.
+//	                                     REGRESSION NOTE: the first cut of this file
+//	                                     compared EvalSymlinks(trash) against
+//	                                     EvalSymlinks(workdir)/trash and called that
+//	                                     an ancestor check. It is not — when BOTH
+//	                                     sides are carried away by the same symlink
+//	                                     the comparison is an identity, and given G5
+//	                                     it is a TAUTOLOGY (a non-symlink leaf always
+//	                                     resolves to resolved-parent + leaf). Review
+//	                                     proved it: replacing that refusal branch
+//	                                     with panic() and running the whole package
+//	                                     never fired it. The root must be brought
+//	                                     into the comparison, or nothing is checked.
+//	G8 trash moved out from under its
+//	   own resolved workdir            — the TOCTOU backstop for G5 ONLY: someone
+//	                                     swapping `trash` for a symlink in the window
+//	                                     between the Lstat and here. Unreachable on
+//	                                     the normal path by construction (see G7's
+//	                                     note); kept because the race is real and it
+//	                                     costs one comparison. Do NOT read it as a
+//	                                     containment check — G7 is that.
 func purgeTrash(root, workdir string, logf func(string, ...any)) bool {
 	warn := func(format string, a ...any) bool {
 		if logf != nil {
@@ -125,11 +161,36 @@ func purgeTrash(root, workdir string, logf func(string, ...any)) bool {
 		return warn("%q is not a directory (mode %v)", trash, info.Mode())
 	}
 
-	// G7 — an ancestor symlink must not have moved trash out from under workdir.
+	// G7 — the REAL containment check: redo G4's direct-child test on the
+	// SYMLINK-RESOLVED paths. G4 only proved the path STRING is well-formed; a
+	// workdir that is itself a symlink satisfies G4 textually while pointing
+	// anywhere on the disk. Both sides go through EvalSymlinks so a legitimate
+	// ancestor symlink (macOS /var -> /private/var) cancels out on both sides and
+	// still passes — only a workdir that genuinely resolves OUT of the agents root
+	// (or onto a neighbour agent) is refused.
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return warn("cannot resolve agents root %q: %v", root, err)
+	}
 	realWorkdir, err := filepath.EvalSymlinks(workdir)
 	if err != nil {
 		return warn("cannot resolve workdir %q: %v", workdir, err)
 	}
+	// The invariant is stronger than "still under the root": the resolved workdir
+	// must be EXACTLY the child of the resolved root named by this agent's id.
+	// A plain Dir(realWorkdir)==realRoot test is NOT enough — a workdir symlinked
+	// at a NEIGHBOUR agent's dir satisfies it (the neighbour is also a direct
+	// child) and would reap somebody else's trash. Requiring the basename to
+	// survive resolution says "this id must own this directory", which is the
+	// property we actually depend on.
+	if realWorkdir != filepath.Join(realRoot, filepath.Base(workdir)) {
+		return warn("workdir %q resolves to %q — not the %q child of agents root %q (resolved %q)",
+			workdir, realWorkdir, filepath.Base(workdir), root, realRoot)
+	}
+	// G8 — TOCTOU backstop for G5 ONLY (trash swapped for a symlink after the
+	// Lstat above). Unreachable on the normal path: given G5, EvalSymlinks of a
+	// non-symlink leaf is always resolved-parent + leaf, so this is a tautology.
+	// Kept for the race, NOT relied on for containment — that is G7's job.
 	realTrash, err := filepath.EvalSymlinks(trash)
 	if err != nil {
 		return warn("cannot resolve %q: %v", trash, err)
