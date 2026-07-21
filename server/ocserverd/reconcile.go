@@ -768,7 +768,15 @@ func (s *apiServer) stampWakeObservability(m *Member, decision reconcileDecision
 		m.WakingSince = 0.0
 		changed = true
 	}
-	if decision.Command == reconcileCmdStart && !decision.DispatchUnlanded {
+	// A DECIDED start is by construction a LANDED one: reconcileOne downgrades an
+	// unaccepted START to reconcileCmdNone (with DispatchUnlanded set) before it
+	// ever returns, so `Command == start` already means "a warden took the
+	// frame". An extra `&& !DispatchUnlanded` here would read as caution but is
+	// a tautology — a mutation probe proved flipping it could not change any
+	// outcome — and a condition that cannot fail is worse than no condition: it
+	// advertises a check nobody is performing. The invariant it leans on is
+	// pinned by TestReconcile_UnlandedStartDoesNotStampWakingSince.
+	if decision.Command == reconcileCmdStart {
 		m.WakingSince = now
 		changed = true
 	}

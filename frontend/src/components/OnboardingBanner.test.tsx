@@ -112,6 +112,29 @@ describe("OnboardingBanner", () => {
     expect(screen.queryByTestId("onboarding-banner")).toBeNull();
   });
 
+  // The STATE gate, isolated. The case above cannot pin it: an unfinished run
+  // has no steps yet, so "no failed steps" alone would already suppress the
+  // banner and a mutant that dropped the state check entirely would stay green
+  // (it did — this test exists because that mutant survived). Here the report
+  // is mid-run AND already carries a failed step: the banner must still hold
+  // its tongue, because a run in progress can still recover, and a warning
+  // that appears and then vanishes on its own teaches the owner to ignore it.
+  it("renders NOTHING mid-run even when a step has already failed", async () => {
+    getServerSettings.mockResolvedValue(
+      settingsWith({
+        state: "running",
+        startedAt: 1,
+        finishedAt: 0,
+        steps: [
+          { name: "install_warden", ok: false, reason: "still retrying", detail: "" },
+        ],
+      })
+    );
+    renderBanner();
+    await waitFor(() => expect(getServerSettings).toHaveBeenCalled());
+    expect(screen.queryByTestId("onboarding-banner")).toBeNull();
+  });
+
   it("renders NOTHING when onboarding never ran (null report)", async () => {
     getServerSettings.mockResolvedValue(settingsWith(null));
     renderBanner();
