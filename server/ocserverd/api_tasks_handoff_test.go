@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
@@ -571,6 +572,13 @@ func TestOutsourceSchedulerHoldsABlockedTaskThenMintsOnRelease(t *testing.T) {
 	api.noOutsource = true
 	putOutsourceManual(t, api, "build-it", "claude-sonnet-4-5", 2)
 	dev := createOutsourceTask(t, api, "build-it", "implement the design")
+	// The CONTROL, in the SAME tick: an identical 發包 task with no blocker at
+	// all. Without it this test cannot tell "the dep guard held dev back" from
+	// "the tick died before minting anything" — runOutsourceTick recovers its
+	// own panics into a log line (outsource_sched.go), so a FAULTED tick mints
+	// nothing and looks exactly like a correct hold. It is also the 不該被擋的
+	// sentinel: a guard that over-blocks kills this task too.
+	free := createOutsourceTask(t, api, "build-it", "unblocked sibling")
 	design := seedHandoffTask(t, api, "t-dddd00000001", "m-front", "m-exec", "design")
 	if err := api.dal.AddTaskDep(dev.ID, design.ID); err != nil {
 		t.Fatalf("add dep: %v", err)
@@ -579,6 +587,10 @@ func TestOutsourceSchedulerHoldsABlockedTaskThenMintsOnRelease(t *testing.T) {
 	api.runOutsourceTick(1000.0)
 	if held := mustTask(t, api, dev.ID); held.ExecutorID != "" {
 		t.Fatalf("a task with a live blocker must NOT be minted: %+v", held)
+	}
+	if ran := mustTask(t, api, free.ID); ran.ExecutorID == "" {
+		t.Fatalf("the tick must still MINT the unblocked sibling — otherwise the "+
+			"hold above proves nothing (a faulted tick mints nothing either): %+v", ran)
 	}
 
 	// Closing the blocker releases it (the gate auto-satisfies off the dep).
@@ -609,5 +621,207 @@ func TestSentinelADepOnAnAlreadyClosedBlockerNeverHoldsTheQueue(t *testing.T) {
 	api.runOutsourceTick(1000.0)
 	if got := mustTask(t, api, dev.ID); got.ExecutorID == "" {
 		t.Fatalf("a dep on a finished blocker must not hold the queue: %+v", got)
+	}
+}
+
+// ── the discoverability layer ────────────────────────────────────────────────
+
+// The gate's 422 tells the caller to send `handoff` on update_step_status. An
+// agent reaches that tool ONLY through tools/list, which ocserverd serves
+// verbatim from the frozen spec/mcp-catalog.json (assets.go, embed-only) — so a
+// catalog whose update_step_status inputSchema does not advertise the three
+// levers leaves the gate ANSWERABLE ONLY BY GUESSING: the refusal names
+// parameters the tool surface says do not exist.
+//
+// This is not hypothetical — it is the state the半成品 shipped in: openapi.json
+// carried the fields, the catalog did not, and NOTHING in CI compares the two
+// (mcp_test.go and conformance/test_rest_happy.py both key on the tool NAME set
+// only). So pin it here: the levers the refusal advertises must exist on the
+// tool the refusal names.
+func TestCatalogAdvertisesTheHandoffLeversTheGateDemands(t *testing.T) {
+	raw, err := os.ReadFile("../../spec/mcp-catalog.json")
+	if err != nil {
+		t.Fatalf("read frozen catalog: %v", err)
+	}
+	var catalog struct {
+		Tools []struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+			InputSchema struct {
+				Properties map[string]any `json:"properties"`
+			} `json:"inputSchema"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(raw, &catalog); err != nil {
+		t.Fatalf("parse frozen catalog: %v", err)
+	}
+	found := false
+	for _, tool := range catalog.Tools {
+		if tool.Name != "update_step_status" {
+			continue
+		}
+		found = true
+		for _, lever := range []string{"handoff", "handoff_note", "handoff_task_id"} {
+			if _, ok := tool.InputSchema.Properties[lever]; !ok {
+				t.Errorf("update_step_status must advertise %q — the gate's 422 "+
+					"instructs the caller to send it, and tools/list is the only "+
+					"place the caller can learn the tool's shape", lever)
+			}
+		}
+		// The description is the part an agent reads BEFORE it is refused; a
+		// lever with no prose is a lever nobody reaches for.
+		for _, want := range []string{HandoffReturnToCreator, HandoffFollowUp, HandoffNone} {
+			if !strings.Contains(tool.Description, want) {
+				t.Errorf("update_step_status description must name the %q way out", want)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("update_step_status is not in the frozen catalog at all")
+	}
+}
+
+// ── the outsource lane: the population that must NOT be trapped ──────────────
+
+// An outsource task is created BY a 正職 and executed BY an anonymous ow- worker,
+// so creator≠executor holds for EVERY 發包 ticket — the whole 發包 lane sits
+// inside the gate's population, which is the sharpest edge in this change. The
+// worker is dismissed shortly after it reports its close-out, so a gate it
+// cannot answer would strand the ticket in_progress with a live worker burning
+// cost and nobody holding the ball.
+//
+// Two halves, both load-bearing:
+//   - it IS gated (the ball genuinely has to go back to the 正職 who 發包'd);
+//   - it CAN get out, and the way out lands the ball DURABLY on that 正職.
+func TestOutsourceWorkerIsGatedButCanAlwaysHandBackToItsDispatcher(t *testing.T) {
+	api := newTasksTestServer(t)
+	seedActiveMember(t, api, "m-front")
+	task := Task{
+		ID: "t-eeee00000001", Title: "發包出去的活", Status: TaskStatusInProgress,
+		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorOutsource,
+		ExecutorID: "ow-1", CreatorID: "m-front", CreatedTS: 100, UpdatedTS: 100,
+	}
+	if err := api.dal.PutTask(task); err != nil {
+		t.Fatalf("seed outsource task: %v", err)
+	}
+	if err := api.dal.PutTaskStep(TaskStep{
+		ID: task.ID + "-sa", TaskID: task.ID, OrderIdx: 0, Name: "build",
+		DoD: "shipped", Status: StepStatusInProgress,
+	}); err != nil {
+		t.Fatalf("seed step: %v", err)
+	}
+
+	// Half 1 — gated, and the refusal is ACTIONABLE by a worker that has no
+	// idea who its creator is (it must name them).
+	rec := closeReport(t, api, task.ID, task.ID+"-sa", "ow-1", nil)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("a 發包 ticket must be gated too: %d %s", rec.Code, rec.Body.String())
+	}
+	if msg := errorMessage(t, rec); !strings.Contains(msg, "m-front") {
+		t.Fatalf("the refusal must name the dispatcher the ball goes back to: %s", msg)
+	}
+
+	// Half 2 — the escape hatch works, and it is DURABLE. This is the assertion
+	// that keeps the 發包 lane from deadlocking: an outsource worker always has a
+	// creator to hand back to, so return_to_creator can never be a dead end.
+	rec = closeReport(t, api, task.ID, task.ID+"-sa", "ow-1",
+		map[string]any{"handoff": HandoffReturnToCreator})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the worker must be able to close after handing back: %d %s",
+			rec.Code, rec.Body.String())
+	}
+	closed := mustTask(t, api, task.ID)
+	if closed.Status != TaskStatusDone || closed.Handoff != HandoffReturnToCreator {
+		t.Fatalf("ticket must close with the declaration recorded: %+v", closed)
+	}
+	// The ball is a TASK on the dispatcher's open list, not a notification.
+	open, err := api.dal.ListOpenTasksByExecutor("m-front", 50)
+	if err != nil {
+		t.Fatalf("list dispatcher's open tasks: %v", err)
+	}
+	for _, o := range open {
+		if o.ID == closed.HandoffTaskID {
+			return
+		}
+	}
+	t.Fatalf("the handed-back ball must be an OPEN task on m-front: %+v", open)
+}
+
+// A dependent that is ALREADY terminal must be left completely alone when its
+// blocker closes: no "你被解鎖了" chat to an executor who finished days ago, no
+// UpdatedTS re-bump floating a closed task back up the cockpit. Without this
+// the release fan would reach into the archive every time a late blocker lands.
+func TestSentinelAnAlreadyClosedDependentIsNeverReleasedOrAnnounced(t *testing.T) {
+	api := newTasksTestServer(t)
+	seedActiveMember(t, api, "m-creator")
+	blocker := seedHandoffTask(t, api, "t-ffff00000001", "m-creator", "m-exec", "design")
+	// The dependent finished BEFORE its blocker did (a perfectly ordinary
+	// out-of-order close), so it is terminal with a settled UpdatedTS.
+	done := Task{
+		ID: "t-ffff00000002", Title: "already finished", Status: TaskStatusDone,
+		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorMember,
+		ExecutorID: "m-next", CreatorID: "m-creator",
+		CreatedTS: 10, UpdatedTS: 20, ClosedTS: 20,
+	}
+	if err := api.dal.PutTask(done); err != nil {
+		t.Fatalf("seed terminal dependent: %v", err)
+	}
+	if err := api.dal.AddTaskDep(done.ID, blocker.ID); err != nil {
+		t.Fatalf("add dep: %v", err)
+	}
+
+	// The dep itself auto-satisfies the gate only for a NON-terminal dependent,
+	// so this close must declare where the ball goes — proof in itself that a
+	// terminal dependent is not mistaken for a live handover target.
+	rec := closeReport(t, api, blocker.ID, blocker.ID+"-sa", "m-exec",
+		map[string]any{"handoff": HandoffNone, "handoff_note": "沒有後續"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("close blocker: %d %s", rec.Code, rec.Body.String())
+	}
+
+	after := mustTask(t, api, done.ID)
+	if after.UpdatedTS != 20 {
+		t.Fatalf("a terminal dependent must not be touched (updated_ts moved "+
+			"%v → %v — it would float back up the cockpit)", 20.0, after.UpdatedTS)
+	}
+	msgs, err := api.dal.ListChatInvolving("m-next", 50)
+	if err != nil {
+		t.Fatalf("list chat: %v", err)
+	}
+	for _, m := range msgs {
+		if m.Recipient == "m-next" && strings.Contains(m.Body, "不再擋著你") {
+			t.Fatalf("a finished dependent's executor must not be told it was released")
+		}
+	}
+}
+
+// The gate stands aside when a successor already depends on this task — but
+// "already depends" has to mean a LIVE successor. A dependent that is itself
+// finished holds no ball, so it must NOT auto-satisfy the gate: otherwise any
+// task that ever had a (now closed) follow-up would close silently forever,
+// which is the T-8a1e hole re-opened through the side door.
+func TestATerminalDependentDoesNotAutoSatisfyTheGate(t *testing.T) {
+	api := newTasksTestServer(t)
+	seedActiveMember(t, api, "m-creator")
+	blocker := seedHandoffTask(t, api, "t-gggg00000001", "m-creator", "m-exec", "design")
+	if err := api.dal.PutTask(Task{
+		ID: "t-gggg00000002", Title: "a follow-up that already finished",
+		Status: TaskStatusDone, Priority: TaskPriorityMid,
+		ExecutorKind: TaskExecutorMember, ExecutorID: "m-next",
+		CreatorID: "m-creator", CreatedTS: 10, UpdatedTS: 20, ClosedTS: 20,
+	}); err != nil {
+		t.Fatalf("seed terminal dependent: %v", err)
+	}
+	if err := api.dal.AddTaskDep("t-gggg00000002", blocker.ID); err != nil {
+		t.Fatalf("add dep: %v", err)
+	}
+
+	rec := closeReport(t, api, blocker.ID, blocker.ID+"-sa", "m-exec", nil)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("a FINISHED dependent must not stand in for a handover: %d %s",
+			rec.Code, rec.Body.String())
+	}
+	if msg := errorMessage(t, rec); !strings.Contains(msg, HandoffReturnToCreator) {
+		t.Fatalf("refusal must still name the ways out: %s", msg)
 	}
 }

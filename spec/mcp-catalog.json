@@ -1350,9 +1350,27 @@
       "name": "mark_duplicate"
     },
     {
-      "description": "Report a step status (pending/in_progress/waiting_external/done). Entering waiting_external requires a non-blank waiting_reason (422 otherwise); the task status is derived from its steps.",
+      "description": "Report a step status (pending/in_progress/waiting_external/done). Entering waiting_external requires a non-blank waiting_reason (422 otherwise); the task status is derived from its steps. T-74f8 交棒閘: if this report would CLOSE the task (every step done) AND the task's creator is not its executor, the call is REFUSED with 422 unless you say where the ball goes IN THIS SAME CALL — handoff='return_to_creator' (the server opens a durable follow-up task on the creator), handoff='follow_up' + handoff_task_id=<a successor task you already created> (the server hangs this task off it as a dependency, and closing this one releases it), or handoff='none' + handoff_note=<why nothing follows>. The gate stands aside by itself when a non-terminal task already depends on this one — you never see it if the handover is already real. It refuses BEFORE writing anything, so a refused report leaves the plan fully editable: create the successor task, then re-send this same report with the declaration. This is your LAST chance — once the task closes it can never be replanned (submit_plan becomes a permanent 409).",
       "inputSchema": {
         "properties": {
+          "handoff": {
+            "default": "",
+            "description": "Where the ball goes when this report closes the task: 'return_to_creator' | 'follow_up' | 'none'. Read ONLY on the report that would close the task; ignored otherwise.",
+            "title": "Handoff",
+            "type": "string"
+          },
+          "handoff_note": {
+            "default": "",
+            "description": "The handover sentence. REQUIRED for handoff='none' — an un-reasoned \"nothing follows\" is indistinguishable from forgetting, and the note is the only record that a decision was made at all.",
+            "title": "Handoff Note",
+            "type": "string"
+          },
+          "handoff_task_id": {
+            "default": "",
+            "description": "The successor task id. REQUIRED for handoff='follow_up'; the server adds this task to that successor's blocked_by list.",
+            "title": "Handoff Task Id",
+            "type": "string"
+          },
           "status": {
             "title": "Status",
             "type": "string"

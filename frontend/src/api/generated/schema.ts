@@ -5083,7 +5083,10 @@ export interface components {
              * @default
              */
             dedupe_key: string;
-            /** Deps */
+            /**
+             * Deps
+             * @description The blocking task ids. Since T-74f8 a dep is a real hold, not only a display marker: an unassigned outsource task with a live blocker is NOT minted by the 發包 scheduler, and when its last blocker reaches a terminal status the server releases it — durable notice to its executor plus an immediate scheduler tick. It still never rewrites this task's status (status stays derived from its steps).
+             */
             deps: string[];
             /**
              * Description
@@ -5102,6 +5105,24 @@ export interface components {
             executor_id: string;
             /** Executor Kind */
             executor_kind: string;
+            /**
+             * Handoff
+             * @description The DECLARED destination of the ball at close (T-74f8): "" = never declared, else ``return_to_creator`` | ``follow_up`` | ``none``.
+             * @default
+             */
+            handoff: string;
+            /**
+             * Handoff Note
+             * @description The handover sentence recorded with the declaration.
+             * @default
+             */
+            handoff_note: string;
+            /**
+             * Handoff Task Id
+             * @description The successor task the handover points at ("" for ``handoff='none'``).
+             * @default
+             */
+            handoff_task_id: string;
             /** Id */
             id: string;
             /** Inputs */
@@ -5160,7 +5181,7 @@ export interface components {
         };
         /**
          * TaskDepsDTO
-         * @description Replace the blocking-deps list wholesale (MCP ``set_task_deps``). Deps are display markers (a blocked task stays in_progress); a self-reference or an unknown task id is a 422.
+         * @description Replace the blocking-deps list wholesale (MCP ``set_task_deps``). Since T-74f8 a dep is a real hold: an unassigned outsource task with a live blocker is not minted by the 發包 scheduler, and the blocker reaching a terminal status releases the blocked task (durable notice to its executor + an immediate scheduler tick). It never rewrites the blocked task's status — that stays derived from its steps. A self-reference or an unknown task id is a 422.
          */
         TaskDepsDTO: {
             /** Blocked By */
@@ -5575,9 +5596,27 @@ export interface components {
         };
         /**
          * TaskStepStatusUpdateDTO
-         * @description Agent-reported step status (MCP ``update_step_status``): ``pending`` → ``in_progress`` → ``done`` — ``waiting_owner`` is NOT agent-reportable on either side (a step enters it only by opening a reply card: open_gate / create_reply_card auto-bind, and leaves it only when that card is answered, where the server restores in_progress), so reporting ``waiting_owner`` is a 400 and a move out of it is a 409; other illegal transitions are a 409. ``superseded`` is likewise not the agent's lever: the server freezes a replaced answered-card step itself on submit_plan (T-1aea), so reporting ``superseded`` is a 400 and no report moves a step out of it (409 — terminal).
+         * @description Agent-reported step status (MCP ``update_step_status``): ``pending`` → ``in_progress`` → ``done`` — ``waiting_owner`` is NOT agent-reportable on either side (a step enters it only by opening a reply card: open_gate / create_reply_card auto-bind, and leaves it only when that card is answered, where the server restores in_progress), so reporting ``waiting_owner`` is a 400 and a move out of it is a 409; other illegal transitions are a 409. ``superseded`` is likewise not the agent's lever: the server freezes a replaced answered-card step itself on submit_plan (T-1aea), so reporting ``superseded`` is a 400 and no report moves a step out of it (409 — terminal). T-74f8 交棒閘: if applying this report would CLOSE the task (every step done) and the task's creator is not its executor, the server refuses the report with a 422 unless the ball's destination is declared IN THIS SAME CALL — ``handoff='return_to_creator'`` (the server mints a durable follow-up task on the creator, blocked by this one), ``handoff='follow_up'`` + ``handoff_task_id`` (the server attaches this task to that successor as a dependency), or ``handoff='none'`` + ``handoff_note`` (an explicit, recorded end of the line). The gate stands aside when a non-terminal task already depends on this one (the handover is already real). It refuses BEFORE any row is written, because a closed task can never be replanned (submit_plan turns into a permanent 409) — after the close there is nothing left to answer with.
          */
         TaskStepStatusUpdateDTO: {
+            /**
+             * Handoff
+             * @description Where the ball goes when this report closes the task: ``return_to_creator`` | ``follow_up`` | ``none``. Read only on the report that would close the task.
+             * @default
+             */
+            handoff: string;
+            /**
+             * Handoff Note
+             * @description The handover sentence. REQUIRED for ``handoff='none'`` — an un-reasoned "nothing follows" is indistinguishable from forgetting, and the note is the only record that a decision was made.
+             * @default
+             */
+            handoff_note: string;
+            /**
+             * Handoff Task Id
+             * @description The successor task id. REQUIRED for ``handoff='follow_up'``; the server adds this task to that successor's blocked_by list.
+             * @default
+             */
+            handoff_task_id: string;
             /** Status */
             status: string;
             /**
