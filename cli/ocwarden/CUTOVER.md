@@ -1,6 +1,14 @@
 # cli/ocwarden P4 cutover runbook (python pull+telemetry → one golang push executor)
 
-**Status: GATED. Do not run any step below until every Preflight item is checked.**
+**Status: COMPLETED (historical runbook).** This P4 cutover was executed and is
+done — the repo confirms it: `bin/warden-install` is deleted, `ocwarden install`
+(`cli/ocwarden/main.go`) is the sole installer, and the python daemons
+(`agent/reconcile.py`, `bin/reconcile-warden`) are no longer in-tree. The `GATED`
+header wording and the unchecked `[ ]` boxes below are the **preserved pre-flip
+runbook**, kept verbatim as a record of what was gated / run at cutover time —
+**not a live pending checklist.** (If this runbook is ever re-run against a fresh
+host, treat the boxes as a fresh checklist and substitute the server's current
+default port for every `:8770` per the port note below.)
 
 > ℹ️ **Historical port note (T-b461, 2026-07-21):** the `:8770` literals below are the
 > dev port that was actually live *at cutover time* — this is a runbook of what was

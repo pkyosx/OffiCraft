@@ -30,7 +30,7 @@ conformance/run.sh --target go    # 起隔離 ocserverd(:8795、臨時空 SQLite
 
 (`--target py` 已隨 Python backend 退役;歷史回滾 = git tag `py-final`。)
 
-隔離紀律(同 e2e_test 鐵律):**絕不碰 prod**(`:8770` officraft live / `:8766` vibe);e2e 用 `:8791`,conformance 用 `:8795`,不互踩。DB 是 mktemp 下的一次性 SQLite(migrate 到 head),oc.toml 也是臨時生成(`OC_CONFIG` 注入),不動 repo 根的 oc.toml。teardown 只 kill 捕獲到的 listener PID,絕不 pkill 亂槍。
+隔離紀律(同 e2e_test 鐵律):**絕不碰 prod**(officraft live 現跑 `:7755`,`:8766` vibe;`:8770` 是 2026-07-20 退役的舊 prod 埠);e2e 用 `:8791`,conformance 用 `:8795`,不互踩。DB 是 mktemp 下的一次性 SQLite(migrate 到 head),oc.toml 也是臨時生成(`OC_CONFIG` 注入),不動 repo 根的 oc.toml。teardown 只 kill 捕獲到的 listener PID,絕不 pkill 亂槍。
 
 測試側只吃兩個 env(由 run.sh 注入;打別的 target 時自行提供):
 - `OC_TARGET_URL` — 受測 server 的 base URL;

@@ -6,7 +6,7 @@
 Go(ocserverd)是唯一 target(py leg 已隨 Python backend 退役;歷史回滾 = git tag `py-final`):`bash run_all.sh`(`OC_E2E_TARGET=go` 仍可顯式指定;其他值 fail loud)。:8791 / repo-root oc.toml / fresh-DB 生命週期 / EXACT-PID teardown;流程 = stage SPA→webdist → go build 進 `.state/` → goose migrate → serve。
 
 ## 鐵律:絕不碰 prod
-e2e 一律跑**隔離 port / 隔離 server**(如 `:8791`),**絕不**碰 prod(`:8770` officraft live / `:8766` vibe)。造真實素材(真 `ocwarden run`、真 claude spawn)但全在隔離環境。spec 進 repo = 永久回歸守衛。
+e2e 一律跑**隔離 port / 隔離 server**(如 `:8791`),**絕不**碰 prod(officraft live 現跑 `:7755`,`:8766` vibe;`:8770` 是 2026-07-20 退役的舊 prod 埠)。造真實素材(真 `ocwarden run`、真 claude spawn)但全在隔離環境。spec 進 repo = 永久回歸守衛。
 
 ## 造 online agent 的機制知識(給需要真 online member 的 e2e)
 - **online = 純 SSE 連線投影**(`GET /api/events`),**無 TTL / heartbeat、綁連線生命週期**——只要 listen 掛著就恆 online、穩定。

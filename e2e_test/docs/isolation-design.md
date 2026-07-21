@@ -22,8 +22,8 @@ acked — its isolation gate (`REQUIRE_ISOLATION_CONFIRMED`) sat *after* the
 teardown, at STAGE 3.
 
 This host (eva's Mac) is a live fleet host: `com.officraft.ocwarden` registered,
-`8770` held, a live `member-*` session on socket `officraft`, non-empty
-`~/.officraft`. Exactly the danger case.
+the canonical serve port (`:7755`) held, a live `member-*` session on socket
+`officraft`, non-empty `~/.officraft`. Exactly the danger case.
 
 ## Two-layer fix
 
@@ -33,7 +33,9 @@ This host (eva's Mac) is a live fleet host: `com.officraft.ocwarden` registered,
 ls`, never a kill) reports any of three signals of a live **canonical** fleet:
 
 1. `launchctl print gui/<uid>/com.officraft.ocwarden` succeeds (warden registered)
-2. canonical serve port `8770` has a live listener
+2. the canonical serve port (`OC_CANONICAL_SERVE_PORT`, currently `7755`, read
+   from `server/ocserverd/config.go`'s `defaultPort` — see `oc_lifecycle.sh`) has
+   a live listener
 3. a `member-*` / `worker-*` session exists on the canonical tmux socket `officraft`
 
 `oc_live_fleet_guard` reads `OC_NS` for the mode and acts BEFORE any teardown:
@@ -61,7 +63,7 @@ off it, overriding the suite globals:
 
 | axis            | canonical                    | namespaced (default)                 |
 |-----------------|------------------------------|--------------------------------------|
-| serve port      | 8770                         | a free port in 8800–9699             |
+| serve port      | 7755 (`OC_CANONICAL_SERVE_PORT`) | a free port in 8800–9699         |
 | launchd labels  | `com.officraft.*`          | `com.officraft.*.<ns>`             |
 | data root       | `~/.officraft`            | `~/.officraft-<ns>`               |
 | tmux socket     | `officraft`               | `officraft-<ns>`                  |
@@ -90,7 +92,7 @@ against the namespaced `OC_ROOT`, still protecting against a colliding prior run
 ### Escape hatch — `OC_E2E_ALLOW_CANONICAL=1`
 
 Setting it makes `oc_resolve_instance` keep the canonical instance
-(`OC_NS=""`, port 8770, `com.officraft.*`, `~/.officraft`, socket
+(`OC_NS=""`, port 7755, `com.officraft.*`, `~/.officraft`, socket
 `officraft`). Canonical is then still gated by **all** of: the live-fleet guard
 (dies if a live fleet is present), the seth-m1 triple hardware whitelist, the
 empty-`~/.officraft` state whitelist, and the prod-port refusal. So canonical
@@ -124,7 +126,8 @@ tied to the public tunnel).
   step (1) `go test ./...`.
 - **Live read-only proof** — on this live host, sourcing the lib and calling
   `oc_live_fleet_guard` in canonical mode `die`s citing all three live signals
-  (warden label + 8770 + `member-m-f663f3c5de9a`) before any teardown; in
+  (warden label + the canonical serve port `:7755` + `member-m-f663f3c5de9a`)
+  before any teardown; in
   namespace mode it coexists (rc=0). (The destructive suites themselves are NOT
   run here — the safety mandate forbids it.)
 
