@@ -493,7 +493,8 @@ const mockDocs: DocView[] = [
     markdownMd:
       "# 介面說明\n\n" +
       "控制台分成辦公室、任務、Ask、監控、設定五塊。\n\n" +
-      "想知道為什麼這樣設計 → [為什麼是 OffiCraft](why.md)\n",
+      "想知道為什麼這樣設計 → [為什麼是 OffiCraft](why.md)\n\n" +
+      "專案首頁 → [GitHub](https://github.com/pkyosx/OffiCraft)\n",
   },
   {
     slug: "why",
