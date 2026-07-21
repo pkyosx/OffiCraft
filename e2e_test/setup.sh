@@ -52,10 +52,13 @@ if [ "${OC_E2E_SKIP_BUILD:-}" != "1" ]; then
   echo "[setup] building frontend SPA (VITE_USE_MOCK=false)…"
   (
     cd "$REPO_ROOT/frontend"
-    # Broken nvm lazy-load workaround: drop shell funcs, use homebrew binaries.
+    # Broken nvm lazy-load workaround: drop shell funcs, then resolve npm
+    # portably (PATH first, common-location fallback) instead of a hardcoded
+    # homebrew abspath — see oc_resolve_bin in lib/common.sh.
     unset -f node npm 2>/dev/null || true
-    if [ ! -d node_modules ]; then /opt/homebrew/bin/npm install --no-audit --no-fund; fi
-    VITE_USE_MOCK=false /opt/homebrew/bin/npm run build
+    NPM="$(oc_resolve_bin npm)" || { echo "[setup] FATAL: npm not found (checked PATH + common locations) — cannot build SPA." >&2; exit 1; }
+    if [ ! -d node_modules ]; then "$NPM" install --no-audit --no-fund; fi
+    VITE_USE_MOCK=false "$NPM" run build
   ) || { echo "[setup] FATAL: frontend SPA build failed" >&2; exit 1; }
   # Stage dist → webdist for go:embed (bin/build-webdist's staging step; the
   # npm build itself already ran above with the nvm workaround).

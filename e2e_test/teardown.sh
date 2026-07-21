@@ -63,10 +63,11 @@ echo "[teardown] dropped isolated DB + state"
 # always be built from a pristine webdist (server/CLAUDE.md) — leaving the
 # staged dist behind would bait a later rebuild into embedding it.
 WEBDIST="$REPO_ROOT/server/ocserverd/webdist"
-if [ -d "$WEBDIST" ]; then
-  find "$WEBDIST" -mindepth 1 -not -name '.gitkeep' -delete 2>/dev/null
-  echo "[teardown] restored server/ocserverd/webdist to pristine (.gitkeep only)"
-fi
+# best-effort (teardown runs without set -e): a failed/partial cleanup now prints
+# a loud WARN to stderr instead of being swallowed by 2>/dev/null. See
+# oc_restore_webdist_pristine in lib/common.sh for why a silent failure here is
+# dangerous (stray SPA baked into the committed binary).
+oc_restore_webdist_pristine "$WEBDIST" || true
 
 echo "[teardown] prod :8770/:8766 — not managed by this harness (untouched)"
 echo "[teardown] ✅ clean"

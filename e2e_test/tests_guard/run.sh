@@ -238,6 +238,49 @@ and kills it before RC=\$? — same exit code, no diagnostic line."
   fi
 fi
 
+# ── 12) T-c5d4 weakness-2: webdist restore must SURFACE a failed/partial delete,
+#        not swallow it. teardown.sh used `find … -delete 2>/dev/null` with no rc
+#        check — a silent failure leaves a dirty webdist that a later `go build`
+#        bakes into the committed bin/ocserverd. oc_restore_webdist_pristine now
+#        checks find's rc AND re-asserts only .gitkeep remains, printing a loud
+#        WARN on trouble. OUTPUT+rc assertion on purpose: a fail-closed cleanup is
+#        rc-blind to a half-delete, so we assert the reason/output, not only rc.
+TEARDOWN="$HERE/../teardown.sh"
+if ! grep -q 'oc_restore_webdist_pristine' "$TEARDOWN"; then
+  bad "teardown.sh no longer calls oc_restore_webdist_pristine — update guard (12)"
+elif grep -Eq 'find .*-delete.*2>/dev/null' "$TEARDOWN"; then
+  bad "teardown.sh reintroduced 'find … -delete 2>/dev/null' — the stderr swallow that hid the failure (weakness-2)"
+else
+  ok "teardown.sh delegates webdist cleanup to oc_restore_webdist_pristine, no stderr swallow"
+  # positive control: clean, fully-removable content restores quietly, rc 0.
+  WT_POS="$(mktemp -d -t oc-webdist-pos.XXXXXX)"
+  touch "$WT_POS/.gitkeep" "$WT_POS/index.html"; mkdir -p "$WT_POS/assets"; touch "$WT_POS/assets/app.js"
+  POS_OUT="$( ( source "$HERE/../lib/common.sh" >/dev/null 2>&1; oc_restore_webdist_pristine "$WT_POS" ) 2>&1 )"; POS_RC=$?
+  check "webdist restore: clean dir returns 0" "0" "$POS_RC"
+  POS_LEFT="$(find "$WT_POS" -mindepth 1 -not -name '.gitkeep' | wc -l | tr -d ' ')"
+  check "webdist restore: clean dir leaves only .gitkeep" "0" "$POS_LEFT"
+  case "$POS_OUT" in
+    *WARN*) bad "webdist restore: clean dir must NOT warn (got: $POS_OUT)" ;;
+    *restored*) ok "webdist restore: clean dir prints 'restored', no WARN (positive control)" ;;
+    *) bad "webdist restore: clean dir unexpected output: $POS_OUT" ;;
+  esac
+  rm -rf "$WT_POS"
+  # negative control: an entry -delete CANNOT remove (dir chmod 000 → EACCES) —
+  # the exact failure the old 2>/dev/null swallowed. NOTE: assumes a non-root
+  # runner (ci.sh runs as the developer); as root -delete would succeed and this
+  # case would REDDEN (fail-closed, never a false green).
+  WT_NEG="$(mktemp -d -t oc-webdist-neg.XXXXXX)"
+  touch "$WT_NEG/.gitkeep"; mkdir -p "$WT_NEG/locked"; touch "$WT_NEG/locked/app.js"; chmod 000 "$WT_NEG/locked"
+  NEG_OUT="$( ( source "$HERE/../lib/common.sh" >/dev/null 2>&1; oc_restore_webdist_pristine "$WT_NEG" ) 2>&1 )"; NEG_RC=$?
+  chmod 755 "$WT_NEG/locked" 2>/dev/null || true
+  check "webdist restore: un-removable entry returns 1 (not swallowed)" "1" "$NEG_RC"
+  case "$NEG_OUT" in
+    *WARN*) ok "webdist restore: a FAILED delete emits a loud WARN (weakness-2 mutant reddens)" ;;
+    *) bad "webdist restore: FAILED delete produced NO warn — the silent-failure bug (got: $NEG_OUT)" ;;
+  esac
+  rm -rf "$WT_NEG" 2>/dev/null || true
+fi
+
 echo "[tests_guard] PASS=$PASS FAIL=$FAIL"
 [[ "$FAIL" -eq 0 ]] || exit 1
 echo "[tests_guard] all green"

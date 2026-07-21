@@ -57,3 +57,48 @@ oc_env() { env -u OC_ID -u OC_TOKEN -u OC_BASE OC_RELEASE_API_BASE="http://127.0
 
 # python3 as a text tool only (tomllib/json parsing) — not a server dependency.
 py() { python3 "$@"; }
+
+# Resolve a dev tool (npm/npx/…) to a real executable path, portably. nvm/volta
+# install these as lazy-load SHELL FUNCTIONS that shadow the real binary, which
+# is why callers historically bypassed PATH with a hardcoded /opt/homebrew/bin
+# abspath — but that hardcode breaks on Intel brew (/usr/local), asdf/volta, or a
+# ~/.local/bin layout (the eva-m5 case: `which npm` = ~/.local/bin/npm, not in any
+# fixed list). Drop the shadowing function in THIS command-substitution subshell,
+# prefer PATH resolution, then fall back to the common install locations. Mirrors
+# bin/ci.sh's npm probe (command -v first, abspath fallback). Echoes the abspath;
+# returns 1 (no output) if the tool cannot be found anywhere.
+oc_resolve_bin() {
+  local name="$1" p cand
+  unset -f "$name" 2>/dev/null || true
+  p="$(command -v "$name" 2>/dev/null || true)"
+  if [ -n "$p" ] && [ -x "$p" ]; then printf '%s\n' "$p"; return 0; fi
+  for cand in "$HOME/.local/bin/$name" "$HOME/.asdf/shims/$name" \
+              "/opt/homebrew/bin/$name" "/usr/local/bin/$name"; do
+    [ -x "$cand" ] && { printf '%s\n' "$cand"; return 0; }
+  done
+  return 1
+}
+
+# Restore server/ocserverd/webdist to pristine (only .gitkeep survives). The go
+# leg stages the built SPA here for go:embed; a stray file that survives cleanup
+# gets baked into the COMMITTED bin/ocserverd by a later `go build` (server/
+# CLAUDE.md) — so a SILENT delete failure is a real hazard, not cosmetic. This
+# historically ran `find … -delete 2>/dev/null` with no rc check, so a half-failed
+# delete retired silently (T-c5d4 weakness-2). Now: let find's stderr through,
+# check its rc, AND independently re-assert nothing but .gitkeep remains (rc alone
+# can miss a partial delete — a fail-closed existence assertion, not a sentinel).
+# Best-effort — never aborts the caller; prints a loud WARN to stderr and returns
+# 1 on trouble, else the normal status line + 0.
+oc_restore_webdist_pristine() {
+  local webdist="$1" find_rc leftover
+  [ -d "$webdist" ] || { echo "[teardown] webdist absent ($webdist) — nothing to restore"; return 0; }
+  find "$webdist" -mindepth 1 -not -name '.gitkeep' -delete
+  find_rc=$?
+  leftover=$(find "$webdist" -mindepth 1 -not -name '.gitkeep' | wc -l | tr -d ' ')
+  if [ "$find_rc" -ne 0 ] || [ "$leftover" -ne 0 ]; then
+    echo "[teardown] WARN: webdist NOT fully restored to pristine — find rc=$find_rc, $leftover stray entries left under $webdist. A later 'go build' could embed this stray SPA into the committed bin/ocserverd; inspect + clean manually." >&2
+    return 1
+  fi
+  echo "[teardown] restored server/ocserverd/webdist to pristine (.gitkeep only)"
+  return 0
+}

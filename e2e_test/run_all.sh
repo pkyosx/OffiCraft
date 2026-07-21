@@ -42,9 +42,13 @@ echo "[run_all] building in-tree cli binaries (ocagent + ocwarden) for spec 05�
 (cd "$REPO_ROOT/cli/ocwarden" && go build -o ocwarden .) || { echo "[run_all] FATAL: go build cli/ocwarden failed." >&2; exit 1; }
 export OC_E2E_OCWARDEN="$REPO_ROOT/cli/ocwarden/ocwarden"
 cd "$HERE" || { echo "[run_all] FATAL: cannot cd to $HERE — playwright would run from the wrong dir and miss its config." >&2; exit 1; }
-# Broken nvm lazy-load workaround: unset shell funcs, use homebrew binaries.
-NPM=/opt/homebrew/bin/npm
-NPX=/opt/homebrew/bin/npx
+# nvm/volta lazy-load defines npm/npx as shell FUNCTIONS that shadow the real
+# binary; oc_resolve_bin (lib/common.sh) drops the shadow, prefers PATH, then
+# falls back to the common install locations — no more hardcoded homebrew abspath
+# (which broke on Intel-brew / asdf / volta / ~/.local/bin layouts). Callers below
+# still `unset -f node npm` in their subshells as belt-and-suspenders.
+NPM="$(oc_resolve_bin npm)" || { echo "[run_all] FATAL: npm not found (checked PATH + ~/.local/bin, asdf, homebrew, /usr/local) — cannot install/run playwright. NOT a spec failure." >&2; exit 1; }
+NPX="$(oc_resolve_bin npx)" || { echo "[run_all] FATAL: npx not found (checked PATH + common locations) — cannot run playwright. NOT a spec failure." >&2; exit 1; }
 if [ ! -d "$HERE/node_modules/@playwright/test" ]; then
   echo "[run_all] installing @playwright/test (first run)…"
   ( unset -f node npm 2>/dev/null; "$NPM" install --no-audit --no-fund ) \
