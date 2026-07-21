@@ -1307,16 +1307,25 @@ def test_plain_card_auto_binds_the_current_step(client, owner_token):
     assert done_step["reply_card_id"] == card["id"], (
         "the approval mark must persist after the step finishes")
 
-    # With NO unambiguous current step (nothing running any more), a fresh
-    # ask degrades to task-only binding and moves neither task nor steps.
+    # T-4166: with NO unambiguous current step (nothing running any more) the
+    # ask used to "degrade" to a TASK-ONLY card (task_step_id="") — no step
+    # binding, therefore no 等我回覆 hold, therefore the task ran on to done
+    # under a card the owner could never answer (409 forever). That degrade is
+    # gone: the create is REFUSED, and the refusal says what to fix.
     r = client.post(
         "/api/reply-cards",
         json={"kind": "decision", "summary": "one more thing?",
               "options": ["AI pick"]},
         headers=_auth(token))
-    assert r.status_code == 200, f"{r.status_code} {r.text}"
-    card2 = r.json()
-    assert card2["task"] and card2["task"]["id"] == task["id"]
+    assert r.status_code == 409, f"{r.status_code} {r.text}"
+    msg = r.json()["error"]["message"]
+    assert "cannot bind this ask to a step" in msg, msg
+    assert task["id"] in msg and "open_gate" in msg, msg
+    # Nothing was minted and nothing moved.
+    waiting_ids = [c["id"] for c in client.get(
+        "/api/reply-cards?status=waiting",
+        headers=_auth(owner_token)).json()]
+    assert card["id"] not in waiting_ids  # (already answered above)
     got = _get_task(client, owner_token, task["id"])
     assert got["status"] == "in_progress"
     pending = next(s for s in got["steps"] if s["status"] == "pending")

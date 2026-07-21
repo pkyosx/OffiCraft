@@ -192,6 +192,7 @@ export const xian: Dict = {
     jumpToChat: "赴原傳音",
     inputPlaceholder: "親筆示下…",
     answerError: "示下未達，請稍後再試",
+    answerStale: "此牌已廢，不受示下:其事已了，或早經處置。若仍列於待覆，請以牌上「標為過期」了之。",
     viewOptions: "觀當初諸選",
     collapseOptions: "收攏諸選",
     currentTag: "現行",

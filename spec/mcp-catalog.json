@@ -460,7 +460,7 @@
       "name": "get_chat_reads"
     },
     {
-      "description": "Open a reply card: an ask the owner must answer (options \u22644, [0]=AI pick). Auto-binds to your single active task's current step when unambiguous \u2014 that step (and usually the task) enters waiting_owner until the owner answers. Optional attachments ride the question (same shape as post_chat: {id} from `ocagent upload` / POST /api/chat/attachments, or inline data_b64).",
+      "description": "Open a reply card: an ask the owner must answer (options \u22644, [0]=AI pick). Auto-binds to your single active task's CURRENT step \u2014 that step (and the task) enters waiting_owner until the owner answers. If you are executing active work that cannot be bound (2+ active tasks, or no single in_progress step) the call is REFUSED with 409 and no card is opened: an unbound card holds nothing, so the task would finish underneath your question and the owner's answer would be rejected. Fix what the error names \u2014 report the step you are on (update_step_status in_progress), or use open_gate with an explicit task_id + step_id. With no active task at all, a plain unbound \u8acb\u793a opens as before. Optional attachments ride the question (same shape as post_chat: {id} from `ocagent upload` / POST /api/chat/attachments, or inline data_b64).",
       "inputSchema": {
         "$defs": {
           "ChatAttachmentInputDTO": {

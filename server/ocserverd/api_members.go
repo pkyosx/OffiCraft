@@ -427,6 +427,14 @@ func (s *apiServer) HandleDismissMemberApiMembersMemberIdDelete(w http.ResponseW
 		internalError(w, err)
 		return
 	}
+	// T-4166: the asker is gone, so no answer can ever be delivered to its
+	// waiting cards — retire them instead of leaving them in the owner's
+	// 等我回覆 pane forever (each one pins the cockpit red dot on a member that
+	// no longer exists). Same sweep the reassign / task-close seams use.
+	if _, err := s.expireWaitingCardsFromMember(m.ID, nowSecs(), requestTrigger(r)); err != nil {
+		internalError(w, err)
+		return
+	}
 	s.writeMemberDTO(w, *m)
 }
 

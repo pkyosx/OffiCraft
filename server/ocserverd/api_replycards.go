@@ -24,6 +24,8 @@ import (
 	"errors"
 	"net/http"
 	"sort"
+	"strconv"
+	"strings"
 )
 
 const (
@@ -136,6 +138,18 @@ func validateReplyCardOptions(options []string) ([]string, string) {
 // taskID/taskStepID are the gate linkage ("" = plain chat 請示). A validation
 // violation answers (nil, problem, nil) — the caller writes the 400.
 func (s *apiServer) openReplyCard(actor string, body ReplyCardCreateDTO, taskID, taskStepID string) (*ReplyCard, string, error) {
+	// T-4166 STRUCTURAL INVARIANT: task binding implies step binding. A card
+	// bound to a task but to no step is the orphan shape — it places no
+	// waiting_owner hold (armStepWithCard needs the step), so the task runs on
+	// to done underneath it and the answer route then 409s forever. Every
+	// caller must resolve both or neither; enforced HERE, at the single mint,
+	// so the shape is unrepresentable no matter which entry point grows next.
+	// Loud on purpose: an error (500), not a silent degrade.
+	if taskID != "" && taskStepID == "" {
+		return nil, "", errors.New("refusing to mint a reply card bound to task '" +
+			taskID + "' with no step: a step-less task binding places no 等我回覆 hold " +
+			"and orphans the card when the task closes")
+	}
 	kind := trimString(body.Kind)
 	if kind != replyCardKindDecision && kind != replyCardKindAction {
 		return nil, "kind must be 'decision' or 'action'", nil
@@ -248,13 +262,30 @@ func (s *apiServer) writeReplyCard(w http.ResponseWriter, c ReplyCard) {
 // CURRENT step at card-open time; no explicit API field exists (存量 client
 // 不變, wire shape untouched). "Current" is the single in_progress step, or —
 // when none is in_progress — the single waiting_owner step (a follow-up ask
-// on the same held step). Anything ambiguous (0 or 2+ candidates at either
-// level) degrades honestly: task-only binding when the task is clear, a plain
-// unbound 請示 otherwise — never a guess.
-func (s *apiServer) inferCardTaskStep(actor string) (*Task, *TaskStep, error) {
+// on the same held step).
+//
+// T-4166 — FAIL-CLOSED on ambiguity. This used to degrade SILENTLY: 2+ active
+// tasks opened a plain unbound 請示, and a clear task with an ambiguous step
+// opened a TASK-ONLY card (task_step_id=""). The second shape is the orphan
+// factory proven in production: no step binding means armStepWithCard never
+// runs, so NO waiting_owner hold exists — the agent blocks on the owner while
+// the task marches through its remaining steps into done, and the card's answer
+// route then rejects it with 409 forever (HandleAnswer…, "already closed").
+// The first shape is the same lie one level up: a card that holds nothing while
+// the task page still reads 進行中. Neither degradation is announced anywhere the
+// OWNER can see it, and "the agent should notice task:null" is operating
+// discipline standing in for a system guarantee.
+//
+// So: an actor with NO active task opens a plain unbound 請示 (the honest M2
+// behaviour — there is no task to hold). An actor that IS executing active work
+// must bind BOTH levels or get nothing: the returned reason is a hard refusal,
+// carried to the caller as a 409, and no card is minted. The determinate exit
+// is open_gate (POST /api/tasks/{id}/steps/{step_id}/gate), which names the step
+// explicitly and always arms the hold.
+func (s *apiServer) inferCardTaskStep(actor string) (*Task, *TaskStep, string, error) {
 	tasks, err := s.dal.ListTasks()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 	var active []Task
 	for _, t := range tasks {
@@ -263,32 +294,57 @@ func (s *apiServer) inferCardTaskStep(actor string) (*Task, *TaskStep, error) {
 			active = append(active, t)
 		}
 	}
-	if len(active) != 1 {
-		return nil, nil, nil
+	if len(active) == 0 {
+		return nil, nil, "", nil // no task to hold — a plain chat 請示 is honest
+	}
+	if len(active) > 1 {
+		ids := make([]string, 0, len(active))
+		for _, t := range active {
+			ids = append(ids, t.ID)
+		}
+		sort.Strings(ids)
+		return nil, nil, "cannot bind this ask to a task: you are executing " +
+			strconv.Itoa(len(active)) + " active tasks (" + strings.Join(ids, ", ") +
+			") — an unbound card would hold none of them. Open the ask on the task " +
+			"you are actually blocked on with open_gate (task_id + step_id).", nil
 	}
 	task := active[0]
 	steps, err := s.dal.ListTaskSteps(task.ID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
-	single := func(status string) *TaskStep {
+	single := func(status string) (*TaskStep, int) {
 		var found *TaskStep
+		n := 0
 		for i := range steps {
 			if steps[i].Status != status {
 				continue
 			}
-			if found != nil {
-				return nil // 2+ candidates — ambiguous, no step binding
+			n++
+			if n == 1 {
+				found = &steps[i]
 			}
-			found = &steps[i]
 		}
-		return found
+		if n != 1 {
+			return nil, n
+		}
+		return found, n
 	}
-	step := single(StepStatusInProgress)
+	step, running := single(StepStatusInProgress)
 	if step == nil {
-		step = single(StepStatusWaitingOwner)
+		step, _ = single(StepStatusWaitingOwner)
 	}
-	return &task, step, nil
+	if step == nil {
+		why := "no step of task '" + task.ID + "' is in_progress"
+		if running > 1 {
+			why = strconv.Itoa(running) + " steps of task '" + task.ID + "' are in_progress at once"
+		}
+		return nil, nil, "cannot bind this ask to a step: " + why +
+			", so the ask can place no 等我回覆 hold and the task would keep running " +
+			"past it. Report the step you are on (update_step_status in_progress) and " +
+			"retry, or open the ask on an explicit step with open_gate.", nil
+	}
+	return &task, step, "", nil
 }
 
 // POST /api/reply-cards — open a card. The initiator is ALWAYS the verified
@@ -297,14 +353,24 @@ func (s *apiServer) inferCardTaskStep(actor string) (*Task, *TaskStep, error) {
 // executor of exactly one active task, the card AUTO-binds to that task's
 // current step (inferCardTaskStep) and the step enters waiting_owner — the
 // same state machine the explicit open_gate path drives (armStepWithCard).
+// When the initiator IS executing active work but the binding is ambiguous,
+// the create is REFUSED with 409 (T-4166) — a card that holds nothing while
+// its task keeps running is the orphan factory; open_gate is the explicit
+// exit.
 func (s *apiServer) HandleCreateReplyCardApiReplyCardsPost(w http.ResponseWriter, r *http.Request) {
 	var body ReplyCardCreateDTO
 	if !decodeJSONBodyRequired(w, r, &body, "kind", "summary", "options") {
 		return
 	}
-	task, step, err := s.inferCardTaskStep(currentActor(r))
+	task, step, unbindable, err := s.inferCardTaskStep(currentActor(r))
 	if err != nil {
 		internalError(w, err)
+		return
+	}
+	// T-4166: an actor with live work that cannot be bound is REFUSED, never
+	// silently degraded — no card is minted, and the reason names what to fix.
+	if unbindable != "" {
+		writeError(w, http.StatusConflict, unbindable)
 		return
 	}
 	taskID, stepID := "", ""
@@ -598,6 +664,96 @@ func (s *apiServer) releaseCardHold(card ReplyCard, trigger string) error {
 	// falls to the steps' honest state. The seam always fans the delta (a lane
 	// resume still refreshes the cockpit even when the value is unchanged).
 	return s.deriveAndPersistTask(t, nowSecs(), trigger)
+}
+
+// expireWaitingCards is the SERVER-SIDE card sweep: it applies the exact
+// semantics of the owner's expire route (status flip + expired_ts +
+// releaseCardHold + delta) to every waiting card the predicate selects. It is
+// the ONE implementation the three lifecycle seams share (T-4166) — the reassign
+// pass that first grew it, the terminal-task close (closeTask), and member
+// dismissal — so "a card outlives the thing it was waiting on" has a single
+// place to be right. Returns how many cards it expired.
+//
+// On a task that is ALREADY terminal, releaseCardHold deliberately no-ops (it
+// will not resume or re-stamp a closed task), so the sweep flips the card and
+// leaves the closed task alone — exactly what the owner's manual expire does to
+// an orphan today.
+func (s *apiServer) expireWaitingCards(pick func(ReplyCard) bool, now float64, trigger string) (int, error) {
+	cards, err := s.dal.ListReplyCards()
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, c := range cards {
+		if c.Status != replyCardStatusWaiting || !pick(c) {
+			continue
+		}
+		c.Status = replyCardStatusExpired
+		c.ExpiredTS = now
+		if err := s.dal.PutReplyCard(c); err != nil {
+			return n, err
+		}
+		if err := s.releaseCardHold(c, trigger); err != nil {
+			return n, err
+		}
+		s.publishReplyCard(c, trigger)
+		n++
+	}
+	return n, nil
+}
+
+// expireWaitingCardsForTask sweeps every waiting card bound to one task — the
+// task is being reassigned away from its asker, or has just landed terminal
+// (closeTask): either way nobody is left to consume an answer, so the card must
+// not keep sitting in the owner's 等我回覆 pane counting toward the 紅點 with a
+// 409 as its only reward.
+func (s *apiServer) expireWaitingCardsForTask(taskID string, now float64, trigger string) (int, error) {
+	return s.expireWaitingCards(func(c ReplyCard) bool {
+		return c.TaskID == taskID
+	}, now, trigger)
+}
+
+// expireWaitingCardsFromMember sweeps every waiting card OPENED BY one member,
+// fired when that member is dismissed (HandleDismissMember /
+// dismissOutsourceWorkerByID): the asker is gone, so no answer can ever be
+// delivered to it. Best-effort at the call sites — a dismissal must not fail
+// because a card write did.
+func (s *apiServer) expireWaitingCardsFromMember(memberID string, now float64, trigger string) (int, error) {
+	return s.expireWaitingCards(func(c ReplyCard) bool {
+		return c.FromMember == memberID
+	}, now, trigger)
+}
+
+// reconcileOrphanReplyCardsOnBoot retires the EXISTING orphans (T-4166 存量): a
+// waiting card whose bound task is already terminal can never be answered (the
+// answer route 409s it) and can never leave the owner's pane on its own, so it
+// pins the cockpit red dot forever. The lifecycle fix above stops NEW ones; this
+// one-shot clears the ones minted before it. Terminal tasks are left untouched
+// (releaseCardHold's orphan branch). Returns the number of cards retired, for
+// the boot log.
+func (s *apiServer) reconcileOrphanReplyCardsOnBoot() (int, error) {
+	cards, err := s.dal.ListReplyCards()
+	if err != nil {
+		return 0, err
+	}
+	orphans := map[string]bool{}
+	for _, c := range cards {
+		if c.Status != replyCardStatusWaiting || c.TaskID == "" || orphans[c.TaskID] {
+			continue
+		}
+		t, err := s.dal.GetTask(c.TaskID)
+		if err != nil {
+			return 0, err
+		}
+		// A card pointing at a task row that no longer exists is orphaned too:
+		// nothing will ever close it.
+		if t == nil || TaskIsTerminal(t.Status) {
+			orphans[c.TaskID] = true
+		}
+	}
+	return s.expireWaitingCards(func(c ReplyCard) bool {
+		return c.TaskID != "" && orphans[c.TaskID]
+	}, nowSecs(), "boot-reconcile")
 }
 
 // POST /api/reply-cards/{card_id}/answer — answer a WAITING card: the only

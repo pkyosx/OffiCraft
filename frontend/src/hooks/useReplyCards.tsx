@@ -77,6 +77,10 @@ interface UseReplyCards {
   /** Pull the handled lists on demand (the owner expanded the pane). Idempotent
    * and safe to call repeatedly; a repeat just refreshes them. */
   loadHandled: () => void;
+  /** Re-pull the panes on demand — the caller learned the local snapshot is
+   * stale (T-4166: a 409 answer means the card is already handled or orphaned,
+   * so it must stop rendering as if it still waits). */
+  refresh: () => Promise<void>;
   /** Answer a WAITING card (the positive close), then refetch. */
   answer: (id: string, input: ReplyCardAnswerInput) => Promise<void>;
   /** Revise an ANSWERED card's answer (重新決定), then refetch. */
@@ -230,6 +234,7 @@ function useReplyCardsState(): UseReplyCards {
   return {
     waiting,
     handled,
+    refresh: refetchAfterAction,
     handledCount,
     handledLoaded,
     loading,

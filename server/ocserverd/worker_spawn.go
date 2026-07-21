@@ -1226,4 +1226,10 @@ func (s *apiServer) dismissOutsourceWorkerByID(workerID string, now float64, tri
 			s.reclaimWorkerSession(*w)
 		}
 	}
+	// T-4166: a fired worker's waiting cards can never be consumed — the asker
+	// is gone. Retire them (same sweep as reassign / task close / member
+	// dismissal). Best-effort: a card write must never fail the dismissal.
+	if _, err := s.expireWaitingCardsFromMember(workerID, now, trigger); err != nil {
+		outsourceLog("dismiss worker %s: card sweep failed: %v", workerID, err)
+	}
 }

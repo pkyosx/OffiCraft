@@ -527,12 +527,22 @@ func TestAnsweringACardOnATerminatedOrDoneTaskIsRejected(t *testing.T) {
 			if err := api.closeTask(stored, status, nowSecs(), "test"); err != nil {
 				t.Fatalf("closeTask: %v", err)
 			}
+			// closeTask now retires its own waiting cards (T-4166), so force the
+			// LEGACY orphan back — rows minted before that fix still exist in
+			// live DBs and this guard is what catches them.
+			strandLegacyOrphanCard(t, api, card.ID)
 			beforeUpdatedTS := stored.UpdatedTS
 
-			if rec := answerCard(t, api, card.ID,
-				map[string]any{"option_idx": 0}); rec.Code != http.StatusConflict {
+			rec := answerCard(t, api, card.ID, map[string]any{"option_idx": 0})
+			if rec.Code != http.StatusConflict {
 				t.Fatalf("answering an orphaned card on a %s task must 409, got %d %s",
 					status, rec.Code, rec.Body.String())
+			}
+			// Assert the REASON: "orphaned" and "already answered" are both 409
+			// on this route, and only one of them is the behaviour under test.
+			if msg := errorMessageOf(t, rec); !strings.Contains(msg, "is already closed") ||
+				!strings.Contains(msg, "orphaned") || !strings.Contains(msg, task.ID) {
+				t.Fatalf("the 409 must say the card is orphaned on a closed task, got %q", msg)
 			}
 
 			storedCard, err := api.dal.GetReplyCard(card.ID)

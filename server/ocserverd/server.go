@@ -477,6 +477,16 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 	} else if n > 0 {
 		fmt.Fprintf(out, "[ocserverd] task status boot reconcile: aligned %d task(s) to derived status\n", n)
 	}
+	// T-4166 存量: retire waiting cards left orphaned on already-terminal (or
+	// vanished) tasks by the pre-fix lifecycle — unanswerable (409) and
+	// un-clearable, so they pinned the cockpit red dot forever. Runs AFTER the
+	// task reconcile above, so a task that reconcile just closed is seen closed.
+	// Non-fatal — a hiccup logs, boot goes on.
+	if n, err := api.reconcileOrphanReplyCardsOnBoot(); err != nil {
+		fmt.Fprintf(out, "[ocserverd] WARN: orphan reply-card boot reconcile: %v\n", err)
+	} else if n > 0 {
+		fmt.Fprintf(out, "[ocserverd] orphan reply-card boot reconcile: retired %d card(s) stranded on closed tasks\n", n)
+	}
 	claimToken, err := ensureFirstRunClaimToken(dal, auth.passwordHash != "", func(msg string) {
 		fmt.Fprintf(out, "[ocserverd] settings: %s\n", msg)
 	})

@@ -29,6 +29,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useI18n } from "../i18n";
 import type { ReplyCard, ReplyCardAnswerInput } from "../api/adapter";
+import { isHttpStatus } from "../api/errors";
 import { useMembers } from "../hooks/useMembers";
 import { useReplyCards } from "../hooks/useReplyCards";
 import { useWorkerCodenames } from "../hooks/useWorkerCodenames";
@@ -73,6 +74,7 @@ export function RepliesPage() {
     loading,
     error,
     loadHandled,
+    refresh,
     answer,
     reanswer,
     expire,
@@ -219,13 +221,32 @@ export function RepliesPage() {
     );
   }
 
+  // T-4166: 409 on an answer is NOT a transient failure — it is the server
+  // saying this card can never be answered again (its task closed underneath
+  // it, or it is already answered/expired). Telling the owner「請稍後重試」there
+  // sends them down a road that is 409 a hundred times out of a hundred. Say
+  // what actually happened, and refresh the pane so the dead card leaves the
+  // screen instead of sitting there looking clickable — for a card that is
+  // still listed, 標為過期 in its header is the legitimate exit.
+  async function reportAnswerFailure(e: unknown) {
+    const stale = isHttpStatus(e, 409);
+    setActionError(stale ? t.replies.answerStale : t.replies.answerError);
+    if (stale) {
+      // Re-read the panes: an answered/expired/orphaned card must stop
+      // pretending it is still waiting for the owner.
+      await refresh().catch((err) =>
+        console.warn("RepliesPage: stale-card refresh failed", err)
+      );
+    }
+  }
+
   async function doAnswer(id: string, input: ReplyCardAnswerInput) {
     try {
       await answer(id, input);
       setActionError(null);
     } catch (e) {
       console.warn("RepliesPage: answer failed", e);
-      setActionError(t.replies.answerError);
+      await reportAnswerFailure(e);
       throw e;
     }
   }
@@ -236,7 +257,7 @@ export function RepliesPage() {
       setActionError(null);
     } catch (e) {
       console.warn("RepliesPage: re-answer failed", e);
-      setActionError(t.replies.answerError);
+      await reportAnswerFailure(e);
       throw e;
     }
   }
@@ -378,7 +399,11 @@ export function RepliesPage() {
   return (
     <div className="replies">
       {error && <div className="replies__error">{t.replies.loadError}</div>}
-      {actionError && <div className="replies__error">{actionError}</div>}
+      {actionError && (
+        <div className="replies__error" data-testid="replies-action-error">
+          {actionError}
+        </div>
+      )}
 
       <section className="replies__section">
         <div className="replies__section-title">

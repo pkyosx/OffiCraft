@@ -591,11 +591,12 @@ def test_expiring_a_gate_card_resumes_the_task_and_step(
     assert task["steps"][0]["status"] == "in_progress"
 
 
-def test_expire_is_the_only_exit_for_an_orphaned_card(
-    client, owner_token, asker
-):
-    """T-f571 orphans (a waiting card on an already-terminal task) cannot be
-    answered — expire is their one exit, and the closed task stays closed."""
+def test_closing_a_task_retires_its_waiting_card(client, owner_token, asker):
+    """T-4166: a card must not outlive the task it waits on. The owner
+    terminates a task under a still-waiting card; the SERVER retires the card
+    (expired) in the same breath, so it leaves the 等我回覆 pane instead of
+    sitting there unanswerable — answering it is 409 either way (T-f571), which
+    is exactly why it must not still be listed. The closed task stays closed."""
     h_agent = _auth(asker.token)
     r = client.post(
         "/api/tasks",
@@ -629,11 +630,17 @@ def test_expire_is_the_only_exit_for_an_orphaned_card(
         f"/api/tasks/{task_id}/terminate", headers=_auth(owner_token)
     ).status_code == 200
 
-    assert _answer(
-        client, owner_token, card_id, {"option_idx": 0}
-    ).status_code == 409
-    assert _expire(client, owner_token, card_id).status_code == 200
+    # The close swept it: expired, off the waiting pane, unanswerable.
     assert _get_card(client, owner_token, card_id)["status"] == "expired"
+    waiting = client.get("/api/reply-cards?status=waiting",
+                         headers=_auth(owner_token)).json()
+    assert card_id not in [c["id"] for c in waiting]
+    r = _answer(client, owner_token, card_id, {"option_idx": 0})
+    assert r.status_code == 409, r.text
+    assert "expired" in r.json()["error"]["message"], r.text
+    # A second expire is refused (terminal, no re-close) …
+    assert _expire(client, owner_token, card_id).status_code == 409
+    # … and the terminated task was never re-touched by the sweep.
     task = client.get(f"/api/tasks/{task_id}", headers=_auth(owner_token)).json()
     assert task["status"] == "terminated"
 

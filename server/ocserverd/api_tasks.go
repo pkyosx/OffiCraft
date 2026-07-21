@@ -256,13 +256,24 @@ func authorizeTaskCreate(c taskCaller, willOutsource bool, manualAssigneeMember,
 }
 
 // closeTask applies the terminal-status side effects (done AND terminated):
-// stamp closed_ts, release every bound outsource worker (the panel row
-// disappears; the row itself is the audit trail) and fan their deltas.
+// stamp closed_ts, retire every waiting reply card still bound to the task,
+// release every bound outsource worker (the panel row disappears; the row
+// itself is the audit trail) and fan their deltas.
 func (s *apiServer) closeTask(t *Task, status string, now float64, trigger string) error {
 	t.Status = status
 	t.ClosedTS = now
 	t.UpdatedTS = now
 	if err := s.dal.PutTask(*t); err != nil {
+		return err
+	}
+	// T-4166: a card bound to this task can no longer be answered the moment the
+	// task lands terminal — the answer route rejects orphans at the door (409),
+	// and nothing else would ever take the card out of the owner's 等我回覆 pane.
+	// Sweep them with the SAME semantics the reassign path and the owner's manual
+	// expire use (expireWaitingCards). The task row above is already terminal, so
+	// releaseCardHold's orphan branch leaves it untouched — no resume, no
+	// UpdatedTS re-bump floating a closed task back up the cockpit.
+	if _, err := s.expireWaitingCardsForTask(t.ID, now, trigger); err != nil {
 		return err
 	}
 	released, err := s.dal.ReleaseWorkersForTask(t.ID, now)
@@ -897,27 +908,12 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	// the owner's expire route (status flip + releaseCardHold + delta), run
 	// server-side: the question was addressed to the OLD executor, so its
 	// eventual answer is no longer reliable; the new executor opens a fresh
-	// card if the question still matters.
-	cards, err := s.dal.ListReplyCards()
-	if err != nil {
+	// card if the question still matters. The loop that used to live inline here
+	// is now expireWaitingCards (api_replycards.go), shared with closeTask and
+	// member dismissal (T-4166) — one sweep, three seams.
+	if _, err := s.expireWaitingCardsForTask(t.ID, now, trigger); err != nil {
 		internalError(w, err)
 		return
-	}
-	for _, c := range cards {
-		if c.TaskID != t.ID || c.Status != replyCardStatusWaiting {
-			continue
-		}
-		c.Status = replyCardStatusExpired
-		c.ExpiredTS = now
-		if err := s.dal.PutReplyCard(c); err != nil {
-			internalError(w, err)
-			return
-		}
-		if err := s.releaseCardHold(c, trigger); err != nil {
-			internalError(w, err)
-			return
-		}
-		s.publishReplyCard(c, trigger)
 	}
 
 	// 2. Non-terminal steps fall back to pending — the new executor either

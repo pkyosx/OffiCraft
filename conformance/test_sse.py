@@ -203,6 +203,15 @@ def test_all_nine_topics_emit(client, owner_token, agent_a, fresh_member, owner_
     reply_card joined in M2) and pin its op + payload semantics."""
     tag = uuid.uuid4().hex[:8]
     member = fresh_member()
+    # T-4166: a plain reply-card create now REFUSES (409) when the asker is
+    # executing active work it cannot bind the ask to — a card that holds
+    # nothing is what orphaned the production cards. The session-scoped agent_a
+    # accumulates tasks across this suite, so the reply_card TRIGGER needs an
+    # identity with no live work; the topic being pinned here is the SSE fan,
+    # not the binding rule (that has its own tests in test_reply_cards.py).
+    asker_id = hire_member(client, owner_token, f"conf-sse-asker-{tag}",
+                           f"conf-role-sse-{tag}")
+    asker_token = mint_member_token(client, owner_token, asker_id, ttl_days=1)
     triggers: list[tuple[str, Any]] = [
         ("member", lambda: client.patch(
             f"/api/members/{member}", json={"name": f"conf-topic-{tag}"},
@@ -218,7 +227,7 @@ def test_all_nine_topics_emit(client, owner_token, agent_a, fresh_member, owner_
             "/api/reply-cards",
             json={"kind": "decision", "summary": f"topic probe {tag}",
                   "options": ["AI pick", "other"]},
-            headers=_auth(agent_a.token))),
+            headers=_auth(asker_token))),
         ("global_context", lambda: client.post(
             "/api/global-context", json={"text": f"topic probe {tag}"},
             headers=_auth(owner_token))),

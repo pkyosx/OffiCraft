@@ -31,6 +31,7 @@ import {
 } from "../api/mock";
 import { api } from "../api";
 import type { ReplyCard } from "../api/adapter";
+import { ApiError } from "../api/errors";
 
 // Released-worker codename cache (T-3ed8): fixed map (the hook has its own
 // tests) — only "ow-rel" resolves; other ids keep the raw-id fallback.
@@ -165,6 +166,57 @@ describe("RepliesPage", () => {
     expect(final?.textContent).toContain("你選的");
     // The pick IS options[0] → the AI 建議 tag rides alongside.
     expect(final?.textContent).toContain("AI 建議");
+  });
+
+  // T-4166: a 409 on answer is TERMINAL for that card — its task closed
+  // underneath it (orphan), or it was already handled. The old code showed the
+  // same「回覆失敗，請稍後重試」it shows a network blip and left the dead card on
+  // screen, so the owner clicked a road that is 409 a hundred times out of a
+  // hundred. Assert the DISTINCT message (a shared string would make this test
+  // pass on the buggy code too) and the re-pull that clears the card.
+  it("a 409 answer says the card is stale — never 請稍後重試 — and re-pulls the pane", async () => {
+    __injectMockReplyCard(mkCard({}));
+    const answerSpy = vi
+      .spyOn(api, "answerReplyCard")
+      .mockRejectedValue(
+        new ApiError("http 409 for POST /api/reply-cards/rc-1/answer", 409,
+          "conflict",
+          "task 'T-69cf' is already closed (done) — this card is orphaned and can no longer be answered")
+      );
+    const listSpy = vi.spyOn(api, "listReplyCards");
+    const { findAllByTestId, findByTestId } = renderPage();
+    const [card] = await findAllByTestId("waiting-card");
+    const before = listSpy.mock.calls.length;
+
+    fireEvent.click(card.querySelectorAll(".reply-option")[0]);
+
+    const notice = await findByTestId("replies-action-error");
+    expect(notice.textContent).toBe(zh.replies.answerStale);
+    expect(notice.textContent).not.toBe(zh.replies.answerError);
+    // It must point at the exit that DOES work (標為過期), not at a retry.
+    expect(notice.textContent).toContain(zh.replies.expire);
+    expect(answerSpy).toHaveBeenCalledTimes(1);
+    // …and the panes are re-pulled, so a card that is no longer waiting leaves.
+    await waitFor(() =>
+      expect(listSpy.mock.calls.length).toBeGreaterThan(before)
+    );
+  });
+
+  // The regression side: a NON-409 failure keeps the retry wording — the 409
+  // branch must not swallow honest transient errors.
+  it("a 500 answer keeps the retryable 回覆失敗，請稍後重試 wording", async () => {
+    __injectMockReplyCard(mkCard({}));
+    vi.spyOn(api, "answerReplyCard").mockRejectedValue(
+      new ApiError("http 500 for POST /api/reply-cards/rc-1/answer", 500,
+        "internal_error", "boom")
+    );
+    const { findAllByTestId, findByTestId } = renderPage();
+    const [card] = await findAllByTestId("waiting-card");
+
+    fireEvent.click(card.querySelectorAll(".reply-option")[0]);
+
+    const notice = await findByTestId("replies-action-error");
+    expect(notice.textContent).toBe(zh.replies.answerError);
   });
 
   it("answering via the typed composer closes the card with the free text as the answer", async () => {
