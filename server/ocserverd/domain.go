@@ -650,7 +650,7 @@ func ValidTaskLock(l string) bool {
 //     an un-reasoned "none" is a rubber stamp, and the note IS the audit trail
 //     that distinguishes a decision from an omission.
 //
-// HandoffUndeclared ('') is the pre-column / never-asked state.
+// HandoffUndeclared (the empty string) is the pre-column / never-asked state.
 const (
 	HandoffUndeclared      = ""
 	HandoffReturnToCreator = "return_to_creator"
