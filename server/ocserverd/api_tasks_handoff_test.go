@@ -879,25 +879,158 @@ func TestSubmitPlanCannotBeUsedToCloseAroundTheGate(t *testing.T) {
 		t.Fatalf("GATE BYPASSED via submit_plan: status=%q handoff=%q closed_ts=%v",
 			after.Status, after.Handoff, after.ClosedTS)
 	}
-	// And the refusal must NOT send the caller back to submit_plan — that would
-	// be a loop pointing at the hole this test just closed. Asserted on what
-	// the message MUST say, not on the absence of one historical sentence: the
-	// old wording ("the plan is still editable, submit_plan still works") never
-	// appeared in a 422 body at all — it lived in a file-header comment — so
-	// grepping for it passed even against a full revert. An assertion that
-	// cannot fail is dead code inside a test, and panic probes only ever look
-	// at production code, so nothing else would have caught it.
-	msg := errorMessage(t, rec)
+	// The refusal has to be usable, which is more than "well worded" — see
+	// replanRefusalProblems and the negative sample pinning it below.
+	if problems := replanRefusalProblems(errorMessage(t, rec)); len(problems) > 0 {
+		t.Fatalf("the refusal is not usable: %s", strings.Join(problems, "; "))
+	}
+}
+
+// ── 這道 422 的鑑別力本身要被證明 ────────────────────────────────────────────
+//
+// The previous version of this assertion checked that the message did NOT
+// contain "submit_plan still works". That string never appeared in a 422 body
+// at all — it lived in a file-header comment — so the check passed against a
+// full revert: dead code inside a test, which nothing else can find (panic
+// probes only ever look at production code).
+//
+// The FIRST attempt at fixing it was also zero-discrimination, and that is the
+// more interesting failure: asserting the message contains create_task,
+// update_step_status and the three handoff values looks like it pins the fix,
+// but the PRE-rework message contained all five of those too, and also never
+// said "submit_plan". A stricter-looking assertion that still passes on the
+// negative sample is no better than the one it replaced.
+//
+// So the rule this file now follows: an assertion is only worth having if it
+// FAILS when the thing it claims to prove is false. That is not something you
+// can eyeball — it has to be executed against the false case. Hence
+// historicalReplanRefusal below: the exact 422 text from before the rework, kept
+// as a negative sample, with a test that the checker rejects it.
+//
+// What actually changed in the rework, and therefore what has to be pinned:
+//   - route ORDER — the always-available route (update_step_status on a kept
+//     unfinished step) now comes first, because the other one is conditional;
+//   - the CONDITION is stated — set_task_deps is guarded by callerMayDriveTask,
+//     so it 403s unless the successor is assigned to the caller, and a handover
+//     is by definition assigned to somebody else.
+//
+// Naming a route without naming its precondition is how a fail-closed guard
+// turns into an outage, which is the failure this whole ticket is about.
+func replanRefusalProblems(msg string) []string {
+	var problems []string
 	if strings.Contains(msg, "submit_plan") {
-		t.Fatalf("the refusal must not mention submit_plan at all — the caller is "+
-			"already IN submit_plan and it is the door being refused: %s", msg)
+		problems = append(problems, "mentions submit_plan — the caller is already "+
+			"IN submit_plan and it is the door being refused, so that is a loop")
 	}
 	for _, want := range []string{"update_step_status", "create_task",
 		HandoffReturnToCreator, HandoffFollowUp, HandoffNone} {
 		if !strings.Contains(msg, want) {
-			t.Fatalf("the refusal must name the real way out verbatim, missing %q: %s",
-				want, msg)
+			problems = append(problems, "does not name "+want)
 		}
+	}
+	// Ordering: the route that always works must be offered first. Both markers
+	// are present in the old text too — it is their ORDER that changed.
+	stepReport := strings.Index(msg, "update_step_status")
+	setDeps := strings.Index(msg, "set_task_deps")
+	if stepReport >= 0 && setDeps >= 0 && setDeps < stepReport {
+		problems = append(problems, "offers the set_task_deps route BEFORE the "+
+			"update_step_status route, but set_task_deps is the conditional one")
+	}
+	// The precondition must be stated, not left for the caller to discover by
+	// receiving a 403 they have no way to interpret.
+	if strings.Contains(msg, "set_task_deps") && !strings.Contains(msg, "403") {
+		problems = append(problems, "offers the set_task_deps route without saying "+
+			"it answers 403 unless the successor is assigned to the caller")
+	}
+	return problems
+}
+
+// historicalReplanRefusal is the replan 422 EXACTLY as it read before the
+// round-2 rework (commit 74faaca, api_tasks_handoff.go). It is the negative
+// sample: everything replanRefusalProblems claims to catch must be caught here,
+// or the checker is decoration.
+const historicalReplanRefusal = "task 't-x' (T-x) was created by 'm-a' but " +
+	"executed by 'm-b': this plan leaves EVERY step done, which CLOSES the task, " +
+	"and a closed task can never be replanned. A plan carries no handoff " +
+	"declaration, so hand the ball over first, one of two ways: " +
+	"(1) create the successor task (create_task) and point its blocked_by " +
+	"at this task (set_task_deps) — this gate then stands aside by itself, " +
+	"and closing this task releases the successor; or " +
+	"(2) keep ONE unfinished step in this plan, then declare the handover " +
+	"on the update_step_status report that closes it (handoff='return_to_creator'" +
+	" | 'follow_up' + handoff_task_id | 'none' + handoff_note)."
+
+func TestReplanRefusalCheckerRejectsThePreReworkWording(t *testing.T) {
+	// Sanity: the sample really does satisfy the WEAK checks, which is exactly
+	// why the weak checks were worthless. If this ever stops holding, the
+	// negative sample has drifted and the test below proves nothing.
+	for _, weak := range []string{"update_step_status", "create_task",
+		HandoffReturnToCreator, HandoffFollowUp, HandoffNone} {
+		if !strings.Contains(historicalReplanRefusal, weak) {
+			t.Fatalf("negative sample no longer contains %q — it has drifted and "+
+				"stopped being the thing we are proving discrimination against", weak)
+		}
+	}
+	if strings.Contains(historicalReplanRefusal, "submit_plan") {
+		t.Fatalf("negative sample must not contain submit_plan — the point is that " +
+			"the old text passed that check too")
+	}
+
+	problems := replanRefusalProblems(historicalReplanRefusal)
+	if len(problems) == 0 {
+		t.Fatalf("ZERO-DISCRIMINATION ASSERTION: replanRefusalProblems accepts the " +
+			"PRE-rework 422 wording, so it cannot tell the fix from its absence. " +
+			"An assertion that passes when its premise is false is dead code.")
+	}
+	// And specifically the two things the rework changed, so a checker that
+	// happens to reject the sample for some unrelated reason is not enough.
+	joined := strings.Join(problems, "; ")
+	for _, want := range []string{"BEFORE the", "403"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("the checker must reject the old wording for the reason the "+
+				"rework exists (%q), got: %s", want, joined)
+		}
+	}
+}
+
+// The live message must satisfy the checker that the old one fails — the
+// positive half of the same pin, on the real handler output rather than a
+// constant, so a change to handoffGateReason reddens here.
+func TestReplanRefusalOffersTheAlwaysAvailableRouteFirstWithItsCondition(t *testing.T) {
+	api := newTasksTestServer(t)
+	seedActiveMember(t, api, "m-creator")
+	task := seedHandoffTask(t, api, "t-kkkk00000001", "m-creator", "m-exec", "a", "b")
+	steps, err := api.dal.ListTaskSteps(task.ID)
+	if err != nil {
+		t.Fatalf("list steps: %v", err)
+	}
+	for _, st := range steps {
+		if st.Name == "a" {
+			st.Status = StepStatusDone
+			if err := api.dal.PutTaskStep(st); err != nil {
+				t.Fatalf("put step: %v", err)
+			}
+		}
+	}
+	rec := httptest.NewRecorder()
+	api.HandleSubmitTaskPlanApiTasksTaskIdPlanPost(rec,
+		taskReq(t, "POST", "/api/tasks/"+task.ID+"/plan",
+			map[string]any{"steps": []map[string]any{{"name": "a", "dod": "d"}}},
+			"m-exec", "agent"), task.ID)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("want 422, got %d %s", rec.Code, rec.Body.String())
+	}
+	msg := errorMessage(t, rec)
+	if problems := replanRefusalProblems(msg); len(problems) > 0 {
+		t.Fatalf("live refusal is not usable: %s\nmessage was: %s",
+			strings.Join(problems, "; "), msg)
+	}
+	// The 403 warning has to be attached to the route it applies to, not left
+	// floating: the caller reads this top-to-bottom and acts on the first thing
+	// that looks like an instruction.
+	if strings.Index(msg, "set_task_deps") > strings.Index(msg, "403") {
+		t.Fatalf("the 403 caveat must come AFTER the route it qualifies, or it "+
+			"reads as a caveat on the route above it: %s", msg)
 	}
 }
 
