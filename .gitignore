@@ -27,6 +27,7 @@ cli/ocagent/ocagent
 cli/ocwarden/ocwarden
 cli/ocwarden/ocwarden.prev
 cli/ocwarden/ocagent
+cli/ocwarden/ocagent.prev
 
 # Release pipeline artifacts (bin/release) — never commit
 /dist/

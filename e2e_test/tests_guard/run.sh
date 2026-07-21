@@ -157,6 +157,64 @@ check "agent_workdir canonical when ns unset (zero-diff)" "0" "$rc"
 # ── 10) TRIPWIRE: no guard/allocator ever called launchctl bootout ───────────
 if [[ -s "$TRIPWIRE" ]]; then bad "launchctl bootout was invoked: $(cat "$TRIPWIRE")"; else ok "no teardown/bootout invoked by any guard/allocator path"; fi
 
+# ── 11) T-d41a: run_all.sh must still PRINT "[run_all] specs exit=<rc>" when a
+#        spec fails. This is an OUTPUT assertion, on purpose: the bug it guards
+#        is rc-blind. lib/common.sh used to `set -euo pipefail`, and because it
+#        is SOURCED, the `-e` leaked into run_all.sh (which deliberately runs
+#        `set -uo pipefail` so it can capture rc itself). Under the leaked `-e`
+#        the failing playwright subshell killed the script BEFORE `RC=$?` and
+#        the echo — the run still exited non-zero with the SAME code, so a
+#        rc-only assertion stays green while the diagnostic line is gone.
+#        "Failed for the wrong reason" and "correctly reported the failure"
+#        share one exit code; only the output tells them apart.
+#
+#        Fidelity: the preamble (the `set -` line and the `source .../common.sh`
+#        line) and the reporting tail (`RC=$?` + the echo) are lifted VERBATIM
+#        from run_all.sh, so this reproduces the real interaction against the
+#        real lib/common.sh. Only the playwright invocation is stood in for by a
+#        subshell that exits 7 (hermetic: no browser, no server, no ports).
+RUN_ALL="$HERE/../run_all.sh"
+if [[ ! -f "$RUN_ALL" ]]; then
+  bad "run_all.sh not found at $RUN_ALL"
+else
+  D41A_SET="$(grep -m1 -E '^set +-' "$RUN_ALL" || true)"
+  D41A_SRC="$(grep -m1 -F 'source "$HERE/lib/common.sh"' "$RUN_ALL" || true)"
+  D41A_RC="$(grep -m1 -E '^RC=\$\?' "$RUN_ALL" || true)"
+  D41A_ECHO="$(grep -m1 -F '[run_all] specs exit=' "$RUN_ALL" || true)"
+  if [[ -z "$D41A_SET" || -z "$D41A_SRC" || -z "$D41A_RC" || -z "$D41A_ECHO" ]]; then
+    bad "run_all.sh no longer has the expected set/source/RC/echo shape — update guard (11)"
+  else
+    D41A_SH="$SHIMDIR/d41a_run_all_shape.sh"
+    {
+      echo '#!/usr/bin/env bash'
+      echo "$D41A_SET"
+      printf 'HERE=%q\n' "$(cd "$HERE/.." && pwd)"
+      echo "$D41A_SRC"
+      echo '( exit 7 )   # stand-in for the failing `npx playwright test` subshell'
+      echo "$D41A_RC"
+      echo "$D41A_ECHO"
+      echo 'exit $RC'
+    } > "$D41A_SH"
+    D41A_OUT="$(bash "$D41A_SH" 2>&1)"; D41A_EXIT=$?
+    if [[ "$D41A_OUT" == *"[run_all] specs exit=7"* ]]; then
+      ok "spec failure still PRINTS '[run_all] specs exit=7' (sourcing common.sh leaks no -e)"
+    else
+      bad "spec-failure report line MISSING — got output '$D41A_OUT' (rc=$D41A_EXIT). \
+lib/common.sh likely re-enabled 'set -e'; it is SOURCED, so -e leaks into run_all.sh \
+and kills it before RC=\$? — same exit code, no diagnostic line."
+    fi
+    # Secondary (NOT the headline): the rc must still propagate. Deliberately
+    # asserted after the output check so the output regression is what reddens.
+    check "spec failure rc still propagates through run_all.sh" "7" "$D41A_EXIT"
+    # And the sourced lib must not silently re-arm errexit in a non -e caller.
+    rc="$(bash -c 'set -uo pipefail; source "$1" >/dev/null 2>&1; case $- in *e*) exit 1;; *) exit 0;; esac' _ "$HERE/../lib/common.sh"; echo $?)"
+    check "sourcing lib/common.sh does not turn on errexit in a non-'-e' caller" "0" "$rc"
+    # Converse: a caller that DID ask for -e must keep it (setup.sh et al).
+    rc="$(bash -c 'set -euo pipefail; source "$1" >/dev/null 2>&1; case $- in *e*) exit 0;; *) exit 1;; esac' _ "$HERE/../lib/common.sh"; echo $?)"
+    check "sourcing lib/common.sh preserves errexit for callers that set it" "0" "$rc"
+  fi
+fi
+
 echo "[tests_guard] PASS=$PASS FAIL=$FAIL"
 [[ "$FAIL" -eq 0 ]] || exit 1
 echo "[tests_guard] all green"

@@ -4,7 +4,19 @@
 # service on a NON-PROD port with an isolated SQLite DB. It must NEVER touch the
 # production ports :8770 / :8766, and must never authenticate against or emit to
 # the fleet/prod server.
-set -euo pipefail
+#
+# T-d41a — deliberately `set -uo pipefail`, NOT `-euo`. This file is SOURCED, so
+# `set -e` here silently rewrites the ERR-handling policy of whoever sourced it.
+# Two callers deliberately run WITHOUT `-e` so they can capture a failure's rc
+# and report it: run_all.sh (`RC=$?; echo "[run_all] specs exit=$RC"`) and
+# teardown.sh (best-effort, must survive no-op steps). Under an inherited `-e`
+# those lines are unreachable — a red run lost its diagnostic line while the
+# exit code stayed identical, so the hole looked exactly like a healthy net.
+# Every caller that WANTS `-e` (setup.sh, single_machine_e2e.sh, a1_zombie_e2e.sh,
+# task_system_e2e.sh) already sets it itself BEFORE sourcing, and `set -uo` does
+# not clear it — so errexit stays a per-entrypoint decision. Do not add `-e` here.
+# Guarded by e2e_test/tests_guard/run.sh case (11).
+set -uo pipefail
 
 # repo root = two levels up from this file (e2e_test/lib/common.sh)
 E2E_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
