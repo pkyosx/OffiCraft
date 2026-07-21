@@ -2,7 +2,11 @@
 # e2e_test/teardown.sh — tear the isolated service down to a clean slate.
 #   stop serve (ONLY our captured pid) -> drop isolated DB + state -> verify.
 # Best-effort (no `set -e`): keeps going even if a step is a no-op.
-# NEVER pkill/killall. NEVER touch prod :8770/:8766.
+# NEVER pkill/killall. NEVER touch a prod port — the set is PROD_PORTS from
+# lib/common.sh (sourced below), whose CURRENT officraft entry is read at run
+# time from server/ocserverd/config.go's defaultPort. Do NOT re-spell the ports
+# as literals here: this header used to say ":8770/:8766", naming only a RETIRED
+# default and a foreign product while the real prod port went unnamed (T-191d).
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
@@ -69,5 +73,16 @@ WEBDIST="$REPO_ROOT/server/ocserverd/webdist"
 # dangerous (stray SPA baked into the committed binary).
 oc_restore_webdist_pristine "$WEBDIST" || true
 
-echo "[teardown] prod :8770/:8766 — not managed by this harness (untouched)"
+# Closing reassurance to the operator. It MUST name the port prod is actually on
+# — this line used to read "prod :8770/:8766 — untouched", which named only a
+# RETIRED officraft default and a foreign product's port. Reassurance that names
+# the wrong port is worse than none: it tells the operator the live station was
+# spared while never mentioning it (T-191d, the message-level form of the same
+# defect as the prod-port refusal lists). Derived from common.sh's PROD_PORTS /
+# PROD_OFFICRAFT_PORT (SSOT: server/ocserverd/config.go's defaultPort) — never a
+# second hand-copied constant; common.sh FATALs if that parse fails, so this can
+# never degrade to a silent empty string. Retired/foreign ports stay listed
+# (added to, not swapped for, the current one).
+# Guarded by e2e_test/tests_guard/run.sh case (17).
+echo "[teardown] prod ports — NOT managed by this harness (untouched): current officraft :$PROD_OFFICRAFT_PORT (server/ocserverd/config.go defaultPort); full refusal set: ${PROD_PORTS[*]}"
 echo "[teardown] ✅ clean"

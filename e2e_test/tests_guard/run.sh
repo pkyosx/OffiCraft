@@ -500,6 +500,46 @@ else
   rm -rf "$C16_T" "$C16_SHIM" 2>/dev/null || true
 fi
 
+# ── 17) T-191d: teardown.sh's closing "prod — untouched" reassurance must NAME
+#        the port prod is actually on, derived from the SSOT.
+#        This is the MESSAGE-level form of the (15)/(16) defect: the line used to
+#        read "prod :8770/:8766 — not managed by this harness (untouched)", which
+#        named a RETIRED officraft default and a foreign product's port while the
+#        live one went unmentioned. An operator reading it was told the real
+#        station had been spared by a sentence that had never heard of it — a
+#        reassurance pointing at the wrong port is worse than no reassurance.
+#        BEHAVIOURAL: the real echo line is lifted VERBATIM from teardown.sh and
+#        EVALUATED with the real lib/common.sh sourced, so what is asserted is
+#        the string the operator actually sees. Evaluating one echo has no side
+#        effects — none of teardown.sh's kill/rm steps are reached.
+TD="$HERE/../teardown.sh"
+if [[ ! -f "$TD" ]]; then
+  bad "teardown.sh not found at $TD — update guard (17)"
+else
+  TD_LINE="$(grep -m1 -E '^echo "\[teardown\] prod ' "$TD" || true)"
+  if [[ -z "$TD_LINE" ]]; then
+    bad "teardown.sh no longer has an 'echo \"[teardown] prod …\"' line — update guard (17) (or the operator lost the reassurance entirely)"
+  else
+    C17_OUT="$(OC_E2E_PORT=8791 bash -c 'source "$1" >/dev/null 2>&1; '"$TD_LINE" _ "$C15_COMMON" 2>&1)"
+    case "$C17_OUT" in
+      *":$CANON_PORT"*|*" $CANON_PORT"*)
+        ok "teardown.sh's 'prod untouched' line NAMES the current prod port ($CANON_PORT, SSOT-derived)" ;;
+      *) bad "teardown.sh's 'prod untouched' line does NOT name the current prod port $CANON_PORT (got: ${C17_OUT:-<silence>}) — reassurance that names only retired ports tells the operator the live station was spared without ever mentioning it (T-191d)" ;;
+    esac
+    case "$C17_OUT" in
+      *8770*) ok "teardown.sh's line still lists the RETIRED 8770 (added to, not swapped for, the current port)" ;;
+      *) bad "teardown.sh's line dropped the retired 8770 — retired ports stay listed (got: $C17_OUT)" ;;
+    esac
+    # Discriminating control: the pre-fix literal, pushed through the identical
+    # evaluation path, must NOT satisfy the assertion above — else (17) is vacuous.
+    C17_CTL="$(OC_E2E_PORT=8791 bash -c 'source "$1" >/dev/null 2>&1; echo "[teardown] prod :8770/:8766 — not managed by this harness (untouched)"' _ "$C15_COMMON" 2>&1)"
+    case "$C17_CTL" in
+      *"$CANON_PORT"*) bad "control broken: the pre-fix literal line already contains $CANON_PORT — case (17) may be vacuous" ;;
+      *) ok "control: the pre-fix literal line never mentions $CANON_PORT (case 17 can actually redden)" ;;
+    esac
+  fi
+fi
+
 echo "[tests_guard] PASS=$PASS FAIL=$FAIL"
 [[ "$FAIL" -eq 0 ]] || exit 1
 echo "[tests_guard] all green"
