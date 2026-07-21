@@ -61,7 +61,7 @@ bin/ocserver install --force    # 重跑每一步(reinstall;不動既有密碼)
 ```
 
 前置需求:macOS(launchd)、Go、node/npm、python3 ≥ 3.11;`cloudflared` 只有要開 tunnel 才需要。
-以下「裝完機器上多了什麼 / 移除」兩節描述的是這條 `bin/ocserver` 原始碼路徑。release tarball 路徑落 `~/.officraft/bin` + 資料庫,**並註冊一個 launchd job `com.officraft.serve`**(不裝 autodeploy 與 tunnel —— 那兩個是原始碼路徑才有的)。
+以下「裝完機器上多了什麼」一節描述的是這條 `bin/ocserver` 原始碼路徑。release tarball 路徑落 `~/.officraft/bin` + 資料庫,**並註冊一個 launchd job `com.officraft.serve`**(不裝 autodeploy 與 tunnel —— 那兩個是原始碼路徑才有的)。「移除」一節兩條路徑都有,分開寫在下面。
 
 ## 裝完機器上多了什麼
 
@@ -122,11 +122,26 @@ MY_MESSAGE="有 空 格 要 用 引號"
 
 ## 移除
 
+### release 路徑(一行安裝)
+
+```bash
+curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash -s -- --uninstall
+# 停用 + 移除 launchd job,把 ~/.officraft 搬到 ~/.officraft.bak-<timestamp>(資料庫也搬過去,不刪)
+# 最壞情況是「東西還在,只是不跑了」,不是「資料沒了」
+
+curl -fsSL … | bash -s -- --uninstall --dry-run   # 只印出會做什麼,什麼都不動
+curl -fsSL … | bash -s -- --uninstall --purge     # 真的刪光,含資料庫(會要求輸入 "purge" 確認;--yes 跳過)
+```
+
+也可以先下載 `install.sh` 再本機跑同樣的旗標。尊重 `OC_LAUNCHD_LABEL`(用 alt label 併裝的那一套,移除時也要帶同一個 label)。所有權判斷只認「這支安裝器裝的那一套」——label 被別的程式占用時會拒絕移除並說明原因,不會誤刪。
+
+### 原始碼路徑(`bin/ocserver install`)
+
 ```bash
 bin/ocserver uninstall             # 卸掉三個 launchd job、刪 ~/.officraft/server
-                                   # 但保留 data/（資料庫，含密碼雜湊）與 oc.toml（設定）——之後重裝即回原狀
-bin/ocserver uninstall --purge     # 全部刪光,含資料庫與密碼（會要求輸入確認；--yes 跳過）
-bin/ocserver uninstall --dry-run   # 只印出會做什麼，什麼都不動
+                                   # 但保留 data/(資料庫,含密碼雜湊)與 oc.toml(設定)——之後重裝即回原狀
+bin/ocserver uninstall --purge     # 全部刪光,含資料庫與密碼(會要求輸入確認;--yes 跳過)
+bin/ocserver uninstall --dry-run   # 只印出會做什麼,什麼都不動
 ```
 
 ## 開發者
