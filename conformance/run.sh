@@ -201,7 +201,19 @@ reclaim_own_stray() {
   # means we could not look at all — which is NOT the same as "nothing is
   # there". Reporting that as silence would be the exact class of bug this
   # ticket exists to kill, so it gets a voice.
+  # `set +e` around the capture is REQUIRED and must not be "tidied away".
+  # This file runs under `set -euo pipefail`, and lsof exits NON-ZERO in the
+  # ordinary free-port case (1 = no matches). Writing this as a bare
+  # `_out="$(lsof …)"; _rc=$?` kills the script AT THE ASSIGNMENT — inside a
+  # trap handler that means teardown silently stops before `rm -rf "$WORK"`
+  # and before its own "teardown done" line, on the HAPPY path. That is the
+  # identical `set -e` + command-substitution trap this ticket fixed at the
+  # prod-port guard; it was re-introduced here during rework and caught by the
+  # lsof-failure probe. `|| true` is not a substitute: it would discard $?,
+  # which is the whole signal being read below.
+  set +e
   _out="$(lsof -nP -tiTCP:"$CONF_PORT" -sTCP:LISTEN 2>/dev/null)"; _rc=$?
+  set -e
   if [[ $_rc -ne 0 && $_rc -ne 1 ]]; then
     echo "[conformance] WARN: could not inspect :$CONF_PORT for leftovers — lsof exited $_rc (not the 'no matches' 1). Teardown therefore CANNOT say whether this run left its own listener behind. Check :$CONF_PORT by hand before the next run." >&2
     return
