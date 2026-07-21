@@ -54,6 +54,7 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
            └─ 需要你點頭 ──> 一張卡進 Ask ──> 你回一句 ──> 繼續
 ```
 
+- **介面上的欄位是什麼意思** → [docs/guide/interface.md](docs/guide/interface.md)
 - **任務怎麼運作（含一個完整例子）** → [docs/guide/tasks.md](docs/guide/tasks.md)
 - **完整安裝、升級與移除** → [docs/guide/install.md](docs/guide/install.md)
 - **在手機上用（含加到主畫面）** → [docs/guide/mobile.md](docs/guide/mobile.md)

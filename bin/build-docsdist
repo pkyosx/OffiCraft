@@ -15,7 +15,7 @@
 # SCOPE (owner ruling: 打包 README + docs/guide): the repo-root README.md
 # (staged as readme.md → slug "readme") PLUS every *.md AND the assets/ image
 # tree under docs/guide/, copied whole (glob/recursive, no filename enumeration,
-# so O-46's why/tasks/install/mobile.md are collected automatically). docs/dev.md
+# so why/tasks/install/mobile/interface.md are collected automatically). docs/dev.md
 # and docs/design/ are DEVELOPER material and are NEVER shipped. The embed guard
 # (api_docs_test.go) pins the staged .md set == {readme} ∪ docs/guide/*.md so a
 # stray draft dropped under docs/guide is caught, not silently fed to users.
