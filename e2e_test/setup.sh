@@ -118,11 +118,19 @@ ok=""
 GOT_SHA=""
 for _ in $(seq 1 30); do
   if RESP=$(curl -sf "$OC_E2E_BASE/api/version" 2>/dev/null); then
+    # `|| true` is load-bearing under this file's `set -euo pipefail`, and it
+    # is the same guard conformance/run.sh's twin of this line already had. If
+    # the pipeline ever returns non-zero (SIGPIPE 141, `py` missing), `set -e`
+    # would kill setup.sh AT THE ASSIGNMENT — no message, exit 1 — and the
+    # identity check below would never run. That silent-death shape is exactly
+    # what T-a3ba fixed in run.sh's prod-port guard; this line had the same
+    # hazard and was left asymmetric by the same ticket. An empty GOT_SHA is
+    # not swallowed: the check below treats it as a mismatch and FATALs.
     GOT_SHA=$(printf '%s' "$RESP" | py -c 'import sys,json
 try:
     print(json.load(sys.stdin).get("git_sha",""))
 except Exception:
-    print("")' 2>/dev/null)
+    print("")' 2>/dev/null || true)
     ok=1
     break
   fi
@@ -159,7 +167,7 @@ LISTEN_PID="${LISTEN_CANDIDATES[0]}"
 # git_sha we expect — this data was already being fetched above (as `SHA`
 # used to be, printed but never compared); now it gates.
 if [ -z "$GOT_SHA" ] || [ "$GOT_SHA" != "$EXPECTED_SHA" ]; then
-  echo "[setup] FATAL: health 200 but identity mismatch — /api/version reported git_sha='${GOT_SHA:-<empty>}', expected '$EXPECTED_SHA' (this checkout's HEAD). launch pid=$SERVE_LAUNCH_PID listener pid=$LISTEN_PID. The 200 almost certainly came from a DIFFERENT process (a leftover listener from an earlier run, or someone else's server) — not the ocserverd we just built. Find and stop that listener, then re-run." >&2
+  echo "[setup] FATAL: health 200 but identity mismatch — /api/version reported git_sha='${GOT_SHA:-<empty>}', expected '$EXPECTED_SHA' (this checkout's HEAD). launch pid=$SERVE_LAUNCH_PID listener pid=$LISTEN_PID. Either the 200 came from a DIFFERENT process (a leftover listener from an earlier run, or someone else's server), or THIS CHECK IS WRONG (e.g. the server's gitSHA() probe timed out and reported 'unknown') and the listener is the ocserverd we just built. Do NOT assume the former and go hunting: run 'bash teardown.sh', which decides by evidence — it kills the port holder only if its command line is this run's own binary ($STATE_DIR/ocserverd), and leaves anything else alone. If teardown reports it left the listener alone, THEN it is not ours — find and stop it, then re-run." >&2
   exit 1
 fi
 

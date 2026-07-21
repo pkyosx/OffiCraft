@@ -101,29 +101,60 @@ bash teardown.sh         # clean up
 
 ### ⚠️ Responder-identity checks are NOT applied everywhere yet (T-a3ba, known gap)
 
-`setup.sh` now refuses a health-check 200 unless the responder proves it is
-**this run's** server (self-reported `git_sha` == `git rev-parse --short HEAD`,
-**and** the listener pid's command line == the binary this run built). That
-makes exactly **one** of the harness's four "is the server up?" decision points
-identity-bound. **The other three are not**, and T-a3ba deliberately did not
-touch them (a concurrent ticket owns those files):
+A health-check 200 only proves that **something** answers on the port. Binding
+it to identity means additionally proving the responder is **the server this run
+brought up**. Here is every gate in this harness that answers "is it up?", and
+whether it is bound. **Deliberately no line numbers — see "how to re-locate"
+below; an earlier revision of this table hard-coded them and 3 of 6 rotted
+within hours of being written, which is the exact failure mode T-a3ba exists to
+kill.**
 
-| location | status |
-|---|---|
-| `e2e_test/setup.sh` health gate | ✅ identity-bound (T-a3ba) |
-| `e2e_test/lib/oc_lifecycle.sh` `oc_fresh_install` (~:829/:834/:854) | ❌ **UNBOUND** |
-| `e2e_test/cross_machine.sh` (~:334/:339/:362) | ❌ **UNBOUND** |
+| gate | how it decides | bound? |
+|---|---|---|
+| `bin/ocserver install` post-install health gate | 200 **and** launchd job pid **and** socket holder must all agree | ✅ **bound** (strongest of the five; predates T-a3ba) |
+| `conformance/run.sh` serve health gate | responder's `git_sha` == this checkout's HEAD, **and** listener's argv == the throwaway binary this run built | ✅ bound (T-a3ba) |
+| `e2e_test/setup.sh` serve health gate | same two checks, against `$STATE_DIR/ocserverd` | ✅ bound (T-a3ba) |
+| `e2e_test/lib/oc_lifecycle.sh` → `oc_fresh_install` steps 2c/2d + stability window | `/health` == 200; `git_sha` merely non-empty and != `unknown`, **never compared to anything** | ❌ **UNBOUND** (3 probes) |
+| `e2e_test/cross_machine.sh` steps 2c/2d + stability window | identical code to the row above | ❌ **UNBOUND** (3 probes) |
 
-`oc_lifecycle.sh`'s step 2d is a near-verbatim copy of the code `setup.sh` had
+**Count, stated plainly because two earlier attempts miscounted it:** 5 gates —
+**3 bound, 2 unbound** — or, at individual-probe granularity inside the two
+shell harnesses, **8 probes: 2 bound, 6 unbound**. Do not reuse the numbers
+"4 decision points, 1 bound" or "four … the other three"; both were wrong (the
+first enumerated only `e2e_test/`, the second omitted `conformance/run.sh` from
+its own table).
+
+**How to re-locate these without trusting any line number** — one command,
+re-runnable from the repo root:
+
+```bash
+grep -rn --include='*.sh' "proves the real server booted\|# 2c\. health: /health must be 200\.\|15s of consecutive /health greens" e2e_test/
+```
+
+The `2d` comment string `proves the real server booted` is the tightest anchor:
+it marks both unbound `git_sha` probes and nothing else.
+
+**Why the unbound rows still matter, and why they matter *less* than they look.**
+`oc_lifecycle.sh`'s step 2d is a near-verbatim copy of what `setup.sh` had
 *before* T-a3ba: it fetches `git_sha`, asserts only "non-empty and not
-`unknown`", never compares it to anything, and comments that this "proves the
-real server booted" — it proves *a* real ocserverd booted, not *ours*. Do not
-read T-a3ba's commits as "the e2e side was checked and is clean": that claim was
-made and it was **false**. These are the destructive suites' shared startup path
-(`single_machine_e2e.sh` / `task_system_e2e.sh` / `a1_zombie_e2e.sh`, which
-`rm -rf $SERVER_ROOT` and `launchctl bootout`), so a wrong-server "healthy" here
-is worse, not better, than in the Playwright suite. `bin/ci.sh` does not run
-them, so CI's green light is not evidence about this row.
+`unknown`", and its comment claims this "proves the real server booted" — it
+proves *a* real ocserverd booted, not *ours*. **But** both of those files reach
+2c/2d only after `bin/ocserver install` has already passed the launchd-pid gate
+in row 1, on the same port (`oc_fresh_install` pins serve to `${LOCAL_BASE##*:}`).
+So the residual exposure is not "any stranger's server passes" — it is the
+window *after* that gate, which is real because autodeploy's first tick restarts
+serve (that restart is precisely why the stability window exists, and a restart
+retires the pid identity row 1 established).
+
+These are the destructive suites' shared startup path (`single_machine_e2e.sh` /
+`task_system_e2e.sh` / `a1_zombie_e2e.sh`, which `rm -rf $SERVER_ROOT` and
+`launchctl bootout`). `bin/ci.sh` does not run them, so **CI's green light is
+not evidence about those two rows.**
+
+**Do not read T-a3ba's commits as "the e2e side was checked and is clean."**
+That claim was made — as "the *two* independently-maintained copies" and "applied
+to *BOTH* copies" — and it was **false**. T-a3ba deliberately left the two
+unbound rows alone because a concurrent ticket owns those files.
 
 ## Scope
 

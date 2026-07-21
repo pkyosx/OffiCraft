@@ -181,22 +181,64 @@ LISTEN_PID=""
 # unknown), and it is a fresh `ps` call independent of the one the identity
 # check made, so a transient hiccup there is usually recovered here. It is not
 # a case this ticket can close; the NOTE printed below is what tells a human
-# it happened.
+# it happened. (Its sibling — `lsof` itself failing — is NOT silent: that path
+# WARNs explicitly rather than returning as if the port were empty.)
+# _pid_alive PID — true only if the pid exists AND is not a reaped-pending
+# zombie. `kill -0` alone is not a death test: a just-killed child stays
+# signalable as a zombie until reaped, which would make the death confirmation
+# below report a false failure.
+_pid_alive() {
+  local _st
+  _st="$(ps -p "$1" -o state= 2>/dev/null || true)"
+  [[ -n "$_st" && "$_st" != Z* ]]
+}
+
 reclaim_own_stray() {
-  local _stray _cmd _left=""
+  local _stray _cmd _left="" _out _rc
+
+  # Look ONCE and keep the exit status. `lsof` exits 1 for "no matches", which
+  # is the normal happy answer; ANY other non-zero (127 = not installed, etc.)
+  # means we could not look at all — which is NOT the same as "nothing is
+  # there". Reporting that as silence would be the exact class of bug this
+  # ticket exists to kill, so it gets a voice.
+  _out="$(lsof -nP -tiTCP:"$CONF_PORT" -sTCP:LISTEN 2>/dev/null)"; _rc=$?
+  if [[ $_rc -ne 0 && $_rc -ne 1 ]]; then
+    echo "[conformance] WARN: could not inspect :$CONF_PORT for leftovers — lsof exited $_rc (not the 'no matches' 1). Teardown therefore CANNOT say whether this run left its own listener behind. Check :$CONF_PORT by hand before the next run." >&2
+    return
+  fi
+
   while IFS= read -r _stray; do
     [[ -n "$_stray" ]] || continue
     _cmd="$(ps -p "$_stray" -o command= 2>/dev/null || true)"
     case "$_cmd" in
       "$WORK/ocserverd"*)
+        # TERM, grace, then KILL — the same escalation cleanup() applies to its
+        # captured pids. Nothing is printed until the outcome is KNOWN: the
+        # whole point of this ticket is that a log line must not claim more
+        # than actually happened.
         kill "$_stray" 2>/dev/null || true
-        echo "[conformance] reclaimed OUR OWN stray listener pid=$_stray on :$CONF_PORT — its command line is this run's throwaway binary ($WORK/ocserverd), so it is provably ours. (A guard above exited before the pid was blessed; leaving it would have wedged the next run's port guard.)" >&2
+        for _ in 1 2 3 4 5; do
+          _pid_alive "$_stray" || break
+          sleep 1
+        done
+        if _pid_alive "$_stray"; then
+          kill -9 "$_stray" 2>/dev/null || true
+          sleep 1
+        fi
+        if _pid_alive "$_stray"; then
+          echo "[conformance] WARN: :$CONF_PORT is held by OUR OWN stray listener pid=$_stray ($WORK/ocserverd) and it SURVIVED both TERM and KILL — teardown did NOT reclaim it. The next run's port guard will refuse to start until this pid is gone; stop it by hand." >&2
+        else
+          echo "[conformance] reclaimed OUR OWN stray listener pid=$_stray on :$CONF_PORT (confirmed dead) — its command line was this run's throwaway binary ($WORK/ocserverd), so it was provably ours. (A guard above exited before the pid was blessed; leaving it would have wedged the next run's port guard.)" >&2
+        fi
         ;;
       *)
         _left="$_left $_stray"
         ;;
     esac
-  done < <(lsof -nP -tiTCP:"$CONF_PORT" -sTCP:LISTEN 2>/dev/null || true)
+  done <<EOF
+$_out
+EOF
+
   if [[ -n "$_left" ]]; then
     echo "[conformance] NOTE: :$CONF_PORT still has listener(s)$_left that are NOT ours (command line is not $WORK/ocserverd) — deliberately left alone. Inspect manually; this is not a blind pkill." >&2
   fi
