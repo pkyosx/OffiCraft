@@ -13,6 +13,7 @@ import { render, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { TasksPage } from "./TasksPage";
 import { RepliesPage } from "./RepliesPage";
+import { ReplyCardsProvider } from "../hooks/useReplyCards";
 import { ChatReplyCard } from "./ChatReplyCard";
 import {
   __resetMock,
@@ -105,7 +106,7 @@ describe("請示卡的任務資訊 (RepliesPage)", () => {
     );
     const { findByTestId } = render(
       <I18nProvider>
-        <RepliesPage />
+        <ReplyCardsProvider><RepliesPage /></ReplyCardsProvider>
       </I18nProvider>
     );
     const ref = await findByTestId("reply-task-ref");
@@ -126,7 +127,7 @@ describe("請示卡的任務資訊 (RepliesPage)", () => {
     __injectMockReplyCard(mkCard({ task: null }));
     const { findAllByTestId } = render(
       <I18nProvider>
-        <RepliesPage />
+        <ReplyCardsProvider><RepliesPage /></ReplyCardsProvider>
       </I18nProvider>
     );
     await findAllByTestId("waiting-card");

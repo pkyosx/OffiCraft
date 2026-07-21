@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { RepliesPage } from "./RepliesPage";
+import { ReplyCardsProvider } from "../hooks/useReplyCards";
 import { __resetMock, __injectMockReplyCard } from "../api/mock";
 import type { ReplyCard } from "../api/adapter";
 
@@ -31,7 +32,9 @@ function mkCard(over: Partial<ReplyCard>): ReplyCard {
 function renderPage() {
   return render(
     <I18nProvider>
-      <RepliesPage />
+      <ReplyCardsProvider>
+        <RepliesPage />
+      </ReplyCardsProvider>
     </I18nProvider>
   );
 }

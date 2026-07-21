@@ -4,6 +4,7 @@ import { LoginPage } from "./components/LoginPage";
 import { FirstRunPage } from "./components/FirstRunPage";
 import { USE_MOCK, api } from "./api";
 import { hasToken, clearToken } from "./api/auth";
+import { ReplyCardsProvider } from "./hooks/useReplyCards";
 
 type Wall = "checking" | "firstrun" | "login" | "app";
 
@@ -68,12 +69,17 @@ export function AuthGate() {
     return <LoginPage onSuccess={() => setWall("app")} />;
   }
 
+  // ReplyCardsProvider is mounted here — ABOVE the nav badge AND the 等我回覆
+  // page — so the badge count and the page list share ONE waiting snapshot and
+  // ONE SSE subscription (T-e862 同源化), never two divergent state paths.
   return (
-    <App
-      onLogout={() => {
-        clearToken();
-        setWall(USE_MOCK ? "app" : "login");
-      }}
-    />
+    <ReplyCardsProvider>
+      <App
+        onLogout={() => {
+          clearToken();
+          setWall(USE_MOCK ? "app" : "login");
+        }}
+      />
+    </ReplyCardsProvider>
   );
 }

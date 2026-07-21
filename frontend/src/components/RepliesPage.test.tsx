@@ -23,6 +23,7 @@ import { render, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { RepliesPage } from "./RepliesPage";
+import { ReplyCardsProvider } from "../hooks/useReplyCards";
 import {
   __resetMock,
   __injectMockChat,
@@ -59,7 +60,9 @@ function mkCard(over: Partial<ReplyCard>): ReplyCard {
 function renderPage() {
   return render(
     <I18nProvider>
-      <RepliesPage />
+      <ReplyCardsProvider>
+        <RepliesPage />
+      </ReplyCardsProvider>
     </I18nProvider>
   );
 }

@@ -13,6 +13,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { RepliesPage } from "./RepliesPage";
+import { ReplyCardsProvider } from "../hooks/useReplyCards";
 import { ChatReplyCard } from "./ChatReplyCard";
 import { __resetMock, __injectMockReplyCard } from "../api/mock";
 import type { ChatAttachmentView, ReplyCard } from "../api/adapter";
@@ -76,7 +77,7 @@ describe("reply-card question attachments", () => {
     );
     const { container, findByTestId } = render(
       <I18nProvider>
-        <RepliesPage />
+        <ReplyCardsProvider><RepliesPage /></ReplyCardsProvider>
       </I18nProvider>
     );
     await findByTestId("waiting-card");
@@ -127,7 +128,7 @@ describe("reply-card question attachments", () => {
     __injectMockReplyCard(mkCard({}));
     const { container, findByTestId } = render(
       <I18nProvider>
-        <RepliesPage />
+        <ReplyCardsProvider><RepliesPage /></ReplyCardsProvider>
       </I18nProvider>
     );
     await findByTestId("waiting-card");
