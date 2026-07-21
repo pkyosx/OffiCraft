@@ -765,6 +765,49 @@
         "title": "ChatUnreadCountDTO",
         "type": "object"
       },
+      "DocDTO": {
+        "description": "One product-guide doc in full (GET /api/docs/{slug}). markdown_md carries the embedded markdown with relative image paths rewritten to the served /api/docs/assets/ endpoint.",
+        "properties": {
+          "markdown_md": {
+            "title": "Markdown Md",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "title",
+          "markdown_md"
+        ],
+        "title": "DocDTO",
+        "type": "object"
+      },
+      "DocSummaryDTO": {
+        "description": "One product-guide doc row (GET /api/docs): addressable slug + display title.",
+        "properties": {
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "title"
+        ],
+        "title": "DocSummaryDTO",
+        "type": "object"
+      },
       "ErrorBodyDTO": {
         "description": "The inner ``error`` object of the unified error envelope (see\n``service.errors`` / ``docs/design/api-error-envelope.md``). ``code`` is\nmachine-readable snake_case from the closed vocabulary\n(``service.errors.CODE_BY_STATUS``); ``message`` is the human-readable text\n(a handler's former ``detail`` string).",
         "properties": {
@@ -5903,6 +5946,181 @@
           }
         },
         "summary": "Total chat unread count (the office nav red dot)."
+      }
+    },
+    "/api/docs": {
+      "get": {
+        "description": "List the product-guide docs (the 座艙 Settings 使用說明 sub-page cards; the assistant's get_doc pre-read index). Each row is a slug + title.",
+        "operationId": "handle_list_docs_api_docs_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DocSummaryDTO"
+                  },
+                  "title": "Response Handle List Docs Api Docs Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "List the product-guide docs (slug + title)."
+      }
+    },
+    "/api/docs/assets/{name}": {
+      "get": {
+        "description": "Serve a product-guide image asset referenced by a doc's markdown (rewritten to this path). Unknown name → 404.",
+        "operationId": "handle_get_doc_asset_api_docs_assets__name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "title": "Response Handle Get Doc Asset Api Docs Assets Name Get",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Serve a product-guide image asset (referenced by a doc's markdown)."
+      }
+    },
+    "/api/docs/{slug}": {
+      "get": {
+        "description": "Read one product-guide doc in full — the assistant's field/feature answer source AND the cockpit renderer's body. Unknown slug → 404.",
+        "operationId": "handle_get_doc_api_docs__slug__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Read one product-guide doc in full (markdown; unknown slug → 404)."
       }
     },
     "/api/events": {

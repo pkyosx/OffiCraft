@@ -348,6 +348,19 @@ type ChatUnreadCountDTO struct {
 	Unread int `json:"unread"`
 }
 
+// DocDTO One product-guide doc in full (GET /api/docs/{slug}). markdown_md carries the embedded markdown with relative image paths rewritten to the served /api/docs/assets/ endpoint.
+type DocDTO struct {
+	MarkdownMd string `json:"markdown_md"`
+	Slug       string `json:"slug"`
+	Title      string `json:"title"`
+}
+
+// DocSummaryDTO One product-guide doc row (GET /api/docs): addressable slug + display title.
+type DocSummaryDTO struct {
+	Slug  string `json:"slug"`
+	Title string `json:"title"`
+}
+
 // ErrorBodyDTO The inner “error“ object of the unified error envelope (see
 // “service.errors“ / “docs/design/api-error-envelope.md“). “code“ is
 // machine-readable snake_case from the closed vocabulary
@@ -1945,6 +1958,15 @@ type ServerInterface interface {
 	// Total chat unread count (the office nav red dot).
 	// (GET /api/chat/unread-count)
 	HandleChatUnreadCountApiChatUnreadCountGet(w http.ResponseWriter, r *http.Request)
+	// List the product-guide docs (slug + title).
+	// (GET /api/docs)
+	HandleListDocsApiDocsGet(w http.ResponseWriter, r *http.Request)
+	// Serve a product-guide image asset (referenced by a doc's markdown).
+	// (GET /api/docs/assets/{name})
+	HandleGetDocAssetApiDocsAssetsNameGet(w http.ResponseWriter, r *http.Request, name string)
+	// Read one product-guide doc in full (markdown; unknown slug → 404).
+	// (GET /api/docs/{slug})
+	HandleGetDocApiDocsSlugGet(w http.ResponseWriter, r *http.Request, slug string)
 	// SSE delta stream (owner-scoped fan-out; reconcile-by-refetch).
 	// (GET /api/events)
 	HandleEventsApiEventsGet(w http.ResponseWriter, r *http.Request)
@@ -2648,6 +2670,72 @@ func (siw *ServerInterfaceWrapper) HandleChatUnreadCountApiChatUnreadCountGet(w 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleChatUnreadCountApiChatUnreadCountGet(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleListDocsApiDocsGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleListDocsApiDocsGet(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleListDocsApiDocsGet(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleGetDocAssetApiDocsAssetsNameGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleGetDocAssetApiDocsAssetsNameGet(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleGetDocAssetApiDocsAssetsNameGet(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleGetDocApiDocsSlugGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleGetDocApiDocsSlugGet(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "slug" -------------
+	var slug string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "slug", r.PathValue("slug"), &slug, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "slug", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleGetDocApiDocsSlugGet(w, r, slug)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5137,6 +5225,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/chat/mark-read", wrapper.HandleMarkChatReadApiChatMarkReadPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat/reads", wrapper.HandleListChatReadsApiChatReadsGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat/unread-count", wrapper.HandleChatUnreadCountApiChatUnreadCountGet)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/docs", wrapper.HandleListDocsApiDocsGet)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/docs/assets/{name}", wrapper.HandleGetDocAssetApiDocsAssetsNameGet)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/docs/{slug}", wrapper.HandleGetDocApiDocsSlugGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/events", wrapper.HandleEventsApiEventsGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/global-context", wrapper.HandleGetGlobalContextApiGlobalContextGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/global-context", wrapper.HandleReplaceGlobalContextApiGlobalContextPost)

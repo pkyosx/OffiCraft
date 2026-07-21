@@ -137,6 +137,25 @@ describe("SettingsPage · unified breadcrumb header (T-8f6e)", () => {
     expectHeader(utils, [s.title, s.params]);
     expect(utils.getByRole("heading", { name: s.params })).toBeTruthy();
   });
+
+  it("使用說明列表: 設定 › 使用說明 + title; doc: 設定 › 使用說明 › <title>", async () => {
+    const utils = renderSettings();
+    fireEvent.click(utils.getByTestId("settings-guide-entry"));
+    const entry = await utils.findByTestId("guide-doc-entry");
+    expectHeader(utils, [s.title, s.guide]);
+    expect(utils.getByRole("heading", { name: s.guide })).toBeTruthy();
+
+    // Open the doc — its markdown renders and its title trails the crumb.
+    const docTitle = entry.textContent ?? "";
+    fireEvent.click(entry);
+    await utils.findByText("各項功能的說明", { exact: false });
+    expectHeader(utils, [s.title, s.guide, docTitle]);
+
+    // The 使用說明 crumb jumps back to the list.
+    fireEvent.click(utils.getByRole("button", { name: s.guide }));
+    await utils.findByTestId("guide-doc-entry");
+    expectHeader(utils, [s.title, s.guide]);
+  });
 });
 
 describe("SettingsPage · crumb jumps write the hash (lib/hashRoute)", () => {

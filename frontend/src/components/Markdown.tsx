@@ -43,10 +43,23 @@ interface MarkdownProps {
    * common message shape, not an improvement. Same reason GitHub/Slack render
    * markdown with hard breaks in comment/message fields. */
   breaks?: boolean;
+  /** Resolve a block-level image reference (`![alt](src)` on its own line) into
+   * a real <img> src. OFF by default — without it, every existing call site
+   * (chat / manuals / seeds / task text) keeps rendering `![…](…)` as literal
+   * text (no image loads, no regression). The 使用說明 doc page turns it ON,
+   * passing a resolver that same-origin `/api/docs/assets/…` paths ride the
+   * gated `?token=` auth on (authedAttachmentUrl) — a bare <img> cannot send an
+   * Authorization header. Unsafe/foreign schemes fall through as literal text. */
+  resolveImageSrc?: (src: string) => string;
 }
 
 const LINK_RE = /^\[([^\]]+)\]\(([^)]+)\)$/;
+const IMG_BLOCK_RE = /^!\[([^\]]*)\]\(([^)]+)\)$/;
 const SAFE_URL_RE = /^(https?:|mailto:)/i;
+// An image src is safe to load when it is http/https OR a same-origin absolute
+// API path (the server rewrites doc-relative `assets/…` refs to `/api/docs/
+// assets/…`). data:/javascript:/relative fall through as literal text.
+const SAFE_IMG_SRC_RE = /^(https?:\/\/|\/)/i;
 
 // Split one line of text into inline nodes: `code` spans, **bold** runs, and
 // [text](url) links, everything else literal. Code takes precedence (its
@@ -170,7 +183,11 @@ function renderParagraph(lines: string[], breaks: boolean): ReactNode[] {
 }
 
 /** Parse the markdown source into an array of block-level React nodes. */
-function renderBlocks(source: string, breaks = false): ReactNode[] {
+function renderBlocks(
+  source: string,
+  breaks = false,
+  resolveImageSrc?: (src: string) => string
+): ReactNode[] {
   const lines = source.replace(/\r\n/g, "\n").split("\n");
   const blocks: ReactNode[] = [];
   let i = 0;
@@ -183,6 +200,25 @@ function renderBlocks(source: string, breaks = false): ReactNode[] {
     if (line.trim() === "") {
       i++;
       continue;
+    }
+
+    // Block-level image (`![alt](src)` alone on a line) — only when a resolver
+    // is wired AND the src is safe; otherwise it falls through as prose (the
+    // literal-text default keeps every non-guide call site unchanged).
+    if (resolveImageSrc) {
+      const img = IMG_BLOCK_RE.exec(line.trim());
+      if (img && SAFE_IMG_SRC_RE.test(img[2].trim())) {
+        blocks.push(
+          <img
+            key={key++}
+            src={resolveImageSrc(img[2].trim())}
+            alt={img[1]}
+            style={{ maxWidth: "100%" }}
+          />
+        );
+        i++;
+        continue;
+      }
     }
 
     // Fenced code block — ``` … ``` (language after the fence is ignored).
@@ -260,7 +296,9 @@ function renderBlocks(source: string, breaks = false): ReactNode[] {
         }
         while (cont.length && cont[cont.length - 1] === "") cont.pop();
         const inner =
-          cont.length > 0 ? renderBlocks(dedent(cont).join("\n"), breaks) : [];
+          cont.length > 0
+            ? renderBlocks(dedent(cont).join("\n"), breaks, resolveImageSrc)
+            : [];
 
         items.push(
           <li key={items.length} value={ordered ? num : undefined}>
@@ -369,6 +407,15 @@ function renderBlocks(source: string, breaks = false): ReactNode[] {
 }
 
 /** Render a trusted-but-untyped markdown string as safe React elements. */
-export function Markdown({ source, className, breaks = false }: MarkdownProps) {
-  return <div className={className}>{renderBlocks(source, breaks)}</div>;
+export function Markdown({
+  source,
+  className,
+  breaks = false,
+  resolveImageSrc,
+}: MarkdownProps) {
+  return (
+    <div className={className}>
+      {renderBlocks(source, breaks, resolveImageSrc)}
+    </div>
+  );
 }

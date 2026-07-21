@@ -721,6 +721,24 @@ type taskManualDeleteResultDTO struct {
 	Deleted bool   `json:"deleted"`
 }
 
+// docSummaryDTO is one row of GET /api/docs — a product-guide doc's addressable
+// slug + its display title (the first "# " heading, or the slug when the doc
+// carries no heading). The full body is fetched per-slug via GET /api/docs/{slug}.
+type docSummaryDTO struct {
+	Slug  string `json:"slug"`
+	Title string `json:"title"`
+}
+
+// docDTO is GET /api/docs/{slug} — one product-guide doc in full. MarkdownMD is
+// the embedded markdown with relative image paths (`](assets/…)`) rewritten to
+// the served `/api/docs/assets/…` endpoint, so both the cockpit renderer and an
+// MCP reader resolve images against the same origin.
+type docDTO struct {
+	Slug       string `json:"slug"`
+	Title      string `json:"title"`
+	MarkdownMD string `json:"markdown_md"`
+}
+
 type outsourceWorkerDTO struct {
 	ID         string  `json:"id"`
 	Codename   string  `json:"codename"`

@@ -123,6 +123,7 @@ GOFMT="$(dirname "$GO")/gofmt"
 # CI staging (T-1084 spirit): scope is CI auto-staging only.
 echo "[ci]   staging embed assets (seedsdist + bindist) — embed-only asset seams (T-e731)"
 PATH="$(dirname "$GO"):$PATH" bash "$ROOT/bin/build-seedsdist"
+PATH="$(dirname "$GO"):$PATH" bash "$ROOT/bin/build-docsdist"
 PATH="$(dirname "$GO"):$PATH" bash "$ROOT/bin/build-bindist"
 # go_module_gate <dir> <binary> — run the gofmt/vet/build trio over one module in
 # a subshell (1a gofmt / 1b vet / 1c build / 1d committed-prebuilt parity /

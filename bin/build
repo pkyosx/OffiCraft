@@ -43,6 +43,7 @@ mkdir -p "$WEBDIST"
 cp -R "$ROOT/frontend/dist/." "$WEBDIST/"
 touch "$WEBDIST/.gitkeep"
 bash "$ROOT/bin/build-seedsdist"
+bash "$ROOT/bin/build-docsdist"
 bash "$ROOT/bin/build-bindist"
 mkdir -p "$ROOT/.deploy"
 # Stamp the build identity into the deploy artifact: a repo-less standalone

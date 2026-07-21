@@ -5,3 +5,5 @@
 !/seedsdist/.gitkeep
 /bindist/*
 !/bindist/.gitkeep
+/docsdist/*
+!/docsdist/.gitkeep

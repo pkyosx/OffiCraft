@@ -849,6 +849,9 @@ export const en: Dict = {
     // never asserts what the server stored, only the UI's honest facts.
     configSaveFailed:
       "Couldn't confirm the save — showing the server's last confirmed value; try again",
+    guide: "User guide",
+    guideLoadError: "Failed to load the user guide. Please try again.",
+    guideEmpty: "No guide pages yet",
     manuals: "Task manuals",
     manualsLoadError: "Failed to load task manuals. Please try again.",
     manualsEmpty: "No task types yet — add the first one below",

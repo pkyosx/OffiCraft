@@ -947,6 +947,21 @@ MATRIX: dict[str, Route] = {
         path=lambda ctx, _i: f"/api/task-manuals/{_matrix_manual(ctx)}/learnings/patch",
         body={"edits": [{"old": "", "new": "conf matrix patch"}]},
     ),
+    # ── product guide (README + docs/guide embed) ───────────────────────────
+    "GET /api/docs": Route(requires="machine"),
+    "GET /api/docs/{slug}": Route(
+        # the README (staged as readme.md) is always embedded (docsdist staged),
+        # so every at-floor face reads it 200.
+        requires="machine",
+        path="/api/docs/readme",
+    ),
+    "GET /api/docs/assets/{name}": Route(
+        # DEGRADED: probed with a missing asset name → 404 across authenticated
+        # identities; the machine-floor authz face passes, the asset lookup 404s.
+        requires="machine",
+        path="/api/docs/assets/conf-missing.png",
+        overrides={i: 404 for i in _IDENTITY_RANK},
+    ),
 }
 
 # Manifest rows deliberately NOT in the matrix (must carry a reason — the
@@ -1010,6 +1025,12 @@ DEGRADED: dict[str, str] = {
         "mintable only by the Phase 2 assignment scheduler (no black-box mint "
         "path). The positive claim (assigned → active + manual snapshot) is "
         "pinned in the server unit tests (api_tasks_test.go)."
+    ),
+    "GET /api/docs/assets/{name}": (
+        "probed with a missing asset name (404 across authenticated identities); "
+        "the machine-floor authz face passes, the asset lookup 404s. The "
+        "serve/content-type round-trip is pinned in the server unit tests "
+        "(api_docs_test.go)."
     ),
 }
 

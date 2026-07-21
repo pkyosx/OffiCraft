@@ -1967,6 +1967,29 @@
         "type": "object"
       },
       "name": "patch_task_learnings"
+    },
+    {
+      "description": "List the product-guide docs (slug + title).",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "list_docs"
+    },
+    {
+      "description": "Read one product-guide doc in full (markdown; unknown slug → 404).",
+      "inputSchema": {
+        "properties": {
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "type": "object"
+      },
+      "name": "get_doc"
     }
   ]
 }

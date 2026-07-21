@@ -810,5 +810,26 @@
     "method": "POST",
     "path": "/api/task-manuals/{type_key}/learnings/patch",
     "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "list_docs",
+    "method": "GET",
+    "path": "/api/docs",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "get_doc",
+    "method": "GET",
+    "path": "/api/docs/{slug}",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/docs/assets/{name}",
+    "requires": "machine"
   }
 ]
