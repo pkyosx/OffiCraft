@@ -791,12 +791,18 @@ const mockWebhooks = new Map<string, WebhookEndpoint[]>([
   ],
 ]);
 
-/** Write-only signing-secret vault, keyed `${memberId} ${endpointId}`. The
+/** Write-only signing-secret vault, keyed `${memberId}\u0000${endpointId}`. The
  * plaintext lives HERE only — it is NEVER placed on a returned WebhookEndpoint
- * (mirrors the server, which exposes only `has_signing_secret`). */
+ * (mirrors the server, which exposes only `has_signing_secret`).
+ *
+ * The separator is written as the ESCAPE `\u0000`, never as a literal NUL
+ * byte in this file. Identical at runtime, but a literal NUL makes grep treat
+ * the whole 118 KB file as binary and report ZERO matches with exit 1 — no
+ * "Binary file matches" line, no warning. That silent false negative has
+ * already cost two people a search each. Keep it escaped. */
 const mockWebhookSecrets = new Map<string, string>();
 function secretKey(memberId: string, endpointId: string): string {
-  return `${memberId} ${endpointId}`;
+  return `${memberId}\u0000${endpointId}`;
 }
 
 /** Simulated /in debug ring buffer, keyed `"<memberId> <endpointId>"` (server
