@@ -209,5 +209,7 @@ bin/ocserver uninstall --dry-run   # 只印出會做什麼，什麼都不動
 
 ---
 
-**agent 的環境變數怎麼設** → [../dev/agent-env.md](../dev/agent-env.md)
-**技術棧、repo 結構、怎麼跑測試與 CI** → [../dev/](../dev/)
+這兩份是給改 code 的人的開發者文件，不隨產品打包，所以只在 GitHub 上讀得到：
+
+**agent 的環境變數怎麼設** → [docs/dev/agent-env.md](https://github.com/pkyosx/OffiCraft/blob/main/docs/dev/agent-env.md)
+**技術棧、repo 結構、怎麼跑測試與 CI** → [docs/dev/](https://github.com/pkyosx/OffiCraft/tree/main/docs/dev)

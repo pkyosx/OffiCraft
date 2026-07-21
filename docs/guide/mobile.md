@@ -3,11 +3,9 @@
 控制台是為手機設計過的。你可以在通勤路上回一張 Ask 卡、看今天誰在忙什麼、把專案往前推——
 不需要打開電腦。
 
-<p align="center">
-  <img src="assets/cockpit-mobile-ask.png" alt="手機上的 Ask 頁" width="300" />
-  &nbsp;&nbsp;
-  <img src="assets/cockpit-mobile-office.png" alt="手機上的辦公室頁" width="300" />
-</p>
+![手機上的 Ask 頁](assets/cockpit-mobile-ask.png)
+
+![手機上的辦公室頁](assets/cockpit-mobile-office.png)
 
 ---
 

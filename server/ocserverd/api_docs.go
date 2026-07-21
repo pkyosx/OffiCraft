@@ -25,8 +25,11 @@ import (
 // rewrite and the asset route agree.
 const docAssetURLPrefix = "/api/docs/assets/"
 
-// docSlug maps a docsdist filename ("why.md") to its addressable slug ("why";
-// the repo README is staged as readme.md → "readme").
+// docSlug maps a docsdist filename ("why.md") to its addressable slug ("why").
+// build-docsdist FLATTENS docs/guide/ into one directory, so the basename is
+// all a slug can carry — a client turning a doc-relative link like
+// "../dev/agent-env.md" into a slug must apply exactly this rule to the
+// basename and then check the result against the listed docs.
 func docSlug(filename string) string {
 	return strings.TrimSuffix(filename, ".md")
 }

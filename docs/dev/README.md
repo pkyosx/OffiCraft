@@ -1,6 +1,6 @@
 # 開發指南
 
-一般使用者請看 repo 根的 [README.md](../../README.md)；這裡是給改 code 的人。repo-wide 憲章與 land 紀律的權威在根目錄 [CLAUDE.md](../../CLAUDE.md)，各域（`server/` `cli/` `frontend/` `conformance/` `e2e_test/`）另有自己的 `CLAUDE.md`，本文不重複，只給地圖與跑法。
+一般使用者請看 [docs/guide/](../guide/)（產品說明，也是控制台「設定 › 使用說明」的來源）；這裡是給改 code 的人。repo-wide 憲章與 land 紀律的權威在根目錄 [CLAUDE.md](../../CLAUDE.md)，各域（`server/` `cli/` `frontend/` `conformance/` `e2e_test/`）另有自己的 `CLAUDE.md`，本文不重複，只給地圖與跑法。
 
 ## 技術棧
 

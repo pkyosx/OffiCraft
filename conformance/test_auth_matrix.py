@@ -947,13 +947,13 @@ MATRIX: dict[str, Route] = {
         path=lambda ctx, _i: f"/api/task-manuals/{_matrix_manual(ctx)}/learnings/patch",
         body={"edits": [{"old": "", "new": "conf matrix patch"}]},
     ),
-    # ── product guide (README + docs/guide embed) ───────────────────────────
+    # ── product guide (docs/guide embed) ────────────────────────────────────
     "GET /api/docs": Route(requires="machine"),
     "GET /api/docs/{slug}": Route(
-        # the README (staged as readme.md) is always embedded (docsdist staged),
-        # so every at-floor face reads it 200.
+        # docs/guide/why.md is always embedded (docsdist staged), so every
+        # at-floor face reads it 200. (T-68f1: slug "readme" is gone.)
         requires="machine",
-        path="/api/docs/readme",
+        path="/api/docs/why",
     ),
     "GET /api/docs/assets/{name}": Route(
         # DEGRADED: probed with a missing asset name → 404 across authenticated

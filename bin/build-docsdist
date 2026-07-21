@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # officraft — stage the product-guide docs for the single binary.
 #
-# The repo-root README.md + docs/guide/ tree (the product feature docs — the
-# single source read by the Settings 使用說明 sub-page AND Mira's get_doc MCP
-# tool) sit outside the server module, and go:embed cannot reach outside the
+# The docs/guide/ tree (the product feature docs — the single source read by
+# the Settings 使用說明 sub-page AND Mira's get_doc MCP tool) sits outside the
+# server module, and go:embed cannot reach outside the
 # module directory, so a doc-carrying ocserverd needs them COPIED into
 # server/ocserverd/docsdist/ (gitignored except .gitkeep) before `go build` —
 # the exact seedsdist/webdist staging pattern. Doc reads are EMBED-ONLY
@@ -12,15 +12,18 @@
 # build/test that boots the server must stage first (bin/build, bin/ci.sh,
 # conformance/run.sh all do).
 #
-# SCOPE (owner ruling: 打包 README + docs/guide): the repo-root README.md
-# (staged as readme.md → slug "readme") PLUS every *.md AND the assets/ image
+# SCOPE (owner ruling T-68f1: docs/guide ONLY): every *.md AND the assets/ image
 # tree under docs/guide/, copied whole (glob/recursive, no filename enumeration,
-# so why/tasks/install/mobile/interface.md are collected automatically). docs/dev.md
-# and docs/design/ are DEVELOPER material and are NEVER shipped. The embed guard
-# (api_docs_test.go) pins the staged .md set == {readme} ∪ docs/guide/*.md so a
-# stray draft dropped under docs/guide is caught, not silently fed to users.
+# so why/tasks/install/mobile/interface.md are collected automatically). docs/dev/
+# and docs/design/ are DEVELOPER material and are NEVER shipped. The repo README
+# used to ride along as slug "readme"; it was pulled because a repo front page is
+# not product documentation — its repo-root-relative image paths and its
+# GitHub-only badges rendered as broken literal text inside the console, and
+# everything it said is covered (more fully) by docs/guide. The embed guard
+# (api_docs_test.go) pins the staged .md set == docs/guide/*.md so a stray draft
+# dropped under docs/guide is caught, not silently fed to users.
 #
-#   bash bin/build-docsdist           # stage README + docs/guide/ into docsdist/
+#   bash bin/build-docsdist           # stage docs/guide/ into docsdist/
 #   (cd server/ocserverd && go build) # then bakes the docs into the binary
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -36,8 +39,4 @@ if [[ -d "$GUIDE" ]]; then
   # Copy the whole tree (all *.md + assets/) preserving structure.
   cp -R "$GUIDE/." "$DOCSDIST/"
 fi
-# The repo README is the guide's front page — staged as readme.md (slug "readme").
-if [[ -f "$ROOT/README.md" ]]; then
-  cp "$ROOT/README.md" "$DOCSDIST/readme.md"
-fi
-echo "[build-docsdist] staged README + docs/guide → server/ocserverd/docsdist ($(find "$DOCSDIST" -type f -name '*.md' | wc -l | tr -d ' ') docs, $(find "$DOCSDIST" -type f ! -name '*.md' ! -name '.gitkeep' | wc -l | tr -d ' ') assets)"
+echo "[build-docsdist] staged docs/guide → server/ocserverd/docsdist ($(find "$DOCSDIST" -type f -name '*.md' | wc -l | tr -d ' ') docs, $(find "$DOCSDIST" -type f ! -name '*.md' ! -name '.gitkeep' | wc -l | tr -d ' ') assets)"

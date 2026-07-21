@@ -1053,18 +1053,19 @@ HAPPY: dict[str, Happy] = {
         body={"edits": [{"old": "", "new": "conf happy patch"}]},
         check=lambda _c, r: _expect(r, lambda d: d["applied_edits"] == 1),
     ),
-    # ── product guide (README + docs/guide embed) ───────────────────────────
+    # ── product guide (docs/guide embed) ────────────────────────────────────
     "GET /api/docs": Happy(
-        # machine floor — the README (staged as readme.md) always lists.
+        # machine floor — docs/guide/why.md always lists (T-68f1: the repo
+        # README no longer ships as slug "readme").
         check=lambda _c, r: _expect(
-            r, lambda d: any(row["slug"] == "readme" for row in d)
+            r, lambda d: any(row["slug"] == "why" for row in d)
         ),
     ),
     "GET /api/docs/{slug}": Happy(
-        path="/api/docs/readme",
+        path="/api/docs/why",
         check=lambda _c, r: _expect(
             r,
-            lambda d: d["slug"] == "readme" and len(d["markdown_md"]) > 0,
+            lambda d: d["slug"] == "why" and len(d["markdown_md"]) > 0,
         ),
     ),
 }

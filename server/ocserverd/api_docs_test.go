@@ -111,25 +111,26 @@ func TestDocsMcpToolsCallableByAssistantAgent(t *testing.T) {
 	now := time.Now().Unix()
 	miraTok, _ := mintJWT("mira", "agent", 300, secret, now, "")
 
-	// list_docs — the assistant's pre-read index. The README is always staged.
+	// list_docs — the assistant's pre-read index. "why" is docs/guide's own
+	// front page (T-68f1 pulled the repo README out of the product embed).
 	res := docToolResult(t, srv.URL, miraTok,
 		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_docs","arguments":{}}}`)
 	if res["isError"] != false {
 		t.Fatalf("assistant list_docs must succeed: %v", res)
 	}
 	listText := res["content"].([]any)[0].(map[string]any)["text"].(string)
-	if !strings.Contains(listText, `"readme"`) {
+	if !strings.Contains(listText, `"why"`) {
 		t.Fatalf("list_docs must carry the staged docs: %s", listText)
 	}
 
 	// get_doc — the field/feature answer source. Read one staged doc in full.
 	res = docToolResult(t, srv.URL, miraTok,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_doc","arguments":{"slug":"readme"}}}`)
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_doc","arguments":{"slug":"why"}}}`)
 	if res["isError"] != false {
 		t.Fatalf("assistant get_doc must succeed: %v", res)
 	}
 	sc := res["structuredContent"].(map[string]any)
-	if sc["slug"] != "readme" || len(sc["markdown_md"].(string)) == 0 {
+	if sc["slug"] != "why" || len(sc["markdown_md"].(string)) == 0 {
 		t.Fatalf("get_doc payload wrong: %v", sc)
 	}
 
@@ -152,7 +153,7 @@ func docToolResult(t *testing.T, url, token, body string) map[string]any {
 }
 
 func TestGetDocHandlerServesStagedEmbed(t *testing.T) {
-	// Through the real embed (docsdist staged by CI): the README lists + reads.
+	// Through the real embed (docsdist staged by CI): a guide doc lists + reads.
 	api := newTasksTestServer(t)
 	rec := httptest.NewRecorder()
 	api.HandleListDocsApiDocsGet(rec, httptest.NewRequest("GET", "/api/docs", nil))
@@ -165,16 +166,16 @@ func TestGetDocHandlerServesStagedEmbed(t *testing.T) {
 	}
 	found := false
 	for _, d := range list {
-		if d.Slug == "readme" {
+		if d.Slug == "why" {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("staged embed must list the README (slug readme): %v", list)
+		t.Fatalf("staged embed must list the guide docs (slug why): %v", list)
 	}
 
 	rec = httptest.NewRecorder()
-	api.HandleGetDocApiDocsSlugGet(rec, httptest.NewRequest("GET", "/api/docs/readme", nil), "readme")
+	api.HandleGetDocApiDocsSlugGet(rec, httptest.NewRequest("GET", "/api/docs/why", nil), "why")
 	if rec.Code != http.StatusOK || len(rec.Body.String()) == 0 {
 		t.Fatalf("get staged doc: %d %s", rec.Code, rec.Body.String())
 	}
@@ -186,11 +187,17 @@ func TestGetDocHandlerServesStagedEmbed(t *testing.T) {
 	}
 }
 
-// TestDocsdistEmbedsExactlyReadmeAndGuide is the embed-scope guard: the staged
-// doc SET must be exactly {readme} ∪ docs/guide/*.md — no more, no less. Its job
-// is to pin the SCOPE of what build-docsdist collects: the README plus the whole
-// docs/guide/ folder, and nothing from OUTSIDE that scope (docs/dev.md,
-// docs/design/, or any other repo doc must never leak into the product embed).
+// TestDocsdistEmbedsExactlyGuide is the embed-scope guard: the staged doc SET
+// must be exactly docs/guide/*.md — no more, no less. Its job is to pin the
+// SCOPE of what build-docsdist collects: the whole docs/guide/ folder, and
+// nothing from OUTSIDE that scope (the repo README, docs/dev/, docs/design/, or
+// any other repo doc must never leak into the product embed).
+//
+// T-68f1 narrowed that scope: the repo README used to be staged as slug
+// "readme". A repo front page is not product documentation — it renders broken
+// inside the console (repo-root-relative image path, GitHub-only badges, raw
+// centring HTML) and everything it said is covered more fully by docs/guide —
+// so it was pulled, and the sentinel below now guards against it coming back.
 //
 // It deliberately does NOT gate the CONTENTS of docs/guide/: a draft dropped in
 // there IS collected (it lands in both `want` and `got`, since both derive from
@@ -201,9 +208,9 @@ func TestGetDocHandlerServesStagedEmbed(t *testing.T) {
 // explicitly rejected: it reintroduces the hand-maintained list the folder
 // convention exists to avoid. Verifies against the SOURCE dirs on disk (repo
 // root ../..), so it fails when build-docsdist's collection drifts OUT of scope.
-func TestDocsdistEmbedsExactlyReadmeAndGuide(t *testing.T) {
+func TestDocsdistEmbedsExactlyGuide(t *testing.T) {
 	repoRoot := "../.."
-	want := map[string]bool{"readme": true}
+	want := map[string]bool{}
 	guideEntries, err := os.ReadDir(filepath.Join(repoRoot, "docs", "guide"))
 	if err != nil {
 		t.Fatalf("read docs/guide: %v", err)
@@ -213,8 +220,8 @@ func TestDocsdistEmbedsExactlyReadmeAndGuide(t *testing.T) {
 			want[docSlug(e.Name())] = true
 		}
 	}
-	if _, err := os.Stat(filepath.Join(repoRoot, "README.md")); err != nil {
-		t.Fatalf("repo README.md must exist (the guide front page): %v", err)
+	if len(want) == 0 {
+		t.Fatal("docs/guide must carry at least one *.md (the product guide)")
 	}
 
 	docs, err := listDocsFrom(docsdistFS())
@@ -233,12 +240,19 @@ func TestDocsdistEmbedsExactlyReadmeAndGuide(t *testing.T) {
 	}
 	for slug := range got {
 		if !want[slug] {
-			t.Errorf("OUT-OF-SCOPE doc %q in the embed — only {readme} ∪ docs/guide/*.md may ship "+
-				"(did docs/dev|design or another repo doc leak into build-docsdist?)", slug)
+			t.Errorf("OUT-OF-SCOPE doc %q in the embed — only docs/guide/*.md may ship "+
+				"(did the repo README, docs/dev|design or another repo doc leak into build-docsdist?)", slug)
 		}
 	}
-	// Explicit sentinel: the developer docs must never ride along.
+	// Explicit sentinels: neither the developer docs nor the repo README may
+	// ride along. "readme" is named because it USED to ship (T-68f1 pulled it) —
+	// a revert of build-docsdist would otherwise be caught only by the generic
+	// message above.
 	if got["dev"] {
 		t.Error("docs/dev.md leaked into the product embed")
+	}
+	if got["readme"] {
+		t.Error("the repo README is back in the product embed (T-68f1 pulled it: " +
+			"a repo front page is not product documentation)")
 	}
 }
