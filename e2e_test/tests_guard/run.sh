@@ -212,6 +212,29 @@ and kills it before RC=\$? — same exit code, no diagnostic line."
     # Converse: a caller that DID ask for -e must keep it (setup.sh et al).
     rc="$(bash -c 'set -euo pipefail; source "$1" >/dev/null 2>&1; case $- in *e*) exit 0;; *) exit 1;; esac' _ "$HERE/../lib/common.sh"; echo $?)"
     check "sourcing lib/common.sh preserves errexit for callers that set it" "0" "$rc"
+
+    # ADJACENCY (static, complements the behavioural check above). The synthetic
+    # script builds the tail adjacent BY CONSTRUCTION, so it is blind to someone
+    # inserting a command between `npx playwright test` and `RC=$?` in the real
+    # file. `$?` is clobbered by ANY intervening command, so a single line slipped
+    # in there silently reports the WRONG rc — the line still prints, so the
+    # behavioural assertion stays green. Hence a textual adjacency assertion on
+    # the real run_all.sh. Comments/blank lines are NOT tolerated between them:
+    # they are harmless to `$?` today, but permitting them is what makes room for
+    # a command to be added later without anything reddening.
+    D41A_PWLINE="$(grep -nE '^\(.*playwright test *\)' "$RUN_ALL" | head -1 | cut -d: -f1)"
+    if [[ -z "$D41A_PWLINE" ]]; then
+      bad "cannot locate the 'npx playwright test' line in run_all.sh — update guard (11)"
+    else
+      D41A_NEXT="$(sed -n "$((D41A_PWLINE+1))p" "$RUN_ALL")"
+      D41A_NEXT2="$(sed -n "$((D41A_PWLINE+2))p" "$RUN_ALL")"
+      [[ "$D41A_NEXT" =~ ^RC=\$\? ]] \
+        && ok "RC=\$? is IMMEDIATELY after the playwright run (rc not clobbered)" \
+        || bad "line after 'playwright test' is '$D41A_NEXT', expected 'RC=\$?' — anything in between clobbers \$? and run_all.sh reports the WRONG exit code while still printing the line"
+      [[ "$D41A_NEXT2" == *'[run_all] specs exit=$RC'* ]] \
+        && ok "the report echo immediately follows RC=\$?" \
+        || bad "line after 'RC=\$?' is '$D41A_NEXT2', expected the '[run_all] specs exit=\$RC' echo"
+    fi
   fi
 fi
 

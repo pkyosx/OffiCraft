@@ -3,7 +3,11 @@
 # teardown ALWAYS runs (EXIT trap), even if a spec fails or setup aborts.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$HERE/lib/common.sh"
+# `||` does NOT swallow common.sh's own hard guards: an `exit 2` inside a sourced
+# file exits this script with 2 regardless (verified) — this only catches the
+# file being missing/unreadable, which would otherwise surface as a confusing
+# unbound-variable error on $STATE_DIR further down.
+source "$HERE/lib/common.sh" || { echo "[run_all] FATAL: cannot source $HERE/lib/common.sh" >&2; exit 1; }
 
 cleanup() { echo; echo "[run_all] === TEARDOWN ==="; bash "$HERE/teardown.sh" || true; }
 trap cleanup EXIT
@@ -37,17 +41,20 @@ echo "[run_all] building in-tree cli binaries (ocagent + ocwarden) for spec 05�
 (cd "$REPO_ROOT/cli/ocagent" && go build -o ocagent .) || { echo "[run_all] FATAL: go build cli/ocagent failed — spec 05 would flake on a stale/absent binary." >&2; exit 1; }
 (cd "$REPO_ROOT/cli/ocwarden" && go build -o ocwarden .) || { echo "[run_all] FATAL: go build cli/ocwarden failed." >&2; exit 1; }
 export OC_E2E_OCWARDEN="$REPO_ROOT/cli/ocwarden/ocwarden"
-cd "$HERE"
+cd "$HERE" || { echo "[run_all] FATAL: cannot cd to $HERE — playwright would run from the wrong dir and miss its config." >&2; exit 1; }
 # Broken nvm lazy-load workaround: unset shell funcs, use homebrew binaries.
 NPM=/opt/homebrew/bin/npm
 NPX=/opt/homebrew/bin/npx
 if [ ! -d "$HERE/node_modules/@playwright/test" ]; then
   echo "[run_all] installing @playwright/test (first run)…"
-  ( unset -f node npm 2>/dev/null; "$NPM" install --no-audit --no-fund )
+  ( unset -f node npm 2>/dev/null; "$NPM" install --no-audit --no-fund ) \
+    || { echo "[run_all] FATAL: '$NPM install' failed — @playwright/test not installed. NOT a spec failure." >&2; exit 1; }
 fi
 # Browser render specs (B1/B6) need a real Chromium; install is idempotent (fast
 # no-op once cached). API-only specs don't use it but this keeps run_all complete.
-( unset -f node npm npx 2>/dev/null; "$NPX" playwright install chromium )
+( unset -f node npm npx 2>/dev/null; "$NPX" playwright install chromium ) \
+  || { echo "[run_all] FATAL: '$NPX playwright install chromium' failed — no browser for B1/B6. NOT a spec failure." >&2; exit 1; }
+# The ONLY unguarded command in this script, on purpose: its rc is the payload.
 ( unset -f node npm npx 2>/dev/null; "$NPX" playwright test )
 RC=$?
 echo "[run_all] specs exit=$RC"
