@@ -106,10 +106,10 @@ rc="$(SHIM_WARDEN=0 SHIM_LISTEN_PORTS="" SHIM_SESSIONS="member-m-abc123" \
       run_snippet 'oc_detect_live_canonical_fleet | grep -q "canonical tmux socket"')"
 check "member-* on canonical socket is detected" "0" "$rc"
 
-# ── 5) detection fires on a canonical 8770 listener ──────────────────────────
-rc="$(SHIM_WARDEN=0 SHIM_LISTEN_PORTS="8770" SHIM_SESSIONS="" \
-      run_snippet 'oc_detect_live_canonical_fleet | grep -q "serve port 8770"')"
-check "canonical 8770 listener is detected" "0" "$rc"
+# ── 5) detection fires on a canonical 7755 listener ──────────────────────────
+rc="$(SHIM_WARDEN=0 SHIM_LISTEN_PORTS="7755" SHIM_SESSIONS="" \
+      run_snippet 'oc_detect_live_canonical_fleet | grep -q "serve port 7755"')"
+check "canonical 7755 listener is detected" "0" "$rc"
 
 # ── 6) detection is EMPTY on a clean host ────────────────────────────────────
 rc="$(SHIM_WARDEN=0 SHIM_LISTEN_PORTS="" SHIM_SESSIONS="" \
@@ -131,7 +131,7 @@ WARDEN="$(grep '^WARDEN=' "$GLOG" | cut -d= -f2)"
 ROOT="$(grep '^ROOT=' "$GLOG" | cut -d= -f2)"
 SOCK="$(grep '^SOCK=' "$GLOG" | cut -d= -f2)"
 [[ "$NS" =~ ^[a-z0-9-]{1,16}$ ]] && ok "ns '$NS' matches product charset [a-z0-9-]{1,16}" || bad "ns '$NS' violates charset"
-[[ "$PORT" != "8770" && "$PORT" != "8766" && "$PORT" != "8790" && "$PORT" != "8791" && "$PORT" != "8795" ]] \
+[[ "$PORT" != "7755" && "$PORT" != "8766" && "$PORT" != "8790" && "$PORT" != "8791" && "$PORT" != "8795" ]] \
   && ok "port $PORT is non-canonical/non-reserved" || bad "port $PORT collides with a reserved port"
 [[ "$SERVE" == "com.officraft.serve.$NS" ]] && ok "serve label namespaced ($SERVE)" || bad "serve label wrong: $SERVE"
 [[ "$WARDEN" == "com.officraft.ocwarden.$NS" && "$WARDEN" != "com.officraft.ocwarden" ]] \
@@ -146,7 +146,7 @@ run_snippet 'export OC_E2E_ALLOW_CANONICAL=1; oc_resolve_instance
   printf "NS=[%s]\n" "$OC_NS"
   printf "PORTS=%s\n" "${SINGLE_PROD_PORTS[*]}"' >/dev/null
 [[ "$(grep '^NS=' "$GLOG")" == "NS=[]" ]] && ok "canonical escape hatch → OC_NS empty" || bad "canonical OC_NS not empty: $(grep '^NS=' "$GLOG")"
-[[ "$(grep '^PORTS=' "$GLOG")" == "PORTS=8770 8766" ]] && ok "canonical guard ports = 8770 8766" || bad "canonical ports wrong: $(grep '^PORTS=' "$GLOG")"
+[[ "$(grep '^PORTS=' "$GLOG")" == "PORTS=7755 8766" ]] && ok "canonical guard ports = 7755 8766" || bad "canonical ports wrong: $(grep '^PORTS=' "$GLOG")"
 
 # ── 9) agent_workdir is namespace-aware (a1_zombie kill-anchor safety) ────────
 rc="$(run_snippet 'OC_NS="e2ex"; wd="$(agent_workdir /Users/x mira)"; [[ "$wd" == "/Users/x/.officraft-e2ex/agents/mira" ]]')"
