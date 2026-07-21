@@ -465,6 +465,23 @@ else
   bad "bin/tests/install-claude-stamp.sh is missing"
 fi
 
+# ── install.sh --uninstall/--purge/--dry-run ownership + safety (T-3ef9) ────
+# Own file, own PATH shim (launchctl only), own temp HOME. This is a NEW
+# destructive capability (stop a launchd job, move-or-delete files) — folded
+# in here so a regression in its ownership check reddens CI instead of
+# waiting for someone to hit it on a real machine.
+UNINSTALLGUARD="$HERE/uninstall-guard.sh"
+echo
+if [[ -f "$UNINSTALLGUARD" ]]; then
+  if bash "$UNINSTALLGUARD"; then
+    ok "install.sh --uninstall ownership/safety suite passed"
+  else
+    bad "install.sh --uninstall ownership/safety suite FAILED (see output above)"
+  fi
+else
+  bad "bin/tests/uninstall-guard.sh is missing"
+fi
+
 echo "bin tests (incl. install guard): $PASS ok, $FAIL failed"
 [[ "$FAIL" == "0" ]] || exit 1
 exit 0

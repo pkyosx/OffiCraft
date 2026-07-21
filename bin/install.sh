@@ -88,7 +88,209 @@
 # open-company station and 8780 was the previous standard), default data root
 # ~/.officraft. No config is written
 # by this installer; convention defaults just work on a clean machine.
+#
+#   C. removal — the reverse of A/B, recognised BEFORE any mode detection or
+#      download so it never fetches a release just to delete one:
+#      curl -fsSL … | bash -s -- --uninstall            # stop + move to a backup
+#      curl -fsSL … | bash -s -- --uninstall --dry-run  # print only, nothing changes
+#      curl -fsSL … | bash -s -- --uninstall --purge    # DELETE (asks unless --yes)
+#      Default keeps the database — it MOVES ~/.officraft's release-path pieces
+#      to ~/.officraft.bak-<timestamp> rather than deleting them; --purge deletes
+#      instead (confirm by typing "purge", or pass --yes). Ownership is decided
+#      from ~/.officraft/bin/ocserverd (this installer's own signature — a
+#      from-source `bin/ocserver install` never writes there) and from the
+#      launchd plist's ProgramArguments[0] (OC_LAUNCHD_LABEL is respected); a
+#      label claimed by a different program is refused, loudly, untouched. A
+#      from-source install sharing the same ~/.officraft/server root (visible
+#      as server/repo/) is never touched.
 set -euo pipefail
+
+# ProgramArguments[0] of an existing plist, or "" if unreadable/absent. Shared
+# by --uninstall's ownership check below and the install-time ownership gate
+# further down (package mode) — one definition, same semantics both places.
+plist_program() {
+  plutil -extract ProgramArguments.0 raw -o - "$1" 2>/dev/null || true
+}
+
+# ── --uninstall: reverse of this installer, never needs a download ──────────
+# See mode C in the header above for the flag shapes. This function is called
+# from the top-level dispatch immediately below, before IN_PACKAGE is even
+# resolved — uninstalling touches only what a PAST run of this installer left
+# behind, so it has no use for a fresh tarball.
+cmd_uninstall_release() {
+  local purge=0 dryrun=0 yes=0
+  shift || true # drop the leading --uninstall
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --uninstall) ;; # tolerate it appearing again / in any position
+      --purge)     purge=1 ;;
+      --dry-run)   dryrun=1 ;;
+      --yes)       yes=1 ;;
+      -h|--help)
+        cat <<'EOF'
+Removes an OffiCraft install created by THIS installer (curl | bash, or a
+package-mode ./install.sh run). Never touches a from-source `bin/ocserver
+install`'s repo/ checkout, even when it shares the same ~/.officraft/server
+root.
+
+  curl -fsSL … | bash -s -- --uninstall              # stop + move to a backup
+  curl -fsSL … | bash -s -- --uninstall --dry-run    # print only, change nothing
+  curl -fsSL … | bash -s -- --uninstall --purge      # DELETE (asks unless --yes)
+
+Default: stops the launchd job, removes its plist, and MOVES the release-path
+pieces of ~/.officraft to ~/.officraft.bak-<timestamp> — the database is kept,
+just relocated, not deleted. --purge deletes them instead (no backup); it asks
+you to type "purge" to confirm unless --yes is given.
+
+Respects OC_LAUNCHD_LABEL if the install used a non-default label. Refuses,
+loudly and without changing anything, if that label belongs to a different
+program than the one this installer would have put there.
+EOF
+        exit 0 ;;
+      *)
+        echo "[install] FATAL: unknown --uninstall flag '$1' (supported: --purge, --dry-run, --yes)" >&2
+        exit 2 ;;
+    esac
+    shift
+  done
+
+  local LABEL LA_DIR PLIST GUI TARGET ROOT_DIR BIN_DIR SERVER_DIR
+  LABEL="${OC_LAUNCHD_LABEL:-com.officraft.serve}"
+  LA_DIR="$HOME/Library/LaunchAgents"
+  PLIST="$LA_DIR/$LABEL.plist"
+  GUI="gui/$(id -u)"
+  TARGET="$GUI/$LABEL"
+  ROOT_DIR="$HOME/.officraft"
+  BIN_DIR="$ROOT_DIR/bin"
+  SERVER_DIR="$ROOT_DIR/server"
+
+  # run: perform a mutating command, or in dry-run just print it. Read-only
+  # probes for control flow do NOT go through this.
+  run() {
+    if [[ "$dryrun" == "1" ]]; then
+      echo "[install] DRYRUN would run: $*" >&2
+    else
+      "$@"
+    fi
+  }
+
+  # ── ownership ──────────────────────────────────────────────────────────────
+  # "ours" for FILES is decided from the binary, not the label: a from-source
+  # `bin/ocserver install` never writes ~/.officraft/bin, so its presence here
+  # is this installer's own signature regardless of which label ended up
+  # owning the launchd job. "ours" for the JOB is the same ProgramArguments[0]
+  # check install already uses at install time — a label pointing at a
+  # different program is a different install (or someone else's job entirely)
+  # and must not be touched, matching bin/ocserver's `OC_LAUNCHD_LABEL`
+  # respect for alt-labelled second installs.
+  local have_files=0
+  [[ -x "$BIN_DIR/ocserverd" ]] && have_files=1
+
+  local job_pid="" plist_ours=0 plist_foreign=0
+  if [[ -f "$PLIST" ]]; then
+    if [[ "$(plist_program "$PLIST")" == "$BIN_DIR/ocserverd" ]]; then
+      plist_ours=1
+      job_pid="$(launchctl print "$TARGET" 2>/dev/null | sed -n 's/^[[:space:]]*pid = \([0-9]*\).*/\1/p' | head -1)"
+    else
+      plist_foreign=1
+    fi
+  fi
+
+  if [[ "$have_files" == 0 && "$plist_ours" == 0 ]]; then
+    if [[ "$plist_foreign" == 1 ]]; then
+      echo "[install] nothing OF OURS to remove: no $BIN_DIR/ocserverd, and launchd label '$LABEL' belongs to a different program ($PLIST) — not touching it." >&2
+      echo "[install]   If that is actually your OffiCraft install under a different label, point OC_LAUNCHD_LABEL at it and re-run." >&2
+      exit 0
+    fi
+    echo "[install] nothing to remove — no $BIN_DIR/ocserverd and no '$LABEL' launchd job. Already clean."
+    exit 0
+  fi
+
+  if [[ "$plist_foreign" == 1 ]]; then
+    echo "[install] FATAL: launchd label '$LABEL' is registered but points at a DIFFERENT program:" >&2
+    echo "[install]        plist:    $PLIST" >&2
+    echo "[install]        program:  $(plist_program "$PLIST")" >&2
+    echo "[install]        expected: $BIN_DIR/ocserverd" >&2
+    echo "[install]        Refusing to touch a job this installer did not create, and refusing to remove" >&2
+    echo "[install]        $ROOT_DIR since ownership of this machine's install is now ambiguous. NOTHING was changed." >&2
+    echo "[install]        If this label is actually yours under a different program on purpose, retarget with:" >&2
+    echo "[install]          OC_LAUNCHD_LABEL=<the label THIS install used> curl -fsSL … | bash -s -- --uninstall" >&2
+    exit 1
+  fi
+
+  # server/repo/ only ever exists under a from-source `bin/ocserver install` —
+  # this installer never creates it. If present, the two installs share this
+  # root; remove only what is release-path OURS (bin/ + server/{data,oc.toml,log}),
+  # leave repo/ (and anything else under $SERVER_DIR) alone.
+  local coexists_source=0
+  [[ -d "$SERVER_DIR/repo" ]] && coexists_source=1
+
+  echo "[install] resolved: label=$LABEL root=$ROOT_DIR purge=$purge dryrun=$dryrun"
+  if [[ "$coexists_source" == 1 ]]; then
+    echo "[install] NOTE: $SERVER_DIR/repo exists — a from-source install shares this root. Leaving repo/ (and anything else under $SERVER_DIR that isn't ours) untouched."
+  fi
+
+  if [[ "$purge" == "1" && "$dryrun" != "1" && "$yes" != "1" ]]; then
+    echo "[install] --purge will DELETE $BIN_DIR and the release-path parts of $SERVER_DIR, INCLUDING the database (your owner credential hash lives there). Irreversible." >&2
+    printf '[install] type "purge" to confirm: ' >&2
+    local answer=""
+    read -r answer
+    [[ "$answer" == "purge" ]] || { echo "[install] aborted — nothing was changed." >&2; exit 1; }
+  fi
+
+  # 1. launchd job: stop it (if running) and drop the plist.
+  if [[ -n "$job_pid" ]]; then
+    echo "[install] stopping launchd job $LABEL (pid $job_pid)"
+    run launchctl bootout "$TARGET"
+  elif [[ "$plist_ours" == "1" ]]; then
+    echo "[install] launchd job $LABEL is registered but not running — removing its plist"
+  fi
+  [[ -f "$PLIST" ]] && run rm -f "$PLIST"
+
+  # 2. files: bin/ + server/{data,oc.toml,log} — never server/repo.
+  if [[ "$purge" == "1" ]]; then
+    [[ -e "$BIN_DIR" ]] && run rm -rf "$BIN_DIR"
+    if [[ "$coexists_source" == "1" ]]; then
+      local entry
+      for entry in data oc.toml log; do
+        [[ -e "$SERVER_DIR/$entry" ]] && run rm -rf "$SERVER_DIR/$entry"
+      done
+    else
+      [[ -e "$SERVER_DIR" ]] && run rm -rf "$SERVER_DIR"
+      shopt -s nullglob dotglob
+      local leftover=("$ROOT_DIR"/*)
+      shopt -u nullglob dotglob
+      [[ "${#leftover[@]}" == 0 ]] && run rm -rf "$ROOT_DIR"
+    fi
+    echo "[install] purge complete — $BIN_DIR and this release's server data are gone."
+  else
+    local backup="$ROOT_DIR.bak-$(date +%Y%m%d%H%M%S)"
+    if [[ "$coexists_source" == "1" ]]; then
+      run mkdir -p "$backup/server"
+      [[ -e "$BIN_DIR" ]] && run mv "$BIN_DIR" "$backup/bin"
+      local entry
+      for entry in data oc.toml log; do
+        [[ -e "$SERVER_DIR/$entry" ]] && run mv "$SERVER_DIR/$entry" "$backup/server/$entry"
+      done
+    else
+      run mv "$ROOT_DIR" "$backup"
+    fi
+    echo "[install] moved to $backup — the service is stopped but nothing was deleted."
+    echo "[install]   restore: mv $backup $ROOT_DIR"
+  fi
+
+  if [[ "$dryrun" == "1" ]]; then
+    echo "[install] DRYRUN complete — nothing on the machine was changed."
+  fi
+}
+
+for _oc_arg in "$@"; do
+  if [[ "$_oc_arg" == "--uninstall" ]]; then
+    cmd_uninstall_release "$@"
+    exit $?
+  fi
+done
+unset _oc_arg
 
 # ── mode detection ───────────────────────────────────────────────────────────
 # Package mode = this file sits next to the three release binaries (unpacked
@@ -145,6 +347,10 @@ separately and --force does NOT authorize it; a piped run aborts unless you
 pass --restart-live:
 
   curl -fsSL … | bash -s -- --force --restart-live
+
+To remove an install this installer made, see --uninstall:
+
+  curl -fsSL … | bash -s -- --uninstall --help
 EOF
         exit 0 ;;
       *)
@@ -237,7 +443,7 @@ for arg in "$@"; do
     --relocate) RELOCATE=1 ;;
     --restart-live) RESTART_LIVE=1 ;;
     -h|--help)
-      sed -n '2,89p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      sed -n '2,105p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -499,11 +705,8 @@ done
 # anything else is a hard stop that changes nothing.
 #
 # OURS=1 additionally licenses the port gate below to treat that job's own
-# listener as "not a conflict".
-plist_program() {
-  # ProgramArguments[0] of an existing plist, or "" if unreadable/absent.
-  plutil -extract ProgramArguments.0 raw -o - "$1" 2>/dev/null || true
-}
+# listener as "not a conflict". (plist_program() is defined near the top of
+# this file, shared with --uninstall's ownership check.)
 OURS=0
 if [[ "$FOREGROUND" == 0 ]]; then
   if [[ -f "$PLIST" ]]; then
