@@ -202,6 +202,33 @@ describe("RepliesPage", () => {
     );
   });
 
+  // The SAME branch must be wired on 重新決定 (doReanswer), not only on the
+  // first answer — a card whose task closed while the owner was revising is the
+  // identical dead end (G12: without this the doReanswer catch could keep the
+  // old wording and every test would still pass).
+  it("a 409 on 重新決定 says the card is stale too", async () => {
+    __injectMockReplyCard(
+      mkCard({
+        status: "answered",
+        answeredTs: Date.now() / 1000 - 60,
+        answer: { optionIdx: 0, text: "", attachments: [] },
+      })
+    );
+    vi.spyOn(api, "reanswerReplyCard").mockRejectedValue(
+      new ApiError("http 409 for PUT /api/reply-cards/rc-1/answer", 409,
+        "conflict", "task is already closed — this card is orphaned")
+    );
+    const { findByTestId, getByText } = renderPage();
+    fireEvent.click(await findByTestId("answered-toggle"));
+    const card = await findByTestId("answered-card");
+    fireEvent.click(getByText("查看當初選項"));
+    fireEvent.click(getByText("重新決定"));
+    fireEvent.click(card.querySelectorAll(".reply-option")[1]);
+
+    const notice = await findByTestId("replies-action-error");
+    expect(notice.textContent).toBe(zh.replies.answerStale);
+  });
+
   // The regression side: a NON-409 failure keeps the retry wording — the 409
   // branch must not swallow honest transient errors.
   it("a 500 answer keeps the retryable 回覆失敗，請稍後重試 wording", async () => {

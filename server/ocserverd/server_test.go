@@ -551,3 +551,97 @@ func TestPrincipalLadderMatchesPython(t *testing.T) {
 		t.Fatalf("classification literals drifted: %q %q", adminRoleKey, machineKind)
 	}
 }
+
+// TestServeBootRetiresOrphanReplyCards covers the BOOT WIRING itself (T-4166
+// review G10), not just the reconcile function. A boot hook that is defined,
+// tested in isolation, and never actually called is the same dead-wiring class
+// as the untested dismissal seam this ticket already tripped over — deleting
+// the call from cmdServe must turn something red, and only a test that goes
+// through cmdServe can do that.
+//
+// The trick that makes it hermetic and synchronous: cmdServe runs its boot
+// reconciles BEFORE it binds. Hold the configured port first, and cmdServe
+// migrates, seeds, reconciles, then fails the bind and RETURNS (rc 1) instead
+// of blocking in http.Serve forever. Everything before the bind is exercised
+// for real, and no listener leaks.
+func TestServeBootRetiresOrphanReplyCards(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "boot.db")
+
+	// Seed a PRE-FIX orphan: a waiting card bound to an already-done task, plus
+	// a live control card that must survive the boot untouched.
+	db, err := openSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if err := runMigrations(db); err != nil {
+		t.Fatalf("goose up: %v", err)
+	}
+	dal := NewDAL(db)
+	now := nowSecs()
+	if err := dal.PutTask(Task{
+		ID: "t-closed", Title: "closed", Status: TaskStatusDone,
+		Priority: TaskPriorityMid, ExecutorKind: TaskExecutorMember,
+		ExecutorID: "m-1", CreatedTS: now, UpdatedTS: now, ClosedTS: now,
+	}); err != nil {
+		t.Fatalf("put task: %v", err)
+	}
+	orphan := waitingCard("rc-orphan", now)
+	orphan.TaskID = "t-closed"
+	control := waitingCard("rc-plain", now)
+	for _, c := range []ReplyCard{orphan, control} {
+		if err := dal.PutReplyCard(c); err != nil {
+			t.Fatalf("put card: %v", err)
+		}
+	}
+	db.Close()
+
+	// Hold the port cmdServe is about to want.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+	cfgPath := filepath.Join(dir, "oc.toml")
+	if err := os.WriteFile(cfgPath,
+		[]byte(fmt.Sprintf("[server]\nport = %d\n", port)), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	var out strings.Builder
+	rc := cmdServe(envOf(map[string]string{
+		"OC_CONFIG":       cfgPath,
+		"OC_DATABASE_URL": "sqlite:///" + dbPath,
+	}), true, true, &out)
+	if rc != 1 {
+		t.Fatalf("the held port must make serve exit 1 (boot ran, bind failed), got %d\n%s",
+			rc, out.String())
+	}
+	if !strings.Contains(out.String(), "already in use") {
+		t.Fatalf("expected the bind failure to be the reason we exited:\n%s", out.String())
+	}
+	// The boot said what it did — a silent reconcile is not observable.
+	if !strings.Contains(out.String(),
+		"orphan reply-card boot reconcile: retired 1 card(s)") {
+		t.Fatalf("boot must report the retired orphan:\n%s", out.String())
+	}
+
+	db, err = openSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer db.Close()
+	dal = NewDAL(db)
+	got, err := dal.GetReplyCard("rc-orphan")
+	if err != nil || got == nil {
+		t.Fatalf("card: %v %v", got, err)
+	}
+	if got.Status != replyCardStatusExpired || got.ExpiredTS <= 0 {
+		t.Fatalf("boot must retire the stranded card, got %+v", got)
+	}
+	kept, _ := dal.GetReplyCard("rc-plain")
+	if kept.Status != replyCardStatusWaiting {
+		t.Fatalf("an unbound card must survive boot, got %s", kept.Status)
+	}
+}

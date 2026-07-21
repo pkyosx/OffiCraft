@@ -431,9 +431,13 @@ func (s *apiServer) HandleDismissMemberApiMembersMemberIdDelete(w http.ResponseW
 	// waiting cards — retire them instead of leaving them in the owner's
 	// 等我回覆 pane forever (each one pins the cockpit red dot on a member that
 	// no longer exists). Same sweep the reassign / task-close seams use.
+	//
+	// BEST-EFFORT (review B5): putMember above ALREADY persisted the dismissal,
+	// and there is no transaction to roll it back. 500-ing here would report
+	// "dismiss failed" for a member that IS dismissed. Log instead — matching
+	// expireWaitingCardsFromMember's own contract and the worker-dismissal twin.
 	if _, err := s.expireWaitingCardsFromMember(m.ID, nowSecs(), requestTrigger(r)); err != nil {
-		internalError(w, err)
-		return
+		taskLog("dismiss %s: reply-card sweep failed (cards left waiting): %v", m.ID, err)
 	}
 	s.writeMemberDTO(w, *m)
 }

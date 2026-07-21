@@ -286,12 +286,19 @@ func openPlainCard(t *testing.T, api *apiServer, actor string) replyCardDTO {
 // tests (T-4166) need the recorder to read the status AND the reason off.
 func openPlainCardRaw(t *testing.T, api *apiServer, actor string) *httptest.ResponseRecorder {
 	t.Helper()
+	return createCardRaw(t, api, actor, map[string]any{
+		"kind": "decision", "summary": "which way?",
+		"options": []string{"A", "B"},
+	})
+}
+
+// createCardRaw posts an arbitrary create body (the bind opt-out tests need to
+// send fields openPlainCard does not).
+func createCardRaw(t *testing.T, api *apiServer, actor string, body map[string]any) *httptest.ResponseRecorder {
+	t.Helper()
 	rec := httptest.NewRecorder()
 	api.HandleCreateReplyCardApiReplyCardsPost(rec,
-		taskReq(t, "POST", "/api/reply-cards", map[string]any{
-			"kind": "decision", "summary": "which way?",
-			"options": []string{"A", "B"},
-		}, actor, "agent"))
+		taskReq(t, "POST", "/api/reply-cards", body, actor, "agent"))
 	return rec
 }
 
@@ -396,50 +403,103 @@ func TestPlainCardAutoBindsTheCurrentStepAndEntersWaiting(t *testing.T) {
 	}
 }
 
-// TestPlainCardRefusesToOpenWhenTheStepIsAmbiguous pins T-4166 direction ②
-// (the FAIL-CLOSED half). This test used to pin the OPPOSITE: two in_progress
-// steps "degraded" to a task-only card (task_step_id=""), which is precisely
-// the orphan factory — no step binding means no waiting_owner hold, so the task
-// runs on to done under the owner's still-waiting card and the answer route
-// 409s forever. Now the create is REFUSED, loudly and completely.
-func TestPlainCardRefusesToOpenWhenTheStepIsAmbiguous(t *testing.T) {
+// startStep drives one step to in_progress (the agent's own report).
+func startStep(t *testing.T, api *apiServer, taskID, stepID, actor string) {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	api.HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost(rec,
+		taskReq(t, "POST", "/x", map[string]any{"status": "in_progress"}, actor, "agent"),
+		taskID, stepID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("step start: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestPlainCardBindsTheLowestLaneOfOneParallelGroup pins review B2: several
+// steps of ONE parallel_group running at once is the shape's whole definition,
+// not ambiguity. The first cut of T-4166 refused it — and this very fixture
+// (two lanes of one group) was the "ambiguous" test, while the neighbouring
+// TestPlainCardOnAGroupedStepFlipsTheWholeTask already proved armStepWithCard
+// supports a card on a lane. Production had 3 tasks in exactly this state, one
+// with 4 lanes at once. Binding the LOWEST order_idx lane is a deterministic
+// tie-break rather than a guess, because arming ANY lane derives the WHOLE task
+// to waiting_owner (T-9ca5) — the hold is identical whichever lane carries it.
+func TestPlainCardBindsTheLowestLaneOfOneParallelGroup(t *testing.T) {
 	api := newTasksTestServer(t)
 	task := createAdHocTask(t, api, "m-exec")
 	view := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
 		{"name": "lane-a", "dod": "a done", "parallel_group": "pg"},
 		{"name": "lane-b", "dod": "b done", "parallel_group": "pg"},
+		{"name": "lane-c", "dod": "c done", "parallel_group": "pg"},
 	})
-	// TWO steps in_progress → the current step is ambiguous.
-	for _, st := range view.Steps {
-		rec := httptest.NewRecorder()
-		api.HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost(rec,
-			taskReq(t, "POST", "/x", map[string]any{"status": "in_progress"},
-				"m-exec", "agent"),
-			task.ID, st.ID)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("step start: %d %s", rec.Code, rec.Body.String())
+	// Start them OUT of order — the pick must follow order_idx, not start time.
+	for _, i := range []int{2, 0, 1} {
+		startStep(t, api, task.ID, view.Steps[i].ID, "m-exec")
+	}
+
+	card := openPlainCard(t, api, "m-exec")
+	stored, _ := api.dal.GetReplyCard(card.ID)
+	if stored.TaskID != task.ID || stored.TaskStepID != view.Steps[0].ID {
+		t.Fatalf("the lowest-order lane must carry the card: %+v", stored)
+	}
+	// The HOLD is what the ticket is about: it must really exist.
+	if got, _ := api.dal.GetTask(task.ID); got.Status != TaskStatusWaitingOwner {
+		t.Fatalf("arming a lane must hold the WHOLE task, got %s", got.Status)
+	}
+	carrier, _ := api.dal.GetTaskStep(view.Steps[0].ID)
+	if carrier.Status != StepStatusWaitingOwner || carrier.ReplyCardID != card.ID {
+		t.Fatalf("the carrier lane must arm: %+v", carrier)
+	}
+	// The sibling lanes keep running — they were never the question.
+	for _, i := range []int{1, 2} {
+		sib, _ := api.dal.GetTaskStep(view.Steps[i].ID)
+		if sib.Status != StepStatusInProgress || sib.ReplyCardID != "" {
+			t.Fatalf("sibling lane %d must keep running: %+v", i, sib)
 		}
 	}
+	// …and the card answers, exactly like any bound card.
+	if rec := answerCard(t, api, card.ID,
+		map[string]any{"option_idx": 0}); rec.Code != http.StatusOK {
+		t.Fatalf("a lane-bound card must answer 200, got %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestPlainCardRefusesToOpenAcrossDifferentParallelGroups keeps the fail-closed
+// half where it belongs: two lanes of DIFFERENT groups running at once has no
+// natural carrier, so it is still refused (with bind="none" as the escape).
+func TestPlainCardRefusesToOpenAcrossDifferentParallelGroups(t *testing.T) {
+	api := newTasksTestServer(t)
+	task := createAdHocTask(t, api, "m-exec")
+	view := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
+		{"name": "a1", "dod": "d", "parallel_group": "pg1"},
+		{"name": "a2", "dod": "d", "parallel_group": "pg1"},
+		{"name": "b1", "dod": "d", "parallel_group": "pg2"},
+		{"name": "b2", "dod": "d", "parallel_group": "pg2"},
+	})
+	startStep(t, api, task.ID, view.Steps[0].ID, "m-exec")
+	startStep(t, api, task.ID, view.Steps[2].ID, "m-exec")
+
 	rec := openPlainCardRaw(t, api, "m-exec")
 	if rec.Code != http.StatusConflict {
-		t.Fatalf("an unbindable ask must be refused with 409, got %d %s",
+		t.Fatalf("cross-group candidates must be refused with 409, got %d %s",
 			rec.Code, rec.Body.String())
 	}
 	// The REASON, not just the code: "correctly refused" and "broke while
 	// trying" share the status, so assert what the refusal actually says.
 	msg := errorMessageOf(t, rec)
 	if !strings.Contains(msg, "cannot bind this ask to a step") ||
-		!strings.Contains(msg, "2 steps") || !strings.Contains(msg, task.ID) ||
-		!strings.Contains(msg, "open_gate") {
-		t.Fatalf("the refusal must name the ambiguity and the exit, got %q", msg)
+		!strings.Contains(msg, "different parallel groups") ||
+		!strings.Contains(msg, task.ID) || !strings.Contains(msg, "open_gate") ||
+		!strings.Contains(msg, "bind=") {
+		t.Fatalf("the refusal must name the ambiguity and all three exits, got %q", msg)
 	}
 	assertNoCardMinted(t, api)
 	got, _ := api.dal.GetTask(task.ID)
 	if got.Status != TaskStatusInProgress {
 		t.Fatalf("a refused ask must not move the task, got %s", got.Status)
 	}
-	for _, st := range view.Steps {
-		s2, _ := api.dal.GetTaskStep(st.ID)
+	for _, i := range []int{0, 2} {
+		s2, _ := api.dal.GetTaskStep(view.Steps[i].ID)
 		if s2.Status != StepStatusInProgress || s2.ReplyCardID != "" {
 			t.Fatalf("a refused ask must arm no step: %+v", s2)
 		}
@@ -523,31 +583,181 @@ func TestPlainCardStaysUnboundWithoutAnyActiveTask(t *testing.T) {
 	}
 }
 
-// TestPlainCardRefusesToOpenWithTwoActiveTasks pins the OTHER silent degrade
-// T-4166 closed: with 2+ active tasks the ask used to open UNBOUND — a card
-// that holds nothing while both task pages still read 進行中, so the owner
-// cannot see from the task side that anyone is blocked. "The agent should
-// notice task:null" is operating discipline standing in for a guarantee;
-// refuse instead and name the explicit exit.
-func TestPlainCardRefusesToOpenWithTwoActiveTasks(t *testing.T) {
+// TestPlainCardStaysUnboundWithSeveralActiveTasks pins review B1. The first
+// cut of T-4166 refused this with a 409 on the theory that an unbound card is
+// "a card that holds nothing". The review measured the cost against the live
+// roster: four executors held active work, one of them FOUR tasks — that agent
+// could not have opened a single plain ask. Nothing in this system enforces one
+// task per executor (not claim_task, not create_task, not reassign, not the
+// SPEC), so multi-tasking is the ordinary state, and — decisively — an unbound
+// card is NOT the orphan bug: with task_id empty the answer route's
+// terminal-task guard can never fire. Fail-closed belongs on the orphan shape,
+// not on a display gap.
+func TestPlainCardStaysUnboundWithSeveralActiveTasks(t *testing.T) {
 	api := newTasksTestServer(t)
-	t1 := createAdHocTask(t, api, "m-busy")
-	t2 := createAdHocTask(t, api, "m-busy")
-	for _, id := range []string{t1.ID, t2.ID} {
-		submitPlan(t, api, id, "m-busy", []map[string]any{{"name": "work", "dod": "d"}})
-		startFirstStep(t, api, id, "m-busy")
+	var ids []string
+	for i := 0; i < 4; i++ {
+		task := createAdHocTask(t, api, "m-busy")
+		submitPlan(t, api, task.ID, "m-busy", []map[string]any{{"name": "work", "dod": "d"}})
+		startFirstStep(t, api, task.ID, "m-busy")
+		ids = append(ids, task.ID)
 	}
-	rec := openPlainCardRaw(t, api, "m-busy")
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("two active tasks must refuse the ask with 409, got %d %s",
-			rec.Code, rec.Body.String())
+	card := openPlainCard(t, api, "m-busy")
+	stored, _ := api.dal.GetReplyCard(card.ID)
+	if stored.TaskID != "" || stored.TaskStepID != "" {
+		t.Fatalf("several active tasks must open an UNBOUND card, not a 409: %+v", stored)
 	}
-	msg := errorMessageOf(t, rec)
-	if !strings.Contains(msg, "cannot bind this ask to a task") ||
-		!strings.Contains(msg, "2 active tasks") ||
-		!strings.Contains(msg, t1.ID) || !strings.Contains(msg, t2.ID) ||
-		!strings.Contains(msg, "open_gate") {
-		t.Fatalf("the refusal must name both tasks and the exit, got %q", msg)
+	// And none of the four moved.
+	for _, id := range ids {
+		got, _ := api.dal.GetTask(id)
+		if got.Status != TaskStatusInProgress {
+			t.Fatalf("task %s must not move, got %s", id, got.Status)
+		}
+	}
+	// The unbound card answers — it was never at risk of orphaning.
+	if rec := answerCard(t, api, card.ID,
+		map[string]any{"option_idx": 0}); rec.Code != http.StatusOK {
+		t.Fatalf("an unbound card must answer 200, got %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestBusyAgentWithParallelLanesCanAlwaysOpenACard is the ACCEPTANCE SENTINEL
+// for the review: the exact profile that would have been bricked — an agent
+// holding FOUR active tasks, one of which is running several parallel lanes.
+// Every route it could take must work.
+func TestBusyAgentWithParallelLanesCanAlwaysOpenACard(t *testing.T) {
+	api := newTasksTestServer(t)
+	// Three ordinary tasks…
+	for i := 0; i < 3; i++ {
+		other := createAdHocTask(t, api, "m-busy")
+		submitPlan(t, api, other.ID, "m-busy", []map[string]any{{"name": "work", "dod": "d"}})
+		startFirstStep(t, api, other.ID, "m-busy")
+	}
+	// …plus a fourth with 4 lanes of one group all running.
+	lanes := createAdHocTask(t, api, "m-busy")
+	view := submitPlan(t, api, lanes.ID, "m-busy", []map[string]any{
+		{"name": "l0", "dod": "d", "parallel_group": "pg"},
+		{"name": "l1", "dod": "d", "parallel_group": "pg"},
+		{"name": "l2", "dod": "d", "parallel_group": "pg"},
+		{"name": "l3", "dod": "d", "parallel_group": "pg"},
+	})
+	for _, st := range view.Steps {
+		startStep(t, api, lanes.ID, st.ID, "m-busy")
+	}
+
+	// 1. The plain ask opens — UNBOUND, because no single task is the clear one.
+	card := openPlainCard(t, api, "m-busy")
+	stored, _ := api.dal.GetReplyCard(card.ID)
+	if stored.TaskID != "" {
+		t.Fatalf("4 active tasks → unbound plain ask, got %+v", stored)
+	}
+	// 2. …and when it wants a HOLD on the lane task, open_gate still names it.
+	gate := openGateCard(t, api, lanes.ID, "m-busy", view.Steps[2].ID, "this lane?")
+	held, _ := api.dal.GetReplyCard(gate.ID)
+	if held.TaskID != lanes.ID || held.TaskStepID != view.Steps[2].ID {
+		t.Fatalf("open_gate must bind the named lane: %+v", held)
+	}
+	if got, _ := api.dal.GetTask(lanes.ID); got.Status != TaskStatusWaitingOwner {
+		t.Fatalf("the gate must hold the lane task, got %s", got.Status)
+	}
+	// 3. Both cards are answerable — no orphan anywhere in this profile.
+	for _, id := range []string{card.ID, gate.ID} {
+		if rec := answerCard(t, api, id,
+			map[string]any{"option_idx": 0}); rec.Code != http.StatusOK {
+			t.Fatalf("card %s must answer 200, got %d %s", id, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+// TestBindNoneOptsOutOfAutoBinding pins review B3: fail-closed without an
+// escape is a trap. An agent whose single task has no resolvable current step
+// had NO route to a plain chat ask (open_gate binds a step by definition,
+// post_chat raises no 等我回覆 red dot). bind="none" is that route — and it is
+// the HONEST form of "task: null": the asker declared it, the server did not
+// quietly decide it and hope someone noticed.
+func TestBindNoneOptsOutOfAutoBinding(t *testing.T) {
+	api := newTasksTestServer(t)
+	task := createAdHocTask(t, api, "m-exec")
+	view := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
+		{"name": "early", "dod": "d1"}, {"name": "later", "dod": "d2"},
+	})
+	for _, status := range []string{"in_progress", "done"} {
+		if rec := reportStepStatus(t, api, task.ID, view.Steps[0].ID, "m-exec",
+			status, ""); rec.Code != http.StatusOK {
+			t.Fatalf("drive early %s: %d %s", status, rec.Code, rec.Body.String())
+		}
+	}
+	// Auto-binding is refused here (that is the orphan shape)…
+	if rec := openPlainCardRaw(t, api, "m-exec"); rec.Code != http.StatusConflict {
+		t.Fatalf("precondition: the auto path must 409, got %d", rec.Code)
+	}
+	// …and bind="none" is the declared way through.
+	rec := createCardRaw(t, api, "m-exec", map[string]any{
+		"kind": "decision", "summary": "unrelated question",
+		"options": []string{"A", "B"}, "bind": "none",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("bind=none must open a plain card, got %d %s", rec.Code, rec.Body.String())
+	}
+	card := decodeBody[replyCardDTO](t, rec)
+	stored, _ := api.dal.GetReplyCard(card.ID)
+	if stored.TaskID != "" || stored.TaskStepID != "" {
+		t.Fatalf("bind=none must open UNBOUND: %+v", stored)
+	}
+	if got, _ := api.dal.GetTask(task.ID); got.Status != TaskStatusInProgress {
+		t.Fatalf("bind=none must not move the task, got %s", got.Status)
+	}
+	// It answers like any unbound card.
+	if r := answerCard(t, api, card.ID,
+		map[string]any{"option_idx": 0}); r.Code != http.StatusOK {
+		t.Fatalf("an opted-out card must answer 200, got %d %s", r.Code, r.Body.String())
+	}
+}
+
+// TestBindNoneAlsoSkipsBindingOnAPerfectlyBindableTask: the opt-out is the
+// ASKER's declaration, not a fallback the server applies only when it is stuck.
+func TestBindNoneAlsoSkipsBindingOnAPerfectlyBindableTask(t *testing.T) {
+	api := newTasksTestServer(t)
+	task := createAdHocTask(t, api, "m-exec")
+	view := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
+		{"name": "work", "dod": "d"},
+	})
+	startFirstStep(t, api, task.ID, "m-exec")
+
+	rec := createCardRaw(t, api, "m-exec", map[string]any{
+		"kind": "decision", "summary": "not about the task",
+		"options": []string{"A"}, "bind": "none",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("bind=none: %d %s", rec.Code, rec.Body.String())
+	}
+	card := decodeBody[replyCardDTO](t, rec)
+	stored, _ := api.dal.GetReplyCard(card.ID)
+	if stored.TaskID != "" {
+		t.Fatalf("bind=none must stay unbound even when binding was possible: %+v", stored)
+	}
+	step, _ := api.dal.GetTaskStep(view.Steps[0].ID)
+	if step.Status != StepStatusInProgress || step.ReplyCardID != "" {
+		t.Fatalf("bind=none must arm no step: %+v", step)
+	}
+	if got, _ := api.dal.GetTask(task.ID); got.Status != TaskStatusInProgress {
+		t.Fatalf("bind=none must not hold the task, got %s", got.Status)
+	}
+}
+
+// TestBindRejectsAnUnknownValue: a typo must not silently become auto-binding
+// (or silently become the opt-out) — the closed set is enforced at the door.
+func TestBindRejectsAnUnknownValue(t *testing.T) {
+	api := newTasksTestServer(t)
+	rec := createCardRaw(t, api, "m-free", map[string]any{
+		"kind": "decision", "summary": "q", "options": []string{"A"}, "bind": "auto",
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("an unknown bind value must be a 400, got %d %s", rec.Code, rec.Body.String())
+	}
+	if msg := errorMessageOf(t, rec); !strings.Contains(msg, "bind must be omitted") ||
+		!strings.Contains(msg, "none") {
+		t.Fatalf("the 400 must name the closed set, got %q", msg)
 	}
 	assertNoCardMinted(t, api)
 }
@@ -871,6 +1081,16 @@ func TestClosingATaskRetiresItsWaitingCards(t *testing.T) {
 			startFirstStep(t, api, task.ID, "m-exec")
 			card := openGateCard(t, api, task.ID, "m-exec", view.Steps[0].ID, "go?")
 
+			// A BYSTANDER on a different, still-live task: the sweep is scoped
+			// to this task, not a purge (the dismissal seams have this sentinel;
+			// closeTask must not be the asymmetric one).
+			other := createAdHocTask(t, api, "m-other")
+			otherView := submitPlan(t, api, other.ID, "m-other", []map[string]any{
+				{"name": "work", "dod": "d"},
+			})
+			startFirstStep(t, api, other.ID, "m-other")
+			bystander := openGateCard(t, api, other.ID, "m-other", otherView.Steps[0].ID, "mine?")
+
 			stored, _ := api.dal.GetTask(task.ID)
 			if err := api.closeTask(stored, status, nowSecs(), "test"); err != nil {
 				t.Fatalf("closeTask: %v", err)
@@ -879,10 +1099,18 @@ func TestClosingATaskRetiresItsWaitingCards(t *testing.T) {
 			if after.Status != replyCardStatusExpired || after.ExpiredTS <= 0 {
 				t.Fatalf("closing the task must retire its waiting card, got %+v", after)
 			}
-			// …and the pane/red-dot really clears.
+			kept, _ := api.dal.GetReplyCard(bystander.ID)
+			if kept.Status != replyCardStatusWaiting {
+				t.Fatalf("another task's card must survive the close, got %s", kept.Status)
+			}
+			if got, _ := api.dal.GetTask(other.ID); got.Status != TaskStatusWaitingOwner {
+				t.Fatalf("the bystander task must keep its hold, got %s", got.Status)
+			}
+			// …and the pane/red-dot clears of THIS task's card.
 			cards, _ := api.dal.ListReplyCards()
-			if n := len(waitingReplyCards(cards)); n != 0 {
-				t.Fatalf("the 等我回覆 pane must be empty after the close, got %d", n)
+			waiting := waitingReplyCards(cards)
+			if len(waiting) != 1 || waiting[0].ID != bystander.ID {
+				t.Fatalf("the 等我回覆 pane must shed exactly this task's card, got %+v", waiting)
 			}
 			got, _ := api.dal.GetTask(task.ID)
 			if got.Status != status || got.UpdatedTS != stored.UpdatedTS {
@@ -1003,6 +1231,23 @@ func TestOrphanReplyCardBootReconcileRetiresStrandedCards(t *testing.T) {
 		t.Fatalf("closeTask: %v", err)
 	}
 	strandLegacyOrphanCard(t, api, orphan.ID)
+	// A card pointing at a task row that no longer EXISTS is orphaned too —
+	// nothing will ever close it, so nothing would ever take it off the pane
+	// (G11: the `t == nil` half of the orphan test, which the terminal-status
+	// half cannot reach).
+	dangling := waitingCard("rc-dangling", nowSecs())
+	dangling.TaskID = "t-vanished"
+	if err := api.dal.PutReplyCard(dangling); err != nil {
+		t.Fatalf("seed dangling card: %v", err)
+	}
+	// An ALREADY-ANSWERED card on the very same closed task must be left alone
+	// — the sweep is scoped to waiting rows, and re-stamping a settled card
+	// would rewrite history (G13).
+	settled := answeredCard("rc-settled", nowSecs()-100, nowSecs()-50)
+	settled.TaskID = task.ID
+	if err := api.dal.PutReplyCard(settled); err != nil {
+		t.Fatalf("seed settled card: %v", err)
+	}
 	// A LIVE card on a live task, and a plain unbound ask — neither is orphaned.
 	live := createAdHocTask(t, api, "m-live")
 	liveView := submitPlan(t, api, live.ID, "m-live", []map[string]any{
@@ -1016,11 +1261,18 @@ func TestOrphanReplyCardBootReconcileRetiresStrandedCards(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
-	if n != 1 {
-		t.Fatalf("exactly the one stranded card must retire, got %d", n)
+	if n != 2 {
+		t.Fatalf("exactly the two stranded cards must retire, got %d", n)
 	}
 	if got, _ := api.dal.GetReplyCard(orphan.ID); got.Status != replyCardStatusExpired {
 		t.Fatalf("the stranded card must retire, got %s", got.Status)
+	}
+	if got, _ := api.dal.GetReplyCard(dangling.ID); got.Status != replyCardStatusExpired {
+		t.Fatalf("a card on a VANISHED task must retire, got %s", got.Status)
+	}
+	if got, _ := api.dal.GetReplyCard(settled.ID); got.Status != replyCardStatusAnswered ||
+		got.ExpiredTS != 0 || got.AnsweredTS != settled.AnsweredTS {
+		t.Fatalf("an answered card must be left byte-identical, got %+v", got)
 	}
 	if got, _ := api.dal.GetReplyCard(liveCard.ID); got.Status != replyCardStatusWaiting {
 		t.Fatalf("a card on a LIVE task must survive boot, got %s", got.Status)

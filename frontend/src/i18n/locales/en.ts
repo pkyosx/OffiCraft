@@ -220,7 +220,7 @@ export const en: Dict = {
     inputPlaceholder: "Type a reply…",
     answerError: "Reply failed. Please try again.",
     answerStale:
-      "This card can no longer be answered — its task has closed, or the card was already handled. If it is still listed, close it with 標為過期 (Mark expired) on the card.",
+      "This card can no longer be answered — its task has closed, or the card was already handled. If it is still listed, close it with “Mark expired” on the card.",
     viewOptions: "View original options",
     collapseOptions: "Collapse options",
     currentTag: "current",

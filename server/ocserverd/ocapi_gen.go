@@ -951,13 +951,16 @@ type ReplyCardCountDTO struct {
 	Waiting  int `json:"waiting"`
 }
 
-// ReplyCardCreateDTO Open one reply card (請示): an ask the OWNER must answer before the agent can proceed. “kind“ is the closed set “decision“ (needs a call/approval) | “action“ (needs the owner to DO something first). “options“ are the quick-reply choices: 1..4 non-blank strings, and index 0 is ALWAYS the AI's own recommendation (the “AI 建議“ pick). A free-typed answer (with attachments) is always allowed on top — options never close that door. Optional “attachments“ ride the QUESTION side of the card (same input shape + limits as chat attachments: “{id}“ references a blob already uploaded via “POST /api/chat/attachments“, or “data_b64“ carries small bytes inline; blobs land in the shared chat-attachment store).
+// ReplyCardCreateDTO Open one reply card (請示): an ask the OWNER must answer before the agent can proceed. “kind“ is the closed set “decision“ (needs a call/approval) | “action“ (needs the owner to DO something first). “options“ are the quick-reply choices: 1..4 non-blank strings, and index 0 is ALWAYS the AI's own recommendation (the “AI 建議“ pick). A free-typed answer (with attachments) is always allowed on top — options never close that door. Optional “attachments“ ride the QUESTION side of the card (same input shape + limits as chat attachments: “{id}“ references a blob already uploaded via “POST /api/chat/attachments“, or “data_b64“ carries small bytes inline; blobs land in the shared chat-attachment store). “bind“ opts out of auto task/step binding (see the field).
 type ReplyCardCreateDTO struct {
 	Attachments *[]ChatAttachmentInputDTO `json:"attachments,omitempty"`
-	Body        *string                   `json:"body,omitempty"`
-	Kind        string                    `json:"kind"`
-	Options     []string                  `json:"options"`
-	Summary     string                    `json:"summary"`
+
+	// Bind Auto-binding opt-out. Omit (or "") for the default AUTO binding: when you are the executor of exactly one active task, the card binds to that task's CURRENT step and places the 等我回覆 hold. Send ``"none"`` to declare this ask is NOT about your task — the card opens as a plain unbound 請示 regardless of what work you hold. Any other value is a 400.
+	Bind    *string  `json:"bind,omitempty"`
+	Body    *string  `json:"body,omitempty"`
+	Kind    string   `json:"kind"`
+	Options []string `json:"options"`
+	Summary string   `json:"summary"`
 }
 
 // ReplyCardDTO One reply card (等我回覆卡). “from“ is the initiating member (the verified JWT sub at create time). “status“ is the closed set “waiting“ | “answered“ | “expired“ — the only transitions are waiting→answered via an answer (the owner's positive close) and waiting→expired via the owner-only expire action (標為過期 — NOT an answer: the ask went stale and the owner declined it; terminal, no reopen); a revised answer (PUT) keeps “answered“. “chat_message_id“ links the chat message the card rides in (the jump-to-origin anchor); “answered_ts“/“answer“ are null unless answered; “expired_ts“ is null unless expired. “attachments“ are the QUESTION-side attachments the initiator opened the card with (served refs incl. download url; always an array, “[]“ when none).

@@ -29,10 +29,19 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 )
+
+// taskLog emits one task-lifecycle observability line to stderr. Used for the
+// BEST-EFFORT side effects of a close: they must never fail the close they
+// follow, but they must never fail SILENTLY either.
+func taskLog(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "[task] "+format+"\n", args...)
+}
 
 // ── SSE fan helpers (spec/sse.md §2.2 — hint payloads, never full bodies) ────
 
@@ -273,8 +282,15 @@ func (s *apiServer) closeTask(t *Task, status string, now float64, trigger strin
 	// expire use (expireWaitingCards). The task row above is already terminal, so
 	// releaseCardHold's orphan branch leaves it untouched — no resume, no
 	// UpdatedTS re-bump floating a closed task back up the cockpit.
+	//
+	// BEST-EFFORT ON PURPOSE (review B4): closeTask has NO transaction, and the
+	// terminal task row is ALREADY persisted above. Returning an error here would
+	// abort the rest of the close — workers never released, no task delta fanned,
+	// the caller 500s — leaving a HALF-CLOSED task with no rollback. A card that
+	// failed to retire is a stale row in the owner's pane (recoverable: 標為過期,
+	// or the next boot reconcile); a half-closed task is not. Log and go on.
 	if _, err := s.expireWaitingCardsForTask(t.ID, now, trigger); err != nil {
-		return err
+		taskLog("close %s: reply-card sweep failed (cards left waiting): %v", t.ID, err)
 	}
 	released, err := s.dal.ReleaseWorkersForTask(t.ID, now)
 	if err != nil {

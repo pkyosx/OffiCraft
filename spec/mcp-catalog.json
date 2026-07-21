@@ -460,7 +460,7 @@
       "name": "get_chat_reads"
     },
     {
-      "description": "Open a reply card: an ask the owner must answer (options \u22644, [0]=AI pick). Auto-binds to your single active task's CURRENT step \u2014 that step (and the task) enters waiting_owner until the owner answers. If you are executing active work that cannot be bound (2+ active tasks, or no single in_progress step) the call is REFUSED with 409 and no card is opened: an unbound card holds nothing, so the task would finish underneath your question and the owner's answer would be rejected. Fix what the error names \u2014 report the step you are on (update_step_status in_progress), or use open_gate with an explicit task_id + step_id. With no active task at all, a plain unbound \u8acb\u793a opens as before. Optional attachments ride the question (same shape as post_chat: {id} from `ocagent upload` / POST /api/chat/attachments, or inline data_b64).",
+      "description": "Open a reply card: an ask the owner must answer (options \u22644, [0]=AI pick). Auto-binds to your single active task's CURRENT step \u2014 that step (and the task) enters waiting_owner until the owner answers; several lanes of one parallel_group running at once is fine (the lowest order_idx lane carries the card, and the whole task holds either way). If that task has NO resolvable current step the call is REFUSED with 409 and no card is opened: binding the task without a step places no hold, so the task would finish underneath your question and the owner's answer would then be rejected. Fix what the error names \u2014 report the step you are on (update_step_status in_progress), use open_gate with an explicit task_id + step_id, or send bind=\"none\" if the ask is not about the task. With no single clear active task, a plain unbound \u8acb\u793a opens as before. Optional attachments ride the question (same shape as post_chat: {id} from `ocagent upload` / POST /api/chat/attachments, or inline data_b64).",
       "inputSchema": {
         "$defs": {
           "ChatAttachmentInputDTO": {
@@ -519,6 +519,12 @@
             },
             "title": "Attachments",
             "type": "array"
+          },
+          "bind": {
+            "default": "",
+            "description": "Auto-binding opt-out. Omit for the default AUTO binding (bind to your single active task's current step and place the \u7b49\u6211\u56de\u8986 hold). Send \"none\" to declare this ask is NOT about your task \u2014 it opens as a plain unbound \u8acb\u793a whatever work you hold.",
+            "title": "Bind",
+            "type": "string"
           },
           "body": {
             "default": "",

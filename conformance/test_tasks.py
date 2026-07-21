@@ -1341,6 +1341,100 @@ def test_plain_card_auto_binds_the_current_step(client, owner_token):
     assert _get_task(client, owner_token, task["id"])["status"] == "done"
 
 
+def test_parallel_lanes_bind_the_lowest_lane_not_a_409(client, owner_token):
+    """T-4166 review B2: several lanes of ONE parallel_group running at once is
+    the shape's definition, not ambiguity. The lowest order_idx lane carries the
+    card and the WHOLE task holds — the hold is lane-independent (T-9ca5), which
+    is what makes the tie-break deterministic rather than a guess."""
+    member_id = hire_member(client, owner_token, "conf-task-lanes")
+    token = mint_member_token(client, owner_token, member_id, ttl_days=1)
+    me = AgentIdentity(member_id=member_id, token=token, role_key="")
+
+    task = _create_task(client, me, title="conf lanes")["task"]
+    view = _plan(client, token, task["id"], [
+        {"name": "lane-a", "dod": "a", "parallel_group": "pg"},
+        {"name": "lane-b", "dod": "b", "parallel_group": "pg"},
+        {"name": "lane-c", "dod": "c", "parallel_group": "pg"},
+    ]).json()
+    for st in view["steps"]:
+        assert _step_status(client, token, task["id"], st["id"],
+                            "in_progress").status_code == 200
+
+    r = client.post(
+        "/api/reply-cards",
+        json={"kind": "decision", "summary": "which lane wins?",
+              "options": ["AI pick"]},
+        headers=_auth(token))
+    assert r.status_code == 200, f"parallel lanes must NOT 409: {r.text}"
+    card = r.json()
+    assert card["task"] and card["task"]["id"] == task["id"]
+
+    got = _get_task(client, owner_token, task["id"])
+    assert got["status"] == "waiting_owner", "the whole task must hold"
+    lanes = {s["id"]: s for s in got["steps"]}
+    carrier = lanes[view["steps"][0]["id"]]
+    assert carrier["status"] == "waiting_owner"
+    assert carrier["reply_card_id"] == card["id"]
+    for st in view["steps"][1:]:
+        assert lanes[st["id"]]["status"] == "in_progress", "siblings keep running"
+        assert lanes[st["id"]]["reply_card_id"] == ""
+
+    # It answers like any bound card — and the task resumes.
+    assert client.post(f"/api/reply-cards/{card['id']}/answer",
+                       json={"option_idx": 0},
+                       headers=_auth(owner_token)).status_code == 200
+    assert _get_task(client, owner_token, task["id"])["status"] == "in_progress"
+
+
+def test_bind_none_opens_a_plain_card_whatever_the_task_state(client, owner_token):
+    """T-4166 review B3: fail-closed needs an escape. An agent whose task has no
+    resolvable current step would otherwise have NO route to a plain chat ask
+    (open_gate binds a step by definition). bind="none" is the declared route —
+    the honest form of "task: null": the ASKER said so."""
+    member_id = hire_member(client, owner_token, "conf-task-bindnone")
+    token = mint_member_token(client, owner_token, member_id, ttl_days=1)
+    me = AgentIdentity(member_id=member_id, token=token, role_key="")
+
+    task = _create_task(client, me, title="conf bind none")["task"]
+    view = _plan(client, token, task["id"], [
+        {"name": "early", "dod": "d1"},
+        {"name": "later", "dod": "d2"},
+    ]).json()
+    early = view["steps"][0]
+    for status in ("in_progress", "done"):
+        assert _step_status(client, token, task["id"], early["id"],
+                            status).status_code == 200
+
+    base = {"kind": "decision", "summary": "unrelated", "options": ["AI pick"]}
+    # The auto path is refused here — this is the orphan shape.
+    r = client.post("/api/reply-cards", json=base, headers=_auth(token))
+    assert r.status_code == 409, r.text
+    assert "bind=" in r.json()["error"]["message"], r.text
+
+    # bind="none" goes through, unbound.
+    r = client.post("/api/reply-cards", json={**base, "bind": "none"},
+                    headers=_auth(token))
+    assert r.status_code == 200, r.text
+    card = r.json()
+    assert card["task"] is None, "bind=none must open a PLAIN card"
+    assert _get_task(client, owner_token, task["id"])["status"] == "in_progress"
+    assert client.post(f"/api/reply-cards/{card['id']}/answer",
+                       json={"option_idx": 0},
+                       headers=_auth(owner_token)).status_code == 200
+
+    # A typo must not silently become either mode.
+    r = client.post("/api/reply-cards", json={**base, "bind": "auto"},
+                    headers=_auth(token))
+    assert r.status_code == 400, r.text
+    assert "bind must be omitted" in r.json()["error"]["message"], r.text
+
+    # Close out so this identity leaves no active task behind.
+    later = view["steps"][1]
+    for status in ("in_progress", "done"):
+        assert _step_status(client, token, task["id"], later["id"],
+                            status).status_code == 200
+
+
 # ── T-f3ae task quality gate ─────────────────────────────────────────────────
 # submit_plan's DoD / non-empty-plan refusals; create_task's identity-key
 # normalization + K1 mandatory-key check + undefined-field warnings; the

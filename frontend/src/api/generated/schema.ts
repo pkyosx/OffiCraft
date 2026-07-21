@@ -4400,11 +4400,17 @@ export interface components {
         };
         /**
          * ReplyCardCreateDTO
-         * @description Open one reply card (請示): an ask the OWNER must answer before the agent can proceed. ``kind`` is the closed set ``decision`` (needs a call/approval) | ``action`` (needs the owner to DO something first). ``options`` are the quick-reply choices: 1..4 non-blank strings, and index 0 is ALWAYS the AI's own recommendation (the ``AI 建議`` pick). A free-typed answer (with attachments) is always allowed on top — options never close that door. Optional ``attachments`` ride the QUESTION side of the card (same input shape + limits as chat attachments: ``{id}`` references a blob already uploaded via ``POST /api/chat/attachments``, or ``data_b64`` carries small bytes inline; blobs land in the shared chat-attachment store).
+         * @description Open one reply card (請示): an ask the OWNER must answer before the agent can proceed. ``kind`` is the closed set ``decision`` (needs a call/approval) | ``action`` (needs the owner to DO something first). ``options`` are the quick-reply choices: 1..4 non-blank strings, and index 0 is ALWAYS the AI's own recommendation (the ``AI 建議`` pick). A free-typed answer (with attachments) is always allowed on top — options never close that door. Optional ``attachments`` ride the QUESTION side of the card (same input shape + limits as chat attachments: ``{id}`` references a blob already uploaded via ``POST /api/chat/attachments``, or ``data_b64`` carries small bytes inline; blobs land in the shared chat-attachment store). ``bind`` opts out of auto task/step binding (see the field).
          */
         ReplyCardCreateDTO: {
             /** Attachments */
             attachments?: components["schemas"]["ChatAttachmentInputDTO"][];
+            /**
+             * Bind
+             * @description Auto-binding opt-out. Omit (or "") for the default AUTO binding: when you are the executor of exactly one active task, the card binds to that task's CURRENT step and places the 等我回覆 hold. Send ``"none"`` to declare this ask is NOT about your task — the card opens as a plain unbound 請示 regardless of what work you hold. Any other value is a 400.
+             * @default
+             */
+            bind: string;
             /**
              * Body
              * @default
