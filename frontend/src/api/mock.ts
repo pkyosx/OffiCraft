@@ -474,6 +474,11 @@ let taskManuals: TaskManualView[] = [];
 //                                  literal-text fallback (the 404 that isn't)
 //   • an https:// target         — the external anchor, unchanged
 //   • `javascript:`              — the scheme that must never become clickable
+//   • `interface.md` FROM interface — a link to the doc you are already on, so
+//                                  the page's `next === slug` self-link guard
+//                                  has a fixture with discriminating power
+//                                  (before this, removing that guard left the
+//                                  whole suite green — review3 §2.5)
 // plus a `> [!NOTE]` alert, so the marker-stripping has a fixture too.
 const mockDocs: DocView[] = [
   {
@@ -494,6 +499,7 @@ const mockDocs: DocView[] = [
       "# 介面說明\n\n" +
       "控制台分成辦公室、任務、Ask、監控、設定五塊。\n\n" +
       "想知道為什麼這樣設計 → [為什麼是 OffiCraft](why.md)\n\n" +
+      "你正在看的就是這一份 → [介面說明(本頁)](interface.md)\n\n" +
       "專案首頁 → [GitHub](https://github.com/pkyosx/OffiCraft)\n",
   },
   {

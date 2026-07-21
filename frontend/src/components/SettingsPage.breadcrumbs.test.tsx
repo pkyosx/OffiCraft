@@ -229,6 +229,28 @@ describe("SettingsPage · 使用說明 in-app doc links (T-68f1)", () => {
     expectHeader(utils, [s.title, s.guide, "介面說明"]);
   });
 
+  // A doc that links to ITSELF (interface.md, read from interface) must not
+  // become a button: clicking it would re-enter the same slug, re-fetch, and
+  // push a crumb that goes nowhere — a control whose only effect is a flicker.
+  // The `next === slug` guard in UserGuideDoc owns this, and until this fixture
+  // existed no doc in mockDocs linked to itself, so deleting that guard left
+  // the whole suite green (review3 §2.5).
+  it("a link to the CURRENT doc stays literal text, not a self-button", async () => {
+    const utils = renderSettings();
+    await openDoc(utils, "介面說明");
+    expect(utils.container.textContent).toContain(
+      "[介面說明(本頁)](interface.md)",
+    );
+    expect(
+      utils.queryByRole("button", { name: "介面說明(本頁)" }),
+    ).toBeNull();
+    // The cross-doc link in the SAME doc is still a real control — this test
+    // fails for the right reason, not because links stopped working here.
+    expect(
+      utils.queryByRole("button", { name: "為什麼是 OffiCraft" }),
+    ).not.toBeNull();
+  });
+
   it("an UNSHIPPED target (../dev/agent-env.md) stays literal, not a dead button", async () => {
     const utils = renderSettings();
     await openDoc(utils, "安裝、升級與移除");

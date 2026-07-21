@@ -377,6 +377,16 @@ describe("Markdown", () => {
       ["protocol-relative", "[x](//evil.com/doc.md)", "//evil.com/doc.md"],
       ["site-absolute", "[x](/etc/passwd.md)", "/etc/passwd.md"],
       ["vbscript:", "[x](vbscript:msgbox)", "vbscript:msgbox"],
+      // The one that pins the DESIGN's headline argument. Every case above is
+      // rejected for an INCIDENTAL reason — "(" / "," / "<" are outside the
+      // character class, "//" and "/" fail the first-segment rule, "vbscript:
+      // msgbox" has no ".md" tail — so all five stay red-free even if ":" were
+      // added to DOC_REL_PATH_RE's character class. This one is rejected for
+      // the reason the doc comment actually claims: the class has NO ":", so a
+      // scheme cannot spell itself. Without it, a one-character widening of
+      // that class hands `javascript:x.md` to the resolver with the whole
+      // suite still green (reviewer-verified, review3 §2.4).
+      ["scheme with a .md tail", "[x](javascript:x.md)", "javascript:x.md"],
     ])(
       "ON: %s targets stay literal text and never reach the resolver",
       (_name, source, literal) => {
