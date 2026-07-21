@@ -32,6 +32,16 @@
   --color-dot-stopped: #c4c8d2;
   /* danger/error text (logout row, login error) — same on both themes */
   --color-danger: #f0736b;
+  /* WARNING panel (T-7fa1): a dark-theme amber surface for "the studio asked
+   * for something and it did not happen" — the undelivered-dispatch notice.
+   * Deliberately tokenised rather than hard-coded: the same three values have
+   * to hold in both themes, and the pre-existing onboarding banner hard-codes
+   * a LIGHT (#fff8ec) card that reads as a foreign object in this dark
+   * cockpit. Anchored on --color-dot-waking (#e0b341), the amber this UI
+   * already means "in transition / attention" with. */
+  --color-warn-bg: #33290f;
+  --color-warn-border: #7d6122;
+  --color-warn-fg: #f2dda8;
 
   --radius-card: 11px;
   --radius-tab: 10px;
@@ -70,6 +80,11 @@
   --color-task-id: #a7b4d8;
   --color-dot-online: #8ccba8;
   --color-dot-waking: #d8a85a;
+  /* warn panel, xian tint (T-7fa1) — same role, warmer to match this theme's
+   * parchment card (#221a11). */
+  --color-warn-bg: #33260f;
+  --color-warn-border: #7d6330;
+  --color-warn-fg: #f0ddb4;
 
   --font-sans: "Noto Serif TC", "Noto Sans TC", serif;
   --font-title: "Ma Shan Zheng", cursive;

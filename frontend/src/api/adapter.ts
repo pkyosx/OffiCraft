@@ -9,6 +9,8 @@
 
 import type {
   Member,
+  MemberActivateResult,
+  MemberRelocateResult,
   MonitoringView,
   VersionView,
   ReleaseCheckView,
@@ -786,8 +788,16 @@ export interface Api {
    * "move agent" rebind — passing a new `machineId` sticks the agent to that
    * machine. Omitting `machineId` sends `{}` (no machine override → server
    * default). Does NOT flip online — no optimistic green; the caller refetches.
+   *
+   * 🔴 RETURNS {@link MemberActivateResult} — do NOT widen this back to
+   * `Promise<void>` (T-7fa1). An activate always answers 200 because the intent
+   * is persisted before dispatch, so the resolve/reject axis cannot tell the
+   * caller whether a START actually reached a warden. `activationPending` is
+   * the only signal that distinguishes them, and a `void` signature deletes it
+   * at the type level: that is exactly how every wake surface ended up showing a
+   * permanent 「喚醒中…」 for a wake that was never sent.
    */
-  activateMember(id: string, machineId?: string): Promise<void>;
+  activateMember(id: string, machineId?: string): Promise<MemberActivateResult>;
   /**
    * Relocate a member to a machine (`POST /api/members/{id}/relocate` {machine_id}).
    * The owner cockpit's 改機器 for a roster member — PLACEMENT ONLY: it writes the
@@ -797,8 +807,13 @@ export interface Api {
    * `activateMember`, a relocate is not a wake. Does NOT flip online; the caller
    * refetches. Distinct from `activateMember(id, machineId)`, which is the
    * spawn/wake path (force-revive desired_state=online + machine bind).
+   *
+   * 🔴 RETURNS {@link MemberRelocateResult} for the same reason activateMember
+   * does (T-7fa1): a relocate whose recycle STOP/START never reached a warden
+   * answers a clean 200, and `relocation_pending` is the only thing that says
+   * "scheduled, not landed".
    */
-  relocateMember(id: string, machineId: string): Promise<void>;
+  relocateMember(id: string, machineId: string): Promise<MemberRelocateResult>;
   /**
    * List the machine registry (`GET /api/machines`). Each row carries the stable
    * `machineId` (activate/rebind + teardown target), the renamable `displayName`,

@@ -161,8 +161,11 @@ export function MonitorPage() {
         member={detail}
         onBack={() => setDetailId(null)}
         onActivate={async (machineId) => {
-          await api.activateMember(detail.id, machineId);
+          // Return the result (T-7fa1) — the Monitor entry renders the SAME
+          // MemberDetailPanel, so it must feed it the same verdict.
+          const result = await api.activateMember(detail.id, machineId);
           await refetchMembers();
+          return result;
         }}
         // 改機器 (placement only): re-pin the member's desired machine and let the
         // server reconcile a live member onto it — NEVER wakes the member (never
@@ -172,8 +175,9 @@ export function MonitorPage() {
         // (refetchMembers) so the new pin surfaces the same way every other
         // action here reconciles — not OfficePage's own refetch().
         onRelocate={async (machineId) => {
-          await api.relocateMember(detail.id, machineId);
+          const result = await api.relocateMember(detail.id, machineId);
           await refetchMembers();
+          return result;
         }}
         // Graceful stop / cancel-wake (retains the row). Refetch and let
         // server-driven presence surface stopping → stopped. Same stop/force-stop

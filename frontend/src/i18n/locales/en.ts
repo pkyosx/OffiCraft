@@ -405,6 +405,17 @@ export const en: Dict = {
     detailHide: "Hide details",
     dismiss: "Got it",
   },
+  // ── Undelivered-dispatch notice (T-7fa1) ─────────────────────────────────
+  dispatchAlert: {
+    wakeTitle: "The wake was never sent",
+    wakeBody:
+      "Nothing reached the target machine, so this member will not wake up. The intent is saved and the server keeps retrying in the background.",
+    relocateTitle: "The move has not landed yet",
+    relocateBody:
+      "The new machine is pinned, but the move was never delivered — the member is still on its old machine. The server keeps retrying in the background.",
+    step1: "Check the target machine is online under Monitor — an offline machine cannot receive anything.",
+    step2: "Online but still failing? Pick another online machine and try again.",
+  },
   profile: {
     title: "Profile",
     rename: "Rename",

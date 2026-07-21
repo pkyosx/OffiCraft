@@ -318,15 +318,23 @@ export function OfficePage() {
         // refetch and let server-driven presence surface waking → online. No
         // optimistic green here.
         onActivate={async (machineId) => {
-          await api.activateMember(detail.id, machineId);
+          // 🔴 RETURN the result (T-7fa1). `onActivate` accepts a void-returning
+          // handler, so dropping it here compiles fine and silently restores the
+          // original bug — the panel would never learn that nothing was
+          // dispatched. Refetch first so the panel's own lifecycle read is
+          // current before it acts on the verdict.
+          const result = await api.activateMember(detail.id, machineId);
           await refetch();
+          return result;
         }}
         // 改機器 (placement only): re-pin the member's machine and let the server
         // reconcile a live one onto it. Unlike activate this NEVER wakes the
         // member (never touches desired_state). Refetch to surface the new pin.
         onRelocate={async (machineId) => {
-          await api.relocateMember(detail.id, machineId);
+          // Return the result for the same reason onActivate does (T-7fa1).
+          const result = await api.relocateMember(detail.id, machineId);
           await refetch();
+          return result;
         }}
         // Graceful stop / cancel-wake (retains the row). Refetch and let
         // server-driven presence surface stopping → stopped.
@@ -566,8 +574,12 @@ export function OfficePage() {
                 // waking → online. Wired ONLY on this live-member branch (an
                 // outsource worker is spawn/task-driven, not activate-woken).
                 onWake={async () => {
-                  await api.activateMember(selected.id);
+                  // 🔴 T-7fa1: the in-chat wake row has its own optimistic
+                  // 「喚醒中…」, so it needs the verdict too — returning void
+                  // here leaves the chat surface stuck exactly as before.
+                  const result = await api.activateMember(selected.id);
                   await refetch();
+                  return result;
                 }}
                 // B3 跳到原訊息 (#office/chat/<id>/msg/<msgId>): locate +
                 // highlight the ask message. Only meaningful for the EXPLICITLY

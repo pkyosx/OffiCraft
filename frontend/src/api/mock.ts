@@ -21,6 +21,8 @@ import type {
   BootstrapResultView,
   TeardownHereResultView,
   MachineView,
+  MemberActivateResult,
+  MemberRelocateResult,
 } from "../types";
 import type {
   Api,
@@ -827,6 +829,14 @@ function mockWebhookToken(): string {
   );
 }
 
+// T-7fa1 staged *_pending responses. The mock has no wardens, so it can never
+// PRODUCE a real undelivered dispatch — but the UI branch that consumes one has
+// to be reachable, both from vitest and from a dev-server screenshot run. These
+// two flags are the honest seam: OFF by default (the mock's normal, landing
+// behaviour), flipped only by an explicit test/dev hook.
+let activationPendingNext = false;
+let relocationPendingNext = false;
+
 export const mockApi: Api = {
   async listMembers(_opts?: { light?: boolean }): Promise<Member[]> {
     // Mirror the backend roster: dismissed (status="removed") rows are excluded.
@@ -852,20 +862,39 @@ export const mockApi: Api = {
     return mapWithExtras(w);
   },
 
-  async activateMember(id: string, machineId?: string): Promise<void> {
+  async activateMember(
+    id: string,
+    machineId?: string,
+  ): Promise<MemberActivateResult> {
     // Presence contract: write desired_state=online INTENT and enter WAKING. When a
     // machineId is given, BIND the agent to that machine (persist it on
     // `desired_machine_id`, which carries the machine binding id) — the spawn/wake path
     // and the "move agent" rebind both land here. Without a real agent there is nothing
     // to report presence back, so the mock stays waking (honest) — it never
     // fabricates an online session.
+    //
+    // T-7fa1: the mock has no wardens, so it can never observe a real undelivered
+    // START — the honest default is `activationPending: false` (which is exactly
+    // what today's mock behaviour, presence→waking, asserts). `__setMockActivationPending`
+    // stages the OTHER branch so the failure UI is reachable without a broken
+    // machine.
     const w = findWire(id);
+    if (activationPendingNext) {
+      // Nothing was dispatched: do NOT move presence. A mock that flipped to
+      // waking here would reproduce the very lie this ticket removes.
+      if (machineId !== undefined) w.desired_machine_id = machineId;
+      return { activationPending: true };
+    }
     w.desired_state = "online";
     w.presence = "waking"; // never optimistic-green — honest waking, not online
     if (machineId !== undefined) w.desired_machine_id = machineId; // permanent rebind
+    return { activationPending: false };
   },
 
-  async relocateMember(id: string, machineId: string): Promise<void> {
+  async relocateMember(
+    id: string,
+    machineId: string,
+  ): Promise<MemberRelocateResult> {
     // 改機器 (mirror handle_relocate_member): PLACEMENT ONLY — re-pin
     // `desired_machine_id` and NOTHING else. Unlike activateMember it never
     // touches `desired_state`/presence (a relocate is not a wake). The real
@@ -873,6 +902,9 @@ export const mockApi: Api = {
     // session to migrate, so the re-pin is the whole honest effect.
     const w = findWire(id);
     w.desired_machine_id = machineId;
+    // T-7fa1: same honest default as activateMember — the mock has no warden to
+    // fail to reach, so the re-pin always "lands" unless a test stages otherwise.
+    return { relocationPending: relocationPendingNext };
   },
 
   async deactivateMember(id: string): Promise<void> {
@@ -2823,6 +2855,8 @@ export function __resetMock(): void {
   mockPasswordSet = true;
   mockPassword = "mock-password";
   mockServerSettings = { ...DEFAULT_MOCK_SETTINGS };
+  activationPendingNext = false;
+  relocationPendingNext = false;
 }
 
 // Test-only hook: put the mock into the FIRST-RUN shape (no password set), the
@@ -2902,6 +2936,19 @@ export function __setMockMemberOnline(id: string, online: boolean): void {
   w.presence = online ? "online" : "offline";
 }
 
+// Test/dev-only hook (T-7fa1): stage the "nothing was dispatched" answer so the
+// wake-failure UI is reachable without an actually-unreachable warden. Sticky
+// until flipped back or __resetMock — the condition it models (a machine whose
+// warden is not listening) is itself sticky.
+export function __setMockActivationPending(pending: boolean): void {
+  activationPendingNext = pending;
+}
+
+// The relocate twin of __setMockActivationPending (T-7fa1).
+export function __setMockRelocationPending(pending: boolean): void {
+  relocationPendingNext = pending;
+}
+
 // Dev-only browser seam (T-160e UI screenshots). The __inject* hooks above are
 // module-scoped, so a Playwright session driving the RUNNING dev app can't seed
 // a task the way vitest does. Under Vite dev ONLY (import.meta.env.DEV), mirror
@@ -2915,6 +2962,8 @@ if (import.meta.env.DEV) {
     injectOutsourceWorker: __injectMockOutsourceWorker,
     injectChat: __injectMockChat,
     setMemberOnline: __setMockMemberOnline,
+    setActivationPending: __setMockActivationPending,
+    setRelocationPending: __setMockRelocationPending,
     reset: __resetMock,
   };
 }

@@ -40,6 +40,8 @@ import type {
   BootstrapResultView,
   TeardownHereResultView,
   MachineView,
+  MemberActivateResult,
+  MemberRelocateResult,
 } from "../types";
 import type {
   Api,
@@ -351,7 +353,10 @@ export const httpApi: Api = {
     return toMember(wire);
   },
 
-  async activateMember(id: string, machineId?: string): Promise<void> {
+  async activateMember(
+    id: string,
+    machineId?: string,
+  ): Promise<MemberActivateResult> {
     // POST /api/members/{id}/activate {machine_id?} -> MemberDTO (writes
     // desired_state=online INTENT only; server does NOT flip online). When machineId is
     // given it BINDS the agent to that machine (the field was renamed host →
@@ -359,14 +364,27 @@ export const httpApi: Api = {
     // both go through here. Presence contract: the caller refetches and lets
     // server-driven presence surface waking → online. The body must be a present
     // object (MemberActivateDTO) — `{}` is the honest "no machine override".
+    //
+    // 🔴 The response body is READ, not discarded (T-7fa1). `activation_pending`
+    // is the server's only report that the decided START never reached a warden;
+    // a 200 alone cannot say that, because the intent is persisted before any
+    // dispatch is attempted. Absent/null is the honest "a START actually went
+    // out" — the field is set ONLY on the failure shape, so `?? false` is the
+    // wire default, not a guess.
     const body = machineId !== undefined ? { machine_id: machineId } : {};
-    await client.POST("/api/members/{member_id}/activate", {
-      params: { path: { member_id: id } },
-      body,
-    });
+    const wire = unwrap(
+      await client.POST("/api/members/{member_id}/activate", {
+        params: { path: { member_id: id } },
+        body,
+      }),
+    );
+    return { activationPending: wire.activation_pending === true };
   },
 
-  async relocateMember(id: string, machineId: string): Promise<void> {
+  async relocateMember(
+    id: string,
+    machineId: string,
+  ): Promise<MemberRelocateResult> {
     // POST /api/members/{id}/relocate {machine_id} -> MemberDTO (admin-gated
     // 改機器). PLACEMENT ONLY: writes the owner-pinned desired_machine_id and runs
     // the server's event-driven reconcile (a live member migrates onto the pin;
@@ -374,10 +392,16 @@ export const httpApi: Api = {
     // desired_state (the activate contrast: a relocate is not a wake). Does NOT
     // flip online; the caller refetches and lets server-driven presence surface
     // the migration.
-    await client.POST("/api/members/{member_id}/relocate", {
-      params: { path: { member_id: id } },
-      body: { machine_id: machineId },
-    });
+    // Same read-the-response discipline as activateMember (T-7fa1):
+    // `relocation_pending` is set ONLY when the recycle STOP/START could not be
+    // delivered, so absent/null is the honest "the move landed".
+    const wire = unwrap(
+      await client.POST("/api/members/{member_id}/relocate", {
+        params: { path: { member_id: id } },
+        body: { machine_id: machineId },
+      }),
+    );
+    return { relocationPending: wire.relocation_pending === true };
   },
 
   async deactivateMember(id: string): Promise<void> {

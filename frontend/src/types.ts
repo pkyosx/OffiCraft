@@ -117,6 +117,36 @@ export interface Member {
 }
 
 /**
+ * What an activate ACTUALLY did (T-7fa1) — the response the cockpit used to
+ * throw away.
+ *
+ * The activate endpoint always answers 200: the wake INTENT is persisted before
+ * anything is dispatched, so it cannot fail. But a 200 says nothing about
+ * whether a START reached a warden, and the server has told us the difference
+ * since T-ba62 (`activation_pending`, wire-optional). Dropping it meant "the
+ * START went out" and "nothing was dispatched and nothing will be until the
+ * next cadence tick" arrived at the UI as the SAME value — so the optimistic
+ * 「喚醒中…」 bridge had no way to know it was lying, and sat there forever.
+ *
+ * `activationPending === true` means: intent stored, reconcile will retry, but
+ * NOTHING has been dispatched — the member is not waking. False/absent means a
+ * START actually landed on a warden (or the member was already online).
+ */
+export interface MemberActivateResult {
+  activationPending: boolean;
+}
+
+/**
+ * The relocate twin of {@link MemberActivateResult} (wire `relocation_pending`,
+ * server-side since T-8655 and equally unconsumed until T-7fa1): the owner-pinned
+ * move is recorded, but the recycle STOP/START that would land it could not be
+ * delivered — "move scheduled, not yet landed".
+ */
+export interface MemberRelocateResult {
+  relocationPending: boolean;
+}
+
+/**
  * `/api/bootstrap` preview: the assembled agent boot persona (role definition ⊕
  * global context ⊕ lessons). Excludes the member JWT BY DESIGN — a UI preview
  * mints no token and must never carry an agent credential (see WireBootstrap).

@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import { useI18n } from "../i18n";
-import type { Member } from "../types";
+import type { Member, MemberActivateResult } from "../types";
 import type {
   ChatMessage,
   ChatAttachmentView,
@@ -44,6 +44,7 @@ import {
   TasksIcon,
   UserGearIcon,
 } from "./icons";
+import { DispatchAlert } from "./DispatchAlert";
 
 // The owner's sender id. The real backend stamps a message's `from` from the
 // verified JWT `sub`; the owner token's sub is the fixed owner id ("owner")
@@ -136,7 +137,13 @@ export function ChatArea({
   // in the parent). Optional — absent = no in-chat wake button (an outsource
   // worker is spawn/task-driven, not activate-woken, so the button would lie);
   // the offline composer then degrades to the plain "go to member panel" bar.
-  onWake?: () => void;
+  //
+  // 🔴 May resolve with the activate's {@link MemberActivateResult} (T-7fa1).
+  // `activationPending: true` = the wake was accepted but NOTHING was
+  // dispatched; the wake row must roll back its 「喚醒中…」 and say so, because
+  // no lifecycle change is coming to clear it. A caller returning void keeps the
+  // old silent behaviour, so the wire-up returns the adapter's result verbatim.
+  onWake?: () => void | Promise<MemberActivateResult | void>;
   // B3 跳到原訊息: locate + highlight this message once the thread loads (the
   // 等我回覆 page routes here via #office/chat/<id>/msg/<msgId>). One-shot per
   // id — later SSE refetches never re-scroll. A message outside the loaded
@@ -182,8 +189,14 @@ export function ChatArea({
   // button meanwhile so a double-tap can't fire two activates. Reset whenever
   // lifecycle moves off offline/stopped (woke, or owner cancelled).
   const [wakePending, setWakePending] = useState(false);
+  // T-7fa1: the activate reported that nothing was dispatched. Distinct from
+  // wakePending — "not waiting, because nothing was sent". Never both true.
+  const [wakeUndispatched, setWakeUndispatched] = useState(false);
   useEffect(() => {
-    if (!offlineQueue) setWakePending(false);
+    if (!offlineQueue) {
+      setWakePending(false);
+      setWakeUndispatched(false);
+    }
   }, [offlineQueue]);
 
   const {
@@ -1272,13 +1285,23 @@ export function ChatArea({
                     className="chat__wake-btn"
                     onClick={() => {
                       setWakePending(true);
+                      setWakeUndispatched(false);
                       // Revert the optimistic pending if the activate POST
                       // rejects (else the button sticks on "喚醒中…" forever) —
                       // same discipline as MemberDetailPanel's wake. The success
                       // path is cleared by the lifecycle→!offlineQueue effect.
-                      Promise.resolve(onWake()).catch(() =>
-                        setWakePending(false),
-                      );
+                      //
+                      // 🔴 T-7fa1: a resolved activate is NOT proof a START went
+                      // out. Reading activation_pending is what stops this button
+                      // from sitting on 「喚醒中…」 for a wake nobody sent.
+                      Promise.resolve(onWake())
+                        .then((result) => {
+                          if (result?.activationPending) {
+                            setWakePending(false);
+                            setWakeUndispatched(true);
+                          }
+                        })
+                        .catch(() => setWakePending(false));
                     }}
                     disabled={wakePending}
                   >
@@ -1289,6 +1312,11 @@ export function ChatArea({
                   </button>
                 )}
               </div>
+            )}
+            {/* T-7fa1: the in-chat wake has its OWN optimistic state, so it needs
+                its own outcome — the same notice the detail panel raises. */}
+            {offlineQueue && wakeUndispatched && (
+              <DispatchAlert kind="wake" testId="chat-wake-undispatched" />
             )}
             {(pendingAttachments.length > 0 || attachError) && (
               <ComposerAttachmentPreview

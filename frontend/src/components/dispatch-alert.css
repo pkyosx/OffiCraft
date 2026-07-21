@@ -1,0 +1,42 @@
+/* dispatch-alert.css — the undelivered-dispatch notice (T-7fa1).
+
+   Same ROLE as the first-run onboarding banner (onboarding.css): "the studio
+   asked for something and it did not happen". Different PALETTE on purpose —
+   this one sits INSIDE a dark card, and onboarding.css hard-codes a light
+   (#fff8ec) surface because the --warn-* variables it references were never
+   defined. Rather than copy that, T-7fa1 defines real --color-warn-* tokens in
+   theme.css (both themes) and consumes them here. Converging the onboarding
+   banner onto the same tokens is a deliberate NON-goal of this ticket: it would
+   change an owner-visible surface this ticket was not asked to touch. */
+
+.dispatch-alert {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--color-warn-border);
+  border-radius: 8px;
+  background: var(--color-warn-bg);
+  color: var(--color-warn-fg);
+  font-size: 12.5px;
+  line-height: 1.55;
+  /* Free-form-ish copy in a flex host: let it wrap rather than force the
+     column wider (frontend/CLAUDE.md 長 token 溢出). */
+  overflow-wrap: anywhere;
+}
+
+.dispatch-alert__title {
+  display: block;
+  font-size: 13px;
+}
+
+.dispatch-alert__body {
+  margin: 4px 0 0;
+}
+
+.dispatch-alert__steps {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.dispatch-alert__steps li + li {
+  margin-top: 3px;
+}

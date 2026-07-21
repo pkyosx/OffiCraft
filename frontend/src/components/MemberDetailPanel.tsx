@@ -1,7 +1,11 @@
 import { useState, useEffect } from "react";
 import { useI18n } from "../i18n";
 import { api } from "../api";
-import type { Member } from "../types";
+import type {
+  Member,
+  MemberActivateResult,
+  MemberRelocateResult,
+} from "../types";
 import { formatDuration } from "../lib/duration";
 import { useMachines } from "../hooks/useMachines";
 import { useWebhooks } from "../hooks/useWebhooks";
@@ -28,6 +32,7 @@ import {
   MonitorIcon,
   TrashIcon,
 } from "./icons";
+import { DispatchAlert } from "./DispatchAlert";
 import "./member-detail.css";
 
 interface MemberDetailPanelProps {
@@ -36,13 +41,26 @@ interface MemberDetailPanelProps {
   /** Spawn / wake / respawn a member — AND permanently rebind it — via
    * activateMember(id, machineId). The panel picks the machineId per the machine
    * picker rules (0 online → disabled, 1 → auto-use, 2+ → picker), then calls this
-   * with the chosen machine. */
-  onActivate?: (machineId?: string) => void | Promise<void>;
+   * with the chosen machine.
+   *
+   * 🔴 The resolved value is CONSUMED (T-7fa1): `activationPending: true` means
+   * the activate was accepted but NOTHING was dispatched, so the optimistic
+   * 「喚醒中…」 must be rolled back instead of spinning forever. A caller that
+   * returns void keeps the old (silent) behaviour — which is why the wire-up in
+   * OfficePage/MonitorPage returns the adapter's result verbatim. */
+  onActivate?: (
+    machineId?: string,
+  ) => void | Promise<MemberActivateResult | void>;
   /** Relocate the member to a machine (owner 改機器) → relocateMember(id, machineId).
    * PLACEMENT ONLY — re-pins desired_machine_id and lets the server reconcile a
    * live member onto it; unlike onActivate it never wakes the member (never
-   * touches desired_state). Undefined ⇒ the 改機器 affordance is hidden. */
-  onRelocate?: (machineId: string) => void | Promise<void>;
+   * touches desired_state). Undefined ⇒ the 改機器 affordance is hidden.
+   *
+   * 🔴 Resolved value CONSUMED, same contract as onActivate (T-7fa1):
+   * `relocationPending: true` = pinned but not landed. */
+  onRelocate?: (
+    machineId: string,
+  ) => void | Promise<MemberRelocateResult | void>;
   /** Graceful stop / cancel-wake → deactivateMember (desired_state=offline). Backs the
    * Stop (online) and Cancel (waking) actions. */
   onDeactivate?: () => void;
@@ -104,8 +122,18 @@ export function MemberDetailPanel({
   const wakePendingClears =
     member.lifecycle !== "offline" && member.lifecycle !== "stopped";
   const [wakePending, setWakePending] = useState(false);
+  // T-7fa1: the activate came back saying NOTHING was dispatched. Separate from
+  // `wakePending` on purpose — pending is "we are waiting", this is "we are not
+  // waiting for anything, because nothing was sent". They are never both true.
+  const [wakeUndispatched, setWakeUndispatched] = useState(false);
   useEffect(() => {
-    if (wakePendingClears) setWakePending(false);
+    if (wakePendingClears) {
+      setWakePending(false);
+      // A member that actually left offline/stopped makes any earlier
+      // "nothing was sent" notice stale — drop it rather than leave a
+      // contradiction on screen next to a live agent.
+      setWakeUndispatched(false);
+    }
   }, [wakePendingClears]);
   const wakePendingActive = wakePending && !wakePendingClears;
 
@@ -135,9 +163,18 @@ export function MemberDetailPanel({
     // Instant "waking…" feedback; a rejected activate reverts to the honest
     // offline visual so the owner can retry (no stuck fake-waking).
     setWakePending(true);
+    setWakeUndispatched(false); // a fresh attempt clears the previous verdict
     void (async () => {
       try {
-        await onActivate?.(machineId);
+        const result = await onActivate?.(machineId);
+        // 🔴 THE FIX (T-7fa1). An activate answers 200 either way; this is the
+        // ONLY thing that distinguishes "a START went out" from "nothing was
+        // dispatched". Without this branch the panel keeps painting the amber
+        // 「喚醒中…」 until a lifecycle change that is never coming.
+        if (result?.activationPending) {
+          setWakePending(false);
+          setWakeUndispatched(true);
+        }
       } catch {
         setWakePending(false);
       }
@@ -164,7 +201,7 @@ export function MemberDetailPanel({
   // ── 改機器 (relocate) — the shared control both detail panels render ─────────
   // Placement-only: re-pin the member to another machine (the server reconciles a
   // live member onto it). Mirrors the spawn picker's 0/1/2+ online rule.
-  const { relocateAction, relocatePicker } = useRelocateMachine({
+  const { relocateAction, relocatePicker, relocateUndispatched } = useRelocateMachine({
     machines,
     boundMachineId,
     onRelocate,
@@ -496,6 +533,14 @@ export function MemberDetailPanel({
               wakePendingActive ? { spawn: t.mp.wakePendingNote } : undefined
             }
           />
+          {/* T-7fa1: sits directly under the wake button the owner just pressed
+              — the click and its outcome in one place. */}
+          {wakeUndispatched && (
+            <DispatchAlert kind="wake" testId="mp-wake-undispatched" />
+          )}
+          {relocateUndispatched && (
+            <DispatchAlert kind="relocate" testId="mp-relocate-undispatched" />
+          )}
         </div>
       </div>
     </>

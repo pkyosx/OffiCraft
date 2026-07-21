@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { useI18n } from "../i18n";
-import type { MachineView } from "../types";
+import type { MachineView, MemberRelocateResult } from "../types";
 import { MachinePicker } from "./MachinePicker";
 import { PencilIcon } from "./icons";
 
@@ -12,7 +12,9 @@ interface UseRelocateMachineOpts {
   /** Fire the relocate. Undefined ⇒ no button (the affordance is hidden). The
    * panels lean on the member / outsource_worker SSE refetch for the post-move
    * refresh, so the handler need only fire. */
-  onRelocate?: (machineId: string) => void | Promise<void>;
+  onRelocate?: (
+    machineId: string,
+  ) => void | Promise<MemberRelocateResult | void>;
   testId: string;
   pickerTitle: string;
   pickerConfirmLabel: string;
@@ -40,18 +42,25 @@ export function useRelocateMachine({
 }: UseRelocateMachineOpts): {
   relocateAction: ReactNode | undefined;
   relocatePicker: ReactNode | undefined;
+  /** True once a relocate came back `relocation_pending` (T-7fa1). */
+  relocateUndispatched: boolean;
 } {
   const { t } = useI18n();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  // T-7fa1: the relocate answered 200 but its recycle STOP/START never reached a
+  // warden — pinned, not landed. Surfaced by the caller as a DispatchAlert.
+  const [undispatched, setUndispatched] = useState(false);
   const onlineMachines = machines.filter((m) => m.online);
 
   const run = (machineId: string) => {
     setPickerOpen(false);
     setBusy(true);
+    setUndispatched(false); // a fresh attempt clears the previous verdict
     void (async () => {
       try {
-        await onRelocate?.(machineId);
+        const result = await onRelocate?.(machineId);
+        if (result?.relocationPending) setUndispatched(true);
       } finally {
         // The SSE delta refetches the panel; clear the in-flight guard either
         // way (a rejected relocate lets the owner retry).
@@ -94,5 +103,5 @@ export function useRelocateMachine({
     />
   ) : undefined;
 
-  return { relocateAction, relocatePicker };
+  return { relocateAction, relocatePicker, relocateUndispatched: undispatched };
 }
