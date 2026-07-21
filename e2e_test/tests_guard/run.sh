@@ -330,6 +330,161 @@ else
   fi
 fi
 
+# ── 14) T-191d(E): cross_machine.sh's LOCAL_BASE default must be the CURRENT
+#        canonical serve port (SSOT-derived), never a literal.
+#        cross_machine.sh is CANONICAL BY CONSTRUCTION — it does NOT call
+#        oc_resolve_instance (so case (8) structurally cannot see it; that is
+#        exactly how this site survived the core package) — and it PINS the
+#        seeded oc.toml's serve port to ${LOCAL_BASE##*:}. A stale literal there
+#        therefore makes the run BIND one port while oc_lifecycle.sh's live-fleet
+#        guard watches OC_CANONICAL_SERVE_PORT: the guard clears a port nobody
+#        binds. BEHAVIOURAL, not a grep-for-a-string: the real assignment line is
+#        lifted verbatim out of cross_machine.sh and EVALUATED with the real lib
+#        sourced, so what is asserted is the value the script actually computes.
+CM="$HERE/../cross_machine.sh"
+if [[ ! -f "$CM" ]]; then
+  bad "cross_machine.sh not found at $CM — update guard (14)"
+else
+  CM_LINE="$(grep -m1 -E '^LOCAL_BASE="\$\{LOCAL_BASE:-' "$CM" || true)"
+  if [[ -z "$CM_LINE" ]]; then
+    bad "cross_machine.sh no longer has a 'LOCAL_BASE=\"\${LOCAL_BASE:-…}\"' default line — update guard (14)"
+  else
+    run_snippet 'unset LOCAL_BASE
+'"$CM_LINE"'
+      printf "CMLB=%s\n" "${LOCAL_BASE##*:}"' >/dev/null
+    C14_LB="$(grep '^CMLB=' "$GLOG" | cut -d= -f2)"
+    [[ -n "$C14_LB" && "$C14_LB" == "$CANON_PORT" ]] \
+      && ok "cross_machine LOCAL_BASE default port == $CANON_PORT (SSOT-derived, evaluated from the real line)" \
+      || bad "cross_machine LOCAL_BASE default port is '$C14_LB', want '$CANON_PORT' — a hardcoded/retired literal makes the canonical run BIND a port the live-fleet guard is not watching (T-191d E)"
+    # Discriminating control: prove the assertion above CAN fail. Push the
+    # pre-fix shape through the identical evaluation path and require it to
+    # disagree with CANON_PORT — otherwise case (14) would be vacuous.
+    run_snippet 'unset LOCAL_BASE
+      LOCAL_BASE="${LOCAL_BASE:-http://127.0.0.1:8770}"
+      printf "CMLB=%s\n" "${LOCAL_BASE##*:}"' >/dev/null
+    C14_CTL="$(grep '^CMLB=' "$GLOG" | cut -d= -f2)"
+    [[ "$C14_CTL" == "8770" && "$C14_CTL" != "$CANON_PORT" ]] \
+      && ok "control: pre-fix shape evaluates to 8770 != $CANON_PORT (case 14 can actually redden)" \
+      || bad "control broken: pre-fix shape evaluated to '$C14_CTL' — case (14) may be vacuous"
+    # SENTINEL: an explicit LOCAL_BASE= override must still win. fail-closed
+    # must be ACCURATE, not merely wide — the legitimate override path is the
+    # only way an operator points this at a namespaced/second instance.
+    run_snippet 'LOCAL_BASE="http://127.0.0.1:8799"
+'"$CM_LINE"'
+      printf "CMLB=%s\n" "${LOCAL_BASE##*:}"' >/dev/null
+    C14_OVR="$(grep '^CMLB=' "$GLOG" | cut -d= -f2)"
+    check "sentinel: explicit LOCAL_BASE override still wins in cross_machine" "8799" "$C14_OVR"
+  fi
+fi
+
+# ── 15/16) T-191d(D): the TWO prod-port REFUSAL LISTS must cover the CURRENT
+#        prod port, derived from the SSOT (server/ocserverd/config.go's
+#        defaultPort) — not only retired literals.
+#
+#        WHY THIS IS THE IMPORTANT ONE: prod is live on the canonical port right
+#        now. These harnesses are DESTRUCTIVE (setup/teardown kill listeners and
+#        wipe state). A refusal list that enumerates only RETIRED ports is GREEN
+#        while protecting nothing: an operator who sets OC_E2E_PORT /
+#        OC_CONF_PORT to the CURRENT prod port walks straight into the live
+#        station and the guard never speaks. T-a3ba (56f47bc) fixed the code in
+#        both files but shipped NO test — nothing anywhere reddened if the
+#        SSOT-derived entry were dropped again. These cases are that test.
+#
+#        The two sites are asserted SEPARATELY on purpose: one shared assertion
+#        would redden when EITHER drifts, which actively HIDES the other site
+#        being uncovered.
+#
+#        BEHAVIOURAL: both files are really executed. Neither reaches a side
+#        effect — common.sh is pure assignment, and conformance/run.sh's refusal
+#        loop sits before the venv/build/bind steps and exits 2 there.
+C15_COMMON="$HERE/../lib/common.sh"
+C16_CONF="$HERE/../../conformance/run.sh"
+
+# helper: source common.sh with a given OC_E2E_PORT, capture combined output.
+c15_run() { OC_E2E_PORT="$1" bash -c 'source "$1" >/dev/null' _ "$C15_COMMON" 2>&1; }
+
+if [[ ! -f "$C15_COMMON" ]]; then
+  bad "lib/common.sh not found at $C15_COMMON — update guard (15)"
+else
+  # (15a) CURRENT prod port refused — reddens iff common.sh's list loses its
+  #       SSOT-derived entry. This is the safety hole itself.
+  case "$(c15_run "$CANON_PORT")" in
+    *"is a PROD port"*) ok "common.sh REFUSES the CURRENT prod port ($CANON_PORT, SSOT-derived)" ;;
+    *) bad "common.sh ACCEPTED OC_E2E_PORT=$CANON_PORT — the live prod port. The 'never touch prod' guard is blind to the only port prod actually uses (T-191d D)" ;;
+  esac
+  # (15b) retired ports stay refused — this is an ADD, not a REPLACE. Some
+  #       install may still have 8770 pinned in its oc.toml.
+  case "$(c15_run 8770)" in
+    *"is a PROD port"*) ok "common.sh still refuses the RETIRED 8770 (added to, not swapped for, the SSOT entry)" ;;
+    *) bad "common.sh no longer refuses 8770 — retired defaults must STAY in the list (an install may still pin one)" ;;
+  esac
+  # (15c) SENTINEL: the legitimate isolated port must still be allowed. A guard
+  #       that refuses everything is not safer, it is just broken — this repo
+  #       has already shipped an over-wide fail-closed once.
+  C15_OK_OUT="$(c15_run 8791)"
+  case "$C15_OK_OUT" in
+    *"is a PROD port"*) bad "sentinel BROKEN: common.sh refused the legitimate isolated port 8791 — fail-closed must be accurate, not wide" ;;
+    *) ok "sentinel: common.sh still ACCEPTS the legitimate isolated port 8791" ;;
+  esac
+  # (15d) no SILENT degradation: if the SSOT cannot be parsed, common.sh must
+  #       FATAL. Degrading to an empty/partial list would delete the guard while
+  #       looking exactly like a healthy run. Executed against a throwaway tree
+  #       with no server/ocserverd/config.go.
+  C15_T="$(mktemp -d -t oc-guard-nossot.XXXXXX)"
+  mkdir -p "$C15_T/e2e_test/lib"
+  cp "$C15_COMMON" "$C15_T/e2e_test/lib/common.sh"
+  C15_NOSSOT="$(OC_E2E_PORT=8791 bash -c 'source "$1" >/dev/null' _ "$C15_T/e2e_test/lib/common.sh" 2>&1)"
+  case "$C15_NOSSOT" in
+    *"could not parse"*) ok "common.sh FATALs when the SSOT (config.go defaultPort) is unparseable — no silent empty prod-port list" ;;
+    *) bad "common.sh did NOT fatal with an unparseable SSOT (got: ${C15_NOSSOT:-<silence>}) — a silently empty PROD_PORTS is a guard that vanished while staying green (T-191d D)" ;;
+  esac
+  rm -rf "$C15_T" 2>/dev/null || true
+fi
+
+if [[ ! -f "$C16_CONF" ]]; then
+  bad "conformance/run.sh not found at $C16_CONF — update guard (16)"
+else
+  # Stubs so the SENTINEL run below cannot proceed past the refusal gate into
+  # venv creation / go build / port bind. Both stubs mark that the gate was
+  # PASSED, which is what the sentinel needs to prove.
+  C16_SHIM="$(mktemp -d -t oc-guard-conf.XXXXXX)"
+  for _c in uv python3; do
+    printf '#!/usr/bin/env bash\necho "SENTINEL_PAST_PROD_GATE" >&2\nexit 1\n' > "$C16_SHIM/$_c"
+    chmod +x "$C16_SHIM/$_c"
+  done
+  c16_run() { OC_CONF_PORT="$1" PATH="$C16_SHIM:$PATH" SHIM_LISTEN_PORTS="$1" \
+                bash "$C16_CONF" --target go 2>&1; }
+  # (16a) CURRENT prod port refused — the twin of (15a), asserted independently.
+  case "$(c16_run "$CANON_PORT")" in
+    *"is a PROD port"*) ok "conformance/run.sh REFUSES the CURRENT prod port ($CANON_PORT, SSOT-derived)" ;;
+    *) bad "conformance/run.sh ACCEPTED OC_CONF_PORT=$CANON_PORT — the live prod port; its refusal list is blind to prod (T-191d D)" ;;
+  esac
+  # (16b) retired ports stay refused (ADD, not REPLACE).
+  case "$(c16_run 8770)" in
+    *"is a PROD port"*) ok "conformance/run.sh still refuses the RETIRED 8770" ;;
+    *) bad "conformance/run.sh no longer refuses 8770 — retired defaults must STAY in the list" ;;
+  esac
+  # (16c) SENTINEL: the legitimate conformance port must still get THROUGH the
+  #       gate (proved by reaching the stubbed venv step), not be refused.
+  C16_OK_OUT="$(c16_run 8795)"
+  case "$C16_OK_OUT" in
+    *"is a PROD port"*) bad "sentinel BROKEN: conformance/run.sh refused its own legitimate port 8795" ;;
+    *"SENTINEL_PAST_PROD_GATE"*) ok "sentinel: conformance/run.sh lets the legitimate port 8795 through the prod gate" ;;
+    *) bad "sentinel INCONCLUSIVE: 8795 was not refused, but the run never reached the post-gate step — this case may no longer be testing what it claims (got: ${C16_OK_OUT:-<silence>})" ;;
+  esac
+  # (16d) no SILENT degradation on an unparseable SSOT (twin of 15d). Also pins
+  #       the `|| true` that keeps this from dying at the assignment under -e.
+  C16_T="$(mktemp -d -t oc-guard-confnossot.XXXXXX)"
+  mkdir -p "$C16_T/conformance"
+  cp "$C16_CONF" "$C16_T/conformance/run.sh"
+  C16_NOSSOT="$(OC_CONF_PORT=8795 bash "$C16_T/conformance/run.sh" --target go 2>&1)"
+  case "$C16_NOSSOT" in
+    *"could not parse"*) ok "conformance/run.sh FATALs (and SPEAKS) when the SSOT is unparseable — no silent empty refusal list" ;;
+    *) bad "conformance/run.sh did NOT print its parse FATAL with an unparseable SSOT (got: ${C16_NOSSOT:-<silence>}) — the guard died silently at the assignment or degraded to an empty list (T-191d D / T-a3ba F2)" ;;
+  esac
+  rm -rf "$C16_T" "$C16_SHIM" 2>/dev/null || true
+fi
+
 echo "[tests_guard] PASS=$PASS FAIL=$FAIL"
 [[ "$FAIL" -eq 0 ]] || exit 1
 echo "[tests_guard] all green"

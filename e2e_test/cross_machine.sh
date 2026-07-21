@@ -41,7 +41,9 @@
 #
 #   ⚠️ This is NOT a CI unit test and NOT the isolated Playwright suite in this
 #      directory (setup.sh/run_all.sh, :8791). This one:
-#        • runs against the CANONICAL server on :8770 (prod-ish local layout),
+#        • runs against the CANONICAL server on the CURRENT canonical serve port
+#          (OC_CANONICAL_SERVE_PORT, read from server/ocserverd/config.go's
+#          defaultPort — :7755 today; prod-ish local layout),
 #        • tears down and re-installs the server + wardens from zero every run,
 #        • REQUIRES a real reachable second machine (default eva-m5),
 #        • is run by hand, by an operator who KNOWS it wipes the local server.
@@ -98,7 +100,10 @@
 #   SECOND_MACHINE   ssh target for the second machine
 #   OWNER_PASSWORD   deterministic owner password to seed (default: random uuid)
 #   TEST_AGENT       seeded agent member id to spawn/relocate (default mira)
-#   LOCAL_BASE       loopback base for local health/API (default 127.0.0.1:8770)
+#   LOCAL_BASE       loopback base for local health/API (default
+#                    127.0.0.1:$OC_CANONICAL_SERVE_PORT — the CURRENT canonical
+#                    serve port read from server/ocserverd/config.go, NOT a
+#                    literal that goes stale)
 #   OC_CROSS_MACHINE_YES=1   REQUIRED — acknowledges this run is destructive.
 #   REQUIRE_ISOLATION_CONFIRMED=1  REQUIRED before STAGE 3 — acknowledges the
 #                    warden naming-collision blocker above has been resolved
@@ -119,7 +124,22 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/oc_lifecycle.sh"
 PUBLIC_HOST="${PUBLIC_HOST:-officraft.hardcoretech.link}"
 SECOND_MACHINE="${SECOND_MACHINE:-eva-m5}"
 TEST_AGENT="${TEST_AGENT:-mira}"
-LOCAL_BASE="${LOCAL_BASE:-http://127.0.0.1:8770}"
+# LOCAL_BASE default — T-191d(E). This was a hardcoded `http://127.0.0.1:8770`,
+# and 8770 is a RETIRED former officraft default (config.go's own migration
+# history: 8770 → 8780 → 7755). That is not a cosmetic address bug here: this
+# script is CANONICAL BY CONSTRUCTION (it installs and drives the REAL local
+# server; seed_owner_password() below PINS the seeded oc.toml's serve port to
+# `${LOCAL_BASE##*:}`), so a stale literal made the run BIND a port that
+# oc_lifecycle.sh's live-fleet guard — which watches OC_CANONICAL_SERVE_PORT —
+# is not watching. The guard then clears a port nobody binds while the run owns
+# a different one: a blind guard that looks exactly like "all clear".
+# Derive from the same single source of truth the lib uses
+# (server/ocserverd/config.go's `defaultPort`, surfaced as
+# OC_CANONICAL_SERVE_PORT by lib/oc_lifecycle.sh, sourced above — which FATALs
+# if that parse fails, so there is no silent empty/degraded value). An explicit
+# LOCAL_BASE= override still wins, unchanged.
+# Guarded by e2e_test/tests_guard/run.sh case (14).
+LOCAL_BASE="${LOCAL_BASE:-http://127.0.0.1:$OC_CANONICAL_SERVE_PORT}"
 LOCAL_BASE="${LOCAL_BASE%/}"
 PUBLIC_BASE="https://${PUBLIC_HOST}"
 # Deterministic owner password: caller-provided, else a fresh uuid we seed + reuse.
@@ -303,8 +323,10 @@ seed_owner_password() {
   # render-config EXAMPLE OUT DSN — same renderer install step 3 uses.
   "$OCSERVER" render-config "$REPO_ROOT/oc.toml.example" "$OC_TOML" "$dsn" \
     || die "ocserver render-config failed — cannot seed the e2e oc.toml"
-  # Pin the serve port to LOCAL_BASE's port in the seeded oc.toml (defaults to 8770,
-  # but honor an override so LOCAL_BASE and the config never drift).
+  # Pin the serve port to LOCAL_BASE's port in the seeded oc.toml (defaults to
+  # the SSOT-derived OC_CANONICAL_SERVE_PORT, but honor an override so
+  # LOCAL_BASE and the config never drift). THIS is why the LOCAL_BASE default
+  # above must not be a stale literal: this line decides what the server binds.
   local port="${LOCAL_BASE##*:}"
   if [[ "$port" =~ ^[0-9]+$ ]]; then
     py -c '
@@ -318,7 +340,7 @@ open(p, "w", encoding="utf-8").write(txt)
   # Migrate + store the argon2id hash in the DB (password rides env, not argv).
   OC_CONFIG="$OC_TOML" OC_NEW_PASSWORD="$OWNER_PASSWORD" "$REPO_ROOT/bin/ocserverd" set-password >/dev/null \
     || die "ocserverd set-password failed — cannot seed a known owner password"
-  log "seeded oc.toml (port=${port:-8770}) + known OWNER_PASSWORD hash → DB ($DB_PATH)"
+  log "seeded oc.toml (port=${port:-$OC_CANONICAL_SERVE_PORT}) + known OWNER_PASSWORD hash → DB ($DB_PATH)"
 }
 seed_owner_password
 
