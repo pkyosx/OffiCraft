@@ -5,10 +5,10 @@
 [![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
 
 **Craft your own AI office.** OffiCraft 是一間跑在你自己 Mac 上的 AI 工作室：你僱幾位常駐的
-AI 成員，把事情整件交給他們，在一個網頁座艙裡看他們做到哪、在他們需要你點頭時回一句。
+AI 成員，把事情整件交給他們，在一個網頁控制台裡看他們做到哪、在他們需要你點頭時回一句。
 跑的就是你機器上那個 Claude Code。
 
-![OffiCraft 座艙](docs/guide/assets/cockpit-office.png)
+![OffiCraft 控制台](docs/guide/assets/cockpit-office.png)
 
 ### 亮點
 
@@ -37,7 +37,7 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 本機的 warden 裝好、把助理 **Mira** 叫醒。服務常駐在背景，關掉終端機不會停。
 
 > [!NOTE]
-> 座艙只綁 loopback（`127.0.0.1`）。想從手機或別的裝置連，要自己開一條 tunnel——
+> 控制台只綁 loopback（`127.0.0.1`）。想從手機或別的裝置連，要自己開一條 tunnel——
 > 做法與「加到主畫面」的步驟見 [docs/guide/mobile.md](docs/guide/mobile.md)。
 
 > [!WARNING]
