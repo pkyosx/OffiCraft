@@ -82,6 +82,26 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 （從 GitHub Releases 下載、sha256 驗證後原地抽換重啟）；打開「自動更新」則在背景自動升級。
 「接收 Beta」= 也吃 GitHub prerelease。
 
+### 移除
+
+```bash
+curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash -s -- --uninstall
+```
+
+**預設 = 停用 + 搬走，不是刪除**：停掉 launchd job、移除 plist，把整個 `~/.officraft`
+搬到 `~/.officraft.bak-<timestamp>`（資料庫也搬過去，不刪）。最壞情況是「東西還在，只是不
+跑了」，不是「資料沒了」。這一步**不需要下載任何 tarball**——安裝器偵測到 `--uninstall` 會
+直接短路進移除邏輯。
+
+```bash
+curl -fsSL … | bash -s -- --uninstall --dry-run   # 只印出會做什麼，什麼都不動
+curl -fsSL … | bash -s -- --uninstall --purge     # 真的刪光，含資料庫（輸入 "purge" 確認；--yes 跳過）
+```
+
+**所有權判斷**：只認「這支安裝器裝的那一套」（比對 launchd plist 的 `ProgramArguments[0]`
+與 release-path 專屬檔案），尊重 `OC_LAUNCHD_LABEL`（用 alt label 併裝的那一套，移除時也要
+帶同一個 label）。判斷不出是自己裝的就拒絕移除並說明原因，不會誤刪別人的東西。
+
 ---
 
 ## 方式二：從原始碼（開發機）
@@ -130,7 +150,7 @@ bin/ocserver install --force    # 重跑每一步（不動既有密碼）
 > release tarball 那條路只落 `~/.officraft/bin` + 資料庫，並註冊 `com.officraft.serve`
 > 一個 job——**不裝 autodeploy 與 tunnel**，那兩個是原始碼路徑才有的。
 
-### 移除（原始碼路徑）
+### 移除
 
 ```bash
 bin/ocserver uninstall             # 卸掉三個 launchd job、刪 ~/.officraft/server
