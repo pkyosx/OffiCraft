@@ -192,12 +192,17 @@ export function ChatArea({
   // T-7fa1: the activate reported that nothing was dispatched. Distinct from
   // wakePending — "not waiting, because nothing was sent". Never both true.
   const [wakeUndispatched, setWakeUndispatched] = useState(false);
+  // 🔴 `member.id` IS a dependency, not decoration (review r1 SHOULD-1).
+  // OfficePage renders <ChatArea> WITHOUT a key and frontend/CLAUDE.md states
+  // the component is NOT remounted when the peer changes — so switching from
+  // one offline peer to another leaves `offlineQueue` true→true, the effect
+  // never re-runs, and A's notice stays on screen claiming B's wake was never
+  // sent. Owner never woke B. That is the same class of on-screen lie this
+  // ticket exists to remove, so the reset keys on the peer as well.
   useEffect(() => {
-    if (!offlineQueue) {
-      setWakePending(false);
-      setWakeUndispatched(false);
-    }
-  }, [offlineQueue]);
+    setWakePending(false);
+    setWakeUndispatched(false);
+  }, [offlineQueue, member.id]);
 
   const {
     messages,

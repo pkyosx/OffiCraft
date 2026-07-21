@@ -37,7 +37,7 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = () => {};
 });
 
-function makeMember(): Member {
+function makeMember(over: Partial<Member> = {}): Member {
   return {
     id: "m1",
     memberId: "m1",
@@ -61,6 +61,7 @@ function makeMember(): Member {
     lastOpLog: "",
     lastOpAt: null,
     unreadCount: 0,
+    ...over,
   };
 }
 
@@ -111,6 +112,57 @@ describe("ChatArea · in-chat wake that was never dispatched (T-7fa1)", () => {
 
     await waitFor(() => expect(wakeBtn().disabled).toBe(true));
     expect(queryByTestId("chat-wake-undispatched")).toBeNull();
+  });
+
+  it("does NOT follow the owner onto a different peer (review r1 SHOULD-1)", async () => {
+    // 🔴 Found by the reviewer, not by me. OfficePage renders <ChatArea> with no
+    // `key` and frontend/CLAUDE.md states it is NOT remounted when the peer
+    // changes; the reset effect keyed only on a boolean that stays true→true
+    // when BOTH peers are offline. The residue is a sentence about peer B that
+    // the owner never caused — the same class of on-screen lie this ticket
+    // exists to delete.
+    const onWake = vi.fn(async () => ({ activationPending: true }));
+    const { wakeBtn, queryByTestId, rerender } = renderChat(onWake);
+
+    fireEvent.click(wakeBtn());
+    await waitFor(() =>
+      expect(queryByTestId("chat-wake-undispatched")).not.toBeNull(),
+    );
+
+    rerender(
+      <I18nProvider>
+        <ChatArea
+          member={makeMember({ id: "m2", name: "Kyle" })}
+          onWake={onWake}
+        />
+      </I18nProvider>,
+    );
+
+    await waitFor(() =>
+      expect(queryByTestId("chat-wake-undispatched")).toBeNull(),
+    );
+  });
+
+  it("a RETRY clears the previous verdict (mutant MC)", async () => {
+    let pending = true;
+    const onWake = vi.fn(async () => ({ activationPending: pending }));
+    const { wakeBtn, queryByTestId } = renderChat(onWake);
+
+    fireEvent.click(wakeBtn());
+    await waitFor(() =>
+      expect(queryByTestId("chat-wake-undispatched")).not.toBeNull(),
+    );
+
+    pending = false;
+    await waitFor(() => expect(wakeBtn().disabled).toBe(false));
+    fireEvent.click(wakeBtn());
+
+    await waitFor(() => expect(onWake).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(queryByTestId("chat-wake-undispatched")).toBeNull(),
+    );
+    // …and it is back to the honest in-progress state, not idle.
+    expect(wakeBtn().disabled).toBe(true);
   });
 
   it("treats a void-returning onWake as before (no fabricated failure)", async () => {

@@ -135,6 +135,16 @@ export function MemberDetailPanel({
       setWakeUndispatched(false);
     }
   }, [wakePendingClears]);
+  // 🔴 Separate effect keyed on the MEMBER (review r1 SHOULD-1). Neither
+  // OfficePage nor MonitorPage passes a `key`, so swapping which member the
+  // panel shows is a prop change, not a remount — and if both members are
+  // offline, `wakePendingClears` never changes, so the effect above does not
+  // fire. Without this the notice follows the owner onto a member they never
+  // tried to wake.
+  useEffect(() => {
+    setWakePending(false);
+    setWakeUndispatched(false);
+  }, [member.id]);
   const wakePendingActive = wakePending && !wakePendingClears;
 
   // Map the REAL five-state lifecycle onto the one-per-state visual union the
@@ -210,6 +220,10 @@ export function MemberDetailPanel({
     pickerConfirmLabel: t.machine.picker.relocateConfirm,
     noOnlineTitle: t.machine.noOnlineMachine,
     withIcon: true,
+    // Self-heal signal for the "move scheduled, not landed" notice (review r1
+    // SHOULD-2): where the member ACTUALLY is, vs boundMachineId = where it was
+    // pinned. Convergence means the background retry landed the move.
+    currentMachineId: member.machine,
   });
 
   // ── 回呼端點 · WEBHOOK (M4) ───────────────────────────────────────────────

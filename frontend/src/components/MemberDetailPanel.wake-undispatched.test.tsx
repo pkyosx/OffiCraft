@@ -97,9 +97,7 @@ function renderPanel(
  * identity header. Asserting it is ENABLED is how we read "not pending" — the
  * panel disables it for the whole duration of a pending wake. */
 function wakeButton(container: HTMLElement): HTMLButtonElement {
-  const btn = container.querySelector(
-    ".member-actions button",
-  ) as HTMLButtonElement | null;
+  const btn = container.querySelector('[data-testid="member-action-spawn"]') as HTMLButtonElement | null;
   // Existence assertion paired with every read (手冊 §1): a renamed class must
   // fail loudly here, not silently turn every assertion below into a no-op.
   expect(btn, "the wake button must exist").not.toBeNull();

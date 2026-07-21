@@ -406,15 +406,20 @@ export const en: Dict = {
     dismiss: "Got it",
   },
   // ── Undelivered-dispatch notice (T-7fa1) ─────────────────────────────────
+  // 🔴 The copy's scope must equal the BOOL's scope (review r1 BLOCKER-1). The
+  // first version named a cause the server never reports; see zh.ts for the full
+  // reasoning and the two server probes that disproved it.
   dispatchAlert: {
-    wakeTitle: "The wake was never sent",
+    wakeTitle: "No wake command went out this time",
     wakeBody:
-      "Nothing reached the target machine, so this member will not wake up. The intent is saved and the server keeps retrying in the background.",
-    relocateTitle: "The move has not landed yet",
+      "Nothing was dispatched on this attempt, so this click will not wake the member. The intent is saved and the server keeps retrying in the background.",
+    relocateTitle: "No move command went out this time",
     relocateBody:
-      "The new machine is pinned, but the move was never delivered — the member is still on its old machine. The server keeps retrying in the background.",
-    step1: "Check the target machine is online under Monitor — an offline machine cannot receive anything.",
-    step2: "Online but still failing? Pick another online machine and try again.",
+      "The new machine is pinned, but nothing was dispatched on this attempt — the member is still on its old machine. The server keeps retrying in the background.",
+    step1:
+      "The target machine (or its warden) may not be connected — check whether it is online under Monitor.",
+    step2:
+      "Or an earlier command may still be retrying — if this member's Last operation shows a reason, trust that line: it is more precise than this one.",
   },
   profile: {
     title: "Profile",

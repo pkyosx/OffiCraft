@@ -103,6 +103,12 @@ export function MemberActionButtons({
           <button
             key={key}
             type="button"
+            // Address actions by IDENTITY, not by position (review r1 SHOULD-3):
+            // BUTTON_SETS puts spawn FIRST only for offline/stopped — in
+            // `waking` the first button is Cancel. A test that reaches for
+            // ".member-actions button" therefore silently clicks the wrong
+            // action the moment its fixture is not offline.
+            data-testid={`member-action-${key}`}
             className={`btn ${variant}`}
             disabled={!handler}
             {...(reason ? { title: reason } : {})}

@@ -19,14 +19,26 @@ import "./dispatch-alert.css";
  * (`activation_pending` / `relocation_pending`); this component is where the
  * cockpit finally reads it.
  *
- * 🔴 WHY IT LISTS STEPS INSTEAD OF JUST SAYING "failed". The response is a
- * BOOL — the server does not tell us WHICH of the several undeliverable
- * conditions applies (machine offline, warden not installed, warden's SSE down,
- * an unbuildable start frame). Naming a cause we do not have would be a
- * fabrication, and「喚醒失敗」alone leaves the owner exactly as stuck as the
- * silence did. So it states what is true (nothing was sent, the intent is
- * saved, the server retries) and gives the two checks that actually resolve
- * every known cause, in the order they pay off.
+ * 🔴 WHY THE COPY IS THIS CAUTIOUS. The response is a BOOL, and it is a
+ * NEGATIVE catch-all: `api_members.go` sets it whenever the reconcile did not
+ * decide a START and the member is not already online — the handler's own
+ * comment lists "backoff, circuit-open, and failure modes not yet invented".
+ * Review r1 (BLOCKER-1) proved with two server probes that it also fires when
+ *   (a) a START from a PREVIOUS click is still in flight inside the 90s window
+ *       — and the wake button is deliberately still offered there
+ *       (MemberActionButtons' `waking: ["cancel", "spawn"]` rescue path), and
+ *   (b) the member is inside retry backoff or circuit-open AFTER a START that
+ *       WAS dispatched and timed out — where `last_op_reason` already carries
+ *       the correct and OPPOSITE diagnosis ("the START was dispatched but the
+ *       agent never came online — check that claude runs and is logged in").
+ * The first version of this copy said "nothing reached the target machine" and
+ * sent the owner to check the machine registry. In case (b) that CONTRADICTS
+ * 「最近操作」 on the same panel and points at the wrong fix. Replacing a silent
+ * lie with a confident wrong one is worse than the silence this ticket exists
+ * to remove — so the copy now claims only what the bool actually knows
+ * ("nothing went out on THIS attempt; intent saved; the server retries"), gives
+ * the two possible causes in PARALLEL rather than asserting one, and points
+ * back at `last_op_reason`, which is more precise whenever it exists.
  *
  * Single component, two kinds: wake and relocate render the SAME shape with
  * different leading text — the two surfaces must never drift apart.

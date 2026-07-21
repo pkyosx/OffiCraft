@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useI18n } from "../i18n";
 import type { MachineView, MemberRelocateResult } from "../types";
 import { MachinePicker } from "./MachinePicker";
@@ -22,6 +22,16 @@ interface UseRelocateMachineOpts {
   noOnlineTitle: string;
   /** Render the pencil icon inside the button (the member panel's look). */
   withIcon?: boolean;
+  /** The agent's CURRENT machine (`member.machine`), i.e. where it actually is —
+   * as opposed to `boundMachineId`, which is only where the owner PINNED it.
+   *
+   * 🔴 This is the self-heal signal for the "move scheduled, not landed" notice
+   * (review r1 SHOULD-2). Without it `undispatched` was cleared ONLY by another
+   * relocate attempt, so once the background cadence actually landed the move,
+   * the panel kept telling the owner it had not — the notice's own promise
+   * ("the server keeps retrying") had no path back. When the current machine
+   * reaches the pin, the move HAS landed and the notice is false. */
+  currentMachineId?: string | null;
 }
 
 /**
@@ -39,6 +49,7 @@ export function useRelocateMachine({
   pickerConfirmLabel,
   noOnlineTitle,
   withIcon,
+  currentMachineId,
 }: UseRelocateMachineOpts): {
   relocateAction: ReactNode | undefined;
   relocatePicker: ReactNode | undefined;
@@ -53,6 +64,16 @@ export function useRelocateMachine({
   const [undispatched, setUndispatched] = useState(false);
   const onlineMachines = machines.filter((m) => m.online);
 
+  // Self-heal: the pinned machine is where it was ASKED to be, the current one
+  // is where it IS. Equal ⇒ the move landed ⇒ the notice is stale.
+  const landed =
+    currentMachineId != null &&
+    currentMachineId !== "" &&
+    currentMachineId === boundMachineId;
+  useEffect(() => {
+    if (landed) setUndispatched(false);
+  }, [landed]);
+
   const run = (machineId: string) => {
     setPickerOpen(false);
     setBusy(true);
@@ -61,6 +82,14 @@ export function useRelocateMachine({
       try {
         const result = await onRelocate?.(machineId);
         if (result?.relocationPending) setUndispatched(true);
+      } catch {
+        // NIT-3 (review r1): the openapi-fetch middleware throws on EVERY
+        // non-2xx, so a rejected relocate is a real path, not a theoretical
+        // one. Before this it escaped as an unhandled rejection. There is no
+        // verdict to show — a rejected relocate never reached the server's
+        // pending determination — so we only make sure a STALE verdict does
+        // not survive the new attempt.
+        setUndispatched(false);
       } finally {
         // The SSE delta refetches the panel; clear the in-flight guard either
         // way (a rejected relocate lets the owner retry).
@@ -103,5 +132,10 @@ export function useRelocateMachine({
     />
   ) : undefined;
 
-  return { relocateAction, relocatePicker, relocateUndispatched: undispatched };
+  return {
+    relocateAction,
+    relocatePicker,
+    // `landed` wins over a stale flag even before the effect flushes.
+    relocateUndispatched: undispatched && !landed,
+  };
 }

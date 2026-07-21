@@ -324,7 +324,14 @@ export function OfficePage() {
           // dispatched. Refetch first so the panel's own lifecycle read is
           // current before it acts on the verdict.
           const result = await api.activateMember(detail.id, machineId);
-          await refetch();
+          // NIT-4 (review r1): a throwing refetch must not swallow the verdict —
+          // it would drop the panel into the catch branch, which only rolls back
+          // pending and shows nothing.
+          try {
+            await refetch();
+          } catch {
+            /* the verdict outlives a failed refresh */
+          }
           return result;
         }}
         // 改機器 (placement only): re-pin the member's machine and let the server
@@ -333,7 +340,11 @@ export function OfficePage() {
         onRelocate={async (machineId) => {
           // Return the result for the same reason onActivate does (T-7fa1).
           const result = await api.relocateMember(detail.id, machineId);
-          await refetch();
+          try {
+            await refetch();
+          } catch {
+            /* the verdict outlives a failed refresh (NIT-4) */
+          }
           return result;
         }}
         // Graceful stop / cancel-wake (retains the row). Refetch and let
@@ -578,7 +589,11 @@ export function OfficePage() {
                   // 「喚醒中…」, so it needs the verdict too — returning void
                   // here leaves the chat surface stuck exactly as before.
                   const result = await api.activateMember(selected.id);
-                  await refetch();
+                  try {
+                    await refetch();
+                  } catch {
+                    /* the verdict outlives a failed refresh (NIT-4) */
+                  }
                   return result;
                 }}
                 // B3 跳到原訊息 (#office/chat/<id>/msg/<msgId>): locate +

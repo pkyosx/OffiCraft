@@ -164,7 +164,11 @@ export function MonitorPage() {
           // Return the result (T-7fa1) — the Monitor entry renders the SAME
           // MemberDetailPanel, so it must feed it the same verdict.
           const result = await api.activateMember(detail.id, machineId);
-          await refetchMembers();
+          try {
+            await refetchMembers();
+          } catch {
+            /* the verdict outlives a failed refresh (NIT-4) */
+          }
           return result;
         }}
         // 改機器 (placement only): re-pin the member's desired machine and let the
@@ -176,7 +180,11 @@ export function MonitorPage() {
         // action here reconciles — not OfficePage's own refetch().
         onRelocate={async (machineId) => {
           const result = await api.relocateMember(detail.id, machineId);
-          await refetchMembers();
+          try {
+            await refetchMembers();
+          } catch {
+            /* the verdict outlives a failed refresh (NIT-4) */
+          }
           return result;
         }}
         // Graceful stop / cancel-wake (retains the row). Refetch and let

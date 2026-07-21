@@ -49,7 +49,12 @@ const mkMember = (over: Partial<Member> = {}): Member => ({
   effort: "medium",
   kind: "assistant",
   desiredMachineId: "mach-a",
-  machine: "mach-a",
+  // 🔴 machine (WHERE IT IS) must differ from desiredMachineId (WHERE IT WAS
+  // PINNED) for a relocate to be pending at all — equal means the move already
+  // landed, which is precisely the self-heal signal added for review r1
+  // SHOULD-2. A fixture where they matched would suppress the notice and make
+  // the positive relocate test assert nothing.
+  machine: "mach-b",
   account: null,
   contextPct: null,
   estimatedCost: null,
@@ -70,7 +75,12 @@ const session = (over: Partial<MonSessionView> = {}): MonSessionView => ({
   role: "assistant",
   model: "opus-4.8",
   effort: "",
-  machine: "mach-a",
+  // Must agree with the member fixture's `machine`: MonitorPage runs the roster
+  // member through joinSessionRuntime (lib/runtime.ts), and a non-empty session
+  // `machine` OVERRIDES the member's own. A session still reporting the PINNED
+  // machine here would mean "the move already landed" and (correctly) suppress
+  // the not-landed notice — an inconsistent fixture, not a bug.
+  machine: "mach-b",
   account: "",
   status: "offline",
   contextPct: 42,
@@ -133,7 +143,7 @@ async function openDetail() {
 async function clickWake() {
   const btn = await waitFor(() => {
     const b = document.querySelector(
-      ".member-actions button",
+      '[data-testid="member-action-spawn"]',
     ) as HTMLButtonElement | null;
     expect(b, "the wake button must exist").not.toBeNull();
     expect(b!.disabled, "the wake button must be enabled").toBe(false);
