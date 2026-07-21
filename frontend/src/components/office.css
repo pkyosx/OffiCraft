@@ -550,6 +550,30 @@
   padding: 24px;
   /* Anchor for the floating "有新訊息" chip (absolute, bottom-center). */
   position: relative;
+  /* 🔴 T-7fa1 手機高度字疊字: this pane is the ONLY flex item of `.chat` allowed
+   * to shrink (`flex:1; min-height:0`), so every pixel the composer GAINS is a
+   * pixel this box LOSES. Measured at 390×667 with the wake DispatchAlert up:
+   * composer 331px, header 69px, body 95px — the column adds up exactly, so the
+   * shrink itself is correct and is NOT the bug. The bug was that the pane's
+   * CONTENT does not shrink with it: `.chat__offline` is intrinsically ~128px
+   * (56px icon + 18 + title + 8 + hint) and has no give, so scrollHeight 152 vs
+   * clientHeight 95 — and with the default `overflow: visible` those 57px were
+   * PAINTED OUTSIDE the box, on top of the wake row + ⚡喚醒 button that follow
+   * in the flex column. Text on text, button unclickable.
+   *
+   * Containing the overflow here is the whole fix, and it is a GEOMETRIC
+   * guarantee rather than a tuned number: a scroll container never paints
+   * outside its padding box, so no composer height — this notice, a taller
+   * translation, a future banner — can ever reach the pane below again.
+   * `auto`, not `hidden`: hidden would silently CUT the hint instead of
+   * overlapping it, trading an unreadable screen for a censored one.
+   *
+   * `overflow-x: hidden` is load-bearing, not decoration: per the overflow spec
+   * a `visible` overflow-x is COERCED to `auto` next to a non-visible
+   * overflow-y, which would hand this pane the same sideways iOS rubber-band pan
+   * T-55ad had to kill on `.chat__messages` (see its comment below). */
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 /* ① M2 batch 19: floating "有新訊息" chip — surfaces when a new inbound message
  * lands while the owner is scrolled up. Low-emphasis grey pill (card surface,
