@@ -2,6 +2,13 @@
 
 **Status: GATED. Do not run any step below until every Preflight item is checked.**
 
+> ℹ️ **Historical port note (T-b461, 2026-07-21):** the `:8770` literals below are the
+> dev port that was actually live *at cutover time* — this is a runbook of what was
+> literally run/confirmed, not live config, so they are left as-is for historical
+> accuracy rather than rewritten to the current default (`7755`,
+> `server/ocserverd/config.go`). If this runbook is ever re-run against a fresh host,
+> substitute the server's current default port for every `:8770` below.
+
 This retires BOTH python warden daemons — the pull warden (`bin/reconcile-warden`
 [no longer in-tree], launchd `com.officraft.warden`) AND the telemetry warden
 (`bin/ocwarden` [no longer in-tree], launchd `com.officraft.telemetry`) — and puts

@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	defaultBase   = "http://127.0.0.1:8770"
+	defaultBase   = "http://127.0.0.1:7755"
 	telemetryPath = "/api/monitoring/telemetry"
 	// commandResultPath is where the best-effort command_result receipt is POSTed —
 	// the SAME telemetry ingest endpoint (the server folds command_result there onto

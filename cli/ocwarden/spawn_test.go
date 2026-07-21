@@ -19,7 +19,7 @@ import (
 //	claude_bin      = /Users/x/.local/bin/claude
 //	workdir         = /home/oc/.officraft/agents/alice
 //	token           = tok-abc.def.ghi   agent_id = alice   role = assistant
-//	base            = http://127.0.0.1:8770
+//	base            = http://127.0.0.1:7755
 //	session         = member-alice       socket = officraft
 //	model           = claude-sonnet-4
 var (
@@ -46,7 +46,7 @@ const (
 	fxToken     = "tok-abc.def.ghi"
 	fxTokenFile = fxWorkdir + "/.oc-token"
 	fxID        = "alice"
-	fxBase      = "http://127.0.0.1:8770"
+	fxBase      = "http://127.0.0.1:7755"
 	fxRole      = "assistant"
 	fxSession   = "member-alice"
 	fxSocket    = "officraft"
@@ -69,7 +69,7 @@ func TestGolden_BuildMCPConfig_BearerHeader(t *testing.T) {
 	if strings.Contains(got, "?token=") || strings.Contains(got, "token=") {
 		t.Error("token MUST NOT appear as a url query")
 	}
-	if !strings.Contains(got, `"type": "http"`) || !strings.Contains(got, `"url": "http://127.0.0.1:8770/api/mcp"`) {
+	if !strings.Contains(got, `"type": "http"`) || !strings.Contains(got, `"url": "http://127.0.0.1:7755/api/mcp"`) {
 		t.Error("must wire ONE officraft http MCP server at {base}/api/mcp")
 	}
 }
@@ -179,7 +179,7 @@ func TestShellQuote(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"", "''"},
 		{"safe.path/ok-1", "safe.path/ok-1"}, // fully safe → verbatim
-		{"http://127.0.0.1:8770", "http://127.0.0.1:8770"}, // :,/,. all safe
+		{"http://127.0.0.1:7755", "http://127.0.0.1:7755"}, // :,/,. all safe
 		{"has space", "'has space'"},
 		{"open(paren)", "'open(paren)'"},
 		{"it's", `'it'"'"'s'`}, // embedded single quote

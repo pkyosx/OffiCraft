@@ -213,13 +213,13 @@ func TestResolvePaths_TrailingSlashStrippedAndID(t *testing.T) {
 	p, err := resolvePaths(envFn(map[string]string{
 		"HOME":     "/h",
 		"OC_TOKEN": "t",
-		"OC_BASE":  "https://sandbox.example.com:8770/",
+		"OC_BASE":  "https://sandbox.example.com:9443/",
 		"OC_ID":    "member-9",
 	}), "/r/bin/ocwarden", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.ocBase != "https://sandbox.example.com:8770" {
+	if p.ocBase != "https://sandbox.example.com:9443" {
 		t.Errorf("ocBase = %q, want trailing slash stripped", p.ocBase)
 	}
 	if p.ocID != "member-9" {
@@ -248,7 +248,7 @@ func TestResolvePaths_MissingTokenAndHomeAndBadBase(t *testing.T) {
 
 func TestRenderPlist_SubstitutesAndIsWellFormed(t *testing.T) {
 	p := wardenPaths{
-		root: "/repo", home: "/Users/seth", ocBase: "http://127.0.0.1:8770",
+		root: "/repo", home: "/Users/seth", ocBase: "http://127.0.0.1:7755",
 		tokfile: "/Users/seth/.officraft/exec-warden.tok",
 		logDir:  "/repo/var/log", binPath: "/repo/bin/ocwarden",
 	}
@@ -264,7 +264,7 @@ func TestRenderPlist_SubstitutesAndIsWellFormed(t *testing.T) {
 	must := []string{
 		"<string>com.officraft.ocwarden</string>",
 		"<array><string>/repo/bin/ocwarden</string><string>run</string></array>",
-		"<key>OC_BASE</key><string>http://127.0.0.1:8770</string>",
+		"<key>OC_BASE</key><string>http://127.0.0.1:7755</string>",
 		"<key>HOME</key><string>/Users/seth</string>",
 		"<key>OC_WARDEN_TOKFILE</key><string>/Users/seth/.officraft/exec-warden.tok</string>",
 		"/repo/var/log/ocwarden.out.log",
@@ -290,7 +290,7 @@ func TestXMLWellFormed_RejectsMalformed(t *testing.T) {
 func fixedPaths() wardenPaths {
 	return wardenPaths{
 		root: "/h/.officraft", home: "/h", srcExe: "/tmp/ocwarden",
-		ocBase: "http://127.0.0.1:8770", ocToken: "secret-jwt",
+		ocBase: "http://127.0.0.1:7755", ocToken: "secret-jwt",
 		tokfile:   "/h/.officraft/warden/exec-warden.tok",
 		laDir:     "/h/Library/LaunchAgents",
 		plistPath: "/h/Library/LaunchAgents/com.officraft.ocwarden.plist",
@@ -634,7 +634,7 @@ func TestRenderPlist_NeverEmitsOcAgentBin(t *testing.T) {
 	// The warden discovers ocagent as its own runtime sibling (resolveOcAgentBin), so
 	// the plist must carry NO ocagent path — even when an install did copy one in.
 	p := wardenPaths{
-		root: "/repo", home: "/Users/seth", ocBase: "http://127.0.0.1:8770",
+		root: "/repo", home: "/Users/seth", ocBase: "http://127.0.0.1:7755",
 		tokfile: "/Users/seth/.officraft/exec-warden.tok",
 		logDir:  "/repo/var/log", binPath: "/repo/bin/ocwarden",
 		ocAgentSrc: "/run/officraft/ocagent-go/ocagent",
