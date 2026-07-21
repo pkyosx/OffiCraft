@@ -150,12 +150,29 @@ SOCK="$(grep '^SOCK=' "$GLOG" | cut -d= -f2)"
 [[ "$SOCK" == "officraft-$NS" && "$SOCK" != "officraft" ]] \
   && ok "tmux socket namespaced ($SOCK)" || bad "socket wrong: $SOCK"
 
-# ── 8) CANONICAL escape hatch: axes resolve to the canonical literals ─────────
+# ── 8) CANONICAL escape hatch: axes resolve to the canonical port ─────────────
+# T-191d: the port the 0c guard verifies free (SINGLE_PROD_PORTS[0]) and the port
+# this run actually OWNS (LOCAL_BASE/PUBLIC_HOST → oc_fresh_install pins serve to
+# ${LOCAL_BASE##*:}) MUST be the SAME canonical port. The old bug: the canonical
+# branch set SINGLE_PROD_PORTS to the dynamic CANON_PORT but left LOCAL_BASE at a
+# hardcoded 8770, so the guard watched one port while the install bound another —
+# and this test only checked SINGLE_PROD_PORTS, so it stayed green. Now assert the
+# owned port too, AND that it equals the guarded port (the coupling invariant),
+# against CANON_PORT (SSOT-derived, never a hardcoded literal of its own).
 run_snippet 'export OC_E2E_ALLOW_CANONICAL=1; oc_resolve_instance
   printf "NS=[%s]\n" "$OC_NS"
-  printf "PORTS=%s\n" "${SINGLE_PROD_PORTS[*]}"' >/dev/null
+  printf "PORTS=%s\n" "${SINGLE_PROD_PORTS[*]}"
+  printf "GUARD0=%s\n" "${SINGLE_PROD_PORTS[0]}"
+  printf "LB=%s\n" "${LOCAL_BASE##*:}"
+  printf "PH=%s\n" "${PUBLIC_HOST##*:}"' >/dev/null
+C8_GUARD0="$(grep '^GUARD0=' "$GLOG" | cut -d= -f2)"
+C8_LB="$(grep '^LB=' "$GLOG" | cut -d= -f2)"
+C8_PH="$(grep '^PH=' "$GLOG" | cut -d= -f2)"
 [[ "$(grep '^NS=' "$GLOG")" == "NS=[]" ]] && ok "canonical escape hatch → OC_NS empty" || bad "canonical OC_NS not empty: $(grep '^NS=' "$GLOG")"
 [[ "$(grep '^PORTS=' "$GLOG")" == "PORTS=$CANON_PORT 8766" ]] && ok "canonical guard ports = $CANON_PORT 8766" || bad "canonical ports wrong: $(grep '^PORTS=' "$GLOG")"
+[[ "$C8_LB" == "$CANON_PORT" ]] && ok "canonical LOCAL_BASE port == $CANON_PORT (the port this run OWNS = current canonical)" || bad "canonical LOCAL_BASE port wrong: got '$C8_LB' want '$CANON_PORT' (T-191d: guard watches a port the run does not bind)"
+[[ "$C8_PH" == "$CANON_PORT" ]] && ok "canonical PUBLIC_HOST port == $CANON_PORT" || bad "canonical PUBLIC_HOST port wrong: got '$C8_PH' want '$CANON_PORT'"
+[[ -n "$C8_LB" && "$C8_LB" == "$C8_GUARD0" ]] && ok "canonical coupling: owned port (LOCAL_BASE $C8_LB) == guard port (SINGLE_PROD_PORTS[0] $C8_GUARD0)" || bad "canonical DECOUPLED: owned port '$C8_LB' != guard port '$C8_GUARD0' — the exact T-191d shape (guard verifies one port, install binds another)"
 
 # ── 9) agent_workdir is namespace-aware (a1_zombie kill-anchor safety) ────────
 rc="$(run_snippet 'OC_NS="e2ex"; wd="$(agent_workdir /Users/x mira)"; [[ "$wd" == "/Users/x/.officraft-e2ex/agents/mira" ]]')"
@@ -288,6 +305,29 @@ else
     *) bad "webdist restore: FAILED delete produced NO warn — the silent-failure bug (got: $NEG_OUT)" ;;
   esac
   rm -rf "$WT_NEG" 2>/dev/null || true
+fi
+
+# ── 13) T-191d: a1_zombie's post-teardown "port freed" corroboration must probe
+#        the port THIS run OWNED (derived from LOCAL_BASE), not a hardcoded literal.
+#        A literal we never bound (the retired 8770) makes the check vacuous — it
+#        stays green even when teardown leaks our real listener (retired port is
+#        always free). Static assertion on the real a1_zombie_e2e.sh: the owned
+#        port must be derived from LOCAL_BASE AND the clean-slate lsof must probe
+#        it — reverting to a hardcoded :<port> drops both and reddens here.
+A1="$HERE/../a1_zombie_e2e.sh"
+if [[ ! -f "$A1" ]]; then
+  bad "a1_zombie_e2e.sh not found at $A1 — update guard (13)"
+else
+  if grep -Fq 'owned_port="${LOCAL_BASE##*:}"' "$A1"; then
+    ok "a1_zombie derives owned_port from LOCAL_BASE (not a hardcoded literal)"
+  else
+    bad "a1_zombie no longer derives owned_port from LOCAL_BASE — post-teardown port check may have re-hardcoded a literal (T-191d regression)"
+  fi
+  if grep -Fq 'lsof -nP -iTCP:"$owned_port" -sTCP:LISTEN' "$A1"; then
+    ok "a1_zombie post-teardown lsof probes the OWNED port (\${LOCAL_BASE##*:}), not a stale constant"
+  else
+    bad "a1_zombie post-teardown lsof no longer probes \"\$owned_port\" — a vacuous hardcoded-port check would stay green when teardown leaks the real listener (T-191d)"
+  fi
 fi
 
 echo "[tests_guard] PASS=$PASS FAIL=$FAIL"
