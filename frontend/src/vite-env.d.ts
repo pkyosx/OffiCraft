@@ -1,5 +1,14 @@
 /// <reference types="vite/client" />
 
+// Raw-text imports of the repo-root seed files — the single source of truth for
+// the mock adapter (see api/seeds.ts). vite/client also declares `*?raw`; this
+// narrower declaration makes the seed wiring self-documenting and independent
+// of that.
+declare module "*.md?raw" {
+  const src: string;
+  export default src;
+}
+
 interface ImportMetaEnv {
   /** "false" swaps the api client to the real backend (httpApi); anything else
    * (unset / "true") keeps the mock adapter. See api/index.ts. */

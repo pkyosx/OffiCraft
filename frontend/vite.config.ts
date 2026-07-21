@@ -4,6 +4,13 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  server: {
+    // api/seeds.ts imports the repo-root seeds/*.md (the single source of truth)
+    // via `?raw`. Those files live one level above the Vite root (frontend/), so
+    // the dev server's file-serving allow-list must include the repo root or the
+    // browser request for the raw module 403s.
+    fs: { allow: [".."] },
+  },
   test: {
     environment: "jsdom",
     globals: true,
