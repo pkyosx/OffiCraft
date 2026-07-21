@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -97,6 +98,12 @@ const interactiveEnvTimeout = 10 * time.Second
 // spawn path. Same intent as agentEnvMaxBytes.
 const interactiveEnvMaxBytes = 1024 * 1024
 
+// interactiveEnvWaitDelay bounds how long cmd.Wait may keep waiting for I/O
+// AFTER the deadline has fired and the process group has been signalled. It is
+// the hard backstop that makes the total time bounded no matter what the rc
+// files left running — see the comment in captureInteractiveEnv.
+const interactiveEnvWaitDelay = 2 * time.Second
+
 // interactiveEnvSessionLocal is the ONLY subtraction from the owner's "give it
 // all" ruling, and it contains ZERO credentials — every name here is shell or
 // terminal BOOKKEEPING whose value describes the CAPTURING process and is
@@ -158,6 +165,40 @@ func captureInteractiveEnv(shell string, timeout time.Duration) (string, error) 
 	// interactive flag is the entire point — a non-interactive zsh is precisely
 	// the environment the agent already has and this call exists to escape.
 	cmd := exec.CommandContext(ctx, shell, "-i", "-c", interactiveEnvDumper)
+	// ── the deadline must bound the WHOLE TREE, not just the shell ──────────
+	//
+	// MEASURED, not reasoned (caught by TestCaptureInteractiveEnv_TimeoutIsEnforcedInGo
+	// only because it asserts ELAPSED TIME rather than just "an error came back"):
+	// the default CommandContext behaviour kills the DIRECT CHILD only, and
+	// cmd.Run's Wait then blocks until the stdout pipe reaches EOF — which needs
+	// EVERY process holding the write end to exit. An rc file that leaves a
+	// grandchild running (a background job, a hung network call, anything that
+	// does not exec-replace the shell) therefore keeps the pipe open, and the
+	// spawn stalls for the GRANDCHILD's lifetime with the context timeout
+	// already expired. That is the exact failure this timeout exists to prevent,
+	// surviving the timeout.
+	//
+	// Two independent defences, because this is the fail-safe of the fail-safe:
+	//
+	//  (1) Setpgid + a Cancel that signals the whole PROCESS GROUP, so the
+	//      grandchildren die with the shell instead of being orphaned onto the
+	//      machine. Negative pid = "the group", the standard POSIX idiom.
+	//  (2) WaitDelay as the backstop: whatever survives (1), Wait force-closes
+	//      the pipes and returns anyway. This is what actually GUARANTEES a
+	//      bounded return, since (1) can only ever be best-effort — a process
+	//      can change its own group and escape.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		// Negative pid targets the group. Setpgid made the child its own group
+		// leader, so its pid IS the group id.
+		if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil {
+			// Best-effort: fall back to the single process. WaitDelay below is
+			// what keeps this from being able to hang the spawn either way.
+			return cmd.Process.Kill()
+		}
+		return nil
+	}
+	cmd.WaitDelay = interactiveEnvWaitDelay
 	// No stdin. An interactive shell whose rc files prompt would otherwise block
 	// on a terminal that does not exist; with stdin closed it gets EOF and the
 	// timeout is the backstop rather than the primary defence.

@@ -326,18 +326,40 @@ func TestCaptureInteractiveEnv_FailureModes(t *testing.T) {
 // fail with rc=127 on this very host and be misread as "the shell cannot be
 // captured".
 func TestCaptureInteractiveEnv_TimeoutIsEnforcedInGo(t *testing.T) {
-	sh := stubShell(t, "sleep 30")
-	start := time.Now()
-	_, err := captureInteractiveEnv(sh, 300*time.Millisecond)
-	elapsed := time.Since(start)
-	if err == nil {
-		t.Fatal("a hung shell must produce an error, not a hung spawn")
+	// Each body is a different way for an rc file to hang. The ORPHAN cases are
+	// the ones that matter: they leave a GRANDCHILD holding the stdout pipe
+	// after the shell itself is killed. Killing only the direct child leaves
+	// cmd.Wait blocked on EOF for the grandchild's whole lifetime — the deadline
+	// fires, the error is correct, and the spawn stalls anyway for 30s.
+	//
+	// That is why this test asserts ELAPSED TIME and not merely "an error came
+	// back". Asserting only the error passes against the broken implementation:
+	// it was the wall-clock assertion that caught it.
+	bodies := map[string]string{
+		"shell itself blocks":              "sleep 30",
+		"grandchild holds the pipe":        "sh -c 'sleep 30' ; sleep 30",
+		"backgrounded grandchild survives": "sleep 30 & sleep 30",
+		"subshell keeps the pipe open":     "( sleep 30 ) ; sleep 30",
 	}
-	if !strings.Contains(err.Error(), "timed out") {
-		t.Errorf("error = %v, want it to name the timeout", err)
-	}
-	if elapsed > 5*time.Second {
-		t.Errorf("took %s — the deadline was not enforced", elapsed)
+	for name, body := range bodies {
+		t.Run(name, func(t *testing.T) {
+			sh := stubShell(t, body)
+			start := time.Now()
+			_, err := captureInteractiveEnv(sh, 300*time.Millisecond)
+			elapsed := time.Since(start)
+			if err == nil {
+				t.Fatal("a hung shell must produce an error, not a hung spawn")
+			}
+			if !strings.Contains(err.Error(), "timed out") {
+				t.Errorf("error = %v, want it to name the timeout", err)
+			}
+			// Generous but decisive: the deadline is 300ms and WaitDelay is 2s,
+			// so anything near the 30s sleep means the tree outlived the timeout.
+			if elapsed > 8*time.Second {
+				t.Errorf("took %s — the deadline did not bound the whole process TREE, "+
+					"only the direct child; a grandchild holding the stdout pipe stalls the spawn", elapsed)
+			}
+		})
 	}
 }
 
