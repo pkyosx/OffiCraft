@@ -88,14 +88,26 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash -s -- --uninstall
 ```
 
-**預設 = 停用 + 搬走，不是刪除**：停掉 launchd job、移除 plist，把 release 路徑裝的那一份
-（`bin/` 與 `server/` 裡屬於這次安裝的資料，含資料庫）搬到 `~/.officraft.bak-<timestamp>`，
-不刪。最壞情況是「東西還在，只是不跑了」，不是「資料沒了」。這一步**不需要下載任何
-tarball**——安裝器偵測到 `--uninstall` 會直接短路進移除邏輯。
+**預設 = 停用 + 搬走，不是刪除**：停掉 launchd job，把 release 路徑裝的那一份
+（`bin/` 與 `server/` 裡屬於這次安裝的資料，含資料庫）連同那個 launchd plist 一起搬到
+`~/.officraft.bak-<timestamp>`，不刪。最壞情況是「東西還在，只是不跑了」，不是「資料沒了」。
+腳本會印出一行還原指令，**檔案與 launchd 註冊兩邊都會回來**（plist 留在備份裡就是為了這個）。
+這一步**不需要下載任何 tarball**——安裝器偵測到 `--uninstall` 會直接短路進移除邏輯。
 
-> 這台機器如果同時也有方式二（從原始碼）裝的那一份共用同一個 `~/.officraft/server` 根目錄，
-> 只有 release 路徑自己的檔案會被搬走——`server/repo/`（從原始碼那份的東西）原地不動，跟下面
-> 「這條路只落 `~/.officraft/bin` + 資料庫」那句是同一件事的兩面。
+**它不會碰什麼**（這些都不是這支安裝器裝的，所以移除也不該動它們）：
+
+| 留在原地 | 為什麼 |
+|---|---|
+| `~/.officraft/agents/` | 這台機器上**每一個 agent 的工作區**。安裝器從未建立它們 |
+| `~/.officraft/warden/` | ocwarden 常駐程式的目錄。它有**自己的** launchd job（`com.officraft.ocwarden`），移除後仍**保持註冊與執行**——要一併移除請用 `ocwarden teardown` |
+| `~/.officraft/server/repo/` | 方式二（從原始碼）裝的那一份，跟這條路共用同一個 `server` 根目錄 |
+| `~/.officraft` 本身 | 永遠不會被移除 |
+
+腳本執行時會把上面這份清單連同 agent 工作區的數量一起印出來，`--dry-run` 也印同一份。
+
+> ⚠️ 在 2026-07-21 之前的版本上，「同一台機器既是 server 又是 worker」時預設會把**整個**
+> `~/.officraft` 搬走（含 `agents/` 與 `warden/`），而訊息只說 "nothing was deleted"、
+> 一個字都沒提。那是可回復的（是 `mv` 不是 `rm`），但訊息不足以讓人預判後果。已修正。
 
 ```bash
 curl -fsSL … | bash -s -- --uninstall --dry-run   # 只印出會做什麼，什麼都不動
