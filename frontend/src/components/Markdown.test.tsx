@@ -5,7 +5,7 @@
 // hit pasting a PR-review SOP: "全部都是 1. 開始").
 
 import { describe, it, expect } from "vitest";
-import { render } from "@testing-library/react";
+import { render, fireEvent } from "@testing-library/react";
 import { Markdown } from "./Markdown";
 
 function renderMd(source: string): HTMLElement {
@@ -301,6 +301,174 @@ describe("Markdown", () => {
       // line1/line2 remain a hard-broken paragraph before the table.
       expect(container.querySelectorAll("p br").length).toBe(1);
       expect(container.textContent).not.toContain("|");
+    });
+  });
+  // ── T-68f1 · resolveDocLink: the THIRD link class ────────────────────────
+  //
+  // The 使用說明 page ships the repo's doc tree, whose links are repo-RELATIVE
+  // (`docs/guide/why.md`). SAFE_URL_RE only knows http/https/mailto, so those
+  // rendered as literal `[a](b)` source text — that is the defect. The fix adds
+  // an opt-in resolver, NOT a wider allowlist, so this suite is two-sided:
+  //   (a) the feature works, and is threaded into every block that renders
+  //       inline text (paragraph / heading / list / table / quote);
+  //   (b) the DEFAULT (every chat / task / manual call site, all carrying
+  //       agent-authored untrusted text) is unchanged, and the dangerous URL
+  //       shapes NEVER even reach the resolver — asserted on the spy's call
+  //       log, not just on the absence of a clickable node, because "the
+  //       resolver declined" and "the resolver was never asked" look identical
+  //       in the DOM.
+  describe("resolveDocLink — in-app doc links (T-68f1)", () => {
+    /** A resolver that accepts everything, recording what it was asked. */
+    function spyResolver(accept = true) {
+      const asked: string[] = [];
+      const clicked: string[] = [];
+      const resolve = (target: string) => {
+        asked.push(target);
+        return accept ? () => clicked.push(target) : null;
+      };
+      return { asked, clicked, resolve };
+    }
+
+    it("DEFAULTS OFF: a repo-relative .md link stays literal text everywhere else", () => {
+      const c = renderMd("看 [為什麼](docs/guide/why.md) 這份");
+      expect(c.querySelector("a")).toBeNull();
+      expect(c.querySelector("button")).toBeNull();
+      expect(c.textContent).toContain("[為什麼](docs/guide/why.md)");
+    });
+
+    it("ON: a repo-relative .md link becomes a clickable in-app button", () => {
+      const spy = spyResolver();
+      const { container } = render(
+        <Markdown
+          source="看 [為什麼](docs/guide/why.md) 這份"
+          resolveDocLink={spy.resolve}
+        />,
+      );
+      const btn = container.querySelector("button.md-doclink");
+      expect(btn).not.toBeNull();
+      expect(btn?.textContent).toBe("為什麼");
+      // No href exists to redirect to — the destination is an ACTION.
+      expect(btn?.getAttribute("href")).toBeNull();
+      expect(spy.asked).toEqual(["docs/guide/why.md"]);
+      fireEvent.click(btn!);
+      expect(spy.clicked).toEqual(["docs/guide/why.md"]);
+    });
+
+    it("ON: a resolver that declines (unknown slug) keeps the literal fallback", () => {
+      const spy = spyResolver(false);
+      const { container } = render(
+        <Markdown
+          source="[開發文件](docs/dev/agent-env.md)"
+          resolveDocLink={spy.resolve}
+        />,
+      );
+      expect(container.querySelector("button")).toBeNull();
+      expect(container.textContent).toContain("[開發文件](docs/dev/agent-env.md)");
+      // It WAS eligible — the resolver is what said no.
+      expect(spy.asked).toEqual(["docs/dev/agent-env.md"]);
+    });
+
+    // The security core. Each of these is a shape that would become clickable
+    // if the new branch were written as "no scheme ⇒ relative path". They must
+    // stay literal AND never be offered to the resolver.
+    it.each([
+      ["javascript:", "[click me](javascript:alert(1))", "javascript:alert(1)"],
+      ["data:", "[x](data:text/html,<script>alert(1)</script>)", "data:text/html,"],
+      ["protocol-relative", "[x](//evil.com/doc.md)", "//evil.com/doc.md"],
+      ["site-absolute", "[x](/etc/passwd.md)", "/etc/passwd.md"],
+      ["vbscript:", "[x](vbscript:msgbox)", "vbscript:msgbox"],
+    ])(
+      "ON: %s targets stay literal text and never reach the resolver",
+      (_name, source, literal) => {
+        const spy = spyResolver();
+        const { container } = render(
+          <Markdown source={source} resolveDocLink={spy.resolve} />,
+        );
+        expect(container.querySelector("a")).toBeNull();
+        expect(container.querySelector("button")).toBeNull();
+        expect(container.textContent).toContain(literal);
+        expect(spy.asked).toEqual([]);
+      },
+    );
+
+    it("ON: http(s) links keep the external anchor and bypass the resolver", () => {
+      const spy = spyResolver();
+      const { container } = render(
+        <Markdown
+          source="[releases](https://github.com/pkyosx/OffiCraft/releases)"
+          resolveDocLink={spy.resolve}
+        />,
+      );
+      const a = container.querySelector("a");
+      expect(a?.getAttribute("href")).toBe(
+        "https://github.com/pkyosx/OffiCraft/releases",
+      );
+      expect(a?.getAttribute("target")).toBe("_blank");
+      expect(a?.getAttribute("rel")).toBe("noopener noreferrer");
+      expect(spy.asked).toEqual([]);
+    });
+
+    // renderInline is reached from six different block paths; a resolver that
+    // is threaded into only the paragraph path would look fine on the first
+    // test above and silently drop every link inside a list or a table.
+    it("ON: resolves inside headings, lists, tables and blockquotes too", () => {
+      const spy = spyResolver();
+      const { container } = render(
+        <Markdown
+          source={[
+            "## 看 [標題連結](interface.md)",
+            "",
+            "- 清單 [列表連結](tasks.md)",
+            "",
+            "| a | b |",
+            "| --- | --- |",
+            "| [表格連結](mobile.md) | x |",
+            "",
+            "> 引言 [引言連結](install.md)",
+          ].join("\n")}
+          resolveDocLink={spy.resolve}
+        />,
+      );
+      expect(spy.asked).toEqual([
+        "interface.md",
+        "tasks.md",
+        "mobile.md",
+        "install.md",
+      ]);
+      expect(container.querySelectorAll("h2 button.md-doclink").length).toBe(1);
+      expect(container.querySelectorAll("li button.md-doclink").length).toBe(1);
+      expect(container.querySelectorAll("td button.md-doclink").length).toBe(1);
+      expect(
+        container.querySelectorAll("blockquote button.md-doclink").length,
+      ).toBe(1);
+    });
+  });
+
+  // ── T-68f1 · GitHub alert blockquotes ────────────────────────────────────
+  // `> [!NOTE]` is used by docs/guide/{install,mobile}.md. Before the fix the
+  // marker printed verbatim as "[!NOTE]" at the head of the quote.
+  describe("GitHub alert blockquotes (T-68f1)", () => {
+    it("consumes the [!TYPE] marker and keeps the severity as a class", () => {
+      const c = renderMd("> [!WARNING]\n> 成員有很大的行動自由。");
+      const q = c.querySelector("blockquote");
+      expect(q?.textContent).toBe("成員有很大的行動自由。");
+      expect(c.textContent).not.toContain("[!WARNING]");
+      expect(q?.className).toBe("md-alert md-alert--warning");
+    });
+
+    it("leaves an ordinary blockquote untouched (no class, no stripping)", () => {
+      const c = renderMd("> 一般引言\n> 第二行");
+      const q = c.querySelector("blockquote");
+      expect(q?.textContent).toBe("一般引言 第二行");
+      expect(q?.getAttribute("class")).toBeNull();
+    });
+
+    it("does not eat a bracketed line that is not an alert marker", () => {
+      const c = renderMd("> [!NOPE] 這不是 alert");
+      expect(c.querySelector("blockquote")?.textContent).toBe(
+        "[!NOPE] 這不是 alert",
+      );
+      expect(c.querySelector("blockquote")?.getAttribute("class")).toBeNull();
     });
   });
 });

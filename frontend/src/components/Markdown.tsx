@@ -22,7 +22,10 @@
 // Inline:       **bold**, `code`, and [text](url) links (http/https/mailto
 //               only — any other scheme, e.g. "javascript:", falls through as
 //               literal text instead of becoming an <a>; real links carry
-//               target="_blank" rel="noopener noreferrer").
+//               target="_blank" rel="noopener noreferrer"). A SECOND, opt-in
+//               link class exists for the 使用說明 doc page only: repo-relative
+//               `*.md` targets resolved through `resolveDocLink` into IN-APP
+//               navigation (T-68f1) — see the prop's doc comment.
 
 import { Fragment, type ReactNode } from "react";
 
@@ -51,6 +54,23 @@ interface MarkdownProps {
    * gated `?token=` auth on (authedAttachmentUrl) — a bare <img> cannot send an
    * Authorization header. Unsafe/foreign schemes fall through as literal text. */
   resolveImageSrc?: (src: string) => string;
+  /** Resolve a REPO-RELATIVE markdown reference (`[看這個](docs/guide/why.md)`,
+   * `[env](../dev/agent-env.md)`) into an in-app navigation action, or null to
+   * keep the current literal-text fallback. OFF by default — exactly like
+   * `resolveImageSrc`, so every existing call site (chat / manuals / seeds /
+   * task text, all of which carry AGENT-authored, untrusted text) keeps
+   * rendering such a reference as literal text. The 使用說明 doc page turns it
+   * ON, because it is the only surface whose source is the build-time doc
+   * embed AND the only surface with somewhere to navigate to.
+   *
+   * SECURITY: this is a THIRD link class, NOT a loosening of SAFE_URL_RE. The
+   * external-scheme allowlist is evaluated FIRST and unchanged; only targets
+   * matching DOC_REL_PATH_RE (a positive allowlist that cannot contain ":" and
+   * cannot start with "/") are ever handed to the resolver, so `javascript:`,
+   * `data:` and protocol-relative `//evil.com` never reach it and stay literal
+   * text. The result is a <button>, not an <a href>, so there is no URL for an
+   * open redirect to target. */
+  resolveDocLink?: (target: string) => (() => void) | null;
 }
 
 const LINK_RE = /^\[([^\]]+)\]\(([^)]+)\)$/;
@@ -60,11 +80,28 @@ const SAFE_URL_RE = /^(https?:|mailto:)/i;
 // API path (the server rewrites doc-relative `assets/…` refs to `/api/docs/
 // assets/…`). data:/javascript:/relative fall through as literal text.
 const SAFE_IMG_SRC_RE = /^(https?:\/\/|\/)/i;
+// A repo-relative markdown path — the ONLY link shape ever handed to
+// `resolveDocLink`. A POSITIVE allowlist, deliberately built so the dangerous
+// shapes cannot spell themselves with it:
+//   • the character class has no ":" → no scheme at all (javascript:, data:,
+//     vbscript:, http:) can match, so a scheme can never reach the resolver;
+//   • the first segment cannot start with "/" → "/abs/x.md" and the
+//     protocol-relative "//evil.com/x.md" are both excluded;
+//   • it must END in ".md" → "#anchor", "?q=…", "evil.com" are excluded.
+// Matching here only makes a target ELIGIBLE; the resolver still has to
+// recognise it (the doc page checks it against the docs actually embedded), and
+// a null answer keeps the literal-text fallback.
+const DOC_REL_PATH_RE = /^[A-Za-z0-9._~-]+(?:\/[A-Za-z0-9._~-]+)*\.md$/;
+
+/** Inline-render options threaded from <Markdown> down every block path. */
+interface InlineOpts {
+  resolveDocLink?: (target: string) => (() => void) | null;
+}
 
 // Split one line of text into inline nodes: `code` spans, **bold** runs, and
 // [text](url) links, everything else literal. Code takes precedence (its
 // content is not re-parsed).
-function renderInline(text: string): ReactNode[] {
+function renderInline(text: string, opts?: InlineOpts): ReactNode[] {
   // Capturing split keeps the delimiters as their own array entries.
   const parts = text.split(
     /(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\))/g
@@ -81,13 +118,33 @@ function renderInline(text: string): ReactNode[] {
       const link = LINK_RE.exec(part);
       if (link) {
         const [, label, url] = link;
-        // Unrecognized/unsafe scheme (javascript:, data:, …) — render the
-        // literal source text instead of a clickable anchor.
-        if (!SAFE_URL_RE.test(url.trim())) {
+        const target = url.trim();
+        // The external-scheme allowlist runs FIRST and is unchanged.
+        if (!SAFE_URL_RE.test(target)) {
+          // Second chance, opt-in only: a repo-relative *.md reference the host
+          // surface knows how to navigate to in-app. Anything the positive
+          // path allowlist does not match — and anything the resolver declines
+          // — keeps the literal-text fallback.
+          if (opts?.resolveDocLink && DOC_REL_PATH_RE.test(target)) {
+            const navigate = opts.resolveDocLink(target);
+            if (navigate) {
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  className="md-doclink"
+                  data-doc-target={target}
+                  onClick={navigate}
+                >
+                  {label}
+                </button>
+              );
+            }
+          }
           return <Fragment key={i}>{part}</Fragment>;
         }
         return (
-          <a key={i} href={url.trim()} target="_blank" rel="noopener noreferrer">
+          <a key={i} href={target} target="_blank" rel="noopener noreferrer">
             {label}
           </a>
         );
@@ -101,6 +158,8 @@ const ULIST_RE = /^[-*]\s+(.*)$/;
 const OLIST_RE = /^(\d+)\.\s+(.*)$/;
 const QUOTE_RE = /^>\s?(.*)$/;
 const FENCE_RE = /^```/;
+// GitHub alert marker — the first line of a blockquote, alone: "> [!NOTE]".
+const ALERT_RE = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]$/i;
 
 // ── GFM tables (T-bc3e) ──────────────────────────────────────────────────────
 // A table starts where a line containing "|" is IMMEDIATELY followed by a valid
@@ -172,12 +231,16 @@ function dedent(lines: string[]): string[] {
 // Render the lines of ONE paragraph. Default markdown folds them into a single
 // run (join with a space); `breaks` keeps each source line on its own visual
 // line by separating them with <br>.
-function renderParagraph(lines: string[], breaks: boolean): ReactNode[] {
-  if (!breaks) return renderInline(lines.join(" "));
+function renderParagraph(
+  lines: string[],
+  breaks: boolean,
+  opts?: InlineOpts
+): ReactNode[] {
+  if (!breaks) return renderInline(lines.join(" "), opts);
   return lines.map((line, idx) => (
     <Fragment key={idx}>
       {idx > 0 ? <br /> : null}
-      {renderInline(line)}
+      {renderInline(line, opts)}
     </Fragment>
   ));
 }
@@ -186,7 +249,8 @@ function renderParagraph(lines: string[], breaks: boolean): ReactNode[] {
 function renderBlocks(
   source: string,
   breaks = false,
-  resolveImageSrc?: (src: string) => string
+  resolveImageSrc?: (src: string) => string,
+  opts?: InlineOpts
 ): ReactNode[] {
   const lines = source.replace(/\r\n/g, "\n").split("\n");
   const blocks: ReactNode[] = [];
@@ -242,7 +306,7 @@ function renderBlocks(
     const heading = HEADING_RE.exec(line);
     if (heading) {
       const level = heading[1].length;
-      const content = renderInline(heading[2]);
+      const content = renderInline(heading[2], opts);
       if (level === 1) blocks.push(<h1 key={key++}>{content}</h1>);
       else if (level === 2) blocks.push(<h2 key={key++}>{content}</h2>);
       else blocks.push(<h3 key={key++}>{content}</h3>);
@@ -297,12 +361,12 @@ function renderBlocks(
         while (cont.length && cont[cont.length - 1] === "") cont.pop();
         const inner =
           cont.length > 0
-            ? renderBlocks(dedent(cont).join("\n"), breaks, resolveImageSrc)
+            ? renderBlocks(dedent(cont).join("\n"), breaks, resolveImageSrc, opts)
             : [];
 
         items.push(
           <li key={items.length} value={ordered ? num : undefined}>
-            {renderInline(head)}
+            {renderInline(head, opts)}
             {inner.length > 0 ? inner : null}
           </li>
         );
@@ -344,7 +408,7 @@ function renderBlocks(
             <tr>
               {headerCells.map((c, ci) => (
                 <th key={ci} style={alignStyle(aligns[ci])}>
-                  {renderInline(c)}
+                  {renderInline(c, opts)}
                 </th>
               ))}
             </tr>
@@ -355,7 +419,7 @@ function renderBlocks(
                 <tr key={ri}>
                   {r.map((c, ci) => (
                     <td key={ci} style={alignStyle(aligns[ci])}>
-                      {renderInline(c)}
+                      {renderInline(c, opts)}
                     </td>
                   ))}
                 </tr>
@@ -376,8 +440,25 @@ function renderBlocks(
         quoted.push(m[1]);
         i++;
       }
+      // GitHub alert syntax (`> [!NOTE]` / `> [!WARNING]` …, T-68f1). The
+      // marker line is CONSUMED — never shown as literal "[!NOTE]" noise — and
+      // its severity survives as a class on the blockquote, so a stylesheet can
+      // render a callout WITHOUT this renderer having to own any label text
+      // (no i18n strings, no per-type markup). Surfaces that do not style
+      // `.md-alert` simply get a clean blockquote.
+      const alert = quoted.length > 0 ? ALERT_RE.exec(quoted[0].trim()) : null;
+      if (alert) quoted.shift();
       blocks.push(
-        <blockquote key={key++}>{renderInline(quoted.join(" "))}</blockquote>
+        <blockquote
+          key={key++}
+          className={
+            alert
+              ? `md-alert md-alert--${alert[1].toLowerCase()}`
+              : undefined
+          }
+        >
+          {renderInline(quoted.join(" "), opts)}
+        </blockquote>
       );
       continue;
     }
@@ -400,7 +481,7 @@ function renderBlocks(
       para.push(l);
       i++;
     }
-    blocks.push(<p key={key++}>{renderParagraph(para, breaks)}</p>);
+    blocks.push(<p key={key++}>{renderParagraph(para, breaks, opts)}</p>);
   }
 
   return blocks;
@@ -412,10 +493,11 @@ export function Markdown({
   className,
   breaks = false,
   resolveImageSrc,
+  resolveDocLink,
 }: MarkdownProps) {
   return (
     <div className={className}>
-      {renderBlocks(source, breaks, resolveImageSrc)}
+      {renderBlocks(source, breaks, resolveImageSrc, { resolveDocLink })}
     </div>
   );
 }

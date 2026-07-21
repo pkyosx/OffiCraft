@@ -514,6 +514,30 @@
   color: var(--color-accent);
   text-decoration: underline;
 }
+/* T-68f1 — IN-APP doc link (Markdown's `resolveDocLink`). It is a <button>, not
+ * an <a href>: the 使用說明 page has no hash route, so the destination is a
+ * setView ACTION, not a URL — and having no href means there is no navigation
+ * target for an open redirect to aim at. It must READ as the link it replaces,
+ * so it borrows `.doc-md a`'s colour/underline and drops every button default. */
+.doc-md .md-doclink {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--color-accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+/* T-68f1 — GitHub alert blockquotes (`> [!NOTE]`). The renderer strips the
+ * marker line and leaves the severity as a class; the ONLY thing carried here
+ * is the accent colour, so no label text (and therefore no i18n) is needed. */
+.doc-md blockquote.md-alert--warning,
+.doc-md blockquote.md-alert--caution {
+  border-left-color: rgba(240, 138, 138, 0.6);
+}
+.doc-md blockquote.md-alert--important {
+  border-left-color: rgba(190, 150, 240, 0.6);
+}
 /* T-bc3e: GFM tables. `display: block + overflow-x` makes a wide table scroll
  * inside its container (chat bubble, task card, settings doc) instead of
  * widening it — same posture as .doc-md pre; `width: max-content` keeps a
