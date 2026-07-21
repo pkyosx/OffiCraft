@@ -328,7 +328,7 @@ echo "[ci] (4/5) frontend — tsc typecheck + vitest + contract drift gate (spec
 # go (1) and gitleaks (3), a missing toolchain FAILS CI rather than silently
 # skipping — a green run must MEAN the FE suite + typecheck + drift gate actually
 # ran (the land authority is the "[ci] all green" marker, not exit 0; root
-# CLAUDE.md land pipeline + docs/dev.md). The launchd autodeploy has a minimal
+# CLAUDE.md land pipeline + docs/dev/README.md). The launchd autodeploy has a minimal
 # PATH, so resolve npm by abspath fallback like gitleaks/go above.
 NPM="$(command -v npm 2>/dev/null || true)"
 if [[ -z "$NPM" ]]; then

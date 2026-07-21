@@ -1,6 +1,6 @@
 # 開發指南
 
-一般使用者請看 repo 根的 [README.md](../README.md)；這裡是給改 code 的人。repo-wide 憲章與 land 紀律的權威在根目錄 [CLAUDE.md](../CLAUDE.md)，各域（`server/` `cli/` `frontend/` `conformance/` `e2e_test/`）另有自己的 `CLAUDE.md`，本文不重複，只給地圖與跑法。
+一般使用者請看 repo 根的 [README.md](../../README.md)；這裡是給改 code 的人。repo-wide 憲章與 land 紀律的權威在根目錄 [CLAUDE.md](../../CLAUDE.md)，各域（`server/` `cli/` `frontend/` `conformance/` `e2e_test/`）另有自己的 `CLAUDE.md`，本文不重複，只給地圖與跑法。
 
 ## 技術棧
 
@@ -58,7 +58,7 @@ CI 跑在本地（不付 GitHub Actions），從第一個非零步驟就 fail-fa
 
 ## wire freeze
 
-wire（HTTP OpenAPI 面、MCP tool 面）已凍結：**動 wire 一律 spec 先行**——先改 `spec/openapi.json` / `spec/mcp-catalog.json`（+ owner 過目），再 `bash bin/gen-ocapi` 重生、動碼。CI 的 wire-freeze gate 擋任何未過 spec 的漂移；行為面由 `conformance/run.sh --target go` 收官。完整紀律見 [CLAUDE.md](../CLAUDE.md) §13。
+wire（HTTP OpenAPI 面、MCP tool 面）已凍結：**動 wire 一律 spec 先行**——先改 `spec/openapi.json` / `spec/mcp-catalog.json`（+ owner 過目），再 `bash bin/gen-ocapi` 重生、動碼。CI 的 wire-freeze gate 擋任何未過 spec 的漂移；行為面由 `conformance/run.sh --target go` 收官。完整紀律見 [CLAUDE.md](../../CLAUDE.md) §13。
 
 ## 發佈簽章(穩定 codesign 身分,T-33d5)
 
