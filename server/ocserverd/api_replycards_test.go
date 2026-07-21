@@ -957,6 +957,35 @@ func TestDismissingAMemberRetiresItsWaitingCards(t *testing.T) {
 	}
 }
 
+// TestDismissingAnOutsourceWorkerRetiresItsWaitingCards covers the third
+// dismissal seam (dismissOutsourceWorkerByID — the deferred handover fires the
+// predecessor by worker id). Same rule as a member dismissal: the asker is
+// gone, so its waiting cards can never be consumed.
+func TestDismissingAnOutsourceWorkerRetiresItsWaitingCards(t *testing.T) {
+	api := newTasksTestServer(t)
+	now := nowSecs()
+	mine := waitingCard("rc-fired", now-60)
+	mine.FromMember = "ow-fired"
+	bystander := waitingCard("rc-other", now-60)
+	bystander.FromMember = "ow-live"
+	for _, c := range []ReplyCard{mine, bystander} {
+		if err := api.dal.PutReplyCard(c); err != nil {
+			t.Fatalf("seed card: %v", err)
+		}
+	}
+
+	api.dismissOutsourceWorkerByID("ow-fired", now, "test")
+
+	got, _ := api.dal.GetReplyCard(mine.ID)
+	if got.Status != replyCardStatusExpired || got.ExpiredTS <= 0 {
+		t.Fatalf("a fired worker's waiting card must retire, got %+v", got)
+	}
+	kept, _ := api.dal.GetReplyCard(bystander.ID)
+	if kept.Status != replyCardStatusWaiting {
+		t.Fatalf("another worker's card must survive, got %s", kept.Status)
+	}
+}
+
 // TestOrphanReplyCardBootReconcileRetiresStrandedCards covers the 存量: rows
 // minted before the lifecycle fix. Boot retires waiting cards whose task is
 // already terminal (or gone) — the ONLY way the cockpit red dot they pin ever
