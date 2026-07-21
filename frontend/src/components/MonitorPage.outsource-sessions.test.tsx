@@ -6,9 +6,16 @@
 // codename + task context and its runtime columns, (2) a worker that never
 // reported a column shows the honest dash — never a fabricated value, and
 // (3) the existing member rows are NOT disturbed by the addition.
+//
+// T-cf32 also adds: the whole outsource row is clickable (owner ruling, card
+// rc-d3dad3e0c6b5 option 0), navigating to the office page's EXISTING worker
+// detail route — same whole-row affordance as the member SessionRow. Layout
+// (the long task title wrapping instead of stretching the table) is a geometry
+// contract jsdom cannot see, guarded separately in
+// visual-guards/monitor-outsource-sub-wrap.ct.spec.tsx.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, within, fireEvent } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { MonitorPage } from "./MonitorPage";
 import type { Member, MonSessionView } from "../types";
@@ -78,6 +85,9 @@ describe("MonitorPage AI Sessions — outsource workers", () => {
     listMembers.mockResolvedValue([]);
     getMonitoring.mockResolvedValue({ accounts: [], sessions: [], machines: [] });
     listOutsourceWorkers.mockResolvedValue([]);
+    // Routing rides on the real window.location.hash (lib/hashRoute.ts) — reset
+    // it so a route left by a previous test cannot leak into the next.
+    window.location.hash = "";
   });
 
   it("lists an outsource worker with its codename, task context and runtime columns", async () => {
@@ -144,5 +154,61 @@ describe("MonitorPage AI Sessions — outsource workers", () => {
     expect(rows).toHaveLength(2);
     // the member session row is still rendered next to them (not broken)
     expect(screen.getByText("Eva")).toBeTruthy();
+  });
+
+  // T-cf32 — owner ruling (card rc-d3dad3e0c6b5, option 0): the whole outsource
+  // row is clickable, the SAME affordance as the member SessionRow, and it
+  // navigates to the office page's EXISTING worker detail route
+  // (#office/worker/<id>) — a real destination, not an invented one, and not a
+  // separate avatar hit-target (that option was shown to the owner and declined).
+  it("clicking the outsource row navigates to that worker's office detail route", async () => {
+    listOutsourceWorkers.mockResolvedValue([worker()]);
+    renderMonitor();
+
+    const row = await screen.findByTestId("mon-outsource-row");
+    fireEvent.click(row);
+
+    expect(window.location.hash).toBe("#office/worker/ow-1");
+  });
+
+  it("navigates on Enter and Space for keyboard parity with the member row", async () => {
+    listOutsourceWorkers.mockResolvedValue([worker()]);
+    renderMonitor();
+
+    const row = await screen.findByTestId("mon-outsource-row");
+    expect(row.getAttribute("role")).toBe("button");
+    expect(row.getAttribute("tabindex")).toBe("0");
+
+    fireEvent.keyDown(row, { key: "Enter" });
+    expect(window.location.hash).toBe("#office/worker/ow-1");
+
+    window.location.hash = "";
+    fireEvent.keyDown(row, { key: " " });
+    expect(window.location.hash).toBe("#office/worker/ow-1");
+  });
+
+  // SENTINEL — the member row's own click-through must be UNCHANGED by the
+  // outsource row change: it still carries role/tabindex and still routes to
+  // Monitor's own member detail (#monitor/member/<id>), NOT the office worker
+  // route. Proves the new outsource affordance did not disturb the member path.
+  it("SENTINEL: the member row still routes to #monitor/member/<id>, untouched", async () => {
+    getMonitoring.mockResolvedValue({
+      accounts: [],
+      sessions: [session()],
+      machines: [],
+    });
+    listMembers.mockResolvedValue([
+      { id: "mem-eva", name: "Eva", role: "engineer", status: "online" } as Member,
+    ]);
+    listOutsourceWorkers.mockResolvedValue([worker()]);
+    renderMonitor();
+
+    await screen.findByTestId("mon-outsource-row");
+    const memberRow = screen.getByText("Eva").closest("tr")!;
+    expect(memberRow.getAttribute("role")).toBe("button");
+    expect(memberRow.getAttribute("tabindex")).toBe("0");
+
+    fireEvent.click(memberRow);
+    expect(window.location.hash).toBe("#monitor/member/mem-eva");
   });
 });

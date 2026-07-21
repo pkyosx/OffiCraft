@@ -194,6 +194,23 @@
   margin-top: 3px;
   font-size: 12px;
   color: var(--color-text-muted);
+  /* T-cf32: this cell — ALONE among `.mon-table td` — carries owner-authored
+   * free text (an outsource worker's bound task TITLE, not a short role/
+   * status label), so it alone opts out of the table-wide
+   * `.mon-table td { white-space: nowrap }` (monitor.css above). Every other
+   * column stays nowrap on purpose (machine/account/model are short,
+   * deliberately single-line) — do NOT widen this to `.mon-table td`.
+   * `white-space: normal` lets natural (CJK / spaced) titles wrap;
+   * `overflow-wrap: anywhere` additionally breaks an unbreakable long token
+   * (an id/url run with no spaces) so it cannot re-stretch the column — the
+   * same pair the repo already uses for this bug class (office.css chat bubble
+   * T-84c8, tasks.css `.task-badge--type`). NO `min-width: 0` companion:
+   * measured inert here (overflow-wrap:anywhere already collapses this cell's
+   * min-content, so a flex item's min-width:auto stops binding — the same
+   * finding the card-mode `.mon-table td` note below records), and an inert
+   * rule reads as load-bearing to the next reader. */
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 /* Shared presence badge (PresenceBadge) on the session rows — see member-detail
    .css for the canonical rule; repeated here so the badge is styled even when the

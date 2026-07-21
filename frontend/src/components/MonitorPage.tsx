@@ -1012,7 +1012,20 @@ export function MonitorPage() {
                * untouched. Each cell falls back to an honest dash when the worker
                * never reported that column. */}
               {outsource.workers.map((w) => (
-                <OutsourceSessionRow key={w.id} worker={w} dash={dash} />
+                <OutsourceSessionRow
+                  key={w.id}
+                  worker={w}
+                  dash={dash}
+                  // T-cf32: owner ruling — the whole row is clickable, SAME
+                  // affordance as the member SessionRow above (no separate
+                  // avatar hit-target; that option was shown and declined).
+                  // The destination is the office page's EXISTING worker
+                  // detail route (#office/worker/<id> — WorkerDetailPanel,
+                  // already wired with every mutation there), reused via the
+                  // shared setRoute/HashRoute helper — not a hand-built hash
+                  // string, and not a duplicate panel embedded here.
+                  onOpen={() => setRoute({ page: "office", workerId: w.id })}
+                />
               ))}
             </tbody>
           </table>
@@ -1194,16 +1207,29 @@ function SessionRow({
  * kinds read as a single list. The member cell shows the anonymous codename
  * (O-xx) over its task context (title → type → T-xxxx) so the reader can tell
  * WHAT the worker is doing; every runtime column falls back to an honest dash
- * when the worker never reported it. The row is non-clickable: this table's
- * detail click-through opens MemberDetailPanel, which a worker has no entry in —
- * a fake click target would be dishonest, so (matching a session with no roster
- * match) we simply don't offer one. */
+ * when the worker never reported it.
+ *
+ * The row IS clickable (T-cf32; owner ruling — same whole-row affordance as
+ * SessionRow above, no separate avatar hit-target). This note used to say the
+ * opposite ("non-clickable — a worker has no detail entry, a fake click
+ * target would be dishonest"); that premise is now STALE, not current fact —
+ * `WorkerDetailPanel` (frontend/src/components/WorkerDetailPanel.tsx) and its
+ * route (`#office/worker/<id>`, hashRoute.ts) have existed since T-ba6b/
+ * T-f190 and OfficePage's OutsourcePanel already opens them. `onOpen` (passed
+ * by the caller) routes there — a REAL, already-existing destination, not an
+ * invented one, so the honesty concern the old comment raised still holds; it
+ * is just satisfied a different way than the member row (which stays on
+ * Monitor's own `#monitor/member/<id>`; there is no monitor-scoped worker
+ * route, so this one crosses to the office page that owns the panel instead
+ * of duplicating it here). */
 function OutsourceSessionRow({
   worker,
   dash,
+  onOpen,
 }: {
   worker: OutsourceWorkerView;
   dash: string;
+  onOpen: () => void;
 }) {
   const { t } = useI18n();
 
@@ -1220,7 +1246,19 @@ function OutsourceSessionRow({
       : (worker.cost ?? 0) + (worker.bankedCost ?? 0);
 
   return (
-    <tr data-testid="mon-outsource-row">
+    <tr
+      className="mon-row--clickable"
+      onClick={onOpen}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+      data-testid="mon-outsource-row"
+    >
       <td className="mon-table__left" data-label={t.monitor.sessionCol.member}>
         <div className="mon-member">
           <Avatar size={34} />
