@@ -93,13 +93,28 @@ no Go/Node toolchain needed.
 \`\`\`
 
 Installs to \`~/.officraft/bin\`, creates/migrates the database at
-\`~/.officraft/server/data/officraft.db\`, then starts the service in the
-foreground. On first run the log prints a one-time link
-(\`http://127.0.0.1:7755/?code=…\`) — open it to set your owner password.
-Already have OffiCraft installed? The installer detects it, warns, and asks
-before overwriting (\`--force\` skips the prompt in scripts).
+\`~/.officraft/server/data/officraft.db\`, then registers and starts the
+launchd job \`com.officraft.serve\` (starts at login, restarts on crash; logs
+to \`~/.officraft/server/log/serve.log\`). It does NOT hold your terminal —
+pass \`--foreground\` if you want that instead. The installer then prints a
+one-time setup link (\`http://127.0.0.1:7755/?code=…\`) — open it to set your
+owner password.
 
-Stop with Ctrl-C; start again later with \`~/.officraft/bin/ocserverd serve\`.
+Once that password is set the server finishes setup ITSELF: it installs this
+machine's warden and brings your assistant online, so you land on a working
+studio rather than an empty cockpit. That needs a working, LOGGED-IN \`claude\`
+CLI (and \`tmux\`) on this machine; if either is missing the setup fails
+loudly and the cockpit shows exactly why, instead of installing a warden that
+would refuse every spawn. If \`claude\` lives behind a version manager
+(asdf/nvm/volta), re-run with \`OC_CLAUDE_BIN=/absolute/path/to/claude\`.
+
+Already have OffiCraft installed? The installer detects it, warns, and asks
+before overwriting (\`--force\` skips the prompt in scripts). If a service is
+LIVE it refuses outright — restarting it drops every connected cockpit and
+agent — until you also pass \`--restart-live\`.
+
+Stop/start the service with
+\`launchctl bootout|bootstrap gui/\$(id -u) ~/Library/LaunchAgents/com.officraft.serve.plist\`.
 
 ## Contents
 

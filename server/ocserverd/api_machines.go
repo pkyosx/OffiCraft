@@ -622,11 +622,25 @@ func (s *apiServer) HandleBootstrapHereApiMachinesMachineIdBootstrapHerePost(w h
 	if !ok {
 		return
 	}
-	ttl := machineTTL(defaultMachineTTLDays)
-	token, err := s.mintMemberToken(*machine, ttl)
+	res, err := s.runWardenInstallHere(*machine, binPath, requestBaseURL(r))
 	if err != nil {
 		internalError(w, err)
 		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// runWardenInstallHere is the bootstrap-here CORE, split out (T-ba62) so the
+// automatic first-run onboarding can install this host's warden through the
+// EXACT same path the cockpit button uses — one implementation, one set of
+// semantics, no second copy to drift. HTTP concerns stay in the handler; this
+// returns the result DTO (a non-zero exit is a RESULT, not an error) and an
+// error only for a genuine server fault (token mint).
+func (s *apiServer) runWardenInstallHere(machine Member, binPath, baseURL string) (bootstrapResultDTO, error) {
+	ttl := machineTTL(defaultMachineTTLDays)
+	token, err := s.mintMemberToken(machine, ttl)
+	if err != nil {
+		return bootstrapResultDTO{}, err
 	}
 	// env = the server process env (PATH/HOME inherited) + the OC_* wiring;
 	// OC_ID scrubbed — identity rides SOLELY in the token's sub.
@@ -644,7 +658,7 @@ func (s *apiServer) HandleBootstrapHereApiMachinesMachineIdBootstrapHerePost(w h
 		}
 		env = append(env, kv)
 	}
-	env = append(env, "OC_BASE="+requestBaseURL(r), "OC_TOKEN="+token)
+	env = append(env, "OC_BASE="+baseURL, "OC_TOKEN="+token)
 	// Namespaced instance: the warden it installs on this host must key its
 	// root/label/socket off the same namespace (single propagation env).
 	if s.namespace != "" {
@@ -652,20 +666,19 @@ func (s *apiServer) HandleBootstrapHereApiMachinesMachineIdBootstrapHerePost(w h
 	}
 	exitCode, log, timedOut := runOcwarden(binPath, []string{"install", "--force"}, env)
 	if timedOut {
-		writeJSON(w, http.StatusOK, bootstrapResultDTO{
+		return bootstrapResultDTO{
 			MachineID: machine.ID,
 			OK:        false,
 			ExitCode:  -1,
 			Log:       "ocwarden install timed out (exceeded 60s) — no changes confirmed",
-		})
-		return
+		}, nil
 	}
-	writeJSON(w, http.StatusOK, bootstrapResultDTO{
+	return bootstrapResultDTO{
 		MachineID: machine.ID,
 		OK:        exitCode == 0,
 		ExitCode:  exitCode,
 		Log:       log,
-	})
+	}, nil
 }
 
 // POST /api/machines/{machine_id}/teardown-here — tear the warden down ON THE

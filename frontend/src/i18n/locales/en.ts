@@ -392,6 +392,19 @@ export const en: Dict = {
     errorTaken: "A password is already set — sign in instead",
     gotoLogin: "Go to sign in",
   },
+  // T-ba62 first-run automation result banner. Shown ONLY when something did
+  // not succeed: on success a live assistant in the cockpit IS the signal, and
+  // on failure this is the only place the owner can read WHY.
+  onboarding: {
+    titleFailed: "Automatic setup did not finish",
+    intro:
+      "After you set your password the server installs this machine and wakes your assistant automatically. One step did not pass:",
+    stepInstallWarden: "Install this machine",
+    stepWakeAssistant: "Wake the assistant",
+    detailShow: "Show details",
+    detailHide: "Hide details",
+    dismiss: "Got it",
+  },
   profile: {
     title: "Profile",
     rename: "Rename",
@@ -714,6 +727,10 @@ export const en: Dict = {
       bootstrapErrorDetail: (detail: string) => `Install request failed: ${detail}`,
       bootstrapFailed: (exitCode: number) =>
         `Install failed (exit code ${exitCode}). Reason:`,
+      // T-ba62: the log is kept on SUCCESS too. The success branch used to
+      // throw it away, so "installed" and "installed with warnings inside"
+      // looked identical.
+      bootstrapSucceeded: "Install finished. Log:",
       // uninstall (POST /uninstall): drive the uninstall RPC to the warden
       // (online-only)
       uninstallConfirmTitle: "Confirm uninstall",

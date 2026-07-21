@@ -134,7 +134,16 @@ trap cleanup EXIT
 # unroutable loopback address — the black-box run must never reach the real
 # api.github.com (hermeticity + the anonymous 60/hour rate limit); every check
 # fails FAST and the wire answers its honest degraded faces deterministically.
+# OC_NO_ONBOARDING=1 (T-ba62) is a HOST-SAFETY switch, not a test convenience.
+# The automatic first-run onboarding installs THIS host's warden, and a launchd
+# label is a singleton in the user's GUI domain keyed on uid — it does not follow
+# $HOME, a temp dir, or this throwaway database. So a suite that reached
+# set-password on its fresh DB would re-point the operator's REAL warden at a
+# server on :8795 that is torn down seconds later. The server carries its own
+# interlock (it refuses to install over an existing warden), but this suite runs
+# on machines that may have none at all, where that interlock passes.
 oc_env() { env -u OC_ID -u OC_TOKEN -u OC_BASE OC_CONFIG="$WORK/oc.toml" \
+             OC_NO_ONBOARDING=1 \
              OC_DATABASE_URL="$DB_URL" OC_RELEASE_API_BASE="http://127.0.0.1:1" "$@"; }
 
 # T-e731: the seed .md files, the prebuilt ocwarden/ocagent, and the frozen MCP

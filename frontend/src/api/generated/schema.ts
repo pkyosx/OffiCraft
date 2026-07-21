@@ -3785,6 +3785,11 @@ export interface components {
          */
         MemberDTO: {
             /**
+             * Activation Pending
+             * @description Set true ONLY on the activate response when the decided START could not be delivered to the target warden (no live SSE downstream) — the wake intent is persisted and the reconcile cadence retries, but nothing has been dispatched yet. Absent/null on every other member read. The activate twin of ``relocation_pending``: without it an activate against an unreachable warden returns a clean 200 with zero signal, which is indistinguishable from a wake that actually started (T-ba62 additive-optional).
+             */
+            activation_pending?: boolean | null;
+            /**
              * Desired Machine Id
              * @default m-server-self
              */
@@ -4128,6 +4133,55 @@ export interface components {
             /** Manual */
             manual: components["schemas"]["TaskManualDTO"] | null;
             task: components["schemas"]["TaskDTO"];
+        };
+        /**
+         * OnboardingReportDTO
+         * @description The result of the automatic first-run onboarding that runs right after the owner sets the initial password (T-ba62): install this host's warden, then bring the seeded assistant online. ``state`` is ``running`` / ``ok`` / ``failed``. ``steps`` carries one entry per attempted step in order. ``finished_at`` is the unix seconds the run ended (0 while running). Null on the settings read when onboarding never ran (an install that predates it, or a database that already had a password).
+         */
+        OnboardingReportDTO: {
+            /**
+             * Finished At
+             * @default 0
+             */
+            finished_at: number;
+            /**
+             * Started At
+             * @default 0
+             */
+            started_at: number;
+            /**
+             * State
+             * @default
+             */
+            state: string;
+            /**
+             * Steps
+             * @default []
+             */
+            steps: components["schemas"]["OnboardingStepDTO"][];
+        };
+        /**
+         * OnboardingStepDTO
+         * @description One step of the automatic first-run onboarding (T-ba62). ``name`` is a stable machine key (``install_warden`` / ``wake_assistant``); ``ok`` is the step's verdict; ``reason`` is a one-line human-readable cause, ALWAYS populated on a failure so the cockpit can say WHY the assistant is not awake instead of showing an unexplained grey member. ``detail`` carries the raw tool log for a failed step (empty on success) — it is owner-gated, never public.
+         */
+        OnboardingStepDTO: {
+            /**
+             * Detail
+             * @default
+             */
+            detail: string;
+            /** Name */
+            name: string;
+            /**
+             * Ok
+             * @default false
+             */
+            ok: boolean;
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
         };
         /**
          * OutsourceWorkerDTO
@@ -4847,19 +4901,24 @@ export interface components {
             /** Handover Pct */
             handover_pct: number;
             /**
+             * Onboarding
+             * @description The first-run onboarding report (T-ba62), or null when onboarding never ran on this database. Owner-gated by virtue of living on GET /api/settings — a failed step's detail can carry local paths, so it must never reach the PUBLIC /api/auth/status probe.
+             */
+            onboarding?: components["schemas"]["OnboardingReportDTO"] | null;
+            /**
              * Org Name
              * @description The studio display name shown in the cockpit topbar (T-d693). "" = never set — the topbar falls back to the localized default string.
              * @default
              */
             org_name: string;
+            /** Outsource Max Parallel */
+            outsource_max_parallel?: number;
             /**
              * Owner Name
              * @description The owner's display nickname shown in the cockpit topbar profile pill (T-0b41). "" = never set — the pill falls back to the localized default label.
              * @default
              */
             owner_name: string;
-            /** Outsource Max Parallel */
-            outsource_max_parallel?: number;
             /** Token Ttl */
             token_ttl: number;
             /**

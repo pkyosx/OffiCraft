@@ -69,6 +69,29 @@ type settingsDTO struct {
 	// T-0b41-p2). "" = never set — the frontend keeps its localStorage cache /
 	// default. Same dual-layer contract as display_theme.
 	DisplayLanguage string `json:"display_language"`
+	// Onboarding (T-ba62) is the first-run onboarding report, or nil when
+	// onboarding never ran on this database. It rides the OWNER-GATED settings
+	// read on purpose: a failed step's Detail carries the raw `ocwarden install`
+	// log (local paths), so it must never reach the PUBLIC /api/auth/status probe.
+	Onboarding *onboardingReportDTO `json:"onboarding"`
+}
+
+// onboardingStepDTO / onboardingReportDTO are the wire shape of the automatic
+// first-run onboarding result (T-ba62). Reason is ALWAYS populated on a failure:
+// the whole point of the report is that a new owner can read WHY the assistant
+// is not awake instead of staring at an unexplained grey member.
+type onboardingStepDTO struct {
+	Name   string `json:"name"`
+	OK     bool   `json:"ok"`
+	Reason string `json:"reason"`
+	Detail string `json:"detail"`
+}
+
+type onboardingReportDTO struct {
+	State      string              `json:"state"` // running | ok | failed
+	StartedAt  float64             `json:"started_at"`
+	FinishedAt float64             `json:"finished_at"`
+	Steps      []onboardingStepDTO `json:"steps"`
 }
 
 type tokenDTO struct {
@@ -102,6 +125,13 @@ type memberDTO struct {
 	OwnerID           string  `json:"owner_id"`
 	SchemaVersion     int     `json:"schema_version"`
 	RelocationPending *bool   `json:"relocation_pending,omitempty"` // T-8655: set only on the relocate response when the recycle STOP/START could not be delivered (move scheduled, not yet landed); nil everywhere else
+	// ActivationPending (T-ba62) is the activate twin of RelocationPending: set
+	// only on the activate response when the decided START could not be handed
+	// to the target warden (no live SSE downstream). Without it an activate into
+	// an unreachable warden returns a clean 200 that is byte-indistinguishable
+	// from a wake that actually started — the caller has no way to tell "waking"
+	// from "nothing happened and nothing will until the cadence retries".
+	ActivationPending *bool `json:"activation_pending,omitempty"`
 }
 
 type machineDTO struct {

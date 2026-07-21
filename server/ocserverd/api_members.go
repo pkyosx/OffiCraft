@@ -267,10 +267,26 @@ func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.Re
 	}
 	// Event-driven reconcile (the Python _dispatch_reconcile_now click seam):
 	// decide + dispatch the START NOW, not on a later tick; the shared
-	// reconcile store makes the cadence an idempotent backstop. Best-effort —
-	// never fails the activate.
-	s.reconcileMemberNow(m.ID)
-	s.writeMemberDTO(w, *m)
+	// reconcile store makes the cadence an idempotent backstop. The intent is
+	// already persisted so the activate never FAILS on dispatch — but we OBSERVE
+	// it (T-ba62): a decided START the warden could not accept (machine offline,
+	// warden never installed, warden's SSE down) surfaces activation_pending=true,
+	// exactly as relocate has reported relocation_pending since T-8655. Dropping
+	// this return value was the whole bug: an activate against an unreachable
+	// warden answered a clean 200 with zero signal, so "waking" and "nothing was
+	// dispatched and nothing will be until the next cadence tick" looked identical.
+	dec := s.reconcileMemberNow(m.ID)
+	roleName, err := s.memberRoleName(*m)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	dto := s.newMemberDTO(*m, roleName, "", 0)
+	if dec.DispatchUnlanded {
+		pending := true
+		dto.ActivationPending = &pending
+	}
+	writeJSON(w, http.StatusOK, dto)
 }
 
 // POST /api/members/{member_id}/relocate — the owner cockpit's 改機器 for a roster

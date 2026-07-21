@@ -35,7 +35,11 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 3. **偵測現役服務**(launchd job 已註冊**且有 pid**,亦即真的正在服務):重裝必須 bootout 再 bootstrap,是一次真正的重啟,會斷掉所有座艙與 agent 連線。這需要獨立同意 —— 互動時 y/N 詢問(預設否),非互動時**必須明確帶 `--restart-live`**,`--force` 單獨**不**授權斷線;都沒有就中止,且是在任何檔案被寫入之前中止。job 已註冊但沒在跑(沒有 pid)時不發問,直接照常安裝——重啟一個沒在跑的服務不會讓任何人掉線。`--foreground` 不走 launchd,故跳過這道 gate。
 4. 裝 `ocserverd`/`ocwarden`/`ocagent` 到 `~/.officraft/bin`,跑資料庫 migration(資料保留、原地升級)。
 5. **預設埠 7755**(OffiCraft 標準埠;`$OC_CONFIG` / `./oc.toml` 可覆蓋)。埠被占用時明確報錯並提示換埠,不會默默裝下去。
-6. 前景啟動 server;首次安裝 log 會印一次性設定連結(`http://127.0.0.1:7755/?code=…`),打開設定 owner 密碼。Ctrl-C 停止,之後用 `~/.officraft/bin/ocserverd serve` 再啟動(launchd 自動啟動是後續 ticket)。
+6. 註冊並啟動 launchd job `com.officraft.serve`(`RunAtLoad`/`KeepAlive`,log 落在 `~/.officraft/server/log/serve.log`),不佔用你的終端機。想要前景執行請加 `--foreground`,那條路徑不裝任何 launchd job,Ctrl-C 即停。
+7. 從 serve log 撈出一次性設定連結(`http://127.0.0.1:7755/?code=…`)並印出來,打開它設定 owner 密碼。
+8. **設完密碼之後,server 會自己接手最後兩步**(T-ba62):把這台機器的 warden 裝好、把預設助理 Mira 叫醒。你不需要再自己去機器頁按「安裝」,也不需要自己去把助理設成上線。
+   - 這一步需要這台機器上有可用且**已登入**的 `claude` CLI(以及 `tmux`)。缺任何一項時它會**明確失敗並說出原因**,而不是裝一個永遠起不了 agent 的 warden —— 失敗理由會顯示在座艙上方的橫幅裡。
+   - 安裝時解析得到的 claude 路徑會 stamp 進 serve plist 的 `OC_CLAUDE_BIN`/`PATH`;用 asdf/nvm/volta 裝 claude 的人尤其需要這個(launchd 的最小 PATH 找不到 shim)。找不到 claude 時,可以 `OC_CLAUDE_BIN=/absolute/path/to/claude` 重跑安裝(冪等)。
 
 之後的升級不必重跑 install.sh:設定 › 軟體更新 有「檢查更新」與一鍵升級(從 GitHub Releases 下載、sha256 驗證後原地抽換重啟);打開「自動更新」則在背景自動升級。「接收 Beta」= 也吃 GitHub prerelease。
 
@@ -57,7 +61,7 @@ bin/ocserver install --force    # 重跑每一步(reinstall;不動既有密碼)
 ```
 
 前置需求:macOS(launchd)、Go、node/npm、python3 ≥ 3.11;`cloudflared` 只有要開 tunnel 才需要。
-以下「裝完機器上多了什麼 / 移除」兩節描述的是這條 `bin/ocserver` 原始碼路徑;release tarball 路徑只落 `~/.officraft/bin` + 資料庫,不裝任何 launchd job。
+以下「裝完機器上多了什麼 / 移除」兩節描述的是這條 `bin/ocserver` 原始碼路徑。release tarball 路徑落 `~/.officraft/bin` + 資料庫,**並註冊一個 launchd job `com.officraft.serve`**(不裝 autodeploy 與 tunnel —— 那兩個是原始碼路徑才有的)。
 
 ## 裝完機器上多了什麼
 

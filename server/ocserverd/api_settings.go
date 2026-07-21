@@ -105,6 +105,14 @@ func (s *apiServer) HandleSetPasswordApiAuthSetPasswordPost(w http.ResponseWrite
 	}
 	s.passwordHash = phc
 	s.writeOwnerToken(w, s.tokenTTL, time.Now().Unix())
+	// T-ba62: the owner has just claimed this server — do the two things that
+	// used to be manual (install THIS host's warden, bring the seeded assistant
+	// online) so a fresh install lands on a working studio instead of an empty
+	// cockpit. Kicked in the BACKGROUND: the run installs a launchd job and then
+	// waits for the warden's SSE connect, which must not sit inside this
+	// handler's settingsMu. It is idempotent and self-reporting — the outcome
+	// (including WHY it failed) is persisted and served on GET /api/settings.
+	s.kickFirstRunOnboarding()
 }
 
 // POST /api/auth/change-password — owner-gated. Re-verifies the current
@@ -344,5 +352,9 @@ func (s *apiServer) settingsView() settingsDTO {
 		OwnerName:            s.ownerName,
 		DisplayTheme:         s.displayTheme,
 		DisplayLanguage:      s.displayLanguage,
+		// Read from the DAL, NOT from the settings snapshot: onboarding runs in
+		// its own goroutine and finishes after this handler returned, so a
+		// boot-time snapshot would serve a permanently stale "running".
+		Onboarding: s.onboardingReport(),
 	}
 }

@@ -18,6 +18,7 @@ import { TasksPage } from "./components/TasksPage";
 import { MonitorPage } from "./components/MonitorPage";
 import { SettingsPage } from "./components/SettingsPage";
 import { ProfileDropdown } from "./components/ProfileDropdown";
+import { OnboardingBanner } from "./components/OnboardingBanner";
 import { InlineEdit } from "./components/InlineEdit";
 import { useOrgName } from "./hooks/useOrgName";
 import { useOwnerName } from "./hooks/useOwnerName";
@@ -170,6 +171,11 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           </div>
         </div>
       </header>
+
+      {/* T-ba62: the ONLY surface on which a fresh install can read WHY the
+          automatic first-run setup did not produce a working studio. Renders
+          nothing at all unless that run actually failed. */}
+      <OnboardingBanner />
 
       <nav className="nav-tabs">
         <div className="nav-tabs__seg">

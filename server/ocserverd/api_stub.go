@@ -78,6 +78,13 @@ type apiServer struct {
 	// the frontend keeps its cached/default value. NOT an agent read path.
 	displayTheme    string
 	displayLanguage string
+	// selfBase is this server's OWN loopback base URL ("http://127.0.0.1:PORT"),
+	// stamped by cmdServe once the bind address is known. It exists for the ONE
+	// in-process caller that needs an OC_BASE with no HTTP request to derive it
+	// from: the automatic first-run onboarding (onboarding.go), which installs
+	// this host's warden and must tell it where to dial back. "" outside serve
+	// (tests / migrate), where onboarding never runs.
+	selfBase string
 	// namespace is the [server].namespace instance key ("" = main instance).
 	// It leaves the server on exactly two surfaces: the install.sh install line
 	// and the bootstrap/teardown-here child env (OC_NAMESPACE) — the single

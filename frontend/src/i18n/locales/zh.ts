@@ -455,6 +455,18 @@ export const zh = {
     errorTaken: "密碼已經設定過了，請直接登入",
     gotoLogin: "前往登入",
   },
+  // T-ba62 首次安裝自動化的結果橫幅:設完初始密碼後,server 會自己把這台機器的
+  // warden 裝好、把助理叫醒。這個橫幅只在「沒有全部成功」時出現,因為成功時座艙
+  // 上有一個醒著的助理本身就是訊號;失敗時它是使用者唯一看得到的「為什麼」。
+  onboarding: {
+    titleFailed: "自動設定沒有全部完成",
+    intro: "設完密碼之後,系統會自動幫你裝好這台機器、叫醒助理。這次有一步沒過:",
+    stepInstallWarden: "安裝這台機器",
+    stepWakeAssistant: "喚醒助理",
+    detailShow: "顯示詳細記錄",
+    detailHide: "收起詳細記錄",
+    dismiss: "知道了",
+  },
   profile: {
     title: "個人檔案",
     rename: "改名",
@@ -791,6 +803,9 @@ export const zh = {
       bootstrapErrorDetail: (detail: string) => `安裝請求失敗:${detail}`,
       bootstrapFailed: (exitCode: number) =>
         `安裝失敗(結束碼 ${exitCode}),原因如下:`,
+      // T-ba62:成功也保留安裝記錄。原本成功分支把整份 log 丟掉,於是
+      // 「裝好了」與「裝好了但裡面有警告」長得一模一樣。
+      bootstrapSucceeded: "安裝完成,記錄如下:",
       // uninstall (POST /uninstall):驅動 uninstall RPC 給 warden(僅線上可用)
       uninstallConfirmTitle: "確認解除安裝",
       uninstallConfirmBody: (name: string) =>

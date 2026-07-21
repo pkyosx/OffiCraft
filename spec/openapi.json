@@ -1348,6 +1348,18 @@
       "MemberDTO": {
         "description": "API representation of one ``domain.Member`` (a roster member; §3.4 #8/#10).\n\nCarries the durable roster fields PLUS two projections the domain computes at\nread time: ``member_no`` (the ``MB-XXX###`` display badge derived from ``id``,\n§3.10) and ``presence`` (the DERIVED five-state\noffline/waking/online/stopping/stopped, §3.6 — never stored; the SINGLE\npresence word on this wire). The raw ``online`` / ``waking_since`` /\n``stopping_timed_out`` projections were removed from the wire (2026-07-11\naudit): the FE mapper never mapped them and no agent read them — every\nconsumer reads ``presence``. ``roster_status`` is the\nactive/removed LIFECYCLE (the durable ``member.status``), orthogonal to\npresence — named ``roster_status`` on the wire because the FE view model\nalready uses ``status`` for its presence tint (three layers, one word was a\ncollision). The member's TOKEN is NEVER on this DTO.\n\n``role_name`` is the role's display title, resolved by the handler from the\nrole roster (empty until role definitions land in build order B2).",
         "properties": {
+          "activation_pending": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set true ONLY on the activate response when the decided START could not be delivered to the target warden (no live SSE downstream) — the wake intent is persisted and the reconcile cadence retries, but nothing has been dispatched yet. Absent/null on every other member read. The activate twin of ``relocation_pending``: without it an activate against an unreachable warden returns a clean 200 with zero signal, which is indistinguishable from a wake that actually started (T-ba62 additive-optional).",
+            "title": "Activation Pending"
+          },
           "desired_machine_id": {
             "default": "m-server-self",
             "title": "Desired Machine Id",
@@ -1953,6 +1965,68 @@
           "manual"
         ],
         "title": "MyTaskDTO",
+        "type": "object"
+      },
+      "OnboardingReportDTO": {
+        "description": "The result of the automatic first-run onboarding that runs right after the owner sets the initial password (T-ba62): install this host's warden, then bring the seeded assistant online. ``state`` is ``running`` / ``ok`` / ``failed``. ``steps`` carries one entry per attempted step in order. ``finished_at`` is the unix seconds the run ended (0 while running). Null on the settings read when onboarding never ran (an install that predates it, or a database that already had a password).",
+        "properties": {
+          "finished_at": {
+            "default": 0.0,
+            "title": "Finished At",
+            "type": "number"
+          },
+          "started_at": {
+            "default": 0.0,
+            "title": "Started At",
+            "type": "number"
+          },
+          "state": {
+            "default": "",
+            "title": "State",
+            "type": "string"
+          },
+          "steps": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/OnboardingStepDTO"
+            },
+            "title": "Steps",
+            "type": "array"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "OnboardingReportDTO",
+        "type": "object"
+      },
+      "OnboardingStepDTO": {
+        "description": "One step of the automatic first-run onboarding (T-ba62). ``name`` is a stable machine key (``install_warden`` / ``wake_assistant``); ``ok`` is the step's verdict; ``reason`` is a one-line human-readable cause, ALWAYS populated on a failure so the cockpit can say WHY the assistant is not awake instead of showing an unexplained grey member. ``detail`` carries the raw tool log for a failed step (empty on success) — it is owner-gated, never public.",
+        "properties": {
+          "detail": {
+            "default": "",
+            "title": "Detail",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "ok": {
+            "default": false,
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "OnboardingStepDTO",
         "type": "object"
       },
       "OutsourceWorkerDTO": {
@@ -3052,21 +3126,33 @@
             "title": "Handover Pct",
             "type": "integer"
           },
+          "onboarding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OnboardingReportDTO"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The first-run onboarding report (T-ba62), or null when onboarding never ran on this database. Owner-gated by virtue of living on GET /api/settings — a failed step's detail can carry local paths, so it must never reach the PUBLIC /api/auth/status probe.",
+            "title": "Onboarding"
+          },
           "org_name": {
             "default": "",
             "description": "The studio display name shown in the cockpit topbar (T-d693). \"\" = never set — the topbar falls back to the localized default string.",
             "title": "Org Name",
             "type": "string"
           },
+          "outsource_max_parallel": {
+            "title": "Outsource Max Parallel",
+            "type": "integer"
+          },
           "owner_name": {
             "default": "",
             "description": "The owner's display nickname shown in the cockpit topbar profile pill (T-0b41). \"\" = never set — the pill falls back to the localized default label.",
             "title": "Owner Name",
             "type": "string"
-          },
-          "outsource_max_parallel": {
-            "title": "Outsource Max Parallel",
-            "type": "integer"
           },
           "token_ttl": {
             "title": "Token Ttl",

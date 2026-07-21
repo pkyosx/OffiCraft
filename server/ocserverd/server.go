@@ -527,6 +527,9 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 	// The bind host is hardwired loopback (B2): expose via a tunnel, never a
 	// direct non-loopback bind.
 	addr := fmt.Sprintf("%s:%d", defaultHost, cfg.Server.Port)
+	// The in-process onboarding installer has no *http.Request to derive an
+	// OC_BASE from — hand it the address we are about to bind (onboarding.go).
+	api.selfBase = "http://" + addr
 	// Bind FIRST, announce second. The old order printed "serving on ..." before
 	// ListenAndServe had bound anything, so a port clash produced a log that
 	// claimed success and then immediately contradicted itself with a FATAL —

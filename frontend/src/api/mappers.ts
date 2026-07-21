@@ -71,6 +71,7 @@ import type {
   GalleryAttachment,
   ReplyCard,
   ServerSettingsView,
+  OnboardingReportView,
   TaskView,
   TaskStepView,
   TaskArtifactView,
@@ -720,6 +721,31 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     // localStorage cache / default and reconciles a real value in at login.
     displayTheme: w.display_theme ?? "",
     displayLanguage: w.display_language ?? "",
+    // The first-run onboarding report (T-ba62). Absent/null is the NORMAL
+    // state (onboarding never ran on this database) and maps to null — the
+    // mapper never manufactures a report, so "no report" can never be
+    // misread as "onboarding succeeded".
+    onboarding: w.onboarding ? toOnboardingReport(w.onboarding) : null,
+  };
+}
+
+/** WireSettings.onboarding → OnboardingReportView. Pure passthrough
+ * (snake→camel); every field is schema-optional for DTO-compat, and each
+ * fallback is the honest reading of an absent value — never a fabricated
+ * success (an unknown state stays "", it does not become "ok"). */
+export function toOnboardingReport(
+  w: NonNullable<WireServerSettings["onboarding"]>
+): OnboardingReportView {
+  return {
+    state: w.state,
+    startedAt: w.started_at ?? 0,
+    finishedAt: w.finished_at ?? 0,
+    steps: (w.steps ?? []).map((s) => ({
+      name: s.name,
+      ok: s.ok ?? false,
+      reason: s.reason ?? "",
+      detail: s.detail ?? "",
+    })),
   };
 }
 

@@ -657,15 +657,17 @@ type MemberActivateDTO struct {
 // “role_name“ is the role's display title, resolved by the handler from the
 // role roster (empty until role definitions land in build order B2).
 type MemberDTO struct {
-	DesiredMachineId *string  `json:"desired_machine_id,omitempty"`
-	DesiredState     *string  `json:"desired_state,omitempty"`
-	Effort           *string  `json:"effort,omitempty"`
-	Id               string   `json:"id"`
-	Kind             *string  `json:"kind,omitempty"`
-	LastOp           *string  `json:"last_op,omitempty"`
-	LastOpAt         *float64 `json:"last_op_at,omitempty"`
-	LastOpLog        *string  `json:"last_op_log,omitempty"`
-	LastOpOk         *bool    `json:"last_op_ok,omitempty"`
+	// ActivationPending Set true ONLY on the activate response when the decided START could not be delivered to the target warden (no live SSE downstream) — the wake intent is persisted and the reconcile cadence retries, but nothing has been dispatched yet. Absent/null on every other member read. The activate twin of ``relocation_pending``: without it an activate against an unreachable warden returns a clean 200 with zero signal, which is indistinguishable from a wake that actually started (T-ba62 additive-optional).
+	ActivationPending *bool    `json:"activation_pending,omitempty"`
+	DesiredMachineId  *string  `json:"desired_machine_id,omitempty"`
+	DesiredState      *string  `json:"desired_state,omitempty"`
+	Effort            *string  `json:"effort,omitempty"`
+	Id                string   `json:"id"`
+	Kind              *string  `json:"kind,omitempty"`
+	LastOp            *string  `json:"last_op,omitempty"`
+	LastOpAt          *float64 `json:"last_op_at,omitempty"`
+	LastOpLog         *string  `json:"last_op_log,omitempty"`
+	LastOpOk          *bool    `json:"last_op_ok,omitempty"`
 
 	// LastOpReason Structured one-line cause of the most recent warden op (the warden's ``<code>: <detail>`` refusal/failure summary, e.g. ``session_already_exists: ...``) — distinct from the free-form ``last_op_log`` dump. Empty when the receipt carried no reason (older warden, or a successful op); consumers then fall back to status-only display.
 	LastOpReason *string  `json:"last_op_reason,omitempty"`
@@ -815,6 +817,22 @@ type MyTaskDTO struct {
 
 	// Task One task (M3 任務卡): a workflow with a Definition of Done, executed by a roster member or an anonymous outsource worker. ``task_no`` is the display number derived from the id (never a lookup key). ``status`` is DERIVED from the steps (not agent-reported): the work states not_started/in_progress/waiting_owner/waiting_external plus the terminals done/terminated/duplicated. ``reassigning`` is NO LONGER a status — it is the orthogonal ``lock`` field (the owner/admin handover hold, cleared by the claim action; see ``POST /api/tasks/{task_id}/reassign``); ``priority`` includes ``frozen`` (pause-pushing — a priority, not a status). ``executor_kind='outsource'`` with an empty ``executor_id`` is the transient unassigned state. ``closed_ts`` is null while open. ``deps`` are the blocking task ids (display markers, never a status change); ``progress_done``/``progress_total`` count step leaves (``superseded`` replan history counts toward neither side). ``closeout_reported`` flips true once the executor reports the close-out follow-ups done (``report_task_closeout``; terminal tasks only). ``creator_id`` is the verified token sub of the task's creator (a member id, an outsource worker id, or the literal "owner"); "" on rows created before the column existed. ``duplicate_of`` is the id of the ORIGINAL task this one duplicates — non-empty ONLY while ``status='duplicated'`` (MCP ``mark_duplicate``); the graph is depth-1 by construction so the cockpit link always resolves in one hop.
 	Task TaskDTO `json:"task"`
+}
+
+// OnboardingReportDTO The result of the automatic first-run onboarding that runs right after the owner sets the initial password (T-ba62): install this host's warden, then bring the seeded assistant online. “state“ is “running“ / “ok“ / “failed“. “steps“ carries one entry per attempted step in order. “finished_at“ is the unix seconds the run ended (0 while running). Null on the settings read when onboarding never ran (an install that predates it, or a database that already had a password).
+type OnboardingReportDTO struct {
+	FinishedAt *float64             `json:"finished_at,omitempty"`
+	StartedAt  *float64             `json:"started_at,omitempty"`
+	State      string               `json:"state"`
+	Steps      *[]OnboardingStepDTO `json:"steps,omitempty"`
+}
+
+// OnboardingStepDTO One step of the automatic first-run onboarding (T-ba62). “name“ is a stable machine key (“install_warden“ / “wake_assistant“); “ok“ is the step's verdict; “reason“ is a one-line human-readable cause, ALWAYS populated on a failure so the cockpit can say WHY the assistant is not awake instead of showing an unexplained grey member. “detail“ carries the raw tool log for a failed step (empty on success) — it is owner-gated, never public.
+type OnboardingStepDTO struct {
+	Detail *string `json:"detail,omitempty"`
+	Name   string  `json:"name"`
+	Ok     *bool   `json:"ok,omitempty"`
+	Reason *string `json:"reason,omitempty"`
 }
 
 // OutsourceWorkerDTO One outsource worker row of the panel (SPEC §4.1): the anonymous codename (model prefix + sequence), model/effort, lifecycle status (assigned → active → released), and its ONE bound task's id / title / status.
@@ -1232,6 +1250,9 @@ type SettingsDTO struct {
 	// DisplayTheme The owner's cockpit visual theme (T-0b41-p2). "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login as the cross-device source of truth.
 	DisplayTheme *string `json:"display_theme,omitempty"`
 	HandoverPct  int     `json:"handover_pct"`
+
+	// Onboarding The first-run onboarding report (T-ba62), or null when onboarding never ran on this database. Owner-gated by virtue of living on GET /api/settings — a failed step's detail can carry local paths, so it must never reach the PUBLIC /api/auth/status probe.
+	Onboarding *OnboardingReportDTO `json:"onboarding,omitempty"`
 
 	// OrgName The studio display name shown in the cockpit topbar (T-d693). "" = never set — the topbar falls back to the localized default string.
 	OrgName              *string `json:"org_name,omitempty"`

@@ -348,6 +348,17 @@ export const xian: Dict = {
     errorTaken: "密訣早已定下，請直接入場",
     gotoLogin: "前往入場",
   },
+  // T-ba62 首役自成之榜:立訣之後,道場自行安好此台機樞、喚醒侍者。此榜只於
+  // 未竟全功時現身——功成時,座上有一醒著的侍者本身即是明證。
+  onboarding: {
+    titleFailed: "自成之事未竟全功",
+    intro: "立訣之後,道場本應自行安好此台機樞、喚醒侍者。此番有一步未過:",
+    stepInstallWarden: "安置此台機樞",
+    stepWakeAssistant: "喚醒侍者",
+    detailShow: "展閱細錄",
+    detailHide: "收起細錄",
+    dismiss: "已悉",
+  },
   profile: {
     title: "道籍",
     rename: "賜號",
@@ -652,6 +663,9 @@ export const xian: Dict = {
       bootstrapErrorDetail: (detail: string) => `召入陣之請求失敗:${detail}`,
       bootstrapFailed: (exitCode: number) =>
         `入陣失敗(收訣 ${exitCode}),因由如下:`,
+      // T-ba62:功成亦存其錄。昔者功成即棄全錄,遂令「已入陣」與
+      // 「已入陣然錄中有警」無從分辨。
+      bootstrapSucceeded: "入陣既成,錄如下:",
       // 出陣 (POST /uninstall):驅出陣訣予弟子(唯出關可施)
       uninstallConfirmTitle: "確認出陣",
       uninstallConfirmBody: (name: string) =>

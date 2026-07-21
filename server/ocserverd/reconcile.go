@@ -206,6 +206,15 @@ type reconcileDecision struct {
 	// 200-ing a relocation that never landed (T-8655 — the silent false-success
 	// this ticket fixes). Never set on a genuine no-op / converged decision.
 	DispatchUnlanded bool
+	// StartTimedOut (T-ba62) is true on the tick that OBSERVES a dispatched START
+	// lapse its start_timeout with no presence. It exists because that observation
+	// used to be state-only: the decider folded it straight into exponential
+	// backoff and the ONLY trace was a reconcileLog line on the server's stderr.
+	// From the cockpit, "the wake was dispatched and the agent never came up" and
+	// "nobody ever woke this member" were the same picture — a grey member. The
+	// tick turns this flag into a durable last_op receipt so the two are
+	// distinguishable in the UI.
+	StartTimedOut bool
 }
 
 func decisionNone(obs memberObservation, st reconcileState, reason string) reconcileDecision {
@@ -332,6 +341,11 @@ func decideUp(
 	}
 
 	// Not online. A START may be in flight — give it the start window.
+	// startTimedOut rides out on whichever decision this pass returns (backoff /
+	// circuit / the immediate re-START), so the caller can turn the observation
+	// into a durable, owner-visible receipt (T-ba62). Purely additive: it changes
+	// no decision, only what the tick is allowed to say about one.
+	startTimedOut := false
 	if st.LastCommand == reconcileCmdStart {
 		if obs.LastOpKind == reconcileCmdStart &&
 			strings.HasPrefix(obs.LastOpReason, spawnClobberReasonPrefix) {
@@ -376,21 +390,28 @@ func decideUp(
 		// indistinguishable from a member that cannot start — backoff-ONLY,
 		// never counted toward the sticky breaker (§4.3).
 		st = registerStartFailure(st, cfg, now, false)
+		startTimedOut = true
 	}
 	if st.CircuitOpen {
 		st.Phase = reconcilePhaseCircuitOpen
-		return decisionNone(obs, st, "circuit open: respawn disabled")
+		dec := decisionNone(obs, st, "circuit open: respawn disabled")
+		dec.StartTimedOut = startTimedOut
+		return dec
 	}
 	if now < st.BackoffUntil {
 		st.Phase = reconcilePhaseBackoff
-		return decisionNone(obs, st, "backoff: awaiting retry window")
+		dec := decisionNone(obs, st, "backoff: awaiting retry window")
+		dec.StartTimedOut = startTimedOut
+		return dec
 	}
 	st.Phase = reconcilePhaseStarting
 	st.LastCommand = reconcileCmdStart
 	st.LastCommandAt = now
 	return reconcileDecision{
 		Command: reconcileCmdStart, MemberID: obs.MemberID,
-		Reason: "spawn: desired_state online, no live session", State: st,
+		Reason:        "spawn: desired_state online, no live session",
+		State:         st,
+		StartTimedOut: startTimedOut,
 	}
 }
 
@@ -709,7 +730,54 @@ func (s *apiServer) reconcileTickMemberLocked(m Member, now float64) reconcileDe
 	s.reconcileStates[m.ID] = decision.State
 	reconcileLog("%s: desired=%s command=%s — %s",
 		m.ID, parseDesired(m.DesiredState), decision.Command, decision.Reason)
+	s.stampWakeObservability(&m, decision, now)
 	return decision
+}
+
+// stampWakeObservability turns two SERVER-SIDE facts about a wake into durable,
+// owner-visible state (T-ba62). Both were previously invisible outside the
+// server's stderr:
+//
+//	(a) a LANDED START stamps waking_since. Until now the ONLY writer of that
+//	    anchor was the agent's own report_waking — i.e. it was stamped only by
+//	    agents that successfully booted. An agent that never came up left it at
+//	    zero, so PresenceState projected plain "offline": the failed wake and the
+//	    member nobody ever woke rendered IDENTICALLY. Stamping at dispatch means
+//	    "waking" now means what it says — the server asked, and the 90s
+//	    WakingTTLSecs window is the honest deadline. Only stamped when the frame
+//	    was actually accepted by a warden: an undispatched START must not claim
+//	    the member is waking.
+//	(b) a START that lapsed its start_timeout writes a last_op receipt, which is
+//	    what the cockpit's 「最近操作」 reads. Without it the lapse only ever
+//	    existed as exponential backoff inside the reconcile state.
+//
+// Best-effort by contract: a persistence failure is logged and never changes the
+// reconcile decision — observability must not be able to stall the control loop.
+func (s *apiServer) stampWakeObservability(m *Member, decision reconcileDecision, now float64) {
+	changed := false
+	if decision.StartTimedOut {
+		ok := false
+		m.LastOp = reconcileCmdStart
+		m.LastOpOK = &ok
+		m.LastOpAt = now
+		m.LastOpReason = "wake_timeout: the START was dispatched but the agent never " +
+			"came online within the start window — check that claude runs and is " +
+			"logged in on the target machine (warden log: ocwarden.err.log)"
+		// The anchor is stale by construction here; clearing it lets the member
+		// read plain offline again instead of a forever-"waking" lie.
+		m.WakingSince = 0.0
+		changed = true
+	}
+	if decision.Command == reconcileCmdStart && !decision.DispatchUnlanded {
+		m.WakingSince = now
+		changed = true
+	}
+	if !changed {
+		return
+	}
+	if err := s.putMember(*m, triggerServer); err != nil {
+		reconcileLog("%s: wake observability persist failed: %v", m.ID, err)
+	}
 }
 
 // ── pre-decide roster passes (producer.py, run inside the cadence tick) ──────

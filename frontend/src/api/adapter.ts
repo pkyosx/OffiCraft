@@ -569,6 +569,32 @@ export interface ServerSettingsView {
   /** The owner's cockpit language (T-0b41-p2). "" = never set — same
    * dual-layer contract as displayTheme. */
   displayLanguage: string;
+  /** The automatic first-run onboarding report (T-ba62), or null when
+   * onboarding never ran on this server (an install predating it, or a
+   * database that already had a password). This is how the cockpit can say
+   * WHY the assistant is not awake instead of showing an unexplained grey
+   * member. Owner-gated: it rides `/api/settings`, never the public
+   * first-run probe, because a failed step's detail carries local paths. */
+  onboarding: OnboardingReportView | null;
+}
+
+/** One step of the automatic first-run onboarding (T-ba62). `name` is a stable
+ * machine key (`install_warden` / `wake_assistant`); `reason` is ALWAYS
+ * populated on a failure. `detail` is the raw tool log of a failed step. */
+export interface OnboardingStepView {
+  name: string;
+  ok: boolean;
+  reason: string;
+  detail: string;
+}
+
+/** The first-run onboarding result (T-ba62). `state` is
+ * `running` | `ok` | `failed`. */
+export interface OnboardingReportView {
+  state: string;
+  startedAt: number;
+  finishedAt: number;
+  steps: OnboardingStepView[];
 }
 
 /** Partial settings edit — only supplied fields change (server 422s a

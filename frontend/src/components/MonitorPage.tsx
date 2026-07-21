@@ -300,9 +300,16 @@ export function MonitorPage() {
   // Install the server-self machine IN PLACE → POST bootstrap-here (owner-only HOST
   // action): the server installs the warden on itself. NO dialog — run directly on
   // click. A failed install is a REAL result (ok=false + log), NOT a thrown error —
-  // only a transport/gate failure lands in catch. Only a FAILURE shows in the
-  // dismissible block below the table (the log is never swallowed); success needs
-  // no lingering note — we refetch and the row flipping online IS the signal.
+  // only a transport/gate failure lands in catch.
+  //
+  // T-ba62: the log is KEPT ON SUCCESS TOO. It used to be discarded on the ok
+  // branch, on the reasoning that "the row flipping online IS the signal" — but
+  // the installer's most important output was a WARNING it emitted while still
+  // exiting 0 (claude unresolvable), and that branch threw it away unread. So
+  // "installed cleanly" and "installed with a warning that guarantees every
+  // spawn will fail" rendered identically: no panel, no log, a green row. The
+  // block below now shows both outcomes and labels which one it is; the owner
+  // dismisses it.
   const installSelf = async (machine: MachineView) => {
     if (bootstrapBusy) return;
     setBootstrapTarget(machine);
@@ -311,11 +318,9 @@ export function MonitorPage() {
     setBootstrapBusy(true);
     try {
       const result = await api.bootstrapOnServer(machine.machineId);
+      setBootstrapResult(result);
       if (result.ok) {
-        setBootstrapTarget(null);
         await Promise.all([refetchMachines(), refetchMembers()]);
-      } else {
-        setBootstrapResult(result);
       }
     } catch (e) {
       // Surface the server's error detail (e.g. the 503 "ocwarden binary is
@@ -727,10 +732,12 @@ export function MonitorPage() {
           )}
         </div>
 
-        {/* in-place install FAILURE for the server-self row (POST /bootstrap-here):
-         * the failure `log` (surfaced verbatim — never swallowed) in a dismissible
-         * block. Success renders NOTHING here — the row flipping online is the
-         * signal (owner: no lingering "done" panel to hand-dismiss). */}
+        {/* in-place install RESULT for the server-self row (POST /bootstrap-here):
+         * the `log` (surfaced verbatim — never swallowed) in a dismissible block.
+         * T-ba62: shown for SUCCESS as well as failure. A successful exit code
+         * does not mean a clean install — the installer's warnings ride the same
+         * log, and discarding them on the ok branch is what made a warden that
+         * refuses every spawn look exactly like a healthy one. */}
         {bootstrapTarget && (bootstrapResult || bootstrapError) && (
           <div className="mon-cmd" data-testid="mon-bootstrap-result-block">
             <div className="mon-cmd__head">
@@ -752,9 +759,15 @@ export function MonitorPage() {
             </div>
             {bootstrapError && <div className="mon-error">{bootstrapError}</div>}
             {bootstrapResult && (
-              <div className="mon-cmd mon-cmd--err">
+              <div
+                className={
+                  bootstrapResult.ok ? "mon-cmd" : "mon-cmd mon-cmd--err"
+                }
+              >
                 <p className="mon-cmd__hint">
-                  {t.monitor.machine.bootstrapFailed(bootstrapResult.exitCode)}
+                  {bootstrapResult.ok
+                    ? t.monitor.machine.bootstrapSucceeded
+                    : t.monitor.machine.bootstrapFailed(bootstrapResult.exitCode)}
                 </p>
                 <pre className="mon-log" data-testid="mon-bootstrap-log">
                   {bootstrapResult.log}

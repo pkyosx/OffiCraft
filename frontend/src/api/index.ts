@@ -25,4 +25,6 @@ export type {
   OnboardOptions,
   ServerSettingsView,
   ServerSettingsPatch,
+  OnboardingReportView,
+  OnboardingStepView,
 } from "./adapter";
