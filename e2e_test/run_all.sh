@@ -16,8 +16,12 @@ fi
 
 # Export persisted state (OC_E2E_BASE / OC_E2E_TOKEN) + password for the specs
 # (setup.sh seeded a per-run random password into the DB and persisted it).
-set -a; source "$STATE_DIR/env"; set +a
-OC_E2E_PASSWORD=$(cat "$STATE_DIR/owner.password")
+# Each prerequisite below aborts EXPLICITLY. This script runs without `-e` (it
+# must survive a failing spec long enough to report the rc), so nothing aborts
+# implicitly here — the abort has to be written out, and loudly. Until T-d41a
+# these steps died silently on an `-e` leaked in from lib/common.sh.
+set -a; source "$STATE_DIR/env" || { echo "[run_all] FATAL: cannot source $STATE_DIR/env" >&2; set +a; exit 1; }; set +a
+OC_E2E_PASSWORD=$(cat "$STATE_DIR/owner.password") || { echo "[run_all] FATAL: cannot read $STATE_DIR/owner.password" >&2; exit 1; }
 export OC_E2E_PASSWORD
 
 echo "[run_all] === E2E (playwright) ==="
@@ -30,8 +34,8 @@ echo "[run_all] === E2E (playwright) ==="
 # builds restore the dev layout the resolver is written for. Both artifacts are
 # gitignored.
 echo "[run_all] building in-tree cli binaries (ocagent + ocwarden) for spec 05…"
-(cd "$REPO_ROOT/cli/ocagent" && go build -o ocagent .)
-(cd "$REPO_ROOT/cli/ocwarden" && go build -o ocwarden .)
+(cd "$REPO_ROOT/cli/ocagent" && go build -o ocagent .) || { echo "[run_all] FATAL: go build cli/ocagent failed — spec 05 would flake on a stale/absent binary." >&2; exit 1; }
+(cd "$REPO_ROOT/cli/ocwarden" && go build -o ocwarden .) || { echo "[run_all] FATAL: go build cli/ocwarden failed." >&2; exit 1; }
 export OC_E2E_OCWARDEN="$REPO_ROOT/cli/ocwarden/ocwarden"
 cd "$HERE"
 # Broken nvm lazy-load workaround: unset shell funcs, use homebrew binaries.
