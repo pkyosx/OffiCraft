@@ -99,6 +99,32 @@ bash teardown.sh         # clean up
 - `teardown.sh` stops **only the pid it captured** at setup — never `pkill` /
   `killall`.
 
+### ⚠️ Responder-identity checks are NOT applied everywhere yet (T-a3ba, known gap)
+
+`setup.sh` now refuses a health-check 200 unless the responder proves it is
+**this run's** server (self-reported `git_sha` == `git rev-parse --short HEAD`,
+**and** the listener pid's command line == the binary this run built). That
+makes exactly **one** of the harness's four "is the server up?" decision points
+identity-bound. **The other three are not**, and T-a3ba deliberately did not
+touch them (a concurrent ticket owns those files):
+
+| location | status |
+|---|---|
+| `e2e_test/setup.sh` health gate | ✅ identity-bound (T-a3ba) |
+| `e2e_test/lib/oc_lifecycle.sh` `oc_fresh_install` (~:829/:834/:854) | ❌ **UNBOUND** |
+| `e2e_test/cross_machine.sh` (~:334/:339/:362) | ❌ **UNBOUND** |
+
+`oc_lifecycle.sh`'s step 2d is a near-verbatim copy of the code `setup.sh` had
+*before* T-a3ba: it fetches `git_sha`, asserts only "non-empty and not
+`unknown`", never compares it to anything, and comments that this "proves the
+real server booted" — it proves *a* real ocserverd booted, not *ours*. Do not
+read T-a3ba's commits as "the e2e side was checked and is clean": that claim was
+made and it was **false**. These are the destructive suites' shared startup path
+(`single_machine_e2e.sh` / `task_system_e2e.sh` / `a1_zombie_e2e.sh`, which
+`rm -rf $SERVER_ROOT` and `launchctl bootout`), so a wrong-server "healthy" here
+is worse, not better, than in the Playwright suite. `bin/ci.sh` does not run
+them, so CI's green light is not evidence about this row.
+
 ## Scope
 
 The **Playwright suite** (`setup.sh` / `run_all.sh` / `tests/`) covers

@@ -7,7 +7,9 @@
 # py-final); the flag stays so the target vocabulary remains explicit. The run:
 # temp oc.toml (via $OC_CONFIG) + temp SQLite → build ocserverd fresh → goose
 # migrate → serve on an ISOLATED port → pytest with OC_TARGET_URL injected →
-# teardown that kills ONLY the captured listener pid. Prod (the CURRENT
+# teardown that kills ONLY the captured listener pid, plus a final reclaim of
+# any listener still on the port whose command line proves it is this run's
+# own throwaway binary (see reclaim_own_stray). Prod (the CURRENT
 # default port, read from server/ocserverd/config.go — see PROD_PORT below —
 # plus retired-but-still-possibly-pinned 8770/8766) and the e2e port (:8791)
 # are never touched. Mirrors e2e_test/{setup,teardown}.sh discipline; kept
@@ -64,8 +66,22 @@ CONF_PORT="${OC_CONF_PORT:-8795}"
 # "nothing broke" as "the enumeration was fine"). A failed parse here is a
 # HARD FAIL, not a silently-skipped guard — guessing "no known prod port"
 # would be worse than the stale list it replaces.
+#
+# ⚠️ The trailing `|| true` is LOAD-BEARING, do not "clean it up". This file
+# runs under `set -euo pipefail`. When config.go is unreadable or its
+# `defaultPort` line stops matching, the grep pipeline exits non-zero, and
+# under `set -e` a command substitution in an assignment kills the script AT
+# THE ASSIGNMENT — the `if [[ -z ... ]]` below would never be reached, so the
+# FATAL message would never be printed and the exit code would be 1, not 2.
+# That is exactly the "silent hard fail" the comment above promises this is
+# NOT. It was a live defect (T-a3ba round-2 review, finding F2): the guard
+# shipped as dead code and the claim above shipped as a false statement.
+# `|| true` makes the substitution succeed with an empty PROD_PORT so the
+# check below actually runs and actually speaks. (e2e_test/lib/common.sh's
+# twin of this guard never had the bug — that file deliberately uses
+# `set -uo pipefail` with no `-e`.)
 PROD_PORT="$(grep -E '^[[:space:]]*defaultPort[[:space:]]*=[[:space:]]*[0-9]+' \
-  "$REPO_ROOT/server/ocserverd/config.go" 2>/dev/null | grep -oE '[0-9]+' | head -1)"
+  "$REPO_ROOT/server/ocserverd/config.go" 2>/dev/null | grep -oE '[0-9]+' | head -1 || true)"
 if [[ -z "$PROD_PORT" ]]; then
   echo "[conformance] FATAL: could not parse server/ocserverd/config.go's defaultPort — refusing to run without a working prod-port guard (T-a3ba)." >&2
   exit 2
@@ -134,6 +150,58 @@ EOF
 
 SERVE_PID=""
 LISTEN_PID=""
+
+# reclaim_own_stray — the third option between "always kill" and "never kill".
+#
+# Both of the previous designs were wrong in one direction. Killing $LISTEN_PID
+# unconditionally killed processes the identity checks had just argued were NOT
+# ours (round-1 finding). Refusing to kill anything the identity checks had not
+# blessed left OUR OWN ocserverd holding :$CONF_PORT whenever one of those
+# checks fired on a FALSE POSITIVE — and then `rm -rf "$WORK"` deleted its
+# executable out from under it, so the next human saw a process pointing at a
+# path that no longer exists, and the next `bin/ci.sh` died on the unrelated
+# ":$CONF_PORT already in use" guard (round-2 finding F1, reproduced 3/3).
+#
+# The question "is this listener ours?" is answerable without trusting either
+# identity check: ask the OS what the process is running. $WORK is a fresh
+# mktemp -d per invocation, so a listener whose argv[0] is "$WORK/ocserverd"
+# CANNOT be anyone else's — not another checkout, not another concurrent
+# conformance run, not a leftover from an earlier run (different $WORK), not
+# prod (canonical install path). This is the same discipline as
+# e2e_test/teardown.sh:30-45 ("This is not a blind pkill"), which run.sh's
+# header already claims to mirror but did not.
+#
+# Every candidate on the port is examined (not `head -1`): the ambiguous-pid
+# exit can leave 2+ listeners, and ours may not be first.
+#
+# Residual gap, stated plainly rather than papered over: if `ps` cannot read
+# the command line at all (empty output), we do NOT know whose the process is,
+# and this function leaves it alone — so a `ps` failure can still strand our
+# own listener. That is the deliberate direction to fail in (never kill an
+# unknown), and it is a fresh `ps` call independent of the one the identity
+# check made, so a transient hiccup there is usually recovered here. It is not
+# a case this ticket can close; the NOTE printed below is what tells a human
+# it happened.
+reclaim_own_stray() {
+  local _stray _cmd _left=""
+  while IFS= read -r _stray; do
+    [[ -n "$_stray" ]] || continue
+    _cmd="$(ps -p "$_stray" -o command= 2>/dev/null || true)"
+    case "$_cmd" in
+      "$WORK/ocserverd"*)
+        kill "$_stray" 2>/dev/null || true
+        echo "[conformance] reclaimed OUR OWN stray listener pid=$_stray on :$CONF_PORT — its command line is this run's throwaway binary ($WORK/ocserverd), so it is provably ours. (A guard above exited before the pid was blessed; leaving it would have wedged the next run's port guard.)" >&2
+        ;;
+      *)
+        _left="$_left $_stray"
+        ;;
+    esac
+  done < <(lsof -nP -tiTCP:"$CONF_PORT" -sTCP:LISTEN 2>/dev/null || true)
+  if [[ -n "$_left" ]]; then
+    echo "[conformance] NOTE: :$CONF_PORT still has listener(s)$_left that are NOT ours (command line is not $WORK/ocserverd) — deliberately left alone. Inspect manually; this is not a blind pkill." >&2
+  fi
+}
+
 cleanup() {
   # Kill ONLY captured pids (launch pid + actual listener) — never a pattern kill.
   for pid in "$LISTEN_PID" "$SERVE_PID"; do
@@ -151,6 +219,15 @@ cleanup() {
       kill -9 "$pid" 2>/dev/null || true
     fi
   done
+  # Poll for release, then reclaim anything still on the port that is provably
+  # ours. Runs BEFORE `rm -rf "$WORK"` on purpose: the identity evidence we use
+  # is the live process's argv, and deleting the workdir first is what made the
+  # orphan hard to diagnose in the first place.
+  for _ in 1 2 3 4 5 6 7 8; do
+    lsof -nP -iTCP:"$CONF_PORT" -sTCP:LISTEN >/dev/null 2>&1 || break
+    sleep 0.5
+  done
+  reclaim_own_stray
   rm -rf "$WORK"
   echo "[conformance] teardown done (workdir removed)"
 }
@@ -263,7 +340,7 @@ if [[ "${#LISTEN_CANDIDATES[@]}" -ne 1 ]]; then
   for _c in ${LISTEN_CANDIDATES[@]+"${LISTEN_CANDIDATES[@]}"}; do
     _cand_list="$_cand_list $_c"
   done
-  echo "[conformance] FATAL: health check got HTTP 200 on :$CONF_PORT but the listener pid is AMBIGUOUS (${#LISTEN_CANDIDATES[@]} candidates:${_cand_list:- none}) — refusing to guess which one answered us (launch pid=$SERVE_PID). Investigate and stop the extra listener(s), then re-run." >&2
+  echo "[conformance] FATAL: health check got HTTP 200 on :$CONF_PORT but the listener pid is AMBIGUOUS (${#LISTEN_CANDIDATES[@]} candidates:${_cand_list:- none}) — refusing to guess which one answered us (launch pid=$SERVE_PID). Teardown will reclaim any of those pids whose command line proves it is this run's own throwaway binary, and will say so; anything it leaves behind is NOT ours — investigate and stop it, then re-run." >&2
   exit 1
 fi
 # NOT the global LISTEN_PID yet — cleanup() reads the global, and this pid is
@@ -273,13 +350,21 @@ fi
 # the exact "can't tell self from other" bug this whole ticket is about,
 # just relocated into teardown. _CANDIDATE_PID is local-in-spirit (read-only
 # below); LISTEN_PID stays "" until BOTH identity checks pass.
+#
+# Holding LISTEN_PID back is NOT by itself a safe teardown, and the first
+# version of this fix wrongly treated it as one: it means the mismatch exits
+# leave the port holder untouched, which is right when the holder is someone
+# else's and WRONG when the check misfired on our own server. cleanup()'s
+# reclaim_own_stray covers that second case with independent evidence (argv
+# path under $WORK), so "never kill someone else's" and "never abandon our
+# own" both hold instead of trading off.
 _CANDIDATE_PID="${LISTEN_CANDIDATES[0]}"
 
 # Identity check #1 (content-level): the responder must self-report the
 # git_sha we expect. e2e_test/setup.sh already fetched this field before
 # T-a3ba but never compared it — wired up on both sides now.
 if [[ -z "$GOT_SHA" || "$GOT_SHA" != "$EXPECTED_SHA" ]]; then
-  echo "[conformance] FATAL: health 200 but identity mismatch — /api/version reported git_sha='${GOT_SHA:-<empty>}', expected '$EXPECTED_SHA' (this checkout's HEAD). launch pid=$SERVE_PID listener pid=$_CANDIDATE_PID. The 200 almost certainly came from a DIFFERENT process (a leftover listener from an earlier run, or someone else's server) — not the ocserverd we just built. We will NOT kill pid=$_CANDIDATE_PID (teardown only ever touches a pid it has identity-verified as its own) — find and stop that listener yourself, then re-run." >&2
+  echo "[conformance] FATAL: health 200 but identity mismatch — /api/version reported git_sha='${GOT_SHA:-<empty>}', expected '$EXPECTED_SHA' (this checkout's HEAD). launch pid=$SERVE_PID listener pid=$_CANDIDATE_PID. Either the 200 came from a DIFFERENT process (a leftover listener from an earlier run, or someone else's server), or THIS CHECK IS WRONG (e.g. the server's gitSHA() probe timed out and reported 'unknown'). We do not know which, so teardown decides by evidence, not by this check: it kills pid=$_CANDIDATE_PID only if its command line is this run's own throwaway binary ($WORK/ocserverd), and prints which way it went. If teardown reports leaving it alone, it is not ours — find and stop that listener yourself, then re-run." >&2
   exit 1
 fi
 
@@ -292,7 +377,7 @@ LISTEN_CMD="$(ps -p "$_CANDIDATE_PID" -o command= 2>/dev/null || true)"
 case "$LISTEN_CMD" in
   "$WORK/ocserverd"*) : ;;
   *)
-    echo "[conformance] FATAL: health 200 but identity mismatch — listener pid=$_CANDIDATE_PID's command ('${LISTEN_CMD:-<unknown>}') is not our throwaway binary ($WORK/ocserverd), even though git_sha matched. This looks like a concurrent conformance/e2e run on the same commit racing us for :$CONF_PORT (launch pid=$SERVE_PID). We will NOT kill pid=$_CANDIDATE_PID (teardown only ever touches a pid it has identity-verified as its own) — find and stop the other run yourself, then re-run." >&2
+    echo "[conformance] FATAL: health 200 but identity mismatch — listener pid=$_CANDIDATE_PID's command ('${LISTEN_CMD:-<unknown>}') is not our throwaway binary ($WORK/ocserverd), even though git_sha matched. This looks like a concurrent conformance/e2e run on the same commit racing us for :$CONF_PORT (launch pid=$SERVE_PID). We will NOT kill pid=$_CANDIDATE_PID — this check IS the ownership evidence and it says no; teardown applies the same test and will leave it alone. Find and stop the other run yourself, then re-run." >&2
     exit 1
     ;;
 esac
