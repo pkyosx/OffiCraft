@@ -632,6 +632,62 @@ func ValidTaskLock(l string) bool {
 	return false
 }
 
+// ── tasks: the handover declaration (T-74f8) ─────────────────────────────────
+
+// The task HANDOFF closed set — "where does the ball go when this task ends".
+// Declared by the executor in the SAME request that would close the task (the
+// step-status report), because the close is irreversible: the instant the last
+// step lands done the task derives to done, closed_ts stamps, and submit_plan
+// is a permanent 409 — there is no "after" in which to arrange a handover.
+//
+//   - HandoffReturnToCreator — hand it back: the server mints a DURABLE
+//     follow-up task on the creator (an open task row on their list, not an
+//     SSE line that washes away) carrying a dep on this one;
+//   - HandoffFollowUp        — a successor task already exists; the server
+//     attaches this task to it as a dep, so half B (closeTask →
+//     releaseDependentsOnClose) wakes/schedules it the moment we close;
+//   - HandoffNone            — explicitly nothing follows. Requires a note:
+//     an un-reasoned "none" is a rubber stamp, and the note IS the audit trail
+//     that distinguishes a decision from an omission.
+//
+// HandoffUndeclared ('') is the pre-column / never-asked state.
+const (
+	HandoffUndeclared      = ""
+	HandoffReturnToCreator = "return_to_creator"
+	HandoffFollowUp        = "follow_up"
+	HandoffNone            = "none"
+)
+
+// ValidHandoff reports handoff closed-set membership, EXCLUDING the undeclared
+// empty (a caller declaring "" is declaring nothing — the gate's whole point).
+func ValidHandoff(h string) bool {
+	switch h {
+	case HandoffReturnToCreator, HandoffFollowUp, HandoffNone:
+		return true
+	}
+	return false
+}
+
+// TaskNeedsHandoffDeclaration is the GATE PREDICATE — the precise population
+// the close gate asks: a task whose creator is a DIFFERENT actor from its
+// executor and that has not yet declared where the ball goes.
+//
+// Deliberately narrow (the fail-closed blast-radius rule). It is false for:
+//   - a self-created task (creator == executor) — the executor IS the asker,
+//     there is nobody to hand back to. 270 of the 392 live tasks;
+//   - a blank creator (pre-creator_id rows) or a blank executor — we cannot
+//     name the two sides, so we must not invent an obligation. 53 live rows;
+//   - an already-declared task (idempotent: a re-report never re-asks).
+//
+// It says nothing about WHEN to ask — the caller pairs it with "this write
+// would close the task" so a mid-plan step report is never touched.
+func TaskNeedsHandoffDeclaration(creatorID, executorID, handoff string) bool {
+	if creatorID == "" || executorID == "" || creatorID == executorID {
+		return false
+	}
+	return handoff == HandoffUndeclared
+}
+
 // The task priority closed set. Frozen is a PRIORITY (pause-pushing, sorts
 // last), deliberately not a status (SPEC §3.3).
 const (

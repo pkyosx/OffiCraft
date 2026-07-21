@@ -601,6 +601,14 @@ type taskDTO struct {
 	// always present ([] when none). Optional in the spec (§12) but always
 	// serialised — the FE popover reads it, the light list reads only the count.
 	Artifacts []taskArtifactDTO `json:"artifacts"`
+	// Handoff / HandoffNote / HandoffTaskID: the DECLARED destination of the
+	// ball at close (T-74f8). "" = never declared (every task whose creator IS
+	// its executor, and every pre-column row); otherwise return_to_creator |
+	// follow_up | none. Served so the declaration is auditable — a gate whose
+	// answer is invisible is indistinguishable from no gate.
+	Handoff       string `json:"handoff"`
+	HandoffNote   string `json:"handoff_note"`
+	HandoffTaskID string `json:"handoff_task_id"`
 }
 
 // taskListItemDTO is the LIGHT list projection served by GET /api/tasks (and
@@ -851,7 +859,10 @@ func newTaskDTO(t Task, steps []TaskStep, deps []string, cardStatus map[string]s
 		// Artifacts default to [] — the handler (taskDTOOf) folds the resolved
 		// set in after this pure projection, since resolving file/image blob
 		// metadata needs a DAL lookup that does not belong in a pure builder.
-		Artifacts: []taskArtifactDTO{},
+		Artifacts:     []taskArtifactDTO{},
+		Handoff:       t.Handoff,
+		HandoffNote:   t.HandoffNote,
+		HandoffTaskID: t.HandoffTaskID,
 	}
 	if t.ClosedTS > 0 {
 		ts := t.ClosedTS

@@ -59,13 +59,23 @@ type Task struct {
 	OutsourceModel   string
 	OutsourceEffort  string
 	OutsourceMachine string
+	// Handoff / HandoffNote / HandoffTaskID is the DECLARED destination of the
+	// ball (T-74f8, migrations/00031): '' = never declared, else one of
+	// domain.go's HandoffReturnToCreator / HandoffFollowUp / HandoffNone. The
+	// close gate (api_tasks.go handoffGateVerdict) refuses to let a
+	// creator≠executor task close until this is set, so a finished task can no
+	// longer end with nobody holding anything.
+	Handoff       string
+	HandoffNote   string
+	HandoffTaskID string
 }
 
 const taskColumns = `id, type_key, title, dedupe_key, inputs, description,
 	status, lock, priority, executor_kind, executor_id, creator_id, waiting_reason,
 	created_ts, updated_ts, closed_ts, closeout_ts, duplicate_of,
 	reassigned_from, reassigned_from_kind,
-	outsource_model, outsource_effort, outsource_machine`
+	outsource_model, outsource_effort, outsource_machine,
+	handoff, handoff_note, handoff_task_id`
 
 // sqlTerminalStatuses is the SQL IN-list of the terminal statuses — every
 // "open task" filter (dedupe probe, resume block, open counts) excludes these.
@@ -83,6 +93,7 @@ func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 		&t.CreatedTS, &t.UpdatedTS, &t.ClosedTS, &t.CloseoutTS, &t.DuplicateOf,
 		&t.ReassignedFrom, &t.ReassignedFromKind,
 		&t.OutsourceModel, &t.OutsourceEffort, &t.OutsourceMachine,
+		&t.Handoff, &t.HandoffNote, &t.HandoffTaskID,
 	)
 	if err != nil {
 		return Task{}, err
@@ -217,7 +228,7 @@ func (d *DAL) PutTask(t Task) error {
 	}
 	_, err = d.db.Exec(`
 		INSERT INTO task (`+taskColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
 			type_key = excluded.type_key, title = excluded.title,
 			dedupe_key = excluded.dedupe_key, inputs = excluded.inputs,
@@ -235,13 +246,17 @@ func (d *DAL) PutTask(t Task) error {
 			reassigned_from_kind = excluded.reassigned_from_kind,
 			outsource_model = excluded.outsource_model,
 			outsource_effort = excluded.outsource_effort,
-			outsource_machine = excluded.outsource_machine`,
+			outsource_machine = excluded.outsource_machine,
+			handoff = excluded.handoff,
+			handoff_note = excluded.handoff_note,
+			handoff_task_id = excluded.handoff_task_id`,
 		t.ID, t.TypeKey, t.Title, t.DedupeKey, string(blob), t.Description,
 		t.Status, t.Lock, t.Priority, t.ExecutorKind, t.ExecutorID, t.CreatorID,
 		t.WaitingReason,
 		t.CreatedTS, t.UpdatedTS, t.ClosedTS, t.CloseoutTS, t.DuplicateOf,
 		t.ReassignedFrom, t.ReassignedFromKind,
 		t.OutsourceModel, t.OutsourceEffort, t.OutsourceMachine,
+		t.Handoff, t.HandoffNote, t.HandoffTaskID,
 	)
 	return err
 }
@@ -286,6 +301,40 @@ func (d *DAL) AllTaskDeps() (map[string][]string, error) {
 		out[t] = append(out[t], b)
 	}
 	return out, rows.Err()
+}
+
+// ListTasksBlockedBy returns the tasks that name blockerID in their blocked_by
+// list — the REVERSE of ListTaskDeps, and the query behind the T-74f8 handover
+// half B: when a blocker reaches a terminal status, closeTask walks its
+// dependents to release + wake them. Deterministic order (task id).
+func (d *DAL) ListTasksBlockedBy(blockerID string) ([]Task, error) {
+	rows, err := d.db.Query(`
+		SELECT `+taskColumns+` FROM task
+		WHERE id IN (SELECT task_id FROM task_dep WHERE blocked_by = ?)
+		ORDER BY id`, blockerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Task
+	for rows.Next() {
+		t, err := scanTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// AddTaskDep adds ONE blocked_by edge without disturbing the rest of the list
+// (set_task_deps' whole-list write would clobber deps the successor already
+// carries). Idempotent — INSERT OR IGNORE on the composite key.
+func (d *DAL) AddTaskDep(taskID, blockedBy string) error {
+	_, err := d.db.Exec(
+		`INSERT OR IGNORE INTO task_dep (task_id, blocked_by) VALUES (?, ?)`,
+		taskID, blockedBy)
+	return err
 }
 
 // ReplaceTaskDeps replaces one task's deps wholesale (set_task_deps is a
