@@ -391,9 +391,12 @@ echo "[ci] (5/5) conformance suite — full black-box behaviour run (isolated oc
 # reddens when someone runs run.sh by hand (the exact hole this step closes).
 #
 # conformance/run.sh is self-contained and idempotent: it builds a fresh
-# ocserverd, migrates + serves on an ISOLATED port (:8795 — never the prod
-# :8770/:8766 or the e2e :8791; it refuses a prod port and refuses to stomp a
-# busy port), runs pytest against a throwaway SQLite, and tears everything down
+# ocserverd, migrates + serves on an ISOLATED port (:8795 — never the officraft
+# prod port [the CURRENT default per server/ocserverd/config.go, 7755 as of
+# T-a3ba — run.sh derives it from that source instead of hand-listing a number
+# here that would go stale the next time the default moves], nor the "vibe"
+# product's :8766, nor the e2e :8791; it refuses a prod port and refuses to
+# stomp a busy port), runs pytest against a throwaway SQLite, and tears everything down
 # on EXIT (kills only captured pids, removes the workdir). The pytest venv is
 # created once and reused. A non-zero exit trips set -e and fails CI before the
 # "[ci] all green" marker.

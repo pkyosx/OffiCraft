@@ -7,10 +7,12 @@
 # py-final); the flag stays so the target vocabulary remains explicit. The run:
 # temp oc.toml (via $OC_CONFIG) + temp SQLite → build ocserverd fresh → goose
 # migrate → serve on an ISOLATED port → pytest with OC_TARGET_URL injected →
-# teardown that kills ONLY the captured listener pid. Prod (:8770 officraft /
-# :8766 vibe) and the e2e port (:8791) are never touched. Mirrors
-# e2e_test/{setup,teardown}.sh discipline; kept self-contained because the
-# lifecycles differ (temp config/db here vs repo oc.toml + var/data there).
+# teardown that kills ONLY the captured listener pid. Prod (the CURRENT
+# default port, read from server/ocserverd/config.go — see PROD_PORT below —
+# plus retired-but-still-possibly-pinned 8770/8766) and the e2e port (:8791)
+# are never touched. Mirrors e2e_test/{setup,teardown}.sh discipline; kept
+# self-contained because the lifecycles differ (temp config/db here vs repo
+# oc.toml + var/data there).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -46,11 +48,38 @@ fi
 echo "[conformance] black-box lint OK (no backend imports in conformance/)"
 
 # ── target scaffolding ────────────────────────────────────────────────────────
-# Isolated, non-prod port: 8795 (e2e owns 8791; prod owns 8770/8766 — refused).
+# Isolated, non-prod port: 8795 (e2e owns 8791).
 CONF_PORT="${OC_CONF_PORT:-8795}"
-for _p in 8770 8766; do
+
+# PROD_PORT — the CURRENT officraft prod default, read from the single source
+# of truth (server/ocserverd/config.go's `defaultPort` const) instead of a
+# hand-maintained number that silently goes stale (T-a3ba follow-up: this
+# refusal list used to say "8770/8766" as if those WERE the current prod
+# port; 8770 is actually a RETIRED former officraft default (config.go's own
+# migration-history comment: 8770 → 8780 → 7755 — the real current one, which
+# this enumeration never listed) — so the guard's NAME promised more than it
+# enforced. It went unnoticed only because the separate "port already in use"
+# leftover guard further below happens to cover a live prod on 7755 too — that
+# is cover from a DIFFERENT guard, not this one actually working; do not read
+# "nothing broke" as "the enumeration was fine"). A failed parse here is a
+# HARD FAIL, not a silently-skipped guard — guessing "no known prod port"
+# would be worse than the stale list it replaces.
+PROD_PORT="$(grep -E '^[[:space:]]*defaultPort[[:space:]]*=[[:space:]]*[0-9]+' \
+  "$REPO_ROOT/server/ocserverd/config.go" 2>/dev/null | grep -oE '[0-9]+' | head -1)"
+if [[ -z "$PROD_PORT" ]]; then
+  echo "[conformance] FATAL: could not parse server/ocserverd/config.go's defaultPort — refusing to run without a working prod-port guard (T-a3ba)." >&2
+  exit 2
+fi
+# Additional refusals, NOT derived from config.go (nothing in this repo can
+# derive them, so they stay a hand-maintained list and CAN drift again —
+# named honestly as such, unlike the guard's old self-description):
+#   - 8770, 8780: officraft's own RETIRED former defaults (config.go history)
+#     — kept for any install that still has one explicitly pinned in oc.toml.
+#   - 8766: a DIFFERENT product's live port ("vibe-clicking", see
+#     conformance/CLAUDE.md) — not derivable from this repo at all.
+for _p in "$PROD_PORT" 8770 8780 8766; do
   if [[ "$CONF_PORT" == "$_p" ]]; then
-    echo "[conformance] FATAL: OC_CONF_PORT=$CONF_PORT is a PROD port — refuse." >&2
+    echo "[conformance] FATAL: OC_CONF_PORT=$CONF_PORT is a PROD port (current officraft default=$PROD_PORT per server/ocserverd/config.go, or a retired officraft default / a different live product's port) — refuse." >&2
     exit 2
   fi
 done
@@ -173,13 +202,43 @@ echo "[conformance] migrate (ocserverd migrate → $DB_URL)"
 echo "[conformance] seeding owner password (ocserverd set-password, hash → DB settings)"
 (cd "$REPO_ROOT" && oc_env env OC_NEW_PASSWORD="$OWNER_PASSWORD" "$WORK/ocserverd" set-password >/dev/null)
 
+# Leftover guard, re-checked (TOCTOU close, T-a3ba): the FIRST guard (line ~85)
+# ran before the venv/go-build/migrate/set-password steps above — several
+# seconds to low-tens-of-seconds of window in which nothing re-checked the
+# port. A listener that grabbed :$CONF_PORT during that window would go
+# undetected by the first guard, and (before this change) would have been
+# indistinguishable from our own serve by the health-check loop below — its
+# 200 would satisfy `ok=1` just as well as ours. Re-check immediately before
+# we actually bind.
+if lsof -nP -iTCP:"$CONF_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "[conformance] FATAL: :$CONF_PORT became occupied during build/migrate/seed (TOCTOU window) — refuse to stomp it. Find and stop that listener, then re-run." >&2
+  exit 2
+fi
+
 echo "[conformance] starting isolated ocserverd on $BASE"
 (cd "$REPO_ROOT" && oc_env nohup "$WORK/ocserverd" serve >"$WORK/serve.log" 2>&1) &
 SERVE_PID=$!
 
+# Expected build identity: gitSHA() (server/ocserverd/server.go) is unstamped
+# here (plain `go build`, no -ldflags) so its boot-time fallback runs
+# `git rev-parse --short HEAD` in CWD — and serve's CWD is $REPO_ROOT (line
+# above). Compute the same probe from the shell so we have something to
+# compare the responder's self-report against.
+EXPECTED_SHA="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+
 ok=""
+GOT_SHA=""
 for _ in $(seq 1 30); do
-  if curl -sf "$BASE/api/version" >/dev/null 2>&1; then ok=1; break; fi
+  if RESP="$(curl -sf "$BASE/api/version" 2>/dev/null)"; then
+    GOT_SHA="$(printf '%s' "$RESP" | "$CVENV/bin/python" -c \
+      'import sys,json
+try:
+    print(json.load(sys.stdin).get("git_sha",""))
+except Exception:
+    print("")' 2>/dev/null || true)"
+    ok=1
+    break
+  fi
   if ! kill -0 "$SERVE_PID" 2>/dev/null; then break; fi
   sleep 1
 done
@@ -188,9 +247,50 @@ if [[ -z "$ok" ]]; then
   tail -20 "$WORK/serve.log" >&2 || true
   exit 1
 fi
-# The ACTUAL listener pid can differ from the launch pid — capture the socket holder.
-LISTEN_PID="$(lsof -nP -tiTCP:"$CONF_PORT" -sTCP:LISTEN 2>/dev/null | head -1 || true)"
-echo "[conformance] serve healthy (launch pid=$SERVE_PID listener pid=${LISTEN_PID:-$SERVE_PID})"
+
+# The ACTUAL listener pid can differ from the launch pid — capture the socket
+# holder. AMBIGUOUS (0 or >1 candidates) is a hard failure, never a silent
+# `head -1` pick — mirrors e2e_test/a1_zombie_e2e.sh's listener_pid_of, which
+# treats "none or >1" as empty/refuse rather than guessing.
+LISTEN_CANDIDATES=()
+while IFS= read -r _cand; do
+  [[ -n "$_cand" ]] && LISTEN_CANDIDATES+=("$_cand")
+done < <(lsof -nP -tiTCP:"$CONF_PORT" -sTCP:LISTEN 2>/dev/null || true)
+if [[ "${#LISTEN_CANDIDATES[@]}" -ne 1 ]]; then
+  # bash-3.2-safe empty-array expansion (same hazard as oc_lifecycle.sh's
+  # `reasons` array) — never bare "${LISTEN_CANDIDATES[*]}" under set -u.
+  _cand_list=""
+  for _c in ${LISTEN_CANDIDATES[@]+"${LISTEN_CANDIDATES[@]}"}; do
+    _cand_list="$_cand_list $_c"
+  done
+  echo "[conformance] FATAL: health check got HTTP 200 on :$CONF_PORT but the listener pid is AMBIGUOUS (${#LISTEN_CANDIDATES[@]} candidates:${_cand_list:- none}) — refusing to guess which one answered us (launch pid=$SERVE_PID). Investigate and stop the extra listener(s), then re-run." >&2
+  exit 1
+fi
+LISTEN_PID="${LISTEN_CANDIDATES[0]}"
+
+# Identity check #1 (content-level): the responder must self-report the
+# git_sha we expect. e2e_test/setup.sh already fetched this field before
+# T-a3ba but never compared it — wired up on both sides now.
+if [[ -z "$GOT_SHA" || "$GOT_SHA" != "$EXPECTED_SHA" ]]; then
+  echo "[conformance] FATAL: health 200 but identity mismatch — /api/version reported git_sha='${GOT_SHA:-<empty>}', expected '$EXPECTED_SHA' (this checkout's HEAD). launch pid=$SERVE_PID listener pid=$LISTEN_PID. The 200 almost certainly came from a DIFFERENT process (a leftover listener from an earlier run, or someone else's server) — not the ocserverd we just built. Find and stop that listener, then re-run." >&2
+  exit 1
+fi
+
+# Identity check #2 (process-level): the listener's own command line must be
+# the exact throwaway binary built for THIS run ($WORK is a fresh mktemp per
+# invocation) — the check that actually distinguishes us from another
+# conformance/e2e instance running the SAME commit concurrently, which
+# check #1 (git_sha) alone cannot tell apart.
+LISTEN_CMD="$(ps -p "$LISTEN_PID" -o command= 2>/dev/null || true)"
+case "$LISTEN_CMD" in
+  "$WORK/ocserverd"*) : ;;
+  *)
+    echo "[conformance] FATAL: health 200 but identity mismatch — listener pid=$LISTEN_PID's command ('${LISTEN_CMD:-<unknown>}') is not our throwaway binary ($WORK/ocserverd), even though git_sha matched. This looks like a concurrent conformance/e2e run on the same commit racing us for :$CONF_PORT (launch pid=$SERVE_PID). Find and stop the other run, then re-run." >&2
+    exit 1
+    ;;
+esac
+
+echo "[conformance] serve healthy AND identity-verified (launch pid=$SERVE_PID listener pid=$LISTEN_PID sha=$GOT_SHA)"
 
 echo "[conformance] pytest (OC_TARGET_URL=$BASE)"
 set +e

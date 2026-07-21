@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # e2e_test/lib/common.sh — shared config + guards for the isolated e2e harness.
 # Sourced by setup.sh / teardown.sh. This harness runs an ISOLATED officraft
-# service on a NON-PROD port with an isolated SQLite DB. It must NEVER touch the
-# production ports :8770 / :8766, and must never authenticate against or emit to
-# the fleet/prod server.
+# service on a NON-PROD port with an isolated SQLite DB. It must NEVER touch
+# the officraft production port (the CURRENT default per
+# server/ocserverd/config.go, not a number hand-copied here — see PROD_PORTS
+# below) or the "vibe" product's :8766, and must never authenticate against or
+# emit to the fleet/prod server.
 #
 # T-d41a — deliberately `set -uo pipefail`, NOT `-euo`. This file is SOURCED, so
 # `set -e` here silently rewrites the ERR-handling policy of whoever sourced it.
@@ -39,10 +41,36 @@ OC_E2E_HOST="127.0.0.1"
 OC_E2E_BASE="http://${OC_E2E_HOST}:${OC_E2E_PORT}"
 
 # Hard guard: refuse to run against a known prod port.
-PROD_PORTS=(8770 8766)
+#
+# PROD_OFFICRAFT_PORT — the CURRENT officraft prod default, read from the
+# single source of truth (server/ocserverd/config.go's `defaultPort` const)
+# instead of a hand-maintained number that silently goes stale (T-a3ba
+# follow-up: this list used to say "8770/8766" as if those WERE the current
+# prod port; 8770 is actually a RETIRED former officraft default — config.go's
+# own migration-history comment: 8770 → 8780 → 7755, the real current one,
+# which this list never named — so the guard's NAME promised more than it
+# enforced. It went unnoticed only because the separate "leftover guard"
+# elsewhere in the harness happens to cover a live prod on 7755 too — that is
+# cover from a DIFFERENT guard, not this one actually working; do not read
+# "nothing broke" as "the enumeration was fine"). A failed parse here is a
+# HARD FAIL, not a silently-skipped guard.
+PROD_OFFICRAFT_PORT="$(grep -E '^[[:space:]]*defaultPort[[:space:]]*=[[:space:]]*[0-9]+' \
+  "$REPO_ROOT/server/ocserverd/config.go" 2>/dev/null | grep -oE '[0-9]+' | head -1)"
+if [ -z "$PROD_OFFICRAFT_PORT" ]; then
+  echo "FATAL: could not parse server/ocserverd/config.go's defaultPort — refusing to run without a working prod-port guard (T-a3ba)." >&2
+  exit 2
+fi
+# Additional refusals, NOT derived from config.go (nothing in this repo can
+# derive them, so they stay a hand-maintained list and CAN drift again —
+# named honestly as such, unlike the guard's old self-description):
+#   - 8770, 8780: officraft's own RETIRED former defaults (config.go history)
+#     — kept for any install that still has one explicitly pinned in oc.toml.
+#   - 8766: a DIFFERENT product's live port ("vibe-clicking", see
+#     conformance/CLAUDE.md) — not derivable from this repo at all.
+PROD_PORTS=("$PROD_OFFICRAFT_PORT" 8770 8780 8766)
 for _p in "${PROD_PORTS[@]}"; do
   if [ "$OC_E2E_PORT" = "$_p" ]; then
-    echo "FATAL: OC_E2E_PORT=$OC_E2E_PORT is a PROD port — refuse." >&2
+    echo "FATAL: OC_E2E_PORT=$OC_E2E_PORT is a PROD port (current officraft default=$PROD_OFFICRAFT_PORT per server/ocserverd/config.go, or a retired officraft default / a different live product's port) — refuse." >&2
     exit 2
   fi
 done
