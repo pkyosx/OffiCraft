@@ -18,7 +18,7 @@
 
 | | 為什麼 |
 | --- | --- |
-| **Claude Code CLI**（`claude`，而且已登入） | 每位成員底下就是一個 Claude Code session。**解析不到 `claude` 時，warden 會直接拒絕安裝**（fail-closed，並在座艙橫幅說明原因），不會裝一個永遠起不了成員的 warden。裝法：`npm install -g @anthropic-ai/claude-code` |
+| **Claude Code CLI**（`claude`，而且已登入） | 每位成員底下就是一個 Claude Code session。**解析不到 `claude` 時，warden 會直接拒絕安裝**（fail-closed，並在控制台橫幅說明原因），不會裝一個永遠起不了成員的 warden。裝法：`npm install -g @anthropic-ai/claude-code` |
 | **`tmux`** | 成員的 session 跑在 tmux 裡 |
 
 > [!NOTE]
@@ -49,7 +49,7 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 6. **註冊背景服務** — launchd job `com.officraft.serve`（`RunAtLoad` / `KeepAlive`，log 落在 `~/.officraft/server/log/serve.log`）。**不佔用你的終端機，關掉也不會停。**
 7. **印出一次性設定連結** — `http://127.0.0.1:7755/?code=…`，打開它設定 owner 密碼。
 8. **設完密碼後 server 自己接手最後兩步** — 把這台機器的 warden 裝好、把預設助理 **Mira** 叫醒。你不用自己去機器頁按安裝，也不用自己把助理設成上線。
-   缺 `claude` 或 `tmux` 時它會**明確失敗並說出原因**（顯示在座艙上方的橫幅），而不是裝一個永遠起不了 agent 的 warden。
+   缺 `claude` 或 `tmux` 時它會**明確失敗並說出原因**（顯示在控制台上方的橫幅），而不是裝一個永遠起不了 agent 的 warden。
 
 ### 常用選項
 
@@ -63,7 +63,7 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 
 > [!WARNING]
 > **這台機器上已經有一個 OffiCraft 服務正在跑的話**，重裝會把它 bootout 再 bootstrap——
-> 那是一次**真正的重啟**，期間所有開著的座艙與連著的 agent 都會斷線（埠與資料庫會被繼承，
+> 那是一次**真正的重啟**，期間所有開著的控制台與連著的 agent 都會斷線（埠與資料庫會被繼承，
 > **資料不會掉，掉的是連線**）。
 >
 > 這件事需要它自己的同意：`--force` 只講「覆寫檔案」，**不**授權斷線。管線安裝沒有 tty 可問，
@@ -167,7 +167,7 @@ bin/ocserver uninstall --dry-run   # 只印出會做什麼，什麼都不動
 
 ## 加第二台機器
 
-座艙的 **監控 › 機器** 會給你一行指令，貼到另一台 Mac 上跑，那台就加入同一間工作室了。
+控制台的 **監控 › 機器** 會給你一行指令，貼到另一台 Mac 上跑，那台就加入同一間工作室了。
 那支腳本會先檢查 `tmux` 與 `curl`——**`tmux` 缺的話，只要那台有 Homebrew 就會自動幫你裝**。
 
 之後成員可以被派到那台機器上跑，成員之間也能跨機器互相請託。
