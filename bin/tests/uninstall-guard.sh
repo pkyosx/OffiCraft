@@ -267,6 +267,25 @@ RC=$?
 check "no curl on PATH: --uninstall still runs to completion" "0" "$RC"
 case "$OUT" in *"curl: not found"*|*"curl: command not found"*) bad "no curl on PATH: it tried to download something ('$OUT')";; *) ok "no curl on PATH: never touched the downloader";; esac
 
+# ── 11. --uninstall is recognised in ANY position, not just $1 ─────────────
+# Regression case: a prior version dropped the leading argument unconditionally
+# assuming --uninstall was always first, which silently ate whatever flag WAS
+# first when it wasn't (e.g. `--dry-run --uninstall` lost --dry-run and
+# performed a real, unconfirmed deletion). This must hold for every flag
+# ordering, and dry-run's "nothing changed" guarantee is what actually catches
+# a regression here — an eaten --dry-run turns into a real purge.
+reset_fixture clean-install running
+# Direct invocation (bypassing run_uninstall's helper, which always puts
+# --uninstall first) — --dry-run is $1 here, --uninstall is $2.
+OUT="$(cd "$WORK" && env -i PATH="$SHIMDIR:/usr/bin:/bin:/usr/sbin:/sbin" \
+  HOME="$FAKEHOME" OC_LAUNCHD_LABEL="$LABEL" SHIM_JOB="$SHIM_JOB" \
+  bash "$SCRIPT" --dry-run --uninstall --purge --yes </dev/null 2>&1)"
+RC=$?
+check "flag order: --uninstall not first still exits 0" "0" "$RC"
+case "$OUT" in *"purge=1 dryrun=1"*) ok "flag order: both flags parsed regardless of position";; *) bad "flag order: wrong resolution ('$OUT')";; esac
+case "$OUT" in *"DRYRUN would run"*) ok "flag order: dry-run guarantee held (only announced, did not purge)";; *) bad "flag order: dry-run guarantee broken ('$OUT')";; esac
+check "flag order: database survives (dry-run must mutate nothing)" "FAKE-DB-CONTENT" "$(cat "$FAKEHOME/.officraft/server/data/officraft.db" 2>/dev/null)"
+
 echo "uninstall-guard tests: $PASS ok, $FAIL failed"
 [[ "$FAIL" == "0" ]] || exit 1
 exit 0
