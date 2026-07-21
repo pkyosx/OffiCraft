@@ -88,10 +88,14 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash -s -- --uninstall
 ```
 
-**預設 = 停用 + 搬走，不是刪除**：停掉 launchd job、移除 plist，把整個 `~/.officraft`
-搬到 `~/.officraft.bak-<timestamp>`（資料庫也搬過去，不刪）。最壞情況是「東西還在，只是不
-跑了」，不是「資料沒了」。這一步**不需要下載任何 tarball**——安裝器偵測到 `--uninstall` 會
-直接短路進移除邏輯。
+**預設 = 停用 + 搬走，不是刪除**：停掉 launchd job、移除 plist，把 release 路徑裝的那一份
+（`bin/` 與 `server/` 裡屬於這次安裝的資料，含資料庫）搬到 `~/.officraft.bak-<timestamp>`，
+不刪。最壞情況是「東西還在，只是不跑了」，不是「資料沒了」。這一步**不需要下載任何
+tarball**——安裝器偵測到 `--uninstall` 會直接短路進移除邏輯。
+
+> 這台機器如果同時也有方式二（從原始碼）裝的那一份共用同一個 `~/.officraft/server` 根目錄，
+> 只有 release 路徑自己的檔案會被搬走——`server/repo/`（從原始碼那份的東西）原地不動，跟下面
+> 「這條路只落 `~/.officraft/bin` + 資料庫」那句是同一件事的兩面。
 
 ```bash
 curl -fsSL … | bash -s -- --uninstall --dry-run   # 只印出會做什麼，什麼都不動
