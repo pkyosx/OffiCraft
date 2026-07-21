@@ -13,13 +13,18 @@ interface UseRelocateMachineOpts {
    * hook's `undispatched` verdict outlives the agent it was decided for unless
    * something resets it.
    *
-   * ⚠️ SCOPE OF THAT CLAIM (review r3 measured it; an earlier draft of this
-   * comment over-claimed). This is a PRE-EXISTING leak that three review rounds
-   * missed — not a regression introduced alongside the observability gate. The
-   * gate masked it only for agents that are BOTH unobservable AND pinned, where
-   * `landed` came out accidentally true and swallowed the leak; for an agent
-   * that is observable-and-mismatched the leak was always reachable (r3 ran the
-   * 2-factor experiment: reverting the gate did NOT turn the leak test green). */
+   * ⚠️ SCOPE OF THAT CLAIM — and this comment splits by PROVENANCE, because an
+   * earlier draft of it over-claimed twice (see the commit that fixed it):
+   *
+   *   MEASURED (r3's 2-factor experiment): reverting the observability gate did
+   *   NOT turn the leak test green. So this is a PRE-EXISTING leak that three
+   *   review rounds missed — NOT a regression introduced alongside that gate.
+   *
+   *   DERIVED, not measured (from r2's probe P2 plus the `undispatched &&
+   *   !landed` boolean; nobody ran a positive control for it): the gate masks
+   *   the leak only for agents that are BOTH unobservable AND pinned, where
+   *   `landed` comes out accidentally true and swallows it. Treat this half as
+   *   a reading of the code, not as an experimental result. */
   subjectId: string;
   /** ALL machines (online + offline) — the caller's ONE useMachines() result. */
   machines: MachineView[];

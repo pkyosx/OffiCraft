@@ -22,7 +22,11 @@
 //
 //   1. A BLOCKLIST of the two lies above. Each is banned by the substrings it
 //      is made of, in all three locales, so the copy may be rewritten freely
-//      but cannot drift back into either historical claim.
+//      but cannot drift back into either historical PHRASING. Note the word:
+//      phrasing, not claim. Re-word the same false claim around the banned
+//      substrings and it sails through (zh bans 送達/目標機器/沒有送到 —
+//      「指令沒有抵達那台機器」 passes). That is the same gap as the novel-lie
+//      one below, and naming it "claim" here would be this very file's defect.
 //   2. A STRUCTURAL invariant: the copy must keep pointing at 「最近操作」, and
 //      that pointer is cross-checked against the same locale's `mp.lastOp`
 //      rather than a hard-coded string. This one is a real invariant.
