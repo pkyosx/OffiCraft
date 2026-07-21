@@ -482,6 +482,25 @@ else
   bad "bin/tests/uninstall-guard.sh is missing"
 fi
 
+# ── install.sh EXIT-time stdin drain (T-fa39) ──────────────────────────────
+# Own file, own temp HOME + fake label + launchctl shim. Guards the cosmetic
+# half of the same defect the --uninstall rewrite fixed: `curl … | bash` exits
+# early, the pipe's reading end closes, and curl signs off with
+# "curl: (23|56) Failure writing output to destination" — a red line at the end
+# of a SUCCESSFUL run. Kept separate from uninstall-guard.sh because it tests a
+# property of how the script is FED, not of what --uninstall decides.
+DRAINGUARD="$HERE/stdin-drain-guard.sh"
+echo
+if [[ -f "$DRAINGUARD" ]]; then
+  if bash "$DRAINGUARD"; then
+    ok "install.sh stdin-drain suite passed"
+  else
+    bad "install.sh stdin-drain suite FAILED (see output above)"
+  fi
+else
+  bad "bin/tests/stdin-drain-guard.sh is missing"
+fi
+
 echo "bin tests (incl. install guard): $PASS ok, $FAIL failed"
 [[ "$FAIL" == "0" ]] || exit 1
 exit 0

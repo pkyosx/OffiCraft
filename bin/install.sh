@@ -124,6 +124,74 @@
 #      warden with it (T-fa39).
 set -euo pipefail
 
+# ── `curl … | bash` leaves the download half writing into a pipe nobody reads ─
+# Every early exit in this file (--help, "already clean", a refused gate, the
+# whole --uninstall path) ends the script while curl may still have bytes in
+# flight. The reading end of the pipe then closes under it, so curl's next write
+# fails and it prints
+#   curl: (23|56) Failure writing output to destination, passed N returned 0
+# to stderr — AFTER our own output. A completely successful run therefore ends
+# on a red line that reads like a failure. That is precisely the disease the
+# rest of this file was rewritten to cure (see the SCOPE note above), so it does
+# not get a pass here: drain whatever is left before we go.
+#
+# Three guards, and the reason for each:
+#   1. Only when the SCRIPT ITSELF arrived on stdin (`curl … | bash`, `bash -s`).
+#      The flag is computed HERE, at top level, because what BASH_SOURCE[0]
+#      reads as inside a function is VERSION-DEPENDENT: measured, stock macOS
+#      /bin/bash 3.2.57 leaves it empty there, while bash 5.x reports a non-empty
+#      value ("bash" / an absolute path — it is $0). The measured consequence,
+#      on bash 5.x: re-deriving the flag inside the drain means it is never set
+#      and the drain becomes DEAD CODE that still looks installed. What that
+#      same move would do on 3.2.57 depends on how the script was invoked and is
+#      deliberately NOT asserted here — a previous draft claimed "always-on"
+#      there and review falsified it. Computing the flag at top level sidesteps
+#      the question entirely.
+#   2. Only when fd 0 is a PIPE. `bash install.sh`, `bash -s < file`, and an
+#      interactive terminal all fall out here, so this can never sit waiting for
+#      a human to type — the failure mode that has no way to report itself.
+#   3. BOUNDED TWO WAYS. `read -t 5` is an IDLE timeout, not a budget: it
+#      restarts on every line, so a writer that dribbles one line every 3s keeps
+#      it alive forever (measured: a 30s dribbler held it 36.5s — the very hang
+#      an unbounded `cat >/dev/null` was rejected for). So there is also a TOTAL
+#      deadline. Giving up either way is not a regression: it just means curl
+#      prints the same line it prints today. This file does not trade a cosmetic
+#      wart for a hang, and "bounded" here has to mean bounded.
+#
+# The exit status of the whole script flows THROUGH this handler: a trap whose
+# last statement is non-zero rewrites it (measured: `trap` returning 3 turns
+# `exit 7` into 3), and an `exit` inside it would flatten every failure to that
+# code. Hence the unconditional `return 0`, and the test that a FAILING piped
+# run keeps its status.
+_OC_SCRIPT_FROM_STDIN=0
+[[ -z "${BASH_SOURCE[0]:-}" ]] && _OC_SCRIPT_FROM_STDIN=1
+_OC_DRAIN_IDLE_TIMEOUT=5
+_OC_DRAIN_TOTAL_TIMEOUT=10
+
+oc_drain_stdin() {
+  [[ "$_OC_SCRIPT_FROM_STDIN" == "1" ]] || return 0
+  [[ -p /dev/stdin ]] || return 0
+  local _discard _deadline=$((SECONDS + _OC_DRAIN_TOTAL_TIMEOUT))
+  # `if`, not `(( … )) && break`. Two comments before this one tried to explain
+  # WHY in general terms and both were falsified by measurement, so this one
+  # states only what was measured, on this machine's /bin/bash 3.2.57:
+  #   - `set -euo pipefail; printf … | while read; do (( 0 )) && break; done`
+  #     exits 1. The AND-list is the loop body's last command and its false
+  #     branch is a non-zero status.
+  #   - `set -e` is NOT suspended inside a trap handler: a `false` mid-handler
+  #     truncates the handler and rewrites the script's status 0 → 1.
+  # `if` produces no non-zero status in either place, so it needs no argument
+  # about which of those applies here — which is the point.
+  while IFS= read -r -t "$_OC_DRAIN_IDLE_TIMEOUT" _discard; do
+    if (( SECONDS >= _deadline )); then break; fi
+  done
+  return 0
+}
+# Non-enumerative on purpose: an EXIT trap covers every exit in this file,
+# including the ones added after this comment. A list of "drain here, and here"
+# call sites would be zero-coverage for whatever the next person adds.
+trap oc_drain_stdin EXIT
+
 # ProgramArguments[0] of an existing plist, or "" if unreadable/absent. Shared
 # by --uninstall's ownership check below and the install-time ownership gate
 # further down (package mode) — one definition, same semantics both places.
@@ -603,7 +671,21 @@ EOF
   # With --foreground the delegated installer ends in `exec ocserverd serve` in
   # a CHILD process, so this shell stays alive as its parent and the trap fires
   # when serve exits (Ctrl-C).
-  trap 'rm -rf "$TMP"' EXIT INT TERM
+  # Re-arms the stdin drain installed at the top of this file: a bare
+  # `trap … EXIT` REPLACES the handler, so leaving this one as
+  # `rm -rf "$TMP"` alone would silently retire the drain for the entire
+  # bootstrap path — the path a `curl … | bash` user is actually on.
+  #
+  # EXIT and INT/TERM are deliberately SPLIT. An INT handler that does not exit
+  # RETURNS TO THE SCRIPT, and when the script came in on stdin the rest of the
+  # program is still sitting in that pipe — draining it there would delete the
+  # remainder of the installer (demonstrated on a minimal repro: the commands
+  # after the interrupted step simply never run). That is unreachable today only
+  # because this whole `if` block is parsed up front and every path in it exits,
+  # which is an invariant nothing states or tests. An INT that does not exit
+  # still reaches the EXIT trap afterwards, so splitting costs nothing.
+  trap 'rm -rf "$TMP"' INT TERM
+  trap 'rm -rf "$TMP"; oc_drain_stdin' EXIT
 
   echo "[install] downloading $ASSET (release $TAG)…"
   curl -fSL --progress-bar -o "$TMP/$ASSET" "$BASE_URL/$ASSET" || {
