@@ -803,5 +803,12 @@
     "method": "POST",
     "path": "/api/task-manuals/{type_key}/learnings",
     "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "patch_task_learnings",
+    "method": "POST",
+    "path": "/api/task-manuals/{type_key}/learnings/patch",
+    "requires": "agent"
   }
 ]

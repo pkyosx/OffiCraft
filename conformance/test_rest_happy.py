@@ -1047,6 +1047,12 @@ HAPPY: dict[str, Happy] = {
             r, lambda d: d["learnings"] == "conf happy learnings"
         ),
     ),
+    "POST /api/task-manuals/{type_key}/learnings/patch": Happy(
+        identity="agent",
+        path=lambda ctx: f"/api/task-manuals/{_happy_manual(ctx)}/learnings/patch",
+        body={"edits": [{"old": "", "new": "conf happy patch"}]},
+        check=lambda _c, r: _expect(r, lambda d: d["applied_edits"] == 1),
+    ),
 }
 
 # Manifest rows deliberately NOT happy-tested (reason required — the coverage

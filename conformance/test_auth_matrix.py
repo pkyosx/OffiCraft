@@ -940,6 +940,13 @@ MATRIX: dict[str, Route] = {
         path=lambda ctx, _i: f"/api/task-manuals/{_matrix_manual(ctx)}/learnings",
         body={"text": "conf matrix learnings"},
     ),
+    "POST /api/task-manuals/{type_key}/learnings/patch": Route(
+        # the agent patch face for learnings — same agent floor as the
+        # whole-doc write-back (per-type, not per-executor).
+        requires="agent",
+        path=lambda ctx, _i: f"/api/task-manuals/{_matrix_manual(ctx)}/learnings/patch",
+        body={"edits": [{"old": "", "new": "conf matrix patch"}]},
+    ),
 }
 
 # Manifest rows deliberately NOT in the matrix (must carry a reason — the
