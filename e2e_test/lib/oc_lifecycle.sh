@@ -32,7 +32,28 @@ tmux_session()  { printf 'member-%s' "$1"; }     # OC_SESSION for an agent id
 # derives suffixed siblings of every one of these so a run touches none of them.
 OC_CANONICAL_WARDEN_LABEL="com.officraft.ocwarden"
 OC_CANONICAL_TMUX_SOCKET="officraft"
-OC_CANONICAL_SERVE_PORT=8770
+
+# OC_CANONICAL_SERVE_PORT — the CURRENT officraft prod default, read from the
+# single source of truth (server/ocserverd/config.go's `defaultPort` const)
+# instead of a hand-maintained literal that silently goes stale (T-b76b,
+# same pattern as T-a3ba's conformance/run.sh fix): this constant was still
+# 8770, a RETIRED former default (config.go's own migration-history comment:
+# 8770 → 8780 → 7755, the real current one). A stale value here is not just
+# cosmetic — oc_detect_live_canonical_fleet() below uses it to detect "prod
+# is running, refuse to touch it"; pointed at the wrong port, that guard
+# silently covers NOTHING (a blind guard looks identical to "all clear").
+# Computed via this file's own location, not the caller's REPO_ROOT, because
+# single_machine_e2e.sh sources this file BEFORE it sources common.sh (which
+# sets REPO_ROOT) — deriving from REPO_ROOT here would read an unset var.
+_OC_LIFECYCLE_REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+OC_CANONICAL_SERVE_PORT="$(grep -E '^[[:space:]]*defaultPort[[:space:]]*=[[:space:]]*[0-9]+' \
+  "$_OC_LIFECYCLE_REPO_ROOT/server/ocserverd/config.go" 2>/dev/null | grep -oE '[0-9]+' | head -1)"
+if [[ -z "$OC_CANONICAL_SERVE_PORT" ]]; then
+  echo "[oc_lifecycle] FATAL: could not parse server/ocserverd/config.go's defaultPort — refusing to load without a working canonical-port guard (T-b76b)." >&2
+  exit 2
+fi
+unset _OC_LIFECYCLE_REPO_ROOT
+
 OC_CANONICAL_TUNNEL_PORT=8766
 # agent_workdir REMOTE_HOME_EXPR AGENT — the spawn workdir. The first arg is a
 # shell expression that expands to $HOME on the target (local or remote). Reads
@@ -410,7 +431,7 @@ assert_no_self_repair() {
 #     NAMESPACE by default and derives EVERY host-resource axis off it — serve
 #     port, launchd labels, ~/.officraft-<ns> root, tmux -L socket. The whole
 #     lifecycle (install/bootstrap/spawn/teardown) then operates ONLY on those
-#     namespaced siblings and can never touch the canonical 8770 /
+#     namespaced siblings and can never touch the canonical serve port /
 #     com.officraft.ocwarden / officraft socket / ~/.officraft. Canonical
 #     is reachable ONLY via the explicit OC_E2E_ALLOW_CANONICAL=1 escape hatch.
 #
@@ -430,9 +451,13 @@ oc_mint_namespace() {
 }
 
 # oc_pick_free_port — a free loopback TCP port that is NOT any canonical/known
-# harness port (8770/8766 prod, 8790/8791 e2e-playwright, 8795 conformance).
+# harness port (prod = OC_CANONICAL_SERVE_PORT/OC_CANONICAL_TUNNEL_PORT,
+# currently 7755/8766, plus RETIRED former prod defaults 8770/8780 which
+# nothing in this repo can derive — see OC_CANONICAL_SERVE_PORT's derivation
+# above for why a hand-maintained literal here would silently go stale;
+# 8790/8791 e2e-playwright, 8795 conformance).
 oc_pick_free_port() {
-  local p reserved=" 8770 8766 8790 8791 8795 " _
+  local p reserved=" $OC_CANONICAL_SERVE_PORT $OC_CANONICAL_TUNNEL_PORT 8770 8780 8790 8791 8795 " _
   for _ in $(seq 1 60); do
     p=$(( 8800 + (RANDOM % 900) ))   # 8800..9699
     case "$reserved" in *" $p "*) continue ;; esac
@@ -588,9 +613,11 @@ oc_preflight_guards() {
   esac
   log "server-root containment OK: $SERVER_ROOT under $OC_ROOT"
 
-  # 0c. PROD-PORT hard refusal — 8770/8766 must be free of a NON-owned listener.
-  #     This script will OWN 8770 (canonical). Same spirit as common.sh's prod-port
-  #     refusal: a prod port already held by something we did not start = refuse.
+  # 0c. PROD-PORT hard refusal — SINGLE_PROD_PORTS (OC_CANONICAL_SERVE_PORT/
+  #     OC_CANONICAL_TUNNEL_PORT, currently 7755/8766) must be free of a
+  #     NON-owned listener. This script will OWN OC_CANONICAL_SERVE_PORT
+  #     (canonical). Same spirit as common.sh's prod-port refusal: a prod
+  #     port already held by something we did not start = refuse.
   for _p in "${SINGLE_PROD_PORTS[@]}"; do
     if lsof -nP -iTCP:"$_p" -sTCP:LISTEN >/dev/null 2>&1; then
       lsof -nP -iTCP:"$_p" -sTCP:LISTEN 2>/dev/null | sed 's/^/[single-machine] port| /' >&2
@@ -741,7 +768,7 @@ oc_teardown_bounded() {
   return 0
 }
 
-# oc_fresh_install — PHASE 2 fresh install (canonical 8770): seed KNOWN owner
+# oc_fresh_install — PHASE 2 fresh install (canonical serve port): seed KNOWN owner
 # password (render-config + set-password seam), run `ocserver install --force`
 # under oc_env, /health + /api/version sanity, owner login → OWNER_TOKEN, then
 # the 15s serve stability window. Calls fail_stage on any failure.
