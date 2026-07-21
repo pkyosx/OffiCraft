@@ -294,3 +294,57 @@ func TestOrgNameSettingRoundTrips(t *testing.T) {
 		t.Fatalf("cleared org_name must be live: %q", got)
 	}
 }
+
+// TestOwnerNameSettingRoundTrips covers the T-0b41 owner nickname: the owner
+// writes it through PATCH /api/settings (validated, trimmed, durable + live in
+// the snapshot) and reads it back on the settings surface. Unlike org.name it
+// is NOT an agent read path, so global-context never carries it.
+func TestOwnerNameSettingRoundTrips(t *testing.T) {
+	api, srv, d, _ := newSettingsTestServer(t, "owner-pass")
+	status, data := doJSON(t, "POST", srv.URL+"/api/login", "", `{"password":"owner-pass"}`)
+	if status != 200 {
+		t.Fatalf("login: %d", status)
+	}
+	owner := data["token"].(string)
+
+	// Default: unset → "" on the settings surface.
+	if status, data = doJSON(t, "GET", srv.URL+"/api/settings", owner, ""); status != 200 || data["owner_name"] != "" {
+		t.Fatalf("owner_name default must be \"\": %d %v", status, data)
+	}
+
+	// Over the 80-rune cap → 422, nothing written.
+	long := `{"owner_name":"` + strings.Repeat("水", 81) + `"}`
+	if status, _ := doJSON(t, "PATCH", srv.URL+"/api/settings", owner, long); status != 422 {
+		t.Fatalf("owner_name over the cap must 422: got %d", status)
+	}
+	if v, err := d.GetSetting(settingOwnerName); err != nil || v != nil {
+		t.Fatalf("a rejected owner_name patch must write nothing: %v %v", v, err)
+	}
+
+	// Valid patch: trimmed, echoed, durable, live in the snapshot.
+	if status, data = doJSON(t, "PATCH", srv.URL+"/api/settings", owner, `{"owner_name":"  伊娃  "}`); status != 200 || data["owner_name"] != "伊娃" {
+		t.Fatalf("owner_name patch must trim + echo: %d %v", status, data)
+	}
+	if v, err := d.GetSetting(settingOwnerName); err != nil || v == nil || *v != "伊娃" {
+		t.Fatalf("owner_name must be durable: %v %v", v, err)
+	}
+	if got := api.ownerNameSnapshot(); got != "伊娃" {
+		t.Fatalf("owner_name must be live in the snapshot: %q", got)
+	}
+
+	// The nickname never leaks onto the agent read path.
+	if status, data = doJSON(t, "GET", srv.URL+"/api/global-context", owner, ""); status != 200 {
+		t.Fatalf("global-context: %d", status)
+	}
+	if _, ok := data["owner_name"]; ok {
+		t.Fatalf("owner_name must NOT appear on the agent read path: %v", data)
+	}
+
+	// "" clears it back to the default.
+	if status, data = doJSON(t, "PATCH", srv.URL+"/api/settings", owner, `{"owner_name":""}`); status != 200 || data["owner_name"] != "" {
+		t.Fatalf("empty owner_name must clear: %d %v", status, data)
+	}
+	if got := api.ownerNameSnapshot(); got != "" {
+		t.Fatalf("cleared owner_name must be live: %q", got)
+	}
+}

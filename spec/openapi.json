@@ -3028,7 +3028,7 @@
         "type": "object"
       },
       "SettingsDTO": {
-        "description": "The owner-adjustable settings surface (`GET /api/settings`). `token_ttl` —\nthe owner-login JWT lifetime (seconds). `handover_pct` — the context\nhandover threshold. `outsource_max_parallel` — the global cap on\nconcurrently live outsource workers (-1 = unlimited, 0 pauses assignment).\n`updater_receive_beta` — whether the GitHub-release update check also\nadmits prereleases (default false: official releases only).\n`updater_auto_update` — arms unattended background self-upgrade to the\nnewest admissible GitHub release (default false: upgrading stays an\nexplicit owner action). `org_name` — the studio display name (\"\" = unset).",
+        "description": "The owner-adjustable settings surface (`GET /api/settings`). `token_ttl` —\nthe owner-login JWT lifetime (seconds). `handover_pct` — the context\nhandover threshold. `outsource_max_parallel` — the global cap on\nconcurrently live outsource workers (-1 = unlimited, 0 pauses assignment).\n`updater_receive_beta` — whether the GitHub-release update check also\nadmits prereleases (default false: official releases only).\n`updater_auto_update` — arms unattended background self-upgrade to the\nnewest admissible GitHub release (default false: upgrading stays an\nexplicit owner action). `org_name` — the studio display name (\"\" = unset).\n`owner_name` — the owner's display nickname (\"\" = unset).",
         "properties": {
           "handover_pct": {
             "title": "Handover Pct",
@@ -3038,6 +3038,12 @@
             "default": "",
             "description": "The studio display name shown in the cockpit topbar (T-d693). \"\" = never set — the topbar falls back to the localized default string.",
             "title": "Org Name",
+            "type": "string"
+          },
+          "owner_name": {
+            "default": "",
+            "description": "The owner's display nickname shown in the cockpit topbar profile pill (T-0b41). \"\" = never set — the pill falls back to the localized default label.",
+            "title": "Owner Name",
             "type": "string"
           },
           "outsource_max_parallel": {
@@ -3091,6 +3097,18 @@
             ],
             "description": "The studio display name (T-d693) — trimmed, max 80 runes; \"\" clears it back to the localized default. A value longer than 80 runes is a 422.",
             "title": "Org Name"
+          },
+          "owner_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The owner's display nickname (T-0b41) — trimmed, max 80 runes; \"\" clears it back to the localized default. A value longer than 80 runes is a 422.",
+            "title": "Owner Name"
           },
           "outsource_max_parallel": {
             "anyOf": [

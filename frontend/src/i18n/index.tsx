@@ -20,11 +20,11 @@ export type Theme = "office" | "xian";
 const DICTS: Record<Locale, Dict> = { zh, en, xian };
 
 // localStorage keys (client-side persistence — these prefs have no backend
-// store). NOTE: the studio/org name is NOT here — it moved server-side in
-// T-d693 (DB org.name behind /api/settings; see hooks/useOrgName).
+// store). NOTE: neither the studio/org name (T-d693) nor the owner nickname
+// (T-0b41) is here — both moved server-side behind /api/settings (DB org.name /
+// owner.name; see hooks/useOrgName + hooks/useOwnerName).
 const LS_LANGUAGE = "oc.language";
 const LS_THEME = "oc.theme";
-const LS_OWNER_NAME = "oc.ownerName";
 
 function readStored<T extends string>(key: string, allowed: T[], fallback: T): T {
   try {
@@ -53,12 +53,9 @@ interface I18nContextValue {
   setLanguage: (next: Language) => void;
   theme: Theme;
   setTheme: (next: Theme) => void;
-  /** Custom owner display name (client-persisted); null → fall back to t.user. */
-  ownerName: string | null;
-  setOwnerName: (next: string | null) => void;
-  /** Resolved owner display name for the topbar pill / profile header. */
-  userName: string;
-  /** Reset local preferences to initial (used by the honest M1 "logout"). */
+  /** Reset local preferences to initial (used by the honest M1 "logout").
+   * Covers only the client-persisted prefs (theme/language); the owner
+   * nickname is server-backed now (T-0b41) and is left untouched. */
   resetPreferences: () => void;
 }
 
@@ -71,13 +68,6 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(() =>
     readStored<Theme>(LS_THEME, ["office", "xian"], "office")
   );
-  const [ownerName, setOwnerNameState] = useState<string | null>(() => {
-    try {
-      return localStorage.getItem(LS_OWNER_NAME);
-    } catch {
-      return null;
-    }
-  });
   // 修仙 theme drives the immersive `xian` copy; 辦公室 uses the language toggle.
   const locale: Locale = theme === "xian" ? "xian" : language;
   const t = DICTS[locale];
@@ -97,19 +87,10 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     writeStored(LS_THEME, next);
   }, []);
 
-  const setOwnerName = useCallback((next: string | null) => {
-    const trimmed = next?.trim() ? next.trim() : null;
-    setOwnerNameState(trimmed);
-    writeStored(LS_OWNER_NAME, trimmed);
-  }, []);
-
   const resetPreferences = useCallback(() => {
     setLanguage("zh");
     setTheme("office");
-    setOwnerName(null);
-  }, [setLanguage, setTheme, setOwnerName]);
-
-  const userName = ownerName ?? t.user;
+  }, [setLanguage, setTheme]);
 
   const value = useMemo<I18nContextValue>(
     () => ({
@@ -119,23 +100,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       setLanguage,
       theme,
       setTheme,
-      ownerName,
-      setOwnerName,
-      userName,
       resetPreferences,
     }),
-    [
-      locale,
-      t,
-      language,
-      setLanguage,
-      theme,
-      setTheme,
-      ownerName,
-      setOwnerName,
-      userName,
-      resetPreferences,
-    ]
+    [locale, t, language, setLanguage, theme, setTheme, resetPreferences]
   );
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;

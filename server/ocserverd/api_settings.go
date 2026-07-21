@@ -51,6 +51,11 @@ const (
 // localized default. Counted in runes so CJK names get the full budget.
 const maxOrgNameLen = 80
 
+// maxOwnerNameLen caps the owner display nickname (owner.name; T-0b41) — a
+// topbar pill label, not a document. Whitespace is trimmed; "" clears it back
+// to the localized default. Counted in runes so CJK names get the full budget.
+const maxOwnerNameLen = 80
+
 // GET /api/auth/status — PUBLIC: the single first-run bit the UI branches on.
 func (s *apiServer) HandleAuthStatusApiAuthStatusGet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, authStatusDTO{PasswordSet: s.authPasswordHash() != ""})
@@ -204,6 +209,15 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			return
 		}
 	}
+	var ownerName string
+	if body.OwnerName != nil {
+		ownerName = strings.TrimSpace(*body.OwnerName)
+		if utf8.RuneCountInString(ownerName) > maxOwnerNameLen {
+			writeError(w, http.StatusUnprocessableEntity,
+				"owner_name must be at most 80 characters")
+			return
+		}
+	}
 	s.settingsMu.Lock()
 	if body.TokenTtl != nil {
 		if err := s.dal.PutSetting(settingTokenTTL, strconv.Itoa(*body.TokenTtl)); err != nil {
@@ -263,6 +277,14 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		}
 		s.orgName = orgName
 	}
+	if body.OwnerName != nil && ownerName != s.ownerName {
+		if err := s.dal.PutSetting(settingOwnerName, ownerName); err != nil {
+			s.settingsMu.Unlock()
+			internalError(w, err)
+			return
+		}
+		s.ownerName = ownerName
+	}
 	s.settingsMu.Unlock()
 	if updaterChanged {
 		// Force-expire the update-check cache + refresh in the background so
@@ -285,5 +307,6 @@ func (s *apiServer) settingsView() settingsDTO {
 		UpdaterReceiveBeta:   s.updaterReceiveBeta,
 		UpdaterAutoUpdate:    s.updaterAutoUpdate,
 		OrgName:              s.orgName,
+		OwnerName:            s.ownerName,
 	}
 }

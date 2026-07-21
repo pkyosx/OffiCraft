@@ -1220,15 +1220,19 @@ type SetPasswordDTO struct {
 // `updater_auto_update` — arms unattended background self-upgrade to the
 // newest admissible GitHub release (default false: upgrading stays an
 // explicit owner action). `org_name` — the studio display name ("" = unset).
+// `owner_name` — the owner's display nickname ("" = unset).
 type SettingsDTO struct {
 	HandoverPct int `json:"handover_pct"`
 
 	// OrgName The studio display name shown in the cockpit topbar (T-d693). "" = never set — the topbar falls back to the localized default string.
 	OrgName              *string `json:"org_name,omitempty"`
 	OutsourceMaxParallel *int    `json:"outsource_max_parallel,omitempty"`
-	TokenTtl             int     `json:"token_ttl"`
-	UpdaterAutoUpdate    *bool   `json:"updater_auto_update,omitempty"`
-	UpdaterReceiveBeta   *bool   `json:"updater_receive_beta,omitempty"`
+
+	// OwnerName The owner's display nickname shown in the cockpit topbar profile pill (T-0b41). "" = never set — the pill falls back to the localized default label.
+	OwnerName          *string `json:"owner_name,omitempty"`
+	TokenTtl           int     `json:"token_ttl"`
+	UpdaterAutoUpdate  *bool   `json:"updater_auto_update,omitempty"`
+	UpdaterReceiveBeta *bool   `json:"updater_receive_beta,omitempty"`
 }
 
 // SettingsUpdateDTO Partial settings edit (`PATCH /api/settings`) — only supplied fields change,
@@ -1247,9 +1251,12 @@ type SettingsUpdateDTO struct {
 	// OrgName The studio display name (T-d693) — trimmed, max 80 runes; "" clears it back to the localized default. A value longer than 80 runes is a 422.
 	OrgName              *string `json:"org_name,omitempty"`
 	OutsourceMaxParallel *int    `json:"outsource_max_parallel,omitempty"`
-	TokenTtl             *int    `json:"token_ttl,omitempty"`
-	UpdaterAutoUpdate    *bool   `json:"updater_auto_update,omitempty"`
-	UpdaterReceiveBeta   *bool   `json:"updater_receive_beta,omitempty"`
+
+	// OwnerName The owner's display nickname (T-0b41) — trimmed, max 80 runes; "" clears it back to the localized default. A value longer than 80 runes is a 422.
+	OwnerName          *string `json:"owner_name,omitempty"`
+	TokenTtl           *int    `json:"token_ttl,omitempty"`
+	UpdaterAutoUpdate  *bool   `json:"updater_auto_update,omitempty"`
+	UpdaterReceiveBeta *bool   `json:"updater_receive_beta,omitempty"`
 }
 
 // TaskArtifactDTO One pinned deliverable on a task's artifact set (T-3dc5). “kind“ is the closed set file|image|link. FILE/IMAGE artifacts reference the shared chat_attachment blob store: “attachment_id“ is the blob id, “url“ is its serve path (“/api/chat/attachment/{attachment_id}“), and “filename“/“mime“/“is_image“ echo the blob metadata (resolved read-time; empty when the blob is gone). LINK artifacts carry a bare external “url“ (a PR link) with “attachment_id“/“mime“/“filename“ empty and “is_image“ false. “label“ is the display name (a link's title, or a filename override); “created_by“ is the verified token sub of the registrar.

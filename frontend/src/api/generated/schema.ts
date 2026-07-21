@@ -4822,6 +4822,7 @@ export interface components {
          *     `updater_auto_update` — arms unattended background self-upgrade to the
          *     newest admissible GitHub release (default false: upgrading stays an
          *     explicit owner action). `org_name` — the studio display name ("" = unset).
+         *     `owner_name` — the owner's display nickname ("" = unset).
          */
         SettingsDTO: {
             /** Handover Pct */
@@ -4832,6 +4833,12 @@ export interface components {
              * @default
              */
             org_name: string;
+            /**
+             * Owner Name
+             * @description The owner's display nickname shown in the cockpit topbar profile pill (T-0b41). "" = never set — the pill falls back to the localized default label.
+             * @default
+             */
+            owner_name: string;
             /** Outsource Max Parallel */
             outsource_max_parallel?: number;
             /** Token Ttl */
@@ -4868,6 +4875,11 @@ export interface components {
              * @description The studio display name (T-d693) — trimmed, max 80 runes; "" clears it back to the localized default. A value longer than 80 runes is a 422.
              */
             org_name?: string | null;
+            /**
+             * Owner Name
+             * @description The owner's display nickname (T-0b41) — trimmed, max 80 runes; "" clears it back to the localized default. A value longer than 80 runes is a 422.
+             */
+            owner_name?: string | null;
             /** Outsource Max Parallel */
             outsource_max_parallel?: number | null;
             /** Token Ttl */

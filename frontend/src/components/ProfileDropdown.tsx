@@ -18,6 +18,11 @@ interface ProfileDropdownProps {
   /** Real-mode logout hook (AuthGate): clears the owner token + returns to the
    * login wall. Undefined/no-op in mock mode. */
   onLogout?: () => void;
+  /** Resolved owner nickname for the profile header (server-backed, T-0b41);
+   * falls back to the localized default when unset. */
+  userName: string;
+  /** Commit an edited nickname to the server (PATCH /api/settings). */
+  setOwnerName: (next: string) => void;
 }
 
 type View = "main" | "preferences" | "password";
@@ -38,17 +43,15 @@ type View = "main" | "preferences" | "password";
  * Local preferences persist via the i18n/preferences provider. Click-outside +
  * toggling is owned by the parent (App) via a wrapping ref.
  */
-export function ProfileDropdown({ open, onClose, onLogout }: ProfileDropdownProps) {
-  const {
-    t,
-    userName,
-    setOwnerName,
-    theme,
-    setTheme,
-    language,
-    setLanguage,
-    resetPreferences,
-  } = useI18n();
+export function ProfileDropdown({
+  open,
+  onClose,
+  onLogout,
+  userName,
+  setOwnerName,
+}: ProfileDropdownProps) {
+  const { t, theme, setTheme, language, setLanguage, resetPreferences } =
+    useI18n();
 
   const [view, setView] = useState<View>("main");
 
@@ -70,7 +73,9 @@ export function ProfileDropdown({ open, onClose, onLogout }: ProfileDropdownProp
   if (!open) return null;
 
   function handleLogout() {
-    // Resets local preferences to their initial state (name/theme/language).
+    // Resets local preferences to their initial state (theme/language). The
+    // owner nickname is server-backed now (T-0b41) and is deliberately left in
+    // place — logout is not a place to silently wipe server-side identity.
     // In real-backend mode onLogout (AuthGate) also clears the owner token and
     // returns to the login wall — an honest sign-out. In mock mode there is no
     // token/session, so onLogout keeps the app mounted (pref-reset only).

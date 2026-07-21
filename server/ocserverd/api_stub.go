@@ -65,6 +65,11 @@ type apiServer struct {
 	// localized default. Owner-writable via PATCH /api/settings; every agent
 	// reads it back through get_global_context.
 	orgName string
+	// ownerName is the owner's display nickname shown in the cockpit topbar
+	// profile pill (DB owner.name; T-0b41). "" = never set — the frontend falls
+	// back to the localized default. Owner-writable via PATCH /api/settings so
+	// the nickname syncs across the owner's devices. NOT an agent read path.
+	ownerName string
 	// namespace is the [server].namespace instance key ("" = main instance).
 	// It leaves the server on exactly two surfaces: the install.sh install line
 	// and the bootstrap/teardown-here child env (OC_NAMESPACE) — the single
@@ -282,6 +287,15 @@ func (s *apiServer) orgNameSnapshot() string {
 	s.settingsMu.RLock()
 	defer s.settingsMu.RUnlock()
 	return s.orgName
+}
+
+// ownerNameSnapshot returns the live owner display nickname (owner.name;
+// T-0b41). "" = never set — the topbar's profile pill shows the localized
+// default (frontend-side).
+func (s *apiServer) ownerNameSnapshot() string {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.ownerName
 }
 
 // ctxHighConfig returns the live context-high band config (by value — one

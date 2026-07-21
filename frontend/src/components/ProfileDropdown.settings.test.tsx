@@ -19,7 +19,12 @@ const p = zh.profile;
 async function openPreferences() {
   const utils = render(
     <I18nProvider>
-      <ProfileDropdown open onClose={vi.fn()} />
+      <ProfileDropdown
+        open
+        onClose={vi.fn()}
+        userName="使用者"
+        setOwnerName={vi.fn()}
+      />
     </I18nProvider>
   );
   fireEvent.click(utils.getByText(p.preferences));

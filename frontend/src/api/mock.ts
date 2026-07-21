@@ -688,6 +688,9 @@ const DEFAULT_MOCK_SETTINGS = {
   // Studio name (T-d693) — "" out of the box, mirroring the server (the topbar
   // shows the localized default until the owner names the studio).
   org_name: "",
+  // Owner nickname (T-0b41) — "" out of the box, mirroring the server (the
+  // profile pill shows the localized default until the owner sets a nickname).
+  owner_name: "",
 };
 let mockServerSettings = { ...DEFAULT_MOCK_SETTINGS };
 const MOCK_CLAIM_TOKEN = "mock-claim-token";
@@ -2385,6 +2388,18 @@ export const mockApi: Api = {
         "org_name must be at most 80 characters"
       );
     }
+    if (
+      patch.ownerName !== undefined &&
+      [...patch.ownerName.trim()].length > 80
+    ) {
+      // Server parity: trimmed, capped at 80 runes (T-0b41).
+      throw new ApiError(
+        "http 422 for PATCH /api/settings",
+        422,
+        "validation_error",
+        "owner_name must be at most 80 characters"
+      );
+    }
     if (patch.tokenTtl !== undefined) {
       mockServerSettings.token_ttl = patch.tokenTtl;
     }
@@ -2402,6 +2417,9 @@ export const mockApi: Api = {
     }
     if (patch.orgName !== undefined) {
       mockServerSettings.org_name = patch.orgName.trim();
+    }
+    if (patch.ownerName !== undefined) {
+      mockServerSettings.owner_name = patch.ownerName.trim();
     }
     return toServerSettings(structuredClone(mockServerSettings));
   },

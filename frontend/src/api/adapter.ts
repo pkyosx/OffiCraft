@@ -559,6 +559,9 @@ export interface ServerSettingsView {
   /** The studio display name shown in the topbar (T-d693). "" = never set —
    * the caller falls back to the localized default (`t.orgName`). */
   orgName: string;
+  /** The owner's display nickname shown in the topbar profile pill (T-0b41).
+   * "" = never set — the caller falls back to the localized default (`t.user`). */
+  ownerName: string;
 }
 
 /** Partial settings edit — only supplied fields change (server 422s a
@@ -575,6 +578,9 @@ export interface ServerSettingsPatch {
   /** The studio display name (T-d693); trimmed server-side, max 80 runes, ""
    * clears it back to the localized default (server 422s anything longer). */
   orgName?: string;
+  /** The owner's display nickname (T-0b41); trimmed server-side, max 80 runes,
+   * "" clears it back to the localized default (server 422s anything longer). */
+  ownerName?: string;
 }
 
 /** Fields the owner may edit on a member (PATCH; every field optional).

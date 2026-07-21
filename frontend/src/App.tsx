@@ -20,6 +20,7 @@ import { SettingsPage } from "./components/SettingsPage";
 import { ProfileDropdown } from "./components/ProfileDropdown";
 import { InlineEdit } from "./components/InlineEdit";
 import { useOrgName } from "./hooks/useOrgName";
+import { useOwnerName } from "./hooks/useOwnerName";
 import { useReplyCardCount } from "./hooks/useReplyCardCount";
 import { useChatUnread } from "./hooks/useChatUnread";
 import { useTaskCount } from "./hooks/useTaskCount";
@@ -28,10 +29,13 @@ import "./components/chrome.css";
 type Tab = "office" | "replies" | "tasks" | "monitor";
 
 export default function App({ onLogout }: { onLogout?: () => void } = {}) {
-  const { t, userName } = useI18n();
+  const { t } = useI18n();
   // The studio name is server-backed (T-d693); the localized dict string is the
   // fallback until the fetch lands / when the owner has not named the studio.
   const { orgName, setOrgName } = useOrgName(t.orgName);
+  // The owner nickname is server-backed too (T-0b41), so the topbar pill syncs
+  // across devices; t.user is the fallback until the fetch lands / when unset.
+  const { ownerName: userName, setOwnerName } = useOwnerName(t.user);
   // The browser-tab title tracks the studio name so it matches the org name the
   // owner sets in the topbar (owner ask: "Can title align with our org name").
   // orgName already resolves to t.orgName when the server value is empty/unloaded
@@ -160,6 +164,8 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
               open={profileOpen}
               onClose={() => setProfileOpen(false)}
               onLogout={onLogout}
+              userName={userName}
+              setOwnerName={setOwnerName}
             />
           </div>
         </div>

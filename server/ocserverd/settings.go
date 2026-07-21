@@ -82,6 +82,12 @@ const (
 	// which studio it serves. "" (default) = never set: the topbar falls back to
 	// the localized default string (frontend), and agents see an empty name.
 	settingOrgName = "org.name"
+	// settingOwnerName (T-0b41) is the owner's display nickname shown in the
+	// cockpit topbar profile pill. Server-backed (PATCH /api/settings) so the
+	// nickname syncs across the owner's devices. "" (default) = never set: the
+	// pill falls back to the localized default label (frontend). Unlike
+	// org.name it is NOT an agent read path — it never enters get_global_context.
+	settingOwnerName = "owner.name"
 )
 
 // defaultOutsourceMaxParallel is the code-side default when the key was never
@@ -99,6 +105,7 @@ type authSettings struct {
 	updaterReceiveBeta   bool   // updater.receive_beta (default false = official releases only)
 	updaterAutoUpdate    bool   // updater.auto_update (default false = manual upgrades only)
 	orgName              string // org.name ("" = never set → localized default in the topbar)
+	ownerName            string // owner.name ("" = never set → localized default in the profile pill)
 }
 
 // loadAuthSettings loads the snapshot from the migrated DB, running the
@@ -243,6 +250,11 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 		return out, err
 	} else if v != nil {
 		out.orgName = *v
+	}
+	if v, err := d.GetSetting(settingOwnerName); err != nil {
+		return out, err
+	} else if v != nil {
+		out.ownerName = *v
 	}
 	return out, nil
 }

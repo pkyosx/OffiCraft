@@ -58,6 +58,9 @@ type settingsDTO struct {
 	// OrgName is the studio display name (org.name; T-d693). "" = never set —
 	// the topbar falls back to the localized default string.
 	OrgName string `json:"org_name"`
+	// OwnerName is the owner's display nickname (owner.name; T-0b41). "" = never
+	// set — the topbar's profile pill falls back to the localized default label.
+	OwnerName string `json:"owner_name"`
 }
 
 type tokenDTO struct {

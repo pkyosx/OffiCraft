@@ -712,6 +712,9 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     // Studio name (T-d693; schema-optional for DTO-compat — the Go wire always
     // emits it). "" = never set; the topbar substitutes the localized default.
     orgName: w.org_name ?? "",
+    // Owner nickname (T-0b41; schema-optional for DTO-compat — the Go wire
+    // always emits it). "" = never set; the profile pill substitutes t.user.
+    ownerName: w.owner_name ?? "",
   };
 }
 

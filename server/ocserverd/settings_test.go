@@ -167,6 +167,23 @@ func TestLoadAuthSettingsOrgName(t *testing.T) {
 	}
 }
 
+func TestLoadAuthSettingsOwnerName(t *testing.T) {
+	// Absent → "" (never set; the profile pill shows the localized default).
+	got, _ := loadForTest(t, newTestDAL(t), defaultConfig())
+	if got.ownerName != "" {
+		t.Fatalf("absent owner.name must load as \"\": %q", got.ownerName)
+	}
+	// A stored owner.name lands in the boot snapshot verbatim.
+	d := newTestDAL(t)
+	if err := d.PutSetting(settingOwnerName, "伊娃"); err != nil {
+		t.Fatal(err)
+	}
+	got2, _ := loadForTest(t, d, defaultConfig())
+	if got2.ownerName != "伊娃" {
+		t.Fatalf("stored owner.name must load into the snapshot: %q", got2.ownerName)
+	}
+}
+
 func TestLoadAuthSettingsCtxOverrides(t *testing.T) {
 	d := newTestDAL(t)
 	for key, value := range map[string]string{

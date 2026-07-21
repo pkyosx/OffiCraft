@@ -1276,6 +1276,7 @@ export const httpApi: Api = {
       updater_receive_beta?: boolean;
       updater_auto_update?: boolean;
       org_name?: string;
+      owner_name?: string;
     } = {};
     if (patch.tokenTtl !== undefined) body.token_ttl = patch.tokenTtl;
     if (patch.handoverPct !== undefined) body.handover_pct = patch.handoverPct;
@@ -1289,6 +1290,7 @@ export const httpApi: Api = {
       body.updater_auto_update = patch.updaterAutoUpdate;
     }
     if (patch.orgName !== undefined) body.org_name = patch.orgName;
+    if (patch.ownerName !== undefined) body.owner_name = patch.ownerName;
     const wire = unwrap(await client.PATCH("/api/settings", { body }));
     return toServerSettings(wire);
   },
