@@ -151,6 +151,40 @@ describe("Markdown", () => {
     });
   });
 
+  // 使用說明 (product guide) — block-level images, opt-in via resolveImageSrc.
+  // The DEFAULT (no resolver) is what protects every pre-existing call site:
+  // `![…](…)` must stay literal text there, never load an image.
+  describe("resolveImageSrc option (product guide images)", () => {
+    it("DEFAULTS OFF: a block image renders as literal text, no <img>", () => {
+      const c = renderMd("![map](/api/docs/assets/map.png)");
+      expect(c.querySelector("img")).toBeNull();
+      expect(c.textContent).toContain("![map](/api/docs/assets/map.png)");
+    });
+
+    it("ON: a block image renders an <img> with the resolved src + alt", () => {
+      const { container } = render(
+        <Markdown
+          source={"![map](/api/docs/assets/map.png)"}
+          resolveImageSrc={(s) => `${s}?token=T`}
+        />,
+      );
+      const img = container.querySelector("img");
+      expect(img?.getAttribute("src")).toBe("/api/docs/assets/map.png?token=T");
+      expect(img?.getAttribute("alt")).toBe("map");
+    });
+
+    it("ON: an unsafe/foreign image src falls through as literal text", () => {
+      const { container } = render(
+        <Markdown
+          source={"![x](data:image/png;base64,AAAA)"}
+          resolveImageSrc={(s) => s}
+        />,
+      );
+      expect(container.querySelector("img")).toBeNull();
+      expect(container.textContent).toContain("![x](data:image/png;base64,AAAA)");
+    });
+  });
+
   // T-bc3e — GFM tables. The trigger was an owner screenshot: an agent posted
   // a table in chat and the bubble showed the raw pipes. The renderer stays
   // minimal: header + |---| delimiter + rows become a real <table>; anything

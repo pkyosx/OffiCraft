@@ -65,6 +65,8 @@ import type {
   TaskTypeView,
   TaskManualView,
   TaskManualPatch,
+  DocSummaryView,
+  DocView,
   RolePatch,
   RoleCreateInput,
   RoleCreateResult,
@@ -1059,6 +1061,23 @@ export const httpApi: Api = {
         params: { path: { type_key: typeKey } },
       }),
     );
+  },
+
+  async listDocs(): Promise<DocSummaryView[]> {
+    // GET /api/docs -> DocSummaryDTO[] (slug + title).
+    const wire = unwrap(await client.GET("/api/docs"));
+    return wire.map((d) => ({ slug: d.slug, title: d.title }));
+  },
+
+  async getDoc(slug: string): Promise<DocView> {
+    // GET /api/docs/{slug} -> DocDTO (404 throws). markdown_md carries relative
+    // image paths already rewritten to /api/docs/assets/ by the server.
+    const wire = unwrap(
+      await client.GET("/api/docs/{slug}", {
+        params: { path: { slug } },
+      }),
+    );
+    return { slug: wire.slug, title: wire.title, markdownMd: wire.markdown_md };
   },
 
   async getMonitoring(): Promise<MonitoringView> {

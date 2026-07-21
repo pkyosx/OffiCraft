@@ -52,6 +52,8 @@ import type {
   TaskTypeView,
   TaskManualView,
   TaskManualPatch,
+  DocSummaryView,
+  DocView,
 } from "./adapter";
 import type {
   WireMember,
@@ -454,6 +456,22 @@ let replyCards: ReplyCard[] = [];
 let tasks: TaskView[] = [];
 let outsourceWorkers: OutsourceWorkerView[] = [];
 let taskManuals: TaskManualView[] = [];
+
+// Product-guide docs (設定 › 使用說明) — a representative fixture so mock-mode
+// (dev screenshots / vitest) renders the same list→doc flow the real embed
+// serves. NOT the authoritative content (that is README + docs/guide/, embedded
+// server-side); one real-shaped doc keeps the mock honest about the shape.
+const mockDocs: DocView[] = [
+  {
+    slug: "readme",
+    title: "OffiCraft",
+    markdownMd:
+      "# OffiCraft\n\n" +
+      "OffiCraft 是一個 single-owner AI 工作室。\n\n" +
+      "## 使用說明\n\n" +
+      "在「設定 › 使用說明」裡閱讀各項功能的說明。\n",
+  },
+];
 
 // Mock topic fan-out. The mock has no real SSE stream, but the reply-card
 // surface has TWO independent live consumers (the nav badge's count hook and
@@ -2044,6 +2062,23 @@ export const mockApi: Api = {
     }
     taskManuals = taskManuals.filter((m) => m.typeKey !== typeKey);
     emitTopic("task_manual");
+  },
+
+  async listDocs(): Promise<DocSummaryView[]> {
+    return mockDocs.map((d) => ({ slug: d.slug, title: d.title }));
+  },
+
+  async getDoc(slug: string): Promise<DocView> {
+    const doc = mockDocs.find((d) => d.slug === slug);
+    if (!doc) {
+      throw new ApiError(
+        `http 404 for GET /api/docs/${slug}`,
+        404,
+        "not_found",
+        `doc '${slug}' not found`
+      );
+    }
+    return structuredClone(doc);
   },
 
   async getMonitoring(): Promise<MonitoringView> {

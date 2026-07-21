@@ -937,6 +937,9 @@ export const zh = {
     configSaveFailed: "無法確認已存檔——顯示值已還原為伺服器最後確認值，請再試一次",
     // ── 任務手冊（SPEC §5：任務類型／playbook 的定義與維護;與角色誌並列。
     // 不對使用者顯示內部檔名 — 手冊是內容，不是檔案）──
+    guide: "使用說明",
+    guideLoadError: "載入使用說明失敗，請稍後重試",
+    guideEmpty: "還沒有說明頁",
     manuals: "任務手冊",
     manualsLoadError: "載入任務手冊失敗，請稍後重試",
     manualsEmpty: "還沒有任務類型 — 從下方新增第一個",

@@ -1053,6 +1053,20 @@ HAPPY: dict[str, Happy] = {
         body={"edits": [{"old": "", "new": "conf happy patch"}]},
         check=lambda _c, r: _expect(r, lambda d: d["applied_edits"] == 1),
     ),
+    # ── product guide (README + docs/guide embed) ───────────────────────────
+    "GET /api/docs": Happy(
+        # machine floor — the README (staged as readme.md) always lists.
+        check=lambda _c, r: _expect(
+            r, lambda d: any(row["slug"] == "readme" for row in d)
+        ),
+    ),
+    "GET /api/docs/{slug}": Happy(
+        path="/api/docs/readme",
+        check=lambda _c, r: _expect(
+            r,
+            lambda d: d["slug"] == "readme" and len(d["markdown_md"]) > 0,
+        ),
+    ),
 }
 
 # Manifest rows deliberately NOT happy-tested (reason required — the coverage
@@ -1166,6 +1180,13 @@ SKIPPED_HAPPY: dict[str, str] = {
         "the auth matrix; the model/effort persist + active-respawn / "
         "assigned-persist-only in the server unit tests (worker_lifecycle_test.go, "
         "TestSetWorkerModel_*)."
+    ),
+    "GET /api/docs/assets/{name}": (
+        "probed with a missing asset name (404 across identities) in the auth "
+        "matrix — a positive face would couple this suite to O-46's exact image "
+        "filenames under docs/guide/assets. The serve + content-type round-trip "
+        "is pinned decoupled in the server unit tests (api_docs_test.go, "
+        "TestReadDocAssetFromServesBytesWithContentType)."
     ),
 }
 

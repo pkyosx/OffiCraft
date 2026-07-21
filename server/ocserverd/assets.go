@@ -81,6 +81,26 @@ func bindistFS() fs.FS {
 	return sub
 }
 
+// The staged product-guide docs (bin/build-docsdist copies the repo-root
+// docs/guide/ tree — every *.md plus the assets/ image subtree — into
+// docsdist/ before a doc-carrying binary is built). Same embed-only contract
+// as seedsdist: the doc bytes baked into THIS binary are the only copy served,
+// so the 座艙 guide sub-page and Mira's get_doc MCP tool read one identical
+// source (zero copy → zero drift). `all:` tolerates the .gitkeep-only
+// placeholder state on a clean checkout (O-46 content may be unmerged).
+//
+//go:embed all:docsdist
+var docsdistEmbed embed.FS
+
+// docsdistFS returns the embedded docs root (the docsdist/ subtree).
+func docsdistFS() fs.FS {
+	sub, err := fs.Sub(docsdistEmbed, "docsdist")
+	if err != nil {
+		panic(err)
+	}
+	return sub
+}
+
 // assetRoot is the repo root the file assets resolve against ("." in
 // production; tests point it at the checkout).
 type assetRoot string

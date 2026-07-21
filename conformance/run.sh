@@ -158,6 +158,10 @@ if ! ls "$REPO_ROOT"/server/ocserverd/seedsdist/*.md >/dev/null 2>&1; then
   echo "[conformance] staging seedsdist (embed-only seeds)"
   bash "$REPO_ROOT/bin/build-seedsdist"
 fi
+if ! ls "$REPO_ROOT"/server/ocserverd/docsdist/*.md >/dev/null 2>&1; then
+  echo "[conformance] staging docsdist (embed-only product guide)"
+  bash "$REPO_ROOT/bin/build-docsdist"
+fi
 if [[ ! -f "$REPO_ROOT/server/ocserverd/bindist/ocwarden" ]]; then
   echo "[conformance] staging bindist (embed-only binaries + frozen catalog)"
   bash "$REPO_ROOT/bin/build-bindist"
