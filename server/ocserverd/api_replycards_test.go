@@ -464,6 +464,42 @@ func TestPlainCardBindsTheLowestLaneOfOneParallelGroup(t *testing.T) {
 	}
 }
 
+// TestPickCurrentStepDoesNotTrustCallerOrdering drives pickCurrentStep
+// directly with the lanes SHUFFLED. Through the DAL the rows always arrive
+// order_idx-ascending, so the min-search never actually has to move — the
+// panic probe on it stayed green until this test existed, i.e. it was dead
+// code held up only by a caller's habit. Pin the contract at the function.
+func TestPickCurrentStepDoesNotTrustCallerOrdering(t *testing.T) {
+	task := Task{ID: "t-x"}
+	mk := func(id string, order int) TaskStep {
+		return TaskStep{ID: id, TaskID: task.ID, OrderIdx: order,
+			Status: StepStatusInProgress, ParallelGroup: "pg"}
+	}
+	// Deliberately NOT in order_idx order.
+	steps := []TaskStep{mk("ts-c", 7), mk("ts-a", 2), mk("ts-b", 5)}
+	got, why := pickCurrentStep(task, steps)
+	if why != "" || got == nil {
+		t.Fatalf("one parallel group must bind, got %q", why)
+	}
+	if got.ID != "ts-a" {
+		t.Fatalf("the LOWEST order_idx lane must carry the card, got %s", got.ID)
+	}
+	// A single candidate needs no tie-break at all.
+	steps[0].Status = StepStatusDone
+	steps[2].Status = StepStatusDone
+	got, why = pickCurrentStep(task, steps)
+	if why != "" || got == nil || got.ID != "ts-a" {
+		t.Fatalf("single candidate must bind: %+v %q", got, why)
+	}
+	// A lane sharing the group with an UNGROUPED runner is not a group.
+	steps[0].Status = StepStatusInProgress
+	steps[0].ParallelGroup = ""
+	if got, why = pickCurrentStep(task, steps); got != nil ||
+		!strings.Contains(why, "different parallel groups") {
+		t.Fatalf("grouped+ungrouped must refuse: %+v %q", got, why)
+	}
+}
+
 // TestPlainCardRefusesToOpenAcrossDifferentParallelGroups keeps the fail-closed
 // half where it belongs: two lanes of DIFFERENT groups running at once has no
 // natural carrier, so it is still refused (with bind="none" as the escape).
@@ -1182,6 +1218,34 @@ func TestDismissingAMemberRetiresItsWaitingCards(t *testing.T) {
 	kept, _ := api.dal.GetReplyCard(other.ID)
 	if kept.Status != replyCardStatusWaiting {
 		t.Fatalf("a bystander's card must survive the dismissal, got %s", kept.Status)
+	}
+}
+
+// TestSweepRefusesABlankScope pins the blank-id defence. It is not politeness:
+// an empty task id matches EVERY plain unbound 請示 in the database
+// (c.TaskID == ""), so one caller passing "" through would retire the lot. The
+// mutant that deletes the guard survived until this test existed.
+func TestSweepRefusesABlankScope(t *testing.T) {
+	api := newTasksTestServer(t)
+	plain := waitingCard("rc-plain", nowSecs()) // TaskID "" — the victim
+	anon := waitingCard("rc-anon", nowSecs())   // FromMember set below
+	anon.FromMember = ""
+	for _, c := range []ReplyCard{plain, anon} {
+		if err := api.dal.PutReplyCard(c); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+	if n, err := api.expireWaitingCardsForTask("", nowSecs(), "test"); err == nil || n != 0 {
+		t.Fatalf("a blank task id must be refused, got n=%d err=%v", n, err)
+	}
+	if n, err := api.expireWaitingCardsFromMember("", nowSecs(), "test"); err == nil || n != 0 {
+		t.Fatalf("a blank member id must be refused, got n=%d err=%v", n, err)
+	}
+	for _, id := range []string{plain.ID, anon.ID} {
+		got, _ := api.dal.GetReplyCard(id)
+		if got.Status != replyCardStatusWaiting {
+			t.Fatalf("card %s must be untouched, got %s", id, got.Status)
+		}
 	}
 }
 
