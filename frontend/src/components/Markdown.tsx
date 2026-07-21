@@ -477,7 +477,19 @@ function renderBlocks(
               : undefined
           }
         >
-          {renderInline(quoted.join(" "), opts)}
+          {/* BLOCK-level, not renderInline (fixed after the first real-page
+              render of docs/guide/install.md). A blockquote's content is
+              markdown in its own right — GitHub alerts in particular wrap
+              prose AND fenced code AND lists. The previous
+              `renderInline(quoted.join(" "))` flattened all of it onto one
+              inline run, so a ```bash fence inside a `> [!WARNING]` rendered
+              as bare backticks, the language tag became part of the command,
+              and the following paragraph was swallowed into the code run.
+              Re-entering renderBlocks (joined with "\n", NOT " ") is what
+              makes the quote's inner structure survive; plain one-paragraph
+              quotes are unaffected because a paragraph joins its lines with a
+              space exactly as before. */}
+          {renderBlocks(quoted.join("\n"), breaks, resolveImageSrc, opts)}
         </blockquote>
       );
       continue;

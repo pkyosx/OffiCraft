@@ -473,6 +473,51 @@ describe("Markdown", () => {
       expect(q?.getAttribute("class")).toBeNull();
     });
 
+    // The defect the FIRST real-page render caught (docs/guide/install.md's
+    // `> [!WARNING]`): the quote body was rendered with renderInline, so any
+    // block structure inside it was flattened onto one inline run — the fence
+    // markers printed as literal backticks, "bash" became part of the command,
+    // and the prose after the fence was swallowed into the code run. Every
+    // assertion here is on STRUCTURE (a real <pre><code>, the prose OUTSIDE
+    // it), which is exactly what an inline-only quote cannot produce.
+    it("renders a fenced code block INSIDE a blockquote as real <pre><code>", () => {
+      const c = renderMd(
+        [
+          "> [!WARNING]",
+          "> 要接受重啟請明確加上:",
+          ">",
+          "> ```bash",
+          "> curl -fsSL https://example.com/i.sh | bash -s -- --force",
+          "> ```",
+          ">",
+          "> **不想動到現役服務的話,可以用不同 label 併裝:**",
+        ].join("\n"),
+      );
+      const q = c.querySelector("blockquote")!;
+      const pre = q.querySelector("pre code");
+      expect(pre).not.toBeNull();
+      // The fence markers and the language tag are CONSUMED, not printed.
+      expect(q.textContent).not.toContain("```");
+      expect(pre!.textContent).not.toContain("bash\n");
+      expect(pre!.textContent).toBe(
+        "curl -fsSL https://example.com/i.sh | bash -s -- --force",
+      );
+      // The prose after the fence is its own block, OUTSIDE the code element.
+      expect(pre!.textContent).not.toContain("不想動到現役服務");
+      expect(q.querySelector("strong")?.textContent).toContain(
+        "不想動到現役服務",
+      );
+      // And it is still an alert.
+      expect(q.className).toBe("md-alert md-alert--warning");
+    });
+
+    it("renders a list inside a blockquote as a real list", () => {
+      const c = renderMd("> [!TIP]\n> 兩種做法:\n>\n> - 第一種\n> - 第二種");
+      const q = c.querySelector("blockquote")!;
+      expect(q.querySelectorAll("ul li").length).toBe(2);
+      expect(q.textContent).not.toContain("- 第一種");
+    });
+
     it("does not eat a bracketed line that is not an alert marker", () => {
       const c = renderMd("> [!NOPE] 這不是 alert");
       expect(c.querySelector("blockquote")?.textContent).toBe(

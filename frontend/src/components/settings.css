@@ -490,6 +490,15 @@
   border-radius: 0 8px 8px 0;
   color: var(--color-text-muted);
 }
+/* A blockquote now holds BLOCK children (paragraphs, fences, lists) instead of
+ * one inline run, so the quote's own padding must not stack with the first /
+ * last child's margin — otherwise every quote grows ~20px of dead space. */
+.doc-md blockquote > :first-child {
+  margin-top: 0;
+}
+.doc-md blockquote > :last-child {
+  margin-bottom: 0;
+}
 .doc-md pre {
   max-width: 100%;
   overflow-x: auto;
