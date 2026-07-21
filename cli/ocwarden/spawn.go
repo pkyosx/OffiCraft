@@ -763,8 +763,11 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 		if st := d.ClaudeCreds(); !st.Present {
 			return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
 				"claude_not_logged_in: no claude credential found on this host (%s) — "+
-					"run `claude` once as this user and complete login, then retry "+
-					"(set OC_CLAUDE_CRED_CHECK=0 to bypass this gate)", st.Summary)}
+					"run `claude` once as this user and complete login, then retry. "+
+					"To bypass this gate instead: re-run `ocwarden install` with "+
+					"OC_CLAUDE_CRED_CHECK=0 in its environment (the warden is a launchd "+
+					"job, so only the plist the installer stamps can change its env — "+
+					"exporting the variable in a shell has no effect on it)", st.Summary)}
 		}
 	}
 	// idempotent clobber-guard: REFUSE to stomp a live session. This is a LOCAL

@@ -530,6 +530,10 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 	// The in-process onboarding installer has no *http.Request to derive an
 	// OC_BASE from — hand it the address we are about to bind (onboarding.go).
 	api.selfBase = "http://" + addr
+	// A `running` onboarding report can only belong to a goroutine that died with
+	// a previous process — close it out so it cannot wedge the studio in a state
+	// that is invisible to BOTH the re-run check and the cockpit banner.
+	api.recoverStaleOnboarding()
 	// Bind FIRST, announce second. The old order printed "serving on ..." before
 	// ListenAndServe had bound anything, so a port clash produced a log that
 	// claimed success and then immediately contradicted itself with a FATAL —

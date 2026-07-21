@@ -36,13 +36,15 @@ package main
 // workers. No gate is loosened, no token is minted for it.
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
-
-	"encoding/json"
 )
 
 // settingOnboardingReport stores the JSON onboardingReportDTO of the one
@@ -91,24 +93,83 @@ const wardenOnlinePoll = 500 * time.Millisecond
 // what `ocwarden install` itself treats as "a warden lives here" (its own
 // one-warden-per-machine guard keys on the same path), and it needs no
 // subprocess.
-func (s *apiServer) wardenAlreadyInstalledHere(getenv func(string) string) bool {
+func (s *apiServer) wardenAlreadyInstalledHere(
+	getenv func(string) string, stat func(string) (os.FileInfo, error), labelLoaded func(string) bool,
+) bool {
+	// (1) THE AUTHORITATIVE AXIS: is the launchd label already registered?
+	//
+	// The collision axis of a launchd job is (uid, namespace) — the GUI domain is
+	// keyed on uid and does NOT follow $HOME. The tokfile check below is keyed on
+	// (HOME, namespace), which carries one dimension the label does not have, so
+	// it alone leaves a real hole: `HOME=/tmp/x ocserverd serve` with an empty
+	// namespace stats /tmp/x/... (absent), passes, and then `ocwarden install
+	// --force` boots out gui/<uid>/com.officraft.ocwarden — the operator's REAL
+	// warden — and re-points it at a throwaway server. Asking launchd directly is
+	// the only question whose answer is on the same axis as the damage.
+	if labelLoaded != nil && labelLoaded(wardenLaunchdLabel(s.namespace)) {
+		return true
+	}
+	// (2) The file axis, kept as well: it is what `ocwarden install` itself treats
+	// as "a warden lives here", and it still answers when launchd does not (a job
+	// that is installed but not loaded, or an exec fault).
 	home := getenv("HOME")
 	if home == "" {
 		return true // cannot tell where a warden would live ⇒ refuse to install
 	}
-	root := filepath.Join(home, ".officraft")
-	if s.namespace != "" {
-		root = filepath.Join(home, ".officraft-"+s.namespace)
+	if stat == nil {
+		stat = os.Stat
 	}
-	_, err := os.Stat(filepath.Join(root, "warden", "exec-warden.tok"))
+	_, err := stat(wardenTokfilePath(home, s.namespace))
 	return err == nil
 }
 
+// wardenTokfilePath / wardenLaunchdLabel MIRROR cli/ocwarden/namespace.go's
+// tokfileFor + wardenLabelFor. They cannot import it (separate go modules), so
+// the two copies are pinned by TestWardenPaths_MirrorTheOcwardenDerivation,
+// which asserts the exact literal strings ocwarden produces. If that derivation
+// ever moves, this guard would quietly start stat-ing a path nobody writes —
+// i.e. it would answer "no warden here" for a host that has one.
+func wardenTokfilePath(home, namespace string) string {
+	return filepath.Join(officraftRootPath(home, namespace), "warden", "exec-warden.tok")
+}
+
+func officraftRootPath(home, namespace string) string {
+	if namespace == "" {
+		return filepath.Join(home, ".officraft")
+	}
+	return filepath.Join(home, ".officraft-"+namespace)
+}
+
+func wardenLaunchdLabel(namespace string) string {
+	if namespace == "" {
+		return "com.officraft.ocwarden"
+	}
+	return "com.officraft.ocwarden." + namespace
+}
+
+// launchdLabelLoaded asks launchd whether a label is registered in THIS uid's
+// GUI domain. Read-only (`launchctl print`), bounded, and an exec fault answers
+// "cannot tell" — the caller then falls through to the file check rather than
+// treating an unanswered question as "nothing there".
+func launchdLabelLoaded(label string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	target := fmt.Sprintf("gui/%d/%s", os.Getuid(), label)
+	return exec.CommandContext(ctx, "launchctl", "print", target).Run() == nil
+}
+
 // onboardingDisabled is the explicit kill switch (OC_NO_ONBOARDING=1). Test
-// harnesses that boot a REAL ocserverd against a throwaway database
-// (conformance/run.sh, the e2e suites) set it, so a suite can never reach the
-// host-mutating path even by accident. Belt to wardenAlreadyInstalledHere's
-// braces — on a CI machine with no warden at all, that guard would pass.
+// harnesses that boot a REAL ocserverd against a throwaway database set it, so
+// a suite can never reach the host-mutating path even by accident. Belt to
+// wardenAlreadyInstalledHere's braces — on a CI machine with no warden at all,
+// the file half of that guard would pass.
+//
+// WHO ACTUALLY SETS IT (checked, not assumed): conformance/run.sh's oc_env only.
+// The e2e suites deliberately do NOT — they pre-seed the password with the
+// `ocserverd set-password` SUBCOMMAND, which never reaches this path, so they
+// cannot start onboarding in the first place. Do not extend this list from
+// memory: a comment claiming a suite is protected when it is not is more
+// dangerous than no comment at all.
 func onboardingDisabled(getenv func(string) string) bool {
 	return strings.TrimSpace(getenv("OC_NO_ONBOARDING")) == "1"
 }
@@ -146,6 +207,18 @@ type onboardingRunner struct {
 // set-password (or a future caller) can never start two installs racing on the
 // same launchd label.
 func (s *apiServer) kickFirstRunOnboarding() {
+	s.kickFirstRunOnboardingWith(s.newOnboardingRunner())
+}
+
+// kickFirstRunOnboardingWith is kickFirstRunOnboarding over an INJECTED runner.
+// It exists so a test can exercise the real claim/skip decision without ever
+// touching the production seams: newOnboardingRunner binds an installer that
+// execs `ocwarden install --force` against the launchd domain of whoever is
+// running `go test`, and a positive control that reached it would install a
+// warden on a developer's machine. The only thing standing in the way today is
+// that the shared fixture happens to leave binCacheDir empty — a coincidence,
+// not a safety property, and one line elsewhere would remove it.
+func (s *apiServer) kickFirstRunOnboardingWith(run onboardingRunner) {
 	if s.dal == nil {
 		return
 	}
@@ -174,7 +247,7 @@ func (s *apiServer) kickFirstRunOnboarding() {
 				}})
 			}
 		}()
-		s.runFirstRunOnboarding(s.newOnboardingRunner(), running)
+		s.runFirstRunOnboarding(run, running)
 	}()
 }
 
@@ -188,11 +261,13 @@ func (s *apiServer) newOnboardingRunner() onboardingRunner {
 			}
 			return s.runWardenInstallHere(machine, binPath, s.selfBase)
 		},
-		wardenOnline:    func(id string) bool { return s.hub.IsOnline(id) },
-		wardenInstalled: func() bool { return s.wardenAlreadyInstalledHere(os.Getenv) },
-		sleep:           time.Sleep,
-		now:             nowSecs,
-		waitBudget:      wardenOnlineWait,
+		wardenOnline: func(id string) bool { return s.hub.IsOnline(id) },
+		wardenInstalled: func() bool {
+			return s.wardenAlreadyInstalledHere(os.Getenv, os.Stat, launchdLabelLoaded)
+		},
+		sleep:      time.Sleep,
+		now:        nowSecs,
+		waitBudget: wardenOnlineWait,
 	}
 }
 
@@ -296,17 +371,30 @@ func (s *apiServer) wakeAssistantStep(
 		})
 		return s.finishOnboarding(report, steps)
 	}
+	// POSITIVE determination (T-ba62 review R4). The first cut asked
+	// `dec.DispatchUnlanded || !online`, which is a list of the failure modes we
+	// happened to think of — and it missed one: when buildStartFrame cannot
+	// assemble a payload (missing persona / token) reconcileOne downgrades the
+	// command to none WITHOUT setting DispatchUnlanded, so a reachable warden
+	// plus an unbuildable frame satisfied neither term and got reported as "the
+	// assistant is waking" with not one frame sent. That is precisely the false
+	// success this ticket exists to delete, reproduced inside the code written
+	// to delete it. So ask the only question that actually matters: did a START
+	// get dispatched? (Or is she already online — the converged case, where no
+	// START is needed and `none` is the correct decision.) Every other outcome,
+	// including ones nobody has thought of yet, falls on the honest side.
 	dec := s.reconcileMemberNow(mira.ID)
-	if dec.DispatchUnlanded || !online {
+	if dec.Command != reconcileCmdStart && !run.wardenOnline(mira.ID) {
 		// The intent IS persisted and the cadence retries, so this is not a
 		// rollback case — but it is emphatically not success either, and saying
 		// so is the difference between "starting up" and "quietly nothing".
 		steps = append(steps, onboardingStepDTO{
 			Name: onboardingStepWakeAssistant,
-			Reason: "the assistant is set to come online, but this machine's warden " +
-				"has not connected back to the server yet, so nothing has been " +
-				"dispatched — the server keeps retrying; if she stays offline, " +
-				"check the warden log (ocwarden.err.log)",
+			Reason: "the assistant is set to come online, but no start command has " +
+				"been dispatched yet (" + dec.Reason + ") — most often this " +
+				"machine's warden has not connected back to the server. The server " +
+				"keeps retrying; if she stays offline, check the warden log " +
+				"(ocwarden.err.log)",
 		})
 		return s.finishOnboarding(report, steps)
 	}
@@ -340,6 +428,43 @@ func (s *apiServer) finishOnboarding(report onboardingReportDTO, steps []onboard
 		onboardingLog("step %s ok=%v — %s", st.Name, st.OK, st.Reason)
 	}
 	return report
+}
+
+// recoverStaleOnboarding closes out a `running` report left behind by a process
+// that died mid-run (a crash, an upgrade, a launchd restart). Called once at
+// serve start.
+//
+// WHY THIS IS NOT OPTIONAL. The run is a goroutine, and the slot is claimed
+// BEFORE it starts. If the process dies in between, the stored report says
+// `running` forever, and every downstream consumer then draws exactly the wrong
+// conclusion: kickFirstRunOnboarding sees a report and never re-runs, and the
+// cockpit banner does not draw for a non-terminal state. Net result — no warden,
+// an assistant that never wakes, and NOT ONE SIGNAL ANYWHERE. That is this
+// ticket's own bug, reborn inside its fix.
+//
+// A `running` report at BOOT is stale by construction: the only goroutine that
+// could still advance it died with the process that wrote it. It is closed out
+// as FAILED rather than silently re-run — re-running would install a launchd
+// job on every server start with nobody asking for it, and the point of the
+// report is that a dead end must be VISIBLE, not quietly retried.
+func (s *apiServer) recoverStaleOnboarding() {
+	report := s.onboardingReport()
+	if report == nil || report.State != onboardingStateRunning {
+		return
+	}
+	report.Steps = append(report.Steps, onboardingStepDTO{
+		Name: onboardingStepInstallWarden,
+		Reason: "automatic first-run setup was interrupted (the server restarted " +
+			"while it was still running), so it did not finish. Install this " +
+			"machine from 監控 › 機器 › 「安裝」, then bring the assistant online.",
+	})
+	report.State = onboardingStateFailed
+	report.FinishedAt = nowSecs()
+	if err := s.putOnboardingReport(*report); err != nil {
+		onboardingLog("could not close out the stale onboarding report: %v", err)
+		return
+	}
+	onboardingLog("closed out a stale `running` report from a previous process (interrupted run)")
 }
 
 func (s *apiServer) putOnboardingReport(report onboardingReportDTO) error {

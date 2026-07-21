@@ -182,6 +182,14 @@ type wardenPaths struct {
 	// ocagent. Either way the warden finds ocagent as its own sibling (resolveOcAgentBin),
 	// and that sibling only exists because install put it there.
 	ocAgentSrc string
+	// credCheck is the OC_CLAUDE_CRED_CHECK opt-out RELAYED from the installer's
+	// env into the warden plist ("" = not set = gate on). WHY it must be relayed:
+	// the warden is a launchd job, so its environment is EXACTLY what this plist
+	// says and nothing else — an operator exporting the variable in a shell
+	// changes nothing at all. Without this line the escape hatch the spawn-time
+	// refusal ADVERTISES cannot be pressed, which is worse than having no escape
+	// hatch: it reads as a way out at 3am and silently is not one.
+	credCheck string
 	// ocAgentBin is the STABLE home target = $HOME/.officraft/warden/ocagent (sibling of
 	// ocwarden) that installOcAgent writes (whether via local-copy or download). NOT
 	// stamped into any env/plist — the runtime warden discovers it by looking next to its
@@ -280,6 +288,9 @@ func resolvePaths(env func(string) string, exe string, uid int) (wardenPaths, er
 		guiDomain:  fmt.Sprintf("gui/%d", uid),
 		ocAgentSrc: ocAgentSrc,
 		ocAgentBin: filepath.Join(root, "warden", "ocagent"), // sibling of ocwarden (home copy)
+		// Relayed ONLY when explicitly disabled: any other value leaves the plist
+		// byte-identical to the gate-on render.
+		credCheck: relayedCredCheck(env),
 	}, nil
 }
 
@@ -305,7 +316,7 @@ const wardenPlistPATH = "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 // the historical output) %[9]s=PATH value (wardenPlistPATH unless overridden).
 const plistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- RENDERED by ocwarden install for ROOT=%[1]s — do not edit by hand; re-run the installer. -->
+<!-- RENDERED by ocwarden install for ROOT=%[10]s — do not edit by hand; re-run the installer. -->
 <plist version="1.0">
 <dict>
     <key>Label</key><string>%[7]s</string>
@@ -343,11 +354,36 @@ func renderPlist(p wardenPaths) string {
 	if p.claudeBin != "" {
 		extraEnv += "\n        <key>OC_CLAUDE_BIN</key><string>" + xmlEscape(p.claudeBin) + "</string>"
 	}
+	if p.credCheck != "" {
+		extraEnv += "\n        <key>OC_CLAUDE_CRED_CHECK</key><string>" + xmlEscape(p.credCheck) + "</string>"
+	}
 	pathVal := p.plistPATH
 	if pathVal == "" {
 		pathVal = wardenPlistPATH
 	}
-	return fmt.Sprintf(plistTemplate, p.root, p.binPath, p.ocBase, p.home, p.tokfile, p.logDir, p.labelOrDefault(), extraEnv, xmlEscape(pathVal))
+	return fmt.Sprintf(plistTemplate, p.root, p.binPath, p.ocBase, p.home, p.tokfile, p.logDir, p.labelOrDefault(), extraEnv, xmlEscape(pathVal), xmlCommentSafe(p.root))
+}
+
+// relayedCredCheck returns the OC_CLAUDE_CRED_CHECK value to stamp into the
+// warden plist: only the explicit opt-out "0" is relayed, everything else
+// (unset, "1", junk) renders nothing and leaves the gate on. Whitelisting the
+// single meaningful value keeps an arbitrary env string out of the plist.
+func relayedCredCheck(env func(string) string) string {
+	if strings.TrimSpace(env("OC_CLAUDE_CRED_CHECK")) == "0" {
+		return "0"
+	}
+	return ""
+}
+
+// xmlCommentSafe makes a value legal INSIDE an XML comment. "--" is forbidden
+// there by the XML spec, and the rendered plist embeds the install root in its
+// header comment — so any install whose root path contains a double dash (a
+// scratch dir, or a namespace like "a--b", which namespaceShape's
+// [a-z0-9-]{1,16} genuinely allows) produced a plist that plutil then rejected
+// with an opaque "invalid sequence" error. The failure was at least LOUD and
+// before any launchctl call; this makes it not happen.
+func xmlCommentSafe(s string) string {
+	return strings.ReplaceAll(s, "--", "- -")
 }
 
 // xmlEscape escapes the five XML-special characters for a plist <string> value.

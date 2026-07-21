@@ -282,7 +282,16 @@ func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.Re
 		return
 	}
 	dto := s.newMemberDTO(*m, roleName, "", 0)
-	if dec.DispatchUnlanded {
+	// POSITIVE determination (T-ba62 review R4), not a list of known failures.
+	// `dec.DispatchUnlanded` alone was wrong: reconcileOne ALSO downgrades a
+	// START to none when buildStartFrame cannot assemble a payload (missing
+	// persona / token) and does NOT set DispatchUnlanded there — so a reachable
+	// warden plus an unbuildable frame answered a clean 200 with no pending flag
+	// and nothing dispatched. Ask instead whether a START actually went out; an
+	// already-online member needs none, and every other outcome — backoff,
+	// circuit-open, and failure modes not yet invented — is honestly "nothing
+	// has been dispatched yet".
+	if dec.Command != reconcileCmdStart && !s.hub.IsOnline(m.ID) {
 		pending := true
 		dto.ActivationPending = &pending
 	}

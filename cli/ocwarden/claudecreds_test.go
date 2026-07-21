@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/xml"
 	"errors"
 	"strings"
 	"testing"
@@ -138,5 +139,66 @@ func TestBuildClaudeCredProbe_OptOutDisablesGate(t *testing.T) {
 	}
 	if p := buildClaudeCredProbe(envOf(map[string]string{}), &credRunner{}); p == nil {
 		t.Errorf("the gate must be ON by default")
+	}
+}
+
+// ── the escape hatch must actually be pressable ─────────────────────────────
+//
+// The spawn refusal ADVERTISES OC_CLAUDE_CRED_CHECK=0. The warden is a launchd
+// job, so its environment is exactly what its plist says — an operator
+// exporting that variable in a shell changes nothing. If the installer does not
+// relay it into the plist, the documented way out silently does not exist,
+// which at 3am with a dark fleet is worse than no way out at all.
+
+func TestRelayedCredCheck_OnlyTheExplicitOptOutIsRelayed(t *testing.T) {
+	cases := map[string]string{
+		"0":     "0", // the opt-out
+		"1":     "",  // explicitly on ⇒ nothing to stamp
+		"":      "",  // unset ⇒ nothing to stamp
+		"false": "",  // junk is not an opt-out
+		" 0 ":   "0", // trimmed
+	}
+	for in, want := range cases {
+		if got := relayedCredCheck(envOf(map[string]string{"OC_CLAUDE_CRED_CHECK": in})); got != want {
+			t.Errorf("relayedCredCheck(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestRenderPlist_StampsTheCredCheckOptOut(t *testing.T) {
+	p := fixedPaths()
+	p.credCheck = "0"
+	plist := renderPlist(p)
+	if !strings.Contains(plist, "<key>OC_CLAUDE_CRED_CHECK</key><string>0</string>") {
+		t.Errorf("the opt-out must reach the warden's plist (its only env source):\n%s", plist)
+	}
+	// Positive control: without it the render carries no such key at all, so the
+	// assertion above cannot be passing for a trivial reason.
+	if strings.Contains(renderPlist(fixedPaths()), "OC_CLAUDE_CRED_CHECK") {
+		t.Errorf("the gate-on render must stay free of the key")
+	}
+}
+
+// A root path containing "--" used to render a plist that is not well-formed XML
+// ("--" is forbidden inside an XML comment), so plutil rejected the install with
+// an opaque message. namespaceShape ([a-z0-9-]{1,16}) genuinely allows "a--b".
+func TestRenderPlist_DoubleDashRootStaysWellFormedXML(t *testing.T) {
+	p := fixedPaths()
+	p.root = "/tmp/oc--scratch/.officraft"
+	plist := renderPlist(p)
+	// slice the comment BODY (the delimiters themselves contain "--")
+	comment := plist[strings.Index(plist, "<!--")+4 : strings.Index(plist, "-->")]
+	if strings.Contains(comment, "--") {
+		t.Errorf("the header comment must carry no double dash (invalid XML):\n%s", comment)
+	}
+	if err := xml.Unmarshal([]byte(plist), new(struct {
+		XMLName xml.Name `xml:"plist"`
+	})); err != nil {
+		t.Errorf("rendered plist must parse as XML: %v\n%s", err, plist)
+	}
+	// The WorkingDirectory (a <string>, not a comment) keeps the REAL path —
+	// sanitising the comment must not corrupt the value the warden runs in.
+	if !strings.Contains(plist, "<key>WorkingDirectory</key><string>/tmp/oc--scratch/.officraft</string>") {
+		t.Errorf("the real root must survive verbatim outside the comment:\n%s", plist)
 	}
 }

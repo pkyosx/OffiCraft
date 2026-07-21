@@ -24,6 +24,15 @@ import "./onboarding.css";
  */
 const DISMISS_KEY = "oc.onboarding.dismissed";
 
+/** Poll cadence + ceiling for the non-terminal states (see the effect below). */
+export const ONBOARDING_POLL_MS = 3000;
+export const ONBOARDING_POLL_CEILING_MS = 180000;
+
+/** Terminal states: once the report reads one of these it will never change. */
+function isTerminal(report: OnboardingReportView | null): boolean {
+  return report !== null && (report.state === "ok" || report.state === "failed");
+}
+
 export function OnboardingBanner() {
   const { t } = useI18n();
   const [report, setReport] = useState<OnboardingReportView | null>(null);
@@ -32,19 +41,48 @@ export function OnboardingBanner() {
   );
   const [showDetail, setShowDetail] = useState(false);
 
+  // POLL until the report reaches a terminal state.
+  //
+  // 🔴 WHY THIS IS NOT A ONE-SHOT FETCH (it was, and that made the banner
+  // useless in the only situation it exists for). The real timeline is:
+  //
+  //   t=0     owner submits the password → 200 → cockpit mounts → this fetch
+  //           reads state="running" (or null: the report row may not be written
+  //           yet) → correctly draws nothing
+  //   t=0..30 the server installs the warden and waits for its SSE connect
+  //   t≈30    the report lands as "failed"
+  //
+  // A mount-only fetch never learns about that last line. The one loud channel
+  // this whole change adds would stay silent in exactly the case it was built
+  // for, and the owner — who has just set a password and is staring at an empty
+  // cockpit — would have to guess that a page reload might reveal something.
+  //
+  // The poll stops on a terminal state, and gives up after a ceiling so a
+  // wedged report cannot leave a tab polling forever.
   useEffect(() => {
     let live = true;
-    void (async () => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const started = Date.now();
+
+    const tick = async () => {
       try {
         const settings = await api.getServerSettings();
-        if (live) setReport(settings.onboarding);
+        if (!live) return;
+        setReport(settings.onboarding);
+        if (isTerminal(settings.onboarding)) return; // done — stop polling
       } catch {
         // A settings read that fails is NOT evidence about onboarding — stay
-        // silent rather than assert anything we do not know.
+        // silent rather than assert anything we do not know, and keep polling:
+        // a transient blip during first-run boot is expected.
       }
-    })();
+      if (!live || Date.now() - started >= ONBOARDING_POLL_CEILING_MS) return;
+      timer = setTimeout(() => void tick(), ONBOARDING_POLL_MS);
+    };
+    void tick();
+
     return () => {
       live = false;
+      if (timer !== undefined) clearTimeout(timer);
     };
   }, []);
 
