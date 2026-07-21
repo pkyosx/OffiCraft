@@ -4093,6 +4093,8 @@ export interface components {
             effort: string;
             /** Id */
             id: string;
+            /** Idle Secs */
+            idle_secs?: number | null;
             /**
              * Machine
              * @default
@@ -4115,6 +4117,11 @@ export interface components {
              * @default
              */
             role: string;
+            /**
+             * Stuck
+             * @default false
+             */
+            stuck: boolean;
             /** Tokens */
             tokens?: {
                 [key: string]: number;

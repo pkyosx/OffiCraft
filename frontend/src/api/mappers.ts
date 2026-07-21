@@ -626,6 +626,8 @@ function toMonSession(w: WireMonSession): MonSessionView {
     contextPct: w.context_pct ?? null,
     cost: w.cost ?? null,
     bankedCost: w.banked_cost ?? null,
+    stuck: w.stuck ?? false,
+    idleSecs: w.idle_secs ?? null,
   };
 }
 

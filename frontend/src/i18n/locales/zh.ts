@@ -751,6 +751,10 @@ export const zh = {
       context: "context",
       estCost: "估計$",
     },
+    // 卡住嫌疑膠囊（session.stuck）：在線但超過門檻沒回報、且有未讀在等它。
+    // 帶問號因為是「嫌疑」不是確診;title 補上閒置秒數。
+    stuckBadge: "無回應?",
+    stuckBadgeIdle: (secs: number) => `已 ${secs} 秒沒回報`,
     // machine lifecycle: onboard (新增機器 / 上線) + teardown (拆除)
     machine: {
       actionsCol: "操作",

@@ -617,6 +617,8 @@ export const xian: Dict = {
       context: "神識",
       estCost: "耗靈石",
     },
+    stuckBadge: "走火?",
+    stuckBadgeIdle: (secs: number) => `已 ${secs} 息無音訊`,
     machine: {
       actionsCol: "作法",
       copy: "拓印",

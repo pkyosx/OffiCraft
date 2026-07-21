@@ -222,6 +222,14 @@
   color: var(--color-text-muted);
   background: rgba(255, 255, 255, 0.06);
 }
+/* Stuck suspicion: an alert-coloured pill so it reads apart from the neutral
+ * effort badge. Owner-facing signal — online but silent past the threshold. */
+.mon-badge--stuck {
+  color: #ffd7cf;
+  background: rgba(220, 76, 51, 0.28);
+  border: 1px solid rgba(220, 76, 51, 0.55);
+  font-weight: 600;
+}
 
 /* ── mobile: stack the two wide tables (§2 機器 / §3 AI 會話) into cards ──
  * The desktop <table> can only scroll horizontally, and that scroll is not

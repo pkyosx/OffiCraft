@@ -249,6 +249,8 @@ const MOCK_WIRE_MONITORING: MockMonitoring = {
       cost: null,
       banked_cost: null,
       tokens: null,
+      stuck: false, // honest — mock Mira is offline, not a stuck suspect
+      idle_secs: null,
     },
   ],
   machines: [

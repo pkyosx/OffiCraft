@@ -4,9 +4,27 @@
 
 import { describe, it, expect } from "vitest";
 import { toMonitoring } from "./mappers";
-import type { WireMonitoring } from "./wire";
+import type { WireMonitoring, WireMonSession } from "./wire";
 
 type WireMonAccountRow = NonNullable<WireMonitoring["accounts"]>[number];
+
+const wireSession = (over: Partial<WireMonSession> = {}): WireMonSession => ({
+  id: "mira",
+  name: "Mira",
+  role: "assistant",
+  model: "claude-opus-4-8",
+  effort: "",
+  machine: "mbp5",
+  account: "",
+  presence: "online",
+  context_pct: null,
+  cost: null,
+  banked_cost: null,
+  tokens: null,
+  stuck: true,
+  idle_secs: 1200,
+  ...over,
+});
 
 const wireAccount = (
   over: Partial<WireMonAccountRow> = {}
@@ -45,5 +63,26 @@ describe("toMonitoring account_label", () => {
     delete (row as Record<string, unknown>).account_label;
     const v = toMonitoring({ sessions: [], machines: [], accounts: [row] });
     expect(v.accounts[0].accountLabel).toBeNull();
+  });
+});
+
+describe("toMonitoring session stuck/idle", () => {
+  it("carries stuck=true and idleSecs through", () => {
+    const v = toMonitoring({
+      sessions: [wireSession({ stuck: true, idle_secs: 1200 })],
+      machines: [],
+      accounts: [],
+    });
+    expect(v.sessions[0].stuck).toBe(true);
+    expect(v.sessions[0].idleSecs).toBe(1200);
+  });
+
+  it("stuck absent on the wire (older server) → false, idle_secs absent → null", () => {
+    const row = wireSession();
+    delete (row as Record<string, unknown>).stuck;
+    delete (row as Record<string, unknown>).idle_secs;
+    const v = toMonitoring({ sessions: [row], machines: [], accounts: [] });
+    expect(v.sessions[0].stuck).toBe(false);
+    expect(v.sessions[0].idleSecs).toBeNull();
   });
 });

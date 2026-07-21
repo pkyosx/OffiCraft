@@ -674,6 +674,8 @@ export const en: Dict = {
       context: "context",
       estCost: "est. $",
     },
+    stuckBadge: "Stuck?",
+    stuckBadgeIdle: (secs: number) => `${secs}s since last report`,
     machine: {
       actionsCol: "Actions",
       copy: "Copy",

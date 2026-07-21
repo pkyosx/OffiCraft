@@ -310,6 +310,11 @@ export interface MonSessionView {
   contextPct: number | null;
   cost: number | null;
   bankedCost: number | null;
+  /** Owner-facing "stuck suspicion": online but silent >15min with unread
+   * messages waiting. Defaults false. */
+  stuck?: boolean;
+  /** Seconds since the last self-report; null when never reported. */
+  idleSecs?: number | null;
 }
 
 /** One host machine row (Monitor §2 "機器資訊"). */

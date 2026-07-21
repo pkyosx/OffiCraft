@@ -1080,7 +1080,7 @@ function CopyBootCommandButton({ machineId }: { machineId: string }) {
  * status / lastSeen); the click-through only appears when a roster match exists.
  * The effort badge shows the REAL live effort self-reported from the session's
  * telemetry (NOT the roster's owner-intent member.effort) — dash when unreported. */
-function SessionRow({
+export function SessionRow({
   session,
   members,
   dash,
@@ -1166,6 +1166,19 @@ function SessionRow({
       <td className="mon-table__left" data-label={t.monitor.sessionCol.model}>
         <span className="mon-model">{session.model || dash}</span>
         {effort && <span className="mon-badge">{effort}</span>}
+        {session.stuck === true && (
+          <span
+            className="mon-badge mon-badge--stuck"
+            data-testid="stuck-badge"
+            title={
+              session.idleSecs != null
+                ? t.monitor.stuckBadgeIdle(session.idleSecs)
+                : undefined
+            }
+          >
+            {t.monitor.stuckBadge}
+          </span>
+        )}
       </td>
       <td data-label={t.monitor.sessionCol.context}>
         {pctText(session.contextPct, dash)}
