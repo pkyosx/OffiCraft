@@ -445,13 +445,28 @@ if [[ ! -f "$C16_CONF" ]]; then
   bad "conformance/run.sh not found at $C16_CONF — update guard (16)"
 else
   # Stubs so the SENTINEL run below cannot proceed past the refusal gate into
-  # venv creation / go build / port bind. Both stubs mark that the gate was
-  # PASSED, which is what the sentinel needs to prove.
+  # venv creation / go build / port bind. EVERY stub emits the same marker, so
+  # the sentinel proves "the gate was passed" no matter which post-gate step the
+  # run happens to reach first.
+  #
+  # Why all three: which step comes first is ENVIRONMENT-DEPENDENT. With no
+  # conformance/.venv the run tries `uv`/`python3` (line ~106); with a .venv
+  # already present (e.g. a previous bin/ci.sh run in this same tree) it skips
+  # straight to the `lsof` leftover-guard (line ~130). Stubbing only the venv
+  # pair made this case flip to INCONCLUSIVE the moment CI had run here once.
+  # All of these sit strictly AFTER the prod-port refusal loop, so reaching any
+  # of them is proof the legitimate port was let through.
   C16_SHIM="$(mktemp -d -t oc-guard-conf.XXXXXX)"
   for _c in uv python3; do
     printf '#!/usr/bin/env bash\necho "SENTINEL_PAST_PROD_GATE" >&2\nexit 1\n' > "$C16_SHIM/$_c"
     chmod +x "$C16_SHIM/$_c"
   done
+  # lsof: exit 0 = "port occupied" so run.sh stops at its leftover guard. This
+  # stub CANNOT emit the marker — run.sh calls it as `lsof … >/dev/null 2>&1`,
+  # which swallows both streams — so the evidence for that path is run.sh's own
+  # post-gate "already in use" FATAL instead. Accepted below.
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$C16_SHIM/lsof"
+  chmod +x "$C16_SHIM/lsof"
   c16_run() { OC_CONF_PORT="$1" PATH="$C16_SHIM:$PATH" SHIM_LISTEN_PORTS="$1" \
                 bash "$C16_CONF" --target go 2>&1; }
   # (16a) CURRENT prod port refused — the twin of (15a), asserted independently.
@@ -469,7 +484,7 @@ else
   C16_OK_OUT="$(c16_run 8795)"
   case "$C16_OK_OUT" in
     *"is a PROD port"*) bad "sentinel BROKEN: conformance/run.sh refused its own legitimate port 8795" ;;
-    *"SENTINEL_PAST_PROD_GATE"*) ok "sentinel: conformance/run.sh lets the legitimate port 8795 through the prod gate" ;;
+    *"SENTINEL_PAST_PROD_GATE"*|*"already in use"*) ok "sentinel: conformance/run.sh lets the legitimate port 8795 through the prod gate" ;;
     *) bad "sentinel INCONCLUSIVE: 8795 was not refused, but the run never reached the post-gate step — this case may no longer be testing what it claims (got: ${C16_OK_OUT:-<silence>})" ;;
   esac
   # (16d) no SILENT degradation on an unparseable SSOT (twin of 15d). Also pins
