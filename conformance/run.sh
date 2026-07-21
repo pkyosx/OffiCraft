@@ -266,13 +266,20 @@ if [[ "${#LISTEN_CANDIDATES[@]}" -ne 1 ]]; then
   echo "[conformance] FATAL: health check got HTTP 200 on :$CONF_PORT but the listener pid is AMBIGUOUS (${#LISTEN_CANDIDATES[@]} candidates:${_cand_list:- none}) — refusing to guess which one answered us (launch pid=$SERVE_PID). Investigate and stop the extra listener(s), then re-run." >&2
   exit 1
 fi
-LISTEN_PID="${LISTEN_CANDIDATES[0]}"
+# NOT the global LISTEN_PID yet — cleanup() reads the global, and this pid is
+# still UNVERIFIED at this point. Promoting it here (T-a3ba review finding)
+# meant a mismatch branch below could exit 1, hit `trap cleanup EXIT`, and
+# cleanup() would kill a process we had JUST finished arguing is not ours —
+# the exact "can't tell self from other" bug this whole ticket is about,
+# just relocated into teardown. _CANDIDATE_PID is local-in-spirit (read-only
+# below); LISTEN_PID stays "" until BOTH identity checks pass.
+_CANDIDATE_PID="${LISTEN_CANDIDATES[0]}"
 
 # Identity check #1 (content-level): the responder must self-report the
 # git_sha we expect. e2e_test/setup.sh already fetched this field before
 # T-a3ba but never compared it — wired up on both sides now.
 if [[ -z "$GOT_SHA" || "$GOT_SHA" != "$EXPECTED_SHA" ]]; then
-  echo "[conformance] FATAL: health 200 but identity mismatch — /api/version reported git_sha='${GOT_SHA:-<empty>}', expected '$EXPECTED_SHA' (this checkout's HEAD). launch pid=$SERVE_PID listener pid=$LISTEN_PID. The 200 almost certainly came from a DIFFERENT process (a leftover listener from an earlier run, or someone else's server) — not the ocserverd we just built. Find and stop that listener, then re-run." >&2
+  echo "[conformance] FATAL: health 200 but identity mismatch — /api/version reported git_sha='${GOT_SHA:-<empty>}', expected '$EXPECTED_SHA' (this checkout's HEAD). launch pid=$SERVE_PID listener pid=$_CANDIDATE_PID. The 200 almost certainly came from a DIFFERENT process (a leftover listener from an earlier run, or someone else's server) — not the ocserverd we just built. We will NOT kill pid=$_CANDIDATE_PID (teardown only ever touches a pid it has identity-verified as its own) — find and stop that listener yourself, then re-run." >&2
   exit 1
 fi
 
@@ -281,15 +288,17 @@ fi
 # invocation) — the check that actually distinguishes us from another
 # conformance/e2e instance running the SAME commit concurrently, which
 # check #1 (git_sha) alone cannot tell apart.
-LISTEN_CMD="$(ps -p "$LISTEN_PID" -o command= 2>/dev/null || true)"
+LISTEN_CMD="$(ps -p "$_CANDIDATE_PID" -o command= 2>/dev/null || true)"
 case "$LISTEN_CMD" in
   "$WORK/ocserverd"*) : ;;
   *)
-    echo "[conformance] FATAL: health 200 but identity mismatch — listener pid=$LISTEN_PID's command ('${LISTEN_CMD:-<unknown>}') is not our throwaway binary ($WORK/ocserverd), even though git_sha matched. This looks like a concurrent conformance/e2e run on the same commit racing us for :$CONF_PORT (launch pid=$SERVE_PID). Find and stop the other run, then re-run." >&2
+    echo "[conformance] FATAL: health 200 but identity mismatch — listener pid=$_CANDIDATE_PID's command ('${LISTEN_CMD:-<unknown>}') is not our throwaway binary ($WORK/ocserverd), even though git_sha matched. This looks like a concurrent conformance/e2e run on the same commit racing us for :$CONF_PORT (launch pid=$SERVE_PID). We will NOT kill pid=$_CANDIDATE_PID (teardown only ever touches a pid it has identity-verified as its own) — find and stop the other run yourself, then re-run." >&2
     exit 1
     ;;
 esac
 
+# Both checks passed — ONLY NOW is it safe to hand this pid to cleanup().
+LISTEN_PID="$_CANDIDATE_PID"
 echo "[conformance] serve healthy AND identity-verified (launch pid=$SERVE_PID listener pid=$LISTEN_PID sha=$GOT_SHA)"
 
 echo "[conformance] pytest (OC_TARGET_URL=$BASE)"
