@@ -1602,8 +1602,42 @@ func (s *apiServer) HandleSubmitTaskPlanApiTasksTaskIdPlanPost(w http.ResponseWr
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
+	// ── T-74f8 交棒閘,第二道門 ───────────────────────────────────────────────
+	// A replan is a step-set write, and task.status is DERIVED from the step
+	// set, so a plan that lands all-done closes the task just as surely as the
+	// final step report does (deriveAndPersistTask → closeTask, below). The
+	// replan split keeps `done` rows and DROPS an unfinished card-less row, so
+	// "replan down to only the nodes I already finished" was a SILENT close with
+	// handoff="" — the exact bug this ticket exists to kill, reachable by the
+	// very move a caller refused at the first door would try next.
+	//
+	// Same projection rule, same verdict function, same population — only the
+	// prose differs (a plan carries no declaration field). Run it over the
+	// timeline exactly as it is about to be stored and BEFORE ReplaceTaskPlan
+	// writes anything, so a refusal leaves the plan fully editable.
+	var replanHandoff *handoffPlan
+	projected := make([]TaskStep, 0, len(kept)+len(fresh))
+	projected = append(projected, kept...)
+	projected = append(projected, fresh...)
+	if DeriveTaskStatus(projected) == TaskStatusDone {
+		p, code, msg := s.handoffGateVerdict(*t, handoffDoorReplan, "", "", "")
+		if code != 0 {
+			writeError(w, code, msg)
+			return
+		}
+		replanHandoff = p
+	}
 	steps, err := s.dal.ReplaceTaskPlan(t.ID, retainIDs, freezeIDs, nowSecs(), fresh)
 	if err != nil {
+		internalError(w, err)
+		return
+	}
+	// Record the handover BEFORE the derivation closes the task — same ordering
+	// as the step-report door (the successor's dep edge must exist by the time
+	// closeTask walks its dependents, and t's handoff fields ride closeTask's
+	// PutTask). Only ever non-nil when the gate auto-satisfied off a live
+	// dependent, since a replan cannot carry an explicit declaration.
+	if err := s.applyHandoffPlan(t, replanHandoff, nowSecs(), requestTrigger(r)); err != nil {
 		internalError(w, err)
 		return
 	}
@@ -1697,6 +1731,28 @@ func (s *apiServer) HandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost(w http.Re
 	}
 	t.DuplicateOf = originalID
 	t.WaitingReason = "" // duplicated is terminal; no lingering wait reason
+	// ── T-74f8 交棒閘,第三道門 ───────────────────────────────────────────────
+	// mark_duplicate is the agent's OTHER terminal key (routes.go: principalAgent
+	// + MCPTool) and it closes the task directly, so before this it reached a
+	// terminal status with handoff="" — silently, exactly like the two doors the
+	// gate does guard.
+	//
+	// This door does NOT refuse, because there is nothing to ask: a duplicate's
+	// ball is on the ORIGINAL by construction — that is what "duplicate of" MEANS
+	// — and the original is a live task on somebody's list. So the server states
+	// the fact it already knows instead of demanding the caller restate it: zero
+	// friction, zero new 422, and the semantics stop being unrecorded.
+	//
+	// Deliberately no task_dep edge: the original is not BLOCKED by its duplicate
+	// (the dep would be backwards, and it would litter the original's deps list).
+	// duplicate_of already carries the link; handoff_task_id makes it readable
+	// through the same field every other handover is read through.
+	if TaskNeedsHandoffDeclaration(t.CreatorID, t.ExecutorID, t.Handoff) {
+		t.Handoff = HandoffFollowUp
+		t.HandoffTaskID = originalID
+		t.HandoffNote = "duplicate of " + TaskNo(originalID) +
+			" — the work (and the ball) stays on that task"
+	}
 	if err := s.closeTask(t, TaskStatusDuplicated, nowSecs(), requestTrigger(r)); err != nil {
 		internalError(w, err)
 		return
@@ -1799,7 +1855,7 @@ func (s *apiServer) HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPos
 			return
 		}
 		if wouldCloseTask(allSteps, step.ID) {
-			p, code, msg := s.handoffGateVerdict(*t,
+			p, code, msg := s.handoffGateVerdict(*t, handoffDoorStepReport,
 				trimmedOrEmpty(body.Handoff),
 				trimmedOrEmpty(body.HandoffNote),
 				trimmedOrEmpty(body.HandoffTaskId))

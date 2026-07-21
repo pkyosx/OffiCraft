@@ -825,3 +825,258 @@ func TestATerminalDependentDoesNotAutoSatisfyTheGate(t *testing.T) {
 		t.Fatalf("refusal must still name the ways out: %s", msg)
 	}
 }
+
+// ── 旁門:任務走到終態的每一把 AGENT 鑰匙 ─────────────────────────────────────
+//
+// The step-status report is not the only way an agent can drive a task to a
+// terminal status. A gate that locks one key and leaves the others open is
+// WORSE than no gate: it makes everybody believe the ball is caught. These pin
+// every remaining agent-reachable terminal door.
+//
+// (owner terminate is deliberately NOT here: routes.go marks it principalOwner
+// + MCPExclude — it is the owner's escape hatch, not an agent's key, and
+// TestSentinelOwnerTerminateIsNotGated pins that it stays unguarded.)
+
+// 🔴 The worst of the two, because the gate's own refusal used to send the
+// executor down it: submit_plan re-derives the task status from the new step
+// set and auto-closes when it is all-done. Replan rules keep `done` steps and
+// DROP an unfinished card-less step outright, so a refused executor could
+// replan to "just the nodes I already finished" and the task closes with
+// handoff="" — no 422, no log, no signal.
+func TestSubmitPlanCannotBeUsedToCloseAroundTheGate(t *testing.T) {
+	api := newTasksTestServer(t)
+	seedActiveMember(t, api, "m-creator")
+	task := seedHandoffTask(t, api, "t-hhhh00000001", "m-creator", "m-exec", "a", "b")
+	steps, err := api.dal.ListTaskSteps(task.ID)
+	if err != nil {
+		t.Fatalf("list steps: %v", err)
+	}
+	for _, st := range steps {
+		if st.Name == "a" {
+			st.Status = StepStatusDone
+			if err := api.dal.PutTaskStep(st); err != nil {
+				t.Fatalf("put step: %v", err)
+			}
+		}
+	}
+	// The front door is shut.
+	if rec := closeReport(t, api, task.ID, task.ID+"-sb", "m-exec", nil); rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("front door must refuse: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// The side door: replan down to only the already-finished node.
+	rec := httptest.NewRecorder()
+	api.HandleSubmitTaskPlanApiTasksTaskIdPlanPost(rec,
+		taskReq(t, "POST", "/api/tasks/"+task.ID+"/plan",
+			map[string]any{"steps": []map[string]any{{"name": "a", "dod": "done when done"}}},
+			"m-exec", "agent"), task.ID)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("a replan that would CLOSE the task must be gated exactly like the "+
+			"closing step report: %d %s", rec.Code, rec.Body.String())
+	}
+	after := mustTask(t, api, task.ID)
+	if TaskIsTerminal(after.Status) || after.Handoff != HandoffUndeclared {
+		t.Fatalf("GATE BYPASSED via submit_plan: status=%q handoff=%q closed_ts=%v",
+			after.Status, after.Handoff, after.ClosedTS)
+	}
+	// And the refusal must NOT send the caller back to submit_plan — that would
+	// be a loop pointing at the hole this test just closed.
+	if msg := errorMessage(t, rec); strings.Contains(msg, "submit_plan still works") {
+		t.Fatalf("the refusal must not advertise submit_plan as the way out: %s", msg)
+	}
+}
+
+// mark_duplicate is the agent's SECOND terminal key (routes.go: principalAgent
+// + MCPTool "mark_duplicate") and it calls closeTask directly. The ball on a
+// duplicate genuinely goes to the ORIGINAL, so the server declares that itself
+// rather than refusing — zero friction, and the semantics stop being silent.
+func TestMarkDuplicateDeclaresTheHandoffItselfInsteadOfClosingSilently(t *testing.T) {
+	api := newTasksTestServer(t)
+	seedActiveMember(t, api, "m-creator")
+	original := seedHandoffTask(t, api, "t-hhhh00000002", "m-creator", "m-other", "work")
+	dup := seedHandoffTask(t, api, "t-hhhh00000003", "m-creator", "m-exec", "work")
+
+	rec := httptest.NewRecorder()
+	api.HandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost(rec,
+		taskReq(t, "POST", "/api/tasks/"+dup.ID+"/duplicate",
+			map[string]any{"duplicate_of": original.ID}, "m-exec", "agent"), dup.ID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("mark_duplicate must stay frictionless: %d %s", rec.Code, rec.Body.String())
+	}
+	after := mustTask(t, api, dup.ID)
+	if after.Status != TaskStatusDuplicated {
+		t.Fatalf("want duplicated, got %q", after.Status)
+	}
+	if after.Handoff != HandoffFollowUp || after.HandoffTaskID != original.ID {
+		t.Fatalf("a duplicate's ball is ON THE ORIGINAL and must be recorded as "+
+			"such, not left blank: handoff=%q handoff_task_id=%q",
+			after.Handoff, after.HandoffTaskID)
+	}
+}
+
+// ── 新閘的哨兵:證明第二道門沒有把合法的 replan 擋死 ──────────────────────────
+//
+// The replan gate is the one most able to do damage by over-reach: submit_plan
+// is the single most-used write in the system, and every task goes through it.
+// Blocking a legal replan would be worse than the hole it closes. Each of these
+// is a plan that MUST still land exactly as before.
+
+// The overwhelmingly common case: replanning to a plan that still has work in
+// it. It does not close the task, so the gate must never even look at it — on a
+// cross-executor task, which is the population the gate DOES ask.
+func TestSentinelAnOrdinaryReplanOnACrossTaskIsNeverGated(t *testing.T) {
+	api := newTasksTestServer(t)
+	seedActiveMember(t, api, "m-creator")
+	task := seedHandoffTask(t, api, "t-iiii00000001", "m-creator", "m-exec", "a")
+	plan := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
+		{"name": "a", "dod": "still doing it"},
+		{"name": "b", "dod": "and this too"},
+	})
+	if len(plan.Steps) < 2 {
+		t.Fatalf("an ordinary replan must land untouched: %+v", plan.Steps)
+	}
+	if TaskIsTerminal(mustTask(t, api, task.ID).Status) {
+		t.Fatalf("an ordinary replan must not close the task")
+	}
+}
+
+// A self-created task replanning down to all-done: the executor IS the asker,
+// there is nobody to hand back to, so this must close silently exactly as it
+// did before the gate existed. (This is the 270-of-392 population.)
+func TestSentinelSelfCreatedTaskCanStillReplanItselfClosed(t *testing.T) {
+	api := newTasksTestServer(t)
+	task := seedHandoffTask(t, api, "t-iiii00000002", "m-exec", "m-exec", "a", "b")
+	steps, err := api.dal.ListTaskSteps(task.ID)
+	if err != nil {
+		t.Fatalf("list steps: %v", err)
+	}
+	for _, st := range steps {
+		if st.Name == "a" {
+			st.Status = StepStatusDone
+			if err := api.dal.PutTaskStep(st); err != nil {
+				t.Fatalf("put step: %v", err)
+			}
+		}
+	}
+	rec := httptest.NewRecorder()
+	api.HandleSubmitTaskPlanApiTasksTaskIdPlanPost(rec,
+		taskReq(t, "POST", "/api/tasks/"+task.ID+"/plan",
+			map[string]any{"steps": []map[string]any{{"name": "a", "dod": "done when done"}}},
+			"m-exec", "agent"), task.ID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a self-created task must still be able to replan itself shut: %d %s",
+			rec.Code, rec.Body.String())
+	}
+	if mustTask(t, api, task.ID).Status != TaskStatusDone {
+		t.Fatalf("want done")
+	}
+}
+
+// The agent that already did the right thing must never meet the second door
+// either: a live successor depending on this task auto-satisfies the gate, and
+// the replan close records that fact rather than refusing. Same rule as the
+// step-report door — proof the two doors share one verdict, not two copies.
+func TestReplanClosesWhenASuccessorAlreadyDependsOnTheTask(t *testing.T) {
+	api := newTasksTestServer(t)
+	seedActiveMember(t, api, "m-creator")
+	task := seedHandoffTask(t, api, "t-iiii00000003", "m-creator", "m-exec", "a", "b")
+	successor := seedHandoffTask(t, api, "t-iiii00000004", "m-exec", "m-next", "carry on")
+	if err := api.dal.AddTaskDep(successor.ID, task.ID); err != nil {
+		t.Fatalf("add dep: %v", err)
+	}
+	steps, err := api.dal.ListTaskSteps(task.ID)
+	if err != nil {
+		t.Fatalf("list steps: %v", err)
+	}
+	for _, st := range steps {
+		if st.Name == "a" {
+			st.Status = StepStatusDone
+			if err := api.dal.PutTaskStep(st); err != nil {
+				t.Fatalf("put step: %v", err)
+			}
+		}
+	}
+	rec := httptest.NewRecorder()
+	api.HandleSubmitTaskPlanApiTasksTaskIdPlanPost(rec,
+		taskReq(t, "POST", "/api/tasks/"+task.ID+"/plan",
+			map[string]any{"steps": []map[string]any{{"name": "a", "dod": "done when done"}}},
+			"m-exec", "agent"), task.ID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a handover that is ALREADY real must not be re-demanded: %d %s",
+			rec.Code, rec.Body.String())
+	}
+	closed := mustTask(t, api, task.ID)
+	if closed.Status != TaskStatusDone || closed.Handoff != HandoffFollowUp ||
+		closed.HandoffTaskID != successor.ID {
+		t.Fatalf("the auto-satisfied handover must be RECORDED on the replan door "+
+			"too: status=%q handoff=%q task_id=%q",
+			closed.Status, closed.Handoff, closed.HandoffTaskID)
+	}
+	// half B must still fire from a replan-driven close.
+	assertHandoverChat(t, api, "m-next", TaskNo(task.ID))
+}
+
+// mark_duplicate must stay a zero-friction call for the population the gate does
+// NOT ask (self-created): no declaration is invented on a task nobody has to
+// hand anything over on, and the call certainly must not start refusing.
+func TestSentinelSelfCreatedMarkDuplicateStaysUntouched(t *testing.T) {
+	api := newTasksTestServer(t)
+	original := seedHandoffTask(t, api, "t-iiii00000005", "m-exec", "m-exec", "work")
+	dup := seedHandoffTask(t, api, "t-iiii00000006", "m-exec", "m-exec", "work")
+	rec := httptest.NewRecorder()
+	api.HandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost(rec,
+		taskReq(t, "POST", "/api/tasks/"+dup.ID+"/duplicate",
+			map[string]any{"duplicate_of": original.ID}, "m-exec", "agent"), dup.ID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("mark_duplicate must never refuse: %d %s", rec.Code, rec.Body.String())
+	}
+	after := mustTask(t, api, dup.ID)
+	if after.Status != TaskStatusDuplicated {
+		t.Fatalf("want duplicated, got %q", after.Status)
+	}
+	if after.Handoff != HandoffUndeclared {
+		t.Fatalf("a self-created duplicate has nobody to hand back to; the server "+
+			"must not invent a declaration: handoff=%q", after.Handoff)
+	}
+}
+
+// The single most common shape on a cross-executor task: the executor has
+// FINISHED some steps and replans to add the next ones. The kept prefix is
+// entirely done, so anything that judges the plan on the kept rows alone reads
+// it as "all done" and refuses — a 422 on the most ordinary act in the system.
+// The projection must include the FRESH steps, which are pending.
+func TestSentinelReplanThatKeepsDoneStepsAndAddsMoreIsNeverGated(t *testing.T) {
+	api := newTasksTestServer(t)
+	seedActiveMember(t, api, "m-creator")
+	task := seedHandoffTask(t, api, "t-jjjj00000001", "m-creator", "m-exec", "a", "b")
+	steps, err := api.dal.ListTaskSteps(task.ID)
+	if err != nil {
+		t.Fatalf("list steps: %v", err)
+	}
+	for _, st := range steps {
+		if st.Name == "a" {
+			st.Status = StepStatusDone
+			if err := api.dal.PutTaskStep(st); err != nil {
+				t.Fatalf("put step: %v", err)
+			}
+		}
+	}
+	// kept = [a(done)] — an all-done prefix — plus two fresh pending steps.
+	rec := httptest.NewRecorder()
+	api.HandleSubmitTaskPlanApiTasksTaskIdPlanPost(rec,
+		taskReq(t, "POST", "/api/tasks/"+task.ID+"/plan",
+			map[string]any{"steps": []map[string]any{
+				{"name": "a", "dod": "done when done"},
+				{"name": "c", "dod": "next up"},
+				{"name": "d", "dod": "and then this"},
+			}}, "m-exec", "agent"), task.ID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("carrying a finished prefix forward while adding new work is the "+
+			"most ordinary replan there is; it must never be gated: %d %s",
+			rec.Code, rec.Body.String())
+	}
+	after := mustTask(t, api, task.ID)
+	if TaskIsTerminal(after.Status) {
+		t.Fatalf("a plan with pending work must not close the task: %+v", after)
+	}
+}

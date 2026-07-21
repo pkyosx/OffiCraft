@@ -1269,7 +1269,7 @@
       "name": "set_task_priority"
     },
     {
-      "description": "Submit/replace the workflow plan (done and answered-card steps are kept).",
+      "description": "Submit/replace the workflow plan (done and answered-card steps are kept). T-74f8 交棒閘 (second door): a plan is a step-set write and the task status is DERIVED from the step set, so a plan that leaves EVERY step done CLOSES the task — the same irreversible close the final step report performs. If that task's creator is not its executor and no handover is declared or already real, the replan is refused with 422 BEFORE anything is written (the plan stays fully editable). A plan carries no handoff field, so the way out is to hand over first: create the successor task and point its ``blocked_by`` at this task (the gate then stands aside by itself), or keep one unfinished step and declare the handover on the ``update_step_status`` report that closes it. A replan that still leaves work in the plan is never gated.",
       "inputSchema": {
         "properties": {
           "steps": {
@@ -1330,7 +1330,7 @@
       "name": "submit_plan"
     },
     {
-      "description": "Mark a task duplicated, pointing at the original (executor/owner; terminal).",
+      "description": "Mark a task duplicated, pointing at the original (executor/owner; terminal). T-74f8 交棒閘 (third door): ``duplicated`` is terminal, so this closes the task; it is never refused. A duplicate's ball is on the ORIGINAL by construction, so the server records that itself — a cross-executor task marked duplicate lands ``handoff='follow_up'`` with ``handoff_task_id`` = ``duplicate_of``. No task_dep edge is added (the original is not blocked by its duplicate).",
       "inputSchema": {
         "properties": {
           "duplicate_of": {

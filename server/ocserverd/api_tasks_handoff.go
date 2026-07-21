@@ -23,11 +23,34 @@ package main
 // let the step write land first would leave the task with all steps done, no
 // legal transition out, and no way to replan: a hard deadlock.
 //
-// So the gate runs in HandleUpdateTaskStepStatus…, over a PROJECTION of the
-// step set ("if I applied this report, would the task derive to done?"), before
-// any row is written. A refused close changes nothing: the plan is still
-// editable, submit_plan still works, the executor can create the successor task
-// and re-report.
+// So the gate runs over a PROJECTION of the step set ("if I applied this write,
+// would the task derive to done?"), before any row is written. A refused close
+// changes nothing: no step row moved, no plan row moved, the task is still open
+// and still plannable.
+//
+// 🔴 THERE ARE TWO DOORS, NOT ONE — and the second one nearly shipped open.
+// task.status is derived, so ANY write that changes the step set can close the
+// task. Both go through deriveAndPersistTask → closeTask:
+//
+//	handoffDoorStepReport — HandleUpdateTaskStepStatus… (the obvious one);
+//	handoffDoorReplan     — HandleSubmitTaskPlan…. The replan split KEEPS `done`
+//	                        rows and DROPS an unfinished card-less row outright,
+//	                        so "replan down to only the nodes I already
+//	                        finished" derives to done and closes the task. It is
+//	                        also the move a caller refused at the first door
+//	                        would most naturally try next, which made it the
+//	                        worst possible hole: the gate was pointing at it.
+//
+// Both doors call the SAME handoffGateVerdict with the SAME projection rule, so
+// there is exactly one place where "may this close?" is decided. Only the
+// refusal PROSE differs (a replan cannot carry a declaration, so it has to name
+// a different way out — never "go use submit_plan", which is now a loop).
+//
+// mark_duplicate is the third agent-reachable terminal door; it does not refuse
+// at all — the ball on a duplicate is on the ORIGINAL by definition, so the
+// server declares that itself (api_tasks.go). owner terminate is deliberately
+// ungated: routes.go marks it principalOwner + MCPExclude, so it is the owner's
+// escape hatch and never an agent's key.
 
 import (
 	"net/http"
@@ -63,13 +86,39 @@ func wouldCloseTask(steps []TaskStep, stepID string) bool {
 	return DeriveTaskStatus(projected) == TaskStatusDone
 }
 
+// The two agent-reachable doors that can derive a task to done. The value is
+// only ever used to pick the refusal PROSE — the admit/refuse decision itself is
+// identical for both, which is the point (one rule, one place).
+const (
+	handoffDoorStepReport = "step_report"
+	handoffDoorReplan     = "replan"
+)
+
 // handoffGateReason is the 422 body the gate answers with. It is the whole
-// user-facing contract of the gate, so it names the three ways out verbatim —
-// a fail-closed guard that does not tell you how to pass is just an outage.
-func handoffGateReason(t Task) string {
-	return "task '" + t.ID + "' (" + TaskNo(t.ID) + ") was created by '" +
-		t.CreatorID + "' but executed by '" + t.ExecutorID +
-		"': this report would CLOSE it, and a closed task can never be replanned " +
+// user-facing contract of the gate, so it names the ways out VERBATIM — a
+// fail-closed guard that does not tell you how to pass is just an outage.
+func handoffGateReason(t Task, door string) string {
+	who := "task '" + t.ID + "' (" + TaskNo(t.ID) + ") was created by '" +
+		t.CreatorID + "' but executed by '" + t.ExecutorID + "'"
+	if door == handoffDoorReplan {
+		// A replan carries no declaration field, so pointing the caller back at
+		// update_step_status has to come with the step to report it ON —
+		// otherwise this is the same dead end the ticket is about. Both routes
+		// below are always available: create_task is never gated, and a replan
+		// that closes the task by definition had unfinished steps to drop.
+		return who + ": this plan leaves EVERY step done, which CLOSES the task, " +
+			"and a closed task can never be replanned. A plan carries no handoff " +
+			"declaration, so hand the ball over first, one of two ways: " +
+			"(1) create the successor task (create_task) and point its blocked_by " +
+			"at this task (set_task_deps) — this gate then stands aside by itself, " +
+			"and closing this task releases the successor; or " +
+			"(2) keep ONE unfinished step in this plan, then declare the handover " +
+			"on the update_step_status report that closes it (handoff='" +
+			HandoffReturnToCreator + "' | '" + HandoffFollowUp +
+			"' + handoff_task_id | '" + HandoffNone + "' + handoff_note)."
+	}
+	return who +
+		": this report would CLOSE it, and a closed task can never be replanned " +
 		"(submit_plan turns into a permanent 409). Say where the ball goes, in " +
 		"THIS same update_step_status call, with one of: " +
 		"handoff='" + HandoffReturnToCreator + "' (the server opens a durable " +
@@ -85,7 +134,7 @@ func handoffGateReason(t Task) string {
 // proceed — plan nil meaning "nothing to record" — or (nil, code, message) to
 // refuse. It reads state and validates; it writes nothing.
 func (s *apiServer) handoffGateVerdict(
-	t Task, declared, note, followUpID string,
+	t Task, door, declared, note, followUpID string,
 ) (*handoffPlan, int, string) {
 	if declared == "" {
 		// The narrow population the gate ASKS: creator ≠ executor, both named,
@@ -110,7 +159,7 @@ func (s *apiServer) handoffGateVerdict(
 				}, 0, ""
 			}
 		}
-		return nil, http.StatusUnprocessableEntity, handoffGateReason(t)
+		return nil, http.StatusUnprocessableEntity, handoffGateReason(t, door)
 	}
 	// A declaration is always honoured, even on a task the gate would not have
 	// asked (a self-created one): dropping it silently would be a lie in the
