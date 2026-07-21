@@ -77,6 +77,46 @@ describe("Markdown", () => {
     expect(c.querySelector("code")?.textContent).toBe("code");
   });
 
+  // Both found by the first real-page render of the embedded docs.
+  //
+  // `---` printed as three literal dashes: install.md alone has 5 of them and
+  // the DOM had 0 <hr>. The renderer simply had no thematic-break rule.
+  it("renders a `---` thematic break as an <hr>, not literal dashes", () => {
+    const c = renderMd("上一節\n\n---\n\n下一節");
+    expect(c.querySelectorAll("hr").length).toBe(1);
+    expect(c.textContent).not.toContain("---");
+    expect(c.querySelectorAll("p").length).toBe(2);
+  });
+
+  it("does not mistake a table delimiter row or fenced dashes for an <hr>", () => {
+    const table = renderMd("| a | b |\n| --- | --- |\n| 1 | 2 |");
+    expect(table.querySelectorAll("hr").length).toBe(0);
+    expect(table.querySelectorAll("table").length).toBe(1);
+    const fenced = renderMd("```\n---\n```");
+    expect(fenced.querySelectorAll("hr").length).toBe(0);
+    expect(fenced.querySelector("pre code")?.textContent).toBe("---");
+  });
+
+  // Inline `code` inside **bold** printed its backticks raw, while the SAME
+  // token outside bold on the same page became a proper chip — a visible
+  // same-page inconsistency, not a stylistic choice.
+  it("parses inline code and links INSIDE a bold run", () => {
+    const c = renderMd("**解析不到 `claude` 時會拒絕安裝**");
+    const strong = c.querySelector("strong")!;
+    expect(strong.querySelector("code")?.textContent).toBe("claude");
+    expect(c.textContent).not.toContain("`");
+    const linked = renderMd("**看 [首頁](https://example.com/)**");
+    expect(linked.querySelector("strong a")?.getAttribute("href")).toBe(
+      "https://example.com/",
+    );
+  });
+
+  it("still lets a code span win over bold markers inside it", () => {
+    const c = renderMd("`**not bold**` here");
+    expect(c.querySelector("code")?.textContent).toBe("**not bold**");
+    expect(c.querySelector("strong")).toBeNull();
+  });
+
   it("renders unknown syntax as plain text without injecting markup", () => {
     const c = renderMd("<script>alert(1)</script> just text");
     expect(c.querySelector("script")).toBeNull();

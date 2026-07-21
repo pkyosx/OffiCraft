@@ -14,7 +14,9 @@
 //               header row + |---| delimiter row + data rows; :--- / :---: /
 //               ---: alignment; leading/trailing pipes optional; a header row
 //               whose column count does not match the delimiter row is NOT a
-//               table and falls through as text), and paragraphs. List items
+//               table and falls through as text), "---" thematic breaks (a
+//               line of 3+ "-"/"*"/"_" alone where a block starts), and
+//               paragraphs. List items
 //               absorb their indented continuation (sub-lists, code, prose) and
 //               render it nested — so a numbered step with indented sub-bullets
 //               stays ONE list with continuous numbering instead of collapsing
@@ -133,7 +135,13 @@ function renderInline(text: string, opts?: InlineOpts): ReactNode[] {
         return <code key={i}>{part.slice(1, -1)}</code>;
       }
       if (part.length >= 4 && part.startsWith("**") && part.endsWith("**")) {
-        return <strong key={i}>{part.slice(2, -2)}</strong>;
+        // Re-parse the bold run's INSIDE. Emitting it as a raw string left
+        // `code` and [links] unrendered inside bold only — the same page then
+        // showed `claude` as a green chip in prose and as bare backticks two
+        // lines later inside **…**, which reads as an unfinished renderer.
+        // Terminates: the split pattern's bold body is `[^*]+`, so a bold run
+        // can never contain another bold run.
+        return <strong key={i}>{renderInline(part.slice(2, -2), opts)}</strong>;
       }
       const link = LINK_RE.exec(part);
       if (link) {
@@ -178,6 +186,15 @@ const ULIST_RE = /^[-*]\s+(.*)$/;
 const OLIST_RE = /^(\d+)\.\s+(.*)$/;
 const QUOTE_RE = /^>\s?(.*)$/;
 const FENCE_RE = /^```/;
+// Thematic break — a line that is nothing but 3+ of the same "-", "*" or "_".
+// Deliberately NARROW: it is tested only where a BLOCK starts (i.e. after a
+// blank line or another block), NOT as a paragraph terminator. GFM would read
+// "---" directly under a prose line as a setext heading, which this renderer
+// has never supported; keeping the check out of the paragraph accumulator
+// leaves that case exactly as it is today (absorbed as prose) instead of
+// silently reinterpreting it. Every "---" in docs/guide/ is blank-line
+// separated, which is the shape this covers.
+const HR_RE = /^(?:-{3,}|\*{3,}|_{3,})$/;
 // GitHub alert marker — the first line of a blockquote, alone: "> [!NOTE]".
 const ALERT_RE = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]$/i;
 
@@ -319,6 +336,15 @@ function renderBlocks(
           <code>{dedent(body).join("\n")}</code>
         </pre>
       );
+      continue;
+    }
+
+    // Thematic break (`---`). Tested AFTER the fence branch so a "---" inside
+    // a code block is still code, and it can never steal a table delimiter row
+    // (those carry a "|", which HR_RE does not allow).
+    if (HR_RE.test(line.trim())) {
+      blocks.push(<hr key={key++} />);
+      i++;
       continue;
     }
 

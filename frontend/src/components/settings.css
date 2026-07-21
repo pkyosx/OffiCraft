@@ -482,6 +482,13 @@
 .doc-md li {
   margin: 4px 0;
 }
+/* Thematic break. The UA default is an inset 3D groove, which on a dark canvas
+ * reads as a scratch; a single hairline is the section divider the docs mean. */
+.doc-md hr {
+  margin: 18px 0;
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
 .doc-md blockquote {
   margin: 10px 0;
   padding: 8px 14px;
