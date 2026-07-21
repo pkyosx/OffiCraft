@@ -16,9 +16,22 @@
 // ever read the `en` or `xian` dictionaries at all. So the one thing this ticket
 // exists to protect had no guard, in any language.
 //
-// This file encodes the DOCTRINE, not the wording: the copy may be rewritten
-// freely, but it may not go back to naming a cause the flag does not know, and
-// it must keep handing the owner back to the one line that IS precise.
+// 🔴 WHAT THIS FILE ACTUALLY GUARDS — named after what it does, not after what
+// we wish it did (review r3 measured the gap; an earlier version of this header
+// claimed to "encode the DOCTRINE", which is more than it can deliver):
+//
+//   1. A BLOCKLIST of the two lies above. Each is banned by the substrings it
+//      is made of, in all three locales, so the copy may be rewritten freely
+//      but cannot drift back into either historical claim.
+//   2. A STRUCTURAL invariant: the copy must keep pointing at 「最近操作」, and
+//      that pointer is cross-checked against the same locale's `mp.lastOp`
+//      rather than a hard-coded string. This one is a real invariant.
+//
+// 🔴 WHAT IT DOES NOT CATCH: a NOVEL lie. r3 wrote a fresh false cause that
+// avoids every banned substring and this suite stayed green (928/928). A
+// reviewer's eyes are still the only thing standing between the copy and a
+// cause the flag does not know. Do not read a green run here as "the copy is
+// honest" — read it as "the copy has not regressed to a KNOWN lie".
 //
 // Deliberately NOT asserted: exact sentences. A test that pins the prose blocks
 // every improvement and catches no lie.

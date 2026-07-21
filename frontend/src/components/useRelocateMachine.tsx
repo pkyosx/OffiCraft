@@ -11,9 +11,15 @@ interface UseRelocateMachineOpts {
    * the relocate twin of r1 SHOULD-1). Neither detail panel is remounted when
    * the owner selects a different agent (no `key` at either call site), so this
    * hook's `undispatched` verdict outlives the agent it was decided for unless
-   * something resets it. It used to be masked: before the observability gate,
-   * `landed` was accidentally true for most not-observable agents and quietly
-   * swallowed the leak. It is not masked any more. */
+   * something resets it.
+   *
+   * ⚠️ SCOPE OF THAT CLAIM (review r3 measured it; an earlier draft of this
+   * comment over-claimed). This is a PRE-EXISTING leak that three review rounds
+   * missed — not a regression introduced alongside the observability gate. The
+   * gate masked it only for agents that are BOTH unobservable AND pinned, where
+   * `landed` came out accidentally true and swallowed the leak; for an agent
+   * that is observable-and-mismatched the leak was always reachable (r3 ran the
+   * 2-factor experiment: reverting the gate did NOT turn the leak test green). */
   subjectId: string;
   /** ALL machines (online + offline) — the caller's ONE useMachines() result. */
   machines: MachineView[];
