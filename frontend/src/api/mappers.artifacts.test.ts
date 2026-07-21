@@ -53,6 +53,12 @@ function wireTask(over: Partial<WireTask>): WireTask {
     steps: [],
     progress_done: 0,
     progress_total: 0,
+    // T-74f8: the declared destination of the ball at close. Always-present on
+    // the wire ("" = never declared), so the complete-wire-object helper has to
+    // carry it or nothing here typechecks.
+    handoff: "",
+    handoff_note: "",
+    handoff_task_id: "",
     ...over,
   };
 }
