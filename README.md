@@ -40,6 +40,11 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 > 座艙只綁 loopback（`127.0.0.1`）。想從手機或別的裝置連，要自己開一條 tunnel——
 > 做法與「加到主畫面」的步驟見 [docs/mobile.md](docs/mobile.md)。
 
+> [!WARNING]
+> 成員的 Claude Code 是用 `--dangerously-skip-permissions` 跑的——它們是無人看管的背景
+> session，跳出權限確認框沒有人會按。**成員在你的機器上有很大的行動自由**，護欄是工作守則
+> 與「需要你點頭時會停下來開卡」，不是系統權限牆。理由與完整邊界見 [docs/why.md](docs/why.md)。
+
 ### 它長什麼樣
 
 ```
@@ -49,8 +54,8 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
            └─ 需要你點頭 ──> 一張卡進 Ask ──> 你回一句 ──> 繼續
 ```
 
-**任務怎麼運作（含一個完整例子）** → [docs/tasks.md](docs/tasks.md)　
-**完整安裝、升級與移除** → [docs/install.md](docs/install.md)
-**在手機上用** → [docs/mobile.md](docs/mobile.md)　
-**agent 的環境變數** → [docs/agent-env.md](docs/agent-env.md)　
-**開發** → [docs/dev.md](docs/dev.md)
+- **任務怎麼運作（含一個完整例子）** → [docs/tasks.md](docs/tasks.md)
+- **完整安裝、升級與移除** → [docs/install.md](docs/install.md)
+- **在手機上用（含加到主畫面）** → [docs/mobile.md](docs/mobile.md)
+- **agent 的環境變數** → [docs/agent-env.md](docs/agent-env.md)
+- **開發** → [docs/dev.md](docs/dev.md)

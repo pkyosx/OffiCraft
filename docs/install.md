@@ -18,7 +18,7 @@
 
 | | 為什麼 |
 | --- | --- |
-| **Claude Code CLI**（`claude`，而且已登入） | 每位成員底下就是一個 Claude Code session。找不到它時安裝照樣完成，但座艙會拒絕開任何成員（理由 `claude_bin_unresolved`）。裝法：`npm install -g @anthropic-ai/claude-code` |
+| **Claude Code CLI**（`claude`，而且已登入） | 每位成員底下就是一個 Claude Code session。**解析不到 `claude` 時，warden 會直接拒絕安裝**（fail-closed，並在座艙橫幅說明原因），不會裝一個永遠起不了成員的 warden。裝法：`npm install -g @anthropic-ai/claude-code` |
 | **`tmux`** | 成員的 session 跑在 tmux 裡 |
 
 > [!NOTE]
