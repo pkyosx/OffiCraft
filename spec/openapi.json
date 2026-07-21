@@ -3028,8 +3028,20 @@
         "type": "object"
       },
       "SettingsDTO": {
-        "description": "The owner-adjustable settings surface (`GET /api/settings`). `token_ttl` —\nthe owner-login JWT lifetime (seconds). `handover_pct` — the context\nhandover threshold. `outsource_max_parallel` — the global cap on\nconcurrently live outsource workers (-1 = unlimited, 0 pauses assignment).\n`updater_receive_beta` — whether the GitHub-release update check also\nadmits prereleases (default false: official releases only).\n`updater_auto_update` — arms unattended background self-upgrade to the\nnewest admissible GitHub release (default false: upgrading stays an\nexplicit owner action). `org_name` — the studio display name (\"\" = unset).\n`owner_name` — the owner's display nickname (\"\" = unset).",
+        "description": "The owner-adjustable settings surface (`GET /api/settings`). `token_ttl` —\nthe owner-login JWT lifetime (seconds). `handover_pct` — the context\nhandover threshold. `outsource_max_parallel` — the global cap on\nconcurrently live outsource workers (-1 = unlimited, 0 pauses assignment).\n`updater_receive_beta` — whether the GitHub-release update check also\nadmits prereleases (default false: official releases only).\n`updater_auto_update` — arms unattended background self-upgrade to the\nnewest admissible GitHub release (default false: upgrading stays an\nexplicit owner action). `org_name` — the studio display name (\"\" = unset).\n`owner_name` — the owner's display nickname (\"\" = unset). `display_theme` /\n`display_language` — the owner's cockpit visual prefs (\"\" = unset).",
         "properties": {
+          "display_language": {
+            "default": "",
+            "description": "The owner's cockpit language (T-0b41-p2). \"\" = never set — the frontend keeps its localStorage cache / default; reconciled in at login as the cross-device source of truth.",
+            "title": "Display Language",
+            "type": "string"
+          },
+          "display_theme": {
+            "default": "",
+            "description": "The owner's cockpit visual theme (T-0b41-p2). \"\" = never set — the frontend keeps its localStorage cache / default; reconciled in at login as the cross-device source of truth.",
+            "title": "Display Theme",
+            "type": "string"
+          },
           "handover_pct": {
             "title": "Handover Pct",
             "type": "integer"
@@ -3075,6 +3087,30 @@
       "SettingsUpdateDTO": {
         "description": "Partial settings edit (`PATCH /api/settings`) — only supplied fields change,\neffective immediately (no restart). `token_ttl` MUST be one of 43200 / 86400 /\n604800 / 2592000 seconds (12h / 24h / 7d / 30d — a whitelist, so a stray 0 can\nnever lock every future login out); `handover_pct` MUST be 40..90 (the warn\nband sits at 40 — a handover threshold below it would fire before the\nwarning). Anything else is a 422. `outsource_max_parallel` MUST be -1..20 (-1 = 無限/unlimited — no global cap; 0 pauses outsource assignment).\n`updater_receive_beta` toggles whether the GitHub-release update check also\nadmits prereleases; `updater_auto_update` toggles unattended background\nself-upgrade to the newest admissible release (both booleans, default false;\nthe manual upgrade endpoint is unaffected).",
         "properties": {
+          "display_language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The owner's cockpit language (T-0b41-p2) — trimmed; \"\" clears it back to unset. Must be one of zh, en (or \"\"); anything else is a 422.",
+            "title": "Display Language"
+          },
+          "display_theme": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The owner's cockpit visual theme (T-0b41-p2) — trimmed; \"\" clears it back to unset. Must be one of office, xian (or \"\"); anything else is a 422.",
+            "title": "Display Theme"
+          },
           "handover_pct": {
             "anyOf": [
               {

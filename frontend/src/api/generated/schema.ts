@@ -4822,9 +4822,22 @@ export interface components {
          *     `updater_auto_update` — arms unattended background self-upgrade to the
          *     newest admissible GitHub release (default false: upgrading stays an
          *     explicit owner action). `org_name` — the studio display name ("" = unset).
-         *     `owner_name` — the owner's display nickname ("" = unset).
+         *     `owner_name` — the owner's display nickname ("" = unset). `display_theme` /
+         *     `display_language` — the owner's cockpit visual prefs ("" = unset).
          */
         SettingsDTO: {
+            /**
+             * Display Language
+             * @description The owner's cockpit language (T-0b41-p2). "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login as the cross-device source of truth.
+             * @default
+             */
+            display_language: string;
+            /**
+             * Display Theme
+             * @description The owner's cockpit visual theme (T-0b41-p2). "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login as the cross-device source of truth.
+             * @default
+             */
+            display_theme: string;
             /** Handover Pct */
             handover_pct: number;
             /**
@@ -4868,6 +4881,16 @@ export interface components {
          *     the manual upgrade endpoint is unaffected).
          */
         SettingsUpdateDTO: {
+            /**
+             * Display Language
+             * @description The owner's cockpit language (T-0b41-p2) — trimmed; "" clears it back to unset. Must be one of zh, en (or ""); anything else is a 422.
+             */
+            display_language?: string | null;
+            /**
+             * Display Theme
+             * @description The owner's cockpit visual theme (T-0b41-p2) — trimmed; "" clears it back to unset. Must be one of office, xian (or ""); anything else is a 422.
+             */
+            display_theme?: string | null;
             /** Handover Pct */
             handover_pct?: number | null;
             /**

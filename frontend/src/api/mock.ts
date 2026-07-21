@@ -691,6 +691,10 @@ const DEFAULT_MOCK_SETTINGS = {
   // Owner nickname (T-0b41) — "" out of the box, mirroring the server (the
   // profile pill shows the localized default until the owner sets a nickname).
   owner_name: "",
+  // Cockpit display prefs (T-0b41-p2) — "" out of the box, mirroring the server
+  // (the frontend keeps its localStorage cache / default until the owner picks).
+  display_theme: "",
+  display_language: "",
 };
 let mockServerSettings = { ...DEFAULT_MOCK_SETTINGS };
 const MOCK_CLAIM_TOKEN = "mock-claim-token";
@@ -2400,6 +2404,32 @@ export const mockApi: Api = {
         "owner_name must be at most 80 characters"
       );
     }
+    if (
+      patch.displayTheme !== undefined &&
+      patch.displayTheme.trim() !== "" &&
+      !["office", "xian"].includes(patch.displayTheme.trim())
+    ) {
+      // Server parity: enum-checked, "" clears (T-0b41-p2).
+      throw new ApiError(
+        "http 422 for PATCH /api/settings",
+        422,
+        "validation_error",
+        "display_theme must be one of office, xian"
+      );
+    }
+    if (
+      patch.displayLanguage !== undefined &&
+      patch.displayLanguage.trim() !== "" &&
+      !["zh", "en"].includes(patch.displayLanguage.trim())
+    ) {
+      // Server parity: enum-checked, "" clears (T-0b41-p2).
+      throw new ApiError(
+        "http 422 for PATCH /api/settings",
+        422,
+        "validation_error",
+        "display_language must be one of zh, en"
+      );
+    }
     if (patch.tokenTtl !== undefined) {
       mockServerSettings.token_ttl = patch.tokenTtl;
     }
@@ -2420,6 +2450,12 @@ export const mockApi: Api = {
     }
     if (patch.ownerName !== undefined) {
       mockServerSettings.owner_name = patch.ownerName.trim();
+    }
+    if (patch.displayTheme !== undefined) {
+      mockServerSettings.display_theme = patch.displayTheme.trim();
+    }
+    if (patch.displayLanguage !== undefined) {
+      mockServerSettings.display_language = patch.displayLanguage.trim();
     }
     return toServerSettings(structuredClone(mockServerSettings));
   },

@@ -88,7 +88,26 @@ const (
 	// pill falls back to the localized default label (frontend). Unlike
 	// org.name it is NOT an agent read path — it never enters get_global_context.
 	settingOwnerName = "owner.name"
+	// settingDisplayTheme (T-0b41-p2) is the owner's cockpit visual theme
+	// ("office" / "xian"). Server-backed (PATCH /api/settings) so the choice
+	// syncs across the owner's devices — but it must also apply BEFORE login, so
+	// the frontend keeps a localStorage cache and treats this server value as the
+	// cross-device source of truth reconciled at login. "" (default) = never set:
+	// the frontend keeps its cached/default theme. NOT an agent read path.
+	settingDisplayTheme = "display.theme"
+	// settingDisplayLanguage (T-0b41-p2) is the owner's cockpit language
+	// ("zh" / "en"). Same dual-layer contract as display.theme: server is the
+	// cross-device truth, localStorage the pre-auth cache. "" (default) = never
+	// set. NOT an agent read path.
+	settingDisplayLanguage = "display.language"
 )
+
+// displayThemeAllowed / displayLanguageAllowed are the enum whitelists for the
+// two display prefs (T-0b41-p2). A PATCH value outside the set (and non-empty,
+// which clears back to unset) is a 422 — the frontend only ever renders these
+// concrete values, so an out-of-set string would only be corruption.
+var displayThemeAllowed = map[string]bool{"office": true, "xian": true}
+var displayLanguageAllowed = map[string]bool{"zh": true, "en": true}
 
 // defaultOutsourceMaxParallel is the code-side default when the key was never
 // written.
@@ -106,6 +125,8 @@ type authSettings struct {
 	updaterAutoUpdate    bool   // updater.auto_update (default false = manual upgrades only)
 	orgName              string // org.name ("" = never set → localized default in the topbar)
 	ownerName            string // owner.name ("" = never set → localized default in the profile pill)
+	displayTheme         string // display.theme ("" = never set → frontend cache/default)
+	displayLanguage      string // display.language ("" = never set → frontend cache/default)
 }
 
 // loadAuthSettings loads the snapshot from the migrated DB, running the
@@ -255,6 +276,16 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 		return out, err
 	} else if v != nil {
 		out.ownerName = *v
+	}
+	if v, err := d.GetSetting(settingDisplayTheme); err != nil {
+		return out, err
+	} else if v != nil {
+		out.displayTheme = *v
+	}
+	if v, err := d.GetSetting(settingDisplayLanguage); err != nil {
+		return out, err
+	} else if v != nil {
+		out.displayLanguage = *v
 	}
 	return out, nil
 }

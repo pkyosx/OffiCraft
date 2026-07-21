@@ -348,3 +348,69 @@ func TestOwnerNameSettingRoundTrips(t *testing.T) {
 		t.Fatalf("cleared owner_name must be live: %q", got)
 	}
 }
+
+// TestDisplayPrefsSettingRoundTrips covers the T-0b41-p2 dual-layer display
+// prefs: the owner writes theme/language through PATCH /api/settings (enum
+// validated, durable + live in the snapshot) and reads them back on the settings
+// surface. Like owner.name they are NOT an agent read path.
+func TestDisplayPrefsSettingRoundTrips(t *testing.T) {
+	api, srv, d, _ := newSettingsTestServer(t, "owner-pass")
+	status, data := doJSON(t, "POST", srv.URL+"/api/login", "", `{"password":"owner-pass"}`)
+	if status != 200 {
+		t.Fatalf("login: %d", status)
+	}
+	owner := data["token"].(string)
+
+	// Default: unset → "" on the settings surface.
+	if status, data = doJSON(t, "GET", srv.URL+"/api/settings", owner, ""); status != 200 ||
+		data["display_theme"] != "" || data["display_language"] != "" {
+		t.Fatalf("display prefs default must be \"\": %d %v", status, data)
+	}
+
+	// An out-of-enum value → 422, nothing written.
+	if status, _ := doJSON(t, "PATCH", srv.URL+"/api/settings", owner, `{"display_theme":"neon"}`); status != 422 {
+		t.Fatalf("out-of-enum display_theme must 422: got %d", status)
+	}
+	if status, _ := doJSON(t, "PATCH", srv.URL+"/api/settings", owner, `{"display_language":"fr"}`); status != 422 {
+		t.Fatalf("out-of-enum display_language must 422: got %d", status)
+	}
+	if v, err := d.GetSetting(settingDisplayTheme); err != nil || v != nil {
+		t.Fatalf("a rejected display_theme patch must write nothing: %v %v", v, err)
+	}
+
+	// Valid patch: echoed, durable, live in the snapshot.
+	if status, data = doJSON(t, "PATCH", srv.URL+"/api/settings", owner,
+		`{"display_theme":"xian","display_language":"en"}`); status != 200 ||
+		data["display_theme"] != "xian" || data["display_language"] != "en" {
+		t.Fatalf("display prefs patch must echo: %d %v", status, data)
+	}
+	if v, err := d.GetSetting(settingDisplayTheme); err != nil || v == nil || *v != "xian" {
+		t.Fatalf("display_theme must be durable: %v %v", v, err)
+	}
+	if got := api.displayThemeSnapshot(); got != "xian" {
+		t.Fatalf("display_theme must be live in the snapshot: %q", got)
+	}
+	if got := api.displayLanguageSnapshot(); got != "en" {
+		t.Fatalf("display_language must be live in the snapshot: %q", got)
+	}
+
+	// Neither pref leaks onto the agent read path.
+	if status, data = doJSON(t, "GET", srv.URL+"/api/global-context", owner, ""); status != 200 {
+		t.Fatalf("global-context: %d", status)
+	}
+	if _, ok := data["display_theme"]; ok {
+		t.Fatalf("display_theme must NOT appear on the agent read path: %v", data)
+	}
+	if _, ok := data["display_language"]; ok {
+		t.Fatalf("display_language must NOT appear on the agent read path: %v", data)
+	}
+
+	// "" clears back to unset.
+	if status, data = doJSON(t, "PATCH", srv.URL+"/api/settings", owner, `{"display_theme":""}`); status != 200 ||
+		data["display_theme"] != "" {
+		t.Fatalf("empty display_theme must clear: %d %v", status, data)
+	}
+	if got := api.displayThemeSnapshot(); got != "" {
+		t.Fatalf("cleared display_theme must be live: %q", got)
+	}
+}

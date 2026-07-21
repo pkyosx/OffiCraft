@@ -61,6 +61,14 @@ type settingsDTO struct {
 	// OwnerName is the owner's display nickname (owner.name; T-0b41). "" = never
 	// set — the topbar's profile pill falls back to the localized default label.
 	OwnerName string `json:"owner_name"`
+	// DisplayTheme is the owner's cockpit visual theme (display.theme;
+	// T-0b41-p2). "" = never set — the frontend keeps its localStorage cache /
+	// default. The frontend reconciles this server value in at login.
+	DisplayTheme string `json:"display_theme"`
+	// DisplayLanguage is the owner's cockpit language (display.language;
+	// T-0b41-p2). "" = never set — the frontend keeps its localStorage cache /
+	// default. Same dual-layer contract as display_theme.
+	DisplayLanguage string `json:"display_language"`
 }
 
 type tokenDTO struct {

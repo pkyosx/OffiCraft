@@ -7,6 +7,16 @@
 
 export const TOKEN_KEY = "oc_token";
 
+/** Fired on the window the instant an owner token is minted (login /
+ * set-password / change-password — every `setToken` call). Symmetric with
+ * `oc-auth-expired` (api/client.ts): that signals a session dying, this signals
+ * one being born. The dual-layer display prefs (T-0b41-p2) listen for it to
+ * reconcile the server's theme/language in after login, since /api/settings is
+ * owner-gated and unreachable pre-auth. Lives here — the single mint chokepoint
+ * — rather than in each caller, and here rather than in client.ts to avoid an
+ * import cycle (client.ts already imports this module). */
+export const AUTH_LOGIN_EVENT = "oc-auth-login";
+
 /** The owner JWT for gated routes — localStorage `oc_token` (Joey's isolated
  * e2e: POST /api/login → store the minted owner token here; the :8770 prod
  * login flow is §3.5 / wake-e2e step3), falling back to the VITE_OC_TOKEN
@@ -36,6 +46,11 @@ export function setToken(t: string): void {
     localStorage.setItem(TOKEN_KEY, t);
   } catch {
     // best-effort persistence — ignore
+  }
+  try {
+    window.dispatchEvent(new Event(AUTH_LOGIN_EVENT));
+  } catch {
+    // No DOM (SSR/test) — persisting the token is enough; nothing to notify.
   }
 }
 

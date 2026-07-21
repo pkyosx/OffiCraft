@@ -70,6 +70,14 @@ type apiServer struct {
 	// back to the localized default. Owner-writable via PATCH /api/settings so
 	// the nickname syncs across the owner's devices. NOT an agent read path.
 	ownerName string
+	// displayTheme / displayLanguage are the owner's cockpit visual prefs (DB
+	// display.theme / display.language; T-0b41-p2). Owner-writable via PATCH
+	// /api/settings so they sync across devices, but because they must apply
+	// BEFORE login the frontend keeps a localStorage cache and reconciles this
+	// server value in at login (server = cross-device truth). "" = never set —
+	// the frontend keeps its cached/default value. NOT an agent read path.
+	displayTheme    string
+	displayLanguage string
 	// namespace is the [server].namespace instance key ("" = main instance).
 	// It leaves the server on exactly two surfaces: the install.sh install line
 	// and the bootstrap/teardown-here child env (OC_NAMESPACE) — the single
@@ -296,6 +304,21 @@ func (s *apiServer) ownerNameSnapshot() string {
 	s.settingsMu.RLock()
 	defer s.settingsMu.RUnlock()
 	return s.ownerName
+}
+
+// displayThemeSnapshot / displayLanguageSnapshot return the live cockpit display
+// prefs (display.theme / display.language; T-0b41-p2). "" = never set — the
+// frontend keeps its localStorage cache / default.
+func (s *apiServer) displayThemeSnapshot() string {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.displayTheme
+}
+
+func (s *apiServer) displayLanguageSnapshot() string {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.displayLanguage
 }
 
 // ctxHighConfig returns the live context-high band config (by value — one

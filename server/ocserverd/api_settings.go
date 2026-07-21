@@ -218,6 +218,24 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			return
 		}
 	}
+	var displayTheme string
+	if body.DisplayTheme != nil {
+		displayTheme = strings.TrimSpace(*body.DisplayTheme)
+		if displayTheme != "" && !displayThemeAllowed[displayTheme] {
+			writeError(w, http.StatusUnprocessableEntity,
+				"display_theme must be one of office, xian")
+			return
+		}
+	}
+	var displayLanguage string
+	if body.DisplayLanguage != nil {
+		displayLanguage = strings.TrimSpace(*body.DisplayLanguage)
+		if displayLanguage != "" && !displayLanguageAllowed[displayLanguage] {
+			writeError(w, http.StatusUnprocessableEntity,
+				"display_language must be one of zh, en")
+			return
+		}
+	}
 	s.settingsMu.Lock()
 	if body.TokenTtl != nil {
 		if err := s.dal.PutSetting(settingTokenTTL, strconv.Itoa(*body.TokenTtl)); err != nil {
@@ -285,6 +303,22 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		}
 		s.ownerName = ownerName
 	}
+	if body.DisplayTheme != nil && displayTheme != s.displayTheme {
+		if err := s.dal.PutSetting(settingDisplayTheme, displayTheme); err != nil {
+			s.settingsMu.Unlock()
+			internalError(w, err)
+			return
+		}
+		s.displayTheme = displayTheme
+	}
+	if body.DisplayLanguage != nil && displayLanguage != s.displayLanguage {
+		if err := s.dal.PutSetting(settingDisplayLanguage, displayLanguage); err != nil {
+			s.settingsMu.Unlock()
+			internalError(w, err)
+			return
+		}
+		s.displayLanguage = displayLanguage
+	}
 	s.settingsMu.Unlock()
 	if updaterChanged {
 		// Force-expire the update-check cache + refresh in the background so
@@ -308,5 +342,7 @@ func (s *apiServer) settingsView() settingsDTO {
 		UpdaterAutoUpdate:    s.updaterAutoUpdate,
 		OrgName:              s.orgName,
 		OwnerName:            s.ownerName,
+		DisplayTheme:         s.displayTheme,
+		DisplayLanguage:      s.displayLanguage,
 	}
 }

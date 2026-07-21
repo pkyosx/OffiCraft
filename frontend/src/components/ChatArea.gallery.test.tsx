@@ -32,6 +32,9 @@ vi.mock("../api", () => ({
   api: {
     listChatAttachments: vi.fn(async () => []),
     subscribeEvents: () => () => {},
+    // A token is set below, so I18nProvider's dual-layer reconcile (T-0b41-p2)
+    // fetches settings on mount — unset prefs keep the local cache.
+    getServerSettings: vi.fn(async () => ({ displayTheme: "", displayLanguage: "" })),
   },
 }));
 

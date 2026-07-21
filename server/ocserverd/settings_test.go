@@ -184,6 +184,28 @@ func TestLoadAuthSettingsOwnerName(t *testing.T) {
 	}
 }
 
+func TestLoadAuthSettingsDisplayPrefs(t *testing.T) {
+	// Absent → "" for both (never set; the frontend keeps its cache/default).
+	got, _ := loadForTest(t, newTestDAL(t), defaultConfig())
+	if got.displayTheme != "" || got.displayLanguage != "" {
+		t.Fatalf("absent display prefs must load as \"\": theme=%q lang=%q",
+			got.displayTheme, got.displayLanguage)
+	}
+	// Stored values land in the boot snapshot verbatim.
+	d := newTestDAL(t)
+	if err := d.PutSetting(settingDisplayTheme, "xian"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.PutSetting(settingDisplayLanguage, "en"); err != nil {
+		t.Fatal(err)
+	}
+	got2, _ := loadForTest(t, d, defaultConfig())
+	if got2.displayTheme != "xian" || got2.displayLanguage != "en" {
+		t.Fatalf("stored display prefs must load into the snapshot: theme=%q lang=%q",
+			got2.displayTheme, got2.displayLanguage)
+	}
+}
+
 func TestLoadAuthSettingsCtxOverrides(t *testing.T) {
 	d := newTestDAL(t)
 	for key, value := range map[string]string{

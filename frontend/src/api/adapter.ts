@@ -562,6 +562,13 @@ export interface ServerSettingsView {
   /** The owner's display nickname shown in the topbar profile pill (T-0b41).
    * "" = never set — the caller falls back to the localized default (`t.user`). */
   ownerName: string;
+  /** The owner's cockpit visual theme (T-0b41-p2). "" = never set — the
+   * frontend keeps its localStorage cache / default. Server = cross-device
+   * truth, reconciled in at login (see i18n/index.tsx). */
+  displayTheme: string;
+  /** The owner's cockpit language (T-0b41-p2). "" = never set — same
+   * dual-layer contract as displayTheme. */
+  displayLanguage: string;
 }
 
 /** Partial settings edit — only supplied fields change (server 422s a
@@ -581,6 +588,12 @@ export interface ServerSettingsPatch {
   /** The owner's display nickname (T-0b41); trimmed server-side, max 80 runes,
    * "" clears it back to the localized default (server 422s anything longer). */
   ownerName?: string;
+  /** The owner's cockpit visual theme (T-0b41-p2); "office" | "xian" (or "" to
+   * clear). The server 422s anything else. */
+  displayTheme?: string;
+  /** The owner's cockpit language (T-0b41-p2); "zh" | "en" (or "" to clear).
+   * The server 422s anything else. */
+  displayLanguage?: string;
 }
 
 /** Fields the owner may edit on a member (PATCH; every field optional).
