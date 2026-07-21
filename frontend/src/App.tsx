@@ -32,6 +32,14 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   // The studio name is server-backed (T-d693); the localized dict string is the
   // fallback until the fetch lands / when the owner has not named the studio.
   const { orgName, setOrgName } = useOrgName(t.orgName);
+  // The browser-tab title tracks the studio name so it matches the org name the
+  // owner sets in the topbar (owner ask: "Can title align with our org name").
+  // orgName already resolves to t.orgName when the server value is empty/unloaded
+  // (see useOrgName), so the fallback flows through here for free. index.html's
+  // static <title> is only the pre-mount / pre-auth first paint.
+  useEffect(() => {
+    document.title = orgName;
+  }, [orgName]);
   // Navigational state (page tab / settings overlay / member selections) lives
   // in the URL hash — a refresh (incl. the top-bar reload button) restores the
   // same view, and every view is deep-linkable. See lib/hashRoute.ts.
