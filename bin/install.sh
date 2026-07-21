@@ -119,10 +119,13 @@ plist_program() {
 # behind, so it has no use for a fresh tarball.
 cmd_uninstall_release() {
   local purge=0 dryrun=0 yes=0
-  shift || true # drop the leading --uninstall
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --uninstall) ;; # tolerate it appearing again / in any position
+      --uninstall) ;; # matched here (in ANY position), not shifted off separately —
+                       # a blind leading shift previously assumed --uninstall was
+                       # always $1, which silently ate whatever flag WAS first
+                       # (e.g. `--dry-run --uninstall` lost --dry-run and performed
+                       # a real deletion)
       --purge)     purge=1 ;;
       --dry-run)   dryrun=1 ;;
       --yes)       yes=1 ;;
