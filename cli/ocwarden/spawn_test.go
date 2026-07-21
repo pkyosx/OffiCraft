@@ -667,6 +667,62 @@ func TestStart_NoClaudeBin(t *testing.T) {
 	}
 }
 
+// T-ba62: claude present but LOGGED OUT is refused BEFORE any side effect, and
+// the refusal is identified by its REASON — "wrongly failed" and "correctly
+// refused" share OK=false, so asserting the flag alone proves nothing.
+func TestStart_ClaudeNotLoggedIn(t *testing.T) {
+	run := &recRunner{}
+	wrote := map[string]string{}
+	deps := SpawnDeps{
+		Runner:    run,
+		Base:      fxBase,
+		Socket:    fxSocket,
+		Home:      "/tmp",
+		ClaudeBin: fxClaudeBin,
+		ClaudeCreds: func() claudeCredStatus {
+			return claudeCredStatus{Present: false, Summary: "cred_file=unset keychain=unset"}
+		},
+		WriteFile: func(p, c string, _ os.FileMode) error { wrote[p] = c; return nil },
+		MkdirAll:  func(string, os.FileMode) error { return nil },
+	}
+	out := deps.start(StartParams{MemberID: "alice", MemberToken: fxToken})
+	if out.OK {
+		t.Fatal("a logged-out claude must yield ok=false, not a silent OK")
+	}
+	if !strings.HasPrefix(out.Reason, "claude_not_logged_in:") {
+		t.Fatalf("refusal must carry a claude_not_logged_in reason, got %q", out.Reason)
+	}
+	for _, want := range []string{"cred_file=unset", "keychain=unset", "run `claude` once"} {
+		if !strings.Contains(out.Reason, want) {
+			t.Errorf("reason must carry %q (the actionable evidence), got %q", want, out.Reason)
+		}
+	}
+	// NO RESIDUE: no tmux session, no workdir files.
+	if len(run.calls) != 0 {
+		t.Errorf("must not touch tmux when claude is logged out, got %v", run.calls)
+	}
+	if len(wrote) != 0 {
+		t.Errorf("must not write any workdir file when claude is logged out, got %v", wrote)
+	}
+}
+
+// The gate must NOT stand in the way of a credentialed host (the positive
+// control for the test above: a green refusal test alone cannot tell a working
+// gate from one that refuses everything).
+func TestStart_ClaudeLoggedInProceeds(t *testing.T) {
+	hasKey := "tmux -L officraft has-session -t member-alice"
+	run := &recRunner{err: map[string]error{hasKey: errAbsent()}} // session absent
+	files := map[string]string{}
+	deps := newStartDeps(t, run, files)
+	deps.ClaudeCreds = func() claudeCredStatus {
+		return claudeCredStatus{Present: true, Summary: "keychain=SET"}
+	}
+	out := deps.start(StartParams{MemberID: "alice", MemberToken: fxToken, SessionName: "member-alice"})
+	if !out.OK {
+		t.Fatalf("a credentialed host must spawn normally; got reason %q", out.Reason)
+	}
+}
+
 func TestAgentWorkdir_Lowercased(t *testing.T) {
 	if got := agentWorkdir("/home/oc/agents", "Alice"); got != "/home/oc/agents/alice" {
 		t.Errorf("agentWorkdir = %q, want lowercased join", got)

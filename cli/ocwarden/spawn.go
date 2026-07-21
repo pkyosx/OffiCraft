@@ -674,6 +674,13 @@ type SpawnDeps struct {
 	// formatted into it.
 	Logf      func(string, ...any)
 	ClaudeBin string // pre-resolved claude executable (Phase 4 resolves it)
+	// ClaudeCreds (T-ba62, nil-skipped) is the spawn-time "is claude logged in?"
+	// existence probe. Resolvable-but-logged-out was the ONE prerequisite with no
+	// gate anywhere: the TUI starts, the nudge is delivered into a login prompt,
+	// and start() returns OK:true forever. The seam returns a value-free verdict
+	// (claudecreds.go's SET/unset summary) — it must NEVER be able to hand a
+	// credential value back into this file.
+	ClaudeCreds func() claudeCredStatus
 	// RepoRoot is the officraft checkout root, injected at construction (from
 	// os.Executable — ocwarden lives at <repoRoot>/cli/ocwarden/ocwarden). It is the
 	// base for the ocagent shim's exec target (<repoRoot>/cli/ocagent/ocagent);
@@ -746,6 +753,19 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	// claude CLI must be resolvable (Python raises SpawnError otherwise).
 	if d.ClaudeBin == "" {
 		return SpawnOutcome{OK: false, Reason: "claude_bin_unresolved: set OC_CLAUDE_BIN or put claude on the daemon PATH (~/.local/bin absent from launchd PATH)"}
+	}
+	// ...and it must be LOGGED IN (T-ba62). A logged-out claude launches its TUI
+	// fine, so every downstream step "succeeds" and the outcome is OK:true while
+	// the agent can never boot — the silent failure this gate exists to end.
+	// nil seam = gate off (test default / OC_CLAUDE_CRED_CHECK=0). The reason
+	// carries the value-free SET/unset summary ONLY (see claudecreds.go).
+	if d.ClaudeCreds != nil {
+		if st := d.ClaudeCreds(); !st.Present {
+			return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
+				"claude_not_logged_in: no claude credential found on this host (%s) — "+
+					"run `claude` once as this user and complete login, then retry "+
+					"(set OC_CLAUDE_CRED_CHECK=0 to bypass this gate)", st.Summary)}
+		}
 	}
 	// idempotent clobber-guard: REFUSE to stomp a live session. This is a LOCAL
 	// "don't kill a running agent" safety, NOT the server's over-spawn guard

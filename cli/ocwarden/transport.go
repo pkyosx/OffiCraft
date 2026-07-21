@@ -45,6 +45,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -501,6 +502,22 @@ func resolveOcAgentBin(executable func() (string, error), exists func(string) bo
 	return filepath.Join(repoRoot, "cli", "ocagent", "ocagent")
 }
 
+// buildClaudeCredProbe wires the spawn-time claude-login gate (T-ba62), or nil
+// when the owner disabled it with OC_CLAUDE_CRED_CHECK=0. nil is the seam's
+// documented "gate off" value, so a disabled gate restores the exact prior
+// behaviour rather than silently passing a fabricated "present" verdict.
+func buildClaudeCredProbe(env func(string) string, runner CmdRunner) func() claudeCredStatus {
+	if strings.TrimSpace(env("OC_CLAUDE_CRED_CHECK")) == "0" {
+		return nil
+	}
+	return func() claudeCredStatus {
+		return probeClaudeCreds(env, func(p string) bool {
+			_, err := os.Stat(p) // STAT ONLY — the credentials file is never opened
+			return err == nil
+		}, runner, runtime.GOOS)
+	}
+}
+
 func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner) CommandDeps {
 	// Real spawn mechanism, fully wired (only reached with the gate ON — a PoC
 	// default-OFF build never constructs a live connection, so start() never runs).
@@ -535,6 +552,13 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner) Com
 			fmt.Fprintf(os.Stderr, "[ocwarden spawn] "+format+"\n", a...)
 		},
 		ClaudeBin: claudeBin,
+		// T-ba62: the spawn-time claude-login gate. Existence-only by
+		// construction (claudecreds.go) — stat, keychain METADATA, env != "".
+		// OC_CLAUDE_CRED_CHECK=0 is the documented escape hatch: this gate is
+		// fail-closed over a HEURISTIC set of credential sources, and a false
+		// negative would take a whole fleet offline at its next respawn, so the
+		// operator keeps a way out that does not require a code change.
+		ClaudeCreds: buildClaudeCredProbe(env, runner),
 		// RepoRoot is the in-tree dev fallback base for the ocagent shim. OcAgentBin is
 		// the resolved exec target: a home-installed warden finds ocagent as its OWN
 		// SIBLING ($HOME/.officraft/warden/ocagent) with no env/plist injection; a dev

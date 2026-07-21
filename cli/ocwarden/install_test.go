@@ -1084,24 +1084,41 @@ func TestRunInstall_StampsClaudeIntoWrittenPlist(t *testing.T) {
 	}
 }
 
-func TestRunInstall_MissingClaudeWarnsWithGuidance(t *testing.T) {
+// T-ba62: an unresolvable claude is FAIL-CLOSED, not a warning. Asserts the
+// REASON (not merely the non-nil error): "wrongly failed" and "correctly
+// refused" share an exit code, so the refusal must be identified by its text.
+// A REAL (non-dry-run) install is used so the "no residue" half is meaningful.
+func TestRunInstall_MissingClaudeFailsClosedWithReason(t *testing.T) {
 	f := newFakeSys()
+	f.runFn = stableLaunchctl()
+	p := fixedPaths()
+	f.existing[p.srcExe] = []byte("OCWARDEN-BYTES")
+	p.ocAgentSrc = "/src/ocagent"
+	f.existing[p.ocAgentSrc] = []byte("OCAGENT-BYTES")
 	var sb strings.Builder
 	i := &installer{
-		out: &sb, dryRun: true, sys: f.ops(),
+		out: &sb, sys: f.ops(),
 		resolveClaude: func() (string, string) { return "", "" },
 	}
-	if err := i.runInstall(fixedPaths()); err != nil {
-		t.Fatalf("dry-run install: %v", err)
+	err := i.runInstall(p)
+	if err == nil {
+		t.Fatalf("missing claude must FAIL the install; got nil error\n%s", sb.String())
+	}
+	if !strings.Contains(err.Error(), "claude_bin_unresolved") {
+		t.Errorf("refusal must name its reason (claude_bin_unresolved); got %q", err)
 	}
 	out := sb.String()
-	for _, want := range []string{"claude_bin_unresolved", "OC_CLAUDE_BIN", "WARNING"} {
+	for _, want := range []string{"claude_bin_unresolved", "OC_CLAUDE_BIN", "FATAL", "NOTHING was installed"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("missing-claude install output must contain %q:\n%s", want, out)
+			t.Errorf("fail-closed install output must contain %q:\n%s", want, out)
 		}
 	}
-	// The warning must be guidance, not a failure: install completed (dry-run).
+	// NO RESIDUE: the refusal happens before every mutation — no plist, no
+	// tokfile, no binary copy, and no launchctl call.
 	if len(f.writes) != 0 {
-		t.Errorf("dry-run must still mutate nothing: %v", f.writes)
+		t.Errorf("fail-closed install must mutate nothing; wrote: %v", f.writes)
+	}
+	if len(f.runs) != 0 {
+		t.Errorf("fail-closed install must run no launchctl; ran: %v", f.runs)
 	}
 }

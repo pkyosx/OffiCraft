@@ -849,8 +849,22 @@ func (i *installer) runInstall(p wardenPaths) error {
 		p.claudeBin, p.plistPATH = i.resolveClaude()
 		switch {
 		case p.claudeBin == "":
-			i.logf("WARNING: claude CLI not found — the warden will refuse every spawn (claude_bin_unresolved).")
-			i.logf("WARNING: fix: install claude (e.g. `npm install -g @anthropic-ai/claude-code`), or export OC_CLAUDE_BIN=/absolute/path/to/claude, then re-run `ocwarden install` (safe — idempotent).")
+			// FAIL-CLOSED (T-ba62). This used to be a WARNING with exit 0, which
+			// is the worst possible shape: `bootstrap-here` reported ok=true, the
+			// cockpit threw the log away on the success branch, the machine row
+			// flipped online — and then EVERY spawn returned claude_bin_unresolved
+			// with zero owner-visible signal. A warden that cannot resolve claude
+			// cannot do the one job a warden has, so refuse to install one and say
+			// exactly why. There is deliberately NO override env: an operator who
+			// really wants a claude-less host can install once claude exists (the
+			// install is idempotent).
+			i.errf("claude CLI not found — REFUSING to install a warden that would " +
+				"refuse every spawn (claude_bin_unresolved). NOTHING was installed.")
+			i.errf("fix: install claude (e.g. `npm install -g @anthropic-ai/claude-code`), " +
+				"or export OC_CLAUDE_BIN=/absolute/path/to/claude, then re-run " +
+				"`ocwarden install` (safe — idempotent).")
+			return errors.New("claude_bin_unresolved: no claude CLI on this host " +
+				"(set OC_CLAUDE_BIN or install claude) — warden NOT installed")
 		case p.plistPATH != "":
 			i.logf("claude:   %s (stamped OC_CLAUDE_BIN + installer PATH into the plist — shim needs it)", p.claudeBin)
 		default:

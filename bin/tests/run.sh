@@ -447,6 +447,24 @@ else
   bad "bin/tests/port-default.sh is missing"
 fi
 
+# ── install.sh serve-plist claude stamp (T-ba62) ────────────────────────────
+# Own file, own tempdir, same PATH-shim discipline. The stamp is what carries
+# PATH/OC_CLAUDE_BIN from the operator's interactive shell into the serve plist,
+# and from there (via bootstrap-here's env passthrough) into `ocwarden install`.
+# Losing it means every one-click host installs a warden that cannot resolve
+# claude — the silent failure this ticket closed.
+CLAUDESTAMP="$HERE/install-claude-stamp.sh"
+echo
+if [[ -f "$CLAUDESTAMP" ]]; then
+  if bash "$CLAUDESTAMP"; then
+    ok "install.sh serve-plist claude stamp suite passed"
+  else
+    bad "install.sh serve-plist claude stamp suite FAILED (see output above)"
+  fi
+else
+  bad "bin/tests/install-claude-stamp.sh is missing"
+fi
+
 echo "bin tests (incl. install guard): $PASS ok, $FAIL failed"
 [[ "$FAIL" == "0" ]] || exit 1
 exit 0

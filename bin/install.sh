@@ -651,6 +651,64 @@ fi
 # Identity and the same-label ownership gate were resolved above the port gate.
 mkdir -p "$LA_DIR" "$LOG_DIR"
 
+# ── claude resolution for the fleet spawn chain (T-ba62) ─────────────────────
+# WHY THIS EXISTS HERE. This installer is the ONE link of the release launchd
+# chain that runs in the operator's interactive shell, with a rich PATH that
+# includes version-manager shims (asdf/nvm/volta). Everything downstream does
+# not: the serve daemon runs under launchd's minimal env, and the cockpit's
+# 「安裝」 (POST /api/machines/{id}/bootstrap-here) hands THAT env straight to
+# `ocwarden install`. So a plist without PATH/OC_CLAUDE_BIN guaranteed that on
+# every one-click install, the warden could not resolve claude — and (before
+# T-ba62's fail-closed change) installed anyway, went online, and refused every
+# spawn with zero owner-visible signal. bin/ocserver install has carried this
+# stamp for the source path all along; the release path was simply missing it,
+# which is why the ONE-CLICK path was the more broken of the two.
+#
+# This mirrors bin/ocserver's block deliberately (same resolution order, same
+# XML hygiene, same two-probe shim detection) — keep them in step.
+COMMON_PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+CLAUDE_BIN="${OC_CLAUDE_BIN:-}"
+if [[ -z "$CLAUDE_BIN" ]]; then
+  CLAUDE_BIN="$(command -v claude 2>/dev/null || true)"
+fi
+if [[ -z "$CLAUDE_BIN" ]]; then
+  for cand in "$HOME/.local/bin/claude" /opt/homebrew/bin/claude /usr/local/bin/claude; do
+    [[ -x "$cand" ]] && { CLAUDE_BIN="$cand"; break; }
+  done
+fi
+SERVE_PATH="$COMMON_PATH"
+if [[ -n "$CLAUDE_BIN" ]]; then
+  if [[ "$CLAUDE_BIN" != /* || "$CLAUDE_BIN" == *[\ \	\"\'\<\>\&]* ]]; then
+    echo "[install] WARN: resolved claude path '$CLAUDE_BIN' is not stampable (must be absolute, no whitespace/XML-special chars) — not stamping OC_CLAUDE_BIN" >&2
+    CLAUDE_BIN=""
+  elif env -i PATH="$COMMON_PATH" HOME="$HOME" "$CLAUDE_BIN" --version >/dev/null 2>&1; then
+    echo "[install] claude resolved: $CLAUDE_BIN (runs under the minimal launchd PATH; stamping OC_CLAUDE_BIN)"
+  elif env -i PATH="$PATH" HOME="$HOME" "$CLAUDE_BIN" --version >/dev/null 2>&1; then
+    if [[ "$PATH" == *[\"\'\<\>\&]* ]]; then
+      echo "[install] WARN: installer PATH contains XML-special chars — cannot stamp it into the serve plist; stamping OC_CLAUDE_BIN only (the shim may fail under the minimal PATH)" >&2
+    else
+      SERVE_PATH="$PATH"
+      echo "[install] claude resolved: $CLAUDE_BIN (version-manager shim — stamping OC_CLAUDE_BIN AND the full installer PATH)"
+    fi
+  else
+    echo "[install] WARN: claude at $CLAUDE_BIN failed --version under both the minimal and the installer PATH — stamping OC_CLAUDE_BIN best-effort" >&2
+  fi
+fi
+claude_entry=""
+if [[ -n "$CLAUDE_BIN" ]]; then
+  claude_entry="    <key>OC_CLAUDE_BIN</key><string>$CLAUDE_BIN</string>
+"
+else
+  # LOUD, and specific about the consequence: with T-ba62's fail-closed
+  # `ocwarden install`, the cockpit's 「安裝」 on this host will now REFUSE
+  # (visibly) instead of installing a warden that silently refuses every spawn.
+  echo "[install] WARNING: claude CLI not found on this machine." >&2
+  echo "[install]          The server installs fine, but installing THIS machine's warden from the" >&2
+  echo "[install]          cockpit will REFUSE (claude_bin_unresolved) until claude is available." >&2
+  echo "[install]          Fix: install claude (npm install -g @anthropic-ai/claude-code), or re-run" >&2
+  echo "[install]          this installer with OC_CLAUDE_BIN=/absolute/path/to/claude (idempotent)." >&2
+fi
+
 # OC_CONFIG is emitted ONLY when a config file actually backed the port probe —
 # pointing the daemon at a nonexistent path would be worse than the default.
 cfg_entry=""
@@ -677,8 +735,9 @@ if ! cat 2>/dev/null > "$PLIST.new" <<PLIST_EOF
   </array>
   <key>EnvironmentVariables</key>
   <dict>
+    <key>PATH</key><string>$SERVE_PATH</string>
     <key>HOME</key><string>$HOME</string>
-$cfg_entry    <key>OC_NO_OPEN_BROWSER</key><string>1</string>
+$claude_entry$cfg_entry    <key>OC_NO_OPEN_BROWSER</key><string>1</string>
   </dict>
   <key>WorkingDirectory</key><string>$ROOT_DIR</string>
   <key>RunAtLoad</key><true/>
