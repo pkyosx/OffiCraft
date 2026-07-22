@@ -24,7 +24,12 @@
 // (max-width: 720px) paddings in chrome.css (`.nav-tabs` 12px → 22px and
 // `.nav-tab` `0 8px` → `0 12px`) → "the 使用說明 label must be legible at 390"
 // goes red on visibleLabel, and no other guard moves.
-import { test, expect, type Locator } from "@playwright/experimental-ct-react";
+// `Locator` comes from @playwright/test, NOT from the ct-react entry point:
+// ct-react's index.d.ts only IMPORTS that type (to declare MountResult) and
+// never re-exports it, so taking it from there is a TS2459. Nothing here
+// catches that today — see the note at the foot of this file.
+import { test, expect } from "@playwright/experimental-ct-react";
+import type { Locator } from "@playwright/test";
 import { NavTabsNarrowStory } from "./stories/NavTabsNarrowStory";
 
 /** Geometry of the LAST nav tab (使用說明) relative to the scroll viewport. */
@@ -90,3 +95,22 @@ for (const width of [320, 390, 414]) {
     }
   });
 }
+
+// 🔴 NOTHING TYPECHECKS THIS DIRECTORY. `frontend/tsconfig.json` is
+// `"include": ["src"]`, and CI's typecheck step is `npm run typecheck` →
+// `tsc --noEmit` against that same config (bin/ci.sh:349), so no .ct.spec.tsx
+// or story under visual-guards/ is ever type-checked by anything. This file
+// shipped with a real TS2459 on its `Locator` import and CI stayed green: a
+// type-only import is erased before runtime, so Playwright ran all 95 guards
+// regardless. The check was never bypassed — it simply does not reach here.
+//
+// What the next person has to do, and what to expect: adding "visual-guards"
+// to that `include` is the fix, but it is NOT a free one-line change — with the
+// directory included, tsc reports 11 further errors across 4 other files
+// (software-update-status.ct.spec.tsx, and the OfficeSidebar / TaskArtifacts-
+// Overflow / TaskCardArtifacts stories), all pre-existing and none of them
+// this pack's. Measured, not estimated: a tsconfig with `["src",
+// "visual-guards"]` was run against this tree. So the work is "fix 11 errors,
+// then widen the include", which is why it was left out of a fourth-round
+// doc-truth pack rather than tacked on. No ticket is tracking this; this
+// comment is the only record.

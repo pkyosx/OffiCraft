@@ -14,8 +14,15 @@
 #                        containing ocserverd (+ SPA/seeds/bindist embedded),
 #                        ocwarden, ocagent, install.sh, README.md, LICENSE.
 #                        install.sh is ALSO staged as dist/release/install.sh —
-#                        published as its own release asset so the README
-#                        one-liner works:
+#                        published as its own release asset so the documented
+#                        install one-liner works (docs/guide/install.md:33; the
+#                        same command bin/install.sh's own header describes as
+#                        its standalone mode). It used to be called "the README
+#                        one-liner"; the repo README that carried it was pulled
+#                        from the product guide in T-68f1 and deleted, and the
+#                        README this script GENERATES below never had it — it
+#                        tells the reader to run ./install.sh from the unpacked
+#                        tarball:
 #                          curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash
 #                        (standalone mode: it downloads the tarball, verifies
 #                        sha256 against checksums.txt, then delegates to the
