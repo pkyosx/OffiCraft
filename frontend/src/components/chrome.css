@@ -190,7 +190,7 @@
   .profile-pill__name {
     display: none;
   }
-  /* Narrow screens can't fit all four tabs at full width; let the segmented
+  /* Narrow screens can't fit all five tabs at full width; let the segmented
      control scroll horizontally instead of compressing each tab (which forced
      CJK labels to wrap character-by-character into a vertical stack under the
      count badge). */

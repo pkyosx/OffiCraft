@@ -1,4 +1,4 @@
-// Mock adapter parity for the product guide (設定 › 使用說明): listDocs returns
+// Mock adapter parity for the product guide (the 使用說明 nav tab): listDocs returns
 // slug+title rows, getDoc returns one doc's markdown, and an unknown slug 404s
 // (the same envelope the real GET /api/docs/{slug} throws). The authoritative
 // content is server-side (the docs/guide embed); the mock pins the shape

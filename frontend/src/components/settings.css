@@ -531,8 +531,13 @@
   text-decoration: underline;
 }
 /* T-68f1 — IN-APP doc link (Markdown's `resolveDocLink`). It is a <button>, not
- * an <a href>: the 使用說明 page has no hash route, so the destination is a
- * setView ACTION, not a URL — and having no href means there is no navigation
+ * an <a href>: the link's markdown target is a repo-RELATIVE path
+ * (`interface.md`, `../dev/agent-env.md`), NOT a URL, and only the host
+ * surface's resolver can say whether it maps onto a shipped slug — it may
+ * DECLINE, in which case the reference stays literal text. The 使用說明 page
+ * DOES have a hash route (`#guide/<slug>`, since it became a top-level tab),
+ * but that URL is built by the resolver inside onClick; it is never taken from
+ * the link target — and having no href means there is no navigation
  * target for an open redirect to aim at. It must READ as the link it replaces,
  * so it borrows `.doc-md a`'s colour/underline and drops every button default. */
 .doc-md .md-doclink {

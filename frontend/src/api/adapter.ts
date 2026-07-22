@@ -502,14 +502,14 @@ export interface TaskManualView {
   updatedTs: number;
 }
 
-/** One product-guide doc row (設定 › 使用說明 landing): the addressable slug +
+/** One product-guide doc row (使用說明 tab landing): the addressable slug +
  * its display title. The full body is fetched per-slug via getDoc. */
 export interface DocSummaryView {
   slug: string;
   title: string;
 }
 
-/** One product-guide doc in full: the markdown the 使用說明 sub-page renders
+/** One product-guide doc in full: the markdown the 使用說明 doc page renders
  * (relative image paths already rewritten to the served /api/docs/assets/
  * endpoint by the server). */
 export interface DocView {
@@ -1152,12 +1152,12 @@ export interface Api {
    * (non-terminal) tasks of the type → 409 (throws — the UI surfaces the
    * human-readable 先讓任務結束 message); unknown → 404. */
   deleteTaskManual(typeKey: string): Promise<void>;
-  // ── Product guide (設定 › 使用說明) ────────────────────────────────────────
+  // ── Product guide (the 使用說明 nav tab) ──────────────────────────────────
   /** List the product-guide docs (`GET /api/docs`) — the 使用說明 landing
    * (slug + title cards). The same embed Mira reads via get_doc. */
   listDocs(): Promise<DocSummaryView[]>;
   /** Read ONE product-guide doc in full (`GET /api/docs/{slug}`) — the markdown
-   * the 使用說明 sub-page renders. Unknown slug → 404 (throws). */
+   * the 使用說明 doc page renders. Unknown slug → 404 (throws). */
   getDoc(slug: string): Promise<DocView>;
 
   /** Monitoring telemetry (three sections). Honest null/empty where no source. */

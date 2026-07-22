@@ -1,4 +1,4 @@
-// hooks/useDocs.ts — 設定 › 使用說明 (product guide): the embedded doc list.
+// hooks/useDocs.ts — the 使用說明 nav tab (product guide): the embedded doc list.
 // The docs are baked into the binary (server docsdist embed), so there is no
 // SSE topic and no mutation — a one-shot fetch of the slug+title index. Per-doc
 // content is fetched on selection by the page (api.getDoc), the same read Mira

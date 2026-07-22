@@ -5,6 +5,12 @@
 // The trailing segment is the CURRENT page — rendered as plain text with
 // aria-current, never a dead button. Jumps are the caller's: pages wire each
 // segment's onClick to their navigation (hash writes ride lib/hashRoute.ts).
+//
+// T-68f1: no longer settings-only — the 使用說明 tab reuses it with its own
+// root crumb (使用說明 › <doc>), and it is NOT under 設定. The `aria-label`
+// below is still hardcoded to t.settings.title, so on that tab the landmark
+// announces the wrong name; making it a prop is a known follow-up, not done
+// here (this pack is doc/comment truth only).
 import { useI18n } from "../i18n";
 
 export interface Crumb {
