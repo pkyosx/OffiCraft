@@ -1,7 +1,8 @@
 // CT story for the 使用說明 doc page's IN-APP links (T-68f1). It mounts the
 // REAL UserGuideDoc against the REAL mock adapter (api/index defaults to
 // mockApi) and the REAL settings.css, and owns the one thing the page's parent
-// owns in production: the current slug. So a click on a rendered doc link
+// (GuidePage, a top-level nav tab since 2026-07-22) owns in production: the
+// current slug. So a click on a rendered doc link
 // exercises the whole chain — Markdown's resolveDocLink branch → the page's
 // slug mapping + existence check → onOpenDoc → a new api.getDoc — in a real
 // browser, which is where "is it actually clickable / does it look like a
@@ -26,7 +27,7 @@ export function GuideDocLinksStory({ start = "why" }: { start?: string }) {
         <UserGuideDoc
           slug={slug}
           docs={DOCS}
-          crumbs={[{ label: "設定" }, { label: "使用說明" }]}
+          crumbs={[{ label: "使用說明" }]}
           onOpenDoc={setSlug}
         />
       </div>

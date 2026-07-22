@@ -29,6 +29,8 @@ vi.mock("./components/OfficePage", () => ({ OfficePage: () => null }));
 vi.mock("./components/RepliesPage", () => ({ RepliesPage: () => null }));
 vi.mock("./components/TasksPage", () => ({ TasksPage: () => null }));
 vi.mock("./components/MonitorPage", () => ({ MonitorPage: () => null }));
+// 使用說明 is a nav tab now (owner 2026-07-22) — stub it like its siblings.
+vi.mock("./components/UserGuidePage", () => ({ GuidePage: () => null }));
 vi.mock("./components/SettingsPage", () => ({ SettingsPage: () => null }));
 
 import App from "./App";

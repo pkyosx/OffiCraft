@@ -25,6 +25,8 @@
  *                                                   member's unfinished tasks
  *   #monitor                                      → monitor page
  *   #monitor/member/<detailId>                    → monitor's member detail
+ *   #guide                                        → 使用說明 (product guide) list
+ *   #guide/<docSlug>                              → that guide doc
  *   #settings                                     → settings overlay
  *   #settings/roles                               → settings, opened on the
  *                                                   角色誌 (roles) list (deep-link)
@@ -43,7 +45,7 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 
 export interface HashRoute {
-  page: "office" | "replies" | "tasks" | "monitor" | "settings";
+  page: "office" | "replies" | "tasks" | "monitor" | "guide" | "settings";
   /** office only — the member whose chat is open. */
   chatId?: string;
   /** office only, requires chatId — the message the chat locates + highlights
@@ -89,6 +91,14 @@ export interface HashRoute {
    * literally keyed "new" cannot be deep-linked (owner-minted keys never
    * are). A stale/unknown key self-heals to the roles list (SettingsPage). */
   roleKey?: string;
+  /** guide only — the doc being read (#guide/<slug>). Absent → the doc LIST.
+   * The guide is a top-level tab (owner: "user guide 改放在 tab 中,監控的右邊"),
+   * so unlike its previous life as a settings sub-page it needs a route of its
+   * own: without one a refresh, or the top-bar reload button, would drop the
+   * reader back to the list, and no doc would be linkable. An unknown slug
+   * self-heals to the list on the consuming page (the doc index is the
+   * existence check). */
+  guideSlug?: string;
   /** office / monitor — the member whose detail panel is open. */
   detailId?: string;
   /** office only — the outsource worker whose detail panel is open (mutually
@@ -144,6 +154,10 @@ export function parseHash(raw: string): HashRoute {
         : { page: "tasks" };
     }
     return rest[0] ? { page: "tasks", taskId: rest[0] } : { page: "tasks" };
+  }
+
+  if (head === "guide") {
+    return rest[0] ? { page: "guide", guideSlug: rest[0] } : { page: "guide" };
   }
 
   if (head === "monitor") {
@@ -203,6 +217,11 @@ export function formatHash(route: HashRoute): string {
     return route.taskId
       ? `#tasks/${encodeURIComponent(route.taskId)}`
       : "#tasks";
+  }
+  if (route.page === "guide") {
+    return route.guideSlug
+      ? `#guide/${encodeURIComponent(route.guideSlug)}`
+      : "#guide";
   }
   if (route.page === "monitor") {
     return route.detailId

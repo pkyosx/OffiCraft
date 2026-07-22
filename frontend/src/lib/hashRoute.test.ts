@@ -11,6 +11,7 @@ describe("parseHash", () => {
     expect(parseHash("#office")).toEqual({ page: "office" });
     expect(parseHash("#replies")).toEqual({ page: "replies" });
     expect(parseHash("#monitor")).toEqual({ page: "monitor" });
+    expect(parseHash("#guide")).toEqual({ page: "guide" });
     expect(parseHash("#settings")).toEqual({ page: "settings" });
   });
 
@@ -96,6 +97,15 @@ describe("parseHash", () => {
     });
   });
 
+  // 使用說明 is a top-level tab whose open doc lives in the URL, so a reader's
+  // place survives a reload and any doc is linkable.
+  it("restores the open guide doc", () => {
+    expect(parseHash("#guide/interface")).toEqual({
+      page: "guide",
+      guideSlug: "interface",
+    });
+  });
+
   it("restores the monitor member detail", () => {
     expect(parseHash("#monitor/member/mira")).toEqual({
       page: "monitor",
@@ -140,6 +150,7 @@ describe("parseHash", () => {
     expect(parseHash("#nope")).toEqual({ page: "office" });
     expect(parseHash("#office/chat")).toEqual({ page: "office" });
     expect(parseHash("#monitor/member")).toEqual({ page: "monitor" });
+    expect(parseHash("#guide/")).toEqual({ page: "guide" });
   });
 });
 
@@ -148,6 +159,7 @@ describe("formatHash", () => {
     expect(formatHash({ page: "office" })).toBe("");
     expect(formatHash({ page: "replies" })).toBe("#replies");
     expect(formatHash({ page: "monitor" })).toBe("#monitor");
+    expect(formatHash({ page: "guide" })).toBe("#guide");
     expect(formatHash({ page: "settings" })).toBe("#settings");
     expect(formatHash({ page: "office", chatId: "mira" })).toBe(
       "#office/chat/mira"
@@ -238,6 +250,8 @@ describe("formatHash", () => {
       { page: "tasks" as const, executorId: "mira" },
       { page: "monitor" as const },
       { page: "monitor" as const, detailId: "mira" },
+      { page: "guide" as const },
+      { page: "guide" as const, guideSlug: "interface" },
       { page: "settings" as const },
       { page: "settings" as const, manualKey: "review-pr" },
       {

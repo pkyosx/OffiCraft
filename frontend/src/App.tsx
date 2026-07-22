@@ -11,11 +11,13 @@ import {
   InboxIcon,
   TasksIcon,
   MonitorIcon,
+  FileTextIcon,
 } from "./components/icons";
 import { OfficePage } from "./components/OfficePage";
 import { RepliesPage } from "./components/RepliesPage";
 import { TasksPage } from "./components/TasksPage";
 import { MonitorPage } from "./components/MonitorPage";
+import { GuidePage } from "./components/UserGuidePage";
 import { SettingsPage } from "./components/SettingsPage";
 import { ProfileDropdown } from "./components/ProfileDropdown";
 import { OnboardingBanner } from "./components/OnboardingBanner";
@@ -27,7 +29,7 @@ import { useChatUnread } from "./hooks/useChatUnread";
 import { useTaskCount } from "./hooks/useTaskCount";
 import "./components/chrome.css";
 
-type Tab = "office" | "replies" | "tasks" | "monitor";
+type Tab = "office" | "replies" | "tasks" | "monitor" | "guide";
 
 export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   const { t } = useI18n();
@@ -52,11 +54,13 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   const tab: Tab =
     route.page === "monitor"
       ? "monitor"
-      : route.page === "replies"
-        ? "replies"
-        : route.page === "tasks"
-          ? "tasks"
-          : "office";
+      : route.page === "guide"
+        ? "guide"
+        : route.page === "replies"
+          ? "replies"
+          : route.page === "tasks"
+            ? "tasks"
+            : "office";
   // The 等我回覆 nav badge: how many reply cards are WAITING (answered never
   // counts). Live via the count endpoint + "reply_card" SSE deltas. A separate
   // signal from the per-member chat unread red dot (different clearing rules —
@@ -234,6 +238,22 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
             <MonitorIcon size={15} />
             <span>{t.nav.monitor}</span>
           </button>
+          {/* 使用說明 — LAST tab, immediately right of 監控 (owner 2026-07-22:
+              「user guide 改放在 tab 中,監控的右邊,不要放在 settings 裡」).
+              It used to be a settings sub-page; a first-run owner had to open
+              the gear to find out how the product works, which is the wrong
+              place for the one page that explains the product. No badge: the
+              docs are baked into the binary, so there is no count to show. */}
+          <button
+            type="button"
+            className={`nav-tab${
+              !settingsOpen && tab === "guide" ? " nav-tab--active" : ""
+            }`}
+            onClick={() => selectTab("guide")}
+          >
+            <FileTextIcon size={15} />
+            <span>{t.nav.guide}</span>
+          </button>
         </div>
       </nav>
 
@@ -258,6 +278,8 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           <RepliesPage />
         ) : tab === "tasks" ? (
           <TasksPage />
+        ) : tab === "guide" ? (
+          <GuidePage />
         ) : (
           <MonitorPage />
         )}

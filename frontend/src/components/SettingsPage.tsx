@@ -14,7 +14,6 @@ import { useGlobalContext } from "../hooks/useGlobalContext";
 import { useRoles } from "../hooks/useRoles";
 import { useServerSettings } from "../hooks/useServerSettings";
 import { useTaskManuals } from "../hooks/useTaskManuals";
-import { useDocs } from "../hooks/useDocs";
 import { useMembers } from "../hooks/useMembers";
 import {
   TaskManualsList,
@@ -22,7 +21,6 @@ import {
   TaskManualDefinitionPage,
   TaskManualLearningsPage,
 } from "./TaskManualsPage";
-import { UserGuideList, UserGuideDoc } from "./UserGuidePage";
 import type { TaskManualPatch } from "../api/adapter";
 import {
   SEED_BOOT_SEQUENCE_MD,
@@ -70,9 +68,7 @@ type View =
   // (任務定義/學習經驗) PUSH their own sub-page (owner 2026-07-20).
   | { kind: "manual"; key: string }
   | { kind: "manualDef"; key: string }
-  | { kind: "manualLearnings"; key: string }
-  | { kind: "guide" }
-  | { kind: "guideDoc"; slug: string };
+  | { kind: "manualLearnings"; key: string };
 
 export function SettingsPage({
   initialManualKey,
@@ -132,9 +128,6 @@ export function SettingsPage({
   // 任務手冊 (SPEC §5) — lifted like the others so list ⇄ detail stay coherent;
   // the roster feeds the manual detail's 負責成員 member picker.
   const manualsH = useTaskManuals();
-  // 使用說明 (product guide) — the embedded docs/guide list; per-doc content is
-  // fetched on open inside UserGuideDoc (the same read Mira makes via get_doc).
-  const docsH = useDocs();
   const { members } = useMembers();
 
   // ── unified breadcrumb navigation (T-8f6e) ──
@@ -317,32 +310,6 @@ export function SettingsPage({
     );
   }
 
-  if (view.kind === "guide") {
-    return (
-      <UserGuideList
-        docs={docsH.docs}
-        loading={docsH.loading}
-        error={docsH.error}
-        crumbs={[crumbRoot, { label: t.settings.guide }]}
-        onOpen={(slug) => setView({ kind: "guideDoc", slug })}
-      />
-    );
-  }
-
-  if (view.kind === "guideDoc") {
-    return (
-      <UserGuideDoc
-        slug={view.slug}
-        docs={docsH.docs}
-        crumbs={[
-          crumbRoot,
-          { label: t.settings.guide, onClick: () => setView({ kind: "guide" }) },
-        ]}
-        onOpenDoc={(slug) => setView({ kind: "guideDoc", slug })}
-      />
-    );
-  }
-
   if (view.kind === "system") {
     // 系統互動 — the read-only FIRST block of every agent's boot context. The
     // backend has NO write endpoint for it BY CONSTRUCTION (enforcement by
@@ -498,20 +465,9 @@ export function SettingsPage({
           <span className="set-entry__name">{t.settings.params}</span>
           <ChevronRightIcon size={18} className="set-entry__chev" />
         </button>
-        {/* 使用說明 (product guide) — placed BELOW 參數調整 (owner 截圖紅框):
-         * the embedded feature docs, the human-facing twin of Mira's get_doc. */}
-        <button
-          type="button"
-          className="set-entry"
-          data-testid="settings-guide-entry"
-          onClick={() => setView({ kind: "guide" })}
-        >
-          <span className="set-entry__icon set-entry__icon--blue">
-            <FileTextIcon size={18} />
-          </span>
-          <span className="set-entry__name">{t.settings.guide}</span>
-          <ChevronRightIcon size={18} className="set-entry__chev" />
-        </button>
+        {/* 使用說明 is NOT here any more — it is a top-level nav tab, to the
+         * right of 監控 (owner 2026-07-22:「user guide 改放在 tab 中,監控的
+         * 右邊,不要放在 settings 裡」). See components/UserGuidePage.tsx. */}
       </div>
     </div>
   );

@@ -1,8 +1,14 @@
-// components/UserGuidePage.tsx — 設定 › 使用說明 (product guide): the embedded
+// components/UserGuidePage.tsx — 使用說明 (product guide): the embedded
 // docs/guide/ content, read the same way Mira reads it (get_doc). The LIST picks
 // a doc; the DOC view renders its markdown via the shared XSS-safe Markdown
 // component, with relative image refs (already rewritten server-side to
 // /api/docs/assets/…) loaded through the gated ?token= auth a bare <img> needs.
+//
+// It is a TOP-LEVEL nav tab, to the right of 監控 (owner: 「user guide 改放在
+// tab 中,監控的右邊,不要放在 settings 裡」). It used to be a settings
+// sub-page, which is why the layout still borrows the `.settings` shell
+// classes — the visual container is the same full-width document surface;
+// only its place in the navigation changed.
 //
 // T-68f1: the doc text also carries repo-relative links between docs
 // (`[介面說明](interface.md)`). This is the ONE surface that opts in to
@@ -14,6 +20,8 @@ import { useI18n } from "../i18n";
 import type { DocSummaryView } from "../api/adapter";
 import { api } from "../api";
 import { authedAttachmentUrl } from "../api/http";
+import { useDocs } from "../hooks/useDocs";
+import { navigateHash, useHashRoute } from "../lib/hashRoute";
 import { Markdown } from "./Markdown";
 import { Breadcrumbs, type Crumb } from "./Breadcrumbs";
 import { ChevronRightIcon } from "./icons";
@@ -35,11 +43,11 @@ export function UserGuideList({
   return (
     <div className="settings">
       <Breadcrumbs items={crumbs} />
-      <h1 className="settings__title settings__title--doc">{t.settings.guide}</h1>
+      <h1 className="settings__title settings__title--doc">{t.guide.title}</h1>
       {error ? (
-        <p className="settings__error">{t.settings.guideLoadError}</p>
+        <p className="settings__error">{t.guide.loadError}</p>
       ) : loading ? null : docs.length === 0 ? (
-        <p className="settings__empty">{t.settings.guideEmpty}</p>
+        <p className="settings__empty">{t.guide.empty}</p>
       ) : (
         <div className="set-entries">
           {docs.map((d) => (
@@ -93,10 +101,10 @@ export function UserGuideDoc({
   slug: string;
   /** The embedded doc index — the existence check for an in-app link. */
   docs: DocSummaryView[];
-  /** 設定 › 使用說明 › <this doc>. The last crumb's label is filled with the
-   * doc title once it loads (the caller passes the trail up to 使用說明). */
+  /** 使用說明 › <this doc>. The last crumb's label is filled with the doc
+   * title once it loads (the caller passes the trail up to 使用說明). */
   crumbs: Crumb[];
-  /** Navigate to another doc in place (the page has no hash route). */
+  /** Navigate to another doc (the caller writes #guide/<slug>). */
   onOpenDoc: (slug: string) => void;
 }) {
   const { t } = useI18n();
@@ -129,7 +137,7 @@ export function UserGuideDoc({
       <h1 className="settings__title settings__title--doc">{title || slug}</h1>
       <div className="doc-card">
         {error ? (
-          <p className="settings__error">{t.settings.guideLoadError}</p>
+          <p className="settings__error">{t.guide.loadError}</p>
         ) : (
           <Markdown
             source={markdown}
@@ -146,5 +154,44 @@ export function UserGuideDoc({
         )}
       </div>
     </div>
+  );
+}
+
+/** 使用說明 — the whole tab. Owns the doc index and reads the current view off
+ * the hash (`#guide` = list, `#guide/<slug>` = that doc), so the reader's place
+ * survives a refresh and any doc is linkable. As a settings sub-page it kept
+ * that state in a local `useState` and had no route at all; a top-level tab
+ * without one would silently reset to the list on every reload.
+ *
+ * An unknown slug in the hash self-heals: the doc simply reports a load error
+ * and the 使用說明 crumb goes back to the list. */
+export function GuidePage() {
+  const { t } = useI18n();
+  const [route] = useHashRoute();
+  const { docs, loading, error } = useDocs();
+  const slug = route.page === "guide" ? route.guideSlug : undefined;
+
+  const goList = () => navigateHash({ page: "guide" });
+  const openDoc = (next: string) =>
+    navigateHash({ page: "guide", guideSlug: next });
+
+  if (slug) {
+    return (
+      <UserGuideDoc
+        slug={slug}
+        docs={docs}
+        crumbs={[{ label: t.guide.title, onClick: goList }]}
+        onOpenDoc={openDoc}
+      />
+    );
+  }
+  return (
+    <UserGuideList
+      docs={docs}
+      loading={loading}
+      error={error}
+      crumbs={[{ label: t.guide.title }]}
+      onOpen={openDoc}
+    />
   );
 }

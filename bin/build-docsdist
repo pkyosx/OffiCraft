@@ -2,7 +2,7 @@
 # officraft — stage the product-guide docs for the single binary.
 #
 # The docs/guide/ tree (the product feature docs — the single source read by
-# the Settings 使用說明 sub-page AND Mira's get_doc MCP tool) sits outside the
+# the 使用說明 nav tab AND Mira's get_doc MCP tool) sits outside the
 # server module, and go:embed cannot reach outside the
 # module directory, so a doc-carrying ocserverd needs them COPIED into
 # server/ocserverd/docsdist/ (gitignored except .gitkeep) before `go build` —

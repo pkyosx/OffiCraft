@@ -14,8 +14,16 @@ export const xian: Dict = {
     replies: "叩問",
     tasks: "差事",
     monitor: "觀星台",
+    // 使用箋註 — 主導覽最右的分頁(觀星台之右)。分頁標籤取短名。
+    guide: "箋註",
     // 左上 logo = 返回山門(aria-label/title)
     home: "返回山門",
+  },
+  // ── 使用箋註(產品箋註)── 自「設定 › 使用箋註」升為主導覽分頁。
+  guide: {
+    title: "使用箋註",
+    loadError: "調閱使用箋註失敗，請稍後再試",
+    empty: "尚無箋註頁",
   },
   // ── 差事頁(M3 任務卡)──
   tasks: {
@@ -791,9 +799,6 @@ export const xian: Dict = {
     configSaving: "存錄中…",
     configSaved: "已存錄，回查相符",
     configSaveFailed: "未能核實存錄——所顯已還原山門最後所錄，請再試",
-    guide: "使用箋註",
-    guideLoadError: "調閱使用箋註失敗，請稍後再試",
-    guideEmpty: "尚無箋註頁",
     manuals: "差事訣要",
     manualsLoadError: "調閱差事訣要失敗，請稍後再試",
     manualsEmpty: "尚無差事名目 — 自下方立第一個",

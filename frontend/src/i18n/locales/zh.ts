@@ -13,8 +13,19 @@ export const zh = {
     replies: "請示",
     tasks: "任務",
     monitor: "監控",
+    // 使用說明 — 主導覽最右的分頁(owner:「user guide 改放在 tab 中,監控的
+    // 右邊」)。分頁標籤與頁面標題分開兩個 key:標籤要短,標題可以完整。
+    guide: "使用說明",
     // 左上 logo = 回首頁的入口(aria-label/title)
     home: "回首頁",
+  },
+  // ── 使用說明(產品說明書)──
+  // 從「設定 › 使用說明」升為主導覽分頁後,這三個字串不再屬於 settings 命名空間
+  // (owner:「user guide 改放在 tab 中,監控的右邊,不要放在 settings 裡」)。
+  guide: {
+    title: "使用說明",
+    loadError: "載入使用說明失敗，請稍後重試",
+    empty: "還沒有說明頁",
   },
   // ── 任務頁(M3 任務卡)──
   tasks: {
@@ -965,9 +976,6 @@ export const zh = {
     configSaveFailed: "無法確認已存檔——顯示值已還原為伺服器最後確認值，請再試一次",
     // ── 任務手冊（SPEC §5：任務類型／playbook 的定義與維護;與角色誌並列。
     // 不對使用者顯示內部檔名 — 手冊是內容，不是檔案）──
-    guide: "使用說明",
-    guideLoadError: "載入使用說明失敗，請稍後重試",
-    guideEmpty: "還沒有說明頁",
     manuals: "任務手冊",
     manualsLoadError: "載入任務手冊失敗，請稍後重試",
     manualsEmpty: "還沒有任務類型 — 從下方新增第一個",

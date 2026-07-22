@@ -499,7 +499,7 @@ export interface paths {
         };
         /**
          * List the product-guide docs (slug + title).
-         * @description List the product-guide docs (the 座艙 Settings 使用說明 sub-page cards; the assistant's get_doc pre-read index). Each row is a slug + title.
+         * @description List the product-guide docs (the 座艙 使用說明 nav tab's cards; the assistant's get_doc pre-read index). Each row is a slug + title.
          */
         get: operations["handle_list_docs_api_docs_get"];
         put?: never;
