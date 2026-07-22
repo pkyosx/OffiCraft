@@ -15,7 +15,7 @@
 // Markdown's `resolveDocLink`, mapping such a reference onto the SAME slug the
 // server derives, and only when that slug is actually in the embedded list.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import type { DocSummaryView } from "../api/adapter";
 import { api } from "../api";
@@ -30,19 +30,25 @@ export function UserGuideList({
   docs,
   loading,
   error,
-  crumbs,
   onOpen,
 }: {
   docs: DocSummaryView[];
   loading: boolean;
   error: boolean;
-  crumbs: Crumb[];
   onOpen: (slug: string) => void;
 }) {
   const { t } = useI18n();
   return (
     <div className="settings">
-      <Breadcrumbs items={crumbs} />
+      {/* NO breadcrumb here, unlike the settings landing. A one-segment trail
+          is not navigation — it renders as plain text with nothing to click —
+          and on this surface it was the THIRD copy of the word 使用說明 in the
+          top 200px, after the active nav tab and the <h1> directly below it.
+          The settings landing keeps its single 設定 crumb because Settings is
+          an overlay with no tab of its own; this page's tab is always visible
+          and always says the same word. The doc view below DOES keep the
+          trail: there the first segment is a real button and the only way
+          back to this list. */}
       <h1 className="settings__title settings__title--doc">{t.guide.title}</h1>
       {error ? (
         <p className="settings__error">{t.guide.loadError}</p>
@@ -133,10 +139,40 @@ export function UserGuideDoc({
     };
   }, [slug]);
 
+  // Switching docs must land the reader at the TOP of the new one. `.settings`
+  // is the scrolling box (settings.css: `height: 100%` + `min-height: 0` +
+  // `overflow-y: auto`; nothing above it in the shell scrolls — .app and
+  // .app__main are fixed-height flex), and doc→doc keeps that exact DOM node:
+  // GuidePage renders the same <UserGuideDoc> element type either way, so React
+  // reconciles instead of remounting and the old scroll offset survives. Every
+  // in-app link sits in the BODY of a doc, i.e. far down, so without this the
+  // reader always arrived mid-page — no title, no breadcrumb, no signal that
+  // the document had changed at all.
+  //
+  // This fires for browser Back/Forward too, and that is deliberate: those
+  // change the hash, which changes `slug`, which lands the reader at the top of
+  // whatever doc they went back to. Restoring the PREVIOUS offset was the
+  // alternative and was rejected — the body arrives asynchronously (the fetch
+  // below), so a restore would have to wait for the new content to paint and
+  // would visibly jump if it guessed wrong. One rule in every direction beats a
+  // rule that is right half the time. (list⇄doc needs nothing: those are
+  // different component types, so React remounts and the box starts at 0.)
+  const scrollBox = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (scrollBox.current) scrollBox.current.scrollTop = 0;
+  }, [slug]);
+
   return (
-    <div className="settings">
+    <div className="settings" ref={scrollBox}>
+      {/* The trail stays — its first segment is the only route back to the doc
+          list. The page-level <h1> that used to sit here is GONE: the server
+          derives a doc's title from its own first `# ` heading (api_docs.go
+          docTitle), so that heading is rendered directly below by <Markdown>
+          and the two were the same string BY CONSTRUCTION — the title was
+          printed three times (trail, page h1, doc h1) before any prose. A doc
+          with no heading at all falls back to its slug and is still named by
+          the trail's last segment. */}
       <Breadcrumbs items={[...crumbs, { label: title || slug }]} />
-      <h1 className="settings__title settings__title--doc">{title || slug}</h1>
       <div className="doc-card">
         {error ? (
           <p className="settings__error">{t.guide.loadError}</p>
@@ -192,7 +228,6 @@ export function GuidePage() {
       docs={docs}
       loading={loading}
       error={error}
-      crumbs={[{ label: t.guide.title }]}
       onOpen={openDoc}
     />
   );

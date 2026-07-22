@@ -59,10 +59,11 @@ function crumbSegs(utils: Utils): string[] {
 }
 
 /** Wait until the RENDERED DOC BODY is the doc titled `title`.
- * Deliberately keyed on `.doc-md h1` (the markdown's own heading), not on
- * getByRole("heading"): the page ALSO prints the doc title as its page header,
- * so a role query matches two nodes and cannot tell "the body switched" from
- * "the header switched". */
+ * Deliberately keyed on `.doc-md h1` — the markdown's OWN heading, i.e. bytes
+ * that came from the server — rather than on getByRole("heading"). A role query
+ * would also match whatever chrome the page happens to render around the body,
+ * so it could not tell "the body switched" from "the header switched"; keying
+ * on the rendered document proves the new doc's CONTENT arrived. */
 async function waitForDocBody(utils: Utils, title: string) {
   await waitFor(() => {
     expect(utils.container.querySelector(".doc-md h1")?.textContent).toBe(title);
@@ -87,9 +88,20 @@ describe("使用說明 · page header + navigation", () => {
   it("列表: 使用說明 + title; doc: 使用說明 › <title>", async () => {
     const utils = renderGuide();
     const entries = await utils.findAllByTestId("guide-doc-entry");
-    // The trail no longer starts at 設定 — the guide IS a root now.
-    expectHeader(utils, [g.title]);
+    // The LIST carries no trail at all. This assertion used to read
+    // `expectHeader(utils, [g.title])` — a one-segment trail — and what it was
+    // defending was "the guide is no longer under 設定". An EMPTY trail defends
+    // that strictly harder: with no segments there is no parent to be wrong
+    // about. So the target moved, the guarantee did not weaken. (The trail was
+    // dropped because a single terminal segment is plain text with nothing to
+    // click, and it made 使用說明 appear three times above the fold — tab,
+    // crumb, h1.) The 設定 negative is asserted explicitly rather than implied:
+    expectHeader(utils, []);
+    expect(utils.container.querySelector("nav.crumbs")).toBeNull();
+    expect(utils.queryByText("設定")).toBeNull();
+    // The page is still HEADED by 使用說明, and now exactly once.
     expect(utils.getByRole("heading", { name: g.title })).toBeTruthy();
+    expect(utils.getAllByRole("heading", { name: g.title })).toHaveLength(1);
 
     // Open the doc — its markdown renders and its title trails the crumb.
     const entry = entries[0];
@@ -101,7 +113,36 @@ describe("使用說明 · page header + navigation", () => {
     // The 使用說明 crumb jumps back to the list.
     fireEvent.click(utils.getByRole("button", { name: g.title }));
     await utils.findAllByTestId("guide-doc-entry");
-    expectHeader(utils, [g.title]);
+    expectHeader(utils, []);
+  });
+
+  // The doc title used to be printed THREE times before any prose — breadcrumb
+  // tail, page <h1>, and the markdown's own <h1> — which cost half a desktop
+  // screen and two thirds of a 390px one. The page <h1> was the removable copy:
+  // the server derives a doc's title FROM its first `# ` heading (api_docs.go
+  // docTitle), so it was a guaranteed duplicate of the heading rendered right
+  // below it. This pins the count, not the layout: the trail still names the
+  // doc (navigation), the body still opens with its own heading (content).
+  it("a doc names itself ONCE outside the trail, not three times", async () => {
+    const utils = renderGuide();
+    const entries = await utils.findAllByTestId("guide-doc-entry");
+    const docTitle = entries[0].textContent ?? "";
+    fireEvent.click(entries[0]);
+    await waitForDocBody(utils, docTitle);
+
+    // Exactly one heading carries the title, and it is the DOC BODY's own.
+    const headings = utils.getAllByRole("heading", { name: docTitle });
+    expect(headings).toHaveLength(1);
+    expect(headings[0].closest(".doc-md")).not.toBeNull();
+    // The page-level header node is gone entirely (it was the only other
+    // .settings__title--doc on this view).
+    expect(
+      utils.container.querySelectorAll(".settings__title--doc"),
+    ).toHaveLength(0);
+    // Navigation is untouched: the trail still ends on this doc and still
+    // offers 使用說明 as a real button back to the list.
+    expectHeader(utils, [g.title, docTitle]);
+    expect(utils.getByRole("button", { name: g.title })).toBeTruthy();
   });
 
   // NEW with the promotion to a tab. As a settings sub-page the open doc lived
@@ -220,6 +261,77 @@ describe("使用說明 · in-app doc links (T-68f1)", () => {
     await waitForDocBody(utils, "介面說明");
     expect(window.location.hash).toBe("#guide/interface");
 
+  });
+
+  // Every in-app link lives in the BODY of a doc, so the reader is always far
+  // down the page when they click one. The scrolling box (`.settings`) is the
+  // SAME DOM node across doc→doc — GuidePage renders the same component type,
+  // so React reconciles rather than remounting — and the old offset therefore
+  // survived the switch: the reader landed mid-way into the new document, with
+  // no title and no breadcrumb on screen to say anything had changed.
+  //
+  // jsdom has no layout, so this pins the RESET, not real scrolling; the
+  // companion CT guard (visual-guards/guide-doc-scroll.ct.spec.tsx) checks the
+  // same thing in a real browser with real overflow, where "is .settings even
+  // the element that scrolls" is decidable at all.
+  it("switching docs returns the reader to the TOP of the new one", async () => {
+    const utils = renderGuide();
+    await openDoc(utils, "為什麼是 OffiCraft");
+
+    const box = utils.container.querySelector(".settings") as HTMLElement;
+    expect(box, "the doc view must have a .settings scroll box").toBeTruthy();
+
+    // Put the reader deep into the current doc, where the links actually are.
+    box.scrollTop = 1759;
+    expect(box.scrollTop).toBe(1759);
+
+    fireEvent.click(utils.getByRole("button", { name: "介面說明" }));
+    await waitForDocBody(utils, "介面說明");
+
+    // Same node (proving this is the reconcile case, not a remount that would
+    // have reset the offset for free) and back at the top.
+    expect(utils.container.querySelector(".settings")).toBe(box);
+    expect(
+      box.scrollTop,
+      "a new doc must start at its own beginning, not mid-page",
+    ).toBe(0);
+  });
+
+  // Browser BACK gets the same rule, and that is a deliberate choice rather
+  // than an accident of the implementation: Back changes the hash, which
+  // changes `slug`, which fires the same reset. Restoring the offset the reader
+  // left behind was the alternative and was rejected — the doc body arrives
+  // asynchronously, so a restore would have to wait for the new content to
+  // paint and would visibly jump whenever it guessed wrong. One rule in every
+  // direction beats a rule that is right half the time. Pinned so that a future
+  // "let's restore scroll on Back" change is a deliberate decision, not a
+  // silent divergence between forward and backward navigation.
+  it("browser Back lands at the top too, not at the old offset", async () => {
+    const utils = renderGuide();
+    await openDoc(utils, "為什麼是 OffiCraft");
+    expect(window.location.hash).toBe("#guide/why");
+
+    fireEvent.click(utils.getByRole("button", { name: "介面說明" }));
+    await waitForDocBody(utils, "介面說明");
+    expect(window.location.hash).toBe("#guide/interface");
+
+    // The reader scrolls down inside the doc they navigated TO...
+    const box = utils.container.querySelector(".settings") as HTMLElement;
+    box.scrollTop = 1200;
+    expect(box.scrollTop).toBe(1200);
+
+    // ...then presses Back. This is a real history navigation: navigateHash
+    // assigns window.location.hash, which pushes an entry and fires hashchange.
+    history.back();
+    await waitFor(() => {
+      expect(window.location.hash).toBe("#guide/why");
+    });
+    await waitForDocBody(utils, "為什麼是 OffiCraft");
+
+    expect(
+      box.scrollTop,
+      "Back must land at the top of the doc returned to, like every other switch",
+    ).toBe(0);
   });
 
   it("an unshipped target never reaches the URL at all", async () => {
