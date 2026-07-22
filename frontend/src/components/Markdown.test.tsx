@@ -558,6 +558,45 @@ describe("Markdown", () => {
       expect(q.textContent).not.toContain("- 第一種");
     });
 
+    // T-68f1 review3 RC1 — pathological nesting must DEGRADE, never crash.
+    //
+    // Making a blockquote's content go through renderBlocks (the fix above)
+    // turned a non-recursive path into a recursive one, and the depth is
+    // chosen by the SOURCE TEXT. 17 of the 18 product call sites render
+    // agent-authored text, so a single message of `"> ".repeat(2000)` used to
+    // recurse ~2000 levels and make the React reconciler throw
+    // `RangeError: Maximum call stack size exceeded` — the entire tree fails
+    // to render, not just the quote. These two pin the ceiling: the render
+    // must complete, and the nesting must actually be bounded (a "no throw"
+    // assertion alone would also pass if someone raised the cap to 100000 on
+    // a machine with a bigger stack).
+    it("does not crash on pathologically deep blockquote nesting", () => {
+      const deep = "> ".repeat(2000) + "deep";
+      let c: HTMLElement | null = null;
+      expect(() => {
+        c = renderMd(deep);
+      }).not.toThrow();
+      const quotes = c!.querySelectorAll("blockquote").length;
+      expect(quotes).toBeGreaterThan(0);
+      expect(quotes).toBeLessThanOrEqual(16);
+      // The text is not lost — past the ceiling the remainder is emitted as
+      // literal text rather than being parsed further.
+      expect(c!.textContent).toContain("deep");
+    });
+
+    it("does not crash on pathologically deep nested-list nesting", () => {
+      const deep = Array.from(
+        { length: 400 },
+        (_, n) => " ".repeat(n * 2) + "- item",
+      ).join("\n");
+      let c: HTMLElement | null = null;
+      expect(() => {
+        c = renderMd(deep);
+      }).not.toThrow();
+      expect(c!.querySelectorAll("ul").length).toBeLessThanOrEqual(16);
+      expect(c!.textContent).toContain("item");
+    });
+
     it("does not eat a bracketed line that is not an alert marker", () => {
       const c = renderMd("> [!NOPE] 這不是 alert");
       expect(c.querySelector("blockquote")?.textContent).toBe(

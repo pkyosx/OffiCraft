@@ -282,13 +282,38 @@ function renderParagraph(
   ));
 }
 
+// Hard ceiling on block-level nesting (T-68f1 review3 RC1).
+//
+// renderBlocks re-enters itself for blockquote content and for nested list
+// items. Both of those are driven by the SOURCE TEXT, and 17 of the 18 product
+// call sites feed this renderer agent-authored text, i.e. untrusted input. With
+// no ceiling, a single message containing `"> ".repeat(2000)` recursed ~2000
+// levels deep and the React reconciler threw
+// `RangeError: Maximum call stack size exceeded` while walking the resulting
+// tree — that is not a degraded render, it is the WHOLE tree failing (blank
+// chat view). Reviewer measured the crash at n=2000 and no crash at n=500.
+//
+// 16 is far above anything real prose does (GitHub's own alert syntax is one
+// level; a quote inside a list inside a quote is three) and far below the
+// reconciler's limit. Past the ceiling we stop recursing and emit the remaining
+// source as LITERAL TEXT — degraded but readable, and provably terminating.
+// Never throw: a renderer shared by 18 surfaces must not be able to take the
+// page down over its input.
+const MAX_BLOCK_DEPTH = 16;
+
 /** Parse the markdown source into an array of block-level React nodes. */
 function renderBlocks(
   source: string,
   breaks = false,
   resolveImageSrc?: (src: string) => string,
-  opts?: InlineOpts
+  opts?: InlineOpts,
+  depth = 0
 ): ReactNode[] {
+  if (depth >= MAX_BLOCK_DEPTH) {
+    // Bottom of the well: no further recursion, no exception, no markdown
+    // interpretation — just the raw remainder as text.
+    return [<p key={0}>{source}</p>];
+  }
   const lines = source.replace(/\r\n/g, "\n").split("\n");
   const blocks: ReactNode[] = [];
   let i = 0;
@@ -407,7 +432,13 @@ function renderBlocks(
         while (cont.length && cont[cont.length - 1] === "") cont.pop();
         const inner =
           cont.length > 0
-            ? renderBlocks(dedent(cont).join("\n"), breaks, resolveImageSrc, opts)
+            ? renderBlocks(
+                dedent(cont).join("\n"),
+                breaks,
+                resolveImageSrc,
+                opts,
+                depth + 1
+              )
             : [];
 
         items.push(
@@ -515,7 +546,13 @@ function renderBlocks(
               makes the quote's inner structure survive; plain one-paragraph
               quotes are unaffected because a paragraph joins its lines with a
               space exactly as before. */}
-          {renderBlocks(quoted.join("\n"), breaks, resolveImageSrc, opts)}
+          {renderBlocks(
+            quoted.join("\n"),
+            breaks,
+            resolveImageSrc,
+            opts,
+            depth + 1
+          )}
         </blockquote>
       );
       continue;
