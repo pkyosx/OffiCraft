@@ -11,13 +11,26 @@
 //
 // Runs against the REAL mock adapter, like the sibling SettingsPage tests.
 //
-// KNOWN COVERAGE GAP — nothing anywhere renders the REAL docs/guide/*.md
-// through the product's own Markdown wiring, so a doc can ship prose that only
-// breaks INSIDE the app (this renderer is a SUBSET of GitHub markdown — single-
-// `*` emphasis, for one, is not supported, and a caption written that way was
-// caught by hand this round, not by any test). Every suite here, including the
-// mock adapter's fixtures, renders a FIXTURE instead of the shipped bytes.
-// FOLLOW-UP TICKET: (to be filed by the coordinator — paste the id here).
+// 🔴 KNOWN COVERAGE GAP — no test anywhere renders the REAL docs/guide/*.md
+// bytes through the product's own Markdown wiring. Every suite here, and the
+// mock adapter's fixtures, render a FIXTURE instead of what actually ships.
+//
+// Why that is a real hole and not a tidiness note: this renderer is a SUBSET of
+// GitHub markdown (single-`*` emphasis, for one, is not supported). So a doc
+// can look perfect on GitHub, read fine in review, and still render literal
+// syntax to the user. It has already happened once — a screenshot caption
+// written with single-`*` emphasis shipped and was caught by hand, because
+// nothing in CI could see it. The next one will not announce itself either.
+//
+// What the next person has to do: read each docs/guide/*.md, run it through the
+// real <Markdown> with the real resolveImageSrc/resolveDocLink wiring, strip
+// <code>/<pre> (literal markers there are intentional), and fail on leftover
+// GitHub-only syntax in the remaining prose. It needs no browser and no server
+// — the docs are on disk and the renderer is a plain component. Pair it with a
+// positive control (inject a single-`*` caption and watch it go red) so a
+// silently broken probe cannot read as "0 findings".
+//
+// No ticket is tracking this; this comment is the only record.
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";

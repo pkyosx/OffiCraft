@@ -7,12 +7,29 @@
 // segment's onClick to their navigation (hash writes ride lib/hashRoute.ts).
 //
 // T-68f1: no longer settings-only — the 使用說明 tab reuses it with its own
-// root crumb (使用說明 › <doc>), and it is NOT under 設定. The `aria-label`
-// below is still hardcoded to t.settings.title, so on that tab the landmark
-// announces the wrong name; making it a prop is a known follow-up, not done
-// here (this pack is doc/comment truth only).
-// FOLLOW-UP TICKET: (to be filed by the coordinator — paste the id here; this
-// line exists so the gap is addressable and not merely "someone knows").
+// root crumb (使用說明 › <doc>), and it is NOT under 設定.
+//
+// 🔴 OPEN DEFECT, deliberately not fixed here. The `aria-label` below is
+// hardcoded to `t.settings.title`, so on the 使用說明 tab the navigation
+// landmark announces itself as 設定 — a screen-reader user is told they are in
+// Settings on a page that is not under Settings. It is wrong TODAY, in shipped
+// code; it is not a nicety.
+//
+// Why not fixed here: this pack's authority was doc/comment truth, and the fix
+// is a behaviour change with a design decision inside it — every caller must
+// then say what its landmark is called, which means picking a source for that
+// name (a new required prop? a default that keeps 設定 for the settings tree?).
+// Widening a fourth-round pack to make that call was judged the worse risk.
+//
+// What the next person has to do: give the landmark name an owner. Make it a
+// prop, pass 使用說明's own title from UserGuidePage and 設定's from the
+// settings pages, and pin it with a test that reads the rendered aria-label on
+// BOTH surfaces. Note WHY nothing catches it today: GuidePage.test.tsx really
+// does mount this component outside the settings tree, but every suite —
+// including Breadcrumbs.test.tsx — addresses the trail by class (`nav.crumbs`,
+// `.crumbs__seg`) and by its segment TEXT. Not one assertion anywhere reads the
+// accessible name, so the wrong landmark passes straight through a green suite.
+// No ticket is tracking this; this comment is the only record.
 import { useI18n } from "../i18n";
 
 export interface Crumb {
