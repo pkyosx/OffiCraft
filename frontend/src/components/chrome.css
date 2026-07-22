@@ -197,6 +197,15 @@
   .nav-tabs {
     overflow-x: auto;
     scrollbar-width: none;
+    /* T-68f1 — tightened from the desktop 22px. 使用說明 is the FIFTH tab and
+       therefore the last one in the overflow; at 22px/12px the strip needed
+       479px, so at 390 the tab sat at [352..452] and the 38px on screen were
+       all icon and padding — not one character of the label showed. These two
+       rules give back ~60px, which is what makes the label legible at 390 and
+       the whole tab visible from 414 up. Pinned by
+       visual-guards/nav-tabs-narrow.ct.spec.tsx. */
+    padding-left: 12px;
+    padding-right: 12px;
   }
   .nav-tabs::-webkit-scrollbar {
     display: none;
@@ -206,6 +215,6 @@
   }
   .nav-tab {
     flex-shrink: 0;
-    padding: 0 12px;
+    padding: 0 8px;
   }
 }

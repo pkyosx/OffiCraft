@@ -1162,7 +1162,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			MCPTool:  "patch_task_learnings",
 		},
 		// ── Product guide (docs/guide embed) — one source, three consumers ───
-		// The 座艙 Settings guide sub-page renders these; the machine-floor read
+		// The 座艙's 使用說明 nav tab renders these; the machine-floor read
 		// tools let an assistant agent read the same bytes to answer feature /
 		// field questions (get_global_context's flag — assistant classifies as
 		// admin_agent ≥ machine, so it can call them). The asset route serves the

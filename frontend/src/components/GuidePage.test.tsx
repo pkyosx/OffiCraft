@@ -10,6 +10,14 @@
 // tests rather than as softened old ones.
 //
 // Runs against the REAL mock adapter, like the sibling SettingsPage tests.
+//
+// KNOWN COVERAGE GAP — nothing anywhere renders the REAL docs/guide/*.md
+// through the product's own Markdown wiring, so a doc can ship prose that only
+// breaks INSIDE the app (this renderer is a SUBSET of GitHub markdown — single-
+// `*` emphasis, for one, is not supported, and a caption written that way was
+// caught by hand this round, not by any test). Every suite here, including the
+// mock adapter's fixtures, renders a FIXTURE instead of the shipped bytes.
+// FOLLOW-UP TICKET: (to be filed by the coordinator — paste the id here).
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";
@@ -171,6 +179,49 @@ describe("使用說明 · in-app doc links (T-68f1)", () => {
     fireEvent.click(utils.getByRole("button", { name: "介面說明(長路徑)" }));
     await waitForDocBody(utils, "介面說明");
     expectHeader(utils, [g.title, "介面說明"]);
+  });
+
+  // settings.css's `.md-doclink` rationale states WHERE the post-click URL
+  // comes from: the target's BASENAME, and only after the existence check —
+  // never the target verbatim, never as a path. That clause had no guard until
+  // now (review3-recheck3 RC3-2 disproved the previous wording by measuring the
+  // hash by hand). Both written forms of the SAME doc — the guide-internal
+  // `interface.md` and the repo-root-relative `docs/guide/interface.md` — must
+  // land on the identical hash, which is exactly what "only the basename can
+  // carry information" means; and an UNSHIPPED target must move the URL not at
+  // all, which is the `docs.some(...)` half of the same sentence.
+  it("the post-click hash is the target's BASENAME, and only for a shipped doc", async () => {
+    const utils = renderGuide();
+    await openDoc(utils, "為什麼是 OffiCraft");
+    expect(window.location.hash).toBe("#guide/why");
+
+    fireEvent.click(utils.getByRole("button", { name: "介面說明" }));
+    await waitForDocBody(utils, "介面說明");
+    expect(window.location.hash).toBe("#guide/interface");
+
+    // The long-path form of the same target: same basename → same URL. If the
+    // directory prefix reached the hash, this would read #guide/docs/guide/….
+    fireEvent.click(utils.getByRole("button", { name: "為什麼是 OffiCraft" }));
+    await waitForDocBody(utils, "為什麼是 OffiCraft");
+    fireEvent.click(utils.getByRole("button", { name: "介面說明(長路徑)" }));
+    await waitForDocBody(utils, "介面說明");
+    expect(window.location.hash).toBe("#guide/interface");
+
+  });
+
+  it("an unshipped target never reaches the URL at all", async () => {
+    const utils = renderGuide();
+    await openDoc(utils, "安裝、升級與移除");
+    // ../dev/agent-env.md derives the slug "agent-env", which the server never
+    // served — `docs.some(...)` declines it, so it is not even a control and
+    // the URL has no way to acquire it.
+    const parked = window.location.hash;
+    expect(parked).toBe("#guide/install");
+    expect(
+      utils.queryByRole("button", { name: "../dev/agent-env.md" }),
+    ).toBeNull();
+    expect(window.location.hash).toBe(parked);
+    expect(window.location.hash).not.toContain("agent-env");
   });
 
   // A doc that links to ITSELF (interface.md, read from interface) must not

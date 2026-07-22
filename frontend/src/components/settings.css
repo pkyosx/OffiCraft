@@ -536,8 +536,12 @@
  * surface's resolver can say whether it maps onto a shipped slug — it may
  * DECLINE, in which case the reference stays literal text. The 使用說明 page
  * DOES have a hash route (`#guide/<slug>`, since it became a top-level tab),
- * but that URL is built by the resolver inside onClick; it is never taken from
- * the link target — and having no href means there is no navigation
+ * but that URL is built from the target's BASENAME (`docSlugForRef`) and only
+ * after the resolver has checked that basename against the docs the server
+ * actually served (UserGuidePage's `docs.some(...)`), so it can only ever name
+ * a shipped doc — the target is never used verbatim, and never as a path. See
+ * `docSlugForRef`'s doc-comment: that basename reduction IS the containment
+ * layer. And having no href means there is no navigation
  * target for an open redirect to aim at. It must READ as the link it replaces,
  * so it borrows `.doc-md a`'s colour/underline and drops every button default. */
 .doc-md .md-doclink {

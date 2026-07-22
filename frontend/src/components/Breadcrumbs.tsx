@@ -11,6 +11,8 @@
 // below is still hardcoded to t.settings.title, so on that tab the landmark
 // announces the wrong name; making it a prop is a known follow-up, not done
 // here (this pack is doc/comment truth only).
+// FOLLOW-UP TICKET: (to be filed by the coordinator — paste the id here; this
+// line exists so the gap is addressable and not merely "someone knows").
 import { useI18n } from "../i18n";
 
 export interface Crumb {

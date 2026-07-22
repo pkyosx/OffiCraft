@@ -85,7 +85,7 @@ func bindistFS() fs.FS {
 // docs/guide/ tree — every *.md plus the assets/ image subtree — into
 // docsdist/ before a doc-carrying binary is built). Same embed-only contract
 // as seedsdist: the doc bytes baked into THIS binary are the only copy served,
-// so the 座艙 guide sub-page and Mira's get_doc MCP tool read one identical
+// so the 座艙's 使用說明 nav tab and Mira's get_doc MCP tool read one identical
 // source (zero copy → zero drift). `all:` tolerates the .gitkeep-only
 // placeholder state on a clean checkout (O-46 content may be unmerged).
 //

@@ -69,8 +69,10 @@ export function UserGuideList({
 }
 
 /** Map a repo-relative markdown reference onto a doc slug, by the SERVER's
- * rule and no other: build-docsdist FLATTENS docs/guide/ (and the README) into
- * one directory, and api_docs.go's docSlug is `strings.TrimSuffix(name, ".md")`
+ * rule and no other: build-docsdist FLATTENS docs/guide/ (every *.md in the
+ * tree — the README used to ride along too, but was pulled; see
+ * bin/build-docsdist's SCOPE note) into one directory, and api_docs.go's
+ * docSlug is `strings.TrimSuffix(name, ".md")`
  * on that flat filename — so only the BASENAME can carry information. Whatever
  * directory prefix the source used (`docs/guide/why.md` read from the repo
  * root, `../dev/agent-env.md` read from inside docs/guide) is exactly the part
