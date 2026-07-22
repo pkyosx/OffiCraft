@@ -9,28 +9,25 @@
 // T-68f1: no longer settings-only — the 使用說明 tab reuses it with its own
 // root crumb (使用說明 › <doc>), and it is NOT under 設定.
 //
-// 🔴 OPEN DEFECT, deliberately not fixed here. The `aria-label` below is
-// hardcoded to `t.settings.title`, so on the 使用說明 tab the navigation
-// landmark announces itself as 設定 — a screen-reader user is told they are in
-// Settings on a page that is not under Settings. It is wrong TODAY, in shipped
-// code; it is not a nicety.
+// That move BROKE the landmark name, and this comment used to describe the
+// break as an open defect. It is fixed now, and the history is worth keeping
+// because of how it was caught. The `aria-label` was hardcoded to
+// `t.settings.title`, which was TRUE while the guide lived under Settings
+// (SettingsPage passed `[crumbRoot, {label: t.settings.guide}]`) and became
+// FALSE the moment this pack promoted it to a tab: a screen-reader user on 使用說明
+// was told they were in 設定. Same class of falsehood as the stale comments
+// this pack spent four rounds removing — just written in an aria attribute
+// instead of prose, which is exactly why it outlived them.
 //
-// Why not fixed here: this pack's authority was doc/comment truth, and the fix
-// is a behaviour change with a design decision inside it — every caller must
-// then say what its landmark is called, which means picking a source for that
-// name (a new required prop? a default that keeps 設定 for the settings tree?).
-// Widening a fourth-round pack to make that call was judged the worse risk.
+// Nothing caught it: the suites address this trail by class (`nav.crumbs`,
+// `.crumbs__seg`) and by segment TEXT, and an aria-label is not a text node —
+// so even GuidePage's `queryByText("設定") === null` assertion, written by this
+// pack to prove the guide had left Settings, passed straight over the string
+// "設定" sitting in the landmark. Breadcrumbs.test.tsx now reads the accessible
+// name directly, on both surfaces and in all three locales.
 //
-// What the next person has to do: give the landmark name an owner. Make it a
-// prop, pass 使用說明's own title from UserGuidePage and 設定's from the
-// settings pages, and pin it with a test that reads the rendered aria-label on
-// BOTH surfaces. Note WHY nothing catches it today: GuidePage.test.tsx really
-// does mount this component outside the settings tree, but every suite —
-// including Breadcrumbs.test.tsx — addresses the trail by class (`nav.crumbs`,
-// `.crumbs__seg`) and by its segment TEXT. Not one assertion anywhere reads the
-// accessible name, so the wrong landmark passes straight through a green suite.
-// No ticket is tracking this; this comment is the only record.
-import { useI18n } from "../i18n";
+// The name is now DERIVED from items[0] (see below) rather than passed in, so
+// there is no per-caller decision to get wrong and no default to fall back to.
 
 export interface Crumb {
   label: string;
@@ -41,9 +38,15 @@ export interface Crumb {
 }
 
 export function Breadcrumbs({ items }: { items: Crumb[] }) {
-  const { t } = useI18n();
   return (
-    <nav className="crumbs" aria-label={t.settings.title}>
+    // The landmark is named by the trail's OWN root, not by a hardcoded
+    // constant: items[0] is the region this trail lives in (設定 for every
+    // settings page, 使用說明 for the guide tab), already localized because it
+    // is the same string the reader sees as the first segment. That makes the
+    // accessible name incapable of drifting away from the visible trail — the
+    // failure this replaced. No items → no name at all, which is honest;
+    // an unnamed landmark beats a wrongly-named one.
+    <nav className="crumbs" aria-label={items[0]?.label}>
       {items.map((c, i) => {
         const mono = c.mono ? " manual-key" : "";
         const last = i === items.length - 1;

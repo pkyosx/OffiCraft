@@ -143,6 +143,21 @@ describe("使用說明 · page header + navigation", () => {
     // offers 使用說明 as a real button back to the list.
     expectHeader(utils, [g.title, docTitle]);
     expect(utils.getByRole("button", { name: g.title })).toBeTruthy();
+
+    // ...and the landmark a screen reader announces is this page's region, not
+    // 設定. Breadcrumbs.test.tsx pins the component's rule; this pins the real
+    // page's WIRING, which is what was actually wrong: promoting the guide out
+    // of Settings left the trail announcing 設定 here. Queried by role+name
+    // (an aria-label is not a text node, so the `queryByText("設定")` check
+    // above cannot see it — that is exactly how this survived).
+    expect(
+      utils.getByRole("navigation", { name: g.title }),
+      "the guide's breadcrumb landmark must be named after the guide",
+    ).toBeTruthy();
+    expect(
+      utils.queryByRole("navigation", { name: zh.settings.title }),
+      "no landmark on the guide tab may announce itself as 設定",
+    ).toBeNull();
   });
 
   // NEW with the promotion to a tab. As a settings sub-page the open doc lived
