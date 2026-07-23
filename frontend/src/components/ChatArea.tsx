@@ -163,9 +163,8 @@ export function ChatArea({
   // presence to project — rendering the badge there would fabricate one.
   headerSub?: React.ReactNode;
   // T-3451: the peer's CURRENT task title, shown FULL (no clamp) as a third
-  // header line under the sub — owner 圖2: the selected member's header shows
-  // the complete task title, untruncated. A member's title is joined on the
-  // office page (useMemberCurrentTasks); an outsource worker's rides
+  // header line under the sub — owner 圖2: the selected worker's header shows
+  // the complete task title, untruncated. An outsource worker's title rides
   // OutsourceWorkerView.taskTitle. Absent/"" ⇒ nothing rendered (a released /
   // taskless peer never grows an empty line here).
   headerTaskTitle?: string;

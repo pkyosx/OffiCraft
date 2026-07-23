@@ -5,7 +5,6 @@ import { api } from "../api";
 import { useMembers } from "../hooks/useMembers";
 import { useMonitoring } from "../hooks/useMonitoring";
 import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
-import { useMemberCurrentTasks } from "../hooks/useMemberCurrentTasks";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { joinSessionRuntime } from "../lib/runtime";
 import { useHashRoute } from "../lib/hashRoute";
@@ -141,10 +140,6 @@ export function OfficePage() {
   // M3 §4: the LIVE outsource workers behind the left rail's 外包 panel (and
   // the outsource chat peers — a worker id rides the SAME chatId hash slot).
   const outsource = useOutsourceWorkers();
-  // T-3451: member.id → its CURRENT task (freshest open task executed by that
-  // member), joined from the task list on the FRONTEND — a 正職 member carries
-  // no task on its own DTO. Feeds the Staff roster row + the member chat header.
-  const memberTasks = useMemberCurrentTasks();
 
   // T-66a8 tab badges — each tab's area unread TOTAL (the red count pill; 0 →
   // no badge). A member/worker whose chat is open + watched already reads to
@@ -421,7 +416,6 @@ export function OfficePage() {
                 <MemberCard
                   key={member.id}
                   member={member}
-                  currentTaskTitle={memberTasks.get(member.id)?.title ?? ""}
                   // On mobile the roster stands alone (no persistent chat), so no
                   // fallback highlight; on desktop the roster[0] fallback stays lit
                   // next to its open chat — unless an OUTSOURCE chat is open (the
@@ -560,10 +554,6 @@ export function OfficePage() {
             selected && (
               <ChatArea
                 member={selected}
-                // T-3451: the member's CURRENT task FULL title under the header
-                // presence line — owner 圖2. Joined from the task list; "" (no
-                // open task) renders nothing (showEmpty=false in the header).
-                headerTaskTitle={memberTasks.get(selected.id)?.title ?? ""}
                 // The full roster resolves an inter-agent message's sender id →
                 // name (the sender may be a THIRD agent, not the window's peer).
                 members={members}

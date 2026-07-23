@@ -62,7 +62,6 @@ function renderCard(lifecycle: Member["lifecycle"]) {
       <MemberCard
         member={mkMember({ lifecycle })}
         selected={false}
-        currentTaskTitle=""
         onOpenDetail={() => {}}
         onChat={() => {}}
       />

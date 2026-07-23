@@ -3,15 +3,10 @@ import type { Member } from "../types";
 import { useWindowActive } from "../hooks/useWindowActive";
 import { Avatar } from "./Avatar";
 import { PresenceBadge } from "./PresenceBadge";
-import { CurrentTaskTitle } from "./CurrentTaskTitle";
 
 interface MemberCardProps {
   member: Member;
   selected: boolean;
-  /** The member's CURRENT task title (T-3451; "" ⇒ no open task → empty state).
-   * Joined on the office page from the task list (useMemberCurrentTasks) — a
-   * 正職 member carries no task field on its own DTO. */
-  currentTaskTitle: string;
   /** avatar click → open the member detail panel */
   onOpenDetail: () => void;
   /** row click (anywhere but the avatar) → open the chat room for this member */
@@ -21,7 +16,6 @@ interface MemberCardProps {
 export function MemberCard({
   member,
   selected,
-  currentTaskTitle,
   onOpenDetail,
   onChat,
 }: MemberCardProps) {
@@ -88,17 +82,6 @@ export function MemberCard({
          * roster row stays a pure presence line. */}
         <div className="member-card__presence">
           <PresenceBadge member={member} />
-        </div>
-        {/* T-3451: the member's CURRENT task title (real title, NOT the type /
-         * manual name) — 2-line clamp + hover full on the roster row; a member
-         * with no open task shows the muted 無當前任務 empty state. Sits below
-         * the presence/role line (owner: 名稱/角色下方). */}
-        <div className="member-card__task">
-          <CurrentTaskTitle
-            title={currentTaskTitle}
-            clamp
-            testid={`member-task-${member.id}`}
-          />
         </div>
       </div>
 

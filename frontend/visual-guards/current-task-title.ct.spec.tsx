@@ -30,15 +30,11 @@ for (const width of [390, 1280]) {
     await page.setViewportSize({ width, height: 800 });
     const cmp = await mount(<CurrentTaskRosterStory />);
 
-    // Both a Staff row and an Outsource row carry a clamp title; measure every
-    // one so the guard holds for BOTH tabs (owner: 兩 tab 都要).
-    const staffTitle = cmp.getByTestId("member-task-mira");
+    // The Outsource row carries a clamp title; measure it so the guard holds
+    // for the outsource roster row.
     const outsourceTitle = cmp.getByTestId("outsource-task-title-ow-1");
 
-    for (const [label, loc] of [
-      ["staff", staffTitle],
-      ["outsource", outsourceTitle],
-    ] as const) {
+    for (const [label, loc] of [["outsource", outsourceTitle]] as const) {
       await expect(loc, `${label} title visible`).toBeVisible();
 
       // (1) hover-full: the ENTIRE title rides the native tooltip even though

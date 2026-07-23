@@ -52,7 +52,6 @@ function renderCard(member: Member, selected = false) {
       <MemberCard
         member={member}
         selected={selected}
-        currentTaskTitle=""
         onOpenDetail={vi.fn()}
         onChat={vi.fn()}
       />

@@ -1976,10 +1976,10 @@ button.chat__msg-file {
 }
 
 /* ── T-3451: current-task title line ──────────────────────────────────────────
- * The member/worker's CURRENT task title (real title, NOT the type / manual
- * name). ONE shared class across the Staff roster row, the Outsource roster
- * row, and both chat headers (CurrentTaskTitle.tsx) so truncation + hover
- * behave identically everywhere:
+ * The worker's CURRENT task title (real title, NOT the type / manual name).
+ * ONE shared class across the Outsource roster row and the Outsource chat
+ * header (CurrentTaskTitle.tsx) so truncation + hover behave identically
+ * everywhere:
  *   · roster ROW (--clamp): a 2-line ellipsis; the full text rides the native
  *     `title` tooltip. Mobile has no hover, so the truncated row is the honest
  *     ceiling there — the FULL title lives in the chat header instead.
@@ -2003,10 +2003,7 @@ button.chat__msg-file {
   font-style: italic;
   opacity: 0.7;
 }
-/* Roster-row slots (below the presence / task-type line). */
-.member-card__task {
-  margin-top: 3px;
-}
+/* Roster-row slot (below the task-type line). */
 .outsource-row__task-line + .current-task-title {
   margin-top: 3px;
 }

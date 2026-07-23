@@ -1,7 +1,7 @@
-// CurrentTaskTitle — the SINGLE place that renders a member/worker's "current
-// task title" line (T-3451). One component so the four surfaces that show it
-// (Staff roster row, Outsource roster row, Staff chat header, Outsource chat
-// header) can never drift in truncation, hover, or empty-state behaviour.
+// CurrentTaskTitle — the SINGLE place that renders a worker's "current task
+// title" line (T-3451). One component so the two surfaces that show it (the
+// Outsource roster row and the Outsource chat header) can never drift in
+// truncation, hover, or empty-state behaviour.
 //
 // Two shapes, one prop:
 //   · clamp  → roster ROW: 2-line ellipsis (-webkit-line-clamp:2) + the full
