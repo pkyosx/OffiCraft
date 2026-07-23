@@ -1974,3 +1974,48 @@ button.chat__msg-file {
   font-size: 12px;
   color: var(--color-text-muted);
 }
+
+/* ── T-3451: current-task title line ──────────────────────────────────────────
+ * The member/worker's CURRENT task title (real title, NOT the type / manual
+ * name). ONE shared class across the Staff roster row, the Outsource roster
+ * row, and both chat headers (CurrentTaskTitle.tsx) so truncation + hover
+ * behave identically everywhere:
+ *   · roster ROW (--clamp): a 2-line ellipsis; the full text rides the native
+ *     `title` tooltip. Mobile has no hover, so the truncated row is the honest
+ *     ceiling there — the FULL title lives in the chat header instead.
+ *   · chat HEADER (no clamp): the full title, wrapping naturally, no ellipsis
+ *     (owner 圖2: 完整 title 不截斷). */
+.current-task-title {
+  display: block;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+.current-task-title--clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.current-task-title--empty {
+  font-style: italic;
+  opacity: 0.7;
+}
+/* Roster-row slots (below the presence / task-type line). */
+.member-card__task {
+  margin-top: 3px;
+}
+.outsource-row__task-line + .current-task-title {
+  margin-top: 3px;
+}
+/* Chat-header full-title line — sits under the presence / task-type sub, a hair
+ * stronger than the muted sub so the actual work reads as the header's point. */
+.chat__header-task {
+  margin-top: 2px;
+  min-width: 0;
+}
+.chat__header-task .current-task-title {
+  color: var(--color-text);
+}

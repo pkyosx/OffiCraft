@@ -111,7 +111,7 @@ beforeEach(() => {
 });
 
 describe("OutsourcePanel", () => {
-  it("renders 代號 / [T-xxxx chip → task type + 上線綠點] one line — NO model·title·識別鍵·狀態字", async () => {
+  it("renders 代號 / [T-xxxx chip → task type + 上線綠點] one line + the task TITLE line (T-3451) — NO model·識別鍵·狀態字", async () => {
     const now = Date.now() / 1000;
     const task = mkTask({
       id: "t-a",
@@ -163,9 +163,16 @@ describe("OutsourcePanel", () => {
     expect(chip.textContent).toBe("T-9c21");
     expect(typeLine.textContent).toBe("review-pr");
     expect(typeLine.querySelector(".outsource-row__online-dot")).toBeNull();
-    // …and never the model / task title / 識別鍵 / status word.
+    // line 3 (T-3451, owner 2026-07-23 REVERSES the 2026-07-16 "no title" rule):
+    // the bound task's real TITLE now rides its own line, with the full text on
+    // the `title` tooltip (hover). The TYPE line stays the type — the title is a
+    // SEPARATE element, not folded into it.
+    const titleLine = within(row).getByTestId("outsource-task-title-ow-a");
+    expect(titleLine.textContent).toBe("修 PR 回饋");
+    expect(titleLine.getAttribute("title")).toBe("修 PR 回饋");
+    expect(typeLine.textContent).not.toContain("修 PR 回饋");
+    // …and never the model / 識別鍵 / status word (those stay off the row).
     expect(row.textContent).not.toContain("Opus");
-    expect(row.textContent).not.toContain("修 PR 回饋");
     expect(row.textContent).not.toContain("github.com");
     expect(row.textContent).not.toContain("進行中");
   });

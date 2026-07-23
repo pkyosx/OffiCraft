@@ -32,6 +32,7 @@ import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { Markdown } from "./Markdown";
 import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
 import { PresenceBadge } from "./PresenceBadge";
+import { CurrentTaskTitle } from "./CurrentTaskTitle";
 import {
   BoltIcon,
   CheckIcon,
@@ -110,6 +111,7 @@ export function ChatArea({
   jumpToMsgId,
   draftSeed,
   headerSub,
+  headerTaskTitle,
 }: {
   member: Member;
   // The full office roster, used to resolve a message's sender id → display name
@@ -160,6 +162,13 @@ export function ChatArea({
   // own line instead: a worker is anonymous and task-bound, with NO member
   // presence to project — rendering the badge there would fabricate one.
   headerSub?: React.ReactNode;
+  // T-3451: the peer's CURRENT task title, shown FULL (no clamp) as a third
+  // header line under the sub — owner 圖2: the selected member's header shows
+  // the complete task title, untruncated. A member's title is joined on the
+  // office page (useMemberCurrentTasks); an outsource worker's rides
+  // OutsourceWorkerView.taskTitle. Absent/"" ⇒ nothing rendered (a released /
+  // taskless peer never grows an empty line here).
+  headerTaskTitle?: string;
 }) {
   const { t } = useI18n();
   const isOffline = member.status === "offline";
@@ -1091,6 +1100,19 @@ export function ChatArea({
           <div className="chat__header-sub">
             {headerSub ?? <PresenceBadge member={member} />}
           </div>
+          {/* T-3451: the peer's CURRENT task title, FULL (no clamp) — owner 圖2.
+           * Rendered only when present (a taskless / released peer grows no
+           * empty line here; showEmpty=false). */}
+          {headerTaskTitle ? (
+            <div className="chat__header-task">
+              <CurrentTaskTitle
+                title={headerTaskTitle}
+                clamp={false}
+                showEmpty={false}
+                testid="chat-header-task-title"
+              />
+            </div>
+          ) : null}
         </div>
         {/* T-dfae (owner 2026-07-17, 紅框 on this corner): two jump buttons
          * beside the gallery toggle. Both are OPTIONAL — the caller wires them

@@ -281,6 +281,8 @@ export const zh = {
     staffSub: (n: number) => `${n} 人`,
     // 側欄最下方「招攬新成員」鈕(依當前 tab 分流:正職→角色誌、外包→上限設定)。
     recruit: "招攬新成員",
+    // T-3451: 列表列／聊天 header 當前任務的空狀態（沒有進行中的任務）。
+    noCurrentTask: "無當前任務",
     role: {
       assistant: "特助",
     },

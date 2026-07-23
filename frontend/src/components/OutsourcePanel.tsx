@@ -30,6 +30,7 @@ import { useI18n } from "../i18n";
 import { useWindowActive } from "../hooks/useWindowActive";
 import type { OutsourceWorkerView } from "../api/adapter";
 import { BriefcaseIcon } from "./icons";
+import { CurrentTaskTitle } from "./CurrentTaskTitle";
 
 /** The worker's ONE-LINE task line — [T-xxxx chip → task type], optionally
  * led by the 上線綠點. SHARED between the rail's outsource row (dot; owner
@@ -195,6 +196,15 @@ export function OutsourcePanel({
                   onOpenTask={onOpenTask}
                   dot
                   idPrefix="outsource"
+                />
+                {/* line 3 (T-3451) — the bound task's real TITLE (not its type,
+                 * which line 2 already shows): 2-line clamp + hover full. The
+                 * wire already echoes it (OutsourceWorkerView.taskTitle); "" (a
+                 * task that could not resolve) shows the muted empty state. */}
+                <CurrentTaskTitle
+                  title={w.taskTitle ?? ""}
+                  clamp
+                  testid={`outsource-task-title-${w.id}`}
                 />
               </span>
               {/* Unread badge — the EXACT member-card signal (wire

@@ -249,6 +249,8 @@ export const en: Dict = {
     staffSub: (n: number) => `${n} ${n === 1 ? "person" : "people"}`,
     // The recruit button pinned at the sidebar bottom (routes by active tab).
     recruit: "Recruit a member",
+    // T-3451: roster row / chat header current-task empty state (no open task).
+    noCurrentTask: "No active task",
     role: {
       assistant: "Assistant",
     },

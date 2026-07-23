@@ -218,6 +218,8 @@ export const xian: Dict = {
     staffSub: (n: number) => `${n} 人`,
     // 側欄之末「招攬新成員」:入室弟子頁赴角色誌、客卿頁啟延聘之限。
     recruit: "延攬新人",
+    // T-3451: 榜列／論道首列當前所司之空狀態（無在辦之事）。
+    noCurrentTask: "暫無在辦",
     role: {
       assistant: "道童",
     },

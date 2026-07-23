@@ -57,6 +57,7 @@ function renderCard() {
       <MemberCard
         member={mkMember()}
         selected={false}
+        currentTaskTitle=""
         onOpenDetail={onOpenDetail}
         onChat={onChat}
       />
