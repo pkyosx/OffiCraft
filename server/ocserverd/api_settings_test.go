@@ -380,14 +380,14 @@ func TestDisplayPrefsSettingRoundTrips(t *testing.T) {
 
 	// Valid patch: echoed, durable, live in the snapshot.
 	if status, data = doJSON(t, "PATCH", srv.URL+"/api/settings", owner,
-		`{"display_theme":"xian","display_language":"en"}`); status != 200 ||
-		data["display_theme"] != "xian" || data["display_language"] != "en" {
+		`{"display_theme":"office","display_language":"en"}`); status != 200 ||
+		data["display_theme"] != "office" || data["display_language"] != "en" {
 		t.Fatalf("display prefs patch must echo: %d %v", status, data)
 	}
-	if v, err := d.GetSetting(settingDisplayTheme); err != nil || v == nil || *v != "xian" {
+	if v, err := d.GetSetting(settingDisplayTheme); err != nil || v == nil || *v != "office" {
 		t.Fatalf("display_theme must be durable: %v %v", v, err)
 	}
-	if got := api.displayThemeSnapshot(); got != "xian" {
+	if got := api.displayThemeSnapshot(); got != "office" {
 		t.Fatalf("display_theme must be live in the snapshot: %q", got)
 	}
 	if got := api.displayLanguageSnapshot(); got != "en" {

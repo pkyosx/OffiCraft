@@ -42,7 +42,11 @@ describe("I18nProvider dual-layer theme/language", () => {
   });
 
   it("first paint uses the localStorage cache when pre-auth (no server call)", () => {
-    localStorage.setItem("oc.theme", "xian");
+    // A cached custom-theme id (office is the only built-in now; a non-default
+    // theme is a custom bundle id). Pre-reconcile the bundle isn't loaded yet,
+    // so the apply effect paints the neutral office base — but the theme STATE
+    // (the cache) is what drives the value.
+    localStorage.setItem("oc.theme", "midnight");
     localStorage.setItem("oc.language", "en");
     // No token → /api/settings is unreachable; the cache is the only truth.
     render(
@@ -50,14 +54,20 @@ describe("I18nProvider dual-layer theme/language", () => {
         <Probe />
       </I18nProvider>
     );
-    expect(screen.getByTestId("probe").dataset.theme).toBe("xian");
+    expect(screen.getByTestId("probe").dataset.theme).toBe("midnight");
     expect(screen.getByTestId("probe").dataset.lang).toBe("en");
-    expect(document.documentElement.dataset.theme).toBe("xian");
+    // A dangling custom id (bundle not yet reconciled) paints the office base.
+    expect(document.documentElement.dataset.theme).toBe("office");
   });
 
   it("adopts the server value on mount when a token already exists, writing it back to the cache", async () => {
-    // Cache is empty (defaults office/zh); the server holds the owner's choice.
-    await mockApi.patchServerSettings({ displayTheme: "xian", displayLanguage: "en" });
+    // Cache is empty (defaults office/zh); the server holds the owner's choice —
+    // a custom theme plus display.theme pointing at it (so the id is selectable).
+    await mockApi.patchServerSettings({
+      customThemes: [MIDNIGHT],
+      displayTheme: "midnight",
+      displayLanguage: "en",
+    });
     localStorage.setItem(TOKEN_KEY, "live-owner-token");
     render(
       <I18nProvider>
@@ -65,18 +75,21 @@ describe("I18nProvider dual-layer theme/language", () => {
       </I18nProvider>
     );
     await waitFor(() =>
-      expect(screen.getByTestId("probe").dataset.theme).toBe("xian")
+      expect(screen.getByTestId("probe").dataset.theme).toBe("midnight")
     );
     expect(screen.getByTestId("probe").dataset.lang).toBe("en");
-    expect(document.documentElement.dataset.theme).toBe("xian");
     // Written back so the NEXT pre-auth first paint is already correct.
-    expect(localStorage.getItem("oc.theme")).toBe("xian");
+    expect(localStorage.getItem("oc.theme")).toBe("midnight");
     expect(localStorage.getItem("oc.language")).toBe("en");
   });
 
   it("reconciles when a login mints a token mid-session (oc-auth-login)", async () => {
     // Pre-auth first paint: default office/zh, server not yet reachable.
-    await mockApi.patchServerSettings({ displayTheme: "xian", displayLanguage: "en" });
+    await mockApi.patchServerSettings({
+      customThemes: [MIDNIGHT],
+      displayTheme: "midnight",
+      displayLanguage: "en",
+    });
     render(
       <I18nProvider>
         <Probe />
@@ -88,13 +101,13 @@ describe("I18nProvider dual-layer theme/language", () => {
       setToken("fresh-owner-token");
     });
     await waitFor(() =>
-      expect(screen.getByTestId("probe").dataset.theme).toBe("xian")
+      expect(screen.getByTestId("probe").dataset.theme).toBe("midnight")
     );
     expect(screen.getByTestId("probe").dataset.lang).toBe("en");
   });
 
   it("keeps the cache when the server pref is unset (\"\")", async () => {
-    localStorage.setItem("oc.theme", "xian");
+    localStorage.setItem("oc.theme", "midnight");
     localStorage.setItem(TOKEN_KEY, "live-owner-token");
     // Server default is "" for both — an unset server value must NOT clobber the
     // cache back to a default.
@@ -106,9 +119,9 @@ describe("I18nProvider dual-layer theme/language", () => {
     // Give the reconcile a chance to (wrongly) run, then assert it left the cache.
     await Promise.resolve();
     await waitFor(() =>
-      expect(screen.getByTestId("probe").dataset.theme).toBe("xian")
+      expect(screen.getByTestId("probe").dataset.theme).toBe("midnight")
     );
-    expect(localStorage.getItem("oc.theme")).toBe("xian");
+    expect(localStorage.getItem("oc.theme")).toBe("midnight");
   });
 });
 
@@ -136,12 +149,12 @@ describe("I18nProvider custom theme apply", () => {
     expect(root.style.getPropertyValue("--color-bg")).toBe("#040506");
   });
 
-  it("clears the previous custom vars when switching to a built-in", () => {
+  it("clears the previous custom vars when switching to the built-in office", () => {
     act(() => ctx.commitCustomThemes([MIDNIGHT]));
     act(() => ctx.setTheme("midnight"));
-    act(() => ctx.setTheme("xian"));
+    act(() => ctx.setTheme("office"));
 
-    expect(root.dataset.theme).toBe("xian");
+    expect(root.dataset.theme).toBe("office");
     expect(root.style.getPropertyValue("--color-accent")).toBe("");
     expect(root.style.getPropertyValue("--color-bg")).toBe("");
   });
@@ -175,10 +188,12 @@ describe("I18nProvider custom theme apply", () => {
     expect(ctx.locale).toBe("en");
   });
 
-  it("still surfaces the immersive xian dict for the built-in 修仙 theme", () => {
+  it("keeps the locale following the language toggle regardless of theme (theme↔locale decoupled)", () => {
+    act(() => ctx.setLanguage("zh"));
+    act(() => ctx.setTheme("office"));
+    expect(ctx.locale).toBe("zh");
     act(() => ctx.setLanguage("en"));
-    act(() => ctx.setTheme("xian"));
-    expect(ctx.locale).toBe("xian");
+    expect(ctx.locale).toBe("en");
   });
 });
 

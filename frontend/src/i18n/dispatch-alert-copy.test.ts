@@ -43,7 +43,6 @@
 import { describe, it, expect } from "vitest";
 import { zh } from "./locales/zh";
 import { en } from "./locales/en";
-import { xian } from "./locales/xian";
 import type { Dict } from "./locales/zh";
 
 interface Case {
@@ -72,14 +71,6 @@ const CASES: Case[] = [
     wakeBannedCause: ["target machine", "never delivered", "reached the"],
     // a3b2a8e + 8590ba5: "… the member is still on its old machine."
     relocateBannedPlacement: ["still on its old", "still on the old"],
-  },
-  {
-    name: "xian",
-    dict: xian,
-    // a3b2a8e: "訣令未達機樞，此侍者不會轉醒。…"
-    wakeBannedCause: ["未達", "機樞未"],
-    // a3b2a8e + 8590ba5: "…侍者仍在舊處。"
-    relocateBannedPlacement: ["仍在舊", "尚在舊"],
   },
 ];
 

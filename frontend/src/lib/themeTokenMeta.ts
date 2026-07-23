@@ -290,14 +290,6 @@ const TOKEN_META: Record<string, TokenMeta> = {
     group: "decoration",
     label: { zh: "導引文字", en: "Onboarding text" },
   },
-  "--color-xian-avatar-glow": {
-    group: "decoration",
-    label: { zh: "修仙頭像光暈", en: "Xian avatar glow" },
-  },
-  "--color-xian-avatar-rim": {
-    group: "decoration",
-    label: { zh: "修仙頭像邊", en: "Xian avatar rim" },
-  },
 };
 
 /** The friendly label + group for a token in the active language. An unmapped

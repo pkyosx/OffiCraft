@@ -11,11 +11,9 @@ import {
 } from "../lib/themeBundle";
 import {
   bundleFilename,
-  exportBuiltinTheme,
   exportComputedTheme,
   parseImportedBundle,
   serializeBundle,
-  XIAN_EXAMPLE_WORDING,
 } from "../lib/themeExport";
 import {
   GROUP_ORDER,
@@ -41,8 +39,8 @@ const DICTS_BY_LANG = { zh, en } as const;
 /**
  * 主題管理 — the SettingsPage 主題 sub-section (T-16a1 P3b). All theme MANAGEMENT
  * lives here (owner IA: 偏好=選擇, 設定=管理): add / import / export / edit
- * (friendly colours + 用詞 overlay) / delete / the 修仙 dogfood example. The
- * ProfileDropdown keeps only the theme SELECTOR + language.
+ * (friendly colours + 用詞 overlay) / delete. The ProfileDropdown keeps only the
+ * theme SELECTOR + language.
  */
 export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   const { t, theme, setTheme, language, customThemes, commitCustomThemes } =
@@ -66,14 +64,12 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   const [wordingSearch, setWordingSearch] = useState("");
   const [editError, setEditError] = useState("");
 
-  const [copied, setCopied] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // ── theme meta for export ──
   function currentThemeMeta(): { id: string; name: string } {
     if (theme === "office")
       return { id: "office-copy", name: t.profile.themeOffice };
-    if (theme === "xian") return { id: "xian-copy", name: t.profile.themeXian };
     const b = customThemes.find((x) => x.id === theme);
     return { id: b?.id ?? "theme", name: b?.name ?? theme };
   }
@@ -93,19 +89,6 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   function handleExportCurrent() {
     const { id, name } = currentThemeMeta();
     downloadBundle(exportComputedTheme(id, name));
-  }
-
-  async function handleCopyCurrent() {
-    const { id, name } = currentThemeMeta();
-    try {
-      await navigator.clipboard.writeText(
-        serializeBundle(exportComputedTheme(id, name))
-      );
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // clipboard blocked — the export (download) button stays reliable
-    }
   }
 
   // ── import ──
@@ -147,36 +130,6 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
       setImportError("");
     } catch {
       setImportError(t.profile.themeImportReadFailed);
-    }
-  }
-
-  // 修仙 dogfood: EXPORT the shipped 修仙 built-in (colours) + attach the sample
-  // 用詞 overlay, then run the whole thing back through the import path — proving
-  // the export→import loop carries colours AND wording. The example is an
-  // editable custom copy; the built-in 修仙 entry stays as-is.
-  function handleImportXianExample() {
-    const base = exportBuiltinTheme(
-      "xian",
-      "xian-example",
-      t.profile.themeExampleName
-    );
-    const withWording: ThemeBundle = {
-      ...base,
-      colors: Object.keys(base.colors).length
-        ? base.colors
-        : { "--color-accent": "#7c3aed" },
-      wording: XIAN_EXAMPLE_WORDING,
-    };
-    const parsed = parseImportedBundle(serializeBundle(withWording));
-    if ("error" in parsed) {
-      setImportError(parsed.error);
-      setView("import");
-      return;
-    }
-    const err = addBundle(parsed.bundle);
-    if (err) {
-      setImportError(err);
-      setView("import");
     }
   }
 
@@ -509,25 +462,20 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
         <button type="button" className="doc-btn" onClick={handleExportCurrent}>
           {t.profile.themeExport}
         </button>
-        <button type="button" className="doc-btn" onClick={handleCopyCurrent}>
-          {copied ? t.profile.themeCopied : t.profile.themeCopy}
-        </button>
       </div>
 
       <div className="ts-list">
-        {/* built-ins: selectable, not editable/deletable */}
-        {(["office", "xian"] as const).map((builtin) => (
-          <div key={builtin} className="ts-row">
-            <button
-              type="button"
-              className={`ts-pick${theme === builtin ? " ts-pick--active" : ""}`}
-              onClick={() => setTheme(builtin)}
-            >
-              {builtin === "office" ? t.profile.themeOffice : t.profile.themeXian}
-              <span className="ts-tag">{t.settings.themeBuiltinTag}</span>
-            </button>
-          </div>
-        ))}
+        {/* built-in: office is the only built-in — selectable, not editable/deletable */}
+        <div className="ts-row">
+          <button
+            type="button"
+            className={`ts-pick${theme === "office" ? " ts-pick--active" : ""}`}
+            onClick={() => setTheme("office")}
+          >
+            {t.profile.themeOffice}
+            <span className="ts-tag">{t.settings.themeBuiltinTag}</span>
+          </button>
+        </div>
 
         {customThemes.map((b) => (
           <div key={b.id} className="ts-row">
@@ -573,16 +521,6 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
           </div>
         ))}
       </div>
-
-      {!customThemes.some((b) => b.id === "xian-example") && (
-        <button
-          type="button"
-          className="add-entry"
-          onClick={handleImportXianExample}
-        >
-          + {t.profile.themeExampleImport}
-        </button>
-      )}
 
       {(() => {
         const target = customThemes.find((b) => b.id === confirmDeleteId);

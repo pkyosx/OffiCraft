@@ -69,6 +69,4 @@ var themeColorTokens = map[string]bool{
 	"--color-warn-bg":             true,
 	"--color-warn-border":         true,
 	"--color-warn-fg":             true,
-	"--color-xian-avatar-glow":    true,
-	"--color-xian-avatar-rim":     true,
 }

@@ -20,9 +20,8 @@ import { describe, it, expect } from "vitest";
 import { resolveStepBadge, STEP_STATUSES, type StepBadge } from "./stepBadge";
 import { zh, type Dict } from "../i18n/locales/zh";
 import { en } from "../i18n/locales/en";
-import { xian } from "../i18n/locales/xian";
 
-const DICTS: Record<string, Dict> = { zh, en, xian };
+const DICTS: Record<string, Dict> = { zh, en };
 
 /** The exact text TaskCard.renderStepBadge shows for a resolved badge. */
 function badgeText(t: Dict, badge: StepBadge): string {

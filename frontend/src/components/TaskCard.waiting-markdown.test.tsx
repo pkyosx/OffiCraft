@@ -26,7 +26,6 @@ import { I18nProvider } from "../i18n";
 import { TaskCard } from "./TaskCard";
 import { zh } from "../i18n/locales/zh";
 import { en } from "../i18n/locales/en";
-import { xian } from "../i18n/locales/xian";
 import type { Member } from "../types";
 import type { TaskView, TaskStepView, OutsourceWorkerView } from "../api/adapter";
 
@@ -179,7 +178,6 @@ describe("waiting label carries no orphan separator (T-a20b)", () => {
   it.each([
     ["zh", zh, "等待中"],
     ["en", en, "Waiting"],
-    ["xian", xian, "候緣"],
   ])("%s dict keeps waitingLabel a bare word", (_name, dict, expected) => {
     // positive control: the entry exists and is the word we think it is — a
     // renamed/removed key fails here instead of vacuously passing below.
@@ -190,7 +188,6 @@ describe("waiting label carries no orphan separator (T-a20b)", () => {
   it.each([
     ["zh", { "oc.language": "zh" }, "等待中"],
     ["en", { "oc.language": "en" }, "Waiting"],
-    ["xian", { "oc.theme": "xian" }, "候緣"],
   ])("renders the %s label with no trailing separator", async (_name, ls, expected) => {
     for (const [k, v] of Object.entries(ls)) localStorage.setItem(k, v);
 
@@ -228,9 +225,9 @@ describe("waiting label carries no orphan separator (T-a20b)", () => {
 // deleted block used to render on, so the absence is a real removal and not an
 // unmet precondition.
 describe("task-level waiting block is gone, step-level survives (T-c514)", () => {
-  // The locale suite above parks `oc.theme: xian` in localStorage, which the
-  // I18nProvider picks up and would render assertion ③'s pill as 候外緣. Clear
-  // it so this test asserts the zh wording it names, independent of run order.
+  // The locale suite above parks `oc.language` in localStorage, which the
+  // I18nProvider picks up. Clear it so this test asserts the zh wording it
+  // names, independent of run order.
   beforeEach(() => {
     localStorage.clear();
   });

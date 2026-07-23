@@ -90,7 +90,8 @@ const (
 	// org.name it is NOT an agent read path — it never enters get_global_context.
 	settingOwnerName = "owner.name"
 	// settingDisplayTheme (T-0b41-p2) is the owner's cockpit visual theme
-	// ("office" / "xian"). Server-backed (PATCH /api/settings) so the choice
+	// ("office", the only built-in, or a custom theme id). Server-backed (PATCH
+	// /api/settings) so the choice
 	// syncs across the owner's devices — but it must also apply BEFORE login, so
 	// the frontend keeps a localStorage cache and treats this server value as the
 	// cross-device source of truth reconciled at login. "" (default) = never set:
@@ -112,7 +113,7 @@ const (
 // two display prefs (T-0b41-p2). A PATCH value outside the set (and non-empty,
 // which clears back to unset) is a 422 — the frontend only ever renders these
 // concrete values, so an out-of-set string would only be corruption.
-var displayThemeAllowed = map[string]bool{"office": true, "xian": true}
+var displayThemeAllowed = map[string]bool{"office": true}
 var displayLanguageAllowed = map[string]bool{"zh": true, "en": true}
 
 // defaultOutsourceMaxParallel is the code-side default when the key was never

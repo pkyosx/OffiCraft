@@ -4,8 +4,7 @@ package main
 // optional `wording` overlay (per-language message-key text overrides). The
 // overlay is `{ <lang>: { <code>: <replacement text> } }`:
 //
-//   - the LANGUAGE key is `zh` or `en` (the built-in `xian` theme carries its
-//     own copy and is NOT part of the user override layer — P3 decisions);
+//   - the LANGUAGE key is `zh` or `en`;
 //   - the CODE key must be an i18n message code in the generated whitelist
 //     (messageKeys, message_keys_gen.go — extracted from locales/en.ts, the
 //     single source of truth shared with the client + mock);
@@ -38,9 +37,8 @@ const (
 	maxWordingEntriesPerLang = 1000
 )
 
-// wordingLangAllowed is the closed set of override languages. `xian` is a
-// built-in theme's own copy, not a user override layer (P3 decisions), so it is
-// intentionally excluded.
+// wordingLangAllowed is the closed set of override languages (the two UI
+// languages). Any other language key is a 422.
 var wordingLangAllowed = map[string]bool{"zh": true, "en": true}
 
 // validateWording validates one bundle's optional wording overlay. `where` is

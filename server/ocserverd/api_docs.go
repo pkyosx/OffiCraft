@@ -73,6 +73,7 @@ var docReadingOrder = []string{
 	"members",
 	"tasks",
 	"settings",
+	"theme",
 	"best-practices",
 	"architecture",
 	"glossary",

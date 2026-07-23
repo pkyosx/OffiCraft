@@ -315,9 +315,8 @@ export function SettingsPage({
 
   if (view.kind === "theme") {
     // 主題 — the theme MANAGEMENT surface (T-16a1 P3b). Add / import / export /
-    // edit (friendly colours + 用詞 overlay) / delete + the 修仙 dogfood
-    // example. The ProfileDropdown keeps only the theme SELECTOR + language
-    // (owner IA: 偏好=選擇, 設定=管理).
+    // edit (friendly colours + 用詞 overlay) / delete. The ProfileDropdown keeps
+    // only the theme SELECTOR + language (owner IA: 偏好=選擇, 設定=管理).
     return (
       <ThemeSettings crumbs={[crumbRoot, { label: t.settings.themeManage }]} />
     );
@@ -479,9 +478,9 @@ export function SettingsPage({
           <ChevronRightIcon size={18} className="set-entry__chev" />
         </button>
         {/* 主題 — theme MANAGEMENT (T-16a1 P3b): add / edit colours (friendly,
-         * grouped) / 用詞 overlay / import / export / delete + 修仙 dogfood.
-         * Moved here from the profile dropdown, which keeps only the theme
-         * SELECTOR + language (owner IA: 偏好=選擇, 設定=管理). */}
+         * grouped) / 用詞 overlay / import / export / delete. Moved here from the
+         * profile dropdown, which keeps only the theme SELECTOR + language
+         * (owner IA: 偏好=選擇, 設定=管理). */}
         <button
           type="button"
           className="set-entry"

@@ -193,14 +193,14 @@ func TestLoadAuthSettingsDisplayPrefs(t *testing.T) {
 	}
 	// Stored values land in the boot snapshot verbatim.
 	d := newTestDAL(t)
-	if err := d.PutSetting(settingDisplayTheme, "xian"); err != nil {
+	if err := d.PutSetting(settingDisplayTheme, "office"); err != nil {
 		t.Fatal(err)
 	}
 	if err := d.PutSetting(settingDisplayLanguage, "en"); err != nil {
 		t.Fatal(err)
 	}
 	got2, _ := loadForTest(t, d, defaultConfig())
-	if got2.displayTheme != "xian" || got2.displayLanguage != "en" {
+	if got2.displayTheme != "office" || got2.displayLanguage != "en" {
 		t.Fatalf("stored display prefs must load into the snapshot: theme=%q lang=%q",
 			got2.displayTheme, got2.displayLanguage)
 	}

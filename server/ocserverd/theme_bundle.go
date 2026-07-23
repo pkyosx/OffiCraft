@@ -59,8 +59,10 @@ var (
 )
 
 // reservedThemeIDs are the built-in theme names — a custom bundle must never
-// claim one (the built-ins are applied via data-theme, not setProperty).
-var reservedThemeIDs = map[string]bool{"office": true, "xian": true}
+// claim one (the built-in is applied via data-theme, not setProperty). office
+// is the only built-in now (修仙 is an importable custom bundle), so "xian" is a
+// perfectly legal custom id.
+var reservedThemeIDs = map[string]bool{"office": true}
 
 // colorInjectionMarkers are structure-breaking substrings a concrete colour can
 // never legitimately contain. The allowlist grammar already rejects every one

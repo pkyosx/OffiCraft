@@ -20,7 +20,6 @@ import { TaskCard } from "./TaskCard";
 import { resolveStepBadge } from "../lib/stepBadge";
 import { zh } from "../i18n/locales/zh";
 import { en } from "../i18n/locales/en";
-import { xian } from "../i18n/locales/xian";
 import type { Member } from "../types";
 import type { TaskView, TaskStepView } from "../api/adapter";
 
@@ -166,8 +165,8 @@ describe("TaskCard edge ③ — all-superseded task reports 0/0 (T-1aea)", () =>
 });
 
 describe("i18n — stepStatus.superseded exists in every locale (T-1aea)", () => {
-  it("zh / en / xian all carry a non-empty label", () => {
-    for (const locale of [zh, en, xian]) {
+  it("zh / en all carry a non-empty label", () => {
+    for (const locale of [zh, en]) {
       expect(locale.tasks.stepStatus.superseded).toBeTruthy();
     }
   });

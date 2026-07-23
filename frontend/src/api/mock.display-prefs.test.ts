@@ -19,13 +19,13 @@ describe("mock settings — display prefs (display_theme / display_language)", (
 
   it("PATCHes display prefs and reads them back durably", async () => {
     const s = await mockApi.patchServerSettings({
-      displayTheme: "xian",
+      displayTheme: "office",
       displayLanguage: "en",
     });
-    expect(s.displayTheme).toBe("xian");
+    expect(s.displayTheme).toBe("office");
     expect(s.displayLanguage).toBe("en");
     const again = await mockApi.getServerSettings();
-    expect(again.displayTheme).toBe("xian");
+    expect(again.displayTheme).toBe("office");
     expect(again.displayLanguage).toBe("en");
   });
 
@@ -46,7 +46,7 @@ describe("mock settings — display prefs (display_theme / display_language)", (
   });
 
   it("clears a display pref back to \"\" on an empty patch value", async () => {
-    await mockApi.patchServerSettings({ displayTheme: "xian" });
+    await mockApi.patchServerSettings({ displayTheme: "office" });
     const cleared = await mockApi.patchServerSettings({ displayTheme: "" });
     expect(cleared.displayTheme).toBe("");
   });

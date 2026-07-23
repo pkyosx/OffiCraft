@@ -114,12 +114,14 @@ describe("validateThemeBundles", () => {
 });
 
 describe("isValidDisplayTheme", () => {
-  it("admits \"\", built-ins, and an existing custom id only", () => {
+  it("admits \"\", the office built-in, and an existing custom id only", () => {
     const ids = new Set(["midnight"]);
     expect(isValidDisplayTheme("", ids)).toBe(true);
     expect(isValidDisplayTheme("office", ids)).toBe(true);
-    expect(isValidDisplayTheme("xian", ids)).toBe(true);
     expect(isValidDisplayTheme("midnight", ids)).toBe(true);
+    // "xian" is no longer a built-in — it is only admissible as a custom id.
+    expect(isValidDisplayTheme("xian", ids)).toBe(false);
+    expect(isValidDisplayTheme("xian", new Set(["xian"]))).toBe(true);
     expect(isValidDisplayTheme("ghost", ids)).toBe(false);
   });
 });

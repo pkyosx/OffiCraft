@@ -31,52 +31,6 @@ export function exportComputedTheme(
   return { id, name, colors };
 }
 
-/** Export a built-in theme (office/xian) by momentarily applying its
- * data-theme layer with any inline overrides stripped, reading the resolved
- * colours, then restoring the previous state verbatim. Used by the 修仙 dogfood
- * ("匯入修仙範例") to prove the export→import loop against a shipped theme. */
-export function exportBuiltinTheme(
-  builtin: "office" | "xian",
-  id: string,
-  name: string,
-  el: HTMLElement = document.documentElement
-): ThemeBundle {
-  const prevTheme = el.dataset.theme;
-  const inline: [string, string][] = [];
-  for (const tok of THEME_COLOR_TOKENS) {
-    const v = el.style.getPropertyValue(tok);
-    if (v) {
-      inline.push([tok, v]);
-      el.style.removeProperty(tok);
-    }
-  }
-  el.dataset.theme = builtin;
-  const bundle = exportComputedTheme(id, name, el);
-  el.dataset.theme = prevTheme ?? "office";
-  for (const [tok, v] of inline) el.style.setProperty(tok, v);
-  return bundle;
-}
-
-/** The 修仙 dogfood example's 用詞 (wording) overlay (T-16a1 P3) — a small,
- * immersive sample proving a theme can carry copy overrides, not just colours.
- * Keys are real message codes (in the whitelist); values are immersive
- * re-phrasings for both languages. Attached to the exported 修仙 example bundle
- * so "匯入修仙範例" ships colours AND wording. */
-export const XIAN_EXAMPLE_WORDING: Record<string, Record<string, string>> = {
-  zh: {
-    "nav.office": "宗門",
-    "nav.tasks": "任務榜",
-    "nav.monitor": "洞天",
-    "nav.replies": "問道",
-  },
-  en: {
-    "nav.office": "Sect",
-    "nav.tasks": "Quest Board",
-    "nav.monitor": "Grotto",
-    "nav.replies": "Seek Dao",
-  },
-};
-
 /** Parse and validate imported bundle text. Returns the normalized bundle or a
  * human error. Never mutates anything — the caller decides whether to save. */
 export function parseImportedBundle(

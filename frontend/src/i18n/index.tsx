@@ -10,36 +10,27 @@ import {
 } from "react";
 import { zh, type Dict } from "./locales/zh";
 import { en } from "./locales/en";
-import { xian } from "./locales/xian";
 import { api } from "../api";
 import { hasToken, AUTH_LOGIN_EVENT } from "../api/auth";
 import { isValidDisplayTheme, type ThemeBundle } from "../lib/themeBundle";
 import { applyWording } from "./wording";
 
-export type Locale = "zh" | "en" | "xian";
+export type Locale = "zh" | "en";
 /** User-selectable language (mockup 語言 toggle offers only 中文 / English). */
 export type Language = "zh" | "en";
-/** Built-in visual themes (辦公室 default / 修仙). The ACTIVE selector is a
- * plain string (T-16a1 P2): a built-in name here, or a custom bundle's id. */
-export type Theme = "office" | "xian";
+/** Built-in visual theme (辦公室). office is the ONLY built-in — every other
+ * theme (e.g. 修仙) is now an importable custom bundle. The ACTIVE selector is
+ * a plain string (T-16a1 P2): the built-in name here, or a custom bundle's id. */
+export type Theme = "office";
 
 /** Matches a custom bundle id (mirrors THEME_ID_RE in lib/themeBundle). */
 const THEME_ID_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
 
 function isSelectableTheme(v: string): boolean {
-  return v === "office" || v === "xian" || THEME_ID_RE.test(v);
+  return v === "office" || THEME_ID_RE.test(v);
 }
 
-const DICTS: Record<Locale, Dict> = { zh, en, xian };
-
-// Theme→copy decoupling (T-16a1 P1). A visual theme is copy-neutral by default:
-// it restyles (data-theme → CSS tokens) but leaves wording to the language
-// toggle. A theme only overrides copy if it EXPLICITLY opts in here — so adding
-// a new visual theme (or a user-defined one) can never hijack the UI language.
-// Only 修仙 opts in today, mapping to its immersive `xian` dict; that legacy
-// coupling is preserved verbatim (no regression) until P3 replaces this map
-// with per-theme 用詞包 (wording-override) bundles.
-const THEME_COPY_LOCALE: Partial<Record<Theme, Locale>> = { xian: "xian" };
+const DICTS: Record<Locale, Dict> = { zh, en };
 
 // localStorage keys for theme/language. DUAL-LAYER (T-0b41-p2): these prefs are
 // now server-backed (DB display.theme / display.language behind the owner-gated
@@ -85,12 +76,13 @@ function writeStored(key: string, value: string | null) {
 }
 
 interface I18nContextValue {
-  /** Effective render locale: 修仙 theme surfaces the immersive `xian` dict. */
+  /** Effective render locale — follows the language toggle (theme↔locale are
+   * decoupled, T-16a1 P1: a visual theme never hijacks the UI language). */
   locale: Locale;
   t: Dict;
   language: Language;
   setLanguage: (next: Language) => void;
-  /** Active theme: a built-in name ("office"/"xian") or a custom bundle id. */
+  /** Active theme: the built-in name ("office") or a custom bundle id. */
   theme: string;
   setTheme: (next: string) => void;
   /** The owner's saved custom theme bundles (server-backed, reconciled at
@@ -114,15 +106,14 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   );
   const [theme, setThemeState] = useState<string>(() => readStoredTheme());
   const [customThemes, setCustomThemesState] = useState<ThemeBundle[]>([]);
-  // Effective copy locale: a built-in theme's explicit copy-override (only 修仙
-  // today), else the user's language toggle. Custom themes are purely visual
-  // (T-16a1 P2 does not touch wording), so they always defer to `language`.
-  const locale: Locale =
-    THEME_COPY_LOCALE[theme as Theme] ?? language;
+  // Effective copy locale: the user's language toggle. Themes are copy-neutral
+  // by default (theme↔locale decoupled, T-16a1 P1) — a visual theme never
+  // hijacks the UI language; copy comes from `language`, with a custom theme's
+  // optional 用詞 overlay laid on top (below).
+  const locale: Locale = language;
   // The active custom theme's 用詞 (wording) overlay for the current language,
-  // laid on top of the base dict (T-16a1 P3). A built-in theme (office/xian)
-  // has no user overlay; a custom theme keys its overlay on `language` (zh/en)
-  // — custom themes are copy-neutral, so locale === language for them. FALLBACK
+  // laid on top of the base dict (T-16a1 P3). The built-in office theme has no
+  // user overlay; a custom theme keys its overlay on `language` (zh/en). FALLBACK
   // (owner decision b): codes without an override keep the base dict's text, so
   // the interface's original language is preserved for everything unwrapped.
   const t = useMemo(() => {
@@ -137,18 +128,18 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   // so the NEXT apply can remove exactly this set before painting the next one.
   const appliedTokensRef = useRef<string[]>([]);
 
-  // Apply the active theme. Built-ins ride <html data-theme> and any leftover
-  // inline vars from a previous custom theme are cleared. A custom id resolves
-  // to its bundle: take the neutral office base via data-theme, then push each
-  // colour onto documentElement via setProperty (the value is NEVER concatenated
-  // into a stylesheet — the security boundary). A dangling id (bundle not yet
-  // reconciled / deleted) falls back to the office base.
+  // Apply the active theme. The office built-in rides <html data-theme> and any
+  // leftover inline vars from a previous custom theme are cleared. A custom id
+  // resolves to its bundle: take the neutral office base via data-theme, then
+  // push each colour onto documentElement via setProperty (the value is NEVER
+  // concatenated into a stylesheet — the security boundary). A dangling id
+  // (bundle not yet reconciled / deleted) falls back to the office base.
   useEffect(() => {
     const root = document.documentElement;
     for (const tok of appliedTokensRef.current) root.style.removeProperty(tok);
     appliedTokensRef.current = [];
 
-    if (theme === "office" || theme === "xian") {
+    if (theme === "office") {
       root.dataset.theme = theme;
       return;
     }

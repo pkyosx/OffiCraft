@@ -4,7 +4,7 @@
 //
 // The /api/settings parameter knobs (登入有效期 / 自動換手門檻) MOVED to the
 // 設定 page's 參數調整 entry (owner 2026-07-12), and theme MANAGEMENT (import /
-// export / edit / delete + 修仙 dogfood) MOVED to 設定/主題 (T-16a1 P3b →
+// export / edit / delete) MOVED to 設定/主題 (T-16a1 P3b →
 // ThemeSettings.test.tsx). Here we pin that the dropdown kept only selection.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -56,21 +56,18 @@ describe("ProfileDropdown · preferences scope", () => {
 
   it("keeps only the theme SELECTOR — no management affordances (moved to 設定/主題)", async () => {
     const utils = await openPreferences();
-    // Selection rows are present.
+    // The built-in selection row is present (office is the only built-in).
     expect(utils.getByText(p.themeOffice)).toBeTruthy();
-    expect(utils.getByText(p.themeXian)).toBeTruthy();
-    // Management chips / dogfood no longer live in the quick menu.
-    const text = utils.container.textContent ?? "";
+    // Management chips no longer live in the quick menu.
     expect(utils.queryByText(p.themeConfirmImport)).toBeNull();
-    expect(text).not.toContain(p.themeExampleImport);
     // A hint points the owner to the settings page instead.
     expect(utils.getByText(p.themeManageHint)).toBeTruthy();
   });
 
-  it("selects a built-in theme from the quick picker", async () => {
+  it("selects the built-in office theme from the quick picker", async () => {
     const utils = await openPreferences();
-    fireEvent.click(utils.getByText(p.themeXian));
-    expect(document.documentElement.dataset.theme).toBe("xian");
+    fireEvent.click(utils.getByText(p.themeOffice));
+    expect(document.documentElement.dataset.theme).toBe("office");
   });
 });
 

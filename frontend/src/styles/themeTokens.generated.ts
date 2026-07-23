@@ -67,6 +67,4 @@ export const THEME_COLOR_TOKENS: readonly string[] = [
   "--color-warn-bg",
   "--color-warn-border",
   "--color-warn-fg",
-  "--color-xian-avatar-glow",
-  "--color-xian-avatar-rim",
 ];

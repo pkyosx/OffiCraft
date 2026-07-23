@@ -636,8 +636,8 @@ export interface ServerSettingsPatch {
   /** The owner's display nickname (T-0b41); trimmed server-side, max 80 runes,
    * "" clears it back to the localized default (server 422s anything longer). */
   ownerName?: string;
-  /** The owner's cockpit visual theme (T-0b41-p2); "office" | "xian" (or "" to
-   * clear). The server 422s anything else. */
+  /** The owner's cockpit visual theme (T-0b41-p2); "" (unset) | "office" (the
+   * built-in) | an existing custom theme id. The server 422s anything else. */
   displayTheme?: string;
   /** The owner's cockpit language (T-0b41-p2); "zh" | "en" (or "" to clear).
    * The server 422s anything else. */

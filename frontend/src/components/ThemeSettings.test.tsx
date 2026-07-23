@@ -1,7 +1,7 @@
 // ThemeSettings (T-16a1 P3b): the 設定/主題 management surface that theme
 // management MOVED to from the profile dropdown. Covers import (moved verbatim
-// + injection block), friendly grouped colour editing, the 用詞 (wording)
-// overlay editor round-trip, and the 修仙 dogfood (colours + wording).
+// + injection block), friendly grouped colour editing, and the 用詞 (wording)
+// overlay editor round-trip.
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, fireEvent, within, act } from "@testing-library/react";
@@ -139,25 +139,6 @@ describe("ThemeSettings · wording overlay", () => {
     const srv = await api.getServerSettings();
     const b = srv.customThemes.find((x) => x.id === "midnight");
     expect(b?.wording?.zh?.["common.apply"]).toBe("套用替代");
-  });
-});
-
-describe("ThemeSettings · 修仙 dogfood", () => {
-  it("imports the 修仙 example carrying both colours and a wording overlay", async () => {
-    setToken("owner-token");
-    const utils = await renderManage();
-    fireEvent.click(
-      utils.getByRole("button", { name: new RegExp(p.themeExampleImport) })
-    );
-
-    expect(await utils.findByText(p.themeExampleName)).toBeTruthy();
-    const srv = await api.getServerSettings();
-    const b = srv.customThemes.find((x) => x.id === "xian-example");
-    expect(b).toBeTruthy();
-    // The example is dogfood for the whole bundle shape: colours AND wording.
-    expect(Object.keys(b!.colors).length).toBeGreaterThan(0);
-    expect(b!.wording?.zh?.["nav.tasks"]).toBeTruthy();
-    expect(b!.wording?.en?.["nav.tasks"]).toBeTruthy();
   });
 });
 

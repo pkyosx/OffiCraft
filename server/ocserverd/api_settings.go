@@ -250,7 +250,7 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		displayTheme = strings.TrimSpace(*body.DisplayTheme)
 		if !isValidDisplayTheme(displayTheme, customIDs) {
 			writeError(w, http.StatusUnprocessableEntity,
-				`display_theme must be "", office, xian, or an existing custom theme id`)
+				`display_theme must be "", office, or an existing custom theme id`)
 			return
 		}
 	}

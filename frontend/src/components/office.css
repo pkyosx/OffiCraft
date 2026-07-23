@@ -102,26 +102,6 @@
   color: var(--color-text-muted);
   flex: none;
 }
-/* Theme-dependent avatar glyph: Avatar renders BOTH the office user icon and
- * the xian cultivator SVG; the html[data-theme] attribute selector shows
- * exactly one (pure-CSS switch, no JS theme read). */
-.avatar__glyph--xian {
-  display: none;
-}
-[data-theme="xian"] .avatar__glyph--office {
-  display: none;
-}
-[data-theme="xian"] .avatar__glyph--xian {
-  display: block;
-}
-/* xian avatar container — circular jade-lit medallion: warm radial glow behind
- * the head, antique-gold rim, and the robe hem clipped by the circle. */
-[data-theme="xian"] .avatar {
-  border-radius: 50%;
-  overflow: hidden;
-  background: radial-gradient(circle at 50% 32%, var(--color-xian-avatar-glow), var(--color-bg));
-  border: 1px solid var(--color-xian-avatar-rim);
-}
 .badge {
   display: inline-flex;
   align-items: center;
@@ -422,9 +402,6 @@
   border-radius: 11px; /* match .avatar so the ring hugs the glyph */
   cursor: pointer;
   outline: none;
-}
-[data-theme="xian"] .member-card__avatar {
-  border-radius: 50%; /* match the circular xian .avatar */
 }
 .member-card__avatar:hover,
 .member-card__avatar:focus-visible {

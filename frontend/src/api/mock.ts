@@ -2558,7 +2558,7 @@ export const mockApi: Api = {
         "http 422 for PATCH /api/settings",
         422,
         "validation_error",
-        'display_theme must be "", office, xian, or an existing custom theme id'
+        'display_theme must be "", office, or an existing custom theme id'
       );
     }
     if (

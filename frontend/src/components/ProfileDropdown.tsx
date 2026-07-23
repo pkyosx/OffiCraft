@@ -30,14 +30,14 @@ type View = "main" | "preferences" | "password";
 /**
  * Profile menu that drops from the topbar profile pill.
  *  - main view: profile header (inline rename), Preferences row, Log out.
- *  - preferences view: Theme SELECTOR (辦公室 / 修仙 / custom) + Language
+ *  - preferences view: Theme SELECTOR (辦公室 / custom) + Language
  *    (中文 / English), then a 修改密碼 row.
  *  - password view: current / new / repeat → POST /api/auth/change-password.
  *
  * Scope (owner 2026-07-12): this menu holds APPEARANCE + ACCOUNT IDENTITY only.
  * T-16a1 P3b narrowed 外觀 further: this dropdown now only SELECTS a theme; all
- * theme MANAGEMENT (add / edit colours / 用詞 / import / export / delete + 修仙
- * dogfood) moved to the 設定 page's 主題 sub-section (SettingsPage → ThemeSettings)
+ * theme MANAGEMENT (add / edit colours / 用詞 / import / export / delete)
+ * moved to the 設定 page's 主題 sub-section (SettingsPage → ThemeSettings)
  * so selection stays a quick flip here and management lives in one place. The
  * server PARAMETER knobs (登入有效期 / 自動換手門檻) likewise live in 設定/參數調整.
  *
@@ -221,18 +221,6 @@ export function ProfileDropdown({
                   {t.profile.themeOffice}
                 </button>
               </li>
-              <li className="profile-dd__theme-row">
-                <button
-                  type="button"
-                  className={`profile-dd__theme-pick${
-                    theme === "xian" ? " profile-dd__theme-pick--active" : ""
-                  }`}
-                  onClick={() => setTheme("xian")}
-                >
-                  {t.profile.themeXian}
-                </button>
-              </li>
-
               {customThemes.map((b) => (
                 <li key={b.id} className="profile-dd__theme-row">
                   <button

@@ -46,7 +46,8 @@
   /* ── T-16a1 P1 地基:把散落 component CSS 的寫死色收進 token 層 ──
    * 目的是讓「多主題 + 使用者自建主題」有完整、單一的顏色契約:一個主題
    * ＝ re-value 這組語意 token。新增值＝原本寫死的 office 值,故 office 主題
-   * 計算色不變;需要隨主題走的(見下 xian 覆蓋 / color-mix on accent 等)才變。 */
+   * 計算色不變;使用者自訂主題(可匯入的 bundle)透過 setProperty 覆蓋這組
+   * token 值。office 是唯一內建主題。 */
 
   /* 疊層 / 陰影 / 遮罩(系統性,前景/背景基色 × 透明度) */
   --color-overlay: #fff;   /* border/hover/背景 白疊層基色;淺色主題覆寫成深色即自動翻轉 */
@@ -109,47 +110,6 @@
 
   --font-sans: "Schibsted Grotesk", "Noto Sans TC", system-ui, -apple-system,
     "Segoe UI", sans-serif;
-  /* page-level big headings — office inherits the body family; xian swaps in a
-   * calligraphic display face (see the xian block below) */
+  /* page-level big headings — office inherits the body family */
   --font-title: var(--font-sans);
-}
-
-/* 修仙 theme — full immersive dark-ink restyle per the approved 修仙 mockup:
- * a warm ink-brown canvas (#14100a) with parchment-gold text, jade-green
- * accents (online / CTA), and amber for waking/warning. Body copy switches to
- * a serif (明體) stack and page titles to the Ma Shan Zheng calligraphic face
- * (both loaded via Google Fonts in index.html). Only this xian layer changes;
- * the office default theme keeps every :root token untouched. The immersive
- * *copy* is delivered via the `xian` i18n dict. */
-:root[data-theme="xian"] {
-  --color-bg: #14100a;
-  --color-card: #221a11;
-  --color-border: #41341b;
-  --color-text: #ece1c7;
-  --color-text-strong: #f8efd7;
-  --color-text-muted: #cbb585;
-  --color-accent: #8ccba8;
-  --color-accent-soft: rgba(140, 203, 168, 0.12);
-  --color-accent-cta-bg: #213021;
-  --color-accent-cta-bg-hover: #2a3c2a;
-  --color-indigo: #2c3a25;
-  /* On the warm ink canvas a saturated blue clashes; the active-tab indicator
-   * uses the jade accent so it reads as "selected" within the xian palette. */
-  --color-tab-active: #8ccba8;
-  /* slightly lighter periwinkle for contrast on the warm ink canvas */
-  --color-task-id: #a7b4d8;
-  --color-dot-online: #8ccba8;
-  --color-dot-waking: #d8a85a;
-  /* warn panel, xian tint (T-7fa1) — same role, warmer to match this theme's
-   * parchment card (#221a11). */
-  --color-warn-bg: #33260f;
-  --color-warn-border: #7d6330;
-  --color-warn-fg: #f0ddb4;
-
-  /* xian-only 裝飾:頭像徑向暖光 / 古金邊(office 無對應,故僅此覆蓋) */
-  --color-xian-avatar-glow: #241a10;
-  --color-xian-avatar-rim: #5a4c28;
-
-  --font-sans: "Noto Serif TC", "Noto Sans TC", serif;
-  --font-title: "Ma Shan Zheng", cursive;
 }

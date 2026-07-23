@@ -32,11 +32,12 @@ export const MAX_THEME_NAME_LEN = 80;
 export const MAX_WORDING_VALUE_LEN = 200;
 export const MAX_WORDING_ENTRIES_PER_LANG = 1000;
 
-/** The built-in theme names a custom bundle must never claim. */
-export const RESERVED_THEME_IDS = ["office", "xian"] as const;
+/** The built-in theme names a custom bundle must never claim. office is the
+ * only built-in now (修仙 is an importable custom bundle, so "xian" is a
+ * perfectly legal custom id). */
+export const RESERVED_THEME_IDS = ["office"] as const;
 
-/** The override languages a wording overlay may key on. `xian` is a built-in
- * theme's own copy, not a user override layer (P3 decisions). */
+/** The override languages a wording overlay may key on. */
 export const WORDING_LANGS = ["zh", "en"] as const;
 
 const THEME_TOKEN_SET = new Set<string>(THEME_COLOR_TOKENS);

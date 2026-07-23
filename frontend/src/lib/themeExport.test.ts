@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   bundleFilename,
-  exportBuiltinTheme,
   exportComputedTheme,
   parseImportedBundle,
   serializeBundle,
@@ -54,19 +53,6 @@ describe("exportComputedTheme", () => {
     );
 
     expect("bundle" in round).toBe(true);
-  });
-});
-
-describe("exportBuiltinTheme", () => {
-  it("restores the element's dataset.theme and inline vars verbatim", () => {
-    const el = freshRoot();
-    el.dataset.theme = "office";
-    el.style.setProperty("--color-accent", "#111111");
-
-    exportBuiltinTheme("xian", "xian-example", "例", el);
-
-    expect(el.dataset.theme).toBe("office");
-    expect(el.style.getPropertyValue("--color-accent")).toBe("#111111");
   });
 });
 
