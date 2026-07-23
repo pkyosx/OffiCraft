@@ -396,6 +396,7 @@ export const xian: Dict = {
     logout: "出關離場",
     back: "道場設定",
     theme: "外相",
+    themeManageHint: "於「宗門設定 › 外相」增易",
     themeOffice: "辦公室",
     themeXian: "修仙",
     themeImport: "引相",
@@ -749,6 +750,18 @@ export const xian: Dict = {
     software: "法器更新",
     roles: "職司錄",
     params: "法度調校",
+    // ── 外相執掌 (T-16a1 P3b) ──
+    themeManage: "外相",
+    themeColorsSection: "色相",
+    themeColorPicker: "點色",
+    themeWordingSection: "名相",
+    themeWordingHint: "填入替語即可易介面名相;留白則存其本真。",
+    themeWordingSearch: "尋名相…",
+    themeWordingOverride: "替語",
+    themeBuiltinTag: "本源",
+    themeWordingTag: "名相",
+    themeDeleteConfirm: (name: string) =>
+      `散去主題「${name}」?此舉不可逆。`,
     currentVersion: "當前版本",
     upToDate: "已是最新版",
     // 探新丹(GET /api/release/check,直問 GitHub 丹房)

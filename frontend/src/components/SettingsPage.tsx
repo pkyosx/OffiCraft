@@ -43,7 +43,9 @@ import {
   GearIcon,
   TrashIcon,
   RefreshIcon,
+  MoonIcon,
 } from "./icons";
+import { ThemeSettings } from "./ThemeSettings";
 import { ConfirmModal } from "./ConfirmModal";
 import { InlineEdit } from "./InlineEdit";
 import "./settings.css";
@@ -59,6 +61,7 @@ type View =
   | { kind: "software" }
   | { kind: "roles" }
   | { kind: "params" }
+  | { kind: "theme" }
   | { kind: "system" }
   | { kind: "custom" }
   | { kind: "boot" }
@@ -310,6 +313,16 @@ export function SettingsPage({
     );
   }
 
+  if (view.kind === "theme") {
+    // 主題 — the theme MANAGEMENT surface (T-16a1 P3b). Add / import / export /
+    // edit (friendly colours + 用詞 overlay) / delete + the 修仙 dogfood
+    // example. The ProfileDropdown keeps only the theme SELECTOR + language
+    // (owner IA: 偏好=選擇, 設定=管理).
+    return (
+      <ThemeSettings crumbs={[crumbRoot, { label: t.settings.themeManage }]} />
+    );
+  }
+
   if (view.kind === "system") {
     // 系統互動 — the read-only FIRST block of every agent's boot context. The
     // backend has NO write endpoint for it BY CONSTRUCTION (enforcement by
@@ -463,6 +476,22 @@ export function SettingsPage({
             <GearIcon size={18} />
           </span>
           <span className="set-entry__name">{t.settings.params}</span>
+          <ChevronRightIcon size={18} className="set-entry__chev" />
+        </button>
+        {/* 主題 — theme MANAGEMENT (T-16a1 P3b): add / edit colours (friendly,
+         * grouped) / 用詞 overlay / import / export / delete + 修仙 dogfood.
+         * Moved here from the profile dropdown, which keeps only the theme
+         * SELECTOR + language (owner IA: 偏好=選擇, 設定=管理). */}
+        <button
+          type="button"
+          className="set-entry"
+          data-testid="settings-theme-entry"
+          onClick={() => setView({ kind: "theme" })}
+        >
+          <span className="set-entry__icon set-entry__icon--violet">
+            <MoonIcon size={18} />
+          </span>
+          <span className="set-entry__name">{t.settings.themeManage}</span>
           <ChevronRightIcon size={18} className="set-entry__chev" />
         </button>
         {/* 使用說明 is NOT here any more — it is a top-level nav tab, to the

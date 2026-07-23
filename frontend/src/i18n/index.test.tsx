@@ -8,6 +8,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, waitFor, act } from "@testing-library/react";
 import { I18nProvider, useI18n } from "./index";
+import { zh } from "./locales/zh";
 import { mockApi, __resetMock } from "../api/mock";
 import { setToken, TOKEN_KEY } from "../api/auth";
 
@@ -178,5 +179,59 @@ describe("I18nProvider custom theme apply", () => {
     act(() => ctx.setLanguage("en"));
     act(() => ctx.setTheme("xian"));
     expect(ctx.locale).toBe("xian");
+  });
+});
+
+describe("I18nProvider custom theme wording overlay", () => {
+  const WORDED = {
+    id: "worded",
+    name: "Worded",
+    colors: { "--color-accent": "#123456" },
+    wording: {
+      zh: { "nav.tasks": "任務榜" },
+      en: { "nav.tasks": "Quest Board" },
+    },
+  };
+
+  beforeEach(() => {
+    __resetMock();
+    localStorage.clear();
+    document.documentElement.removeAttribute("style");
+    delete document.documentElement.dataset.theme;
+    render(
+      <I18nProvider>
+        <Capture />
+      </I18nProvider>
+    );
+  });
+
+  it("overrides an overridden code in the active language, leaving others intact", () => {
+    act(() => ctx.commitCustomThemes([WORDED]));
+    act(() => ctx.setTheme("worded"));
+    // zh is the default language → the zh override applies.
+    expect(ctx.t.nav.tasks).toBe("任務榜");
+    // A non-overridden code keeps its base value (fallback = original language).
+    expect(ctx.t.nav.monitor).toBe(zh.nav.monitor);
+  });
+
+  it("follows the language toggle for the overlay language", () => {
+    act(() => ctx.setLanguage("en"));
+    act(() => ctx.commitCustomThemes([WORDED]));
+    act(() => ctx.setTheme("worded"));
+    expect(ctx.t.nav.tasks).toBe("Quest Board");
+  });
+
+  it("restores the base wording when switching away from the theme", () => {
+    act(() => ctx.commitCustomThemes([WORDED]));
+    act(() => ctx.setTheme("worded"));
+    expect(ctx.t.nav.tasks).toBe("任務榜");
+    act(() => ctx.setTheme("office"));
+    expect(ctx.t.nav.tasks).toBe(zh.nav.tasks);
+  });
+
+  it("leaves a custom theme without wording on the base dict", () => {
+    act(() => ctx.commitCustomThemes([SUNRISE]));
+    act(() => ctx.setTheme("sunrise"));
+    expect(ctx.t.nav.tasks).toBe(zh.nav.tasks);
   });
 });

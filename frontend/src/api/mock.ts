@@ -764,7 +764,12 @@ const DEFAULT_MOCK_SETTINGS = {
   display_language: "",
   // Custom theme bundles (T-16a1 P2) — none saved out of the box, mirroring the
   // server (display.custom_themes absent).
-  custom_themes: [] as { id: string; name: string; colors: Record<string, string> }[],
+  custom_themes: [] as {
+    id: string;
+    name: string;
+    colors: Record<string, string>;
+    wording?: Record<string, Record<string, string>>;
+  }[],
 };
 let mockServerSettings = { ...DEFAULT_MOCK_SETTINGS };
 const MOCK_CLAIM_TOKEN = "mock-claim-token";

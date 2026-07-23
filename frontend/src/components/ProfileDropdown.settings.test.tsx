@@ -1,10 +1,11 @@
-// ProfileDropdown change-password (B3): the preferences sub-view keeps
-// appearance (theme/language) + a 修改密碼 sub-view — through the api seam
-// (mock adapter here; validation parity with the server).
+// ProfileDropdown change-password (B3): the preferences sub-view keeps the
+// theme SELECTOR + language + a 修改密碼 sub-view — through the api seam (mock
+// adapter here; validation parity with the server).
 //
 // The /api/settings parameter knobs (登入有效期 / 自動換手門檻) MOVED to the
-// 設定 page's 參數調整 entry (owner 2026-07-12) — their coverage lives in
-// SettingsPage.params.test.tsx; here we pin that the dropdown stayed clean.
+// 設定 page's 參數調整 entry (owner 2026-07-12), and theme MANAGEMENT (import /
+// export / edit / delete + 修仙 dogfood) MOVED to 設定/主題 (T-16a1 P3b →
+// ThemeSettings.test.tsx). Here we pin that the dropdown kept only selection.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
@@ -13,7 +14,7 @@ import { zh } from "../i18n/locales/zh";
 import { ProfileDropdown } from "./ProfileDropdown";
 import { __resetMock } from "../api/mock";
 import { api } from "../api";
-import { setToken, clearToken } from "../api/auth";
+import { clearToken } from "../api/auth";
 
 const p = zh.profile;
 
@@ -36,6 +37,10 @@ async function openPreferences() {
 beforeEach(() => {
   __resetMock();
   clearToken();
+  // The theme-selector test writes oc.theme to localStorage; clear it so a
+  // later test's first paint is not tinted (and stays on the zh default dict).
+  localStorage.clear();
+  delete document.documentElement.dataset.theme;
 });
 
 describe("ProfileDropdown · preferences scope", () => {
@@ -44,52 +49,28 @@ describe("ProfileDropdown · preferences scope", () => {
     const text = utils.container.textContent ?? "";
     expect(text).not.toContain(zh.settings.sessionTtl);
     expect(text).not.toContain(zh.settings.handover);
-    // Appearance + password remain.
+    // Theme selector + language + password remain.
     expect(utils.getByText(p.theme)).toBeTruthy();
     expect(utils.getByText(p.language)).toBeTruthy();
   });
-});
 
-describe("ProfileDropdown · theme picker", () => {
-  it("imports a pasted bundle and lists it as a selectable custom theme", async () => {
-    setToken("owner-token"); // enable the server-sync path in commitCustomThemes
+  it("keeps only the theme SELECTOR — no management affordances (moved to 設定/主題)", async () => {
     const utils = await openPreferences();
-    fireEvent.click(utils.getByText(p.themeImport));
-    fireEvent.change(utils.getByLabelText(p.themeImportTitle), {
-      target: {
-        value: JSON.stringify({
-          id: "midnight",
-          name: "午夜藍",
-          colors: { "--color-accent": "#0b1020" },
-        }),
-      },
-    });
-    fireEvent.click(utils.getByText(p.themeConfirmImport));
-    // Back on the list, the imported theme is now a row.
-    const row = await utils.findByText("午夜藍");
-    expect(row).toBeTruthy();
-    // It reached the server through the seam.
-    const s = await api.getServerSettings();
-    expect(s.customThemes.map((b) => b.id)).toContain("midnight");
+    // Selection rows are present.
+    expect(utils.getByText(p.themeOffice)).toBeTruthy();
+    expect(utils.getByText(p.themeXian)).toBeTruthy();
+    // Management chips / dogfood no longer live in the quick menu.
+    const text = utils.container.textContent ?? "";
+    expect(utils.queryByText(p.themeConfirmImport)).toBeNull();
+    expect(text).not.toContain(p.themeExampleImport);
+    // A hint points the owner to the settings page instead.
+    expect(utils.getByText(p.themeManageHint)).toBeTruthy();
   });
 
-  it("blocks an injection-shaped bundle inline and never reaches the server", async () => {
+  it("selects a built-in theme from the quick picker", async () => {
     const utils = await openPreferences();
-    fireEvent.click(utils.getByText(p.themeImport));
-    fireEvent.change(utils.getByLabelText(p.themeImportTitle), {
-      target: {
-        value: JSON.stringify({
-          id: "evil",
-          name: "Evil",
-          colors: { "--color-bg": "red; } body { background: url(x)" },
-        }),
-      },
-    });
-    fireEvent.click(utils.getByText(p.themeConfirmImport));
-    // Stays on the import view with an error; no custom theme persisted.
-    expect(utils.getByLabelText(p.themeImportTitle)).toBeTruthy();
-    const s = await api.getServerSettings();
-    expect(s.customThemes).toHaveLength(0);
+    fireEvent.click(utils.getByText(p.themeXian));
+    expect(document.documentElement.dataset.theme).toBe("xian");
   });
 });
 

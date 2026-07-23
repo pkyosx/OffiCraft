@@ -93,6 +93,48 @@ describe("mock settings — display prefs (display_theme / display_language)", (
     expect(s.customThemes).toEqual([]);
   });
 
+  it("saves a legal wording overlay and reads it back durably", async () => {
+    const s = await mockApi.patchServerSettings({
+      customThemes: [
+        {
+          id: "worded",
+          name: "Worded",
+          colors: { "--color-bg": "#101018" },
+          wording: {
+            zh: { "nav.tasks": "待辦" },
+            en: { "profile.themeOffice": "Office Mode" },
+          },
+        },
+      ],
+    });
+    expect(s.customThemes[0].wording?.zh["nav.tasks"]).toBe("待辦");
+    const again = await mockApi.getServerSettings();
+    expect(again.customThemes[0].wording?.en["profile.themeOffice"]).toBe(
+      "Office Mode"
+    );
+  });
+
+  it("422s an illegal wording overlay, writing nothing", async () => {
+    const bad: Record<string, Record<string, string>>[] = [
+      { zh: { "not.a.real.key": "x" } }, // non-whitelisted code
+      { xian: { "nav.tasks": "仙" } }, // language not in {zh,en}
+      { zh: { "nav.tasks": "字".repeat(201) } }, // over the 200-rune cap
+      { zh: { "nav.tasks": "a\nb" } }, // control character (newline)
+      { zh: { "nav.tasks": "   " } }, // empty after trimming
+    ];
+    for (const wording of bad) {
+      await expect(
+        mockApi.patchServerSettings({
+          customThemes: [
+            { id: "w2", name: "W2", colors: { "--color-bg": "#111" }, wording },
+          ],
+        })
+      ).rejects.toBeInstanceOf(ApiError);
+    }
+    const s = await mockApi.getServerSettings();
+    expect(s.customThemes).toEqual([]);
+  });
+
   it("422s a display_theme pointing at a non-existent custom id", async () => {
     await expect(
       mockApi.patchServerSettings({ displayTheme: "ghost" })

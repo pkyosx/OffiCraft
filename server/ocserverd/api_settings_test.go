@@ -472,6 +472,51 @@ func TestDisplayPrefsSettingRoundTrips(t *testing.T) {
 		t.Fatalf("display_theme=non-existent custom id must 422: got %d", status)
 	}
 
+	// wording overlay (T-16a1 P3): a legal per-language overlay round-trips —
+	// 200, echoed, durable — keyed on whitelisted message codes with zh/en langs.
+	worded := `{"custom_themes":[{"id":"worded","name":"Worded","colors":` +
+		`{"--color-bg":"#101018"},"wording":{"zh":{"nav.tasks":"待辦"},` +
+		`"en":{"profile.themeOffice":"Office Mode"}}}]}`
+	if status, data = doJSON(t, "PATCH", srv.URL+"/api/settings", owner, worded); status != 200 {
+		t.Fatalf("legal wording overlay must 200: %d %v", status, data)
+	}
+	if got := wordingValue(t, data, 0, "zh", "nav.tasks"); got != "待辦" {
+		t.Fatalf("wording overlay must echo the zh override: %q", got)
+	}
+	if got := wordingValue(t, data, 0, "en", "profile.themeOffice"); got != "Office Mode" {
+		t.Fatalf("wording overlay must echo the en override: %q", got)
+	}
+	if v, err := d.GetSetting(settingDisplayCustomThemes); err != nil || v == nil ||
+		!strings.Contains(*v, "待辦") {
+		t.Fatalf("wording overlay must be durable: %v %v", v, err)
+	}
+
+	// Every illegal wording overlay → 422, and none is ever stored: a code
+	// outside the whitelist, a language other than zh/en, an over-cap value, and
+	// a value carrying a control character (newline).
+	for _, bad := range []string{
+		`"wording":{"zh":{"not.a.real.key":"x"}}`,                           // non-whitelisted code
+		`"wording":{"xian":{"nav.tasks":"仙"}}`,                              // language not in {zh,en}
+		`"wording":{"zh":{"nav.tasks":"` + strings.Repeat("字", 201) + `"}}`, // over the 200-rune cap
+		`"wording":{"zh":{"nav.tasks":"a\nb"}}`,                             // control character (newline)
+		`"wording":{"zh":{"nav.tasks":"   "}}`,                              // empty after trimming
+	} {
+		body := `{"custom_themes":[{"id":"w2","name":"W2","colors":{"--color-bg":"#111"},` + bad + `}]}`
+		if status, _ := doJSON(t, "PATCH", srv.URL+"/api/settings", owner, body); status != 422 {
+			t.Fatalf("illegal wording %q must 422: got %d", bad, status)
+		}
+	}
+	// The rejected wording patches wrote nothing — the "worded" bundle still stands.
+	if status, data = doJSON(t, "GET", srv.URL+"/api/settings", owner, ""); status != 200 {
+		t.Fatalf("settings GET: %d", status)
+	}
+	if arr, _ := data["custom_themes"].([]any); len(arr) != 1 {
+		t.Fatalf("a rejected wording patch must write nothing: %v", data["custom_themes"])
+	}
+	if got := wordingValue(t, data, 0, "zh", "nav.tasks"); got != "待辦" {
+		t.Fatalf("a rejected wording patch must leave the stored overlay intact: %q", got)
+	}
+
 	// Deleting the active custom theme (replacing the set without it) resets
 	// display_theme back to "" server-side — no dangling active theme.
 	if status, data = doJSON(t, "PATCH", srv.URL+"/api/settings", owner,
@@ -488,6 +533,21 @@ func TestDisplayPrefsSettingRoundTrips(t *testing.T) {
 	if v, err := d.GetSetting(settingDisplayTheme); err != nil || v == nil || *v != "" {
 		t.Fatalf("the dangling-theme reset must be durable: %v %v", v, err)
 	}
+}
+
+// wordingValue digs custom_themes[idx].wording[lang][code] out of a settings
+// response body, failing the test if any hop is missing or mistyped.
+func wordingValue(t *testing.T, data map[string]any, idx int, lang, code string) string {
+	t.Helper()
+	arr, ok := data["custom_themes"].([]any)
+	if !ok || idx >= len(arr) {
+		t.Fatalf("custom_themes[%d] missing: %v", idx, data["custom_themes"])
+	}
+	bundle, _ := arr[idx].(map[string]any)
+	wording, _ := bundle["wording"].(map[string]any)
+	langMap, _ := wording[lang].(map[string]any)
+	v, _ := langMap[code].(string)
+	return v
 }
 
 // mustJSONString renders s as a JSON string literal (quoting embedded specials)

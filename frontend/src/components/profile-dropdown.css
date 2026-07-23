@@ -252,6 +252,12 @@
   gap: 4px;
 }
 
+/* Quick-menu hint pointing management to 設定/主題 (T-16a1 P3b). */
+.profile-dd__section-hint {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
 .profile-dd__chip {
   padding: 4px 8px;
   border-radius: 7px;

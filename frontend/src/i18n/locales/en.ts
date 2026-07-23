@@ -447,6 +447,7 @@ export const en: Dict = {
     logout: "Log out",
     back: "Preferences",
     theme: "Theme",
+    themeManageHint: "Add & edit in Settings › Theme",
     themeOffice: "Office",
     themeXian: "Xian",
     themeImport: "Import",
@@ -824,6 +825,19 @@ export const en: Dict = {
     software: "Software update",
     roles: "Role journal",
     params: "Parameters",
+    // ── theme management (T-16a1 P3b): moved here from the profile dropdown ──
+    themeManage: "Theme",
+    themeColorsSection: "Colours",
+    themeColorPicker: "colour picker",
+    themeWordingSection: "Wording",
+    themeWordingHint:
+      "Fill in a replacement to override interface wording; leave blank to keep the original.",
+    themeWordingSearch: "Search wording…",
+    themeWordingOverride: "replacement",
+    themeBuiltinTag: "Built-in",
+    themeWordingTag: "Wording",
+    themeDeleteConfirm: (name: string) =>
+      `Delete theme "${name}"? This cannot be undone.`,
     currentVersion: "Current version",
     upToDate: "Up to date",
     // Explicit check against GitHub Releases (GET /api/release/check)

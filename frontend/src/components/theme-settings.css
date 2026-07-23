@@ -1,0 +1,291 @@
+/* theme-settings.css — T-16a1 P3b 主題管理 sub-section. Functional layout only;
+ * all colour goes through --color-* tokens (never a hard-coded colour), so the
+ * page restyles correctly under every theme and passes token-lint. */
+
+.ts-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 0;
+  margin-bottom: 4px;
+}
+.ts-back:hover {
+  color: var(--color-text);
+}
+
+/* ── list toolbar ── */
+.ts-toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.ts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ts-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ts-pick {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-card);
+  color: var(--color-text);
+  font-size: 14px;
+  cursor: pointer;
+}
+.ts-pick:hover {
+  border-color: var(--color-accent);
+}
+.ts-pick--active {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+  color: var(--color-text-strong);
+}
+
+.ts-tag {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--color-seg-fill);
+  color: var(--color-text-muted);
+}
+.ts-tag--wording {
+  background: var(--color-icon-violet-bg);
+  color: var(--color-icon-violet);
+}
+
+.ts-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  border: 1px solid var(--color-border);
+  background: var(--color-card);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.ts-icon-btn:hover {
+  color: var(--color-text);
+  border-color: var(--color-accent);
+}
+.ts-icon-btn--danger:hover {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+/* ── edit / import card ── */
+.ts-card {
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-card);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ts-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ts-form-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.ts-field-label,
+.ts-section-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.ts-section-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+.ts-badge {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.ts-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 14px;
+}
+.ts-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.ts-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 160px;
+  resize: vertical;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+.ts-file {
+  display: none;
+}
+
+/* ── colour groups ── */
+.ts-color-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ts-color-group__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-top: 6px;
+}
+.ts-color-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ts-color-name {
+  flex: 0 0 42%;
+  font-size: 13px;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ts-swatch {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: var(--color-bg);
+  cursor: pointer;
+}
+.ts-color-value {
+  flex: 1 1 auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+/* ── wording overlay ── */
+.ts-wording-sub {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.ts-wording-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--color-seg-fill);
+  border: 1px solid var(--color-seg-border);
+  width: fit-content;
+}
+.ts-tab {
+  padding: 5px 14px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+.ts-tab--active {
+  background: var(--color-card);
+  color: var(--color-text-strong);
+}
+.ts-wording-search {
+  margin-top: 2px;
+}
+.ts-wording-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 340px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.ts-wording-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+}
+.ts-wording-meta {
+  flex: 0 0 46%;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ts-wording-en {
+  font-size: 13px;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ts-wording-cur {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ts-wording-input {
+  flex: 1 1 auto;
+  font-size: 13px;
+}
+
+@media (max-width: 560px) {
+  .ts-color-name,
+  .ts-wording-meta {
+    flex-basis: 38%;
+  }
+}

@@ -7,9 +7,13 @@ import {
   isValidColorValue,
   validateThemeBundle,
   validateThemeBundles,
+  validateWording,
   isValidDisplayTheme,
 } from "./themeBundle";
 import { THEME_COLOR_TOKENS } from "../styles/themeTokens.generated";
+import { MESSAGE_KEYS } from "../i18n/messageKeys.generated";
+
+const aKey = MESSAGE_KEYS[0];
 
 const aToken = THEME_COLOR_TOKENS[0];
 
@@ -64,6 +68,30 @@ describe("validateThemeBundle", () => {
       validateThemeBundle({ ...ok, colors: { "--color-bogus": "#fff" } })
     ).toMatch(/not a theme colour token/);
     expect(validateThemeBundle({ ...ok, colors: {} })).toMatch(/colors must hold/);
+  });
+
+  it("accepts a bundle with a legal wording overlay and rejects an illegal one", () => {
+    expect(
+      validateThemeBundle({ ...ok, wording: { zh: { [aKey]: "覆蓋" } } })
+    ).toBeNull();
+    expect(
+      validateThemeBundle({ ...ok, wording: { fr: { [aKey]: "x" } } })
+    ).toMatch(/language/);
+  });
+});
+
+describe("validateWording", () => {
+  it("accepts undefined (optional) and a legal zh/en overlay", () => {
+    expect(validateWording(undefined)).toBeNull();
+    expect(validateWording({ zh: { [aKey]: "文字" }, en: { [aKey]: "text" } })).toBeNull();
+  });
+
+  it("rejects a bad language, an unknown code, and illegal values", () => {
+    expect(validateWording({ xian: { [aKey]: "仙" } })).toMatch(/language/);
+    expect(validateWording({ zh: { "not.a.key": "x" } })).toMatch(/message code/);
+    expect(validateWording({ zh: { [aKey]: "a\nb" } })).toMatch(/control/);
+    expect(validateWording({ zh: { [aKey]: "   " } })).toMatch(/1\.\.200/);
+    expect(validateWording({ zh: { [aKey]: "字".repeat(201) } })).toMatch(/1\.\.200/);
   });
 });
 

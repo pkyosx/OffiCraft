@@ -375,6 +375,27 @@ if ! diff -u "$TS_TOK_BAK" "$TS_TOK" || ! diff -u "$GO_TOK_BAK" "$GO_TOK"; then
   exit 1
 fi
 rm -f "$TS_TOK_BAK" "$GO_TOK_BAK"
+# 4b2. Message-key whitelist drift (T-16a1 P3). locales/en.ts is the single
+# message-code contract; the wording-overlay validators (client lib/themeBundle.ts
+# + server wording_bundle.go) read a GENERATED whitelist of its leaf-string key
+# paths. Regenerate from en.ts and require both committed generated files to be
+# byte-identical — change the dictionary's string-leaf set without
+# `npm run gen:msgkeys` and CI goes red (same regen-and-diff discipline as 4b1).
+echo "[ci]   message-key whitelist drift: regenerate from locales/en.ts + diff committed (T-16a1 P3)"
+TS_MSG="$FE/src/i18n/messageKeys.generated.ts"
+GO_MSG="$ROOT/server/ocserverd/message_keys_gen.go"
+TS_MSG_BAK="$(mktemp -t oc-msgkeys-ts.XXXXXX)"
+GO_MSG_BAK="$(mktemp -t oc-msgkeys-go.XXXXXX)"
+cp "$TS_MSG" "$TS_MSG_BAK"; cp "$GO_MSG" "$GO_MSG_BAK"
+(cd "$FE" && "$NPM" run --silent gen:msgkeys >/dev/null)
+if ! diff -u "$TS_MSG_BAK" "$TS_MSG" || ! diff -u "$GO_MSG_BAK" "$GO_MSG"; then
+  echo "[ci] FAIL — message-key whitelist drift: the generated message-key files are STALE vs locales/en.ts."
+  echo "[ci] regenerate + commit: (cd frontend && npm run gen:msgkeys) then git add the two generated files"
+  cp "$TS_MSG_BAK" "$TS_MSG"; cp "$GO_MSG_BAK" "$GO_MSG"
+  rm -f "$TS_MSG_BAK" "$GO_MSG_BAK"
+  exit 1
+fi
+rm -f "$TS_MSG_BAK" "$GO_MSG_BAK"
 echo "[ci]   vitest run (frontend unit suite)"
 (cd "$FE" && "$NPM" run --silent test)
 # 4c. Playwright Component-Testing VISUAL GUARDS (T-187c). vitest (4b) runs in

@@ -517,6 +517,7 @@ export const zh = {
     logout: "登出",
     back: "偏好設定",
     theme: "主題",
+    themeManageHint: "在「設定 › 主題」新增與編輯",
     themeOffice: "辦公室",
     themeXian: "修仙",
     themeImport: "匯入",
@@ -907,6 +908,18 @@ export const zh = {
     software: "軟體更新",
     roles: "角色誌",
     params: "參數調整",
+    // ── 主題管理 (T-16a1 P3b): moved here from the profile dropdown ──
+    themeManage: "主題",
+    themeColorsSection: "顏色",
+    themeColorPicker: "取色器",
+    themeWordingSection: "用詞",
+    themeWordingHint: "填入替代字即可覆蓋介面用詞;留空則維持原文。",
+    themeWordingSearch: "搜尋用詞…",
+    themeWordingOverride: "替代字",
+    themeBuiltinTag: "內建",
+    themeWordingTag: "用詞",
+    themeDeleteConfirm: (name: string) =>
+      `刪除主題「${name}」?此動作無法復原。`,
     // ── 軟體更新 (honest build-identity card) ──
     currentVersion: "目前版本",
     upToDate: "已是最新版",

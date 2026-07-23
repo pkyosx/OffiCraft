@@ -88,6 +88,32 @@ describe("parseImportedBundle", () => {
     });
   });
 
+  it("carries a valid wording overlay through (T-16a1 P3)", () => {
+    const res = parseImportedBundle(
+      JSON.stringify({
+        id: "worded",
+        name: "Worded",
+        colors: { "--color-accent": "#0b1020" },
+        wording: { zh: { "nav.tasks": "任務榜" } },
+      })
+    );
+    expect("bundle" in res && res.bundle.wording).toEqual({
+      zh: { "nav.tasks": "任務榜" },
+    });
+  });
+
+  it("rejects a wording overlay keyed on a non-whitelisted code", () => {
+    const res = parseImportedBundle(
+      JSON.stringify({
+        id: "worded",
+        name: "Worded",
+        colors: { "--color-accent": "#0b1020" },
+        wording: { zh: { "not.a.real.code": "x" } },
+      })
+    );
+    expect("error" in res).toBe(true);
+  });
+
   it("rejects malformed JSON with a plain-language error", () => {
     const res = parseImportedBundle("{ not json");
     expect("error" in res && res.error).toBe("不是有效的 JSON");

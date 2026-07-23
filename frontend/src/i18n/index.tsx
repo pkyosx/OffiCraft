@@ -14,6 +14,7 @@ import { xian } from "./locales/xian";
 import { api } from "../api";
 import { hasToken, AUTH_LOGIN_EVENT } from "../api/auth";
 import { isValidDisplayTheme, type ThemeBundle } from "../lib/themeBundle";
+import { applyWording } from "./wording";
 
 export type Locale = "zh" | "en" | "xian";
 /** User-selectable language (mockup 語言 toggle offers only 中文 / English). */
@@ -118,7 +119,19 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   // (T-16a1 P2 does not touch wording), so they always defer to `language`.
   const locale: Locale =
     THEME_COPY_LOCALE[theme as Theme] ?? language;
-  const t = DICTS[locale];
+  // The active custom theme's 用詞 (wording) overlay for the current language,
+  // laid on top of the base dict (T-16a1 P3). A built-in theme (office/xian)
+  // has no user overlay; a custom theme keys its overlay on `language` (zh/en)
+  // — custom themes are copy-neutral, so locale === language for them. FALLBACK
+  // (owner decision b): codes without an override keep the base dict's text, so
+  // the interface's original language is preserved for everything unwrapped.
+  const t = useMemo(() => {
+    const base = DICTS[locale];
+    const overlay = (customThemes ?? []).find((b) => b.id === theme)?.wording?.[
+      language
+    ];
+    return applyWording(base, overlay);
+  }, [locale, theme, language, customThemes]);
 
   // The --color-* inline props applied for the current custom theme, remembered
   // so the NEXT apply can remove exactly this set before painting the next one.
@@ -232,8 +245,10 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       .getServerSettings()
       .then((s) => {
         // The server owns the custom-theme set — adopt it wholesale (so the
-        // apply effect can resolve a custom active id to its bundle).
-        setCustomThemesState(s.customThemes);
+        // apply effect can resolve a custom active id to its bundle). Coerce a
+        // missing field to [] so downstream `.find` (apply effect + wording
+        // memo) never sees undefined.
+        setCustomThemesState(s.customThemes ?? []);
         // Adopt a stored active theme only when it is actually selectable given
         // that set (a built-in, or an id present in it). "" (never set) or a
         // dangling id keeps the local cache — a stale server value must not

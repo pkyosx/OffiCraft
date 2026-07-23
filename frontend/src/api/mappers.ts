@@ -727,6 +727,9 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
       id: b.id,
       name: b.name,
       colors: { ...b.colors },
+      // Per-language wording overlay (T-16a1 P3) — optional; carried through
+      // verbatim when present (never fabricated to an empty object).
+      ...(b.wording !== undefined ? { wording: b.wording } : {}),
     })),
     // The first-run onboarding report (T-ba62). Absent/null is the NORMAL
     // state (onboarding never ran on this database) and maps to null — the

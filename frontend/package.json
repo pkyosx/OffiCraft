@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "gen:api": "openapi-typescript ../spec/openapi.json -o src/api/generated/schema.ts",
     "gen:tokens": "node scripts/gen-theme-tokens.mjs",
+    "gen:msgkeys": "node scripts/gen-message-keys.mjs",
     "lint:tokens": "node scripts/check-css-tokens.mjs",
     "test": "vitest run",
     "test:ct": "playwright test -c playwright-ct.config.ts",

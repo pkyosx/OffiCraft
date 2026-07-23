@@ -1,0 +1,605 @@
+import { useMemo, useRef, useState } from "react";
+import { useI18n } from "../i18n";
+import { en } from "../i18n/locales/en";
+import { zh } from "../i18n/locales/zh";
+import { readDictMessage } from "../i18n/wording";
+import { MESSAGE_KEYS } from "../i18n/messageKeys.generated";
+import {
+  MAX_CUSTOM_THEMES,
+  validateThemeBundle,
+  type ThemeBundle,
+} from "../lib/themeBundle";
+import {
+  bundleFilename,
+  exportBuiltinTheme,
+  exportComputedTheme,
+  parseImportedBundle,
+  serializeBundle,
+  XIAN_EXAMPLE_WORDING,
+} from "../lib/themeExport";
+import {
+  GROUP_ORDER,
+  groupLabel,
+  tokenMeta,
+  toHex6,
+  type TokenGroup,
+} from "../lib/themeTokenMeta";
+import { Breadcrumbs, type Crumb } from "./Breadcrumbs";
+import {
+  ChevronLeftIcon,
+  DownloadIcon,
+  PencilIcon,
+  TrashIcon,
+} from "./icons";
+import { ConfirmModal } from "./ConfirmModal";
+import "./theme-settings.css";
+
+type View = "list" | "import" | "edit";
+
+const DICTS_BY_LANG = { zh, en } as const;
+
+/**
+ * 主題管理 — the SettingsPage 主題 sub-section (T-16a1 P3b). All theme MANAGEMENT
+ * lives here (owner IA: 偏好=選擇, 設定=管理): add / import / export / edit
+ * (friendly colours + 用詞 overlay) / delete / the 修仙 dogfood example. The
+ * ProfileDropdown keeps only the theme SELECTOR + language.
+ */
+export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
+  const { t, theme, setTheme, language, customThemes, commitCustomThemes } =
+    useI18n();
+
+  const [view, setView] = useState<View>("list");
+
+  // ── import state ──
+  const [importText, setImportText] = useState("");
+  const [importError, setImportError] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ── edit state ──
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editColors, setEditColors] = useState<[string, string][]>([]);
+  const [editWording, setEditWording] = useState<
+    Record<string, Record<string, string>>
+  >({});
+  const [wordingLang, setWordingLang] = useState<"zh" | "en">("zh");
+  const [wordingSearch, setWordingSearch] = useState("");
+  const [editError, setEditError] = useState("");
+
+  const [copied, setCopied] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  // ── theme meta for export ──
+  function currentThemeMeta(): { id: string; name: string } {
+    if (theme === "office")
+      return { id: "office-copy", name: t.profile.themeOffice };
+    if (theme === "xian") return { id: "xian-copy", name: t.profile.themeXian };
+    const b = customThemes.find((x) => x.id === theme);
+    return { id: b?.id ?? "theme", name: b?.name ?? theme };
+  }
+
+  function downloadBundle(bundle: ThemeBundle) {
+    const blob = new Blob([serializeBundle(bundle)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = bundleFilename(bundle);
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function handleExportCurrent() {
+    const { id, name } = currentThemeMeta();
+    downloadBundle(exportComputedTheme(id, name));
+  }
+
+  async function handleCopyCurrent() {
+    const { id, name } = currentThemeMeta();
+    try {
+      await navigator.clipboard.writeText(
+        serializeBundle(exportComputedTheme(id, name))
+      );
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // clipboard blocked — the export (download) button stays reliable
+    }
+  }
+
+  // ── import ──
+  function openImport() {
+    setImportText("");
+    setImportError("");
+    setView("import");
+  }
+
+  function addBundle(bundle: ThemeBundle): string | null {
+    if (customThemes.some((b) => b.id === bundle.id))
+      return t.profile.themeImportDup;
+    if (customThemes.length >= MAX_CUSTOM_THEMES)
+      return t.profile.themeLimitReached;
+    commitCustomThemes([...customThemes, bundle]);
+    return null;
+  }
+
+  function handleConfirmImport() {
+    const res = parseImportedBundle(importText);
+    if ("error" in res) {
+      setImportError(res.error);
+      return;
+    }
+    const err = addBundle(res.bundle);
+    if (err) {
+      setImportError(err);
+      return;
+    }
+    setView("list");
+  }
+
+  async function handleFilePicked(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      setImportText(await file.text());
+      setImportError("");
+    } catch {
+      setImportError(t.profile.themeImportReadFailed);
+    }
+  }
+
+  // 修仙 dogfood: EXPORT the shipped 修仙 built-in (colours) + attach the sample
+  // 用詞 overlay, then run the whole thing back through the import path — proving
+  // the export→import loop carries colours AND wording. The example is an
+  // editable custom copy; the built-in 修仙 entry stays as-is.
+  function handleImportXianExample() {
+    const base = exportBuiltinTheme(
+      "xian",
+      "xian-example",
+      t.profile.themeExampleName
+    );
+    const withWording: ThemeBundle = {
+      ...base,
+      colors: Object.keys(base.colors).length
+        ? base.colors
+        : { "--color-accent": "#7c3aed" },
+      wording: XIAN_EXAMPLE_WORDING,
+    };
+    const parsed = parseImportedBundle(serializeBundle(withWording));
+    if ("error" in parsed) {
+      setImportError(parsed.error);
+      setView("import");
+      return;
+    }
+    const err = addBundle(parsed.bundle);
+    if (err) {
+      setImportError(err);
+      setView("import");
+    }
+  }
+
+  // ── delete ──
+  function handleDeleteTheme(id: string) {
+    const next = customThemes.filter((b) => b.id !== id);
+    // Deleting the active theme drops back to the office base; the same PATCH
+    // carries the reset so the server's dangling-guard agrees.
+    commitCustomThemes(next, theme === id ? "office" : undefined);
+    setConfirmDeleteId(null);
+  }
+
+  // ── edit ──
+  function openEdit(bundle: ThemeBundle) {
+    setEditId(bundle.id);
+    setEditName(bundle.name);
+    setEditColors(Object.entries(bundle.colors));
+    setEditWording(
+      bundle.wording
+        ? JSON.parse(JSON.stringify(bundle.wording))
+        : { zh: {}, en: {} }
+    );
+    setWordingLang(language);
+    setWordingSearch("");
+    setEditError("");
+    setView("edit");
+  }
+
+  function setColorAt(i: number, value: string) {
+    const next = editColors.slice();
+    next[i] = [next[i][0], value];
+    setEditColors(next);
+    setEditError("");
+  }
+
+  function setWordingAt(code: string, value: string) {
+    setEditWording((prev) => ({
+      ...prev,
+      [wordingLang]: { ...(prev[wordingLang] ?? {}), [code]: value },
+    }));
+    setEditError("");
+  }
+
+  function handleSaveEdit() {
+    if (editId == null) return;
+    const colors: Record<string, string> = {};
+    for (const [tok, val] of editColors) colors[tok] = val;
+
+    // Prune empty overrides — the validator rejects an empty-after-trim value,
+    // and an empty override just means "no override".
+    const wording: Record<string, Record<string, string>> = {};
+    for (const lang of ["zh", "en"] as const) {
+      const entries = editWording[lang] ?? {};
+      const kept: Record<string, string> = {};
+      for (const [code, val] of Object.entries(entries)) {
+        if (typeof val === "string" && val.trim() !== "") kept[code] = val.trim();
+      }
+      if (Object.keys(kept).length > 0) wording[lang] = kept;
+    }
+
+    const bundle: ThemeBundle = { id: editId, name: editName, colors };
+    if (Object.keys(wording).length > 0) bundle.wording = wording;
+
+    const err = validateThemeBundle(bundle);
+    if (err) {
+      setEditError(err);
+      return;
+    }
+    commitCustomThemes(customThemes.map((b) => (b.id === editId ? bundle : b)));
+    setView("list");
+  }
+
+  // Colours grouped by purpose (owner: no raw --color-* in the editor).
+  const groupedColors = useMemo(() => {
+    const byGroup = new Map<TokenGroup, number[]>();
+    editColors.forEach(([tok], i) => {
+      const g = tokenMeta(tok, language).group;
+      const arr = byGroup.get(g) ?? [];
+      arr.push(i);
+      byGroup.set(g, arr);
+    });
+    return GROUP_ORDER.filter((g) => byGroup.has(g)).map((g) => ({
+      group: g,
+      indices: byGroup.get(g)!,
+    }));
+  }, [editColors, language]);
+
+  // The wording rows: every overridable message code, filtered by the search
+  // (matches the code, its English original, or its text in the edited lang).
+  const wordingRows = useMemo(() => {
+    const q = wordingSearch.trim().toLowerCase();
+    const dict = DICTS_BY_LANG[wordingLang];
+    return MESSAGE_KEYS.filter((code) => {
+      if (!q) return true;
+      const enText = readDictMessage(en, code) ?? "";
+      const curText = readDictMessage(dict, code) ?? "";
+      return (
+        code.toLowerCase().includes(q) ||
+        enText.toLowerCase().includes(q) ||
+        curText.toLowerCase().includes(q)
+      );
+    });
+  }, [wordingSearch, wordingLang]);
+
+  const wordingOverrideCount = useMemo(() => {
+    let n = 0;
+    for (const lang of ["zh", "en"] as const) {
+      for (const v of Object.values(editWording[lang] ?? {})) {
+        if (typeof v === "string" && v.trim() !== "") n++;
+      }
+    }
+    return n;
+  }, [editWording]);
+
+  // ── render: import ──
+  if (view === "import") {
+    return (
+      <div className="settings">
+        <Breadcrumbs items={crumbs} />
+        <button
+          type="button"
+          className="ts-back"
+          onClick={() => setView("list")}
+        >
+          <ChevronLeftIcon size={16} />
+          <span>{t.profile.themeImportTitle}</span>
+        </button>
+        <h1 className="settings__title settings__title--doc">
+          {t.profile.themeImportTitle}
+        </h1>
+
+        <div className="ts-form">
+          <textarea
+            className="ts-textarea"
+            placeholder={t.profile.themeImportPlaceholder}
+            aria-label={t.profile.themeImportTitle}
+            value={importText}
+            onChange={(e) => {
+              setImportText(e.target.value);
+              setImportError("");
+            }}
+          />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/json,.json"
+            className="ts-file"
+            onChange={handleFilePicked}
+          />
+          <div className="ts-form-actions">
+            <button
+              type="button"
+              className="doc-btn"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {t.profile.themeChooseFile}
+            </button>
+            <button
+              type="button"
+              className="doc-btn doc-btn--accent"
+              disabled={!importText.trim()}
+              onClick={handleConfirmImport}
+            >
+              {t.profile.themeConfirmImport}
+            </button>
+          </div>
+          {importError && <div className="set-error">{importError}</div>}
+        </div>
+      </div>
+    );
+  }
+
+  // ── render: edit ──
+  if (view === "edit") {
+    return (
+      <div className="settings">
+        <Breadcrumbs items={crumbs} />
+        <button
+          type="button"
+          className="ts-back"
+          onClick={() => setView("list")}
+        >
+          <ChevronLeftIcon size={16} />
+          <span>{t.profile.themeEditTitle}</span>
+        </button>
+        <h1 className="settings__title settings__title--doc">
+          {t.profile.themeEditTitle}
+        </h1>
+
+        <div className="ts-card">
+          <label className="ts-field-label" htmlFor="ts-edit-name">
+            {t.profile.themeNameLabel}
+          </label>
+          <input
+            id="ts-edit-name"
+            className="ts-input"
+            value={editName}
+            aria-label={t.profile.themeNameLabel}
+            onChange={(e) => {
+              setEditName(e.target.value);
+              setEditError("");
+            }}
+          />
+
+          {/* ── colours, grouped by purpose, with a visual picker ── */}
+          <div className="ts-section-label">{t.settings.themeColorsSection}</div>
+          {groupedColors.map(({ group, indices }) => (
+            <div key={group} className="ts-color-group">
+              <div className="ts-color-group__label">
+                {groupLabel(group, language)}
+              </div>
+              {indices.map((i) => {
+                const [token, value] = editColors[i];
+                const hex = toHex6(value);
+                const meta = tokenMeta(token, language);
+                return (
+                  <div key={token} className="ts-color-row">
+                    <span className="ts-color-name" title={token}>
+                      {meta.label}
+                    </span>
+                    <input
+                      type="color"
+                      className="ts-swatch"
+                      aria-label={`${meta.label} ${t.settings.themeColorPicker}`}
+                      value={hex ?? "#000000"}
+                      onChange={(e) => setColorAt(i, e.target.value)}
+                    />
+                    <input
+                      className="ts-input ts-color-value"
+                      value={value}
+                      aria-label={meta.label}
+                      onChange={(e) => setColorAt(i, e.target.value)}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+
+          {/* ── wording overlay (用詞) ── */}
+          <div className="ts-section-label">
+            {t.settings.themeWordingSection}
+            {wordingOverrideCount > 0 && (
+              <span className="ts-badge">{wordingOverrideCount}</span>
+            )}
+          </div>
+          <div className="ts-wording-sub">{t.settings.themeWordingHint}</div>
+          <div className="ts-wording-tabs" role="tablist">
+            {(["zh", "en"] as const).map((lang) => (
+              <button
+                key={lang}
+                type="button"
+                role="tab"
+                aria-selected={wordingLang === lang}
+                className={`ts-tab${wordingLang === lang ? " ts-tab--active" : ""}`}
+                onClick={() => setWordingLang(lang)}
+              >
+                {lang === "zh" ? t.profile.langZh : t.profile.langEn}
+              </button>
+            ))}
+          </div>
+          <input
+            className="ts-input ts-wording-search"
+            type="search"
+            placeholder={t.settings.themeWordingSearch}
+            aria-label={t.settings.themeWordingSearch}
+            value={wordingSearch}
+            onChange={(e) => setWordingSearch(e.target.value)}
+          />
+          <div className="ts-wording-list">
+            {wordingRows.map((code) => {
+              const enText = readDictMessage(en, code) ?? "";
+              const curText =
+                readDictMessage(DICTS_BY_LANG[wordingLang], code) ?? "";
+              const override = editWording[wordingLang]?.[code] ?? "";
+              return (
+                <div key={code} className="ts-wording-row">
+                  <div className="ts-wording-meta">
+                    <span className="ts-wording-en">{enText}</span>
+                    <span className="ts-wording-cur">{curText}</span>
+                  </div>
+                  <input
+                    className="ts-input ts-wording-input"
+                    value={override}
+                    placeholder={curText}
+                    aria-label={`${enText} — ${t.settings.themeWordingOverride}`}
+                    onChange={(e) => setWordingAt(code, e.target.value)}
+                  />
+                </div>
+              );
+            })}
+          </div>
+
+          {editError && <div className="set-error">{editError}</div>}
+
+          <div className="ts-form-actions">
+            <button
+              type="button"
+              className="doc-btn"
+              onClick={() => setView("list")}
+            >
+              {t.settings.cancel}
+            </button>
+            <button
+              type="button"
+              className="doc-btn doc-btn--accent"
+              disabled={!editName.trim()}
+              onClick={handleSaveEdit}
+            >
+              {t.profile.save}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── render: list ──
+  return (
+    <div className="settings">
+      <Breadcrumbs items={crumbs} />
+      <h1 className="settings__title settings__title--doc">
+        {t.settings.themeManage}
+      </h1>
+
+      <div className="ts-toolbar">
+        <button type="button" className="doc-btn" onClick={openImport}>
+          {t.profile.themeImport}
+        </button>
+        <button type="button" className="doc-btn" onClick={handleExportCurrent}>
+          {t.profile.themeExport}
+        </button>
+        <button type="button" className="doc-btn" onClick={handleCopyCurrent}>
+          {copied ? t.profile.themeCopied : t.profile.themeCopy}
+        </button>
+      </div>
+
+      <div className="ts-list">
+        {/* built-ins: selectable, not editable/deletable */}
+        {(["office", "xian"] as const).map((builtin) => (
+          <div key={builtin} className="ts-row">
+            <button
+              type="button"
+              className={`ts-pick${theme === builtin ? " ts-pick--active" : ""}`}
+              onClick={() => setTheme(builtin)}
+            >
+              {builtin === "office" ? t.profile.themeOffice : t.profile.themeXian}
+              <span className="ts-tag">{t.settings.themeBuiltinTag}</span>
+            </button>
+          </div>
+        ))}
+
+        {customThemes.map((b) => (
+          <div key={b.id} className="ts-row">
+            <button
+              type="button"
+              className={`ts-pick${theme === b.id ? " ts-pick--active" : ""}`}
+              onClick={() => setTheme(b.id)}
+            >
+              {b.name}
+              {b.wording && (
+                <span className="ts-tag ts-tag--wording">
+                  {t.settings.themeWordingTag}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              className="ts-icon-btn"
+              aria-label={`${t.profile.themeExport} ${b.name}`}
+              title={t.profile.themeExport}
+              onClick={() => downloadBundle(b)}
+            >
+              <DownloadIcon size={15} />
+            </button>
+            <button
+              type="button"
+              className="ts-icon-btn"
+              aria-label={`${t.profile.themeEdit} ${b.name}`}
+              title={t.profile.themeEdit}
+              onClick={() => openEdit(b)}
+            >
+              <PencilIcon size={15} />
+            </button>
+            <button
+              type="button"
+              className="ts-icon-btn ts-icon-btn--danger"
+              aria-label={`${t.profile.themeDelete} ${b.name}`}
+              title={t.profile.themeDelete}
+              onClick={() => setConfirmDeleteId(b.id)}
+            >
+              <TrashIcon size={15} />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {!customThemes.some((b) => b.id === "xian-example") && (
+        <button
+          type="button"
+          className="add-entry"
+          onClick={handleImportXianExample}
+        >
+          + {t.profile.themeExampleImport}
+        </button>
+      )}
+
+      {(() => {
+        const target = customThemes.find((b) => b.id === confirmDeleteId);
+        if (!target) return null;
+        return (
+          <ConfirmModal
+            testId="theme-delete-confirm"
+            confirmTestId="theme-delete-confirm-btn"
+            danger
+            body={t.settings.themeDeleteConfirm(target.name)}
+            cancelLabel={t.settings.cancel}
+            confirmLabel={t.profile.themeDelete}
+            onCancel={() => setConfirmDeleteId(null)}
+            onConfirm={() => handleDeleteTheme(target.id)}
+          />
+        );
+      })()}
+    </div>
+  );
+}

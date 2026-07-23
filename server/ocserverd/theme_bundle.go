@@ -136,6 +136,12 @@ func validateThemeBundles(bundles []ThemeBundleDTO) error {
 					where, token, value)
 			}
 		}
+		// wording (T-16a1 P3) is an OPTIONAL per-language text-override overlay —
+		// validated in full when present (language set + message-key whitelist +
+		// plain-text value rules), a no-op when absent.
+		if err := validateWording(b.Wording, where); err != nil {
+			return err
+		}
 	}
 	return nil
 }

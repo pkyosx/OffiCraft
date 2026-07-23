@@ -57,6 +57,26 @@ export function exportBuiltinTheme(
   return bundle;
 }
 
+/** The 修仙 dogfood example's 用詞 (wording) overlay (T-16a1 P3) — a small,
+ * immersive sample proving a theme can carry copy overrides, not just colours.
+ * Keys are real message codes (in the whitelist); values are immersive
+ * re-phrasings for both languages. Attached to the exported 修仙 example bundle
+ * so "匯入修仙範例" ships colours AND wording. */
+export const XIAN_EXAMPLE_WORDING: Record<string, Record<string, string>> = {
+  zh: {
+    "nav.office": "宗門",
+    "nav.tasks": "任務榜",
+    "nav.monitor": "洞天",
+    "nav.replies": "問道",
+  },
+  en: {
+    "nav.office": "Sect",
+    "nav.tasks": "Quest Board",
+    "nav.monitor": "Grotto",
+    "nav.replies": "Seek Dao",
+  },
+};
+
 /** Parse and validate imported bundle text. Returns the normalized bundle or a
  * human error. Never mutates anything — the caller decides whether to save. */
 export function parseImportedBundle(
@@ -71,7 +91,12 @@ export function parseImportedBundle(
   const err = validateThemeBundle(data);
   if (err) return { error: err };
   const b = data as ThemeBundle;
-  return { bundle: { id: b.id, name: b.name, colors: b.colors } };
+  // Carry the optional wording overlay through (T-16a1 P3) — it has already
+  // passed the shared validator; dropping it would silently lose an imported
+  // theme's 用詞 pack. `colors`-only bundles keep `wording` absent.
+  const bundle: ThemeBundle = { id: b.id, name: b.name, colors: b.colors };
+  if (b.wording !== undefined) bundle.wording = b.wording;
+  return { bundle };
 }
 
 /** Serialize a bundle to pretty JSON (download / clipboard payload). */

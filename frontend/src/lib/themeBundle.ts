@@ -10,12 +10,15 @@
 // and constrain the token NAME to the generated theme.css whitelist.
 
 import { THEME_COLOR_TOKENS } from "../styles/themeTokens.generated";
+import { MESSAGE_KEYS } from "../i18n/messageKeys.generated";
 
-/** One owner-authored theme colour bundle (mirrors ThemeBundleDTO). */
+/** One owner-authored theme colour bundle (mirrors ThemeBundleDTO). `wording`
+ * is an OPTIONAL per-language message-key text-override overlay (T-16a1 P3). */
 export interface ThemeBundle {
   id: string;
   name: string;
   colors: Record<string, string>;
+  wording?: Record<string, Record<string, string>>;
 }
 
 export const MAX_COLOR_VALUE_LEN = 64;
@@ -24,10 +27,21 @@ export const MAX_THEME_COLORS = 200;
 export const MAX_CUSTOM_THEMES = 100;
 export const MAX_THEME_NAME_LEN = 80;
 
+// Wording overlay bounds (T-16a1 P3) — the character-for-character twin of the
+// Go constants in server/ocserverd/wording_bundle.go.
+export const MAX_WORDING_VALUE_LEN = 200;
+export const MAX_WORDING_ENTRIES_PER_LANG = 1000;
+
 /** The built-in theme names a custom bundle must never claim. */
 export const RESERVED_THEME_IDS = ["office", "xian"] as const;
 
+/** The override languages a wording overlay may key on. `xian` is a built-in
+ * theme's own copy, not a user override layer (P3 decisions). */
+export const WORDING_LANGS = ["zh", "en"] as const;
+
 const THEME_TOKEN_SET = new Set<string>(THEME_COLOR_TOKENS);
+const WORDING_LANG_SET = new Set<string>(WORDING_LANGS);
+const MESSAGE_KEY_SET = new Set<string>(MESSAGE_KEYS);
 
 // The colour-value allowlist grammar (anchored full-match) — identical to the
 // Go regexps. Concrete colours only: hex / rgb(a) / hsl(a) / transparent.
@@ -58,6 +72,57 @@ export function isValidColorValue(v: string): boolean {
 
 function runeCount(s: string): number {
   return [...s].length;
+}
+
+/** Whether a rune is a control character (Unicode Cc: 0x00-0x1F, 0x7F-0x9F) —
+ * mirrors Go's unicode.IsControl, used to reject newlines / control chars in a
+ * wording value. */
+function hasControlChar(s: string): boolean {
+  for (const ch of s) {
+    const cp = ch.codePointAt(0) ?? 0;
+    if (cp <= 0x1f || (cp >= 0x7f && cp <= 0x9f)) return true;
+  }
+  return false;
+}
+
+/** Validate a bundle's optional wording overlay (T-16a1 P3) — the twin of the
+ * Go validateWording. Returns an error message, or null when admissible (an
+ * absent overlay is admissible). */
+export function validateWording(
+  wording: unknown,
+  where = "theme"
+): string | null {
+  if (wording === undefined || wording === null) return null;
+  if (typeof wording !== "object" || Array.isArray(wording)) {
+    return `${where}: wording must be an object`;
+  }
+  for (const [lang, entries] of Object.entries(
+    wording as Record<string, unknown>
+  )) {
+    if (!WORDING_LANG_SET.has(lang)) {
+      return `${where}: wording language "${lang}" is not allowed (only zh, en)`;
+    }
+    if (typeof entries !== "object" || entries === null || Array.isArray(entries)) {
+      return `${where}: wording[${lang}] must be an object`;
+    }
+    const pairs = Object.entries(entries as Record<string, unknown>);
+    if (pairs.length > MAX_WORDING_ENTRIES_PER_LANG) {
+      return `${where}: wording[${lang}] holds more than ${MAX_WORDING_ENTRIES_PER_LANG} entries`;
+    }
+    for (const [code, value] of pairs) {
+      if (!MESSAGE_KEY_SET.has(code)) {
+        return `${where}: wording[${lang}] key "${code}" is not a known message code`;
+      }
+      if (typeof value !== "string" || hasControlChar(value)) {
+        return `${where}: wording[${lang}][${code}] must not contain control characters`;
+      }
+      const n = runeCount(value.trim());
+      if (n < 1 || n > MAX_WORDING_VALUE_LEN) {
+        return `${where}: wording[${lang}][${code}] must be 1..${MAX_WORDING_VALUE_LEN} characters after trimming`;
+      }
+    }
+  }
+  return null;
 }
 
 /** Validate one bundle. Returns an error message, or null when admissible. */
@@ -99,7 +164,8 @@ export function validateThemeBundle(b: unknown, where = "theme"): string | null 
       return `${where}: "${token}" has an invalid colour value — only concrete hex / rgb() / rgba() / hsl() / hsla() / transparent are accepted`;
     }
   }
-  return null;
+  // wording (T-16a1 P3) is an optional per-language text-override overlay.
+  return validateWording((bundle as { wording?: unknown }).wording, where);
 }
 
 /** Validate the whole custom_themes array (shape + token whitelist + colour
