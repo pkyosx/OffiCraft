@@ -21,6 +21,15 @@ export type Theme = "office" | "xian";
 
 const DICTS: Record<Locale, Dict> = { zh, en, xian };
 
+// Theme→copy decoupling (T-16a1 P1). A visual theme is copy-neutral by default:
+// it restyles (data-theme → CSS tokens) but leaves wording to the language
+// toggle. A theme only overrides copy if it EXPLICITLY opts in here — so adding
+// a new visual theme (or a user-defined one) can never hijack the UI language.
+// Only 修仙 opts in today, mapping to its immersive `xian` dict; that legacy
+// coupling is preserved verbatim (no regression) until P3 replaces this map
+// with per-theme 用詞包 (wording-override) bundles.
+const THEME_COPY_LOCALE: Partial<Record<Theme, Locale>> = { xian: "xian" };
+
 // localStorage keys for theme/language. DUAL-LAYER (T-0b41-p2): these prefs are
 // now server-backed (DB display.theme / display.language behind the owner-gated
 // /api/settings) so they follow the owner across devices — BUT they must apply
@@ -74,8 +83,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(() =>
     readStored<Theme>(LS_THEME, ["office", "xian"], "office")
   );
-  // 修仙 theme drives the immersive `xian` copy; 辦公室 uses the language toggle.
-  const locale: Locale = theme === "xian" ? "xian" : language;
+  // Effective copy locale: a theme's explicit copy-override (only 修仙 today),
+  // else the user's language toggle. Themes without an override are visual-only.
+  const locale: Locale = THEME_COPY_LOCALE[theme] ?? language;
   const t = DICTS[locale];
 
   // Reflect the theme on <html data-theme> so CSS can restyle (see theme.css).

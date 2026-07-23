@@ -6,10 +6,6 @@
   min-height: 0;
   overflow-y: auto;
   padding-bottom: 12px;
-  /* overheated / danger accent (mockup red dot + red 7-day bar) */
-  --color-hot: #e8705f;
-  --color-hot-soft: rgba(232, 112, 95, 0.16);
-  --color-warn: #e0b341;
 }
 
 /* inline-rename failure banner (e.g. server 422 on a blank name) */
@@ -17,7 +13,7 @@
   padding: 10px 14px;
   border-radius: var(--radius-card);
   border: 1px solid var(--color-hot);
-  background: var(--color-hot-soft);
+  background: color-mix(in srgb, var(--color-hot) 16%, transparent);
   color: var(--color-hot);
   font-size: 13px;
 }
@@ -33,7 +29,7 @@
 .mon-empty {
   padding: 20px;
   border-radius: var(--radius-card);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 5%, transparent);
   background: var(--color-card);
   font-size: 13.5px;
   color: var(--color-text-muted);
@@ -48,7 +44,7 @@
 .mon-acct {
   padding: 16px 20px 18px;
   border-radius: var(--radius-card);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 5%, transparent);
   background: var(--color-card);
 }
 .mon-acct__head {
@@ -104,7 +100,7 @@
   position: relative;
   height: 8px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
   overflow: hidden;
 }
 .mon-usage__fill {
@@ -129,7 +125,7 @@
 /* ── §2 / §3 tables ── */
 .mon-table-wrap {
   border-radius: var(--radius-card);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 5%, transparent);
   background: var(--color-card);
   overflow-x: auto;
 }
@@ -145,7 +141,7 @@
   font-weight: 600;
   color: var(--color-text-muted);
   white-space: nowrap;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-overlay) 5%, transparent);
 }
 .mon-table td {
   padding: 14px 16px;
@@ -155,7 +151,7 @@
   vertical-align: middle;
 }
 .mon-table tbody tr + tr td {
-  border-top: 1px solid rgba(255, 255, 255, 0.04);
+  border-top: 1px solid color-mix(in srgb, var(--color-overlay) 4%, transparent);
 }
 .mon-table__left {
   text-align: left !important;
@@ -173,7 +169,7 @@
   transition: background 0.15s;
 }
 .mon-row--clickable:hover {
-  background: rgba(255, 255, 255, 0.02);
+  background: color-mix(in srgb, var(--color-overlay) 2%, transparent);
 }
 
 /* session member cell */
@@ -237,7 +233,7 @@
   font-size: 11.5px;
   font-weight: 500;
   color: var(--color-text-muted);
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
 }
 
 /* ── mobile: stack the two wide tables (§2 機器 / §3 AI 會話) into cards ──
@@ -277,7 +273,7 @@
     display: block;
     padding: 4px 16px;
     border-radius: var(--radius-card);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    border: 1px solid color-mix(in srgb, var(--color-overlay) 5%, transparent);
     background: var(--color-card);
   }
 
@@ -301,7 +297,7 @@
 
   /* hairline between cells inside a card (not above the first) */
   .mon-table td + td {
-    border-top: 1px solid rgba(255, 255, 255, 0.04);
+    border-top: 1px solid color-mix(in srgb, var(--color-overlay) 4%, transparent);
   }
 
   /* left key = the real i18n header text carried on data-label */
@@ -392,12 +388,12 @@
   height: 30px;
   padding: 0 12px;
   color: var(--color-text-muted);
-  border-color: rgba(154, 160, 173, 0.28);
+  border-color: color-mix(in srgb, var(--color-text-muted) 28%, transparent);
   background: transparent;
   cursor: pointer;
 }
 .btn--ghost:hover {
-  background: rgba(154, 160, 173, 0.12);
+  background: color-mix(in srgb, var(--color-text-muted) 12%, transparent);
   color: var(--color-text);
 }
 
@@ -440,8 +436,8 @@
   font-weight: 600;
   letter-spacing: 0.04em;
   color: var(--color-text-muted);
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 14%, transparent);
   border-radius: 999px;
   padding: 2px 8px;
   white-space: nowrap;
@@ -486,7 +482,7 @@
   margin-bottom: 16px;
   padding: 16px 18px;
   border-radius: var(--radius-card);
-  border: 1px solid rgba(111, 214, 176, 0.28);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 28%, transparent);
   background: var(--color-card);
 }
 .mon-cmd__head {
@@ -535,10 +531,10 @@
 }
 /* bootstrap-on-server failure result — red-tinted card + the raw log */
 .mon-cmd--err {
-  border-color: rgba(240, 115, 107, 0.35);
+  border-color: color-mix(in srgb, var(--color-danger) 35%, transparent);
 }
 .mon-cmd__title--err {
-  color: var(--color-danger, #f0736b);
+  color: var(--color-danger);
 }
 .mon-log {
   margin: 0;
@@ -557,7 +553,7 @@
 }
 /* accent-tinted confirm box (bootstrap is not destructive like teardown) */
 .mon-confirm__box--accent {
-  border-color: rgba(111, 214, 176, 0.35);
+  border-color: color-mix(in srgb, var(--color-accent) 35%, transparent);
 }
 
 /* teardown confirm dialog (二次確認) */
@@ -569,7 +565,7 @@
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: rgba(10, 12, 18, 0.62);
+  background: color-mix(in srgb, var(--color-scrim) 62%, transparent);
 }
 .mon-confirm__box {
   width: 100%;
@@ -579,7 +575,7 @@
   gap: 12px;
   padding: 20px 22px;
   border-radius: var(--radius-card);
-  border: 1px solid rgba(240, 115, 107, 0.35);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 35%, transparent);
   background: var(--color-card);
 }
 .mon-confirm__title {
@@ -632,7 +628,7 @@
 .mon-acct__detailbtn {
   flex: none;
   padding: 2px 8px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 12%, transparent);
   border-radius: 7px;
   background: transparent;
   font-size: 11.5px;
@@ -641,7 +637,7 @@
   transition: background 0.15s, color 0.15s;
 }
 .mon-acct__detailbtn:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
   color: var(--color-text);
 }
 .mon-detailmodal {
@@ -652,7 +648,7 @@
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: rgba(10, 12, 18, 0.62);
+  background: color-mix(in srgb, var(--color-scrim) 62%, transparent);
 }
 .mon-detailbox {
   width: 100%;
@@ -664,7 +660,7 @@
   gap: 14px;
   padding: 18px 20px;
   border-radius: var(--radius-card);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 12%, transparent);
   background: var(--color-card);
 }
 .mon-detailhead {
@@ -682,7 +678,7 @@
 .mon-detailchip {
   padding: 1px 7px;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
   font-size: 11.5px;
   color: var(--color-text-muted);
   overflow: hidden;
@@ -707,7 +703,7 @@
   transition: background 0.15s, color 0.15s;
 }
 .mon-detailclose:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
   color: var(--color-text);
 }
 .mon-detailgrid {
@@ -720,7 +716,7 @@
   justify-content: space-between;
   gap: 16px;
   padding: 7px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-overlay) 5%, transparent);
 }
 .mon-detailrow:last-child {
   border-bottom: none;
@@ -740,5 +736,5 @@
   font-size: 11.5px;
   padding: 1px 6px;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
 }

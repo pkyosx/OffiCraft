@@ -79,7 +79,7 @@ button {
   transition: border-color 0.15s, color 0.15s;
 }
 .add-entry:hover {
-  border-color: rgba(255, 255, 255, 0.12);
+  border-color: color-mix(in srgb, var(--color-overlay) 12%, transparent);
   color: var(--color-text);
 }
 

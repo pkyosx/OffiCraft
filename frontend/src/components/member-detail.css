@@ -44,7 +44,7 @@
    * overflows → .mp scrolls. */
   flex-shrink: 0;
   border-radius: var(--radius-card);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 5%, transparent);
   background: var(--color-card);
 }
 
@@ -91,7 +91,7 @@
   letter-spacing: 0.04em;
   color: var(--color-accent);
   background: var(--color-accent-soft);
-  border: 1px solid rgba(111, 214, 176, 0.25);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 25%, transparent);
   height: 21px;
   padding: 0 9px;
 }
@@ -132,7 +132,7 @@
   padding: 16px 20px;
 }
 .mp-field--divider {
-  border-left: 1px solid rgba(255, 255, 255, 0.05);
+  border-left: 1px solid color-mix(in srgb, var(--color-overlay) 5%, transparent);
 }
 .mp-field__label {
   font-size: 12px;
@@ -149,7 +149,7 @@
 /* Honest warning tint for a stuck spawn state (T-f190 「啟動卡住」) — the value
    reads red so the owner sees the worker is NOT actually running. */
 .mp-field__value--warn {
-  color: var(--color-danger, #e5674b);
+  color: var(--color-danger);
 }
 .mp-field__hint {
   font-size: 13px;
@@ -180,8 +180,8 @@
 .mp-cell {
   padding: 14px 16px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 5%, transparent);
+  background: color-mix(in srgb, var(--color-overlay) 2%, transparent);
 }
 .mp-cell__head {
   display: flex;
@@ -206,7 +206,7 @@
   height: 28px;
   padding: 0 12px;
   border-radius: 8px;
-  border: 1px solid rgba(111, 214, 176, 0.35);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 35%, transparent);
   background: transparent;
   color: var(--color-accent);
   font-size: 12.5px;
@@ -218,19 +218,19 @@
 }
 .mp-refocus:disabled {
   color: var(--color-text-muted);
-  border-color: rgba(154, 160, 173, 0.2);
+  border-color: color-mix(in srgb, var(--color-text-muted) 20%, transparent);
   opacity: 0.55;
   cursor: not-allowed;
 }
 /* transient feedback pulse — the refocus fired, so the button says so */
 .mp-refocus--pending:disabled {
   color: var(--color-accent);
-  border-color: rgba(111, 214, 176, 0.35);
+  border-color: color-mix(in srgb, var(--color-accent) 35%, transparent);
   opacity: 0.8;
 }
 .mp-refocus--done {
   color: var(--color-accent);
-  border-color: rgba(111, 214, 176, 0.55);
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
   background: var(--color-accent-soft);
 }
 .mp-refocus--error {
@@ -262,10 +262,10 @@
   line-height: 1.5;
 }
 .mp-lastop__head--ok {
-  color: var(--color-success, #2ea043);
+  color: var(--color-success);
 }
 .mp-lastop__head--fail {
-  color: var(--color-danger, #d1242f);
+  color: var(--color-danger);
 }
 .mp-lastop__icon {
   font-weight: 700;
@@ -287,7 +287,7 @@
   margin-top: 6px;
   font-size: 12.5px;
   line-height: 1.5;
-  color: var(--color-danger, #d1242f);
+  color: var(--color-danger);
   word-break: break-word;
 }
 .mp-lastop__logwrap {
@@ -313,7 +313,7 @@
   word-break: break-word;
   font-size: 12px;
   line-height: 1.45;
-  background: var(--color-surface-sunken, rgba(0, 0, 0, 0.04));
+  background: color-mix(in srgb, var(--color-shadow) 4%, transparent);
   border-radius: 6px;
   color: var(--color-text);
 }
@@ -341,7 +341,7 @@
   align-items: center;
   padding: 0 14px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
   background: var(--color-bg);
   color: var(--color-text);
   font-family: "SFMono-Regular", ui-monospace, Menlo, monospace;
@@ -383,8 +383,8 @@
   width: 100%;
   padding: 12px 14px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
+  background: color-mix(in srgb, var(--color-overlay) 2%, transparent);
   color: var(--color-text-strong);
   font-size: 15px;
   font-weight: 600;
@@ -433,7 +433,7 @@
   transition: background 0.15s;
 }
 .mp-expand__head:hover {
-  background: rgba(255, 255, 255, 0.02);
+  background: color-mix(in srgb, var(--color-overlay) 2%, transparent);
 }
 .mp-expand__icon {
   color: var(--color-text-muted);
@@ -506,7 +506,7 @@
 .mp-lessons__error {
   margin-top: 8px;
   font-size: 12.5px;
-  color: var(--color-danger, #e5484d);
+  color: var(--color-danger);
 }
 
 @media (max-width: 720px) {
@@ -544,7 +544,7 @@
   }
   .mp-field--divider {
     border-left: none;
-    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    border-top: 1px solid color-mix(in srgb, var(--color-overlay) 5%, transparent);
   }
 }
 
@@ -559,7 +559,7 @@
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: rgba(10, 12, 18, 0.62);
+  background: color-mix(in srgb, var(--color-scrim) 62%, transparent);
 }
 .mp-confirm__box {
   width: 100%;
@@ -569,7 +569,7 @@
   gap: 12px;
   padding: 20px 22px;
   border-radius: var(--radius-card);
-  border: 1px solid rgba(233, 110, 110, 0.35);
+  border: 1px solid color-mix(in srgb, var(--color-danger-soft) 35%, transparent);
   background: var(--color-card);
 }
 .mp-confirm__title {
@@ -620,9 +620,9 @@
 }
 .mp-info2__field input,
 .mp-info2__field select {
-  background: #191c24;
-  color: #e7e8ee;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: var(--color-bg);
+  color: var(--color-text);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 14%, transparent);
   border-radius: 8px;
   padding: 8px 10px;
   font: inherit;
@@ -633,7 +633,7 @@
   justify-content: flex-end;
 }
 .mp-info2__error {
-  color: #e07a7a;
+  color: var(--color-danger-soft);
 }
 
 /* Stacked second field inside one info cell (owner layout: 模型+EFFORT share
@@ -659,7 +659,7 @@
   margin-left: 2px;
   border-radius: 10px;
   background: var(--color-indigo);
-  color: #fff;
+  color: var(--color-overlay);
   font-size: 12px;
   font-weight: 600;
   line-height: 1;
@@ -676,7 +676,7 @@
   padding: 4px 0;
 }
 .mp-webhook__error {
-  color: var(--color-danger, #e5674b);
+  color: var(--color-danger);
 }
 .mp-webhook__row {
   display: flex;
@@ -685,7 +685,7 @@
   padding: 14px;
   border: 1px solid var(--color-border);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.015);
+  background: color-mix(in srgb, var(--color-overlay) 1.5%, transparent);
 }
 .mp-webhook__rowhead {
   display: flex;
@@ -699,8 +699,8 @@
   border-radius: 50%;
 }
 .mp-webhook__dot--on {
-  background: #34c759;
-  box-shadow: 0 0 0 3px rgba(52, 199, 89, 0.16);
+  background: var(--color-switch-on);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-switch-on) 16%, transparent);
 }
 .mp-webhook__dot--off {
   background: var(--color-text-muted);
@@ -708,7 +708,7 @@
 .mp-webhook__chip {
   padding: 3px 9px;
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
   color: var(--color-text-strong);
   font-family: "SFMono-Regular", ui-monospace, Menlo, monospace;
   font-size: 12.5px;
@@ -756,7 +756,7 @@
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: rgba(10, 12, 18, 0.62);
+  background: color-mix(in srgb, var(--color-scrim) 62%, transparent);
 }
 .mp-webhook__statsbox {
   width: 100%;
@@ -768,7 +768,7 @@
   gap: 14px;
   padding: 18px 20px;
   border-radius: var(--radius-card);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 12%, transparent);
   background: var(--color-card);
 }
 .mp-webhook__statshead {
@@ -796,7 +796,7 @@
   transition: background 0.15s, color 0.15s;
 }
 .mp-webhook__statsclose:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
   color: var(--color-text);
 }
 .mp-webhook__statsbody {
@@ -834,7 +834,7 @@
   gap: 4px;
   padding: 10px 12px;
   border-radius: 9px;
-  background: rgba(255, 255, 255, 0.04);
+  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
 }
 .mp-webhook__statlabel {
   font-size: 11px;
@@ -850,7 +850,7 @@
   font-variant-numeric: tabular-nums;
 }
 .mp-webhook__statvalue--dropped {
-  color: #e07a7a;
+  color: var(--color-danger-soft);
 }
 .mp-webhook__statnote {
   font-size: 11.5px;
@@ -875,12 +875,12 @@
   list-style: none;
   display: flex;
   flex-direction: column;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
   border-radius: 9px;
   overflow: hidden;
 }
 .mp-webhook__request + .mp-webhook__request {
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
 }
 .mp-webhook__requestrow {
   width: 100%;
@@ -897,7 +897,7 @@
   transition: background 0.15s;
 }
 .mp-webhook__requestrow:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
 }
 .mp-webhook__outcome {
   flex: none;
@@ -905,16 +905,16 @@
   border-radius: 999px;
   font-size: 11.5px;
   font-weight: 600;
-  background: rgba(255, 255, 255, 0.07);
+  background: color-mix(in srgb, var(--color-overlay) 7%, transparent);
   color: var(--color-text);
 }
 .mp-webhook__outcome--delivered {
-  background: rgba(111, 214, 176, 0.14);
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
   color: var(--color-accent);
 }
 .mp-webhook__outcome--dropped {
-  background: rgba(224, 122, 122, 0.14);
-  color: #e07a7a;
+  background: color-mix(in srgb, var(--color-danger-soft) 14%, transparent);
+  color: var(--color-danger-soft);
 }
 .mp-webhook__requesttime {
   font-size: 12px;
@@ -925,7 +925,7 @@
   flex: none;
   padding: 1px 7px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 14%, transparent);
   font-size: 10.5px;
   color: var(--color-text-muted);
 }
@@ -938,7 +938,7 @@
   flex-direction: column;
   gap: 6px;
   padding: 10px 12px 12px;
-  background: rgba(0, 0, 0, 0.14);
+  background: color-mix(in srgb, var(--color-shadow) 14%, transparent);
 }
 .mp-webhook__requestsection {
   font-size: 10.5px;
@@ -950,7 +950,7 @@
   margin: 0;
   padding: 8px 10px;
   border-radius: 7px;
-  background: rgba(0, 0, 0, 0.25);
+  background: color-mix(in srgb, var(--color-shadow) 25%, transparent);
   font-family: "SFMono-Regular", ui-monospace, Menlo, monospace;
   font-size: 11.5px;
   line-height: 1.5;
@@ -973,7 +973,7 @@
   white-space: nowrap;
   padding: 9px 12px;
   border-radius: 9px;
-  background: var(--color-surface-2, rgba(0, 0, 0, 0.2));
+  background: color-mix(in srgb, var(--color-shadow) 20%, transparent);
   color: var(--color-text-muted);
   font-family: "SFMono-Regular", ui-monospace, Menlo, monospace;
   font-size: 12.5px;
@@ -1002,12 +1002,12 @@
   border: 1px solid var(--color-border);
   border-radius: 9px;
   background: transparent;
-  color: var(--color-danger, #e5674b);
+  color: var(--color-danger);
   transition: background 0.15s, border-color 0.15s;
 }
 .mp-webhook__delete:hover {
-  background: rgba(229, 103, 75, 0.1);
-  border-color: rgba(229, 103, 75, 0.4);
+  background: color-mix(in srgb, var(--color-danger-soft) 10%, transparent);
+  border-color: color-mix(in srgb, var(--color-danger-soft) 40%, transparent);
 }
 /* toggle switch */
 .mp-toggle {
@@ -1017,12 +1017,12 @@
   height: 22px;
   border-radius: 11px;
   border: none;
-  background: rgba(255, 255, 255, 0.16);
+  background: color-mix(in srgb, var(--color-overlay) 16%, transparent);
   cursor: pointer;
   transition: background 0.18s;
 }
 .mp-toggle--on {
-  background: #34c759;
+  background: var(--color-switch-on);
 }
 .mp-toggle:disabled {
   opacity: 0.55;
@@ -1035,7 +1035,7 @@
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--color-overlay);
   transition: transform 0.18s;
 }
 .mp-toggle--on .mp-toggle__knob {
@@ -1068,7 +1068,7 @@
   padding: 14px;
   border: 1px solid var(--color-border);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.015);
+  background: color-mix(in srgb, var(--color-overlay) 1.5%, transparent);
 }
 /* Every form row is label-first: a stacked <label> wrapping the small-caps
    field name (same voice as .mp-field__label on the info card) + the control,
@@ -1085,14 +1085,14 @@
   color: var(--color-text-muted);
 }
 .mp-webhook__required {
-  color: var(--color-danger, #e5674b);
+  color: var(--color-danger);
 }
 .mp-webhook__input {
   width: 100%;
   padding: 10px 12px;
   border: 1px solid var(--color-border);
   border-radius: 9px;
-  background: var(--color-surface-2, rgba(0, 0, 0, 0.2));
+  background: color-mix(in srgb, var(--color-shadow) 20%, transparent);
   color: var(--color-text);
   font-size: 13px;
 }
@@ -1115,7 +1115,7 @@
 }
 .mp-webhook__hint {
   font-size: 12.5px;
-  color: var(--color-danger, #e5674b);
+  color: var(--color-danger);
 }
 .mp-webhook__rotate {
   display: flex;
@@ -1145,7 +1145,7 @@
   padding: 0 16px;
 }
 .mp-webhook__submit {
-  color: #fff;
+  color: var(--color-overlay);
   background: var(--color-indigo);
 }
 .mp-webhook__submit:hover:not(:disabled) {

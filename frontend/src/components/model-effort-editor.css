@@ -20,9 +20,9 @@
 .me-editor__select {
   width: 100%;
   margin-top: 6px;
-  background: #191c24;
-  color: #e7e8ee;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: var(--color-bg);
+  color: var(--color-text);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 14%, transparent);
   border-radius: 8px;
   padding: 8px 10px;
   font: inherit;

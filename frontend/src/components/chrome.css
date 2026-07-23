@@ -37,7 +37,7 @@
   padding: 0;
   border: none;
   border-radius: 10px;
-  background: linear-gradient(160deg, #1f5a48, #123a30);
+  background: linear-gradient(160deg, var(--color-logo-grad-from), var(--color-logo-grad-to));
   color: var(--color-accent);
   cursor: pointer;
   transition:
@@ -72,7 +72,7 @@
   width: 34px;
   height: 34px;
   border-radius: 9px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 5%, transparent);
   background: var(--color-card);
   color: var(--color-text-muted);
   transition: color 0.15s, background 0.15s;
@@ -85,7 +85,7 @@
 .icon-btn--active {
   color: var(--color-text-strong);
   background: var(--color-indigo);
-  border-color: rgba(255, 255, 255, 0.08);
+  border-color: color-mix(in srgb, var(--color-overlay) 8%, transparent);
 }
 
 .profile-pill {
@@ -95,7 +95,7 @@
   height: 34px;
   padding: 0 11px 0 6px;
   border-radius: 9px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 5%, transparent);
   background: var(--color-card);
   color: var(--color-text);
 }
@@ -106,7 +106,7 @@
   width: 24px;
   height: 24px;
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
   color: var(--color-text-muted);
 }
 
@@ -130,8 +130,8 @@
   gap: 4px;
   padding: 4px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
+  background: color-mix(in srgb, var(--color-overlay) 3%, transparent);
 }
 
 .nav-tab {
@@ -171,7 +171,7 @@
   justify-content: center;
   border-radius: 9px;
   background: var(--color-danger);
-  color: #fff;
+  color: var(--color-overlay);
   font-size: 11px;
   font-weight: 700;
   line-height: 1;

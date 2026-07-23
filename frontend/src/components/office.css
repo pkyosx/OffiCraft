@@ -76,7 +76,7 @@
   }
   50% {
     opacity: 0.55;
-    box-shadow: 0 0 0 3px rgba(224, 179, 65, 0);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-dot-waking) 0%, transparent);
   }
 }
 
@@ -89,7 +89,7 @@
   }
   50% {
     opacity: 0.55;
-    box-shadow: 0 0 0 3px rgba(224, 135, 63, 0);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-dot-stopping) 0%, transparent);
   }
 }
 
@@ -98,7 +98,7 @@
   display: inline-grid;
   place-items: center;
   border-radius: 11px;
-  background: rgba(255, 255, 255, 0.05);
+  background: color-mix(in srgb, var(--color-overlay) 5%, transparent);
   color: var(--color-text-muted);
   flex: none;
 }
@@ -119,8 +119,8 @@
 [data-theme="xian"] .avatar {
   border-radius: 50%;
   overflow: hidden;
-  background: radial-gradient(circle at 50% 32%, #241a10, #14100a);
-  border: 1px solid #5a4c28;
+  background: radial-gradient(circle at 50% 32%, var(--color-xian-avatar-glow), var(--color-bg));
+  border: 1px solid var(--color-xian-avatar-rim);
 }
 .badge {
   display: inline-flex;
@@ -134,7 +134,7 @@
 }
 .badge--muted {
   color: var(--color-text-muted);
-  border: 1px solid rgba(154, 160, 173, 0.3);
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 30%, transparent);
 }
 
 .btn {
@@ -152,18 +152,18 @@
   height: 30px;
   padding: 0 12px;
   color: var(--color-accent);
-  border-color: rgba(111, 214, 176, 0.35);
+  border-color: color-mix(in srgb, var(--color-accent) 35%, transparent);
   background: var(--color-accent-soft);
 }
 .btn--accent-ghost:hover {
-  background: rgba(111, 214, 176, 0.2);
+  background: color-mix(in srgb, var(--color-accent) 20%, transparent);
 }
 .btn--accent {
   height: 38px;
   padding: 0 18px;
   color: var(--color-accent);
   background: var(--color-accent-cta-bg);
-  border-color: rgba(111, 214, 176, 0.18);
+  border-color: color-mix(in srgb, var(--color-accent) 18%, transparent);
   font-weight: 600;
 }
 .btn--accent:hover {
@@ -176,11 +176,11 @@
   height: 30px;
   padding: 0 12px;
   color: var(--color-danger);
-  border-color: rgba(240, 115, 107, 0.35);
-  background: rgba(240, 115, 107, 0.1);
+  border-color: color-mix(in srgb, var(--color-danger) 35%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
 }
 .btn--danger-ghost:hover {
-  background: rgba(240, 115, 107, 0.18);
+  background: color-mix(in srgb, var(--color-danger) 18%, transparent);
 }
 
 /* ---- member action buttons (layer-4 UI skeleton shell) ---- */
@@ -280,7 +280,7 @@
   justify-content: center;
   border-radius: 9px;
   background: var(--color-danger);
-  color: #fff;
+  color: var(--color-overlay);
   font-size: 11px;
   font-weight: 700;
   line-height: 1;
@@ -349,11 +349,11 @@
   transition: background 0.15s, border-color 0.15s;
 }
 .member-card:hover {
-  background: rgba(255, 255, 255, 0.02);
+  background: color-mix(in srgb, var(--color-overlay) 2%, transparent);
 }
 .member-card--selected {
   background: var(--color-card);
-  border-color: rgba(255, 255, 255, 0.05);
+  border-color: color-mix(in srgb, var(--color-overlay) 5%, transparent);
 }
 .member-card__body {
   flex: 1;
@@ -385,7 +385,7 @@
   justify-content: center;
   border-radius: 9px;
   background: var(--color-danger);
-  color: #fff;
+  color: var(--color-overlay);
   font-size: 11px;
   font-weight: 700;
   line-height: 1;
@@ -479,7 +479,7 @@
   align-items: center;
   gap: 12px;
   padding: 6px 8px 18px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-overlay) 5%, transparent);
 }
 /* Only advertise a click when a detail target is wired (chat__header--clickable). */
 .chat__header--clickable {
@@ -489,7 +489,7 @@
   outline: none;
 }
 .chat__header--clickable:hover {
-  background: rgba(255, 255, 255, 0.02);
+  background: color-mix(in srgb, var(--color-overlay) 2%, transparent);
 }
 .chat__header--clickable:focus-visible {
   box-shadow: 0 0 0 2px var(--color-accent-soft);
@@ -592,7 +592,7 @@
   font-size: 12px;
   line-height: 1;
   cursor: pointer;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--color-shadow) 35%, transparent);
 }
 .chat__new-msg-chip:hover {
   border-color: var(--color-text-muted);
@@ -663,7 +663,7 @@
   color: var(--color-text-muted);
   font-size: 11px;
   line-height: 1;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--color-shadow) 28%, transparent);
 }
 .chat__offline {
   display: flex;
@@ -679,7 +679,7 @@
   height: 56px;
   margin-bottom: 18px;
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.04);
+  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
   color: var(--color-text-muted);
 }
 .chat__offline-title {
@@ -965,7 +965,7 @@
   width: auto;
   height: auto;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
   object-fit: contain;
 }
 /* A clickable image (thread + composer preview) opens the full-size lightbox. */
@@ -983,7 +983,7 @@
   align-items: center;
   justify-content: center;
   padding: 32px;
-  background: rgba(0, 0, 0, 0.8);
+  background: color-mix(in srgb, var(--color-shadow) 80%, transparent);
   cursor: zoom-out;
 }
 .chat__lightbox-image {
@@ -1004,14 +1004,14 @@
   justify-content: center;
   font-size: 28px;
   line-height: 1;
-  color: #fff;
-  background: rgba(255, 255, 255, 0.1);
+  color: var(--color-overlay);
+  background: color-mix(in srgb, var(--color-overlay) 10%, transparent);
   border: none;
   border-radius: 50%;
   cursor: pointer;
 }
 .chat__lightbox-close:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: color-mix(in srgb, var(--color-overlay) 20%, transparent);
 }
 
 /* ── M2-3 member file & image gallery (batch-16 upgrade) ─────────────────────
@@ -1044,7 +1044,7 @@
 .chat__gallery-toggle:hover,
 .chat__gallery-toggle[aria-expanded="true"] {
   color: var(--color-text-strong);
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
 }
 .chat__gallery {
   position: absolute;
@@ -1055,17 +1055,17 @@
   width: min(340px, 100%);
   display: flex;
   flex-direction: column;
-  border-left: 1px solid rgba(255, 255, 255, 0.06);
+  border-left: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
   border-radius: 0 0 14px 0;
   background: var(--color-card);
-  box-shadow: -12px 0 28px rgba(0, 0, 0, 0.35);
+  box-shadow: -12px 0 28px color-mix(in srgb, var(--color-shadow) 35%, transparent);
 }
 .chat__gallery-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 12px 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-overlay) 5%, transparent);
 }
 .chat__gallery-title {
   font-size: 13.5px;
@@ -1089,7 +1089,7 @@
 }
 .chat__gallery-close:hover {
   color: var(--color-text-strong);
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
 }
 /* 圖片 / 檔案 segmented tabs (same seg vocabulary as profile-dd__seg): a muted
  * two-cell grid under the header; the active tab gets the soft card highlight
@@ -1101,8 +1101,8 @@
   margin: 10px 10px 0;
   padding: 4px;
   border-radius: 11px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
+  background: color-mix(in srgb, var(--color-overlay) 3%, transparent);
 }
 .chat__gallery-tab {
   height: 30px;
@@ -1121,7 +1121,7 @@
   color: var(--color-text);
 }
 .chat__gallery-tab--active {
-  background: rgba(255, 255, 255, 0.08);
+  background: color-mix(in srgb, var(--color-overlay) 8%, transparent);
   color: var(--color-text-strong);
 }
 
@@ -1138,9 +1138,9 @@
 .chat__gallery-sender-chip {
   max-width: 100%;
   padding: 4px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.03);
+  background: color-mix(in srgb, var(--color-overlay) 3%, transparent);
   color: var(--color-text-muted);
   font-size: 11.5px;
   font-weight: 500;
@@ -1156,7 +1156,7 @@
   color: var(--color-text);
 }
 .chat__gallery-sender-chip--active {
-  background: rgba(255, 255, 255, 0.1);
+  background: color-mix(in srgb, var(--color-overlay) 10%, transparent);
   color: var(--color-text-strong);
 }
 
@@ -1189,7 +1189,7 @@
   transition: background 0.15s;
 }
 .chat__gallery-item:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
 }
 .chat__gallery-thumb {
   width: 44px;
@@ -1197,7 +1197,7 @@
   flex: none;
   border-radius: 8px;
   object-fit: cover;
-  background: rgba(255, 255, 255, 0.04);
+  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
 }
 .chat__gallery-fileicon {
   width: 44px;
@@ -1207,7 +1207,7 @@
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
   color: var(--color-text-muted);
 }
 .chat__gallery-meta {
@@ -1239,8 +1239,8 @@
   max-width: 300px;
   padding: 9px 12px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
+  background: color-mix(in srgb, var(--color-shadow) 18%, transparent);
   color: var(--color-text);
   text-decoration: none;
   font-size: 13px;
@@ -1258,7 +1258,7 @@ button.chat__msg-file {
 }
 .chat__msg-file:hover {
   color: var(--color-accent);
-  border-color: rgba(111, 214, 176, 0.4);
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
 }
 .chat__msg-file-name {
   overflow: hidden;
@@ -1280,9 +1280,9 @@ button.chat__msg-file {
   width: 24px;
   height: 24px;
   padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
   border-radius: 6px;
-  background: rgba(0, 0, 0, 0.55);
+  background: color-mix(in srgb, var(--color-shadow) 55%, transparent);
   color: var(--color-text-muted);
   cursor: pointer;
   transition:
@@ -1292,7 +1292,7 @@ button.chat__msg-file {
 }
 .chat__share-btn:hover {
   color: var(--color-accent);
-  border-color: rgba(111, 214, 176, 0.4);
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
 }
 /* In the thread the button floats over the attachment's top-right corner and
  * only shows while hovering (or focused — keyboard reachable). */
@@ -1340,7 +1340,7 @@ button.chat__msg-file {
 }
 .chat__preview-btn:hover {
   color: var(--color-accent);
-  border-color: rgba(111, 214, 176, 0.4);
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
 }
 
 /* ── .md preview overlay (T-a1c4) — in-cockpit markdown render, shared by the
@@ -1355,17 +1355,17 @@ button.chat__msg-file {
   align-items: center;
   justify-content: center;
   padding: 32px;
-  background: rgba(0, 0, 0, 0.75);
+  background: color-mix(in srgb, var(--color-shadow) 75%, transparent);
 }
 .md-preview__panel {
   display: flex;
   flex-direction: column;
   width: min(760px, 100%);
   max-height: 100%;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
   border-radius: 14px;
   background: var(--color-card);
-  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 20px 48px color-mix(in srgb, var(--color-shadow) 50%, transparent);
   overflow: hidden;
 }
 .md-preview__header {
@@ -1374,7 +1374,7 @@ button.chat__msg-file {
   justify-content: space-between;
   gap: 12px;
   padding: 12px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
 }
 .md-preview__title {
   display: inline-flex;
@@ -1403,8 +1403,8 @@ button.chat__msg-file {
   gap: 6px;
   padding: 6px 12px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
+  background: color-mix(in srgb, var(--color-overlay) 3%, transparent);
   color: var(--color-text);
   text-decoration: none;
   font-size: 12.5px;
@@ -1414,7 +1414,7 @@ button.chat__msg-file {
 }
 .md-preview__download:hover {
   color: var(--color-accent);
-  border-color: rgba(111, 214, 176, 0.4);
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
 }
 .md-preview__close {
   display: flex;
@@ -1430,7 +1430,7 @@ button.chat__msg-file {
 }
 .md-preview__close:hover {
   color: var(--color-text-strong);
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
 }
 .md-preview__body {
   flex: 1;
@@ -1472,7 +1472,7 @@ button.chat__msg-file {
   height: 44px;
   padding: 11px 16px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
   background: var(--color-card);
   color: var(--color-text);
   font-family: inherit;
@@ -1486,7 +1486,7 @@ button.chat__msg-file {
   color: var(--color-text-muted);
 }
 .chat__input:focus {
-  border-color: rgba(111, 214, 176, 0.4);
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
 }
 /* Attach (paperclip) button — same 44px square as send, but a quiet card
  * surface (it is a secondary action beside the primary indigo send). */
@@ -1497,7 +1497,7 @@ button.chat__msg-file {
   height: 44px;
   flex: none;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
   background: var(--color-card);
   color: var(--color-text-muted);
   cursor: pointer;
@@ -1507,7 +1507,7 @@ button.chat__msg-file {
 }
 .chat__attach:hover {
   color: var(--color-text);
-  border-color: rgba(111, 214, 176, 0.4);
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
 }
 .chat__send {
   display: grid;
@@ -1538,7 +1538,7 @@ button.chat__msg-file {
   justify-content: center;
   height: 44px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
   background: var(--color-card);
   color: var(--color-text-muted);
   font: inherit;
@@ -1629,7 +1629,7 @@ button.chat__msg-file {
   width: auto;
   height: auto;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
   object-fit: contain;
 }
 .chat__preview-remove {
@@ -1646,7 +1646,7 @@ button.chat__msg-file {
   color: var(--color-text);
   font-size: 15px;
   line-height: 1;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--color-shadow) 45%, transparent);
   cursor: pointer;
   transition: color 0.15s;
 }
@@ -1661,7 +1661,7 @@ button.chat__msg-file {
   max-width: 260px;
   padding: 8px 12px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
   background: var(--color-card);
   color: var(--color-text);
   font-size: 12.5px;
@@ -1687,7 +1687,7 @@ button.chat__msg-file {
 }
 .chat__preview-error {
   font-size: 12.5px;
-  color: #e2857f;
+  color: var(--color-danger-soft);
 }
 
 @media (max-width: 720px) {
@@ -1755,9 +1755,9 @@ button.chat__msg-file {
   width: 280px;
   padding: 12px;
   border-radius: var(--radius-card);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
   background: var(--color-card);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--color-shadow) 35%, transparent);
 }
 .outsource-panel__pop--up {
   top: auto;
@@ -1777,9 +1777,9 @@ button.chat__msg-file {
   width: 26px;
   height: 26px;
   border-radius: 8px;
-  border: 1px solid color-mix(in srgb, #e0b341 35%, transparent);
-  color: #e0b341;
-  background: color-mix(in srgb, #e0b341 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-dot-waking) 35%, transparent);
+  color: var(--color-dot-waking);
+  background: color-mix(in srgb, var(--color-dot-waking) 8%, transparent);
 }
 .outsource-panel__pop-title {
   font-size: 13px;
@@ -1791,7 +1791,7 @@ button.chat__msg-file {
   margin-bottom: 8px;
   font-size: 12px;
   font-weight: 600;
-  color: #e0b341;
+  color: var(--color-dot-waking);
 }
 .outsource-panel__pop-footer {
   margin-top: 12px;
@@ -1814,7 +1814,7 @@ button.chat__msg-file {
   width: 70px;
   padding: 6px 8px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
   background: var(--color-bg);
   color: var(--color-text);
   font-size: 13px;
@@ -1827,7 +1827,7 @@ button.chat__msg-file {
 .outsource-panel__paused {
   margin: 2px 6px 4px;
   font-size: 12px;
-  color: #e0b341;
+  color: var(--color-dot-waking);
 }
 .outsource-panel__list {
   display: flex;
@@ -1853,11 +1853,11 @@ button.chat__msg-file {
   transition: background 0.15s, border-color 0.15s;
 }
 .outsource-row:hover {
-  background: rgba(255, 255, 255, 0.02);
+  background: color-mix(in srgb, var(--color-overlay) 2%, transparent);
 }
 .outsource-row--selected {
   background: var(--color-card);
-  border-color: rgba(255, 255, 255, 0.05);
+  border-color: color-mix(in srgb, var(--color-overlay) 5%, transparent);
 }
 .outsource-row__avatar {
   flex: none;
@@ -1868,9 +1868,9 @@ button.chat__msg-file {
   height: 32px;
   padding: 0;
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, #e0b341 35%, transparent);
-  color: #e0b341;
-  background: color-mix(in srgb, #e0b341 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-dot-waking) 35%, transparent);
+  color: var(--color-dot-waking);
+  background: color-mix(in srgb, var(--color-dot-waking) 8%, transparent);
   cursor: pointer;
   transition: filter 0.15s;
 }
@@ -1940,8 +1940,8 @@ button.chat__msg-file {
   max-width: 100%;
   padding: 1.5px 8px;
   border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
+  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
   color: var(--color-text-muted);
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 11px;
@@ -1952,14 +1952,14 @@ button.chat__msg-file {
 /* The T-xxxx chip is a BUTTON (jump to the task card), not a plain label —
  * the amber accent it inherits from the old link chip signals "clickable". */
 .outsource-row__chip--task {
-  color: #e0b341;
-  border-color: color-mix(in srgb, #e0b341 35%, transparent);
+  color: var(--color-dot-waking);
+  border-color: color-mix(in srgb, var(--color-dot-waking) 35%, transparent);
   cursor: pointer;
   transition: background 0.15s;
 }
 .outsource-row__chip--task:hover,
 .outsource-row__chip--task:focus-visible {
-  background: color-mix(in srgb, #e0b341 12%, transparent);
+  background: color-mix(in srgb, var(--color-dot-waking) 12%, transparent);
 }
 
 /* Outsource chat header subtitle — the SAME task line as the rail row

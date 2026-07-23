@@ -61,7 +61,7 @@
   text-decoration: underline;
 }
 .crumbs__sep {
-  color: rgba(255, 255, 255, 0.25);
+  color: color-mix(in srgb, var(--color-overlay) 25%, transparent);
 }
 .crumbs__here {
   color: var(--color-text);
@@ -90,15 +90,15 @@
   width: 100%;
   padding: 16px 18px;
   border-radius: var(--radius-card);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 5%, transparent);
   background: var(--color-card);
   color: var(--color-text);
   text-align: left;
   transition: background 0.15s, border-color 0.15s;
 }
 .set-entry:hover {
-  background: rgba(255, 255, 255, 0.03);
-  border-color: rgba(255, 255, 255, 0.09);
+  background: color-mix(in srgb, var(--color-overlay) 3%, transparent);
+  border-color: color-mix(in srgb, var(--color-overlay) 9%, transparent);
 }
 
 /* rounded icon tile — colour keyed per entry, per mockup */
@@ -112,16 +112,16 @@
   color: var(--color-text);
 }
 .set-entry__icon--neutral {
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
   color: var(--color-text-muted);
 }
 .set-entry__icon--violet {
-  background: rgba(139, 122, 232, 0.16);
-  color: #a99cf0;
+  background: color-mix(in srgb, var(--color-icon-violet-bg) 16%, transparent);
+  color: var(--color-icon-violet);
 }
 .set-entry__icon--blue {
-  background: rgba(96, 133, 224, 0.16);
-  color: #8fabf0;
+  background: color-mix(in srgb, var(--color-icon-blue-bg) 16%, transparent);
+  color: var(--color-icon-blue);
 }
 
 .set-entry__body {
@@ -162,7 +162,7 @@
   font-size: 11px;
   font-weight: 600;
   color: var(--color-text-muted);
-  border: 1px solid rgba(154, 160, 173, 0.3);
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 30%, transparent);
 }
 
 /* ── 軟體更新 card ── */
@@ -173,7 +173,7 @@
   gap: 16px;
   padding: 18px 20px;
   border-radius: var(--radius-card);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 5%, transparent);
   background: var(--color-card);
 }
 .sw-card__main {
@@ -255,7 +255,7 @@
 .sw-badge--ok {
   color: var(--color-accent);
   background: var(--color-accent-soft);
-  border: 1px solid rgba(111, 214, 176, 0.25);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 25%, transparent);
 }
 .sw-badge--new {
   color: var(--color-text-strong);
@@ -264,14 +264,14 @@
 /* transient "檢查中…" — muted, so it reads as in-flight, not as a verdict */
 .sw-badge--busy {
   color: var(--color-text-muted);
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
 }
 /* check failed / GitHub unreachable — an honest error, same row as the rest */
 .sw-badge--bad {
-  color: var(--color-danger, #e5807a);
-  background: rgba(229, 128, 122, 0.12);
-  border: 1px solid rgba(229, 128, 122, 0.28);
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger-soft) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-danger-soft) 28%, transparent);
 }
 
 /* ── the status row: the badge alone ──
@@ -301,7 +301,7 @@
 }
 .sw-refresh:hover:not(:disabled) {
   color: var(--color-text-strong);
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
 }
 .sw-refresh:disabled {
   opacity: 0.5;
@@ -336,7 +336,7 @@
 /* ── doc detail card (global context / role def) ── */
 .doc-card {
   border-radius: var(--radius-card);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 5%, transparent);
   background: var(--color-card);
 }
 .doc-card__head {
@@ -345,7 +345,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 14px 18px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-overlay) 5%, transparent);
 }
 /* Head-left slot: badge only — the filename chip is gone (docs are presented
  * as content, not files; internal .md names are implementation detail). */
@@ -369,7 +369,7 @@
   height: 30px;
   padding: 0 12px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
   background: transparent;
   color: var(--color-text);
   font-size: 13px;
@@ -377,7 +377,7 @@
   transition: background 0.15s, border-color 0.15s, opacity 0.15s;
 }
 .doc-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.04);
+  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
 }
 .doc-btn:disabled {
   opacity: 0.5;
@@ -385,15 +385,15 @@
 }
 .doc-btn--edit {
   color: var(--color-accent);
-  border-color: rgba(111, 214, 176, 0.35);
+  border-color: color-mix(in srgb, var(--color-accent) 35%, transparent);
   background: var(--color-accent-soft);
 }
 .doc-btn--edit:hover:not(:disabled) {
-  background: rgba(111, 214, 176, 0.2);
+  background: color-mix(in srgb, var(--color-accent) 20%, transparent);
 }
 .doc-btn--accent {
   color: var(--color-accent);
-  border-color: rgba(111, 214, 176, 0.35);
+  border-color: color-mix(in srgb, var(--color-accent) 35%, transparent);
   background: var(--color-accent-cta-bg);
   font-weight: 600;
 }
@@ -412,7 +412,7 @@
   margin: 14px 0;
   padding: 14px 16px;
   border-radius: 10px;
-  border: 1px solid rgba(111, 214, 176, 0.3);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 30%, transparent);
   background: var(--color-bg);
   color: var(--color-text);
   font-family: "SFMono-Regular", ui-monospace, Menlo, monospace;
@@ -487,13 +487,13 @@
 .doc-md hr {
   margin: 18px 0;
   border: 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
 }
 .doc-md blockquote {
   margin: 10px 0;
   padding: 8px 14px;
-  border-left: 3px solid rgba(111, 214, 176, 0.4);
-  background: rgba(255, 255, 255, 0.02);
+  border-left: 3px solid color-mix(in srgb, var(--color-accent) 40%, transparent);
+  background: color-mix(in srgb, var(--color-overlay) 2%, transparent);
   border-radius: 0 8px 8px 0;
   color: var(--color-text-muted);
 }
@@ -512,7 +512,7 @@
   margin: 10px 0;
   padding: 10px 12px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
+  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
 }
 .doc-md pre code {
   padding: 0;
@@ -521,7 +521,7 @@
 .doc-md code {
   padding: 1px 6px;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
   font-family: "SFMono-Regular", ui-monospace, Menlo, monospace;
   font-size: 0.88em;
   color: var(--color-accent);
@@ -558,12 +558,12 @@
  * is the accent colour, so no label text (and therefore no i18n) is needed. */
 .doc-md blockquote.md-alert--warning,
 .doc-md blockquote.md-alert--caution {
-  border-left-color: rgba(240, 138, 138, 0.6);
-  background: rgba(240, 138, 138, 0.06);
+  border-left-color: color-mix(in srgb, var(--color-callout-warning) 60%, transparent);
+  background: color-mix(in srgb, var(--color-callout-warning) 6%, transparent);
 }
 .doc-md blockquote.md-alert--important {
-  border-left-color: rgba(190, 150, 240, 0.6);
-  background: rgba(190, 150, 240, 0.06);
+  border-left-color: color-mix(in srgb, var(--color-callout-important) 60%, transparent);
+  background: color-mix(in srgb, var(--color-callout-important) 6%, transparent);
 }
 /* NOTE / TIP were missing entirely, so `> [!NOTE]` fell back to the plain
  * blockquote green and looked EXACTLY like an ordinary quote — measured on the
@@ -574,12 +574,12 @@
  * three already use. The tint is what separates ANY alert from a plain quote
  * without adding label text (and therefore without adding i18n strings). */
 .doc-md blockquote.md-alert--note {
-  border-left-color: rgba(120, 175, 240, 0.7);
-  background: rgba(120, 175, 240, 0.06);
+  border-left-color: color-mix(in srgb, var(--color-callout-note) 70%, transparent);
+  background: color-mix(in srgb, var(--color-callout-note) 6%, transparent);
 }
 .doc-md blockquote.md-alert--tip {
-  border-left-color: rgba(111, 214, 176, 0.9);
-  background: rgba(111, 214, 176, 0.06);
+  border-left-color: color-mix(in srgb, var(--color-accent) 90%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 6%, transparent);
 }
 /* T-bc3e: GFM tables. `display: block + overflow-x` makes a wide table scroll
  * inside its container (chat bubble, task card, settings doc) instead of
@@ -600,16 +600,16 @@
 .doc-md th,
 .doc-md td {
   padding: 5px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 14%, transparent);
   text-align: left;
 }
 .doc-md th {
   font-weight: 700;
   color: var(--color-text-strong);
-  background: rgba(255, 255, 255, 0.05);
+  background: color-mix(in srgb, var(--color-overlay) 5%, transparent);
 }
 .doc-md tbody tr:nth-child(even) {
-  background: rgba(255, 255, 255, 0.025);
+  background: color-mix(in srgb, var(--color-overlay) 2.5%, transparent);
 }
 .doc-md h1:first-child,
 .doc-md h2:first-child {
@@ -661,13 +661,13 @@
   height: 30px;
   padding: 0;
   border-radius: 8px;
-  border: 1px solid rgba(224, 122, 122, 0.35);
+  border: 1px solid color-mix(in srgb, var(--color-danger-soft) 35%, transparent);
   background: transparent;
-  color: #e07a7a;
+  color: var(--color-danger-soft);
   transition: background 0.15s, border-color 0.15s;
 }
 .set-entry-row__delete:hover {
-  background: rgba(224, 122, 122, 0.12);
+  background: color-mix(in srgb, var(--color-danger-soft) 12%, transparent);
 }
 /* The add ENTRY itself is the shared `.add-entry` row (styles/global.css). */
 /* Inline create ROW (owner-aligned pattern): the add entry grows one editable
@@ -679,9 +679,9 @@
 .set-add-inline__input {
   flex: 1;
   min-width: 0;
-  background: #191c24;
-  color: #e7e8ee;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: var(--color-bg);
+  color: var(--color-text);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 14%, transparent);
   border-radius: 8px;
   padding: 8px 10px;
   font: inherit;
@@ -695,7 +695,7 @@
   display: flex;
   flex-direction: column;
   border-radius: var(--radius-card);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 5%, transparent);
   background: var(--color-card);
 }
 
@@ -706,7 +706,7 @@
   padding: 16px 18px;
 }
 .param-row + .param-row {
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  border-top: 1px solid color-mix(in srgb, var(--color-overlay) 5%, transparent);
 }
 
 .param-row__body {
@@ -733,7 +733,7 @@
   height: 34px;
   padding: 0 10px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
   background: var(--color-bg);
   color: var(--color-text);
   font-size: 13px;
@@ -808,7 +808,7 @@
 .manual-tab {
   padding: 7px 14px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
   background: none;
   color: var(--color-text-muted);
   font-size: 13px;
@@ -817,7 +817,7 @@
 .manual-tab--active {
   color: var(--color-text-strong);
   background: var(--color-card);
-  border-color: rgba(255, 255, 255, 0.12);
+  border-color: color-mix(in srgb, var(--color-overlay) 12%, transparent);
 }
 .manual-def {
   display: flex;
@@ -921,7 +921,7 @@
 .manual-input {
   padding: 8px 10px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
   background: var(--color-bg);
   color: var(--color-text);
   font-size: 13px;
@@ -954,8 +954,8 @@
   gap: 8px;
   padding: 8px 10px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
+  background: color-mix(in srgb, var(--color-overlay) 2%, transparent);
 }
 .manual-field__name-input {
   flex: 1;
@@ -968,7 +968,7 @@
   flex: none;
   padding: 4px 11px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 12%, transparent);
   background: none;
   color: var(--color-text-muted);
   font-size: 12px;
@@ -976,9 +976,9 @@
   cursor: pointer;
 }
 .manual-pill--required.manual-pill--on {
-  color: #e0b341;
-  border-color: color-mix(in srgb, #e0b341 55%, transparent);
-  background: color-mix(in srgb, #e0b341 14%, transparent);
+  color: var(--color-dot-waking);
+  border-color: color-mix(in srgb, var(--color-dot-waking) 55%, transparent);
+  background: color-mix(in srgb, var(--color-dot-waking) 14%, transparent);
 }
 .manual-pill--key.manual-pill--on {
   color: var(--color-accent);
@@ -1000,13 +1000,13 @@
 }
 .manual-field__remove:hover {
   color: var(--color-danger);
-  background: rgba(255, 255, 255, 0.04);
+  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
 }
 .manual-add-field {
   align-self: flex-start;
   padding: 6px 12px;
   border-radius: 8px;
-  border: 1px dashed rgba(255, 255, 255, 0.15);
+  border: 1px dashed color-mix(in srgb, var(--color-overlay) 15%, transparent);
   background: none;
   color: var(--color-text-muted);
   font-size: 13px;
@@ -1014,7 +1014,7 @@
 }
 .manual-add-field:hover {
   color: var(--color-text);
-  border-color: rgba(255, 255, 255, 0.3);
+  border-color: color-mix(in srgb, var(--color-overlay) 30%, transparent);
 }
 /* §3 SOP card — reuses the .doc-card chrome. The head-left filename chip was
  * removed (owner T-8a4a): the SOP is content in the DB, not a file, so the
@@ -1033,8 +1033,8 @@
 }
 
 .set-entry__icon--purple {
-  background: rgba(139, 122, 232, 0.16);
-  color: #a99cf0;
+  background: color-mix(in srgb, var(--color-icon-violet-bg) 16%, transparent);
+  color: var(--color-icon-violet);
 }
 
 /* the 負責成員 summary card (hub top) */
@@ -1057,12 +1057,12 @@
   height: 42px;
   flex: none;
   border-radius: 12px;
-  background: rgba(224, 176, 96, 0.14);
-  color: #e0b060;
+  background: color-mix(in srgb, var(--color-icon-amber) 14%, transparent);
+  color: var(--color-icon-amber);
 }
 .manual-assignee-card__icon--member {
-  background: rgba(96, 133, 224, 0.16);
-  color: #8fabf0;
+  background: color-mix(in srgb, var(--color-icon-blue-bg) 16%, transparent);
+  color: var(--color-icon-blue);
 }
 .manual-assignee-card__body {
   display: flex;
@@ -1119,7 +1119,7 @@
   padding: 4px;
   border: 1px solid var(--color-border);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.02);
+  background: color-mix(in srgb, var(--color-overlay) 2%, transparent);
 }
 .manual-seg__cell {
   flex: 1;
@@ -1136,8 +1136,8 @@
   color: var(--color-text);
 }
 .manual-seg__cell--active {
-  background: rgba(96, 118, 186, 0.28);
-  border-color: rgba(120, 140, 200, 0.55);
+  background: color-mix(in srgb, var(--color-seg-fill) 28%, transparent);
+  border-color: color-mix(in srgb, var(--color-seg-border) 55%, transparent);
   color: var(--color-text-strong);
   font-weight: 600;
 }
@@ -1155,33 +1155,33 @@
   padding: 11px 14px;
   border: 1px solid var(--color-border);
   border-radius: 11px;
-  background: rgba(255, 255, 255, 0.02);
+  background: color-mix(in srgb, var(--color-overlay) 2%, transparent);
   color: var(--color-text);
   font-size: 13.5px;
   cursor: pointer;
   text-align: left;
 }
 .manual-pick-row--active {
-  background: rgba(96, 118, 186, 0.22);
-  border-color: rgba(120, 140, 200, 0.55);
+  background: color-mix(in srgb, var(--color-seg-fill) 22%, transparent);
+  border-color: color-mix(in srgb, var(--color-seg-border) 55%, transparent);
 }
 .manual-pick-row__check {
   width: 18px;
   height: 18px;
   flex: none;
   border-radius: 5px;
-  border: 1.5px solid rgba(255, 255, 255, 0.3);
+  border: 1.5px solid color-mix(in srgb, var(--color-overlay) 30%, transparent);
   display: grid;
   place-items: center;
 }
 .manual-pick-row__check--on {
   border-color: transparent;
-  background: #7d90d8;
+  background: var(--color-select);
 }
 .manual-pick-row__check--on::after {
   content: "✓";
   font-size: 12px;
-  color: #10131b;
+  color: var(--color-on-accent);
   font-weight: 700;
 }
 .manual-pick-row__name {
@@ -1207,10 +1207,10 @@
   white-space: nowrap;
 }
 .manual-pick-row__state--idle {
-  color: var(--color-online, #6fd6b0);
+  color: var(--color-dot-online);
 }
 .manual-pick-row__state--busy {
-  color: #e0b060;
+  color: var(--color-icon-amber);
 }
 .manual-pick-row__state--offline {
   color: var(--color-text-muted);
@@ -1226,12 +1226,12 @@
   height: 22px;
   border-radius: 11px;
   border: none;
-  background: rgba(255, 255, 255, 0.16);
+  background: color-mix(in srgb, var(--color-overlay) 16%, transparent);
   cursor: pointer;
   transition: background 0.18s;
 }
 .set-toggle--on {
-  background: #34c759;
+  background: var(--color-switch-on);
 }
 .set-toggle:disabled {
   opacity: 0.55;
@@ -1244,7 +1244,7 @@
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--color-overlay);
   transition: transform 0.18s;
 }
 .set-toggle--on .set-toggle__knob {
@@ -1257,8 +1257,8 @@
  * secret badge: the ON (已設定) state borrows the ok green — the value itself
  * never renders (the wire only carries the set/unset bit). */
 .set-badge--on {
-  color: var(--color-ok, #6fd6b0);
-  border-color: color-mix(in srgb, #6fd6b0 45%, transparent);
+  color: var(--color-dot-online);
+  border-color: color-mix(in srgb, var(--color-dot-online) 45%, transparent);
 }
 /* save feedback line — the read-back verdict under the card rows */
 .config-status {
@@ -1269,5 +1269,5 @@
   color: var(--color-text-muted);
 }
 .config-status--ok {
-  color: var(--color-ok, #6fd6b0);
+  color: var(--color-dot-online);
 }

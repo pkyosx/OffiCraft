@@ -10,7 +10,7 @@
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: rgba(10, 12, 18, 0.62);
+  background: color-mix(in srgb, var(--color-scrim) 62%, transparent);
 }
 .confirm-modal__box {
   width: 100%;
@@ -20,11 +20,11 @@
   gap: 12px;
   padding: 20px 22px;
   border-radius: var(--radius-card);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 12%, transparent);
   background: var(--color-card);
 }
 .confirm-modal__box--danger {
-  border-color: rgba(224, 122, 122, 0.35);
+  border-color: color-mix(in srgb, var(--color-danger-soft) 35%, transparent);
 }
 .confirm-modal__body {
   font-size: 13.5px;
@@ -50,7 +50,7 @@
   height: 30px;
   padding: 0 12px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
   background: transparent;
   color: var(--color-text);
   font-size: 13px;
@@ -59,7 +59,7 @@
   transition: background 0.15s, border-color 0.15s, opacity 0.15s;
 }
 .confirm-modal__btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.04);
+  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
 }
 .confirm-modal__btn:disabled {
   opacity: 0.5;
@@ -67,17 +67,17 @@
 }
 .confirm-modal__btn--accent {
   color: var(--color-accent);
-  border-color: rgba(111, 214, 176, 0.35);
+  border-color: color-mix(in srgb, var(--color-accent) 35%, transparent);
   font-weight: 600;
 }
 .confirm-modal__btn--accent:hover:not(:disabled) {
-  background: rgba(111, 214, 176, 0.12);
+  background: var(--color-accent-soft);
 }
 .confirm-modal__btn--danger {
-  color: #e07a7a;
-  border-color: rgba(224, 122, 122, 0.35);
+  color: var(--color-danger-soft);
+  border-color: color-mix(in srgb, var(--color-danger-soft) 35%, transparent);
   font-weight: 600;
 }
 .confirm-modal__btn--danger:hover:not(:disabled) {
-  background: rgba(224, 122, 122, 0.12);
+  background: color-mix(in srgb, var(--color-danger-soft) 12%, transparent);
 }

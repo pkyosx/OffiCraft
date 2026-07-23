@@ -43,6 +43,66 @@
   --color-warn-border: #7d6122;
   --color-warn-fg: #f2dda8;
 
+  /* ── T-16a1 P1 地基:把散落 component CSS 的寫死色收進 token 層 ──
+   * 目的是讓「多主題 + 使用者自建主題」有完整、單一的顏色契約:一個主題
+   * ＝ re-value 這組語意 token。新增值＝原本寫死的 office 值,故 office 主題
+   * 計算色不變;需要隨主題走的(見下 xian 覆蓋 / color-mix on accent 等)才變。 */
+
+  /* 疊層 / 陰影 / 遮罩(系統性,前景/背景基色 × 透明度) */
+  --color-overlay: #fff;   /* border/hover/背景 白疊層基色;淺色主題覆寫成深色即自動翻轉 */
+  --color-shadow: #000;    /* box-shadow 黑 */
+  --color-scrim: #0a0c12;  /* modal/picker 背景遮罩(深藍黑,非純黑) */
+
+  /* 任務狀態 / badge 長尾 */
+  --color-wait-external: #a08bd6;      /* 等待外部 status/step badge 紫 */
+  --color-wait-external-text: #c8b8ec; /* 等待外部框內文字 */
+  --color-dep: #8fb6d9;                /* 凍結優先權 + 依賴列「等 T-xxxx」天藍 */
+  --color-dep-text: #bcd7ee;           /* 依賴框文字 */
+  --color-dep-title: #a9c2d8;          /* 依賴標題(較暗藍) */
+  --color-lock-reassigning: #38c6d9;   /* 轉派中 lock overlay 青 */
+  --color-status-duplicated: #8a94a6;  /* duplicated status / 跳原票 冷灰藍 */
+  --color-dep-missing: #a89484;        /* 找不到的 dep 暖灰 */
+  --color-artifacts: #cf94b0;          /* 產物 N badge 塵玫瑰 */
+  --color-step-progress: #6ea8fe;      /* step 進行中 藍(task-level 用 accent 綠) */
+  --color-answered: #6fbf73;           /* 已回覆 gate / reply answered 橄欖綠 */
+  --color-on-warn: #17110a;            /* 琥珀 gate badge 底上深墨字 */
+  --color-on-accent: #10131a;          /* accent/CTA 綠底、勾選框上深墨字/勾 */
+  --color-success: #2ea043;            /* 正向確認綠(非 mint accent、非 iOS switch) */
+
+  /* 選取靛藍族(segmented active / pick-row active / 勾選框) */
+  --color-select: #7d90d8;     /* 勾選框選取填色 */
+  --color-seg-fill: #6076ba;   /* segmented/pick-row active 底 */
+  --color-seg-border: #788cc8; /* segmented/pick-row active 邊 */
+
+  /* 圖示分類 / 開關 */
+  --color-icon-violet: #a99cf0;    /* 設定列紫圖示前景 */
+  --color-icon-violet-bg: #8b7ae8; /* 紫圖示底 wash 基色 */
+  --color-icon-blue: #8fabf0;      /* 藍圖示 / 成員前景 */
+  --color-icon-blue-bg: #6085e0;   /* 藍圖示底 wash 基色 */
+  --color-icon-amber: #e0b060;     /* 琥珀圖示前景 + 無限 toggle 底/邊 */
+  --color-icon-amber-text: #e8c283;/* 無限 toggle active 文字(較亮琥珀) */
+  --color-switch-on: #34c759;      /* toggle / webhook 啟用 iOS 綠(刻意非 accent) */
+
+  /* 危險柔紅 / 過熱 */
+  --color-danger-soft: #e07a7a;   /* 破壞性動作/錯誤 柔紅(較 --color-danger 柔) */
+  --color-danger-strong: #f05a5a; /* transition-error 亮飽和紅 */
+  --color-hot: #e8705f;           /* 過熱/超載 紅(monitor 7 日條) */
+
+  /* markdown callout 提示族(settings doc-md;GitHub alert 嚴重度階梯) */
+  --color-callout-important: #be96f0; /* [!IMPORTANT] 紫 */
+  --color-callout-note: #78aff0;      /* [!NOTE] 藍 */
+  --color-callout-warning: #f08a8a;   /* [!WARNING]/[!CAUTION] 紅([!TIP] 直接用 accent) */
+
+  /* 裝飾漸層(單用,token 化以利未來主題) */
+  --color-logo-grad-from: #1f5a48; /* topbar logo 綠漸層起 */
+  --color-logo-grad-to: #123a30;   /* topbar logo 綠漸層迄 */
+
+  /* onboarding 首啟失敗 banner(現況為深座艙裡的淺卡;P1 僅 token 化保像素,
+   * 是否改深留 owner 後續設計決定,見 T-16a1 收尾摘要) */
+  --color-onboarding-bg: #fff8ec;
+  --color-onboarding-border: #e0b070;
+  --color-onboarding-fg: #5a4020;
+
   --radius-card: 11px;
   --radius-tab: 10px;
   --radius-pill: 999px;
@@ -85,6 +145,10 @@
   --color-warn-bg: #33260f;
   --color-warn-border: #7d6330;
   --color-warn-fg: #f0ddb4;
+
+  /* xian-only 裝飾:頭像徑向暖光 / 古金邊(office 無對應,故僅此覆蓋) */
+  --color-xian-avatar-glow: #241a10;
+  --color-xian-avatar-rim: #5a4c28;
 
   --font-sans: "Noto Serif TC", "Noto Sans TC", serif;
   --font-title: "Ma Shan Zheng", cursive;

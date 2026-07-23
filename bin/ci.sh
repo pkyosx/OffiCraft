@@ -347,6 +347,13 @@ echo "[ci]   npm ci (frontend)"
 (cd "$FE" && "$NPM" ci --silent)
 echo "[ci]   tsc --noEmit (frontend typecheck)"
 (cd "$FE" && "$NPM" run --silent typecheck)
+# 4b0. CSS colour-token lint (T-16a1 P1). The theme layer only holds together if
+# every theme-surface colour flows through a semantic token in styles/theme.css;
+# a raw #hex / rgb() / rgba() in component CSS is invisible to the theme switch
+# and to user-defined themes (P2), and is exactly how a new theme sprouts an
+# un-restyled patch. This fails on any raw colour literal outside theme.css.
+echo "[ci]   css colour-token lint (no raw literals outside theme.css — T-16a1)"
+(cd "$FE" && "$NPM" run --silent lint:tokens)
 echo "[ci]   vitest run (frontend unit suite)"
 (cd "$FE" && "$NPM" run --silent test)
 # 4c. Playwright Component-Testing VISUAL GUARDS (T-187c). vitest (4b) runs in
