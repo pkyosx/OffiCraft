@@ -58,9 +58,12 @@ type outsourceCandidate struct {
 	CreatedTS float64
 	// TargetModel / TargetEffort / TargetMachine is the task's explicit 發包
 	// target (T-35e0, task.outsource_*): non-empty for a create/reassign
-	// dispatch. When present, the decide uses it (global cap only, no per-type
-	// copy limit — an explicit dispatch was already authorized at the handler)
-	// instead of the type manual's assignee spec.
+	// dispatch. When present, the decide mints from it (model/effort/machine)
+	// instead of the type manual's assignee spec — but the per-type copies cap
+	// still applies when the task carries a TypeKey whose manual sets a limit
+	// (T-b6e9, owner ruling 2026-07-24: per-type copies binds regardless of
+	// dispatch source). A typeless ad-hoc dispatch has no manual limit to apply,
+	// so it rides the global cap only.
 	TargetModel   string
 	TargetEffort  string
 	TargetMachine string
@@ -160,6 +163,11 @@ func sortOutsourceQueue(cands []outsourceCandidate) []outsourceCandidate {
 //     stays queued, honestly unassignable until governance resolves it);
 //   - a per-type spec with Copies == 0 is 無限 (unlimited copies of the type;
 //     spec TaskManualDTO) — only the global cap can then stop it;
+//   - an explicit 發包 target (create/reassign dispatch) mints from the target's
+//     own model/effort/machine, but STILL obeys its type manual's copies cap
+//     when it carries a TypeKey with a limit (T-b6e9); a typeless target, or one
+//     whose type has no outsource spec, has no per-type limit and rides the
+//     global cap only;
 //   - a duplicate task id in the queue is admitted at most once.
 //
 // liveByType is treated as read-only (the fold rides a local copy).
@@ -188,12 +196,20 @@ func outsourceDecide(
 		}
 		var spec outsourceTypeSpec
 		if c.hasExplicitTarget() {
-			// An explicit 發包 target (create/reassign dispatch) rides the GLOBAL
-			// cap only — no per-type copy limit (it was authorized at the handler,
-			// not a type-copy admission). Copies == 0 = 無限 per-type.
+			// An explicit 發包 target (create/reassign dispatch) mints from its own
+			// model/effort/machine, not the type manual's assignee. The per-type
+			// copies cap still binds, though (T-b6e9, owner ruling 2026-07-24):
+			// inherit the copies limit from the task's type manual when it has one.
+			// A typeless target, or one whose type carries no outsource spec, has
+			// no limit to apply (Copies stays 0 = 無限) and rides the global cap only.
 			spec = outsourceTypeSpec{
 				Copies: 0, Model: c.TargetModel,
 				Effort: c.TargetEffort, Machine: c.TargetMachine,
+			}
+			if c.TypeKey != "" {
+				if ts, ok := specs[c.TypeKey]; ok {
+					spec.Copies = ts.Copies
+				}
 			}
 		} else {
 			var ok bool
@@ -201,10 +217,11 @@ func outsourceDecide(
 			if !ok || spec.Copies < 0 {
 				continue
 			}
-			// Copies == 0 is 無限 (unlimited per-type copies) — never capped here.
-			if spec.Copies > 0 && byType[c.TypeKey] >= spec.Copies {
-				continue
-			}
+		}
+		// Copies == 0 is 無限 (unlimited per-type copies) — never capped here.
+		// One gate for both dispatch sources (manual-driven and explicit target).
+		if spec.Copies > 0 && byType[c.TypeKey] >= spec.Copies {
+			continue
 		}
 		admitted[c.TaskID] = true
 		byType[c.TypeKey]++

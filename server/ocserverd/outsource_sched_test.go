@@ -67,6 +67,39 @@ func TestOutsourceDecidePerTypeCopiesCap(t *testing.T) {
 	if len(got) != 1 || got[0].TaskID != "t-4" {
 		t.Fatalf("per-type isolation: want [t-4], got %+v", got)
 	}
+
+	// T-b6e9: an explicit 發包 target carrying a TypeKey obeys that type's copies
+	// cap too — no longer a global-cap-only side door. copies=2, one live → ONE more.
+	tgt := []outsourceCandidate{
+		{TaskID: "x-1", TypeKey: "review-pr", Priority: TaskPriorityMid, CreatedTS: 1.0,
+			TargetModel: "opus", TargetEffort: "low", TargetMachine: "auto"},
+		{TaskID: "x-2", TypeKey: "review-pr", Priority: TaskPriorityMid, CreatedTS: 2.0,
+			TargetModel: "opus", TargetEffort: "low", TargetMachine: "auto"},
+	}
+	got = outsourceDecide(tgt, specsOneType(2), map[string]int{"review-pr": 1}, 1, 10)
+	if len(got) != 1 || got[0].TaskID != "x-1" {
+		t.Fatalf("explicit typed dispatch must obey per-type copies: want [x-1], got %+v", got)
+	}
+	// …and it still mints from the TARGET (opus/FromTarget), not the manual's model.
+	if got[0].Model != "opus" || !got[0].FromTarget {
+		t.Fatalf("capped explicit dispatch must still mint from its target: %+v", got[0])
+	}
+	// A typeless ad-hoc explicit dispatch has no manual limit to apply — all three
+	// admit under a copies=1 type (the empty TypeKey rides the global cap only).
+	adhoc := []outsourceCandidate{
+		{TaskID: "a-1", Priority: TaskPriorityMid, CreatedTS: 1.0, TargetModel: "sonnet"},
+		{TaskID: "a-2", Priority: TaskPriorityMid, CreatedTS: 2.0, TargetModel: "sonnet"},
+		{TaskID: "a-3", Priority: TaskPriorityMid, CreatedTS: 3.0, TargetModel: "sonnet"},
+	}
+	got = outsourceDecide(adhoc, specsOneType(1), map[string]int{}, 0, 10)
+	if len(got) != 3 {
+		t.Fatalf("typeless ad-hoc dispatch must not be per-type capped: want 3, got %+v", got)
+	}
+	// A typed explicit dispatch whose type is copies=0 (無限) is uncapped as well.
+	got = outsourceDecide(tgt, specsOneType(0), map[string]int{"review-pr": 9}, 9, 20)
+	if len(got) != 2 {
+		t.Fatalf("copies=0 type must not cap explicit dispatch: want 2, got %+v", got)
+	}
 }
 
 func TestOutsourceDecideGlobalCap(t *testing.T) {
@@ -587,5 +620,46 @@ func TestOutsourceTickDoesNotReGateExplicitTargetByCreator(t *testing.T) {
 	bound, _ := api.dal.GetTask("t-owned")
 	if bound == nil || bound.ExecutorID == "" {
 		t.Fatalf("an authorized target dispatch must not be re-gated by creator: %+v", bound)
+	}
+}
+
+// T-b6e9 the per-type copies cap now binds explicit dispatch too. Two typed
+// explicit 發包 dispatches under a copies=1 type admit exactly one; the other
+// queues (same fold as manual-driven — no global-cap-only side door), and the
+// minted worker still follows its own target template, not the manual's.
+func TestOutsourceTickTypedExplicitDispatchObeysPerTypeCopies(t *testing.T) {
+	api := newTasksTestServer(t)
+	api.noOutsource = true
+	putOutsourceManual(t, api, "review-pr", "claude-sonnet-4-5", 1) // manual mints sonnet, cap 1
+	putUnassignedTargetTask(t, api, "t-x1", "review-pr", "opus", "low")
+	putUnassignedTargetTask(t, api, "t-x2", "review-pr", "opus", "low")
+
+	api.runOutsourceTick(1000.0)
+
+	assigned := func(id string) bool {
+		task, _ := api.dal.GetTask(id)
+		return task != nil && task.ExecutorID != ""
+	}
+	n := 0
+	var minted *OutsourceWorker
+	for _, id := range []string{"t-x1", "t-x2"} {
+		if assigned(id) {
+			n++
+			task, _ := api.dal.GetTask(id)
+			minted, _ = api.dal.GetOutsourceWorker(task.ExecutorID)
+		}
+	}
+	if n != 1 {
+		t.Fatalf("copies=1 must admit exactly one typed explicit dispatch, got %d", n)
+	}
+	if minted == nil || minted.Model != "opus" {
+		t.Fatalf("capped explicit dispatch must still mint from its target (opus): %+v", minted)
+	}
+
+	// Lifting the manual cap admits the queued one — still through the scheduler.
+	putOutsourceManual(t, api, "review-pr", "claude-sonnet-4-5", 2)
+	api.runOutsourceTick(1001.0)
+	if !assigned("t-x1") || !assigned("t-x2") {
+		t.Fatalf("raising per-type copies must admit the queued typed dispatch")
 	}
 }
