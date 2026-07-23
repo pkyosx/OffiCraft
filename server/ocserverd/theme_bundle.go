@@ -144,6 +144,12 @@ func validateThemeBundles(bundles []ThemeBundleDTO) error {
 		if err := validateWording(b.Wording, where); err != nil {
 			return err
 		}
+		// fonts (T-16a1 P4) is an OPTIONAL --font-* → safe-family overlay —
+		// validated in full when present (font-token whitelist + closed
+		// safe-family stack allowlist), a no-op when absent.
+		if err := validateFonts(b.Fonts, where); err != nil {
+			return err
+		}
 	}
 	return nil
 }

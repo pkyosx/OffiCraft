@@ -151,6 +151,16 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         root.style.setProperty(tok, val);
         applied.push(tok);
       }
+      // The optional font overlay (T-16a1 P4): push each chosen --font-* stack
+      // onto documentElement the SAME way (setProperty — the value is a member
+      // of the closed safe-family allowlist, never concatenated into CSS). A
+      // token the bundle omits keeps theme.css's default (office never
+      // degrades), and the removeProperty pass above clears a previous theme's
+      // font choice before this one paints.
+      for (const [tok, val] of Object.entries(bundle.fonts ?? {})) {
+        root.style.setProperty(tok, val);
+        applied.push(tok);
+      }
       appliedTokensRef.current = applied;
     }
   }, [theme, customThemes]);

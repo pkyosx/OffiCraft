@@ -5,13 +5,18 @@
 import { describe, it, expect } from "vitest";
 import {
   isValidColorValue,
+  isValidFontValue,
   validateThemeBundle,
   validateThemeBundles,
   validateWording,
+  validateFonts,
   isValidDisplayTheme,
 } from "./themeBundle";
 import { THEME_COLOR_TOKENS } from "../styles/themeTokens.generated";
+import { SAFE_FONT_FAMILIES } from "../styles/themeFonts.generated";
 import { MESSAGE_KEYS } from "../i18n/messageKeys.generated";
+
+const aFontStack = SAFE_FONT_FAMILIES[0].stack;
 
 const aKey = MESSAGE_KEYS[0];
 
@@ -77,6 +82,67 @@ describe("validateThemeBundle", () => {
     expect(
       validateThemeBundle({ ...ok, wording: { fr: { [aKey]: "x" } } })
     ).toMatch(/language/);
+  });
+
+  it("accepts a bundle with a legal fonts overlay and rejects an illegal one", () => {
+    expect(
+      validateThemeBundle({ ...ok, fonts: { "--font-sans": aFontStack } })
+    ).toBeNull();
+    expect(
+      validateThemeBundle({ ...ok, fonts: { "--font-bogus": aFontStack } })
+    ).toMatch(/not a theme font token/);
+    expect(
+      validateThemeBundle({ ...ok, fonts: { "--font-sans": "Comic Sans, sans-serif" } })
+    ).toMatch(/invalid font value/);
+  });
+});
+
+describe("isValidFontValue", () => {
+  it("accepts every curated safe family stack", () => {
+    for (const f of SAFE_FONT_FAMILIES) {
+      expect(isValidFontValue(f.stack)).toBe(true);
+    }
+  });
+
+  it("rejects arbitrary strings and CSS/url/@font-face injection", () => {
+    for (const v of [
+      "",
+      "Arial", // not on the allowlist
+      "Comic Sans MS, sans-serif", // plausible but not curated
+      "sans-serif", // bare generic, not a curated stack
+      'url("https://evil/x.woff2")',
+      "@font-face{font-family:x;src:url(y)}",
+      "system-ui;}",
+      "system-ui, <script>",
+      "var(--x)",
+      "javascript:alert(1)",
+      SAFE_FONT_FAMILIES[0].stack + " ", // trailing space defeats exact match
+      "f".repeat(200), // over the length cap
+    ]) {
+      expect(isValidFontValue(v)).toBe(false);
+    }
+  });
+});
+
+describe("validateFonts", () => {
+  it("accepts undefined (optional) and a legal token→stack overlay", () => {
+    expect(validateFonts(undefined)).toBeNull();
+    expect(
+      validateFonts({ "--font-sans": aFontStack, "--font-title": aFontStack })
+    ).toBeNull();
+  });
+
+  it("rejects a non-object, an unknown token, and an off-allowlist value", () => {
+    expect(validateFonts([])).toMatch(/must be an object/);
+    expect(validateFonts({ "--color-bg": aFontStack })).toMatch(
+      /not a theme font token/
+    );
+    expect(validateFonts({ "--font-sans": "url(https://evil)" })).toMatch(
+      /invalid font value/
+    );
+    expect(validateFonts({ "--font-title": "Times New Roman" })).toMatch(
+      /invalid font value/
+    );
   });
 });
 

@@ -396,6 +396,28 @@ if ! diff -u "$TS_MSG_BAK" "$TS_MSG" || ! diff -u "$GO_MSG_BAK" "$GO_MSG"; then
   exit 1
 fi
 rm -f "$TS_MSG_BAK" "$GO_MSG_BAK"
+# 4b3. Font whitelist drift (T-16a1 P4). styles/themeFonts.source.json is the
+# single font contract; the theme-bundle `fonts` validators (client
+# lib/themeBundle.ts + server font_bundle.go) read a GENERATED whitelist of its
+# --font-* token names AND its closed safe-family stack set. Regenerate from the
+# source and require both committed generated files to be byte-identical — change
+# the source without `npm run gen:fonts` and CI goes red (same regen-and-diff
+# discipline as 4b1 / 4b2).
+echo "[ci]   font whitelist drift: regenerate from themeFonts.source.json + diff committed (T-16a1 P4)"
+TS_FNT="$FE/src/styles/themeFonts.generated.ts"
+GO_FNT="$ROOT/server/ocserverd/theme_fonts_gen.go"
+TS_FNT_BAK="$(mktemp -t oc-theme-fnt-ts.XXXXXX)"
+GO_FNT_BAK="$(mktemp -t oc-theme-fnt-go.XXXXXX)"
+cp "$TS_FNT" "$TS_FNT_BAK"; cp "$GO_FNT" "$GO_FNT_BAK"
+(cd "$FE" && "$NPM" run --silent gen:fonts >/dev/null)
+if ! diff -u "$TS_FNT_BAK" "$TS_FNT" || ! diff -u "$GO_FNT_BAK" "$GO_FNT"; then
+  echo "[ci] FAIL — font whitelist drift: the generated font files are STALE vs styles/themeFonts.source.json."
+  echo "[ci] regenerate + commit: (cd frontend && npm run gen:fonts) then git add the two generated files"
+  cp "$TS_FNT_BAK" "$TS_FNT"; cp "$GO_FNT_BAK" "$GO_FNT"
+  rm -f "$TS_FNT_BAK" "$GO_FNT_BAK"
+  exit 1
+fi
+rm -f "$TS_FNT_BAK" "$GO_FNT_BAK"
 echo "[ci]   vitest run (frontend unit suite)"
 (cd "$FE" && "$NPM" run --silent test)
 # 4c. Playwright Component-Testing VISUAL GUARDS (T-187c). vitest (4b) runs in

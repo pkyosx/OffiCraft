@@ -9,6 +9,7 @@ import {
   validateThemeBundle,
   type ThemeBundle,
 } from "../lib/themeBundle";
+import { SAFE_FONT_FAMILIES } from "../styles/themeFonts.generated";
 import {
   bundleFilename,
   exportComputedTheme,
@@ -36,6 +37,14 @@ type View = "list" | "import" | "edit";
 
 const DICTS_BY_LANG = { zh, en } as const;
 
+// The two font tokens the editor offers a dropdown for (T-16a1 P4). Body =
+// --font-sans (interface text), Title = --font-title (page headings). The
+// options come from the safe-family allowlist; "" = keep the theme default.
+const FONT_SLOTS = [
+  { token: "--font-sans", labelKey: "themeFontBody" },
+  { token: "--font-title", labelKey: "themeFontTitle" },
+] as const;
+
 /**
  * 主題管理 — the SettingsPage 主題 sub-section (T-16a1 P3b). All theme MANAGEMENT
  * lives here (owner IA: 偏好=選擇, 設定=管理): add / import / export / edit
@@ -60,6 +69,9 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   const [editWording, setEditWording] = useState<
     Record<string, Record<string, string>>
   >({});
+  // Font choices (T-16a1 P4): token → chosen family stack. An absent/"" entry
+  // means "keep the theme default".
+  const [editFonts, setEditFonts] = useState<Record<string, string>>({});
   const [wordingLang, setWordingLang] = useState<"zh" | "en">("zh");
   const [wordingSearch, setWordingSearch] = useState("");
   const [editError, setEditError] = useState("");
@@ -152,6 +164,7 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
         ? JSON.parse(JSON.stringify(bundle.wording))
         : { zh: {}, en: {} }
     );
+    setEditFonts({ ...(bundle.fonts ?? {}) });
     setWordingLang(language);
     setWordingSearch("");
     setEditError("");
@@ -190,8 +203,17 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
       if (Object.keys(kept).length > 0) wording[lang] = kept;
     }
 
+    // Prune "" (keep-default) picks — an absent font token means "theme
+    // default", so we never store an empty value (the validator would reject it).
+    const fonts: Record<string, string> = {};
+    for (const { token } of FONT_SLOTS) {
+      const v = editFonts[token];
+      if (typeof v === "string" && v !== "") fonts[token] = v;
+    }
+
     const bundle: ThemeBundle = { id: editId, name: editName, colors };
     if (Object.keys(wording).length > 0) bundle.wording = wording;
+    if (Object.keys(fonts).length > 0) bundle.fonts = fonts;
 
     const err = validateThemeBundle(bundle);
     if (err) {
@@ -366,6 +388,36 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
                   </div>
                 );
               })}
+            </div>
+          ))}
+
+          {/* ── fonts (字型) — pick body / title font from a safe allowlist ── */}
+          <div className="ts-section-label">{t.settings.themeFontsSection}</div>
+          <div className="ts-wording-sub">{t.settings.themeFontsHint}</div>
+          {FONT_SLOTS.map(({ token, labelKey }) => (
+            <div key={token} className="ts-font-row">
+              <label className="ts-font-label" htmlFor={`ts-font-${token}`}>
+                {t.settings[labelKey]}
+              </label>
+              <select
+                id={`ts-font-${token}`}
+                className="ts-input ts-font-select"
+                aria-label={t.settings[labelKey]}
+                value={editFonts[token] ?? ""}
+                style={{ fontFamily: editFonts[token] || undefined }}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setEditFonts((prev) => ({ ...prev, [token]: val }));
+                  setEditError("");
+                }}
+              >
+                <option value="">{t.settings.themeFontDefault}</option>
+                {SAFE_FONT_FAMILIES.map((f) => (
+                  <option key={f.id} value={f.stack} style={{ fontFamily: f.stack }}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
             </div>
           ))}
 

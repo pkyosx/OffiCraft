@@ -831,6 +831,13 @@ export const en: Dict = {
     themeWordingOverride: "replacement",
     themeBuiltinTag: "Built-in",
     themeWordingTag: "Wording",
+    // ── fonts (T-16a1 P4): pick body / title font from a safe allowlist ──
+    themeFontsSection: "Fonts",
+    themeFontsHint:
+      "Pick a built-in, safe font family; leave on default to keep the theme's original font.",
+    themeFontBody: "Body font",
+    themeFontTitle: "Title font",
+    themeFontDefault: "Default (theme font)",
     themeDeleteConfirm: (name: string) =>
       `Delete theme "${name}"? This cannot be undone.`,
     currentVersion: "Current version",

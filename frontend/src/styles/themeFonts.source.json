@@ -1,0 +1,34 @@
+{
+  "_comment": "T-16a1 P4 — the SINGLE source of truth for the theme-bundle font whitelist. Consumed by frontend/scripts/gen-theme-fonts.mjs, which emits the twin generated files (themeFonts.generated.ts + server/ocserverd/theme_fonts_gen.go). `tokens` are the --font-* CSS custom properties a bundle's optional `fonts` map may re-value; `families` are the ONLY font-family stack strings a value may be (a closed allowlist — never an arbitrary string, never a url()/@font-face). Each family's `stack` holds letters, spaces, commas, hyphens and quotes ONLY — no CSS structure characters, no url(), so it cannot carry an injection payload. `label` is the friendly display name shown in the editor dropdown.",
+  "tokens": [
+    "--font-sans",
+    "--font-title"
+  ],
+  "families": [
+    {
+      "id": "system",
+      "label": "System UI",
+      "stack": "system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif"
+    },
+    {
+      "id": "grotesk",
+      "label": "Schibsted Grotesk",
+      "stack": "\"Schibsted Grotesk\", \"Noto Sans TC\", system-ui, sans-serif"
+    },
+    {
+      "id": "noto-sans",
+      "label": "Noto Sans",
+      "stack": "\"Noto Sans TC\", \"Noto Sans\", system-ui, sans-serif"
+    },
+    {
+      "id": "serif",
+      "label": "Serif",
+      "stack": "\"Noto Serif TC\", Georgia, \"Times New Roman\", serif"
+    },
+    {
+      "id": "mono",
+      "label": "Monospace",
+      "stack": "ui-monospace, \"SF Mono\", Menlo, Consolas, monospace"
+    }
+  ]
+}

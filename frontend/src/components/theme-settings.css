@@ -214,6 +214,22 @@
   font-size: 12px;
 }
 
+/* ── fonts (T-16a1 P4) ── */
+.ts-font-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.ts-font-label {
+  flex: 0 0 42%;
+  font-size: 13px;
+  color: var(--color-text);
+}
+.ts-font-select {
+  flex: 1 1 auto;
+}
+
 /* ── wording overlay ── */
 .ts-wording-sub {
   font-size: 12px;

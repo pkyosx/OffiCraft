@@ -50,6 +50,10 @@ export function parseImportedBundle(
   // theme's 用詞 pack. `colors`-only bundles keep `wording` absent.
   const bundle: ThemeBundle = { id: b.id, name: b.name, colors: b.colors };
   if (b.wording !== undefined) bundle.wording = b.wording;
+  // Carry the optional font overlay through (T-16a1 P4) — already validated by
+  // the shared validator; dropping it would silently lose an imported theme's
+  // font choice.
+  if (b.fonts !== undefined) bundle.fonts = b.fonts;
   return { bundle };
 }
 

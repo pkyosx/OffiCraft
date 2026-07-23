@@ -10,15 +10,21 @@
 // and constrain the token NAME to the generated theme.css whitelist.
 
 import { THEME_COLOR_TOKENS } from "../styles/themeTokens.generated";
+import {
+  THEME_FONT_TOKENS,
+  SAFE_FONT_FAMILIES,
+} from "../styles/themeFonts.generated";
 import { MESSAGE_KEYS } from "../i18n/messageKeys.generated";
 
 /** One owner-authored theme colour bundle (mirrors ThemeBundleDTO). `wording`
- * is an OPTIONAL per-language message-key text-override overlay (T-16a1 P3). */
+ * is an OPTIONAL per-language message-key text-override overlay (T-16a1 P3).
+ * `fonts` is an OPTIONAL --font-* → safe-family-stack overlay (T-16a1 P4). */
 export interface ThemeBundle {
   id: string;
   name: string;
   colors: Record<string, string>;
   wording?: Record<string, Record<string, string>>;
+  fonts?: Record<string, string>;
 }
 
 export const MAX_COLOR_VALUE_LEN = 64;
@@ -32,6 +38,13 @@ export const MAX_THEME_NAME_LEN = 80;
 export const MAX_WORDING_VALUE_LEN = 200;
 export const MAX_WORDING_ENTRIES_PER_LANG = 1000;
 
+// Font overlay bound (T-16a1 P4) — the twin of maxFontValueLen in
+// server/ocserverd/font_bundle.go. A font value is a whole family stack; the
+// longest curated stack fits comfortably, so anything longer is only ever an
+// injection attempt. Membership in the SAFE stack set is the real gate; this
+// cap is a cheap pre-filter mirrored on the server.
+export const MAX_FONT_VALUE_LEN = 128;
+
 /** The built-in theme names a custom bundle must never claim. office is the
  * only built-in now (修仙 is an importable custom bundle, so "xian" is a
  * perfectly legal custom id). */
@@ -43,6 +56,11 @@ export const WORDING_LANGS = ["zh", "en"] as const;
 const THEME_TOKEN_SET = new Set<string>(THEME_COLOR_TOKENS);
 const WORDING_LANG_SET = new Set<string>(WORDING_LANGS);
 const MESSAGE_KEY_SET = new Set<string>(MESSAGE_KEYS);
+// Font whitelists (T-16a1 P4): the --font-* token names and the CLOSED set of
+// safe family-stack values — the character-for-character twin of the Go maps in
+// theme_fonts_gen.go.
+const THEME_FONT_TOKEN_SET = new Set<string>(THEME_FONT_TOKENS);
+const SAFE_FONT_STACK_SET = new Set<string>(SAFE_FONT_FAMILIES.map((f) => f.stack));
 
 // The colour-value allowlist grammar (anchored full-match) — identical to the
 // Go regexps. Concrete colours only: hex / rgb(a) / hsl(a) / transparent.
@@ -69,6 +87,47 @@ export function isValidColorValue(v: string): boolean {
   }
   if (v === "transparent") return true;
   return COLOR_HEX_RE.test(v) || COLOR_RGB_RE.test(v) || COLOR_HSL_RE.test(v);
+}
+
+// Structure-breaking substrings a font-family stack can never legitimately
+// hold — the same defence-in-depth pass colours get. A font value is admitted
+// only by EXACT membership in SAFE_FONT_STACK_SET (a closed allowlist), so a
+// value that reaches setProperty is already safe; this second pass exists so a
+// smuggled value (`url(`, `@font-face`, `;}`, `javascript:`, …) is rejected with
+// a SPECIFIC error before the membership check, mirroring colorInjectionMarkers.
+const FONT_INJECTION_MARKERS = [
+  "url(", "expression(", "var(", "javascript:", "/*", "*/",
+  ";", "{", "}", "<", ">", "@", "\\", "`", "\n", "\r", "(",
+];
+
+/** Whether v is an admissible font value: a member of the CLOSED safe-family
+ * stack allowlist, with no CSS-structure characters (defence in depth). */
+export function isValidFontValue(v: string): boolean {
+  if (v === "" || v.length > MAX_FONT_VALUE_LEN) return false;
+  for (const m of FONT_INJECTION_MARKERS) {
+    if (v.includes(m)) return false;
+  }
+  return SAFE_FONT_STACK_SET.has(v);
+}
+
+/** Validate a bundle's optional `fonts` overlay (T-16a1 P4) — the twin of the
+ * Go validateFonts. Key ∈ {--font-* token whitelist}, value ∈ {safe family
+ * stack allowlist}. Returns an error message, or null when admissible (an
+ * absent overlay is admissible). */
+export function validateFonts(fonts: unknown, where = "theme"): string | null {
+  if (fonts === undefined || fonts === null) return null;
+  if (typeof fonts !== "object" || Array.isArray(fonts)) {
+    return `${where}: fonts must be an object`;
+  }
+  for (const [token, value] of Object.entries(fonts as Record<string, unknown>)) {
+    if (!THEME_FONT_TOKEN_SET.has(token)) {
+      return `${where}: "${token}" is not a theme font token (only --font-sans / --font-title)`;
+    }
+    if (typeof value !== "string" || !isValidFontValue(value)) {
+      return `${where}: "${token}" has an invalid font value — only a safe built-in font family may be chosen`;
+    }
+  }
+  return null;
 }
 
 function runeCount(s: string): number {
@@ -166,7 +225,10 @@ export function validateThemeBundle(b: unknown, where = "theme"): string | null 
     }
   }
   // wording (T-16a1 P3) is an optional per-language text-override overlay.
-  return validateWording((bundle as { wording?: unknown }).wording, where);
+  const wErr = validateWording((bundle as { wording?: unknown }).wording, where);
+  if (wErr) return wErr;
+  // fonts (T-16a1 P4) is an optional --font-* → safe-family overlay.
+  return validateFonts((bundle as { fonts?: unknown }).fonts, where);
 }
 
 /** Validate the whole custom_themes array (shape + token whitelist + colour

@@ -769,6 +769,7 @@ const DEFAULT_MOCK_SETTINGS = {
     name: string;
     colors: Record<string, string>;
     wording?: Record<string, Record<string, string>>;
+    fonts?: Record<string, string>;
   }[],
 };
 let mockServerSettings = { ...DEFAULT_MOCK_SETTINGS };

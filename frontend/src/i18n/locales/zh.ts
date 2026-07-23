@@ -913,6 +913,12 @@ export const zh = {
     themeWordingOverride: "替代字",
     themeBuiltinTag: "內建",
     themeWordingTag: "用詞",
+    // ── 字型 (T-16a1 P4): 從安全字型白名單挑內文／標題字型 ──
+    themeFontsSection: "字型",
+    themeFontsHint: "從內建的安全字型中挑選;維持預設則沿用主題原字型。",
+    themeFontBody: "內文字型",
+    themeFontTitle: "標題字型",
+    themeFontDefault: "預設(主題字型)",
     themeDeleteConfirm: (name: string) =>
       `刪除主題「${name}」?此動作無法復原。`,
     // ── 軟體更新 (honest build-identity card) ──
