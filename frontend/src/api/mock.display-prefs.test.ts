@@ -50,4 +50,61 @@ describe("mock settings — display prefs (display_theme / display_language)", (
     const cleared = await mockApi.patchServerSettings({ displayTheme: "" });
     expect(cleared.displayTheme).toBe("");
   });
+
+  it("defaults custom_themes to an empty array", async () => {
+    const s = await mockApi.getServerSettings();
+    expect(s.customThemes).toEqual([]);
+  });
+
+  it("saves a legal custom theme bundle and lets display_theme point at its id", async () => {
+    const s = await mockApi.patchServerSettings({
+      customThemes: [
+        {
+          id: "midnight",
+          name: "Midnight",
+          colors: { "--color-bg": "#101018", "--color-accent": "transparent" },
+        },
+      ],
+      displayTheme: "midnight",
+    });
+    expect(s.customThemes).toHaveLength(1);
+    expect(s.displayTheme).toBe("midnight");
+    const again = await mockApi.getServerSettings();
+    expect(again.customThemes[0].id).toBe("midnight");
+  });
+
+  it("422s a bundle with a non-whitelisted token, writing nothing", async () => {
+    await expect(
+      mockApi.patchServerSettings({
+        customThemes: [{ id: "x", name: "X", colors: { "--color-bogus": "#fff" } }],
+      })
+    ).rejects.toBeInstanceOf(ApiError);
+    const s = await mockApi.getServerSettings();
+    expect(s.customThemes).toEqual([]);
+  });
+
+  it("422s a bundle with an illegal colour value, writing nothing", async () => {
+    await expect(
+      mockApi.patchServerSettings({
+        customThemes: [{ id: "x", name: "X", colors: { "--color-bg": "url(evil)" } }],
+      })
+    ).rejects.toBeInstanceOf(ApiError);
+    const s = await mockApi.getServerSettings();
+    expect(s.customThemes).toEqual([]);
+  });
+
+  it("422s a display_theme pointing at a non-existent custom id", async () => {
+    await expect(
+      mockApi.patchServerSettings({ displayTheme: "ghost" })
+    ).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it("resets display_theme to \"\" when the active custom theme is deleted", async () => {
+    await mockApi.patchServerSettings({
+      customThemes: [{ id: "midnight", name: "Midnight", colors: { "--color-bg": "#101018" } }],
+      displayTheme: "midnight",
+    });
+    const after = await mockApi.patchServerSettings({ customThemes: [] });
+    expect(after.displayTheme).toBe("");
+  });
 });

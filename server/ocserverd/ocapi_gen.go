@@ -1257,6 +1257,9 @@ type SetPasswordDTO struct {
 // `owner_name` — the owner's display nickname ("" = unset). `display_theme` /
 // `display_language` — the owner's cockpit visual prefs ("" = unset).
 type SettingsDTO struct {
+	// CustomThemes The owner's saved custom theme bundles (T-16a1 P2), each a `{id,name,colors}` colour bundle. `[]` = none saved. display_theme may point at any id in this set (or a built-in). Owner-gated: rides GET /api/settings only.
+	CustomThemes *[]ThemeBundleDTO `json:"custom_themes,omitempty"`
+
 	// DisplayLanguage The owner's cockpit language (T-0b41-p2). "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login as the cross-device source of truth.
 	DisplayLanguage *string `json:"display_language,omitempty"`
 
@@ -1289,6 +1292,9 @@ type SettingsDTO struct {
 // self-upgrade to the newest admissible release (both booleans, default false;
 // the manual upgrade endpoint is unaffected).
 type SettingsUpdateDTO struct {
+	// CustomThemes Replace the owner's custom theme bundles (T-16a1 P2) with this array (each `{id,name,colors}`). Omit to leave them unchanged; `[]` clears them. Every bundle is validated against the shape, the theme.css token whitelist, and the concrete-colour grammar — any violation is a 422 and nothing is written. When this and display_theme are patched together, display_theme is validated against the POST-patch set; and deleting the active custom theme resets display_theme to "".
+	CustomThemes *[]ThemeBundleDTO `json:"custom_themes,omitempty"`
+
 	// DisplayLanguage The owner's cockpit language (T-0b41-p2) — trimmed; "" clears it back to unset. Must be one of zh, en (or ""); anything else is a 422.
 	DisplayLanguage *string `json:"display_language,omitempty"`
 
@@ -1588,6 +1594,13 @@ type TaskStepStatusUpdateDTO struct {
 	HandoffTaskId *string `json:"handoff_task_id,omitempty"`
 	Status        string  `json:"status"`
 	WaitingReason *string `json:"waiting_reason,omitempty"`
+}
+
+// ThemeBundleDTO One owner-authored theme colour bundle (T-16a1 P2). `id` is a client-generated stable slug (`^[a-z0-9][a-z0-9-]{1,63}$`), unique within the owner's set and never a built-in name (`office` / `xian`). `name` is the display label (trimmed, 1..80 runes). `colors` maps `--color-*` token names — each MUST be a token defined in styles/theme.css — to CONCRETE colour values (hex / rgb() / rgba() / hsl() / hsla() / transparent only; no var(), no color-mix(), no arbitrary CSS). 1..200 pairs. The server 422s any bundle that violates the shape, the token whitelist, or the colour grammar.
+type ThemeBundleDTO struct {
+	Colors map[string]string `json:"colors"`
+	Id     string            `json:"id"`
+	Name   string            `json:"name"`
 }
 
 // TokenDTO Owner-scoped JWT issued by `/api/login` (the one token for REST/MCP/SSE).

@@ -1325,6 +1325,7 @@ export const httpApi: Api = {
       owner_name?: string;
       display_theme?: string;
       display_language?: string;
+      custom_themes?: { id: string; name: string; colors: Record<string, string> }[];
     } = {};
     if (patch.tokenTtl !== undefined) body.token_ttl = patch.tokenTtl;
     if (patch.handoverPct !== undefined) body.handover_pct = patch.handoverPct;
@@ -1343,6 +1344,7 @@ export const httpApi: Api = {
     if (patch.displayLanguage !== undefined) {
       body.display_language = patch.displayLanguage;
     }
+    if (patch.customThemes !== undefined) body.custom_themes = patch.customThemes;
     const wire = unwrap(await client.PATCH("/api/settings", { body }));
     return toServerSettings(wire);
   },

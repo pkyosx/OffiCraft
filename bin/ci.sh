@@ -354,6 +354,27 @@ echo "[ci]   tsc --noEmit (frontend typecheck)"
 # un-restyled patch. This fails on any raw colour literal outside theme.css.
 echo "[ci]   css colour-token lint (no raw literals outside theme.css — T-16a1)"
 (cd "$FE" && "$NPM" run --silent lint:tokens)
+# 4b1. Theme-token whitelist drift (T-16a1 P2). styles/theme.css is the single
+# token contract; the user-theme validators (client lib/themeBundle.ts + server
+# theme_bundle.go) read a GENERATED whitelist of its --color-* names. Regenerate
+# from theme.css and require both committed generated files to be byte-identical
+# — change theme.css's colour-token set without `npm run gen:tokens` and CI goes
+# red (same regen-and-diff discipline as the gen-ocapi / schema.ts gates).
+echo "[ci]   theme-token whitelist drift: regenerate from theme.css + diff committed (T-16a1 P2)"
+TS_TOK="$FE/src/styles/themeTokens.generated.ts"
+GO_TOK="$ROOT/server/ocserverd/theme_colornames_gen.go"
+TS_TOK_BAK="$(mktemp -t oc-theme-tok-ts.XXXXXX)"
+GO_TOK_BAK="$(mktemp -t oc-theme-tok-go.XXXXXX)"
+cp "$TS_TOK" "$TS_TOK_BAK"; cp "$GO_TOK" "$GO_TOK_BAK"
+(cd "$FE" && "$NPM" run --silent gen:tokens >/dev/null)
+if ! diff -u "$TS_TOK_BAK" "$TS_TOK" || ! diff -u "$GO_TOK_BAK" "$GO_TOK"; then
+  echo "[ci] FAIL — theme-token whitelist drift: the generated token files are STALE vs styles/theme.css."
+  echo "[ci] regenerate + commit: (cd frontend && npm run gen:tokens) then git add the two generated files"
+  cp "$TS_TOK_BAK" "$TS_TOK"; cp "$GO_TOK_BAK" "$GO_TOK"
+  rm -f "$TS_TOK_BAK" "$GO_TOK_BAK"
+  exit 1
+fi
+rm -f "$TS_TOK_BAK" "$GO_TOK_BAK"
 echo "[ci]   vitest run (frontend unit suite)"
 (cd "$FE" && "$NPM" run --silent test)
 # 4c. Playwright Component-Testing VISUAL GUARDS (T-187c). vitest (4b) runs in

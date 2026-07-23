@@ -7,6 +7,7 @@
 // All methods return view-model shapes (`Member` / `ChatMessage`), never wire
 // DTOs: the wire→view mapping is the adapter's job (see mappers.ts).
 
+import type { ThemeBundle } from "../lib/themeBundle";
 import type {
   Member,
   MemberActivateResult,
@@ -587,6 +588,9 @@ export interface ServerSettingsView {
   /** The owner's cockpit language (T-0b41-p2). "" = never set — same
    * dual-layer contract as displayTheme. */
   displayLanguage: string;
+  /** The owner's saved custom theme bundles (T-16a1 P2); [] = none saved.
+   * displayTheme may point at any bundle's id (or a built-in). */
+  customThemes: ThemeBundle[];
   /** The automatic first-run onboarding report (T-ba62), or null when
    * onboarding never ran on this server (an install predating it, or a
    * database that already had a password). This is how the cockpit can say
@@ -638,6 +642,11 @@ export interface ServerSettingsPatch {
   /** The owner's cockpit language (T-0b41-p2); "zh" | "en" (or "" to clear).
    * The server 422s anything else. */
   displayLanguage?: string;
+  /** Replace the owner's custom theme bundles (T-16a1 P2). Omit to leave them
+   * unchanged; [] clears them. Each bundle is validated (shape + theme.css
+   * token whitelist + concrete-colour grammar); the server 422s any violation.
+   * Deleting the active custom theme resets displayTheme to "". */
+  customThemes?: ThemeBundle[];
 }
 
 /** Fields the owner may edit on a member (PATCH; every field optional).

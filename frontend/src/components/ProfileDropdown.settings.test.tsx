@@ -13,6 +13,7 @@ import { zh } from "../i18n/locales/zh";
 import { ProfileDropdown } from "./ProfileDropdown";
 import { __resetMock } from "../api/mock";
 import { api } from "../api";
+import { setToken, clearToken } from "../api/auth";
 
 const p = zh.profile;
 
@@ -34,6 +35,7 @@ async function openPreferences() {
 
 beforeEach(() => {
   __resetMock();
+  clearToken();
 });
 
 describe("ProfileDropdown · preferences scope", () => {
@@ -45,6 +47,49 @@ describe("ProfileDropdown · preferences scope", () => {
     // Appearance + password remain.
     expect(utils.getByText(p.theme)).toBeTruthy();
     expect(utils.getByText(p.language)).toBeTruthy();
+  });
+});
+
+describe("ProfileDropdown · theme picker", () => {
+  it("imports a pasted bundle and lists it as a selectable custom theme", async () => {
+    setToken("owner-token"); // enable the server-sync path in commitCustomThemes
+    const utils = await openPreferences();
+    fireEvent.click(utils.getByText(p.themeImport));
+    fireEvent.change(utils.getByLabelText(p.themeImportTitle), {
+      target: {
+        value: JSON.stringify({
+          id: "midnight",
+          name: "午夜藍",
+          colors: { "--color-accent": "#0b1020" },
+        }),
+      },
+    });
+    fireEvent.click(utils.getByText(p.themeConfirmImport));
+    // Back on the list, the imported theme is now a row.
+    const row = await utils.findByText("午夜藍");
+    expect(row).toBeTruthy();
+    // It reached the server through the seam.
+    const s = await api.getServerSettings();
+    expect(s.customThemes.map((b) => b.id)).toContain("midnight");
+  });
+
+  it("blocks an injection-shaped bundle inline and never reaches the server", async () => {
+    const utils = await openPreferences();
+    fireEvent.click(utils.getByText(p.themeImport));
+    fireEvent.change(utils.getByLabelText(p.themeImportTitle), {
+      target: {
+        value: JSON.stringify({
+          id: "evil",
+          name: "Evil",
+          colors: { "--color-bg": "red; } body { background: url(x)" },
+        }),
+      },
+    });
+    fireEvent.click(utils.getByText(p.themeConfirmImport));
+    // Stays on the import view with an error; no custom theme persisted.
+    expect(utils.getByLabelText(p.themeImportTitle)).toBeTruthy();
+    const s = await api.getServerSettings();
+    expect(s.customThemes).toHaveLength(0);
   });
 });
 

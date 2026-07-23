@@ -9,6 +9,7 @@ package main
 
 import (
 	"crypto/subtle"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -226,12 +227,30 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			return
 		}
 	}
+	// custom_themes (T-16a1 P2): replace the saved bundle set. Validated in full
+	// (shape + token whitelist + concrete-colour grammar) BEFORE anything is
+	// written — a bad bundle 422s and nothing is stored.
+	customProvided := body.CustomThemes != nil
+	var newCustomThemes []ThemeBundleDTO
+	if customProvided {
+		newCustomThemes = *body.CustomThemes
+		if err := validateThemeBundles(newCustomThemes); err != nil {
+			writeError(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+	} else {
+		newCustomThemes = s.displayCustomThemesSnapshot()
+	}
+	// display.theme is now validated against "" | built-in | an id in the
+	// POST-patch custom set (so a theme + its bundle can land in one PATCH).
+	customIDs := themeBundleIDSet(newCustomThemes)
 	var displayTheme string
-	if body.DisplayTheme != nil {
+	themeProvided := body.DisplayTheme != nil
+	if themeProvided {
 		displayTheme = strings.TrimSpace(*body.DisplayTheme)
-		if displayTheme != "" && !displayThemeAllowed[displayTheme] {
+		if !isValidDisplayTheme(displayTheme, customIDs) {
 			writeError(w, http.StatusUnprocessableEntity,
-				"display_theme must be one of office, xian")
+				`display_theme must be "", office, xian, or an existing custom theme id`)
 			return
 		}
 	}
@@ -311,13 +330,38 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		}
 		s.ownerName = ownerName
 	}
-	if body.DisplayTheme != nil && displayTheme != s.displayTheme {
-		if err := s.dal.PutSetting(settingDisplayTheme, displayTheme); err != nil {
+	// custom_themes + display.theme are coupled: replacing the bundle set can
+	// orphan the active theme, so write the set first, then resolve the theme
+	// against the POST-patch set (an explicit theme wins; otherwise a now-dangling
+	// active custom theme is reset to "" — §4 simpler branch, server-side reset).
+	if customProvided {
+		marshaled, err := json.Marshal(newCustomThemes)
+		if err != nil {
 			s.settingsMu.Unlock()
 			internalError(w, err)
 			return
 		}
-		s.displayTheme = displayTheme
+		if err := s.dal.PutSetting(settingDisplayCustomThemes, string(marshaled)); err != nil {
+			s.settingsMu.Unlock()
+			internalError(w, err)
+			return
+		}
+		s.displayCustomThemes = newCustomThemes
+	}
+	effectiveIDs := themeBundleIDSet(s.displayCustomThemes)
+	finalTheme := s.displayTheme
+	if themeProvided {
+		finalTheme = displayTheme
+	} else if !isValidDisplayTheme(s.displayTheme, effectiveIDs) {
+		finalTheme = "" // the active custom theme was deleted by this patch
+	}
+	if finalTheme != s.displayTheme {
+		if err := s.dal.PutSetting(settingDisplayTheme, finalTheme); err != nil {
+			s.settingsMu.Unlock()
+			internalError(w, err)
+			return
+		}
+		s.displayTheme = finalTheme
 	}
 	if body.DisplayLanguage != nil && displayLanguage != s.displayLanguage {
 		if err := s.dal.PutSetting(settingDisplayLanguage, displayLanguage); err != nil {
@@ -342,6 +386,11 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 func (s *apiServer) settingsView() settingsDTO {
 	s.settingsMu.RLock()
 	defer s.settingsMu.RUnlock()
+	// custom_themes always serialises as an array, never null (the wire shape).
+	customThemes := s.displayCustomThemes
+	if customThemes == nil {
+		customThemes = []ThemeBundleDTO{}
+	}
 	return settingsDTO{
 		TokenTTL:             s.tokenTTL,
 		HandoverPct:          s.ctxhigh.HandoverPct,
@@ -352,6 +401,7 @@ func (s *apiServer) settingsView() settingsDTO {
 		OwnerName:            s.ownerName,
 		DisplayTheme:         s.displayTheme,
 		DisplayLanguage:      s.displayLanguage,
+		CustomThemes:         customThemes,
 		// Read from the DAL, NOT from the settings snapshot: onboarding runs in
 		// its own goroutine and finishes after this handler returned, so a
 		// boot-time snapshot would serve a permanently stale "running".

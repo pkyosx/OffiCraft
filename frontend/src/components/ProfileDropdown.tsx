@@ -1,7 +1,19 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useI18n } from "../i18n";
 import { api } from "../api";
 import { isHttpStatus } from "../api/errors";
+import {
+  MAX_CUSTOM_THEMES,
+  validateThemeBundle,
+  type ThemeBundle,
+} from "../lib/themeBundle";
+import {
+  bundleFilename,
+  exportBuiltinTheme,
+  exportComputedTheme,
+  parseImportedBundle,
+  serializeBundle,
+} from "../lib/themeExport";
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -25,7 +37,7 @@ interface ProfileDropdownProps {
   setOwnerName: (next: string) => void;
 }
 
-type View = "main" | "preferences" | "password";
+type View = "main" | "preferences" | "password" | "themeImport" | "themeEdit";
 
 /**
  * Profile menu that drops from the topbar profile pill.
@@ -50,10 +62,28 @@ export function ProfileDropdown({
   userName,
   setOwnerName,
 }: ProfileDropdownProps) {
-  const { t, theme, setTheme, language, setLanguage, resetPreferences } =
-    useI18n();
+  const {
+    t,
+    theme,
+    setTheme,
+    customThemes,
+    commitCustomThemes,
+    language,
+    setLanguage,
+    resetPreferences,
+  } = useI18n();
 
   const [view, setView] = useState<View>("main");
+
+  // ── theme import / edit state ──────────────────────────────────────────────
+  const [importText, setImportText] = useState("");
+  const [importError, setImportError] = useState("");
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editColors, setEditColors] = useState<[string, string][]>([]);
+  const [editError, setEditError] = useState("");
+  const [copied, setCopied] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── change-password form state ────────────────────────────────────────────
   const [currentPwd, setCurrentPwd] = useState("");
@@ -118,6 +148,147 @@ export function ProfileDropdown({
     } finally {
       setPwdBusy(false);
     }
+  }
+
+  // ── theme picker helpers ───────────────────────────────────────────────────
+
+  // id + display name to stamp on an exported bundle. A built-in cannot reuse
+  // its reserved id ("office"/"xian"), so it exports under a "-copy" id that
+  // re-imports as an editable custom theme.
+  function currentThemeMeta(): { id: string; name: string } {
+    if (theme === "office")
+      return { id: "office-copy", name: t.profile.themeOffice };
+    if (theme === "xian")
+      return { id: "xian-copy", name: t.profile.themeXian };
+    const b = customThemes.find((x) => x.id === theme);
+    return { id: b?.id ?? "theme", name: b?.name ?? theme };
+  }
+
+  function downloadBundle(bundle: ThemeBundle) {
+    const blob = new Blob([serializeBundle(bundle)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = bundleFilename(bundle);
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function handleExportCurrent() {
+    const { id, name } = currentThemeMeta();
+    downloadBundle(exportComputedTheme(id, name));
+  }
+
+  async function handleCopyCurrent() {
+    const { id, name } = currentThemeMeta();
+    try {
+      await navigator.clipboard.writeText(
+        serializeBundle(exportComputedTheme(id, name))
+      );
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // clipboard blocked — the download button remains the reliable path
+    }
+  }
+
+  function openImport() {
+    setImportText("");
+    setImportError("");
+    setView("themeImport");
+  }
+
+  function addBundle(bundle: ThemeBundle): string | null {
+    if (customThemes.some((b) => b.id === bundle.id)) {
+      return t.profile.themeImportDup;
+    }
+    if (customThemes.length >= MAX_CUSTOM_THEMES) {
+      return t.profile.themeLimitReached;
+    }
+    commitCustomThemes([...customThemes, bundle]);
+    return null;
+  }
+
+  function handleConfirmImport() {
+    const res = parseImportedBundle(importText);
+    if ("error" in res) {
+      setImportError(res.error);
+      return;
+    }
+    const err = addBundle(res.bundle);
+    if (err) {
+      setImportError(err);
+      return;
+    }
+    setView("preferences");
+  }
+
+  async function handleFilePicked(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      setImportText(await file.text());
+      setImportError("");
+    } catch {
+      setImportError(t.profile.themeImportReadFailed);
+    }
+  }
+
+  // 修仙 dogfood: build the example by EXPORTING the shipped 修仙 built-in, then
+  // running it back through the import path — proving the export→import loop
+  // against a real theme. The example is an editable custom copy; the built-in
+  // 修仙 entry stays as-is.
+  function handleImportXianExample() {
+    const bundle = exportBuiltinTheme(
+      "xian",
+      "xian-example",
+      t.profile.themeExampleName
+    );
+    const parsed = parseImportedBundle(serializeBundle(bundle));
+    if ("error" in parsed) {
+      setImportError(parsed.error);
+      setView("themeImport");
+      return;
+    }
+    const err = addBundle(parsed.bundle);
+    if (err) {
+      setImportError(err);
+      setView("themeImport");
+    }
+  }
+
+  function handleDeleteTheme(id: string) {
+    const next = customThemes.filter((b) => b.id !== id);
+    // Deleting the active theme drops back to the office base; the same PATCH
+    // carries the reset so the server's dangling-guard agrees.
+    commitCustomThemes(next, theme === id ? "office" : undefined);
+  }
+
+  function openEdit(bundle: ThemeBundle) {
+    setEditId(bundle.id);
+    setEditName(bundle.name);
+    setEditColors(Object.entries(bundle.colors));
+    setEditError("");
+    setView("themeEdit");
+  }
+
+  function handleSaveEdit() {
+    if (editId == null) return;
+    const colors: Record<string, string> = {};
+    for (const [tok, val] of editColors) colors[tok] = val;
+    const bundle: ThemeBundle = { id: editId, name: editName, colors };
+    const err = validateThemeBundle(bundle);
+    if (err) {
+      setEditError(err);
+      return;
+    }
+    commitCustomThemes(
+      customThemes.map((b) => (b.id === editId ? bundle : b))
+    );
+    setView("preferences");
   }
 
   return (
@@ -190,27 +361,101 @@ export function ProfileDropdown({
           </button>
 
           <div className="profile-dd__section">
-            <div className="profile-dd__section-label">{t.profile.theme}</div>
-            <div className="profile-dd__seg">
-              <button
-                type="button"
-                className={`profile-dd__seg-btn${
-                  theme === "office" ? " profile-dd__seg-btn--active" : ""
-                }`}
-                onClick={() => setTheme("office")}
-              >
-                {t.profile.themeOffice}
-              </button>
-              <button
-                type="button"
-                className={`profile-dd__seg-btn${
-                  theme === "xian" ? " profile-dd__seg-btn--active" : ""
-                }`}
-                onClick={() => setTheme("xian")}
-              >
-                {t.profile.themeXian}
-              </button>
+            <div className="profile-dd__section-head">
+              <div className="profile-dd__section-label">{t.profile.theme}</div>
+              <div className="profile-dd__theme-actions">
+                <button
+                  type="button"
+                  className="profile-dd__chip"
+                  onClick={openImport}
+                >
+                  {t.profile.themeImport}
+                </button>
+                <button
+                  type="button"
+                  className="profile-dd__chip"
+                  onClick={handleExportCurrent}
+                >
+                  {t.profile.themeExport}
+                </button>
+                <button
+                  type="button"
+                  className="profile-dd__chip"
+                  onClick={handleCopyCurrent}
+                >
+                  {copied ? t.profile.themeCopied : t.profile.themeCopy}
+                </button>
+              </div>
             </div>
+
+            <ul className="profile-dd__theme-list">
+              <li className="profile-dd__theme-row">
+                <button
+                  type="button"
+                  className={`profile-dd__theme-pick${
+                    theme === "office"
+                      ? " profile-dd__theme-pick--active"
+                      : ""
+                  }`}
+                  onClick={() => setTheme("office")}
+                >
+                  {t.profile.themeOffice}
+                </button>
+              </li>
+              <li className="profile-dd__theme-row">
+                <button
+                  type="button"
+                  className={`profile-dd__theme-pick${
+                    theme === "xian" ? " profile-dd__theme-pick--active" : ""
+                  }`}
+                  onClick={() => setTheme("xian")}
+                >
+                  {t.profile.themeXian}
+                </button>
+              </li>
+
+              {customThemes.map((b) => (
+                <li key={b.id} className="profile-dd__theme-row">
+                  <button
+                    type="button"
+                    className={`profile-dd__theme-pick${
+                      theme === b.id ? " profile-dd__theme-pick--active" : ""
+                    }`}
+                    onClick={() => setTheme(b.id)}
+                  >
+                    {b.name}
+                  </button>
+                  <button
+                    type="button"
+                    className="profile-dd__theme-mini"
+                    aria-label={t.profile.themeEdit}
+                    title={t.profile.themeEdit}
+                    onClick={() => openEdit(b)}
+                  >
+                    {t.profile.themeEdit}
+                  </button>
+                  <button
+                    type="button"
+                    className="profile-dd__theme-mini profile-dd__theme-mini--danger"
+                    aria-label={t.profile.themeDelete}
+                    title={t.profile.themeDelete}
+                    onClick={() => handleDeleteTheme(b.id)}
+                  >
+                    {t.profile.themeDelete}
+                  </button>
+                </li>
+              ))}
+            </ul>
+
+            {!customThemes.some((b) => b.id === "xian-example") && (
+              <button
+                type="button"
+                className="profile-dd__theme-example"
+                onClick={handleImportXianExample}
+              >
+                {t.profile.themeExampleImport}
+              </button>
+            )}
           </div>
 
           <div className="profile-dd__section">
@@ -340,6 +585,122 @@ export function ProfileDropdown({
               {pwdBusy ? t.profile.saving : t.profile.save}
             </button>
           </form>
+        </>
+      )}
+
+      {view === "themeImport" && (
+        <>
+          <button
+            type="button"
+            className="profile-dd__back"
+            onClick={() => setView("preferences")}
+          >
+            <ChevronLeftIcon size={16} />
+            <span>{t.profile.themeImportTitle}</span>
+          </button>
+
+          <div className="profile-dd__form">
+            <textarea
+              className="profile-dd__textarea"
+              placeholder={t.profile.themeImportPlaceholder}
+              aria-label={t.profile.themeImportTitle}
+              value={importText}
+              onChange={(e) => {
+                setImportText(e.target.value);
+                setImportError("");
+              }}
+            />
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/json,.json"
+              className="profile-dd__file"
+              onChange={handleFilePicked}
+            />
+            <button
+              type="button"
+              className="profile-dd__chip profile-dd__chip--block"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {t.profile.themeChooseFile}
+            </button>
+
+            {importError && (
+              <div className="profile-dd__error">{importError}</div>
+            )}
+
+            <button
+              type="button"
+              className="profile-dd__submit"
+              disabled={!importText.trim()}
+              onClick={handleConfirmImport}
+            >
+              {t.profile.themeConfirmImport}
+            </button>
+          </div>
+        </>
+      )}
+
+      {view === "themeEdit" && (
+        <>
+          <button
+            type="button"
+            className="profile-dd__back"
+            onClick={() => setView("preferences")}
+          >
+            <ChevronLeftIcon size={16} />
+            <span>{t.profile.themeEditTitle}</span>
+          </button>
+
+          <div className="profile-dd__form">
+            <label className="profile-dd__field-label">
+              {t.profile.themeNameLabel}
+            </label>
+            <input
+              className="profile-dd__input"
+              value={editName}
+              aria-label={t.profile.themeNameLabel}
+              onChange={(e) => {
+                setEditName(e.target.value);
+                setEditError("");
+              }}
+            />
+
+            <div className="profile-dd__color-list">
+              {editColors.map(([token, value], i) => (
+                <div key={token} className="profile-dd__color-row">
+                  <span className="profile-dd__color-token" title={token}>
+                    {token}
+                  </span>
+                  <input
+                    className="profile-dd__input profile-dd__color-input"
+                    value={value}
+                    aria-label={token}
+                    onChange={(e) => {
+                      const next = editColors.slice();
+                      next[i] = [token, e.target.value];
+                      setEditColors(next);
+                      setEditError("");
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+
+            {editError && (
+              <div className="profile-dd__error">{editError}</div>
+            )}
+
+            <button
+              type="button"
+              className="profile-dd__submit"
+              disabled={!editName.trim()}
+              onClick={handleSaveEdit}
+            >
+              {t.profile.save}
+            </button>
+          </div>
         </>
       )}
     </div>

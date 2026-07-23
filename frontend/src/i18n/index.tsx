@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -12,12 +13,21 @@ import { en } from "./locales/en";
 import { xian } from "./locales/xian";
 import { api } from "../api";
 import { hasToken, AUTH_LOGIN_EVENT } from "../api/auth";
+import { isValidDisplayTheme, type ThemeBundle } from "../lib/themeBundle";
 
 export type Locale = "zh" | "en" | "xian";
 /** User-selectable language (mockup 語言 toggle offers only 中文 / English). */
 export type Language = "zh" | "en";
-/** Visual theme (mockup 主題 toggle: 辦公室 default / 修仙). */
+/** Built-in visual themes (辦公室 default / 修仙). The ACTIVE selector is a
+ * plain string (T-16a1 P2): a built-in name here, or a custom bundle's id. */
 export type Theme = "office" | "xian";
+
+/** Matches a custom bundle id (mirrors THEME_ID_RE in lib/themeBundle). */
+const THEME_ID_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
+
+function isSelectableTheme(v: string): boolean {
+  return v === "office" || v === "xian" || THEME_ID_RE.test(v);
+}
 
 const DICTS: Record<Locale, Dict> = { zh, en, xian };
 
@@ -51,6 +61,19 @@ function readStored<T extends string>(key: string, allowed: T[], fallback: T): T
   return fallback;
 }
 
+// The theme cache admits a built-in name OR a custom bundle id (the id's bundle
+// arrives with the login reconcile; until then the apply effect falls back to
+// the neutral office base — see the apply effect below).
+function readStoredTheme(): string {
+  try {
+    const v = localStorage.getItem(LS_THEME);
+    if (v && isSelectableTheme(v)) return v;
+  } catch {
+    // localStorage unavailable — fall through to default
+  }
+  return "office";
+}
+
 function writeStored(key: string, value: string | null) {
   try {
     if (value == null) localStorage.removeItem(key);
@@ -66,8 +89,16 @@ interface I18nContextValue {
   t: Dict;
   language: Language;
   setLanguage: (next: Language) => void;
-  theme: Theme;
-  setTheme: (next: Theme) => void;
+  /** Active theme: a built-in name ("office"/"xian") or a custom bundle id. */
+  theme: string;
+  setTheme: (next: string) => void;
+  /** The owner's saved custom theme bundles (server-backed, reconciled at
+   * login). Empty until reconcile / when none are saved. */
+  customThemes: ThemeBundle[];
+  /** Replace the custom-theme set (import / edit / delete). Optionally switch
+   * the active theme in the SAME server PATCH — required when deleting the
+   * active theme so the server's dangling-reset stays in sync. */
+  commitCustomThemes: (next: ThemeBundle[], nextTheme?: string) => void;
   /** Reset local preferences to initial (used by the honest M1 "logout").
    * Covers only the client-persisted prefs (theme/language); the owner
    * nickname is server-backed now (T-0b41) and is left untouched. */
@@ -80,18 +111,45 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const [language, setLanguageState] = useState<Language>(() =>
     readStored<Language>(LS_LANGUAGE, ["zh", "en"], "zh")
   );
-  const [theme, setThemeState] = useState<Theme>(() =>
-    readStored<Theme>(LS_THEME, ["office", "xian"], "office")
-  );
-  // Effective copy locale: a theme's explicit copy-override (only 修仙 today),
-  // else the user's language toggle. Themes without an override are visual-only.
-  const locale: Locale = THEME_COPY_LOCALE[theme] ?? language;
+  const [theme, setThemeState] = useState<string>(() => readStoredTheme());
+  const [customThemes, setCustomThemesState] = useState<ThemeBundle[]>([]);
+  // Effective copy locale: a built-in theme's explicit copy-override (only 修仙
+  // today), else the user's language toggle. Custom themes are purely visual
+  // (T-16a1 P2 does not touch wording), so they always defer to `language`.
+  const locale: Locale =
+    THEME_COPY_LOCALE[theme as Theme] ?? language;
   const t = DICTS[locale];
 
-  // Reflect the theme on <html data-theme> so CSS can restyle (see theme.css).
+  // The --color-* inline props applied for the current custom theme, remembered
+  // so the NEXT apply can remove exactly this set before painting the next one.
+  const appliedTokensRef = useRef<string[]>([]);
+
+  // Apply the active theme. Built-ins ride <html data-theme> and any leftover
+  // inline vars from a previous custom theme are cleared. A custom id resolves
+  // to its bundle: take the neutral office base via data-theme, then push each
+  // colour onto documentElement via setProperty (the value is NEVER concatenated
+  // into a stylesheet — the security boundary). A dangling id (bundle not yet
+  // reconciled / deleted) falls back to the office base.
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-  }, [theme]);
+    const root = document.documentElement;
+    for (const tok of appliedTokensRef.current) root.style.removeProperty(tok);
+    appliedTokensRef.current = [];
+
+    if (theme === "office" || theme === "xian") {
+      root.dataset.theme = theme;
+      return;
+    }
+    const bundle = customThemes.find((b) => b.id === theme);
+    root.dataset.theme = "office";
+    if (bundle) {
+      const applied: string[] = [];
+      for (const [tok, val] of Object.entries(bundle.colors)) {
+        root.style.setProperty(tok, val);
+        applied.push(tok);
+      }
+      appliedTokensRef.current = applied;
+    }
+  }, [theme, customThemes]);
 
   // Low-level cache writes: local state + the localStorage pre-auth cache, NO
   // server write. Shared by the public setters (which add the server PATCH), the
@@ -101,7 +159,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     writeStored(LS_LANGUAGE, next);
   }, []);
 
-  const cacheTheme = useCallback((next: Theme) => {
+  const cacheTheme = useCallback((next: string) => {
     setThemeState(next);
     writeStored(LS_THEME, next);
   }, []);
@@ -126,12 +184,37 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   );
 
   const setTheme = useCallback(
-    (next: Theme) => {
+    (next: string) => {
       cacheTheme(next);
       if (hasToken()) {
         api
           .patchServerSettings({ displayTheme: next })
           .catch((e) => console.warn("setTheme: server sync failed", e));
+      }
+    },
+    [cacheTheme]
+  );
+
+  // Replace the custom-theme set (import / rename / re-colour / delete). The
+  // server couples custom_themes + display_theme in one PATCH: deleting the
+  // active theme resets display_theme to "". Callers that touch the active
+  // theme pass `nextTheme` so both the local state and the single server PATCH
+  // stay consistent with that reset. State updates apply optimistically; a
+  // failed sync leaves them in place (next login reconcile settles divergence).
+  const commitCustomThemes = useCallback(
+    (next: ThemeBundle[], nextTheme?: string) => {
+      setCustomThemesState(next);
+      if (nextTheme !== undefined) cacheTheme(nextTheme);
+      if (hasToken()) {
+        const patch: { customThemes: ThemeBundle[]; displayTheme?: string } = {
+          customThemes: next,
+        };
+        if (nextTheme !== undefined) patch.displayTheme = nextTheme;
+        api
+          .patchServerSettings(patch)
+          .catch((e) =>
+            console.warn("commitCustomThemes: server sync failed", e)
+          );
       }
     },
     [cacheTheme]
@@ -148,7 +231,15 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     api
       .getServerSettings()
       .then((s) => {
-        if (s.displayTheme === "office" || s.displayTheme === "xian") {
+        // The server owns the custom-theme set — adopt it wholesale (so the
+        // apply effect can resolve a custom active id to its bundle).
+        setCustomThemesState(s.customThemes);
+        // Adopt a stored active theme only when it is actually selectable given
+        // that set (a built-in, or an id present in it). "" (never set) or a
+        // dangling id keeps the local cache — a stale server value must not
+        // override a live local choice.
+        const ids = new Set(s.customThemes.map((b) => b.id));
+        if (s.displayTheme !== "" && isValidDisplayTheme(s.displayTheme, ids)) {
           cacheTheme(s.displayTheme);
         }
         if (s.displayLanguage === "zh" || s.displayLanguage === "en") {
@@ -176,6 +267,10 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     // choice for every other device).
     cacheLanguage("zh");
     cacheTheme("office");
+    // The custom set is server-backed — clear only the LOCAL mirror so the next
+    // owner's paint is not tinted; the server copy is untouched (re-adopted at
+    // that owner's reconcile).
+    setCustomThemesState([]);
   }, [cacheLanguage, cacheTheme]);
 
   const value = useMemo<I18nContextValue>(
@@ -186,9 +281,21 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       setLanguage,
       theme,
       setTheme,
+      customThemes,
+      commitCustomThemes,
       resetPreferences,
     }),
-    [locale, t, language, setLanguage, theme, setTheme, resetPreferences]
+    [
+      locale,
+      t,
+      language,
+      setLanguage,
+      theme,
+      setTheme,
+      customThemes,
+      commitCustomThemes,
+      resetPreferences,
+    ]
   );
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;

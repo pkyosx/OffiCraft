@@ -16,6 +16,7 @@ package main
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strconv"
@@ -100,6 +101,11 @@ const (
 	// cross-device truth, localStorage the pre-auth cache. "" (default) = never
 	// set. NOT an agent read path.
 	settingDisplayLanguage = "display.language"
+	// settingDisplayCustomThemes (T-16a1 P2) is the owner's saved custom theme
+	// bundles — a JSON array of {id,name,colors} colour bundles (theme_bundle.go).
+	// Server-backed so the set syncs across devices; display.theme may point at
+	// any id in it. Absent/"" = none saved. NOT an agent read path.
+	settingDisplayCustomThemes = "display.custom_themes"
 )
 
 // displayThemeAllowed / displayLanguageAllowed are the enum whitelists for the
@@ -120,13 +126,14 @@ type authSettings struct {
 	passwordChangedAt    int64  // epoch secs; owner tokens with iat before it are refused
 	tokenTTL             int64
 	ctxhigh              SseContextHighConfig
-	outsourceMaxParallel int    // task.outsource_max_parallel (default 3)
-	updaterReceiveBeta   bool   // updater.receive_beta (default false = official releases only)
-	updaterAutoUpdate    bool   // updater.auto_update (default false = manual upgrades only)
-	orgName              string // org.name ("" = never set → localized default in the topbar)
-	ownerName            string // owner.name ("" = never set → localized default in the profile pill)
-	displayTheme         string // display.theme ("" = never set → frontend cache/default)
-	displayLanguage      string // display.language ("" = never set → frontend cache/default)
+	outsourceMaxParallel int              // task.outsource_max_parallel (default 3)
+	updaterReceiveBeta   bool             // updater.receive_beta (default false = official releases only)
+	updaterAutoUpdate    bool             // updater.auto_update (default false = manual upgrades only)
+	orgName              string           // org.name ("" = never set → localized default in the topbar)
+	ownerName            string           // owner.name ("" = never set → localized default in the profile pill)
+	displayTheme         string           // display.theme ("" = never set → frontend cache/default)
+	displayLanguage      string           // display.language ("" = never set → frontend cache/default)
+	displayCustomThemes  []ThemeBundleDTO // display.custom_themes (nil = none saved)
 }
 
 // loadAuthSettings loads the snapshot from the migrated DB, running the
@@ -286,6 +293,14 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 		return out, err
 	} else if v != nil {
 		out.displayLanguage = *v
+	}
+	if v, err := d.GetSetting(settingDisplayCustomThemes); err != nil {
+		return out, err
+	} else if v != nil && *v != "" {
+		if err := json.Unmarshal([]byte(*v), &out.displayCustomThemes); err != nil {
+			return out, fmt.Errorf("settings %s: not a valid theme-bundle array: %v",
+				settingDisplayCustomThemes, err)
+		}
 	}
 	return out, nil
 }

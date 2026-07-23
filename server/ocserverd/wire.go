@@ -69,6 +69,10 @@ type settingsDTO struct {
 	// T-0b41-p2). "" = never set — the frontend keeps its localStorage cache /
 	// default. Same dual-layer contract as display_theme.
 	DisplayLanguage string `json:"display_language"`
+	// CustomThemes is the owner's saved custom theme bundles (display.custom_themes;
+	// T-16a1 P2) — always an array ([] when none). display_theme may point at any
+	// id in it. Owner-gated (rides GET /api/settings only).
+	CustomThemes []ThemeBundleDTO `json:"custom_themes"`
 	// Onboarding (T-ba62) is the first-run onboarding report, or nil when
 	// onboarding never ran on this database. It rides the OWNER-GATED settings
 	// read on purpose: a failed step's Detail carries the raw `ocwarden install`

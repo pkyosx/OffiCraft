@@ -95,6 +95,7 @@ import {
   SEED_BOOT_SEQUENCE_MD,
 } from "./seeds";
 import { ApiError } from "./errors";
+import { validateThemeBundles, isValidDisplayTheme } from "../lib/themeBundle";
 
 // The always-present server-self machine id (mirrors the server seed):
 // the warden for the host running the server itself — listed FIRST, is_self, NOT
@@ -761,6 +762,9 @@ const DEFAULT_MOCK_SETTINGS = {
   // (the frontend keeps its localStorage cache / default until the owner picks).
   display_theme: "",
   display_language: "",
+  // Custom theme bundles (T-16a1 P2) — none saved out of the box, mirroring the
+  // server (display.custom_themes absent).
+  custom_themes: [] as { id: string; name: string; colors: Record<string, string> }[],
 };
 let mockServerSettings = { ...DEFAULT_MOCK_SETTINGS };
 const MOCK_CLAIM_TOKEN = "mock-claim-token";
@@ -2523,17 +2527,33 @@ export const mockApi: Api = {
         "owner_name must be at most 80 characters"
       );
     }
+    // custom_themes (T-16a1 P2): validated in full before anything is written —
+    // shape + theme.css token whitelist + concrete-colour grammar (the SAME
+    // themeBundle validator the server mirrors). A bad bundle 422s, nothing set.
+    if (patch.customThemes !== undefined) {
+      const err = validateThemeBundles(patch.customThemes);
+      if (err) {
+        throw new ApiError(
+          "http 422 for PATCH /api/settings",
+          422,
+          "validation_error",
+          err
+        );
+      }
+    }
+    // display_theme is validated against the POST-patch custom set: "" | a
+    // built-in | an existing custom id (server parity).
+    const effectiveThemes = patch.customThemes ?? mockServerSettings.custom_themes;
+    const effectiveThemeIds = new Set(effectiveThemes.map((t) => t.id));
     if (
       patch.displayTheme !== undefined &&
-      patch.displayTheme.trim() !== "" &&
-      !["office", "xian"].includes(patch.displayTheme.trim())
+      !isValidDisplayTheme(patch.displayTheme.trim(), effectiveThemeIds)
     ) {
-      // Server parity: enum-checked, "" clears (T-0b41-p2).
       throw new ApiError(
         "http 422 for PATCH /api/settings",
         422,
         "validation_error",
-        "display_theme must be one of office, xian"
+        'display_theme must be "", office, xian, or an existing custom theme id'
       );
     }
     if (
@@ -2570,8 +2590,19 @@ export const mockApi: Api = {
     if (patch.ownerName !== undefined) {
       mockServerSettings.owner_name = patch.ownerName.trim();
     }
+    // custom_themes + display_theme are coupled (server parity): write the set,
+    // then resolve the theme against the post-patch set — an explicit theme
+    // wins; otherwise a now-dangling active custom theme is reset to "".
+    if (patch.customThemes !== undefined) {
+      mockServerSettings.custom_themes = structuredClone(patch.customThemes);
+    }
     if (patch.displayTheme !== undefined) {
       mockServerSettings.display_theme = patch.displayTheme.trim();
+    } else {
+      const ids = new Set(mockServerSettings.custom_themes.map((t) => t.id));
+      if (!isValidDisplayTheme(mockServerSettings.display_theme, ids)) {
+        mockServerSettings.display_theme = "";
+      }
     }
     if (patch.displayLanguage !== undefined) {
       mockServerSettings.display_language = patch.displayLanguage.trim();

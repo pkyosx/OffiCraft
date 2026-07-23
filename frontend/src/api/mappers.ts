@@ -721,6 +721,13 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     // localStorage cache / default and reconciles a real value in at login.
     displayTheme: w.display_theme ?? "",
     displayLanguage: w.display_language ?? "",
+    // Custom theme bundles (T-16a1 P2; schema-optional for DTO-compat — the Go
+    // wire always emits an array). Absent maps to [] — never a fabricated theme.
+    customThemes: (w.custom_themes ?? []).map((b) => ({
+      id: b.id,
+      name: b.name,
+      colors: { ...b.colors },
+    })),
     // The first-run onboarding report (T-ba62). Absent/null is the NORMAL
     // state (onboarding never ran on this database) and maps to null — the
     // mapper never manufactures a report, so "no report" can never be

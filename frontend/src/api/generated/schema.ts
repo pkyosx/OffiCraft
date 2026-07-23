@@ -5004,6 +5004,12 @@ export interface components {
              * @default
              */
             display_theme: string;
+            /**
+             * Custom Themes
+             * @description The owner's saved custom theme bundles (T-16a1 P2), each a `{id,name,colors}` colour bundle. `[]` = none saved. display_theme may point at any id in this set (or a built-in). Owner-gated: rides GET /api/settings only.
+             * @default []
+             */
+            custom_themes: components["schemas"]["ThemeBundleDTO"][];
             /** Handover Pct */
             handover_pct: number;
             /**
@@ -5062,6 +5068,11 @@ export interface components {
              * @description The owner's cockpit visual theme (T-0b41-p2) — trimmed; "" clears it back to unset. Must be one of office, xian (or ""); anything else is a 422.
              */
             display_theme?: string | null;
+            /**
+             * Custom Themes
+             * @description Replace the owner's custom theme bundles (T-16a1 P2) with this array (each `{id,name,colors}`). Omit to leave them unchanged; `[]` clears them. Every bundle is validated against the shape, the theme.css token whitelist, and the concrete-colour grammar — any violation is a 422 and nothing is written. When this and display_theme are patched together, display_theme is validated against the POST-patch set; and deleting the active custom theme resets display_theme to "".
+             */
+            custom_themes?: components["schemas"]["ThemeBundleDTO"][] | null;
             /** Handover Pct */
             handover_pct?: number | null;
             /**
@@ -5828,6 +5839,20 @@ export interface components {
              * @default
              */
             waiting_reason: string;
+        };
+        /**
+         * ThemeBundleDTO
+         * @description One owner-authored theme colour bundle (T-16a1 P2). `id` is a client-generated stable slug (`^[a-z0-9][a-z0-9-]{1,63}$`), unique within the owner's set and never a built-in name (`office` / `xian`). `name` is the display label (trimmed, 1..80 runes). `colors` maps `--color-*` token names — each MUST be a token defined in styles/theme.css — to CONCRETE colour values (hex / rgb() / rgba() / hsl() / hsla() / transparent only; no var(), no color-mix(), no arbitrary CSS). 1..200 pairs. The server 422s any bundle that violates the shape, the token whitelist, or the colour grammar.
+         */
+        ThemeBundleDTO: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Colors */
+            colors: {
+                [key: string]: string;
+            };
         };
         /**
          * TokenDTO

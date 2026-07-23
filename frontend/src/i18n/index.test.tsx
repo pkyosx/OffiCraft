@@ -16,6 +16,23 @@ function Probe() {
   return <div data-testid="probe" data-theme={theme} data-lang={language} />;
 }
 
+let ctx = null as unknown as ReturnType<typeof useI18n>;
+function Capture() {
+  ctx = useI18n();
+  return null;
+}
+
+const MIDNIGHT = {
+  id: "midnight",
+  name: "Midnight",
+  colors: { "--color-accent": "#010203", "--color-bg": "#040506" },
+};
+const SUNRISE = {
+  id: "sunrise",
+  name: "Sunrise",
+  colors: { "--color-accent": "#ffaa00" },
+};
+
 describe("I18nProvider dual-layer theme/language", () => {
   beforeEach(() => {
     __resetMock();
@@ -91,5 +108,75 @@ describe("I18nProvider dual-layer theme/language", () => {
       expect(screen.getByTestId("probe").dataset.theme).toBe("xian")
     );
     expect(localStorage.getItem("oc.theme")).toBe("xian");
+  });
+});
+
+describe("I18nProvider custom theme apply", () => {
+  const root = document.documentElement;
+
+  beforeEach(() => {
+    __resetMock();
+    localStorage.clear();
+    root.removeAttribute("style");
+    delete root.dataset.theme;
+    render(
+      <I18nProvider>
+        <Capture />
+      </I18nProvider>
+    );
+  });
+
+  it("applies a custom bundle as inline vars over the neutral office base", () => {
+    act(() => ctx.commitCustomThemes([MIDNIGHT]));
+    act(() => ctx.setTheme("midnight"));
+
+    expect(root.dataset.theme).toBe("office");
+    expect(root.style.getPropertyValue("--color-accent")).toBe("#010203");
+    expect(root.style.getPropertyValue("--color-bg")).toBe("#040506");
+  });
+
+  it("clears the previous custom vars when switching to a built-in", () => {
+    act(() => ctx.commitCustomThemes([MIDNIGHT]));
+    act(() => ctx.setTheme("midnight"));
+    act(() => ctx.setTheme("xian"));
+
+    expect(root.dataset.theme).toBe("xian");
+    expect(root.style.getPropertyValue("--color-accent")).toBe("");
+    expect(root.style.getPropertyValue("--color-bg")).toBe("");
+  });
+
+  it("drops vars not carried by the next custom theme when switching between them", () => {
+    act(() => ctx.commitCustomThemes([MIDNIGHT, SUNRISE]));
+    act(() => ctx.setTheme("midnight"));
+    act(() => ctx.setTheme("sunrise"));
+
+    expect(root.style.getPropertyValue("--color-accent")).toBe("#ffaa00");
+    expect(root.style.getPropertyValue("--color-bg")).toBe("");
+  });
+
+  it("falls back to the office base for a dangling custom id", () => {
+    act(() => ctx.setTheme("ghost"));
+
+    expect(root.dataset.theme).toBe("office");
+    expect(root.style.getPropertyValue("--color-accent")).toBe("");
+  });
+
+  it("caches a custom active id to localStorage", () => {
+    act(() => ctx.commitCustomThemes([MIDNIGHT]));
+    act(() => ctx.setTheme("midnight"));
+    expect(localStorage.getItem("oc.theme")).toBe("midnight");
+  });
+
+  it("keeps a custom theme visual-only — copy follows the language toggle", () => {
+    act(() => ctx.setLanguage("en"));
+    act(() => ctx.commitCustomThemes([MIDNIGHT]));
+    act(() => ctx.setTheme("midnight"));
+    expect(ctx.locale).toBe("en");
+  });
+
+  it("still surfaces the immersive xian dict for the built-in 修仙 theme", () => {
+    act(() => ctx.setLanguage("en"));
+    act(() => ctx.setTheme("xian"));
+    expect(ctx.locale).toBe("xian");
   });
 });

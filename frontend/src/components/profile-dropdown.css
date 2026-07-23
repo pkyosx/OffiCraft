@@ -238,6 +238,180 @@
   cursor: default;
 }
 
+/* ---- theme picker (T-16a1 P2b) ---- */
+.profile-dd__section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.profile-dd__theme-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.profile-dd__chip {
+  padding: 4px 8px;
+  border-radius: 7px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 11.5px;
+  font-weight: 500;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+.profile-dd__chip:hover {
+  color: var(--color-text);
+  border-color: color-mix(in srgb, var(--color-overlay) 16%, transparent);
+  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
+}
+.profile-dd__chip--block {
+  width: 100%;
+  padding: 8px;
+  font-size: 13px;
+}
+
+.profile-dd__theme-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.profile-dd__theme-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.profile-dd__theme-pick {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+.profile-dd__theme-pick:hover {
+  background: color-mix(in srgb, var(--color-overlay) 5%, transparent);
+}
+.profile-dd__theme-pick--active {
+  background: var(--color-indigo);
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+  color: var(--color-text-strong);
+}
+
+.profile-dd__theme-mini {
+  padding: 4px 8px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 11.5px;
+  font-weight: 500;
+  flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
+}
+.profile-dd__theme-mini:hover {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-overlay) 5%, transparent);
+}
+.profile-dd__theme-mini--danger:hover {
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+}
+
+.profile-dd__theme-example {
+  margin-top: 8px;
+  width: 100%;
+  padding: 8px;
+  border: 1px dashed color-mix(in srgb, var(--color-overlay) 16%, transparent);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+  font-weight: 500;
+  transition: color 0.15s, border-color 0.15s;
+}
+.profile-dd__theme-example:hover {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+}
+
+.profile-dd__textarea {
+  width: 100%;
+  min-height: 120px;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  outline: none;
+  resize: vertical;
+  transition: border-color 0.15s;
+}
+.profile-dd__textarea:focus {
+  border-color: var(--color-accent);
+}
+
+.profile-dd__file {
+  display: none;
+}
+
+.profile-dd__field-label {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+}
+
+.profile-dd__color-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.profile-dd__color-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.profile-dd__color-token {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.profile-dd__color-input {
+  width: 130px;
+  flex-shrink: 0;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+}
+
 .profile-dd__error {
   margin: 0 14px;
   font-size: 12px;
