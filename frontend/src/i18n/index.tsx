@@ -85,6 +85,12 @@ interface I18nContextValue {
   /** Active theme: the built-in name ("office") or a custom bundle id. */
   theme: string;
   setTheme: (next: string) => void;
+  /** The active custom theme's per-member-type avatar images (T-16a1 P5), or
+   * undefined when the active theme carries none (the built-in office, or a
+   * custom theme with no avatars overlay). The Avatar component reads this to
+   * render a member/outsource avatar image, falling back to the built-in glyph
+   * when absent. */
+  activeAvatars?: { member?: string; outsource?: string };
   /** The owner's saved custom theme bundles (server-backed, reconciled at
    * login). Empty until reconcile / when none are saved. */
   customThemes: ThemeBundle[];
@@ -123,6 +129,16 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     ];
     return applyWording(base, overlay);
   }, [locale, theme, language, customThemes]);
+
+  // The active custom theme's avatar images (T-16a1 P5). Unlike colours/fonts
+  // (CSS vars applied to documentElement), avatars are IMAGES the Avatar
+  // component renders as <img>, so they ride the context rather than the DOM.
+  // The built-in office theme carries none; a dangling active id resolves to
+  // undefined (office glyph fallback — office never degrades).
+  const activeAvatars = useMemo(
+    () => (customThemes ?? []).find((b) => b.id === theme)?.avatars,
+    [customThemes, theme]
+  );
 
   // The --color-* inline props applied for the current custom theme, remembered
   // so the NEXT apply can remove exactly this set before painting the next one.
@@ -297,6 +313,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       setLanguage,
       theme,
       setTheme,
+      activeAvatars,
       customThemes,
       commitCustomThemes,
       resetPreferences,
@@ -308,6 +325,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       setLanguage,
       theme,
       setTheme,
+      activeAvatars,
       customThemes,
       commitCustomThemes,
       resetPreferences,
@@ -323,4 +341,13 @@ export function useI18n(): I18nContextValue {
     throw new Error("useI18n must be used within an I18nProvider");
   }
   return ctx;
+}
+
+/** The active theme's per-member-type avatar images (T-16a1 P5), or undefined.
+ * DEFENSIVE variant of useI18n for the Avatar leaf: it reads the context
+ * WITHOUT throwing when no provider is present (an Avatar rendered in an
+ * isolated test/story with no I18nProvider just falls back to the built-in
+ * glyph rather than crashing). */
+export function useActiveAvatars(): { member?: string; outsource?: string } | undefined {
+  return useContext(I18nContext)?.activeAvatars;
 }

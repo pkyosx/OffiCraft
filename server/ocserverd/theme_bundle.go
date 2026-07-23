@@ -150,6 +150,12 @@ func validateThemeBundles(bundles []ThemeBundleDTO) error {
 		if err := validateFonts(b.Fonts, where); err != nil {
 			return err
 		}
+		// avatars (T-16a1 P5) is an OPTIONAL per-member-type embedded-image
+		// overlay — validated in full when present (kind whitelist + data-URI /
+		// raster-mime / size / magic-byte gate), a no-op when absent.
+		if err := validateAvatars(b.Avatars, where); err != nil {
+			return err
+		}
 	}
 	return nil
 }

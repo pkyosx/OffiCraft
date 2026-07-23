@@ -1173,7 +1173,7 @@ function SessionRow({
     >
       <td className="mon-table__left" data-label={t.monitor.sessionCol.member}>
         <div className="mon-member">
-          <Avatar size={34} />
+          <Avatar size={34} kind="member" />
           <div className="mon-member__body">
             <div className="mon-member__name">{name}</div>
             <div className="mon-member__sub">
@@ -1273,7 +1273,7 @@ function OutsourceSessionRow({
     >
       <td className="mon-table__left" data-label={t.monitor.sessionCol.member}>
         <div className="mon-member">
-          <Avatar size={34} />
+          <Avatar size={34} kind="outsource" />
           <div className="mon-member__body">
             <div className="mon-member__name">
               {worker.codename ? t.office.outsource.label(worker.codename) : dash}

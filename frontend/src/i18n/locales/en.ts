@@ -838,6 +838,16 @@ export const en: Dict = {
     themeFontBody: "Body font",
     themeFontTitle: "Title font",
     themeFontDefault: "Default (theme font)",
+    // ── avatars (T-16a1 P5): per-member-type avatar image upload ──
+    themeAvatarsSection: "Avatars",
+    themeAvatarsHint:
+      "Upload an avatar per member type (PNG / JPEG / WEBP, max 64 KB). Leave empty to keep the built-in avatar.",
+    themeAvatarMember: "Staff avatar",
+    themeAvatarOutsource: "Outsource avatar",
+    themeAvatarChoose: "Choose image",
+    themeAvatarClear: "Clear",
+    themeAvatarInvalid:
+      "Invalid image — only a PNG / JPEG / WEBP file up to 64 KB is accepted.",
     themeDeleteConfirm: (name: string) =>
       `Delete theme "${name}"? This cannot be undone.`,
     currentVersion: "Current version",

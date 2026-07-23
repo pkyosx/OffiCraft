@@ -1331,6 +1331,7 @@ export const httpApi: Api = {
         colors: Record<string, string>;
         wording?: Record<string, Record<string, string>>;
         fonts?: Record<string, string>;
+        avatars?: { member?: string; outsource?: string };
       }[];
     } = {};
     if (patch.tokenTtl !== undefined) body.token_ttl = patch.tokenTtl;

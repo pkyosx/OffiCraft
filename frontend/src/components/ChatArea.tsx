@@ -1083,7 +1083,7 @@ export function ChatArea({
             }
           : {})}
       >
-        <Avatar size={38} />
+        <Avatar size={38} kind="member" />
         <div className="chat__header-text">
           {/* Name only — no chevron/caret glyph (owner feedback: the "Mira ›"
            * arrow was noise). The header itself stays the clickable detail

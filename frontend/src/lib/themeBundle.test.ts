@@ -6,11 +6,14 @@ import { describe, it, expect } from "vitest";
 import {
   isValidColorValue,
   isValidFontValue,
+  isValidAvatarValue,
+  validateAvatars,
   validateThemeBundle,
   validateThemeBundles,
   validateWording,
   validateFonts,
   isValidDisplayTheme,
+  MAX_AVATAR_BYTES,
 } from "./themeBundle";
 import { THEME_COLOR_TOKENS } from "../styles/themeTokens.generated";
 import { SAFE_FONT_FAMILIES } from "../styles/themeFonts.generated";
@@ -143,6 +146,79 @@ describe("validateFonts", () => {
     expect(validateFonts({ "--font-title": "Times New Roman" })).toMatch(
       /invalid font value/
     );
+  });
+});
+
+// ── avatar images (T-16a1 P5) — the security boundary is the image VALUE ──
+function b64(bytes: number[]): string {
+  return btoa(String.fromCharCode(...bytes));
+}
+function avatarURI(mime: string, bytes: number[]): string {
+  return `data:${mime};base64,${b64(bytes)}`;
+}
+const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01];
+const JPEG_MAGIC = [0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10];
+const WEBP_MAGIC = [0x52, 0x49, 0x46, 0x46, 0x10, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 0];
+const okPng = avatarURI("image/png", PNG_MAGIC);
+const okJpeg = avatarURI("image/jpeg", JPEG_MAGIC);
+const okWebp = avatarURI("image/webp", WEBP_MAGIC);
+
+describe("isValidAvatarValue", () => {
+  it("accepts a valid PNG / JPEG / WEBP base64 data URI", () => {
+    expect(isValidAvatarValue(okPng)).toBe(true);
+    expect(isValidAvatarValue(okJpeg)).toBe(true);
+    expect(isValidAvatarValue(okWebp)).toBe(true);
+  });
+
+  it("rejects SVG, foreign schemes, bad base64, magic mismatch, oversize, non-data-URI", () => {
+    const oversize = avatarURI(
+      "image/png",
+      PNG_MAGIC.concat(new Array(MAX_AVATAR_BYTES).fill(0))
+    );
+    for (const v of [
+      "", // empty
+      "https://evil/x.png", // not a data URI
+      "javascript:alert(1)", // foreign scheme
+      "data:text/html,<script>alert(1)</script>", // not base64, not image
+      avatarURI("image/svg+xml", [0x3c, 0x73, 0x76, 0x67]), // SVG rejected outright
+      avatarURI("text/html", [0x3c, 0x73]), // non-image mime
+      avatarURI("image/gif", [0x47, 0x49, 0x46, 0x38]), // gif not whitelisted
+      "data:image/png;base64,!!!!notbase64!!!!", // bad base64
+      avatarURI("image/png", JPEG_MAGIC), // declares png, carries jpeg bytes
+      avatarURI("image/png", [0x3c, 0x73, 0x76, 0x67, 0x20]), // png claim, svg payload → magic fail
+      avatarURI("image/jpeg", PNG_MAGIC), // jpeg claim, png bytes
+      "data:image/png,iVBOR", // missing ;base64
+      oversize, // decoded bytes over the 64 KiB cap
+    ]) {
+      expect(isValidAvatarValue(v), `must reject: ${v.slice(0, 40)}`).toBe(false);
+    }
+  });
+});
+
+describe("validateAvatars", () => {
+  it("accepts undefined (optional) and a legal member/outsource overlay", () => {
+    expect(validateAvatars(undefined)).toBeNull();
+    expect(validateAvatars({ member: okPng, outsource: okWebp })).toBeNull();
+  });
+
+  it("rejects a non-object, an unknown kind, and an invalid image", () => {
+    expect(validateAvatars([])).toMatch(/must be an object/);
+    expect(validateAvatars({ boss: okPng })).toMatch(/not allowed/);
+    expect(
+      validateAvatars({ member: avatarURI("image/svg+xml", [0x3c]) })
+    ).toMatch(/not a valid image/);
+  });
+
+  it("flows through validateThemeBundle", () => {
+    const good = {
+      id: "midnight",
+      name: "Midnight",
+      colors: { [aToken]: "#111111" },
+      avatars: { member: okPng },
+    };
+    expect(validateThemeBundle(good)).toBeNull();
+    const bad = { ...good, avatars: { member: avatarURI("image/svg+xml", [0x3c]) } };
+    expect(validateThemeBundle(bad)).toMatch(/not a valid image/);
   });
 });
 

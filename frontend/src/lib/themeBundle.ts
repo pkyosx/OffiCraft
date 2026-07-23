@@ -25,7 +25,16 @@ export interface ThemeBundle {
   colors: Record<string, string>;
   wording?: Record<string, Record<string, string>>;
   fonts?: Record<string, string>;
+  /** Optional per-member-type avatar images (T-16a1 P5). Each value is an
+   * EMBEDDED image as a base64 `data:` URI so the picture travels inside the
+   * bundle on export/import. `member` = 正職, `outsource` = 外包. Absent → the
+   * built-in avatar glyph is used (office never degrades). */
+  avatars?: { member?: string; outsource?: string };
 }
+
+/** The member types an avatars overlay may key on (正職 / 外包). */
+export const AVATAR_KINDS = ["member", "outsource"] as const;
+export type AvatarKind = (typeof AVATAR_KINDS)[number];
 
 export const MAX_COLOR_VALUE_LEN = 64;
 export const MIN_THEME_COLORS = 1;
@@ -44,6 +53,23 @@ export const MAX_WORDING_ENTRIES_PER_LANG = 1000;
 // injection attempt. Membership in the SAFE stack set is the real gate; this
 // cap is a cheap pre-filter mirrored on the server.
 export const MAX_FONT_VALUE_LEN = 128;
+
+// Avatar image bounds (T-16a1 P5) — the twins of the Go constants in
+// server/ocserverd/avatar_bundle.go. An avatar is a small roster/chat glyph, so
+// the DECODED image is capped at 64 KiB (the real guard against bloating the
+// single custom_themes JSON row); the raw data-URI string is capped above the
+// base64-inflated 64 KiB (a cheap pre-filter applied BEFORE decoding).
+export const MAX_AVATAR_BYTES = 64 * 1024;
+export const MAX_AVATAR_VALUE_LEN = 96 * 1024;
+
+/** The closed RASTER mime whitelist an avatar image may declare. SVG
+ * (image/svg+xml) is DELIBERATELY absent — it can carry <script>/onload (XSS). */
+export const AVATAR_MIME_WHITELIST = [
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+] as const;
+const AVATAR_MIME_SET = new Set<string>(AVATAR_MIME_WHITELIST);
 
 /** The built-in theme names a custom bundle must never claim. office is the
  * only built-in now (修仙 is an importable custom bundle, so "xian" is a
@@ -125,6 +151,89 @@ export function validateFonts(fonts: unknown, where = "theme"): string | null {
     }
     if (typeof value !== "string" || !isValidFontValue(value)) {
       return `${where}: "${token}" has an invalid font value — only a safe built-in font family may be chosen`;
+    }
+  }
+  return null;
+}
+
+const AVATAR_KIND_SET = new Set<string>(AVATAR_KINDS);
+
+// Magic-byte predicates over the DECODED image bytes — the twin of
+// avatarMimeMagic in avatar_bundle.go. Each whitelisted mime must begin with
+// its format's signature, so a value that declares one mime but carries another
+// (e.g. a script-bearing SVG behind a png claim) is rejected.
+const AVATAR_MIME_MAGIC: Record<string, (b: Uint8Array) => boolean> = {
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  "image/png": (b) =>
+    b.length >= 8 &&
+    b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47 &&
+    b[4] === 0x0d && b[5] === 0x0a && b[6] === 0x1a && b[7] === 0x0a,
+  // JPEG: FF D8 FF
+  "image/jpeg": (b) => b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
+  // WEBP: "RIFF" .... "WEBP"
+  "image/webp": (b) =>
+    b.length >= 12 &&
+    b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 &&
+    b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50,
+};
+
+/** Decode a strict-standard base64 string to bytes, or null when it is not
+ * valid base64. Uses atob (browser + modern Node/jsdom) then re-encodes to
+ * confirm the round-trip (atob is lenient; a strict compare rejects stray
+ * characters / bad padding the Go decoder would also reject). */
+function decodeBase64(s: string): Uint8Array | null {
+  // Strict standard base64: A–Z a–z 0–9 + / with mandatory padding to a
+  // multiple of 4. Reject anything else BEFORE atob (which is lenient).
+  if (s.length === 0 || s.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(s)) {
+    return null;
+  }
+  try {
+    const bin = atob(s);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether v is an admissible embedded avatar image: a
+ * `data:image/<whitelisted mime>;base64,<base64>` URI that decodes within the
+ * byte cap and whose magic bytes match the declared mime. The twin of
+ * validAvatarValue in avatar_bundle.go (the security boundary — this is a new
+ * attack surface, an image the browser renders). */
+export function isValidAvatarValue(v: string): boolean {
+  if (v === "" || v.length > MAX_AVATAR_VALUE_LEN) return false;
+  if (!v.startsWith("data:")) return false;
+  const comma = v.indexOf(",");
+  if (comma < 0) return false;
+  const meta = v.slice("data:".length, comma); // "image/png;base64"
+  const payload = v.slice(comma + 1);
+  if (!meta.endsWith(";base64")) return false;
+  const mime = meta.slice(0, -";base64".length);
+  if (!AVATAR_MIME_SET.has(mime)) return false;
+  const bytes = decodeBase64(payload);
+  if (bytes === null || bytes.length === 0 || bytes.length > MAX_AVATAR_BYTES) {
+    return false;
+  }
+  return AVATAR_MIME_MAGIC[mime]?.(bytes) ?? false;
+}
+
+/** Validate a bundle's optional `avatars` overlay (T-16a1 P5) — the twin of the
+ * Go validateAvatars. Key ∈ {member, outsource}, value ∈ {whitelisted-raster
+ * base64 data URI}. Returns an error message, or null when admissible (an
+ * absent overlay is admissible). */
+export function validateAvatars(avatars: unknown, where = "theme"): string | null {
+  if (avatars === undefined || avatars === null) return null;
+  if (typeof avatars !== "object" || Array.isArray(avatars)) {
+    return `${where}: avatars must be an object`;
+  }
+  for (const [kind, value] of Object.entries(avatars as Record<string, unknown>)) {
+    if (!AVATAR_KIND_SET.has(kind)) {
+      return `${where}: avatar kind "${kind}" is not allowed (only member, outsource)`;
+    }
+    if (typeof value !== "string" || !isValidAvatarValue(value)) {
+      return `${where}: avatars[${kind}] is not a valid image — only a base64 data: URI of a PNG / JPEG / WEBP (≤ 64 KiB) is accepted`;
     }
   }
   return null;
@@ -228,7 +337,10 @@ export function validateThemeBundle(b: unknown, where = "theme"): string | null 
   const wErr = validateWording((bundle as { wording?: unknown }).wording, where);
   if (wErr) return wErr;
   // fonts (T-16a1 P4) is an optional --font-* → safe-family overlay.
-  return validateFonts((bundle as { fonts?: unknown }).fonts, where);
+  const fErr = validateFonts((bundle as { fonts?: unknown }).fonts, where);
+  if (fErr) return fErr;
+  // avatars (T-16a1 P5) is an optional per-member-type embedded-image overlay.
+  return validateAvatars((bundle as { avatars?: unknown }).avatars, where);
 }
 
 /** Validate the whole custom_themes array (shape + token whitelist + colour

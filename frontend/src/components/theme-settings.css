@@ -230,6 +230,29 @@
   flex: 1 1 auto;
 }
 
+/* ── avatars (T-16a1 P5): per-member-type image upload ── */
+.ts-avatar-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+}
+.ts-avatar-label {
+  font-size: 13px;
+  color: var(--color-text);
+  margin-bottom: 4px;
+}
+.ts-avatar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ts-avatar-preview {
+  /* reuse the shared .avatar frame; just make the empty state legible */
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 25%, transparent);
+}
+
 /* ── wording overlay ── */
 .ts-wording-sub {
   font-size: 12px;

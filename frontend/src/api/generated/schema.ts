@@ -5869,6 +5869,13 @@ export interface components {
                     [key: string]: string;
                 };
             };
+            /**
+             * Avatars
+             * @description Optional per-member-type avatar images (T-16a1 P5). Keys are the closed set `member` (正職) / `outsource` (外包); each value is an EMBEDDED image encoded as a base64 `data:` URI so the image travels inside the bundle on export/import. The value is NOT arbitrary: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted. SVG (`image/svg+xml`) is REJECTED (it can carry script/onload — XSS). The base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`) — a value that declares one mime but carries another is rejected. Absent = the member type falls back to the built-in avatar glyph (office never degrades). The server 422s any avatars that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.
+             */
+            avatars?: {
+                [key: string]: string;
+            };
         };
         /**
          * TokenDTO

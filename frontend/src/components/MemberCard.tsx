@@ -58,7 +58,9 @@ export function MemberCard({
         }}
         onKeyDown={(e) => e.stopPropagation()}
       >
-        <Avatar size={40} />
+        {/* Roster cards are 正職 members (T-16a1 P5) — outsource workers live in
+            the OutsourcePanel, not this roster. */}
+        <Avatar size={40} kind="member" />
       </button>
 
       <div className="member-card__body">

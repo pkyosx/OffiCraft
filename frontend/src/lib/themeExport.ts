@@ -54,6 +54,10 @@ export function parseImportedBundle(
   // the shared validator; dropping it would silently lose an imported theme's
   // font choice.
   if (b.fonts !== undefined) bundle.fonts = b.fonts;
+  // Carry the optional avatar images through (T-16a1 P5) — already validated by
+  // the shared validator; dropping them would silently lose an imported theme's
+  // per-member-type avatars (the images travel INSIDE the bundle by design).
+  if (b.avatars !== undefined) bundle.avatars = b.avatars;
   return { bundle };
 }
 

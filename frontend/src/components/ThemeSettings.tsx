@@ -6,7 +6,10 @@ import { readDictMessage } from "../i18n/wording";
 import { MESSAGE_KEYS } from "../i18n/messageKeys.generated";
 import {
   MAX_CUSTOM_THEMES,
+  AVATAR_KINDS,
+  isValidAvatarValue,
   validateThemeBundle,
+  type AvatarKind,
   type ThemeBundle,
 } from "../lib/themeBundle";
 import { SAFE_FONT_FAMILIES } from "../styles/themeFonts.generated";
@@ -29,6 +32,7 @@ import {
   DownloadIcon,
   PencilIcon,
   TrashIcon,
+  UserIcon,
 } from "./icons";
 import { ConfirmModal } from "./ConfirmModal";
 import "./theme-settings.css";
@@ -44,6 +48,14 @@ const FONT_SLOTS = [
   { token: "--font-sans", labelKey: "themeFontBody" },
   { token: "--font-title", labelKey: "themeFontTitle" },
 ] as const;
+
+// The two avatar slots the editor offers (T-16a1 P5): 正職 member / 外包
+// outsource. Each accepts one uploaded image (validated client-side, embedded
+// as a base64 data URI so it travels inside the bundle).
+const AVATAR_SLOTS: { kind: AvatarKind; labelKey: "themeAvatarMember" | "themeAvatarOutsource" }[] = [
+  { kind: "member", labelKey: "themeAvatarMember" },
+  { kind: "outsource", labelKey: "themeAvatarOutsource" },
+];
 
 /**
  * 主題管理 — the SettingsPage 主題 sub-section (T-16a1 P3b). All theme MANAGEMENT
@@ -72,6 +84,17 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   // Font choices (T-16a1 P4): token → chosen family stack. An absent/"" entry
   // means "keep the theme default".
   const [editFonts, setEditFonts] = useState<Record<string, string>>({});
+  // Avatar choices (T-16a1 P5): member/outsource → embedded base64 data URI. An
+  // absent entry means "no avatar for this kind" (falls back to the built-in
+  // glyph). Per-kind upload error surfaced inline.
+  const [editAvatars, setEditAvatars] = useState<
+    Partial<Record<AvatarKind, string>>
+  >({});
+  const [avatarError, setAvatarError] = useState("");
+  const avatarInputRefs = {
+    member: useRef<HTMLInputElement>(null),
+    outsource: useRef<HTMLInputElement>(null),
+  };
   const [wordingLang, setWordingLang] = useState<"zh" | "en">("zh");
   const [wordingSearch, setWordingSearch] = useState("");
   const [editError, setEditError] = useState("");
@@ -165,10 +188,54 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
         : { zh: {}, en: {} }
     );
     setEditFonts({ ...(bundle.fonts ?? {}) });
+    setEditAvatars({ ...(bundle.avatars ?? {}) });
+    setAvatarError("");
     setWordingLang(language);
     setWordingSearch("");
     setEditError("");
     setView("edit");
+  }
+
+  // Read one picked file as a base64 data URI, VALIDATE it through the shared
+  // client validator (mime whitelist + size + magic bytes — the same gate the
+  // server enforces), and stash it on the given kind. An invalid file surfaces
+  // an inline error and is NOT stored (never a silent bad value in the bundle).
+  async function handleAvatarPicked(
+    kind: AvatarKind,
+    e: React.ChangeEvent<HTMLInputElement>
+  ) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setAvatarError("");
+    let dataUri: string;
+    try {
+      dataUri = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result ?? ""));
+        reader.onerror = () => reject(new Error("read failed"));
+        reader.readAsDataURL(file);
+      });
+    } catch {
+      setAvatarError(t.settings.themeAvatarInvalid);
+      return;
+    }
+    if (!isValidAvatarValue(dataUri)) {
+      setAvatarError(t.settings.themeAvatarInvalid);
+      return;
+    }
+    setEditAvatars((prev) => ({ ...prev, [kind]: dataUri }));
+    setEditError("");
+  }
+
+  function clearAvatar(kind: AvatarKind) {
+    setEditAvatars((prev) => {
+      const next = { ...prev };
+      delete next[kind];
+      return next;
+    });
+    setAvatarError("");
+    setEditError("");
   }
 
   function setColorAt(i: number, value: string) {
@@ -211,9 +278,19 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
       if (typeof v === "string" && v !== "") fonts[token] = v;
     }
 
+    // Keep only the avatar kinds that actually hold an image — an absent kind
+    // means "no avatar" (falls back to the built-in glyph). Each value already
+    // passed isValidAvatarValue at upload time; the bundle validator re-checks.
+    const avatars: { member?: string; outsource?: string } = {};
+    for (const kind of AVATAR_KINDS) {
+      const v = editAvatars[kind];
+      if (typeof v === "string" && v !== "") avatars[kind] = v;
+    }
+
     const bundle: ThemeBundle = { id: editId, name: editName, colors };
     if (Object.keys(wording).length > 0) bundle.wording = wording;
     if (Object.keys(fonts).length > 0) bundle.fonts = fonts;
+    if (Object.keys(avatars).length > 0) bundle.avatars = avatars;
 
     const err = validateThemeBundle(bundle);
     if (err) {
@@ -420,6 +497,64 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
               </select>
             </div>
           ))}
+
+          {/* ── avatars (頭像) — per-member-type avatar image upload ── */}
+          <div className="ts-section-label">{t.settings.themeAvatarsSection}</div>
+          <div className="ts-wording-sub">{t.settings.themeAvatarsHint}</div>
+          <div className="ts-avatar-slots">
+            {AVATAR_SLOTS.map(({ kind, labelKey }) => {
+              const src = editAvatars[kind];
+              return (
+                <div key={kind} className="ts-avatar-slot">
+                  <div className="ts-avatar-label">{t.settings[labelKey]}</div>
+                  <div className="ts-avatar-row">
+                    <span
+                      className="avatar ts-avatar-preview"
+                      style={{ width: 48, height: 48 }}
+                    >
+                      {src ? (
+                        <img
+                          className="avatar__img"
+                          src={src}
+                          alt=""
+                          width={48}
+                          height={48}
+                          draggable={false}
+                        />
+                      ) : (
+                        <UserIcon size={24} className="avatar__glyph" />
+                      )}
+                    </span>
+                    <input
+                      ref={avatarInputRefs[kind]}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      className="ts-file"
+                      aria-label={t.settings[labelKey]}
+                      onChange={(e) => handleAvatarPicked(kind, e)}
+                    />
+                    <button
+                      type="button"
+                      className="doc-btn"
+                      onClick={() => avatarInputRefs[kind].current?.click()}
+                    >
+                      {t.settings.themeAvatarChoose}
+                    </button>
+                    {src && (
+                      <button
+                        type="button"
+                        className="doc-btn"
+                        onClick={() => clearAvatar(kind)}
+                      >
+                        {t.settings.themeAvatarClear}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {avatarError && <div className="set-error">{avatarError}</div>}
 
           {/* ── wording overlay (用詞) ── */}
           <div className="ts-section-label">

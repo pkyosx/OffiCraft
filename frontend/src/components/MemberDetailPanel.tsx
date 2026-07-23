@@ -518,7 +518,7 @@ export function MemberDetailPanel({
         {/* Avatar dot dropped here: the 7-state LifecycleDot on the status line
             below is now the single source of presence colour (replaces the old
             3-state Avatar dot in this panel). */}
-        <Avatar size={52} />
+        <Avatar size={52} kind="member" />
         <div className="mp-identity__body">
           <div className="mp-identity__line">
             <InlineEdit

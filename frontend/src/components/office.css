@@ -101,6 +101,18 @@
   background: color-mix(in srgb, var(--color-overlay) 5%, transparent);
   color: var(--color-text-muted);
   flex: none;
+  overflow: hidden; /* clip a theme avatar image (T-16a1 P5) to the rounded box */
+}
+/* A custom theme's per-member-type avatar image (T-16a1 P5): fills the .avatar
+ * frame, cropped to cover (no letterboxing) and clipped to the same rounded
+ * corners. The .avatar box already carries the size (inline width/height), so
+ * the image just fills it. */
+.avatar__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  display: block;
 }
 .badge {
   display: inline-flex;
