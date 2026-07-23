@@ -209,6 +209,10 @@ bin/ocserver uninstall --dry-run   # 只印出會做什麼，什麼都不動
 
 ---
 
+裝好之後想立刻走一遍，看 [你的第一個辦公室](quickstart.md)。安裝或起不來時，先翻 [常見問題與排解](troubleshooting.md)——埠被占用、缺 `claude`/`tmux`、成員亮不起來、移除的怪紅字都在那裡。
+
+---
+
 這兩份是給改 code 的人的開發者文件，不隨產品打包，所以只在 GitHub 上讀得到：
 
 **agent 的環境變數怎麼設** → [docs/dev/agent-env.md](https://github.com/pkyosx/OffiCraft/blob/main/docs/dev/agent-env.md)
