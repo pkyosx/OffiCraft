@@ -625,6 +625,47 @@
   }
 }
 
+/* ── product guide (使用說明) reading surface ──────────────────────────────
+ * The guide borrows the .settings shell, but a long-form document wants two
+ * things a bare .settings / .doc-card (both SHARED — SOP cards, software-update
+ * cards, the reply-card body) must NOT gain: comfortable horizontal reading
+ * gutters (owner report: prose hugged the card's left border, since .doc-md
+ * carries zero horizontal padding by design so its code/table children can run
+ * edge-to-edge) and a MEASURE cap so paragraphs don't stretch the full 1280px
+ * width. Scoped to .guide-view (added only on this surface) so nothing else
+ * shifts. .app__main already contributes 22px each side; these stack on top. */
+.guide-view {
+  padding-left: 20px;
+  padding-right: 20px;
+}
+.guide-view .settings__title,
+.guide-view .set-entries,
+.guide-view .crumbs,
+.guide-view .doc-card {
+  max-width: 900px;
+  margin-left: auto;
+  margin-right: auto;
+}
+/* Reading gutters live on the doc-card BODY, not .doc-md itself: keeping them
+ * off .doc-md preserves that shared class's edge-to-edge code/table behaviour,
+ * while the card's own padding gives the prose its breathing room. */
+.guide-view--doc .doc-card {
+  padding-left: 26px;
+  padding-right: 26px;
+}
+@media (max-width: 720px) {
+  /* Phones are narrow enough that the 22px .app__main gutters are most of the
+     breathing room already; keep the extra small so the measure stays usable. */
+  .guide-view {
+    padding-left: 2px;
+    padding-right: 2px;
+  }
+  .guide-view--doc .doc-card {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}
+
 /* ── 角色定義: 新增 / 刪除 (M2-2) ─────────────────────────────────────────── */
 /* A role row = the navigable entry + an optional overlaid delete affordance
  * (custom roles only). The wrapper exists because a <button> cannot nest a

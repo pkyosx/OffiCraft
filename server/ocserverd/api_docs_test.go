@@ -26,15 +26,50 @@ func TestListDocsFrom(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	// *.md only, assets/ + .gitkeep skipped, sorted by slug.
+	// *.md only, assets/ + .gitkeep skipped. Ordered by docReadingOrder:
+	// "tasks" is ranked and leads; "guide" is unranked and falls to the tail.
 	if len(got) != 2 {
 		t.Fatalf("want 2 docs, got %d: %v", len(got), got)
 	}
-	if got[0].Slug != "guide" || got[0].Title != "Guide" {
+	if got[0].Slug != "tasks" || got[0].Title != "Tasks" {
 		t.Errorf("first row wrong: %+v", got[0])
 	}
-	if got[1].Slug != "tasks" || got[1].Title != "Tasks" {
+	if got[1].Slug != "guide" || got[1].Title != "Guide" {
 		t.Errorf("second row wrong: %+v", got[1])
+	}
+}
+
+// TestListDocsFromReadingOrder pins the guide's intended reading sequence: the
+// list is NOT slug-alphabetical (that shuffled the onboarding arc), it follows
+// docReadingOrder. A slug absent from that list sorts to the tail, alphabetical
+// among the unranked — new content lists last, never silently mid-arc.
+func TestListDocsFromReadingOrder(t *testing.T) {
+	fsys := fstest.MapFS{}
+	// Seed every ranked slug (filenames land in a different, alphabetical
+	// ReadDir order, so a pass proves the sort — not the directory listing).
+	for _, slug := range docReadingOrder {
+		fsys[slug+".md"] = &fstest.MapFile{Data: []byte("# " + slug + "\n")}
+	}
+	// Two unranked docs, deliberately named to prove the tail is alphabetical.
+	fsys["zeta.md"] = &fstest.MapFile{Data: []byte("# Zeta\n")}
+	fsys["alpha.md"] = &fstest.MapFile{Data: []byte("# Alpha\n")}
+
+	got, err := listDocsFrom(fsys)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	want := append(append([]string{}, docReadingOrder...), "alpha", "zeta")
+	if len(got) != len(want) {
+		t.Fatalf("want %d docs, got %d: %v", len(want), len(got), got)
+	}
+	for i, slug := range want {
+		if got[i].Slug != slug {
+			var gotSlugs []string
+			for _, d := range got {
+				gotSlugs = append(gotSlugs, d.Slug)
+			}
+			t.Fatalf("reading order wrong at %d: got %v, want %v", i, gotSlugs, want)
+		}
 	}
 }
 

@@ -39,7 +39,7 @@ export function UserGuideList({
 }) {
   const { t } = useI18n();
   return (
-    <div className="settings">
+    <div className="settings guide-view">
       {/* NO breadcrumb here, unlike the settings landing. A one-segment trail
           is not navigation — it renders as plain text with nothing to click —
           and on this surface it was the THIRD copy of the word 使用說明 in the
@@ -163,7 +163,7 @@ export function UserGuideDoc({
   }, [slug]);
 
   return (
-    <div className="settings" ref={scrollBox}>
+    <div className="settings guide-view guide-view--doc" ref={scrollBox}>
       {/* The trail stays — its first segment is the only route back to the doc
           list. The page-level <h1> that used to sit here is GONE: the server
           derives a doc's title from its own first `# ` heading (api_docs.go

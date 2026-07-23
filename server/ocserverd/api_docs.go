@@ -56,8 +56,45 @@ func rewriteDocAssetPaths(md string) string {
 	return md
 }
 
+// docReadingOrder is the guide's intended reading sequence: an onboarding arc
+// (why it exists → install → first run → the interface → the people → the work →
+// settings → good habits) followed by the reference tail (architecture, glossary,
+// mobile, troubleshooting). Plain slug-alphabetical order shuffled these into an
+// incoherent sequence, so listDocsFrom sorts by this explicit rank instead. A
+// slug absent here (a doc added without being placed) sorts AFTER every ranked
+// one, alphabetically among its unranked peers — new content lists last, never
+// silently mid-arc. Slugs are unchanged (inter-doc links key on the basename
+// slug); this only orders the list.
+var docReadingOrder = []string{
+	"why",
+	"install",
+	"quickstart",
+	"interface",
+	"members",
+	"tasks",
+	"settings",
+	"best-practices",
+	"architecture",
+	"glossary",
+	"mobile",
+	"troubleshooting",
+}
+
+// docOrderRank returns a slug's position in docReadingOrder, or len(list) for an
+// unranked slug so it falls to the tail (alphabetical among the unranked).
+func docOrderRank(slug string) int {
+	for i, s := range docReadingOrder {
+		if s == slug {
+			return i
+		}
+	}
+	return len(docReadingOrder)
+}
+
 // listDocsFrom reads every top-level *.md in the doc FS (the assets/ subtree and
-// .gitkeep are skipped), sorted by slug for a stable surface.
+// .gitkeep are skipped), sorted by the guide's reading order (docReadingOrder;
+// unranked docs fall to the tail, alphabetical among themselves) for a coherent,
+// stable surface.
 func listDocsFrom(fsys fs.FS) ([]docSummaryDTO, error) {
 	entries, err := fs.ReadDir(fsys, ".")
 	if err != nil {
@@ -75,7 +112,13 @@ func listDocsFrom(fsys fs.FS) ([]docSummaryDTO, error) {
 		slug := docSlug(e.Name())
 		out = append(out, docSummaryDTO{Slug: slug, Title: docTitle(string(raw), slug)})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Slug < out[j].Slug })
+	sort.Slice(out, func(i, j int) bool {
+		ri, rj := docOrderRank(out[i].Slug), docOrderRank(out[j].Slug)
+		if ri != rj {
+			return ri < rj
+		}
+		return out[i].Slug < out[j].Slug
+	})
 	return out, nil
 }
 

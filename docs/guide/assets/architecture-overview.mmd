@@ -1,0 +1,34 @@
+flowchart TB
+%% Source for architecture-overview.svg (the diagram embedded in
+%% docs/guide/architecture.md). The guide's Markdown renderer does not run
+%% mermaid, so this is pre-rendered to a static SVG. Regenerate after editing:
+%%   mmdc -i docs/guide/assets/architecture-overview.mmd -o docs/guide/assets/architecture-overview.svg --theme dark --backgroundColor '#1a1d24'
+%% (the dark background is baked in so the figure is self-contained and legible
+%% on the guide's dark doc surface.)
+    owner(["👤 你 owner"])
+    cockpit["🖥️ 控制台網頁<br/>（127.0.0.1，只綁 loopback）"]
+    server["ocserverd（server）<br/>唯一真相源 · SQLite<br/>REST + SSE + MCP"]
+
+    owner <--> cockpit
+    cockpit <-->|REST 發| server
+    cockpit <-->|SSE 收| server
+
+    subgraph M1 ["機器 A"]
+        wardenA["warden（執行手）"]
+        agentA1["成員：Mira<br/>tmux · claude + ocagent"]
+        agentA2["成員：其他角色<br/>tmux · claude + ocagent"]
+        wardenA -->|spawn / 看守 / 換手| agentA1
+        wardenA -->|spawn / 看守 / 換手| agentA2
+    end
+
+    subgraph M2 ["機器 B（選配）"]
+        wardenB["warden（執行手）"]
+        agentB1["成員 / 外包<br/>tmux · claude + ocagent"]
+        wardenB -->|spawn / 看守 / 換手| agentB1
+    end
+
+    wardenA <-->|SSE + MCP| server
+    wardenB <-->|SSE + MCP| server
+    agentA1 <-->|SSE 收 · MCP 發| server
+    agentA2 <-->|SSE 收 · MCP 發| server
+    agentB1 <-->|SSE 收 · MCP 發| server

@@ -7,23 +7,54 @@
 
 ## 前置需求
 
-**一定要有**
+需求依**機器扮演的角色**分三組，別一股腦全裝——跑官方 release 的一般使用者只碰得到前兩組，第三組是走原始碼／開發那條路才要的。
 
-| | 為什麼 |
-| --- | --- |
-| **macOS + Apple Silicon**（darwin/arm64） | 安裝腳本第一道就擋，其他平台直接拒絕 |
-| **7755 埠是空的** | 被占用時安裝當場失敗並提示換埠，不會裝一個起不來的服務 |
+### A. server 那台一定要的
 
-**沒有它工作室就是空的**
+跑 `ocserverd`（唯一真相源）的那台主機：
 
-| | 為什麼 |
-| --- | --- |
-| **Claude Code CLI**（`claude`，而且已登入） | 每位成員底下就是一個 Claude Code session。**解析不到 `claude` 時，warden 會直接拒絕安裝**（fail-closed，並在控制台橫幅說明原因），不會裝一個永遠起不了成員的 warden。裝法：`npm install -g @anthropic-ai/claude-code` |
-| **`tmux`** | 成員的 session 跑在 tmux 裡 |
+| 需求 | 最低版本 | 為什麼 |
+| --- | --- | --- |
+| **macOS + Apple Silicon**（darwin/arm64） | — | 安裝腳本第一道就擋，其他平台直接拒絕 |
+| **7755 埠是空的** | — | 被占用時安裝當場失敗並提示換埠，不會裝一個起不來的服務 |
+
+官方 release 那條路，server 這台**只需要這兩項**——binary 是預編好的，不需要 Go / node / python3。
+
+### B. 任何要跑成員的機器一定要的
+
+**每一台**要 spawn 成員的機器（包含 server 那台，只要你也要它起成員；還有你之後加的每一台）都要有這兩個——成員底下就是一個跑在 tmux 裡的 Claude Code session：
+
+| 需求 | 最低版本 | 為什麼 |
+| --- | --- | --- |
+| **Claude Code CLI**（`claude`，而且已登入） | **2.1.98 以上**（必須新到內建 **Monitor** tool） | 每位成員底下就是一個 Claude Code session。**解析不到 `claude` 時，warden 會直接拒絕安裝**（fail-closed，並在控制台橫幅說明原因），不會裝一個永遠起不了成員的 warden。裝法：`npm install -g @anthropic-ai/claude-code` |
+| **`tmux`** | 3.0 以上（任何近代 3.x 都行） | 成員的 session 跑在 tmux 裡 |
+
+> [!IMPORTANT]
+> **`claude` 一定要新到內建 Monitor tool（2.1.98 起）。** 成員靠 **Monitor** 這個內建工具持住 `ocagent listen`
+> 那條到 server 的 SSE 長連線——**持著連線＝online**（見 [架構與運作原理](architecture.md)）。`claude` 太舊、沒有
+> Monitor tool，成員就掛不住那條連線、**永遠亮不起來**（Waking 卡住或一直 Offline）。升級：`npm install -g @anthropic-ai/claude-code`。
+>
+> 注意：**安裝器不強制版本**——它只確認 `claude` 解析得到、`--version` 跑得起來，**不比對版本號、不擋舊版**。所以「2.1.98 以上」是**你要自己確保**的前提，不是安裝當下會替你把關的東西；裝了太舊的 `claude`，安裝照樣過，但成員之後亮不起來。
 
 > [!NOTE]
 > 用 asdf / nvm / volta 裝 `claude` 的人要注意：launchd 的 PATH 很小，找不到 shim。
 > 安裝時解析到的路徑會被寫進服務設定；真的找不到時用 `OC_CLAUDE_BIN=/絕對路徑/claude` 重跑安裝（冪等）。
+
+### C. 只有走「從原始碼／開發」那條才需要的
+
+官方 release 是預編 binary，**不需要**這一組；只有用下面的**方式二（從原始碼）**自己 build 才要：
+
+| 需求 | 最低版本 | 為什麼 |
+| --- | --- | --- |
+| **Go** | 1.26 以上 | 從原始碼 build `ocserverd` / `ocwarden` / `ocagent` |
+| **node + npm** | node 18 以上（建議 20 LTS 以上），npm 隨 node 附帶 | build 前端控制台 |
+| **python3** | 3.11 以上 | 開發用腳本 |
+| **`cloudflared`** | — | **只有**要開對外 tunnel 才需要；不開就不裝 |
+
+> [!NOTE]
+> 版本依據：**Go 1.26** 取自 repo 的 `go.mod`（`go 1.26.4`）；**node 18** 是前端工具鏈（Vite 5）的下限，
+> 建議跟上現行 LTS；**Claude Code 2.1.98** 是 Monitor tool 首度內建的版本（沒有它成員亮不起來，見上）；
+> **tmux 3.0** 是保守下限，repo 未硬性指定版本，任何近代 3.x 都可以。
 
 ---
 
@@ -159,7 +190,7 @@ bin/ocserver install --dry-run  # 只印出打算做什麼，什麼都不動
 bin/ocserver install --force    # 重跑每一步（不動既有密碼）
 ```
 
-**這條路額外需要**：Go、node/npm、python3 ≥ 3.11；`cloudflared` 只有要開 tunnel 才需要。
+**這條路額外需要**前置需求的 **C 組**（Go 1.26+、node 18+／npm、python3 3.11+；`cloudflared` 只有要開 tunnel 才需要）——版本與依據見上面〔前置需求〕。
 
 > [!NOTE]
 > **標準埠是 7755，兩條路一樣。** 兩者都可以用 `oc.toml`（或 `OC_SERVE_PORT`）覆蓋。
