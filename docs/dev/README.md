@@ -78,7 +78,7 @@ macOS TCC 以 code-signing 身分記權限;Go 預設 adhoc 簽章每 build cdhas
   - **rc 根本沒被消費** → `| head -1 || true`(`bin/ocserver:103`)。`|| true` 吃掉 141,無害。(原本這裡還列了 `conformance/run.sh` 的 listener 查詢;**T-a3ba 已把它整段刪掉**——那行 `lsof … | head -1 || true` 換成「候選數 ≠ 1 就 FATAL」的 while-read 迴圈,`head -1` 的靜默取第一個本來就是這張票要殺的東西,不再是本節的案例。)
   - **倒向假紅(誤報失敗)** → `e2e_test/a1_zombie_e2e.sh:506/510/512`(`sed`/`head`/`tail | grep -qE`)、`e2e_test/tests_guard/run.sh`(`run_snippet` 的 `grep -q` 斷言)、`e2e_test/setup.sh:121`(`printf '%s' "$RESP" | py -c …`,T-a3ba 後 writer 是 builtin `printf` 而非 `curl`,窗更小)、`e2e_test/setup.sh:186`(登入取 token)。SIGPIPE → 141 → 測試紅／腳本中止。**吵,但不會騙人**,而且這些檔案 `bin/ci.sh` 只跑 tests_guard,其餘沒有活體證據可驗 —— 改了也證不了,是純 churn。
     > 行號是寫作當下的快照,會漂;以構造(不是行號)為準。上一版這兩行的行號在寫下時就已經對不上了。
-  - **倒向「看得見的 skip」** → `bin/tests/run.sh:368`(`openssl version | grep -q '^OpenSSL 3'` 守著一個 red control)。**這是唯一另一個「檢查可能不執行」的方向**,但 else 分支會**印出 `skip — red control needs OpenSSL 3.x`**,不是靜默消失;且 `openssl version` 一口氣寫 ~25 bytes 就退出,窗開不起來。
+  - **倒向「看得見的 skip」** → `bin/tests/run.sh:427`(`openssl version | grep -q '^OpenSSL 3'` 守著一個 red control)。**這是唯一另一個「檢查可能不執行」的方向**,但 else 分支會**印出 `skip — red control needs OpenSSL 3.x`**,不是靜默消失;且 `openssl version` 一口氣寫 ~25 bytes 就退出,窗開不起來。
   - **`echo "$VAR" | grep -q` 一律低risk**:writer 是 builtin、字串遠小於 64KB pipe buffer,grep 收到 EOF 前 write 早已完成。
   - **通則(給後面的人):`pipefail` + 早關 pipe 只有在「141 會把某個 `if`/`if !` 翻成『壞事不存在』並讓流程靜默往下走」時才是地雷。** `codesign-artifact` 之所以是地雷,是因為它是唯一一個誤判會**靜默翻轉「出不出貨」**的點。倒向紅、倒向可見 skip、rc 被 `|| true` 吃掉的,都不是同一種病。
 - **committed prebuilt(`bin/ocwarden` 等)永遠不簽**,維持素 `go build` 產物——CI parity gate 與任何 dev 機 rebuild 都不需要 keychain,repo/CI 完全不受影響;簽章只活在發佈 artifact 上。

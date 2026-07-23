@@ -26,7 +26,38 @@ SHIMDIR="$WORK/shim"
 TRIPWIRE="$WORK/.tripwire"
 mkdir -p "$SHIMDIR"
 : > "$TRIPWIRE"
-trap 'rm -rf "$WORK"' EXIT
+
+# ── process hygiene (T-1a54) ─────────────────────────────────────────────────
+# Every guard is dispatched through run_bounded.py, which runs it in its own
+# session/process group under a wall-clock ceiling and group-kills the whole
+# subtree on timeout. A mutant a guard runs that busy-loops therefore dies at
+# GUARD_TIMEOUT instead of burning a core forever, and the framework reaps its
+# own children when it exits or is interrupted (EXIT/INT/TERM) — no orphans.
+LIB_RUN_BOUNDED="$HERE/lib/run_bounded.py"
+GUARD_TIMEOUT="${OC_GUARD_TIMEOUT:-300}"   # per-guard ceiling; normal runs finish in seconds
+RB_PID=""
+_framework_cleanup() {
+  # Forward to the in-flight bounded guard, if any. run_bounded detached it into
+  # its own session and group-kills the whole subtree on TERM, so this collects
+  # everything the guard spawned rather than only the direct child.
+  if [[ -n "$RB_PID" ]] && kill -0 "$RB_PID" 2>/dev/null; then
+    kill -TERM "$RB_PID" 2>/dev/null
+    for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$RB_PID" 2>/dev/null || break; sleep 0.2; done
+    kill -KILL "$RB_PID" 2>/dev/null || true
+  fi
+  rm -rf "$WORK"
+}
+trap '_framework_cleanup' EXIT
+trap '_framework_cleanup; exit 130' INT
+trap '_framework_cleanup; exit 143' TERM
+
+run_guard() { # run_guard PATH-to-guard — returns the guard's rc (124 if it timed out)
+  python3 "$LIB_RUN_BOUNDED" "$GUARD_TIMEOUT" bash "$1" &
+  RB_PID=$!
+  wait "$RB_PID"; local rc=$?
+  RB_PID=""
+  return "$rc"
+}
 
 cat > "$SHIMDIR/uname" <<'SH'
 #!/usr/bin/env bash
@@ -422,7 +453,7 @@ echo "bin tests: $PASS ok, $FAIL failed"
 GUARD="$HERE/install-guard.sh"
 echo
 if [[ -f "$GUARD" ]]; then
-  if bash "$GUARD"; then
+  if run_guard "$GUARD"; then
     ok "install.sh live-service gate suite passed"
   else
     bad "install.sh live-service gate suite FAILED (see output above)"
@@ -438,7 +469,7 @@ fi
 PORTS="$HERE/port-default.sh"
 echo
 if [[ -f "$PORTS" ]]; then
-  if bash "$PORTS"; then
+  if run_guard "$PORTS"; then
     ok "default-port contract suite passed"
   else
     bad "default-port contract suite FAILED (see output above)"
@@ -456,7 +487,7 @@ fi
 CLAUDESTAMP="$HERE/install-claude-stamp.sh"
 echo
 if [[ -f "$CLAUDESTAMP" ]]; then
-  if bash "$CLAUDESTAMP"; then
+  if run_guard "$CLAUDESTAMP"; then
     ok "install.sh serve-plist claude stamp suite passed"
   else
     bad "install.sh serve-plist claude stamp suite FAILED (see output above)"
@@ -473,7 +504,7 @@ fi
 UNINSTALLGUARD="$HERE/uninstall-guard.sh"
 echo
 if [[ -f "$UNINSTALLGUARD" ]]; then
-  if bash "$UNINSTALLGUARD"; then
+  if run_guard "$UNINSTALLGUARD"; then
     ok "install.sh --uninstall ownership/safety suite passed"
   else
     bad "install.sh --uninstall ownership/safety suite FAILED (see output above)"
@@ -492,13 +523,29 @@ fi
 DRAINGUARD="$HERE/stdin-drain-guard.sh"
 echo
 if [[ -f "$DRAINGUARD" ]]; then
-  if bash "$DRAINGUARD"; then
+  if run_guard "$DRAINGUARD"; then
     ok "install.sh stdin-drain suite passed"
   else
     bad "install.sh stdin-drain suite FAILED (see output above)"
   fi
 else
   bad "bin/tests/stdin-drain-guard.sh is missing"
+fi
+
+# ── harness process hygiene (T-1a54) ────────────────────────────────────────
+# Pins run_bounded.py: the ceiling that stops a busy-loop mutant from running
+# forever, and the group-reap that stops anything a guard spawned from leaking
+# as an orphan (the seth-m5 46h core-burn).
+PROCHYGIENE="$HERE/proc-hygiene-guard.sh"
+echo
+if [[ -f "$PROCHYGIENE" ]]; then
+  if run_guard "$PROCHYGIENE"; then
+    ok "harness process-hygiene suite passed"
+  else
+    bad "harness process-hygiene suite FAILED (see output above)"
+  fi
+else
+  bad "bin/tests/proc-hygiene-guard.sh is missing"
 fi
 
 echo "bin tests (incl. install guard): $PASS ok, $FAIL failed"

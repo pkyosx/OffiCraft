@@ -88,6 +88,22 @@ cat > "$WORK/runner.py" <<'PY'
 import os, pty, select, signal, socket, subprocess, sys, time
 mode, timeout, cmd = sys.argv[1], float(sys.argv[2]), sys.argv[3]
 start = time.time()
+
+def _reap(p):
+    # A timed-out mutant may have forked; kill its WHOLE process group (each
+    # child is started in a new session below) so nothing leaks as an orphan —
+    # a bare p.kill() would collect only the direct child (T-1a54).
+    try:
+        os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        try:
+            p.kill()
+        except ProcessLookupError:
+            pass
+    try:
+        p.wait(timeout=5)
+    except Exception:
+        pass
 if mode == "sockhold":
     # fd 0 is a SOCKET: not a pipe (so `[[ -p /dev/stdin ]]` is false) and it
     # does not reach EOF while we hold our end. This is the only shape that
@@ -95,7 +111,8 @@ if mode == "sockhold":
     # returns, so a pty case there proves nothing about this one.
     parent, child = socket.socketpair()
     p = subprocess.Popen(["bash", "-s", "--"] + sys.argv[5:], stdin=child,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
     child.close()
     try:
         parent.sendall(open(sys.argv[4], "rb").read())
@@ -107,7 +124,7 @@ if mode == "sockhold":
     try:
         rc = p.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
-        p.kill(); p.wait(); rc = "TIMEOUT"
+        _reap(p); rc = "TIMEOUT"
     parent.close()
     print(f"rc={rc} elapsed={time.time()-start:.1f}")
     sys.exit(0)
@@ -118,7 +135,13 @@ if mode == "pty":
     rc = None
     while True:
         if time.time() - start > timeout:
-            os.kill(pid, signal.SIGKILL); os.waitpid(pid, 0); rc = "TIMEOUT"; break
+            # pty.fork made the child a session leader, so its pgid == pid;
+            # kill the whole group to collect anything it forked (T-1a54).
+            try:
+                os.killpg(pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                os.kill(pid, signal.SIGKILL)
+            os.waitpid(pid, 0); rc = "TIMEOUT"; break
         r, _, _ = select.select([fd], [], [], 0.1)
         if r:
             try:
@@ -139,7 +162,7 @@ elif mode == "writer":
     # Bounded, unlike a bare shell pipeline: a wedged drain fails CI, not hangs it.
     p = subprocess.Popen(["bash", "-s", "--"] + sys.argv[5:], stdin=subprocess.PIPE,
                          stdout=open(os.environ.get("OC_TEST_OUT", os.devnull), "wb"),
-                         stderr=subprocess.STDOUT)
+                         stderr=subprocess.STDOUT, start_new_session=True)
     epipe = 0
     try:
         p.stdin.write(open(sys.argv[4], "rb").read() + b"#" * 200000)
@@ -153,7 +176,7 @@ elif mode == "writer":
     try:
         rc = p.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
-        p.kill(); p.wait(); rc = "TIMEOUT"
+        _reap(p); rc = "TIMEOUT"
     print(f"rc={rc} epipe={epipe} elapsed={time.time()-start:.1f}")
     sys.exit(0)
 elif mode == "ratelimit":
@@ -171,7 +194,8 @@ elif mode == "ratelimit":
     chunk = int(sys.argv[6]) if len(sys.argv) > 6 and sys.argv[6].isdigit() else 16384
     argv_rest = sys.argv[7:] if (len(sys.argv) > 6 and sys.argv[6].isdigit()) else sys.argv[6:]
     p = subprocess.Popen(["bash", "-s", "--"] + argv_rest, stdin=subprocess.PIPE,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
     data = open(sys.argv[4], "rb").read()
     epipe = 0
     try:
@@ -187,7 +211,7 @@ elif mode == "ratelimit":
     try:
         rc = p.wait(timeout=max(1.0, timeout - (time.time() - start)))
     except subprocess.TimeoutExpired:
-        p.kill(); p.wait(); rc = "TIMEOUT"
+        _reap(p); rc = "TIMEOUT"
     print(f"rc={rc} epipe={epipe} elapsed={time.time()-start:.1f}")
     sys.exit(0)
 elif mode == "argpipe":
@@ -197,11 +221,12 @@ elif mode == "argpipe":
     # script on stdin, guard 2 has already decided, and with fd 0 a tty guard 2
     # returns first. Removing guard 1 stalls this case for the drain's bound.
     p = subprocess.Popen(["bash", sys.argv[4]] + sys.argv[5:], stdin=subprocess.PIPE,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
     try:
         rc = p.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
-        p.kill(); p.wait(); rc = "TIMEOUT"
+        _reap(p); rc = "TIMEOUT"
     try:
         p.stdin.close()
     except (BrokenPipeError, OSError):
@@ -214,7 +239,8 @@ elif mode == "dribble":
     # bounds this. Feeds the script, then one line every `interval` seconds.
     interval, span = float(sys.argv[5]), float(sys.argv[6])
     p = subprocess.Popen(["bash", "-s", "--"] + sys.argv[7:], stdin=subprocess.PIPE,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
     try:
         p.stdin.write(open(sys.argv[4], "rb").read()); p.stdin.flush()
         deadline = start + span
@@ -226,7 +252,7 @@ elif mode == "dribble":
     try:
         rc = p.wait(timeout=max(1.0, timeout - (time.time() - start)))
     except subprocess.TimeoutExpired:
-        p.kill(); p.wait(); rc = "TIMEOUT"
+        _reap(p); rc = "TIMEOUT"
     try:
         p.stdin.close()
     except (BrokenPipeError, OSError):
@@ -235,7 +261,8 @@ elif mode == "dribble":
     sys.exit(0)
 else:  # mode == "hold": stdin is a pipe the parent deliberately keeps OPEN
     p = subprocess.Popen(["bash", "-c", cmd], stdin=subprocess.PIPE,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
     try:
         p.stdin.write(open(sys.argv[4], "rb").read()); p.stdin.flush()
     except BrokenPipeError:
@@ -243,7 +270,7 @@ else:  # mode == "hold": stdin is a pipe the parent deliberately keeps OPEN
     try:
         rc = p.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
-        p.kill(); p.wait(); rc = "TIMEOUT"
+        _reap(p); rc = "TIMEOUT"
     try:
         p.stdin.close()
     except BrokenPipeError:
