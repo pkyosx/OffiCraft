@@ -636,38 +636,46 @@
 }
 
 /* ── product guide (使用說明) reading surface ──────────────────────────────
- * The guide borrows the .settings shell, but a long-form document wants two
- * things a bare .settings / .doc-card (both SHARED — SOP cards, software-update
- * cards, the reply-card body) must NOT gain: comfortable horizontal reading
- * gutters (owner report: prose hugged the card's left border, since .doc-md
- * carries zero horizontal padding by design so its code/table children can run
- * edge-to-edge) and a MEASURE cap so paragraphs don't stretch the full 1280px
- * width. Scoped to .guide-view (added only on this surface) so nothing else
- * shifts. .app__main already contributes 22px each side; these stack on top.
+ * The guide borrows the .settings shell. Its two views want DIFFERENT layouts:
  *
- * `-webkit-text-size-adjust: 100%` is the belt to the overflow braces below:
- * iOS Safari auto-inflates text — UNEVENLY, per block — whenever a page is
- * wider than the viewport (owner, v0.5.19: "有些字大有些字小、幾乎都變大").
- * Pinning it to 100% hard-stops that even if some future child overflows; the
- * width rules below are what actually stop the overflow. */
+ *   • The LIST (章節首頁: title + entry cards) stays a bare .settings surface —
+ *     flush-left, full-width, IDENTICAL to every other settings page (軟體更新 /
+ *     角色 / 參數). owner T-9aa5: the list used to inherit the doc measure below,
+ *     which centred it inside a 900px band and pushed its left edge ~48px to the
+ *     right of the other pages (the 20px surface gutter + the centring margin).
+ *     The list is a menu, not prose — it does not want a reading measure.
+ *
+ *   • The DOC view (.guide-view--doc: a long-form document) DOES want the two
+ *     things a bare .settings / .doc-card (both SHARED — SOP cards, software-
+ *     update cards, the reply-card body) must NOT gain: comfortable horizontal
+ *     reading gutters (owner report: prose hugged the card's left border, since
+ *     .doc-md carries zero horizontal padding by design so its code/table
+ *     children can run edge-to-edge) and a MEASURE cap so paragraphs don't
+ *     stretch the full 1280px width. Scoped to .guide-view--doc so the list and
+ *     every other settings page are untouched.
+ *
+ * `-webkit-text-size-adjust: 100%` stays on the WHOLE guide surface: iOS Safari
+ * auto-inflates text — UNEVENLY, per block — whenever a page is wider than the
+ * viewport (owner, v0.5.19: "有些字大有些字小、幾乎都變大"). Pinning it to 100%
+ * hard-stops that even if some future child overflows. */
 .guide-view {
-  padding-left: 20px;
-  padding-right: 20px;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+}
+/* Doc view only: the reading gutters that give the prose breathing room. */
+.guide-view--doc {
+  padding-left: 20px;
+  padding-right: 20px;
 }
 /* Cap the measure + centre it — but `.settings` is `display:flex` (column), so
  * these are FLEX ITEMS. `margin-inline: auto` alone would set their cross-axis
  * margins to auto, which DISABLES align-items:stretch and collapses the item to
  * its CONTENT width (v0.5.19 regression: .doc-card grew to its 900px cap on a
- * 390px phone → .settings became a sideways-pan surface; .set-entries shrank to
- * content → "列表變窄"). `width: 100%` restores the fill: the item is min(100%
- * of the column, max-width), so it fills a narrow phone and only caps + centres
- * once the column exceeds the measure. */
-.guide-view .settings__title,
-.guide-view .set-entries,
-.guide-view .crumbs,
-.guide-view .doc-card {
+ * 390px phone → .settings became a sideways-pan surface). `width: 100%` restores
+ * the fill: the item is min(100% of the column, max-width), so it fills a narrow
+ * phone and only caps + centres once the column exceeds the measure. */
+.guide-view--doc .crumbs,
+.guide-view--doc .doc-card {
   width: 100%;
   max-width: 900px;
   margin-left: auto;
@@ -683,7 +691,7 @@
 @media (max-width: 720px) {
   /* Phones are narrow enough that the 22px .app__main gutters are most of the
      breathing room already; keep the extra small so the measure stays usable. */
-  .guide-view {
+  .guide-view--doc {
     padding-left: 2px;
     padding-right: 2px;
   }
