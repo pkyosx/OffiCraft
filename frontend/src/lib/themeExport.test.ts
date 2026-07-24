@@ -2,13 +2,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   bundleFilename,
   exportComputedTheme,
-  exportCurrentBundle,
   exportOfficeBaseTheme,
   nextCustomThemeId,
   parseImportedBundle,
   serializeBundle,
 } from "./themeExport";
-import type { ThemeBundle } from "./themeBundle";
 
 function freshRoot(): HTMLElement {
   const el = document.createElement("div");
@@ -60,57 +58,6 @@ describe("exportComputedTheme", () => {
   });
 });
 
-describe("exportCurrentBundle", () => {
-  const worded: ThemeBundle = {
-    id: "worded",
-    name: "Worded",
-    colors: { "--color-accent": "#0b1020" },
-    wording: { zh: { "nav.tasks": "任務榜" } },
-    fonts: { "--font-sans": "system-ui" },
-    avatars: { member: "data:image/png;base64,AAAA" },
-  };
-
-  it("exports a custom theme's full stored bundle (colours + wording + fonts + avatars)", () => {
-    const picked = exportCurrentBundle("worded", [worded], "Office");
-    expect(picked).toBe(worded);
-    expect(picked.wording).toBeDefined();
-    expect(picked.fonts).toBeDefined();
-    expect(picked.avatars).toBeDefined();
-  });
-
-  it("exports the built-in office as colours only (no overlay to carry)", () => {
-    const el = freshRoot();
-    el.style.setProperty("--color-accent", "#123456");
-    const picked = exportCurrentBundle("office", [worded], "Office", el);
-    expect(picked.name).toBe("Office");
-    expect(picked.colors["--color-accent"]).toBe("#123456");
-    expect(picked).not.toHaveProperty("wording");
-    expect(picked).not.toHaveProperty("fonts");
-    expect(picked).not.toHaveProperty("avatars");
-  });
-
-  it("round-trips a custom theme's avatars through export → import (bb2e3b4)", () => {
-    // A valid tiny PNG data URI — parseImportedBundle validates the avatar value.
-    const pngAvatar =
-      "data:image/png;base64," +
-      btoa(
-        String.fromCharCode(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01)
-      );
-    const themed: ThemeBundle = {
-      id: "faced",
-      name: "Faced",
-      colors: { "--color-accent": "#0b1020" },
-      avatars: { outsource: pngAvatar },
-    };
-    const round = parseImportedBundle(
-      serializeBundle(exportCurrentBundle("faced", [themed], "Office"))
-    );
-    expect("bundle" in round && round.bundle.avatars).toEqual({
-      outsource: pngAvatar,
-    });
-  });
-});
-
 describe("exportOfficeBaseTheme", () => {
   it("reads through an active theme's inline overrides and restores them", () => {
     const el = freshRoot();
@@ -127,6 +74,21 @@ describe("exportOfficeBaseTheme", () => {
     expect(bundle.id).toBe("custom-1");
     expect(bundle.name).toBe("New theme");
     expect(el.style.getPropertyValue("--color-accent")).toBe("#abcdef");
+  });
+
+  it("uses a non-reserved id ('office-base') so its download re-imports — unlike 'office'", () => {
+    const el = freshRoot();
+    el.style.setProperty("--color-accent", "#0af");
+    // The office 列下載 path exports under id "office-base"; the base read is
+    // simulated here (jsdom has no stylesheet base) via exportComputedTheme.
+    const round = parseImportedBundle(
+      serializeBundle(exportComputedTheme("office-base", "辦公室", el))
+    );
+    expect("bundle" in round).toBe(true);
+    // The reserved built-in id would be rejected on re-import.
+    expect("error" in parseImportedBundle(
+      serializeBundle(exportComputedTheme("office", "辦公室", el))
+    )).toBe(true);
   });
 });
 

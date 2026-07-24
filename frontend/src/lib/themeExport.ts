@@ -32,23 +32,6 @@ export function exportComputedTheme(
   return { id, name, colors };
 }
 
-/** Pick the bundle a "匯出當前主題" (toolbar 匯出) click should download. A custom
- * theme exports its STORED bundle — the FULL overlay: colours + wording + fonts +
- * avatars — so nothing is silently dropped. The built-in office carries no
- * overlay, so its computed colours ARE the complete, lossless export. This keeps
- * the toolbar 匯出 in step with a row's download icon (which already serialises
- * the stored bundle); before this, the toolbar path exported colours only. */
-export function exportCurrentBundle(
-  theme: string,
-  customThemes: ThemeBundle[],
-  officeName: string,
-  el: Element = document.documentElement
-): ThemeBundle {
-  const stored = customThemes.find((b) => b.id === theme);
-  if (stored) return stored;
-  return exportComputedTheme("office-copy", officeName, el);
-}
-
 /** Read office's BASE palette — the theme.css :root defaults — off `el`,
  * transparently neutralising any active custom theme's inline overrides so the
  * result is always the built-in office colours no matter which theme is currently
