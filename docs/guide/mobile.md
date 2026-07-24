@@ -18,11 +18,11 @@
 
 | 做法 | 適合 |
 | --- | --- |
-| **同一個網路 + tunnel**（例如 cloudflared） | 想在外面也能用；原始碼安裝路徑本來就有一個 `com.officraft.tunnel` job 可以用 |
+| **tunnel**（例如 cloudflared） | 想從外面／手機也能用：tunnel 給你一個公開 **HTTPS** 網址，配上你設的密碼就能連。tunnel 是你自己開的（我們不代開）；若你走原始碼安裝又已自備 cloudflared，有個選配的 `com.officraft.tunnel` job 可以把它跟 server 一起帶起來 |
 | **VPN / Tailscale 這類私有網路** | 只想在自己的裝置之間連，不想開任何公開網址 |
 
-> [!WARNING]
-> 控制台背後就是你的整間工作室。**要對外開之前，先確定它是走 tunnel 或 VPN，而不是把埠直接曝在公網上。**
+> [!TIP]
+> 想從手機／外面用是沒問題的——走一條 tunnel（如 cloudflared，會給你 HTTPS ＋ 你的密碼保護），並設一組夠強的密碼。**別把 server 掛到沒有 HTTPS 的裸公開埠上**：控制台背後就是你的整間工作室。
 
 ---
 
