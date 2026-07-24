@@ -3,7 +3,7 @@
 // + injection block), friendly grouped colour editing, and the 用詞 (wording)
 // overlay editor round-trip.
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { render, fireEvent, within, act } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
@@ -157,5 +157,56 @@ describe("ThemeSettings · delete", () => {
     expect(utils.queryByText("午夜藍")).toBeNull();
     const srv = await api.getServerSettings();
     expect(srv.customThemes).toHaveLength(0);
+  });
+});
+
+describe("ThemeSettings · export", () => {
+  // jsdom's URL has no object-URL helpers; downloadBundle needs them, so provide
+  // stubs and clean them up.
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete (URL as { createObjectURL?: unknown }).createObjectURL;
+    delete (URL as { revokeObjectURL?: unknown }).revokeObjectURL;
+  });
+
+  it("has no toolbar 匯出 button — export is per-row download only", async () => {
+    const utils = await renderManage();
+    // The toolbar keeps 新增 + 匯入; the standalone 匯出 button is gone.
+    expect(utils.getByText(p.themeAdd)).toBeTruthy();
+    expect(utils.getByText(p.themeImport)).toBeTruthy();
+    expect(utils.queryByText(p.themeExport)).toBeNull();
+  });
+
+  it("office 列下載鈕可用,下載一個非保留 id 的 office 包(可再匯入)", async () => {
+    const utils = await renderManage();
+    const btn = utils.getByLabelText(
+      `${p.themeExport} ${p.themeOffice}`
+    ) as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+
+    const createFn = vi.fn().mockReturnValue("blob:office");
+    (URL as { createObjectURL: unknown }).createObjectURL = createFn;
+    (URL as { revokeObjectURL: unknown }).revokeObjectURL = vi.fn();
+    let downloadName = "";
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+      this: HTMLAnchorElement
+    ) {
+      downloadName = this.download;
+    });
+
+    fireEvent.click(btn);
+
+    expect(createFn).toHaveBeenCalledTimes(1);
+    // The download uses id "office-base", NOT the reserved built-in "office"
+    // (which validateThemeBundle rejects), so the bundle re-imports.
+    expect(downloadName).toBe("officraft-theme-office-base.json");
+    const text = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.readAsText(createFn.mock.calls[0][0] as Blob);
+    });
+    const payload = JSON.parse(text);
+    expect(payload.id).toBe("office-base");
+    expect(payload.name).toBe(p.themeOffice);
   });
 });

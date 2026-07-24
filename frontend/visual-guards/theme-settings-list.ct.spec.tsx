@@ -7,8 +7,9 @@
 //      foreground/background colour off each tag, composite the fill down to an
 //      opaque colour, and compute the WCAG contrast ratio.
 //   ② the built-in office row and a custom row line up their trailing action
-//      column at 390 and 1280 — the built-in row now carries the SAME three
-//      icon buttons, disabled, as visual placeholders, so both rows flush their
+//      column at 390 and 1280 — the built-in row carries the SAME three icon
+//      buttons for alignment; its download is active (owner: 辦公室主題不用擋
+//      下載) while edit/delete stay inert placeholders, so both rows flush their
 //      action buttons to the same right edge.
 //
 // Both are proven against the REAL app CSS + real ancestor chain (.app__main),
@@ -145,8 +146,8 @@ for (const width of [390, 1280]) {
     );
     const [builtin, custom] = rects;
 
-    // The built-in row now carries the SAME count of action buttons as the
-    // custom row (placeholders) — this is what makes the columns line up.
+    // The built-in row carries the SAME count of action buttons as the custom
+    // row — this is what makes the columns line up.
     expect(builtin.length).toBe(3);
     expect(custom.length).toBe(3);
 
@@ -162,13 +163,15 @@ for (const width of [390, 1280]) {
     expect(Math.abs(builtinRight - customRight)).toBeLessThanOrEqual(1);
   });
 
-  test(`width ${width}: the built-in row's placeholder buttons are disabled (inert)`, async ({ mount, page }) => {
+  test(`width ${width}: office download is active; edit/delete stay inert placeholders`, async ({ mount, page }) => {
     const cmp = await mountSeeded(mount, page, width);
     const builtinBtns = cmp.locator(".ts-list > .ts-row").first().locator(".ts-icon-btn");
     await expect(builtinBtns).toHaveCount(3);
-    for (let i = 0; i < 3; i++) {
-      await expect(builtinBtns.nth(i)).toBeDisabled();
-    }
+    // The download icon is an active export now (owner: 辦公室主題不用擋下載)…
+    await expect(builtinBtns.nth(0)).toBeEnabled();
+    // …edit/delete remain inert placeholders that only keep the row aligned.
+    await expect(builtinBtns.nth(1)).toBeDisabled();
+    await expect(builtinBtns.nth(2)).toBeDisabled();
     // The custom row's buttons stay enabled (the placeholders must not have
     // disabled the real actions).
     const customBtns = cmp.locator(".ts-list > .ts-row").nth(1).locator(".ts-icon-btn");

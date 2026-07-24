@@ -3,8 +3,9 @@
 //   * the row TAGS (內建 / 自訂) must clear WCAG AA (≥4.5:1) — a computed-colour
 //     fact (the fills resolve through color-mix()) invisible to jsdom.
 //   * the built-in office row and a custom row must line up their trailing
-//     action column at every width (the built-in row's icon buttons are inert
-//     placeholders) — a layout fact jsdom's zero-geometry engine cannot assert.
+//     action column at every width (the built-in row's download is active while
+//     its edit/delete icons are inert placeholders) — a layout fact jsdom's
+//     zero-geometry engine cannot assert.
 //
 // The custom theme is seeded the SAME way production does it: patch the mock
 // server's settings, then mint a token so I18nProvider's reconcile adopts the

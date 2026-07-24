@@ -15,7 +15,6 @@ import {
 import { SAFE_FONT_FAMILIES } from "../styles/themeFonts.generated";
 import {
   bundleFilename,
-  exportCurrentBundle,
   exportOfficeBaseTheme,
   nextCustomThemeId,
   parseImportedBundle,
@@ -114,12 +113,6 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
     a.download = bundleFilename(bundle);
     a.click();
     URL.revokeObjectURL(url);
-  }
-
-  function handleExportCurrent() {
-    downloadBundle(
-      exportCurrentBundle(theme, customThemes, t.profile.themeOffice)
-    );
   }
 
   // ── add (req4): create a new custom theme with office as its base, then jump
@@ -667,18 +660,15 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
         <button type="button" className="doc-btn" onClick={openImport}>
           {t.profile.themeImport}
         </button>
-        <button type="button" className="doc-btn" onClick={handleExportCurrent}>
-          {t.profile.themeExport}
-        </button>
       </div>
       {addError && <div className="set-error">{addError}</div>}
 
       <div className="ts-list">
-        {/* built-in: office is the only built-in — selectable, not
-         * editable/deletable. It still shows the SAME trailing action column as a
-         * custom row, but disabled: the three icon buttons are inert placeholders
-         * so the built-in and custom rows line up their right edge at every width
-         * (owner: 內建列與自訂列對齊). */}
+        {/* built-in: office is the only built-in — selectable and downloadable,
+         * but not editable/deletable. Its download icon exports the office base
+         * palette (owner: 辦公室主題不用擋下載); the edit/delete icons stay
+         * inert-disabled so the built-in and custom rows still line up their right
+         * edge at every width (owner: 內建列與自訂列對齊). */}
         <div className="ts-row">
           <button
             type="button"
@@ -691,10 +681,13 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
           <button
             type="button"
             className="ts-icon-btn"
-            disabled
-            aria-disabled="true"
             aria-label={`${t.profile.themeExport} ${t.profile.themeOffice}`}
             title={t.profile.themeExport}
+            onClick={() =>
+              downloadBundle(
+                exportOfficeBaseTheme("office-base", t.profile.themeOffice)
+              )
+            }
           >
             <DownloadIcon size={15} />
           </button>
