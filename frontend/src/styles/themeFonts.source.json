@@ -26,6 +26,26 @@
       "stack": "\"Noto Serif TC\", Georgia, \"Times New Roman\", serif"
     },
     {
+      "id": "kai",
+      "label": "標楷體",
+      "stack": "\"BiauKai\", \"DFKai-SB\", \"Kaiti TC\", \"Kaiti\", KaiTi, serif"
+    },
+    {
+      "id": "heiti",
+      "label": "黑體",
+      "stack": "\"PingFang TC\", \"Microsoft JhengHei\", \"Heiti TC\", sans-serif"
+    },
+    {
+      "id": "songti",
+      "label": "宋體",
+      "stack": "\"Songti TC\", \"Songti SC\", SimSun, serif"
+    },
+    {
+      "id": "yuanti",
+      "label": "圓體",
+      "stack": "\"Yuanti TC\", \"Yuanti SC\", sans-serif"
+    },
+    {
       "id": "mono",
       "label": "Monospace",
       "stack": "ui-monospace, \"SF Mono\", Menlo, Consolas, monospace"

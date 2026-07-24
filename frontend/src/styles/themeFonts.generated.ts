@@ -24,5 +24,9 @@ export const SAFE_FONT_FAMILIES: readonly SafeFontFamily[] = [
   { id: "grotesk", label: "Schibsted Grotesk", stack: "\"Schibsted Grotesk\", \"Noto Sans TC\", system-ui, sans-serif" },
   { id: "noto-sans", label: "Noto Sans", stack: "\"Noto Sans TC\", \"Noto Sans\", system-ui, sans-serif" },
   { id: "serif", label: "Serif", stack: "\"Noto Serif TC\", Georgia, \"Times New Roman\", serif" },
+  { id: "kai", label: "標楷體", stack: "\"BiauKai\", \"DFKai-SB\", \"Kaiti TC\", \"Kaiti\", KaiTi, serif" },
+  { id: "heiti", label: "黑體", stack: "\"PingFang TC\", \"Microsoft JhengHei\", \"Heiti TC\", sans-serif" },
+  { id: "songti", label: "宋體", stack: "\"Songti TC\", \"Songti SC\", SimSun, serif" },
+  { id: "yuanti", label: "圓體", stack: "\"Yuanti TC\", \"Yuanti SC\", sans-serif" },
   { id: "mono", label: "Monospace", stack: "ui-monospace, \"SF Mono\", Menlo, Consolas, monospace" },
 ];

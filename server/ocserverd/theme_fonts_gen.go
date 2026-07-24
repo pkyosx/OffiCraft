@@ -15,9 +15,13 @@ var themeFontTokens = map[string]bool{
 // themeFontStacks is the CLOSED allowlist of font-family stack strings a font
 // value may be. A value outside this set is a 422 — never an arbitrary string.
 var themeFontStacks = map[string]bool{
-	"\"Noto Sans TC\", \"Noto Sans\", system-ui, sans-serif":         true,
-	"\"Noto Serif TC\", Georgia, \"Times New Roman\", serif":         true,
-	"\"Schibsted Grotesk\", \"Noto Sans TC\", system-ui, sans-serif": true,
-	"system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif":     true,
-	"ui-monospace, \"SF Mono\", Menlo, Consolas, monospace":          true,
+	"\"BiauKai\", \"DFKai-SB\", \"Kaiti TC\", \"Kaiti\", KaiTi, serif":  true,
+	"\"Noto Sans TC\", \"Noto Sans\", system-ui, sans-serif":            true,
+	"\"Noto Serif TC\", Georgia, \"Times New Roman\", serif":            true,
+	"\"PingFang TC\", \"Microsoft JhengHei\", \"Heiti TC\", sans-serif": true,
+	"\"Schibsted Grotesk\", \"Noto Sans TC\", system-ui, sans-serif":    true,
+	"\"Songti TC\", \"Songti SC\", SimSun, serif":                       true,
+	"\"Yuanti TC\", \"Yuanti SC\", sans-serif":                          true,
+	"system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif":        true,
+	"ui-monospace, \"SF Mono\", Menlo, Consolas, monospace":             true,
 }
