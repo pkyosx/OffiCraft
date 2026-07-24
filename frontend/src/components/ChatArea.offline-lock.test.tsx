@@ -1,17 +1,24 @@
-// T-94c1 composer lock — ChatArea reply area by member lifecycle.
+// T-9c3c composer lock — ChatArea reply area by member lifecycle.
 //
-// This file REVERSES the original M2-4 spec on owner's instruction (2026-07-17,
-// "keep sending message even agent offline"). New spec:
-//   • offline / stopped → composer UNLOCKED (you can type; the message queues in
-//     the backend and the member reads it on wake) + a wake row above the input
-//     (queue notice + an in-place ⚡喚醒 button that calls onWake/activateMember).
-//   • waking / stopping → still LOCKED (waking is a brief transient; stopping is
-//     winding down, so a reply typed then could land in a dying session) — the
-//     bar is the member-panel entry, exactly as before.
-//   • online → the normal input row, no lock, no wake row.
-// The assertions below that flipped from the old file are owner's reversal, not
-// a broken test. Presence-driven: `member` comes from the SSE-refetched roster,
-// so the swap happens on a pure prop change (rerender), no reload.
+// New spec (owner 2026-07-24, "有時候離線還是沒辦法發訊息"): a LIVE roster member
+// (OfficePage wires onWake) can ALWAYS be messaged — the server NEVER gates on
+// recipient presence (api_chat.PutChat lands the message regardless, UnreadCounts
+// counts it, the member reads it on next boot). So the composer's ONLY lock
+// reason is "no queue path at all":
+//   • online → the normal input row, no lock, no wake row (direct send).
+//   • offline / stopped / waking / stopping (a live member) → composer UNLOCKED
+//     (you can type; the message queues) + a wake row above the input (queue
+//     notice + an in-place ⚡喚醒 button calling onWake/activateMember).
+//   • a peer with NO onWake (a synthetic released/removed peer — read-only,
+//     T-661b — or an outsource worker) → LOCKED, the member-panel entry.
+//
+// This REVERSES T-94c1's extra lock on waking/stopping: those are transient
+// presence states an offline member passes through (a fresh wake's 90s TTL —
+// the ⚡喚醒 button itself triggers it — and a graceful wind-down), and locking
+// on them dropped a message the server was going to queue anyway. That was the
+// intermittent "sometimes an offline member can't be messaged" bug. Presence-
+// driven: `member` comes from the SSE-refetched roster, so the swap happens on a
+// pure prop change (rerender), no reload.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
@@ -23,7 +30,7 @@ import type { Member, MemberLifecycle, MemberStatus } from "../types";
 // Stub the chat hook — these tests exercise only the composer lock, not the
 // send path. `mockMessages` lets a test render WITH history (the central
 // offline card only appears on an empty thread; the wake row must render either
-// way while offline/stopped).
+// way while the member is away).
 let mockMessages: ChatMessage[] = [];
 vi.mock("../hooks/useChat", () => ({
   useChat: () => ({
@@ -79,8 +86,9 @@ function makeMember(lifecycle: MemberLifecycle): Member {
 }
 
 // onWake defaults to a fn: the primary case is a LIVE roster member (OfficePage
-// always wires onWake there), for whom offline/stopped unlocks. Pass `undefined`
-// explicitly to model a synthetic released/removed peer (read-only, no wake).
+// always wires onWake there), for whom EVERY non-online lifecycle unlocks. Pass
+// `undefined` explicitly to model a synthetic released/removed peer (read-only,
+// no wake).
 function renderChat(
   lifecycle: MemberLifecycle,
   onWake: (() => void) | undefined = vi.fn(),
@@ -99,13 +107,14 @@ function renderChat(
   return { ...utils, query };
 }
 
-describe("ChatArea composer lock (T-94c1: offline/stopped unlocked)", () => {
-  it.each<MemberLifecycle>(["offline", "stopped"])(
-    "%s member → composer UNLOCKED (typable) + wake row, NO locked bar",
+describe("ChatArea composer lock (T-9c3c: a live member is always messageable)", () => {
+  it.each<MemberLifecycle>(["offline", "stopped", "waking", "stopping"])(
+    "%s member (onWake wired) → composer UNLOCKED (typable) + wake row, NO locked bar",
     (lifecycle) => {
       const { query } = renderChat(lifecycle);
       const { input, locked, wakeRow } = query();
-      // The reversal: the input is now present while offline/stopped.
+      // The fix: the input is present for EVERY non-online state — the message
+      // queues, so none of them may drop the composer.
       expect(input).not.toBeNull();
       expect(locked).toBeNull();
       // The wake row (queue notice) rides above the input.
@@ -120,17 +129,6 @@ describe("ChatArea composer lock (T-94c1: offline/stopped unlocked)", () => {
     expect(locked).toBeNull();
     expect(wakeRow).toBeNull();
   });
-
-  it.each<MemberLifecycle>(["waking", "stopping"])(
-    "%s member → LOCKED (not online yet / winding down), no input, no wake row",
-    (lifecycle) => {
-      const { query } = renderChat(lifecycle);
-      const { input, locked, wakeRow } = query();
-      expect(input).toBeNull();
-      expect(locked).not.toBeNull();
-      expect(wakeRow).toBeNull();
-    },
-  );
 
   it("offline wake button: shown+clickable when onWake is wired, calls it once, then shows pending", () => {
     const onWake = vi.fn();
@@ -147,12 +145,22 @@ describe("ChatArea composer lock (T-94c1: offline/stopped unlocked)", () => {
     expect(getByText("喚醒中…")).toBeTruthy();
   });
 
+  it("waking member: the wake button honestly shows 喚醒中… (server-confirmed in flight), disabled", () => {
+    // Even with NO local click, a member the server reports as `waking` shows the
+    // in-flight label — the optimism handed off to real presence (T-9c3c).
+    const { query, getByText } = renderChat("waking", vi.fn());
+    const { wakeBtn } = query();
+    expect(wakeBtn).not.toBeNull();
+    expect((wakeBtn as HTMLButtonElement).disabled).toBe(true);
+    expect(getByText("喚醒中…")).toBeTruthy();
+  });
+
   it("offline WITHOUT onWake (released/removed read-only peer) → LOCKED, no input, no wake row", () => {
     // A synthetic released/removed peer (T-661b) is read-only: it gets NO onWake
-    // from OfficePage, so its offline composer must NOT unlock — no typable input
-    // (which would promise a queue to a member that is gone) and no wake row.
-    // Rendered inline WITHOUT onWake — note passing `undefined` to renderChat
-    // would trigger its default fn, so the prop is genuinely omitted here.
+    // from OfficePage, so its composer must NOT unlock — no typable input (which
+    // would promise a queue to a member that is gone) and no wake row. Rendered
+    // inline WITHOUT onWake — passing `undefined` to renderChat would trigger its
+    // default fn, so the prop is genuinely omitted here.
     const { container } = render(
       <I18nProvider>
         <ChatArea member={makeMember("offline")} />
@@ -188,30 +196,23 @@ describe("ChatArea composer lock (T-94c1: offline/stopped unlocked)", () => {
     expect(container.querySelector("textarea.chat__input")).not.toBeNull();
   });
 
-  it("waking stays a whole-bar member-panel entry only when onOpenDetail is wired", () => {
-    // waking is still locked; the whole bar opens the detail panel when wired.
+  it("a no-onWake locked peer always renders the plain notice, never a clickable bar", () => {
+    // The composer only locks now for a peer with no queue path (no onWake) —
+    // the released/removed read-only peer, which OfficePage also wires with no
+    // onOpenDetail. There is nothing to wake and no live detail to open, so the
+    // locked composer is always the plain non-clickable notice: never a button,
+    // even if some caller passed onOpenDetail (T-9c3c dropped the dead link arm).
     const onOpenDetail = vi.fn();
-    const wired = render(
+    const { container } = render(
       <I18nProvider>
-        <ChatArea member={makeMember("waking")} onOpenDetail={onOpenDetail} />
+        <ChatArea member={makeMember("offline")} onOpenDetail={onOpenDetail} />
       </I18nProvider>,
     );
-    const bar = wired.container.querySelector("button.chat__composer-locked")!;
-    expect(bar).not.toBeNull();
-    fireEvent.click(bar);
-    expect(onOpenDetail).toHaveBeenCalledTimes(1);
-    wired.unmount();
-
-    // Not wired → plain non-clickable notice (same no-dead-click rule).
-    const bare = render(
-      <I18nProvider>
-        <ChatArea member={makeMember("waking")} />
-      </I18nProvider>,
-    );
+    expect(container.querySelector(".chat__composer-locked")).not.toBeNull();
     expect(
-      bare.container.querySelector("button.chat__composer-locked"),
+      container.querySelector("button.chat__composer-locked"),
     ).toBeNull();
-    expect(bare.container.querySelector(".chat__composer-locked")).not.toBeNull();
+    expect(onOpenDetail).not.toHaveBeenCalled();
   });
 
   it("lifecycle offline → online on a prop change drops the wake row (SSE refetch path)", () => {
@@ -237,16 +238,19 @@ describe("ChatArea composer lock (T-94c1: offline/stopped unlocked)", () => {
     expect(query().wakeRow).not.toBeNull();
   });
 
-  it("lifecycle offline → stopping re-locks the composer (the one unsafe window)", () => {
+  it("lifecycle offline → waking KEEPS the composer usable (the bug this ticket fixes)", () => {
+    // The old spec re-locked on the offline→waking transition — exactly the
+    // intermittent "sometimes can't message" window. It must stay unlocked now:
+    // the message queues regardless.
     const { query, rerender } = renderChat("offline", vi.fn());
     expect(query().input).not.toBeNull();
     rerender(
       <I18nProvider>
-        <ChatArea member={makeMember("stopping")} onWake={vi.fn()} />
+        <ChatArea member={makeMember("waking")} onWake={vi.fn()} />
       </I18nProvider>,
     );
-    expect(query().input).toBeNull();
-    expect(query().locked).not.toBeNull();
-    expect(query().wakeRow).toBeNull();
+    expect(query().input).not.toBeNull();
+    expect(query().locked).toBeNull();
+    expect(query().wakeRow).not.toBeNull();
   });
 });

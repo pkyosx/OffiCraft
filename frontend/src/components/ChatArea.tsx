@@ -174,46 +174,57 @@ export function ChatArea({
 }) {
   const { t } = useI18n();
   const isOffline = member.status === "offline";
-  // T-94c1 (owner 2026-07-17, reverses the M2-4 "composer usable ONLY when
-  // online" spec — "keep sending message even agent offline"): the composer is
-  // now ALSO usable while a REAL roster member is offline/stopped, where a sent
-  // message queues in the backend (server never gated on recipient presence —
-  // api_chat.PutChat lands it regardless — and UnreadCounts counts it, so the
-  // member reads it on wake). That unlock is GATED ON onWake, which OfficePage
-  // wires ONLY for a live roster member — deliberately NOT for a synthetic
-  // released/removed peer (read-only, T-661b — it must never grow a typable
-  // composer or a false "will queue" promise) nor for an outsource worker.
-  // Everything else stays LOCKED: waking is a brief transient, stopping is
-  // winding down (a reply typed then could land in a dying session and miss),
-  // and any peer with no wake path. Presence-driven: `member` comes from the
-  // SSE-refetched roster, so a lifecycle flip re-renders without a reload. Reads
-  // the five-state `lifecycle`, not the collapsed tri-state `status`.
-  const canQueueOffline =
-    !!onWake &&
-    (member.lifecycle === "offline" || member.lifecycle === "stopped");
-  const composerLocked = !(member.lifecycle === "online" || canQueueOffline);
-  // offline/stopped live member: composer unlocked but the member is NOT here —
-  // show the queue notice + in-place wake row above the input (owner mockup).
-  const offlineQueue = canQueueOffline;
+  // T-9c3c (owner 2026-07-24, "有時候離線還是沒辦法發訊息"): a REAL roster member
+  // (onWake wired) can ALWAYS be messaged — the server NEVER gates on recipient
+  // presence (api_chat.PutChat lands the message regardless, UnreadCounts counts
+  // it, the member reads it on next boot). So the composer's ONLY lock reason is
+  // "no queue path at all": a synthetic released/removed peer (read-only, T-661b
+  // — it must never grow a typable composer or a false "will queue" promise) or
+  // an outsource worker; both are deliberately passed NO onWake by OfficePage.
+  //
+  // This REVERSES T-94c1's extra lock on waking/stopping (owner 2026-07-17),
+  // which was the intermittent "sometimes offline can't be messaged" bug: an
+  // offline member reads lifecycle `waking` for the wake's 90s TTL after ANY
+  // wake attempt (the ⚡喚醒 button itself included) and `stopping` while it
+  // winds down — both are transient presence states an offline member passes
+  // through, and the message the "dying session could miss it" rationale worried
+  // about is the SAME message the server was going to queue anyway. Locking on
+  // them dropped a message the design says must always send. Presence-driven:
+  // `member` comes from the SSE-refetched roster, so a lifecycle flip re-renders
+  // without a reload. Reads the five-state `lifecycle`, not the collapsed
+  // tri-state `status`.
+  const hasQueuePath = !!onWake;
+  const composerLocked = !(member.lifecycle === "online" || hasQueuePath);
+  // Non-online but messageable (a live member that is offline/stopped/waking/
+  // stopping): composer unlocked, with the queue notice + in-place wake row
+  // above the input (owner mockup). Online needs neither; a peer with no queue
+  // path is locked above and never reaches here.
+  const offlineQueue = hasQueuePath && member.lifecycle !== "online";
   // Wake-click instant feedback: the activate POST only writes the wake INTENT;
   // presence flips to waking via SSE shortly after. Optimistically disable the
-  // button meanwhile so a double-tap can't fire two activates. Reset whenever
-  // lifecycle moves off offline/stopped (woke, or owner cancelled).
+  // button meanwhile so a double-tap can't fire two activates.
   const [wakePending, setWakePending] = useState(false);
   // T-7fa1: the activate reported that nothing was dispatched. Distinct from
   // wakePending — "not waiting, because nothing was sent". Never both true.
   const [wakeUndispatched, setWakeUndispatched] = useState(false);
-  // 🔴 `member.id` IS a dependency, not decoration (review r1 SHOULD-1).
-  // OfficePage renders <ChatArea> WITHOUT a key and frontend/CLAUDE.md states
-  // the component is NOT remounted when the peer changes — so switching from
-  // one offline peer to another leaves `offlineQueue` true→true, the effect
-  // never re-runs, and A's notice stays on screen claiming B's wake was never
-  // sent. Owner never woke B. That is the same class of on-screen lie this
-  // ticket exists to remove, so the reset keys on the peer as well.
+  // Reset the optimistic bridge whenever REALITY moves — the peer changes, or
+  // this member's lifecycle takes a new value. Once presence reflects a fresh
+  // lifecycle the local optimism has handed off to the real state (`waking`
+  // drives the label below), so a dispatched-but-silently-died wake (waking→
+  // offline after the 90s TTL) clears instead of latching "喚醒中…" forever.
+  // 🔴 `member.id` IS a dependency, not decoration (review r1 SHOULD-1):
+  // OfficePage renders <ChatArea> WITHOUT a key (frontend/CLAUDE.md), so a peer
+  // switch is a prop change, not a remount — without keying on the peer, A's
+  // optimistic notice would linger on B's now-shared wake row. Keying on
+  // `member.lifecycle` (T-9c3c) replaces the old `offlineQueue` dep, which no
+  // longer flips across offline↔waking now that the wake row shows for both.
   useEffect(() => {
     setWakePending(false);
     setWakeUndispatched(false);
-  }, [offlineQueue, member.id]);
+  }, [member.lifecycle, member.id]);
+  // The wake row's button shows "喚醒中…" while a wake is in flight — either the
+  // just-clicked optimism, or the server-confirmed `waking` presence itself.
+  const wakeInFlight = wakePending || member.lifecycle === "waking";
 
   const {
     messages,
@@ -1277,28 +1288,19 @@ export function ChatArea({
 
       <footer className="chat__composer">
         {composerLocked ? (
-          /* T-94c1: only waking/stopping lock the composer now (a reply typed
-           * then could land in a dying/transient session and miss). The bar is
-           * the entry to the member detail panel; clickable only when the caller
-           * wires onOpenDetail (same no-dead-click rule as the header),
-           * otherwise it degrades to the plain notice. offline/stopped no longer
-           * reach here — they take the unlocked branch with a wake row. */
-          onOpenDetail ? (
-            <button
-              type="button"
-              className="chat__composer-locked chat__composer-locked--link"
-              onClick={onOpenDetail}
-            >
-              {t.chat.composerOfflineWake(member.name)}
-            </button>
-          ) : (
-            <div className="chat__composer-locked" role="status">
-              {t.chat.composerOffline(member.name)}
-            </div>
-          )
+          /* T-9c3c: the composer locks ONLY for a peer with NO queue path — a
+           * synthetic released/removed peer (read-only, T-661b) or an outsource
+           * worker; OfficePage wires neither onWake nor a queue promise for
+           * them. A live member always has a queue path (onWake), so it never
+           * reaches here. A plain, non-clickable notice: there is nothing to
+           * wake and no live detail panel to open for these peers. */
+          <div className="chat__composer-locked" role="status">
+            {t.chat.composerOffline(member.name)}
+          </div>
         ) : (
           <>
-            {/* T-94c1 wake row: shown while offline/stopped — an honest "your
+            {/* Wake row: shown for a live member in ANY non-online state
+             * (offline/stopped/waking/stopping, T-9c3c) — an honest "your
              * message will queue" notice plus an in-place ⚡喚醒 button (calls
              * activateMember via onWake). Sits ABOVE the composer so the input
              * row stays full-width (owner mockup). The button is wired only when
@@ -1326,7 +1328,8 @@ export function ChatArea({
                       // Revert the optimistic pending if the activate POST
                       // rejects (else the button sticks on "喚醒中…" forever) —
                       // same discipline as MemberDetailPanel's wake. The success
-                      // path is cleared by the lifecycle→!offlineQueue effect.
+                      // path hands off to the real `waking` presence, and the
+                      // lifecycle-keyed reset effect clears the optimism.
                       //
                       // 🔴 T-7fa1: a resolved activate is NOT proof a START went
                       // out. Reading activation_pending is what stops this button
@@ -1344,11 +1347,11 @@ export function ChatArea({
                           setWakePending(false);
                         });
                     }}
-                    disabled={wakePending}
+                    disabled={wakeInFlight}
                   >
                     <BoltIcon size={15} />
                     <span>
-                      {wakePending ? t.chat.wakePending : t.chat.wakeButton}
+                      {wakeInFlight ? t.chat.wakePending : t.chat.wakeButton}
                     </span>
                   </button>
                 )}

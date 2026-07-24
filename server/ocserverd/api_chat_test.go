@@ -388,3 +388,88 @@ func TestChatBodySizeLimit(t *testing.T) {
 		}
 	}
 }
+
+// TestPostChatQueuesRegardlessOfRecipientPresence pins the invariant the T-9c3c
+// compose-gate fix rests on: POST /api/chat NEVER consults the recipient's
+// presence — a message to an offline / waking / stopping member is stored and
+// readable by that member on its next boot, exactly as the "queue for offline"
+// design promises. The frontend used to lock the composer while a member read
+// `waking`/`stopping`; this test is the backend half proving nothing was ever
+// at risk of being dropped, so a future presence gate on the send path reddens.
+func TestPostChatQueuesRegardlessOfRecipientPresence(t *testing.T) {
+	srv, secret, _ := newWiredTestServer(t)
+	now := time.Now().Unix()
+	ownerTok, _ := mintJWT("owner", "owner", 300, secret, now, "")
+	miraTok, _ := mintJWT("mira", "agent", 300, secret, now, "")
+
+	// Control: read mira's PROJECTED presence off the roster, so each leg proves
+	// it actually exercised the state it claims (a post that "works while waking"
+	// is worthless if mira was never waking).
+	presenceOfMira := func() string {
+		_, body := get(t, srv.URL+"/api/members", ownerTok)
+		var roster []map[string]any
+		if err := json.Unmarshal([]byte(body), &roster); err != nil {
+			t.Fatalf("roster not JSON: %v %s", err, body)
+		}
+		for _, m := range roster {
+			if m["id"] == "mira" {
+				p, _ := m["presence"].(string)
+				return p
+			}
+		}
+		t.Fatalf("mira absent from roster: %s", body)
+		return ""
+	}
+	ownerPostToMira := func(body string) {
+		status, resp := doRaw(t, "POST", srv.URL+"/api/chat", ownerTok,
+			"application/json",
+			[]byte(fmt.Sprintf(`{"to":"mira","body":%q}`, body)))
+		if status != 200 {
+			t.Fatalf("post to mira: want 200, got %d %s", status, resp)
+		}
+	}
+
+	// Leg 1 — offline (a freshly seeded member holds no SSE connection).
+	if got := presenceOfMira(); got != "offline" {
+		t.Fatalf("leg 1 control: want mira offline, got %q", got)
+	}
+	ownerPostToMira("hello-offline")
+
+	// Leg 2 — waking: owner intent online (activate) + a fresh self-reported
+	// waking_since is exactly the 90s TTL window the compose bug locked on.
+	if status, resp := doRaw(t, "POST", srv.URL+"/api/members/mira/activate",
+		ownerTok, "application/json", []byte(`{}`)); status != 200 {
+		t.Fatalf("activate mira: want 200, got %d %s", status, resp)
+	}
+	if status, resp := doRaw(t, "POST", srv.URL+"/api/self/waking",
+		miraTok, "application/json", []byte(`{}`)); status != 200 {
+		t.Fatalf("mira self/waking: want 200, got %d %s", status, resp)
+	}
+	if got := presenceOfMira(); got != "waking" {
+		t.Fatalf("leg 2 control: want mira waking, got %q", got)
+	}
+	ownerPostToMira("hello-waking")
+
+	// Leg 3 — stopped: owner-explicit stop (deactivate stamps stopping_since; not
+	// online ⇒ stopped). The wind-down states the composer also used to lock.
+	if status, resp := doRaw(t, "POST", srv.URL+"/api/members/mira/deactivate",
+		ownerTok, "application/json", []byte(`{}`)); status != 200 {
+		t.Fatalf("deactivate mira: want 200, got %d %s", status, resp)
+	}
+	if got := presenceOfMira(); got != "stopped" {
+		t.Fatalf("leg 3 control: want mira stopped, got %q", got)
+	}
+	ownerPostToMira("hello-stopped")
+
+	// The recipient reads the whole queue on wake: mira, from its OWN token,
+	// sees all three regardless of the presence each was sent into.
+	status, body := get(t, srv.URL+"/api/chat?with=owner", miraTok)
+	if status != 200 {
+		t.Fatalf("mira reads its chat: want 200, got %d %s", status, body)
+	}
+	for _, want := range []string{"hello-offline", "hello-waking", "hello-stopped"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("queued message %q missing from mira's chat: %s", want, body)
+		}
+	}
+}

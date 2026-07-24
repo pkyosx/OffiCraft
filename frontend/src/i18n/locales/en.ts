@@ -495,8 +495,6 @@ export const en: Dict = {
     // M2-4 composer lock: shown IN PLACE OF the reply input while the member
     // is not online (offline / stopped / waking / stopping).
     composerOffline: (name: string) => `${name} is currently offline`,
-    composerOfflineWake: (name: string) =>
-      `${name} is currently offline — open the member panel to wake them`,
     me: "Me",
     systemSender: "System",
     send: "Send",

@@ -565,10 +565,6 @@ export const zh = {
     // M2-4 composer lock: shown IN PLACE OF the reply input while the member
     // is not online (offline / stopped / waking / stopping).
     composerOffline: (name: string) => `${name} 目前離線中`,
-    // Whole-bar link variant — used when the caller wires onOpenDetail; 喚醒
-    // 功能只在成員詳情面板,整條 bar 就是過去的入口。
-    composerOfflineWake: (name: string) =>
-      `${name} 目前離線中 — 前往成員面板喚醒`,
     me: "我",
     // 系統自動訊息的發話者標籤(T-ba04 轉派交接通知等,sender="system")
     systemSender: "系統",

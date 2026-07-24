@@ -1539,17 +1539,6 @@ button.chat__msg-file {
   font: inherit;
   font-size: 14px;
 }
-/* Whole-bar variant: the bar itself is the entry to the member detail panel
- * (waking lives only there) — one sentence, one click target. */
-.chat__composer-locked--link {
-  width: 100%;
-  padding: 0;
-  cursor: pointer;
-}
-.chat__composer-locked--link:hover {
-  color: var(--color-accent);
-  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
-}
 
 /* ---- T-94c1 wake row: offline/stopped queue notice + in-place wake ---- */
 /* One row above the (full-width) composer: an accent-tinted panel with the
