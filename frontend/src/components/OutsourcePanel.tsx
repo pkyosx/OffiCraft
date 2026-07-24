@@ -29,7 +29,7 @@
 import { useI18n } from "../i18n";
 import { useWindowActive } from "../hooks/useWindowActive";
 import type { OutsourceWorkerView } from "../api/adapter";
-import { BriefcaseIcon } from "./icons";
+import { Avatar } from "./Avatar";
 import { CurrentTaskTitle } from "./CurrentTaskTitle";
 
 /** The worker's ONE-LINE task line — [T-xxxx chip → task type], optionally
@@ -163,10 +163,16 @@ export function OutsourcePanel({
               }}
             >
               {/* No status dot on the avatar (MemberCard parity): the line-2
-               * online dot below is the single presence signal of the row. */}
+               * online dot below is the single presence signal of the row.
+               * The avatar renders the active theme's 外包 image (T-3738 —
+               * kind="outsource", the row's real subject); a theme without
+               * one falls back to the built-in glyph inside the Avatar frame.
+               * The button mirrors MemberCard's avatar-as-detail-target
+               * (size 40 + .member-card__avatar styling) so the two rails read
+               * identically. */}
               <button
                 type="button"
-                className="outsource-row__avatar"
+                className="outsource-row__avatar-btn"
                 aria-label={t.office.outsource.viewDetail}
                 title={t.office.outsource.viewDetail}
                 data-testid={`outsource-detail-${w.id}`}
@@ -176,7 +182,7 @@ export function OutsourcePanel({
                 }}
                 onKeyDown={(e) => e.stopPropagation()}
               >
-                <BriefcaseIcon size={16} />
+                <Avatar size={40} kind="outsource" />
               </button>
               <span className="outsource-row__body">
                 {/* line 1 — the worker's name (代號; an outsource has no

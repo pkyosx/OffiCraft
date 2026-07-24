@@ -1083,7 +1083,15 @@ export function ChatArea({
             }
           : {})}
       >
-        <Avatar size={38} kind="member" />
+        {/* T-3738: the header avatar's kind follows the peer's REAL kind — an
+         * outsource peer (ow- id, the codebase's outsource-id convention, same
+         * test used above for released-worker resolution) shows the theme's
+         * 外包 image, a 正職 peer the member image. Rendering member for an
+         * outsource peer fabricated a 正職 identity for an anonymous worker. */}
+        <Avatar
+          size={38}
+          kind={member.id.startsWith("ow-") ? "outsource" : "member"}
+        />
         <div className="chat__header-text">
           {/* Name only — no chevron/caret glyph (owner feedback: the "Mira ›"
            * arrow was noise). The header itself stays the clickable detail

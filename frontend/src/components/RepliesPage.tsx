@@ -285,7 +285,10 @@ export function RepliesPage() {
     const who = whoOf(card);
     return (
       <header className="reply-card__head">
-        <ReplyCardAvatarButton onClick={() => openProfile(card)} />
+        <ReplyCardAvatarButton
+          onClick={() => openProfile(card)}
+          kind={card.from.startsWith("ow-") ? "outsource" : "member"}
+        />
         <div className="reply-card__who">
           <span className="reply-card__name">{who.name}</span>
           {who.role && <span className="reply-card__role">{who.role}</span>}

@@ -405,7 +405,11 @@
  * chat entry). A bare button wrapper: kill the native chrome, and signal the
  * separate target with the same soft accent ring the chat header uses on
  * focus-visible — no new design language. */
-.member-card__avatar {
+/* .outsource-row__avatar-btn shares this pattern (T-3738): the outsource rail's
+ * avatar-as-detail-target is the same transparent button + focus ring wrapping
+ * an Avatar (kind="outsource"), so both rails' avatars read identically. */
+.member-card__avatar,
+.outsource-row__avatar-btn {
   flex: none;
   display: inline-grid;
   padding: 0;
@@ -416,7 +420,9 @@
   outline: none;
 }
 .member-card__avatar:hover,
-.member-card__avatar:focus-visible {
+.member-card__avatar:focus-visible,
+.outsource-row__avatar-btn:hover,
+.outsource-row__avatar-btn:focus-visible {
   box-shadow: 0 0 0 2px var(--color-accent-soft);
 }
 
