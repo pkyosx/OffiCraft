@@ -138,6 +138,41 @@ describe("mock settings — display prefs (display_theme / display_language)", (
     expect(again.customThemes[0].avatars?.outsource).toBe(pngAvatar);
   });
 
+  it("saves logo + nav-icon overlays and reads them back durably", async () => {
+    // Valid tiny PNG data URIs (magic-checked by the shared image gate).
+    const pngLogo =
+      "data:image/png;base64," +
+      btoa(
+        String.fromCharCode(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x02)
+      );
+    const pngIcon =
+      "data:image/png;base64," +
+      btoa(
+        String.fromCharCode(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x03)
+      );
+    const s = await mockApi.patchServerSettings({
+      customThemes: [
+        {
+          id: "brand",
+          name: "Brand",
+          colors: { "--color-bg": "#101018" },
+          logo: pngLogo,
+          navIcons: { office: pngIcon, tasks: pngIcon },
+        },
+      ],
+    });
+    expect(s.customThemes[0].logo).toBe(pngLogo);
+    expect(s.customThemes[0].navIcons?.office).toBe(pngIcon);
+    // The regression: a fresh read must still carry logo + navIcons — the
+    // read-back mapper (toServerSettings) dropping these two fields was the
+    // "uploaded logo / nav icons lost after refresh and missing from export"
+    // defect that T-ea81 shipped. Avatars were copied; these two were not.
+    const again = await mockApi.getServerSettings();
+    expect(again.customThemes[0].logo).toBe(pngLogo);
+    expect(again.customThemes[0].navIcons?.office).toBe(pngIcon);
+    expect(again.customThemes[0].navIcons?.tasks).toBe(pngIcon);
+  });
+
   it("422s an illegal wording overlay, writing nothing", async () => {
     const bad: Record<string, Record<string, string>>[] = [
       { zh: { "not.a.real.key": "x" } }, // non-whitelisted code
