@@ -9,6 +9,7 @@ import { THEME_COLOR_TOKENS } from "../styles/themeTokens.generated";
 import {
   isValidColorValue,
   validateThemeBundle,
+  RESERVED_THEME_IDS,
   type ThemeBundle,
 } from "./themeBundle";
 
@@ -29,6 +30,62 @@ export function exportComputedTheme(
     if (v && isValidColorValue(v)) colors[tok] = v;
   }
   return { id, name, colors };
+}
+
+/** Pick the bundle a "匯出當前主題" (toolbar 匯出) click should download. A custom
+ * theme exports its STORED bundle — the FULL overlay: colours + wording + fonts +
+ * avatars — so nothing is silently dropped. The built-in office carries no
+ * overlay, so its computed colours ARE the complete, lossless export. This keeps
+ * the toolbar 匯出 in step with a row's download icon (which already serialises
+ * the stored bundle); before this, the toolbar path exported colours only. */
+export function exportCurrentBundle(
+  theme: string,
+  customThemes: ThemeBundle[],
+  officeName: string,
+  el: Element = document.documentElement
+): ThemeBundle {
+  const stored = customThemes.find((b) => b.id === theme);
+  if (stored) return stored;
+  return exportComputedTheme("office-copy", officeName, el);
+}
+
+/** Read office's BASE palette — the theme.css :root defaults — off `el`,
+ * transparently neutralising any active custom theme's inline overrides so the
+ * result is always the built-in office colours no matter which theme is currently
+ * applied. Used to seed a "以辦公室為底" new custom theme. The strip→read→restore
+ * runs synchronously (getComputedStyle forces a style flush, never a paint), so
+ * nothing flashes on screen. */
+export function exportOfficeBaseTheme(
+  id: string,
+  name: string,
+  el: Element = document.documentElement
+): ThemeBundle {
+  const root = el as HTMLElement;
+  const saved: [string, string][] = [];
+  for (const tok of THEME_COLOR_TOKENS) {
+    const inline = root.style.getPropertyValue(tok);
+    if (inline) {
+      saved.push([tok, inline]);
+      root.style.removeProperty(tok);
+    }
+  }
+  try {
+    return exportComputedTheme(id, name, el);
+  } finally {
+    for (const [tok, val] of saved) root.style.setProperty(tok, val);
+  }
+}
+
+/** The first `custom-N` id (N ≥ 1) that no existing custom theme holds and that
+ * is not a reserved built-in id. Always matches THEME_ID_RE, so a freshly added
+ * theme is a valid, collision-free bundle. */
+export function nextCustomThemeId(existing: Iterable<string>): string {
+  const taken = new Set<string>(existing);
+  const reserved = new Set<string>(RESERVED_THEME_IDS);
+  for (let n = 1; ; n++) {
+    const id = `custom-${n}`;
+    if (!taken.has(id) && !reserved.has(id)) return id;
+  }
 }
 
 /** Parse and validate imported bundle text. Returns the normalized bundle or a

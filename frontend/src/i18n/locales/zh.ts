@@ -519,6 +519,8 @@ export const zh = {
     theme: "主題",
     themeManageHint: "在「設定 › 主題」新增與編輯",
     themeOffice: "辦公室",
+    themeAdd: "新增",
+    themeNewName: "新主題",
     themeImport: "匯入",
     themeExport: "匯出",
     themeEdit: "編輯",
@@ -912,6 +914,7 @@ export const zh = {
     themeWordingSearch: "搜尋用詞…",
     themeWordingOverride: "替代字",
     themeBuiltinTag: "內建",
+    themeCustomTag: "自訂",
     themeWordingTag: "用詞",
     // ── 字型 (T-16a1 P4): 從安全字型白名單挑內文／標題字型 ──
     themeFontsSection: "字型",

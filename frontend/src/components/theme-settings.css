@@ -62,11 +62,10 @@
 }
 
 /* The row tags are small (11px = normal text), so they must clear WCAG AA
- * (≥4.5:1). The old fills (--color-seg-fill / --color-icon-violet-bg) paired
- * with muted/violet text landed at ~1.4–1.7:1. Deepening each fill toward the
- * page background (a solid, opaque chip) and switching to the near-white
- * --color-text lifts both well past 4.5:1 while keeping the blue / violet
- * hue identity that distinguishes 內建 from 用詞. */
+ * (≥4.5:1). A muted/violet text on the raw fills landed at ~1.4–1.7:1. Deepening
+ * each fill toward the page background (a solid, opaque chip) and switching to
+ * the near-white --color-text lifts both well past 4.5:1 while keeping the blue
+ * (內建) / violet (自訂) hue identity that tells the two row kinds apart. */
 .ts-tag {
   font-size: 11px;
   padding: 1px 6px;
@@ -74,7 +73,7 @@
   background: color-mix(in srgb, var(--color-seg-fill) 55%, var(--color-bg));
   color: var(--color-text);
 }
-.ts-tag--wording {
+.ts-tag--custom {
   background: color-mix(in srgb, var(--color-icon-violet-bg) 55%, var(--color-bg));
   color: var(--color-text);
 }

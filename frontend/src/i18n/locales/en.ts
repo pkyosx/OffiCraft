@@ -449,6 +449,8 @@ export const en: Dict = {
     theme: "Theme",
     themeManageHint: "Add & edit in Settings › Theme",
     themeOffice: "Office",
+    themeAdd: "New",
+    themeNewName: "New theme",
     themeImport: "Import",
     themeExport: "Export",
     themeEdit: "Edit",
@@ -830,6 +832,7 @@ export const en: Dict = {
     themeWordingSearch: "Search wording…",
     themeWordingOverride: "replacement",
     themeBuiltinTag: "Built-in",
+    themeCustomTag: "Custom",
     themeWordingTag: "Wording",
     // ── fonts (T-16a1 P4): pick body / title font from a safe allowlist ──
     themeFontsSection: "Fonts",

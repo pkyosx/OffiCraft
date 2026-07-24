@@ -2,9 +2,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   bundleFilename,
   exportComputedTheme,
+  exportCurrentBundle,
+  exportOfficeBaseTheme,
+  nextCustomThemeId,
   parseImportedBundle,
   serializeBundle,
 } from "./themeExport";
+import type { ThemeBundle } from "./themeBundle";
 
 function freshRoot(): HTMLElement {
   const el = document.createElement("div");
@@ -53,6 +57,66 @@ describe("exportComputedTheme", () => {
     );
 
     expect("bundle" in round).toBe(true);
+  });
+});
+
+describe("exportCurrentBundle", () => {
+  const worded: ThemeBundle = {
+    id: "worded",
+    name: "Worded",
+    colors: { "--color-accent": "#0b1020" },
+    wording: { zh: { "nav.tasks": "任務榜" } },
+    fonts: { "--font-sans": "system-ui" },
+    avatars: { member: "data:image/png;base64,AAAA" },
+  };
+
+  it("exports a custom theme's full stored bundle (colours + wording + fonts + avatars)", () => {
+    const picked = exportCurrentBundle("worded", [worded], "Office");
+    expect(picked).toBe(worded);
+    expect(picked.wording).toBeDefined();
+    expect(picked.fonts).toBeDefined();
+    expect(picked.avatars).toBeDefined();
+  });
+
+  it("exports the built-in office as colours only (no overlay to carry)", () => {
+    const el = freshRoot();
+    el.style.setProperty("--color-accent", "#123456");
+    const picked = exportCurrentBundle("office", [worded], "Office", el);
+    expect(picked.name).toBe("Office");
+    expect(picked.colors["--color-accent"]).toBe("#123456");
+    expect(picked).not.toHaveProperty("wording");
+    expect(picked).not.toHaveProperty("fonts");
+    expect(picked).not.toHaveProperty("avatars");
+  });
+});
+
+describe("exportOfficeBaseTheme", () => {
+  it("reads through an active theme's inline overrides and restores them", () => {
+    const el = freshRoot();
+    el.style.setProperty("--color-accent", "#111111"); // theme.css :root default stand-in
+    // an "active custom theme" override is layered on top
+    el.style.setProperty("--color-accent", "#abcdef");
+
+    const bundle = exportOfficeBaseTheme("custom-1", "New theme", el);
+
+    // exportOfficeBaseTheme strips the inline override to read the base; in jsdom
+    // there is no stylesheet base, so the stripped token drops out entirely —
+    // the point under test is that the override is gone during the read and put
+    // BACK afterwards (no permanent mutation of the live element).
+    expect(bundle.id).toBe("custom-1");
+    expect(bundle.name).toBe("New theme");
+    expect(el.style.getPropertyValue("--color-accent")).toBe("#abcdef");
+  });
+});
+
+describe("nextCustomThemeId", () => {
+  it("returns custom-1 when nothing is taken", () => {
+    expect(nextCustomThemeId([])).toBe("custom-1");
+  });
+
+  it("skips taken ids and the reserved built-in", () => {
+    expect(nextCustomThemeId(["custom-1", "custom-2"])).toBe("custom-3");
+    expect(nextCustomThemeId(["office"])).toBe("custom-1");
   });
 });
 

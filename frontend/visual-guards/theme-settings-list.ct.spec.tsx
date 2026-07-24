@@ -1,10 +1,11 @@
 // T-3738 visual guards for 設定 › 主題管理 (ThemeSettings list view):
 //
-//   ① the row TAGS (內建 / 用詞) clear WCAG AA (≥4.5:1). The fills resolve
-//      through color-mix(), so the shipped contrast is a COMPUTED-COLOUR fact
-//      jsdom cannot see. We sample the rendered foreground/background colour off
-//      each tag, composite the fill down to an opaque colour, and compute the
-//      WCAG contrast ratio.
+//   ① the row TAGS (內建 / 自訂) clear WCAG AA (≥4.5:1), and the old 用詞 tag is
+//      gone (owner: label a row as custom, don't spell out what it changed). The
+//      fills resolve through color-mix(), so the shipped contrast is a
+//      COMPUTED-COLOUR fact jsdom cannot see. We sample the rendered
+//      foreground/background colour off each tag, composite the fill down to an
+//      opaque colour, and compute the WCAG contrast ratio.
 //   ② the built-in office row and a custom row line up their trailing action
 //      column at 390 and 1280 — the built-in row now carries the SAME three
 //      icon buttons, disabled, as visual placeholders, so both rows flush their
@@ -107,19 +108,26 @@ async function mountSeeded(mount: any, page: any, width: number) {
 for (const width of [390, 1280]) {
   test(`width ${width}: 內建 built-in tag clears WCAG AA (≥4.5:1)`, async ({ mount, page }) => {
     const cmp = await mountSeeded(mount, page, width);
-    // The built-in tag is the .ts-tag that is NOT the wording variant.
-    const tag = cmp.locator(".ts-tag:not(.ts-tag--wording)");
+    // The built-in tag is the .ts-tag that is NOT the custom variant.
+    const tag = cmp.locator(".ts-tag:not(.ts-tag--custom)");
     await expect(tag).toHaveCount(1);
     const { ratio } = await sampleTagColours(tag);
     expect(ratio).toBeGreaterThanOrEqual(4.5);
   });
 
-  test(`width ${width}: 用詞 wording tag clears WCAG AA (≥4.5:1)`, async ({ mount, page }) => {
+  test(`width ${width}: 自訂 custom tag exists and clears WCAG AA (≥4.5:1)`, async ({ mount, page }) => {
     const cmp = await mountSeeded(mount, page, width);
-    const tag = cmp.locator(".ts-tag--wording");
+    const tag = cmp.locator(".ts-tag--custom");
     await expect(tag).toHaveCount(1);
     const { ratio } = await sampleTagColours(tag);
     expect(ratio).toBeGreaterThanOrEqual(4.5);
+  });
+
+  test(`width ${width}: the 用詞 wording badge is no longer rendered`, async ({ mount, page }) => {
+    // The seeded custom theme carries a wording overlay, yet no 用詞 badge shows —
+    // the badge was removed (the wording MECHANISM stays; only the label is gone).
+    const cmp = await mountSeeded(mount, page, width);
+    await expect(cmp.locator(".ts-tag--wording")).toHaveCount(0);
   });
 
   test(`width ${width}: built-in and custom rows align their action column`, async ({ mount, page }) => {

@@ -15,7 +15,9 @@ import {
 import { SAFE_FONT_FAMILIES } from "../styles/themeFonts.generated";
 import {
   bundleFilename,
-  exportComputedTheme,
+  exportCurrentBundle,
+  exportOfficeBaseTheme,
+  nextCustomThemeId,
   parseImportedBundle,
   serializeBundle,
 } from "../lib/themeExport";
@@ -100,14 +102,7 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   const [editError, setEditError] = useState("");
 
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-
-  // ── theme meta for export ──
-  function currentThemeMeta(): { id: string; name: string } {
-    if (theme === "office")
-      return { id: "office-copy", name: t.profile.themeOffice };
-    const b = customThemes.find((x) => x.id === theme);
-    return { id: b?.id ?? "theme", name: b?.name ?? theme };
-  }
+  const [addError, setAddError] = useState("");
 
   function downloadBundle(bundle: ThemeBundle) {
     const blob = new Blob([serializeBundle(bundle)], {
@@ -122,14 +117,33 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   }
 
   function handleExportCurrent() {
-    const { id, name } = currentThemeMeta();
-    downloadBundle(exportComputedTheme(id, name));
+    downloadBundle(
+      exportCurrentBundle(theme, customThemes, t.profile.themeOffice)
+    );
+  }
+
+  // ── add (req4): create a new custom theme with office as its base, then jump
+  // straight into edit so the owner names + tweaks the fresh copy. The office
+  // BASE palette is read via exportOfficeBaseTheme (which neutralises any active
+  // custom theme's overrides), so the copy starts from office colours even when
+  // the currently applied theme is a custom one. ──
+  function handleAddNew() {
+    if (customThemes.length >= MAX_CUSTOM_THEMES) {
+      setAddError(t.profile.themeLimitReached);
+      return;
+    }
+    const id = nextCustomThemeId(customThemes.map((b) => b.id));
+    const bundle = exportOfficeBaseTheme(id, t.profile.themeNewName);
+    commitCustomThemes([...customThemes, bundle]);
+    setAddError("");
+    openEdit(bundle);
   }
 
   // ── import ──
   function openImport() {
     setImportText("");
     setImportError("");
+    setAddError("");
     setView("import");
   }
 
@@ -643,6 +657,13 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
       </h1>
 
       <div className="ts-toolbar">
+        <button
+          type="button"
+          className="doc-btn doc-btn--accent"
+          onClick={handleAddNew}
+        >
+          {t.profile.themeAdd}
+        </button>
         <button type="button" className="doc-btn" onClick={openImport}>
           {t.profile.themeImport}
         </button>
@@ -650,6 +671,7 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
           {t.profile.themeExport}
         </button>
       </div>
+      {addError && <div className="set-error">{addError}</div>}
 
       <div className="ts-list">
         {/* built-in: office is the only built-in — selectable, not
@@ -706,11 +728,9 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
               onClick={() => setTheme(b.id)}
             >
               {b.name}
-              {b.wording && (
-                <span className="ts-tag ts-tag--wording">
-                  {t.settings.themeWordingTag}
-                </span>
-              )}
+              <span className="ts-tag ts-tag--custom">
+                {t.settings.themeCustomTag}
+              </span>
             </button>
             <button
               type="button"
