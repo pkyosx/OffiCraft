@@ -736,6 +736,11 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
       // Avatar overlay (bb2e3b4) — optional; carried through verbatim when
       // present (never fabricated to an empty object).
       ...(b.avatars !== undefined ? { avatars: b.avatars } : {}),
+      // Logo + nav-icon overlays (T-ea81) — optional; carried through verbatim
+      // when present. Omitting these dropped uploaded logo/nav icons on every
+      // read-back (reload + login), which also emptied them from theme export.
+      ...(b.logo !== undefined ? { logo: b.logo } : {}),
+      ...(b.navIcons !== undefined ? { navIcons: b.navIcons } : {}),
     })),
     // The first-run onboarding report (T-ba62). Absent/null is the NORMAL
     // state (onboarding never ran on this database) and maps to null — the

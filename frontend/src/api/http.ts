@@ -43,6 +43,7 @@ import type {
   MemberActivateResult,
   MemberRelocateResult,
 } from "../types";
+import type { ThemeBundle } from "../lib/themeBundle";
 import type {
   Api,
   ChatCursor,
@@ -1325,14 +1326,10 @@ export const httpApi: Api = {
       owner_name?: string;
       display_theme?: string;
       display_language?: string;
-      custom_themes?: {
-        id: string;
-        name: string;
-        colors: Record<string, string>;
-        wording?: Record<string, Record<string, string>>;
-        fonts?: Record<string, string>;
-        avatars?: { member?: string; outsource?: string };
-      }[];
+      // The wire accepts the full ThemeBundle shape (id/name/colors + optional
+      // wording/fonts/avatars/logo/navIcons); reuse the type so it can't drift
+      // out of sync with the bundle and silently drop new fields again.
+      custom_themes?: ThemeBundle[];
     } = {};
     if (patch.tokenTtl !== undefined) body.token_ttl = patch.tokenTtl;
     if (patch.handoverPct !== undefined) body.handover_pct = patch.handoverPct;
