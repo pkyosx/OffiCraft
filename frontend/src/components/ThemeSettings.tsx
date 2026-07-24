@@ -652,7 +652,11 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
       </div>
 
       <div className="ts-list">
-        {/* built-in: office is the only built-in — selectable, not editable/deletable */}
+        {/* built-in: office is the only built-in — selectable, not
+         * editable/deletable. It still shows the SAME trailing action column as a
+         * custom row, but disabled: the three icon buttons are inert placeholders
+         * so the built-in and custom rows line up their right edge at every width
+         * (owner: 內建列與自訂列對齊). */}
         <div className="ts-row">
           <button
             type="button"
@@ -661,6 +665,36 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
           >
             {t.profile.themeOffice}
             <span className="ts-tag">{t.settings.themeBuiltinTag}</span>
+          </button>
+          <button
+            type="button"
+            className="ts-icon-btn"
+            disabled
+            aria-disabled="true"
+            aria-label={`${t.profile.themeExport} ${t.profile.themeOffice}`}
+            title={t.profile.themeExport}
+          >
+            <DownloadIcon size={15} />
+          </button>
+          <button
+            type="button"
+            className="ts-icon-btn"
+            disabled
+            aria-disabled="true"
+            aria-label={`${t.profile.themeEdit} ${t.profile.themeOffice}`}
+            title={t.profile.themeEdit}
+          >
+            <PencilIcon size={15} />
+          </button>
+          <button
+            type="button"
+            className="ts-icon-btn ts-icon-btn--danger"
+            disabled
+            aria-disabled="true"
+            aria-label={`${t.profile.themeDelete} ${t.profile.themeOffice}`}
+            title={t.profile.themeDelete}
+          >
+            <TrashIcon size={15} />
           </button>
         </div>
 
