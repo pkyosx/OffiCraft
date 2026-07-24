@@ -1854,25 +1854,6 @@ button.chat__msg-file {
   background: var(--color-card);
   border-color: color-mix(in srgb, var(--color-overlay) 5%, transparent);
 }
-.outsource-row__avatar {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--color-dot-waking) 35%, transparent);
-  color: var(--color-dot-waking);
-  background: color-mix(in srgb, var(--color-dot-waking) 8%, transparent);
-  cursor: pointer;
-  transition: filter 0.15s;
-}
-.outsource-row__avatar:hover,
-.outsource-row__avatar:focus-visible {
-  filter: brightness(1.25);
-}
 .outsource-row__body {
   flex: 1;
   min-width: 0;

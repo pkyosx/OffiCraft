@@ -239,7 +239,9 @@ export function MonitorIcon({ size = 16, className }: IconProps) {
   );
 }
 
-/** Briefcase glyph — the anonymous 外包 executor's avatar stand-in. */
+/** Briefcase glyph — a decorative 外包 marker in the task-manual assignee /
+ * outsource-cap UI. NOT an avatar: outsource identity now renders the active
+ * theme's role-level Avatar (kind="outsource") at every avatar site. */
 export function BriefcaseIcon({ size = 16, className }: IconProps) {
   return (
     <svg {...base(size)} className={className}>
