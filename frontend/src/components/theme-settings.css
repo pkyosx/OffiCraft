@@ -61,16 +61,22 @@
   color: var(--color-text-strong);
 }
 
+/* The row tags are small (11px = normal text), so they must clear WCAG AA
+ * (≥4.5:1). The old fills (--color-seg-fill / --color-icon-violet-bg) paired
+ * with muted/violet text landed at ~1.4–1.7:1. Deepening each fill toward the
+ * page background (a solid, opaque chip) and switching to the near-white
+ * --color-text lifts both well past 4.5:1 while keeping the blue / violet
+ * hue identity that distinguishes 內建 from 用詞. */
 .ts-tag {
   font-size: 11px;
   padding: 1px 6px;
   border-radius: 999px;
-  background: var(--color-seg-fill);
-  color: var(--color-text-muted);
+  background: color-mix(in srgb, var(--color-seg-fill) 55%, var(--color-bg));
+  color: var(--color-text);
 }
 .ts-tag--wording {
-  background: var(--color-icon-violet-bg);
-  color: var(--color-icon-violet);
+  background: color-mix(in srgb, var(--color-icon-violet-bg) 55%, var(--color-bg));
+  color: var(--color-text);
 }
 
 .ts-icon-btn {
@@ -85,13 +91,19 @@
   color: var(--color-text-muted);
   cursor: pointer;
 }
-.ts-icon-btn:hover {
+.ts-icon-btn:hover:not(:disabled) {
   color: var(--color-text);
   border-color: var(--color-accent);
 }
-.ts-icon-btn--danger:hover {
+.ts-icon-btn--danger:hover:not(:disabled) {
   color: var(--color-danger);
   border-color: var(--color-danger);
+}
+/* Inert placeholder on the built-in row: visually present (keeps both rows
+ * aligned) but not interactive — dimmed, no pointer, no hover lift. */
+.ts-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 /* ── edit / import card ── */
