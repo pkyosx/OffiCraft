@@ -88,6 +88,27 @@ describe("exportCurrentBundle", () => {
     expect(picked).not.toHaveProperty("fonts");
     expect(picked).not.toHaveProperty("avatars");
   });
+
+  it("round-trips a custom theme's avatars through export → import (bb2e3b4)", () => {
+    // A valid tiny PNG data URI — parseImportedBundle validates the avatar value.
+    const pngAvatar =
+      "data:image/png;base64," +
+      btoa(
+        String.fromCharCode(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01)
+      );
+    const themed: ThemeBundle = {
+      id: "faced",
+      name: "Faced",
+      colors: { "--color-accent": "#0b1020" },
+      avatars: { outsource: pngAvatar },
+    };
+    const round = parseImportedBundle(
+      serializeBundle(exportCurrentBundle("faced", [themed], "Office"))
+    );
+    expect("bundle" in round && round.bundle.avatars).toEqual({
+      outsource: pngAvatar,
+    });
+  });
 });
 
 describe("exportOfficeBaseTheme", () => {
@@ -149,6 +170,25 @@ describe("parseImportedBundle", () => {
     );
     expect("bundle" in res && res.bundle.wording).toEqual({
       zh: { "nav.tasks": "任務榜" },
+    });
+  });
+
+  it("carries a valid avatars overlay through (bb2e3b4)", () => {
+    const pngAvatar =
+      "data:image/png;base64," +
+      btoa(
+        String.fromCharCode(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01)
+      );
+    const res = parseImportedBundle(
+      JSON.stringify({
+        id: "faced",
+        name: "Faced",
+        colors: { "--color-accent": "#0b1020" },
+        avatars: { outsource: pngAvatar },
+      })
+    );
+    expect("bundle" in res && res.bundle.avatars).toEqual({
+      outsource: pngAvatar,
     });
   });
 
