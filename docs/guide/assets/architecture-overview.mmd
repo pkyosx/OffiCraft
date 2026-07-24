@@ -17,14 +17,14 @@ flowchart TB
         wardenA["warden（執行手）"]
         agentA1["成員：Mira<br/>tmux · claude + ocagent"]
         agentA2["成員：其他角色<br/>tmux · claude + ocagent"]
-        wardenA -->|spawn / 看守 / 換手| agentA1
-        wardenA -->|spawn / 看守 / 換手| agentA2
+        wardenA -->|依 server 令起停| agentA1
+        wardenA -->|依 server 令起停| agentA2
     end
 
     subgraph M2 ["機器 B（選配）"]
         wardenB["warden（執行手）"]
         agentB1["成員 / 外包<br/>tmux · claude + ocagent"]
-        wardenB -->|spawn / 看守 / 換手| agentB1
+        wardenB -->|依 server 令起停| agentB1
     end
 
     wardenA <-->|SSE + MCP| server
