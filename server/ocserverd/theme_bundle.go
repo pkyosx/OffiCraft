@@ -156,6 +156,15 @@ func validateThemeBundles(bundles []ThemeBundleDTO) error {
 		if err := validateAvatars(b.Avatars, where); err != nil {
 			return err
 		}
+		// logo (T-ea81) is an OPTIONAL single studio-logo image and navIcons an
+		// OPTIONAL per-tab icon overlay — both reuse the same avatar image gate,
+		// validated in full when present, a no-op when absent.
+		if err := validateLogo(b.Logo, where); err != nil {
+			return err
+		}
+		if err := validateNavIcons(b.NavIcons, where); err != nil {
+			return err
+		}
 	}
 	return nil
 }

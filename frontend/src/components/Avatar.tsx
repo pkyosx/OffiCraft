@@ -4,10 +4,11 @@ import type { AvatarKind } from "../lib/themeBundle";
 
 interface AvatarProps {
   size?: number;
-  /** The member type this avatar stands for (T-16a1 P5): 正職 "member" (the
-   * default) or 外包 "outsource". Selects which of the active theme's avatar
-   * images to render; when the theme carries none for this kind, the built-in
-   * UserIcon glyph is used (office never degrades). */
+  /** The role this avatar stands for (T-16a1 P5; extended per role in T-ea81):
+   * 正職 "member" (the default) / 外包 "outsource" / CEO "owner" / 助理
+   * "assistant". Selects which of the active theme's avatar images to render;
+   * when the theme carries none for this kind, the built-in UserIcon glyph is
+   * used (office never degrades). */
   kind?: AvatarKind;
 }
 
@@ -16,8 +17,8 @@ interface AvatarProps {
 // signal); an avatar-corner dot would be a second, contradicting presence
 // system, so it is gone everywhere.
 //
-// T-16a1 P5: a custom theme MAY carry a per-member-type avatar IMAGE (an
-// embedded, validated base64 raster). When the active theme provides one for
+// T-16a1 P5 (extended per role in T-ea81): a custom theme MAY carry a per-role
+// avatar IMAGE (an embedded, validated base64 raster). When the active theme provides one for
 // this `kind`, it renders as an <img> inside the same .avatar frame (round
 // clip, same box); otherwise the built-in UserIcon glyph is used — so the
 // office built-in and every avatars-less theme look exactly as before. The

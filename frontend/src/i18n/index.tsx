@@ -12,7 +12,12 @@ import { zh, type Dict } from "./locales/zh";
 import { en } from "./locales/en";
 import { api } from "../api";
 import { hasToken, AUTH_LOGIN_EVENT } from "../api/auth";
-import { isValidDisplayTheme, type ThemeBundle } from "../lib/themeBundle";
+import {
+  isValidDisplayTheme,
+  type ThemeBundle,
+  type AvatarKind,
+  type NavIconKey,
+} from "../lib/themeBundle";
 import { applyWording } from "./wording";
 
 export type Locale = "zh" | "en";
@@ -85,12 +90,18 @@ interface I18nContextValue {
   /** Active theme: the built-in name ("office") or a custom bundle id. */
   theme: string;
   setTheme: (next: string) => void;
-  /** The active custom theme's per-member-type avatar images (T-16a1 P5), or
+  /** The active custom theme's per-role avatar images (T-16a1 P5; T-ea81), or
    * undefined when the active theme carries none (the built-in office, or a
    * custom theme with no avatars overlay). The Avatar component reads this to
-   * render a member/outsource avatar image, falling back to the built-in glyph
-   * when absent. */
-  activeAvatars?: { member?: string; outsource?: string };
+   * render a member/outsource/owner/assistant avatar image, falling back to the
+   * built-in glyph when absent. */
+  activeAvatars?: Partial<Record<AvatarKind, string>>;
+  /** The active custom theme's studio logo image (T-ea81), or undefined when the
+   * active theme carries none — the top bar then renders its built-in mark. */
+  activeLogo?: string;
+  /** The active custom theme's per-nav-tab icon images (T-ea81), or undefined
+   * when the active theme carries none — each tab then keeps its built-in icon. */
+  activeNavIcons?: Partial<Record<NavIconKey, string>>;
   /** The owner's saved custom theme bundles (server-backed, reconciled at
    * login). Empty until reconcile / when none are saved. */
   customThemes: ThemeBundle[];
@@ -137,6 +148,20 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   // undefined (office glyph fallback — office never degrades).
   const activeAvatars = useMemo(
     () => (customThemes ?? []).find((b) => b.id === theme)?.avatars,
+    [customThemes, theme]
+  );
+
+  // The active custom theme's studio logo image + per-nav-tab icons (T-ea81).
+  // Like avatars, these are IMAGES rendered as <img> (top-bar logo / nav-tab
+  // icons), so they ride the context rather than the DOM. Absent → the built-in
+  // logo mark / built-in nav icons (office never degrades).
+  const activeLogo = useMemo(
+    () => (customThemes ?? []).find((b) => b.id === theme)?.logo,
+    [customThemes, theme]
+  );
+
+  const activeNavIcons = useMemo(
+    () => (customThemes ?? []).find((b) => b.id === theme)?.navIcons,
     [customThemes, theme]
   );
 
@@ -314,6 +339,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       theme,
       setTheme,
       activeAvatars,
+      activeLogo,
+      activeNavIcons,
       customThemes,
       commitCustomThemes,
       resetPreferences,
@@ -326,6 +353,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       theme,
       setTheme,
       activeAvatars,
+      activeLogo,
+      activeNavIcons,
       customThemes,
       commitCustomThemes,
       resetPreferences,
@@ -348,6 +377,22 @@ export function useI18n(): I18nContextValue {
  * WITHOUT throwing when no provider is present (an Avatar rendered in an
  * isolated test/story with no I18nProvider just falls back to the built-in
  * glyph rather than crashing). */
-export function useActiveAvatars(): { member?: string; outsource?: string } | undefined {
+export function useActiveAvatars(): Partial<Record<AvatarKind, string>> | undefined {
   return useContext(I18nContext)?.activeAvatars;
+}
+
+/** The active theme's studio logo image (T-ea81), or undefined. DEFENSIVE like
+ * useActiveAvatars: reads the context WITHOUT throwing when no provider is
+ * present, so a logo consumer in an isolated test/story falls back to the
+ * built-in mark rather than crashing. */
+export function useActiveLogo(): string | undefined {
+  return useContext(I18nContext)?.activeLogo;
+}
+
+/** The active theme's per-nav-tab icon images (T-ea81), or undefined. DEFENSIVE
+ * like useActiveAvatars: reads the context WITHOUT throwing when no provider is
+ * present, so a nav-icon consumer in an isolated test/story falls back to the
+ * built-in icons rather than crashing. */
+export function useActiveNavIcons(): Partial<Record<NavIconKey, string>> | undefined {
+  return useContext(I18nContext)?.activeNavIcons;
 }

@@ -25,16 +25,32 @@ export interface ThemeBundle {
   colors: Record<string, string>;
   wording?: Record<string, Record<string, string>>;
   fonts?: Record<string, string>;
-  /** Optional per-member-type avatar images (T-16a1 P5). Each value is an
-   * EMBEDDED image as a base64 `data:` URI so the picture travels inside the
-   * bundle on export/import. `member` = 正職, `outsource` = 外包. Absent → the
-   * built-in avatar glyph is used (office never degrades). */
-  avatars?: { member?: string; outsource?: string };
+  /** Optional per-role avatar images (T-16a1 P5; extended per role in T-ea81).
+   * Each value is an EMBEDDED image as a base64 `data:` URI so the picture
+   * travels inside the bundle on export/import. `member` = 一般正職, `outsource`
+   * = 外包, `owner` = the human CEO/owner, `assistant` = a member whose role is
+   * assistant (e.g. Mira). Absent → the built-in avatar glyph is used (office
+   * never degrades). */
+  avatars?: Partial<Record<AvatarKind, string>>;
+  /** Optional studio logo image (T-ea81). A single EMBEDDED base64 `data:` URI
+   * that replaces the built-in top-bar logo mark. Absent → the built-in mark. */
+  logo?: string;
+  /** Optional per-nav-tab icon images (T-ea81), keyed on the five nav tabs
+   * (office / replies / tasks / monitor / guide). Each value is an EMBEDDED
+   * base64 `data:` URI that replaces that tab's built-in icon. A tab the map
+   * omits keeps its built-in icon (office never degrades). */
+  navIcons?: Partial<Record<NavIconKey, string>>;
 }
 
-/** The member types an avatars overlay may key on (正職 / 外包). */
-export const AVATAR_KINDS = ["member", "outsource"] as const;
+/** The roles an avatars overlay may key on (正職 / 外包 / owner / assistant) —
+ * the character-for-character twin of the Go avatarKinds set (T-ea81). */
+export const AVATAR_KINDS = ["member", "outsource", "owner", "assistant"] as const;
 export type AvatarKind = (typeof AVATAR_KINDS)[number];
+
+/** The nav tabs a navIcons overlay may key on — the closed set of the five main
+ * nav tabs, identical to App.tsx's `Tab` type (T-ea81). */
+export const NAV_ICON_KEYS = ["office", "replies", "tasks", "monitor", "guide"] as const;
+export type NavIconKey = (typeof NAV_ICON_KEYS)[number];
 
 export const MAX_COLOR_VALUE_LEN = 64;
 export const MIN_THEME_COLORS = 1;
@@ -157,6 +173,7 @@ export function validateFonts(fonts: unknown, where = "theme"): string | null {
 }
 
 const AVATAR_KIND_SET = new Set<string>(AVATAR_KINDS);
+const NAV_ICON_KEY_SET = new Set<string>(NAV_ICON_KEYS);
 
 // Magic-byte predicates over the DECODED image bytes — the twin of
 // avatarMimeMagic in avatar_bundle.go. Each whitelisted mime must begin with
@@ -219,10 +236,10 @@ export function isValidAvatarValue(v: string): boolean {
   return AVATAR_MIME_MAGIC[mime]?.(bytes) ?? false;
 }
 
-/** Validate a bundle's optional `avatars` overlay (T-16a1 P5) — the twin of the
- * Go validateAvatars. Key ∈ {member, outsource}, value ∈ {whitelisted-raster
- * base64 data URI}. Returns an error message, or null when admissible (an
- * absent overlay is admissible). */
+/** Validate a bundle's optional `avatars` overlay (T-16a1 P5; T-ea81) — the
+ * twin of the Go validateAvatars. Key ∈ {member, outsource, owner, assistant},
+ * value ∈ {whitelisted-raster base64 data URI}. Returns an error message, or
+ * null when admissible (an absent overlay is admissible). */
 export function validateAvatars(avatars: unknown, where = "theme"): string | null {
   if (avatars === undefined || avatars === null) return null;
   if (typeof avatars !== "object" || Array.isArray(avatars)) {
@@ -230,10 +247,42 @@ export function validateAvatars(avatars: unknown, where = "theme"): string | nul
   }
   for (const [kind, value] of Object.entries(avatars as Record<string, unknown>)) {
     if (!AVATAR_KIND_SET.has(kind)) {
-      return `${where}: avatar kind "${kind}" is not allowed (only member, outsource)`;
+      return `${where}: avatar kind "${kind}" is not allowed (only member, outsource, owner, assistant)`;
     }
     if (typeof value !== "string" || !isValidAvatarValue(value)) {
       return `${where}: avatars[${kind}] is not a valid image — only a base64 data: URI of a PNG / JPEG / WEBP (≤ 64 KiB) is accepted`;
+    }
+  }
+  return null;
+}
+
+/** Validate a bundle's optional `logo` image (T-ea81) — the twin of the Go
+ * validateLogo. Reuses the SAME image gate as avatars (isValidAvatarValue): a
+ * whitelisted-raster base64 data URI. Returns an error message, or null when
+ * admissible (an absent logo is admissible). */
+export function validateLogo(logo: unknown, where = "theme"): string | null {
+  if (logo === undefined || logo === null) return null;
+  if (typeof logo !== "string" || !isValidAvatarValue(logo)) {
+    return `${where}: logo is not a valid image — only a base64 data: URI of a PNG / JPEG / WEBP (≤ 64 KiB) is accepted`;
+  }
+  return null;
+}
+
+/** Validate a bundle's optional `navIcons` overlay (T-ea81) — the twin of the
+ * Go validateNavIcons. Key ∈ {office, replies, tasks, monitor, guide}, value ∈
+ * {whitelisted-raster base64 data URI, via the SAME gate as avatars}. Returns an
+ * error message, or null when admissible (an absent overlay is admissible). */
+export function validateNavIcons(navIcons: unknown, where = "theme"): string | null {
+  if (navIcons === undefined || navIcons === null) return null;
+  if (typeof navIcons !== "object" || Array.isArray(navIcons)) {
+    return `${where}: navIcons must be an object`;
+  }
+  for (const [key, value] of Object.entries(navIcons as Record<string, unknown>)) {
+    if (!NAV_ICON_KEY_SET.has(key)) {
+      return `${where}: nav icon key "${key}" is not allowed (only office, replies, tasks, monitor, guide)`;
+    }
+    if (typeof value !== "string" || !isValidAvatarValue(value)) {
+      return `${where}: navIcons[${key}] is not a valid image — only a base64 data: URI of a PNG / JPEG / WEBP (≤ 64 KiB) is accepted`;
     }
   }
   return null;
@@ -339,8 +388,14 @@ export function validateThemeBundle(b: unknown, where = "theme"): string | null 
   // fonts (T-16a1 P4) is an optional --font-* → safe-family overlay.
   const fErr = validateFonts((bundle as { fonts?: unknown }).fonts, where);
   if (fErr) return fErr;
-  // avatars (T-16a1 P5) is an optional per-member-type embedded-image overlay.
-  return validateAvatars((bundle as { avatars?: unknown }).avatars, where);
+  // avatars (T-16a1 P5; T-ea81) is an optional per-role embedded-image overlay.
+  const aErr = validateAvatars((bundle as { avatars?: unknown }).avatars, where);
+  if (aErr) return aErr;
+  // logo (T-ea81) is an optional single embedded studio-logo image.
+  const lErr = validateLogo((bundle as { logo?: unknown }).logo, where);
+  if (lErr) return lErr;
+  // navIcons (T-ea81) is an optional per-nav-tab embedded-image overlay.
+  return validateNavIcons((bundle as { navIcons?: unknown }).navIcons, where);
 }
 
 /** Validate the whole custom_themes array (shape + token whitelist + colour

@@ -19,6 +19,7 @@ import type { OutsourceWorkerView } from "../api/adapter";
 import { joinSessionRuntime } from "../lib/runtime";
 import { useHashRoute } from "../lib/hashRoute";
 import { Avatar } from "./Avatar";
+import { avatarKindForMember } from "../lib/avatarKind";
 import { InlineEdit } from "./InlineEdit";
 import { MemberDetailPanel } from "./MemberDetailPanel";
 import { PresenceBadge } from "./PresenceBadge";
@@ -1173,7 +1174,7 @@ function SessionRow({
     >
       <td className="mon-table__left" data-label={t.monitor.sessionCol.member}>
         <div className="mon-member">
-          <Avatar size={34} kind="member" />
+          <Avatar size={34} kind={roster ? avatarKindForMember(roster) : "member"} />
           <div className="mon-member__body">
             <div className="mon-member__name">{name}</div>
             <div className="mon-member__sub">

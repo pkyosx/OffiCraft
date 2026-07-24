@@ -34,6 +34,7 @@ import { useMembers } from "../hooks/useMembers";
 import { useReplyCards } from "../hooks/useReplyCards";
 import { useWorkerCodenames } from "../hooks/useWorkerCodenames";
 import { useHashRoute } from "../lib/hashRoute";
+import { avatarKindForMember } from "../lib/avatarKind";
 import { ReplyCardAvatarButton } from "./ReplyCardAvatarButton";
 import { ChevronRightIcon } from "./icons";
 import { ConfirmModal } from "./ConfirmModal";
@@ -287,7 +288,9 @@ export function RepliesPage() {
       <header className="reply-card__head">
         <ReplyCardAvatarButton
           onClick={() => openProfile(card)}
-          kind={card.from.startsWith("ow-") ? "outsource" : "member"}
+          kind={avatarKindForMember(
+            members.find((x) => x.id === card.from) ?? { id: card.from }
+          )}
         />
         <div className="reply-card__who">
           <span className="reply-card__name">{who.name}</span>

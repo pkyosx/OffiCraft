@@ -2,17 +2,18 @@ import { useEffect, useRef, useState } from "react";
 import { useI18n } from "./i18n";
 import { useHashRoute } from "./lib/hashRoute";
 import {
-  LogoMark,
   RefreshIcon,
   GearIcon,
   ChevronDownIcon,
-  UserIcon,
   OfficeIcon,
   InboxIcon,
   TasksIcon,
   MonitorIcon,
   FileTextIcon,
 } from "./components/icons";
+import { Avatar } from "./components/Avatar";
+import { BrandLogo } from "./components/BrandLogo";
+import { NavIcon } from "./components/NavIcon";
 import { OfficePage } from "./components/OfficePage";
 import { RepliesPage } from "./components/RepliesPage";
 import { TasksPage } from "./components/TasksPage";
@@ -116,7 +117,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
             title={t.nav.home}
             onClick={() => setRoute({ page: "office" })}
           >
-            <LogoMark size={20} />
+            <BrandLogo size={20} />
           </button>
           <InlineEdit
             value={orgName}
@@ -160,7 +161,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
               onClick={() => setProfileOpen((o) => !o)}
             >
               <span className="profile-pill__avatar">
-                <UserIcon size={14} />
+                <Avatar size={20} kind="owner" />
               </span>
               <span className="profile-pill__name">{userName}</span>
               <ChevronDownIcon size={15} className="profile-pill__chevron" />
@@ -190,7 +191,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
             }`}
             onClick={() => selectTab("office")}
           >
-            <OfficeIcon size={15} />
+            <NavIcon tabKey="office" fallback={<OfficeIcon size={15} />} />
             <span>{t.nav.office}</span>
             {chatUnread > 0 && (
               <span className="nav-tab__badge" data-testid="office-unread-badge">
@@ -205,7 +206,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
             }`}
             onClick={() => selectTab("replies")}
           >
-            <InboxIcon size={15} />
+            <NavIcon tabKey="replies" fallback={<InboxIcon size={15} />} />
             <span>{t.nav.replies}</span>
             {replyCount > 0 && (
               <span className="nav-tab__badge" data-testid="replies-badge">
@@ -220,7 +221,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
             }`}
             onClick={() => selectTab("tasks")}
           >
-            <TasksIcon size={15} />
+            <NavIcon tabKey="tasks" fallback={<TasksIcon size={15} />} />
             <span>{t.nav.tasks}</span>
             {taskCount > 0 && (
               <span className="nav-tab__badge" data-testid="tasks-badge">
@@ -235,7 +236,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
             }`}
             onClick={() => selectTab("monitor")}
           >
-            <MonitorIcon size={15} />
+            <NavIcon tabKey="monitor" fallback={<MonitorIcon size={15} />} />
             <span>{t.nav.monitor}</span>
           </button>
           {/* 使用說明 — LAST tab, immediately right of 監控 (owner 2026-07-22:
@@ -251,7 +252,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
             }`}
             onClick={() => selectTab("guide")}
           >
-            <FileTextIcon size={15} />
+            <NavIcon tabKey="guide" fallback={<FileTextIcon size={15} />} />
             <span>{t.nav.guide}</span>
           </button>
         </div>

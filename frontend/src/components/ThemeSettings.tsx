@@ -7,9 +7,11 @@ import { MESSAGE_KEYS } from "../i18n/messageKeys.generated";
 import {
   MAX_CUSTOM_THEMES,
   AVATAR_KINDS,
+  NAV_ICON_KEYS,
   isValidAvatarValue,
   validateThemeBundle,
   type AvatarKind,
+  type NavIconKey,
   type ThemeBundle,
 } from "../lib/themeBundle";
 import { SAFE_FONT_FAMILIES } from "../styles/themeFonts.generated";
@@ -50,12 +52,37 @@ const FONT_SLOTS = [
   { token: "--font-title", labelKey: "themeFontTitle" },
 ] as const;
 
-// The two avatar slots the editor offers (T-16a1 P5): 正職 member / 外包
-// outsource. Each accepts one uploaded image (validated client-side, embedded
-// as a base64 data URI so it travels inside the bundle).
-const AVATAR_SLOTS: { kind: AvatarKind; labelKey: "themeAvatarMember" | "themeAvatarOutsource" }[] = [
+// The four avatar slots the editor offers (T-16a1 P5; T-ea81): 正職 member /
+// 外包 outsource / owner CEO / assistant 助理. Each accepts one uploaded image
+// (validated client-side, embedded as a base64 data URI so it travels inside
+// the bundle).
+type AvatarLabelKey =
+  | "themeAvatarMember"
+  | "themeAvatarOutsource"
+  | "themeAvatarOwner"
+  | "themeAvatarAssistant";
+const AVATAR_SLOTS: { kind: AvatarKind; labelKey: AvatarLabelKey }[] = [
   { kind: "member", labelKey: "themeAvatarMember" },
   { kind: "outsource", labelKey: "themeAvatarOutsource" },
+  { kind: "owner", labelKey: "themeAvatarOwner" },
+  { kind: "assistant", labelKey: "themeAvatarAssistant" },
+];
+
+// The five nav-tab icon slots the editor offers (T-ea81), keyed on the five
+// main nav tabs. Same upload flow as avatars (shared image gate); stored on
+// bundle.navIcons[key].
+type NavIconLabelKey =
+  | "themeNavOffice"
+  | "themeNavReplies"
+  | "themeNavTasks"
+  | "themeNavMonitor"
+  | "themeNavGuide";
+const NAV_ICON_SLOTS: { key: NavIconKey; labelKey: NavIconLabelKey }[] = [
+  { key: "office", labelKey: "themeNavOffice" },
+  { key: "replies", labelKey: "themeNavReplies" },
+  { key: "tasks", labelKey: "themeNavTasks" },
+  { key: "monitor", labelKey: "themeNavMonitor" },
+  { key: "guide", labelKey: "themeNavGuide" },
 ];
 
 /**
@@ -95,6 +122,25 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   const avatarInputRefs = {
     member: useRef<HTMLInputElement>(null),
     outsource: useRef<HTMLInputElement>(null),
+    owner: useRef<HTMLInputElement>(null),
+    assistant: useRef<HTMLInputElement>(null),
+  };
+  // Studio logo (T-ea81): a single embedded base64 data URI ("" = none, falls
+  // back to the built-in mark). Per-nav-tab icons: key → embedded data URI.
+  // Both go through the SAME image gate as avatars; upload errors surfaced
+  // inline in their own section.
+  const [editLogo, setEditLogo] = useState<string>("");
+  const [editNavIcons, setEditNavIcons] = useState<
+    Partial<Record<NavIconKey, string>>
+  >({});
+  const [brandError, setBrandError] = useState("");
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const navIconInputRefs = {
+    office: useRef<HTMLInputElement>(null),
+    replies: useRef<HTMLInputElement>(null),
+    tasks: useRef<HTMLInputElement>(null),
+    monitor: useRef<HTMLInputElement>(null),
+    guide: useRef<HTMLInputElement>(null),
   };
   const [wordingLang, setWordingLang] = useState<"zh" | "en">("zh");
   const [wordingSearch, setWordingSearch] = useState("");
@@ -197,24 +243,22 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
     setEditFonts({ ...(bundle.fonts ?? {}) });
     setEditAvatars({ ...(bundle.avatars ?? {}) });
     setAvatarError("");
+    setEditLogo(bundle.logo ?? "");
+    setEditNavIcons({ ...(bundle.navIcons ?? {}) });
+    setBrandError("");
     setWordingLang(language);
     setWordingSearch("");
     setEditError("");
     setView("edit");
   }
 
-  // Read one picked file as a base64 data URI, VALIDATE it through the shared
+  // Read one picked file as a base64 data URI and VALIDATE it through the shared
   // client validator (mime whitelist + size + magic bytes — the same gate the
-  // server enforces), and stash it on the given kind. An invalid file surfaces
-  // an inline error and is NOT stored (never a silent bad value in the bundle).
-  async function handleAvatarPicked(
-    kind: AvatarKind,
-    e: React.ChangeEvent<HTMLInputElement>
-  ) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    setAvatarError("");
+  // server enforces, the same one avatars / logo / nav-icons all reuse; the
+  // image safety gate is NOT relaxed for any of them). Returns the validated
+  // data URI, or null when the file is unreadable or fails validation (never a
+  // silent bad value in the bundle).
+  async function readValidatedImage(file: File): Promise<string | null> {
     let dataUri: string;
     try {
       dataUri = await new Promise<string>((resolve, reject) => {
@@ -224,10 +268,21 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
         reader.readAsDataURL(file);
       });
     } catch {
-      setAvatarError(t.settings.themeAvatarInvalid);
-      return;
+      return null;
     }
-    if (!isValidAvatarValue(dataUri)) {
+    return isValidAvatarValue(dataUri) ? dataUri : null;
+  }
+
+  async function handleAvatarPicked(
+    kind: AvatarKind,
+    e: React.ChangeEvent<HTMLInputElement>
+  ) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setAvatarError("");
+    const dataUri = await readValidatedImage(file);
+    if (dataUri === null) {
       setAvatarError(t.settings.themeAvatarInvalid);
       return;
     }
@@ -242,6 +297,53 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
       return next;
     });
     setAvatarError("");
+    setEditError("");
+  }
+
+  async function handleLogoPicked(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setBrandError("");
+    const dataUri = await readValidatedImage(file);
+    if (dataUri === null) {
+      setBrandError(t.settings.themeAvatarInvalid);
+      return;
+    }
+    setEditLogo(dataUri);
+    setEditError("");
+  }
+
+  function clearLogo() {
+    setEditLogo("");
+    setBrandError("");
+    setEditError("");
+  }
+
+  async function handleNavIconPicked(
+    key: NavIconKey,
+    e: React.ChangeEvent<HTMLInputElement>
+  ) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setBrandError("");
+    const dataUri = await readValidatedImage(file);
+    if (dataUri === null) {
+      setBrandError(t.settings.themeAvatarInvalid);
+      return;
+    }
+    setEditNavIcons((prev) => ({ ...prev, [key]: dataUri }));
+    setEditError("");
+  }
+
+  function clearNavIcon(key: NavIconKey) {
+    setEditNavIcons((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    setBrandError("");
     setEditError("");
   }
 
@@ -288,16 +390,27 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
     // Keep only the avatar kinds that actually hold an image — an absent kind
     // means "no avatar" (falls back to the built-in glyph). Each value already
     // passed isValidAvatarValue at upload time; the bundle validator re-checks.
-    const avatars: { member?: string; outsource?: string } = {};
+    const avatars: Partial<Record<AvatarKind, string>> = {};
     for (const kind of AVATAR_KINDS) {
       const v = editAvatars[kind];
       if (typeof v === "string" && v !== "") avatars[kind] = v;
+    }
+
+    // Same for nav-tab icons — keep only the tabs that hold an image (an absent
+    // tab keeps its built-in icon). The logo is a single value (absent = built-in
+    // mark). Both already passed the shared image gate at upload time.
+    const navIcons: Partial<Record<NavIconKey, string>> = {};
+    for (const key of NAV_ICON_KEYS) {
+      const v = editNavIcons[key];
+      if (typeof v === "string" && v !== "") navIcons[key] = v;
     }
 
     const bundle: ThemeBundle = { id: editId, name: editName, colors };
     if (Object.keys(wording).length > 0) bundle.wording = wording;
     if (Object.keys(fonts).length > 0) bundle.fonts = fonts;
     if (Object.keys(avatars).length > 0) bundle.avatars = avatars;
+    if (editLogo !== "") bundle.logo = editLogo;
+    if (Object.keys(navIcons).length > 0) bundle.navIcons = navIcons;
 
     const err = validateThemeBundle(bundle);
     if (err) {
@@ -562,6 +675,112 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
             })}
           </div>
           {avatarError && <div className="set-error">{avatarError}</div>}
+
+          {/* ── studio logo (工作室 logo) — single top-bar mark image ── */}
+          <div className="ts-section-label">{t.settings.themeLogoSection}</div>
+          <div className="ts-wording-sub">{t.settings.themeLogoHint}</div>
+          <div className="ts-avatar-slots">
+            <div className="ts-avatar-slot">
+              <div className="ts-avatar-label">{t.settings.themeLogo}</div>
+              <div className="ts-avatar-row">
+                <span
+                  className="avatar ts-avatar-preview"
+                  style={{ width: 48, height: 48 }}
+                >
+                  {editLogo ? (
+                    <img
+                      className="avatar__img"
+                      src={editLogo}
+                      alt=""
+                      width={48}
+                      height={48}
+                      draggable={false}
+                    />
+                  ) : (
+                    <UserIcon size={24} className="avatar__glyph" />
+                  )}
+                </span>
+                <input
+                  ref={logoInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="ts-file"
+                  aria-label={t.settings.themeLogo}
+                  onChange={handleLogoPicked}
+                />
+                <button
+                  type="button"
+                  className="doc-btn"
+                  onClick={() => logoInputRef.current?.click()}
+                >
+                  {t.settings.themeAvatarChoose}
+                </button>
+                {editLogo && (
+                  <button type="button" className="doc-btn" onClick={clearLogo}>
+                    {t.settings.themeAvatarClear}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* ── nav-tab icons (導覽圖示) — per-tab icon image upload ── */}
+          <div className="ts-section-label">{t.settings.themeNavIconsSection}</div>
+          <div className="ts-wording-sub">{t.settings.themeNavIconsHint}</div>
+          <div className="ts-avatar-slots">
+            {NAV_ICON_SLOTS.map(({ key, labelKey }) => {
+              const src = editNavIcons[key];
+              return (
+                <div key={key} className="ts-avatar-slot">
+                  <div className="ts-avatar-label">{t.settings[labelKey]}</div>
+                  <div className="ts-avatar-row">
+                    <span
+                      className="avatar ts-avatar-preview"
+                      style={{ width: 48, height: 48 }}
+                    >
+                      {src ? (
+                        <img
+                          className="avatar__img"
+                          src={src}
+                          alt=""
+                          width={48}
+                          height={48}
+                          draggable={false}
+                        />
+                      ) : (
+                        <UserIcon size={24} className="avatar__glyph" />
+                      )}
+                    </span>
+                    <input
+                      ref={navIconInputRefs[key]}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      className="ts-file"
+                      aria-label={t.settings[labelKey]}
+                      onChange={(e) => handleNavIconPicked(key, e)}
+                    />
+                    <button
+                      type="button"
+                      className="doc-btn"
+                      onClick={() => navIconInputRefs[key].current?.click()}
+                    >
+                      {t.settings.themeAvatarChoose}
+                    </button>
+                    {src && (
+                      <button
+                        type="button"
+                        className="doc-btn"
+                        onClick={() => clearNavIcon(key)}
+                      >
+                        {t.settings.themeAvatarClear}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {brandError && <div className="set-error">{brandError}</div>}
 
           {/* ── wording overlay (用詞) ── */}
           <div className="ts-section-label">

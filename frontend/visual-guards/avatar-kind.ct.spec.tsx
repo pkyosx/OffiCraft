@@ -29,8 +29,9 @@ import {
   WorkerDetailStory,
   ChatHeaderOutsourceStory,
   ChatHeaderMemberStory,
+  ChatHeaderAssistantStory,
 } from "./stories/AvatarKindStory";
-import { MEMBER_IMG, OUTSOURCE_IMG } from "./stories/avatarKindImages";
+import { MEMBER_IMG, OUTSOURCE_IMG, ASSISTANT_IMG } from "./stories/avatarKindImages";
 
 for (const width of [1280, 390]) {
   test(`width ${width} · rail: outsource row paints the outsource image`, async ({
@@ -87,6 +88,18 @@ for (const width of [1280, 390]) {
     await expect(cmp.locator(".chat__header .avatar__img")).toHaveAttribute(
       "src",
       MEMBER_IMG,
+    );
+  });
+
+  test(`width ${width} · chat header: assistant peer paints the assistant image`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 800 });
+    const cmp = await mount(<ChatHeaderAssistantStory />);
+    await expect(cmp.locator(".chat__header .avatar__img")).toHaveAttribute(
+      "src",
+      ASSISTANT_IMG,
     );
   });
 }
