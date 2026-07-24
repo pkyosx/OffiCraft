@@ -106,20 +106,23 @@ func TestValidateAvatars(t *testing.T) {
 		t.Fatalf("nil avatars must be admissible: %v", err)
 	}
 
-	// A legal kind→image overlay round-trips.
+	// A legal kind→image overlay round-trips across the full kind set
+	// (member/outsource + owner/assistant added in T-ea81).
 	ok := map[string]string{
 		"member":    dataURI("image/png", pngBytes),
 		"outsource": dataURI("image/webp", webpBytes),
+		"owner":     dataURI("image/jpeg", jpegBytes),
+		"assistant": dataURI("image/png", pngBytes),
 	}
 	if err := validateAvatars(&ok, "t"); err != nil {
 		t.Fatalf("legal avatars overlay must pass: %v", err)
 	}
 
-	// An unknown kind key is rejected.
+	// An unknown kind key is rejected, and the message names the full kind set.
 	badKind := map[string]string{"boss": dataURI("image/png", pngBytes)}
 	if err := validateAvatars(&badKind, "t"); err == nil ||
-		!strings.Contains(err.Error(), "not allowed") {
-		t.Fatalf("unknown avatar kind must 422: %v", err)
+		!strings.Contains(err.Error(), "only member, outsource, owner, assistant") {
+		t.Fatalf("unknown avatar kind must 422 naming the kind set: %v", err)
 	}
 
 	// A bad value under a legal kind is rejected with the locator.
@@ -154,5 +157,124 @@ func TestValidateThemeBundlesAvatars(t *testing.T) {
 	if err := validateThemeBundles(illegal); err == nil ||
 		!strings.Contains(err.Error(), "not an allowed image type") {
 		t.Fatalf("bundle with an SVG avatar must 422: %v", err)
+	}
+
+	// Backward compatibility: a pre-T-ea81 bundle carrying only member/outsource
+	// avatars and no logo/navIcons stays valid unchanged.
+	legacy := map[string]string{
+		"member":    dataURI("image/png", pngBytes),
+		"outsource": dataURI("image/webp", webpBytes),
+	}
+	if err := validateThemeBundles([]ThemeBundleDTO{{
+		Id:      "midnight",
+		Name:    "Midnight",
+		Colors:  map[string]string{"--color-bg": "#101018"},
+		Avatars: &legacy,
+	}}); err != nil {
+		t.Fatalf("legacy avatars-only bundle must stay valid: %v", err)
+	}
+}
+
+func TestValidateLogo(t *testing.T) {
+	// nil logo is admissible (optional).
+	if err := validateLogo(nil, "t"); err != nil {
+		t.Fatalf("nil logo must be admissible: %v", err)
+	}
+
+	// A legal raster logo passes the shared avatar image gate.
+	logo := dataURI("image/png", pngBytes)
+	if err := validateLogo(&logo, "t"); err != nil {
+		t.Fatalf("legal logo must pass: %v", err)
+	}
+
+	big := make([]byte, maxAvatarBytes+1)
+	copy(big, pngBytes)
+	for _, tc := range []struct {
+		name   string
+		value  string
+		expect string
+	}{
+		{"svg rejected", dataURI("image/svg+xml", []byte(`<svg onload=alert(1)>`)), "not an allowed image type"},
+		{"oversize rejected", dataURI("image/png", big), "too large"},
+		{"bad magic rejected", dataURI("image/png", jpegBytes), "magic-byte"},
+	} {
+		err := validateLogo(&tc.value, "cx[0]")
+		if err == nil || !strings.Contains(err.Error(), tc.expect) {
+			t.Fatalf("%s: expected %q, got %v", tc.name, tc.expect, err)
+		}
+		if !strings.Contains(err.Error(), "cx[0]: logo") {
+			t.Fatalf("%s: error must carry the logo locator: %v", tc.name, err)
+		}
+	}
+}
+
+func TestValidateNavIcons(t *testing.T) {
+	// nil overlay is admissible (optional).
+	if err := validateNavIcons(nil, "t"); err != nil {
+		t.Fatalf("nil navIcons must be admissible: %v", err)
+	}
+
+	// All five nav-tab keys are legal and pass the shared image gate.
+	ok := map[string]string{
+		"office":  dataURI("image/png", pngBytes),
+		"replies": dataURI("image/jpeg", jpegBytes),
+		"tasks":   dataURI("image/webp", webpBytes),
+		"monitor": dataURI("image/png", pngBytes),
+		"guide":   dataURI("image/jpeg", jpegBytes),
+	}
+	if err := validateNavIcons(&ok, "t"); err != nil {
+		t.Fatalf("legal navIcons overlay must pass: %v", err)
+	}
+
+	// An unknown tab key is rejected.
+	badKey := map[string]string{"settings": dataURI("image/png", pngBytes)}
+	if err := validateNavIcons(&badKey, "t"); err == nil ||
+		!strings.Contains(err.Error(), "only office, replies, tasks, monitor, guide") {
+		t.Fatalf("unknown nav icon key must 422 naming the key set: %v", err)
+	}
+
+	// A value under a legal key still runs the image gate — SVG is rejected.
+	badVal := map[string]string{"office": dataURI("image/svg+xml", []byte("<svg onload=alert(1)>"))}
+	if err := validateNavIcons(&badVal, "cx[0]"); err == nil ||
+		!strings.Contains(err.Error(), "cx[0]: navIcons[office]") ||
+		!strings.Contains(err.Error(), "not an allowed image type") {
+		t.Fatalf("SVG nav icon value must 422 through the image gate with locator: %v", err)
+	}
+}
+
+// TestValidateThemeBundlesImages checks the logo + navIcons overlays flow
+// through the top-level bundle validator (parity with avatars).
+func TestValidateThemeBundlesImages(t *testing.T) {
+	logo := dataURI("image/png", pngBytes)
+	navIcons := map[string]string{"office": dataURI("image/webp", webpBytes)}
+	legal := []ThemeBundleDTO{{
+		Id:       "midnight",
+		Name:     "Midnight",
+		Colors:   map[string]string{"--color-bg": "#101018"},
+		Logo:     &logo,
+		NavIcons: &navIcons,
+	}}
+	if err := validateThemeBundles(legal); err != nil {
+		t.Fatalf("bundle with legal logo + navIcons must pass: %v", err)
+	}
+
+	badLogo := dataURI("image/svg+xml", []byte("<svg onload=alert(1)>"))
+	if err := validateThemeBundles([]ThemeBundleDTO{{
+		Id:     "midnight",
+		Name:   "Midnight",
+		Colors: map[string]string{"--color-bg": "#101018"},
+		Logo:   &badLogo,
+	}}); err == nil || !strings.Contains(err.Error(), "not an allowed image type") {
+		t.Fatalf("bundle with an SVG logo must 422: %v", err)
+	}
+
+	badNav := map[string]string{"office": dataURI("image/svg+xml", []byte("<svg onload=alert(1)>"))}
+	if err := validateThemeBundles([]ThemeBundleDTO{{
+		Id:       "midnight",
+		Name:     "Midnight",
+		Colors:   map[string]string{"--color-bg": "#101018"},
+		NavIcons: &badNav,
+	}}); err == nil || !strings.Contains(err.Error(), "not an allowed image type") {
+		t.Fatalf("bundle with an SVG nav icon must 422: %v", err)
 	}
 }

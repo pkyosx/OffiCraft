@@ -52,6 +52,17 @@
   transform: none;
 }
 
+/* A custom theme's studio logo image (T-ea81): fills the logo box, clipped to
+   the same rounded corners, shown whole (contain — a logo must not be cropped).
+   The .topbar__logo button already carries the box; the image sits inside it. */
+.topbar__logo-img {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  object-fit: contain;
+  display: block;
+}
+
 .topbar__org {
   font-size: 18px;
   font-weight: 600;
@@ -103,10 +114,9 @@
 .profile-pill__avatar {
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
+  /* Sizing/centering box only — the nested Avatar (T-ea81, kind="owner")
+     carries its own rounded frame + background, so this wrapper stays
+     undecorated to avoid a double frame around the CEO portrait. */
   color: var(--color-text-muted);
 }
 
@@ -152,6 +162,18 @@
 
 .nav-tab:hover {
   color: var(--color-text);
+}
+
+/* A custom theme's per-tab icon image (T-ea81): matches the built-in icon's
+   15px box, clipped to a small radius, shown whole (contain). A tab the theme
+   omits keeps its built-in <svg> icon. */
+.nav-tab__icon-img {
+  width: 15px;
+  height: 15px;
+  border-radius: 4px;
+  object-fit: contain;
+  display: block;
+  flex: none;
 }
 
 .nav-tab--active {

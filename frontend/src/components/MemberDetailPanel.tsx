@@ -16,6 +16,7 @@ import type {
 } from "../api/adapter";
 import { AgentDetailPanel } from "./AgentDetailPanel";
 import { Avatar } from "./Avatar";
+import { avatarKindForMember } from "../lib/avatarKind";
 import { ConfirmModal } from "./ConfirmModal";
 import { InlineEdit } from "./InlineEdit";
 import type { LifecycleVisualStatus } from "./LifecycleDot";
@@ -518,7 +519,7 @@ export function MemberDetailPanel({
         {/* Avatar dot dropped here: the 7-state LifecycleDot on the status line
             below is now the single source of presence colour (replaces the old
             3-state Avatar dot in this panel). */}
-        <Avatar size={52} kind="member" />
+        <Avatar size={52} kind={avatarKindForMember(member)} />
         <div className="mp-identity__body">
           <div className="mp-identity__line">
             <InlineEdit

@@ -928,9 +928,24 @@ export const zh = {
       "可依成員類型各上傳一張頭像(PNG / JPEG / WEBP,上限 64 KB);留空則沿用內建頭像。",
     themeAvatarMember: "正職頭像",
     themeAvatarOutsource: "外包頭像",
+    themeAvatarOwner: "CEO 頭像",
+    themeAvatarAssistant: "助理頭像",
     themeAvatarChoose: "選擇圖片",
     themeAvatarClear: "清除",
     themeAvatarInvalid: "圖片無效——僅接受 64 KB 以內的 PNG / JPEG / WEBP 檔。",
+    // ── 工作室 logo + 導覽圖示 (T-ea81) ──
+    themeLogoSection: "工作室 Logo",
+    themeLogoHint:
+      "上傳頂欄 Logo(PNG / JPEG / WEBP,上限 64 KB);留空則沿用內建圖示。",
+    themeLogo: "Logo",
+    themeNavIconsSection: "導覽圖示",
+    themeNavIconsHint:
+      "可為每個導覽頁籤各上傳一張圖示(PNG / JPEG / WEBP,上限 64 KB);留空則沿用內建圖示。",
+    themeNavOffice: "辦公室圖示",
+    themeNavReplies: "請示圖示",
+    themeNavTasks: "任務圖示",
+    themeNavMonitor: "監控圖示",
+    themeNavGuide: "使用說明圖示",
     themeDeleteConfirm: (name: string) =>
       `刪除主題「${name}」?此動作無法復原。`,
     // ── 軟體更新 (honest build-identity card) ──

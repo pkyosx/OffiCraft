@@ -4,7 +4,9 @@ package main
 // optional `avatars` overlay (per-member-type avatar images). The overlay is
 // `{ <kind>: "<data-URI>" }`:
 //
-//   - the KIND key is `member` (正職) or `outsource` (外包) — a closed set;
+//   - the KIND key is `member` (正職), `outsource` (外包), `owner` (the human
+//     CEO) or `assistant` (a member whose role is assistant, e.g. Mira) — a
+//     closed set (owner/assistant added in T-ea81);
 //   - the VALUE is an EMBEDDED image: a base64 `data:` URI so the picture
 //     travels INSIDE the bundle on export/import (owner ruling: the image
 //     follows the theme). It is NOT an arbitrary string. This is a NEW attack
@@ -59,8 +61,12 @@ const (
 )
 
 // avatarKindAllowed is the closed set of member-type keys an avatars overlay
-// may carry. Any other key is a 422.
-var avatarKindAllowed = map[string]bool{"member": true, "outsource": true}
+// may carry. Any other key is a 422. Extended in T-ea81: owner (the human CEO)
+// and assistant (a member whose role is assistant, e.g. Mira) join the original
+// member / outsource kinds.
+var avatarKindAllowed = map[string]bool{
+	"member": true, "outsource": true, "owner": true, "assistant": true,
+}
 
 // avatarMimeMagic maps each whitelisted RASTER mime to a predicate over the
 // decoded bytes: the leading magic bytes that mime's format must begin with.
@@ -157,10 +163,51 @@ func validateAvatars(avatars *map[string]string, where string) error {
 	for kind, value := range *avatars {
 		if !avatarKindAllowed[kind] {
 			return fmt.Errorf(
-				"%s: avatar kind %q is not allowed (only member, outsource)", where, kind)
+				"%s: avatar kind %q is not allowed (only member, outsource, owner, assistant)", where, kind)
 		}
 		if err := validAvatarValue(value); err != nil {
 			return fmt.Errorf("%s: avatars[%s] %v", where, kind, err)
+		}
+	}
+	return nil
+}
+
+// navIconKeyAllowed is the closed set of nav-tab keys a navIcons overlay may
+// carry — the five nav tabs of App.tsx (`Tab` type). Any other key is a 422.
+var navIconKeyAllowed = map[string]bool{
+	"office": true, "replies": true, "tasks": true, "monitor": true, "guide": true,
+}
+
+// validateLogo validates a bundle's optional single studio-logo image (T-ea81).
+// nil is admissible (logo is optional); a present logo passes the SAME strict
+// image gate as an avatar value (validAvatarValue — data-URI / raster-mime /
+// size / magic-byte), so the one gate stays the only image validator.
+func validateLogo(logo *string, where string) error {
+	if logo == nil {
+		return nil
+	}
+	if err := validAvatarValue(*logo); err != nil {
+		return fmt.Errorf("%s: logo %v", where, err)
+	}
+	return nil
+}
+
+// validateNavIcons validates a bundle's optional per-tab nav-icon overlay
+// (T-ea81). A nil overlay is admissible. Each key must be one of the five nav
+// tabs (navIconKeyAllowed); each value passes the SAME strict image gate as an
+// avatar value (validAvatarValue), so the one gate stays the only image
+// validator.
+func validateNavIcons(navIcons *map[string]string, where string) error {
+	if navIcons == nil {
+		return nil
+	}
+	for key, value := range *navIcons {
+		if !navIconKeyAllowed[key] {
+			return fmt.Errorf(
+				"%s: nav icon key %q is not allowed (only office, replies, tasks, monitor, guide)", where, key)
+		}
+		if err := validAvatarValue(value); err != nil {
+			return fmt.Errorf("%s: navIcons[%s] %v", where, key, err)
 		}
 	}
 	return nil

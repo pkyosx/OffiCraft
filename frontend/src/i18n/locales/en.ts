@@ -847,10 +847,25 @@ export const en: Dict = {
       "Upload an avatar per member type (PNG / JPEG / WEBP, max 64 KB). Leave empty to keep the built-in avatar.",
     themeAvatarMember: "Staff avatar",
     themeAvatarOutsource: "Outsource avatar",
+    themeAvatarOwner: "CEO avatar",
+    themeAvatarAssistant: "Assistant avatar",
     themeAvatarChoose: "Choose image",
     themeAvatarClear: "Clear",
     themeAvatarInvalid:
       "Invalid image — only a PNG / JPEG / WEBP file up to 64 KB is accepted.",
+    // ── studio logo + nav-tab icons (T-ea81) ──
+    themeLogoSection: "Studio logo",
+    themeLogoHint:
+      "Upload a top-bar logo (PNG / JPEG / WEBP, max 64 KB). Leave empty to keep the built-in mark.",
+    themeLogo: "Logo",
+    themeNavIconsSection: "Navigation icons",
+    themeNavIconsHint:
+      "Upload an icon per nav tab (PNG / JPEG / WEBP, max 64 KB). Leave empty to keep the built-in icon.",
+    themeNavOffice: "Office icon",
+    themeNavReplies: "Replies icon",
+    themeNavTasks: "Tasks icon",
+    themeNavMonitor: "Monitor icon",
+    themeNavGuide: "User guide icon",
     themeDeleteConfirm: (name: string) =>
       `Delete theme "${name}"? This cannot be undone.`,
     currentVersion: "Current version",

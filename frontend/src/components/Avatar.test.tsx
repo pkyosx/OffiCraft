@@ -19,6 +19,10 @@ const MEMBER_IMG =
 const OUTSOURCE_IMG =
   "data:image/webp;base64," +
   b64([0x52, 0x49, 0x46, 0x46, 0x10, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 0]);
+const OWNER_IMG =
+  "data:image/png;base64," + b64([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]);
+const ASSISTANT_IMG =
+  "data:image/png;base64," + b64([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 2]);
 
 let ctx = null as unknown as ReturnType<typeof useI18n>;
 function Capture() {
@@ -74,6 +78,68 @@ describe("Avatar avatars-by-kind (T-16a1 P5)", () => {
         .querySelector("img.avatar__img")
         ?.getAttribute("src")
     ).toBe(OUTSOURCE_IMG);
+  });
+
+  it("selects the owner image for kind=owner and the assistant image for kind=assistant", () => {
+    const { getByTestId } = render(
+      <I18nProvider>
+        <Capture />
+        <div data-testid="owner">
+          <Avatar size={40} kind="owner" />
+        </div>
+        <div data-testid="assistant">
+          <Avatar size={40} kind="assistant" />
+        </div>
+      </I18nProvider>
+    );
+    act(() => {
+      ctx.commitCustomThemes([
+        {
+          id: "roles",
+          name: "Roles",
+          colors: { "--color-bg": "#101018" },
+          avatars: { owner: OWNER_IMG, assistant: ASSISTANT_IMG },
+        },
+      ]);
+      ctx.setTheme("roles");
+    });
+    expect(
+      getByTestId("owner").querySelector("img.avatar__img")?.getAttribute("src")
+    ).toBe(OWNER_IMG);
+    expect(
+      getByTestId("assistant")
+        .querySelector("img.avatar__img")
+        ?.getAttribute("src")
+    ).toBe(ASSISTANT_IMG);
+  });
+
+  it("falls back to the glyph for owner / assistant when the theme carries none", () => {
+    const { getByTestId } = render(
+      <I18nProvider>
+        <Capture />
+        <div data-testid="owner">
+          <Avatar size={40} kind="owner" />
+        </div>
+        <div data-testid="assistant">
+          <Avatar size={40} kind="assistant" />
+        </div>
+      </I18nProvider>
+    );
+    act(() => {
+      ctx.commitCustomThemes([
+        {
+          id: "memberonly",
+          name: "MemberOnly",
+          colors: { "--color-bg": "#101018" },
+          avatars: { member: MEMBER_IMG },
+        },
+      ]);
+      ctx.setTheme("memberonly");
+    });
+    expect(getByTestId("owner").querySelector("img.avatar__img")).toBeNull();
+    expect(getByTestId("owner").querySelector("svg")).not.toBeNull();
+    expect(getByTestId("assistant").querySelector("img.avatar__img")).toBeNull();
+    expect(getByTestId("assistant").querySelector("svg")).not.toBeNull();
   });
 
   it("falls back per-kind: a theme with only a member image keeps the glyph for outsource", () => {

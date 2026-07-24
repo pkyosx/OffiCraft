@@ -154,6 +154,25 @@ describe("parseImportedBundle", () => {
     });
   });
 
+  it("carries a valid logo and navIcons overlay through (T-ea81)", () => {
+    const png =
+      "data:image/png;base64," +
+      btoa(
+        String.fromCharCode(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01)
+      );
+    const res = parseImportedBundle(
+      JSON.stringify({
+        id: "branded",
+        name: "Branded",
+        colors: { "--color-accent": "#0b1020" },
+        logo: png,
+        navIcons: { office: png, tasks: png },
+      })
+    );
+    expect("bundle" in res && res.bundle.logo).toBe(png);
+    expect("bundle" in res && res.bundle.navIcons).toEqual({ office: png, tasks: png });
+  });
+
   it("rejects a wording overlay keyed on a non-whitelisted code", () => {
     const res = parseImportedBundle(
       JSON.stringify({

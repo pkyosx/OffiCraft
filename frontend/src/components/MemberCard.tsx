@@ -2,6 +2,7 @@ import { useI18n } from "../i18n";
 import type { Member } from "../types";
 import { useWindowActive } from "../hooks/useWindowActive";
 import { Avatar } from "./Avatar";
+import { avatarKindForMember } from "../lib/avatarKind";
 import { PresenceBadge } from "./PresenceBadge";
 
 interface MemberCardProps {
@@ -58,9 +59,10 @@ export function MemberCard({
         }}
         onKeyDown={(e) => e.stopPropagation()}
       >
-        {/* Roster cards are 正職 members (T-16a1 P5) — outsource workers live in
-            the OutsourcePanel, not this roster. */}
-        <Avatar size={40} kind="member" />
+        {/* Roster cards are 正職 members; an assistant-role member shows the
+            theme's 助理 image (T-ea81). Outsource workers live in the
+            OutsourcePanel, not this roster. */}
+        <Avatar size={40} kind={avatarKindForMember(member)} />
       </button>
 
       <div className="member-card__body">

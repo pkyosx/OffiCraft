@@ -18,14 +18,18 @@ import { OutsourcePanel } from "../../src/components/OutsourcePanel";
 import { WorkerDetailPanel } from "../../src/components/WorkerDetailPanel";
 import { ChatArea } from "../../src/components/ChatArea";
 import type { OutsourceWorkerView } from "../../src/api/adapter";
-import { MEMBER_IMG, OUTSOURCE_IMG } from "./avatarKindImages";
+import { MEMBER_IMG, OUTSOURCE_IMG, ASSISTANT_IMG } from "./avatarKindImages";
 import "../../src/components/office.css";
 
 const THEME: ThemeBundle = {
   id: "xian",
   name: "修仙",
   colors: { "--color-accent": "#7a5cff" },
-  avatars: { member: MEMBER_IMG, outsource: OUTSOURCE_IMG },
+  avatars: {
+    member: MEMBER_IMG,
+    outsource: OUTSOURCE_IMG,
+    assistant: ASSISTANT_IMG,
+  },
 };
 
 // Apply the avatars theme through the real context, synchronously on mount.
@@ -80,9 +84,11 @@ const worker: OutsourceWorkerView = {
   presence: "online",
 };
 
-// Rail: a 正職 MemberCard and an 外包 OutsourcePanel row side by side, so the
-// guard proves each site paints ITS OWN kind — the member card the member
-// image, the outsource row the outsource image — and they never cross.
+// Rail: a general-正職 MemberCard (role !== "assistant", so it paints the
+// member image) and an 外包 OutsourcePanel row side by side, so the guard proves
+// each site paints ITS OWN kind — the member card the member image, the
+// outsource row the outsource image — and they never cross. (An assistant-role
+// member paints the assistant image instead; see ChatHeaderAssistantStory.)
 export function AvatarRailStory() {
   return (
     <I18nProvider>
@@ -91,7 +97,7 @@ export function AvatarRailStory() {
           <aside className="office__members">
             <div className="office__members-list">
               <MemberCard
-                member={mkMember({ id: "m1", name: "Mira" })}
+                member={mkMember({ id: "m2", name: "阿正", role: "developer" })}
                 selected={false}
                 onOpenDetail={() => {}}
                 onChat={() => {}}
@@ -148,8 +154,26 @@ export function ChatHeaderOutsourceStory() {
   );
 }
 
-// Chat header for a 正職 peer — must paint the member image.
+// Chat header for a general-正職 peer (role !== "assistant") — must paint the
+// member image.
 export function ChatHeaderMemberStory() {
+  return (
+    <I18nProvider>
+      <ThemeSeeder>
+        <div className="office">
+          <section className="office__chat">
+            <ChatArea member={mkMember({ id: "m2", name: "阿正", role: "developer" })} />
+          </section>
+        </div>
+      </ThemeSeeder>
+    </I18nProvider>
+  );
+}
+
+// Chat header for an ASSISTANT peer (role === "assistant", e.g. Mira) — must
+// paint the assistant image (T-ea81: the per-role split gives 助理 its own
+// avatar, distinct from the general-正職 member image).
+export function ChatHeaderAssistantStory() {
   return (
     <I18nProvider>
       <ThemeSeeder>

@@ -98,6 +98,12 @@ export function parseImportedBundle(
   // the shared validator; dropping them would silently lose an imported theme's
   // per-member-type avatars (the images travel INSIDE the bundle by design).
   if (b.avatars !== undefined) bundle.avatars = b.avatars;
+  // Carry the optional studio logo + per-nav-tab icons through (T-ea81) —
+  // already validated by the shared validator; dropping them would silently
+  // lose an imported theme's logo / nav icons (the images travel INSIDE the
+  // bundle by design, like avatars).
+  if (b.logo !== undefined) bundle.logo = b.logo;
+  if (b.navIcons !== undefined) bundle.navIcons = b.navIcons;
   return { bundle };
 }
 

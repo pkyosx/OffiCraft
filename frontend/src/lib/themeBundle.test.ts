@@ -8,6 +8,8 @@ import {
   isValidFontValue,
   isValidAvatarValue,
   validateAvatars,
+  validateLogo,
+  validateNavIcons,
   validateThemeBundle,
   validateThemeBundles,
   validateWording,
@@ -196,14 +198,18 @@ describe("isValidAvatarValue", () => {
 });
 
 describe("validateAvatars", () => {
-  it("accepts undefined (optional) and a legal member/outsource overlay", () => {
+  it("accepts undefined (optional) and a legal member/outsource/owner/assistant overlay", () => {
     expect(validateAvatars(undefined)).toBeNull();
-    expect(validateAvatars({ member: okPng, outsource: okWebp })).toBeNull();
+    expect(
+      validateAvatars({ member: okPng, outsource: okWebp, owner: okJpeg, assistant: okPng })
+    ).toBeNull();
   });
 
   it("rejects a non-object, an unknown kind, and an invalid image", () => {
     expect(validateAvatars([])).toMatch(/must be an object/);
-    expect(validateAvatars({ boss: okPng })).toMatch(/not allowed/);
+    expect(validateAvatars({ boss: okPng })).toMatch(
+      /not allowed \(only member, outsource, owner, assistant\)/
+    );
     expect(
       validateAvatars({ member: avatarURI("image/svg+xml", [0x3c]) })
     ).toMatch(/not a valid image/);
@@ -214,11 +220,86 @@ describe("validateAvatars", () => {
       id: "midnight",
       name: "Midnight",
       colors: { [aToken]: "#111111" },
-      avatars: { member: okPng },
+      avatars: { owner: okPng, assistant: okWebp },
     };
     expect(validateThemeBundle(good)).toBeNull();
     const bad = { ...good, avatars: { member: avatarURI("image/svg+xml", [0x3c]) } };
     expect(validateThemeBundle(bad)).toMatch(/not a valid image/);
+  });
+});
+
+describe("validateLogo", () => {
+  it("accepts undefined/null (optional) and a legal raster image", () => {
+    expect(validateLogo(undefined)).toBeNull();
+    expect(validateLogo(null)).toBeNull();
+    expect(validateLogo(okPng)).toBeNull();
+  });
+
+  it("rejects an SVG and any non-image value", () => {
+    expect(validateLogo(avatarURI("image/svg+xml", [0x3c]))).toMatch(
+      /logo is not a valid image/
+    );
+    expect(validateLogo("https://evil/x.png")).toMatch(/logo is not a valid image/);
+    expect(validateLogo(42)).toMatch(/logo is not a valid image/);
+  });
+
+  it("flows through validateThemeBundle", () => {
+    const good = { id: "midnight", name: "Midnight", colors: { [aToken]: "#111111" }, logo: okPng };
+    expect(validateThemeBundle(good)).toBeNull();
+    expect(
+      validateThemeBundle({ ...good, logo: avatarURI("image/svg+xml", [0x3c]) })
+    ).toMatch(/logo is not a valid image/);
+  });
+});
+
+describe("validateNavIcons", () => {
+  it("accepts undefined (optional) and the five legal nav-tab keys", () => {
+    expect(validateNavIcons(undefined)).toBeNull();
+    expect(
+      validateNavIcons({
+        office: okPng,
+        replies: okJpeg,
+        tasks: okWebp,
+        monitor: okPng,
+        guide: okJpeg,
+      })
+    ).toBeNull();
+  });
+
+  it("rejects a non-object, an unknown key, and an image that fails the gate", () => {
+    expect(validateNavIcons([])).toMatch(/must be an object/);
+    expect(validateNavIcons({ settings: okPng })).toMatch(
+      /nav icon key "settings" is not allowed \(only office, replies, tasks, monitor, guide\)/
+    );
+    expect(
+      validateNavIcons({ office: avatarURI("image/svg+xml", [0x3c]) })
+    ).toMatch(/not a valid image/);
+  });
+
+  it("flows through validateThemeBundle", () => {
+    const good = {
+      id: "midnight",
+      name: "Midnight",
+      colors: { [aToken]: "#111111" },
+      navIcons: { tasks: okPng },
+    };
+    expect(validateThemeBundle(good)).toBeNull();
+    expect(
+      validateThemeBundle({ ...good, navIcons: { nope: okPng } })
+    ).toMatch(/not allowed/);
+  });
+});
+
+describe("validateThemeBundle backward compatibility", () => {
+  it("accepts a legacy member/outsource-only bundle with no logo/navIcons", () => {
+    expect(
+      validateThemeBundle({
+        id: "legacy",
+        name: "Legacy",
+        colors: { [aToken]: "#101018" },
+        avatars: { member: okPng, outsource: okWebp },
+      })
+    ).toBeNull();
   });
 });
 
