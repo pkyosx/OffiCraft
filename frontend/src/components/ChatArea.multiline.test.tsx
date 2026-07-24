@@ -11,7 +11,7 @@
 //     newline insertion must go through);
 //   • a draft containing newlines is sent verbatim (line breaks preserved).
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, fireEvent, act } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { ChatArea } from "./ChatArea";
@@ -101,5 +101,53 @@ describe("ChatArea multi-line composer", () => {
       fireEvent.keyDown(input, { key: "Enter" });
     });
     expect(send).toHaveBeenCalledWith("第一行\n第二行", undefined);
+  });
+});
+
+// Force useIsMobile's matchMedia probe to report a phone viewport. jsdom ships
+// no matchMedia, so the hook otherwise defaults to desktop.
+function stubMobileViewport() {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    writable: true,
+    value: (query: string) => ({
+      matches: /max-width/.test(query),
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }),
+  });
+}
+
+describe("ChatArea multi-line composer — phone viewport", () => {
+  beforeEach(() => {
+    send.mockClear();
+    stubMobileViewport();
+  });
+  afterEach(() => {
+    delete (window as unknown as { matchMedia?: unknown }).matchMedia;
+  });
+
+  it("a bare Enter does NOT send and is NOT prevented (native newline; send is via the button)", () => {
+    const { input } = renderChat();
+    fireEvent.change(input, { target: { value: "hello" } });
+    // fireEvent returns false when a handler called preventDefault.
+    const notPrevented = fireEvent.keyDown(input, { key: "Enter" });
+    expect(notPrevented).toBe(true);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("the send button still sends on a phone", async () => {
+    const { input, container } = renderChat();
+    fireEvent.change(input, { target: { value: "hello" } });
+    const sendBtn = container.querySelector(".chat__send") as HTMLButtonElement;
+    await act(async () => {
+      fireEvent.click(sendBtn);
+    });
+    expect(send).toHaveBeenCalledWith("hello", undefined);
   });
 });

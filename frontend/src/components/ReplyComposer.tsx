@@ -10,6 +10,8 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import type { ChatAttachmentInput } from "../api/adapter";
 import { autosizeTextarea } from "../lib/autosize";
+import { useIsMobile } from "../hooks/useIsMobile";
+import { enterShouldSend } from "../lib/composerKeys";
 import {
   ATTACH_ACCEPT,
   useAttachmentStaging,
@@ -45,12 +47,16 @@ export function ReplyComposer({
   // IME composition guard — same belt-and-braces as the chat composer: an
   // Enter that confirms a CJK candidate must never submit.
   const isComposingRef = useRef(false);
+  // Phone viewport → Enter inserts a newline, send button sends (same rule as
+  // the chat composer; no physical keyboard means Shift+Enter is impossible).
+  const isMobile = useIsMobile();
 
   const canSend =
     !sending && (draft.trim().length > 0 || pendingAttachments.length > 0);
 
-  // Multi-line composer (Enter sends, Shift+Enter breaks a line — same as the
-  // chat composer): auto-grow the textarea to the draft on every change; the
+  // Multi-line composer (desktop: Enter sends, Shift+Enter breaks a line;
+  // mobile: Enter breaks a line — same as the chat composer): auto-grow the
+  // textarea to the draft on every change; the
   // CSS max-height caps it and the textarea scrolls beyond, so a long reply is
   // always fully visible while being typed.
   useLayoutEffect(() => {
@@ -80,14 +86,10 @@ export function ReplyComposer({
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (
-      e.nativeEvent.isComposing ||
-      e.keyCode === 229 ||
-      isComposingRef.current
-    ) {
-      return;
-    }
-    if (e.key === "Enter" && !e.shiftKey) {
+    // Shared send rule (IME gate + mobile-newline) — see lib/composerKeys.
+    // A mobile Enter returns false and is left un-prevented so the textarea
+    // inserts a native newline.
+    if (enterShouldSend(e, { isMobile, composing: isComposingRef.current })) {
       e.preventDefault();
       void submit();
     }
@@ -121,8 +123,9 @@ export function ReplyComposer({
         >
           <PaperclipIcon size={18} />
         </button>
-        {/* Multi-line reply input: a bare Enter submits (onKeyDown), a shifted
-         * Enter falls through to the textarea's native newline. */}
+        {/* Multi-line reply input. Desktop: a bare Enter submits (onKeyDown), a
+         * shifted Enter falls through to the native newline. Mobile: Enter
+         * falls through too (send is via the button). */}
         <textarea
           ref={draftRef}
           className="chat__input"

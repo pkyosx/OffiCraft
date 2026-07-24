@@ -23,12 +23,20 @@ ChatArea 兩個行為,皆不動 server:
 - **房內新訊息浮條**:owner 上滾(沿用既有 `nearBottomRef` 判定,80px 帶)時新進 `to===owner` 訊息 → `.chat__new-msg-chip` 灰底 pill 浮在 `.chat__body` 底部;錨點 = 浮條出現後**第一則**未看訊息(session 內以 message-id diff 追蹤,不動 server);點擊 smooth 捲到該則(`[data-msg-id]`);**捲到底才消失**(onScroll near-bottom 清除),點擊本身不清。在底部時維持原自動跟底、永不出浮條。i18n key:`chat.newMessages` / `chat.unreadBelow`(三語)。
 
 ## 聊天/回覆輸入框(多行 composer)
-聊天 composer(ChatArea)與回覆卡 composer(ReplyComposer)是 **textarea**(共用
-`.chat__input`):**Enter=送出、Shift+Enter=換行**(IME 確認 Enter 永不送出,
-belt-and-braces guard 照舊);高度隨草稿 auto-grow(`lib/autosize.ts`,
-useLayoutEffect 綁 draft——打字/送出清空/失敗還原三路都會重算),CSS
-max-height(132px ≈ 5 行)封頂、超過走 textarea 自己的 overflow-y 滾動——
-長草稿永遠看得到全部。TaskCard 的任務訊息框仍是單行 input(快捷訊息,非此範圍)。
+三個多行 composer——聊天(ChatArea)、回覆卡(ReplyComposer)、TaskCard 任務訊息
+框——都是 **textarea**(共用 `.chat__input`)。**送出決策收斂到單一 `lib/composerKeys.ts`
+的 `enterShouldSend`**(T-6bad),三處 onKeyDown 都走它、行為永不漂移:
+- **桌面**(視窗 >720px):**Enter=送出、Shift+Enter=換行**(不變)。
+- **手機**(視窗 ≤720px,`useIsMobile`):**Enter=換行、送出走送出鈕**——手機沒有
+  實體鍵盤、shift+enter 不可行,一個裸 Enter 當送出會讓使用者打不了多行(owner
+  2026-07-24 回報)。手機 Enter 由 `enterShouldSend` 回 false、handler **不**
+  preventDefault,落回 textarea 原生換行。
+- **IME 確認 Enter 永不送出**(native isComposing / 229 keyCode / 自家
+  isComposingRef 三重 guard,收在 `enterShouldSend` 內),兩環境皆然。
+
+高度隨草稿 auto-grow(`lib/autosize.ts`,useLayoutEffect 綁 draft——打字/送出清空/
+失敗還原三路都會重算),CSS max-height(132px ≈ 5 行)封頂、超過走 textarea 自己的
+overflow-y 滾動——長草稿永遠看得到全部。
 
 ## 回覆卡(等我回覆卡,M2 B2+B3)
 兩個入口、一套內裡:`RepliesPage`(等我回覆頁)與 `ChatReplyCard`(聊天串內

@@ -8,7 +8,7 @@
 // display is already white-space: pre-wrap (office.css .chat__msg-bubble), so
 // a multi-line message round-trips verbatim.
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { render, fireEvent, waitFor, act } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { TasksPage } from "./TasksPage";
@@ -102,6 +102,58 @@ describe("task card message box — multi-line input", () => {
     await waitFor(async () => {
       const thread = await api.peekChat("mira");
       expect(thread.some((m) => m.body.includes("第一行\n第二行"))).toBe(true);
+    });
+  });
+});
+
+// Force useIsMobile's matchMedia probe to report a phone viewport. jsdom ships
+// no matchMedia, so the hook otherwise defaults to desktop.
+function stubMobileViewport() {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    writable: true,
+    value: (query: string) => ({
+      matches: /max-width/.test(query),
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }),
+  });
+}
+
+describe("task card message box — phone viewport", () => {
+  afterEach(() => {
+    delete (window as unknown as { matchMedia?: unknown }).matchMedia;
+  });
+
+  it("a bare Enter does NOT submit and is NOT prevented (native newline; send is via the button)", async () => {
+    stubMobileViewport();
+    __injectMockTask(mkTask({}));
+    const { findByTestId } = renderPage();
+    const input = await findByTestId("task-msg-input");
+    fireEvent.change(input, { target: { value: "開始吧" } });
+    const notPrevented = fireEvent.keyDown(input, { key: "Enter" });
+    expect(notPrevented).toBe(true);
+    const thread = await api.peekChat("mira");
+    expect(thread.some((m) => m.body.includes("開始吧"))).toBe(false);
+  });
+
+  it("the send button still submits on a phone", async () => {
+    stubMobileViewport();
+    __injectMockTask(mkTask({}));
+    const { findByTestId } = renderPage();
+    const input = await findByTestId("task-msg-input");
+    fireEvent.change(input, { target: { value: "開始吧" } });
+    await act(async () => {
+      fireEvent.click(await findByTestId("task-msg-send"));
+    });
+    await waitFor(async () => {
+      const thread = await api.peekChat("mira");
+      expect(thread.some((m) => m.body.includes("開始吧"))).toBe(true);
     });
   });
 });

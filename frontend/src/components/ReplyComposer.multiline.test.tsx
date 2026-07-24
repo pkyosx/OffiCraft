@@ -7,7 +7,7 @@
 // line. These tests pin that contract on the SHARED component so both reply
 // surfaces (等我回覆 page + in-chat card) are covered at once.
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, fireEvent, act } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { ReplyComposer } from "./ReplyComposer";
@@ -65,5 +65,52 @@ describe("ReplyComposer multi-line input", () => {
       fireEvent.keyDown(input, { key: "Enter" });
     });
     expect(onSend).toHaveBeenCalledWith("第一行\n第二行", []);
+  });
+});
+
+// Force useIsMobile's matchMedia probe to report a phone viewport. jsdom ships
+// no matchMedia, so the hook otherwise defaults to desktop.
+function stubMobileViewport() {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    writable: true,
+    value: (query: string) => ({
+      matches: /max-width/.test(query),
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }),
+  });
+}
+
+describe("ReplyComposer multi-line input — phone viewport", () => {
+  beforeEach(() => {
+    onSend.mockClear();
+    stubMobileViewport();
+  });
+  afterEach(() => {
+    delete (window as unknown as { matchMedia?: unknown }).matchMedia;
+  });
+
+  it("a bare Enter does NOT submit and is NOT prevented (native newline; send is via the button)", () => {
+    const { input } = renderComposer();
+    fireEvent.change(input, { target: { value: "my answer" } });
+    const notPrevented = fireEvent.keyDown(input, { key: "Enter" });
+    expect(notPrevented).toBe(true);
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("the send button still submits on a phone", async () => {
+    const { input, container } = renderComposer();
+    fireEvent.change(input, { target: { value: "my answer" } });
+    const sendBtn = container.querySelector(".chat__send") as HTMLButtonElement;
+    await act(async () => {
+      fireEvent.click(sendBtn);
+    });
+    expect(onSend).toHaveBeenCalledWith("my answer", []);
   });
 });

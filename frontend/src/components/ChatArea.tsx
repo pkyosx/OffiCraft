@@ -24,6 +24,8 @@ import {
   useAttachmentStaging,
 } from "../hooks/useAttachmentStaging";
 import { useWindowActive } from "../hooks/useWindowActive";
+import { useIsMobile } from "../hooks/useIsMobile";
+import { enterShouldSend } from "../lib/composerKeys";
 import { AttachmentStrip, Lightbox } from "./AttachmentStrip";
 import { Avatar } from "./Avatar";
 import { avatarKindForMember } from "../lib/avatarKind";
@@ -343,11 +345,15 @@ export function ChatArea({
   // keydown in some browsers, so keydown also checks nativeEvent.isComposing /
   // keyCode 229 as belt-and-braces.
   const isComposingRef = useRef(false);
+  // Phone viewport → Enter inserts a newline instead of sending (no physical
+  // keyboard, so Shift+Enter is impossible); sending is via the send button.
+  const isMobile = useIsMobile();
   // A message may carry text and/or attachments — sendable when EITHER present.
   const canSend = draft.trim().length > 0 || pendingAttachments.length > 0;
 
-  // The composer is a multi-line textarea (Enter sends, Shift+Enter breaks a
-  // line — see onKeyDown). Auto-grow to the draft on EVERY draft change —
+  // The composer is a multi-line textarea (desktop: Enter sends, Shift+Enter
+  // breaks a line; mobile: Enter breaks a line — see onKeyDown). Auto-grow to
+  // the draft on EVERY draft change —
   // typing, the optimistic clear in submit(), and the failure restore all set
   // state, so sizing off the draft (not just typing events) keeps the box
   // honest in each path. CSS max-height caps the growth; past it the textarea
@@ -836,18 +842,11 @@ export function ChatArea({
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    // Composition gate FIRST: an Enter that confirms an IME candidate must never
-    // reach the send path. Guard on the native isComposing flag, the 229 keyCode
-    // browsers stamp during composition, and our own ref (covers the browser
-    // where compositionend precedes this keydown but isComposing is already false).
-    if (
-      e.nativeEvent.isComposing ||
-      e.keyCode === 229 ||
-      isComposingRef.current
-    ) {
-      return;
-    }
-    if (e.key === "Enter" && !e.shiftKey) {
+    // The send decision (IME gate, mobile-newline, Shift+Enter) is the shared
+    // enterShouldSend rule so all three composers stay in lockstep. When it
+    // returns false on a mobile Enter we deliberately do NOT preventDefault, so
+    // the textarea inserts a native newline.
+    if (enterShouldSend(e, { isMobile, composing: isComposingRef.current })) {
       e.preventDefault();
       void submit();
     }
@@ -1388,10 +1387,11 @@ export function ChatArea({
               >
                 <PaperclipIcon size={18} />
               </button>
-              {/* Multi-line composer: Enter sends, Shift+Enter breaks a line
-               * (onKeyDown only intercepts a bare Enter — a shifted one falls
-               * through to the textarea's native newline). Height follows the
-               * draft via the autosize layout-effect above. */}
+              {/* Multi-line composer. Desktop: Enter sends, Shift+Enter breaks a
+               * line. Mobile: Enter breaks a line and the send button sends
+               * (onKeyDown → enterShouldSend; when it doesn't send it lets the
+               * keydown fall through to the textarea's native newline). Height
+               * follows the draft via the autosize layout-effect above. */}
               <textarea
                 ref={inputRef}
                 className="chat__input"

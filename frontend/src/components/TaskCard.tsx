@@ -70,6 +70,8 @@ import { resolveStepBadge } from "../lib/stepBadge";
 import { autosizeTextarea } from "../lib/autosize";
 import { navigateHash } from "../lib/hashRoute";
 import { deriveTaskNo } from "../lib/taskNo";
+import { useIsMobile } from "../hooks/useIsMobile";
+import { enterShouldSend } from "../lib/composerKeys";
 import {
   ATTACH_ACCEPT,
   useAttachmentStaging,
@@ -644,6 +646,9 @@ export function TaskCard({
   const [sending, setSending] = useState(false);
   const [msgError, setMsgError] = useState(false);
   const isComposingRef = useRef(false);
+  // Phone viewport → Enter inserts a newline, send button sends (same rule as
+  // the chat composer; no physical keyboard means Shift+Enter is impossible).
+  const isMobile = useIsMobile();
   const draftRef = useRef<HTMLTextAreaElement>(null);
   // Attachment staging — the SHARED useAttachmentStaging state machine (same
   // caps + funnels as the chat composer / ReplyComposer): paste an image into
@@ -693,14 +698,10 @@ export function TaskCard({
   }
 
   function onMsgKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (
-      e.nativeEvent.isComposing ||
-      e.keyCode === 229 ||
-      isComposingRef.current
-    ) {
-      return; // IME guard — an Enter confirming a CJK candidate never sends
-    }
-    if (e.key === "Enter" && !e.shiftKey) {
+    // Shared send rule (IME gate + mobile-newline) — see lib/composerKeys.
+    // A mobile Enter returns false and is left un-prevented so the textarea
+    // inserts a native newline.
+    if (enterShouldSend(e, { isMobile, composing: isComposingRef.current })) {
       e.preventDefault();
       void sendMessage();
     }
@@ -1635,8 +1636,9 @@ export function TaskCard({
         >
           <PaperclipIcon size={18} />
         </button>
-        {/* Multi-line message box: a bare Enter submits (onMsgKeyDown), a
-         * shifted Enter falls through to the textarea's native newline. */}
+        {/* Multi-line message box. Desktop: a bare Enter submits (onMsgKeyDown),
+         * a shifted Enter falls through to the native newline. Mobile: Enter
+         * falls through too (send is via the button). */}
         <textarea
           ref={draftRef}
           className="chat__input"
