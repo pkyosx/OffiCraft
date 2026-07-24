@@ -114,6 +114,30 @@ describe("mock settings — display prefs (display_theme / display_language)", (
     );
   });
 
+  it("saves an avatar overlay and reads it back durably", async () => {
+    // A valid tiny PNG data URI (magic-checked by isValidAvatarValue).
+    const pngAvatar =
+      "data:image/png;base64," +
+      btoa(
+        String.fromCharCode(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01)
+      );
+    const s = await mockApi.patchServerSettings({
+      customThemes: [
+        {
+          id: "faced",
+          name: "Faced",
+          colors: { "--color-bg": "#101018" },
+          avatars: { outsource: pngAvatar },
+        },
+      ],
+    });
+    expect(s.customThemes[0].avatars?.outsource).toBe(pngAvatar);
+    // The regression: a fresh read must still carry avatars — the read-back
+    // mapper dropping this field was the "avatar lost after refresh" defect.
+    const again = await mockApi.getServerSettings();
+    expect(again.customThemes[0].avatars?.outsource).toBe(pngAvatar);
+  });
+
   it("422s an illegal wording overlay, writing nothing", async () => {
     const bad: Record<string, Record<string, string>>[] = [
       { zh: { "not.a.real.key": "x" } }, // non-whitelisted code
