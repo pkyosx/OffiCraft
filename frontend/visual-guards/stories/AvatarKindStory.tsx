@@ -15,6 +15,7 @@ import type { ThemeBundle } from "../../src/lib/themeBundle";
 import type { Member } from "../../src/types";
 import { MemberCard } from "../../src/components/MemberCard";
 import { OutsourcePanel } from "../../src/components/OutsourcePanel";
+import { WorkerDetailPanel } from "../../src/components/WorkerDetailPanel";
 import { ChatArea } from "../../src/components/ChatArea";
 import type { OutsourceWorkerView } from "../../src/api/adapter";
 import { MEMBER_IMG, OUTSOURCE_IMG } from "./avatarKindImages";
@@ -106,6 +107,23 @@ export function AvatarRailStory() {
               onOpenTask={() => {}}
             />
           </aside>
+        </div>
+      </ThemeSeeder>
+    </I18nProvider>
+  );
+}
+
+// Worker DETAIL panel (T-3738) — its identity card must paint the role-level
+// outsource image, the same kind the rail row does (no per-worker avatar, but
+// the theme's 外包 image; a theme without one falls back to the built-in glyph).
+export function WorkerDetailStory() {
+  return (
+    <I18nProvider>
+      <ThemeSeeder>
+        <div className="office" style={{ height: 640 }}>
+          <section className="office__chat">
+            <WorkerDetailPanel worker={worker} onBack={() => {}} />
+          </section>
         </div>
       </ThemeSeeder>
     </I18nProvider>

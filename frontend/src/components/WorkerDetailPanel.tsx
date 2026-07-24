@@ -4,7 +4,8 @@ import type { OutsourceWorkerView } from "../api/adapter";
 import { useMachines } from "../hooks/useMachines";
 import { AgentDetailPanel } from "./AgentDetailPanel";
 import { useRelocateMachine } from "./useRelocateMachine";
-import { BriefcaseIcon, ChevronRightIcon } from "./icons";
+import { ChevronRightIcon } from "./icons";
+import { Avatar } from "./Avatar";
 import "./member-detail.css";
 
 interface WorkerDetailPanelProps {
@@ -40,7 +41,7 @@ interface WorkerDetailPanelProps {
  * AgentDetailPanel the member detail page uses (owner constitution:「外包只是
  * 一個系統會幫我產生跟刪除的正職員工」) — the shared cards (模型/投入度、機器/
  * Claude Account、運行狀況、最近操作、終端、初始 PROMPT) read the ONE unified
- * view model, and the worker-specific bits (公事包身分 + 任務 chip、狀態 +
+ * view model, and the worker-specific bits (外包角色頭像身分 + 任務 chip、狀態 +
  * 委託人、委託任務、改機器) plug in through the panel's slots. Everything the
  * worker has not really reported renders an honest dash / 「尚未分配」 — never a
  * fabricated value (the shared panel's honest gate, the member's).
@@ -158,13 +159,13 @@ export function WorkerDetailPanel({
     .join(" · ");
   const hasTask = Boolean(worker.taskId && taskLabel);
 
-  // ── identity slot: 公事包 icon + 代號 + real presence dot + 任務 chip + 標題
-  // (the sidebar 外包 row shape — anonymous, no rename/avatar). ────────────────
+  // ── identity slot: 外包角色頭像 (Avatar kind="outsource") + 代號 + real presence
+  // dot + 任務 chip + 標題. 外包沒有「個別 worker 的命名 / 個人頭像」,但顯示主題
+  // 的角色級外包頭像(kind=outsource,與客卿列表 OutsourcePanel 同一張圖);主題
+  // 未帶自訂外包圖時 Avatar 自動 fallback 內建 glyph(office 不退化)。──────────
   const identity = (
     <div className="mp-card mp-identity">
-      <span className="outsource-row__avatar" aria-hidden="true">
-        <BriefcaseIcon size={20} />
-      </span>
+      <Avatar size={52} kind="outsource" />
       <div className="mp-identity__body">
         <div className="mp-identity__line">
           <span className="outsource-row__codename">

@@ -16,6 +16,9 @@
 //     "rail: outsource row paints the outsource image".
 //   * OutsourcePanel `<Avatar…/>` → `<BriefcaseIcon/>` (the original bug)
 //     removes the img entirely → same test reddens (no src to match).
+//   * WorkerDetailPanel `<Avatar kind="outsource"/>` → `kind="member"` reddens
+//     ONLY "worker detail: identity paints the outsource image"; restoring the
+//     hard `<BriefcaseIcon/>` removes the img entirely → same test reddens.
 //   * ChatArea header `member.id.startsWith("ow-") ? "outsource" : "member"`
 //     → hard `"member"` reddens ONLY "chat header: outsource peer …".
 //   * The 正職 tests stay green under those mutants and redden only if a
@@ -23,6 +26,7 @@
 import { test, expect } from "@playwright/experimental-ct-react";
 import {
   AvatarRailStory,
+  WorkerDetailStory,
   ChatHeaderOutsourceStory,
   ChatHeaderMemberStory,
 } from "./stories/AvatarKindStory";
@@ -49,6 +53,17 @@ for (const width of [1280, 390]) {
     await expect(
       cmp.locator(".member-card__avatar .avatar__img"),
     ).toHaveAttribute("src", MEMBER_IMG);
+  });
+
+  test(`width ${width} · worker detail: identity paints the outsource image`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 800 });
+    const cmp = await mount(<WorkerDetailStory />);
+    await expect(
+      cmp.locator(".mp-identity .avatar__img"),
+    ).toHaveAttribute("src", OUTSOURCE_IMG);
   });
 
   test(`width ${width} · chat header: outsource peer paints the outsource image`, async ({
