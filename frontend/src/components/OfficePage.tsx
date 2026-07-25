@@ -215,6 +215,12 @@ export function OfficePage() {
         status: "online",
         lifecycle: "online",
         model: workerPeer.model,
+        // ChatArea snapshots this value during its first render, before
+        // listChat advances the owner's read watermark.  Without carrying the
+        // worker row's server-computed count into the synthetic Member, an
+        // outsource conversation always looks read on entry and cannot render
+        // or scroll to its first-unread divider.
+        unreadCount: workerPeer.unreadCount ?? 0,
       }
     : undefined;
 

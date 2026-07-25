@@ -286,6 +286,55 @@ describe("OutsourcePanel", () => {
     }
   });
 
+  it("opening an unread worker chat preserves its first-unread divider and scroll target", async () => {
+    const now = Date.now() / 1000;
+    __injectMockTask(mkTask({ id: "t-unread-entry", createdTs: 90 }));
+    __injectMockOutsourceWorker(
+      mkWorker({
+        id: "ow-unread-entry",
+        codename: "O-8",
+        taskId: "t-unread-entry",
+      }),
+    );
+    __injectMockChat({
+      id: "worker-read",
+      from: "ow-unread-entry",
+      to: "owner",
+      body: "已讀內容",
+      ts: now - 31,
+      attachments: [],
+      replyCardId: null,
+    });
+    __injectMockChat({
+      id: "worker-unread",
+      from: "ow-unread-entry",
+      to: "owner",
+      body: "未讀內容",
+      ts: now - 30,
+      attachments: [],
+      replyCardId: null,
+    });
+    // Establish the server-side read watermark between the two messages: only
+    // worker-unread is outstanding when the room opens.
+    await api.markChatRead({
+      peer: "ow-unread-entry",
+      lastReadTs: now - 31,
+    });
+
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    const { findByTestId, findByText, container } = renderOutsource();
+    fireEvent.click(await findByTestId("outsource-row-ow-unread-entry"));
+
+    await findByText("未讀內容");
+    const divider = container.querySelector(".chat__unread-divider");
+    expect(divider).not.toBeNull();
+    expect(divider!.nextElementSibling?.getAttribute("data-msg-id")).toBe(
+      "worker-unread",
+    );
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "start" });
+  });
+
   it("orders rows by the bound TASK's created_ts, newest first", async () => {
     const now = Date.now() / 1000;
     // Worker mint order is the REVERSE of the task creation order on purpose:

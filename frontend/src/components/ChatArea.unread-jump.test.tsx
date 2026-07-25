@@ -151,13 +151,11 @@ describe("② entry positioning (first unread)", () => {
       divider!.nextElementSibling?.getAttribute("data-msg-id"),
     ).toBe("c4");
 
-    // Initial scroll anchors TWO rows above the divider (Seth batch-19 LINE
-    // spec: 1–2 already-read messages stay visible as context) — c3 is the
-    // divider's previous sibling, c2 the one before it — NOT the bottom
-    // sentinel.
+    // Entry scroll anchors the divider itself.  A compact phone or desktop
+    // pane cannot afford an older-row offset: it would put c4 below the fold.
     const targets = scrollCalls.map((c) => c.el);
     expect(targets).toContain(
-      container.querySelector('[data-msg-id="c2"]'),
+      divider,
     );
     expect(
       targets.some((el) => el.classList.contains("chat__scroll-anchor")),

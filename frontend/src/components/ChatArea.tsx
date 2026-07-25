@@ -733,7 +733,10 @@ export function ChatArea({
 
   // ② entry scroll: once the unread divider is in the DOM, pin it to the top of
   // the viewport, then measure honestly whether that landed us at the bottom
-  // anyway (short thread) so auto-follow keeps working there.
+  // anyway (short thread) so auto-follow keeps working there.  The divider is
+  // the actual boundary: offsetting it to older rows can leave the first unread
+  // message below a short mobile viewport and fails the same way on a compact
+  // desktop chat pane.
   useEffect(() => {
     if (!firstUnreadId) return;
     // ONLY the entry positioning scrolls here. A chip-driven divider re-anchor
@@ -746,17 +749,7 @@ export function ChatArea({
     const divider =
       box.querySelector(".chat__unread-divider") ??
       box.querySelector(`[data-msg-id="${firstUnreadId}"]`);
-    // Seth spec (batch 19, LINE reference): land with 1–2 already-read rows
-    // visible ABOVE the divider as context — anchor the scroll up to two
-    // element rows earlier when they exist (an unread-from-the-top thread
-    // falls back to the divider itself).
-    let target = divider;
-    for (let i = 0; i < 2; i++) {
-      const prev = target?.previousElementSibling;
-      if (!prev) break;
-      target = prev;
-    }
-    target?.scrollIntoView({ block: "start" });
+    divider?.scrollIntoView({ block: "start" });
     const distance = box.scrollHeight - box.scrollTop - box.clientHeight;
     nearBottomRef.current = distance <= NEAR_BOTTOM_PX;
     // NOTE: the run deliberately stays OPEN even when a short thread lands at
