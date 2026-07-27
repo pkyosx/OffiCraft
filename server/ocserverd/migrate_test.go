@@ -971,3 +971,49 @@ func TestMigration00035NormalizesAutoMachinePlacement(t *testing.T) {
 		t.Errorf("an untouched assignee must not be rewritten, got %q", got)
 	}
 }
+
+// TestMemberAvatarMigrationRollback pins the destructive half of 00038: an
+// avatar blob is owned only by member.avatar_attachment_id, so Down must remove
+// that blob before dropping its sole pointer. Unrelated chat blobs survive.
+func TestMemberAvatarMigrationRollback(t *testing.T) {
+	db, err := openSQLite(filepath.Join(t.TempDir(), "member-avatar-mig.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+	if err := runMigrations(db); err != nil {
+		t.Fatalf("goose up: %v", err)
+	}
+
+	if _, err := db.Exec(`INSERT INTO chat_attachment (id, mime, data, filename) VALUES
+		('ava-owned', 'image/png', X'89504E47', 'owned.png'),
+		('att-chat', 'image/png', X'89504E47', 'chat.png')`); err != nil {
+		t.Fatalf("seed blobs: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO member
+		(id, name, kind, avatar_attachment_id)
+		VALUES ('m-avatar-mig', 'Avatar', 'assistant', 'ava-owned')`); err != nil {
+		t.Fatalf("seed member: %v", err)
+	}
+
+	if err := goose.DownTo(db, "migrations", 37); err != nil {
+		t.Fatalf("goose down to 37: %v", err)
+	}
+
+	var count int
+	if err := db.QueryRow(
+		`SELECT COUNT(*) FROM chat_attachment WHERE id = 'ava-owned'`,
+	).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("owned avatar blob must be removed, count=%d err=%v", count, err)
+	}
+	if err := db.QueryRow(
+		`SELECT COUNT(*) FROM chat_attachment WHERE id = 'att-chat'`,
+	).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("unrelated chat blob must survive, count=%d err=%v", count, err)
+	}
+	if _, err := db.Exec(
+		`SELECT avatar_attachment_id FROM member LIMIT 1`,
+	); err == nil {
+		t.Fatal("rollback must drop member.avatar_attachment_id")
+	}
+}

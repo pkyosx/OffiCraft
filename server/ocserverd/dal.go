@@ -83,6 +83,9 @@ type Member struct {
 	CreatedTS   float64
 	ReleasedTS  float64
 	ActivatedTS float64
+	// AvatarAttachmentID points at this stable member id's one personal image
+	// in the shared byte store. Empty means no personal image.
+	AvatarAttachmentID string
 }
 
 // RosterStatusRemoved is the soft-delete lifecycle value (the Python
@@ -96,7 +99,8 @@ const memberColumns = `id, name, kind, role_key, runtime, model, effort,
 	desired_state, desired_machine_id, last_machine_id,
 	waking_since, stopping_since, stopped_since, refocus_since, banked_cost,
 	last_op, last_op_ok, last_op_log, last_op_reason, last_op_at, roster_status,
-	linked_task_id, codename, created_ts, released_ts, activated_ts`
+	linked_task_id, codename, created_ts, released_ts, activated_ts,
+	avatar_attachment_id`
 
 func scanMember(row interface{ Scan(...any) error }) (Member, error) {
 	var m Member
@@ -109,6 +113,7 @@ func scanMember(row interface{ Scan(...any) error }) (Member, error) {
 		&m.BankedCost,
 		&m.LastOp, &lastOpOK, &m.LastOpLog, &m.LastOpReason, &m.LastOpAt, &m.RosterStatus,
 		&linkedTaskID, &codename, &m.CreatedTS, &m.ReleasedTS, &m.ActivatedTS,
+		&m.AvatarAttachmentID,
 	)
 	if err != nil {
 		return Member{}, err
@@ -162,7 +167,11 @@ func (d *DAL) GetMember(id string) (*Member, error) {
 }
 
 // PutMember upserts a member row (the repository.put_member twin; the SSE
-// delta is the service layer's job).
+// delta is the service layer's job). On conflict it deliberately leaves
+// avatar_attachment_id untouched: ReplaceMemberAvatar/DeleteMemberAvatar are
+// the only update seams for that independently-owned pointer. This prevents a
+// stale lifecycle/model snapshot from erasing a newer avatar and orphaning its
+// blob. The INSERT still accepts the field for migrations/tests/new rows.
 func (d *DAL) PutMember(m Member) error {
 	var lastOpOK any
 	if m.LastOpOK != nil {
@@ -180,7 +189,7 @@ func (d *DAL) PutMember(m Member) error {
 	}
 	_, err := d.db.Exec(`
 		INSERT INTO member (`+memberColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
 			name = excluded.name, kind = excluded.kind,
 			role_key = excluded.role_key, runtime = excluded.runtime,
@@ -209,6 +218,7 @@ func (d *DAL) PutMember(m Member) error {
 		m.BankedCost,
 		m.LastOp, lastOpOK, m.LastOpLog, m.LastOpReason, m.LastOpAt, m.RosterStatus,
 		linkedTaskID, codename, m.CreatedTS, m.ReleasedTS, m.ActivatedTS,
+		m.AvatarAttachmentID,
 	)
 	return err
 }
@@ -217,12 +227,46 @@ func (d *DAL) PutMember(m Member) error {
 // path) — NOT the roster_status="removed" soft-remove, which stays the
 // audit-preserving dismiss seam. Returns true iff a row was deleted.
 func (d *DAL) HardDeleteMember(id string) (bool, error) {
-	res, err := d.db.Exec(`DELETE FROM member WHERE id = ?`, id)
+	tx, err := d.db.Begin()
 	if err != nil {
 		return false, err
 	}
+	defer tx.Rollback()
+	var avatarID string
+	err = tx.QueryRow(`SELECT avatar_attachment_id FROM member WHERE id = ?`, id).Scan(&avatarID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	res, err := tx.Exec(`DELETE FROM member WHERE id = ?`, id)
+	if err != nil {
+		return false, err
+	}
+	if avatarID != "" {
+		// The avatar id is dedicated by contract, but deletion must remain safe
+		// even if a future writer drops that guard or old/corrupt data contains
+		// another reference. The member row is already gone inside this tx, so
+		// only a genuinely surviving record can veto collection here.
+		surviving := map[string]bool{}
+		if err := collectSurvivingBlobRefs(tx, surviving); err != nil {
+			return false, err
+		}
+		if !surviving[avatarID] {
+			if _, err := tx.Exec(`DELETE FROM chat_attachment WHERE id = ?`, avatarID); err != nil {
+				return false, err
+			}
+		}
+	}
 	n, err := res.RowsAffected()
-	return n > 0, err
+	if err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return n > 0, nil
 }
 
 // ── chat ─────────────────────────────────────────────────────────────────────
@@ -413,18 +457,21 @@ func refIDsFromJSON(blob string, into map[string]bool) {
 // uploaded in chat can be PINNED onto a task card as a deliverable — so the
 // cascade re-checks every survivor before dropping a blob.
 //
-// This is the ONLY production statement that deletes a chat_attachment row
-// (`DeleteTaskArtifact` deliberately leaves the blob alone), so the survivor
-// scan below is the whole liveness verdict for the blob store. As of T-62a8
-// the blob-referencing columns in the schema are exactly these four, and
-// `collectSurvivingBlobRefs` reads all four:
+// This is the only GC path for the GENERAL attachment graph
+// (`DeleteTaskArtifact` deliberately leaves the blob alone). The T-c826 avatar
+// lifecycle has its own single-owner delete paths; HardDeleteMember reuses this
+// same survivor scan so corrupt/legacy cross-references still fail safe. As of
+// T-c826
+// the blob-referencing columns in the schema are exactly these five, and
+// `collectSurvivingBlobRefs` reads all five:
 //
 //	chat_message.meta $.attachments[].id
 //	reply_card.answer_attachments[].id
 //	reply_card.attachments[].id          (T-5e8a question side)
 //	task_artifact.attachment_id          (T-62a8 — file/image kinds; '' on link)
+//	member.avatar_attachment_id           (T-c826 — dedicated personal image)
 //
-// ⚠️ Add a fifth referencing column anywhere and it MUST be added here in the
+// ⚠️ Add another referencing column anywhere and it MUST be added here in the
 // same commit; a blob whose only referrer is unknown to this scan is deleted
 // out from under that referrer with no error and no receipt. The failure mode
 // this closed was exactly that: a deliverable pinned on a task card went to a
@@ -440,7 +487,7 @@ func refIDsFromJSON(blob string, into map[string]bool) {
 // refused once the task is terminal, so the window is narrow). That is a
 // bounded disk leak accepted in exchange for not destroying a deliverable —
 // the two are not symmetric: the leak is recoverable by a future sweep, the
-// deletion is not recoverable at all. A real reachability sweep over the four
+// deletion is not recoverable at all. A real reachability sweep over the five
 // columns below is the proper fix and does not exist yet.
 //
 // Returns (deletedMessages, deletedAttachments).
@@ -499,7 +546,7 @@ func (d *DAL) DeleteChatInvolving(memberID string) (int, int, error) {
 
 // collectSurvivingBlobRefs folds every chat_attachment id that a STILL-STORED
 // record references into `into` — the complete liveness verdict for the blob
-// store (the four columns enumerated on DeleteChatInvolving). Called after the
+// store (the five columns enumerated on DeleteChatInvolving). Called after the
 // chat_message rows are deleted inside the same tx, so "still stored" is read
 // against the post-delete state.
 //
@@ -557,7 +604,6 @@ func collectSurvivingBlobRefs(tx *sql.Tx, into map[string]bool) error {
 	if err != nil {
 		return err
 	}
-	defer artRows.Close()
 	for artRows.Next() {
 		var id string
 		if err := artRows.Scan(&id); err != nil {
@@ -565,7 +611,31 @@ func collectSurvivingBlobRefs(tx *sql.Tx, into map[string]bool) error {
 		}
 		into[id] = true
 	}
-	return artRows.Err()
+	if err := artRows.Err(); err != nil {
+		artRows.Close()
+		return err
+	}
+	artRows.Close()
+
+	// 5. personal member avatars (T-c826). Avatar ids are isolated behind an
+	//    ava- prefix and general attachment writers reject that prefix, but the
+	//    liveness verdict must not rely on a distant string guard: if a blob is
+	//    referenced by a surviving member row, deleting it is data loss.
+	memberRows, err := tx.Query(
+		`SELECT avatar_attachment_id FROM member
+		 WHERE COALESCE(avatar_attachment_id, '') <> ''`)
+	if err != nil {
+		return err
+	}
+	defer memberRows.Close()
+	for memberRows.Next() {
+		var id string
+		if err := memberRows.Scan(&id); err != nil {
+			return err
+		}
+		into[id] = true
+	}
+	return memberRows.Err()
 }
 
 // collectChatMetaRefs folds every attachment id referenced by the
@@ -648,6 +718,69 @@ func (d *DAL) GetChatAttachment(id string) (*ChatAttachment, error) {
 		a.Filename = &filename.String
 	}
 	return &a, nil
+}
+
+// ReplaceMemberAvatar atomically stores a freshly minted dedicated avatar,
+// switches the stable member pointer, and deletes the prior dedicated blob.
+// The member must already exist; a vanished row is errNotFound.
+func (d *DAL) ReplaceMemberAvatar(memberID string, avatar ChatAttachment) error {
+	tx, err := d.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var previous string
+	if err := tx.QueryRow(
+		`SELECT avatar_attachment_id FROM member WHERE id = ?`, memberID,
+	).Scan(&previous); errors.Is(err, sql.ErrNoRows) {
+		return errNotFound
+	} else if err != nil {
+		return err
+	}
+	if err := putChatAttachmentOn(tx, avatar); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(
+		`UPDATE member SET avatar_attachment_id = ? WHERE id = ?`,
+		avatar.ID, memberID,
+	); err != nil {
+		return err
+	}
+	if previous != "" && previous != avatar.ID {
+		if _, err := tx.Exec(`DELETE FROM chat_attachment WHERE id = ?`, previous); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// DeleteMemberAvatar atomically clears the pointer and deletes the owned blob.
+// It is idempotent when the member already has no personal avatar.
+func (d *DAL) DeleteMemberAvatar(memberID string) error {
+	tx, err := d.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var previous string
+	if err := tx.QueryRow(
+		`SELECT avatar_attachment_id FROM member WHERE id = ?`, memberID,
+	).Scan(&previous); errors.Is(err, sql.ErrNoRows) {
+		return errNotFound
+	} else if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(
+		`UPDATE member SET avatar_attachment_id = '' WHERE id = ?`, memberID,
+	); err != nil {
+		return err
+	}
+	if previous != "" {
+		if _, err := tx.Exec(`DELETE FROM chat_attachment WHERE id = ?`, previous); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // ── chat read receipts (per-conversation last-read watermark) ────────────────

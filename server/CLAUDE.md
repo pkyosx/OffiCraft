@@ -139,6 +139,24 @@ owner 2026-07-27 兩句話 + 一個數字:「更新的時候不能塞超過這�
 - **代價是具體的**:這是 agent 換手前把該輪教訓寫回去的那條縫,誤擋一次 = 那一輪的經驗無聲全掉。所以拒絕訊息(`docCapRefusal`,五個面共用一份、不可能漂成五種說法)一定講出**三個數字**(這次多長 / 上限 / 現在多長)與**唯一合法出路**(把這次寫的弄短:同一次寫入裡先刪過時內容)。seeds 同批教(`system_interaction.md` §9a / `worker_context.md`)——agent 只知道 seed 教的做法。
 - 哨兵 `api_context_cap_t3351_test.go`:(a) 超標被擋 ×6 面、(b) 合法寫入不被誤擋(含「9,000 中文字必須放行」的 rune 單位釘)、(c) 超標但變短放行 ×5 面、(d) 等長且超標被擋。四件**分開釘**,但⚠️ **一個 mutant 未必只點名一件**(逐顆實測 2026-07-27,每顆前 `go clean -testcache`):整條閘拿掉 → (a) 6/6 紅 + (d) 5/5 紅,(b)(c) 全綠;`>=` 改 `>` → 只有 (d) 紅,5/5;**rune 改 byte → (b) 4/6 紅、而且 (d) 也紅 3/5**(此處原本記成「中文那條 + (b) 紅」,漏了 (d),已更正)。(d) 會被這顆 mutant 掃到的根因在測試夾具、不在生產碼:`capDoc` 的錨 `«DROP-THIS-SECTION»` 是 19 runes = **21 bytes**,而 (d) 的等長對照物是純 ASCII 的 `strings.Repeat("q", runes(before))`,在 byte 尺下比 `before` **短 2 bytes**,被誤判成合法縮小而放行;(d) 走 patch 面的兩個子測換的是等 byte 數的錨,所以仍綠。**要拿哨兵當單一診斷訊號的人請注意這顆是跨組的**——看到 (b)(d) 同時紅,先懷疑單位而不是 `>=` 邊界。
 
+## 每位成員的個人圖片頭像(T-c826)
+
+- 個人圖以 stable member id 綁在 `member.avatar_attachment_id`，圖片 bytes 重用
+  `chat_attachment`，但 id 使用專用 `ava-` 前綴。顯示鏈固定為「個人圖 →
+  role/theme 圖 → glyph」，不以 display name 當 key，也不在 Avatar 上畫 presence。
+- `PUT/DELETE /api/members/{member_id}/avatar` 由 owner 2026-07-27 明確裁定
+  `requires=owner` 且 `MCPExclude`；外包與正職共用 member row，warden/machine
+  目標一律 422。PUT 只收原始 PNG/JPEG/WEBP、最多 64 KiB，server 以 magic bytes
+  驗證，不能只信瀏覽器 MIME。
+- replacement、remove、hard delete 與 migration rollback 都必須在同一 transaction
+  內維護 pointer/blob，不得留下舊 blob 或懸空 pointer。每次 replacement mint 新
+  `ava-` id，自然 cache-bust。staff 發既有 `member` delta，外包發
+  `outsource_worker` delta；SSE 永不攜帶圖片 bytes。
+- `ava-` blob 是 single-owner，chat/reply/task attachment ref 與 task artifact
+  一律拒收，避免 replacement/remove 讓一般紀錄懸空。一般 `PutMember` conflict
+  update 也不得寫 `avatar_attachment_id`；只有專用 avatar mutator 可改該 pointer，
+  避免 stale lifecycle/model snapshot 洗掉較新的頭像。
+
 ## 已知邊界(誠實列,別當成熟功能用)
 - **config 預設路徑是 CWD-relative `oc.toml`**(binary 沒有 source-path 可錨 repo root);部署正解走 `$OC_CONFIG`。
 

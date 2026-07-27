@@ -4,7 +4,7 @@
 // for a given kind), not geometry.
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, act } from "@testing-library/react";
+import { render, act, fireEvent } from "@testing-library/react";
 import { I18nProvider, useI18n } from "../i18n";
 import { Avatar } from "./Avatar";
 
@@ -171,5 +171,31 @@ describe("Avatar avatars-by-kind (T-16a1 P5)", () => {
     // outsource kind has no image on this theme → built-in glyph, no <img>
     expect(getByTestId("outsource").querySelector("img.avatar__img")).toBeNull();
     expect(getByTestId("outsource").querySelector("svg")).not.toBeNull();
+  });
+
+  it("prefers the stable member image, then falls back to the role theme image on load failure", () => {
+    const { container } = render(
+      <I18nProvider>
+        <Capture />
+        <Avatar size={40} kind="member" src="blob:personal-avatar" />
+      </I18nProvider>
+    );
+    act(() => {
+      ctx.commitCustomThemes([
+        {
+          id: "fallback",
+          name: "Fallback",
+          colors: { "--color-bg": "#101018" },
+          avatars: { member: MEMBER_IMG },
+        },
+      ]);
+      ctx.setTheme("fallback");
+    });
+    const personal = container.querySelector("img.avatar__img");
+    expect(personal?.getAttribute("src")).toBe("blob:personal-avatar");
+    fireEvent.error(personal!);
+    expect(
+      container.querySelector("img.avatar__img")?.getAttribute("src")
+    ).toBe(MEMBER_IMG);
   });
 });

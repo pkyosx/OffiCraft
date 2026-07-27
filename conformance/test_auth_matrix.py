@@ -17,8 +17,8 @@ class (the RBAC route table that landed with service/authz.py):
     routes from the owner floor onto THIS one, so most of the office's
     privileged verbs now have two positive faces, not one;
   * ``requires="owner"``    → everything below owner (admin included) is 403.
-    Exactly five rows are left here on purpose (mint, change-password, the
-    three Web Push rows) — see routes.go's T-6020 note.
+    Seven rows are intentionally here: the original five account/browser
+    controls plus the owner-managed member-avatar PUT/DELETE pair.
 
 The capability ladder (rank): machine/warden=0 < agent=1 < admin_agent=2 <
 owner=3; enforcement is rank(principal) >= rank(requires). Below-floor cells
@@ -58,6 +58,7 @@ import pytest
 from conftest import AgentIdentity
 
 IDENTITIES = ("none", "owner", "admin_agent", "warden", "agent_self", "agent_other")
+_AVATAR_PNG_BYTES = b"\x89PNG\r\n\x1a\n\x00"
 
 # The linear capability ladder — the conformance-side mirror of the server's
 # PRINCIPAL_RANK (re-declared, NOT imported: black-box iron rule).
@@ -89,6 +90,7 @@ class Ctx:
     fresh_member: Callable[[], str]
     fresh_machine: Callable[[], str]
     fresh_role: Callable[[], str]
+    _avatar_delete_urls: dict[str, str] = field(default_factory=dict, repr=False)
 
     def token(self, identity: str) -> str | None:
         return {
@@ -147,6 +149,7 @@ class Route:
     body: BodyLike | Callable[[Ctx, str], Any] | None = None
     notes: str = ""
     overrides: dict[str, int] = field(default_factory=dict)
+    check: Callable[[Ctx, str, httpx.Response], None] | None = None
 
     @property
     def expect(self) -> dict[str, int]:
@@ -174,6 +177,47 @@ def _member_path(template: str):
         return template.format(member_id=target)
 
     return build
+
+
+def _matrix_member_avatar_delete_path(ctx: Ctx, identity: str) -> str:
+    """Seed the owner-positive DELETE face without relying on row order.
+
+    Denied identities must remain side-effect free; only the owner cell creates
+    the precondition that makes a no-op DELETE distinguishable from a working
+    one. The semantic blob cleanup is pinned more deeply in test_rest_happy.
+    """
+    path = f"/api/members/{ctx.agent_a.member_id}/avatar"
+    if identity == "owner":
+        seeded = ctx.client.put(
+            path + "?mime=image/png",
+            content=_AVATAR_PNG_BYTES,
+            headers={"Authorization": f"Bearer {ctx.owner_token}"},
+        )
+        assert seeded.status_code == 200, (
+            f"avatar DELETE matrix seed failed: {seeded.status_code} {seeded.text}"
+        )
+        url = seeded.json()["avatar_url"]
+        assert url.startswith("/api/chat/attachment/ava-")
+        ctx._avatar_delete_urls[identity] = url
+    return path
+
+
+def _check_matrix_member_avatar_delete(
+    ctx: Ctx, identity: str, response: httpx.Response
+) -> None:
+    if identity != "owner":
+        return
+    data = response.json()
+    assert data["member_id"] == ctx.agent_a.member_id and data["avatar_url"] == "", data
+    old_url = ctx._avatar_delete_urls.pop(identity)
+    old = ctx.client.get(
+        old_url,
+        headers={"Authorization": f"Bearer {ctx.owner_token}"},
+    )
+    assert old.status_code == 404, (
+        f"avatar DELETE matrix row left its seeded blob reachable: "
+        f"{old.status_code} {old.text[:200]}"
+    )
 
 
 def _matrix_webhook_requests_path(ctx: Ctx) -> str:
@@ -399,6 +443,18 @@ MATRIX: dict[str, Route] = {
         path=lambda ctx, _i: f"/api/members/{ctx.agent_a.member_id}",
         body={"name": "conf-agent-a"},
         notes="member PATCH (name/model/effort) carries no admin choke",
+    ),
+    "PUT /api/members/{member_id}/avatar": Route(
+        requires="owner",
+        path=lambda ctx, _i: f"/api/members/{ctx.agent_a.member_id}/avatar",
+        body=_AVATAR_PNG_BYTES,
+        notes="personal visual identity stays owner-only (T-c826)",
+    ),
+    "DELETE /api/members/{member_id}/avatar": Route(
+        requires="owner",
+        path=_matrix_member_avatar_delete_path,
+        notes="personal visual identity stays owner-only (T-c826)",
+        check=_check_matrix_member_avatar_delete,
     ),
     "POST /api/members/{member_id}/activate": Route(
         requires="admin_agent",
@@ -1128,16 +1184,23 @@ def test_auth_matrix(ctx: Ctx, route_key: str, identity: str) -> None:
 
     if route_key == "GET /api/events":
         status = _probe_sse(ctx, path, identity)
+        response = None
     else:
         body = _resolve(route.body, ctx, identity)
         kwargs: dict[str, Any] = {"headers": _headers(ctx, identity)}
-        if body is not None:
+        if isinstance(body, (bytes, bytearray)):
+            kwargs["content"] = bytes(body)
+        elif body is not None:
             kwargs["json"] = body
-        status = ctx.client.request(method, path, **kwargs).status_code
+        response = ctx.client.request(method, path, **kwargs)
+        status = response.status_code
 
     assert status == expected, (
         f"{route_key} as {identity}: expected {expected}, got {status}"
     )
+    if route.check is not None:
+        assert response is not None, f"{route_key}: SSE rows cannot carry a response check"
+        route.check(ctx, identity, response)
 
 
 # ── coverage teeth: the matrix must track the manifest, and vice versa ──────

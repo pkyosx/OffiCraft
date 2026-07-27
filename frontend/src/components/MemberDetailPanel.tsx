@@ -15,6 +15,7 @@ import type {
   WebhookRequestLog,
 } from "../api/adapter";
 import { AgentDetailPanel } from "./AgentDetailPanel";
+import { AvatarEditor } from "./AvatarEditor";
 import { Avatar } from "./Avatar";
 import { avatarKindForMember } from "../lib/avatarKind";
 import { ConfirmModal } from "./ConfirmModal";
@@ -75,6 +76,8 @@ interface MemberDetailPanelProps {
   onRefocus?: () => void | Promise<void>;
   /** Commit a rename → patchMember({ name }). */
   onRename?: (name: string) => void;
+  onUpdateAvatar?: (file: File) => Promise<void>;
+  onRemoveAvatar?: () => Promise<void>;
 }
 
 export function MemberDetailPanel({
@@ -86,6 +89,8 @@ export function MemberDetailPanel({
   onForceStop,
   onRefocus,
   onRename,
+  onUpdateAvatar,
+  onRemoveAvatar,
 }: MemberDetailPanelProps) {
   const { t, msg } = useI18n();
   const online = member.status === "online";
@@ -520,7 +525,17 @@ export function MemberDetailPanel({
         {/* Avatar dot dropped here: the 7-state LifecycleDot on the status line
             below is now the single source of presence colour (replaces the old
             3-state Avatar dot in this panel). */}
-        <Avatar size={52} kind={avatarKindForMember(member)} />
+        {onUpdateAvatar && onRemoveAvatar ? (
+          <AvatarEditor
+            size={52}
+            kind={avatarKindForMember(member)}
+            src={member.avatarUrl}
+            onUpload={onUpdateAvatar}
+            onRemove={onRemoveAvatar}
+          />
+        ) : (
+          <Avatar size={52} kind={avatarKindForMember(member)} src={member.avatarUrl} />
+        )}
         <div className="mp-identity__body">
           <div className="mp-identity__line">
             <InlineEdit

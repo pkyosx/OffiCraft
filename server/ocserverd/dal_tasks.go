@@ -718,6 +718,9 @@ type OutsourceWorker struct {
 	// owner-visible spend. Kept separate from the live figure (never
 	// overlapping); the panel sums live + banked.
 	BankedCost float64
+	// AvatarAttachmentID is the shared member row's personal-avatar pointer.
+	// Carry it through every worker projection so lifecycle writes never erase it.
+	AvatarAttachmentID string
 }
 
 // workerStatusFromMember derives the frozen worker lifecycle vocabulary from
@@ -742,28 +745,29 @@ func workerFromMember(m Member) OutsourceWorker {
 		taskID = *m.LinkedTaskID
 	}
 	return OutsourceWorker{
-		ID:               m.ID,
-		Codename:         m.Codename,
-		Runtime:          NormalizeRuntime(m.Runtime),
-		Model:            m.Model,
-		Effort:           m.Effort,
-		TaskID:           taskID,
-		Status:           workerStatusFromMember(m.RosterStatus, m.ActivatedTS),
-		ActivatedTS:      m.ActivatedTS,
-		CreatedTS:        m.CreatedTS,
-		ReleasedTS:       m.ReleasedTS,
-		LastOp:           m.LastOp,
-		LastOpOK:         m.LastOpOK,
-		LastOpLog:        m.LastOpLog,
-		LastOpReason:     m.LastOpReason,
-		LastOpAt:         m.LastOpAt,
-		DesiredMachineID: m.DesiredMachineID,
-		LastMachineID:    m.LastMachineID,
-		RefocusSince:     m.RefocusSince,
-		StoppingSince:    m.StoppingSince,
-		StoppedSince:     m.StoppedSince,
-		DesiredState:     m.DesiredState,
-		BankedCost:       m.BankedCost,
+		ID:                 m.ID,
+		Codename:           m.Codename,
+		Runtime:            NormalizeRuntime(m.Runtime),
+		Model:              m.Model,
+		Effort:             m.Effort,
+		TaskID:             taskID,
+		Status:             workerStatusFromMember(m.RosterStatus, m.ActivatedTS),
+		ActivatedTS:        m.ActivatedTS,
+		CreatedTS:          m.CreatedTS,
+		ReleasedTS:         m.ReleasedTS,
+		LastOp:             m.LastOp,
+		LastOpOK:           m.LastOpOK,
+		LastOpLog:          m.LastOpLog,
+		LastOpReason:       m.LastOpReason,
+		LastOpAt:           m.LastOpAt,
+		DesiredMachineID:   m.DesiredMachineID,
+		LastMachineID:      m.LastMachineID,
+		RefocusSince:       m.RefocusSince,
+		StoppingSince:      m.StoppingSince,
+		StoppedSince:       m.StoppedSince,
+		DesiredState:       m.DesiredState,
+		BankedCost:         m.BankedCost,
+		AvatarAttachmentID: m.AvatarAttachmentID,
 	}
 }
 
@@ -790,31 +794,32 @@ func memberFromWorker(w OutsourceWorker) Member {
 	}
 	taskID := w.TaskID
 	return Member{
-		ID:               w.ID,
-		Name:             w.Codename,
-		Kind:             KindOutsource,
-		RoleKey:          "",
-		Runtime:          NormalizeRuntime(w.Runtime),
-		Model:            w.Model,
-		Effort:           w.Effort,
-		DesiredState:     w.DesiredState,
-		DesiredMachineID: w.DesiredMachineID,
-		LastMachineID:    w.LastMachineID,
-		RefocusSince:     w.RefocusSince,
-		StoppingSince:    w.StoppingSince,
-		StoppedSince:     w.StoppedSince,
-		BankedCost:       w.BankedCost,
-		LastOp:           w.LastOp,
-		LastOpOK:         w.LastOpOK,
-		LastOpLog:        w.LastOpLog,
-		LastOpReason:     w.LastOpReason,
-		LastOpAt:         w.LastOpAt,
-		RosterStatus:     roster,
-		LinkedTaskID:     &taskID,
-		Codename:         w.Codename,
-		CreatedTS:        w.CreatedTS,
-		ReleasedTS:       w.ReleasedTS,
-		ActivatedTS:      activated,
+		ID:                 w.ID,
+		Name:               w.Codename,
+		Kind:               KindOutsource,
+		RoleKey:            "",
+		Runtime:            NormalizeRuntime(w.Runtime),
+		Model:              w.Model,
+		Effort:             w.Effort,
+		DesiredState:       w.DesiredState,
+		DesiredMachineID:   w.DesiredMachineID,
+		LastMachineID:      w.LastMachineID,
+		RefocusSince:       w.RefocusSince,
+		StoppingSince:      w.StoppingSince,
+		StoppedSince:       w.StoppedSince,
+		BankedCost:         w.BankedCost,
+		LastOp:             w.LastOp,
+		LastOpOK:           w.LastOpOK,
+		LastOpLog:          w.LastOpLog,
+		LastOpReason:       w.LastOpReason,
+		LastOpAt:           w.LastOpAt,
+		RosterStatus:       roster,
+		LinkedTaskID:       &taskID,
+		Codename:           w.Codename,
+		CreatedTS:          w.CreatedTS,
+		ReleasedTS:         w.ReleasedTS,
+		ActivatedTS:        activated,
+		AvatarAttachmentID: w.AvatarAttachmentID,
 	}
 }
 

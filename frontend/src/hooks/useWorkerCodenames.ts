@@ -19,8 +19,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 
-// id → codename; "" = fetch attempted, unresolvable (negative cache).
-const cache = new Map<string, string>();
+type WorkerIdentity = { codename: string; avatarUrl?: string };
+
+// id → identity; null = fetch attempted, unresolvable (negative cache).
+const cache = new Map<string, WorkerIdentity | null>();
 const inflight = new Set<string>();
 // Subscribers to notify when any fetch settles (multiple mounted callers).
 const listeners = new Set<() => void>();
@@ -35,8 +37,17 @@ export function __resetWorkerCodenameCache() {
   inflight.clear();
 }
 
+/** Keep lazy released-worker identity consumers coherent with an owner avatar
+ * mutation made from a detail panel that may be open beside them. */
+export function updateCachedWorkerAvatar(id: string, avatarUrl: string) {
+  const current = cache.get(id);
+  if (!current) return;
+  cache.set(id, { ...current, avatarUrl });
+  notifyAll();
+}
+
 export function useWorkerCodenames(ids: readonly string[]): Map<string, string> {
-  const [, setTick] = useState(0);
+  const [tick, setTick] = useState(0);
 
   // The ids this caller still needs fetched (dedup, ow- only, not yet tried).
   const key = ids.filter((id) => id.startsWith("ow-")).sort().join("|");
@@ -60,8 +71,9 @@ export function useWorkerCodenames(ids: readonly string[]): Map<string, string> 
       api
         .getOutsourceWorker(id)
         .then(
-          (w) => cache.set(id, w.codename),
-          () => cache.set(id, ""), // honest miss — raw id stays
+          (w) =>
+            cache.set(id, { codename: w.codename, avatarUrl: w.avatarUrl }),
+          () => cache.set(id, null), // honest miss — raw id stays
         )
         .then(() => {
           inflight.delete(id);
@@ -76,10 +88,25 @@ export function useWorkerCodenames(ids: readonly string[]): Map<string, string> 
   return useMemo(() => {
     const out = new Map<string, string>();
     for (const id of ids) {
-      const cn = cache.get(id);
-      if (cn) out.set(id, cn);
+      const identity = cache.get(id);
+      if (identity?.codename) out.set(id, identity.codename);
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, wanted, cache.size]);
+  }, [key, wanted, tick, cache.size]);
+}
+
+/** Personal avatar URLs from the same per-id identity fetch/cache. */
+export function useWorkerAvatarUrls(ids: readonly string[]): Map<string, string> {
+  const codenames = useWorkerCodenames(ids);
+  const key = ids.filter((id) => id.startsWith("ow-")).sort().join("|");
+  return useMemo(() => {
+    const out = new Map<string, string>();
+    for (const id of ids) {
+      const src = cache.get(id)?.avatarUrl;
+      if (src) out.set(id, src);
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, codenames, cache.size]);
 }

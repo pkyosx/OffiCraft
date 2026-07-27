@@ -9,6 +9,8 @@ import type { OutsourceWorkerView } from "../../src/api/adapter";
 
 const worker: OutsourceWorkerView = {
   id: "ow-1",
+  avatarUrl:
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGM4EcUFAAMaAS0191t5AAAAAElFTkSuQmCC",
   codename: "O-19",
   model: "claude-opus-4-8",
   effort: "high",
@@ -33,7 +35,12 @@ const worker: OutsourceWorkerView = {
 export function WorkerDetailPanelTaskOrderStory() {
   return (
     <I18nProvider>
-      <WorkerDetailPanel worker={worker} onBack={() => {}} />
+      <WorkerDetailPanel
+        worker={worker}
+        onBack={() => {}}
+        onUpdateAvatar={async () => {}}
+        onRemoveAvatar={async () => {}}
+      />
     </I18nProvider>
   );
 }

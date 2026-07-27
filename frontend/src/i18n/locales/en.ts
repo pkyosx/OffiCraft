@@ -615,6 +615,12 @@ export const en: Dict = {
   },
   mp: {
     back: "Back",
+    avatarUpload: "Change avatar",
+    avatarRemove: "Remove avatar",
+    avatarBusy: "Working…",
+    avatarTypeError: "Use a PNG, JPEG, or WEBP image",
+    avatarTooLarge: "Image must be 64 KiB or smaller",
+    avatarSaveError: "Could not save the avatar. Please try again.",
     rename: "Rename",
     renamePlaceholder: "Enter name",
     wake: "Wake",

@@ -27,6 +27,9 @@ export type RoleKey = string;
 
 export interface Member {
   id: string;
+  /** Personal image URL bound to this stable member id. Empty/absent keeps the
+   * role-theme avatar and built-in glyph fallback chain. */
+  avatarUrl?: string;
   memberId: string;
   name: string;
   role: RoleKey;

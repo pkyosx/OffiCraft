@@ -704,6 +704,14 @@ type MemberActivateDTO struct {
 	MachineId *string `json:"machine_id,omitempty"`
 }
 
+// MemberAvatarDTO Narrow result of an owner-only personal-avatar mutation. “avatar_url“ is a newly minted authenticated blob path after upload and empty after removal; the changing blob id naturally cache-busts replacements.
+type MemberAvatarDTO struct {
+	AvatarUrl *string `json:"avatar_url,omitempty"`
+	Filename  *string `json:"filename,omitempty"`
+	MemberId  string  `json:"member_id"`
+	Mime      *string `json:"mime,omitempty"`
+}
+
 // MemberDTO API representation of one “domain.Member“ (a roster member; §3.4 #8/#10).
 //
 // Carries the durable roster fields PLUS two projections the domain computes at
@@ -723,16 +731,19 @@ type MemberActivateDTO struct {
 // role roster (empty until role definitions land in build order B2).
 type MemberDTO struct {
 	// ActivationPending Set true ONLY on the activate response when the decided START could not be delivered to the target warden (no live SSE downstream) — the wake intent is persisted and the reconcile cadence retries, but nothing has been dispatched yet. Absent/null on every other member read. The activate twin of ``relocation_pending``: without it an activate against an unreachable warden returns a clean 200 with zero signal, which is indistinguishable from a wake that actually started (T-ba62 additive-optional).
-	ActivationPending *bool    `json:"activation_pending,omitempty"`
-	DesiredMachineId  *string  `json:"desired_machine_id,omitempty"`
-	DesiredState      *string  `json:"desired_state,omitempty"`
-	Effort            *string  `json:"effort,omitempty"`
-	Id                string   `json:"id"`
-	Kind              *string  `json:"kind,omitempty"`
-	LastOp            *string  `json:"last_op,omitempty"`
-	LastOpAt          *float64 `json:"last_op_at,omitempty"`
-	LastOpLog         *string  `json:"last_op_log,omitempty"`
-	LastOpOk          *bool    `json:"last_op_ok,omitempty"`
+	ActivationPending *bool `json:"activation_pending,omitempty"`
+
+	// AvatarUrl Authenticated URL of this stable member id's personal raster avatar. Empty means no personal image; clients fall back to the active theme's role avatar, then the built-in glyph. Additive-optional for older clients.
+	AvatarUrl        *string  `json:"avatar_url,omitempty"`
+	DesiredMachineId *string  `json:"desired_machine_id,omitempty"`
+	DesiredState     *string  `json:"desired_state,omitempty"`
+	Effort           *string  `json:"effort,omitempty"`
+	Id               string   `json:"id"`
+	Kind             *string  `json:"kind,omitempty"`
+	LastOp           *string  `json:"last_op,omitempty"`
+	LastOpAt         *float64 `json:"last_op_at,omitempty"`
+	LastOpLog        *string  `json:"last_op_log,omitempty"`
+	LastOpOk         *bool    `json:"last_op_ok,omitempty"`
 
 	// LastOpReason Structured one-line cause of the most recent warden op (the warden's ``<code>: <detail>`` refusal/failure summary, e.g. ``session_already_exists: ...``) — distinct from the free-form ``last_op_log`` dump. Empty when the receipt carried no reason (older warden, or a successful op); consumers then fall back to status-only display.
 	LastOpReason *string  `json:"last_op_reason,omitempty"`
@@ -938,6 +949,9 @@ type OnboardingStepDTO struct {
 type OutsourceWorkerDTO struct {
 	// Account The Claude account this worker's session runs under (telemetry entry keyed by the worker's actor id — the SAME per-actor telemetry the member roster reads). null when the worker has not reported one (never fabricated). T-f190 additive-optional.
 	Account *string `json:"account,omitempty"`
+
+	// AvatarUrl Authenticated URL of this stable outsource-worker id's personal raster avatar. Empty means the client uses the outsource theme avatar or built-in glyph. Additive-optional.
+	AvatarUrl *string `json:"avatar_url,omitempty"`
 
 	// BankedCost The worker's persistent historical cumulative cost (migrations/00021), the DIRECT twin of member banked_cost: the live cost is banked through the SAME bankLiveCost fold on every session end / kill+respawn (refocus / model change / relocate / stop / auto-handover), so a handover never zeroes the owner-visible spend. null when nothing banked yet. The panel shows live + banked summed, the member presentation. T-ba6b additive-optional.
 	BankedCost *float64 `json:"banked_cost,omitempty"`
@@ -1924,6 +1938,12 @@ type HandleListMembersApiMembersGetParams struct {
 	Fields *string `form:"fields,omitempty" json:"fields,omitempty"`
 }
 
+// HandlePutMemberAvatarApiMembersMemberIdAvatarPutParams defines parameters for HandlePutMemberAvatarApiMembersMemberIdAvatarPut.
+type HandlePutMemberAvatarApiMembersMemberIdAvatarPutParams struct {
+	Filename *string `form:"filename,omitempty" json:"filename,omitempty"`
+	Mime     *string `form:"mime,omitempty" json:"mime,omitempty"`
+}
+
 // HandleListReplyCardsApiReplyCardsGetParams defines parameters for HandleListReplyCardsApiReplyCardsGet.
 type HandleListReplyCardsApiReplyCardsGetParams struct {
 	Status *string `form:"status,omitempty" json:"status,omitempty"`
@@ -2235,6 +2255,12 @@ type ServerInterface interface {
 	// Activate: write desired_state=online intent (does NOT flip online).
 	// (POST /api/members/{member_id}/activate)
 	HandleActivateMemberApiMembersMemberIdActivatePost(w http.ResponseWriter, r *http.Request, memberId string)
+	// Remove a member's personal avatar (owner only).
+	// (DELETE /api/members/{member_id}/avatar)
+	HandleDeleteMemberAvatarApiMembersMemberIdAvatarDelete(w http.ResponseWriter, r *http.Request, memberId string)
+	// Upload or replace a member's personal avatar (owner only).
+	// (PUT /api/members/{member_id}/avatar)
+	HandlePutMemberAvatarApiMembersMemberIdAvatarPut(w http.ResponseWriter, r *http.Request, memberId string, params HandlePutMemberAvatarApiMembersMemberIdAvatarPutParams)
 	// Deactivate: desired_state=offline + stamp stopping_since (retains row).
 	// (POST /api/members/{member_id}/deactivate)
 	HandleDeactivateMemberApiMembersMemberIdDeactivatePost(w http.ResponseWriter, r *http.Request, memberId string)
@@ -3513,6 +3539,87 @@ func (siw *ServerInterfaceWrapper) HandleActivateMemberApiMembersMemberIdActivat
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleActivateMemberApiMembersMemberIdActivatePost(w, r, memberId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleDeleteMemberAvatarApiMembersMemberIdAvatarDelete operation middleware
+func (siw *ServerInterfaceWrapper) HandleDeleteMemberAvatarApiMembersMemberIdAvatarDelete(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "member_id" -------------
+	var memberId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "member_id", r.PathValue("member_id"), &memberId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "member_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleDeleteMemberAvatarApiMembersMemberIdAvatarDelete(w, r, memberId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandlePutMemberAvatarApiMembersMemberIdAvatarPut operation middleware
+func (siw *ServerInterfaceWrapper) HandlePutMemberAvatarApiMembersMemberIdAvatarPut(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "member_id" -------------
+	var memberId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "member_id", r.PathValue("member_id"), &memberId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "member_id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params HandlePutMemberAvatarApiMembersMemberIdAvatarPutParams
+
+	// ------------- Optional query parameter "filename" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "filename", r.URL.Query(), &params.Filename, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "filename"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "filename", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "mime" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "mime", r.URL.Query(), &params.Mime, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "mime"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "mime", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandlePutMemberAvatarApiMembersMemberIdAvatarPut(w, r, memberId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5495,6 +5602,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/members/{member_id}", wrapper.HandleGetMemberApiMembersMemberIdGet)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/members/{member_id}", wrapper.HandleUpdateMemberApiMembersMemberIdPatch)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/members/{member_id}/activate", wrapper.HandleActivateMemberApiMembersMemberIdActivatePost)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/members/{member_id}/avatar", wrapper.HandleDeleteMemberAvatarApiMembersMemberIdAvatarDelete)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/members/{member_id}/avatar", wrapper.HandlePutMemberAvatarApiMembersMemberIdAvatarPut)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/members/{member_id}/deactivate", wrapper.HandleDeactivateMemberApiMembersMemberIdDeactivatePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/members/{member_id}/force-stop", wrapper.HandleForceStopMemberApiMembersMemberIdForceStopPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/members/{member_id}/refocus", wrapper.HandleRefocusMemberApiMembersMemberIdRefocusPost)

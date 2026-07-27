@@ -13,7 +13,7 @@ package main
 //	    silently drifting back to owner during an unrelated edit — and every
 //	    other test in the package would stay green through both.
 //
-//	(b) 5 routes were deliberately NOT opened. That is the half most likely to
+//	(b) Owner-only routes were deliberately NOT opened. That is the half most likely to
 //	    be undone by a well-meaning future edit ("these look like they were
 //	    missed"), which is exactly why routes.go carries the reason per row and
 //	    why this file refuses the change.
@@ -52,13 +52,16 @@ var t6020Opened = map[[2]string]string{
 // t6020Withheld is the exact set the owner declined to open. The reason lives
 // on each row in routes.go; the short version: minting an identity is
 // self-escalation, and the password / Web Push rows are the owner's own account
-// and own browser, not an office capability.
+// and own browser, not an office capability. T-c826 later added the owner's
+// explicit choice that personal member identity/presentation also stays here.
 var t6020Withheld = [][2]string{
 	{"POST", "/api/mint"},
 	{"POST", "/api/auth/change-password"},
 	{"GET", "/api/push/public-key"},
 	{"POST", "/api/push/subscription"},
 	{"DELETE", "/api/push/subscription"},
+	{"PUT", "/api/members/{member_id}/avatar"},
+	{"DELETE", "/api/members/{member_id}/avatar"},
 }
 
 func t6020RouteIndex(t *testing.T) map[[2]string]RouteSpec {
@@ -136,8 +139,8 @@ func TestT6020OpenedToolsAreInTheFrozenCatalog(t *testing.T) {
 }
 
 func TestT6020WithheldRoutesStayOwnerOnlyAndOffTheMCPSurface(t *testing.T) {
-	if len(t6020Withheld) != 5 {
-		t.Fatalf("the ruling withheld 5 routes, this table lists %d", len(t6020Withheld))
+	if len(t6020Withheld) != 7 {
+		t.Fatalf("the owner rulings withheld 7 routes, this table lists %d", len(t6020Withheld))
 	}
 	index := t6020RouteIndex(t)
 	// Scan the tool index by ROUTE (not by name): a withheld row that grew a
@@ -156,10 +159,9 @@ func TestT6020WithheldRoutesStayOwnerOnlyAndOffTheMCPSurface(t *testing.T) {
 			continue
 		}
 		if spec.Requires != principalOwner {
-			t.Errorf("%s %s declares Requires=%q — the owner explicitly declined "+
-				"to open this one on 2026-07-26 (issuing an identity is "+
-				"self-escalation; the password and Web Push rows are the owner's "+
-				"personal account and browser). Read the T-6020 note on the row "+
+			t.Errorf("%s %s declares Requires=%q — the owner explicitly kept "+
+				"this route owner-only (T-6020: identity minting/account/browser; "+
+				"T-c826: personal member avatar identity/presentation). Read the note on the row "+
 				"in routes.go before changing this.", key[0], key[1], spec.Requires)
 		}
 		if !spec.MCPExclude {

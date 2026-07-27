@@ -256,6 +256,10 @@ func (s *apiServer) resolveChatAttachmentInputs(inputs []ChatAttachmentInputDTO)
 				return nil, http.StatusBadRequest,
 					"attachment carries both id and data_b64"
 			}
+			if isMemberAvatarAttachmentID(refID) {
+				return nil, http.StatusBadRequest,
+					"attachment '" + refID + "' is reserved for a member avatar"
+			}
 			// The stored blob is authoritative — a filename/mime sent alongside
 			// the ref is ignored (lets the upload response be pasted back verbatim).
 			att, err := s.dal.GetChatAttachment(refID)

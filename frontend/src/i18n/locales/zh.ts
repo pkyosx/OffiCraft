@@ -690,6 +690,12 @@ export const zh = {
   },
   mp: {
     back: "返回",
+    avatarUpload: "更換頭像",
+    avatarRemove: "移除頭像",
+    avatarBusy: "處理中…",
+    avatarTypeError: "只支援 PNG、JPEG 或 WEBP",
+    avatarTooLarge: "圖片不可超過 64 KiB",
+    avatarSaveError: "頭像儲存失敗，請稍後重試",
     rename: "改名",
     renamePlaceholder: "輸入名字",
     wake: "喚醒",

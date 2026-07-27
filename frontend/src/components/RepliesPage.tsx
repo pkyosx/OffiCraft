@@ -32,7 +32,10 @@ import type { ReplyCard, ReplyCardAnswerInput } from "../api/adapter";
 import { isHttpStatus } from "../api/errors";
 import { useMembers } from "../hooks/useMembers";
 import { useReplyCards } from "../hooks/useReplyCards";
-import { useWorkerCodenames } from "../hooks/useWorkerCodenames";
+import {
+  useWorkerAvatarUrls,
+  useWorkerCodenames,
+} from "../hooks/useWorkerCodenames";
 import { useHashRoute } from "../lib/hashRoute";
 import { avatarKindForMember } from "../lib/avatarKind";
 import { ReplyCardAvatarButton } from "./ReplyCardAvatarButton";
@@ -161,9 +164,9 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // Outsource askers (ow- ids) are never in the members roster — resolve their
   // codename via the lazy per-id read (works for live AND released workers) so
   // the identity row shows the same 代號 the office rail does, not the raw id.
-  const codenames = useWorkerCodenames(
-    [...waiting, ...handled].map((c) => c.from),
-  );
+  const workerIds = [...waiting, ...handled].map((c) => c.from);
+  const codenames = useWorkerCodenames(workerIds);
+  const workerAvatarUrls = useWorkerAvatarUrls(workerIds);
 
   // Resolve the initiating member for a card's identity row. A card can
   // outlive its member (removed roster row) — fall back to the outsource
@@ -308,6 +311,10 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
       <header className="reply-card__head">
         <ReplyCardAvatarButton
           onClick={() => openProfile(card)}
+          src={
+            members.find((x) => x.id === card.from)?.avatarUrl ??
+            workerAvatarUrls.get(card.from)
+          }
           kind={avatarKindForMember(
             members.find((x) => x.id === card.from) ?? { id: card.from }
           )}

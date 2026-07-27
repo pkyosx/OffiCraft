@@ -54,7 +54,10 @@
 //               (T-71e8, aligned with the detailPending/detailFailed guards).
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useWorkerCodenames } from "../hooks/useWorkerCodenames";
+import {
+  useWorkerAvatarUrls,
+  useWorkerCodenames,
+} from "../hooks/useWorkerCodenames";
 import { useI18n } from "../i18n";
 import type { Member } from "../types";
 import type {
@@ -82,6 +85,8 @@ import { Markdown } from "./Markdown";
 import { TaskArtifactsBadge } from "./TaskArtifactsPopover";
 import { TaskReassignDialog } from "./TaskReassignDialog";
 import { TaskReplyCard } from "./TaskReplyCard";
+import { Avatar } from "./Avatar";
+import { avatarKindForMember } from "../lib/avatarKind";
 import {
   ChatBubbleIcon,
   CheckIcon,
@@ -201,11 +206,15 @@ export function TaskCard({
   // closed task, 前任, creator) drops off the LIVE workers list on release —
   // resolve its codename lazily via the per-id read so the chip shows the same
   // identity the rail did, never the raw id.
-  const releasedCodenames = useWorkerCodenames(
-    [task.executorId, task.creatorId, task.reassignedFrom ?? ""].filter(
+  const releasedWorkerIds = [
+    task.executorId,
+    task.creatorId,
+    task.reassignedFrom ?? "",
+  ].filter(
       (id) => id.startsWith("ow-") && !workers.some((w) => w.id === id),
-    ),
-  );
+    );
+  const releasedCodenames = useWorkerCodenames(releasedWorkerIds);
+  const releasedAvatarUrls = useWorkerAvatarUrls(releasedWorkerIds);
   const member =
     task.executorKind === "member"
       ? members.find((m) => m.id === task.executorId)
@@ -309,6 +318,30 @@ export function TaskCard({
   // that T-5012-shaped tasks legitimately show. Empty is not an identity.
   const creatorIsExecutor =
     task.creatorId !== "" && task.creatorId === task.executorId;
+
+  function identityAvatar(id: string) {
+    const rosterMember = members.find((item) => item.id === id);
+    if (rosterMember) {
+      return {
+        src: rosterMember.avatarUrl,
+        kind: avatarKindForMember(rosterMember),
+      } as const;
+    }
+    const outsourceWorker = workers.find((item) => item.id === id);
+    if (outsourceWorker) {
+      return { src: outsourceWorker.avatarUrl, kind: "outsource" } as const;
+    }
+    if (id.startsWith("ow-")) {
+      return {
+        src: releasedAvatarUrls.get(id),
+        kind: "outsource",
+      } as const;
+    }
+    return null;
+  }
+  const assigneeAvatar = identityAvatar(task.executorId);
+  const creatorAvatar = identityAvatar(task.creatorId);
+  const previousAvatar = identityAvatar(task.reassignedFrom ?? "");
 
   // Collapsed by default (mockup): clicking anywhere on the card toggles
   // workflow + gates + description (owner mobile refactor 2026-07-17 — the
@@ -1247,6 +1280,9 @@ export function TaskCard({
                 data-testid="task-assignee-link"
                 onClick={() => openChat(assigneePeerId)}
               >
+                {assigneeAvatar ? (
+                  <Avatar size={18} kind={assigneeAvatar.kind} src={assigneeAvatar.src} />
+                ) : null}
                 <span className="task-card__executor" data-testid="task-executor">
                   {executorText}
                 </span>
@@ -1288,6 +1324,9 @@ export function TaskCard({
                   data-testid="task-creator-link"
                   onClick={() => openChat(creator.peerId)}
                 >
+                  {creatorAvatar ? (
+                    <Avatar size={18} kind={creatorAvatar.kind} src={creatorAvatar.src} />
+                  ) : null}
                   <span className="task-card__creator" data-testid="task-creator">
                     {creator.text}
                   </span>
@@ -1320,6 +1359,9 @@ export function TaskCard({
                 data-testid="task-previous-assignee-link"
                 onClick={() => openChat(previousAssignee.peerId)}
               >
+                {previousAvatar ? (
+                  <Avatar size={18} kind={previousAvatar.kind} src={previousAvatar.src} />
+                ) : null}
                 <span
                   className="task-card__creator"
                   data-testid="task-previous-assignee"

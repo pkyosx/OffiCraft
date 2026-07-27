@@ -46,6 +46,14 @@ func requestTrigger(r *http.Request) string {
 	return triggerServer
 }
 
+// member-avatar blobs have a single mutable owner (member.avatar_attachment_id).
+// They must never enter the general multi-reference attachment graph: avatar
+// replacement/removal deletes the old blob, which would otherwise leave chat,
+// reply-card, task-message, or task-artifact rows pointing at missing bytes.
+func isMemberAvatarAttachmentID(id string) bool {
+	return strings.HasPrefix(id, "ava-")
+}
+
 // currentMachineClaim is the token's optional placement claim
 // (deps.current_machine_claim) — "" when absent.
 func currentMachineClaim(r *http.Request) string {
@@ -265,6 +273,7 @@ func (s *apiServer) observedHost(m Member) string {
 func (s *apiServer) newMemberDTO(m Member, roleName, observedMachine string, unreadCount int) memberDTO {
 	return memberDTO{
 		ID:               m.ID,
+		AvatarURL:        memberAvatarURL(m.AvatarAttachmentID),
 		MemberNo:         MemberNo(m.ID),
 		Name:             m.Name,
 		Kind:             m.Kind,
@@ -301,6 +310,7 @@ func (s *apiServer) newMemberDTO(m Member, roleName, observedMachine string, unr
 func (s *apiServer) newMemberLightDTO(m Member, roleName string) memberDTO {
 	return memberDTO{
 		ID:            m.ID,
+		AvatarURL:     memberAvatarURL(m.AvatarAttachmentID),
 		MemberNo:      MemberNo(m.ID),
 		Name:          m.Name,
 		Kind:          m.Kind,
@@ -311,6 +321,13 @@ func (s *apiServer) newMemberLightDTO(m Member, roleName string) memberDTO {
 		OwnerID:       wireOwnerID,
 		SchemaVersion: wireSchemaVersion,
 	}
+}
+
+func memberAvatarURL(attachmentID string) string {
+	if attachmentID == "" {
+		return ""
+	}
+	return "/api/chat/attachment/" + attachmentID
 }
 
 // writeMemberDTO is the common single-member response tail (role name folded,

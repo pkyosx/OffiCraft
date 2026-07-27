@@ -4,7 +4,7 @@
 // fetch is negative-cached (raw-id fallback, no refetch loop).
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 
 const getOutsourceWorker = vi.fn();
 vi.mock("../api", () => ({
@@ -12,7 +12,9 @@ vi.mock("../api", () => ({
 }));
 
 import {
+  useWorkerAvatarUrls,
   useWorkerCodenames,
+  updateCachedWorkerAvatar,
   __resetWorkerCodenameCache,
 } from "./useWorkerCodenames";
 
@@ -30,6 +32,39 @@ describe("useWorkerCodenames", () => {
     });
     expect(getOutsourceWorker).toHaveBeenCalledTimes(1);
     expect(getOutsourceWorker).toHaveBeenCalledWith("ow-abc");
+  });
+
+  it("shares the per-id read for a released worker's personal avatar", async () => {
+    getOutsourceWorker.mockResolvedValue({
+      id: "ow-abc",
+      codename: "X-1",
+      avatarUrl: "/api/chat/attachment/ava-x1",
+    });
+    const { result } = renderHook(() => useWorkerAvatarUrls(["ow-abc"]));
+    await waitFor(() => {
+      expect(result.current.get("ow-abc")).toBe(
+        "/api/chat/attachment/ava-x1",
+      );
+    });
+    expect(getOutsourceWorker).toHaveBeenCalledTimes(1);
+  });
+
+  it("updates mounted released-worker avatar consumers after an owner mutation", async () => {
+    getOutsourceWorker.mockResolvedValue({
+      id: "ow-abc",
+      codename: "X-1",
+      avatarUrl: "/api/chat/attachment/ava-old",
+    });
+    const { result } = renderHook(() => useWorkerAvatarUrls(["ow-abc"]));
+    await waitFor(() => {
+      expect(result.current.get("ow-abc")).toContain("ava-old");
+    });
+    act(() => {
+      updateCachedWorkerAvatar("ow-abc", "/api/chat/attachment/ava-new");
+    });
+    await waitFor(() => {
+      expect(result.current.get("ow-abc")).toContain("ava-new");
+    });
   });
 
   it("never fetches non-ow ids", async () => {

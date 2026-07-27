@@ -299,6 +299,29 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			MCPTool:  "update_member",
 		},
 		{
+			Method:  http.MethodPut,
+			Path:    "/api/members/{member_id}/avatar",
+			Handler: w.HandlePutMemberAvatarApiMembersMemberIdAvatarPut,
+			Auth:    authGated,
+			// T-c826 owner 2026-07-27 explicitly chose owner-only: a personal
+			// avatar is owner-managed member identity/presentation, not an
+			// operational capability an agent may change for itself or peers.
+			Requires:   principalOwner,
+			Summary:    "Upload or replace a member's personal avatar (owner only).",
+			MCPExclude: true,
+		},
+		{
+			Method:  http.MethodDelete,
+			Path:    "/api/members/{member_id}/avatar",
+			Handler: w.HandleDeleteMemberAvatarApiMembersMemberIdAvatarDelete,
+			Auth:    authGated,
+			// Same T-c826 ruling as PUT: removal changes the owner's chosen
+			// member identity and therefore stays off the AI-callable surface.
+			Requires:   principalOwner,
+			Summary:    "Remove a member's personal avatar (owner only).",
+			MCPExclude: true,
+		},
+		{
 			Method:   "POST",
 			Path:     "/api/members/{member_id}/activate",
 			Handler:  w.HandleActivateMemberApiMembersMemberIdActivatePost,

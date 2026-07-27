@@ -532,8 +532,8 @@ const mockDocs: DocView[] = [
 // the page's list hook) that reconcile on the "reply_card" topic — without a
 // local fan-out the badge would go stale the moment the page answers a card
 // in mock mode (the http adapter gets this for free from the server's SSE).
-// Scope: ONLY reply-card + task mutations emit; everything else keeps the
-// historical no-stream behaviour.
+// Scope: mutations whose mounted hooks reconcile from SSE (reply cards, tasks,
+// outsource workers, and member avatars) emit the matching production topic.
 const topicSubscribers = new Set<(topic: string) => void>();
 function emitTopic(topic: string): void {
   for (const cb of [...topicSubscribers]) cb(topic);
@@ -933,6 +933,44 @@ export const mockApi: Api = {
     const w = findWire(id);
     if (w.roster_status === "removed") throw new Error(`mock: member removed: ${id}`);
     return mapWithExtras(w);
+  },
+
+  async updateMemberAvatar(id: string, file: File): Promise<string> {
+    const url = URL.createObjectURL(file);
+    const worker = outsourceWorkers.find((item) => item.id === id);
+    if (worker) {
+      if (worker.avatarUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(worker.avatarUrl);
+      }
+      worker.avatarUrl = url;
+      emitTopic("outsource_worker");
+      return url;
+    }
+    const member = findWire(id);
+    if (member.avatar_url?.startsWith("blob:")) {
+      URL.revokeObjectURL(member.avatar_url);
+    }
+    member.avatar_url = url;
+    emitTopic("member");
+    return url;
+  },
+
+  async removeMemberAvatar(id: string): Promise<void> {
+    const worker = outsourceWorkers.find((item) => item.id === id);
+    if (worker) {
+      if (worker.avatarUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(worker.avatarUrl);
+      }
+      worker.avatarUrl = "";
+      emitTopic("outsource_worker");
+      return;
+    }
+    const member = findWire(id);
+    if (member.avatar_url?.startsWith("blob:")) {
+      URL.revokeObjectURL(member.avatar_url);
+    }
+    member.avatar_url = "";
+    emitTopic("member");
   },
 
   async activateMember(
@@ -2970,9 +3008,8 @@ export const mockApi: Api = {
   },
 
   subscribeEvents(onTopic: (topic: string) => void): () => void {
-    // No live stream in the mock — but reply-card mutations fan a local
-    // "reply_card" topic (see emitTopic) so the badge/page hooks reconcile in
-    // mock mode exactly like they do against the real SSE downlink.
+    // No live stream in the mock — emitTopic provides the matching local
+    // reconciliation signal for the mutation faces that use SSE in production.
     topicSubscribers.add(onTopic);
     return () => {
       topicSubscribers.delete(onTopic);

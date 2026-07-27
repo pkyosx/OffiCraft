@@ -6,6 +6,7 @@ import { useMachines } from "../hooks/useMachines";
 import { AgentDetailPanel } from "./AgentDetailPanel";
 import { useRelocateMachine } from "./useRelocateMachine";
 import { ChevronRightIcon } from "./icons";
+import { AvatarEditor } from "./AvatarEditor";
 import { Avatar } from "./Avatar";
 import { LifecycleDot, presenceVisual } from "./LifecycleDot";
 import "./member-detail.css";
@@ -40,6 +41,8 @@ interface WorkerDetailPanelProps {
    * returns the text (no token). Undefined ⇒ the initial-prompt card is hidden
    * (a caller below the admin_agent floor omits it — T-6020). */
   onFetchBootContext?: () => Promise<string>;
+  onUpdateAvatar?: (file: File) => Promise<void>;
+  onRemoveAvatar?: () => Promise<void>;
 }
 
 /**
@@ -62,6 +65,8 @@ export function WorkerDetailPanel({
   onRestart,
   onSetModel,
   onFetchBootContext,
+  onUpdateAvatar,
+  onRemoveAvatar,
 }: WorkerDetailPanelProps) {
   const { t, msg } = useI18n();
   const dash = t.workerDetail.dash;
@@ -211,13 +216,21 @@ export function WorkerDetailPanel({
     .join(" · ");
   const hasTask = Boolean(worker.taskId && taskLabel);
 
-  // ── identity slot: 外包角色頭像 (Avatar kind="outsource") + 代號 + real presence
-  // dot + 任務 chip + 標題. 外包沒有「個別 worker 的命名 / 個人頭像」,但顯示主題
-  // 的角色級外包頭像(kind=outsource,與客卿列表 OutsourcePanel 同一張圖);主題
-  // 未帶自訂外包圖時 Avatar 自動 fallback 內建 glyph(office 不退化)。──────────
+  // ── identity slot: stable worker id's personal image, then the outsource
+  // theme image and glyph fallbacks, plus codename + real presence. ──────────
   const identity = (
     <div className="mp-card mp-identity">
-      <Avatar size={52} kind="outsource" />
+      {onUpdateAvatar && onRemoveAvatar ? (
+        <AvatarEditor
+          size={52}
+          kind="outsource"
+          src={worker.avatarUrl}
+          onUpload={onUpdateAvatar}
+          onRemove={onRemoveAvatar}
+        />
+      ) : (
+        <Avatar size={52} kind="outsource" src={worker.avatarUrl} />
+      )}
       <div className="mp-identity__body">
         <div className="mp-identity__line">
           <span className="outsource-row__codename">

@@ -12,6 +12,7 @@ export function ReplyCardAvatarButton({
   onClick,
   size = 34,
   kind = "member",
+  src,
 }: {
   onClick: () => void;
   size?: number;
@@ -21,6 +22,7 @@ export function ReplyCardAvatarButton({
   // "outsource" for an ow- initiator; the avatar then shows the theme's 外包
   // image instead of fabricating a 正職 identity.
   kind?: AvatarKind;
+  src?: string;
 }) {
   const { t } = useI18n();
   return (
@@ -31,7 +33,7 @@ export function ReplyCardAvatarButton({
       title={t.office.viewProfile}
       onClick={onClick}
     >
-      <Avatar size={size} kind={kind} />
+      <Avatar size={size} kind={kind} src={src} />
     </button>
   );
 }

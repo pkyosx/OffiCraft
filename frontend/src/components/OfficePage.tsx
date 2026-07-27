@@ -8,6 +8,7 @@ import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { joinSessionRuntime } from "../lib/runtime";
 import { useHashRoute } from "../lib/hashRoute";
+import { updateCachedWorkerAvatar } from "../hooks/useWorkerCodenames";
 import { MemberCard } from "./MemberCard";
 import { ChatArea } from "./ChatArea";
 import { MemberDetailPanel } from "./MemberDetailPanel";
@@ -219,6 +220,7 @@ export function OfficePage() {
         status: "online",
         lifecycle: "online",
         model: workerPeer.model,
+        avatarUrl: workerPeer.avatarUrl,
         // ChatArea snapshots this before listChat marks the room read.  The
         // live worker's server-computed badge is therefore part of the same
         // entry contract as a regular member's unreadCount.
@@ -311,6 +313,14 @@ export function OfficePage() {
             effort,
           });
         }}
+        onUpdateAvatar={async (file) => {
+          const avatarUrl = await api.updateMemberAvatar(workerDetail.id, file);
+          updateCachedWorkerAvatar(workerDetail.id, avatarUrl);
+        }}
+        onRemoveAvatar={async () => {
+          await api.removeMemberAvatar(workerDetail.id);
+          updateCachedWorkerAvatar(workerDetail.id, "");
+        }}
         // Initial-prompt PREVIEW (T-ba6b): the server re-runs the spawn fold
         // over the CURRENT task/manual rows (no token minted) — the worker twin
         // of the member panel's /api/bootstrap role preview.
@@ -378,6 +388,14 @@ export function OfficePage() {
         }}
         onRename={async (name) => {
           await api.patchMember(detail.id, { name });
+          await refetch();
+        }}
+        onUpdateAvatar={async (file) => {
+          await api.updateMemberAvatar(detail.id, file);
+          await refetch();
+        }}
+        onRemoveAvatar={async () => {
+          await api.removeMemberAvatar(detail.id);
           await refetch();
         }}
       />

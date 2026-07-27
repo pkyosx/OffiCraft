@@ -1221,7 +1221,7 @@ func TestNewOutsourceWorkerDTO_GoldenWireShape(t *testing.T) {
 		{
 			name: "every field populated",
 			w:    fullWorker, task: fullTask, p: fullProjection,
-			want: `{"id":"ow-1","codename":"O-7","runtime":"claude","model":"claude-sonnet-4-5","effort":"high","status":"active","task_id":"t-1","task_title":"review 1","task_status":"in_progress","created_ts":1000,"unread_count":4,"presence":"online","machine":"Mac Studio (mac-1)","desired_machine_id":"mac-2","account":"alice@example.com","context_pct":42,"cost":1.5,"banked_cost":3.25,"last_op":"worker_start","last_op_ok":true,"last_op_log":"spawned ok","last_op_reason":"","last_op_at":1501,"creator_id":"m-9","delegated_by":"Bob","refocus_since":1600,"desired_state":"online"}`,
+			want: `{"id":"ow-1","avatar_url":"","codename":"O-7","runtime":"claude","model":"claude-sonnet-4-5","effort":"high","status":"active","task_id":"t-1","task_title":"review 1","task_status":"in_progress","created_ts":1000,"unread_count":4,"presence":"online","machine":"Mac Studio (mac-1)","desired_machine_id":"mac-2","account":"alice@example.com","context_pct":42,"cost":1.5,"banked_cost":3.25,"last_op":"worker_start","last_op_ok":true,"last_op_log":"spawned ok","last_op_reason":"","last_op_at":1501,"creator_id":"m-9","delegated_by":"Bob","refocus_since":1600,"desired_state":"online"}`,
 		},
 		{
 			name: "bare row honest empties",
@@ -1229,7 +1229,7 @@ func TestNewOutsourceWorkerDTO_GoldenWireShape(t *testing.T) {
 				Model: "claude-haiku-4-5", TaskID: "t-2",
 				Status: WorkerStatusAssigned, CreatedTS: 1999.0},
 			task: nil, p: outsourceWorkerProjection{now: 2000.0},
-			want: `{"id":"ow-2","codename":"O-8","runtime":"claude","model":"claude-haiku-4-5","effort":"","status":"assigned","task_id":"t-2","task_title":"","task_status":"","created_ts":1999,"unread_count":0,"presence":"waking","machine":"","desired_machine_id":"","account":null,"context_pct":null,"cost":null,"banked_cost":null,"last_op":"","last_op_ok":null,"last_op_log":"","last_op_reason":"","last_op_at":0,"creator_id":"","delegated_by":"","refocus_since":0,"desired_state":""}`,
+			want: `{"id":"ow-2","avatar_url":"","codename":"O-8","runtime":"claude","model":"claude-haiku-4-5","effort":"","status":"assigned","task_id":"t-2","task_title":"","task_status":"","created_ts":1999,"unread_count":0,"presence":"waking","machine":"","desired_machine_id":"","account":null,"context_pct":null,"cost":null,"banked_cost":null,"last_op":"","last_op_ok":null,"last_op_log":"","last_op_reason":"","last_op_at":0,"creator_id":"","delegated_by":"","refocus_since":0,"desired_state":""}`,
 		},
 	}
 	for _, c := range cases {

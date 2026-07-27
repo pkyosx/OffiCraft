@@ -118,6 +118,7 @@ type tokenDTO struct {
 
 type memberDTO struct {
 	ID                string  `json:"id"`
+	AvatarURL         string  `json:"avatar_url"`
 	MemberNo          string  `json:"member_no"`
 	Name              string  `json:"name"`
 	Kind              string  `json:"kind"`
@@ -854,6 +855,7 @@ type docDTO struct {
 
 type outsourceWorkerDTO struct {
 	ID         string  `json:"id"`
+	AvatarURL  string  `json:"avatar_url"`
 	Codename   string  `json:"codename"`
 	Runtime    string  `json:"runtime"`
 	Model      string  `json:"model"`
@@ -1205,6 +1207,7 @@ func foldActorRuntime(tele, gauge map[string]any, banked float64, actorRuntime s
 func newOutsourceWorkerDTO(w OutsourceWorker, task *Task, p outsourceWorkerProjection) outsourceWorkerDTO {
 	dto := outsourceWorkerDTO{
 		ID:          w.ID,
+		AvatarURL:   memberAvatarURL(w.AvatarAttachmentID),
 		Codename:    w.Codename,
 		Runtime:     NormalizeRuntime(w.Runtime),
 		Model:       w.Model,

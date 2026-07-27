@@ -38,6 +38,12 @@ import { ApiError } from "../api/errors";
 vi.mock("../hooks/useWorkerCodenames", () => ({
   useWorkerCodenames: (ids: readonly string[]) =>
     new Map(ids.filter((id) => id === "ow-rel").map((id) => [id, "R-2"])),
+  useWorkerAvatarUrls: (ids: readonly string[]) =>
+    new Map(
+      ids
+        .filter((id) => id === "ow-rel")
+        .map((id) => [id, "/api/chat/attachment/ava-worker"]),
+    ),
 }));
 
 function mkCard(over: Partial<ReplyCard>): ReplyCard {
@@ -425,6 +431,9 @@ describe("RepliesPage", () => {
     const { findAllByTestId } = renderPage();
     const [card] = await findAllByTestId("waiting-card");
 
+    expect(card.querySelector(".reply-card__avatar img")?.getAttribute("src")).toBe(
+      "/api/chat/attachment/ava-worker",
+    );
     fireEvent.click(card.querySelector(".reply-card__avatar")!);
     expect(window.location.hash).toBe("#office/worker/ow-rel/from/replies");
   });

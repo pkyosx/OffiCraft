@@ -1,5 +1,6 @@
 // TaskCard — 卡頭對齊 owner spec (T-705e, supersedes T-e987's layout). Locked:
-//   1. No avatar (the old person-icon / briefcase circle is gone).
+//   1. No standalone card avatar (the old large person/briefcase circle stays
+//      gone); stable member identity chips may carry the shared 18px Avatar.
 //   2. task id is a bordered mono badge "☑ #T-xxxx" (checkbox glyph + #no), not
 //      the old "[T-xxxx]" plain-text prefix.
 //   3. 負責人 / 建立者 chat-bubble icon rides INSIDE the value chip, after the
@@ -31,6 +32,12 @@ import type { TaskView } from "../api/adapter";
 vi.mock("../hooks/useWorkerCodenames", () => ({
   useWorkerCodenames: (ids: readonly string[]) =>
     new Map(ids.filter((id) => id === "ow-rel").map((id) => [id, "R-2"])),
+  useWorkerAvatarUrls: (ids: readonly string[]) =>
+    new Map(
+      ids
+        .filter((id) => id === "ow-rel")
+        .map((id) => [id, "/api/chat/attachment/ava-released"]),
+    ),
 }));
 
 let seq = 0;
@@ -76,7 +83,7 @@ beforeEach(() => {
 });
 
 describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
-  it("drops the avatar entirely", async () => {
+  it("keeps the old standalone card avatar gone but shows identity-chip avatars", async () => {
     __injectMockTask(mkTask({ title: "無頭像" }));
     __injectMockTask(
       mkTask({ title: "外包無頭像", executorKind: "outsource", executorId: "" })
@@ -87,6 +94,13 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
       expect(card.querySelector(".task-card__avatar")).toBeNull();
       expect(card.querySelector(".task-card__outsource-avatar")).toBeNull();
     }
+    const staff = cards.find(
+      (card) =>
+        card.querySelector(".task-card__title")?.textContent?.trim() === "無頭像",
+    )!;
+    expect(
+      staff.querySelector('[data-testid="task-assignee-link"] .avatar')
+    ).toBeTruthy();
   });
 
   it("renders the task id as a #T-xxxx badge with the checkbox glyph, on the badge row", async () => {

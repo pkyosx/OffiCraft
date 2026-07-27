@@ -134,6 +134,7 @@ export function toMember(w: WireMember): Member {
   const presence = toPresence(w.presence) ?? "offline";
   return {
     id: w.id, // wire id (attribution key)
+    avatarUrl: w.avatar_url ?? "",
     memberId: w.member_no, // display badge "MB-XXX###"
     name: w.name, // direct
     // role_key is the wire role; view model narrows to the RoleKey union. Fall
@@ -464,6 +465,7 @@ export function toTaskListItem(w: WireTaskListItem): TaskView {
 export function toOutsourceWorker(w: WireOutsourceWorker): OutsourceWorkerView {
   return {
     id: w.id,
+    avatarUrl: w.avatar_url ?? "",
     codename: w.codename,
     runtime: (w.runtime || "claude") as "claude" | "codex",
     model: w.model ?? "",

@@ -226,7 +226,8 @@
 /* v4/v5 head: the badge row (☑ #T-xxxx · 優先權 chip · 狀態) leads, sharing row
    1 with the ▸/▾ expand indicator pinned at the card's top-right (v5 — it took
    the corner over from the deleted ⋮ menu); the title sits on row 2; then the
-   aligned label column (任務類型 / 負責人 / 建立者 / 識別鍵). No avatar. */
+   aligned label column (任務類型 / 負責人 / 建立者 / 識別鍵). There is no
+   standalone card avatar; member identity chips may contain a small Avatar. */
 .task-card__head {
   display: flex;
   flex-direction: column;

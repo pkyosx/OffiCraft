@@ -125,8 +125,11 @@ describe("OfficePage — 跳到原訊息 to an outsource sender", () => {
 
   it("opens the worker's own chat when the worker is still live", async () => {
     const workerId = "ow-live99";
+    const avatarUrl =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGM4EcUFAAMaAS0191t5AAAAAElFTkSuQmCC";
     __injectMockOutsourceWorker({
       id: workerId,
+      avatarUrl,
       codename: "O-42",
       model: "Opus 4.6",
       effort: "high",
@@ -158,6 +161,11 @@ describe("OfficePage — 跳到原訊息 to an outsource sender", () => {
     ).toBeNull();
     const headerName = container.querySelector(".chat__header-name");
     expect(headerName?.textContent ?? "").not.toContain("Mira");
+    expect(
+      container
+        .querySelector(".chat__header .avatar__img")
+        ?.getAttribute("src"),
+    ).toBe(avatarUrl);
   });
 
   it("a removed 正職 member's stale chatId renders its own read-only history, not Mira", async () => {

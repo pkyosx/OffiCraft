@@ -211,6 +211,14 @@ export function MonitorPage() {
           await api.patchMember(detail.id, { name });
           await refetchMembers();
         }}
+        onUpdateAvatar={async (file) => {
+          await api.updateMemberAvatar(detail.id, file);
+          await refetchMembers();
+        }}
+        onRemoveAvatar={async () => {
+          await api.removeMemberAvatar(detail.id);
+          await refetchMembers();
+        }}
       />
     );
   }
@@ -1408,7 +1416,11 @@ function SessionRow({
     >
       <td className="mon-table__left" data-label={t.monitor.sessionCol.member}>
         <div className="mon-member">
-          <Avatar size={34} kind={roster ? avatarKindForMember(roster) : "member"} />
+          <Avatar
+            size={34}
+            kind={roster ? avatarKindForMember(roster) : "member"}
+            src={roster?.avatarUrl}
+          />
           <div className="mon-member__body">
             <div className="mon-member__name">{name}</div>
             <div className="mon-member__sub">
@@ -1508,7 +1520,7 @@ function OutsourceSessionRow({
     >
       <td className="mon-table__left" data-label={t.monitor.sessionCol.member}>
         <div className="mon-member">
-          <Avatar size={34} kind="outsource" />
+          <Avatar size={34} kind="outsource" src={worker.avatarUrl} />
           <div className="mon-member__body">
             <div className="mon-member__name">
               {worker.codename ? msg.outsourceLabel(worker.codename) : dash}

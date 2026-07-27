@@ -97,6 +97,8 @@ hold 釋放)。status union 全線(adapter/mappers join)= waiting|answered|expir
 徽章+kebab+chevron;#T 代號 chip+識別鍵 chip+「等 T-xxxx」dep chips、進度條
 「步驟 N/M · 已歷時 X」、等待外部紫 banner、訊息框**摺疊時也顯示**;chevron
 展開才給 description+內嵌回覆卡+工作流程(每步名稱+狀態徽章+DoD+右上耗時);
+負責人、建立者與前任負責人的身分 chip 會依 stable member id 顯示個人頭像，
+無個人圖時沿用 role/theme → glyph fallback；Avatar 本身仍不畫 presence 點。
 §3.6 跳轉目標自動展開:
 - **進度/狀態全 passthrough**:`progress_done/total` 用 server 算好的,UI 不自算;
   狀態推進 agent 回報、owner 只有「終止」這一個直接狀態動作(ConfirmModal 二次確認)

@@ -52,6 +52,8 @@ presence 是 **server 端的投影**，不是 agent 自報的心跳狀態。核�
 
 > **單一 presence 信號、單一畫點處。** 成員的狀態點由 **PresenceBadge / LifecycleDot** 這一個 presence 信號源畫；**Avatar 本身不畫點**（頭像只是頭像），避免兩處各畫一顆點而彼此不同步。
 
+> **個人頭像優先序（2026-07-27 owner 裁定）。** owner 可在正職／外包詳情替指定 stable member id 上傳、替換或移除個人圖片；一般成員不可管理。所有主要身分露出一致採「個人圖片 → 角色／主題圖片 → 內建 glyph」，圖片載入失敗也沿同一鏈回退。個人圖片不影響 presence，亦不以可變的 display name 當 key。契約、儲存與 rollback 見 [per-member custom avatar](member-custom-avatar.md)。
+
 ### 全域情境（Global Context）
 **套用到所有成員**的 boot context，拆成三塊（依組裝順序）：**系統互動**（系統運作說明，唯讀 seed）→ **使用者自訂**（owner 可編輯的 additive 追加塊，空時整塊跳過）→ **啟動程序**（工作室固定 SOP，唯讀 seed）。於「設定 › 角色誌」檢視；只有「使用者自訂」可編輯（唯讀兩塊 backend 無寫入 endpoint，by construction）。UI 一律**不顯示 .md 檔名**（三塊是內容、不是檔案）。
 
@@ -79,7 +81,7 @@ presence 是 **server 端的投影**，不是 agent 自報的心跳狀態。核�
 從成員卡片點入，頂部有「返回」。
 
 **身分卡**
-- 頭像、名字、**Member-ID** 徽章、**改名**（鉛筆 → 內嵌輸入）
+- 頭像（owner 可上傳／替換／移除個人圖片）、名字、**Member-ID** 徽章、**改名**（鉛筆 → 內嵌輸入）
 - 狀態列：狀態點 ＋「角色 · 狀態」
 - 動作：**喚醒**（離線時）／**手動喚醒**（線上時）
 
