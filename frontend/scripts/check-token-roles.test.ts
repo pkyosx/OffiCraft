@@ -239,6 +239,51 @@ describe("check-token-roles", () => {
     expect(code).toBe(1);
   });
 
+  // ── the 任務 count's own rules (T-2658) ──
+  // Its whole reason for having a separate class is that a modifier on
+  // .nav-tab__badge would have been a compound bypass of the rules above. That
+  // only buys anything if the new class is itself watched failing.
+
+  it("fails when the 任務 count is re-painted with the alert fill", () => {
+    const { code, out } = run((edit) =>
+      edit(
+        CHROME,
+        (css) => `${css}\n.nav-tab__count { background: var(--color-danger-badge); }\n`
+      )
+    );
+    expect(out, out).toMatch(
+      /\.nav-tab__count's background resolves to --color-danger-badge/
+    );
+    expect(code).toBe(1);
+  });
+
+  it("fails when the 任務 count's fill stops following the theme's overlay base", () => {
+    // A fixed colour looks right in the built-in dark theme and wrong on every
+    // light pack — the exact failure mode this whole file exists for.
+    const { code, out } = run((edit) =>
+      edit(CHROME, (css) =>
+        css.replace(
+          "  background: color-mix(in srgb, var(--color-overlay) 13%, transparent);",
+          "  background: var(--color-card);"
+        )
+      )
+    );
+    expect(out, out).toMatch(
+      /\.nav-tab__count's background does not resolve to --color-overlay/
+    );
+    expect(code).toBe(1);
+  });
+
+  it("fails when the 任務 count loses its hairline", () => {
+    const { code, out } = run((edit) =>
+      edit(CHROME, (css) => `${css}\n.nav-tab__count { outline-color: transparent; }\n`)
+    );
+    expect(out, out).toMatch(
+      /\.nav-tab__count's outline-color does not resolve to --color-overlay/
+    );
+    expect(code).toBe(1);
+  });
+
   it("fails when a badge token is defined outside the theme's :root", () => {
     const { code, out } = run((edit) => {
       edit(THEME, (css) => css.replace("--color-danger-badge: #ba5953;", ""));

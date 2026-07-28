@@ -331,6 +331,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "nav.monitor",
   "nav.office",
   "nav.officeUnread",
+  "nav.openTasksSuffix",
   "nav.replies",
   "nav.tasks",
   "notifications.contactRequired",

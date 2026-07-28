@@ -38,6 +38,12 @@ import type { Effort } from "../types";
 type Lang = "zh" | "en";
 
 export interface Messages {
+  // ── nav ──
+  /** Accessible name for the 任務 tab's open-count (T-2658). The count is a
+   *  bare number on screen, so the name is what tells a reader what it counts.
+   *  Takes the DISPLAYED string, "99+" included — the name must say the same
+   *  thing the eye sees, not the un-clamped total. */
+  navOpenTasks: (count: string) => string;
   // ── tasks ──
   taskProgress: (done: number, total: number) => string;
   taskElapsed: (elapsed: string) => string;
@@ -98,6 +104,8 @@ export function makeMessages(t: Dict, language: Lang): Messages {
   // The list separator between two codes: a join, not vocabulary.
   const listSep = language === "zh" ? "、" : ", ";
   return {
+    navOpenTasks: (count) => `${count}${sp}${t.nav.openTasksSuffix}`,
+
     taskProgress: (done, total) =>
       `${tasks.progressLabel} ${done}/${total}`,
     // 「步驟 N/M · 已歷時 X」 is ONE visible string. Leaving elapsed as a template

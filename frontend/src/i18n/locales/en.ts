@@ -21,6 +21,10 @@ export const en: Dict = {
     officeUnread: "Unread messages",
     replies: "Ask",
     tasks: "Task",
+    // Screen-reader wording for the count on the 任務 tab. On screen it is just
+    // a number, so a reader announces the tab as "Task 7" and never says what
+    // the 7 is; this suffix makes the accessible name "Task 7 open".
+    openTasksSuffix: "open",
     monitor: "Monitor",
     // 使用說明 — the rightmost main nav tab (owner: it belongs next to Monitor,
     // not buried in Settings). Separate key from the page title on purpose: a

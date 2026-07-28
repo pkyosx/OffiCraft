@@ -3,7 +3,9 @@
 // Locked here:
 //   1. COUNT, NOT A DOT: the office tab renders the actual total chat unread
 //      as a number (owner request), reusing the same .nav-tab__badge pill as
-//      the 等我回覆/任務 tabs — no leftover plain dot.
+//      the 等我回覆 tab — no leftover plain dot. (The 任務 tab left this family
+//      in T-2658: its count is workload, not something to act on. Whether the
+//      two remaining badges stay red is pinned in App.nav-task-count.test.tsx.)
 //   2. > 99 clamps to "99+" (the shared badge convention).
 //   3. count 0 → NOT RENDERED at all (no empty pill).
 

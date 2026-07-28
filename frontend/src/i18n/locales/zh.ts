@@ -12,6 +12,10 @@ export const zh = {
     officeUnread: "有未讀訊息",
     replies: "請示",
     tasks: "任務",
+    // 任務頁籤上那顆數字的讀屏說明。畫面上只有一個數字,讀屏會把它唸成
+    // 「任務 7」——7 是什麼沒有交代。這個尾綴讓 accessible name 變成
+    // 「任務 7件未結案」。
+    openTasksSuffix: "件未結案",
     monitor: "監控",
     // 使用說明 — 主導覽最右的分頁(owner:「user guide 改放在 tab 中,監控的
     // 右邊」)。分頁標籤與頁面標題分開兩個 key:標籤要短,標題可以完整。

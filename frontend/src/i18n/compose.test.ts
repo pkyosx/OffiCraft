@@ -20,6 +20,10 @@ const DICTS: Record<Lang, Dict> = { zh, en };
 
 /** [language, message, arguments, the text that must appear on screen]. */
 const EXPECTED: [Lang, string, (string | number | string[])[], string][] = [
+    // T-2658: the 任務 tab count's accessible name. Both the ordinary number
+    // and the ">99" clamp, because the name must say what the eye sees.
+    ["zh", "navOpenTasks", ["7"], "7件未結案"],
+    ["zh", "navOpenTasks", ["99+"], "99+件未結案"],
     ["zh", "taskProgress", [3,7], "步驟 3/7"],
     ["zh", "taskElapsed", ["2 小時"], "已歷時 2 小時"],
     ["zh", "taskPlanningBy", ["Mira"], "等待 Mira 建立 Steps"],
@@ -59,6 +63,8 @@ const EXPECTED: [Lang, string, (string | number | string[])[], string][] = [
     ["zh", "themeDeleteConfirm", ["精靈村"], "刪除主題「精靈村」?此動作無法復原。"],
     ["zh", "deleteRoleConfirm", ["研究員"], "確定刪除角色「研究員」？該角色的成員及其對話、學習經驗將一併移除，無法復原。"],
     ["zh", "deleteManualConfirm", ["review-pr"], "確定刪除任務類型「review-pr」？其手冊（定義、SOP、學習經驗）將一併移除，無法復原。"],
+    ["en", "navOpenTasks", ["7"], "7 open"],
+    ["en", "navOpenTasks", ["99+"], "99+ open"],
     ["en", "taskProgress", [3,7], "Step 3/7"],
     ["en", "taskElapsed", ["2h"], "Elapsed 2h"],
     ["en", "taskPlanningBy", ["Mira"], "Waiting for Mira to create steps"],
@@ -157,6 +163,7 @@ describe("makeMessages", () => {
     // exact defect this ticket removed, so it must not creep back in.
     const keys = new Set(MESSAGE_KEYS);
     for (const code of [
+      "nav.openTasksSuffix",
       "tasks.progressLabel",
       "tasks.elapsedLabel",
       "tasks.planningByLead",
