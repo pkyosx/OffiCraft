@@ -33,6 +33,12 @@ type apiServer struct {
 	hub            *Hub
 	telemetry      *memStore
 	gauge          *memStore
+	// activity is the THIRD in-memory observation store (T-a1d7): per-actor
+	// turn-boundary claims (api_activity.go). Deliberately NOT a corner of
+	// telemetry — telemetry's published contract is "never cleared on
+	// disconnect", and activity needs that edge; see api_activity.go's header
+	// for the full reasoning. Volatile like its siblings.
+	activity *memStore
 	// machineClaims holds the pending one-time machine claim codes (in-memory
 	// only, like the observation stores — a restart voids them, which reads
 	// exactly like expiry).

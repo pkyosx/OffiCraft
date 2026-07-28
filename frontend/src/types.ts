@@ -17,6 +17,26 @@ export type MemberLifecycle =
   | "stopping"
   | "stopped";
 
+/**
+ * The SERVER's activity verdict (wire `activity_state`,
+ * server/ocserverd/domain.go deriveActivity — T-a1d7): whether the session is
+ * running a TURN right now. Deliberately ORTHOGONAL to `MemberLifecycle`:
+ * presence answers "does it hold an SSE stream", this answers "is the model
+ * working", and neither substitutes for the other.
+ *
+ *   active   — a turn is running (anchor: workingSince)
+ *   idle     — no turn is running (anchor: lastTurnCompletedAt, may be absent)
+ *   unknown  — a turn was claimed and no end signal ever arrived (anchor:
+ *              workingSince — the claim is kept, NOT rewritten into a
+ *              fabricated idle)
+ *   never    — nothing was ever reported (old runtime / restarted server)
+ *
+ * 🔴 The FE NEVER derives this. It formats `now − anchor` into a duration and
+ * passes the verdict through, exactly like `hardwareStale`: the threshold has
+ * ONE home (the server), and a second copy would inevitably disagree with it.
+ */
+export type ActivityState = "active" | "idle" | "unknown" | "never";
+
 export type Effort = "low" | "medium" | "high";
 export type AgentRuntime = "claude" | "codex";
 
@@ -358,6 +378,14 @@ export interface MonSessionView {
   compactionCount: number | null;
   cost: number | null;
   bankedCost: number | null;
+  /** The SERVER's activity verdict — a SECOND dimension beside `status`
+   * (presence). Passthrough only; see `ActivityState`. */
+  activityState: ActivityState;
+  /** When the current turn started / when the last observed turn ended (epoch
+   * seconds). null = no anchor — the cell then shows the state word alone,
+   * never a fabricated 0 minutes. */
+  workingSince: number | null;
+  lastTurnCompletedAt: number | null;
 }
 
 /** One host machine row (Monitor §2 "機器資訊"). */

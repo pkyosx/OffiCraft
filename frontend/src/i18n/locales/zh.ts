@@ -894,8 +894,25 @@ export const zh = {
       machine: "機器",
       account: "帳號",
       model: "模型",
+      activity: "活動",
       context: "context",
       estCost: "估計$",
+    },
+    // §3 活動欄 (T-a1d7)。四種狀態各講各的話,不共用一句含糊的說法:
+    // 「工作中」是有回報的事實、「上次結束」是觀察到的結束、「未收到結束」是
+    // 標記而不是收回主張,而「從未回報」直接留白(dash),不假裝知道。
+    activity: {
+      /** active / unknown 的主文:d 由 formatDuration 算出(7m / 2h 15m)。 */
+      working: (d: string) => `工作中 ${d}`,
+      /** 有 active 主張但沒有起算點時的誠實退路——絕不編一個時間出來。 */
+      workingBare: "工作中",
+      /** idle 且觀察到上一輪結束。 */
+      lastEnded: (d: string) => `上次結束 ${d} 前`,
+      /** idle 但從未觀察到任何一輪結束(例:開機就回報閒置)。 */
+      idleBare: "閒置",
+      noEndSignal: "未收到結束",
+      noEndSignalTitle:
+        "這一輪宣稱開始後就再也沒有結束訊號。時間仍然是它自己回報的起點,不是我們觀察到它還在跑。",
     },
     // machine lifecycle: onboard (新增機器 / 上線) + teardown (拆除)
     machine: {

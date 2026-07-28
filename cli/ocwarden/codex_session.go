@@ -110,6 +110,21 @@ type codexSession struct {
 	// idempotent. Replayed notifications must not look like fresh context
 	// compactions and accidentally recycle a just-booted agent.
 	completedCompactions map[string]struct{}
+	// activitySeq orders the turn-boundary reports (T-a1d7) within this
+	// sidecar's session. A plain in-process counter is enough and is stronger
+	// than a clock: every report from this process goes through here, so the
+	// order is the true emission order, and the server drops anything that
+	// arrives out of it. Guarded by activityMu — reports can be emitted from
+	// the App Server reader loop.
+	activityMu  sync.Mutex
+	activitySeq float64
+	// activityState / activityTurn de-duplicate at the SOURCE. The App Server
+	// emits BOTH turn/started|completed (boundaries) and thread/status/changed
+	// (a re-statable status), so the same transition legitimately arrives
+	// twice; sending both is what makes the pairing self-healing, but there is
+	// no reason to spend an HTTP round-trip restating what we just said.
+	activityState string
+	activityTurn  string
 }
 
 const codexTelemetryThrottle = 30 * time.Second
@@ -462,6 +477,69 @@ func (s *codexSession) post(path string, payload map[string]any) {
 	}
 }
 
+// reportActivity posts ONE turn boundary to the activity face (T-a1d7).
+//
+// ⚠️ It deliberately does NOT go through s.post. That helper is completely
+// silent — no status check, no log, no retry — so a report that never lands
+// leaves no trace at all. Changing s.post's three EXISTING call sites is a
+// separate concern and is NOT done here; this is the minimum needed so the NEW
+// path's failures are visible in the tmux pane an operator actually reads.
+//
+// Self-de-duplicating: the same (state, turn) restated is dropped locally.
+// turn/started|completed and thread/status/changed both describe the same
+// transitions on purpose — the boundary events carry the turn id and the exact
+// moment, the status event is the self-healing restatement that recovers a
+// missed boundary (it is what fires after an interrupt, where turn/completed
+// never comes). Sending both is the point; sending each twice is not.
+func (s *codexSession) reportActivity(state, turnID string) {
+	s.activityMu.Lock()
+	if s.activityState == state && s.activityTurn == turnID {
+		s.activityMu.Unlock()
+		return
+	}
+	s.activityState, s.activityTurn = state, turnID
+	s.activitySeq++
+	seq := s.activitySeq
+	s.activityMu.Unlock()
+
+	payload := map[string]any{
+		"state":   state,
+		"runtime": "codex",
+		"seq":     seq,
+	}
+	if turnID != "" {
+		payload["turn_id"] = turnID
+	}
+	// The App Server thread IS this reporter's session identity: a new thread
+	// is a new session, and the server discards any turn claim held by the old
+	// one when the id changes.
+	if s.threadID != "" {
+		payload["session_id"] = s.threadID
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		s.activity("activity report (%s) not sent: %v", state, err)
+		return
+	}
+	req, err := http.NewRequest(http.MethodPost,
+		strings.TrimRight(s.base, "/")+"/api/self/activity", bytes.NewReader(raw))
+	if err != nil {
+		s.activity("activity report (%s) not sent: %v", state, err)
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+s.token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		s.activity("activity report (%s) failed: %v", state, err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		s.activity("activity report (%s) refused: status %d", state, resp.StatusCode)
+	}
+}
+
 // reportIdentity is deliberately tiny: it is safe to send at session start,
 // after an SSE reconnect, and as the throttled heartbeat without waiting for a
 // token event.
@@ -772,9 +850,18 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 			case "turn/started":
 				s.active = true
 				s.turnID = nestedString(params, "turn", "id")
+				// T-a1d7: the local s.active flag has always existed but never
+				// left this process, so the cockpit could not tell a session
+				// mid-turn from an idle one. Now it does.
+				s.reportActivity("active", s.turnID)
 			case "turn/completed":
+				completedTurn := nestedString(params, "turn", "id")
+				if completedTurn == "" {
+					completedTurn = s.turnID
+				}
 				s.active = false
 				s.turnID = ""
+				s.reportActivity("idle", completedTurn)
 				s.activity("turn completed")
 				if !listenerStarted {
 					listenerStarted = true
@@ -800,6 +887,24 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 						_ = listener.Wait()
 						close(listenerLines)
 					}(listenerCmd)
+				}
+			case "thread/status/changed":
+				// T-a1d7. A STATUS notification, not a boundary one: it is
+				// re-statable and idempotent, which makes it the self-healing
+				// half of the pair. It is the ONLY signal after a user
+				// interrupt — turn/completed never arrives there, so without
+				// this case an interrupted turn would stay claimed until the
+				// server's max-turn window expired.
+				//
+				// It carries no turn id, so it reuses the one the boundary
+				// event established: an "active" restated for the SAME turn is
+				// then a local no-op rather than a spurious re-anchoring of
+				// when the turn started.
+				switch nestedString(params, "status", "type") {
+				case "idle":
+					s.reportActivity("idle", s.turnID)
+				case "active":
+					s.reportActivity("active", s.turnID)
 				}
 			case "thread/tokenUsage/updated":
 				s.reportTokenUsage(params)

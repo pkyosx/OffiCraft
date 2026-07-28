@@ -259,6 +259,12 @@ const MOCK_WIRE_MONITORING: MockMonitoring = {
       cost: null,
       banked_cost: null,
       tokens: null,
+      // T-a1d7 activity: honest "nothing was ever reported" — the mock has no
+      // runtime posting turn boundaries, so anything else here would be the
+      // illustrative-numbers mistake this fixture's header warns about.
+      activity_state: "never",
+      working_since: null,
+      last_turn_completed_at: null,
     },
   ],
   machines: [

@@ -68,6 +68,36 @@ statusLine render 都重跑一次,一秒好幾次),窗沒開 = **下一個 tick 
   還是沒想到。哨兵 `TestHealthyCadenceIsUnchangedByTheFailureBackoff` 釘成功路徑一字未變
   (600s 內 burst 恰在 0/30/60/…,且**不產生** backoff 檔)。
 
+## turn 邊界上報(T-a1d7;`cli/ocagent/activity.go` + `cli/ocwarden/codex_session.go`)
+權威 spec:`docs/design/activity-model.md`。cli 這半邊只有兩個 producer,規則不同:
+
+- **Claude:`ocagent report-activity --state active|idle`**,由 warden 寫進每個 agent
+  settings.json 的四個 hook 驅動(`UserPromptSubmit`→active,`Stop` / `StopFailure` /
+  `SessionEnd`→idle;`hooks` 與 `statusLine` 共存於同一份檔,golden
+  `testdata/golden_statusline.json` 逐字釘死)。身分與 statusLine 完全同一套接線
+  (workdir 的 `ocagent` shim + `.oc-token` + `OC_ID`),**沒有新的權杖通道**。
+  - 🔴 **永遠 exit 0、絕不寫 stdout**:`UserPromptSubmit` 的 stdout 會被當成
+    additionalContext 注入模型。診斷一律走 stderr(進 warden log)。
+  - ⚠️ **刻意沒有節流、也沒有失敗退避**——這是與 `context-report` 最大的差別。
+    context-report 一秒跑好幾次,所以需要那兩道閘;turn 邊界是**稀疏的狀態轉換**,
+    抑制一次不是延後資訊而是**刪掉**資訊(漏掉一個 UserPromptSubmit,那一整輪都會
+    顯示成閒置,因為 Claude 要到 turn 結束才會再說話)。
+  - `seq` = reporter 自己時鐘的**微秒**(只跟同一 reporter 的前值比較,永不顯示;
+    微秒因為 float64 表示得準,且比毫秒更不會撞號)。
+  - ⚠️ **Claude 這一路不送 `turn_id`**——hook 指令就是 `report-activity --state <s>`,
+    沒帶 `--turn-id`(那個 flag 存在,但只有想手動配對的呼叫者會用到)。所以 server 端
+    靠 turn_id 配對的規則(遲到的 idle 不得殺掉當前 turn)在 Claude 路徑上是**空轉**的,
+    這一路的排序**完全靠 `seq`**。對 Claude 正確,因為它一次一個 prompt、turn 不重疊;
+    但要在這一路加上「同時多個 turn」之類的假設之前,得先讓 hook 真的帶 turn id。
+  - **無訊號的兩個洞(誠實列)**:使用者按 ESC 不觸發任何 hook;進程被殺也不會。
+    前者由 server 的門檻降級成 `unknown`,後者由 SSE 斷線收斂。
+- **Codex:sidecar 直接上報**,`turn/started`/`turn/completed`(邊界,帶 turn id)+
+  新訂的 `thread/status/changed`(狀態,可重述——中斷後唯一會來的訊號)。同一個
+  (state, turn) 重述在 sidecar 端就被丟掉。
+  - ⚠️ 它**不走 `s.post`**:那支 helper 完全靜默(不看 status、不 log、不重試),
+    新路徑改成看回傳並用 `s.activity()` 在 tmux pane 留痕。**既有三個 `s.post` call
+    site 沒有一起改**(另案)。
+
 ## listen 自救(fail-closed,zombie 防線 B 的 client 半邊)
 `ocagent listen` 兩道自救原本 fail-open(probe 失敗照樣活 = 殭屍永生),已改 fail-closed 帶寬限(`listen.go` 常數 + `listen_run.go` foldProbe/foldRefusal):
 - **tmux session probe 三態**:alive / gone(tmux 明確答「無此 session」→ 2 連 miss 即自殺,不變)/ unknown(tmux 解析不到、spawn fault、timeout → 不再永遠當 alive:連續 `probeUnknownMin`(8)次 ∧ 滿 `probeUnknownGrace`(10min)才 self-exit;unknown 會重置 gone debounce,絕不瞬殺健康 listener)。

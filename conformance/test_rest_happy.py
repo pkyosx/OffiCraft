@@ -775,6 +775,16 @@ HAPPY: dict[str, Happy] = {
     "POST /api/monitoring/telemetry": Happy(
         identity="agent", body={"rate_limits": {"primary_used_pct": 1}}
     ),
+    # T-a1d7 activity ingestion. The scratch agent holds no SSE stream, so the
+    # derived state after an "idle" report is idle — which is exactly the point
+    # of the receipt: it echoes what the SERVER concluded, not what was sent.
+    "POST /api/self/activity": Happy(
+        identity="agent",
+        body={"state": "idle", "session_id": "conf-happy-activity", "seq": 1},
+        check=lambda _c, r: _expect(
+            r, lambda d: d["accepted"] is True and d["activity_state"] == "idle"
+        ),
+    ),
     "GET /api/monitoring": Happy(),
     # ── display-name overlays ────────────────────────────────────────────────
     "PATCH /api/accounts/{account_id}": Happy(

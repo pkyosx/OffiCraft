@@ -348,6 +348,7 @@ func newAPIServer(dal *DAL, hub *Hub, secret []byte, tokenTTL int64, root assetR
 		hub:                   hub,
 		telemetry:             newMemStore(),
 		gauge:                 newMemStore(),
+		activity:              newMemStore(),
 		machineClaims:         newMachineClaimStore(),
 		secret:                secret,
 		tokenTTL:              tokenTTL,

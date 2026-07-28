@@ -354,6 +354,10 @@ func (s *apiServer) HandleDeleteRoleApiRolesRoleDelete(w http.ResponseWriter, r 
 		}
 		s.telemetry.Delete(m.ID)
 		s.gauge.Delete(m.ID)
+		// The activity claim is the THIRD in-memory observation store (T-a1d7)
+		// and drops on the same edge as the other two: a hard-deleted member
+		// must not leave a turn claim behind for a future id collision to read.
+		s.activityForget(m.ID)
 		if _, err := s.dal.HardDeleteMember(m.ID); err != nil {
 			internalError(w, err)
 			return

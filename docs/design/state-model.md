@@ -35,6 +35,9 @@
 - **「實際在哪台機器」同理是 observed**:agent 的 SSE 連線 token 本身帶 machine claim(token = who + **where**),要知道「它此刻在哪台」讀 hub 的 listener 即可。DB 的 `current_machine_id`(agent 自報寫入)是同一份資訊的多餘副本,**移出 DB、改從連線投影**。留 DB 的位置只有 `desired_machine_id`(desired_state,intent)。
 - **warden 與 agent member 一視同仁**:warden 自己連上 SSE 就 online、斷就 offline。**明確廢除**舊設計「warden 是 infrastructure、不投影 online」——warden 也是「自證 online」的一等公民。
 - `waking` 等衍生態仍由 `presence_state()` 從 online + `waking_since` / `stopping_since` 錨點衍生(此機制不變)。
+- ⚠️ **online 不代表「模型正在跑」**。「它現在有沒有在跑 turn」是**另一個正交的維度**,
+  有自己的四態詞彙、自己的門檻與自己的記憶體 store,**絕不塞進 presence 五態、絕不動
+  `deriveLiveness`**——見 `docs/design/activity-model.md`(T-a1d7)。
 
 ### 2. warden 與 member 的 online 互不推斷(liveness decouple)
 

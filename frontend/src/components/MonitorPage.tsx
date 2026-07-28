@@ -3,11 +3,13 @@ import { useI18n } from "../i18n";
 import { api } from "../api";
 import { ApiError } from "../api/errors";
 import { formatCost } from "../lib/cost";
+import { formatDuration } from "../lib/duration";
 import { useMembers } from "../hooks/useMembers";
 import { useMonitoring } from "../hooks/useMonitoring";
 import { useMachines } from "../hooks/useMachines";
 import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
 import type {
+  ActivityState,
   MonMachineView,
   MonAccountView,
   MonSessionView,
@@ -36,6 +38,19 @@ export function MonitorPage() {
   // Inline-rename failure surface (e.g. server 422 on a blank/whitespace name).
   // Never silently swallow the PATCH rejection — show an honest banner.
   const [renameError, setRenameError] = useState<string | null>(null);
+  // Ticking clock (30s) for the §3 活動 column's live durations — the SAME
+  // pattern RepliesPage's 已等你 and TasksPage's 已歷時 counters use. Lives at
+  // the PAGE level on purpose: one timer for the whole table, not one per row,
+  // and the rows stay pure functions of (data, now).
+  //
+  // It is a pure display tick: no fetch, no model call, no server round-trip.
+  // The activity VERDICT is the server's and arrives with the data; this only
+  // re-renders "7m" into "8m".
+  const [nowTs, setNowTs] = useState(() => Date.now() / 1000);
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowTs(Date.now() / 1000), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
   // 帳號詳情 modal target (T-a9a7): the account whose real identity (key /
   // email / org / cost) is being inspected; null = closed. Same
   // target-state pattern as the uninstall/delete modals below.
@@ -1085,6 +1100,9 @@ export function MonitorPage() {
                 <th className="mon-table__left">{t.monitor.sessionCol.machine}</th>
                 <th className="mon-table__left">{t.monitor.sessionCol.account}</th>
                 <th className="mon-table__left">{t.monitor.sessionCol.model}</th>
+                <th className="mon-table__left">
+                  {t.monitor.sessionCol.activity}
+                </th>
                 <th>🧠 {t.monitor.sessionCol.context}</th>
                 <th>💲 {t.monitor.sessionCol.estCost}</th>
               </tr>
@@ -1096,6 +1114,7 @@ export function MonitorPage() {
                   session={s}
                   members={members}
                   dash={dash}
+                  nowTs={nowTs}
                   onOpen={() => setDetailId(s.id)}
                 />
               ))}
@@ -1109,6 +1128,7 @@ export function MonitorPage() {
                   key={w.id}
                   worker={w}
                   dash={dash}
+                  nowTs={nowTs}
                   // T-cf32: owner ruling — the whole row is clickable, SAME
                   // affordance as the member SessionRow above (no separate
                   // avatar hit-target; that option was shown and declined).
@@ -1361,15 +1381,97 @@ function CopyBootCommandButton({ machineId }: { machineId: string }) {
  * status / lastSeen); the click-through only appears when a roster match exists.
  * The effort badge shows the REAL live effort self-reported from the session's
  * telemetry (NOT the roster's owner-intent member.effort) — dash when unreported. */
+/** The §3 活動 cell — the ONE renderer both session kinds use, so a member row
+ * and a worker row can never phrase the same state differently.
+ *
+ * 🔴 It makes NO judgement. `state` is the server's verdict (deriveActivity);
+ * this only picks the sentence and formats `now − anchor` with the SAME
+ * `formatDuration` the 已等你 / 已歷時 counters use. It must never compare a
+ * timestamp against a threshold of its own — the threshold has one home
+ * (server-side `activityMaxTurnSecs`), and a second copy would eventually
+ * disagree with the first (the rule `hardwareStale` established).
+ *
+ * The four states each get their own honest sentence:
+ *   active  — 工作中 7m
+ *   unknown — 工作中 47m + a 未收到結束 chip: the claim is REPORTED, and the
+ *             chip is why you should not read it as live fact (same shape and
+ *             reasoning as the runtime cell's 未登入 chip).
+ *   idle    — 上次結束 3m 前, or the bare word when nothing was observed to end
+ *             (never "0 分鐘前", which would be an invented completion).
+ *   never   — the dash. Nothing was reported; saying anything else would be a
+ *             claim we cannot back.
+ */
+function ActivityCell({
+  state,
+  workingSince,
+  lastTurnCompletedAt,
+  nowTs,
+  dash,
+}: {
+  state: ActivityState;
+  workingSince: number | null;
+  lastTurnCompletedAt: number | null;
+  nowTs: number;
+  dash: string;
+}) {
+  const { t } = useI18n();
+  const label = t.monitor.sessionCol.activity;
+  if (state === "active" || state === "unknown") {
+    // Guard the anchor rather than trusting it: an active verdict with no
+    // working_since would otherwise render "工作中 1m" forever (formatDuration
+    // floors at 1m), which is a fabricated number. Fall back to the bare word.
+    const text =
+      workingSince == null
+        ? t.monitor.activity.workingBare
+        : t.monitor.activity.working(
+            formatDuration(Math.max(0, nowTs - workingSince)),
+          );
+    return (
+      <td className="mon-table__left" data-label={label}>
+        <span data-testid="mon-activity-working">{text}</span>
+        {state === "unknown" && (
+          <span
+            className="mon-stale mon-bad"
+            data-testid="mon-activity-unknown"
+            title={t.monitor.activity.noEndSignalTitle}
+          >
+            {t.monitor.activity.noEndSignal}
+          </span>
+        )}
+      </td>
+    );
+  }
+  if (state === "idle") {
+    return (
+      <td className="mon-table__left" data-label={label}>
+        <span data-testid="mon-activity-idle">
+          {lastTurnCompletedAt == null
+            ? t.monitor.activity.idleBare
+            : t.monitor.activity.lastEnded(
+                formatDuration(Math.max(0, nowTs - lastTurnCompletedAt)),
+              )}
+        </span>
+      </td>
+    );
+  }
+  return (
+    <td className="mon-table__left mon-muted" data-label={label}>
+      <span data-testid="mon-activity-never">{dash}</span>
+    </td>
+  );
+}
+
 function SessionRow({
   session,
   members,
   dash,
+  nowTs,
   onOpen,
 }: {
   session: MonSessionView;
   members: Member[];
   dash: string;
+  nowTs: number;
   onOpen: () => void;
 }) {
   const { t } = useI18n();
@@ -1452,6 +1554,13 @@ function SessionRow({
         <span className="mon-model">{session.model || dash}</span>
         {effort && <span className="mon-badge">{effort}</span>}
       </td>
+      <ActivityCell
+        state={session.activityState}
+        workingSince={session.workingSince}
+        lastTurnCompletedAt={session.lastTurnCompletedAt}
+        nowTs={nowTs}
+        dash={dash}
+      />
       <td data-label={t.monitor.sessionCol.context}>
         {contextText(session.contextPct, session.runtime, session.compactionCount, dash, t.mp.compactionCount)}
       </td>
@@ -1484,10 +1593,12 @@ function SessionRow({
 function OutsourceSessionRow({
   worker,
   dash,
+  nowTs,
   onOpen,
 }: {
   worker: OutsourceWorkerView;
   dash: string;
+  nowTs: number;
   onOpen: () => void;
 }) {
   const { t, msg } = useI18n();
@@ -1544,6 +1655,15 @@ function OutsourceSessionRow({
         <span className="mon-model">{worker.model || dash}</span>
         {worker.effort && <span className="mon-badge">{worker.effort}</span>}
       </td>
+      <ActivityCell
+        // Optional on the worker view (hand-built fixtures) — an absent value
+        // means the same thing an absent wire field does: nothing reported.
+        state={worker.activityState ?? "never"}
+        workingSince={worker.workingSince ?? null}
+        lastTurnCompletedAt={worker.lastTurnCompletedAt ?? null}
+        nowTs={nowTs}
+        dash={dash}
+      />
       <td data-label={t.monitor.sessionCol.context}>
         {contextText(worker.contextPct ?? null, worker.runtime || "claude", worker.compactionCount ?? null, dash, t.mp.compactionCount)}
       </td>

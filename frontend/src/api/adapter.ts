@@ -9,6 +9,7 @@
 
 import type { ThemeBundle } from "../lib/themeBundle";
 import type {
+  ActivityState,
   Member,
   MemberLifecycle,
   MemberActivateResult,
@@ -462,6 +463,15 @@ export interface OutsourceWorkerView {
    * stop — presence is then "stopping"/"stopped"). Drives the 停止/重啟 toggle. "" from a
    * pre-column row reads as online. */
   desiredState?: string;
+  /** The SERVER's activity verdict (wire `activity_state`, T-a1d7) — the same
+   * four-state union the member session row carries, and the same rule: the FE
+   * PASSES IT THROUGH and never re-derives it from the two stamps below. */
+  activityState?: ActivityState;
+  /** Display anchors for that verdict: when the current turn started, and when
+   * the last observed turn ended. null = nothing to anchor on. The UI formats
+   * `now − stamp` and nothing else. */
+  workingSince?: number | null;
+  lastTurnCompletedAt?: number | null;
 }
 
 /** One task type (任務手冊) in the LIGHT list shape the tasks page needs for

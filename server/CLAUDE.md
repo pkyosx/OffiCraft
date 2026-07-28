@@ -156,6 +156,15 @@ owner 2026-07-27 兩句話 + 一個數字:「更新的時候不能塞超過這�
   一律拒收，避免 replacement/remove 讓一般紀錄懸空。一般 `PutMember` conflict
   update 也不得寫 `avatar_attachment_id`；只有專用 avatar mutator 可改該 pointer，
   避免 stale lifecycle/model snapshot 洗掉較新的頭像。
+## activity — 「有沒有在跑 turn」是第二個維度(T-a1d7)
+
+權威 logical spec:`docs/design/activity-model.md`。這裡只記 server 面的落點與三個容易踩的點。
+
+- **第三個記憶體 store `s.activity`**(`api_activity.go`),與 telemetry / gauge 同型別但**刻意分開**:telemetry 的公開契約是「解僱才清、**斷線不清**」,activity 需要斷線邊——共用會把那句話變成「看情況」。volatile 是契約,重啟後全部誠實回到 `never`。
+- **裁決只有一個地方**:`domain.go` 的純函數 `deriveActivity`,同時餵 `monitoringSessionDTO` 與 `outsourceWorkerDTO`(「一個推導函數、兩條 wire」,與 `foldActorRuntime` 同形)。⚠️ **不塞進 `deriveLiveness`**——presence 與 activity 是不同問題,合併詞彙就會讓「離線」和「沒在工作」變成同一個字。
+- ⚠️ **兩個門檻是兩個量,別互換**:`activityMaxTurnSecs`(2700s,owner `rc-3b18366fbe04` 拍板)問的是「還 online 但這輪沒送結束訊號,多久後停止宣稱工作中」;`reconcileCfg.ZombieConfirmGrace`(180s)問的是「連線斷多久才算真的離開」,activity 在**重連邊**原樣沿用它、不另造數字。
+- **斷線不刪主張、也不蓋 `last_end`**:`onLastDisconnect` 只記 `offline_since`,顯示面靠 `deriveActivity` 對 `online` 的 gate 擋住「離線卻說工作中」。理由是 `ocagent listen` 的 drop→reconnect 是常態,刪掉的主張這一輪救不回來(Claude 要到 turn 結束才會再說話);而把斷線寫成「結束時刻」是捏造一個沒觀察到的事實。
+- **`POST /api/self/activity` 是 `requires=agent` + `MCPExclude`**:比 `/api/self/*` 其他列高一階,因為它**不解析 member row**(外包 `ow-` 必須能用,同 `GET /api/self/task`);不出 MCP 工具是決定不是遺漏——出了就是邀請 agent 手寫自己的活動狀態。
 
 ## 已知邊界(誠實列,別當成熟功能用)
 - **config 預設路徑是 CWD-relative `oc.toml`**(binary 沒有 source-path 可錨 repo root);部署正解走 `$OC_CONFIG`。

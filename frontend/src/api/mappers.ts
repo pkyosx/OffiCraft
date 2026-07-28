@@ -6,6 +6,7 @@
 
 import type { ThemeBundle } from "../lib/themeBundle";
 import type {
+  ActivityState,
   Member,
   MemberStatus,
   MemberLifecycle,
@@ -515,6 +516,11 @@ export function toOutsourceWorker(w: WireOutsourceWorker): OutsourceWorkerView {
     // as online — the stop/restart toggle only trips on an explicit "offline").
     refocusSince: w.refocus_since && w.refocus_since > 0 ? w.refocus_since : null,
     desiredState: w.desired_state ?? "online",
+    // Activity (T-a1d7) through the SAME narrower the member session row uses —
+    // one seam, two wires, so an unrecognised word can never mean two things.
+    activityState: toActivityState(w.activity_state),
+    workingSince: w.working_since ?? null,
+    lastTurnCompletedAt: w.last_turn_completed_at ?? null,
   };
 }
 
@@ -687,7 +693,36 @@ function toMonSession(w: WireMonSession): MonSessionView {
     compactionCount: w.compaction_count ?? null,
     cost: w.cost ?? null,
     bankedCost: w.banked_cost ?? null,
+    // Activity (T-a1d7): the server's verdict, PASSED THROUGH. An older server
+    // defaults the field away → undefined → the honest "never" (nothing was
+    // ever reported), which is exactly what an old runtime means. The two
+    // stamps are display anchors only — the FE never re-derives the verdict
+    // from them (the `hardwareStale` rule).
+    activityState: toActivityState(w.activity_state),
+    workingSince: w.working_since ?? null,
+    lastTurnCompletedAt: w.last_turn_completed_at ?? null,
   };
+}
+
+/** Narrow the wire's bare `activity_state` string onto the closed
+ * `ActivityState` union — the ONE seam both the member session row and the
+ * outsource worker row go through, so the two can never disagree about an
+ * unrecognised word. An unknown/absent value floors to `"never"`: claiming to
+ * know nothing is the only honest answer to a word we cannot read, and it is
+ * also what an old server (which defaults the field away) actually means.
+ *
+ * ⚠️ Deliberately NOT a cast. A bare `as ActivityState` would let a future
+ * server word fall straight through into the render switch and out the other
+ * side as an unlabelled cell. */
+export function toActivityState(raw: string | undefined): ActivityState {
+  switch (raw) {
+    case "active":
+    case "idle":
+    case "unknown":
+      return raw;
+    default:
+      return "never";
+  }
 }
 
 /** Map one wire mon machine → `MonMachineView` (hardware fields pass through as

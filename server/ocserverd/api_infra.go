@@ -334,6 +334,11 @@ func (s *apiServer) sseStopGateRefusal(memberID string) string {
 // genuinely new session (respawn / relocate / recycle) re-stamps because the
 // spawn/stop boundary cleared boot_ts first (clearSessionBootTS).
 func (s *apiServer) onFirstConnect(memberID string) {
+	// Activity (T-a1d7): decide whether a turn claim held from before the drop
+	// survived. A short drop is a network blip and the turn never stopped; a
+	// long one was a real absence. The window is the EXISTING ZombieConfirmGrace
+	// — see activityReconnectKeepsClaim.
+	s.activityOnConnect(memberID)
 	// Worker presence is projected from this connection edge. The owner's live
 	// worker list subscribes to outsource_worker, so fan its canonical delta
 	// even when no durable member field changed (the common case).
@@ -433,6 +438,12 @@ func (s *apiServer) clearSessionBootTS(id string) {
 // banked_cost, then POP the live field (exactly-once-per-edge banking).
 func (s *apiServer) onLastDisconnect(memberID string) {
 	s.bankLiveCost(memberID)
+	// Activity (T-a1d7): record WHEN the stream dropped. The claim is kept and
+	// last_turn_completed_at is NOT stamped — a session that vanished is not a
+	// session that finished. The read path already refuses to show an offline
+	// actor as working (deriveActivity gates on `online`), so nothing has to be
+	// destroyed here to keep the display honest.
+	s.activityOnDisconnect(memberID)
 	s.publishOutsourcePresenceEdge(memberID)
 }
 

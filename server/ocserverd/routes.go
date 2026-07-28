@@ -385,6 +385,23 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			MCPTool:  "report_stopped",
 		},
 		{
+			// T-a1d7 activity ingestion. requires=agent (NOT machine): the
+			// callers are agent-scope sessions, INCLUDING outsource workers
+			// whose `ow-` ids have no member row — the handler reads the
+			// verified sub only, exactly like GET /api/self/task.
+			// MCPExclude is a DECISION, not an oversight: this is narrow
+			// runtime automation (a Claude Code hook / the Codex sidecar), and
+			// publishing it as a tool would invite an agent to hand-write
+			// claims about whether it is working.
+			Method:     "POST",
+			Path:       "/api/self/activity",
+			Handler:    w.HandleReportActivityApiSelfActivityPost,
+			Auth:       authGated,
+			Requires:   principalAgent,
+			Summary:    "report_activity(): record the caller's turn boundary (active/idle).",
+			MCPExclude: true,
+		},
+		{
 			Method:   "POST",
 			Path:     "/api/self/refocus",
 			Handler:  w.HandleRestartSelfApiSelfRefocusPost,
