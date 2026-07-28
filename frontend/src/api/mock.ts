@@ -132,6 +132,7 @@ const MOCK_WIRE_MEMBERS: WireMember[] = [
     roster_status: "active",
     owner_id: "",
     unread_count: 0,
+    last_activity_at: 0,
     schema_version: 2,
   },
   {
@@ -161,6 +162,7 @@ const MOCK_WIRE_MEMBERS: WireMember[] = [
     roster_status: "active",
     owner_id: "",
     unread_count: 0,
+    last_activity_at: 0,
     schema_version: 2,
   },
   // A warden member bound to mbp5 (kind="warden") — the machine-layer telemetry
@@ -192,6 +194,7 @@ const MOCK_WIRE_MEMBERS: WireMember[] = [
     roster_status: "active",
     owner_id: "",
     unread_count: 0,
+    last_activity_at: 0,
     schema_version: 2,
   },
 ];
@@ -702,6 +705,22 @@ function unreadCountOf(peer: string): number {
   ).length;
 }
 
+/** T-ed38 roster order key, computed LIVE with the same rule the server folds
+ * (dal.ListMemberChatStats): epoch seconds of the newest message exchanged
+ * between the owner and `peer` in EITHER direction. Caller-relative like
+ * unreadCountOf, and independent of the read watermark. 0 = never talked —
+ * which in the mock is the normal state (the mock never fabricates a member
+ * reply; tests inject one via __injectMockChat). */
+function lastActivityOf(peer: string): number {
+  let newest = 0;
+  for (const m of chatLog) {
+    const involvesOwner = m.from === MOCK_OWNER_ID || m.to === MOCK_OWNER_ID;
+    const involvesPeer = m.from === peer || m.to === peer;
+    if (involvesOwner && involvesPeer && m.ts > newest) newest = m.ts;
+  }
+  return newest;
+}
+
 /** Fold the user-custom block: overlay ⊕ the EMPTY seed (a structuredClone so
  * the caller can never mutate our state). Mirrors fold_user_context. */
 function foldGlobalContext(): WireGlobalContext {
@@ -782,6 +801,9 @@ const DEFAULT_MOCK_SETTINGS = {
     fonts?: Record<string, string>;
     avatars?: { member?: string; outsource?: string };
   }[],
+  // Pinned roster members (T-ed38) — none pinned out of the box, mirroring the
+  // server (display.pinned_member_ids absent → []).
+  pinned_member_ids: [] as string[],
 };
 let mockServerSettings = { ...DEFAULT_MOCK_SETTINGS };
 const MOCK_CLAIM_TOKEN = "mock-claim-token";
@@ -925,7 +947,13 @@ export const mockApi: Api = {
     // hook not refetching on chat) lives in the hook, not here.
     return wireMembers
       .filter((m) => m.roster_status !== "removed")
-      .map((m) => mapWithExtras({ ...m, unread_count: unreadCountOf(m.id) }));
+      .map((m) =>
+        mapWithExtras({
+          ...m,
+          unread_count: unreadCountOf(m.id),
+          last_activity_at: lastActivityOf(m.id),
+        })
+      );
   },
 
   async getMember(id: string): Promise<Member> {
@@ -2341,6 +2369,7 @@ export const mockApi: Api = {
       roster_status: "active",
       owner_id: MOCK_OWNER_ID,
       unread_count: 0,
+      last_activity_at: 0,
       schema_version: 2,
     });
 
@@ -2640,6 +2669,32 @@ export const mockApi: Api = {
         "display_language must be one of zh, en"
       );
     }
+    // pinned_member_ids (T-ed38): the WHOLE ordered set, validated before
+    // anything is written — a blank or duplicate id 422s and nothing changes
+    // (server parity). Ids are NOT checked against the roster: a pin may
+    // legitimately outlive the member.
+    if (patch.pinnedMemberIds !== undefined) {
+      const seen = new Set<string>();
+      for (const id of patch.pinnedMemberIds) {
+        if (id.trim() === "") {
+          throw new ApiError(
+            "http 422 for PATCH /api/settings",
+            422,
+            "validation_error",
+            "pinned_member_ids must not contain an empty id"
+          );
+        }
+        if (seen.has(id)) {
+          throw new ApiError(
+            "http 422 for PATCH /api/settings",
+            422,
+            "validation_error",
+            "pinned_member_ids must not contain a duplicate id: " + id
+          );
+        }
+        seen.add(id);
+      }
+    }
     if (patch.tokenTtl !== undefined) {
       mockServerSettings.token_ttl = patch.tokenTtl;
     }
@@ -2692,6 +2747,9 @@ export const mockApi: Api = {
     // omitted field never changes it (PATCH semantics, server parity).
     if (patch.displayWide !== undefined) {
       mockServerSettings.display_wide = patch.displayWide;
+    }
+    if (patch.pinnedMemberIds !== undefined) {
+      mockServerSettings.pinned_member_ids = [...patch.pinnedMemberIds];
     }
     return toServerSettings(structuredClone(mockServerSettings));
   },
@@ -2885,6 +2943,7 @@ export const mockApi: Api = {
       roster_status: "active",
       owner_id: MOCK_OWNER_ID,
       unread_count: 0,
+      last_activity_at: 0,
       schema_version: 3,
     };
     wireMembers.push(wireMember);
@@ -3109,6 +3168,50 @@ export function __injectMockTaskManual(m: TaskManualView): void {
   emitTopic("task_manual");
 }
 
+// Test-only hook: land ANOTHER 正職 member in the roster, the way a hire /
+// role create would surface one server-side. The seed fixture ships a SINGLE
+// assistant (Mira), so anything about roster ORDER needs more rows than the
+// fixture gives. Fields default to the offline/no-telemetry shape of the seed;
+// callers override what the case is about (role_key / unread / activity).
+export function __injectMockMember(
+  over: Partial<WireMember> & { id: string; name: string }
+): void {
+  wireMembers.push({
+    member_no: "",
+    kind: "assistant",
+    role_key: "",
+    role_name: "",
+    runtime: "claude",
+    model: "",
+    effort: "medium",
+    desired_state: "offline",
+    desired_machine_id: "",
+    machine: "",
+    presence: "offline",
+    refocus_since: 0,
+    last_op: "",
+    last_op_ok: null,
+    last_op_log: "",
+    last_op_reason: "",
+    last_op_at: 0,
+    roster_status: "active",
+    owner_id: "",
+    unread_count: 0,
+    last_activity_at: 0,
+    schema_version: 2,
+    ...over,
+  });
+}
+
+// Test-only hook: fan an SSE topic the way the real downlink does, so a test
+// can drive the reconcile-by-refetch path (useMembers refetches on
+// member/chat/chat_read/role_def). __injectMockChat deliberately stays silent —
+// it models the row landing in the log, not the server's fan-out — so a test
+// that wants the refetch asks for it explicitly.
+export function __emitMockTopic(topic: string): void {
+  emitTopic(topic);
+}
+
 // Test-only hook: flip a mock member's presence projection, the way the real
 // hub's SSE connect/disconnect would. Exists so tests can exercise the M2-2
 // delete-role 409 防線 (「有成員在線上，無法刪除」) — the mock UI itself never
@@ -3144,6 +3247,8 @@ if (import.meta.env.DEV) {
     injectTask: __injectMockTask,
     injectOutsourceWorker: __injectMockOutsourceWorker,
     injectChat: __injectMockChat,
+    injectMember: __injectMockMember,
+    emitTopic: __emitMockTopic,
     setMemberOnline: __setMockMemberOnline,
     setActivationPending: __setMockActivationPending,
     setRelocationPending: __setMockRelocationPending,

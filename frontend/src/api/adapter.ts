@@ -630,6 +630,11 @@ export interface ServerSettingsView {
   /** The owner's saved custom theme bundles (T-16a1 P2); [] = none saved.
    * displayTheme may point at any bundle's id (or a built-in). */
   customThemes: ThemeBundle[];
+  /** The owner's manually pinned roster members (T-ed38); [] = none pinned.
+   * An ORDERED SET — the array order IS the pinned group's display order
+   * (newest pin first). Ids of dismissed members may survive here; the roster
+   * intersects with the live members and ignores the orphans. */
+  pinnedMemberIds: string[];
   /** The automatic first-run onboarding report (T-ba62), or null when
    * onboarding never ran on this server (an install predating it, or a
    * database that already had a password). This is how the cockpit can say
@@ -692,6 +697,10 @@ export interface ServerSettingsPatch {
    * token whitelist + concrete-colour grammar); the server 422s any violation.
    * Deleting the active custom theme resets displayTheme to "". */
   customThemes?: ThemeBundle[];
+  /** Replace the owner's pinned roster members (T-ed38) — the WHOLE ordered
+   * set, atomically (the server never merges). Omit to leave it unchanged;
+   * [] clears it. The server 422s a blank or duplicate id and writes nothing. */
+  pinnedMemberIds?: string[];
 }
 
 /** Fields the owner may edit on a member (PATCH; every field optional).

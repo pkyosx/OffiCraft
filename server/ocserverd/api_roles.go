@@ -208,7 +208,7 @@ func (s *apiServer) HandleCreateRoleApiRolesPost(w http.ResponseWriter, r *http.
 	}
 	writeJSON(w, http.StatusOK, roleCreateResultDTO{
 		Role:   *roleDTO,
-		Member: s.newMemberDTO(member, name, "", 0),
+		Member: s.newMemberDTO(member, name, "", MemberChatStats{}),
 	})
 }
 

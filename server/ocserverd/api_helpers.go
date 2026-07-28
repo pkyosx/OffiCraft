@@ -268,9 +268,11 @@ func (s *apiServer) observedHost(m Member) string {
 }
 
 // newMemberDTO projects one member onto the wire (dto.MemberDTO.from_domain):
-// presence derives from the live SSE online fact; observedMachine/unreadCount
-// are handler-injected where the surface carries them.
-func (s *apiServer) newMemberDTO(m Member, roleName, observedMachine string, unreadCount int) memberDTO {
+// presence derives from the live SSE online fact; observedMachine and the
+// caller-relative chat stats (unread_count / last_activity_at) are
+// handler-injected where the surface carries them — a zero-value `stats` is the
+// honest "this surface does not compute them".
+func (s *apiServer) newMemberDTO(m Member, roleName, observedMachine string, stats MemberChatStats) memberDTO {
 	return memberDTO{
 		ID:               m.ID,
 		AvatarURL:        memberAvatarURL(m.AvatarAttachmentID),
@@ -292,7 +294,8 @@ func (s *apiServer) newMemberDTO(m Member, roleName, observedMachine string, unr
 		LastOpLog:        m.LastOpLog,
 		LastOpReason:     m.LastOpReason,
 		LastOpAt:         m.LastOpAt,
-		UnreadCount:      unreadCount,
+		UnreadCount:      stats.UnreadCount,
+		LastActivityAt:   stats.LastActivityAt,
 		RosterStatus:     m.RosterStatus,
 		OwnerID:          wireOwnerID,
 		SchemaVersion:    wireSchemaVersion,
@@ -338,7 +341,7 @@ func (s *apiServer) writeMemberDTO(w http.ResponseWriter, m Member) {
 		internalError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.newMemberDTO(m, roleName, "", 0))
+	writeJSON(w, http.StatusOK, s.newMemberDTO(m, roleName, "", MemberChatStats{}))
 }
 
 // nowSecs is the float epoch clock (time.time()).

@@ -124,6 +124,14 @@ const (
 	// Server-backed so the set syncs across devices; display.theme may point at
 	// any id in it. Absent/"" = none saved. NOT an agent read path.
 	settingDisplayCustomThemes = "display.custom_themes"
+	// settingDisplayPinnedMemberIDs (T-ed38) is the owner's manually pinned
+	// roster members — a JSON string array that is an ORDERED SET: the array
+	// order IS the pinned group's display order (newest pin first). Server-backed
+	// so the pins survive a device change; the whole set is replaced atomically
+	// (last-write-wins), never merged. Absent/"" = nothing pinned. It is a
+	// preference of the VIEWER, which is why it lives here and not on MemberDTO.
+	// NOT an agent read path.
+	settingDisplayPinnedMemberIDs = "display.pinned_member_ids"
 )
 
 // displayThemeAllowed / displayLanguageAllowed are the enum whitelists for the
@@ -156,6 +164,7 @@ type authSettings struct {
 	displayLanguage          string           // display.language ("" = never set → frontend cache/default)
 	displayWide              bool             // display.wide (default false = the narrow centred column)
 	displayCustomThemes      []ThemeBundleDTO // display.custom_themes (nil = none saved)
+	displayPinnedMemberIDs   []string         // display.pinned_member_ids (nil = nothing pinned)
 }
 
 // loadAuthSettings loads the snapshot from the migrated DB, running the
@@ -352,6 +361,14 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 			if w := out.displayCustomThemes[i].Wording; w != nil {
 				dropUnknownWordingCodes(*w, fmt.Sprintf("stored custom_themes[%d]", i))
 			}
+		}
+	}
+	if v, err := d.GetSetting(settingDisplayPinnedMemberIDs); err != nil {
+		return out, err
+	} else if v != nil && *v != "" {
+		if err := json.Unmarshal([]byte(*v), &out.displayPinnedMemberIDs); err != nil {
+			return out, fmt.Errorf("settings %s: not a valid id array: %v",
+				settingDisplayPinnedMemberIDs, err)
 		}
 	}
 	return out, nil

@@ -78,6 +78,21 @@ interface MemberDetailPanelProps {
   onRename?: (name: string) => void;
   onUpdateAvatar?: (file: File) => Promise<void>;
   onRemoveAvatar?: () => Promise<void>;
+  /** T-ed38 手動置頂: whether this member is currently pinned to the top of the
+   * roster. Only meaningful together with {@link onTogglePin}. */
+  pinned?: boolean;
+  /** Toggle this member's roster pin. Undefined ⇒ the affordance is hidden
+   * (the Monitor page renders this panel too and has no roster to pin into).
+   *
+   * The entry lives HERE rather than on the roster row because two owner
+   * rulings fixed what a row may carry: the row is a pure presence line
+   * (2026-07-17) and its flex-end slot carries ONLY the unread badge
+   * (2026-07-13). The panel is where per-member actions already live, and its
+   * avatar button is an existing keyboard-reachable way in — so pinning needs
+   * no new interaction mechanism (there is no kebab / long-press / context menu
+   * anywhere in this cockpit). The cost is that pinning takes two steps; for a
+   * low-frequency action that is the cheaper trade. */
+  onTogglePin?: () => void;
 }
 
 export function MemberDetailPanel({
@@ -91,6 +106,8 @@ export function MemberDetailPanel({
   onRename,
   onUpdateAvatar,
   onRemoveAvatar,
+  pinned,
+  onTogglePin,
 }: MemberDetailPanelProps) {
   const { t, msg } = useI18n();
   const online = member.status === "online";
@@ -593,6 +610,21 @@ export function MemberDetailPanel({
           )}
           {relocateUndispatched && (
             <DispatchAlert kind="relocate" testId="mp-relocate-undispatched" />
+          )}
+          {/* T-ed38 手動置頂 — one toggle, no confirm: pinning is reversible
+              in one click, so a confirm would only add friction. `aria-pressed`
+              carries the state to a screen reader, so the label can stay the
+              short verb rather than restating the state in words. */}
+          {onTogglePin && (
+            <button
+              type="button"
+              className="doc-btn"
+              data-testid="mp-pin-toggle"
+              aria-pressed={pinned === true}
+              onClick={onTogglePin}
+            >
+              {pinned ? t.office.unpinMember : t.office.pinMember}
+            </button>
           )}
         </div>
       </div>

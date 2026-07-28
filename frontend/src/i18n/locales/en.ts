@@ -279,6 +279,17 @@ export const en: Dict = {
       stopped: "Stopped",
     },
     viewProfile: "Member details",
+    // T-ed38 manual pinning. All three are STATIC leaves (never interpolation
+    // templates): a template's words are invisible to a theme pack's `wording`
+    // override, so copy that must stay overridable has to be a plain string.
+    // pinnedGroup is the role="group" aria-label — the hairline is purely
+    // visual and unreadable to a screen reader, so this label is the grouping's
+    // only semantic output (hence no duplicate role="separator").
+    pinnedGroup: "Pinned",
+    // The toggle in the member detail panel (nothing is added to the roster
+    // row — the row stays a pure presence line).
+    pinMember: "Pin to top",
+    unpinMember: "Unpin",
     backToMembers: "Back to members",
     loadError: "Failed to load office members. Please try again.",
     chatUnavailableTitle: "This conversation partner is no longer listed",

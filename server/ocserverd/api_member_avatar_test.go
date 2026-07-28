@@ -70,7 +70,7 @@ func TestMemberAvatarReplaceRemoveAndPersistence(t *testing.T) {
 	if err != nil || stored == nil || stored.AvatarAttachmentID != secondID {
 		t.Fatalf("stable member pointer must persist: %v %+v", err, stored)
 	}
-	if got := s.newMemberDTO(*stored, "", "", 0).AvatarURL; got != *secondDTO.AvatarUrl {
+	if got := s.newMemberDTO(*stored, "", "", MemberChatStats{}).AvatarURL; got != *secondDTO.AvatarUrl {
 		t.Fatalf("member DTO URL = %q, want %q", got, *secondDTO.AvatarUrl)
 	}
 

@@ -301,6 +301,37 @@
   min-height: 0;
 }
 
+/* T-ed38 roster groups: the pinned members and the rest. Each group keeps the
+ * list's own 8px card rhythm, so splitting the roster into two wrappers changes
+ * nothing visually until a pin exists. */
+.office__roster-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+/* The pinned/unpinned divider — a SINGLE HAIRLINE, no section header. It is
+ * added to the FIRST UNPINNED group (not under the last pinned card) so that
+ * anything appended below the pinned group later cannot orphan it, and it is
+ * applied only when BOTH groups are non-empty (all-pinned must not end in a
+ * line with nothing under it).
+ *
+ * The thickness + colour come from the doc-page section divider
+ * (settings.css's `.doc-md hr`) because its reasoning is general — on a dark
+ * canvas the UA default groove reads as a scratch, and a single hairline is
+ * what a section break means here. Only the VALUES are reused: that class is
+ * bound to markdown rendering, so this owns a separate class. Its 18px margins
+ * are deliberately NOT copied — this rail's rhythm is the card's own 12px
+ * padding, and 18px would open a hole. The 8px below the line pairs with the
+ * list's 8px gap above it, so the line sits centred in a 16px break.
+ *
+ * Purely decorative: it carries no a11y role. The pinned group's
+ * `role="group"` + aria-label is the semantic output; a `role="separator"`
+ * here would announce the same break twice. */
+.office__roster-group--divided {
+  border-top: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
+  padding-top: 8px;
+}
+
 /* 招攬新成員 — pinned at the sidebar bottom (T-66a8, owner mockup 2026-07-18).
  * A dashed-outline ghost button (person-plus icon + label) whose click routes
  * by the active tab (正職 → 角色誌; 外包 → the cap popover). The wrapper is the

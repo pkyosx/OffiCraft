@@ -318,6 +318,14 @@ export const zh = {
     // (the old dedicated 聊聊 button is gone); the avatar alone opens the
     // member detail panel.
     viewProfile: "成員詳情",
+    // T-ed38 手動置頂。三個都是靜態葉子（不是插值模板）——帶參數的模板對主題包
+    // 的 wording 覆寫是隱形的，所以這裡的字必須拆成可覆寫的純字串。
+    // 置頂群組的 role="group" aria-label：分隔線是純視覺的、螢幕閱讀器讀不到，
+    // 這個標籤是那個分組唯一的語意出口（因此不再加 role="separator" 重複播報）。
+    pinnedGroup: "已置頂",
+    // 成員詳情面板的置頂切換鈕（列上不加東西：列是純 presence 行）。
+    pinMember: "置頂",
+    unpinMember: "取消置頂",
     // Mobile single-page-nav back control: returns from a member's chat to the
     // roster (desktop keeps both panes, so this never shows there).
     backToMembers: "返回成員",

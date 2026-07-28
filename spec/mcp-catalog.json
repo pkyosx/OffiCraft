@@ -192,6 +192,21 @@
             "description": "The owner's display nickname (T-0b41) \u2014 trimmed, max 80 runes; \"\" clears it back to the localized default. A value longer than 80 runes is a 422.",
             "title": "Owner Name"
           },
+          "pinned_member_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Replace the owner's pinned roster members (T-ed38) \u2014 the WHOLE ordered set, atomically, last-write-wins (the server never merges: with two devices editing, a merge leaves the order undefined). Omitted/null = unchanged; [] = clear. Every id is validated BEFORE anything is written: an empty string or a duplicate id is a 422 and nothing changes.",
+            "title": "Pinned Member Ids"
+          },
           "push_contact_email": {
             "anyOf": [
               {

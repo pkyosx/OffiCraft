@@ -212,6 +212,14 @@ export function toMember(w: WireMember): Member {
     // inverse of the chat_read watermark, for the caller). Honest passthrough —
     // a defaulted-away wire field reads as 0, never a fabricated count.
     unreadCount: w.unread_count ?? 0,
+
+    // T-ed38 roster order key: the caller-relative last-exchange stamp. Same
+    // honest passthrough as unreadCount — `?? 0` NOT `|| 0`, because 0 is a
+    // LEGAL value here ("never talked") and the two must not silently merge if
+    // the sentinel ever changes. An older server omits the field entirely; the
+    // comparator's recency layer then reads every member as 0 and retires
+    // itself, which is the designed degradation.
+    lastActivityAt: w.last_activity_at ?? 0,
   };
 }
 
@@ -836,6 +844,11 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
           }
         : {}),
     })),
+    // Pinned roster members (T-ed38; schema-optional for DTO-compat — the Go
+    // wire always emits an array). Absent maps to [] — an older server simply
+    // has no pins, and [] is also what the roster degrades to when the settings
+    // read fails, so the two agree by construction.
+    pinnedMemberIds: [...(w.pinned_member_ids ?? [])],
     // The first-run onboarding report (T-ba62). Absent/null is the NORMAL
     // state (onboarding never ran on this database) and maps to null — the
     // mapper never manufactures a report, so "no report" can never be

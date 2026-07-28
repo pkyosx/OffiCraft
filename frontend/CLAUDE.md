@@ -37,7 +37,79 @@ wire 那頭是裸 `string`(spec 已凍結),不認得的字 → `undefined`,再�
 消失的元素,而且不會有任何其他測試變紅。護欄:`api/mappers.presence.test.tsx`。
 
 ## unread 計數 badge(M2-1 紅點升級;與 presence 各自獨立)
-roster MemberCard 成員列**右側(flex 尾端)的紅色計數 badge**(>99 顯示 99+、count=0 完全不渲染)= server 算好的 `member.unreadCount`(MemberDTO `unread_count`,chat_read watermark 的反相計數;只算成員→owner 訊息,agent↔agent 不計;舊純紅點 boolean 已整顆換掉)——FE 純 passthrough、**不自己算**。清除即既有已讀 choke:進對話的 `listChat` auto-mark / `markChatRead`;`useMembers` 的 ROSTER_TOPICS 含 `chat` / `chat_read` 讓 badge 即時亮/滅;開著的那個對話卡片以 `selected` 壓掉 badge(對話中新訊息永不累積)。badge 在整列(聊天入口)內,點 badge = 點列 = 進聊天,無獨立 handler。mock 以同一規則 live 計算(`unreadCountOf`)、行為與 http 一致;測試用 `__injectMockChat` 注入 inbound 訊息。
+roster MemberCard 成員列**右側(flex 尾端)的紅色計數 badge**(>99 顯示 99+、count=0 完全不渲染)= server 算好的 `member.unreadCount`(MemberDTO `unread_count`,chat_read watermark 的反相計數;只算成員→owner 訊息,agent↔agent 不計;舊純紅點 boolean 已整顆換掉)——FE 純 passthrough、**不自己算**。清除即既有已讀 choke:進對話的 `listChat` auto-mark / `markChatRead`;`useMembers` 的 ROSTER_TOPICS 含 `chat` / `chat_read` 讓 badge 即時亮/滅;開著的那個對話卡片在 `selected` **且** `windowActive`(視窗有焦點+分頁可見)時才壓掉 badge(對話中新訊息永不累積);**視窗背景化時不壓**——背景中開著的 thread 停止消化已讀(useChat 唯讀 peek),未讀是真的在累積,壓掉就會讓 owner 回到前景時看到一顆靜靜死掉的紅點(`MemberCard.tsx:111` 的實碼條件;T-ed38 順手修正本句過時描述,owner `rc-563734cd294e`)。badge 在整列(聊天入口)內,點 badge = 點列 = 進聊天,無獨立 handler。mock 以同一規則 live 計算(`unreadCountOf`)、行為與 http 一致;測試用 `__injectMockChat` 注入 inbound 訊息。
+
+## roster 排序 + 手動置頂(T-ed38)
+
+左欄正職列表的顯示順序**收斂到 `lib/rosterOrder.ts` 的純函式**(`compareMembers(pinIndex)`
+/ `pinIndexOf` / `splitPinned`)——舊版是內聯在 `OfficePage` 裡的一行 arrow、**零測試**,
+而排序錯誤的失效方式是靜默的(某一列站錯位置,不會炸、看起來也不假)。四層加一個 tie-break:
+
+1. **置頂**(`settings.pinned_member_ids`,陣列順序即顯示順序、新置頂 unshift 到最前)
+2. **未讀**(`unreadCount > 0`)
+3. **最近互動**(`lastActivityAt` 新→舊)
+4. **角色**(`role === "assistant"` 優先)——**既有行為原樣保留**,含 `mappers.ts:141`
+   的 `role_key || "assistant"` fallback 效果(那個 fallback 的第二個消費者是
+   `avatarKind.ts`,動它會連帶改頭像判定,本票不碰)
+5. **`name.toLowerCase()` 字典序 → 同名再比 `id`**
+
+- 🔴 **第 1 層在「兩者都被置頂」時短路,是契約不是最佳化**:置頂的全部價值就是位置可預測,
+  讓 unread/最近互動在置頂組內重排,等於把 owner 剛親手固定的順序還給自動規則。
+- ⚠️ **第 5 層存在的理由是穩定 sort 不夠**:`Array#sort` 自 ES2019 保證穩定,但**輸入序
+  本身不保證**(`GET /api/members` 的 SQL 沒有次要排序鍵)。靠 server 的 `ORDER BY name
+  COLLATE NOCASE` 繼承姓名序,等於把畫面順序押在**沒寫進任何契約的假設**上——加分頁、換
+  collation、為效能換索引,順序就會無聲改變而且**不會有測試變紅**。FE 自己比 name 之後,
+  排序是**自足的**:server 回什麼順序都不影響結果;`id` 只在同名時兜底,讓順序成為全序。
+- 🔴 **第 5 層必須用 `toLowerCase()` + `<` / `>`,不可以用 `localeCompare`**(也不可以用
+  `toLocaleLowerCase()`):`localeCompare` 依賴 runtime 的 ICU 資料,不同瀏覽器/Node 版本
+  對同一組非 ASCII 名字可能給出不同順序——那正是決定性測試抓不到的失效(jsdom 綠、真實
+  瀏覽器另一個順序)。`toLowerCase()` 是 locale-independent 的純 code-unit 比較,跨環境
+  一致;代價是非 ASCII 名字的順序不一定符合該語言直覺,**這個代價是刻意接受的:首要目標
+  是決定性,不是完美的 locale 排序**。(`localeCompare` 在 `frontend/src` 是 0 命中。)
+- **`?? 0` 不可寫成 `|| 0`**:`lastActivityAt` 的 `0` 是合法值(從未互動),兩者這裡結果
+  相同但語意不同。舊 server 缺這個欄位時全體讀 0 → 第 3 層整層失效 → 退回舊排序,
+  **這是安全降級**。
+
+**wire**(spec-first,生成物不可手改):`MemberDTO.last_activity_at`(optional number,
+epoch 秒,caller-relative、雙向;`?fields=light` 下的 0 是「未計算」而非「沒互動過」——
+兩者在 wire 上分不出來,所以 light 回應不可讀這個欄位)、`SettingsDTO` /
+`SettingsUpdateDTO.pinned_member_ids`(optional `string[]`,回應永遠是 array)。
+server 端一次 SQL 折出兩個值(`dal.ListMemberChatStats`),**取代**了 roster handler 舊的
+`ListChat()+ListChatReads()+UnreadCounts`(那條把整張無 LIMIT 的 chat 表搬進 Go)。
+
+**置頂讀寫** = `hooks/usePinnedMembers.ts`,**純 server、無 localStorage cache**(理由同
+`useOrgName`,而且更強:快取住一個在別的裝置已取消/已解僱的 pin,會讓那一列短暫復活在
+最上面)。整組原子 replace、last-write-wins,**server 不 merge**(否則跨裝置同時改順序就
+沒有定義)。讀失敗 → 誠實降級 `[]`(列表照常渲染);寫失敗 → 樂觀更新回退。
+**孤兒 pin**(成員已解僱)在 render 時與 live roster 取交集後忽略,**不做隱藏 cleanup write**。
+**不承諾即時跨裝置同步**(沒有 settings SSE topic),只承諾 reload/login 後一致。
+
+**入口在成員詳情面板**(`MemberDetailPanel` 的 `onTogglePin`),**列內不加任何東西**:
+兩條 owner 裁定管著這一列(`MemberCard.tsx:84-86`「roster row stays a pure presence line」、
+`:96-110`「flex-end slot 只剩未讀訊號」)。**分組也不加文字 header**——T-66a8 剛把「帶標題
+的堆疊分組」從左欄拿掉換成頂部頁籤,加回去等於推翻那個裁定。表達方式 = **位置 + 一道
+hairline**(`.office__roster-group--divided`,粗細/顏色沿用 `settings.css` 的 `.doc-md hr`
+值但**不複用那個 class**——它綁在 markdown 渲染上;`margin: 18px 0` 刻意不照抄,左欄節奏是
+卡片自己的 12px)。**四條邊界**:零置頂 → 不渲染 group wrapper 也不渲染 hairline;
+**全部置頂 → 也不渲染 hairline**(條件是「兩組都非空」);hairline 掛在**非置頂組第一張卡的
+上緣**(掛在置頂組尾端,日後在下面加東西就會變孤兒線);置頂組內順序照上面第 1 層。
+a11y:置頂組外包 `role="group"` + `aria-label`,hairline 純 CSS **不進 a11y tree**、
+**不加 `role="separator"`**(group 已提供語意,再加就是重複播報)。
+
+🔴 **P2 —— 排序的變動不得抽換「當前正在顯示的對話」**。`OfficePage` 的「空選擇預設對象」
+改成**首次拿到非空 roster 時解析一次、存進 ref**。舊排序實質是靜態的,所以每 render 重算
+`roster[0]` 無害;新排序會因 unread/最近互動而動,而 `useMembers` 訂了 `chat` topic ——
+**未選取的桌機使用者,眼前那間聊天室會在他完全沒操作的情況下自己換走**,而最可能觸發它的
+事件正是「有人發了新訊息」,也就是 owner 最可能正在看畫面的時刻。**這是實測的,不是推論**
+(只改 comparator 的探針看到 chat header 從 Mira 變成 Bob,見 `docs/T-ed38/verification.md` §0.5)。
+改動範圍刻意窄:**只改空選擇那一支的求值時機**——T-661b 的收窄(明確 chatId 解析不到時
+不得靜默落到 `roster[0]`)原封不動、**不寫回 URL hash**、不動 `setSelectedId` 的呼叫點。
+護欄 `OfficePage.selected-stability.test.tsx` 兩個方向都釘(不抽換 / 沒有凍過頭)。
+
+護欄:`lib/rosterOrder.test.ts`(四層 + 契約 2 + 打亂輸入輸出恆等 + fallback)、
+`OfficePage.roster-order.test.tsx`(分組三態邊界 + 孤兒 pin)、
+`OfficePage.selected-stability.test.tsx`、`MemberDetailPanel.pin.test.tsx`(置頂/取消 +
+settings 讀寫失敗降級)。
 
 ## 聊天未讀跳轉(M2 批次 19;LINE/FB 式,純 FE)
 ChatArea 兩個行為,皆不動 server:
@@ -155,8 +227,14 @@ hold 釋放)。status union 全線(adapter/mappers join)= waiting|answered|expir
   (尚未執行/進行中/等我回覆/等待外部/已完成/終止),不用 mockup 的變體。
 
 ## 外包面板 + 外包聊天(M3 Phase 4,SPEC §4;列形 2026-07-14 owner 截圖回報重裁)
-辦公室左欄的第二組(`OutsourcePanel`;左欄照 mockup 分「正職/外包」兩組——
-正職 header=標籤+計數+摺疊 chevron(OfficePage `staffOpen`),成員卡=名字+
+辦公室左欄的第二個分頁(`OutsourcePanel`)。左欄由**頂部「正職/外包」文字頁籤**
+切換——**T-66a8**(owner mockup 2026-07-18)已用 `OfficeSidebarTabs` 取代舊的
+「兩組堆疊」rail(正職摺疊 header + 外包面板 head 各自帶計數);選中頁籤帶藍色
+底線,每個標籤旁一顆紅色未讀計數 badge,底下一行「N 人」/「N 人 · 上限 M」。
+兩個清單一次只顯示一個,`activeTab` 是純 component state、不進路由。(本段原本
+描述的是被 T-66a8 取代掉的舊 rail,由 T-ed38 順手修正,owner `rc-563734cd294e`。)
+
+**正職成員卡** = 名字+
 離線徽章+PresenceBadge+未讀數(**聊聊鈕已移除**——Seth 2026-07-13 拍板、蓋過
 mockup 與同日「恢復聊聊鈕」舊裁定:該 flex-end 位置只剩未讀 badge,有未讀才
 顯示;整列本身仍是聊天入口,行為不變)。**外包列也有未讀 badge**(owner
