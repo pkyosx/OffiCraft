@@ -257,9 +257,9 @@ func (d *DAL) GetMember(id string) (*Member, error) {
 }
 
 // PutMember upserts a member row (the repository.put_member twin; the SSE
-// delta is the service layer's job). AvatarIndex participates in the ordinary
-// row snapshot: unlike the retired personal-avatar blob pointer, it is plain
-// member presentation state and has no independently-owned resource lifecycle.
+// delta is the service layer's job). avatar_index is inserted for a new member
+// but deliberately excluded from the conflict update: it has its own owner
+// edit seam, so a stale lifecycle snapshot must never overwrite it.
 func (d *DAL) PutMember(m Member) error {
 	var lastOpOK any
 	if m.LastOpOK != nil {
@@ -302,8 +302,7 @@ func (d *DAL) PutMember(m Member) error {
 			codename = excluded.codename,
 			created_ts = excluded.created_ts,
 			released_ts = excluded.released_ts,
-			activated_ts = excluded.activated_ts,
-			avatar_index = excluded.avatar_index`,
+			activated_ts = excluded.activated_ts`,
 		m.ID, m.Name, m.Kind, m.RoleKey, NormalizeRuntime(m.Runtime), m.Model, m.ActualModel, m.Effort,
 		m.ActualRuntime, m.ActualEffort,
 		m.DesiredState, m.DesiredMachineID, m.LastMachineID,
@@ -314,6 +313,21 @@ func (d *DAL) PutMember(m Member) error {
 		m.AvatarIndex,
 	)
 	return err
+}
+
+// UpdateMemberAvatarIndex changes only presentation state. Keeping this as a
+// narrow UPDATE prevents a concurrent owner edit from replaying stale
+// lifecycle, task-link, placement, or accounting fields.
+func (d *DAL) UpdateMemberAvatarIndex(id string, avatarIndex int) (bool, error) {
+	res, err := d.wdb.Exec(
+		`UPDATE member SET avatar_index = ? WHERE id = ?`,
+		avatarIndex, id,
+	)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
 }
 
 // HardDeleteMember PHYSICALLY deletes a member row (the custom-role cascade

@@ -110,9 +110,22 @@ func (s *apiServer) HandleUpdateMemberAvatarIndexApiMembersMemberIdAvatarIndexPa
 		writeError(w, http.StatusUnprocessableEntity, "a machine cannot have a theme avatar index")
 		return
 	}
-	m.AvatarIndex = body.AvatarIndex
-	if err := s.dal.PutMember(*m); err != nil {
+	updated, err := s.dal.UpdateMemberAvatarIndex(m.ID, body.AvatarIndex)
+	if err != nil {
 		internalError(w, err)
+		return
+	}
+	if !updated {
+		writeError(w, http.StatusNotFound, "member not found")
+		return
+	}
+	m, err = s.dal.GetMember(m.ID)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	if m == nil {
+		writeError(w, http.StatusNotFound, "member not found")
 		return
 	}
 	s.publishMemberAvatarIndexChanged(*m, requestTrigger(r))

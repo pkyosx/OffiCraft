@@ -12,7 +12,7 @@ DELETE FROM chat_attachment
  WHERE id IN (
     SELECT avatar_attachment_id
       FROM member
-     WHERE avatar_attachment_id != ''
+     WHERE avatar_attachment_id LIKE 'ava-%'
  );
 ALTER TABLE member DROP COLUMN avatar_attachment_id;
 

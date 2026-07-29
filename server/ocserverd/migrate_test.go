@@ -1141,7 +1141,9 @@ func TestMemberAvatarIndexMigrationCleansPersonalBlobAndRoundTrips(t *testing.T)
 	}
 	if _, err := db.Exec(`INSERT INTO member
 		(id, name, kind, avatar_attachment_id)
-		VALUES ('m-index-mig', 'Index', 'assistant', 'ava-retired')`); err != nil {
+		VALUES
+		('m-index-mig', 'Index', 'assistant', 'ava-retired'),
+		('m-index-corrupt', 'Corrupt legacy pointer', 'assistant', 'att-survives')`); err != nil {
 		t.Fatalf("seed member: %v", err)
 	}
 	if err := goose.UpTo(db, "migrations", 49); err != nil {
@@ -1167,7 +1169,7 @@ func TestMemberAvatarIndexMigrationCleansPersonalBlobAndRoundTrips(t *testing.T)
 	if err := db.QueryRow(
 		`SELECT COUNT(*) FROM chat_attachment WHERE id = 'att-survives'`,
 	).Scan(&count); err != nil || count != 1 {
-		t.Fatalf("unrelated blob must survive, count=%d err=%v", count, err)
+		t.Fatalf("non-ava blob must survive even when a legacy pointer names it, count=%d err=%v", count, err)
 	}
 	if _, err := db.Exec(`SELECT avatar_attachment_id FROM member LIMIT 1`); err == nil {
 		t.Fatal("up migration must drop avatar_attachment_id")
