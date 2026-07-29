@@ -761,6 +761,27 @@ func drainChat(client httpClient, cfg Config, seen map[string]bool, out io.Write
 		if mid != "" && seen[mid] {
 			continue
 		}
+		// ECHO SUPPRESSION, message level (T-2c6d). The dispatch gate applies
+		// isSelfEcho to a FRAME's trigger and drops the whole frame — which
+		// means a self-triggered chat delta never reaches this drain at all, so
+		// the message it announced is never marked seen. It then sits in the
+		// unread window until either a listener restart consumes it through the
+		// silent boot baseline, or — the damaging case — some OTHER actor's chat
+		// delta passes the gate and runs this drain, which flushes the whole
+		// self-sent backlog alongside the message that actually arrived. Frame-
+		// level suppression therefore only DELAYS a self echo; it does not remove
+		// it (persona §1 promises removal). Applying the same predicate to the
+		// refetched sender closes that half: never print it, but DO advance the
+		// cursor so it leaves the unread window for good. Reusing isSelfEcho keeps
+		// the fail-open rule (spec/sse.md §2.3) — a blank sender is never an echo.
+		// TrimSpace mirrors the `to` filter above, so both sides of the message
+		// are matched the same way.
+		if isSelfEcho(strings.TrimSpace(strOrEmpty(m["from"])), cfg.ID) {
+			if mid != "" {
+				seen[mid] = true
+			}
+			continue
+		}
 		if !silent {
 			tag := "id"
 			if ts, ok := m["ts"].(float64); ok && ts > 0 {
