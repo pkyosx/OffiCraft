@@ -95,7 +95,7 @@
 }
 .avatar-index-editor__error {
   flex-basis: 100%;
-  color: var(--color-danger-text);
+  color: var(--color-danger);
   font-size: 12px;
 }
 .mp-identity__id {
