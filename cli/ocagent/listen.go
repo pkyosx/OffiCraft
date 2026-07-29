@@ -993,6 +993,35 @@ func drainChat(client httpClient, cfg Config, seen *chatSeen, out io.Writer, sil
 		if mid != "" && seen.m[mid] {
 			continue
 		}
+		// ECHO SUPPRESSION, message level (T-2c6d). The dispatch gate applies
+		// isSelfEcho to a FRAME's trigger and drops the whole frame — which means a
+		// self-triggered chat delta never reaches this drain at all, so the message
+		// it announced is never marked seen. It then sits in the unread window until
+		// either a listener restart consumes it through the silent boot baseline,
+		// or — the damaging case — some OTHER actor's chat delta passes the gate and
+		// runs this drain, which flushes the whole self-sent backlog alongside the
+		// message that actually arrived. Frame-level suppression therefore only
+		// DELAYS a self echo; it does not remove it. Applying the same predicate to
+		// the refetched sender closes that half.
+		//
+		// SKIPPED HERE, NOT AT PRINT TIME, and that placement is the point: this
+		// loop builds `unread`, which feeds BOTH the chatBacklogPrintCap slice below
+		// and this function's return value. Filtering later would let a queue of
+		// self-sent messages push a real inbound one past the cap, and would report
+		// unread lines that never print.
+		//
+		// The cursor still advances without an assignment here: the `next` rebuild
+		// below is keyed on the `to` filter alone, so a self-sent message addressed
+		// to this listener is recorded as seen exactly like any other — that is what
+		// stops it accumulating and later surfacing behind someone else's message.
+		//
+		// Reusing isSelfEcho keeps the fail-open rule (spec/sse.md §2.3): a blank or
+		// missing sender is never an echo, so it stays visible. TrimSpace mirrors
+		// the `to` filter above, so both sides of the message are matched the same
+		// way, and isSelfEcho's EqualFold makes the comparison case-insensitive.
+		if isSelfEcho(strings.TrimSpace(strOrEmpty(m["from"])), cfg.ID) {
+			continue
+		}
 		unread = append(unread, m)
 	}
 	if !silent {
