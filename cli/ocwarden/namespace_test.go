@@ -142,8 +142,16 @@ func TestRenderPlist_NamespacedStampsLabelAndEnv(t *testing.T) {
 }
 
 func TestRenderPlist_EmptyNamespaceOmitsStamp(t *testing.T) {
-	// Byte-level zero-diff: an empty namespace renders the EXACT bytes the
-	// pre-namespace renderer produced (label const, no OC_NAMESPACE key).
+	// Byte-level zero-diff for the NAMESPACE axis: an empty namespace renders the
+	// exact bytes a namespaced render would, minus the OC_NAMESPACE key and with
+	// the const label. That is what this golden guards, and it still holds.
+	//
+	// The golden itself was rewritten once, for the TCC identity anchor: the
+	// pre-anchor ProgramArguments `[BIN, run]` became `[ANCHOR, anchor, BIN, run]`.
+	// Every other byte is unchanged. That divergence from the historical bash
+	// installer is deliberate and load-bearing — naming the self-updating BIN here
+	// is what let a release void the machine's privacy grants and hang its agents
+	// on a consent prompt nobody can answer. See anchor.go.
 	p := fixedPaths()
 	got := renderPlist(p)
 	if strings.Contains(got, "OC_NAMESPACE") {
@@ -156,7 +164,7 @@ func TestRenderPlist_EmptyNamespaceOmitsStamp(t *testing.T) {
 <dict>
     <key>Label</key><string>com.officraft.ocwarden</string>
     <key>ProgramArguments</key>
-    <array><string>` + p.binPath + `</string><string>run</string></array>
+    <array><string>` + p.anchorPath + `</string><string>anchor</string><string>` + p.binPath + `</string><string>run</string></array>
     <key>WorkingDirectory</key><string>` + p.root + `</string>
     <key>EnvironmentVariables</key>
     <dict>

@@ -313,7 +313,16 @@ type wardenPaths struct {
 	plistPath string
 	logDir    string
 	binPath   string // STABLE home install target = $HOME/.officraft/warden/ocwarden
-	guiDomain string // gui/<uid>
+	// anchorPath is the TCC identity anchor = $HOME/.officraft/warden/ocanchor: a
+	// frozen copy of ocwarden that the plist names as ProgramArguments[0] and that
+	// forks binPath (`ocwarden anchor <binPath> run` — see anchor.go). It is written
+	// ONCE, by the first install that finds it missing, and every later install
+	// leaves the existing bytes alone. That refusal to overwrite IS the feature: the
+	// operator's one-time macOS privacy grant is bound to this file's cdhash, and
+	// rewriting it — with a byte-identical copy or otherwise — would void the grant
+	// and wedge every agent on the machine. See installAnchor.
+	anchorPath string
+	guiDomain  string // gui/<uid>
 	// ocAgentSrc is an OPTIONAL install-time LOCAL OVERRIDE (from OC_AGENT_BIN env) for
 	// the ocagent binary. When set, installOcAgent copies THIS local file to ocAgentBin
 	// (dev/test/in-tree, no server needed). When EMPTY (the DEFAULT + production path),
@@ -428,6 +437,7 @@ func resolvePaths(env func(string) string, exe string, uid int) (wardenPaths, er
 		plistPath:  filepath.Join(home, "Library", "LaunchAgents", label+".plist"),
 		logDir:     filepath.Join(root, "warden", "log"),      // $HOME/.officraft/warden/log
 		binPath:    filepath.Join(root, "warden", "ocwarden"), // $HOME/.officraft/warden/ocwarden
+		anchorPath: filepath.Join(root, "warden", "ocanchor"), // frozen TCC identity anchor (sibling)
 		guiDomain:  fmt.Sprintf("gui/%d", uid),
 		ocAgentSrc: ocAgentSrc,
 		ocAgentBin: filepath.Join(root, "warden", "ocagent"), // sibling of ocwarden (home copy)
@@ -450,13 +460,27 @@ func resolvePaths(env func(string) string, exe string, uid int) (wardenPaths, er
 // runtime and the install-time OC_CLAUDE_BIN stamp exists.
 const wardenPlistPATH = "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
-// plistTemplate mirrors the retired bash installer's render_plist heredoc exactly: the same
-// keys, ProgramArguments (BIN + "run"), EnvironmentVariables (PATH/OC_BASE/HOME/
+// plistTemplate mirrors the retired bash installer's render_plist heredoc except in
+// ProgramArguments: the same keys, EnvironmentVariables (PATH/OC_BASE/HOME/
 // OC_WARDEN_TOKFILE), RunAtLoad/KeepAlive/ThrottleInterval, and the ocwarden.*
 // log paths. %[1]s=ROOT %[2]s=BIN %[3]s=OC_BASE %[4]s=HOME %[5]s=TOKFILE %[6]s=LOGDIR
 // %[7]s=LABEL %[8]s=optional extra env lines (OC_NAMESPACE / OC_CLAUDE_BIN; "" for
-// the main instance with no resolved claude — that render stays byte-identical to
-// the historical output) %[9]s=PATH value (wardenPlistPATH unless overridden).
+// the main instance with no resolved claude) %[9]s=PATH value (wardenPlistPATH
+// unless overridden) %[11]s=ANCHOR.
+//
+// ⚠️ ProgramArguments IS NO LONGER BYTE-PARITY WITH THE BASH INSTALLER, and this is
+// the one deliberate divergence. It was `[BIN, run]`; it is now
+// `[ANCHOR, anchor, BIN, run]`. The bytes had to move because what they named was
+// the bug: macOS pins every TCC grant on this machine to the responsible process,
+// which is whatever launchd starts here, and BIN is rewritten by self-update on
+// every release — so each release silently voided the fleet's privacy grants and
+// left agents hanging on an unanswerable consent prompt. ANCHOR is written once and
+// never rewritten, so the identity holds. Full reasoning in anchor.go; the
+// install-once rule that makes it true is installAnchor.
+//
+// The warden still runs as `<BIN> run` with the same env, cwd and stdio — only its
+// parentage changed — so nothing downstream of the process (spawn, tokfile, logs,
+// self-update's exec-in-place) sees a difference.
 const plistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- RENDERED by ocwarden install for ROOT=%[10]s — do not edit by hand; re-run the installer. -->
@@ -464,7 +488,7 @@ const plistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 <dict>
     <key>Label</key><string>%[7]s</string>
     <key>ProgramArguments</key>
-    <array><string>%[2]s</string><string>run</string></array>
+    <array><string>%[11]s</string><string>anchor</string><string>%[2]s</string><string>run</string></array>
     <key>WorkingDirectory</key><string>%[1]s</string>
     <key>EnvironmentVariables</key>
     <dict>
@@ -507,7 +531,12 @@ func renderPlist(p wardenPaths) string {
 	if pathVal == "" {
 		pathVal = wardenPlistPATH
 	}
-	return fmt.Sprintf(plistTemplate, p.root, p.binPath, p.ocBase, p.home, p.tokfile, p.logDir, p.labelOrDefault(), extraEnv, xmlEscape(pathVal), xmlCommentSafe(p.root))
+	// p.anchorPath is rendered as-is, with NO fallback to p.binPath. A fallback
+	// would turn a mis-wired install into a plist that boots and looks healthy while
+	// pinning TCC to the self-updating binary again — the original bug, now silent.
+	// resolvePaths always populates it; a fixture that does not is meant to render
+	// visibly wrong, and writePlist's XML/plutil checks still bound the damage.
+	return fmt.Sprintf(plistTemplate, p.root, p.binPath, p.ocBase, p.home, p.tokfile, p.logDir, p.labelOrDefault(), extraEnv, xmlEscape(pathVal), xmlCommentSafe(p.root), xmlEscape(p.anchorPath))
 }
 
 // relayedCredCheck returns the OC_CLAUDE_CRED_CHECK value to stamp into the
@@ -722,6 +751,74 @@ func (i *installer) copyBinary(p wardenPaths) error {
 		return fmt.Errorf("atomic rename binary -> %s: %w", p.binPath, err)
 	}
 	i.logf("installed binary (0755): %s", p.binPath)
+	return nil
+}
+
+// installAnchor puts a frozen copy of this binary at p.anchorPath (0755) — the
+// program the launchd plist actually starts, which then forks the live ocwarden
+// (`ocanchor anchor <binPath> run`; see anchor.go for why the indirection exists).
+//
+// IT REFUSES TO OVERWRITE AN EXISTING ANCHOR, AND THAT REFUSAL IS THE WHOLE POINT.
+// macOS binds the operator's privacy grant to this file's cdhash — the hash of its
+// exact bytes — because ocwarden carries no stable signing identity. Rewriting the
+// file, even with a byte-identical copy from the same build, produces a new inode
+// whose grant record no longer matches, and the next TCC request from anywhere in
+// the agent tree goes to a consent prompt that a GUI-less LaunchAgent can never
+// display. It does not fail: it blocks in open(2) forever. One reinstall would
+// therefore wedge every agent on the machine with nothing in any log, which is
+// precisely the failure this whole change exists to remove. So: written once, by
+// whichever install first finds it missing, and never touched again.
+//
+// The cost of freezing is that a field machine keeps running the anchor verb from
+// the ocwarden build that installed it. That is affordable only because the verb is
+// a fork/forward/wait with no product logic (anchor.go is explicit that it is a
+// frozen contract). A semantic change there needs a NEW anchor filename and a
+// documented re-authorization — not an edit that quietly relies on this function
+// replacing the file, because it never will.
+//
+// Refusing is not silent: a skipped write logs the existing path, and a fresh write
+// logs the one-time grant the operator must go and give it.
+func (i *installer) installAnchor(p wardenPaths) error {
+	if p.anchorPath == "" {
+		return errors.New("anchorPath is empty — refusing to install a warden whose launchd job would point at the self-updating binary (see anchor.go)")
+	}
+	// stat first: presence alone decides, deliberately WITHOUT comparing bytes. A
+	// content check would "helpfully" refresh a stale anchor and void the grant —
+	// the exact mutation this function exists to prevent.
+	if _, err := i.sys.statMode(p.anchorPath); err == nil {
+		i.logf("anchor already present; leaving its bytes untouched (its cdhash holds this machine's TCC grant): %s", p.anchorPath)
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("stat anchor %s: %w", p.anchorPath, err)
+	}
+	dir := filepath.Dir(p.anchorPath)
+	if i.dryRun {
+		i.logf("DRYRUN would: mkdir -p %s; copy %s -> a 0755 temp then atomic rename -> %s (first install only)", dir, p.srcExe, p.anchorPath)
+		return nil
+	}
+	if err := i.sys.mkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("mkdir anchor dir %s: %w", dir, err)
+	}
+	data, err := i.sys.readFile(p.srcExe)
+	if err != nil {
+		return fmt.Errorf("read own binary %s: %w", p.srcExe, err)
+	}
+	tmp := filepath.Join(dir, fmt.Sprintf(".ocanchor.%d", os.Getpid()))
+	if err := i.sys.writeFile(tmp, data, 0o755); err != nil {
+		return fmt.Errorf("write temp anchor %s: %w", tmp, err)
+	}
+	// Explicit chmod: WriteFile's mode is umask-masked; re-assert 0755 so launchd can
+	// exec the anchor regardless of the installing shell's umask.
+	if err := i.sys.chmod(tmp, 0o755); err != nil {
+		return fmt.Errorf("chmod temp anchor %s: %w", tmp, err)
+	}
+	if err := i.sys.rename(tmp, p.anchorPath); err != nil {
+		return fmt.Errorf("atomic rename anchor -> %s: %w", p.anchorPath, err)
+	}
+	i.logf("installed TCC identity anchor (0755, written once, never updated): %s", p.anchorPath)
+	i.logf("ACTION REQUIRED (once per machine): grant Full Disk Access to %s", p.anchorPath)
+	i.logf("  System Settings > Privacy & Security > Full Disk Access > + > (Cmd-Shift-G) paste the path.")
+	i.logf("  Until then, an agent touching a protected folder (~/Documents et al) will HANG, not fail.")
 	return nil
 }
 
@@ -1026,6 +1123,7 @@ func (i *installer) runInstall(p wardenPaths) error {
 	}
 	i.logf("resolved: ROOT=%s HOME=%s OC_BASE=%s OC_ID=%s", p.root, p.home, p.ocBase, idDisplay)
 	i.logf("targets:  TOKFILE=%s PLIST=%s BIN=%s SRC=%s", p.tokfile, p.plistPath, p.binPath, p.srcExe)
+	i.logf("anchor:   ANCHOR=%s (launchd starts this; it forks BIN — frozen so self-update cannot void this machine's TCC grant)", p.anchorPath)
 	if p.ocAgentSrc != "" {
 		i.logf("ocagent:  LOCAL OVERRIDE (OC_AGENT_BIN) SRC=%s -> BIN=%s (home sibling; runtime-discovered, not in plist)", p.ocAgentSrc, p.ocAgentBin)
 	} else {
@@ -1069,6 +1167,12 @@ func (i *installer) runInstall(p wardenPaths) error {
 		return err
 	}
 	if err := i.copyBinary(p); err != nil {
+		return err
+	}
+	// After copyBinary (same source, same dir) and before writePlist, which names
+	// the anchor in ProgramArguments: the plist must never reference a path that
+	// does not exist yet.
+	if err := i.installAnchor(p); err != nil {
 		return err
 	}
 	if err := i.installOcAgent(p); err != nil {

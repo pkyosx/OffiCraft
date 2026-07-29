@@ -34,6 +34,10 @@ type fakeSys struct {
 	// injection hooks
 	renameErr map[string]error
 	removeErr map[string]error
+	// statErr makes statMode fail with something OTHER than os.ErrNotExist.
+	// installAnchor distinguishes the two: "not there" means write one, anything
+	// else is ambiguous and must abort rather than risk overwriting a live anchor.
+	statErr map[string]error
 }
 
 func newFakeSys() *fakeSys {
@@ -43,6 +47,7 @@ func newFakeSys() *fakeSys {
 		existing:  map[string][]byte{},
 		renameErr: map[string]error{},
 		removeErr: map[string]error{},
+		statErr:   map[string]error{},
 	}
 }
 
@@ -100,6 +105,9 @@ func (f *fakeSys) ops() sysOps {
 			return nil
 		},
 		statMode: func(path string) (os.FileMode, error) {
+			if err := f.statErr[path]; err != nil {
+				return 0, err
+			}
 			if m, ok := f.modes[path]; ok {
 				return m, nil
 			}
@@ -170,6 +178,11 @@ func TestResolvePaths_Defaults(t *testing.T) {
 	}
 	if p.binPath != "/Users/seth/.officraft/warden/ocwarden" {
 		t.Errorf("binPath = %q, want the stable home target", p.binPath)
+	}
+	// Every real install must resolve an anchor: it is what the plist starts, and
+	// installAnchor refuses to proceed without one.
+	if p.anchorPath != "/Users/seth/.officraft/warden/ocanchor" {
+		t.Errorf("anchorPath = %q, want the frozen sibling of the warden binary", p.anchorPath)
 	}
 	if p.logDir != "/Users/seth/.officraft/warden/log" {
 		t.Errorf("logDir = %q", p.logDir)
@@ -251,6 +264,7 @@ func TestRenderPlist_SubstitutesAndIsWellFormed(t *testing.T) {
 		root: "/repo", home: "/Users/seth", ocBase: "http://127.0.0.1:7755",
 		tokfile: "/Users/seth/.officraft/exec-warden.tok",
 		logDir:  "/repo/var/log", binPath: "/repo/bin/ocwarden",
+		anchorPath: "/repo/bin/ocanchor",
 	}
 	out := renderPlist(p)
 	if err := xmlWellFormed(out); err != nil {
@@ -263,7 +277,9 @@ func TestRenderPlist_SubstitutesAndIsWellFormed(t *testing.T) {
 	}
 	must := []string{
 		"<string>com.officraft.ocwarden</string>",
-		"<array><string>/repo/bin/ocwarden</string><string>run</string></array>",
+		// launchd starts the frozen anchor, which forks the live warden — never the
+		// live warden directly. See anchor.go for why the indirection is the fix.
+		"<array><string>/repo/bin/ocanchor</string><string>anchor</string><string>/repo/bin/ocwarden</string><string>run</string></array>",
 		"<key>OC_BASE</key><string>http://127.0.0.1:7755</string>",
 		"<key>HOME</key><string>/Users/seth</string>",
 		"<key>OC_WARDEN_TOKFILE</key><string>/Users/seth/.officraft/exec-warden.tok</string>",
@@ -295,7 +311,12 @@ func fixedPaths() wardenPaths {
 		laDir:     "/h/Library/LaunchAgents",
 		plistPath: "/h/Library/LaunchAgents/com.officraft.ocwarden.plist",
 		logDir:    "/h/.officraft/warden/log", binPath: "/h/.officraft/warden/ocwarden",
-		guiDomain: "gui/501",
+		// The TCC identity anchor is populated by resolvePaths on every real
+		// install, so the shared fixture carries it too: a wardenPaths without one
+		// is a mis-wire that renderPlist and installAnchor are meant to reject
+		// loudly (TestInstallAnchor_RefusesAnEmptyPath pins that path).
+		anchorPath: "/h/.officraft/warden/ocanchor",
+		guiDomain:  "gui/501",
 	}
 }
 

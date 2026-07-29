@@ -87,6 +87,27 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 7. **印出一次性設定連結** — `http://127.0.0.1:7755/?code=…`，打開它設定 owner 密碼。
 8. **設完密碼後 server 自己接手最後兩步** — 把這台機器的 warden 裝好、把預設助理 **Mira** 叫醒。你不用自己去機器頁按安裝，也不用自己把助理設成上線。
    缺 `claude` 或 `tmux` 時它會**明確失敗並說出原因**（顯示在控制台上方的橫幅），而不是裝一個永遠起不了 agent 的 warden。
+9. **一次性的 macOS 隱私授權**（見下）。
+
+### 每台機器一次：授權 TCC identity anchor
+
+warden 的 launchd job 啟動的是 `~/.officraft/warden/ocanchor` —— ocwarden 的一份**凍結副本**，它再去 fork 真正的
+ocwarden。macOS 把隱私權限綁在 launchd 啟動的那支 binary 上，而 ocwarden 會自我更新；讓 job 直接指向它，等於**每次
+發版都把這台機器的授權作廢一次**。anchor 只在第一次安裝時寫入、之後永不覆寫，所以授權給它就會一直有效。
+
+安裝時若寫入了新的 anchor，畫面會印出這段。做一次：
+
+> 系統設定 → 隱私權與安全性 → **完全取用磁碟** → `+` → 按 <kbd>⌘⇧G</kbd> 貼上 `~/.officraft/warden/ocanchor`
+
+⚠️ **沒授權之前，agent 碰到受保護目錄（`~/Documents` 之類）是「卡住」不是「失敗」。** macOS 對認不得的來源會
+跳授權提示，而 launchd job 沒有 GUI 可以顯示它，於是那個檔案開啟呼叫永遠不返回 —— 症狀是 agent 一個字都不吐、
+任何 log 都沒有東西。看到這個症狀，先確認這一步做了沒有。
+
+驗證方式（在 warden 的 tmux 裡跑，秒回就是好了）：
+
+```bash
+tmux -L officraft new-session -d 'ls ~/Documents && echo OK > /tmp/anchor-ok'
+```
 
 ### 常用選項
 

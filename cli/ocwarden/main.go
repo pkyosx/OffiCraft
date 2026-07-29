@@ -722,6 +722,14 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 				return 2
 			}
 			return teardownCmd(env, out, canonical)
+		case "anchor":
+			// The launchd job's ProgramArguments[0] since the TCC identity anchor
+			// (anchor.go): a frozen copy of ocwarden runs this verb and forks the
+			// live one, so the responsible process macOS pins every privacy grant
+			// to is a file that self-update never rewrites. NOT in the usage banner
+			// below, for the same reason `version` is not — bin/ci.sh 7d's parity
+			// dryrun diffs --help against the committed prebuilt.
+			return anchorCmd(argv[1:], out)
 		case "codex-session":
 			return runCodexSession(argv[1:], env, out)
 		case "version", "--version", "-v":
