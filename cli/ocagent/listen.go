@@ -703,17 +703,6 @@ func fmtAgo(secs float64) string {
 	}
 }
 
-// drainChat refetches chat and prints the unread-for-me — ONE LINE per message so the
-// spawned session's Monitor reads exactly '誰、多久前、說了什麼':
-//
-//	[ocagent] chat from MB-ABC123 (id, 2m ago): ...
-//
-// The `(id, …)` tag spells out that `from` is the STABLE member id (server-stamped,
-// never a display name) — reply straight to it with post_chat; the relative age is
-// computed client-side from the message ts (dropped when the wire carries no ts).
-// Advances the seen-id cursor and returns the unread count. `silent` (the boot
-// baseline) advances the cursor WITHOUT printing so connecting does not re-print
-// history. R7: reads ONLY the refetched authority, never a delta. Mirrors drain_chat.
 // attachmentSummary renders a message's attachments as a terse badge appended
 // after the body: "📎2圖" (2 images), "📎1檔" (1 non-image file), or the mixed
 // "📎1圖 2檔". Images are counted by the server-computed is_image flag. Returns
@@ -749,6 +738,25 @@ func attachmentSummary(m map[string]any) string {
 	}
 }
 
+// drainChat refetches chat and prints the unread-for-me — one event BLOCK per
+// message, so the spawned session's Monitor reads exactly '誰、多久前、說了什麼':
+//
+//	[ocagent] chat from MB-ABC123 (id, 2m ago): ...
+//
+// A block is NOT necessarily one line. renderMessageBody passes the body's own
+// newlines through (it only ever truncates at the anti-blowup valve and drops a
+// dangling trailing newline) and merely indents the continuation lines by four
+// spaces, so a multi-line message occupies as many lines as it has — a few chatty
+// messages can run to dozens of lines, which is expected, not a bug. That indent
+// is what keeps the block unambiguous: no inner line can begin at column 0 and be
+// misread as a new event.
+//
+// The `(id, …)` tag spells out that `from` is the STABLE member id (server-stamped,
+// never a display name) — reply straight to it with post_chat; the relative age is
+// computed client-side from the message ts (dropped when the wire carries no ts).
+// Advances the seen-id cursor and returns the unread count. `silent` (the boot
+// baseline) advances the cursor WITHOUT printing so connecting does not re-print
+// history. R7: reads ONLY the refetched authority, never a delta. Mirrors drain_chat.
 func drainChat(client httpClient, cfg Config, seen map[string]bool, out io.Writer, silent bool) int {
 	sid := strings.ToLower(strings.TrimSpace(cfg.ID))
 	now := float64(time.Now().Unix())
