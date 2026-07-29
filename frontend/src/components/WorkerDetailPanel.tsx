@@ -383,8 +383,8 @@ export function WorkerDetailPanel({
     .join(" · ");
   const hasTask = Boolean(worker.taskId && taskLabel);
 
-  // ── identity slot: stable worker id's personal image, then the outsource
-  // theme image and glyph fallbacks, plus codename + real presence. ──────────
+  // ── identity slot: active-theme outsource pool + persistent index, then
+  // glyph fallback, plus codename + real presence. ───────────────────────────
   const identity = (
     <div className="mp-card mp-identity">
       <Avatar size={52} kind="outsource" avatarIndex={worker.avatarIndex} />

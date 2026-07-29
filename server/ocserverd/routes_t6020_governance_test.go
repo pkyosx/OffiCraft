@@ -160,7 +160,7 @@ func TestT6020WithheldRoutesStayOwnerOnlyAndOffTheMCPSurface(t *testing.T) {
 		if spec.Requires != principalOwner {
 			t.Errorf("%s %s declares Requires=%q — the owner explicitly kept "+
 				"this route owner-only (T-6020: identity minting/account/browser; "+
-				"T-c826: personal member avatar identity/presentation). Read the note on the row "+
+				"T-cd6f: theme avatar index identity/presentation). Read the note on the row "+
 				"in routes.go before changing this.", key[0], key[1], spec.Requires)
 		}
 		if !spec.MCPExclude {

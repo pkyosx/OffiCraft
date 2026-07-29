@@ -1,16 +1,16 @@
-// CT story for T-b0e3: mounts the REAL WorkerDetailPanel (not a hand-built
+// CT story for T-b0e3/T-cd6f: mounts the REAL WorkerDetailPanel (not a hand-built
 // AgentDetailPanel slot stub) with a bound task, so the paired visual guard
 // measures the ACTUAL 委託任務-vs-模型/機器 card order and the ACTUAL header
 // (short task-type label) — both of which only exist once WorkerDetailPanel's
 // own slot-wiring and identity JSX run, not the shared-panel plumbing alone.
+import { useState } from "react";
 import { I18nProvider } from "../../src/i18n";
 import { WorkerDetailPanel } from "../../src/components/WorkerDetailPanel";
 import type { OutsourceWorkerView } from "../../src/api/adapter";
 
 const worker: OutsourceWorkerView = {
   id: "ow-1",
-  avatarUrl:
-    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGM4EcUFAAMaAS0191t5AAAAAElFTkSuQmCC",
+  avatarIndex: 14,
   codename: "O-19",
   model: "claude-opus-4-8",
   effort: "high",
@@ -33,13 +33,13 @@ const worker: OutsourceWorkerView = {
 };
 
 export function WorkerDetailPanelTaskOrderStory() {
+  const [avatarIndex, setAvatarIndex] = useState(worker.avatarIndex);
   return (
     <I18nProvider>
       <WorkerDetailPanel
-        worker={worker}
+        worker={{ ...worker, avatarIndex }}
         onBack={() => {}}
-        onUpdateAvatar={async () => {}}
-        onRemoveAvatar={async () => {}}
+        onUpdateAvatarIndex={async (next) => setAvatarIndex(next)}
       />
     </I18nProvider>
   );
