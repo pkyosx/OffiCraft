@@ -438,7 +438,11 @@ export function OfficePage() {
         }}
         onUpdateAvatarIndex={async (avatarIndex) => {
           await api.updateMemberAvatarIndex(detail.id, avatarIndex);
-          await refetch();
+          try {
+            await refetch();
+          } catch {
+            /* the acknowledged mutation outlives a failed refresh */
+          }
         }}
       />
     );

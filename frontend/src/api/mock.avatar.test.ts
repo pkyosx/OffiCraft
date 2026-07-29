@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   __injectMockOutsourceWorker,
   __resetMock,
@@ -34,5 +34,46 @@ describe("mock avatar-index mutation parity", () => {
     expect(seen).toEqual(["outsource_worker"]);
 
     unsubscribe();
+  });
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("mock avatar-index creation parity", () => {
+  beforeEach(() => {
+    __resetMock();
+  });
+
+  it("assigns a founding staff member from the active theme pool", async () => {
+    const png = (tail: number) =>
+      "data:image/png;base64," +
+      btoa(
+        String.fromCharCode(
+          0x89,
+          0x50,
+          0x4e,
+          0x47,
+          0x0d,
+          0x0a,
+          0x1a,
+          0x0a,
+          tail,
+        ),
+      );
+    await mockApi.patchServerSettings({
+      customThemes: [{
+        id: "portraits",
+        name: "Portraits",
+        colors: { "--color-bg": "#000000" },
+        avatarPools: { member: [png(1), png(2), png(3)] },
+      }],
+      displayTheme: "portraits",
+    });
+    vi.spyOn(Math, "random").mockReturnValue(0.75);
+
+    const created = await mockApi.createRole({ name: "Pool role" });
+    expect(created.member.avatarIndex).toBe(2);
   });
 });

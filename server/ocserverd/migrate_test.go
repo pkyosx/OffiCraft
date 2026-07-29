@@ -976,6 +976,9 @@ func TestMigration00035NormalizesAutoMachinePlacement(t *testing.T) {
 // avatar blob is owned only by member.avatar_attachment_id, so Down must remove
 // that blob before dropping its sole pointer. Unrelated chat blobs survive.
 func TestMemberAvatarMigrationRollback(t *testing.T) {
+	if err := goose.SetDialect("sqlite3"); err != nil {
+		t.Fatalf("set goose dialect: %v", err)
+	}
 	db, err := openSQLite(filepath.Join(t.TempDir(), "member-avatar-mig.db"))
 	if err != nil {
 		t.Fatalf("open: %v", err)
@@ -1126,6 +1129,9 @@ func TestMigration00045DeletesOnlyTheRetiredTaskManualHistory(t *testing.T) {
 }
 
 func TestMemberAvatarIndexMigrationCleansPersonalBlobAndRoundTrips(t *testing.T) {
+	if err := goose.SetDialect("sqlite3"); err != nil {
+		t.Fatalf("set goose dialect: %v", err)
+	}
 	db, err := openSQLite(filepath.Join(t.TempDir(), "member-avatar-index-mig.db"))
 	if err != nil {
 		t.Fatalf("open: %v", err)

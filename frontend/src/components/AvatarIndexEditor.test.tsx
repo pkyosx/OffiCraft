@@ -34,13 +34,16 @@ describe("AvatarIndexEditor", () => {
     ).toBe(true);
 
     resolveSave();
-    await waitFor(() =>
+    await waitFor(() => {
       expect(
         (screen.getByRole("button", {
           name: labels.saveLabel,
         }) as HTMLButtonElement).disabled,
-      ).toBe(false),
-    );
+      ).toBe(true);
+      expect(
+        (screen.getByLabelText(labels.label) as HTMLInputElement).value,
+      ).toBe("7");
+    });
   });
 
   it("shows an inline error and restores the last confirmed value on failure", async () => {

@@ -1314,6 +1314,14 @@ let mockServerSettings = { ...DEFAULT_MOCK_SETTINGS };
 const MOCK_CLAIM_TOKEN = "mock-claim-token";
 const TOKEN_TTL_CHOICES = new Set([43200, 86400, 604800, 2592000]);
 
+function mockAvatarIndex(kind: "member" | "outsource"): number {
+  const active = mockServerSettings.custom_themes.find(
+    (theme) => theme.id === mockServerSettings.display_theme,
+  );
+  const pool = active?.avatarPools?.[kind] ?? [];
+  return pool.length > 0 ? Math.floor(Math.random() * pool.length) : 0;
+}
+
 // M4 回呼端點 — an in-memory store keyed by member id. Seeded with one endpoint
 // on mira (the mockup's `pr-event`) so the panel renders a populated section.
 const mockWebhooks = new Map<string, WebhookEndpoint[]>([
@@ -2414,6 +2422,7 @@ export const mockApi: Api = {
       // scheduler here) — validated by the server, dropped honestly here.
       newWorker = {
         id: `ow-mock-${Date.now().toString(16)}`,
+        avatarIndex: mockAvatarIndex("outsource"),
         codename: deriveCodename(
           target.model.trim(),
           outsourceWorkers.map((w) => w.codename)
@@ -3667,7 +3676,7 @@ export const mockApi: Api = {
     const memberId = `m-${hex()}`;
     const wireMember: WireMember = {
       id: memberId,
-      avatar_index: 0,
+      avatar_index: mockAvatarIndex("member"),
       // Server derives member_no from the member id (ocserverd/api_helpers.go:198
       // → domain.go MemberNo): a SHA-256 of the id projected to MB-XXX###. NOT a
       // constant — deriving here keeps mock parity so two createRole calls mint

@@ -109,6 +109,10 @@ type apiServer struct {
 	// PATCH /api/settings so the set syncs across devices; display.theme may
 	// point at any id in it. NOT an agent read path.
 	displayCustomThemes []ThemeBundleDTO
+	// avatarIndexPicker is nil in production (RandomAvatarIndex). Tests inject
+	// it to prove the real creation seams pass the active pool length through
+	// to persisted member state.
+	avatarIndexPicker func(poolLen int) int
 	// selfBase is this server's OWN loopback base URL ("http://127.0.0.1:PORT"),
 	// stamped by cmdServe once the bind address is known. It exists for the ONE
 	// in-process caller that needs an OC_BASE with no HTTP request to derive it
@@ -456,6 +460,13 @@ func (s *apiServer) activeAvatarPoolSize(kind string) int {
 		return len((*bundle.AvatarPools)[poolKind])
 	}
 	return 0
+}
+
+func (s *apiServer) pickAvatarIndex(poolLen int) int {
+	if s.avatarIndexPicker != nil {
+		return s.avatarIndexPicker(poolLen)
+	}
+	return RandomAvatarIndex(poolLen)
 }
 
 // ctxHighConfig returns the live context-high band config (by value — one

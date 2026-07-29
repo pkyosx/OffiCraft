@@ -17,14 +17,16 @@ export function AvatarIndexEditor({
   savingLabel,
   errorLabel,
 }: AvatarIndexEditorProps) {
-  const confirmed = value ?? 0;
+  const propConfirmed = value ?? 0;
+  const [confirmed, setConfirmed] = useState(propConfirmed);
   const [draft, setDraft] = useState(String(confirmed));
   const [status, setStatus] = useState<"idle" | "saving" | "error">("idle");
 
   useEffect(() => {
-    setDraft(String(confirmed));
+    setConfirmed(propConfirmed);
+    setDraft(String(propConfirmed));
     setStatus("idle");
-  }, [confirmed]);
+  }, [propConfirmed]);
 
   const parsed = Number(draft);
   const valid = Number.isInteger(parsed) && parsed >= 0;
@@ -35,6 +37,8 @@ export function AvatarIndexEditor({
     setStatus("saving");
     try {
       await onSave(parsed);
+      setConfirmed(parsed);
+      setDraft(String(parsed));
       setStatus("idle");
     } catch {
       setDraft(String(confirmed));

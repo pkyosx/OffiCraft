@@ -566,7 +566,7 @@ func (s *apiServer) runOutsourceTick(now float64) {
 			Status:       WorkerStatusAssigned,
 			CreatedTS:    now,
 			DesiredState: DesiredStateOnline, // system intends a fresh worker running
-			AvatarIndex:  RandomAvatarIndex(s.activeAvatarPoolSize(KindOutsource)),
+			AvatarIndex:  s.pickAvatarIndex(s.activeAvatarPoolSize(KindOutsource)),
 		}
 		codenames = append(codenames, worker.Codename) // same-tick MAX+1 keeps advancing
 		if err := s.dal.PutOutsourceWorker(worker); err != nil {

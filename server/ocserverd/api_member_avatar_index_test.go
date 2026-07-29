@@ -204,3 +204,78 @@ func TestActiveAvatarPoolSizeAndRandomIndexStayInRange(t *testing.T) {
 		}
 	}
 }
+
+func TestHireMemberPersistsIndexChosenFromActiveStaffPool(t *testing.T) {
+	s := newTasksTestServer(t)
+	pools := map[string][]string{"member": {"one", "two", "three"}}
+	s.displayTheme = "portraits"
+	s.displayCustomThemes = []ThemeBundleDTO{{
+		Id: "portraits", Name: "Portraits",
+		Colors: map[string]string{"--color-bg": "#000000"}, AvatarPools: &pools,
+	}}
+	seenPoolLen := 0
+	s.avatarIndexPicker = func(poolLen int) int {
+		seenPoolLen = poolLen
+		return poolLen - 1
+	}
+
+	rec := httptest.NewRecorder()
+	s.HandleHireMemberApiMembersPost(rec, taskReq(
+		t, http.MethodPost, "/api/members",
+		map[string]any{"name": "Pool hire", "kind": KindAssistant},
+		wireOwnerID, "owner",
+	))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("hire: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	created := decodeBody[memberDTO](t, rec)
+	if seenPoolLen != 3 || created.AvatarIndex != 2 {
+		t.Fatalf("hire did not use active member pool: len=%d dto=%+v", seenPoolLen, created)
+	}
+	stored, err := s.dal.GetMember(created.ID)
+	if err != nil || stored == nil || stored.AvatarIndex != 2 {
+		t.Fatalf("persisted hire index: member=%+v err=%v", stored, err)
+	}
+
+	stored.Name = "Lifecycle refresh"
+	if err := s.dal.PutMember(*stored); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := s.dal.GetMember(created.ID)
+	if err != nil || reloaded == nil || reloaded.AvatarIndex != 2 {
+		t.Fatalf("hire index did not survive lifecycle write/reload: member=%+v err=%v", reloaded, err)
+	}
+}
+
+func TestOutsourceMintPersistsIndexChosenFromActivePool(t *testing.T) {
+	s := newTasksTestServer(t)
+	s.noOutsource = true
+	pools := map[string][]string{"outsource": {"one", "two", "three", "four"}}
+	s.displayTheme = "portraits"
+	s.displayCustomThemes = []ThemeBundleDTO{{
+		Id: "portraits", Name: "Portraits",
+		Colors: map[string]string{"--color-bg": "#000000"}, AvatarPools: &pools,
+	}}
+	seenPoolLen := 0
+	s.avatarIndexPicker = func(poolLen int) int {
+		seenPoolLen = poolLen
+		return 2
+	}
+
+	workerID := assignOneWorker(t, s)
+	worker, err := s.dal.GetOutsourceWorker(workerID)
+	if err != nil || worker == nil {
+		t.Fatalf("minted worker: worker=%+v err=%v", worker, err)
+	}
+	if seenPoolLen != 4 || worker.AvatarIndex != 2 {
+		t.Fatalf("mint did not use active outsource pool: len=%d worker=%+v", seenPoolLen, worker)
+	}
+	worker.Status = WorkerStatusActive
+	if err := s.dal.PutOutsourceWorker(*worker); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := s.dal.GetOutsourceWorker(workerID)
+	if err != nil || reloaded == nil || reloaded.AvatarIndex != 2 {
+		t.Fatalf("worker index did not survive lifecycle write/reload: worker=%+v err=%v", reloaded, err)
+	}
+}

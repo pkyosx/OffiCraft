@@ -200,7 +200,11 @@ export function MonitorPage() {
         }}
         onUpdateAvatarIndex={async (avatarIndex) => {
           await api.updateMemberAvatarIndex(detail.id, avatarIndex);
-          await refetchMembers();
+          try {
+            await refetchMembers();
+          } catch {
+            /* the acknowledged mutation outlives a failed refresh */
+          }
         }}
       />
     );

@@ -252,7 +252,7 @@ func (s *apiServer) HandleHireMemberApiMembersPost(w http.ResponseWriter, r *htt
 		DesiredState:     DesiredStateOffline,
 		DesiredMachineID: ServerSelfHost,
 		RosterStatus:     RosterStatusActive,
-		AvatarIndex:      RandomAvatarIndex(s.activeAvatarPoolSize(kind)),
+		AvatarIndex:      s.pickAvatarIndex(s.activeAvatarPoolSize(kind)),
 	}
 	if err := s.putMember(m, requestTrigger(r)); err != nil {
 		internalError(w, err)
