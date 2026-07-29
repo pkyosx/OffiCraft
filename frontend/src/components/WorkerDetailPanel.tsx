@@ -9,6 +9,7 @@ import { pendingChangeHint, reportedMachine } from "../lib/pendingChange";
 import { ModelEffortEditor } from "./ModelEffortEditor";
 import { ChevronLeftIcon, ChevronRightIcon } from "./icons";
 import { Avatar } from "./Avatar";
+import { AvatarIndexEditor } from "./AvatarIndexEditor";
 import { LifecycleDot, presenceVisual } from "./LifecycleDot";
 // 🔴 This panel renders its settings dialog with the .machine-picker* classes,
 // so it must import their stylesheet ITSELF (T-7526). Both panels used to
@@ -389,23 +390,13 @@ export function WorkerDetailPanel({
     <div className="mp-card mp-identity">
       <Avatar size={52} kind="outsource" avatarIndex={worker.avatarIndex} />
       {onUpdateAvatarIndex && (
-        <input
-          className="inline-edit__input"
-          type="number"
-          min={0}
-          step={1}
-          key={worker.avatarIndex ?? 0}
-          defaultValue={worker.avatarIndex ?? 0}
-          aria-label="avatar index"
-          onBlur={(event) => {
-            const next = Number(event.target.value);
-            if (Number.isInteger(next) && next >= 0) {
-              void onUpdateAvatarIndex(next);
-            }
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") event.currentTarget.blur();
-          }}
+        <AvatarIndexEditor
+          value={worker.avatarIndex}
+          onSave={onUpdateAvatarIndex}
+          label={t.workerDetail.avatarIndexLabel}
+          saveLabel={t.workerDetail.avatarIndexSave}
+          savingLabel={t.workerDetail.avatarIndexSaving}
+          errorLabel={t.workerDetail.avatarIndexError}
         />
       )}
       <div className="mp-identity__body">

@@ -84,6 +84,20 @@
   font-weight: 700;
   min-width: 160px;
 }
+.avatar-index-editor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.avatar-index-editor__input {
+  width: 72px;
+}
+.avatar-index-editor__error {
+  flex-basis: 100%;
+  color: var(--color-danger-text);
+  font-size: 12px;
+}
 .mp-identity__id {
   font-family: "SFMono-Regular", ui-monospace, Menlo, monospace;
   font-size: 11px;

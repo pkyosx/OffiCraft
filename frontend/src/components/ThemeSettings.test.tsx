@@ -851,6 +851,92 @@ describe("ThemeSettings · outer-canvas background", () => {
   });
 });
 
+describe("ThemeSettings · avatar pools", () => {
+  const pngData = (tail: number) =>
+    "data:image/png;base64," +
+    btoa(
+      String.fromCharCode(
+        0x89,
+        0x50,
+        0x4e,
+        0x47,
+        0x0d,
+        0x0a,
+        0x1a,
+        0x0a,
+        tail,
+      ),
+    );
+
+  async function choosePng(input: HTMLElement, tail: number) {
+    const file = new File(
+      [
+        new Uint8Array([
+          0x89,
+          0x50,
+          0x4e,
+          0x47,
+          0x0d,
+          0x0a,
+          0x1a,
+          0x0a,
+          tail,
+        ]),
+      ],
+      `avatar-${tail}.png`,
+      { type: "image/png" },
+    );
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [file] } });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+
+  it("replaces, reorders, removes, and appends individual pool images", async () => {
+    setToken("owner-token");
+    const utils = await renderManage();
+    await importBundle(utils, {
+      id: "portraits",
+      name: "人物池",
+      colors: { "--color-accent": "#0b1020" },
+      avatarPools: { member: [pngData(1), pngData(2)] },
+    });
+    fireEvent.click(await utils.findByLabelText(`${p.themeEdit} 人物池`));
+
+    const input = utils.getByLabelText(s.themeAvatarMember);
+    const slot = input.closest(".ts-avatar-slot") as HTMLElement | null;
+    if (!slot) throw new Error("member avatar slot missing");
+
+    fireEvent.click(
+      within(slot).getByRole("button", {
+        name: `${s.themeAvatarReplace} 2`,
+      }),
+    );
+    await choosePng(input, 3);
+    fireEvent.click(
+      within(slot).getByRole("button", {
+        name: `${s.themeAvatarMoveUp} 2`,
+      }),
+    );
+    fireEvent.click(
+      within(slot).getByRole("button", {
+        name: `${s.themeAvatarRemove} 2`,
+      }),
+    );
+
+    fireEvent.click(
+      within(slot).getByRole("button", { name: s.themeAvatarChoose }),
+    );
+    await choosePng(input, 4);
+    fireEvent.click(utils.getByRole("button", { name: p.save }));
+
+    const bundle = (await api.getServerSettings()).customThemes.find(
+      (item) => item.id === "portraits",
+    );
+    expect(bundle?.avatarPools?.member).toEqual([pngData(3), pngData(4)]);
+  });
+});
+
 describe("ThemeSettings · delete", () => {
   it("deletes a custom theme via the confirm modal", async () => {
     setToken("owner-token");

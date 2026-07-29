@@ -30,11 +30,14 @@ for (const width of [390, 768, 1280]) {
   }) => {
     await page.setViewportSize({ width, height: 900 });
     const cmp = await mount(<WorkerDetailPanelTaskOrderStory />);
-    const input = cmp.getByRole("spinbutton", { name: "avatar index" });
+    const input = cmp.getByRole("spinbutton", { name: "頭像索引" });
 
     await expect(input).toHaveValue("14");
     await input.focus();
     await input.fill("27");
+    await expect(
+      cmp.getByRole("button", { name: "儲存頭像索引" }),
+    ).toBeEnabled();
     await page.keyboard.press("Enter");
     await expect(input).toHaveValue("27");
 

@@ -366,6 +366,10 @@ export const en: Dict = {
     // Honest fallback when creator_id is blank (pre-column / server-scheduled),
     // replacing the former hardcoded "System owner".
     delegatorSystem: "System-scheduled",
+    avatarIndexLabel: "Avatar index",
+    avatarIndexSave: "Save avatar index",
+    avatarIndexSaving: "Saving…",
+    avatarIndexError: "Avatar index was not saved. Please try again.",
     // ── T-f190: fields aligned with the member detail panel ───────────────
     machine: "Machine",
     claudeAccount: "Claude Account",
@@ -668,6 +672,10 @@ export const en: Dict = {
     avatarTypeError: "Use a PNG, JPEG, or WEBP image",
     avatarTooLarge: "Image must be 64 KiB or smaller",
     avatarSaveError: "Could not save the avatar. Please try again.",
+    avatarIndexLabel: "Avatar index",
+    avatarIndexSave: "Save avatar index",
+    avatarIndexSaving: "Saving…",
+    avatarIndexError: "Avatar index was not saved. Please try again.",
     rename: "Rename",
     renamePlaceholder: "Enter name",
     wake: "Wake",
@@ -1119,12 +1127,16 @@ export const en: Dict = {
     // ── avatars (T-16a1 P5): per-member-type avatar image upload ──
     themeAvatarsSection: "Avatars",
     themeAvatarsHint:
-      "Upload an avatar per member type (PNG / JPEG / WEBP, max 64 KB). Leave empty to keep the built-in avatar.",
+      "Build ordered staff and outsource pools; CEO and assistant remain single images (PNG / JPEG / WEBP, max 64 KB each).",
     themeAvatarMember: "Staff avatar",
     themeAvatarOutsource: "Outsource avatar",
     themeAvatarOwner: "CEO avatar",
     themeAvatarAssistant: "Assistant avatar",
     themeAvatarChoose: "Choose image",
+    themeAvatarReplace: "Replace image",
+    themeAvatarMoveUp: "Move image up",
+    themeAvatarMoveDown: "Move image down",
+    themeAvatarRemove: "Remove image",
     themeAvatarClear: "Clear",
     themeAvatarInvalid:
       "Invalid image — only a PNG / JPEG / WEBP file up to 64 KB is accepted.",

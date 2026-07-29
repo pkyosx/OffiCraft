@@ -93,9 +93,9 @@ const FONT_SLOTS = [
 ] as const;
 
 // The four avatar slots the editor offers (T-16a1 P5; T-ea81): 正職 member /
-// 外包 outsource / owner CEO / assistant 助理. Each accepts one uploaded image
-// (validated client-side, embedded as a base64 data URI so it travels inside
-// the bundle).
+// 外包 outsource use ordered pools; owner CEO / assistant 助理 remain single
+// images. Every upload is validated client-side and embedded as a base64 data
+// URI so it travels inside the bundle.
 type AvatarLabelKey =
   | "themeAvatarMember"
   | "themeAvatarOutsource"
@@ -171,6 +171,10 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   const [editAvatarPools, setEditAvatarPools] = useState<
     Partial<Record<PoolAvatarKind, string[]>>
   >({});
+  const avatarReplaceTargetRef = useRef<{
+    kind: PoolAvatarKind;
+    index: number;
+  } | null>(null);
   const [avatarError, setAvatarError] = useState("");
   const avatarInputRefs = {
     member: useRef<HTMLInputElement>(null),
@@ -408,6 +412,11 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
     kind: AvatarKind,
     e: React.ChangeEvent<HTMLInputElement>
   ) {
+    const replaceTarget =
+      avatarReplaceTargetRef.current?.kind === kind
+        ? avatarReplaceTargetRef.current
+        : null;
+    avatarReplaceTargetRef.current = null;
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
@@ -420,6 +429,15 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
     if (kind === "member" || kind === "outsource") {
       setEditAvatarPools((prev) => {
         const current = prev[kind] ?? [];
+        if (
+          replaceTarget &&
+          replaceTarget.index >= 0 &&
+          replaceTarget.index < current.length
+        ) {
+          const next = [...current];
+          next[replaceTarget.index] = dataUri;
+          return { ...prev, [kind]: next };
+        }
         if (current.length >= MAX_AVATAR_POOL_ITEMS) return prev;
         return { ...prev, [kind]: [...current, dataUri] };
       });
@@ -966,6 +984,7 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
                             type="button"
                             className="doc-btn"
                             disabled={index === 0}
+                            aria-label={`${t.settings.themeAvatarMoveUp} ${index + 1}`}
                             onClick={() => movePoolAvatar(kind, index, -1)}
                           >
                             ↑
@@ -974,6 +993,7 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
                             type="button"
                             className="doc-btn"
                             disabled={index === pool.length - 1}
+                            aria-label={`${t.settings.themeAvatarMoveDown} ${index + 1}`}
                             onClick={() => movePoolAvatar(kind, index, 1)}
                           >
                             ↓
@@ -981,9 +1001,21 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
                           <button
                             type="button"
                             className="doc-btn"
+                            aria-label={`${t.settings.themeAvatarReplace} ${index + 1}`}
+                            onClick={() => {
+                              avatarReplaceTargetRef.current = { kind, index };
+                              avatarInputRefs[kind].current?.click();
+                            }}
+                          >
+                            {t.settings.themeAvatarReplace}
+                          </button>
+                          <button
+                            type="button"
+                            className="doc-btn"
+                            aria-label={`${t.settings.themeAvatarRemove} ${index + 1}`}
                             onClick={() => removePoolAvatar(kind, index)}
                           >
-                            {t.settings.themeAvatarClear}
+                            {t.settings.themeAvatarRemove}
                           </button>
                         </div>
                       ))}
@@ -1021,7 +1053,10 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
                       type="button"
                       className="doc-btn"
                       disabled={isPool && pool.length >= MAX_AVATAR_POOL_ITEMS}
-                      onClick={() => avatarInputRefs[kind].current?.click()}
+                      onClick={() => {
+                        avatarReplaceTargetRef.current = null;
+                        avatarInputRefs[kind].current?.click();
+                      }}
                     >
                       {t.settings.themeAvatarChoose}
                     </button>

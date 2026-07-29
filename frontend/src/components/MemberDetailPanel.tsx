@@ -20,6 +20,7 @@ import type {
 import { AgentDetailPanel, runtimeLabel } from "./AgentDetailPanel";
 import { pendingChangeHint, reportedMachine } from "../lib/pendingChange";
 import { Avatar } from "./Avatar";
+import { AvatarIndexEditor } from "./AvatarIndexEditor";
 import { avatarKindForMember } from "../lib/avatarKind";
 import { ConfirmModal } from "./ConfirmModal";
 import { InlineEdit } from "./InlineEdit";
@@ -791,23 +792,13 @@ export function MemberDetailPanel({
           avatarIndex={member.avatarIndex}
         />
         {onUpdateAvatarIndex && (
-          <input
-            className="inline-edit__input"
-            type="number"
-            min={0}
-            step={1}
-            key={member.avatarIndex ?? 0}
-            defaultValue={member.avatarIndex ?? 0}
-            aria-label="avatar index"
-            onBlur={(event) => {
-              const next = Number(event.target.value);
-              if (Number.isInteger(next) && next >= 0) {
-                void onUpdateAvatarIndex(next);
-              }
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") event.currentTarget.blur();
-            }}
+          <AvatarIndexEditor
+            value={member.avatarIndex}
+            onSave={onUpdateAvatarIndex}
+            label={t.mp.avatarIndexLabel}
+            saveLabel={t.mp.avatarIndexSave}
+            savingLabel={t.mp.avatarIndexSaving}
+            errorLabel={t.mp.avatarIndexError}
           />
         )}
         <div className="mp-identity__body">
