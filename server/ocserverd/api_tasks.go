@@ -2554,11 +2554,6 @@ func (s *apiServer) HandleAddTaskArtifactApiTasksTaskIdArtifactPost(w http.Respo
 				"attachment_id is required for a "+kind+" artifact")
 			return
 		}
-		if isMemberAvatarAttachmentID(attID) {
-			writeError(w, http.StatusBadRequest,
-				"attachment '"+attID+"' is reserved for a member avatar")
-			return
-		}
 		att, err := s.dal.GetChatAttachment(attID)
 		if err != nil {
 			internalError(w, err)

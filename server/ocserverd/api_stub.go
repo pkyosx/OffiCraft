@@ -435,6 +435,29 @@ func (s *apiServer) displayCustomThemesSnapshot() []ThemeBundleDTO {
 	return out
 }
 
+// activeAvatarPoolSize returns the number of choices used when a new identity
+// is born. Built-in/unknown themes and missing pools intentionally return zero.
+func (s *apiServer) activeAvatarPoolSize(kind string) int {
+	poolKind := ""
+	switch kind {
+	case KindAssistant:
+		poolKind = "member"
+	case KindOutsource:
+		poolKind = "outsource"
+	default:
+		return 0
+	}
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	for _, bundle := range s.displayCustomThemes {
+		if bundle.Id != s.displayTheme || bundle.AvatarPools == nil {
+			continue
+		}
+		return len((*bundle.AvatarPools)[poolKind])
+	}
+	return 0
+}
+
 // ctxHighConfig returns the live context-high band config (by value — one
 // coherent snapshot per call site).
 func (s *apiServer) ctxHighConfig() SseContextHighConfig {

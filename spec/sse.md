@@ -64,7 +64,7 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
 - A delta means "this topic changed → refetch its list/snapshot".
 - `payload` is carried **for convenience only**; a client MUST NOT merge it in place — it
   lacks server-derived DTO fields. Payloads are deliberately partial:
-  - `member`: `{id, name, status, desired_state, owner_id}`
+  - `member`: `{id, name, status, desired_state, avatar_index, owner_id}`
   - `chat` (new message): `{id, from, to}`
   - `chat_read`: `{reader, peer, last_read_ts}`
   - `reply_card`: `{id, from, status}` (create / answer / answer revision / expire all
@@ -72,7 +72,8 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
     answer)
   - `task`: `{id, status, priority}` (any durable task write — status/priority/plan/
     steps/deps/executor; one topic per task entity, the member granularity)
-  - `outsource_worker`: `{id, codename, status}` (assignment / claim / release)
+  - `outsource_worker`: `{id, codename, status, avatar_index}` (assignment / claim /
+    release / visual-identity update)
   - `task_manual`: `payload` is `null` (manual create/edit/delete, learnings write-back)
   - `global_context` / `role_def` / `lessons`: `payload` is `null`
   - `context` / `monitoring` signals: `payload` is `null`
@@ -124,12 +125,12 @@ topic that names a different document; everything else is the M1 freeze):
 
 | topic | trigger | op |
 |---|---|---|
-| `member` | any roster write (upsert / hard delete) | patch / remove |
+| `member` | any roster write (upsert / hard delete, including avatar-index update) | patch / remove |
 | `chat` | message append; cascade delete | patch |
 | `chat_read` | read-watermark advance; cascade delete | patch |
 | `reply_card` | reply-card create / answer / answer revision / expire | patch |
 | `task` | any durable task write (create / status / priority / plan / step / deps / executor assignment / terminate) | patch |
-| `outsource_worker` | worker assignment / first claim (active) / release | patch |
+| `outsource_worker` | worker assignment / first claim (active) / release / avatar-index update | patch |
 | `task_manual` | manual create / edit / delete / learnings write-back | patch |
 | `global_context` | user-context overlay write/reset | patch |
 | `role_def` | role overlay write/reset/delete | patch |

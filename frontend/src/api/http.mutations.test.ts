@@ -111,48 +111,13 @@ describe("httpApi · activateMember body (MemberActivateDTO)", () => {
   });
 });
 
-describe("httpApi · owner avatar mutations", () => {
-  it("PUT sends the File bytes raw with source metadata in the query", async () => {
-    fetchMock.mockImplementation(async () =>
-      jsonResponse({
-        member_id: "m-1",
-        avatar_url: "/api/chat/attachment/ava-1",
-        mime: "image/png",
-        filename: "臉.png",
-      })
-    );
-    const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
-    const file = new File([bytes], "臉.png", { type: "image/png" });
-
-    await expect(httpApi.updateMemberAvatar("m-1", file)).resolves.toBe(
-      "/api/chat/attachment/ava-1"
-    );
-
-    const calls = fetchMock.mock.calls as unknown as [Request][];
-    const req = calls[calls.length - 1][0];
-    const url = new URL(req.url);
-    expect(req.method).toBe("PUT");
-    expect(url.pathname).toBe("/api/members/m-1/avatar");
-    expect(url.searchParams.get("filename")).toBe("臉.png");
-    expect(url.searchParams.get("mime")).toBe("image/png");
-    expect(req.headers.get("Content-Type")).toBe("application/octet-stream");
-    expect(new Uint8Array(await req.clone().arrayBuffer())).toEqual(bytes);
-  });
-
-  it("DELETE uses the same stable member id and sends no body", async () => {
-    fetchMock.mockImplementation(async () =>
-      jsonResponse({
-        member_id: "m-1",
-        avatar_url: null,
-        mime: "",
-        filename: "",
-      })
-    );
-    await httpApi.removeMemberAvatar("m-1");
+describe("httpApi · owner avatar-index mutation", () => {
+  it("PATCH sends the stable non-negative slot", async () => {
+    await httpApi.updateMemberAvatarIndex("m-1", 7);
     const { url, method, body } = await lastRequest();
-    expect(url).toBe("/api/members/m-1/avatar");
-    expect(method).toBe("DELETE");
-    expect(body).toBeUndefined();
+    expect(url).toBe("/api/members/m-1/avatar-index");
+    expect(method).toBe("PATCH");
+    expect(JSON.parse(String(body))).toEqual({ avatar_index: 7 });
   });
 });
 

@@ -320,6 +320,10 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	var newCustomThemes []ThemeBundleDTO
 	if customProvided {
 		newCustomThemes = *body.CustomThemes
+		if err := normalizeThemeBundles(newCustomThemes); err != nil {
+			writeError(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
 		if err := validateThemeBundles(newCustomThemes); err != nil {
 			writeError(w, http.StatusUnprocessableEntity, err.Error())
 			return

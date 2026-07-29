@@ -1447,7 +1447,7 @@ export interface paths {
         patch: operations["handle_update_member_api_members__member_id__patch"];
         trace?: never;
     };
-    "/api/members/{member_id}/avatar": {
+    "/api/members/{member_id}/avatar-index": {
         parameters: {
             query?: never;
             header?: never;
@@ -1455,20 +1455,16 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /**
-         * Upload or replace a member's personal avatar (owner only).
-         * @description Upload or replace one staff or outsource member's personal avatar. The raw request body is the image bytes (not base64 and not multipart). Only PNG, JPEG, or WEBP is accepted; the optional ``mime`` declaration must match the bytes' magic signature, SVG is rejected, and the decoded body is capped at 64 KiB. ``filename`` is optional metadata. Owner-only: personal avatars are visual identity and cannot be changed by agents or machine tokens. Replacement atomically inserts a newly minted ``ava-...`` blob, switches the stable member id's pointer, and deletes the prior dedicated blob; the new URL naturally cache-busts. Staff publishes the existing ``member`` delta and outsource publishes ``outsource_worker``. Excluded from MCP because this is an owner UI binary-control seam.
-         */
-        put: operations["handle_put_member_avatar_api_members__member_id__avatar_put"];
+        put?: never;
         post?: never;
-        /**
-         * Remove a member's personal avatar (owner only).
-         * @description Remove one staff or outsource member's personal avatar and return it to the client fallback chain (active theme role avatar, then built-in glyph). Owner-only: a personal avatar is visual identity, so admin agents, ordinary agents, and machine tokens cannot alter another actor's appearance. Idempotent when no personal avatar exists. The member pointer is cleared and the old dedicated blob is deleted in one transaction; staff publishes the existing ``member`` delta and outsource publishes ``outsource_worker``. Excluded from MCP because this is an owner UI binary-control seam.
-         */
-        delete: operations["handle_delete_member_avatar_api_members__member_id__avatar_delete"];
+        delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update a staff or outsource member's persistent theme-avatar index (owner only).
+         * @description Replace one active staff or outsource member's persistent theme-avatar index. Owner-only: visual identity is governance and cannot be changed by agents or machine tokens. ``avatar_index`` MUST be a non-negative integer but is deliberately not capped to the active pool length — different themes have different ordered pools, and the renderer safely resolves ``pool[index % length]`` (empty pool → built-in glyph). A staff write publishes the existing ``member`` SSE topic; an outsource write publishes ``outsource_worker``. Excluded from MCP because this is a cockpit visual-identity control.
+         */
+        patch: operations["handle_update_member_avatar_index_api_members__member_id__avatar_index_patch"];
         trace?: never;
     };
     "/api/members/{member_id}/activate": {
@@ -4770,10 +4766,11 @@ export interface components {
              */
             actual_runtime: string;
             /**
-             * Avatar Url
-             * @description Authenticated URL of this stable member id's personal raster avatar. Empty means no personal image; clients fall back to the active theme's role avatar, then the built-in glyph. Additive-optional for older clients.
+             * Avatar Index
+             * @description Persistent non-negative slot assigned to this member's visual identity. The client resolves the active theme's member/outsource pool with ``pool[avatar_index % pool.length]``; an empty pool uses the built-in glyph. The index does not change when the theme changes or a pool shrinks.
+             * @default 0
              */
-            avatar_url?: string;
+            avatar_index: number;
             /**
              * Activation Pending
              * @description Set true ONLY on the activate response when the decided START could not be delivered to the target warden (no live SSE downstream) — the wake intent is persisted and the reconcile cadence retries, but nothing has been dispatched yet. Absent/null on every other member read. The activate twin of ``relocation_pending``: without it an activate against an unreachable warden returns a clean 200 with zero signal, which is indistinguishable from a wake that actually started (T-ba62 additive-optional).
@@ -4911,24 +4908,25 @@ export interface components {
             unread_count: number;
         };
         /**
-         * MemberAvatarDTO
-         * @description Narrow result of an owner-only personal-avatar mutation. ``avatar_url`` is a newly minted authenticated blob path after upload and empty after removal; the changing blob id naturally cache-busts replacements.
+         * MemberAvatarIndexDTO
+         * @description Narrow result of reading back an owner-updated theme-avatar slot. Staff and outsource identities share this result; the server publishes the actor's canonical ``member`` or ``outsource_worker`` SSE topic after the durable write.
          */
-        MemberAvatarDTO: {
+        MemberAvatarIndexDTO: {
             /**
-             * Avatar Url
-             * @default
+             * Avatar Index
+             * @default 0
              */
-            avatar_url: string;
-            /** Filename */
-            filename?: string | null;
+            avatar_index: number;
             /** Member Id */
             member_id: string;
-            /**
-             * Mime
-             * @default
-             */
-            mime: string;
+        };
+        /**
+         * MemberAvatarIndexUpdateDTO
+         * @description Replace one staff or outsource member's persistent theme-avatar slot. ``avatar_index`` is required and must be a non-negative integer. It is intentionally not constrained by the currently active pool length: themes can differ in length, and rendering safely wraps with modulo.
+         */
+        MemberAvatarIndexUpdateDTO: {
+            /** Avatar Index */
+            avatar_index: number;
         };
         /**
          * MemberHireDTO
@@ -5323,10 +5321,11 @@ export interface components {
              */
             account?: string | null;
             /**
-             * Avatar Url
-             * @description Authenticated URL of this stable outsource-worker id's personal raster avatar. Empty means the client uses the outsource theme avatar or built-in glyph. Additive-optional.
+             * Avatar Index
+             * @description Persistent non-negative slot assigned when this outsource worker is minted. The client resolves the active theme's outsource pool with ``pool[avatar_index % pool.length]``; an empty pool uses the built-in glyph. The index survives reload, restart, refocus, and theme changes.
+             * @default 0
              */
-            avatar_url?: string;
+            avatar_index: number;
             /**
              * Banked Cost
              * @description The worker's persistent historical cumulative cost (migrations/00021), the DIRECT twin of member banked_cost: the live cost is banked through the SAME bankLiveCost fold on every session end / kill+respawn (refocus / model change / relocate / stop / auto-handover), so a handover never zeroes the owner-visible spend. null when nothing banked yet. The panel shows live + banked summed, the member presentation. T-ba6b additive-optional.
@@ -7330,10 +7329,17 @@ export interface components {
             };
             /**
              * Avatars
-             * @description Optional per-role avatar images (T-16a1 P5; extended per role in T-ea81). Keys are the closed set `member` (一般正職 member) / `outsource` (外包 outsource worker) / `owner` (the human CEO / owner) / `assistant` (a member whose role is `assistant`, e.g. Mira). Each value is an EMBEDDED image encoded as a base64 `data:` URI so the image travels inside the bundle on export/import. The value is NOT arbitrary: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted. SVG (`image/svg+xml`) is REJECTED (it can carry script/onload — XSS). The base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`) — a value that declares one mime but carries another is rejected. Absent = that role falls back to the built-in avatar glyph (office never degrades). The server 422s any avatars that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.
+             * @description Optional SINGLE-image identities. The canonical key set is only `owner` (the human CEO) and `assistant` (an assistant-role member such as Mira); their existing single-image semantics are unchanged. For backward compatibility, input/stored bundles may also carry legacy `member` or `outsource` singleton strings: the server/client normalize each into a one-image `avatarPools` entry and omit that legacy key on the canonical echo/export. Every value is an embedded base64 raster data URI and passes the same PNG/JPEG/WEBP, strict-base64, <=64 KiB decoded-size, and matching-magic-byte gate. SVG is rejected. Absent owner/assistant values use the built-in glyph.
              */
             avatars?: {
                 [key: string]: string;
+            };
+            /**
+             * Avatar Pools
+             * @description Optional ordered theme-level pools for `member` (一般正職) and `outsource` workers. Those are the only allowed keys. Each pool contains at most 12 embedded raster data URIs; every item independently passes the same PNG/JPEG/WEBP, strict-base64, <=64 KiB decoded-size, and matching-magic-byte gate as other theme images. Order is identity: an actor renders `pool[avatar_index % pool.length]`. An empty or absent pool renders the built-in glyph. Import/export preserves item order exactly.
+             */
+            avatarPools?: {
+                [key: string]: string[];
             };
             /**
              * Logo
@@ -10097,72 +10103,7 @@ export interface operations {
             };
         };
     };
-    handle_put_member_avatar_api_members__member_id__avatar_put: {
-        parameters: {
-            query?: {
-                filename?: string | null;
-                mime?: string | null;
-            };
-            header?: never;
-            path: {
-                member_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/octet-stream": string;
-            };
-        };
-        responses: {
-            /** @description Avatar stored and pointer replaced atomically. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MemberAvatarDTO"];
-                };
-            };
-            /** @description Image exceeds the 64 KiB cap. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Empty, unsupported, mismatched, or machine-target image. */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Authentication, authorization, or not-found error. */
-            "4XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Server error (unified error envelope). */
-            "5XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-        };
-    };
-    handle_delete_member_avatar_api_members__member_id__avatar_delete: {
+    handle_update_member_avatar_index_api_members__member_id__avatar_index_patch: {
         parameters: {
             query?: never;
             header?: never;
@@ -10171,18 +10112,22 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberAvatarIndexUpdateDTO"];
+            };
+        };
         responses: {
-            /** @description Avatar removed, or already absent. */
+            /** @description Index stored and the actor's canonical SSE topic published. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MemberAvatarDTO"];
+                    "application/json": components["schemas"]["MemberAvatarIndexDTO"];
                 };
             };
-            /** @description Member is a machine/warden and cannot have a personal avatar. */
+            /** @description Missing or negative avatar_index, or the target is a machine/warden. */
             422: {
                 headers: {
                     [name: string]: unknown;

@@ -16,9 +16,7 @@ package main
 import (
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"strings"
 )
 
 // minSelfRestartSecs is the restart_self minimum-liveness floor (T-4c71): a
@@ -60,6 +58,7 @@ func memberDeltaPayload(m Member) map[string]any {
 		"name":          m.Name,
 		"status":        m.RosterStatus,
 		"desired_state": m.DesiredState,
+		"avatar_index":  m.AvatarIndex,
 		"owner_id":      wireOwnerID,
 	}
 }
@@ -77,7 +76,7 @@ func (s *apiServer) resolveAvatarMember(memberID string) (*Member, error) {
 	return m, nil
 }
 
-func (s *apiServer) publishMemberAvatarChanged(m Member, trigger string) {
+func (s *apiServer) publishMemberAvatarIndexChanged(m Member, trigger string) {
 	if m.Kind == KindOutsource {
 		s.publishOutsourceWorker(workerFromMember(m), trigger)
 		return
@@ -86,105 +85,40 @@ func (s *apiServer) publishMemberAvatarChanged(m Member, trigger string) {
 		memberDeltaPayload(m), audienceMembers(m.ID), trigger)
 }
 
-func memberAvatarResult(m Member, mime string, filename *string) MemberAvatarDTO {
-	url := memberAvatarURL(m.AvatarAttachmentID)
-	result := MemberAvatarDTO{MemberId: m.ID, AvatarUrl: &url}
-	if mime != "" {
-		result.Mime = &mime
-	}
-	result.Filename = filename
-	return result
-}
-
-// PUT /api/members/{member_id}/avatar — raw raster bytes, owner-only at the
-// route table. A fresh ava- id makes every replacement cache-safe.
-func (s *apiServer) HandlePutMemberAvatarApiMembersMemberIdAvatarPut(
+// PATCH /api/members/{member_id}/avatar-index — owner-only presentation state.
+// The index deliberately need not fit the current pool: renderers wrap by the
+// active pool length, so one durable choice remains safe across theme changes.
+func (s *apiServer) HandleUpdateMemberAvatarIndexApiMembersMemberIdAvatarIndexPatch(
 	w http.ResponseWriter,
 	r *http.Request,
 	memberID string,
-	params HandlePutMemberAvatarApiMembersMemberIdAvatarPutParams,
 ) {
+	var body MemberAvatarIndexUpdateDTO
+	if !decodeJSONBodyRequired(w, r, &body, "avatar_index") {
+		return
+	}
+	if body.AvatarIndex < 0 {
+		writeError(w, http.StatusUnprocessableEntity, "avatar_index must be non-negative")
+		return
+	}
 	m, err := s.resolveAvatarMember(memberID)
 	if err != nil {
 		writeResolveError(w, err, "member", memberID)
 		return
 	}
 	if m.Kind == KindWarden {
-		writeError(w, http.StatusUnprocessableEntity, "a machine cannot have a personal avatar")
+		writeError(w, http.StatusUnprocessableEntity, "a machine cannot have a theme avatar index")
 		return
 	}
-	raw, err := io.ReadAll(io.LimitReader(r.Body, maxAvatarBytes+1))
-	if err != nil {
-		writeError(w, http.StatusUnprocessableEntity, "could not read avatar image")
-		return
-	}
-	if len(raw) > maxAvatarBytes {
-		writeError(w, http.StatusRequestEntityTooLarge,
-			fmt.Sprintf("avatar image is too large (max %d bytes)", maxAvatarBytes))
-		return
-	}
-	if len(raw) == 0 {
-		writeError(w, http.StatusUnprocessableEntity, "avatar image is empty")
-		return
-	}
-	actualMime := sniffAttachmentMime(raw)
-	if _, ok := avatarMimeMagic[actualMime]; !ok {
-		writeError(w, http.StatusUnprocessableEntity,
-			"avatar must be PNG, JPEG, or WEBP raster bytes")
-		return
-	}
-	if params.Mime != nil {
-		declared := strings.TrimSpace(*params.Mime)
-		if declared != "" && declared != actualMime {
-			writeError(w, http.StatusUnprocessableEntity,
-				fmt.Sprintf("avatar mime %q does not match image bytes %q", declared, actualMime))
-			return
-		}
-	}
-	var filename *string
-	if params.Filename != nil {
-		trimmed := strings.TrimSpace(*params.Filename)
-		if trimmed != "" {
-			filename = &trimmed
-		}
-	}
-	avatar := ChatAttachment{
-		ID:       "ava-" + newHexID(12),
-		Mime:     actualMime,
-		Data:     raw,
-		Filename: filename,
-	}
-	if err := s.dal.ReplaceMemberAvatar(m.ID, avatar); err != nil {
+	m.AvatarIndex = body.AvatarIndex
+	if err := s.dal.PutMember(*m); err != nil {
 		internalError(w, err)
 		return
 	}
-	m.AvatarAttachmentID = avatar.ID
-	s.publishMemberAvatarChanged(*m, requestTrigger(r))
-	writeJSON(w, http.StatusOK, memberAvatarResult(*m, actualMime, filename))
-}
-
-// DELETE /api/members/{member_id}/avatar — idempotent fallback restoration.
-func (s *apiServer) HandleDeleteMemberAvatarApiMembersMemberIdAvatarDelete(
-	w http.ResponseWriter,
-	r *http.Request,
-	memberID string,
-) {
-	m, err := s.resolveAvatarMember(memberID)
-	if err != nil {
-		writeResolveError(w, err, "member", memberID)
-		return
-	}
-	if m.Kind == KindWarden {
-		writeError(w, http.StatusUnprocessableEntity, "a machine cannot have a personal avatar")
-		return
-	}
-	if err := s.dal.DeleteMemberAvatar(m.ID); err != nil {
-		internalError(w, err)
-		return
-	}
-	m.AvatarAttachmentID = ""
-	s.publishMemberAvatarChanged(*m, requestTrigger(r))
-	writeJSON(w, http.StatusOK, memberAvatarResult(*m, "", nil))
+	s.publishMemberAvatarIndexChanged(*m, requestTrigger(r))
+	writeJSON(w, http.StatusOK, MemberAvatarIndexDTO{
+		MemberId: m.ID, AvatarIndex: m.AvatarIndex,
+	})
 }
 
 // GET /api/members — the roster (soft-removed rows omitted). online is the
@@ -305,6 +239,7 @@ func (s *apiServer) HandleHireMemberApiMembersPost(w http.ResponseWriter, r *htt
 		DesiredState:     DesiredStateOffline,
 		DesiredMachineID: ServerSelfHost,
 		RosterStatus:     RosterStatusActive,
+		AvatarIndex:      RandomAvatarIndex(s.activeAvatarPoolSize(kind)),
 	}
 	if err := s.putMember(m, requestTrigger(r)); err != nil {
 		internalError(w, err)

@@ -139,7 +139,7 @@ type tokenDTO struct {
 
 type memberDTO struct {
 	ID                string  `json:"id"`
-	AvatarURL         string  `json:"avatar_url"`
+	AvatarIndex       int     `json:"avatar_index"`
 	MemberNo          string  `json:"member_no"`
 	Name              string  `json:"name"`
 	Kind              string  `json:"kind"`
@@ -1163,12 +1163,12 @@ type docDTO struct {
 }
 
 type outsourceWorkerDTO struct {
-	ID        string `json:"id"`
-	AvatarURL string `json:"avatar_url"`
-	Codename  string `json:"codename"`
-	Runtime   string `json:"runtime"`
-	Model     string `json:"model"`
-	Effort    string `json:"effort"`
+	ID          string `json:"id"`
+	AvatarIndex int    `json:"avatar_index"`
+	Codename    string `json:"codename"`
+	Runtime     string `json:"runtime"`
+	Model       string `json:"model"`
+	Effort      string `json:"effort"`
 	// Actual* are the REPORTED twins of the three configured launch fields
 	// above, read off the same roster row the member DTO serves. "" = nothing
 	// has ever reported one; they never fall back to the configured value, so
@@ -1594,7 +1594,7 @@ func foldActorRuntime(tele, gauge map[string]any, banked float64, actorRuntime s
 func newOutsourceWorkerDTO(w OutsourceWorker, task *Task, p outsourceWorkerProjection) outsourceWorkerDTO {
 	dto := outsourceWorkerDTO{
 		ID:            w.ID,
-		AvatarURL:     memberAvatarURL(w.AvatarAttachmentID),
+		AvatarIndex:   w.AvatarIndex,
 		Codename:      w.Codename,
 		Runtime:       NormalizeRuntime(w.Runtime),
 		Model:         w.Model,

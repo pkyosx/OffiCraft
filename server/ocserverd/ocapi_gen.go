@@ -887,12 +887,15 @@ type MemberActivateDTO struct {
 	MachineId *string `json:"machine_id,omitempty"`
 }
 
-// MemberAvatarDTO Narrow result of an owner-only personal-avatar mutation. “avatar_url“ is a newly minted authenticated blob path after upload and empty after removal; the changing blob id naturally cache-busts replacements.
-type MemberAvatarDTO struct {
-	AvatarUrl *string `json:"avatar_url,omitempty"`
-	Filename  *string `json:"filename,omitempty"`
-	MemberId  string  `json:"member_id"`
-	Mime      *string `json:"mime,omitempty"`
+// MemberAvatarIndexDTO Narrow result of reading back an owner-updated theme-avatar slot. Staff and outsource identities share this result; the server publishes the actor's canonical “member“ or “outsource_worker“ SSE topic after the durable write.
+type MemberAvatarIndexDTO struct {
+	AvatarIndex int    `json:"avatar_index"`
+	MemberId    string `json:"member_id"`
+}
+
+// MemberAvatarIndexUpdateDTO Replace one staff or outsource member's persistent theme-avatar slot. “avatar_index“ is required and must be a non-negative integer. It is intentionally not constrained by the currently active pool length: themes can differ in length, and rendering safely wraps with modulo.
+type MemberAvatarIndexUpdateDTO struct {
+	AvatarIndex int `json:"avatar_index"`
 }
 
 // MemberDTO API representation of one “domain.Member“ (a roster member; §3.4 #8/#10).
@@ -928,8 +931,8 @@ type MemberDTO struct {
 	// ActualRuntime The AI CLI runtime the member's session is REPORTED to be running, from its own live telemetry (``AgentTelemetryIngestDTO.runtime``) — durably persisted alongside ``actual_model``. Empty means nothing has ever reported a runtime for this member; it is separate from, and NEVER falls back to, the owner-configured ``runtime`` launch setting. WAS: the reported runtime was ingested and then discarded on every read path — every wire that carried a ``runtime`` re-served the roster's CONFIGURED value, so the detail panel flipped the instant the owner changed the setting and a not-yet-applied change was indistinguishable from a live one (T-7f28).
 	ActualRuntime *string `json:"actual_runtime,omitempty"`
 
-	// AvatarUrl Authenticated URL of this stable member id's personal raster avatar. Empty means no personal image; clients fall back to the active theme's role avatar, then the built-in glyph. Additive-optional for older clients.
-	AvatarUrl        *string  `json:"avatar_url,omitempty"`
+	// AvatarIndex Persistent non-negative slot assigned to this member's visual identity. The client resolves the active theme's member/outsource pool with ``pool[avatar_index % pool.length]``; an empty pool uses the built-in glyph. The index does not change when the theme changes or a pool shrinks.
+	AvatarIndex      int      `json:"avatar_index"`
 	DesiredMachineId *string  `json:"desired_machine_id,omitempty"`
 	DesiredState     *string  `json:"desired_state,omitempty"`
 	Effort           *string  `json:"effort,omitempty"`
@@ -1187,8 +1190,8 @@ type OutsourceWorkerDTO struct {
 	// ActualRuntime The AI CLI runtime this worker's session is REPORTED to be running — the same durably-persisted roster field ``MemberDTO.actual_runtime`` serves. Empty means nothing has ever reported one. Separate from, and NEVER a fallback to, the owner-configured ``runtime`` launch setting this DTO round-trips (T-7f28).
 	ActualRuntime *string `json:"actual_runtime,omitempty"`
 
-	// AvatarUrl Authenticated URL of this stable outsource-worker id's personal raster avatar. Empty means the client uses the outsource theme avatar or built-in glyph. Additive-optional.
-	AvatarUrl *string `json:"avatar_url,omitempty"`
+	// AvatarIndex Persistent non-negative slot assigned when this outsource worker is minted. The client resolves the active theme's outsource pool with ``pool[avatar_index % pool.length]``; an empty pool uses the built-in glyph. The index survives reload, restart, refocus, and theme changes.
+	AvatarIndex int `json:"avatar_index"`
 
 	// BankedCost The worker's persistent historical cumulative cost (migrations/00021), the DIRECT twin of member banked_cost: the live cost is banked through the SAME bankLiveCost fold on every session end / kill+respawn (refocus / model change / relocate / stop / auto-handover), so a handover never zeroes the owner-visible spend. null when nothing banked yet. The panel shows live + banked summed, the member presentation. T-ba6b additive-optional.
 	BankedCost *float64 `json:"banked_cost,omitempty"`
@@ -2192,7 +2195,10 @@ type TaskStepStatusUpdateDTO struct {
 
 // ThemeBundleDTO One owner-authored theme colour bundle (T-16a1 P2). `id` is a client-generated stable slug (`^[a-z0-9][a-z0-9-]{1,63}$`), unique within the owner's set and never a built-in name (`office` / `xian`). `name` is the display label (trimmed, 1..80 runes). `colors` maps `--color-*` token names — each MUST be a token defined in styles/theme.css — to CONCRETE colour values (hex / rgb() / rgba() / hsl() / hsla() / transparent only; no var(), no color-mix(), no arbitrary CSS). 1..200 pairs. The server 422s any bundle that violates the shape, the token whitelist, or the colour grammar. `wording` (optional, T-16a1 P3) carries per-language message-key text overrides; see its own description. `fonts` (optional, T-16a1 P4) carries font-family choices; see its own description.
 type ThemeBundleDTO struct {
-	// Avatars Optional per-role avatar images (T-16a1 P5; extended per role in T-ea81). Keys are the closed set `member` (一般正職 member) / `outsource` (外包 outsource worker) / `owner` (the human CEO / owner) / `assistant` (a member whose role is `assistant`, e.g. Mira). Each value is an EMBEDDED image encoded as a base64 `data:` URI so the image travels inside the bundle on export/import. The value is NOT arbitrary: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted. SVG (`image/svg+xml`) is REJECTED (it can carry script/onload — XSS). The base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`) — a value that declares one mime but carries another is rejected. Absent = that role falls back to the built-in avatar glyph (office never degrades). The server 422s any avatars that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.
+	// AvatarPools Optional ordered theme-level pools for `member` (一般正職) and `outsource` workers. Those are the only allowed keys. Each pool contains at most 12 embedded raster data URIs; every item independently passes the same PNG/JPEG/WEBP, strict-base64, <=64 KiB decoded-size, and matching-magic-byte gate as other theme images. Order is identity: an actor renders `pool[avatar_index % pool.length]`. An empty or absent pool renders the built-in glyph. Import/export preserves item order exactly.
+	AvatarPools *map[string][]string `json:"avatarPools,omitempty"`
+
+	// Avatars Optional SINGLE-image identities. The canonical key set is only `owner` (the human CEO) and `assistant` (an assistant-role member such as Mira); their existing single-image semantics are unchanged. For backward compatibility, input/stored bundles may also carry legacy `member` or `outsource` singleton strings: the server/client normalize each into a one-image `avatarPools` entry and omit that legacy key on the canonical echo/export. Every value is an embedded base64 raster data URI and passes the same PNG/JPEG/WEBP, strict-base64, <=64 KiB decoded-size, and matching-magic-byte gate. SVG is rejected. Absent owner/assistant values use the built-in glyph.
 	Avatars *map[string]string `json:"avatars,omitempty"`
 
 	// BackgroundModes Optional per-zone DISPLAY MODE for the images in `backgrounds` (T-081b). Same CLOSED zone-key set as `backgrounds` (today: `canvas`); each value is one of a CLOSED set of three: `tile` — repeat the image in both axes over the whole canvas (the ONLY behaviour before this field existed, and the default for any zone this map omits, so an older bundle renders identically); `sides` — do NOT repeat at all: pin ONE copy of the image against the LEFT viewport edge and one against the RIGHT, both at natural size, aligned to the viewport bottom, with `--color-bg` filling whatever the image does not reach; `cover` — ONE copy scaled (`background-size: cover`) to fill the whole viewport, centred. `sides` exists for art that reads as a pair of standing objects (e.g. a tree either side) rather than a texture; the product does NOT mirror the right-hand copy — a theme wanting left/right symmetry bakes it into the image (owner 2026-07-27). `sides` and `cover` are pinned to the VIEWPORT (`background-attachment: fixed`) because the canvas background otherwise scrolls with the document, which would bring a second copy into view down a long page. `cover` is only VISIBLE where the theme also gives the chrome zone colours (`--color-topbar-bg` / `--color-nav-bg` / `--color-main-bg`) translucent values — the colour grammar already admits `#RRGGBBAA` and `rgba()` — and that is also where its risk lives: those zones sit under text, so the image's contrast against that text is the theme's own responsibility (owner accepted this trade-off on 2026-07-27). A mode for a zone that carries no image is a 422 (a mode alone paints nothing, so it is a mistake worth naming rather than ignoring). Absent = every zone tiles, exactly as before this field existed. NOTE both modes are invisible at viewport widths where the content column leaves no gutter (phones, narrow windows) — that is a property of the outer canvas, not of the mode.
@@ -2380,12 +2386,6 @@ type HandleListMembersApiMembersGetParams struct {
 	Fields *string `form:"fields,omitempty" json:"fields,omitempty"`
 }
 
-// HandlePutMemberAvatarApiMembersMemberIdAvatarPutParams defines parameters for HandlePutMemberAvatarApiMembersMemberIdAvatarPut.
-type HandlePutMemberAvatarApiMembersMemberIdAvatarPutParams struct {
-	Filename *string `form:"filename,omitempty" json:"filename,omitempty"`
-	Mime     *string `form:"mime,omitempty" json:"mime,omitempty"`
-}
-
 // HandleListReplyCardsApiReplyCardsGetParams defines parameters for HandleListReplyCardsApiReplyCardsGet.
 type HandleListReplyCardsApiReplyCardsGetParams struct {
 	Status *string `form:"status,omitempty" json:"status,omitempty"`
@@ -2487,6 +2487,9 @@ type HandleUpdateMemberApiMembersMemberIdPatchJSONRequestBody = MemberUpdateDTO
 
 // HandleActivateMemberApiMembersMemberIdActivatePostJSONRequestBody defines body for HandleActivateMemberApiMembersMemberIdActivatePost for application/json ContentType.
 type HandleActivateMemberApiMembersMemberIdActivatePostJSONRequestBody = MemberActivateDTO
+
+// HandleUpdateMemberAvatarIndexApiMembersMemberIdAvatarIndexPatchJSONRequestBody defines body for HandleUpdateMemberAvatarIndexApiMembersMemberIdAvatarIndexPatch for application/json ContentType.
+type HandleUpdateMemberAvatarIndexApiMembersMemberIdAvatarIndexPatchJSONRequestBody = MemberAvatarIndexUpdateDTO
 
 // HandleRelocateMemberApiMembersMemberIdRelocatePostJSONRequestBody defines body for HandleRelocateMemberApiMembersMemberIdRelocatePost for application/json ContentType.
 type HandleRelocateMemberApiMembersMemberIdRelocatePostJSONRequestBody = MemberRelocateDTO
@@ -2813,12 +2816,9 @@ type ServerInterface interface {
 	// Activate: write desired_state=online intent (does NOT flip online).
 	// (POST /api/members/{member_id}/activate)
 	HandleActivateMemberApiMembersMemberIdActivatePost(w http.ResponseWriter, r *http.Request, memberId string)
-	// Remove a member's personal avatar (owner only).
-	// (DELETE /api/members/{member_id}/avatar)
-	HandleDeleteMemberAvatarApiMembersMemberIdAvatarDelete(w http.ResponseWriter, r *http.Request, memberId string)
-	// Upload or replace a member's personal avatar (owner only).
-	// (PUT /api/members/{member_id}/avatar)
-	HandlePutMemberAvatarApiMembersMemberIdAvatarPut(w http.ResponseWriter, r *http.Request, memberId string, params HandlePutMemberAvatarApiMembersMemberIdAvatarPutParams)
+	// Update a staff or outsource member's persistent theme-avatar index (owner only).
+	// (PATCH /api/members/{member_id}/avatar-index)
+	HandleUpdateMemberAvatarIndexApiMembersMemberIdAvatarIndexPatch(w http.ResponseWriter, r *http.Request, memberId string)
 	// Deactivate: desired_state=offline + stamp stopping_since (retains row).
 	// (POST /api/members/{member_id}/deactivate)
 	HandleDeactivateMemberApiMembersMemberIdDeactivatePost(w http.ResponseWriter, r *http.Request, memberId string)
@@ -4363,8 +4363,8 @@ func (siw *ServerInterfaceWrapper) HandleActivateMemberApiMembersMemberIdActivat
 	handler.ServeHTTP(w, r)
 }
 
-// HandleDeleteMemberAvatarApiMembersMemberIdAvatarDelete operation middleware
-func (siw *ServerInterfaceWrapper) HandleDeleteMemberAvatarApiMembersMemberIdAvatarDelete(w http.ResponseWriter, r *http.Request) {
+// HandleUpdateMemberAvatarIndexApiMembersMemberIdAvatarIndexPatch operation middleware
+func (siw *ServerInterfaceWrapper) HandleUpdateMemberAvatarIndexApiMembersMemberIdAvatarIndexPatch(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -4379,62 +4379,7 @@ func (siw *ServerInterfaceWrapper) HandleDeleteMemberAvatarApiMembersMemberIdAva
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandleDeleteMemberAvatarApiMembersMemberIdAvatarDelete(w, r, memberId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// HandlePutMemberAvatarApiMembersMemberIdAvatarPut operation middleware
-func (siw *ServerInterfaceWrapper) HandlePutMemberAvatarApiMembersMemberIdAvatarPut(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "member_id" -------------
-	var memberId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "member_id", r.PathValue("member_id"), &memberId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "member_id", Err: err})
-		return
-	}
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params HandlePutMemberAvatarApiMembersMemberIdAvatarPutParams
-
-	// ------------- Optional query parameter "filename" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "filename", r.URL.Query(), &params.Filename, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "filename"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "filename", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "mime" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "mime", r.URL.Query(), &params.Mime, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "mime"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "mime", Err: err})
-		}
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandlePutMemberAvatarApiMembersMemberIdAvatarPut(w, r, memberId, params)
+		siw.Handler.HandleUpdateMemberAvatarIndexApiMembersMemberIdAvatarIndexPatch(w, r, memberId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6552,8 +6497,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/members/{member_id}", wrapper.HandleGetMemberApiMembersMemberIdGet)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/members/{member_id}", wrapper.HandleUpdateMemberApiMembersMemberIdPatch)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/members/{member_id}/activate", wrapper.HandleActivateMemberApiMembersMemberIdActivatePost)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/members/{member_id}/avatar", wrapper.HandleDeleteMemberAvatarApiMembersMemberIdAvatarDelete)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/members/{member_id}/avatar", wrapper.HandlePutMemberAvatarApiMembersMemberIdAvatarPut)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/members/{member_id}/avatar-index", wrapper.HandleUpdateMemberAvatarIndexApiMembersMemberIdAvatarIndexPatch)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/members/{member_id}/deactivate", wrapper.HandleDeactivateMemberApiMembersMemberIdDeactivatePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/members/{member_id}/force-stop", wrapper.HandleForceStopMemberApiMembersMemberIdForceStopPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/members/{member_id}/refocus", wrapper.HandleRefocusMemberApiMembersMemberIdRefocusPost)

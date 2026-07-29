@@ -233,8 +233,8 @@ describe("parseImportedBundle", () => {
         avatars: { outsource: pngAvatar },
       })
     );
-    expect("bundle" in res && res.bundle.avatars).toEqual({
-      outsource: pngAvatar,
+    expect("bundle" in res && res.bundle.avatarPools).toEqual({
+      outsource: [pngAvatar],
     });
   });
 

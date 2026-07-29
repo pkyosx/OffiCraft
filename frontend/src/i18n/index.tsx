@@ -136,6 +136,7 @@ interface I18nContextValue {
    * render a member/outsource/owner/assistant avatar image, falling back to the
    * built-in glyph when absent. */
   activeAvatars?: Partial<Record<AvatarKind, string>>;
+  activeAvatarPools?: Partial<Record<"member" | "outsource", string[]>>;
   /** The active custom theme's studio logo image (T-ea81), or undefined when the
    * active theme carries none — the top bar then renders its built-in mark. */
   activeLogo?: string;
@@ -196,6 +197,10 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   // undefined (office glyph fallback — office never degrades).
   const activeAvatars = useMemo(
     () => (customThemes ?? []).find((b) => b.id === theme)?.avatars,
+    [customThemes, theme]
+  );
+  const activeAvatarPools = useMemo(
+    () => (customThemes ?? []).find((b) => b.id === theme)?.avatarPools,
     [customThemes, theme]
   );
 
@@ -448,6 +453,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       wide,
       setWide,
       activeAvatars,
+      activeAvatarPools,
       activeLogo,
       activeNavIcons,
       customThemes,
@@ -465,6 +471,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       wide,
       setWide,
       activeAvatars,
+      activeAvatarPools,
       activeLogo,
       activeNavIcons,
       customThemes,
@@ -491,6 +498,12 @@ export function useI18n(): I18nContextValue {
  * glyph rather than crashing). */
 export function useActiveAvatars(): Partial<Record<AvatarKind, string>> | undefined {
   return useContext(I18nContext)?.activeAvatars;
+}
+
+export function useActiveAvatarPools():
+  | Partial<Record<"member" | "outsource", string[]>>
+  | undefined {
+  return useContext(I18nContext)?.activeAvatarPools;
 }
 
 /** The active theme's studio logo image (T-ea81), or undefined. DEFENSIVE like

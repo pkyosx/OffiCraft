@@ -144,9 +144,9 @@ type Member struct {
 	CreatedTS   float64
 	ReleasedTS  float64
 	ActivatedTS float64
-	// AvatarAttachmentID points at this stable member id's one personal image
-	// in the shared byte store. Empty means no personal image.
-	AvatarAttachmentID string
+	// AvatarIndex is the member's stable slot in the active theme's matching
+	// avatar pool. Rendering wraps it by the pool length; zero is the fallback.
+	AvatarIndex int
 }
 
 // RosterStatusRemoved is the soft-delete lifecycle value (the Python
@@ -162,7 +162,7 @@ const memberColumns = `id, name, kind, role_key, runtime, model, actual_model, e
 	waking_since, stopping_since, stopped_since, refocus_since, refocus_op, banked_cost,
 	last_op, last_op_ok, last_op_log, last_op_reason, last_op_at, roster_status,
 	linked_task_id, codename, created_ts, released_ts, activated_ts,
-	avatar_attachment_id`
+	avatar_index`
 
 func scanMember(row interface{ Scan(...any) error }) (Member, error) {
 	var m Member
@@ -176,7 +176,7 @@ func scanMember(row interface{ Scan(...any) error }) (Member, error) {
 		&m.BankedCost,
 		&m.LastOp, &lastOpOK, &m.LastOpLog, &m.LastOpReason, &m.LastOpAt, &m.RosterStatus,
 		&linkedTaskID, &codename, &m.CreatedTS, &m.ReleasedTS, &m.ActivatedTS,
-		&m.AvatarAttachmentID,
+		&m.AvatarIndex,
 	)
 	if err != nil {
 		return Member{}, err
@@ -257,11 +257,9 @@ func (d *DAL) GetMember(id string) (*Member, error) {
 }
 
 // PutMember upserts a member row (the repository.put_member twin; the SSE
-// delta is the service layer's job). On conflict it deliberately leaves
-// avatar_attachment_id untouched: ReplaceMemberAvatar/DeleteMemberAvatar are
-// the only update seams for that independently-owned pointer. This prevents a
-// stale lifecycle/model snapshot from erasing a newer avatar and orphaning its
-// blob. The INSERT still accepts the field for migrations/tests/new rows.
+// delta is the service layer's job). AvatarIndex participates in the ordinary
+// row snapshot: unlike the retired personal-avatar blob pointer, it is plain
+// member presentation state and has no independently-owned resource lifecycle.
 func (d *DAL) PutMember(m Member) error {
 	var lastOpOK any
 	if m.LastOpOK != nil {
@@ -304,7 +302,8 @@ func (d *DAL) PutMember(m Member) error {
 			codename = excluded.codename,
 			created_ts = excluded.created_ts,
 			released_ts = excluded.released_ts,
-			activated_ts = excluded.activated_ts`,
+			activated_ts = excluded.activated_ts,
+			avatar_index = excluded.avatar_index`,
 		m.ID, m.Name, m.Kind, m.RoleKey, NormalizeRuntime(m.Runtime), m.Model, m.ActualModel, m.Effort,
 		m.ActualRuntime, m.ActualEffort,
 		m.DesiredState, m.DesiredMachineID, m.LastMachineID,
@@ -312,7 +311,7 @@ func (d *DAL) PutMember(m Member) error {
 		m.BankedCost,
 		m.LastOp, lastOpOK, m.LastOpLog, m.LastOpReason, m.LastOpAt, m.RosterStatus,
 		linkedTaskID, codename, m.CreatedTS, m.ReleasedTS, m.ActivatedTS,
-		m.AvatarAttachmentID,
+		m.AvatarIndex,
 	)
 	return err
 }
@@ -326,8 +325,8 @@ func (d *DAL) HardDeleteMember(id string) (bool, error) {
 		return false, err
 	}
 	defer tx.Rollback()
-	var avatarID string
-	err = tx.QueryRow(`SELECT avatar_attachment_id FROM member WHERE id = ?`, id).Scan(&avatarID)
+	var exists int
+	err = tx.QueryRow(`SELECT 1 FROM member WHERE id = ?`, id).Scan(&exists)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -337,21 +336,6 @@ func (d *DAL) HardDeleteMember(id string) (bool, error) {
 	res, err := tx.Exec(`DELETE FROM member WHERE id = ?`, id)
 	if err != nil {
 		return false, err
-	}
-	if avatarID != "" {
-		// The avatar id is dedicated by contract, but deletion must remain safe
-		// even if a future writer drops that guard or old/corrupt data contains
-		// another reference. The member row is already gone inside this tx, so
-		// only a genuinely surviving record can veto collection here.
-		surviving := map[string]bool{}
-		if err := collectSurvivingBlobRefs(tx, surviving); err != nil {
-			return false, err
-		}
-		if !surviving[avatarID] {
-			if _, err := tx.Exec(`DELETE FROM chat_attachment WHERE id = ?`, avatarID); err != nil {
-				return false, err
-			}
-		}
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
@@ -675,18 +659,14 @@ func refIDsFromJSON(blob string, into map[string]bool) {
 // cascade re-checks every survivor before dropping a blob.
 //
 // This is the only GC path for the GENERAL attachment graph
-// (`DeleteTaskArtifact` deliberately leaves the blob alone). The T-c826 avatar
-// lifecycle has its own single-owner delete paths; HardDeleteMember reuses this
-// same survivor scan so corrupt/legacy cross-references still fail safe. As of
-// T-c826
-// the blob-referencing columns in the schema are exactly these five, and
-// `collectSurvivingBlobRefs` reads all five:
+// (`DeleteTaskArtifact` deliberately leaves the blob alone). The
+// blob-referencing columns in the schema are exactly these four, and
+// `collectSurvivingBlobRefs` reads all four:
 //
 //	chat_message.meta $.attachments[].id
 //	reply_card.answer_attachments[].id
 //	reply_card.attachments[].id          (T-5e8a question side)
 //	task_artifact.attachment_id          (T-62a8 — file/image kinds; '' on link)
-//	member.avatar_attachment_id           (T-c826 — dedicated personal image)
 //
 // ⚠️ Add another referencing column anywhere and it MUST be added here in the
 // same commit; a blob whose only referrer is unknown to this scan is deleted
@@ -834,25 +814,7 @@ func collectSurvivingBlobRefs(tx *sql.Tx, into map[string]bool) error {
 	}
 	artRows.Close()
 
-	// 5. personal member avatars (T-c826). Avatar ids are isolated behind an
-	//    ava- prefix and general attachment writers reject that prefix, but the
-	//    liveness verdict must not rely on a distant string guard: if a blob is
-	//    referenced by a surviving member row, deleting it is data loss.
-	memberRows, err := tx.Query(
-		`SELECT avatar_attachment_id FROM member
-		 WHERE COALESCE(avatar_attachment_id, '') <> ''`)
-	if err != nil {
-		return err
-	}
-	defer memberRows.Close()
-	for memberRows.Next() {
-		var id string
-		if err := memberRows.Scan(&id); err != nil {
-			return err
-		}
-		into[id] = true
-	}
-	return memberRows.Err()
+	return nil
 }
 
 // collectChatMetaRefs folds every attachment id referenced by the
@@ -935,69 +897,6 @@ func (d *DAL) GetChatAttachment(id string) (*ChatAttachment, error) {
 		a.Filename = &filename.String
 	}
 	return &a, nil
-}
-
-// ReplaceMemberAvatar atomically stores a freshly minted dedicated avatar,
-// switches the stable member pointer, and deletes the prior dedicated blob.
-// The member must already exist; a vanished row is errNotFound.
-func (d *DAL) ReplaceMemberAvatar(memberID string, avatar ChatAttachment) error {
-	tx, err := d.wdb.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	var previous string
-	if err := tx.QueryRow(
-		`SELECT avatar_attachment_id FROM member WHERE id = ?`, memberID,
-	).Scan(&previous); errors.Is(err, sql.ErrNoRows) {
-		return errNotFound
-	} else if err != nil {
-		return err
-	}
-	if err := putChatAttachmentOn(tx, avatar); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(
-		`UPDATE member SET avatar_attachment_id = ? WHERE id = ?`,
-		avatar.ID, memberID,
-	); err != nil {
-		return err
-	}
-	if previous != "" && previous != avatar.ID {
-		if _, err := tx.Exec(`DELETE FROM chat_attachment WHERE id = ?`, previous); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
-}
-
-// DeleteMemberAvatar atomically clears the pointer and deletes the owned blob.
-// It is idempotent when the member already has no personal avatar.
-func (d *DAL) DeleteMemberAvatar(memberID string) error {
-	tx, err := d.wdb.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	var previous string
-	if err := tx.QueryRow(
-		`SELECT avatar_attachment_id FROM member WHERE id = ?`, memberID,
-	).Scan(&previous); errors.Is(err, sql.ErrNoRows) {
-		return errNotFound
-	} else if err != nil {
-		return err
-	}
-	if _, err := tx.Exec(
-		`UPDATE member SET avatar_attachment_id = '' WHERE id = ?`, memberID,
-	); err != nil {
-		return err
-	}
-	if previous != "" {
-		if _, err := tx.Exec(`DELETE FROM chat_attachment WHERE id = ?`, previous); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
 }
 
 // ── chat read receipts (per-conversation last-read watermark) ────────────────

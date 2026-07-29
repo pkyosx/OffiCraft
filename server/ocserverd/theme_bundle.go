@@ -186,6 +186,9 @@ func validColorValue(v string) bool {
 // (surfaced verbatim as the 422 body) and nil when every bundle is admissible.
 // ids must be unique across the array.
 func validateThemeBundles(bundles []ThemeBundleDTO) error {
+	if err := normalizeThemeBundles(bundles); err != nil {
+		return err
+	}
 	if len(bundles) > maxCustomThemes {
 		return fmt.Errorf("custom_themes must hold at most %d themes", maxCustomThemes)
 	}
@@ -247,6 +250,9 @@ func validateThemeBundles(bundles []ThemeBundleDTO) error {
 		// overlay — validated in full when present (kind whitelist + data-URI /
 		// raster-mime / size / magic-byte gate), a no-op when absent.
 		if err := validateAvatars(b.Avatars, where); err != nil {
+			return err
+		}
+		if err := validateAvatarPools(b.AvatarPools, where); err != nil {
 			return err
 		}
 		// logo (T-ea81) is an OPTIONAL single studio-logo image and navIcons an

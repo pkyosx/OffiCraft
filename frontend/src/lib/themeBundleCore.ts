@@ -24,13 +24,10 @@ export interface ThemeBundle {
   colors: Record<string, string>;
   wording?: Record<string, Record<string, string>>;
   fonts?: Record<string, string>;
-  /** Optional per-role avatar images (T-16a1 P5; extended per role in T-ea81).
-   * Each value is an EMBEDDED image as a base64 `data:` URI so the picture
-   * travels inside the bundle on export/import. `member` = 一般正職, `outsource`
-   * = 外包, `owner` = the human CEO/owner, `assistant` = a member whose role is
-   * assistant (e.g. Mira). Absent → the built-in avatar glyph is used (office
-   * never degrades). */
-  avatars?: Partial<Record<AvatarKind, string>>;
+  /** Single-image identities kept for owner and assistant. */
+  avatars?: Partial<Record<SingletonAvatarKind, string>>;
+  /** Ordered staff/outsource pools. Actor identity is pool[avatarIndex % length]. */
+  avatarPools?: Partial<Record<PoolAvatarKind, string[]>>;
   /** Optional studio logo image (T-ea81). A single EMBEDDED base64 `data:` URI
    * that replaces the built-in top-bar logo mark. Absent → the built-in mark. */
   logo?: string;
@@ -58,6 +55,11 @@ export interface ThemeBundle {
  * the character-for-character twin of the Go avatarKinds set (T-ea81). */
 export const AVATAR_KINDS = ["member", "outsource", "owner", "assistant"] as const;
 export type AvatarKind = (typeof AVATAR_KINDS)[number];
+export const POOL_AVATAR_KINDS = ["member", "outsource"] as const;
+export type PoolAvatarKind = (typeof POOL_AVATAR_KINDS)[number];
+export const SINGLETON_AVATAR_KINDS = ["owner", "assistant"] as const;
+export type SingletonAvatarKind = (typeof SINGLETON_AVATAR_KINDS)[number];
+export const MAX_AVATAR_POOL_ITEMS = 12;
 
 /** The nav tabs a navIcons overlay may key on — the closed set of the five main
  * nav tabs, identical to App.tsx's `Tab` type (T-ea81). */
@@ -226,7 +228,6 @@ export function validateFonts(fonts: unknown, where = "theme"): string | null {
   return null;
 }
 
-const AVATAR_KIND_SET = new Set<string>(AVATAR_KINDS);
 const NAV_ICON_KEY_SET = new Set<string>(NAV_ICON_KEYS);
 const BACKGROUND_KEY_SET = new Set<string>(BACKGROUND_KEYS);
 const BACKGROUND_MODE_SET = new Set<string>(BACKGROUND_MODES);
@@ -322,11 +323,68 @@ export function validateAvatars(avatars: unknown, where = "theme"): string | nul
     return `${where}: avatars must be an object`;
   }
   for (const [kind, value] of Object.entries(avatars as Record<string, unknown>)) {
-    if (!AVATAR_KIND_SET.has(kind)) {
-      return `${where}: avatar kind "${kind}" is not allowed (only member, outsource, owner, assistant)`;
+    if (!(SINGLETON_AVATAR_KINDS as readonly string[]).includes(kind)) {
+      return `${where}: avatar kind "${kind}" is not allowed (only owner, assistant)`;
     }
     if (typeof value !== "string" || !isValidAvatarValue(value)) {
       return `${where}: avatars[${kind}] is not a valid image — only a base64 data: URI of a PNG / JPEG / WEBP (≤ 64 KiB) is accepted`;
+    }
+  }
+  return null;
+}
+
+export function normalizeThemeAvatarPools(
+  bundle: Record<string, unknown>,
+  where = "theme"
+): string | null {
+  if (
+    bundle.avatars === undefined ||
+    bundle.avatars === null ||
+    typeof bundle.avatars !== "object" ||
+    Array.isArray(bundle.avatars)
+  ) {
+    return null;
+  }
+  const avatars = bundle.avatars as Record<string, unknown>;
+  let pools =
+    bundle.avatarPools &&
+    typeof bundle.avatarPools === "object" &&
+    !Array.isArray(bundle.avatarPools)
+      ? (bundle.avatarPools as Record<string, unknown>)
+      : undefined;
+  for (const kind of POOL_AVATAR_KINDS) {
+    if (!(kind in avatars)) continue;
+    if (pools && kind in pools) {
+      return `${where}: cannot define both avatars[${kind}] and avatarPools[${kind}]`;
+    }
+    pools ??= {};
+    pools[kind] = [avatars[kind]];
+    delete avatars[kind];
+  }
+  if (pools) bundle.avatarPools = pools;
+  if (Object.keys(avatars).length === 0) delete bundle.avatars;
+  return null;
+}
+
+export function validateAvatarPools(
+  pools: unknown,
+  where = "theme"
+): string | null {
+  if (pools === undefined || pools === null) return null;
+  if (typeof pools !== "object" || Array.isArray(pools)) {
+    return `${where}: avatarPools must be an object`;
+  }
+  for (const [kind, values] of Object.entries(pools as Record<string, unknown>)) {
+    if (!(POOL_AVATAR_KINDS as readonly string[]).includes(kind)) {
+      return `${where}: avatar pool kind "${kind}" is not allowed (only member, outsource)`;
+    }
+    if (!Array.isArray(values) || values.length > MAX_AVATAR_POOL_ITEMS) {
+      return `${where}: avatarPools[${kind}] must be an array with at most ${MAX_AVATAR_POOL_ITEMS} images`;
+    }
+    for (let i = 0; i < values.length; i++) {
+      if (typeof values[i] !== "string" || !isValidAvatarValue(values[i])) {
+        return `${where}: avatarPools[${kind}][${i}] is not a valid image — only a base64 data: URI of a PNG / JPEG / WEBP (≤ 64 KiB) is accepted`;
+      }
     }
   }
   return null;
@@ -538,6 +596,8 @@ export function validateThemeBundleWith(
     return `${where}: must be an object`;
   }
   const bundle = b as Record<string, unknown>;
+  const normalizeErr = normalizeThemeAvatarPools(bundle, where);
+  if (normalizeErr) return normalizeErr;
   if (typeof bundle.id !== "string" || !THEME_ID_RE.test(bundle.id)) {
     return `${where}: id must match ^[a-z0-9][a-z0-9-]{1,63}$`;
   }
@@ -598,6 +658,11 @@ export function validateThemeBundleWith(
   // avatars (T-16a1 P5; T-ea81) is an optional per-role embedded-image overlay.
   const aErr = validateAvatars((bundle as { avatars?: unknown }).avatars, where);
   if (aErr) return aErr;
+  const apErr = validateAvatarPools(
+    (bundle as { avatarPools?: unknown }).avatarPools,
+    where
+  );
+  if (apErr) return apErr;
   // logo (T-ea81) is an optional single embedded studio-logo image.
   const lErr = validateLogo((bundle as { logo?: unknown }).logo, where);
   if (lErr) return lErr;

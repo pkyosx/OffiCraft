@@ -8,6 +8,7 @@ import {
   isValidFontValue,
   isValidAvatarValue,
   validateAvatars,
+  validateAvatarPools,
   validateLogo,
   validateNavIcons,
   validateBackgrounds,
@@ -337,20 +338,20 @@ describe("isValidAvatarValue", () => {
 });
 
 describe("validateAvatars", () => {
-  it("accepts undefined (optional) and a legal member/outsource/owner/assistant overlay", () => {
+  it("accepts undefined and the canonical owner/assistant singleton overlay", () => {
     expect(validateAvatars(undefined)).toBeNull();
     expect(
-      validateAvatars({ member: okPng, outsource: okWebp, owner: okJpeg, assistant: okPng })
+      validateAvatars({ owner: okJpeg, assistant: okPng })
     ).toBeNull();
   });
 
   it("rejects a non-object, an unknown kind, and an invalid image", () => {
     expect(validateAvatars([])).toMatch(/must be an object/);
     expect(validateAvatars({ boss: okPng })).toMatch(
-      /not allowed \(only member, outsource, owner, assistant\)/
+      /not allowed \(only owner, assistant\)/
     );
     expect(
-      validateAvatars({ member: avatarURI("image/svg+xml", [0x3c]) })
+      validateAvatars({ assistant: avatarURI("image/svg+xml", [0x3c]) })
     ).toMatch(/not a valid image/);
   });
 
@@ -364,6 +365,15 @@ describe("validateAvatars", () => {
     expect(validateThemeBundle(good)).toBeNull();
     const bad = { ...good, avatars: { member: avatarURI("image/svg+xml", [0x3c]) } };
     expect(validateThemeBundle(bad)).toMatch(/not a valid image/);
+  });
+});
+
+describe("validateAvatarPools", () => {
+  it("accepts ordered member/outsource pools and caps each at 12", () => {
+    expect(validateAvatarPools({ member: [okPng], outsource: [okWebp] })).toBeNull();
+    expect(validateAvatarPools({ member: Array(13).fill(okPng) })).toMatch(
+      /at most 12/
+    );
   });
 });
 

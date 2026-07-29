@@ -19,7 +19,6 @@ import type {
 } from "../api/adapter";
 import { AgentDetailPanel, runtimeLabel } from "./AgentDetailPanel";
 import { pendingChangeHint, reportedMachine } from "../lib/pendingChange";
-import { AvatarEditor } from "./AvatarEditor";
 import { Avatar } from "./Avatar";
 import { avatarKindForMember } from "../lib/avatarKind";
 import { ConfirmModal } from "./ConfirmModal";
@@ -87,8 +86,7 @@ interface MemberDetailPanelProps {
   onRefocus?: () => void | Promise<void>;
   /** Commit a rename → patchMember({ name }). */
   onRename?: (name: string) => void;
-  onUpdateAvatar?: (file: File) => Promise<void>;
-  onRemoveAvatar?: () => Promise<void>;
+  onUpdateAvatarIndex?: (avatarIndex: number) => Promise<void>;
 }
 
 export function MemberDetailPanel({
@@ -100,8 +98,7 @@ export function MemberDetailPanel({
   onForceStop,
   onRefocus,
   onRename,
-  onUpdateAvatar,
-  onRemoveAvatar,
+  onUpdateAvatarIndex,
 }: MemberDetailPanelProps) {
   const { t, msg } = useI18n();
   const online = member.status === "online";
@@ -788,16 +785,30 @@ export function MemberDetailPanel({
         {/* Avatar dot dropped here: the 7-state LifecycleDot on the status line
             below is now the single source of presence colour (replaces the old
             3-state Avatar dot in this panel). */}
-        {onUpdateAvatar && onRemoveAvatar ? (
-          <AvatarEditor
-            size={52}
-            kind={avatarKindForMember(member)}
-            src={member.avatarUrl}
-            onUpload={onUpdateAvatar}
-            onRemove={onRemoveAvatar}
+        <Avatar
+          size={52}
+          kind={avatarKindForMember(member)}
+          avatarIndex={member.avatarIndex}
+        />
+        {onUpdateAvatarIndex && (
+          <input
+            className="inline-edit__input"
+            type="number"
+            min={0}
+            step={1}
+            key={member.avatarIndex ?? 0}
+            defaultValue={member.avatarIndex ?? 0}
+            aria-label="avatar index"
+            onBlur={(event) => {
+              const next = Number(event.target.value);
+              if (Number.isInteger(next) && next >= 0) {
+                void onUpdateAvatarIndex(next);
+              }
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") event.currentTarget.blur();
+            }}
           />
-        ) : (
-          <Avatar size={52} kind={avatarKindForMember(member)} src={member.avatarUrl} />
         )}
         <div className="mp-identity__body">
           <div className="mp-identity__line">

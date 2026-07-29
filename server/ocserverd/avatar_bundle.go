@@ -92,6 +92,8 @@ const (
 	// and the 512 KiB decoded cap below would never be reached. 512 KiB decoded
 	// ≈ 682.7 KiB encoded (×4/3); 704 KiB sits above that with margin.
 	maxBackgroundValueLen = 704 * 1024
+	// maxAvatarPoolItems bounds one theme's ordered identity choices per kind.
+	maxAvatarPoolItems = 12
 )
 
 // avatarKindAllowed is the closed set of member-type keys an avatars overlay
@@ -99,7 +101,11 @@ const (
 // and assistant (a member whose role is assistant, e.g. Mira) join the original
 // member / outsource kinds.
 var avatarKindAllowed = map[string]bool{
-	"member": true, "outsource": true, "owner": true, "assistant": true,
+	"owner": true, "assistant": true,
+}
+
+var avatarPoolKindAllowed = map[string]bool{
+	"member": true, "outsource": true,
 }
 
 // avatarMimeMagic maps each whitelisted RASTER mime to a predicate over the
@@ -215,10 +221,77 @@ func validateAvatars(avatars *map[string]string, where string) error {
 	for kind, value := range *avatars {
 		if !avatarKindAllowed[kind] {
 			return fmt.Errorf(
-				"%s: avatar kind %q is not allowed (only member, outsource, owner, assistant)", where, kind)
+				"%s: avatar kind %q is not allowed (only owner, assistant)", where, kind)
 		}
 		if err := validAvatarValue(value); err != nil {
 			return fmt.Errorf("%s: avatars[%s] %v", where, kind, err)
+		}
+	}
+	return nil
+}
+
+// normalizeThemeAvatarPools upgrades legacy singleton avatars.member /
+// avatars.outsource into the canonical ordered pool. Defining both forms for
+// one kind is rejected instead of silently choosing one.
+func normalizeThemeAvatarPools(bundle *ThemeBundleDTO, where string) error {
+	if bundle.Avatars == nil {
+		return nil
+	}
+	avatars := *bundle.Avatars
+	for _, kind := range []string{"member", "outsource"} {
+		value, legacy := avatars[kind]
+		if !legacy {
+			continue
+		}
+		if bundle.AvatarPools != nil {
+			if _, exists := (*bundle.AvatarPools)[kind]; exists {
+				return fmt.Errorf(
+					"%s: cannot define both avatars[%s] and avatarPools[%s]",
+					where, kind, kind)
+			}
+		} else {
+			pools := map[string][]string{}
+			bundle.AvatarPools = &pools
+		}
+		(*bundle.AvatarPools)[kind] = []string{value}
+		delete(avatars, kind)
+	}
+	if len(avatars) == 0 {
+		bundle.Avatars = nil
+	}
+	return nil
+}
+
+func normalizeThemeBundles(bundles []ThemeBundleDTO) error {
+	for i := range bundles {
+		if err := normalizeThemeAvatarPools(
+			&bundles[i], fmt.Sprintf("custom_themes[%d]", i),
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateAvatarPools(pools *map[string][]string, where string) error {
+	if pools == nil {
+		return nil
+	}
+	for kind, values := range *pools {
+		if !avatarPoolKindAllowed[kind] {
+			return fmt.Errorf(
+				"%s: avatar pool kind %q is not allowed (only member, outsource)",
+				where, kind)
+		}
+		if len(values) > maxAvatarPoolItems {
+			return fmt.Errorf(
+				"%s: avatarPools[%s] must hold at most %d images",
+				where, kind, maxAvatarPoolItems)
+		}
+		for i, value := range values {
+			if err := validAvatarValue(value); err != nil {
+				return fmt.Errorf("%s: avatarPools[%s][%d] %v", where, kind, i, err)
+			}
 		}
 	}
 	return nil

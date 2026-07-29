@@ -55,7 +55,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
-  useWorkerAvatarUrls,
+  useWorkerAvatarIndexes,
   useWorkerCodenames,
 } from "../hooks/useWorkerCodenames";
 import { useI18n } from "../i18n";
@@ -213,7 +213,7 @@ export function TaskCard({
       (id) => id.startsWith("ow-") && !workers.some((w) => w.id === id),
     );
   const releasedCodenames = useWorkerCodenames(releasedWorkerIds);
-  const releasedAvatarUrls = useWorkerAvatarUrls(releasedWorkerIds);
+  const releasedAvatarIndexes = useWorkerAvatarIndexes(releasedWorkerIds);
   const member =
     task.executorKind === "member"
       ? members.find((m) => m.id === task.executorId)
@@ -322,17 +322,20 @@ export function TaskCard({
     const rosterMember = members.find((item) => item.id === id);
     if (rosterMember) {
       return {
-        src: rosterMember.avatarUrl,
+        avatarIndex: rosterMember.avatarIndex,
         kind: avatarKindForMember(rosterMember),
       } as const;
     }
     const outsourceWorker = workers.find((item) => item.id === id);
     if (outsourceWorker) {
-      return { src: outsourceWorker.avatarUrl, kind: "outsource" } as const;
+      return {
+        avatarIndex: outsourceWorker.avatarIndex,
+        kind: "outsource",
+      } as const;
     }
     if (id.startsWith("ow-")) {
       return {
-        src: releasedAvatarUrls.get(id),
+        avatarIndex: releasedAvatarIndexes.get(id),
         kind: "outsource",
       } as const;
     }
@@ -1351,7 +1354,11 @@ export function TaskCard({
                 onClick={() => openChat(assigneePeerId)}
               >
                 {assigneeAvatar ? (
-                  <Avatar size={18} kind={assigneeAvatar.kind} src={assigneeAvatar.src} />
+                  <Avatar
+                    size={18}
+                    kind={assigneeAvatar.kind}
+                    avatarIndex={assigneeAvatar.avatarIndex}
+                  />
                 ) : null}
                 <span className="task-card__executor" data-testid="task-executor">
                   {executorText}
@@ -1395,7 +1402,11 @@ export function TaskCard({
                   onClick={() => openChat(creator.peerId)}
                 >
                   {creatorAvatar ? (
-                    <Avatar size={18} kind={creatorAvatar.kind} src={creatorAvatar.src} />
+                    <Avatar
+                      size={18}
+                      kind={creatorAvatar.kind}
+                      avatarIndex={creatorAvatar.avatarIndex}
+                    />
                   ) : null}
                   <span className="task-card__creator" data-testid="task-creator">
                     {creator.text}
@@ -1430,7 +1441,11 @@ export function TaskCard({
                 onClick={() => openChat(previousAssignee.peerId)}
               >
                 {previousAvatar ? (
-                  <Avatar size={18} kind={previousAvatar.kind} src={previousAvatar.src} />
+                  <Avatar
+                    size={18}
+                    kind={previousAvatar.kind}
+                    avatarIndex={previousAvatar.avatarIndex}
+                  />
                 ) : null}
                 <span
                   className="task-card__creator"

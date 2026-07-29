@@ -275,7 +275,19 @@ func ValidateMember(m Member) error {
 		return fmt.Errorf("member %s: runtime %q not in {%q, %q}",
 			m.ID, m.Runtime, RuntimeClaude, RuntimeCodex)
 	}
+	if m.AvatarIndex < 0 {
+		return fmt.Errorf("member %s: avatar_index must be non-negative", m.ID)
+	}
 	return nil
+}
+
+// RandomAvatarIndex chooses a stable slot when an identity is created. Empty
+// pools use zero, which is also the built-in-glyph fallback.
+func RandomAvatarIndex(poolLen int) int {
+	if poolLen <= 0 {
+		return 0
+	}
+	return rand.IntN(poolLen)
 }
 
 // ValidateChatMessage enforces the chat-message invariant: a non-empty id.
