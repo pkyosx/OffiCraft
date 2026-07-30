@@ -2,5 +2,51 @@
   "statusLine": {
     "type": "command",
     "command": "ocagent context-report"
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ocagent report-activity --state active",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ocagent report-activity --state idle",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ocagent report-activity --state idle",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ocagent report-activity --state idle",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
   }
 }

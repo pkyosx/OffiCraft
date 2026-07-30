@@ -816,8 +816,26 @@ export const en: Dict = {
       machine: "Machine",
       account: "Account",
       model: "Model",
+      activity: "Activity",
       context: "context",
       estCost: "est. $",
+    },
+    // §3 activity column (T-a1d7). Each state gets its own sentence — no single
+    // vague phrase covering all four. "Working" is a reported fact, "last ended"
+    // is an observed end, "no end signal" MARKS the claim instead of withdrawing
+    // it, and "never reported" simply shows a dash rather than guessing.
+    activity: {
+      /** active / unknown headline; d comes from formatDuration (7m / 2h 15m). */
+      working: (d: string) => `Working ${d}`,
+      /** An active claim with no start anchor — never invent a time for it. */
+      workingBare: "Working",
+      /** idle, with a turn end we actually observed. */
+      lastEnded: (d: string) => `Last ended ${d} ago`,
+      /** idle with no observed end yet (e.g. it reported idle on boot). */
+      idleBare: "Idle",
+      noEndSignal: "no end signal",
+      noEndSignalTitle:
+        "This turn was announced and no end signal ever followed. The time is still the start IT reported — not evidence that we saw it running.",
     },
     machine: {
       actionsCol: "Actions",

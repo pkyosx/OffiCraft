@@ -24,6 +24,11 @@ export const LONG_MODEL = "claude-opus-4-8-20260715-preview-extended-thinking-25
 /** A session/transcript id — printed as BARE TEXT in a cell, no wrapper span. */
 export const LONG_SESSION =
   "session0122q5Em8AGqSCX2vn9xdgPD2caa350d12694a65bff7bc9dc2812597transcript";
+/** The §3 活動 cell's WIDEST realistic content (T-a1d7): the `unknown` arm,
+ * which is the only one that prints two items on one line (a duration that has
+ * grown into days + the 未收到結束 chip). Same two-item shape as the model cell
+ * (model name + effort badge), so the card mode has to fit it the same way. */
+export const LONG_ACTIVITY = "工作中 12d 7h";
 
 export function MonitorTableLongTokenStory() {
   return (
@@ -73,6 +78,7 @@ export function MonitorTableLongTokenStory() {
             <tr>
               <th>成員</th>
               <th>模型</th>
+              <th>活動</th>
             </tr>
           </thead>
           <tbody>
@@ -82,6 +88,14 @@ export function MonitorTableLongTokenStory() {
               </td>
               <td className="mon-table__left" data-label="模型">
                 <span>{LONG_MODEL}</span>
+              </td>
+              {/* T-a1d7 活動 — a TWO-ITEM value cell (text + chip). It is here
+               * so the page-overflow assertions cover the new column too; the
+               * label 活動 is long enough that the card row's
+               * "label ::before + value + chip" line is a real fit test. */}
+              <td className="mon-table__left" data-label="活動">
+                <span>{LONG_ACTIVITY}</span>
+                <span className="mon-stale mon-bad">未收到結束</span>
               </td>
             </tr>
           </tbody>

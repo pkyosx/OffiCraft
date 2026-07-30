@@ -56,6 +56,11 @@ const session = (over: Partial<MonSessionView> = {}): MonSessionView => ({
   compactionCount: null,
   cost: 3.5,
   bankedCost: null,
+  // T-a1d7 activity dimension — this fixture predates it, so the honest
+  // "nothing was ever reported" default keeps these rows unchanged.
+  activityState: "never",
+  workingSince: null,
+  lastTurnCompletedAt: null,
   ...over,
 });
 

@@ -2126,6 +2126,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/self/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * report_activity(): record the caller's turn boundary (active/idle).
+         * @description ``report_activity()`` — one turn-boundary report (identity from token ``sub``, NO
+         *     agent_id parameter; §14 self-op). This is the INGESTION side of the activity
+         *     dimension: whether the model is actually running a turn, which ``online`` (a pure
+         *     SSE-connection projection) deliberately does not say.
+         *
+         *     WHO MAY CALL IT: any agent-class caller, INCLUDING an outsource worker (``ow-``
+         *     ids have no member row) — the handler reads the verified sub and touches only the
+         *     in-memory activity store, exactly like ``GET /api/self/task``.
+         *
+         *     WHAT THE SERVER DOES: stamps its OWN receive time (never the reporter's clock),
+         *     de-duplicates by ``(session_id, seq)`` and ``turn_id``, and derives the four-state
+         *     ``activity_state`` on the READ path. A report is never a verdict by itself: a
+         *     claimed turn with no end signal ages out into ``unknown`` (the claim is kept, not
+         *     rewritten), and an agent that is not online can never READ as active.
+         *
+         *     NOT AN MCP TOOL, deliberately: this is narrow runtime automation (a Claude Code
+         *     hook / the Codex sidecar), and exposing it as a tool would invite an agent to
+         *     hand-write claims about its own activity.
+         *
+         *     Storage is IN-MEMORY by contract (state-model.md: observed, not intent) — a server
+         *     restart honestly forgets every claim and every session reads ``never`` again.
+         */
+        post: operations["handle_report_activity_api_self_activity_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/self/refocus": {
         parameters: {
             query?: never;
@@ -2922,6 +2962,57 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * ActivityReportDTO
+         * @description Body for ``POST /api/self/activity`` — one turn-boundary report from a runtime (identity from the token ``sub``, NO agent_id parameter; §14 self-op).
+         *
+         *     This is an INGESTION face for automation (a Claude Code hook, the Codex sidecar), deliberately kept OFF the MCP surface: an agent must never be able to hand-write a claim about whether it is working.
+         *
+         *     ``turn_id`` / ``session_id`` / ``seq`` are the de-duplication and ordering keys. Everything except ``state`` is optional, so the simplest possible reporter is ``{"state":"idle"}``.
+         */
+        ActivityReportDTO: {
+            /**
+             * Runtime
+             * @description Which runtime produced this report ('claude' / 'codex'). Observation only — it never changes the verdict.
+             */
+            runtime?: string | null;
+            /**
+             * Seq
+             * @description A reporter-monotonic sequence number, scoped to session_id. Used ONLY to drop out-of-order reports; never displayed, and never used as a timestamp (the server stamps its own receive time — a reporter on another box may have a skewed clock).
+             */
+            seq?: number | null;
+            /**
+             * Session Id
+             * @description The reporter's session identity — the scope of ``seq``. A changed session_id resets the sequence baseline and discards any turn claim held from the previous session.
+             */
+            session_id?: string | null;
+            /**
+             * State
+             * @description 'active' (a turn just began) or 'idle' (a turn just ended). Any other value is a 400 — the closed set is the whole point of this face.
+             */
+            state: string;
+            /**
+             * Turn Id
+             * @description The turn this report is about. An 'idle' whose turn_id names a DIFFERENT turn than the one currently claimed is ignored, so a late report from the previous turn cannot end the current one.
+             */
+            turn_id?: string | null;
+        };
+        /**
+         * ActivityReportResultDTO
+         * @description Receipt for ``POST /api/self/activity``. ``accepted`` is false when the report was dropped as stale or duplicate (an out-of-order ``seq``, or an ``idle`` for a turn that is not the claimed one) — a 200 with accepted=false is a successful, idempotent no-op, not an error. ``activity_state`` echoes the caller's state AFTER the report so a reporter can log what the server concluded.
+         */
+        ActivityReportResultDTO: {
+            /**
+             * Accepted
+             * @default false
+             */
+            accepted: boolean;
+            /**
+             * Activity State
+             * @default never
+             */
+            activity_state: string;
+        };
         /**
          * AgentContextDTO
          * @description Echo of a stored gauge entry (``POST /api/agent/context`` response).
@@ -4517,6 +4608,12 @@ export interface components {
              * @default
              */
             account: string;
+            /**
+             * Activity State
+             * @description The SERVER's verdict on whether this session is mid-turn — a dimension ORTHOGONAL to presence (online is only 'it holds an SSE stream'). Closed set: 'active' (a turn is running and the agent is online), 'idle' (a turn ended and none is running), 'unknown' (a turn was claimed but no end signal arrived within the server's max-turn window — the claim is kept, NOT rewritten into a fabricated idle), 'never' (no activity was ever reported: an old runtime, or a server that restarted — the store is in-memory by contract). Optional-with-default: absent reads as 'never' for older clients. The FE formats the two stamps below; it never re-derives this verdict from them.
+             * @default never
+             */
+            activity_state: string;
             /** Banked Cost */
             banked_cost?: number | null;
             /** Context Pct */
@@ -4535,6 +4632,11 @@ export interface components {
             effort: string;
             /** Id */
             id: string;
+            /**
+             * Last Turn Completed At
+             * @description Epoch seconds of the last turn END the server OBSERVED, null when none was ever observed. Deliberately NOT stamped on an SSE drop: a vanished session is not an observed completion, and inventing one would be a lie. Additive-optional.
+             */
+            last_turn_completed_at?: number | null;
             /**
              * Machine
              * @default
@@ -4567,6 +4669,11 @@ export interface components {
             tokens?: {
                 [key: string]: number;
             } | null;
+            /**
+             * Working Since
+             * @description Epoch seconds the CURRENT turn started (server receive time, never the reporter's clock — an agent on another box may have a skewed one), null unless activity_state is 'active' or 'unknown'. The FE only formats now − this into a duration; the verdict itself is the server's.
+             */
+            working_since?: number | null;
         };
         /**
          * MyTaskDTO
@@ -4637,6 +4744,12 @@ export interface components {
              */
             account?: string | null;
             /**
+             * Activity State
+             * @description The SERVER's verdict on whether this worker is mid-turn — the SAME orthogonal activity dimension MonitoringSessionDTO carries, derived by the SAME pure function (one derivation, two wires). Closed set: active / idle / unknown / never. Optional-with-default: absent reads as 'never' for older clients.
+             * @default never
+             */
+            activity_state: string;
+            /**
              * Avatar Url
              * @description Authenticated URL of this stable outsource-worker id's personal raster avatar. Empty means the client uses the outsource theme avatar or built-in glyph. Additive-optional.
              */
@@ -4705,6 +4818,11 @@ export interface components {
              * @default
              */
             last_op: string;
+            /**
+             * Last Turn Completed At
+             * @description Epoch seconds of the last turn END the server OBSERVED for this worker, null when none was ever observed — the worker twin of MonitoringSessionDTO.last_turn_completed_at (same derivation). Additive-optional.
+             */
+            last_turn_completed_at?: number | null;
             /**
              * Last Op At
              * @description Epoch seconds of the last folded warden receipt; 0 when none. T-f190 additive-optional.
@@ -4777,6 +4895,11 @@ export interface components {
              * @default 0
              */
             unread_count: number;
+            /**
+             * Working Since
+             * @description Epoch seconds the worker's CURRENT turn started (server receive time), null unless activity_state is 'active' or 'unknown' — the worker twin of MonitoringSessionDTO.working_since. Additive-optional.
+             */
+            working_since?: number | null;
         };
         /**
          * OutsourceWorkerModelDTO
@@ -10851,6 +10974,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RoleDefDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_report_activity_api_self_activity_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ActivityReportDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityReportResultDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

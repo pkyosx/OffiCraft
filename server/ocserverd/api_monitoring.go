@@ -783,6 +783,10 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 	}
 	telemetry := s.telemetry.Snapshot()
 	gauge := s.gauge.Snapshot()
+	// The activity store (T-a1d7) is the THIRD observation snapshot, taken here
+	// with the other two so every row in this response reads one coherent
+	// moment. Absent entry ⇒ ActivityNever, the honest "nothing was reported".
+	activity := s.activitySnapshot()
 	now := nowSecs()
 	machineNames, err := s.dal.MachineDisplayNames()
 	if err != nil {
@@ -950,21 +954,30 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 		// Runtime facts fold through the SAME foldActorRuntime the outsource
 		// worker DTO reads (P7b read-path convergence — one fold, two wires).
 		rt := foldActorRuntime(entry, gauge[m.ID], m.BankedCost, m.Runtime)
+		// Activity (T-a1d7) folds through the SAME deriveActivity the outsource
+		// worker DTO reads — one derivation, two wires, exactly like the runtime
+		// facts above. `online` is the same single SSE authority PresenceState
+		// gets, so the two dimensions can never disagree about liveness.
+		online := s.hub.IsOnline(m.ID)
+		actState, actSince, actEnd := activityOf(activity[m.ID], online, now)
 		sessions = append(sessions, monitoringSessionDTO{
-			ID:              m.ID,
-			Name:            m.Name,
-			Role:            roleName,
-			Runtime:         NormalizeRuntime(m.Runtime),
-			Model:           m.Model,
-			Effort:          effort,
-			Machine:         resolveDisplay(machineNames, s.observedHost(m)),
-			Account:         resolveSessionAccount(rt.account),
-			Presence:        PresenceState(m, now, s.hub.IsOnline(m.ID)),
-			ContextPct:      rt.contextPct,
-			CompactionCount: rt.compactionCount,
-			Cost:            rt.cost,
-			BankedCost:      rt.bankedCost,
-			Tokens:          entryObj(entry, "tokens"),
+			ID:                  m.ID,
+			Name:                m.Name,
+			Role:                roleName,
+			Runtime:             NormalizeRuntime(m.Runtime),
+			Model:               m.Model,
+			Effort:              effort,
+			Machine:             resolveDisplay(machineNames, s.observedHost(m)),
+			Account:             resolveSessionAccount(rt.account),
+			Presence:            PresenceState(m, now, online),
+			ContextPct:          rt.contextPct,
+			CompactionCount:     rt.compactionCount,
+			Cost:                rt.cost,
+			BankedCost:          rt.bankedCost,
+			Tokens:              entryObj(entry, "tokens"),
+			ActivityState:       actState,
+			WorkingSince:        actSince,
+			LastTurnCompletedAt: actEnd,
 		})
 	}
 

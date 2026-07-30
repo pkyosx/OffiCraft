@@ -329,6 +329,17 @@ type monitoringSessionDTO struct {
 	Cost            *float64       `json:"cost"`
 	BankedCost      *float64       `json:"banked_cost"`
 	Tokens          map[string]any `json:"tokens"`
+	// ── activity: the turn dimension (T-a1d7) ────────────────────────────────
+	// ActivityState is the SERVER's verdict (deriveActivity — the ONE derivation
+	// both this wire and outsourceWorkerDTO read). Presence answers "does it
+	// hold an SSE stream"; this answers "is it running a turn", and the two are
+	// deliberately independent. WorkingSince / LastTurnCompletedAt are the two
+	// display ANCHORS: the client formats now−stamp into a duration and does
+	// NOT re-derive the verdict from them (the threshold has exactly one home —
+	// the same rule hardware_stale established).
+	ActivityState       string   `json:"activity_state"`
+	WorkingSince        *float64 `json:"working_since"`
+	LastTurnCompletedAt *float64 `json:"last_turn_completed_at"`
 }
 
 type monitoringMachineDTO struct {
@@ -950,6 +961,13 @@ type outsourceWorkerDTO struct {
 	// "offline".
 	RefocusSince float64 `json:"refocus_since"`
 	DesiredState string  `json:"desired_state"`
+	// ── activity: the turn dimension (T-a1d7) ────────────────────────────────
+	// The worker twin of the monitoring session's three activity fields, folded
+	// by the SAME pure deriveActivity — one derivation, two wires (the shape
+	// foldActorRuntime already established for the runtime facts above).
+	ActivityState       string   `json:"activity_state"`
+	WorkingSince        *float64 `json:"working_since"`
+	LastTurnCompletedAt *float64 `json:"last_turn_completed_at"`
 }
 
 // outsourceWorkerProjection carries the per-worker runtime facts the DTO folds
@@ -982,6 +1000,9 @@ type outsourceWorkerProjection struct {
 	// honest dash — the raw credential hash NEVER reaches the wire (T-ba6b).
 	accountDisplay func(string) string
 	delegatedBy    string // resolved creator name ("" = honest fallback)
+	// activityEntry is the worker's turn-claim record (s.activity, keyed by
+	// actor id — T-a1d7); nil-safe, and nil is the honest "never reported".
+	activityEntry map[string]any
 }
 
 type myTaskDTO struct {
@@ -1281,6 +1302,12 @@ func newOutsourceWorkerDTO(w OutsourceWorker, task *Task, p outsourceWorkerProje
 	// intent ("" from a pre-column/never-set row reads as online client-side).
 	dto.RefocusSince = w.RefocusSince
 	dto.DesiredState = w.DesiredState
+	// Activity (T-a1d7) through the SAME pure deriveActivity the member session
+	// loop reads — one derivation, two wires. `p.online` is the same hub fact
+	// workerPresence above was given, so presence and activity can never
+	// disagree about whether this session is up.
+	dto.ActivityState, dto.WorkingSince, dto.LastTurnCompletedAt =
+		activityOf(p.activityEntry, p.online, p.now)
 	return dto
 }
 

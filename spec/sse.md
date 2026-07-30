@@ -133,7 +133,15 @@ delta topics; everything else is the M1 freeze):
 | `role_def` | role overlay write/reset/delete | patch |
 | `lessons` | lessons overlay write/cascade delete | patch |
 | `context` | agent context-gauge ingest (`POST /api/agent/context`) | signal |
-| `monitoring` | warden telemetry ingest (`POST /api/monitoring/telemetry`) | signal |
+| `monitoring` | warden telemetry ingest (`POST /api/monitoring/telemetry`) **and** an activity-verdict change (`POST /api/self/activity` — T-a1d7) | signal |
+
+The `monitoring` signal is deliberately shared rather than given a new topic: the
+topic set is CLOSED at 12, and the cockpit reconciles by refetch, so "something in
+the monitoring fold moved" is all a consumer needs. An activity report publishes
+only when the DERIVED value actually changes (a restated turn boundary is a silent
+no-op), so a chatty reporter cannot turn this into a fan-out storm. Reports from an
+outsource worker additionally fan the worker's own `outsource_worker` delta, which
+is the panel's existing invalidation signal.
 
 ⚠️ **Known code-internal inconsistency at freeze, resolved in favour of the wire**: the
 frozen implementation's internal topic lists were incomplete (its declared topic constant

@@ -545,6 +545,17 @@ MATRIX: dict[str, Route] = {
     "POST /api/self/stopped": Route(
         requires="machine", overrides={"owner": 404}, body={}
     ),
+    "POST /api/self/activity": Route(
+        # T-a1d7 report_activity: a self-op at the AGENT floor, deliberately one
+        # step above the other /api/self/* rows. Those resolve a roster member;
+        # this one only touches an in-memory store keyed on the verified sub, so
+        # an outsource worker (no member row) must pass — which is why the floor
+        # is agent rather than machine, and why the warden face is the row's
+        # teeth (403, below the floor). Every at-floor identity gets a plain 200:
+        # the report needs no roster row, so there is no 404 face here.
+        requires="agent",
+        body={"state": "idle"},
+    ),
     "POST /api/self/refocus": Route(
         # restart_self: a self-op at the machine floor. owner (sub="owner") has
         # no roster row → 404 (self-op is agent-only by construction). Every

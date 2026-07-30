@@ -276,6 +276,26 @@ telemetry 只在成員被解僱時清、**斷線不清**,所以資料會比回�
   未登入 / 過期 / registry fallback)、`MonitorPage.machine-id.test.tsx`(合併欄的結構
   不變量)。
 
+## 監控 › AI 會話表:活動欄(T-a1d7)
+
+`online` 只說「持著一條 SSE」,**不說模型在不在跑 turn**。活動欄是那個問題的答案,
+是與 presence **正交**的第二個維度(權威 spec:`docs/design/activity-model.md`)。
+
+- **裁決在 server**(`activity_state`,四態 `active`/`idle`/`unknown`/`never`)。
+  FE **只做格式化**:`formatDuration(now - anchor)`,沿用 RepliesPage 已等你 /
+  TasksPage 已歷時同一個函數。🔴 **不准拿 `workingSince` 跟自己的時鐘比去推「他還在
+  不在工作」**——與機器表 `hardwareStale` 同一條既有裁定,門檻只有一個家。
+- **ticking 在 `MonitorPage` 頁面層**(30s `setInterval`),不在 row 元件內各起一個
+  timer;純顯示,ticking 期間零 fetch(釘在 `MonitorPage.activity.test.tsx`)。
+- **wire 字串的收斂只有一個 seam**:`mappers.ts::toActivityState`,正職列與外包列共用。
+  不認得的字 → `"never"`(誠實留白),**絕不是** `as ActivityState` 硬轉——硬轉會讓
+  未來的新字直接穿過 render 分支變成沒有標籤的空格子。
+- **一個 `ActivityCell`,兩種列共用**:`unknown` 是「顯示主張 + 掛 `mon-bad` 標記」,
+  **不是**改寫成 idle(那會捏造一個沒觀察到的結束);沒有錨點的 idle 只印「閒置」,
+  **永不印「0 分鐘前」**。
+- 護欄:`MonitorPage.activity.test.tsx`、`api/mappers.activity.test.ts`,版面走既有的
+  `monitor-table-longtoken.ct.spec.tsx`(story 內含活動欄的雙元素儲存格)。
+
 ## 長 token 溢出:單一來源在 `.doc-md` 基底(T-d451)
 owner/agent 自由文字會帶**不可斷的長 token**(長 URL、40-hex sha、無空白長字)。
 沒有斷點時它把容器 min-content 撐到 token 全寬,容器不肯縮、撐破手機視窗,**整頁**

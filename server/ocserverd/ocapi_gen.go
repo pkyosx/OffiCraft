@@ -73,6 +73,34 @@ func (e WebhookEndpointDTOPlatform) Valid() bool {
 	}
 }
 
+// ActivityReportDTO Body for “POST /api/self/activity“ — one turn-boundary report from a runtime (identity from the token “sub“, NO agent_id parameter; §14 self-op).
+//
+// This is an INGESTION face for automation (a Claude Code hook, the Codex sidecar), deliberately kept OFF the MCP surface: an agent must never be able to hand-write a claim about whether it is working.
+//
+// “turn_id“ / “session_id“ / “seq“ are the de-duplication and ordering keys. Everything except “state“ is optional, so the simplest possible reporter is “{"state":"idle"}“.
+type ActivityReportDTO struct {
+	// Runtime Which runtime produced this report ('claude' / 'codex'). Observation only — it never changes the verdict.
+	Runtime *string `json:"runtime,omitempty"`
+
+	// Seq A reporter-monotonic sequence number, scoped to session_id. Used ONLY to drop out-of-order reports; never displayed, and never used as a timestamp (the server stamps its own receive time — a reporter on another box may have a skewed clock).
+	Seq *float64 `json:"seq,omitempty"`
+
+	// SessionId The reporter's session identity — the scope of ``seq``. A changed session_id resets the sequence baseline and discards any turn claim held from the previous session.
+	SessionId *string `json:"session_id,omitempty"`
+
+	// State 'active' (a turn just began) or 'idle' (a turn just ended). Any other value is a 400 — the closed set is the whole point of this face.
+	State string `json:"state"`
+
+	// TurnId The turn this report is about. An 'idle' whose turn_id names a DIFFERENT turn than the one currently claimed is ignored, so a late report from the previous turn cannot end the current one.
+	TurnId *string `json:"turn_id,omitempty"`
+}
+
+// ActivityReportResultDTO Receipt for “POST /api/self/activity“. “accepted“ is false when the report was dropped as stale or duplicate (an out-of-order “seq“, or an “idle“ for a turn that is not the claimed one) — a 200 with accepted=false is a successful, idempotent no-op, not an error. “activity_state“ echoes the caller's state AFTER the report so a reporter can log what the server concluded.
+type ActivityReportResultDTO struct {
+	Accepted      bool   `json:"accepted"`
+	ActivityState string `json:"activity_state"`
+}
+
 // AgentContextDTO Echo of a stored gauge entry (“POST /api/agent/context“ response).
 type AgentContextDTO struct {
 	AgentId string `json:"agent_id"`
@@ -903,8 +931,11 @@ type MonitoringMachineDTO struct {
 // from), honest-empty until a source reports one — mirrors the “account“ tag
 // the accounts[] fold groups by, so the per-member detail row can show it.
 type MonitoringSessionDTO struct {
-	Account    *string  `json:"account,omitempty"`
-	BankedCost *float64 `json:"banked_cost,omitempty"`
+	Account *string `json:"account,omitempty"`
+
+	// ActivityState The SERVER's verdict on whether this session is mid-turn — a dimension ORTHOGONAL to presence (online is only 'it holds an SSE stream'). Closed set: 'active' (a turn is running and the agent is online), 'idle' (a turn ended and none is running), 'unknown' (a turn was claimed but no end signal arrived within the server's max-turn window — the claim is kept, NOT rewritten into a fabricated idle), 'never' (no activity was ever reported: an old runtime, or a server that restarted — the store is in-memory by contract). Optional-with-default: absent reads as 'never' for older clients. The FE formats the two stamps below; it never re-derives this verdict from them.
+	ActivityState *string  `json:"activity_state,omitempty"`
+	BankedCost    *float64 `json:"banked_cost,omitempty"`
 
 	// CompactionCount Codex App Server compactions in this live session; null for Claude or before the first Codex report.
 	CompactionCount *int     `json:"compaction_count,omitempty"`
@@ -912,15 +943,21 @@ type MonitoringSessionDTO struct {
 	Cost            *float64 `json:"cost,omitempty"`
 	Effort          *string  `json:"effort,omitempty"`
 	Id              string   `json:"id"`
-	Machine         *string  `json:"machine,omitempty"`
-	Model           *string  `json:"model,omitempty"`
-	Name            string   `json:"name"`
-	Presence        *string  `json:"presence,omitempty"`
-	Role            *string  `json:"role,omitempty"`
+
+	// LastTurnCompletedAt Epoch seconds of the last turn END the server OBSERVED, null when none was ever observed. Deliberately NOT stamped on an SSE drop: a vanished session is not an observed completion, and inventing one would be a lie. Additive-optional.
+	LastTurnCompletedAt *float64 `json:"last_turn_completed_at,omitempty"`
+	Machine             *string  `json:"machine,omitempty"`
+	Model               *string  `json:"model,omitempty"`
+	Name                string   `json:"name"`
+	Presence            *string  `json:"presence,omitempty"`
+	Role                *string  `json:"role,omitempty"`
 
 	// Runtime The session's selected provider runtime.
 	Runtime *AgentRuntime   `json:"runtime,omitempty"`
 	Tokens  *map[string]int `json:"tokens,omitempty"`
+
+	// WorkingSince Epoch seconds the CURRENT turn started (server receive time, never the reporter's clock — an agent on another box may have a skewed one), null unless activity_state is 'active' or 'unknown'. The FE only formats now − this into a duration; the verdict itself is the server's.
+	WorkingSince *float64 `json:"working_since,omitempty"`
 }
 
 // MyTaskDTO The outsource worker's claim (GET /api/self/task, identity-locked): the task bound to the caller's JWT sub plus the type's manual snapshot (SOP + learnings; null for an ad-hoc task). The FIRST claim flips the worker assigned → active.
@@ -951,6 +988,9 @@ type OnboardingStepDTO struct {
 type OutsourceWorkerDTO struct {
 	// Account The Claude account this worker's session runs under (telemetry entry keyed by the worker's actor id — the SAME per-actor telemetry the member roster reads). null when the worker has not reported one (never fabricated). T-f190 additive-optional.
 	Account *string `json:"account,omitempty"`
+
+	// ActivityState The SERVER's verdict on whether this worker is mid-turn — the SAME orthogonal activity dimension MonitoringSessionDTO carries, derived by the SAME pure function (one derivation, two wires). Closed set: active / idle / unknown / never. Optional-with-default: absent reads as 'never' for older clients.
+	ActivityState *string `json:"activity_state,omitempty"`
 
 	// AvatarUrl Authenticated URL of this stable outsource-worker id's personal raster avatar. Empty means the client uses the outsource theme avatar or built-in glyph. Additive-optional.
 	AvatarUrl *string `json:"avatar_url,omitempty"`
@@ -998,6 +1038,9 @@ type OutsourceWorkerDTO struct {
 	// LastOpReason The last warden receipt's structured one-line failure reason — the worker twin of member.last_op_reason. T-f190 additive-optional.
 	LastOpReason *string `json:"last_op_reason,omitempty"`
 
+	// LastTurnCompletedAt Epoch seconds of the last turn END the server OBSERVED for this worker, null when none was ever observed — the worker twin of MonitoringSessionDTO.last_turn_completed_at (same derivation). Additive-optional.
+	LastTurnCompletedAt *float64 `json:"last_turn_completed_at,omitempty"`
+
 	// Machine The machine the worker's session was ACTUALLY dispatched to (last_spawn_target resolved to its registry display name) — the REAL placement result, NOT the manual's preference. "" when never dispatched (未分配 — the panel renders "尚未分配", never a fabricated machine). T-f190 additive-optional.
 	Machine *string `json:"machine,omitempty"`
 	Model   *string `json:"model,omitempty"`
@@ -1017,6 +1060,9 @@ type OutsourceWorkerDTO struct {
 
 	// UnreadCount The CALLER's unread chat-message count for this worker's conversation (the same chat_read watermark inverse the member roster serves) — the office 外包 row's red badge. Optional-with-default: absent reads as 0 for older clients.
 	UnreadCount *int `json:"unread_count,omitempty"`
+
+	// WorkingSince Epoch seconds the worker's CURRENT turn started (server receive time), null unless activity_state is 'active' or 'unknown' — the worker twin of MonitoringSessionDTO.working_since. Additive-optional.
+	WorkingSince *float64 `json:"working_since,omitempty"`
 }
 
 // OutsourceWorkerModelDTO Change an outsource worker's runtime/model/effort (POST /api/outsource-workers/{id}/model, T-f190). runtime is optional (null/absent ⇒ keep current); model is the launch model (blank ⇒ the selected runtime's default); effort is optional (null/absent ⇒ keep current). The worker twin of the member runtime/model/effort edit.
@@ -2099,6 +2145,9 @@ type HandleCreateRoleApiRolesPostJSONRequestBody = RoleCreateDTO
 // HandleUpdateRoleApiRolesRolePostJSONRequestBody defines body for HandleUpdateRoleApiRolesRolePost for application/json ContentType.
 type HandleUpdateRoleApiRolesRolePostJSONRequestBody = RoleDefUpdateDTO
 
+// HandleReportActivityApiSelfActivityPostJSONRequestBody defines body for HandleReportActivityApiSelfActivityPost for application/json ContentType.
+type HandleReportActivityApiSelfActivityPostJSONRequestBody = ActivityReportDTO
+
 // HandleRestartSelfApiSelfRefocusPostJSONRequestBody defines body for HandleRestartSelfApiSelfRefocusPost for application/json ContentType.
 type HandleRestartSelfApiSelfRefocusPostJSONRequestBody = RestartSelfDTO
 
@@ -2410,6 +2459,9 @@ type ServerInterface interface {
 	// Reset a role definition to seed (idempotent tombstone overlay).
 	// (POST /api/roles/{role}/reset)
 	HandleResetRoleApiRolesRoleResetPost(w http.ResponseWriter, r *http.Request, role string)
+	// report_activity(): record the caller's turn boundary (active/idle).
+	// (POST /api/self/activity)
+	HandleReportActivityApiSelfActivityPost(w http.ResponseWriter, r *http.Request)
 	// restart_self(): self-triggered recycle (online-only 409; min-liveness 429).
 	// (POST /api/self/refocus)
 	HandleRestartSelfApiSelfRefocusPost(w http.ResponseWriter, r *http.Request)
@@ -4567,6 +4619,20 @@ func (siw *ServerInterfaceWrapper) HandleResetRoleApiRolesRoleResetPost(w http.R
 	handler.ServeHTTP(w, r)
 }
 
+// HandleReportActivityApiSelfActivityPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleReportActivityApiSelfActivityPost(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleReportActivityApiSelfActivityPost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // HandleRestartSelfApiSelfRefocusPost operation middleware
 func (siw *ServerInterfaceWrapper) HandleRestartSelfApiSelfRefocusPost(w http.ResponseWriter, r *http.Request) {
 
@@ -5688,6 +5754,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/roles/{role}", wrapper.HandleGetRoleApiRolesRoleGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/roles/{role}", wrapper.HandleUpdateRoleApiRolesRolePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/roles/{role}/reset", wrapper.HandleResetRoleApiRolesRoleResetPost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/self/activity", wrapper.HandleReportActivityApiSelfActivityPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/self/refocus", wrapper.HandleRestartSelfApiSelfRefocusPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/self/stopped", wrapper.HandleReportStoppedApiSelfStoppedPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/self/stopping", wrapper.HandleReportStoppingApiSelfStoppingPost)

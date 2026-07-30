@@ -65,6 +65,10 @@ func (s *apiServer) projectWorker(
 		},
 		accountDisplay: accountDisplay,
 		delegatedBy:    s.workerDelegatedName(task),
+		// T-a1d7: read per row rather than snapshotting the whole store — the
+		// worker set is small, and both callers (list loop + single GET) go
+		// through here, so there is exactly one place this can drift from.
+		activityEntry: s.activityEntryOf(worker.ID),
 	})
 }
 

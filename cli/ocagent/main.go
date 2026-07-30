@@ -43,6 +43,7 @@ import (
 var planeASubcommands = []struct{ name, help string }{
 	{"listen", "hold the SSE downlink: chat (refetch) + work wakes"},
 	{"context-report", "statusLine reporter: stdin statusLine JSON → POST /api/agent/context"},
+	{"report-activity", "turn-boundary reporter (Claude Code hook): --state active|idle"},
 	{"suicide", "self-terminate: kill my own tmux session (OC_SESSION) → SSE drops → offline"},
 	{"download", "fetch a chat attachment blob to a local file (streaming; --out <dir>)"},
 	{"upload", "stream a local file into the attachment store (prints the att id; --mime <type>)"},
@@ -81,6 +82,13 @@ func realMain(argv []string, env func(string) string, in io.Reader, out io.Write
 		// stamp stores/compares this float).
 		now := float64(time.Now().UnixNano()) / 1e9
 		return cmdContextReport(defaultHTTPClient(), cfg, env, now, in, out, os.Stderr)
+
+	case "report-activity":
+		// The turn-boundary reporter (T-a1d7), driven by the Claude Code hooks
+		// the warden installs. Writes NOTHING to `out` — a UserPromptSubmit
+		// hook's stdout is injected into the model's context — and always
+		// returns 0 so a hook can never fail a turn. See activity.go.
+		return cmdReportActivity(defaultHTTPClient(), cfg, rest, time.Now(), in, os.Stderr)
 
 	case "listen":
 		// The canonical SSE downlink: hold GET /api/events open (⇒ server-projected

@@ -445,7 +445,7 @@ owner 的座艙有一頁「任務」。**任務 = 一件帶完成準則（DoD）
 
 工具目錄會演進，別在腦中背一份固定清單——一律問**權威來源**：
 
-- **CLI 指令以 `ocagent --help` 為準。** golang `ocagent` 你會用到的子指令：`listen`（＝存活訊號，持久 SSE 監聽；由 runtime 照 Boot Sequence 持有）＋ `download`（把收到的聊天附件抓成本地檔，見 §4）＋ `context-report`（由 runtime adapter 自動呼叫，**不是你手動跑**）。**其餘一律走 MCP，不是 CLI**——presence 自報走 MCP（`report_waking`／`report_stopping`／`report_stopped`）；查 roster、送訊走對應 MCP 工具（`post_chat` 等，確切名以 `tools/list` 為準）。
+- **CLI 指令以 `ocagent --help` 為準。** golang `ocagent` 你會用到的子指令：`listen`（＝存活訊號，持久 SSE 監聽；由 runtime 照 Boot Sequence 持有）＋ `download`（把收到的聊天附件抓成本地檔，見 §4）＋ `context-report`（由 runtime adapter 自動呼叫，**不是你手動跑**）＋ `report-activity`（turn 邊界回報，由 runtime 的 hook 自動觸發，**同樣不是你手動跑**——它送的是「我這一輪開始／結束了」，你手動呼叫等於自己謊報工作狀態，而監控頁上那個「工作中多久」正是靠它才可信）。**其餘一律走 MCP，不是 CLI**——presence 自報走 MCP（`report_waking`／`report_stopping`／`report_stopped`）；查 roster、送訊走對應 MCP 工具（`post_chat` 等，確切名以 `tools/list` 為準）。
 - **MCP 工具以 `tools/list` 為準。** 做事／治理（送訊 `post_chat`、查 roster、學習 doc…）都走 MCP。
 - **⚠️ `tools/list` 是「這個系統有哪些工具」，不是「你有權呼叫哪些」。** 目錄對所有人一樣；權限由 server 在呼叫時判。owner 2026-07-26 把 19 個營運工具（`get_settings`／`update_settings`／`check_release`／`upgrade_station`／`list_webhook_requests`／`answer_reply_card`／`reanswer_reply_card`／`expire_reply_card`／`install_warden_on_server_host`／`uninstall_warden_on_server_host`／`upgrade_warden`／`terminate_task`／`post_task_message`／`get_outsource_worker_boot_context`／`refocus_outsource_worker`／`stop_outsource_worker`／`restart_outsource_worker`／`set_outsource_worker_model`／`delete_task_manual`）開放到 **admin 助理**這一級，所以它們現在會出現在你的目錄裡——**但你如果不是 admin 助理，呼叫一律 403**。看到 403 不是 bug、不要重試、不要找繞路：那是治理邊界，該做的是在 chat 裡請 owner 或助理處理。
 

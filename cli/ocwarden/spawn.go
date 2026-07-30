@@ -170,14 +170,74 @@ func buildMCPConfig(base, token string) string {
 	return sb.String()
 }
 
+// activityHookTimeoutSecs bounds each turn-boundary hook. Short on purpose:
+// this runs on EVERY prompt of EVERY Claude agent, so a hung server must cost
+// the turn a few seconds at most. `ocagent report-activity` exits 0 regardless,
+// so a timeout is a lost display detail, never a failed turn.
+const activityHookTimeoutSecs = 5
+
 // buildStatuslineSettings is the port of build_statusline_settings: the Claude
 // Code settings.json wiring the statusLine to the context reporter (json.dumps
-// indent=2 + a trailing newline).
+// indent=2 + a trailing newline), PLUS — since T-a1d7 — the turn-boundary hooks
+// that feed the activity dimension.
+//
+// WHY hooks live in this same file: `hooks` and `statusLine` coexist in one
+// settings.json (verified locally), so no second settings file and no change to
+// the --settings wiring is needed. Identity is already solved too — a hook runs
+// the workdir's `ocagent` shim with the workdir's .oc-token and OC_ID, i.e. the
+// exact wiring the statusLine reporter has used all along. No new credential
+// channel is introduced.
+//
+// WHY these four events (recon'd against the upstream hook docs, not assumed):
+//   - UserPromptSubmit — the only signal that a turn BEGAN.
+//   - Stop — a turn ended normally.
+//   - StopFailure — REPLACES Stop when the turn ends on an API error; without
+//     it that entire failure class would stay claimed as "working" until the
+//     server's max-turn window expired.
+//   - SessionEnd — covers a session torn down mid-turn (e.g. /clear).
+//
+// KNOWN GAPS, stated rather than papered over: a user pressing ESC fires
+// nothing at all (documented upstream behaviour), and a killed process fires
+// nothing either. Neither is covered here by design — the first degrades into
+// the server's `unknown` verdict, the second is caught by the SSE drop.
+//
+// FLEET RISK: this changes the launch settings of EVERY Claude agent. The
+// mitigations are (a) the reporter always exits 0, (b) it never writes stdout
+// (a UserPromptSubmit hook's stdout is injected into the model's context), (c)
+// the short timeout above, (d) the golden file, which makes any edit here
+// impossible to land unnoticed, and (e) rollback needs no cleanup: settings.json
+// is rewritten on every spawn, so an older binary simply stops emitting the
+// block. An in-flight agent left holding these hooks calls a subcommand an old
+// ocagent does not know; the hook fails, and a failing hook does not block the
+// turn.
 func buildStatuslineSettings() string {
+	hook := func(event string, state string, last bool) string {
+		comma := ","
+		if last {
+			comma = ""
+		}
+		return "    \"" + event + "\": [\n" +
+			"      {\n" +
+			"        \"hooks\": [\n" +
+			"          {\n" +
+			"            \"type\": \"command\",\n" +
+			"            \"command\": \"ocagent report-activity --state " + state + "\",\n" +
+			"            \"timeout\": " + fmt.Sprintf("%d", activityHookTimeoutSecs) + "\n" +
+			"          }\n" +
+			"        ]\n" +
+			"      }\n" +
+			"    ]" + comma + "\n"
+	}
 	return "{\n" +
 		"  \"statusLine\": {\n" +
 		"    \"type\": \"command\",\n" +
 		"    \"command\": \"ocagent context-report\"\n" +
+		"  },\n" +
+		"  \"hooks\": {\n" +
+		hook("UserPromptSubmit", "active", false) +
+		hook("Stop", "idle", false) +
+		hook("StopFailure", "idle", false) +
+		hook("SessionEnd", "idle", true) +
 		"  }\n" +
 		"}\n"
 }

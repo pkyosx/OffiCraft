@@ -199,6 +199,144 @@ func StoppingTimedOut(m Member, now float64, online bool) bool {
 		now-m.StoppingSince > StoppingTimeoutSecs
 }
 
+// ── activity: the turn dimension, ORTHOGONAL to presence (T-a1d7) ────────────
+//
+// `online` answers "does it hold an SSE stream" and nothing else (§3 of the
+// constitution / state-model.md — two states, no heartbeat, no TTL). It does NOT
+// answer "is the model running a turn right now", which is what the owner
+// actually wants to see on the monitor page. Activity is therefore a SECOND,
+// independent dimension with its own vocabulary and its own store; it never
+// touches deriveLiveness, PresenceState, or the five presence words.
+//
+// ⚠️ Do NOT fold this into deriveLiveness. Presence and activity are different
+// questions with different failure modes, and merging their vocabularies is how
+// "offline" and "not currently working" become the same word.
+const (
+	// ActivityActive — a turn is claimed AND the agent is online AND the claim
+	// is younger than activityMaxTurnSecs.
+	ActivityActive = "active"
+	// ActivityIdle — no turn is claimed (the runtime told us the turn ended, or
+	// the agent is not online so no claim may be honoured).
+	ActivityIdle = "idle"
+	// ActivityUnknown — a turn was claimed and NO end signal ever arrived within
+	// the window. Deliberately NOT rewritten into "idle": we did not observe it
+	// stopping, we observed it going quiet. The working_since anchor is KEPT so
+	// the owner reads "claims to have been working 47m" — which is precisely the
+	// moment to go look. Same discipline as hardware_stale (mark, never fabricate).
+	ActivityUnknown = "unknown"
+	// ActivityNever — nothing was ever reported for this actor: an old runtime
+	// with no hooks, or a server that restarted (the store is in-memory by
+	// contract — state-model.md observed/intent split).
+	ActivityNever = "never"
+)
+
+// activityMaxTurnSecs is how long a CLAIMED but unfinished turn keeps reading as
+// "active" before it degrades to "unknown". 45 minutes, owner-decided
+// (rc-3b18366fbe04, 2026-07-28).
+//
+// It answers ONE question: the agent is still online, but this turn sent no end
+// signal — how long before we stop claiming it is working? Too low and every
+// genuinely long job gets flagged, and the owner stops trusting the column; too
+// high and a Claude user who pressed ESC (no Stop hook fires — documented
+// upstream behaviour, not a crash) keeps reading "working" for a long time,
+// which is the column actively lying.
+//
+// ⚠️ NOT interchangeable with ZombieConfirmGrace (180s, reconcile.go). That one
+// answers a CONNECTION question — how long a drop must last before it stops
+// being a network blip — and activity reuses it verbatim for exactly that
+// (activityReconnectKeepsClaim). Two different quantities; never substitute one
+// for the other, and never mint a third number for either.
+const activityMaxTurnSecs = 2700.0
+
+// activityClaim is the normalized, storage-free input to deriveActivity: what
+// the store currently holds about one actor. Zero value = nothing was ever
+// reported (⇒ ActivityNever), which is exactly what an absent store entry means.
+type activityClaim struct {
+	// Reported is true once ANY report has landed for this actor. It is what
+	// separates "we know this agent is not in a turn" from "we know nothing
+	// about this agent" — an agent whose first act is to report idle (a fresh
+	// Claude session firing SessionEnd, say) is genuinely in a KNOWN idle state
+	// even though it has never completed a turn here.
+	Reported bool
+	// Active is true while a turn claim is held (an "active" report that no
+	// matching "idle" has closed and no reconnect has discarded).
+	Active bool
+	// Since is the SERVER's receive time for the report that opened the current
+	// claim. Server time, never the reporter's: an agent on another box with a
+	// skewed clock would otherwise render as "working -3 minutes".
+	Since float64
+	// LastEnd is the server receive time of the last turn end we OBSERVED, 0
+	// when none. Stamped only when an idle report actually CLOSES a claim —
+	// never on a bare idle (nothing ended) and never on an SSE drop (a session
+	// that vanished is not a session that finished; inventing a completion time
+	// would be a lie).
+	LastEnd float64
+}
+
+// deriveActivity is the ONE verdict function for the activity dimension, shared
+// by both wires (MonitoringSessionDTO and OutsourceWorkerDTO) — the same
+// "one derivation, two wires" shape foldActorRuntime already uses. Pure.
+//
+// `online` is the caller-supplied SSE fact (hub.IsOnline) and acts as a GATE,
+// not as an input to the claim: an actor that is not online can never READ as
+// active or unknown, however fresh its claim. That is how "an offline agent must
+// never render as working" is satisfied WITHOUT deleting the claim — deleting is
+// irreversible, gating is not, and a claim deleted on a 3-second network blip
+// can never be recovered for the rest of that turn.
+//
+// Returns the wire triple: state, working_since (nil unless active/unknown), and
+// last_turn_completed_at (nil when nothing was ever observed to end).
+func deriveActivity(c activityClaim, online bool, now float64) (string, *float64, *float64) {
+	var lastEnd *float64
+	if c.LastEnd > 0 {
+		end := c.LastEnd
+		lastEnd = &end
+	}
+	if !c.Reported {
+		return ActivityNever, nil, lastEnd
+	}
+	if c.Active && online {
+		since := c.Since
+		if now-c.Since > activityMaxTurnSecs {
+			return ActivityUnknown, &since, lastEnd
+		}
+		return ActivityActive, &since, lastEnd
+	}
+	return ActivityIdle, nil, lastEnd
+}
+
+// activityReconnectKeepsClaim decides, at the SSE first-connect edge, whether a
+// turn claim held from before the drop survives.
+//
+// `grace` is the caller-supplied reconcileConfig.ZombieConfirmGrace (180s),
+// reused ON PURPOSE rather than minting a second number. That value was derived
+// for THIS EXACT question — "presence-deaf" vs "reconnecting through a network
+// blip" are indistinguishable at the instant of the drop (reconcile.go,
+// 2026-07-20 incident) — and it is sized to cover an agent's worst honest
+// reconnect. Blips are not rare here: two drop→auto-reconnect cycles were
+// observed within a single session while writing this, each `stream ended:
+// unexpected EOF` followed immediately by a reconnect, with the turn never
+// interrupted. A rule that discards application state on every drop would
+// misfire constantly, and because Claude only signals again at the turn
+// boundary, the rest of that turn would be unrecoverable.
+//
+// This answers ONE question: "is this reconnect close enough to the drop that
+// the turn never really stopped?" — so offlineSince == 0 (no drop was ever
+// recorded) is answered `false` because there is no reconnect to survive, NOT
+// because the claim should be thrown away.
+//
+// ⚠️ Those two readings are not the same, and conflating them destroyed the
+// boot turn once: the caller must decide "is there even a drop to judge?"
+// BEFORE consulting this function. activityOnConnect does exactly that, and the
+// comment there explains why the 0→1 edge is a normal, frequent event rather
+// than a corner case.
+func activityReconnectKeepsClaim(offlineSince, now, grace float64) bool {
+	if offlineSince <= 0 {
+		return false
+	}
+	return now-offlineSince < grace
+}
+
 // ── member: display Member-ID projection ─────────────────────────────────────
 
 // MemberNo derives the display Member-ID ("MB-XXX###") for a roster id: a

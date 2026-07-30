@@ -218,6 +218,13 @@
   },
   {
     "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/self/activity",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
     "mcp_tool": "restart_self",
     "method": "POST",
     "path": "/api/self/refocus",
