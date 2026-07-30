@@ -1,6 +1,6 @@
-// T-cd6f real-browser guard for the persistent theme-avatar index editor.
+// T-cd6f real-browser guard for the persistent theme-avatar chooser.
 // It mounts the production WorkerDetailPanel at the required mobile, tablet,
-// and desktop widths, exercises keyboard commit, and records evidence.
+// and desktop widths, exercises keyboard selection, and records evidence.
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Page } from "@playwright/test";
 import { WorkerDetailPanelTaskOrderStory } from "./stories/WorkerDetailPanelTaskOrderStory";
@@ -24,22 +24,21 @@ async function expectNoHorizontalOverflow(page: Page, width: number) {
 }
 
 for (const width of [390, 768, 1280]) {
-  test(`width ${width}: avatar index is keyboard editable without overflow`, async ({
+  test(`width ${width}: avatar is visually selectable by keyboard without overflow`, async ({
     mount,
     page,
   }) => {
     await page.setViewportSize({ width, height: 900 });
     const cmp = await mount(<WorkerDetailPanelTaskOrderStory />);
-    const input = cmp.getByRole("spinbutton", { name: "頭像索引" });
+    const choices = cmp.getByRole("radiogroup", { name: "選擇頭像" });
+    const radios = choices.getByRole("radio");
 
-    await expect(input).toHaveValue("14");
-    await input.focus();
-    await input.fill("27");
-    await expect(
-      cmp.getByRole("button", { name: "儲存頭像索引" }),
-    ).toBeEnabled();
-    await page.keyboard.press("Enter");
-    await expect(input).toHaveValue("27");
+    expect(await radios.count()).toBeGreaterThan(1);
+    await expect(cmp.getByRole("spinbutton")).toHaveCount(0);
+    await expect(radios.first()).toHaveAttribute("aria-checked", "true");
+    await radios.nth(1).focus();
+    await page.keyboard.press("Space");
+    await expect(radios.nth(1)).toHaveAttribute("aria-checked", "true");
 
     await expectNoHorizontalOverflow(page, width);
     await page.screenshot({

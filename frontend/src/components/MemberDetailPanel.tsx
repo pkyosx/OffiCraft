@@ -794,9 +794,9 @@ export function MemberDetailPanel({
         {onUpdateAvatarIndex && (
           <AvatarIndexEditor
             value={member.avatarIndex}
+            kind="member"
             onSave={onUpdateAvatarIndex}
             label={t.mp.avatarIndexLabel}
-            saveLabel={t.mp.avatarIndexSave}
             savingLabel={t.mp.avatarIndexSaving}
             errorLabel={t.mp.avatarIndexError}
           />

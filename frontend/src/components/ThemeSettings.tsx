@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { en } from "../i18n/locales/en";
 import { zh } from "../i18n/locales/zh";
@@ -48,6 +48,7 @@ import {
   UserIcon,
 } from "./icons";
 import { ConfirmModal } from "./ConfirmModal";
+import { ThemeAvatarPoolModal } from "./ThemeAvatarPoolModal";
 import "./theme-settings.css";
 
 type View = "list" | "import" | "edit";
@@ -175,6 +176,12 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
     kind: PoolAvatarKind;
     index: number;
   } | null>(null);
+  const [avatarPoolModalKind, setAvatarPoolModalKind] =
+    useState<PoolAvatarKind | null>(null);
+  const avatarPoolTriggerRefs = {
+    member: useRef<HTMLButtonElement>(null),
+    outsource: useRef<HTMLButtonElement>(null),
+  };
   const [avatarError, setAvatarError] = useState("");
   const avatarInputRefs = {
     member: useRef<HTMLInputElement>(null),
@@ -368,6 +375,7 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
       outsource: [...(bundle.avatarPools?.outsource ?? [])],
     });
     setAvatarError("");
+    setAvatarPoolModalKind(null);
     setEditLogo(bundle.logo ?? "");
     setEditNavIcons({ ...(bundle.navIcons ?? {}) });
     setEditCanvasBg(bundle.backgrounds?.canvas ?? "");
@@ -470,15 +478,11 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
     }));
   }
 
-  function movePoolAvatar(kind: PoolAvatarKind, index: number, delta: -1 | 1) {
-    setEditAvatarPools((prev) => {
-      const values = [...(prev[kind] ?? [])];
-      const target = index + delta;
-      if (target < 0 || target >= values.length) return prev;
-      [values[index], values[target]] = [values[target], values[index]];
-      return { ...prev, [kind]: values };
-    });
-  }
+  const closeAvatarPoolModal = useCallback(() => {
+    const kind = avatarPoolModalKind;
+    setAvatarPoolModalKind(null);
+    if (kind) requestAnimationFrame(() => avatarPoolTriggerRefs[kind].current?.focus());
+  }, [avatarPoolModalKind]);
 
   async function handleLogoPicked(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -962,67 +966,56 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
               return (
                 <div key={kind} className="ts-avatar-slot">
                   <div className="ts-avatar-label">{t.settings[labelKey]}</div>
-                  {isPool && pool.length > 0 && (
-                    <div className="ts-avatar-slots">
-                      {pool.map((item, index) => (
-                        <div key={`${kind}-${index}`} className="ts-avatar-row">
+                  {isPool ? (
+                    <div className="ts-avatar-pool-summary">
+                      <div className="ts-avatar-pool-summary__previews">
+                        {pool.slice(0, 4).map((item, index) => (
                           <span
+                            key={`${kind}-${index}`}
                             className="avatar ts-avatar-preview"
-                            style={{ width: 48, height: 48 }}
+                            style={{ width: 40, height: 40 }}
                           >
                             <img
                               className="avatar__img"
                               src={item}
                               alt=""
-                              width={48}
-                              height={48}
+                              width={40}
+                              height={40}
                               draggable={false}
                             />
                           </span>
-                          <span>#{index}</span>
-                          <button
-                            type="button"
-                            className="doc-btn"
-                            disabled={index === 0}
-                            aria-label={`${t.settings.themeAvatarMoveUp} ${index + 1}`}
-                            onClick={() => movePoolAvatar(kind, index, -1)}
-                          >
-                            ↑
-                          </button>
-                          <button
-                            type="button"
-                            className="doc-btn"
-                            disabled={index === pool.length - 1}
-                            aria-label={`${t.settings.themeAvatarMoveDown} ${index + 1}`}
-                            onClick={() => movePoolAvatar(kind, index, 1)}
-                          >
-                            ↓
-                          </button>
-                          <button
-                            type="button"
-                            className="doc-btn"
-                            aria-label={`${t.settings.themeAvatarReplace} ${index + 1}`}
-                            onClick={() => {
-                              avatarReplaceTargetRef.current = { kind, index };
-                              avatarInputRefs[kind].current?.click();
-                            }}
-                          >
-                            {t.settings.themeAvatarReplace}
-                          </button>
-                          <button
-                            type="button"
-                            className="doc-btn"
-                            aria-label={`${t.settings.themeAvatarRemove} ${index + 1}`}
-                            onClick={() => removePoolAvatar(kind, index)}
-                          >
-                            {t.settings.themeAvatarRemove}
-                          </button>
-                        </div>
-                      ))}
+                        ))}
+                        {pool.length === 0 && (
+                          <span className="ts-wording-sub">
+                            {t.settings.themeAvatarPoolEmpty}
+                          </span>
+                        )}
+                      </div>
+                      <span className="ts-wording-sub">
+                        {pool.length} / {MAX_AVATAR_POOL_ITEMS}
+                      </span>
+                      <input
+                        ref={avatarInputRefs[kind]}
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="ts-file"
+                        aria-label={t.settings[labelKey]}
+                        onChange={(e) => handleAvatarPicked(kind, e)}
+                      />
+                      <button
+                        ref={avatarPoolTriggerRefs[kind]}
+                        type="button"
+                        className="doc-btn"
+                        onClick={() => {
+                          setAvatarError("");
+                          setAvatarPoolModalKind(kind);
+                        }}
+                      >
+                        {t.settings.themeAvatarManage}
+                      </button>
                     </div>
-                  )}
-                  <div className="ts-avatar-row">
-                    {!isPool && (
+                  ) : (
+                    <div className="ts-avatar-row">
                       <span
                         className="avatar ts-avatar-preview"
                         style={{ width: 48, height: 48 }}
@@ -1040,41 +1033,71 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
                         <UserIcon size={24} className="avatar__glyph" />
                       )}
                       </span>
-                    )}
-                    <input
-                      ref={avatarInputRefs[kind]}
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp"
-                      className="ts-file"
-                      aria-label={t.settings[labelKey]}
-                      onChange={(e) => handleAvatarPicked(kind, e)}
-                    />
-                    <button
-                      type="button"
-                      className="doc-btn"
-                      disabled={isPool && pool.length >= MAX_AVATAR_POOL_ITEMS}
-                      onClick={() => {
-                        avatarReplaceTargetRef.current = null;
-                        avatarInputRefs[kind].current?.click();
-                      }}
-                    >
-                      {t.settings.themeAvatarChoose}
-                    </button>
-                    {(src || (isPool && pool.length > 0)) && (
+                      <input
+                        ref={avatarInputRefs[kind]}
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="ts-file"
+                        aria-label={t.settings[labelKey]}
+                        onChange={(e) => handleAvatarPicked(kind, e)}
+                      />
                       <button
                         type="button"
                         className="doc-btn"
-                        onClick={() => clearAvatar(kind)}
+                        onClick={() => avatarInputRefs[kind].current?.click()}
                       >
-                        {t.settings.themeAvatarClear}
+                        {t.settings.themeAvatarChoose}
                       </button>
-                    )}
-                  </div>
+                      {src && (
+                        <button
+                          type="button"
+                          className="doc-btn"
+                          onClick={() => clearAvatar(kind)}
+                        >
+                          {t.settings.themeAvatarClear}
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
           {avatarError && <div className="set-error">{avatarError}</div>}
+          {avatarPoolModalKind && (
+            <ThemeAvatarPoolModal
+              kind={avatarPoolModalKind}
+              title={t.settings[
+                avatarPoolModalKind === "member"
+                  ? "themeAvatarMember"
+                  : "themeAvatarOutsource"
+              ]}
+              hint={t.settings.themeAvatarPoolHint}
+              pool={editAvatarPools[avatarPoolModalKind] ?? []}
+              addLabel={t.settings.themeAvatarAdd}
+              replaceLabel={t.settings.themeAvatarReplace}
+              removeLabel={t.settings.themeAvatarRemove}
+              clearLabel={t.settings.themeAvatarClear}
+              closeLabel={t.settings.themeAvatarClose}
+              doneLabel={t.settings.themeAvatarDone}
+              emptyLabel={t.settings.themeAvatarPoolEmpty}
+              error={avatarError}
+              onAdd={() => {
+                avatarReplaceTargetRef.current = null;
+                avatarInputRefs[avatarPoolModalKind].current?.click();
+              }}
+              onReplace={(index) => {
+                avatarReplaceTargetRef.current = {
+                  kind: avatarPoolModalKind,
+                  index,
+                };
+                avatarInputRefs[avatarPoolModalKind].current?.click();
+              }}
+              onRemove={(index) => removePoolAvatar(avatarPoolModalKind, index)}
+              onClear={() => clearAvatar(avatarPoolModalKind)}
+              onClose={closeAvatarPoolModal}
+            />
+          )}
 
           {/* ── studio logo (工作室 logo) — single top-bar mark image ── */}
           <div className="ts-section-label">{t.settings.themeLogoSection}</div>

@@ -392,9 +392,9 @@ export function WorkerDetailPanel({
       {onUpdateAvatarIndex && (
         <AvatarIndexEditor
           value={worker.avatarIndex}
+          kind="outsource"
           onSave={onUpdateAvatarIndex}
           label={t.workerDetail.avatarIndexLabel}
-          saveLabel={t.workerDetail.avatarIndexSave}
           savingLabel={t.workerDetail.avatarIndexSaving}
           errorLabel={t.workerDetail.avatarIndexError}
         />

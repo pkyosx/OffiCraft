@@ -892,7 +892,7 @@ describe("ThemeSettings · avatar pools", () => {
     });
   }
 
-  it("replaces, reorders, removes, and appends individual pool images", async () => {
+  it("manages pool images in a grid modal without exposing reorder controls", async () => {
     setToken("owner-token");
     const utils = await renderManage();
     await importBundle(utils, {
@@ -907,27 +907,47 @@ describe("ThemeSettings · avatar pools", () => {
     const slot = input.closest(".ts-avatar-slot") as HTMLElement | null;
     if (!slot) throw new Error("member avatar slot missing");
 
+    const manageButton = within(slot).getByRole("button", {
+      name: s.themeAvatarManage,
+    });
+    fireEvent.click(manageButton);
+    const modal = utils.getByRole("dialog", { name: s.themeAvatarMember });
+    expect(modal.querySelectorAll(".ts-avatar-grid__item")).toHaveLength(2);
+    expect(
+      within(modal).queryByRole("button", { name: /圖片上移/ }),
+    ).toBeNull();
+
     fireEvent.click(
-      within(slot).getByRole("button", {
+      within(modal).getByRole("button", {
         name: `${s.themeAvatarReplace} 2`,
       }),
     );
     await choosePng(input, 3);
     fireEvent.click(
-      within(slot).getByRole("button", {
-        name: `${s.themeAvatarMoveUp} 2`,
-      }),
-    );
-    fireEvent.click(
-      within(slot).getByRole("button", {
-        name: `${s.themeAvatarRemove} 2`,
+      within(modal).getByRole("button", {
+        name: `${s.themeAvatarRemove} 1`,
       }),
     );
 
     fireEvent.click(
-      within(slot).getByRole("button", { name: s.themeAvatarChoose }),
+      within(modal).getByRole("button", { name: s.themeAvatarAdd }),
     );
     await choosePng(input, 4);
+    fireEvent.click(
+      within(modal).getByRole("button", { name: s.themeAvatarDone }),
+    );
+
+    fireEvent.click(manageButton);
+    fireEvent.keyDown(window, { key: "Escape" });
+    await act(
+      () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => resolve());
+        }),
+    );
+    expect(utils.queryByRole("dialog", { name: s.themeAvatarMember })).toBeNull();
+    expect(document.activeElement).toBe(manageButton);
+
     fireEvent.click(utils.getByRole("button", { name: p.save }));
 
     const bundle = (await api.getServerSettings()).customThemes.find(

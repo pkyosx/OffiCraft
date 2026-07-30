@@ -3,8 +3,8 @@
 // measures the ACTUAL 委託任務-vs-模型/機器 card order and the ACTUAL header
 // (short task-type label) — both of which only exist once WorkerDetailPanel's
 // own slot-wiring and identity JSX run, not the shared-panel plumbing alone.
-import { useState } from "react";
-import { I18nProvider } from "../../src/i18n";
+import { useEffect, useState } from "react";
+import { I18nProvider, useI18n } from "../../src/i18n";
 import { WorkerDetailPanel } from "../../src/components/WorkerDetailPanel";
 import type { OutsourceWorkerView } from "../../src/api/adapter";
 
@@ -33,14 +33,41 @@ const worker: OutsourceWorkerView = {
 };
 
 export function WorkerDetailPanelTaskOrderStory() {
-  const [avatarIndex, setAvatarIndex] = useState(worker.avatarIndex);
   return (
     <I18nProvider>
-      <WorkerDetailPanel
-        worker={{ ...worker, avatarIndex }}
-        onBack={() => {}}
-        onUpdateAvatarIndex={async (next) => setAvatarIndex(next)}
-      />
+      <WorkerDetailPanelWithAvatarPool />
     </I18nProvider>
+  );
+}
+
+function WorkerDetailPanelWithAvatarPool() {
+  const { commitCustomThemes } = useI18n();
+  const [avatarIndex, setAvatarIndex] = useState(worker.avatarIndex);
+
+  useEffect(() => {
+    commitCustomThemes(
+      [
+        {
+          id: "ct-avatar-pool",
+          name: "CT avatar pool",
+          colors: { "--color-accent": "#305080" },
+          avatarPools: {
+            outsource: [
+              "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z2S8AAAAASUVORK5CYII=",
+              "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAusB9Wl2J5sAAAAASUVORK5CYII=",
+            ],
+          },
+        },
+      ],
+      "ct-avatar-pool",
+    );
+  }, [commitCustomThemes]);
+
+  return (
+    <WorkerDetailPanel
+      worker={{ ...worker, avatarIndex }}
+      onBack={() => {}}
+      onUpdateAvatarIndex={async (next) => setAvatarIndex(next)}
+    />
   );
 }
