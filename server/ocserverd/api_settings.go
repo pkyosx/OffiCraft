@@ -67,6 +67,16 @@ const maxOwnerNameLen = 80
 // T-8a82) at the RFC 5321 maximum length of an address.
 const maxPushContactEmailLen = 254
 
+// maxPinnedMemberIDs bounds how many members the owner may pin (T-ed38) — the
+// setting is one JSON row, so an unbounded array is the only way to bloat it.
+// Same reasoning and same number as maxCustomThemes (theme_bundle.go) on this
+// same settings row. maxPinnedMemberIDLen caps a single entry: a member id is
+// a short slug (`m-...`) or an `ow-`+hex worker id, never a document.
+const (
+	maxPinnedMemberIDs   = 100
+	maxPinnedMemberIDLen = 64
+)
+
 // reservedEmailDomainSuffixes are the domain suffixes that cannot resolve on
 // the public internet. A VAPID subject on one of them makes Apple reject the
 // signed token wholesale (BadJwtToken) before it looks at any subscription, so
@@ -302,6 +312,52 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	} else {
 		newCustomThemes = s.displayCustomThemesSnapshot()
 	}
+	// pinned_member_ids (T-ed38): replace the whole ordered set. Validated in
+	// full BEFORE anything is written — a blank or duplicate id 422s and nothing
+	// is stored. Ids are NOT checked against the roster: a pin may legitimately
+	// outlive the member (dismissed / not yet hired on this device's view), and
+	// the renderer intersects with the live roster anyway. Rejecting orphans
+	// here would make a legal reorder fail because of an unrelated dismissal.
+	// Each id is TRIMMED FIRST and the trimmed value is what gets validated and
+	// stored — the same shape org_name / owner_name use above. Validating the
+	// trimmed form but storing the raw one would accept " m-bob ", which can
+	// never match a real member id: a permanent orphan pin the owner cannot see
+	// or clear. The duplicate check therefore also runs on trimmed values, so
+	// "m-bob" and " m-bob " cannot both land in the set.
+	pinnedProvided := body.PinnedMemberIds != nil
+	var newPinnedMemberIDs []string
+	if pinnedProvided {
+		rawPinnedMemberIDs := *body.PinnedMemberIds
+		if len(rawPinnedMemberIDs) > maxPinnedMemberIDs {
+			writeError(w, http.StatusUnprocessableEntity,
+				fmt.Sprintf("pinned_member_ids must hold at most %d ids",
+					maxPinnedMemberIDs))
+			return
+		}
+		newPinnedMemberIDs = make([]string, 0, len(rawPinnedMemberIDs))
+		seen := map[string]bool{}
+		for _, raw := range rawPinnedMemberIDs {
+			id := strings.TrimSpace(raw)
+			if id == "" {
+				writeError(w, http.StatusUnprocessableEntity,
+					"pinned_member_ids must not contain an empty id")
+				return
+			}
+			if utf8.RuneCountInString(id) > maxPinnedMemberIDLen {
+				writeError(w, http.StatusUnprocessableEntity,
+					fmt.Sprintf("pinned_member_ids ids must be at most %d characters",
+						maxPinnedMemberIDLen))
+				return
+			}
+			if seen[id] {
+				writeError(w, http.StatusUnprocessableEntity,
+					"pinned_member_ids must not contain a duplicate id: "+id)
+				return
+			}
+			seen[id] = true
+			newPinnedMemberIDs = append(newPinnedMemberIDs, id)
+		}
+	}
 	// display.theme is now validated against "" | built-in | an id in the
 	// POST-patch custom set (so a theme + its bundle can land in one PATCH).
 	customIDs := themeBundleIDSet(newCustomThemes)
@@ -433,6 +489,22 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		}
 		s.displayCustomThemes = newCustomThemes
 	}
+	// pinned_member_ids is an atomic whole-set replace (never a merge — with two
+	// devices editing, a merged order is undefined).
+	if pinnedProvided {
+		marshaled, err := json.Marshal(newPinnedMemberIDs)
+		if err != nil {
+			s.settingsMu.Unlock()
+			internalError(w, err)
+			return
+		}
+		if err := s.dal.PutSetting(settingDisplayPinnedMemberIDs, string(marshaled)); err != nil {
+			s.settingsMu.Unlock()
+			internalError(w, err)
+			return
+		}
+		s.displayPinnedMemberIDs = newPinnedMemberIDs
+	}
 	effectiveIDs := themeBundleIDSet(s.displayCustomThemes)
 	finalTheme := s.displayTheme
 	if themeProvided {
@@ -487,6 +559,11 @@ func (s *apiServer) settingsView() settingsDTO {
 	if customThemes == nil {
 		customThemes = []ThemeBundleDTO{}
 	}
+	// pinned_member_ids likewise always serialises as an array, never null.
+	pinnedMemberIDs := s.displayPinnedMemberIDs
+	if pinnedMemberIDs == nil {
+		pinnedMemberIDs = []string{}
+	}
 	return settingsDTO{
 		TokenTTL:                 s.tokenTTL,
 		HandoverPct:              s.ctxhigh.HandoverPct,
@@ -502,6 +579,7 @@ func (s *apiServer) settingsView() settingsDTO {
 		DisplayLanguage:          s.displayLanguage,
 		DisplayWide:              s.displayWide,
 		CustomThemes:             customThemes,
+		PinnedMemberIDs:          pinnedMemberIDs,
 		// Read from the DAL, NOT from the settings snapshot: onboarding runs in
 		// its own goroutine and finishes after this handler returned, so a
 		// boot-time snapshot would serve a permanently stale "running".

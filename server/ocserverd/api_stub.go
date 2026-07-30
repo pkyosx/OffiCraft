@@ -100,6 +100,12 @@ type apiServer struct {
 	// PATCH /api/settings so the set syncs across devices; display.theme may
 	// point at any id in it. NOT an agent read path.
 	displayCustomThemes []ThemeBundleDTO
+	// displayPinnedMemberIDs is the owner's manually pinned roster members (DB
+	// display.pinned_member_ids; T-ed38) — an ORDERED SET whose array order IS
+	// the pinned group's display order. nil = nothing pinned. Owner-writable via
+	// PATCH /api/settings (whole set replaced atomically, never merged) so the
+	// pins follow the owner across devices. NOT an agent read path.
+	displayPinnedMemberIDs []string
 	// selfBase is this server's OWN loopback base URL ("http://127.0.0.1:PORT"),
 	// stamped by cmdServe once the bind address is known. It exists for the ONE
 	// in-process caller that needs an OC_BASE with no HTTP request to derive it

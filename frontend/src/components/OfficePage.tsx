@@ -6,7 +6,9 @@ import { useMembers } from "../hooks/useMembers";
 import { useMonitoring } from "../hooks/useMonitoring";
 import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
 import { useIsMobile } from "../hooks/useIsMobile";
+import { usePinnedMembers } from "../hooks/usePinnedMembers";
 import { joinSessionRuntime } from "../lib/runtime";
+import { compareMembers, pinIndexOf, splitPinned } from "../lib/rosterOrder";
 import { useHashRoute } from "../lib/hashRoute";
 import { updateCachedWorkerAvatar } from "../hooks/useWorkerCodenames";
 import { MemberCard } from "./MemberCard";
@@ -66,6 +68,10 @@ export function OfficePage() {
   // Roster now comes through the typed api client (mock adapter in M1), not a
   // static import. subscribeEvents inside the hook reconciles by refetch.
   const { members, loading, error, refetch } = useMembers();
+  // T-ed38: the owner's manual pins (server-backed settings). A failed read
+  // degrades to [] — the roster then looks exactly as it did before pinning
+  // existed, which is honest rather than blank.
+  const { pinnedMemberIds, pin, unpin } = usePinnedMembers();
   // Narrow viewport → single-page navigation (roster XOR chat). The desktop
   // master-detail two-column grid is unchanged; only the phone path pivots.
   const isMobile = useIsMobile();
@@ -129,14 +135,21 @@ export function OfficePage() {
   // The office lists ONLY real AI assistants — machine-layer members (kind
   // "warden", the telemetry collector) belong to the monitoring/machine view,
   // never the office roster (Seth once mistook a warden row for an intruder).
+  // T-ed38: the display order is now four layers (pin → unread → recency →
+  // role) with an id tie-break, and it lives in lib/rosterOrder.ts as a PURE
+  // function — the old inline arrow could not be tested. The former sole rule
+  // (assistant role first) is layer 4, unchanged.
+  const pinIndex = pinIndexOf(pinnedMemberIds);
   const roster = members
     .filter((m) => m.kind === "assistant")
-    // 助理(seed assistant 角色)置頂;其餘接在後面。sort 穩定 → 各組內維持
-    // ListMembers 已排好的字母序(不必再排一次名字)。
-    .sort(
-      (a, b) =>
-        (a.role === "assistant" ? 0 : 1) - (b.role === "assistant" ? 0 : 1),
-    );
+    .sort(compareMembers(pinIndex));
+  // Pinned members always sort ahead of unpinned ones, so the group split is a
+  // prefix of the sorted list. Orphan pins (a dismissed member) are ignored
+  // here by construction — they simply never match a live row.
+  const { pinned: pinnedRoster, rest: unpinnedRoster } = splitPinned(
+    roster,
+    pinIndex,
+  );
 
   // M3 §4: the LIVE outsource workers behind the left rail's 外包 panel (and
   // the outsource chat peers — a worker id rides the SAME chatId hash slot).
@@ -235,9 +248,43 @@ export function OfficePage() {
   // drops off the LIVE worker list (task closed) both lookups miss — and a
   // 跳到原訊息 on that sender's card used to land on Mira (roster[0]) instead of
   // the origin conversation (T-661b). Only the empty-selection default falls back.
+  //
+  // 🔴 T-ed38: that default is resolved ONCE, on the first non-empty roster, and
+  // then held in a ref. Before the new ordering, roster[0] was effectively
+  // constant, so re-deriving it every render was harmless. It no longer is: the
+  // order now moves on unread and recency, and `useMembers` refetches on the
+  // `chat` topic — so with nothing selected, ANOTHER member sending a message
+  // would silently swap the conversation on screen, in the very moment the
+  // owner is most likely to be looking at it. MEASURED, not assumed: with only
+  // the comparator changed, a probe watched the chat header go Mira → Bob with
+  // zero user input (docs/T-ed38/verification.md §0.5).
+  //
+  // Scope is deliberately narrow — this changes WHEN the empty-selection
+  // default is evaluated, nothing else:
+  //   · the T-661b narrowing above is untouched (an EXPLICIT chatId that
+  //     resolves to nothing still renders its own read-only history, never
+  //     roster[0]);
+  //   · nothing is written back to the URL hash — an empty selection stays
+  //     empty, so a refresh re-resolves against the roster of that moment;
+  //   · no setSelectedId call site changes.
+  const defaultChatIdRef = useRef<string>("");
+  // Resolve against the remembered id. Two cases fall back to the current first
+  // row: the ref is still unset (the first non-empty roster), and the remembered
+  // member has LEFT the roster (dismissed) — a stale ref must not strand the
+  // pane on someone who is gone. Both cases then write the answer BACK.
+  //
+  // Re-anchoring on the fallback is what keeps this guard alive. Leave the ref
+  // pointing at a departed member and `find` misses on EVERY later render, so
+  // the default silently goes back to being recomputed as roster[0] — the very
+  // swap this ref exists to prevent, for the rest of the session.
+  const defaultSelected =
+    roster.find((m) => m.id === defaultChatIdRef.current) ?? roster[0];
+  if (defaultSelected) {
+    defaultChatIdRef.current = defaultSelected.id;
+  }
   const selected = selectedId
     ? roster.find((m) => m.id === selectedId)
-    : roster[0];
+    : defaultSelected;
 
   // The chat history is keyed by PEER ID (listChat/adapter), independent of the
   // peer still being live — so an EXPLICIT chatId that resolves to neither a
@@ -398,6 +445,12 @@ export function OfficePage() {
           await api.removeMemberAvatar(detail.id);
           await refetch();
         }}
+        // T-ed38 手動置頂. Optimistic with rollback (the useOrgName pattern)
+        // inside the hook; the roster re-sorts as soon as the state moves.
+        pinned={pinIndex.has(detail.id)}
+        onTogglePin={() =>
+          pinIndex.has(detail.id) ? unpin(detail.id) : pin(detail.id)
+        }
       />
     );
   }
@@ -412,6 +465,27 @@ export function OfficePage() {
   const chatOpen = selectedId !== "";
   const showRoster = !isMobile || !chatOpen;
   const showChat = !isMobile || chatOpen;
+
+  // One card renderer for both roster groups (T-ed38) — the pinned group and
+  // the rest must never drift into two different rows.
+  const renderMemberCard = (member: Member) => (
+    <MemberCard
+      key={member.id}
+      member={member}
+      // On mobile the roster stands alone (no persistent chat), so no
+      // fallback highlight; on desktop the default-selection fallback stays lit
+      // next to its open chat — unless an OUTSOURCE chat is open (the
+      // highlight then belongs to the worker row below, never both).
+      selected={
+        !workerPeer &&
+        member.id === (isMobile ? selectedId : (selected?.id ?? ""))
+      }
+      onOpenDetail={() => setDetailId(member.id)}
+      onChat={() => setSelectedId(member.id)}
+    />
+  );
+  // Rendered once, wrapped or not (see the group comment below).
+  const unpinnedRows = unpinnedRoster.map(renderMemberCard);
 
   return (
     <div className={`office${isMobile ? " office--mobile" : ""}`}>
@@ -442,22 +516,56 @@ export function OfficePage() {
           )}
           {activeTab === "staff" ? (
             <div className="office__members-list">
-              {roster.map((member) => (
-                <MemberCard
-                  key={member.id}
-                  member={member}
-                  // On mobile the roster stands alone (no persistent chat), so no
-                  // fallback highlight; on desktop the roster[0] fallback stays lit
-                  // next to its open chat — unless an OUTSOURCE chat is open (the
-                  // highlight then belongs to the worker row below, never both).
-                  selected={
-                    !workerPeer &&
-                    member.id === (isMobile ? selectedId : (selected?.id ?? ""))
-                  }
-                  onOpenDetail={() => setDetailId(member.id)}
-                  onChat={() => setSelectedId(member.id)}
-                />
-              ))}
+              {/* T-ed38 pinned group. The pin is expressed by POSITION plus one
+               * hairline — nothing is added INSIDE a row, because two owner
+               * rulings already fixed what a roster row may carry
+               * (MemberCard.tsx:84-86 「the roster row stays a pure presence
+               * line」 and :96-110 「the flex-end slot carries ONLY the unread
+               * signal」). A section HEADER is out too: T-66a8 replaced exactly
+               * that shape (stacked groups with their own headers) with the top
+               * tabs above — re-adding one would undo an owner decision.
+               *
+               * The hairline is purely visual and stays OUT of the a11y tree;
+               * `role="group"` + its label carry the meaning, so a screen reader
+               * hears the grouping once, not twice (no role="separator"). */}
+              {pinnedRoster.length > 0 && (
+                <div
+                  className="office__roster-group"
+                  role="group"
+                  aria-label={t.office.pinnedGroup}
+                  data-testid="pinned-group"
+                >
+                  {pinnedRoster.map(renderMemberCard)}
+                </div>
+              )}
+              {/* The hairline hangs on the FIRST UNPINNED card, not under the
+               * last pinned one — a trailing line would become an orphan the
+               * day anything is appended below the group. It renders only when
+               * BOTH groups are non-empty: zero pinned needs no divider, and
+               * all-pinned would leave a line with nothing under it.
+               *
+               * The WRAPPER follows the same condition, on BOTH edges (Iris 3e
+               * rules 1 and 2). With nothing pinned that is "no pins, no
+               * effect": the DOM must be identical to what it was before the
+               * feature shipped, or that promise is only true by luck. With
+               * EVERYTHING pinned the wrapper would be empty, and an empty
+               * wrapper does not represent anything — the "unpinned group" does
+               * not exist when there is nobody unpinned, so rendering a
+               * container for it makes the DOM lie. The parent's `gap: 8px`
+               * merely makes that lie visible (8px of dead space at the end of
+               * the list). The rows are rendered ONCE either way
+               * (`unpinnedRows`); only the wrapping div is conditional, so
+               * there is no second copy of the list rendering. */}
+              {pinnedRoster.length > 0 && unpinnedRoster.length > 0 ? (
+                <div
+                  className="office__roster-group office__roster-group--divided"
+                  data-testid="unpinned-group"
+                >
+                  {unpinnedRows}
+                </div>
+              ) : (
+                unpinnedRows
+              )}
             </div>
           ) : (
             // M3 §4: the 外包 worker list (list-only since T-66a8 — the tab

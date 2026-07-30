@@ -85,6 +85,13 @@ type settingsDTO struct {
 	// T-16a1 P2) — always an array ([] when none). display_theme may point at any
 	// id in it. Owner-gated (rides GET /api/settings only).
 	CustomThemes []ThemeBundleDTO `json:"custom_themes"`
+	// PinnedMemberIDs is the owner's manually pinned roster members
+	// (display.pinned_member_ids; T-ed38) — always an array ([] when nothing is
+	// pinned), and an ORDERED SET: the order IS the pinned group's display
+	// order. Orphan ids (a dismissed member) may survive here; the renderer
+	// intersects with the live roster and ignores them — the server never does a
+	// hidden cleanup write.
+	PinnedMemberIDs []string `json:"pinned_member_ids"`
 	// Onboarding (T-ba62) is the first-run onboarding report, or nil when
 	// onboarding never ran on this database. It rides the OWNER-GATED settings
 	// read on purpose: a failed step's Detail carries the raw `ocwarden install`
@@ -118,27 +125,35 @@ type tokenDTO struct {
 }
 
 type memberDTO struct {
-	ID                string  `json:"id"`
-	AvatarURL         string  `json:"avatar_url"`
-	MemberNo          string  `json:"member_no"`
-	Name              string  `json:"name"`
-	Kind              string  `json:"kind"`
-	RoleKey           string  `json:"role_key"`
-	RoleName          string  `json:"role_name"`
-	Runtime           string  `json:"runtime"`
-	Model             string  `json:"model"`
-	Effort            string  `json:"effort"`
-	DesiredState      string  `json:"desired_state"`
-	DesiredMachineID  string  `json:"desired_machine_id"`
-	Machine           string  `json:"machine"`
-	Presence          string  `json:"presence"`
-	RefocusSince      float64 `json:"refocus_since"`
-	LastOp            string  `json:"last_op"`
-	LastOpOK          *bool   `json:"last_op_ok"`
-	LastOpLog         string  `json:"last_op_log"`
-	LastOpReason      string  `json:"last_op_reason"`
-	LastOpAt          float64 `json:"last_op_at"`
-	UnreadCount       int     `json:"unread_count"`
+	ID               string  `json:"id"`
+	AvatarURL        string  `json:"avatar_url"`
+	MemberNo         string  `json:"member_no"`
+	Name             string  `json:"name"`
+	Kind             string  `json:"kind"`
+	RoleKey          string  `json:"role_key"`
+	RoleName         string  `json:"role_name"`
+	Runtime          string  `json:"runtime"`
+	Model            string  `json:"model"`
+	Effort           string  `json:"effort"`
+	DesiredState     string  `json:"desired_state"`
+	DesiredMachineID string  `json:"desired_machine_id"`
+	Machine          string  `json:"machine"`
+	Presence         string  `json:"presence"`
+	RefocusSince     float64 `json:"refocus_since"`
+	LastOp           string  `json:"last_op"`
+	LastOpOK         *bool   `json:"last_op_ok"`
+	LastOpLog        string  `json:"last_op_log"`
+	LastOpReason     string  `json:"last_op_reason"`
+	LastOpAt         float64 `json:"last_op_at"`
+	UnreadCount      int     `json:"unread_count"`
+	// LastActivityAt is the epoch-seconds stamp of the LAST chat message
+	// exchanged between the CALLING actor and this member in EITHER direction
+	// (caller-relative exactly like UnreadCount — never the member's global
+	// activity, and unrelated to the read watermark). 0 carries TWO meanings the
+	// wire cannot separate: on a full roster it means nothing was ever
+	// exchanged; on ?fields=light it means NOT COMPUTED. Handler-injected, like
+	// UnreadCount.
+	LastActivityAt    float64 `json:"last_activity_at"`
 	RosterStatus      string  `json:"roster_status"`
 	OwnerID           string  `json:"owner_id"`
 	SchemaVersion     int     `json:"schema_version"`

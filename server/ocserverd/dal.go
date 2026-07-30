@@ -851,6 +851,63 @@ func (d *DAL) ListChatReads(reader, peer string) ([]ChatRead, error) {
 	return out, rows.Err()
 }
 
+// MemberChatStats is ONE peer's caller-relative chat projection: how many of
+// that peer's messages sit past the caller's read watermark, and when the two
+// last exchanged anything in either direction.
+type MemberChatStats struct {
+	UnreadCount    int
+	LastActivityAt float64
+}
+
+// ListMemberChatStats folds the whole caller-relative chat projection in ONE
+// query, keyed by peer id. It REPLACES the roster handler's old
+// ListChat()+ListChatReads()+UnreadCounts trio, which pulled the ENTIRE
+// chat_message table into Go (ListChat carries no LIMIT) just to count.
+//
+// Both numbers are relative to `actor`, exactly like the wire fields they feed:
+//
+//   - LastActivityAt = MAX(ts) over messages where actor is the sender OR the
+//     recipient — this CONVERSATION's freshness, never the peer's global
+//     activity, and unrelated to the read watermark.
+//   - UnreadCount = messages ADDRESSED TO actor whose ts is past actor's
+//     chat_read watermark for that peer (no receipt ⇒ COALESCE to 0 ⇒ every
+//     addressed message counts). Deliberately the SAME inverse UnreadCounts
+//     computes — the two must never diverge.
+//
+// A peer with no exchanged message is simply ABSENT from the map; callers read
+// the zero value (0 unread, 0 activity), which is the honest "never talked".
+func (d *DAL) ListMemberChatStats(actor string) (map[string]MemberChatStats, error) {
+	rows, err := d.db.Query(`
+		SELECT peer, MAX(ts), SUM(unread) FROM (
+			SELECT CASE WHEN m.sender = ? THEN m.recipient ELSE m.sender END AS peer,
+			       m.ts AS ts,
+			       CASE WHEN m.recipient = ?
+			                 AND m.ts > COALESCE(cr.last_read_ts, 0)
+			            THEN 1 ELSE 0 END AS unread
+			FROM chat_message m
+			LEFT JOIN chat_read cr
+			       ON cr.reader_id = ? AND cr.peer_id = m.sender
+			WHERE m.sender = ? OR m.recipient = ?
+		)
+		GROUP BY peer`,
+		actor, actor, actor, actor, actor)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]MemberChatStats{}
+	for rows.Next() {
+		var peer string
+		var lastTS float64
+		var unread int
+		if err := rows.Scan(&peer, &lastTS, &unread); err != nil {
+			return nil, err
+		}
+		out[peer] = MemberChatStats{UnreadCount: unread, LastActivityAt: lastTS}
+	}
+	return out, rows.Err()
+}
+
 // PutChatRead upserts a read receipt on the composite (reader, peer) key.
 // MONOTONIC: the stored last_read_ts only ever ADVANCES — a stale/equal report
 // is a no-op (never rewinds, so a re-ordered report can't un-read a message).

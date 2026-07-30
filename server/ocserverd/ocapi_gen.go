@@ -734,16 +734,19 @@ type MemberDTO struct {
 	ActivationPending *bool `json:"activation_pending,omitempty"`
 
 	// AvatarUrl Authenticated URL of this stable member id's personal raster avatar. Empty means no personal image; clients fall back to the active theme's role avatar, then the built-in glyph. Additive-optional for older clients.
-	AvatarUrl        *string  `json:"avatar_url,omitempty"`
-	DesiredMachineId *string  `json:"desired_machine_id,omitempty"`
-	DesiredState     *string  `json:"desired_state,omitempty"`
-	Effort           *string  `json:"effort,omitempty"`
-	Id               string   `json:"id"`
-	Kind             *string  `json:"kind,omitempty"`
-	LastOp           *string  `json:"last_op,omitempty"`
-	LastOpAt         *float64 `json:"last_op_at,omitempty"`
-	LastOpLog        *string  `json:"last_op_log,omitempty"`
-	LastOpOk         *bool    `json:"last_op_ok,omitempty"`
+	AvatarUrl        *string `json:"avatar_url,omitempty"`
+	DesiredMachineId *string `json:"desired_machine_id,omitempty"`
+	DesiredState     *string `json:"desired_state,omitempty"`
+	Effort           *string `json:"effort,omitempty"`
+	Id               string  `json:"id"`
+	Kind             *string `json:"kind,omitempty"`
+
+	// LastActivityAt Epoch seconds of the LAST chat message exchanged between the CALLING actor and this member, either direction (caller-relative, like `unread_count`; not the member's global activity, and unrelated to the read watermark). 0 means one of TWO things that the wire cannot tell apart: on a full response it means no message was ever exchanged; on `?fields=light` it means the value was NOT COMPUTED. A client that needs the distinction must not use a light response. Absent on servers predating this field — clients fall back to 0.
+	LastActivityAt *float64 `json:"last_activity_at,omitempty"`
+	LastOp         *string  `json:"last_op,omitempty"`
+	LastOpAt       *float64 `json:"last_op_at,omitempty"`
+	LastOpLog      *string  `json:"last_op_log,omitempty"`
+	LastOpOk       *bool    `json:"last_op_ok,omitempty"`
 
 	// LastOpReason Structured one-line cause of the most recent warden op (the warden's ``<code>: <detail>`` refusal/failure summary, e.g. ``session_already_exists: ...``) — distinct from the free-form ``last_op_log`` dump. Empty when the receipt carried no reason (older warden, or a successful op); consumers then fall back to status-only display.
 	LastOpReason *string  `json:"last_op_reason,omitempty"`
@@ -1426,6 +1429,9 @@ type SettingsDTO struct {
 	// OwnerName The owner's display nickname shown in the cockpit topbar profile pill (T-0b41). "" = never set — the pill falls back to the localized default label.
 	OwnerName *string `json:"owner_name,omitempty"`
 
+	// PinnedMemberIds The owner's manually pinned roster members (T-ed38), an ORDERED SET: the array order IS the display order of the pinned group, newest pin first. Always an array — a never-set value reads back as []. Ids of dismissed/unknown members may survive here; a renderer intersects with the live roster and ignores the orphans (the server never does a hidden cleanup write). A display preference of the VIEWER, not member state.
+	PinnedMemberIds *[]string `json:"pinned_member_ids,omitempty"`
+
 	// PushContactEmail The contact address the push gateways are told to reach us at (T-8a82). "" = never set, and while it is unset no Web Push is delivered at all: Apple rejects the whole VAPID JWT when the address sits on an unreachable domain, so an unset or reserved-domain value would silently kill push on every device.
 	PushContactEmail   *string `json:"push_contact_email,omitempty"`
 	TokenTtl           int     `json:"token_ttl"`
@@ -1469,6 +1475,9 @@ type SettingsUpdateDTO struct {
 
 	// OwnerName The owner's display nickname (T-0b41) — trimmed, max 80 runes; "" clears it back to the localized default. A value longer than 80 runes is a 422.
 	OwnerName *string `json:"owner_name,omitempty"`
+
+	// PinnedMemberIds Replace the owner's pinned roster members (T-ed38) — the WHOLE ordered set, atomically, last-write-wins (the server never merges: with two devices editing, a merge leaves the order undefined). Omitted/null = unchanged; [] = clear. Every id is validated BEFORE anything is written: an empty string or a duplicate id is a 422 and nothing changes.
+	PinnedMemberIds *[]string `json:"pinned_member_ids,omitempty"`
 
 	// PushContactEmail The push contact address (T-8a82) — trimmed, max 254 runes; "" clears it back to unset and stops all Web Push delivery. A value must be a single `local@domain` address whose domain is a real public one: a malformed address, or one on a reserved suffix (.local, .localhost, .internal, .test, .invalid, .example), is a 422 — those are exactly the values the push gateways reject with BadJwtToken, which would take push down silently.
 	PushContactEmail   *string `json:"push_contact_email,omitempty"`

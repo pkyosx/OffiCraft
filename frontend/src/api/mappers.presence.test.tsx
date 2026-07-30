@@ -46,6 +46,7 @@ function mkWireMember(over: Partial<WireMember>): WireMember {
     refocus_since: 0,
     schema_version: 1,
     unread_count: 0,
+    last_activity_at: 0,
     ...over,
   };
 }

@@ -495,6 +495,7 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 	api.displayLanguage = auth.displayLanguage
 	api.displayWide = auth.displayWide
 	api.displayCustomThemes = auth.displayCustomThemes
+	api.displayPinnedMemberIDs = auth.displayPinnedMemberIDs
 	api.namespace = cfg.Server.Namespace
 	// The embed-fallback binary cache rides beside the SQLite data file — a
 	// stable per-instance location that follows the configured DSN (never the

@@ -4176,6 +4176,12 @@ export interface components {
              */
             kind: string;
             /**
+             * Last Activity At
+             * @description Epoch seconds of the LAST chat message exchanged between the CALLING actor and this member, either direction (caller-relative, like `unread_count`; not the member's global activity, and unrelated to the read watermark). 0 means one of TWO things that the wire cannot tell apart: on a full response it means no message was ever exchanged; on `?fields=light` it means the value was NOT COMPUTED. A client that needs the distinction must not use a light response. Absent on servers predating this field — clients fall back to 0.
+             * @default 0
+             */
+            last_activity_at: number;
+            /**
              * Last Op
              * @default
              */
@@ -5444,6 +5450,12 @@ export interface components {
             /** Outsource Max Parallel */
             outsource_max_parallel?: number;
             /**
+             * Pinned Member Ids
+             * @description The owner's manually pinned roster members (T-ed38), an ORDERED SET: the array order IS the display order of the pinned group, newest pin first. Always an array — a never-set value reads back as []. Ids of dismissed/unknown members may survive here; a renderer intersects with the live roster and ignores the orphans (the server never does a hidden cleanup write). A display preference of the VIEWER, not member state.
+             * @default []
+             */
+            pinned_member_ids: string[];
+            /**
              * Owner Name
              * @description The owner's display nickname shown in the cockpit topbar profile pill (T-0b41). "" = never set — the pill falls back to the localized default label.
              * @default
@@ -5531,6 +5543,11 @@ export interface components {
             push_contact_email?: string | null;
             /** Outsource Max Parallel */
             outsource_max_parallel?: number | null;
+            /**
+             * Pinned Member Ids
+             * @description Replace the owner's pinned roster members (T-ed38) — the WHOLE ordered set, atomically, last-write-wins (the server never merges: with two devices editing, a merge leaves the order undefined). Omitted/null = unchanged; [] = clear. Every id is validated BEFORE anything is written: an empty string or a duplicate id is a 422 and nothing changes.
+             */
+            pinned_member_ids?: string[] | null;
             /** Token Ttl */
             token_ttl?: number | null;
             /** Updater Auto Update */

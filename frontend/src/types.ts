@@ -120,6 +120,22 @@ export interface Member {
    * computes it.
    */
   unreadCount: number;
+
+  /**
+   * T-ed38 roster order key: epoch SECONDS of the last chat message exchanged
+   * between the CALLER (the owner, in this UI) and this member, in EITHER
+   * direction (wire `last_activity_at`). Caller-relative exactly like
+   * {@link Member.unreadCount} — never the member's global activity, and
+   * unrelated to the read watermark.
+   *
+   * `0` means "never talked" on a full roster; on a `?fields=light` response it
+   * means NOT COMPUTED, which the wire cannot distinguish — a light consumer
+   * must not read it. OPTIONAL on the view: an older server omits the field
+   * entirely, and the comparator then reads every member as 0, which retires
+   * the recency layer and falls back to the previous ordering. That is a safe
+   * degradation, not a break (test-fixture precedent: `Member.roleName`).
+   */
+  lastActivityAt?: number;
 }
 
 /**

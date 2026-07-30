@@ -1387,6 +1387,7 @@ export const httpApi: Api = {
       // wording/fonts/avatars/logo/navIcons); reuse the type so it can't drift
       // out of sync with the bundle and silently drop new fields again.
       custom_themes?: ThemeBundle[];
+      pinned_member_ids?: string[];
     } = {};
     if (patch.tokenTtl !== undefined) body.token_ttl = patch.tokenTtl;
     if (patch.handoverPct !== undefined) body.handover_pct = patch.handoverPct;
@@ -1412,6 +1413,9 @@ export const httpApi: Api = {
       body.display_wide = patch.displayWide;
     }
     if (patch.customThemes !== undefined) body.custom_themes = patch.customThemes;
+    if (patch.pinnedMemberIds !== undefined) {
+      body.pinned_member_ids = patch.pinnedMemberIds;
+    }
     const wire = unwrap(await client.PATCH("/api/settings", { body }));
     return toServerSettings(wire);
   },

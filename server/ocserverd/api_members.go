@@ -214,23 +214,18 @@ func (s *apiServer) HandleListMembersApiMembersGet(w http.ResponseWriter, r *htt
 	}
 	light := trimmedOrEmpty(params.Fields) == "light"
 
-	// unread rides the caller's chat_read watermark over the whole chat stream —
-	// the single most expensive part of this handler and exactly what the light
-	// projection exists to avoid. Only compute it on the full path.
-	var unread map[string]int
+	// unread + last_activity both ride the caller's own chat stream — the single
+	// most expensive part of this handler and exactly what the light projection
+	// exists to avoid. Only compute them on the full path. ONE aggregate query
+	// (T-ed38) folds both, replacing the old ListChat()+ListChatReads()+
+	// UnreadCounts trio that pulled the whole unLIMITed chat table into Go.
+	var stats map[string]MemberChatStats
 	if !light {
-		actor := currentActor(r)
-		messages, err := s.dal.ListChat()
+		stats, err = s.dal.ListMemberChatStats(currentActor(r))
 		if err != nil {
 			internalError(w, err)
 			return
 		}
-		receipts, err := s.dal.ListChatReads(actor, "")
-		if err != nil {
-			internalError(w, err)
-			return
-		}
-		unread = UnreadCounts(messages, receipts, actor)
 	}
 
 	out := []memberDTO{}
@@ -247,7 +242,7 @@ func (s *apiServer) HandleListMembersApiMembersGet(w http.ResponseWriter, r *htt
 			out = append(out, s.newMemberLightDTO(m, roleName))
 			continue
 		}
-		out = append(out, s.newMemberDTO(m, roleName, s.observedHost(m), unread[m.ID]))
+		out = append(out, s.newMemberDTO(m, roleName, s.observedHost(m), stats[m.ID]))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -337,7 +332,7 @@ func (s *apiServer) HandleGetMemberApiMembersMemberIdGet(w http.ResponseWriter, 
 		internalError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.newMemberDTO(*m, roleName, s.observedHost(*m), 0))
+	writeJSON(w, http.StatusOK, s.newMemberDTO(*m, roleName, s.observedHost(*m), MemberChatStats{}))
 }
 
 // PATCH /api/members/{member_id} — partial edit (name/runtime/model/effort).
@@ -453,7 +448,7 @@ func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.Re
 		internalError(w, err)
 		return
 	}
-	dto := s.newMemberDTO(*m, roleName, "", 0)
+	dto := s.newMemberDTO(*m, roleName, "", MemberChatStats{})
 	// POSITIVE determination (T-ba62 review R4), not a list of known failures.
 	// `dec.DispatchUnlanded` alone was wrong: reconcileOne ALSO downgrades a
 	// START to none when buildStartFrame cannot assemble a payload (missing
@@ -556,7 +551,7 @@ func (s *apiServer) HandleRelocateMemberApiMembersMemberIdRelocatePost(w http.Re
 		internalError(w, err)
 		return
 	}
-	dto := s.newMemberDTO(*m, roleName, "", 0)
+	dto := s.newMemberDTO(*m, roleName, "", MemberChatStats{})
 	// relocation_pending means what it has always meant — "move scheduled, not
 	// yet landed". T-b6d9 adds a SECOND way to be in that state: a wind-down was
 	// opened, so nothing has been dispatched YET and the member is still on the
