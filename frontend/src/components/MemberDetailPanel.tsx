@@ -779,6 +779,7 @@ export function MemberDetailPanel({
       ? null
       : (member.estimatedCost ?? 0) + (member.bankedCost ?? 0);
 
+  const memberAvatarKind = avatarKindForMember(member);
   const identityCard = (
     <>
       {/* identity card */}
@@ -788,10 +789,10 @@ export function MemberDetailPanel({
             3-state Avatar dot in this panel). */}
         <Avatar
           size={52}
-          kind={avatarKindForMember(member)}
+          kind={memberAvatarKind}
           avatarIndex={member.avatarIndex}
         />
-        {onUpdateAvatarIndex && (
+        {onUpdateAvatarIndex && memberAvatarKind === "member" && (
           <AvatarIndexEditor
             value={member.avatarIndex}
             kind="member"
