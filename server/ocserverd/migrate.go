@@ -58,10 +58,19 @@ var embeddedMigrations embed.FS
 //     our transactions read and then write inside one tx
 //     (SaveWithDocumentHistories snapshots the live document inside the very
 //     transaction that overwrites it), a DEFERRED tx therefore has to UPGRADE a
-//     read lock into a write lock, and SQLite answers an upgrade conflict with an
-//     instant SQLITE_BUSY that busy_timeout does NOT wait out (retrying would
-//     deadlock two upgraders, so the engine does not try). IMMEDIATE takes the
-//     write lock at BEGIN, which busy_timeout does cover.
+//     read lock into a write lock, and the engine answers an upgrade conflict with
+//     an instant SQLITE_BUSY that busy_timeout does NOT wait out (retrying would
+//     deadlock two upgraders, so it does not try). IMMEDIATE takes the write lock
+//     at BEGIN, which busy_timeout does cover.
+//
+//     🔴 THAT HAZARD IS WAL-ONLY — it is INTRODUCED by the line above, not
+//     inherited from SQLite in general. Measured on this tree: rollback journal +
+//     DEFERRED → 0 of 8 read-then-write transactions failed; WAL + DEFERRED → 2 of
+//     8 failed, with the SQLITE_BUSY arriving at 0ms/1ms against a 5000ms
+//     busy_timeout; WAL + IMMEDIATE → 0 of 8. The error code says the same thing:
+//     SQLITE_BUSY_SNAPSHOT (517) exists only in WAL mode. So these two DSN
+//     parameters are one decision, not two independent tidyings — turning WAL on
+//     without IMMEDIATE trades queueing for intermittent write failures.
 //
 //     🔴 BE PRECISE ABOUT WHAT THIS BUYS, because the obvious reading is wrong and
 //     was measured wrong: it does NOT protect our own concurrent writers. The
@@ -79,6 +88,18 @@ var embeddedMigrations embed.FS
 //     the cap: `WAL + raise the cap` WITHOUT it is exactly the change that was
 //     tried and disproved (branch t-dd7a-wal, commit 25bf66d — full CI red on
 //     SQLITE_BUSY).
+//
+//     ⚠️ ITS COST, measured, so nobody has to rediscover it: IMMEDIATE moves the
+//     contention from the first WRITE to the BEGIN, so a Begin on a handle whose
+//     write lock is held elsewhere now BLOCKS instead of returning instantly.
+//     Measured with a second handle on the same file: holder never releases →
+//     Begin waits 5.098s (the whole busy_timeout) and THEN fails SQLITE_BUSY;
+//     holder commits after 300ms → Begin waits 345ms and SUCCEEDS. The second
+//     line is the trade we want (queue, do not give up); the first is the price —
+//     a stuck external writer turns an instant error into a 5s stall. It cannot
+//     bite our own writers (the cap already serialises them in Go, where waiting
+//     is free and ordered), only a second handle: `ocserverd migrate` run against
+//     a live serve, a shell sqlite3 left in a transaction.
 //
 //   - busy_timeout(5000) — the belt for those same outside writers. Our own
 //     writers never reach it: the cap queues them in Go, where waiting is free.

@@ -286,11 +286,17 @@ warden 端那個 POST 是 best-effort:失敗的回傳值被 start/stop 呼叫端
   - **寫池** `openSQLite`:`journal_mode(WAL)`(**檔案的持久屬性**,不是連線設定)＋**上限 1**(SQLite 單寫者,多開只是把排隊從 Go pool 搬進 SQLite 鎖管理器,那裡等待是 busy-loop、輸了是錯誤)＋`_txlock=immediate` ＋ `busy_timeout(5000)`。
   - **讀池** `openSQLiteReadPool`:8 條、**`mode=ro`**。**必須在寫池 migrate 完之後才開**(`mode=ro` 不建檔、唯讀連線也救不回 WAL)。
 - 🔴 **`_txlock=immediate` 到底在防什麼(這裡最容易講錯,而且被實測糾正過)**:**不是**防我們自己的並行寫者——**上限 1 已經讓行程內的鎖升級衝突構造上不可能**,而這**不是推論**:把 `_txlock=immediate` 從 DSN 拿掉,`TestSaveWithDocumentHistoryUnderConcurrentWritersKeepsTheChainContiguous` **仍然綠**(實測 2026-08-01)。它防的是**同一個檔上的第二個 handle**:`ocserverd backup`(`cmdBackup` 自己開一個)、shell `sqlite3`、未來的第二個池。對那些寫者,IMMEDIATE 才是讓 `busy_timeout` **生效**的東西——沒有它,那種寫者不是等,是直接失敗。**鑑別力測試因此是兩個獨立 handle(`TestWritePool_ReadThenWriteNeverHitsBusy`),不是兩個 goroutine。**
-  - 機制:DEFERRED 交易先讀再寫 ⇒ 要把讀鎖**升級**成寫鎖 ⇒ SQLite 對升級衝突回**立即** SQLITE_BUSY,而 `busy_timeout` **不涵蓋**這種(等下去會讓兩個升級者互鎖,所以引擎不等)。實測探針:DEFERRED → 4 個錯誤含 `SQLITE_BUSY` 與 `SQLITE_BUSY_SNAPSHOT(517)`;IMMEDIATE → 0。
+  - 機制:DEFERRED 交易先讀再寫 ⇒ 要把讀鎖**升級**成寫鎖 ⇒ 引擎對升級衝突回**立即** SQLITE_BUSY,而 `busy_timeout` **不涵蓋**這種(等下去會讓兩個升級者互鎖,所以引擎不等)。
+  - 🔴 **那個危險是 WAL-only,是上面那行 WAL 引進來的,不是 SQLite 本來就有的**(獨立審查實測,本檔原本把它寫成一般性質):**rollback journal ＋ DEFERRED → 8 筆 0 失敗**;**WAL ＋ DEFERRED → 8 筆 2 失敗,而且 SQLITE_BUSY 在 0ms／1ms 就回來**(對比 5000ms 的 busy_timeout,所以「timeout 沒生效」是看得見的);**WAL ＋ IMMEDIATE → 0 失敗**。錯誤碼本身就是證據——`SQLITE_BUSY_SNAPSHOT(517)` **只存在於 WAL 模式**。⇒ 這兩個 DSN 參數是**一個決定、不是兩件順手的整理**:開 WAL 而不加 IMMEDIATE,等於把「排隊」換成「間歇性寫入失敗」。
+  - ⚠️ **IMMEDIATE 的代價(實測,寫下來免得下一個人重新發現)**:它把爭用從「第一次寫」搬到 **`BEGIN`**,所以當寫鎖被**別的 handle** 持有時,`Begin` 會**阻塞**而不是立刻回來。實測(同一檔第二個 handle):持有者永不放手 → `Begin` 等 **5.098s**(整個 busy_timeout)然後才失敗 `SQLITE_BUSY`;持有者 300ms 後 commit → `Begin` 等 **345ms** 並**成功**。第二行就是我們要的交換(排隊、不放棄),第一行是價錢——一個卡住的外部寫者會把「立刻報錯」變成「卡 5 秒」。**咬不到我們自己的寫者**(上限 1 已經在 Go 層把它們排好,那裡等待免費且有序),只咬第二個 handle:對著服役中的 serve 跑 `ocserverd migrate`、或一個開著交易沒關的 shell `sqlite3`。
+  - ⚠️ **`TestWritePool_ReadThenWriteNeverHitsBusy` 鑑別的不是「改動前 vs 改動後」**——它在**父 commit 上就是綠的**。它鑑別的是「**WAL 之下** IMMEDIATE vs DEFERRED」。也**不是**「證伪簡化版的那條測試」:證伪 `WAL + 上限 8` 的是完整 CI 紅在 `TestSaveWithDocumentHistoryUnderConcurrentWritersKeepsTheChainContiguous`,當時本測試還不存在。(本檔與 commit 訊息原本都把它講寬了。)
 - 🔴 **已被證伪的簡化版**:只開 WAL ＋把上限 1→8(分支 `t-dd7a-wal`、commit `25bf66d`)**完整 CI 是紅的**(那條並行寫入測試 SQLITE_BUSY)。`_txlock=immediate` 也是「哪天有人把上限調高」時唯一還撐著的東西。
 - **寫入路徑怎麼保證沒漏**:`DAL` 的欄位**不叫 `db`**,叫 `wdb`/`rdb` ⇒ 每個呼叫點都被編譯器逼著指名一個池,**分類由構造窮盡**,不靠一份要記得更新的清單。
   - ⚠️ **編譯器只逼你選,不會告訴你選對了**,而且有**恰好一種**選錯也能通過型別檢查的形狀:`sqlExecer`(寫 seam)與 `sqlQuerier`(讀 seam)都被 `*sql.DB` 滿足,所以 `putChatOn(d.rdb, m)` 編得過,**而且 SQL 在 seam 裡、不在呼叫點**,看呼叫點也看不出來。這個洞由 `TestReadPoolIsNeverHandedToAWriteSeam` 補(AST 兩趟:先找出收 `sqlExecer` 的函式,再看有沒有人餵 `.rdb` 進去)。
+  - 🔴 **兩個掃描的語料是「本 package 全部非 `_test.go` 的 `.go` 檔」,不是檔名清單——這一點被獨立審查抓過,而且是最糟的方向**:第一版 glob `dal*.go`,而它自己的註解卻宣稱「derived, not enumerated: any file declaring methods on \*DAL is in scope」。**那句是假的**,而且它會讓下一個維護者相信新增的檔自動在射程內。審查放了一個 `store_review_probe.go`(兩個**真缺陷**:`func (d *DAL)` 裡 `d.rdb.Exec(INSERT…)`、以及 `putChatOn(d.rdb, m)`)⇒ **三道守衛全綠**;`len(out) < 3` 那道下限救不了——當時剛好就是 3 個檔,下限被**正在漏掉缺陷的那個集合**滿足。`dal*.go` 這個前綴從來沒有承重意義(DAL 方法或 `sqlExecer` seam 可以宣告在任何檔名裡,而 seam 掃描的 pass-1 必須看得到全部宣告,否則 pass-2 認不出誤路由)。**下限現在刻意設得遠低於實際檔數**(30 對上數十個)——貼著當前數字的下限本身就是第二份清單。
+  - **實測(2026-08-01,兩個方向都跑)**:同一顆探針在**新語料下兩個掃描都紅並各自點名 `store_review_probe.go:8` / `:13`**;把語料改回 `dal*.go`(探針留著)**兩個掃描都綠** ⇒ 差別確實來自這個修正,不是探針恰好被別的東西抓到。
 - **執行期自檢(`server.go`,migrate 之後)**:`assertJournalMode` **問資料庫現在是哪個模式**,不是斷言 DSN 字串——**打錯的 pragma 被 SQLite 靜靜忽略**,字串檢查會跟正確的一樣開心地通過。不符就大聲 WARNING,**刻意不 fatal**(慢的工作室勝過起不來的工作室,與 pre-migration 備份鉤同一個取捨)。**實測**:把 pragma 打成 `journl_mode` ⇒ 模式其實是 `delete`、serve 印出 `WARNING: journal_mode is "delete", want "WAL"` 然後**照樣繼續開機**;正確版印 `journal_mode=wal`,`/health` 回 `{"status":"ok"}`,資料目錄下確實有 `officraft.db-wal` 與 `-shm`。
+  - 🔴 **呼叫點本身要有測試,不只函式**(獨立審查 M6:把 `server.go` 那整段 `assertJournalMode` 呼叫**刪掉,全套件 0 條紅**)。函式與 `openSQLite` 的 WAL 各有測試,但「serve 真的會問」沒有任何守衛——**而這段自檢是那個不可見缺陷唯一的線上訊號**,可以被無聲移除的自檢不是自檢。`TestServeAsksTheDatabaseWhichJournalModeItIsIn` 用**先占住 port** 的既有樣式(同 `server_test.go` 的孤兒卡開機測試)真的驅動 `cmdServe`:開檔 → 備份鉤 → goose → **這段檢查** → 讀池 → seed,然後在 bind 上 exit 1;**rc==1 本身就是「整條開機路徑真的跑完」的證據**。實測刪掉那段 → **整個 package 恰好 1 條紅**(就是它)。
 - 🔴 **WAL 之後資料庫不再是一個檔**:最新 commit 可能還在 `-wal` 裡。所以**不得以單檔方式複製或移動資料庫**——那種備份會「看起來成功」、還原時少掉最近的資料。守衛 `db_singlefile_copy_guard_test.go` 是**一條必須回 0 行的查詢**(不是已知位置清單:清單只知道有人想到過的那些)。Go 面走 AST(註解與字串字面值不是運算式節點,所以掃描不會匹配到自己的說明文字——本 repo 記過這個失效模式);腳本面走文字,而守衛自己是 `.go`,**由構造**不在文字掃描範圍內,不需要任何自我豁免。**`VACUUM INTO`(`backup.go`)不是這條守衛要抓的對象**——那是 SQLite 自己的線上備份、WAL-safe;誤傷它會把下一個人推離唯一正確的機制。運維面的話寫在 `docs/guide/troubleshooting.md`「想自己備份或搬移資料庫」。
   - **誠實邊界**:守衛抓的是「資料庫路徑**直接**交給複製／搬移動詞」。它不做 dataflow,所以 `f,_ := os.Open(dbPath); io.Copy(dst, f)` 繞幾層可以躲過;也看不到我們只是呼叫的外部程式在做什麼。是絆線,不是證明。
 - **mutant 實測(2026-08-01,每顆前 `go clean -testcache`,還原一律用 scratchpad 備份、不用 `git checkout --`)**:
@@ -299,10 +305,27 @@ warden 端那個 POST 是 best-effort:失敗的回傳值被 start/stop 呼叫端
   - 拿掉 `_txlock=immediate` → **1 條紅**:`TestWritePool_ReadThenWriteNeverHitsBusy`(8 筆中 4 筆失敗,`database is locked (517)`)。⚠️ `TestSaveWithDocumentHistoryUnderConcurrentWritersKeepsTheChainContiguous` **維持綠**(上限 1 的緣故,見上)。
   - pragma 名字打錯(`journl_mode`)→ **1 條紅**:`TestOpenSQLite_IsActuallyInWAL`(實際模式 `delete`)。
   - 單檔複製守衛:Go 面注入 `os.Rename(dbPath, dbPath+".handcopy")` ＋腳本面注入 `cp "$DB_PATH" /tmp/handcopy.db` → **兩個半邊各自點名正確位置**(`backup.go:260`、`bin/install.sh:921`)。
+  - **掃描語料**(review 項 A):`dal*.go` **之外**的檔放兩個真缺陷 → **2 條紅**(`TestNoWriteStatementRunsOnTheReadPool`、`TestReadPoolIsNeverHandedToAWriteSeam`,各自點名 `store_review_probe.go:8` / `:13`);把語料改回 `dal*.go`、探針留著 → **全綠**(反向對照)。
+  - **serve 的自檢接線**(review 項 C):刪掉 `server.go` 那整段呼叫 → **整個 package 恰好 1 條紅** `TestServeAsksTheDatabaseWhichJournalModeItIsIn`;**改動前這顆 mutant 是 0 條紅**。
+
+### 🔴 備份的停等成本:讀者不等了,寫者照樣等(review 項 B 更正)
+
+`backup.go` 曾經在 WAL 上線後寫「a writer no longer waits for the duration either」——**那句可證為假**。獨立審查在 **78 MB 資料庫、WAL 已開**的情況下量到:**vacuum 108ms / writer_wait 86ms / reader_wait 3ms**。
+
+- 原因**與 journal mode 無關**:`VACUUM INTO` 那個 Exec 佔用**寫池唯一那條連線**(`openSQLite` 上限 1),所以 Go 的 pool 層在 SQLite 還沒被問到之前就把其他寫者排住了。
+- ⇒ **WAL 只買到「讀者不等」**。任何人要回答「備份對這個工作室的成本是多少」,**一定要報寫入那一側的數字**;引用讀者那個 3ms 去講「備份不影響服務」是錯的。
+- 舊的量級參考仍有效:**~0.43s / 340 MB**(WAL 之前量的)。
 - **反恆真**:每個掃描都先自證語料非空(Go 檔數、腳本檔數、**以及看到的動詞數**——動詞數為 0 代表偵測器死了,那時「零發現」什麼都不證明);寫入取樣表有下限;所有「寫成功」都以**讀回來**收尾,不以「回 nil」代替。
 
 ## 已知邊界(誠實列,別當成熟功能用)
 - **config 預設路徑是 CWD-relative `oc.toml`**(binary 沒有 source-path 可錨 repo root);部署正解走 `$OC_CONFIG`。
+- **`-wal` 的大小:常態有界,但被一個長命讀者就變無界(T-dd7a 上線後的新運維面;實測 2026-08-01,只查事實、未改任何設定)。**
+  - **repo 裡沒有任何地方設 `wal_autocheckpoint` 或 `journal_size_limit`**(grep 回 0 行),所以吃的是驅動預設:`wal_autocheckpoint=1000` 頁、`page_size=4096` ⇒ **約 4 MB 的 checkpoint 門檻**;`journal_size_limit=-1`(checkpoint 後**不截短**檔案,空間是重用的)。
+  - **常態有界**:連續寫入約 80 MB 的資料(主檔長到 91 MB),`-wal` **全程停在 ~4.1 MB**。
+  - 🔴 **一個開著的讀取交易就會讓它無界**:auto-checkpoint 需要沒有讀者卡著舊 snapshot,所以在**單一個** read tx 開著的期間連續寫入,`-wal` 從 4 MB 長到 **67 MB → 196 MB**(還在長)。讀者放手後**檔案不會縮回去**(`journal_size_limit=-1`),那個高水位留在磁碟上被重用。
+  - **目前生產不可達,但不是被守衛擋住的,是碰巧**:`rdb.Begin`/`BeginTx` 在非測試碼裡**一次都沒有**——每個讀都是單發 `Query`/`QueryRow` 且立刻把 `Rows` 消耗完。**加一個「開著 rows 走很久」的讀取路徑就會踩到**,而沒有任何東西會叫。
+  - **乾淨關閉會清掉**:最後一條連線關閉時 WAL 被 checkpoint 並移除(實測:serve 正常退出後資料目錄只剩 `officraft.db`)⇒ 高水位不跨重啟。**當機不會**——那時 `-wal` 還在,而它裡面就是最需要的那幾筆(這也是單檔複製守衛存在的理由)。
+  - **要處理的話有兩個旋鈕**(`journal_size_limit` 讓檔案 checkpoint 後真的截短、或縮小 `wal_autocheckpoint`)——**本次刻意沒動**,等裁定。
 
 ## 慣例
 - 改 Go → fresh build 驗證，**不 commit binary**(root §13)。需要可單檔 boot/裝機的 build 前，先跑 `bash bin/build-seedsdist && bash bin/build-bindist` 再 `go build -ldflags="-s -w"`——asset 已 embed-only，漏 staging 會默默丟掉單檔 boot/裝機能力；本機產物是 gitignored，部署 binary 由發版流程 fresh build，parity dryrun 的 `--help` 對比抓不到內容面漏 staging，故此步靠人工紀律。

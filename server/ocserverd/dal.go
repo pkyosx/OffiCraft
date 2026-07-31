@@ -1546,7 +1546,12 @@ func (d *DAL) PutReplyCardWithAttachments(c ReplyCard, atts []ChatAttachment) er
 // bodies handed to inTx routinely READ and then WRITE (SaveWithDocumentHistories
 // snapshots the live document inside the very transaction that overwrites it),
 // and a DEFERRED transaction has to upgrade a read lock into a write lock, which
-// SQLite refuses with an instant SQLITE_BUSY that `busy_timeout` does NOT cover.
+// is refused with an instant SQLITE_BUSY that `busy_timeout` does NOT cover.
+//
+// ⚠️ That refusal is a WAL-mode behaviour, not a general SQLite one (measured:
+// rollback journal + DEFERRED never failed; WAL + DEFERRED failed 2 of 8, at
+// 0-1ms against a 5s timeout). WAL is exactly what T-dd7a turned on, so the two
+// go together — see openSQLite in migrate.go for the numbers.
 //
 // ⚠️ What that protects is a writer on ANOTHER HANDLE (`ocserverd backup`, a shell
 // sqlite3), NOT our own concurrent writers — the one-connection cap already

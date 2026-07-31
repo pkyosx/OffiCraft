@@ -14,9 +14,12 @@ package main
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"net"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -78,21 +81,35 @@ func TestAssertJournalMode_NamesTheMismatch(t *testing.T) {
 
 // ── the write pool's transaction mode ────────────────────────────────────────
 
-// TestWritePool_ReadThenWriteNeverHitsBusy is the mechanism test, and it is the
-// one that disproved the simpler version of this change (branch t-dd7a-wal:
-// journal_mode(WAL) plus raising the connection cap, with transactions left at
-// the driver default). It models what our own transactions actually do —
-// SaveWithDocumentHistories reads the live document inside the very transaction
-// that overwrites it — from two INDEPENDENT handles on one file, which is a real
-// production shape: `ocserverd backup` and a shell sqlite3 both open their own.
+// TestWritePool_ReadThenWriteNeverHitsBusy pins the transaction mode. It models
+// what our own transactions actually do — SaveWithDocumentHistories reads the live
+// document inside the very transaction that overwrites it — from two INDEPENDENT
+// handles on one file, which is a real production shape: `ocserverd backup`
+// (cmdBackup) and a shell sqlite3 each open their own.
 //
-// 🔴 With BEGIN DEFERRED this test fails, and it fails for a reason busy_timeout
-// cannot fix: a DEFERRED transaction that reads first has to UPGRADE its read
-// lock to a write lock, and SQLite answers an upgrade conflict with an INSTANT
-// SQLITE_BUSY (waiting would deadlock two upgraders, so the engine does not
-// wait). `_txlock=immediate` takes the write lock at BEGIN, where busy_timeout
-// does apply. Measured on this tree: DEFERRED → 4 errors incl. SQLITE_BUSY and
-// SQLITE_BUSY_SNAPSHOT (517), IMMEDIATE → 0.
+// 🔴 BE EXACT ABOUT WHAT THIS TEST DISCRIMINATES, because two wider claims are
+// tempting and both are false:
+//
+//  1. It does NOT discriminate "after this change vs before". It is GREEN on the
+//     parent commit too. What it discriminates is IMMEDIATE vs DEFERRED *under
+//     WAL* — which is worth a test precisely because WAL is what this change
+//     turns on.
+//  2. It is NOT "the test that disproved the simpler version". The thing that
+//     disproved `WAL + raise the cap` (branch t-dd7a-wal, commit 25bf66d) was the
+//     full CI going red on TestSaveWithDocumentHistoryUnderConcurrentWriters-
+//     KeepsTheChainContiguous. This test did not exist then.
+//
+// 🔴 AND THE HAZARD IS WAL-ONLY, not a general property of SQLite. Measured by an
+// independent review on this tree: rollback journal + DEFERRED → 0/8 failed;
+// WAL + DEFERRED → 2/8 failed with the SQLITE_BUSY arriving at 0ms/1ms against a
+// 5000ms busy_timeout; WAL + IMMEDIATE → 0/8. The error code tells the same story
+// — SQLITE_BUSY_SNAPSHOT (517) only exists in WAL mode. So turning WAL on is what
+// INTRODUCES the upgrade-conflict hazard, and `_txlock=immediate` is the half of
+// the change that pays for it: a DEFERRED transaction that reads first must
+// UPGRADE its read lock, SQLite answers an upgrade conflict with an instant
+// SQLITE_BUSY that busy_timeout does NOT wait out (waiting would deadlock two
+// upgraders), and IMMEDIATE takes the write lock at BEGIN where busy_timeout does
+// apply.
 func TestWritePool_ReadThenWriteNeverHitsBusy(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "writers.db")
 	a, err := openSQLite(path)
@@ -356,15 +373,91 @@ func TestWritesAllLandThroughTheRealSplitPools(t *testing.T) {
 	}
 }
 
+// ── the runtime self-check is actually WIRED into serve ──────────────────────
+
+// TestServeAsksTheDatabaseWhichJournalModeItIsIn covers the CALL SITE, not the
+// function.
+//
+// 🔴 WHY A SEPARATE TEST FOR ONE `if` BLOCK. assertJournalMode had unit coverage
+// and openSQLite's WAL had coverage, but nothing observed that `cmdServe`
+// actually CALLS it — an independent review deleted the whole block from
+// server.go and the entire suite stayed green. That block is the ONLY online
+// signal for a defect that is otherwise undetectable from outside: if WAL fails
+// to turn on, the server serves, the data is correct, and the sole symptom is the
+// per-request queueing this ticket removed. A self-check that can be silently
+// removed is not a self-check.
+//
+// It drives the real boot by HOLDING THE PORT serve is about to want (the same
+// seam server_test.go's orphan-card boot test uses): boot runs all the way
+// through open → pre-migration backup → goose → THIS CHECK → read pool → seed,
+// and then exits 1 on the bind. rc == 1 for that reason is itself the proof that
+// the whole boot path executed rather than short-circuiting early.
+func TestServeAsksTheDatabaseWhichJournalModeItIsIn(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "serve-journal.db")
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("probe listen: %v", err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	cfgPath := filepath.Join(dir, "oc.toml")
+	if err := os.WriteFile(cfgPath,
+		[]byte(fmt.Sprintf("[server]\nport = %d\n", port)), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	var out strings.Builder
+	rc := cmdServe(envOf(map[string]string{
+		"OC_CONFIG":          cfgPath,
+		"OC_DATABASE_URL":    "sqlite:///" + dbPath,
+		"OC_NO_OPEN_BROWSER": "1",
+	}), true, true, &out)
+	if rc != 1 {
+		t.Fatalf("the held port must make serve exit 1 (boot ran, bind failed), got %d\n%s", rc, out.String())
+	}
+
+	got := out.String()
+	// The boot must SAY which mode the database is in. Silence here is the
+	// regression: it means nobody asked.
+	if !strings.Contains(got, "journal_mode=wal") {
+		t.Fatalf("serve never reported the journal mode it observed — the self-check is not wired in.\n%s", got)
+	}
+	// And it must not be reporting a problem on a freshly opened database.
+	if strings.Contains(got, "WARNING: journal_mode") {
+		t.Fatalf("a fresh database should be in WAL; serve warned instead:\n%s", got)
+	}
+}
+
 // ── zero-rows scans over EVERY pool reference in the DAL ─────────────────────
 
-// dalFiles is the DAL surface. It is derived, not enumerated: any file declaring
-// methods on *DAL is in scope.
-func dalFiles(t *testing.T) []string {
+// poolScanCorpus is the corpus both zero-rows scans below run over: EVERY
+// non-test .go file in this package.
+//
+// 🔴 IT DELIBERATELY DOES NOT FILTER BY FILENAME. The first version of this
+// helper globbed `dal*.go` while its own comment claimed to be "derived, not
+// enumerated: any file declaring methods on *DAL is in scope" — a claim that was
+// false, and false in the worst direction: the comment told the next maintainer
+// that a new file was automatically covered. It was not. An independent review
+// dropped a `store_review_probe.go` holding two REAL defects (a `d.rdb.Exec` with
+// an INSERT inside a `func (d *DAL)` method, and a `putChatOn(d.rdb, m)`) and ALL
+// THREE guards stayed GREEN. The `len(out) < 3` floor could not help: there were
+// exactly 3 matching files, so the floor was satisfied by the very set that was
+// missing the defect.
+//
+// That is the exact shape this ticket exists to avoid — a list that omits things
+// and stays green while omitting them — so the fix is to stop having a list. The
+// `dal*.go` prefix never carried any meaning: nothing stops a DAL method, or an
+// sqlExecer write seam, from being declared in a file called anything at all, and
+// the seam scan's first pass has to see every such declaration or its second pass
+// cannot recognise a misrouted call.
+func poolScanCorpus(t *testing.T) []string {
 	t.Helper()
-	all, err := filepath.Glob("dal*.go")
+	all, err := filepath.Glob("*.go")
 	if err != nil {
-		t.Fatalf("glob dal files: %v", err)
+		t.Fatalf("glob package files: %v", err)
 	}
 	var out []string
 	for _, f := range all {
@@ -373,8 +466,12 @@ func dalFiles(t *testing.T) []string {
 		}
 		out = append(out, f)
 	}
-	if len(out) < 3 {
-		t.Fatalf("found only %d DAL files — the glob is broken, and a broken glob is GREEN", len(out))
+	// The floor is a liveness check on the glob, nothing more. It is set well
+	// below the real count (this package is dozens of files) so that it fails
+	// when the glob breaks and never when someone legitimately adds or removes
+	// one — a floor tuned to the exact current count is a second list.
+	if len(out) < 30 {
+		t.Fatalf("found only %d non-test .go files — the glob is broken, and a broken glob is GREEN", len(out))
 	}
 	return out
 }
@@ -391,7 +488,7 @@ func TestNoWriteStatementRunsOnTheReadPool(t *testing.T) {
 	scanned := 0
 	var findings []string
 
-	for _, path := range dalFiles(t) {
+	for _, path := range poolScanCorpus(t) {
 		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
 		if err != nil {
 			t.Fatalf("parse %s: %v", path, err)
@@ -445,7 +542,7 @@ func TestReadPoolIsNeverHandedToAWriteSeam(t *testing.T) {
 	// pass 1: which package-level funcs take a write seam?
 	writeSeams := map[string]bool{}
 	files := map[string]*ast.File{}
-	for _, path := range dalFiles(t) {
+	for _, path := range poolScanCorpus(t) {
 		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
 		if err != nil {
 			t.Fatalf("parse %s: %v", path, err)
