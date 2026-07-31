@@ -460,6 +460,12 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 		return 1
 	}
 	defer db.Close()
+	// Backup trigger ③ (backup.go): snapshot BEFORE goose touches the schema.
+	// Swapping the binary cannot hurt the data; a migration can, so this — not
+	// the upgrade step — is the moment that needs a retreat point. Never fatal:
+	// refusing to boot because a backup failed would trade an unlikely data
+	// risk for a certain outage, and the log says so plainly.
+	backupBeforeMigrations(db, dbPath, time.Now())
 	if err := runMigrations(db); err != nil {
 		fmt.Fprintf(out, "[ocserverd] FATAL: goose up: %v\n", err)
 		return 1
@@ -557,6 +563,11 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 	// `updater.auto_update` setting gates action, so an owner arming it via
 	// PATCH /api/settings needs no restart. An unarmed tick is two mutex reads.
 	api.startAutoUpdateCadence(autoUpdateCadence)
+	// Backup trigger ② (backup.go): ALWAYS mounted, no toggle. A backup that
+	// has to be armed is a backup nobody has — and until T-ada9 this studio had
+	// none at all. The tick only wakes; runDatabaseBackup decides whether one
+	// is actually due.
+	startBackupCadence(db, dbPath, backupCadence)
 	// The bind host is hardwired loopback (B2): expose via a tunnel, never a
 	// direct non-loopback bind.
 	addr := fmt.Sprintf("%s:%d", defaultHost, cfg.Server.Port)

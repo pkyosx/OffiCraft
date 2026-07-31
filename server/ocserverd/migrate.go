@@ -16,6 +16,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite" // registers the cgo-free "sqlite" driver
@@ -50,6 +51,55 @@ func runMigrations(db *sql.DB) error {
 		return err
 	}
 	return goose.Up(db, "migrations")
+}
+
+// cmdBackup is backup trigger ① (backup.go): take ONE snapshot by hand, right
+// now. This is the seam a human uses before doing something risky — and it runs
+// the SAME runDatabaseBackup the cadence runs, so what a person verified by hand
+// is exactly what happens unattended at 4am.
+//
+// It resolves the DSN the same way serve does, so it always backs up THIS
+// instance's database (namespaced instances included) rather than a path someone
+// typed.
+func cmdBackup(env func(string) string, out io.Writer) int {
+	cfg, warnings, err := loadConfig(configPath(env))
+	if err != nil {
+		fmt.Fprintf(out, "[ocserverd] FATAL: %v\n", err)
+		return 1
+	}
+	for _, w := range warnings {
+		fmt.Fprintf(out, "[ocserverd] WARN: %s\n", w)
+	}
+	path, ok := sqliteFilePath(resolveDSN(env, cfg))
+	if !ok {
+		fmt.Fprintln(out, "[ocserverd] FATAL: backup supports sqlite DSNs only")
+		return 1
+	}
+	if _, err := os.Stat(path); err != nil {
+		// Creating the file here would produce a "backup" of an empty database
+		// and report success — the exact shape of a retreat point that is not
+		// one.
+		fmt.Fprintf(out, "[ocserverd] FATAL: no database at %s (nothing to back up)\n", path)
+		return 1
+	}
+	db, err := openSQLite(path)
+	if err != nil {
+		fmt.Fprintf(out, "[ocserverd] FATAL: open %s: %v\n", path, err)
+		return 1
+	}
+	defer db.Close()
+	res, err := runDatabaseBackup(db, path, backupReasonManual, time.Now())
+	logBackupOutcome(res, err)
+	if err != nil {
+		fmt.Fprintf(out, "[ocserverd] backup FAILED: %v\n", err)
+		return 1
+	}
+	if res.Skipped != "" {
+		fmt.Fprintf(out, "[ocserverd] backup skipped: %s\n", res.Skipped)
+		return 1
+	}
+	fmt.Fprintf(out, "[ocserverd] backup ok: %s (%d MB in %s)\n", res.Path, res.Bytes>>20, res.Took.Round(time.Millisecond))
+	return 0
 }
 
 // cmdMigrate resolves the DSN (env → oc.toml → sqlite convention default) and

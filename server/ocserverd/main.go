@@ -22,6 +22,7 @@ import (
 var subcommands = []struct{ name, help string }{
 	{"serve", "run the server (default): read oc.toml, bind loopback:[server].port"},
 	{"migrate", "apply goose migrations to the resolved [storage] DSN (sqlite)"},
+	{"backup", "take one online snapshot of this instance's database (single consistent file)"},
 	{"set-password", "store the owner password's argon2id hash in DB settings ($OC_NEW_PASSWORD)"},
 	{"claim-token", "print the one-shot first-run claim code (exit 3 once a password is set)"},
 }
@@ -73,6 +74,13 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 			return 2
 		}
 		return cmdMigrate(env, out)
+
+	case "backup":
+		if len(rest) != 0 {
+			fmt.Fprintln(out, "[ocserverd] backup takes no arguments (the database comes from the resolved DSN)")
+			return 2
+		}
+		return cmdBackup(env, out)
 
 	case "set-password":
 		if len(rest) != 0 {
