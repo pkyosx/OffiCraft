@@ -290,6 +290,59 @@
   outline: 1px solid var(--color-bg);
 }
 
+/* 任務 open-count on its nav tab — a WORKLOAD number, not an alert (T-2658).
+ *
+ * It used to be the red pill above. Red in this cockpit means "this one wants
+ * you": 辦公室 unread and 等我回覆 are things the owner has to act on, and the
+ * task total — which is just how much work is open — was wearing the same
+ * uniform, so a perfectly healthy 7 read as seven problems (owner, c-f6d16cbb5fa4:
+ * 「用紅色有點誤導警示的感覺」).
+ *
+ * ⚠️ It is a SEPARATE class, not a `.nav-tab__badge` modifier, and that is
+ * deliberate. check-token-roles.mjs pins every rule whose subject compound
+ * contains `.nav-tab__badge` to the danger trio, and a
+ * `.nav-tab__badge.nav-tab__badge--neutral` re-paint is exactly the compound
+ * bypass that guard's round-4 review was written to catch: on screen the pill
+ * would no longer be red while the guard still measured it as red. So the count
+ * leaves that family and joins the checker under its own rules instead
+ * (NEUTRAL_COUNT_REQUIRED there) — the neutral look is pinned, not exempted.
+ *
+ * ⚠️ The colours are color-mix()es of EXISTING tokens, not a new --color-* slot.
+ * A pack only carries the tokens it lists, so a fresh token would fall back to
+ * its built-in DARK default under every pack the owner already has — a dark
+ * smudge on a light nav. --color-overlay is the theme's overlay base, and any
+ * pack that actually renders light has to re-value it
+ * (docs/T-081b-token-split-mapping.md); a legacy pack that fills only
+ * --color-bg leaves it white, which is the right answer for the dark nav such a
+ * pack still produces. Deriving from it and --color-text therefore makes old
+ * packs correct for free. Measured on the built-in dark
+ * theme and on the smurf-village light pack: the digits clear AA on both
+ * (6.28–8.56:1) — pinned in nav-count-neutral.ct.spec.tsx. */
+.nav-tab__count {
+  flex: none;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  /* The count changes as tasks open and close; tabular figures keep the pill
+   * from twitching when 7 becomes 8. */
+  font-variant-numeric: tabular-nums;
+  background: color-mix(in srgb, var(--color-overlay) 13%, transparent);
+  color: var(--color-text);
+  /* A hairline in the same overlay base rather than the page colour the red
+   * pill rings itself with: this fill is deliberately quiet (1.3–1.5:1 against
+   * what sits behind it), so it needs an edge to still read as a container —
+   * but a --color-bg ring would cut a hard page-coloured notch into the active
+   * tab's indigo fill, which is the one place the pill does NOT sit on the page. */
+  outline: 1px solid color-mix(in srgb, var(--color-overlay) 18%, transparent);
+}
+
 .app__main {
   flex: 1;
   min-height: 0;

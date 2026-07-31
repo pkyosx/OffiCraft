@@ -39,6 +39,27 @@ wire 那頭是裸 `string`(spec 已凍結),不認得的字 → `undefined`,再�
 ## unread 計數 badge(M2-1 紅點升級;與 presence 各自獨立)
 roster MemberCard 成員列**右側(flex 尾端)的紅色計數 badge**(>99 顯示 99+、count=0 完全不渲染)= server 算好的 `member.unreadCount`(MemberDTO `unread_count`,chat_read watermark 的反相計數;只算成員→owner 訊息,agent↔agent 不計;舊純紅點 boolean 已整顆換掉)——FE 純 passthrough、**不自己算**。清除即既有已讀 choke:進對話的 `listChat` auto-mark / `markChatRead`;`useMembers` 的 ROSTER_TOPICS 含 `chat` / `chat_read` 讓 badge 即時亮/滅;開著的那個對話卡片以 `selected` 壓掉 badge(對話中新訊息永不累積)。badge 在整列(聊天入口)內,點 badge = 點列 = 進聊天,無獨立 handler。mock 以同一規則 live 計算(`unreadCountOf`)、行為與 http 一致;測試用 `__injectMockChat` 注入 inbound 訊息。
 
+## 導覽列三顆計數:兩顆紅、一顆中性(T-2658)
+`.nav-tabs` 上的三顆計數**不是同一家**,別再把它們「統一」回去:
+- **辦公室未讀 / 等我回覆** = `.nav-tab__badge`,紅色 danger pill。紅色在這個座艙的意思是
+  **「這件事要你動手」**,這兩顆就是。
+- **任務未結案數** = `.nav-tab__count`,中性淡色 pill。它只是 workload,一個健康的 7 被畫成
+  紅色會讀成七個問題(owner 原話 c-f6d16cbb5fa4)。
+
+兩個實作紀律:
+- **是獨立 class,不是 `.nav-tab__badge` 的 modifier。** `check-token-roles.mjs` 的
+  `targets()` 用 compound 的 parts 比對,所以 `.nav-tab__badge.nav-tab__badge--neutral`
+  會在畫面上重畫成中性、而那道 guard 仍然把它當紅的量——那正是它 round-4 列名的 bypass 形狀。
+  中性 count 因此**自己進了那支 checker**(`NEUTRAL_COUNT_*`),是被釘住、不是被豁免。
+- **顏色是既有 token 的 `color-mix`,不新開 `--color-*`。** 主題包只帶它自己列出的 token
+  (`i18n/index.tsx` 逐一 `setProperty`),所以新 token 在**所有既有主題包**上都會落回內建暗色
+  預設值 —— 淺色 nav 上一坨深色。改用 `--color-overlay`(**任何做得成淺色的包必然覆蓋它**——見
+  `docs/T-081b-token-split-mapping.md`;只填 `--color-bg` 的老包留在白色疊層,對深色 nav 本來就是對的)
+  與 `--color-text` 推導,舊包自動正確。
+- 護欄:`src/App.nav-task-count.test.tsx`(class 分家 + 兩顆仍紅 + 0/99+ + 讀屏名稱)、
+  `visual-guards/nav-count-neutral.ct.spec.tsx`(真瀏覽器:暗色與淺色包各自量「不是紅的」、
+  「請示仍是紅的」、AA ≥ 4.5:1、pill 幾何沒變)。
+
 ## 聊天未讀跳轉(M2 批次 19;LINE/FB 式,純 FE)
 ChatArea 兩個行為,皆不動 server:
 - **進房跳第一則未讀**:進對話時 snapshot `member.unreadCount`(**render 同步取**,搶在 listChat「list 即讀」清 watermark 之前——這是 race-free 的關鍵;server 清掉後 roster unreadCount 才歸 0)。第一則未讀 = thread 中 `from===peer && to===owner` 訊息的**最後 count 則之最早者**;其上渲染 `.chat__unread-divider`(「以下是未讀訊息」細線)並 `scrollIntoView({block:"start"})` 頂到視野頂;divider 整個 session 保留(如 LINE)。無未讀照舊落底。ChatArea 換 peer 不 remount → render-time guard 重置 session 追蹤;useChat 於 withId 換時**立即清空 messages**(防舊 thread 殘影 + 防未讀定位錨錯舊訊息)。

@@ -348,6 +348,7 @@ var messageKeys = map[string]bool{
 	"nav.monitor":                              true,
 	"nav.office":                               true,
 	"nav.officeUnread":                         true,
+	"nav.openTasksSuffix":                      true,
 	"nav.replies":                              true,
 	"nav.tasks":                                true,
 	"notifications.contactRequired":            true,

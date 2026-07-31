@@ -34,7 +34,7 @@ import "./components/chrome.css";
 type Tab = "office" | "replies" | "tasks" | "monitor" | "guide";
 
 export default function App({ onLogout }: { onLogout?: () => void } = {}) {
-  const { t } = useI18n();
+  const { t, msg } = useI18n();
   // The studio name is server-backed (T-d693); the localized dict string is the
   // fallback until the fetch lands / when the owner has not named the studio.
   const { orgName, setOrgName } = useOrgName(t.orgName);
@@ -69,14 +69,20 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   // they never merge).
   const replyCount = useReplyCardCount();
   // The 辦公室 nav unread badge: TOTAL chat unread across every peer (> 0 → a
-  // red count pill, >99 → "99+"; the same recipe as the 等我回覆/任務 badges).
+  // red count pill, >99 → "99+"; the same recipe as the 等我回覆 badge — the 任務
+  // count left this family in T-2658, see .nav-tab__count).
   // Live via /api/chat/unread-count + "chat" / "chat_read" SSE deltas. A
   // separate signal from the 等我回覆 waiting-card badge (different clearing
   // rules — they never merge).
   const chatUnread = useChatUnread();
-  // The 任務 nav badge: how many tasks are OPEN (non-terminal; 已完成/終止
+  // The 任務 nav count: how many tasks are OPEN (non-terminal; 已完成/終止
   // never count — spec §1). Live via /api/tasks/count + "task" SSE deltas.
+  // Rendered NEUTRAL, not as a red pill (T-2658): it is a workload figure, and
+  // the two red badges above it are the ones that mean "act on me".
   const taskCount = useTaskCount();
+  // Clamped ONCE: the digits and the accessible name have to say the same
+  // thing, and two copies of the same ternary are one edit away from not.
+  const shownTaskCount = taskCount > 99 ? "99+" : String(taskCount);
   // The gear opens Settings as an OVERLAY route (#settings); clicking a nav
   // tab navigates back to that tab.
   const settingsOpen = route.page === "settings";
@@ -226,8 +232,17 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
             <NavIcon tabKey="tasks" fallback={<TasksIcon size={15} />} />
             <span>{t.nav.tasks}</span>
             {taskCount > 0 && (
-              <span className="nav-tab__badge" data-testid="tasks-badge">
-                {taskCount > 99 ? "99+" : taskCount}
+              // role="img" + a name, the same shape MemberCard's presence dot
+              // uses: this repo has no sr-only utility, so the accessible name
+              // has to live on the element itself. Without it a screen reader
+              // reads the tab as "任務 7" and never says what the 7 counts.
+              <span
+                className="nav-tab__count"
+                data-testid="tasks-badge"
+                role="img"
+                aria-label={msg.navOpenTasks(shownTaskCount)}
+              >
+                {shownTaskCount}
               </span>
             )}
           </button>

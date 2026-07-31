@@ -692,6 +692,95 @@ for (const selector of BADGE_SELECTORS) {
   }
 }
 
+// ── The 任務 count is neutral, and stays neutral ─────────────────────────────
+// T-2658 took the open-task total OUT of the red family above: it is a workload
+// figure, and wearing the alert uniform made a healthy 7 read as seven problems.
+//
+// It is pinned HERE rather than left to review for the same reason the red trio
+// is. The class deliberately does NOT contain `.nav-tab__badge` — a
+// `.nav-tab__badge.nav-tab__badge--neutral` re-paint would have been invisible
+// to the loop above only because `targets()` compares compounds, i.e. exactly
+// the round-4 bypass shape — so without its own entry the neutral look would be
+// the one pill in the nav with no guard at all.
+//
+// The tokens are the point: a count painted from a NEW --color-* slot would
+// fall back to its built-in dark default on every theme pack already in the
+// wild (a pack only carries the tokens it lists), so the fill and the ring are
+// veils over --color-overlay — the token any pack that actually renders light
+// has to re-value (docs/T-081b-token-split-mapping.md), and which a legacy
+// --color-bg-only pack correctly leaves white for the dark nav it still
+// produces. Naming the parent here means a later "simplify" to
+// a fixed colour, or a quiet re-merge back into --color-danger-badge, is a red
+// CI run instead of a red badge.
+const NEUTRAL_COUNT_SELECTOR = ".nav-tab__count";
+const NEUTRAL_COUNT_REQUIRED = [
+  [
+    ["background", "background-color"],
+    "--color-overlay",
+    "the neutral fill must be a veil over the theme's own overlay base, not a fixed " +
+      "colour and not the danger fill — a fixed colour is wrong on half the theme packs",
+  ],
+  [
+    ["color"],
+    "--color-text",
+    "the digits must be the theme's own text colour; that is what the AA measurement " +
+      "in nav-count-neutral.ct.spec.tsx is taken on",
+  ],
+  [
+    ["outline", "outline-color"],
+    "--color-overlay",
+    "the fill is deliberately quiet (1.3-1.5:1 against what is behind it), so the " +
+      "hairline is what still makes it read as a container",
+  ],
+];
+{
+  const rules = decls.filter((d) => targets(d.selector, NEUTRAL_COUNT_SELECTOR));
+  for (const [props, token, why] of NEUTRAL_COUNT_REQUIRED) {
+    const [primary] = props;
+    const own = rules.filter((d) => props.includes(d.prop));
+    if (!own.some((d) => d.prop === primary)) {
+      violations.push({
+        rel: THEME,
+        lineNo: 0,
+        prop: `${NEUTRAL_COUNT_SELECTOR} { ${primary}`,
+        value: "(missing)",
+        why: `${NEUTRAL_COUNT_SELECTOR} has no ${primary} declaration — ${why}.`,
+      });
+      continue;
+    }
+    for (const rule of own) {
+      // usesRaw ONLY — naming the token is the requirement, and reaching it
+      // through an alias is NOT the same thing. --color-on-danger /
+      // --color-on-indigo / --color-knob / --color-on-backdrop all DEFAULT to
+      // `var(--color-overlay)` in theme.css (deliberately, so already-imported
+      // light packs keep working), so accepting an alias hop would let
+      // `background: var(--color-on-danger)` pass as "follows the overlay base"
+      // — an OPAQUE white pill on the built-in theme, ~1.05:1 under the digits.
+      // The badge family above uses usesRaw for exactly this reason.
+      if (usesRaw(rule.value, token)) continue;
+      violations.push({
+        ...rule,
+        why: `${NEUTRAL_COUNT_SELECTOR}'s ${rule.prop} does not resolve to ${token} — ${why}.`,
+      });
+    }
+  }
+  // The whole point is that it is NOT the alert pill. A re-merge would repaint
+  // it red while every rule above still passed.
+  for (const rule of rules) {
+    // Here an alias hop IS a hit: reaching the danger fill through an alias
+    // still paints the count red, which is the thing being forbidden.
+    if (!usesRaw(rule.value, BADGE_FILL) && !aliasChain(rule.value, BADGE_FILL, defs))
+      continue;
+    violations.push({
+      ...rule,
+      why:
+        `${NEUTRAL_COUNT_SELECTOR}'s ${rule.prop} resolves to ${BADGE_FILL} — the 任務 ` +
+        `count was deliberately taken out of the red alert family (T-2658); red in the ` +
+        `nav means "this one wants you", and an open-task total does not.`,
+    });
+  }
+}
+
 if (violations.length) {
   console.error(
     `\n[token-roles] ${violations.length} violation(s) — a T-081b token split has been undone.\n` +
