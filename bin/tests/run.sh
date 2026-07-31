@@ -801,6 +801,28 @@ else
   bad "bin/tests/rule-defer-guard.sh is missing"
 fi
 
+# ── boot-pack roster freshness (T-792e) ─────────────────────────────────────
+# §11 of seeds/system_interaction.md used to state a headcount ("你是這個工作室
+# 唯一的 AI member"). It was true when written, false a few months later, and
+# nothing anywhere went red — a stale boot pack throws no error, it just teaches
+# every agent on every boot that it has no teammates. The seed now names the
+# ROLES and points at the roster instead of freezing a snapshot. This guard pins
+# both halves: the removed phrasings cannot come back, and the guidance that
+# replaced them (plus the sentence explaining why the snapshot is omitted)
+# cannot be deleted. A green does NOT prove the boot pack is free of stale
+# claims — the guard matches fixed strings; see its header for the boundary.
+SEEDROSTER="$HERE/seed-roster-guard.sh"
+echo
+if [[ -f "$SEEDROSTER" ]]; then
+  if run_guard "$SEEDROSTER"; then
+    ok "boot-pack roster freshness suite passed"
+  else
+    bad "boot-pack roster freshness suite FAILED (see output above)"
+  fi
+else
+  bad "bin/tests/seed-roster-guard.sh is missing"
+fi
+
 # ── guard-of-the-guard (T-d3e3 rework) ──────────────────────────────────────
 # The ci success-marker guard is dispatched at the very BOTTOM of this file,
 # AFTER the `[[ "$FAIL" == "0" ]] || exit 1` enforcement below, so its exit code

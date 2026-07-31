@@ -213,7 +213,7 @@ var workerSharedCoreRewrites = []sharedCoreRewrite{
 			"說的第一句話，而它是錯的。內容確實是共用的全域情境。",
 	},
 	{
-		Anchor:  "- **Agent（你，與未來的 AI 隊友）**",
+		Anchor:  "- **Agent（你，與其他 AI 隊友）**",
 		Find:    "（記憶落在學習筆記，掛在你的角色身上，見 §9）",
 		Replace: "（記憶落在任務手冊的學習經驗；你沒有角色，也沒有掛在角色身上的學習筆記）",
 		Why: "§1 世界觀這一句是 worker 讀到的第一個 lessons 指標，且指向已排除的 §9。" +
