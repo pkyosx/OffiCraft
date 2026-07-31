@@ -420,14 +420,19 @@ func TestServeAsksTheDatabaseWhichJournalModeItIsIn(t *testing.T) {
 	}
 
 	got := out.String()
-	// The boot must SAY which mode the database is in. Silence here is the
-	// regression: it means nobody asked.
-	if !strings.Contains(got, "journal_mode=wal") {
-		t.Fatalf("serve never reported the journal mode it observed — the self-check is not wired in.\n%s", got)
-	}
-	// And it must not be reporting a problem on a freshly opened database.
-	if strings.Contains(got, "WARNING: journal_mode") {
-		t.Fatalf("a fresh database should be in WAL; serve warned instead:\n%s", got)
+	// 🔴 THE TWO FAILURE CAUSES MUST NOT SHARE ONE MESSAGE. If the check runs and
+	// finds the wrong mode (a typo'd pragma, so WAL never turned on) the wiring is
+	// FINE and the database is wrong; if nothing is printed at all, the call site
+	// is gone. An earlier version reported both as "the self-check is not wired
+	// in", which sent the reader to the wrong file — the exact class of defect
+	// this whole ticket keeps correcting.
+	switch {
+	case strings.Contains(got, "WARNING: journal_mode"):
+		t.Fatalf("the self-check IS wired in and it reports the wrong mode — WAL did not turn on (suspect openSQLite's pragma, not this call site):\n%s", got)
+	case !strings.Contains(got, "journal_mode="):
+		t.Fatalf("serve printed nothing about the journal mode — the self-check call site is missing from cmdServe:\n%s", got)
+	case !strings.Contains(got, "journal_mode=wal"):
+		t.Fatalf("serve reported a journal mode other than wal:\n%s", got)
 	}
 }
 
@@ -493,25 +498,33 @@ func TestNoWriteStatementRunsOnTheReadPool(t *testing.T) {
 		if err != nil {
 			t.Fatalf("parse %s: %v", path, err)
 		}
+		// Walked per FUNCTION so a local alias of the read pool is in scope. An
+		// independent review measured `q := d.rdb; q.Exec(INSERT…)` slipping past
+		// the file-wide version of this scan; the alias rule is shared with the
+		// transaction guard (readPoolAliases) so the two cannot drift into "one
+		// knows about aliases, the other does not".
 		ast.Inspect(file, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok {
+			fn, ok := n.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
 				return true
 			}
-			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok {
+			aliases := readPoolAliases(fn)
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				sel, ok := call.Fun.(*ast.SelectorExpr)
+				if !ok || !isReadPoolHandle(sel.X, aliases) {
+					return true
+				}
+				scanned++
+				sqlText := concatStringLiterals(call.Args)
+				if writeVerb.MatchString(sqlText) {
+					findings = append(findings, fmtPos(fset, call.Pos())+" "+sel.Sel.Name+": "+firstLine(sqlText))
+				}
 				return true
-			}
-			// the receiver must be `<something>.rdb`
-			recv, ok := sel.X.(*ast.SelectorExpr)
-			if !ok || recv.Sel.Name != "rdb" {
-				return true
-			}
-			scanned++
-			sqlText := concatStringLiterals(call.Args)
-			if writeVerb.MatchString(sqlText) {
-				findings = append(findings, fmtPos(fset, call.Pos())+" "+sel.Sel.Name+": "+firstLine(sqlText))
-			}
+			})
 			return true
 		})
 	}
@@ -550,9 +563,12 @@ func TestReadPoolIsNeverHandedToAWriteSeam(t *testing.T) {
 		files[path] = file
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Recv != nil || fn.Type.Params == nil {
+			if !ok || fn.Type.Params == nil {
 				continue
 			}
+			// METHODS COUNT TOO (no fn.Recv filter): a write seam declared as a
+			// method is just as unsafe to hand the read pool to, and pass 2 can
+			// now recognise the `h.f(…)` call form (calleeSimpleName).
 			for _, p := range fn.Type.Params.List {
 				if id, ok := p.Type.(*ast.Ident); ok && id.Name == "sqlExecer" {
 					writeSeams[fn.Name.Name] = true
@@ -564,30 +580,35 @@ func TestReadPoolIsNeverHandedToAWriteSeam(t *testing.T) {
 		t.Fatalf("found only %d sqlExecer seam functions — the scan cannot be trusted (a broken scan is GREEN)", len(writeSeams))
 	}
 
-	// pass 2: is `.rdb` ever an argument to one of them?
+	// pass 2: is the read pool ever an argument to one of them? Matches both the
+	// bare `f(x)` and the method `h.f(x)` call forms, and resolves one-hop local
+	// aliases of rdb (shared with the transaction guard).
 	var findings []string
 	handed := 0
-	for path, file := range files {
-		_ = path
+	for _, file := range files {
 		ast.Inspect(file, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok {
+			fn, ok := n.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
 				return true
 			}
-			name, ok := call.Fun.(*ast.Ident)
-			if !ok || !writeSeams[name.Name] {
-				return true
-			}
-			handed++
-			for _, arg := range call.Args {
-				sel, ok := arg.(*ast.SelectorExpr)
+			aliases := readPoolAliases(fn)
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
 				if !ok {
-					continue
+					return true
 				}
-				if sel.Sel.Name == "rdb" {
-					findings = append(findings, fmtPos(fset, arg.Pos())+" "+name.Name+"(…d.rdb…)")
+				name := calleeSimpleName(call.Fun)
+				if !writeSeams[name] {
+					return true
 				}
-			}
+				handed++
+				for _, arg := range call.Args {
+					if isReadPoolHandle(arg, aliases) {
+						findings = append(findings, fmtPos(fset, arg.Pos())+" "+name+"(…the read pool…)")
+					}
+				}
+				return true
+			})
 			return true
 		})
 	}
@@ -667,44 +688,32 @@ func TestNoTransactionIsOpenedOnTheReadPool(t *testing.T) {
 	var findings []string
 	beginsSeen := 0
 	for _, file := range files {
-		// Local aliases of the read pool, per function: `q := d.rdb` then
-		// `q.Begin()` is the same defect one hop away, and it is the obvious way
-		// a direct-only scan gets walked past.
 		ast.Inspect(file, func(n ast.Node) bool {
 			fn, ok := n.(*ast.FuncDecl)
 			if !ok || fn.Body == nil {
 				return true
 			}
-			readAliases := map[string]bool{}
+			aliases := readPoolAliases(fn)
 			ast.Inspect(fn.Body, func(n ast.Node) bool {
-				if as, ok := n.(*ast.AssignStmt); ok {
-					for i, rhs := range as.Rhs {
-						if i >= len(as.Lhs) || !mentionsReadPool(rhs) {
-							continue
-						}
-						if id, ok := as.Lhs[i].(*ast.Ident); ok {
-							readAliases[id.Name] = true
-						}
+				call, ok := n.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				// (a) direct `<x>.rdb.Begin` and (b) one-hop alias `q.Begin`
+				if sel, ok := call.Fun.(*ast.SelectorExpr); ok && isBeginMethod(sel.Sel.Name) {
+					beginsSeen++
+					if mentionsReadPool(sel.X) {
+						findings = append(findings, fmtPos(fset, call.Pos())+" "+sel.Sel.Name+" on d.rdb")
+					} else if id, ok := sel.X.(*ast.Ident); ok && aliases[id.Name] {
+						findings = append(findings, fmtPos(fset, call.Pos())+" "+sel.Sel.Name+" on "+id.Name+" (a local alias of the read pool)")
 					}
 				}
-				// (a) direct: <anything>.rdb.Begin / .BeginTx
-				if call, ok := n.(*ast.CallExpr); ok {
-					if sel, ok := call.Fun.(*ast.SelectorExpr); ok && isBeginMethod(sel.Sel.Name) {
-						beginsSeen++
-						if inner, ok := sel.X.(*ast.SelectorExpr); ok && inner.Sel.Name == "rdb" {
-							findings = append(findings, fmtPos(fset, call.Pos())+" "+sel.Sel.Name+" on d.rdb")
-						}
-						// (b) via a local alias of the read pool
-						if id, ok := sel.X.(*ast.Ident); ok && readAliases[id.Name] {
-							findings = append(findings, fmtPos(fset, call.Pos())+" "+sel.Sel.Name+" on "+id.Name+" (a local alias of the read pool)")
-						}
-					}
-					// (c) the read pool handed to a function that begins a tx
-					if name, ok := call.Fun.(*ast.Ident); ok && txOpeners[name.Name] {
-						for _, arg := range call.Args {
-							if mentionsReadPool(arg) {
-								findings = append(findings, fmtPos(fset, arg.Pos())+" "+name.Name+"(…d.rdb…) — that function opens a transaction on it")
-							}
+				// (c) the read pool handed to something that begins a tx on it,
+				// as a bare function OR a method (see calleeSimpleName).
+				if name := calleeSimpleName(call.Fun); txOpeners[name] {
+					for _, arg := range call.Args {
+						if isReadPoolHandle(arg, aliases) {
+							findings = append(findings, fmtPos(fset, arg.Pos())+" "+name+"(…the read pool…) — that function opens a transaction on it")
 						}
 					}
 				}
@@ -744,6 +753,82 @@ WHAT TO DO INSTEAD, when you need several reads that agree with each other:
   - Reads that just need to be fast and independent stay as they are — single
     Query/QueryRow on d.rdb, Rows consumed immediately.`, len(findings))
 	}
+}
+
+// readPoolAliases collects the local identifiers inside one function that hold
+// the read pool — `q := d.rdb`, `q = d.rdb`, and `var q *sql.DB = d.rdb`.
+//
+// 🔴 ALL THREE DECLARATION FORMS, and that is not tidiness. The first version of
+// the transaction guard collected only `*ast.AssignStmt`, so `var q *sql.DB =
+// d.rdb; q.Begin()` walked straight past it (measured by an independent review)
+// — while the prose on openSQLiteReadPool claimed the guard refuses "local
+// aliases of rdb", which includes that form. "One hop is guarded, the other hop
+// is not" is worse than either: it is a trap for whoever reads the claim.
+//
+// One hop only, on purpose: two hops (`a := d.rdb; b := a`) and stores into
+// struct fields or closures are NOT covered, and that limit is written down
+// rather than papered over (see server/CLAUDE.md).
+func readPoolAliases(fn *ast.FuncDecl) map[string]bool {
+	aliases := map[string]bool{}
+	if fn.Body == nil {
+		return aliases
+	}
+	note := func(lhs []ast.Expr, rhs []ast.Expr) {
+		for i, r := range rhs {
+			if i >= len(lhs) || !mentionsReadPool(r) {
+				continue
+			}
+			if id, ok := lhs[i].(*ast.Ident); ok {
+				aliases[id.Name] = true
+			}
+		}
+	}
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		switch v := n.(type) {
+		case *ast.AssignStmt: // q := d.rdb   /   q = d.rdb
+			note(v.Lhs, v.Rhs)
+		case *ast.ValueSpec: // var q *sql.DB = d.rdb
+			lhs := make([]ast.Expr, 0, len(v.Names))
+			for _, name := range v.Names {
+				lhs = append(lhs, name)
+			}
+			note(lhs, v.Values)
+		}
+		return true
+	})
+	return aliases
+}
+
+// isReadPoolHandle reports whether an expression denotes the read pool, either
+// directly (`d.rdb`) or through one of this function's local aliases.
+func isReadPoolHandle(e ast.Expr, aliases map[string]bool) bool {
+	if mentionsReadPool(e) {
+		return true
+	}
+	id, ok := e.(*ast.Ident)
+	return ok && aliases[id.Name]
+}
+
+// calleeSimpleName renders the name a call is dispatched on, for BOTH a bare
+// function (`f(x)` → "f") and a method or package-qualified form (`h.f(x)` →
+// "f").
+//
+// 🔴 The method form is why this exists. Both handoff scans below match a callee
+// name against a set of functions that are unsafe to hand the read pool to, and
+// the first version compared only `*ast.Ident` — so `h.f(d.rdb)` matched nothing
+// (measured), in BOTH this file's transaction guard and the older write-seam
+// guard, while CLAUDE.md described the latter as covering "any function". Name
+// matching across methods and plain functions is COARSE (a method and a function
+// sharing a name are conflated), and that is the safe direction: it can only
+// produce more findings to look at, never fewer.
+func calleeSimpleName(fun ast.Expr) string {
+	switch v := fun.(type) {
+	case *ast.Ident:
+		return v.Name
+	case *ast.SelectorExpr:
+		return v.Sel.Name
+	}
+	return ""
 }
 
 // isSQLDBType reports whether an AST type expression is *sql.DB.

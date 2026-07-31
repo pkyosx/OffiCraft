@@ -167,13 +167,24 @@ const sqliteMaxReadConns = 8
 //     the most recent work — which is also why db_singlefile_copy_guard_test.go
 //     exists.
 //
-// Every read through this pool is therefore a single Query/QueryRow whose Rows are
-// consumed immediately, and that is ENFORCED, not merely true today:
-// TestNoTransactionIsOpenedOnTheReadPool (wal_pool_test.go) is a zero-rows scan
-// that refuses `rdb.Begin`/`BeginTx`, local aliases of rdb, and handing rdb to a
-// function that begins a transaction. The two knobs above are deliberately NOT set
-// by this change — whether to set them is a configuration decision, not something
-// to slip in alongside a guard.
+// 🔴 WHAT IS ENFORCED, AND WHAT IS ONLY TRUE TODAY — do not merge these:
+//
+//   - ENFORCED: no EXPLICIT transaction is opened on this pool.
+//     TestNoTransactionIsOpenedOnTheReadPool (wal_pool_test.go) is a zero-rows
+//     scan refusing `rdb.Begin`/`BeginTx`, one-hop local aliases of rdb, and
+//     handing rdb to a function that begins a transaction on it.
+//   - NOT ENFORCED, and nothing can cheaply enforce it: that every read's
+//     `*sql.Rows` is consumed PROMPTLY. A `Query` whose rows are held open while
+//     the loop body does slow work pins a snapshot with NO Begin anywhere, and an
+//     independent review measured that shape doing byte-for-byte the same damage
+//     — "-wal" 4.1 → 61.9 MB with the main file frozen at 5.0 MB, and no shrink
+//     after Close(). "How long is too long" is not a static property, so this is
+//     a discipline, not a guard: every read here is a single Query/QueryRow whose
+//     Rows are consumed immediately, and a reader who changes that has to know
+//     what it costs. (server/CLAUDE.md carries the same warning.)
+//
+// The two knobs above are deliberately NOT set by this change — whether to set
+// them is a configuration decision, not something to slip in alongside a guard.
 func openSQLiteReadPool(path string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)&mode=ro")
 	if err != nil {

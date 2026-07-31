@@ -324,9 +324,22 @@ warden 端那個 POST 是 best-effort:失敗的回傳值被 start/stop 呼叫端
   - **常態有界**:連續寫入約 80 MB 的資料(主檔長到 91 MB),`-wal` **全程停在 ~4.1 MB**。
   - 🔴 **一個開著的讀取交易就會讓它無界**:auto-checkpoint 需要沒有讀者卡著舊 snapshot,所以在**單一個** read tx 開著的期間連續寫入,`-wal` 從 4 MB 長到 **67 MB → 196 MB**(還在長)。讀者放手後**檔案不會縮回去**(`journal_size_limit=-1`),那個高水位留在磁碟上被重用。
   - ✅ **「碰巧」已經變成「被守住」**:立案時 `rdb.Begin`/`BeginTx` 在非測試碼裡一次都沒有,但**沒有任何東西在守它**——加一條讀取交易就會踩到,而且零訊號。現在由 `TestNoTransactionIsOpenedOnTheReadPool`(**一條必須回 0 行的查詢**,與單檔複製守衛同一個語料、同一個做法)擋住,理由也一樣:WAL 引進的新危險 ＋ 壞掉時零訊號 ＋ 今天沒有違規者。**掃得到三種形狀**:(a) `<x>.rdb.Begin/BeginTx`、(b) 函式內 `q := d.rdb` 之後 `q.Begin()`(一跳的別名,直接掃會被繞過的那條)、(c) 把 `.rdb` 餵進**任何本 package 收 `*sql.DB` 且在其 body 對該參數 `Begin` 的函式**(AST 兩趟)。**拒絕訊息講後果不只講規則**(pin snapshot ⇒ `-wal` 無界成長且不縮回、零訊號),並指出正解方向(一條 statement / 真要多筆一致就走 `d.wdb` 的 `inTx`,那個池上限 1、交易本來就短),**刻意不提供任何旁路**。
-    - ⚠️ **掃不到的(誠實邊界,別當成全域證明)**:多跳間接(`rdb` 先存進另一個 struct 欄位或閉包再傳)、reflection、本 package 以外的碼;以及 🔴 **另一種同樣會 pin snapshot 的形狀——`*sql.Rows` 開著很久**(`Query` 之後在 loop 裡做慢事、或忘了 `Close`)。後者**靜態上無法判定「很久」**,所以守衛不碰它;它是這條規則現在最可能的實際破法,寫在這裡讓下一個人知道要自己看。
+    - 🔴 **別名判定與 callee 比對是三個掃描共用的(`readPoolAliases` / `isReadPoolHandle` / `calleeSimpleName`),這是刻意的**:第二輪獨立審查跑了 10 個繞過形狀,抓到的三處全是「**描述涵蓋範圍比實際寬**」——與第一輪 A 同一種病。逐一修掉並共用之後,「一個掃描有守、另一個沒守」不可能再發生:
+      - **`var q *sql.DB = d.rdb; q.Begin()`** 原本整條逃掉(只收 `*ast.AssignStmt`),而註解已宣稱擋「local aliases of rdb」⇒ 補 `*ast.ValueSpec`。
+      - **方法形式 `h.f(d.rdb)`** 原本配不到(pass-2 只比對 `*ast.Ident` callee),**seam 守衛也一樣逃掉**(那是第一輪就有的),而 CLAUDE.md 用「任何…函式」描述它 ⇒ pass-2 改用 `calleeSimpleName` 同時吃 `Ident` 與 `SelectorExpr`,seam 守衛的 pass-1 也不再過濾 `fn.Recv`(方法宣告一併登記)。**名字比對是粗的**(同名的 method 與 func 會被混為一談),那是**安全方向**——只會多給人看、不會少抓。
+      - **寫入 SQL 掃描沒有別名規則**(`q := d.rdb; q.Exec(INSERT…)` 逃掉)⇒ 改成 per-function 走訪並吃同一份別名判定。**選「修」不選「揭露」**:成本只有幾行,而「一個掃描有守、另一個沒守」本身就是下一個人的陷阱。
+    - ⚠️ **掃不到的(誠實邊界,已按上面的修正更新過——別留一份「說掃不到、其實掃得到」的反向謊)**:**兩跳以上的別名**(`a := d.rdb; b := a`)、**存進 struct 欄位或閉包再取用**、reflection、本 package 以外的碼;以及 🔴 **另一種同樣會 pin snapshot 的形狀——`*sql.Rows` 開著很久**(`Query` 之後在 loop 裡做慢事、或忘了 `Close`)。後者**靜態上無法判定「很久」**,所以守衛刻意不碰;審查實測它的危害與開著讀交易**逐位元組相同**(`-wal` 4.1 → 61.9 MB、主檔凍在 5.0 MB、`Close()` 後也不縮回),**而且全程沒有任何 `Begin`** ⇒ 它是這條規則現在最可能的實際破法。`migrate.go` 的註解已明確分成「ENFORCED(沒有顯式 Begin)」與「NOT ENFORCED(Rows 要立刻消耗完,只是紀律)」兩段——原本那句 `that is ENFORCED` 把後者包進去了,是假的。
     - **反恆真**:掃描先自證「看得到 `Begin`/`BeginTx` 這個構造」(寫池的 `inTx`/`HardDeleteMember` 就是活證據);計數為 0 = 偵測器死了,那時「零發現」什麼都不證明。
-    - **mutant 實測(2026-08-01,三種形狀各一顆,每顆前 `go clean -testcache`,還原用 scratchpad 備份)**:(a) 直接 `d.rdb.BeginTx` → 紅、點名 `dal.go:203 BeginTx on d.rdb`;(b) `q := d.rdb; q.Begin()` → 紅、點名 `Begin on q (a local alias of the read pool)`;(c) `probeSnapshotRead(d.rdb)`(該函式對參數 `Begin`)→ 紅、點名 `probeSnapshotRead(…d.rdb…) — that function opens a transaction on it`。還原後綠。
+    - **mutant 實測(2026-08-01;每顆前 `go clean -testcache`,還原一律用 scratchpad 備份)**:
+      - (a) 直接 `d.rdb.BeginTx` → 紅、點名 `dal.go:203 BeginTx on d.rdb`。
+      - (b) `q := d.rdb; q.Begin()` → 紅、點名 `Begin on q (a local alias of the read pool)`。
+      - (c) 裸函式 `probeSnapshotRead(d.rdb)`(該函式對參數 `Begin`)→ 紅。
+      - **(R1) `var q *sql.DB = d.rdb; q.Begin()` → 紅**、點名 `Begin on q (a local alias of the read pool)`(**修正前這顆是綠的**)。
+      - **(R2) 方法形式 `probeBox{}.snapshotRead(d.rdb)` → 紅**、點名 `snapshotRead(…the read pool…)`(**修正前綠**)。
+      - **(R2 seam) 方法形式 `seamBox{}.writeVia(d.rdb, …)`(參數型別 `sqlExecer`)→ `TestReadPoolIsNeverHandedToAWriteSeam` 紅**、點名 `writeVia(…the read pool…)`(**修正前綠,且那是第一輪就存在的洞**)。
+      - **(R4) `q := d.rdb; q.Exec(INSERT…)` → `TestNoWriteStatementRunsOnTheReadPool` 紅**、點名該句 INSERT(**修正前綠**)。
+      - 全部還原後四道守衛回綠。
+    - ⚠️ **`TestServeAsksTheDatabaseWhichJournalModeItIsIn` 的失敗訊息分三種原因,不共用一句**:印出 `WARNING: journal_mode` = **接線是好的、WAL 沒開**(去查 `openSQLite` 的 pragma);完全沒印 `journal_mode=` = **呼叫點不見了**;印了但不是 wal = 第三種。舊版把前兩種都講成「the self-check is not wired in」,**把人指去錯的檔**——正是這張票一直在修的那類缺陷。
   - **乾淨關閉會清掉**:最後一條連線關閉時 WAL 被 checkpoint 並移除(實測:serve 正常退出後資料目錄只剩 `officraft.db`)⇒ 高水位不跨重啟。**當機不會**——那時 `-wal` 還在,而它裡面就是最需要的那幾筆(這也是單檔複製守衛存在的理由)。
   - **要處理的話有兩個旋鈕**(`journal_size_limit` 讓檔案 checkpoint 後真的截短、或縮小 `wal_autocheckpoint`)——**本次刻意沒動**,等裁定。
 
