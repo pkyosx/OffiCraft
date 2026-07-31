@@ -470,7 +470,27 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 		fmt.Fprintf(out, "[ocserverd] FATAL: goose up: %v\n", err)
 		return 1
 	}
-	dal := NewDAL(db)
+	// T-dd7a: ask the FILE which journal mode it is actually in, now that
+	// migrations have run against it. A malformed pragma is silently ignored by
+	// SQLite, so the only symptom of a typo in openSQLite's DSN would be the
+	// request queueing this ticket removed: correct data, no error, nothing to
+	// notice. Deliberately NOT fatal — a slow studio beats one that will not boot
+	// (the same trade the pre-migration backup hook makes).
+	if mode, err := assertJournalMode(db, sqliteJournalMode); err != nil {
+		fmt.Fprintf(out, "[ocserverd] WARNING: %v — every request will serialise at the database again, and that is this regression's ONLY symptom (T-dd7a)\n", err)
+	} else {
+		fmt.Fprintf(out, "[ocserverd] journal_mode=%s (reads do not queue behind each other)\n", mode)
+	}
+	// The read pool is opened AFTER the migration: `mode=ro` never creates a file
+	// and a read-only connection cannot recover a WAL, so the write pool has to
+	// have been here first.
+	rdb, err := openSQLiteReadPool(dbPath)
+	if err != nil {
+		fmt.Fprintf(out, "[ocserverd] FATAL: open read pool %s: %v\n", dbPath, err)
+		return 1
+	}
+	defer rdb.Close()
+	dal := NewDALPools(db, rdb)
 	if err := seedOutOfBox(dal); err != nil {
 		fmt.Fprintf(out, "[ocserverd] FATAL: seed: %v\n", err)
 		return 1

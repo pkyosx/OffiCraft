@@ -1484,7 +1484,7 @@ func TestCreateCardWithRefAttachmentReusesTheStoredBlob(t *testing.T) {
 		t.Fatalf("ref attachment must serve the STORED identity: %+v", card.Attachments)
 	}
 	var blobs int
-	if err := api.dal.db.QueryRow(
+	if err := api.dal.rdb.QueryRow(
 		`SELECT COUNT(*) FROM chat_attachment`).Scan(&blobs); err != nil {
 		t.Fatalf("count blobs: %v", err)
 	}
@@ -1531,7 +1531,7 @@ func TestCreateCardWithBadAttachmentsRejectsAtomically(t *testing.T) {
 		t.Fatalf("no companion message may exist after rejects: %+v %v", msgs, err)
 	}
 	var blobs int
-	if err := api.dal.db.QueryRow(
+	if err := api.dal.rdb.QueryRow(
 		`SELECT COUNT(*) FROM chat_attachment`).Scan(&blobs); err != nil {
 		t.Fatalf("count blobs: %v", err)
 	}

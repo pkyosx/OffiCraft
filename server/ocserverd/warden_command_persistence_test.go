@@ -98,7 +98,7 @@ func assertNotStoredAnywhere(t *testing.T, dal *DAL, secret string) {
 // being trusted because it is green.
 func findStoredSecret(t *testing.T, dal *DAL, secret string) (string, bool) {
 	t.Helper()
-	tables, err := dal.db.Query(
+	tables, err := dal.rdb.Query(
 		`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`)
 	if err != nil {
 		t.Fatalf("list tables: %v", err)
@@ -117,7 +117,7 @@ func findStoredSecret(t *testing.T, dal *DAL, secret string) (string, bool) {
 	}
 	scanned := 0
 	for _, table := range names {
-		rows, err := dal.db.Query(`SELECT * FROM "` + table + `"`)
+		rows, err := dal.rdb.Query(`SELECT * FROM "` + table + `"`)
 		if err != nil {
 			t.Fatalf("select from %s: %v", table, err)
 		}

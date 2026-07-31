@@ -230,7 +230,7 @@ func retainOneVersion(t *testing.T, d *DAL, kind, key string, write func(sqlExec
 
 func refuseDeletesOn(t *testing.T, d *DAL, table string) {
 	t.Helper()
-	if _, err := d.db.Exec(`CREATE TRIGGER refuse_delete_` + table +
+	if _, err := d.wdb.Exec(`CREATE TRIGGER refuse_delete_` + table +
 		` BEFORE DELETE ON ` + table +
 		` BEGIN SELECT RAISE(ABORT, 'delete refused'); END`); err != nil {
 		t.Fatal(err)

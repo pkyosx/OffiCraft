@@ -587,10 +587,10 @@ func TestPostChatRecipientKinds(t *testing.T) {
 		return rec
 	}
 	counts := func() (messages, attachments int) {
-		if err := s.dal.db.QueryRow(`SELECT COUNT(*) FROM chat_message`).Scan(&messages); err != nil {
+		if err := s.dal.rdb.QueryRow(`SELECT COUNT(*) FROM chat_message`).Scan(&messages); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.dal.db.QueryRow(`SELECT COUNT(*) FROM chat_attachment`).Scan(&attachments); err != nil {
+		if err := s.dal.rdb.QueryRow(`SELECT COUNT(*) FROM chat_attachment`).Scan(&attachments); err != nil {
 			t.Fatal(err)
 		}
 		return messages, attachments

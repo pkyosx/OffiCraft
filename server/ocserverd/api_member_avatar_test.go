@@ -238,7 +238,7 @@ func TestReplaceMemberAvatarRollsBackPointerAndBlobsOnMemberWriteFailure(t *test
 		t.Fatalf("seed previous avatar: %v", err)
 	}
 
-	disarm := breakWrites(t, s.dal.db, "member")
+	disarm := breakWrites(t, s.dal.wdb, "member")
 	next := ChatAttachment{
 		ID: "ava-rollback-next", Mime: "image/webp", Data: avatarTestWebP,
 	}

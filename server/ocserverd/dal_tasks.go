@@ -139,7 +139,7 @@ func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 // ListTasks returns every task, oldest→newest (filters/sorting are handler
 // projections — the wire serves full DTOs, the FE partitions).
 func (d *DAL) ListTasks() ([]Task, error) {
-	rows, err := d.db.Query(
+	rows, err := d.rdb.Query(
 		`SELECT ` + taskColumns + ` FROM task ORDER BY created_ts`)
 	if err != nil {
 		return nil, err
@@ -158,7 +158,7 @@ func (d *DAL) ListTasks() ([]Task, error) {
 
 // GetTask returns one task by id, or nil if absent.
 func (d *DAL) GetTask(id string) (*Task, error) {
-	row := d.db.QueryRow(`SELECT `+taskColumns+` FROM task WHERE id = ?`, id)
+	row := d.rdb.QueryRow(`SELECT `+taskColumns+` FROM task WHERE id = ?`, id)
 	t, err := scanTask(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -173,7 +173,7 @@ func (d *DAL) GetTask(id string) (*Task, error) {
 // dedupeKey), or nil — the create_task dedupe probe (terminal tasks never
 // block a reopen; kyle ruling H2). Oldest match wins for determinism.
 func (d *DAL) FindOpenTaskByDedupe(typeKey, dedupeKey string) (*Task, error) {
-	row := d.db.QueryRow(`
+	row := d.rdb.QueryRow(`
 		SELECT `+taskColumns+` FROM task
 		WHERE type_key = ? AND dedupe_key = ?
 		  AND status NOT IN (`+sqlTerminalStatuses+`)
@@ -193,7 +193,7 @@ func (d *DAL) FindOpenTaskByDedupe(typeKey, dedupeKey string) (*Task, error) {
 // block's query (SPEC §6.2: a handover resumes in-flight tasks; the bound
 // keeps the wake snapshot small).
 func (d *DAL) ListOpenTasksByExecutor(executorID string, limit int) ([]Task, error) {
-	rows, err := d.db.Query(`
+	rows, err := d.rdb.Query(`
 		SELECT `+taskColumns+` FROM task
 		WHERE executor_id = ? AND status NOT IN (`+sqlTerminalStatuses+`)
 		ORDER BY updated_ts DESC, created_ts DESC LIMIT ?`, executorID, limit)
@@ -218,7 +218,7 @@ func (d *DAL) ListOpenTasksByExecutor(executorID string, limit int) ([]Task, err
 // more list_tasks would page).
 func (d *DAL) CountOpenTasksByExecutor(executorID string) (int, error) {
 	var n int
-	err := d.db.QueryRow(`
+	err := d.rdb.QueryRow(`
 		SELECT COUNT(*) FROM task
 		WHERE executor_id = ? AND status NOT IN (`+sqlTerminalStatuses+`)`,
 		executorID).Scan(&n)
@@ -229,7 +229,7 @@ func (d *DAL) CountOpenTasksByExecutor(executorID string) (int, error) {
 // delete guard (SPEC §5.1: a type with open tasks cannot be deleted).
 func (d *DAL) CountOpenTasksOfType(typeKey string) (int, error) {
 	var n int
-	err := d.db.QueryRow(`
+	err := d.rdb.QueryRow(`
 		SELECT COUNT(*) FROM task
 		WHERE type_key = ? AND status NOT IN (`+sqlTerminalStatuses+`)`,
 		typeKey).Scan(&n)
@@ -243,7 +243,7 @@ func (d *DAL) CountOpenTasksOfType(typeKey string) (int, error) {
 // guard) keeps the graph depth-1 so the cockpit link always resolves in one hop.
 func (d *DAL) CountTasksDuplicatingOriginal(originalID string) (int, error) {
 	var n int
-	err := d.db.QueryRow(
+	err := d.rdb.QueryRow(
 		`SELECT COUNT(*) FROM task WHERE duplicate_of = ?`, originalID).Scan(&n)
 	return n, err
 }
@@ -262,7 +262,7 @@ func (d *DAL) PutTask(t Task) error {
 	if t.OutsourceDispatched {
 		dispatched = 1
 	}
-	_, err = d.db.Exec(`
+	_, err = d.wdb.Exec(`
 		INSERT INTO task (`+taskColumns+`)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
@@ -310,7 +310,7 @@ func (d *DAL) PutTask(t Task) error {
 
 // ListTaskDeps returns the blocked_by ids of one task (deterministic order).
 func (d *DAL) ListTaskDeps(taskID string) ([]string, error) {
-	rows, err := d.db.Query(
+	rows, err := d.rdb.Query(
 		`SELECT blocked_by FROM task_dep WHERE task_id = ? ORDER BY blocked_by`,
 		taskID)
 	if err != nil {
@@ -331,7 +331,7 @@ func (d *DAL) ListTaskDeps(taskID string) ([]string, error) {
 // AllTaskDeps maps task_id → blocked_by ids over the whole table (the
 // list-endpoint fold input).
 func (d *DAL) AllTaskDeps() (map[string][]string, error) {
-	rows, err := d.db.Query(
+	rows, err := d.rdb.Query(
 		`SELECT task_id, blocked_by FROM task_dep ORDER BY task_id, blocked_by`)
 	if err != nil {
 		return nil, err
@@ -353,7 +353,7 @@ func (d *DAL) AllTaskDeps() (map[string][]string, error) {
 // half B: when a blocker reaches a terminal status, closeTask walks its
 // dependents to release + wake them. Deterministic order (task id).
 func (d *DAL) ListTasksBlockedBy(blockerID string) ([]Task, error) {
-	rows, err := d.db.Query(`
+	rows, err := d.rdb.Query(`
 		SELECT `+taskColumns+` FROM task
 		WHERE id IN (SELECT task_id FROM task_dep WHERE blocked_by = ?)
 		ORDER BY id`, blockerID)
@@ -376,7 +376,7 @@ func (d *DAL) ListTasksBlockedBy(blockerID string) ([]Task, error) {
 // (set_task_deps' whole-list write would clobber deps the successor already
 // carries). Idempotent — INSERT OR IGNORE on the composite key.
 func (d *DAL) AddTaskDep(taskID, blockedBy string) error {
-	_, err := d.db.Exec(
+	_, err := d.wdb.Exec(
 		`INSERT OR IGNORE INTO task_dep (task_id, blocked_by) VALUES (?, ?)`,
 		taskID, blockedBy)
 	return err
@@ -385,7 +385,7 @@ func (d *DAL) AddTaskDep(taskID, blockedBy string) error {
 // ReplaceTaskDeps replaces one task's deps wholesale (set_task_deps is a
 // whole-list write) — transactional so a failed insert never half-applies.
 func (d *DAL) ReplaceTaskDeps(taskID string, blockedBy []string) error {
-	tx, err := d.db.Begin()
+	tx, err := d.wdb.Begin()
 	if err != nil {
 		return err
 	}
@@ -441,7 +441,7 @@ func scanTaskStep(row interface{ Scan(...any) error }) (TaskStep, error) {
 
 // ListTaskSteps returns one task's steps in timeline order.
 func (d *DAL) ListTaskSteps(taskID string) ([]TaskStep, error) {
-	rows, err := d.db.Query(`
+	rows, err := d.rdb.Query(`
 		SELECT `+taskStepColumns+` FROM task_step
 		WHERE task_id = ? ORDER BY order_idx, id`, taskID)
 	if err != nil {
@@ -462,7 +462,7 @@ func (d *DAL) ListTaskSteps(taskID string) ([]TaskStep, error) {
 // AllTaskSteps maps task_id → steps (timeline order) over the whole table
 // (the list-endpoint fold input).
 func (d *DAL) AllTaskSteps() (map[string][]TaskStep, error) {
-	rows, err := d.db.Query(
+	rows, err := d.rdb.Query(
 		`SELECT ` + taskStepColumns + ` FROM task_step ORDER BY task_id, order_idx, id`)
 	if err != nil {
 		return nil, err
@@ -494,7 +494,7 @@ type TaskStepProgress struct {
 // superseded rows count toward neither side (pure replan history — T-1aea;
 // domain.TaskProgress is the in-memory twin, keep them agreeing).
 func (d *DAL) AllTaskStepProgress() (map[string]TaskStepProgress, error) {
-	rows, err := d.db.Query(
+	rows, err := d.rdb.Query(
 		`SELECT task_id,
 		        SUM(CASE WHEN status != ? THEN 1 ELSE 0 END) AS total,
 		        SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) AS done
@@ -517,7 +517,7 @@ func (d *DAL) AllTaskStepProgress() (map[string]TaskStepProgress, error) {
 
 // GetTaskStep returns one step by id, or nil if absent.
 func (d *DAL) GetTaskStep(id string) (*TaskStep, error) {
-	row := d.db.QueryRow(
+	row := d.rdb.QueryRow(
 		`SELECT `+taskStepColumns+` FROM task_step WHERE id = ?`, id)
 	st, err := scanTaskStep(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -535,7 +535,7 @@ func (d *DAL) PutTaskStep(st TaskStep) error {
 	if st.IsGate {
 		isGate = 1
 	}
-	_, err := d.db.Exec(`
+	_, err := d.wdb.Exec(`
 		INSERT INTO task_step (`+taskStepColumns+`)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
@@ -584,7 +584,7 @@ func (d *DAL) ReplaceTaskPlan(taskID string, retain, freeze []string,
 		preserved[id] = true
 		frozen[id] = true
 	}
-	tx, err := d.db.Begin()
+	tx, err := d.wdb.Begin()
 	if err != nil {
 		return nil, err
 	}
@@ -858,7 +858,7 @@ func memberFromWorker(w OutsourceWorker) Member {
 // projection; codename MAX+1 folds over the FULL set, removed rows included,
 // so a codename is never reused).
 func (d *DAL) ListOutsourceWorkers() ([]OutsourceWorker, error) {
-	rows, err := d.db.Query(`SELECT ` + memberColumns +
+	rows, err := d.rdb.Query(`SELECT ` + memberColumns +
 		` FROM member WHERE kind = 'outsource' ORDER BY created_ts, id`)
 	if err != nil {
 		return nil, err
@@ -879,7 +879,7 @@ func (d *DAL) ListOutsourceWorkers() ([]OutsourceWorker, error) {
 // kind='outsource' rows project — a staff/warden member id is nil here by
 // construction (the two id namespaces are disjoint anyway).
 func (d *DAL) GetOutsourceWorker(id string) (*OutsourceWorker, error) {
-	row := d.db.QueryRow(`SELECT `+memberColumns+
+	row := d.rdb.QueryRow(`SELECT `+memberColumns+
 		` FROM member WHERE id = ? AND kind = 'outsource'`, id)
 	m, err := scanMember(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -904,7 +904,7 @@ func (d *DAL) PutOutsourceWorker(w OutsourceWorker) error {
 // the handler fans one outsource_worker delta per row. Row retention is the
 // audit trail; idempotent (already-released rows are untouched).
 func (d *DAL) ReleaseWorkersForTask(taskID string, now float64) ([]OutsourceWorker, error) {
-	rows, err := d.db.Query(`SELECT `+memberColumns+` FROM member
+	rows, err := d.rdb.Query(`SELECT `+memberColumns+` FROM member
 		WHERE kind = 'outsource' AND linked_task_id = ? AND roster_status != ?
 		ORDER BY created_ts, id`, taskID, RosterStatusRemoved)
 	if err != nil {
@@ -927,7 +927,7 @@ func (d *DAL) ReleaseWorkersForTask(taskID string, now float64) ([]OutsourceWork
 	for i := range flipped {
 		flipped[i].Status = WorkerStatusReleased
 		flipped[i].ReleasedTS = now
-		if _, err := d.db.Exec(`
+		if _, err := d.wdb.Exec(`
 			UPDATE member SET roster_status = ?, released_ts = ?
 			WHERE id = ? AND kind = 'outsource'`,
 			RosterStatusRemoved, now, flipped[i].ID); err != nil {
@@ -955,7 +955,7 @@ func (d *DAL) ReleaseWorkerByID(workerID string, now float64) (*OutsourceWorker,
 	}
 	w.Status = WorkerStatusReleased
 	w.ReleasedTS = now
-	if _, err := d.db.Exec(`
+	if _, err := d.wdb.Exec(`
 		UPDATE member SET roster_status = ?, released_ts = ?
 		WHERE id = ? AND kind = 'outsource'`,
 		RosterStatusRemoved, now, workerID); err != nil {
@@ -995,7 +995,7 @@ func scanTaskManual(row interface{ Scan(...any) error }) (TaskManual, error) {
 // ListTaskManuals returns every manual, ordered by display name
 // (falling back to type_key when unset), then type_key.
 func (d *DAL) ListTaskManuals() ([]TaskManual, error) {
-	rows, err := d.db.Query(
+	rows, err := d.rdb.Query(
 		`SELECT ` + taskManualColumns + ` FROM task_manual
 		ORDER BY (CASE WHEN display_name = '' THEN type_key ELSE display_name END)
 		COLLATE NOCASE, type_key`)
@@ -1016,7 +1016,7 @@ func (d *DAL) ListTaskManuals() ([]TaskManual, error) {
 
 // GetTaskManual returns one manual by type key, or nil if absent.
 func (d *DAL) GetTaskManual(typeKey string) (*TaskManual, error) {
-	return getTaskManualOn(d.db, typeKey)
+	return getTaskManualOn(d.rdb, typeKey)
 }
 
 func getTaskManualOn(q sqlQuerier, typeKey string) (*TaskManual, error) {
@@ -1034,7 +1034,7 @@ func getTaskManualOn(q sqlQuerier, typeKey string) (*TaskManual, error) {
 
 // PutTaskManual upserts one manual row.
 func (d *DAL) PutTaskManual(m TaskManual) error {
-	return putTaskManualOn(d.db, m)
+	return putTaskManualOn(d.wdb, m)
 }
 
 func putTaskManualOn(ex sqlExecer, m TaskManual) error {

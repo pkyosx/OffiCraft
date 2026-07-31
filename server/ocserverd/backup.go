@@ -248,9 +248,14 @@ func runDatabaseBackup(db *sql.DB, dbPath string, reason backupReason, now time.
 
 	started := time.Now()
 	// VACUUM INTO only READS the source database, so the running server keeps
-	// serving. In the current journal mode a writer waits for the duration
-	// (measured: ~0.43s for 340 MB); once T-dd7a turns on WAL that wait goes
-	// away too.
+	// serving — and since T-dd7a turned WAL on, a writer no longer waits for the
+	// duration either (measured before WAL: ~0.43s for 340 MB).
+	//
+	// 🔴 VACUUM INTO is also the reason this file is NOT what the single-file-copy
+	// guard hunts (db_singlefile_copy_guard_test.go): it is SQLite's own online
+	// backup, so the engine reads its own pages INCLUDING the "-wal" sidecar and
+	// writes one already-consistent file. A `cp` of officraft.db would not — under
+	// WAL it can silently omit the most recent commits.
 	if _, err := db.Exec(`VACUUM INTO ?`, partial); err != nil {
 		_ = os.Remove(partial)
 		return res, fmt.Errorf("vacuum into %s: %w", partial, err)

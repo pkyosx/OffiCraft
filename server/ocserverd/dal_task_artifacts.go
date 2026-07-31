@@ -41,7 +41,7 @@ func scanTaskArtifact(row interface{ Scan(...any) error }) (TaskArtifact, error)
 // pin order — created_ts, id tiebreak for determinism). The full-task read
 // face folds these; the light list only needs the count (see CountArtifacts...).
 func (d *DAL) ListTaskArtifacts(taskID string) ([]TaskArtifact, error) {
-	rows, err := d.db.Query(`
+	rows, err := d.rdb.Query(`
 		SELECT `+taskArtifactColumns+` FROM task_artifact
 		WHERE task_id = ? ORDER BY created_ts, id`, taskID)
 	if err != nil {
@@ -62,7 +62,7 @@ func (d *DAL) ListTaskArtifacts(taskID string) ([]TaskArtifact, error) {
 // GetTaskArtifact returns one artifact by id, or nil if absent (the remove
 // guard: a 404 vs a wrong-task 403 needs the row first).
 func (d *DAL) GetTaskArtifact(id string) (*TaskArtifact, error) {
-	row := d.db.QueryRow(
+	row := d.rdb.QueryRow(
 		`SELECT `+taskArtifactColumns+` FROM task_artifact WHERE id = ?`, id)
 	a, err := scanTaskArtifact(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -79,7 +79,7 @@ func (d *DAL) GetTaskArtifact(id string) (*TaskArtifact, error) {
 // loads the artifact rows themselves. Tasks with none are simply absent from
 // the map (0 — the caller's zero value), mirroring AllTaskStepProgress.
 func (d *DAL) AllTaskArtifactCounts() (map[string]int, error) {
-	rows, err := d.db.Query(
+	rows, err := d.rdb.Query(
 		`SELECT task_id, COUNT(*) FROM task_artifact GROUP BY task_id`)
 	if err != nil {
 		return nil, err
@@ -101,7 +101,7 @@ func (d *DAL) AllTaskArtifactCounts() (map[string]int, error) {
 // job). Registration is append-only — an id is minted per call, so this is an
 // INSERT, not an upsert (no natural update path for a pinned deliverable).
 func (d *DAL) PutTaskArtifact(a TaskArtifact) error {
-	_, err := d.db.Exec(`
+	_, err := d.wdb.Exec(`
 		INSERT INTO task_artifact (`+taskArtifactColumns+`)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.ID, a.TaskID, a.Kind, a.AttachmentID, a.URL, a.Label,
@@ -127,7 +127,7 @@ func (d *DAL) PutTaskArtifact(a TaskArtifact) error {
 //
 // Returns true iff a row was removed.
 func (d *DAL) DeleteTaskArtifact(id string) (bool, error) {
-	res, err := d.db.Exec(`DELETE FROM task_artifact WHERE id = ?`, id)
+	res, err := d.wdb.Exec(`DELETE FROM task_artifact WHERE id = ?`, id)
 	if err != nil {
 		return false, err
 	}

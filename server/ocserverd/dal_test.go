@@ -507,12 +507,12 @@ func TestUserContextSingleRowUpsert(t *testing.T) {
 		t.Fatalf("tombstone round-trip: got %+v (%v)", uc, err)
 	}
 	var count int
-	if err := d.db.QueryRow(`SELECT COUNT(*) FROM user_context`).Scan(&count); err != nil || count != 1 {
+	if err := d.rdb.QueryRow(`SELECT COUNT(*) FROM user_context`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("table must stay single-row, got %d (%v)", count, err)
 	}
 
 	// The schema CHECK pins the row id: a second row is unrepresentable.
-	if _, err := d.db.Exec(
+	if _, err := d.wdb.Exec(
 		`INSERT INTO user_context (id, text, tombstoned) VALUES (2, 'x', 0)`,
 	); err == nil {
 		t.Fatal("id != 1 must be rejected by the single-row CHECK")
@@ -646,7 +646,7 @@ func TestSettingGetPutRoundTripAndUpsert(t *testing.T) {
 
 	// Upsert overwrites in place and advances updated_at.
 	var firstAt float64
-	if err := d.db.QueryRow(`SELECT updated_at FROM setting WHERE key = 'auth.token_ttl'`).Scan(&firstAt); err != nil {
+	if err := d.rdb.QueryRow(`SELECT updated_at FROM setting WHERE key = 'auth.token_ttl'`).Scan(&firstAt); err != nil {
 		t.Fatal(err)
 	}
 	if err := d.PutSetting("auth.token_ttl", "7200"); err != nil {
@@ -657,7 +657,7 @@ func TestSettingGetPutRoundTripAndUpsert(t *testing.T) {
 		t.Fatalf("get after upsert: got (%v, %v)", v, err)
 	}
 	var secondAt float64
-	if err := d.db.QueryRow(`SELECT updated_at FROM setting WHERE key = 'auth.token_ttl'`).Scan(&secondAt); err != nil {
+	if err := d.rdb.QueryRow(`SELECT updated_at FROM setting WHERE key = 'auth.token_ttl'`).Scan(&secondAt); err != nil {
 		t.Fatal(err)
 	}
 	if firstAt <= 0 || secondAt < firstAt {

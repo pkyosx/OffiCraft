@@ -15,10 +15,47 @@ import (
 	"fmt"
 )
 
-// DAL owns the migrated *sql.DB handle. Construct with NewDAL over a database
-// openSQLite'd + runMigrations'd by the caller.
+// DAL owns the migrated database handles. Construct with NewDALPools over a
+// write pool openSQLite'd + runMigrations'd by the caller plus a read pool from
+// openSQLiteReadPool (or with NewDAL when one handle serves both — the CLI
+// one-shots and unit tests).
+//
+// TWO POOLS, NOT ONE (T-dd7a). The single handle this replaced was capped at ONE
+// connection, so every request in the process serialised at the database and the
+// whole server ran one request at a time (the owner's DevTools trace: a 0.1 kB
+// endpoint took 904 ms while a 407 kB one took 85 ms in the same session — size
+// did not predict time, position in the queue did). The two handles are NOT
+// interchangeable and the split is deliberately asymmetric:
+//
+//   - wdb — the WRITE pool. Capped at ONE connection and its transactions open
+//     BEGIN IMMEDIATE (openSQLite's `_txlock=immediate`). Both halves matter: the
+//     cap makes our own writers queue in Go, and IMMEDIATE takes the write lock
+//     up front so `busy_timeout` can actually wait out an external writer.
+//     A DEFERRED transaction that reads and then writes (SaveWithDocumentHistory
+//     is exactly that shape) has to UPGRADE its lock, and SQLite answers an
+//     upgrade conflict with an immediate SQLITE_BUSY that busy_timeout does not
+//     apply to — retrying would deadlock, so the engine does not wait.
+//   - rdb — the READ pool. Several connections, and opened READ-ONLY at the
+//     SQLite level, so a write that is wired here does not quietly go to the
+//     wrong place: it fails, loudly, with "attempt to write a readonly database".
+//
+// 🔴 The field is NOT called `db` on purpose. Every one of the ~90 call sites had
+// to name a pool when this landed, and a new one cannot compile without naming
+// one either — the classification is exhaustive BY CONSTRUCTION rather than by a
+// list someone has to remember to update.
+//
+// ⚠️ The compiler forces you to CHOOSE a pool; it cannot tell you that you chose
+// right, and there is exactly one shape where choosing wrong also type-checks
+// silently: `sqlExecer` (write seam) and `sqlQuerier` (read seam) are both
+// satisfied by *sql.DB, so `putChatOn(d.rdb, m)` compiles as happily as
+// `putChatOn(d.wdb, m)` — and the SQL lives in the seam, not at the call site, so
+// reading the call site tells you nothing either. That hole is covered by
+// TestReadPoolIsNeverHandedToAWriteSeam (wal_pool_test.go), and in production by
+// the read pool being mode=ro so such a write fails on its first attempt instead
+// of intermittently under load.
 type DAL struct {
-	db *sql.DB
+	wdb *sql.DB
+	rdb *sql.DB
 }
 
 // PushSubscription is one browser endpoint registered by the single owner.
@@ -31,8 +68,18 @@ type PushSubscription struct {
 	ExpirationTime *float64
 }
 
+// NewDAL serves both roles from ONE handle. That is the correct shape for the
+// CLI one-shots (migrate / set-password / claim-token) and for unit tests: a
+// single-threaded caller gains nothing from a reader pool, and routing reads
+// through the write pool is SLOW, never WRONG. serve uses NewDALPools.
 func NewDAL(db *sql.DB) *DAL {
-	return &DAL{db: db}
+	return &DAL{wdb: db, rdb: db}
+}
+
+// NewDALPools is the serve-time constructor: writes go to w (one connection,
+// BEGIN IMMEDIATE), reads to r (several connections, read-only).
+func NewDALPools(w, r *sql.DB) *DAL {
+	return &DAL{wdb: w, rdb: r}
 }
 
 // ── members ──────────────────────────────────────────────────────────────────
@@ -152,7 +199,7 @@ func scanMember(row interface{ Scan(...any) error }) (Member, error) {
 // world — the outsource projection reads them through ListOutsourceWorkers
 // (dal_tasks.go). Behavioural roster convergence is a later, owner-gated step.
 func (d *DAL) ListMembers() ([]Member, error) {
-	rows, err := d.db.Query(`SELECT ` + memberColumns +
+	rows, err := d.rdb.Query(`SELECT ` + memberColumns +
 		` FROM member WHERE kind != 'outsource' ORDER BY name COLLATE NOCASE`)
 	if err != nil {
 		return nil, err
@@ -179,7 +226,7 @@ func (d *DAL) ListMembers() ([]Member, error) {
 // invariant lives in the interaction of these two functions and nowhere else,
 // so neither may be changed without reading the other.
 func (d *DAL) ListMembersIncludingOutsource() ([]Member, error) {
-	rows, err := d.db.Query(`SELECT ` + memberColumns +
+	rows, err := d.rdb.Query(`SELECT ` + memberColumns +
 		` FROM member ORDER BY name COLLATE NOCASE`)
 	if err != nil {
 		return nil, err
@@ -198,7 +245,7 @@ func (d *DAL) ListMembersIncludingOutsource() ([]Member, error) {
 
 // GetMember returns one roster member by id, or nil if absent.
 func (d *DAL) GetMember(id string) (*Member, error) {
-	row := d.db.QueryRow(`SELECT `+memberColumns+` FROM member WHERE id = ?`, id)
+	row := d.rdb.QueryRow(`SELECT `+memberColumns+` FROM member WHERE id = ?`, id)
 	m, err := scanMember(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -230,7 +277,7 @@ func (d *DAL) PutMember(m Member) error {
 	if m.Codename != "" {
 		codename = m.Codename
 	}
-	_, err := d.db.Exec(`
+	_, err := d.wdb.Exec(`
 		INSERT INTO member (`+memberColumns+`)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
@@ -274,7 +321,7 @@ func (d *DAL) PutMember(m Member) error {
 // path) — NOT the roster_status="removed" soft-remove, which stays the
 // audit-preserving dismiss seam. Returns true iff a row was deleted.
 func (d *DAL) HardDeleteMember(id string) (bool, error) {
-	tx, err := d.db.Begin()
+	tx, err := d.wdb.Begin()
 	if err != nil {
 		return false, err
 	}
@@ -346,7 +393,7 @@ func scanChat(row interface{ Scan(...any) error }) (ChatMessage, error) {
 // keyset scrollback cursor (ListChatBefore) pages by, so a page boundary can
 // never straddle an undefined ordering.
 func (d *DAL) ListChat() ([]ChatMessage, error) {
-	rows, err := d.db.Query(
+	rows, err := d.rdb.Query(
 		`SELECT id, sender, recipient, body, ts, meta FROM chat_message ORDER BY ts, id`)
 	if err != nil {
 		return nil, err
@@ -396,7 +443,7 @@ func (d *DAL) listChatBefore(participant, caller string, beforeTS float64, befor
 		query += ` LIMIT ?`
 		args = append(args, limit)
 	}
-	rows, err := d.db.Query(query, args...)
+	rows, err := d.rdb.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -428,7 +475,7 @@ func (d *DAL) ListChatInvolving(participant string, limit int) ([]ChatMessage, e
 	if participant == "" || limit <= 0 {
 		return nil, nil
 	}
-	rows, err := d.db.Query(`
+	rows, err := d.rdb.Query(`
 		SELECT id, sender, recipient, body, ts, meta FROM chat_message
 		WHERE sender = ? OR recipient = ?
 		ORDER BY ts DESC LIMIT ?`, participant, participant, limit)
@@ -456,7 +503,7 @@ func (d *DAL) ListChatInvolving(participant string, limit int) ([]ChatMessage, e
 	return out, nil
 }
 
-// sqlExecer is the write seam shared by the standalone (d.db) and the
+// sqlExecer is the write seam shared by the standalone (d.wdb) and the
 // transactional (*sql.Tx) forms of every chat-side upsert — ONE statement per
 // record, reachable both ways, so the atomic variants below cannot drift from
 // the single-write ones.
@@ -466,7 +513,7 @@ type sqlExecer interface {
 
 // sqlQuerier is the read counterpart of sqlExecer. It exists so a document's
 // pre-write state can be read from inside the very transaction that overwrites
-// it: a snapshot read on d.db would be a different point in time from the
+// it: a snapshot read on d.rdb would be a different point in time from the
 // write, and two writers folding from the same read would then retain the same
 // old revision twice while one of their results became unrecoverable.
 type sqlQuerier interface {
@@ -548,7 +595,7 @@ func retainDocumentVersion(tx *sql.Tx, stream documentHistoryStream) error {
 }
 
 func (d *DAL) ListDocumentHistory(kind, key string) ([]DocumentHistory, error) {
-	rows, err := d.db.Query(`SELECT id, document_kind, document_key, content_json, created_ts, actor_id
+	rows, err := d.rdb.Query(`SELECT id, document_kind, document_key, content_json, created_ts, actor_id
 		FROM document_history WHERE document_kind = ? AND document_key = ? ORDER BY id DESC`, kind, key)
 	if err != nil {
 		return nil, err
@@ -567,7 +614,7 @@ func (d *DAL) ListDocumentHistory(kind, key string) ([]DocumentHistory, error) {
 
 func (d *DAL) GetDocumentHistory(kind, key string, id int64) (*DocumentHistory, error) {
 	var h DocumentHistory
-	err := d.db.QueryRow(`SELECT id, document_kind, document_key, content_json, created_ts, actor_id
+	err := d.rdb.QueryRow(`SELECT id, document_kind, document_key, content_json, created_ts, actor_id
 		FROM document_history WHERE document_kind = ? AND document_key = ? AND id = ?`, kind, key, id).
 		Scan(&h.ID, &h.DocumentKind, &h.DocumentKey, &h.ContentJSON, &h.CreatedTS, &h.ActorID)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -580,7 +627,7 @@ func (d *DAL) GetDocumentHistory(kind, key string, id int64) (*DocumentHistory, 
 }
 
 // PutChat upserts a chat message.
-func (d *DAL) PutChat(m ChatMessage) error { return putChatOn(d.db, m) }
+func (d *DAL) PutChat(m ChatMessage) error { return putChatOn(d.wdb, m) }
 
 func putChatOn(ex sqlExecer, m ChatMessage) error {
 	meta := m.Meta
@@ -662,7 +709,7 @@ func refIDsFromJSON(blob string, into map[string]bool) {
 //
 // Returns (deletedMessages, deletedAttachments).
 func (d *DAL) DeleteChatInvolving(memberID string) (int, int, error) {
-	tx, err := d.db.Begin()
+	tx, err := d.wdb.Begin()
 	if err != nil {
 		return 0, 0, err
 	}
@@ -853,7 +900,7 @@ type ChatAttachment struct {
 // PutChatAttachment stores an attachment blob (no SSE delta even at the
 // service layer — the message record carries the light refs).
 func (d *DAL) PutChatAttachment(a ChatAttachment) error {
-	return putChatAttachmentOn(d.db, a)
+	return putChatAttachmentOn(d.wdb, a)
 }
 
 func putChatAttachmentOn(ex sqlExecer, a ChatAttachment) error {
@@ -875,7 +922,7 @@ func putChatAttachmentOn(ex sqlExecer, a ChatAttachment) error {
 func (d *DAL) GetChatAttachment(id string) (*ChatAttachment, error) {
 	var a ChatAttachment
 	var filename sql.NullString
-	err := d.db.QueryRow(
+	err := d.rdb.QueryRow(
 		`SELECT id, mime, data, filename FROM chat_attachment WHERE id = ?`, id,
 	).Scan(&a.ID, &a.Mime, &a.Data, &filename)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -894,7 +941,7 @@ func (d *DAL) GetChatAttachment(id string) (*ChatAttachment, error) {
 // switches the stable member pointer, and deletes the prior dedicated blob.
 // The member must already exist; a vanished row is errNotFound.
 func (d *DAL) ReplaceMemberAvatar(memberID string, avatar ChatAttachment) error {
-	tx, err := d.db.Begin()
+	tx, err := d.wdb.Begin()
 	if err != nil {
 		return err
 	}
@@ -927,7 +974,7 @@ func (d *DAL) ReplaceMemberAvatar(memberID string, avatar ChatAttachment) error 
 // DeleteMemberAvatar atomically clears the pointer and deletes the owned blob.
 // It is idempotent when the member already has no personal avatar.
 func (d *DAL) DeleteMemberAvatar(memberID string) error {
-	tx, err := d.db.Begin()
+	tx, err := d.wdb.Begin()
 	if err != nil {
 		return err
 	}
@@ -976,7 +1023,7 @@ func (d *DAL) ListChatReads(reader, peer string) ([]ChatRead, error) {
 		query += ` AND peer_id = ?`
 		args = append(args, peer)
 	}
-	rows, err := d.db.Query(query, args...)
+	rows, err := d.rdb.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1001,7 +1048,7 @@ func (d *DAL) ListChatReads(reader, peer string) ([]ChatRead, error) {
 // effective ts alone cannot distinguish "advanced to exactly ts" from "already
 // at ts" — the write's row count carries the signal.
 func (d *DAL) PutChatRead(r ChatRead) (ChatRead, bool, error) {
-	res, err := d.db.Exec(`
+	res, err := d.wdb.Exec(`
 		INSERT INTO chat_read (reader_id, peer_id, last_read_ts)
 		VALUES (?, ?, ?)
 		ON CONFLICT (reader_id, peer_id) DO UPDATE SET
@@ -1016,7 +1063,7 @@ func (d *DAL) PutChatRead(r ChatRead) (ChatRead, bool, error) {
 		return ChatRead{}, false, err
 	}
 	var eff ChatRead
-	err = d.db.QueryRow(`
+	err = d.rdb.QueryRow(`
 		SELECT reader_id, peer_id, last_read_ts FROM chat_read
 		WHERE reader_id = ? AND peer_id = ?`,
 		r.ReaderID, r.PeerID,
@@ -1028,7 +1075,7 @@ func (d *DAL) PutChatRead(r ChatRead) (ChatRead, bool, error) {
 // reader OR peer) — the custom-role cascade sibling of DeleteChatInvolving.
 // Returns the deleted count.
 func (d *DAL) DeleteChatReadsInvolving(memberID string) (int, error) {
-	res, err := d.db.Exec(
+	res, err := d.wdb.Exec(
 		`DELETE FROM chat_read WHERE reader_id = ? OR peer_id = ?`,
 		memberID, memberID)
 	if err != nil {
@@ -1052,7 +1099,7 @@ const userContextRowID = 1
 
 // GetUserContext returns the block, or nil if never written (no row = the
 // block is skipped when assembling boot context).
-func (d *DAL) GetUserContext() (*UserContext, error) { return getUserContextOn(d.db) }
+func (d *DAL) GetUserContext() (*UserContext, error) { return getUserContextOn(d.rdb) }
 
 func getUserContextOn(q sqlQuerier) (*UserContext, error) {
 	var uc UserContext
@@ -1070,7 +1117,7 @@ func getUserContextOn(q sqlQuerier) (*UserContext, error) {
 
 // PutUserContext upserts the single block row.
 func (d *DAL) PutUserContext(uc UserContext) error {
-	return putUserContextOn(d.db, uc)
+	return putUserContextOn(d.wdb, uc)
 }
 
 func putUserContextOn(ex sqlExecer, uc UserContext) error {
@@ -1096,7 +1143,7 @@ type RoleDef struct {
 
 // ListRoleDefs returns every overlay row (any tombstone state).
 func (d *DAL) ListRoleDefs() ([]RoleDef, error) {
-	rows, err := d.db.Query(
+	rows, err := d.rdb.Query(
 		`SELECT role_key, name, definition_md, tombstoned FROM role_def`)
 	if err != nil {
 		return nil, err
@@ -1114,7 +1161,7 @@ func (d *DAL) ListRoleDefs() ([]RoleDef, error) {
 }
 
 // GetRoleDef returns one overlay by role key, or nil if never edited.
-func (d *DAL) GetRoleDef(roleKey string) (*RoleDef, error) { return getRoleDefOn(d.db, roleKey) }
+func (d *DAL) GetRoleDef(roleKey string) (*RoleDef, error) { return getRoleDefOn(d.rdb, roleKey) }
 
 func getRoleDefOn(q sqlQuerier, roleKey string) (*RoleDef, error) {
 	var rd RoleDef
@@ -1133,7 +1180,7 @@ func getRoleDefOn(q sqlQuerier, roleKey string) (*RoleDef, error) {
 
 // PutRoleDef upserts a role-definition overlay.
 func (d *DAL) PutRoleDef(rd RoleDef) error {
-	return putRoleDefOn(d.db, rd)
+	return putRoleDefOn(d.wdb, rd)
 }
 
 func putRoleDefOn(ex sqlExecer, rd RoleDef) error {
@@ -1192,7 +1239,7 @@ type Lessons struct {
 // GetLessons returns the overlay for (roleKey, taskType), or nil if never
 // edited.
 func (d *DAL) GetLessons(roleKey, taskType string) (*Lessons, error) {
-	return getLessonsOn(d.db, roleKey, taskType)
+	return getLessonsOn(d.rdb, roleKey, taskType)
 }
 
 func getLessonsOn(q sqlQuerier, roleKey, taskType string) (*Lessons, error) {
@@ -1212,7 +1259,7 @@ func getLessonsOn(q sqlQuerier, roleKey, taskType string) (*Lessons, error) {
 
 // PutLessons upserts a per-role lessons overlay.
 func (d *DAL) PutLessons(l Lessons) error {
-	return putLessonsOn(d.db, l)
+	return putLessonsOn(d.wdb, l)
 }
 
 func putLessonsOn(ex sqlExecer, l Lessons) error {
@@ -1273,7 +1320,7 @@ type MachineAlias struct {
 // GetAccountAlias returns one overlay by account tag, or nil if never edited.
 func (d *DAL) GetAccountAlias(account string) (*AccountAlias, error) {
 	var a AccountAlias
-	err := d.db.QueryRow(
+	err := d.rdb.QueryRow(
 		`SELECT account, display_name FROM account_alias WHERE account = ?`, account,
 	).Scan(&a.Account, &a.DisplayName)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -1294,7 +1341,7 @@ func (d *DAL) AccountDisplayNames() (map[string]string, error) {
 
 // PutAccountAlias upserts an account display-name overlay.
 func (d *DAL) PutAccountAlias(a AccountAlias) error {
-	_, err := d.db.Exec(`
+	_, err := d.wdb.Exec(`
 		INSERT INTO account_alias (account, display_name) VALUES (?, ?)
 		ON CONFLICT (account) DO UPDATE SET display_name = excluded.display_name`,
 		a.Account, a.DisplayName)
@@ -1304,7 +1351,7 @@ func (d *DAL) PutAccountAlias(a AccountAlias) error {
 // GetMachineAlias returns one overlay by machine id, or nil if never edited.
 func (d *DAL) GetMachineAlias(machineID string) (*MachineAlias, error) {
 	var a MachineAlias
-	err := d.db.QueryRow(
+	err := d.rdb.QueryRow(
 		`SELECT machine_id, display_name FROM machine_alias WHERE machine_id = ?`,
 		machineID,
 	).Scan(&a.MachineID, &a.DisplayName)
@@ -1326,7 +1373,7 @@ func (d *DAL) MachineDisplayNames() (map[string]string, error) {
 
 // PutMachineAlias upserts a machine display-name overlay.
 func (d *DAL) PutMachineAlias(a MachineAlias) error {
-	_, err := d.db.Exec(`
+	_, err := d.wdb.Exec(`
 		INSERT INTO machine_alias (machine_id, display_name) VALUES (?, ?)
 		ON CONFLICT (machine_id) DO UPDATE SET display_name = excluded.display_name`,
 		a.MachineID, a.DisplayName)
@@ -1402,7 +1449,7 @@ func scanReplyCard(row interface{ Scan(...any) error }) (ReplyCard, error) {
 // ListReplyCards returns every card, oldest→newest (callers filter/sort per
 // pane — the waiting/answered projections are handler concerns).
 func (d *DAL) ListReplyCards() ([]ReplyCard, error) {
-	rows, err := d.db.Query(
+	rows, err := d.rdb.Query(
 		`SELECT ` + replyCardColumns + ` FROM reply_card ORDER BY created_ts`)
 	if err != nil {
 		return nil, err
@@ -1421,7 +1468,7 @@ func (d *DAL) ListReplyCards() ([]ReplyCard, error) {
 
 // GetReplyCard returns one card by id, or nil if absent.
 func (d *DAL) GetReplyCard(id string) (*ReplyCard, error) {
-	row := d.db.QueryRow(
+	row := d.rdb.QueryRow(
 		`SELECT `+replyCardColumns+` FROM reply_card WHERE id = ?`, id)
 	c, err := scanReplyCard(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -1490,10 +1537,25 @@ func (d *DAL) PutReplyCardWithAttachments(c ReplyCard, atts []ChatAttachment) er
 	})
 }
 
-// inTx runs fn inside a transaction, rolling back on any error (and on panic —
-// an un-rolled-back tx would hold the single pooled SQLite connection forever).
+// inTx runs fn inside a WRITE transaction, rolling back on any error (and on
+// panic — an un-rolled-back tx would hold the write pool's single connection
+// forever).
+//
+// 🔴 It runs on the write pool, and that pool's DSN carries `_txlock=immediate`,
+// so this Begin is BEGIN IMMEDIATE — not the driver default BEGIN DEFERRED. The
+// bodies handed to inTx routinely READ and then WRITE (SaveWithDocumentHistories
+// snapshots the live document inside the very transaction that overwrites it),
+// and a DEFERRED transaction has to upgrade a read lock into a write lock, which
+// SQLite refuses with an instant SQLITE_BUSY that `busy_timeout` does NOT cover.
+//
+// ⚠️ What that protects is a writer on ANOTHER HANDLE (`ocserverd backup`, a shell
+// sqlite3), NOT our own concurrent writers — the one-connection cap already
+// serialises those in Go, so an in-process upgrade conflict cannot arise. Do not
+// read "IMMEDIATE" here as the thing keeping our own writes safe; the cap is.
+// Details, and the measurement that settles which of the two does what, are on
+// openSQLite in migrate.go.
 func (d *DAL) inTx(fn func(tx *sql.Tx) error) error {
-	tx, err := d.db.Begin()
+	tx, err := d.wdb.Begin()
 	if err != nil {
 		return err
 	}
@@ -1505,7 +1567,7 @@ func (d *DAL) inTx(fn func(tx *sql.Tx) error) error {
 }
 
 // PutReplyCard upserts a card row (the SSE delta is the handler's job).
-func (d *DAL) PutReplyCard(c ReplyCard) error { return putReplyCardOn(d.db, c) }
+func (d *DAL) PutReplyCard(c ReplyCard) error { return putReplyCardOn(d.wdb, c) }
 
 func putReplyCardOn(ex sqlExecer, c ReplyCard) error {
 	options := c.Options
@@ -1633,7 +1695,7 @@ func (d *DAL) GetWebhookByToken(token string) (*WebhookEndpoint, error) {
 	if token == "" {
 		return nil, nil
 	}
-	row := d.db.QueryRow(
+	row := d.rdb.QueryRow(
 		`SELECT `+webhookColumns+` FROM webhook_endpoint WHERE token = ?`, token)
 	e, err := scanWebhook(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -1648,7 +1710,7 @@ func (d *DAL) GetWebhookByToken(token string) (*WebhookEndpoint, error) {
 // GetWebhookByMemberEndpoint returns the endpoint addressed by (member,
 // endpoint_id) — the management-route resolver — or nil when absent.
 func (d *DAL) GetWebhookByMemberEndpoint(memberID, endpointID string) (*WebhookEndpoint, error) {
-	row := d.db.QueryRow(
+	row := d.rdb.QueryRow(
 		`SELECT `+webhookColumns+` FROM webhook_endpoint
 		 WHERE member_id = ? AND endpoint_id = ?`, memberID, endpointID)
 	e, err := scanWebhook(row)
@@ -1663,7 +1725,7 @@ func (d *DAL) GetWebhookByMemberEndpoint(memberID, endpointID string) (*WebhookE
 
 // ListWebhooksByMember returns a member's endpoints, oldest→newest.
 func (d *DAL) ListWebhooksByMember(memberID string) ([]WebhookEndpoint, error) {
-	rows, err := d.db.Query(
+	rows, err := d.rdb.Query(
 		`SELECT `+webhookColumns+` FROM webhook_endpoint
 		 WHERE member_id = ? ORDER BY created_ts`, memberID)
 	if err != nil {
@@ -1695,7 +1757,7 @@ func (d *DAL) PutWebhookEndpoint(e WebhookEndpoint) error {
 	if platform == "" {
 		platform = WebhookPlatformGeneric
 	}
-	_, err := d.db.Exec(`
+	_, err := d.wdb.Exec(`
 		INSERT INTO webhook_endpoint (`+webhookColumns+`)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (token) DO UPDATE SET
@@ -1717,7 +1779,7 @@ func (d *DAL) PutWebhookEndpoint(e WebhookEndpoint) error {
 // the caller reached us but neither deliver nor drop (the Slack
 // url_verification challenge, a verified GitHub ping).
 func (d *DAL) TouchWebhookReceived(token string, ts float64) error {
-	_, err := d.db.Exec(
+	_, err := d.wdb.Exec(
 		`UPDATE webhook_endpoint SET last_received_ts = ? WHERE token = ?`, ts, token)
 	return err
 }
@@ -1726,7 +1788,7 @@ func (d *DAL) TouchWebhookReceived(token string, ts float64) error {
 // increment — never a read-modify-write, so concurrent /in calls can't lose
 // counts) and stamps last_received_ts.
 func (d *DAL) MarkWebhookDelivered(token string, ts float64) error {
-	_, err := d.db.Exec(
+	_, err := d.wdb.Exec(
 		`UPDATE webhook_endpoint
 		 SET delivered_count = delivered_count + 1, last_received_ts = ?
 		 WHERE token = ?`, ts, token)
@@ -1736,7 +1798,7 @@ func (d *DAL) MarkWebhookDelivered(token string, ts float64) error {
 // MarkWebhookDropped counts one silent drop with its coarse reason
 // (WebhookDropReason* set) and stamps last_received_ts.
 func (d *DAL) MarkWebhookDropped(token, reason string, ts float64) error {
-	_, err := d.db.Exec(
+	_, err := d.wdb.Exec(
 		`UPDATE webhook_endpoint
 		 SET dropped_count = dropped_count + 1, last_drop_reason = ?,
 		     last_received_ts = ?
@@ -1746,7 +1808,7 @@ func (d *DAL) MarkWebhookDropped(token, reason string, ts float64) error {
 
 // SetWebhookStatus flips one endpoint's status (the enable/disable toggle).
 func (d *DAL) SetWebhookStatus(token, status string) error {
-	_, err := d.db.Exec(
+	_, err := d.wdb.Exec(
 		`UPDATE webhook_endpoint SET status = ? WHERE token = ?`, status, token)
 	return err
 }
@@ -1755,11 +1817,11 @@ func (d *DAL) SetWebhookStatus(token, status string) error {
 // request-log rows go with it — the ring buffer is debug data FOR an endpoint,
 // never an orphaned archive of a dead token.
 func (d *DAL) DeleteWebhookEndpoint(token string) error {
-	if _, err := d.db.Exec(
+	if _, err := d.wdb.Exec(
 		`DELETE FROM webhook_request_log WHERE token = ?`, token); err != nil {
 		return err
 	}
-	_, err := d.db.Exec(`DELETE FROM webhook_endpoint WHERE token = ?`, token)
+	_, err := d.wdb.Exec(`DELETE FROM webhook_endpoint WHERE token = ?`, token)
 	return err
 }
 
@@ -1784,13 +1846,13 @@ const webhookRequestLogKeep = 5
 // ring buffer to the newest webhookRequestLogKeep rows (id order = insert
 // order; the AUTOINCREMENT id is the ring's clock).
 func (d *DAL) InsertWebhookRequestLog(token string, l WebhookRequestLog) error {
-	if _, err := d.db.Exec(`
+	if _, err := d.wdb.Exec(`
 		INSERT INTO webhook_request_log (token, ts, outcome, headers, body, truncated)
 		VALUES (?, ?, ?, ?, ?, ?)`,
 		token, l.TS, l.Outcome, l.Headers, l.Body, l.Truncated); err != nil {
 		return err
 	}
-	_, err := d.db.Exec(`
+	_, err := d.wdb.Exec(`
 		DELETE FROM webhook_request_log
 		WHERE token = ? AND id NOT IN (
 			SELECT id FROM webhook_request_log
@@ -1802,7 +1864,7 @@ func (d *DAL) InsertWebhookRequestLog(token string, l WebhookRequestLog) error {
 // ListWebhookRequestLogs returns an endpoint's ring buffer, newest→oldest
 // (at most webhookRequestLogKeep rows by construction; LIMIT is belt-and-braces).
 func (d *DAL) ListWebhookRequestLogs(token string) ([]WebhookRequestLog, error) {
-	rows, err := d.db.Query(`
+	rows, err := d.rdb.Query(`
 		SELECT ts, outcome, headers, body, truncated FROM webhook_request_log
 		WHERE token = ? ORDER BY id DESC LIMIT ?`,
 		token, webhookRequestLogKeep)
@@ -1828,7 +1890,7 @@ func (d *DAL) ListWebhookRequestLogs(token string) ([]WebhookRequestLog, error) 
 // closed key set).
 func (d *DAL) GetSetting(key string) (*string, error) {
 	var v string
-	err := d.db.QueryRow(`SELECT value FROM setting WHERE key = ?`, key).Scan(&v)
+	err := d.rdb.QueryRow(`SELECT value FROM setting WHERE key = ?`, key).Scan(&v)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -1840,7 +1902,7 @@ func (d *DAL) GetSetting(key string) (*string, error) {
 
 // PutSetting upserts one settings value, stamping updated_at.
 func (d *DAL) PutSetting(key, value string) error {
-	_, err := d.db.Exec(`
+	_, err := d.wdb.Exec(`
 		INSERT INTO setting (key, value, updated_at) VALUES (?, ?, ?)
 		ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
 		key, value, nowSecs())
@@ -1849,7 +1911,7 @@ func (d *DAL) PutSetting(key, value string) error {
 
 // PutPushSubscription creates or refreshes one browser subscription.
 func (d *DAL) PutPushSubscription(s PushSubscription) error {
-	_, err := d.db.Exec(`
+	_, err := d.wdb.Exec(`
 		INSERT INTO push_subscription (endpoint, p256dh, auth, expiration_time, created_ts, updated_ts)
 		VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(endpoint) DO UPDATE SET
@@ -1862,7 +1924,7 @@ func (d *DAL) PutPushSubscription(s PushSubscription) error {
 // ListPushSubscriptions returns the current delivery targets. The table is
 // deliberately owner-scoped by the studio's single-owner invariant.
 func (d *DAL) ListPushSubscriptions() ([]PushSubscription, error) {
-	rows, err := d.db.Query(`SELECT endpoint, p256dh, auth, expiration_time FROM push_subscription`)
+	rows, err := d.rdb.Query(`SELECT endpoint, p256dh, auth, expiration_time FROM push_subscription`)
 	if err != nil {
 		return nil, err
 	}
@@ -1885,7 +1947,7 @@ func (d *DAL) ListPushSubscriptions() ([]PushSubscription, error) {
 // DeletePushSubscription is intentionally idempotent: browsers commonly
 // unregister after a 404/410 delivery receipt and may retry during shutdown.
 func (d *DAL) DeletePushSubscription(endpoint string) error {
-	_, err := d.db.Exec(`DELETE FROM push_subscription WHERE endpoint = ?`, endpoint)
+	_, err := d.wdb.Exec(`DELETE FROM push_subscription WHERE endpoint = ?`, endpoint)
 	return err
 }
 
@@ -1908,7 +1970,7 @@ type WardenCommand struct {
 // neither duplicate the row nor refresh enqueued_ts (that would let a
 // repeatedly-requeued command dodge the expiry sweep forever).
 func (d *DAL) PutWardenCommand(c WardenCommand) error {
-	_, err := d.db.Exec(`
+	_, err := d.wdb.Exec(`
 		INSERT INTO warden_command_queue (warden_id, verb, member_id, frame, enqueued_ts)
 		VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT (warden_id, verb, member_id) DO NOTHING`,
@@ -1920,7 +1982,7 @@ func (d *DAL) PutWardenCommand(c WardenCommand) error {
 // frame has been WRITTEN to the warden's socket — which is NOT the same as
 // delivered (there is no ack in this band; see hub.go MarkWardenCommandWritten).
 func (d *DAL) DeleteWardenCommand(wardenID, verb, memberID string) error {
-	_, err := d.db.Exec(`
+	_, err := d.wdb.Exec(`
 		DELETE FROM warden_command_queue
 		WHERE warden_id = ? AND verb = ? AND member_id = ?`,
 		wardenID, verb, memberID)
@@ -1930,7 +1992,7 @@ func (d *DAL) DeleteWardenCommand(wardenID, verb, memberID string) error {
 // ListWardenCommands returns every surviving pending command in enqueue order
 // — the FIFO the restore path rebuilds from.
 func (d *DAL) ListWardenCommands() ([]WardenCommand, error) {
-	rows, err := d.db.Query(`
+	rows, err := d.rdb.Query(`
 		SELECT warden_id, verb, member_id, frame, enqueued_ts
 		FROM warden_command_queue ORDER BY enqueued_ts, rowid`)
 	if err != nil {
@@ -1954,7 +2016,7 @@ func (d *DAL) ListWardenCommands() ([]WardenCommand, error) {
 // cutoff — the expiry sweep that keeps a never-drainable backlog from living
 // forever. Returns how many rows it removed.
 func (d *DAL) DeleteWardenCommandsBefore(cutoff float64) (int64, error) {
-	res, err := d.db.Exec(`DELETE FROM warden_command_queue WHERE enqueued_ts < ?`, cutoff)
+	res, err := d.wdb.Exec(`DELETE FROM warden_command_queue WHERE enqueued_ts < ?`, cutoff)
 	if err != nil {
 		return 0, err
 	}
@@ -1968,12 +2030,12 @@ func (d *DAL) DeleteWardenCommandsBefore(cutoff float64) (int64, error) {
 // DeleteSetting removes one settings value (idempotent — deleting an absent
 // key is a no-op). Consumes the one-shot first-run claim token.
 func (d *DAL) DeleteSetting(key string) error {
-	_, err := d.db.Exec(`DELETE FROM setting WHERE key = ?`, key)
+	_, err := d.wdb.Exec(`DELETE FROM setting WHERE key = ?`, key)
 	return err
 }
 
 func (d *DAL) displayNames(query string) (map[string]string, error) {
-	rows, err := d.db.Query(query)
+	rows, err := d.rdb.Query(query)
 	if err != nil {
 		return nil, err
 	}

@@ -483,7 +483,7 @@ func TestOutsourceTickCodenamesNeverReuse(t *testing.T) {
 	// blind to them (ListMembers excludes kind='outsource').
 	var releasedRoster string
 	var releasedTS float64
-	if err := api.dal.db.QueryRow(`SELECT roster_status, released_ts FROM member
+	if err := api.dal.rdb.QueryRow(`SELECT roster_status, released_ts FROM member
 		WHERE kind='outsource' AND codename='S-1'`).
 		Scan(&releasedRoster, &releasedTS); err != nil {
 		t.Fatalf("released worker must live in member: %v", err)
