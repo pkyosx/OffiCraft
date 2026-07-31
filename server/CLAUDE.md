@@ -323,7 +323,10 @@ warden 端那個 POST 是 best-effort:失敗的回傳值被 start/stop 呼叫端
   - **repo 裡沒有任何地方設 `wal_autocheckpoint` 或 `journal_size_limit`**(grep 回 0 行),所以吃的是驅動預設:`wal_autocheckpoint=1000` 頁、`page_size=4096` ⇒ **約 4 MB 的 checkpoint 門檻**;`journal_size_limit=-1`(checkpoint 後**不截短**檔案,空間是重用的)。
   - **常態有界**:連續寫入約 80 MB 的資料(主檔長到 91 MB),`-wal` **全程停在 ~4.1 MB**。
   - 🔴 **一個開著的讀取交易就會讓它無界**:auto-checkpoint 需要沒有讀者卡著舊 snapshot,所以在**單一個** read tx 開著的期間連續寫入,`-wal` 從 4 MB 長到 **67 MB → 196 MB**(還在長)。讀者放手後**檔案不會縮回去**(`journal_size_limit=-1`),那個高水位留在磁碟上被重用。
-  - **目前生產不可達,但不是被守衛擋住的,是碰巧**:`rdb.Begin`/`BeginTx` 在非測試碼裡**一次都沒有**——每個讀都是單發 `Query`/`QueryRow` 且立刻把 `Rows` 消耗完。**加一個「開著 rows 走很久」的讀取路徑就會踩到**,而沒有任何東西會叫。
+  - ✅ **「碰巧」已經變成「被守住」**:立案時 `rdb.Begin`/`BeginTx` 在非測試碼裡一次都沒有,但**沒有任何東西在守它**——加一條讀取交易就會踩到,而且零訊號。現在由 `TestNoTransactionIsOpenedOnTheReadPool`(**一條必須回 0 行的查詢**,與單檔複製守衛同一個語料、同一個做法)擋住,理由也一樣:WAL 引進的新危險 ＋ 壞掉時零訊號 ＋ 今天沒有違規者。**掃得到三種形狀**:(a) `<x>.rdb.Begin/BeginTx`、(b) 函式內 `q := d.rdb` 之後 `q.Begin()`(一跳的別名,直接掃會被繞過的那條)、(c) 把 `.rdb` 餵進**任何本 package 收 `*sql.DB` 且在其 body 對該參數 `Begin` 的函式**(AST 兩趟)。**拒絕訊息講後果不只講規則**(pin snapshot ⇒ `-wal` 無界成長且不縮回、零訊號),並指出正解方向(一條 statement / 真要多筆一致就走 `d.wdb` 的 `inTx`,那個池上限 1、交易本來就短),**刻意不提供任何旁路**。
+    - ⚠️ **掃不到的(誠實邊界,別當成全域證明)**:多跳間接(`rdb` 先存進另一個 struct 欄位或閉包再傳)、reflection、本 package 以外的碼;以及 🔴 **另一種同樣會 pin snapshot 的形狀——`*sql.Rows` 開著很久**(`Query` 之後在 loop 裡做慢事、或忘了 `Close`)。後者**靜態上無法判定「很久」**,所以守衛不碰它;它是這條規則現在最可能的實際破法,寫在這裡讓下一個人知道要自己看。
+    - **反恆真**:掃描先自證「看得到 `Begin`/`BeginTx` 這個構造」(寫池的 `inTx`/`HardDeleteMember` 就是活證據);計數為 0 = 偵測器死了,那時「零發現」什麼都不證明。
+    - **mutant 實測(2026-08-01,三種形狀各一顆,每顆前 `go clean -testcache`,還原用 scratchpad 備份)**:(a) 直接 `d.rdb.BeginTx` → 紅、點名 `dal.go:203 BeginTx on d.rdb`;(b) `q := d.rdb; q.Begin()` → 紅、點名 `Begin on q (a local alias of the read pool)`;(c) `probeSnapshotRead(d.rdb)`(該函式對參數 `Begin`)→ 紅、點名 `probeSnapshotRead(…d.rdb…) — that function opens a transaction on it`。還原後綠。
   - **乾淨關閉會清掉**:最後一條連線關閉時 WAL 被 checkpoint 並移除(實測:serve 正常退出後資料目錄只剩 `officraft.db`)⇒ 高水位不跨重啟。**當機不會**——那時 `-wal` 還在,而它裡面就是最需要的那幾筆(這也是單檔複製守衛存在的理由)。
   - **要處理的話有兩個旋鈕**(`journal_size_limit` 讓檔案 checkpoint 後真的截短、或縮小 `wal_autocheckpoint`)——**本次刻意沒動**,等裁定。
 

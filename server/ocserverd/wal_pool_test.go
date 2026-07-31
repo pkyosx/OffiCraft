@@ -602,6 +602,195 @@ func TestReadPoolIsNeverHandedToAWriteSeam(t *testing.T) {
 	}
 }
 
+// TestNoTransactionIsOpenedOnTheReadPool is the third zero-rows query, and it
+// guards the one hazard WAL introduced that nothing else in this change covers.
+//
+// 🔴 THE FACT IT PROTECTS (measured on this tree, 2026-08-01). Nothing in this
+// repo sets `wal_autocheckpoint` or `journal_size_limit`, so SQLite's defaults
+// apply: auto-checkpoint at 1000 pages × 4096 = ~4 MB, and
+// `journal_size_limit=-1` meaning the "-wal" file is NEVER truncated, only
+// reused. In normal operation that is BOUNDED — writing ~80 MB of rows (main file
+// grew to 91 MB) left "-wal" sitting at 4.1 MB the whole time. But auto-checkpoint
+// can only run when no reader is pinning an older snapshot, so ONE open read
+// transaction makes it UNBOUNDED: measured 4 MB → 67 MB → 196 MB and still
+// climbing, and when the reader finally let go the file did NOT shrink back.
+//
+// 🔴 WHY A GUARD AND NOT A COMMENT. Before this test, production was safe only by
+// COINCIDENCE: there happened to be no `rdb.Begin`/`BeginTx` anywhere in non-test
+// code — every read is a single Query/QueryRow whose Rows are consumed
+// immediately. Nothing enforced that. Adding one read transaction would grow the
+// "-wal" file without limit, and the failure has NO signal: correct data, no
+// error, nothing logged, just a disk filling up. That is the same shape as the
+// single-file-copy guard next door — a hazard WAL introduced, silent when it
+// fires, no violator today — and it gets the same treatment.
+func TestNoTransactionIsOpenedOnTheReadPool(t *testing.T) {
+	fset := token.NewFileSet()
+	files := map[string]*ast.File{}
+	for _, path := range poolScanCorpus(t) {
+		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+		files[path] = file
+	}
+
+	// pass 1: which package-level funcs open a transaction on a handle they were
+	// GIVEN? Those are the ones it is unsafe to hand the read pool to.
+	txOpeners := map[string]bool{}
+	for _, file := range files {
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil || fn.Type.Params == nil {
+				continue
+			}
+			params := map[string]bool{}
+			for _, p := range fn.Type.Params.List {
+				if !isSQLDBType(p.Type) {
+					continue
+				}
+				for _, name := range p.Names {
+					params[name.Name] = true
+				}
+			}
+			if len(params) == 0 {
+				continue
+			}
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				if recv, method, ok := methodCallOn(n); ok && isBeginMethod(method) && params[recv] {
+					txOpeners[fn.Name.Name] = true
+				}
+				return true
+			})
+		}
+	}
+
+	var findings []string
+	beginsSeen := 0
+	for _, file := range files {
+		// Local aliases of the read pool, per function: `q := d.rdb` then
+		// `q.Begin()` is the same defect one hop away, and it is the obvious way
+		// a direct-only scan gets walked past.
+		ast.Inspect(file, func(n ast.Node) bool {
+			fn, ok := n.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
+				return true
+			}
+			readAliases := map[string]bool{}
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				if as, ok := n.(*ast.AssignStmt); ok {
+					for i, rhs := range as.Rhs {
+						if i >= len(as.Lhs) || !mentionsReadPool(rhs) {
+							continue
+						}
+						if id, ok := as.Lhs[i].(*ast.Ident); ok {
+							readAliases[id.Name] = true
+						}
+					}
+				}
+				// (a) direct: <anything>.rdb.Begin / .BeginTx
+				if call, ok := n.(*ast.CallExpr); ok {
+					if sel, ok := call.Fun.(*ast.SelectorExpr); ok && isBeginMethod(sel.Sel.Name) {
+						beginsSeen++
+						if inner, ok := sel.X.(*ast.SelectorExpr); ok && inner.Sel.Name == "rdb" {
+							findings = append(findings, fmtPos(fset, call.Pos())+" "+sel.Sel.Name+" on d.rdb")
+						}
+						// (b) via a local alias of the read pool
+						if id, ok := sel.X.(*ast.Ident); ok && readAliases[id.Name] {
+							findings = append(findings, fmtPos(fset, call.Pos())+" "+sel.Sel.Name+" on "+id.Name+" (a local alias of the read pool)")
+						}
+					}
+					// (c) the read pool handed to a function that begins a tx
+					if name, ok := call.Fun.(*ast.Ident); ok && txOpeners[name.Name] {
+						for _, arg := range call.Args {
+							if mentionsReadPool(arg) {
+								findings = append(findings, fmtPos(fset, arg.Pos())+" "+name.Name+"(…d.rdb…) — that function opens a transaction on it")
+							}
+						}
+					}
+				}
+				return true
+			})
+			return true
+		})
+	}
+
+	// Anti-vacuity: the detector must prove it can see the construct at all. The
+	// write pool's transactions (inTx, HardDeleteMember, …) are that proof — if
+	// this count is zero the scan is dead and its silence means nothing.
+	if beginsSeen == 0 {
+		t.Fatal("saw zero Begin/BeginTx calls anywhere in the package — the detector is dead, so finding nothing proves nothing")
+	}
+
+	for _, f := range findings {
+		t.Errorf("a transaction is opened on the READ pool: %s", f)
+	}
+	if len(findings) > 0 {
+		t.Fatalf(`%d transaction(s) opened on the read pool.
+
+WHY THIS IS REFUSED — the consequence, not just the rule: an open read
+transaction pins a WAL snapshot, and SQLite cannot auto-checkpoint while any
+snapshot is pinned. The "officraft.db-wal" sidecar then grows for as long as the
+transaction is open (measured: 4 MB → 67 MB → 196 MB and still climbing), and
+because journal_size_limit is -1 it does NOT shrink back when the reader
+finishes. Nothing reports this: the data stays correct, no error is raised, the
+disk just fills.
+
+WHAT TO DO INSTEAD, when you need several reads that agree with each other:
+  - Prefer ONE statement. A join, or a single query with the aggregate you need,
+    is consistent by construction and holds no snapshot open.
+  - If it must be several reads, do them on the WRITE pool (d.wdb) inside inTx:
+    that pool is capped at one connection, so the snapshot it pins is bounded by
+    a transaction that is already short by design.
+  - Reads that just need to be fast and independent stay as they are — single
+    Query/QueryRow on d.rdb, Rows consumed immediately.`, len(findings))
+	}
+}
+
+// isSQLDBType reports whether an AST type expression is *sql.DB.
+func isSQLDBType(e ast.Expr) bool {
+	star, ok := e.(*ast.StarExpr)
+	if !ok {
+		return false
+	}
+	sel, ok := star.X.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	pkg, ok := sel.X.(*ast.Ident)
+	return ok && pkg.Name == "sql" && sel.Sel.Name == "DB"
+}
+
+// methodCallOn renders the receiver IDENT and method name of `x.M(...)`.
+func methodCallOn(n ast.Node) (recv, method string, ok bool) {
+	call, isCall := n.(*ast.CallExpr)
+	if !isCall {
+		return "", "", false
+	}
+	sel, isSel := call.Fun.(*ast.SelectorExpr)
+	if !isSel {
+		return "", "", false
+	}
+	id, isIdent := sel.X.(*ast.Ident)
+	if !isIdent {
+		return "", "", false
+	}
+	return id.Name, sel.Sel.Name, true
+}
+
+func isBeginMethod(name string) bool { return name == "Begin" || name == "BeginTx" }
+
+// mentionsReadPool reports whether an expression names the read pool field.
+func mentionsReadPool(e ast.Expr) bool {
+	found := false
+	ast.Inspect(e, func(n ast.Node) bool {
+		if sel, ok := n.(*ast.SelectorExpr); ok && sel.Sel.Name == "rdb" {
+			found = true
+		}
+		return !found
+	})
+	return found
+}
+
 func concatStringLiterals(args []ast.Expr) string {
 	var b strings.Builder
 	for _, a := range args {

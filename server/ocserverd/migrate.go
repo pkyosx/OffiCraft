@@ -145,6 +145,35 @@ const sqliteMaxReadConns = 8
 // It deliberately does NOT ask for journal_mode: that pragma is a WRITE to the
 // file's header, so requesting it here would fail on a read-only connection. The
 // mode is the file's property and the write pool already set it.
+//
+// 🔴 THIS POOL IS THE ONE THING THAT CAN MAKE THE "-wal" FILE GROW WITHOUT BOUND,
+// so the facts are written down here rather than left to be rediscovered
+// (all measured on this tree, 2026-08-01):
+//
+//   - NOTHING in this repo sets `wal_autocheckpoint` or `journal_size_limit`, so
+//     the driver defaults apply: auto-checkpoint at 1000 pages, page_size 4096 ⇒
+//     a threshold of roughly 4 MB.
+//   - `journal_size_limit` is -1, which means a checkpointed WAL is REUSED, never
+//     truncated. Whatever high-water mark it reaches stays on disk.
+//   - Normal operation is BOUNDED: writing ~80 MB of rows (main file grew to
+//     91 MB) left "-wal" at 4.1 MB the entire time.
+//   - 🔴 ONE OPEN READ TRANSACTION MAKES IT UNBOUNDED. Auto-checkpoint cannot run
+//     while any reader pins an older snapshot, so with a single read tx held open
+//     across a stream of writes "-wal" went 4 MB → 67 MB → 196 MB and was still
+//     climbing; releasing the reader did NOT shrink the file back.
+//   - A clean shutdown does clear it (the last connection to close checkpoints and
+//     removes the WAL — verified: after a normal serve exit the data dir holds only
+//     officraft.db). A CRASH does not, and what is left in "-wal" then is exactly
+//     the most recent work — which is also why db_singlefile_copy_guard_test.go
+//     exists.
+//
+// Every read through this pool is therefore a single Query/QueryRow whose Rows are
+// consumed immediately, and that is ENFORCED, not merely true today:
+// TestNoTransactionIsOpenedOnTheReadPool (wal_pool_test.go) is a zero-rows scan
+// that refuses `rdb.Begin`/`BeginTx`, local aliases of rdb, and handing rdb to a
+// function that begins a transaction. The two knobs above are deliberately NOT set
+// by this change — whether to set them is a configuration decision, not something
+// to slip in alongside a guard.
 func openSQLiteReadPool(path string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)&mode=ro")
 	if err != nil {
