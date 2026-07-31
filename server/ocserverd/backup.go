@@ -75,17 +75,18 @@ const (
 	backupCadence = 15 * time.Minute
 
 	// backupInterval is the minimum age of the newest backup before the
-	// cadence takes another one. 6h × 5 retained ≈ 30h of coverage.
+	// cadence takes another one.
+	//
+	// ⚠️ "6h × 5 = 30h of coverage" is the arithmetic for a directory that gets
+	// nothing but scheduled backups. Manual ones share the routine quota, so a
+	// busy day covers less than 30h. Do not quote the product as a guarantee.
 	backupInterval = 6 * time.Hour
 
-	// backupRetain is how many backup files are kept (owner 2026-07-31: "我們
-	// 可以保留 5 份備份檔好了" + "自動 rotate"). Evicted files are MOVED to
-	// trash/, never deleted here.
-	//
-	// ⚠️ One pool, one quota: a pre-migration backup counts against the same 5,
-	// so a burst of upgrades can evict the scheduled ones. Upgrades are rare
-	// and the freshest file is always kept, so this is accepted rather than
-	// hidden behind a second quota.
+	// backupRetain is how many backup files are kept PER POOL (owner 2026-07-31:
+	// "我們可以保留 5 份備份檔好了" + "自動 rotate"). Evicted files are MOVED to
+	// trash/, never deleted here. Which files compete for those 5 slots is
+	// decided by backupPoolOf — see the comment there for why there are two
+	// pools rather than one.
 	backupRetain = 5
 
 	// backupFreeSpaceFactor is how much room must be free relative to the
@@ -117,6 +118,58 @@ const (
 	backupReasonScheduled    backupReason = "scheduled"
 	backupReasonPreMigration backupReason = "premigration"
 )
+
+// backupPool is the set of files that compete for one quota of backupRetain.
+type backupPool string
+
+const (
+	// backupPoolRoutine is ongoing coverage: the cadence's snapshots and the
+	// ones a human takes by hand. They are interchangeable — either one is
+	// "the state of the studio around then" — so they share one quota, and the
+	// oldest of them is genuinely the least valuable file in the directory.
+	backupPoolRoutine backupPool = "routine"
+
+	// backupPoolPreMigration is its own pool, and this is the whole point of
+	// having pools at all.
+	//
+	// 🔴 A pre-migration backup is the ONLY retreat from a schema migration that
+	// went wrong, and it pays off at the moment you reach for it — which is
+	// AFTER something already broke. In one shared pool its eviction trigger was
+	// not time, it was FIVE BACKUPS FROM ANY SOURCE: somebody taking five manual
+	// snapshots while investigating the breakage destroyed it within MINUTES, in
+	// the exact situation it existed for. (The tempting arithmetic — "6h × 5 ≈ 30
+	// hours of cover" — counts only the scheduled trigger and reads as safe.)
+	//
+	// A retreat that its own rotation can evict is a retreat that is absent on
+	// the one day it is needed, so it does not share a quota with routine files.
+	// It still HAS a quota (see rotateBackups): a directory that only grows is
+	// how this machine ran out of disk before.
+	backupPoolPreMigration backupPool = "premigration"
+)
+
+// backupPoolOf decides which quota a file counts against, reading the reason
+// back out of the filename. An unrecognised or unparseable label lands in the
+// routine pool: the alternative — inventing a pool per unknown label — would let
+// a future typo create an unbounded directory that nothing ever rotates.
+func backupPoolOf(name string) backupPool {
+	if backupReasonIn(name) == backupReasonPreMigration {
+		return backupPoolPreMigration
+	}
+	return backupPoolRoutine
+}
+
+// backupReasonIn pulls the reason field out of
+// `officraft-<date>-<time>-<reason>.db`. It is the same parse as
+// parseBackupStamp, reading the third field instead of the first two, and it is
+// spelled once so the writer (backupFileName) cannot drift from the readers.
+func backupReasonIn(name string) backupReason {
+	rest := strings.TrimSuffix(strings.TrimPrefix(name, backupFilePrefix), backupFileSuffix)
+	parts := strings.Split(rest, "-")
+	if len(parts) < 3 {
+		return ""
+	}
+	return backupReason(strings.Join(parts[2:], "-"))
+}
 
 // backupDirFor / backupTrashFor sit BESIDE the database file rather than under
 // a fixed path, so a namespaced instance backs itself up into its own root and
@@ -299,26 +352,54 @@ func runDatabaseBackup(db *sql.DB, dbPath string, reason backupReason, now time.
 	return res, nil
 }
 
-// rotateBackups keeps the newest `keep` files and MOVES the rest into trash/.
+// rotateBackups keeps the newest `keep` files OF EACH POOL and MOVES the rest
+// into trash/.
 //
 // 🔴 It moves, never deletes (repo rule). The mechanical reason matters as much
 // as the rule: a bug in a mover leaves the file findable, the same bug in a
 // deleter destroys exactly the thing this whole file exists to preserve.
+//
+// 🔴 `keep` is per pool, not per directory. It was per directory, and that meant
+// five backups from ANY trigger could retire the pre-migration snapshot — see
+// backupPoolPreMigration for why that was the wrong file to make cheap. Every
+// pool is still bounded, so the directory as a whole stays bounded (at
+// keep × number-of-pools) instead of growing forever.
 func rotateBackups(dbPath string, keep int) ([]string, error) {
 	dir := backupDirFor(dbPath)
 	files, err := backupFilesIn(dir)
 	if err != nil {
 		return nil, err
 	}
-	if keep < 1 || len(files) <= keep {
+	if keep < 1 {
 		return nil, nil
 	}
+	// backupFilesIn is already newest-first, and grouping preserves that order,
+	// so within each pool the survivors are the newest `keep`.
+	pools := map[backupPool][]os.DirEntry{}
+	for _, e := range files {
+		pool := backupPoolOf(e.Name())
+		pools[pool] = append(pools[pool], e)
+	}
+
+	var overdue []os.DirEntry
+	for _, inPool := range pools {
+		if len(inPool) > keep {
+			overdue = append(overdue, inPool[keep:]...)
+		}
+	}
+	if len(overdue) == 0 {
+		return nil, nil
+	}
+	// Map iteration order is random, so sort back into the directory's own
+	// newest-first order: the log line then reads the same way every run.
+	sort.Slice(overdue, func(i, j int) bool { return overdue[i].Name() > overdue[j].Name() })
+
 	trash := backupTrashFor(dbPath)
 	if err := os.MkdirAll(trash, 0o700); err != nil {
 		return nil, fmt.Errorf("create trash dir: %w", err)
 	}
 	var moved []string
-	for _, e := range files[keep:] {
+	for _, e := range overdue {
 		from := filepath.Join(dir, e.Name())
 		to := filepath.Join(trash, e.Name())
 		if err := os.Rename(from, to); err != nil {
