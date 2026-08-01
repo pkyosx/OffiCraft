@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # conformance/run.sh — one-shot runner for the language-agnostic black-box suite.
 #
-#   conformance/run.sh --target go   # isolated ocserverd (:8795, throwaway SQLite)
+#   conformance/run.sh --target go   # isolated ocserverd (kernel-assigned port, throwaway SQLite)
 #
 # go is the ONLY target since the Python retirement (rollback anchor: git tag
 # py-final); the flag stays so the target vocabulary remains explicit. The run:
@@ -50,8 +50,11 @@ fi
 echo "[conformance] black-box lint OK (no backend imports in conformance/)"
 
 # ── target scaffolding ────────────────────────────────────────────────────────
-# Isolated, non-prod port: 8795 (e2e owns 8791).
-CONF_PORT="${OC_CONF_PORT:-8795}"
+# Isolated, non-prod port. A caller may pin OC_CONF_PORT for a targeted
+# reproduction. Ordinary runs pass port 0: the kernel atomically assigns an
+# available ephemeral port when ocserverd binds, so parallel runs do not need
+# a caller to coordinate a port and there is no probe-then-bind race.
+CONF_PORT="${OC_CONF_PORT:-0}"
 
 # PROD_PORT — the CURRENT officraft prod default, read from the single source
 # of truth (server/ocserverd/config.go's `defaultPort` const) instead of a
@@ -127,7 +130,7 @@ fi
 # row's requires against live behaviour — a drifted manifest goes red in the run.
 
 # Leftover guard — never stomp whatever already listens on the port.
-if lsof -nP -iTCP:"$CONF_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+if [[ "$CONF_PORT" != "0" ]] && lsof -nP -iTCP:"$CONF_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
   echo "[conformance] FATAL: :$CONF_PORT already in use — refuse to stomp it." >&2
   exit 2
 fi
@@ -299,7 +302,7 @@ trap cleanup EXIT
 # label is a singleton in the user's GUI domain keyed on uid — it does not follow
 # $HOME, a temp dir, or this throwaway database. So a suite that reached
 # set-password on its fresh DB would re-point the operator's REAL warden at a
-# server on :8795 that is torn down seconds later. The server carries its own
+# server on a kernel-assigned port that is torn down seconds later. The server carries its own
 # interlock (it refuses to install over an existing warden), but this suite runs
 # on machines that may have none at all, where that interlock passes.
 oc_env() { env -u OC_ID -u OC_TOKEN -u OC_BASE OC_CONFIG="$WORK/oc.toml" \
@@ -345,7 +348,7 @@ echo "[conformance] seeding owner password (ocserverd set-password, hash → DB 
 # indistinguishable from our own serve by the health-check loop below — its
 # 200 would satisfy `ok=1` just as well as ours. Re-check immediately before
 # we actually bind.
-if lsof -nP -iTCP:"$CONF_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+if [[ "$CONF_PORT" != "0" ]] && lsof -nP -iTCP:"$CONF_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
   echo "[conformance] FATAL: :$CONF_PORT became occupied during build/migrate/seed (TOCTOU window) — refuse to stomp it. Find and stop that listener, then re-run." >&2
   exit 2
 fi
@@ -353,6 +356,33 @@ fi
 echo "[conformance] starting isolated ocserverd on $BASE"
 (cd "$REPO_ROOT" && oc_env nohup "$WORK/ocserverd" serve >"$WORK/serve.log" 2>&1) &
 SERVE_PID=$!
+
+# With port 0 the successful bind is the allocator. Read the daemon's
+# post-bind announcement rather than probing for a free port ourselves.
+if [[ "$CONF_PORT" == "0" ]]; then
+  for _ in $(seq 1 30); do
+    _bound_url="$(grep -Eo 'http://127\.0\.0\.1:[0-9]+' "$WORK/serve.log" 2>/dev/null | tail -1 || true)"
+    if [[ -n "$_bound_url" ]]; then
+      CONF_PORT="${_bound_url##*:}"
+      BASE="$_bound_url"
+      break
+    fi
+    if ! kill -0 "$SERVE_PID" 2>/dev/null; then break; fi
+    sleep 1
+  done
+  if [[ "$CONF_PORT" == "0" ]]; then
+    echo "[conformance] FATAL: ocserverd did not announce its kernel-assigned port. serve.log tail:" >&2
+    tail -20 "$WORK/serve.log" >&2 || true
+    exit 1
+  fi
+  for _p in "$PROD_PORT" 8770 8780 8766 8791; do
+    if [[ "$CONF_PORT" == "$_p" ]]; then
+      echo "[conformance] FATAL: kernel assigned reserved port :$CONF_PORT; refusing to use it." >&2
+      exit 2
+    fi
+  done
+  echo "[conformance] kernel assigned isolated port :$CONF_PORT"
+fi
 
 # Expected build identity: gitSHA() (server/ocserverd/server.go) is unstamped
 # here (plain `go build`, no -ldflags) so its boot-time fallback runs

@@ -591,9 +591,6 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 	// The bind host is hardwired loopback (B2): expose via a tunnel, never a
 	// direct non-loopback bind.
 	addr := fmt.Sprintf("%s:%d", defaultHost, cfg.Server.Port)
-	// The in-process onboarding installer has no *http.Request to derive an
-	// OC_BASE from — hand it the address we are about to bind (onboarding.go).
-	api.selfBase = "http://" + addr
 	// A `running` onboarding report can only belong to a goroutine that died with
 	// a previous process — close it out so it cannot wedge the studio in a state
 	// that is invisible to BOTH the re-run check and the cockpit banner.
@@ -608,9 +605,14 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 		fmt.Fprintf(out, "[ocserverd] FATAL: %s\n", bindErrorMessage(cfg.Server.Port, err))
 		return 1
 	}
-	fmt.Fprintf(out, "ocserverd serving on http://%s\n", addr)
+	// cfg.Server.Port may be 0 for an isolated test run. Only the listener knows
+	// the kernel-assigned address, so use it for both the announcement and
+	// in-process URLs rather than retaining the requested :0 placeholder.
+	boundAddr := ln.Addr().String()
+	api.selfBase = "http://" + boundAddr
+	fmt.Fprintf(out, "ocserverd serving on http://%s\n", boundAddr)
 	if claimToken != "" {
-		setupURL := firstRunSetupURL(addr, claimToken)
+		setupURL := firstRunSetupURL(boundAddr, claimToken)
 		fmt.Fprintf(out, "[ocserverd] FIRST RUN: no owner password is set — finish setup in a browser by choosing a password (the link carries the one-shot claim code):\n")
 		if shouldAutoOpenBrowser(env, stdoutIsTerminal()) {
 			go func() {

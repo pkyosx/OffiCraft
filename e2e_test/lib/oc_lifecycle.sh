@@ -455,7 +455,8 @@ oc_mint_namespace() {
 # currently 7755/8766, plus RETIRED former prod defaults 8770/8780 which
 # nothing in this repo can derive — see OC_CANONICAL_SERVE_PORT's derivation
 # above for why a hand-maintained literal here would silently go stale;
-# 8790/8791 e2e-playwright, 8795 conformance).
+# 8790/8791 e2e-playwright; 8795 remains reserved for an explicitly pinned
+# conformance reproduction, while normal conformance runs use a kernel-assigned port).
 oc_pick_free_port() {
   local p reserved=" $OC_CANONICAL_SERVE_PORT $OC_CANONICAL_TUNNEL_PORT 8770 8780 8790 8791 8795 " _
   for _ in $(seq 1 60); do

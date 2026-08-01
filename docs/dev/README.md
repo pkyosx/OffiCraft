@@ -39,7 +39,7 @@ bash bin/build           # 部署 binary：npm webdist + go build → .deploy/oc
 # frontend
 cd frontend && npm install && npm run dev
 
-# conformance（語言無關黑箱：wire 行為回歸權威；隔離 :8795）
+# conformance（語言無關黑箱：wire 行為回歸權威；隔離、核心自動配埠）
 conformance/run.sh --target go
 
 # e2e（Playwright，隔離 :8791，絕不碰 prod）

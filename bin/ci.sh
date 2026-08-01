@@ -37,7 +37,7 @@
 #                          the FE contract)
 #   5. conformance suite — the full black-box behaviour suite against an isolated
 #                          ocserverd (conformance/run.sh --target go): boots a
-#                          throwaway server on :8795 + throwaway SQLite, runs the
+#                          throwaway server on a kernel-assigned port + throwaway SQLite, runs the
 #                          whole HTTP-only suite, tears down. This is the teeth
 #                          behind the frozen routes_manifest.json ↔ spec ↔ live
 #                          behaviour equivalence — without it a manifest/spec/
@@ -493,7 +493,7 @@ if ! diff -u "$FE/src/api/generated/schema.ts" "$FRESH_TS"; then
 fi
 rm -f "$FRESH_TS"
 
-echo "[ci] (5/5) conformance suite — full black-box behaviour run (isolated ocserverd :8795)"
+echo "[ci] (5/5) conformance suite — full black-box behaviour run (isolated ocserverd; kernel-assigned port)"
 # ---------------------------------------------------------------------------
 # The full HTTP-only conformance suite is the behavioural authority for the
 # frozen wire: routes_manifest.json ≡ spec operations, the auth matrix's per
@@ -502,7 +502,7 @@ echo "[ci] (5/5) conformance suite — full black-box behaviour run (isolated oc
 # reddens when someone runs run.sh by hand (the exact hole this step closes).
 #
 # conformance/run.sh is self-contained and idempotent: it builds a fresh
-# ocserverd, migrates + serves on an ISOLATED port (:8795 — never the officraft
+# ocserverd, migrates + serves on an ISOLATED kernel-assigned port (never the officraft
 # prod port [the CURRENT default per server/ocserverd/config.go, 7755 as of
 # T-a3ba — run.sh derives it from that source instead of hand-listing a number
 # here that would go stale the next time the default moves], nor the "vibe"

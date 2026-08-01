@@ -516,8 +516,8 @@ else
   #       gate (proved by reaching the stubbed venv step), not be refused.
   C16_OK_OUT="$(c16_run 8795)"
   case "$C16_OK_OUT" in
-    *"is a PROD port"*) bad "sentinel BROKEN: conformance/run.sh refused its own legitimate port 8795" ;;
-    *"SENTINEL_PAST_PROD_GATE"*|*"already in use"*) ok "sentinel: conformance/run.sh lets the legitimate port 8795 through the prod gate" ;;
+    *"is a PROD port"*) bad "sentinel BROKEN: conformance/run.sh refused explicit non-prod override 8795" ;;
+    *"SENTINEL_PAST_PROD_GATE"*|*"already in use"*) ok "sentinel: conformance/run.sh lets explicit non-prod override 8795 through the prod gate" ;;
     *) bad "sentinel INCONCLUSIVE: 8795 was not refused, but the run never reached the post-gate step — this case may no longer be testing what it claims (got: ${C16_OK_OUT:-<silence>})" ;;
   esac
   # (16d) no SILENT degradation on an unparseable SSOT (twin of 15d). Also pins
