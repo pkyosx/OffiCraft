@@ -530,7 +530,88 @@ else
     *"could not parse"*) ok "conformance/run.sh FATALs (and SPEAKS) when the SSOT is unparseable — no silent empty refusal list" ;;
     *) bad "conformance/run.sh did NOT print its parse FATAL with an unparseable SSOT (got: ${C16_NOSSOT:-<silence>}) — the guard died silently at the assignment or degraded to an empty list (T-191d D / T-a3ba F2)" ;;
   esac
-  rm -rf "$C16_T" "$C16_SHIM" 2>/dev/null || true
+  # (16e) T-0e4b: the DEFAULT. With OC_CONF_PORT UNSET the port handed to the
+  #       daemon must be 0, so the KERNEL allocates it at bind time — that is
+  #       the whole reason two conformance runs can now go in parallel. Every
+  #       other case here (16a-16d, 15*) pins an EXPLICIT OC_CONF_PORT, so all
+  #       of them stay green no matter what the default is: before this case,
+  #       reverting the default to a fixed port left the entire suite green and
+  #       only a hand-run CONCURRENT pair could tell (CI never runs one).
+  #
+  #       Asserted on the port run.sh actually hands the daemon — the `port =`
+  #       it writes into the throwaway oc.toml that ocserverd binds from
+  #       (cfg.Server.Port → net.Listen, server.go's cmdServe) — NOT on run.sh's
+  #       source text. A grep for ":-0}" would pin the SPELLING, and would go
+  #       silently vacuous the first time someone rewrote the expression.
+  #
+  #       NOTHING is compiled and NOTHING is bound, so this costs about as much
+  #       as 16a-16d: a throwaway tree gets a fake suite venv plus the three
+  #       embed-staging sentinels (so build-seedsdist/docsdist/bindist all skip),
+  #       and a `go` shim whose "build" emits a stub ocserverd instead of
+  #       compiling one. run.sh's FIRST use of that binary is `migrate`, which is
+  #       already after the oc.toml write — the stub records the port it was
+  #       handed and dies there, so the run never reaches serve/pytest.
+  #
+  #       Reverting the default to a fixed literal turns this red two ways, and
+  #       both are FAILs: normally the recorded port IS that literal; and if a
+  #       real listener happens to hold it, run.sh's leftover guard exits first
+  #       and NO port is recorded at all — a missing record is never a skip here.
+  C16E_T="$(mktemp -d -t oc-guard-confdefault.XXXXXX)"
+  C16E_SHIM="$(mktemp -d -t oc-guard-confdefshim.XXXXXX)"
+  C16E_SEEN="$C16E_T/handed-port"
+  mkdir -p "$C16E_T/conformance/.venv/bin" \
+           "$C16E_T/server/ocserverd/seedsdist" \
+           "$C16E_T/server/ocserverd/docsdist" \
+           "$C16E_T/server/ocserverd/bindist"
+  cp "$C16_CONF" "$C16E_T/conformance/run.sh"
+  # The prod-port refusal list is parsed out of config.go (the SSOT) — give the
+  # throwaway tree the REAL one so the gate behaves as it does in a checkout.
+  cp "$HERE/../../server/ocserverd/config.go" "$C16E_T/server/ocserverd/config.go"
+  : > "$C16E_T/server/ocserverd/seedsdist/stub.md"
+  : > "$C16E_T/server/ocserverd/docsdist/stub.md"
+  : > "$C16E_T/server/ocserverd/bindist/ocwarden"
+  # Fake suite venv: satisfies both the `-x` test and the `import pytest, httpx`
+  # probe, so run.sh neither creates a venv nor installs anything.
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$C16E_T/conformance/.venv/bin/python"
+  chmod +x "$C16E_T/conformance/.venv/bin/python"
+  # The stub "ocserverd": report the port our caller wrote into $OC_CONFIG for us
+  # to bind, then fail so run.sh stops at its first use of us (migrate).
+  cat > "$C16E_SHIM/ocserverd-stub" <<'SH'
+#!/usr/bin/env bash
+grep -Eo '^[[:space:]]*port[[:space:]]*=[[:space:]]*[0-9]+' "${OC_CONFIG:-/dev/null}" \
+  | grep -oE '[0-9]+' | head -1 > "$C16E_SEEN_PATH"
+exit 1
+SH
+  chmod +x "$C16E_SHIM/ocserverd-stub"
+  # `go` shim: only `build -o <path> .` matters — emit the stub, never compile.
+  cat > "$C16E_SHIM/go" <<'SH'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "build" ]]; then
+  out=""
+  while [[ $# -gt 0 ]]; do
+    if [[ "$1" == "-o" ]]; then out="${2:-}"; shift; fi
+    shift
+  done
+  [[ -n "$out" ]] || exit 1
+  cp "$C16E_STUB_PATH" "$out"
+  exit 0
+fi
+exit 0
+SH
+  chmod +x "$C16E_SHIM/go"
+  : > "$C16E_SEEN"
+  # `env -u OC_CONF_PORT` — the whole point is the UNSET default, so strip it
+  # even if this host's environment happens to carry one.
+  C16E_OUT="$(env -u OC_CONF_PORT PATH="$C16E_SHIM:$PATH" \
+                C16E_SEEN_PATH="$C16E_SEEN" C16E_STUB_PATH="$C16E_SHIM/ocserverd-stub" \
+                bash "$C16E_T/conformance/run.sh" --target go 2>&1)"
+  C16E_PORT="$(tr -d '[:space:]' < "$C16E_SEEN" 2>/dev/null || true)"
+  case "$C16E_PORT" in
+    0) ok "conformance/run.sh's DEFAULT (OC_CONF_PORT unset) hands the daemon port 0 — the kernel allocates at bind, so concurrent runs cannot contend (T-0e4b)" ;;
+    "") bad "conformance/run.sh never got as far as handing the daemon a port with OC_CONF_PORT unset, so this case cannot vouch for the default — treat as red, not skipped (run said: ${C16E_OUT:-<silence>})" ;;
+    *) bad "conformance/run.sh's DEFAULT handed the daemon FIXED port $C16E_PORT, not 0 — a hardcoded default serialises the suite: two concurrent runs contend for that one port and the second dies on the leftover guard (T-0e4b)" ;;
+  esac
+  rm -rf "$C16_T" "$C16_SHIM" "$C16E_T" "$C16E_SHIM" 2>/dev/null || true
 fi
 
 # ── 17) T-191d: teardown.sh's closing "prod — untouched" reassurance must NAME
