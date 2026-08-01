@@ -663,6 +663,125 @@ T-081b 開放的葉子有好幾條是**句子片段**,邊界空白是有意義�
 存之前 trim 會讓產品自己的編輯器產出「上還有3位成員」——編輯器弄壞它剛開放的字串。
 護欄:`ThemeSettings.test.tsx`「keeps the boundary spaces of a sentence-fragment override」。
 
+## 用詞清單是 windowed 的,但**一個代碼都不准少**(T-8115)
+`.ts-wording-list` 有 ~870 個可覆寫代碼。它以前把**全部**一次掛上去 ⇒ 開主題編輯器就
+要建 ~870 個受控 `<input>`。現在只掛捲動視窗看得到的那些(+ overscan),上下兩塊
+`.ts-wording-pad` 佔掉其餘的高度。
+- 🔴 **這條的紅線是「不准少」**:捲軸範圍仍涵蓋全部、每個代碼仍捲得到、搜尋仍給**全部**
+  命中。**任何形式的「預設只顯示 N 筆」都已被 owner 端否決過一次**(前一版 `slice(0, 30)`
+  ,連搜尋後的 125 筆結果也砍成 30);不要再回去。
+- **成本量在哪(別重推一次)**:jsdom 那 ~2.5 秒**不是** React render(整個元件 103 次
+  render 只有 579ms,其中八成是這張清單)。真正的大頭是 dom-testing-library 的
+  `getByLabelText` 對每個 labelable 元素讀 `input.labels`,而 jsdom 每次都**重走整份
+  document** 找 form controls ⇒ N 個 input = 每次查詢 N 次全文件走訪(profile:
+  `NodeList-impl._update` 1145ms + `form-controls.query` 551ms,佔 top-2)。
+  所以**要降的是 DOM 裡 `<input>` 的個數**。memo / useCallback / 抽元件動的是那 579ms
+  的一小角,對上面那兩個 top-2 一點都碰不到——**別再從「太多 render」的直覺出發**,
+  先 `--cpu-prof` 量一次(作法:自訂一份 `pool: "forks"` + `execArgv: ["--cpu-prof"]`
+  的 vitest config)。同一支 profile 也證明了 `readDictMessage` 只有 11.4ms,不是病灶。
+- 🔴 **上面那個 ~9 倍(5.13s → 0.543s)是 jsdom 專屬的數字,不准拿去講使用者的體感。**
+  真瀏覽器(Chromium CT,M5 Mac,各 4 跑)量到的是:**開啟成本 ~80ms → ~44ms**(約 1.8 倍,
+  一個影格半),**打字延遲反而從 6.5ms 略退到 7.4ms**(下面那個 `useLayoutEffect` 沒有
+  dep array,每次 commit 都做一次 `querySelectorAll` + 讀 `offsetTop`/`clientHeight`,
+  等於每個按鍵強制一次同步 layout——想再優化就從這裡下手),捲動成本不變(rAF-bound)。
+  ⇒ 這顆的正當理由是**「解掉一條會逾時的測試 + 結構上 DOM 與畫面等比 + 慢機器上那 1.8 倍
+  的絕對值會放大」**,不是「編輯器很慢」。**「870 個受控 input 讓打字卡」這個直覺沒有被
+  證實**,別再用它當出發點。
+- **overscan 不是重繪順滑度的旋鈕,是鍵盤 Tab 能不能走完全清單的關鍵**:Tab 只到得了
+  已掛載的 input,瀏覽器把它捲進視野 → `onScroll` 推進視窗 → 下面又補一列。視窗邊緣
+  外**永遠要有掛載的列**,把 overscan 調成 0 就是把 Tab 遍歷砍斷。
+- **`.ts-wording-list` 不准加 `gap`**:spacer 是以「整數個 row pitch」算高度的,flex gap
+  會在每個 spacer 兩側各多 4px 而沒有任何一列去對帳。列距寫在 `.ts-wording-row` 自己的
+  padding(6+6 ≡ 舊的 4+4 + gap 4)。
+- **row pitch / viewport 兩個常數只是 fallback**;真實瀏覽器由 `useLayoutEffect` 量
+  (pitch 取相鄰兩列 `offsetTop` 差,所以 gap 若真的回來也算得進去)。jsdom 量到 0,
+  就用常數。⚠️ **那兩個數字必須是量到的、不是推的**:`WORDING_ROW_PITCH_PX` 曾經寫
+  40、註解卻推導成 36、而 Chromium 實際量到 **48**,三者互不相符。實務上無害
+  (`useLayoutEffect` 在 paint 前就蓋掉它),但下一個 builder 讀到會以為那是量過的。
+  現在是 48,`.ts-wording-row` = 6+6 padding + 36px content box(兩行 meta 欄 36px,
+  比旁邊 34px 的 input 高)。**改 CSS 就重量一次,別重推一次。**
+- **AT 看得到的是視窗、不是全集**,所以 `role="list"` + 每列 `aria-setsize`/`aria-posinset`
+  用**絕對**位置,讀屏才不會把 ~870 項的清單念成 21 項。
+- 🔴 **有焦點的那一列永遠掛著,即使捲出視窗**(`focusedWordingCode` / `wordingPinned`)。
+  卸載一個**持有焦點**的 input,瀏覽器會把焦點交還 `<body>`——游標整個消失、繼續打字
+  沒有反應。**值不會掉**(`editWording` 住在 window 之上),掉的只有焦點,這兩件事別寫混。
+  修法是把那一列 `position:absolute` 放在它本來該在的 offset(上面的 spacer 已經幫它
+  留好高度),所以既不擠掉任何真列、捲回來也剛好在原位、不會出現兩份。
+  ⚠️ **它必須跟視窗內那些列在同一個 keyed array 裡**:React 是**逐 slot** 對帳的,
+  把它另外放一個 slot(例如 spacer 後面)= 捲出視窗時整個 node 被拆掉重建,
+  **焦點照樣掉**——那正是這條要修的東西,實測踩過。量測 pitch 的
+  `querySelectorAll` 也因此要排除 `.ts-wording-row--pinned`(它的 `offsetTop` 答的是
+  另一個問題)。
+- ⚠️ **已知且刻意接受的四個缺口**(全部實測坐實,不是推的):
+  1. **瀏覽器 Cmd+F 找不到未掛載的列**。實測:`window.find()` 對第 70% 深度那列的英文
+     原文,windowed 回 `false`、全掛載回 `true`。由面板自己的搜尋框兜住——它比對
+     代碼 / 英文原文 / 目前語言文字,**正好涵蓋** Cmd+F 在這份清單上找得到的全部文字。
+     殘留的是操作面:Cmd+F 是跨全頁一次搜尋,現在「用詞那段要改用另一個框」。
+  2. **讀屏的循序瀏覽(virtual cursor 一路往下讀)只掃得到已掛載的列**。與 1 同源。
+     🔴 **這條沒有 AT 實測過**,是機制推論——別把它寫成量過的。
+  3. **全選複製 / 列印整份清單**。實測:整頁可選取文字從全掛載的 **33,034 字元**掉到
+     **1,735 字元**(`document.body.innerText` 32,182 → 1,729),Cmd+P 同一根因。
+     **嚴重度判定(拿產品裡的證據判,不是「反正沒人這樣用」)**:主題包**有**正式的
+     匯出/匯入路徑(每個主題一顆下載鈕 → `serializeBundle` 出 JSON,匯入頁吃貼上或檔案),
+     而且 `wording` 是 round-trip 的欄位之一 ⇒ **「把我的用詞覆寫搬走 / 搬到另一台」
+     完全由它承接,這一條不損失任何東西**。但那份 JSON 只裝**你已經覆寫的那些**
+     (`saveEdit` 只留非空值),**不是** 866 條「英文原文 + 目前譯文」的對照表。
+     所以真正失去的是那一個用途:**把整份清單倒出來當翻譯工作表交給譯者**——
+     全選複製本來是產品裡唯一做得到這件事的手段,現在做不到,而且沒有替代路徑。
+     這一條**是真的損失**,只是範圍窄;要補的話是一顆「匯出用詞對照表」的鈕,另開一張票。
+  4. 🔴 **釘住的那一列,Tab 會直接掉出清單;讀屏的序號也會在它那裡跳一次。**
+     **這一條不是 windowing 的固有代價,是上面那個 focus pin 自己引入的新回歸**
+     (對**改動前**而言——改動前這個情境根本不存在,因為焦點會先掉光)。不要把它
+     淡化成小瑕疵。根因同一個:pinned row 掛在 keyed array 的**尾巴**,DOM 順序排在
+     視窗那 20 列之後,而 Tab 與讀屏的循序閱讀**都吃 DOM 順序**。
+     - **實測 N1**:焦點在第 0 列 → 捲到底(第 0 列變成釘住的)→ 按 Tab →
+       落在**「取消」按鈕**(`BUTTON.doc-btn`),整個掉出清單。
+       對照組(焦點在視窗**內**的列)→ Tab 正確走到下一個代碼。
+     - **實測 N2**:釘住時 DOM 上的 `aria-posinset` 序列是 `[847, 848, …, 865, 866, 1]`
+       ——讀屏一路往下讀,會在第 866 項之後撞到第 1 項。
+     - **觸發很窄**:必須「游標留在某列 **且** 把清單捲到那列看不見 **且** 這時按 Tab
+       或用讀屏往下讀」。正常的 Tab 遍歷不會踩到(Tab 會把該列捲進視野,它就不是釘住的)。
+     - ⛔ **真修法是把 pinned row 插回它的序位,但這一顆不做**:那會動到「同一個 keyed
+       array + 尾端追加」這個**正是讓焦點活下來的**對帳假設,而「換個位置 = 修了等於
+       沒修」這個地雷本檔上面已經記了一次、也真的踩過。要修請另開一張票,並且**先想清楚
+       怎麼在不觸發重建的前提下換序**,不要在收尾階段順手改。
+- 護欄兩層,但**兩層守的不是同一件事**,別把它們講成一組可互換的三條:
+  - `ThemeSettings.test.tsx`「wording list is browsable in full」**四**條:
+    (a) 捲完全部 866 個都到得了、(b) 搜尋結果一個不少——**這兩條才是撐住 windowing 的**,
+    mutant `slice(0,30)`(v1 那一刀)在 1.4 秒內就被它們打紅;
+    (c) **有焦點的列捲走不准掉焦點**(mutant:把 `wordingPinned` 關掉 → 紅);
+    (d) **打字不准把該列移走**——⚠️ **這條對本次 diff 零鑑別力**:基底的列序本來就是
+    `MESSAGE_KEYS` 順序、沒有任何重排邏輯,所以它在改動前就成立。它守的是「別再回去做
+    v1 那個把已覆寫列提到第 0 位的排序」加上一句 `scrollTop` 沒被 `setWordingAt` 誤重置。
+    **有用,但不要把它算進「撐住這次改動」的那一組。**
+  - `visual-guards/wording-list-window.ct.spec.tsx`(真 Chromium)四條。
+    🔴 **jsdom 那層對幾何是全盲的**:`offsetHeight`/`clientHeight` 恆為 0,pitch 算錯、
+    spacer 對不上、視窗與捲動位置漂掉,在 jsdom 全部照樣綠。CT 那條量的就是「捲到某個
+    offset 時,視窗頂端那一列**正好**是該 offset 指的那一列」。
+    ⚠️ **而 CT 不在 PR 的雲端 check 裡**(`bin/ci-cloud.sh` 只跑 vitest,`test:ct` 只在
+    `bin/ci.sh:482` 的本機 land gate),所以純幾何的回歸在 GitHub 上是綠的,只有本機
+    land gate 擋得住。這是 repo 既有結構、不是這顆引入的,但這顆把幾條關鍵不變量放在了
+    那一側。
+  - **mutant 實測(四種,都對現在這份檔重跑過,不是沿用舊紀錄)**:
+
+    | mutant | jsdom | CT |
+    |---|---|---|
+    | 拿掉 windowing(全掛載) | 🔴 1 條 | 🔴 4 條(其中 Tab 那條是假紅,見 CT 檔頭) |
+    | **窗開成固定 400 列**(仍 window、但效能砍半) | 🟢 **22/22 全綠** | 🔴 1 條(`mounted < total/4`) |
+    | `slice(0, 30)`(v1 那一刀) | 🔴 3 條(含兩條可達性) | 🔴 |
+    | 拿掉兩塊 spacer | 🟢 全綠 | 🔴 2 條(含 Tab #26 → `null`) |
+    | 關掉 focus pin | 🔴 1 條 | 🔴 1 條(`activeElement` 量到 `BODY`) |
+
+    ⚠️ **「拿掉 windowing」在 jsdom 那個紅是新的,但它的射程比聽起來窄,兩邊都別講錯**:
+    這一版之前它在 jsdom 是 21/21 全綠,唯一擋得住的是本機才跑的 CT;現在焦點那條測試的
+    **前提檢查**(`not.toContain(MESSAGE_KEYS[1])`,「視窗真的移開了」)會在全掛載時失敗,
+    所以**「整個拆掉 windowing」這一種**在雲端 CI 也擋得住了。
+    🔴 **但它擋的只有「全掛載」這個極端**:那條前提問的是「捲到 300 列之後,第 1 列還在不在」,
+    所以任何**仍然 window、只是窗開太大**的中間態——例如固定掛 400 列——**在 jsdom 照樣全綠**,
+    效能回到一半也沒人會紅。**別讓下一個人以為 jsdom 擋得住所有 windowing 回歸。**
+    真正對「窗開多大」有嘴的仍然只有 CT 的 `mounted < total / 4`。
+    **拿掉 spacer 也仍然只有 CT 抓得到。**
+
 ## 匯出不烘 alias 預設值(T-081b)
 theme.css 裡定義值是裸 `var(--other)` 的 token(分區三槽)是「跟隨」不是顏色。
 `getComputedStyle` 會把它解析掉,所以匯出/播種前必須先跳過**還坐在 alias 上**的槽,

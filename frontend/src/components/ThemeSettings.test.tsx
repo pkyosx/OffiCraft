@@ -371,6 +371,210 @@ describe("ThemeSettings · wording overlay", () => {
   });
 });
 
+// The 用詞 list mounts only the rows its 340px scroll window can show (T-8115 —
+// ~870 controlled inputs at once is what made the editor slow to open). These
+// tests pin the part that must NOT change: everything is still reachable. They
+// deliberately assert reachability rather than "row X is absent", so a future
+// implementation that mounts more (or all) of the list still passes.
+describe("ThemeSettings · wording list is browsable in full", () => {
+  async function openWordingEditor() {
+    setToken("owner-token");
+    const utils = await renderManage();
+    await importBundle(utils, {
+      id: "midnight",
+      name: "午夜藍",
+      colors: { "--color-accent": "#0b1020" },
+    });
+    fireEvent.click(await utils.findByLabelText(`${p.themeEdit} 午夜藍`));
+    const list = utils.container.querySelector(
+      ".ts-wording-list"
+    ) as HTMLElement;
+    return { utils, list };
+  }
+
+  const codesIn = (list: HTMLElement) =>
+    Array.from(list.querySelectorAll("[data-wording-code]")).map((r) =>
+      r.getAttribute("data-wording-code")
+    );
+
+  // Walk the scroll window from the top of the list to the bottom and union
+  // everything it ever showed — i.e. what an owner with a mouse wheel can see.
+  // 48px is the row pitch the component falls back to where there is no layout
+  // (jsdom). The stride is one row short of however many rows the list is
+  // currently showing, so it never outruns the window no matter how the window
+  // is sized — and it takes as few steps as that allows, because this walk is
+  // the most expensive thing in the file.
+  const ROW_PITCH_PX = 48;
+  function scrollThrough(list: HTMLElement) {
+    const total = Number(list.getAttribute("data-wording-total"));
+    const seen = new Set<string | null>();
+    for (let top = 0; top <= total * ROW_PITCH_PX; ) {
+      act(() => {
+        list.scrollTop = top;
+        fireEvent.scroll(list);
+      });
+      const shown = codesIn(list);
+      for (const c of shown) seen.add(c);
+      top += Math.max(1, shown.length - 1) * ROW_PITCH_PX;
+    }
+    return seen;
+  }
+
+  it("reaches every one of the ~870 codes by scrolling, with no search at all", async () => {
+    const { utils, list } = await openWordingEditor();
+
+    // Nothing is filtered out before the owner has typed anything.
+    expect(list.getAttribute("data-wording-total")).toBe(
+      String(MESSAGE_KEYS.length)
+    );
+    // The list opens at the top of the code set…
+    expect(codesIn(list)).toContain(MESSAGE_KEYS[0]);
+    // …and a screen reader is told how long the list really is, not how many
+    // rows happen to be mounted right now.
+    const firstRow = list.querySelector(
+      `[data-wording-code="${MESSAGE_KEYS[0]}"]`
+    ) as HTMLElement;
+    expect(firstRow.getAttribute("aria-setsize")).toBe(
+      String(MESSAGE_KEYS.length)
+    );
+    expect(firstRow.getAttribute("aria-posinset")).toBe("1");
+    // …and scrolling gets to every single one of them.
+    const seen = scrollThrough(list);
+    const missed = MESSAGE_KEYS.filter((c) => !seen.has(c));
+    expect(missed).toEqual([]);
+
+    // The last code is not a read-only tail: it is the same editable input as
+    // any other row, and what is typed into it lands on the saved bundle.
+    const last = MESSAGE_KEYS[MESSAGE_KEYS.length - 1];
+    const row = list.querySelector(
+      `[data-wording-code="${last}"]`
+    ) as HTMLElement;
+    fireEvent.change(within(row).getByRole("textbox"), {
+      target: { value: "末列也能改" },
+    });
+    fireEvent.click(utils.getByRole("button", { name: p.save }));
+    const srv = await api.getServerSettings();
+    const b = srv.customThemes.find((x) => x.id === "midnight");
+    expect(b?.wording?.zh?.[last]).toBe("末列也能改");
+  });
+
+  it("shows ALL of a search's matches, not a first-N slice of them", async () => {
+    const { list } = await openWordingEditor();
+
+    // "task" matches well over a hundred codes — the case where a display cap
+    // would quietly swallow the tail and tell the owner to search harder.
+    act(() => {
+      fireEvent.change(
+        (list.parentElement as HTMLElement).querySelector(
+          ".ts-wording-search"
+        ) as HTMLElement,
+        { target: { value: "task" } }
+      );
+    });
+    const matchedByCode = MESSAGE_KEYS.filter((c) =>
+      c.toLowerCase().includes("task")
+    );
+    expect(matchedByCode.length).toBeGreaterThan(100);
+    // The panel also matches the English/current text, so its result set is a
+    // superset of the codes that merely contain the word.
+    const total = Number(list.getAttribute("data-wording-total"));
+    expect(total).toBeGreaterThanOrEqual(matchedByCode.length);
+
+    // Every match is reachable — including the ones past the first screenful.
+    const seen = scrollThrough(list);
+    expect(matchedByCode.filter((c) => !seen.has(c))).toEqual([]);
+    expect(seen.size).toBe(total);
+  });
+
+  it("does not move a row out from under the cursor when you start typing in it", async () => {
+    // Regression guard: an earlier attempt at this panel ordered overridden
+    // codes first, so the first keystroke in row N teleported that row to the
+    // top — away from the caret, and possibly off screen. Row order is the
+    // code order, and typing an override is not allowed to disturb it.
+    //
+    // ⚠️ This one has NO discriminating power over the windowing change: the
+    // pre-windowing component listed rows in MESSAGE_KEYS order too, with no
+    // reordering logic anywhere, so it was already true before the diff that
+    // introduced it. It is a forward guard against re-introducing that v1
+    // ordering, plus one live assertion about THIS component
+    // (`scrollTop` stays 1200 — red if anyone wires resetWordingScroll into
+    // setWordingAt). Do not count it among the tests that hold the windowing
+    // itself up; those are the two reachability tests above.
+    const { list } = await openWordingEditor();
+
+    act(() => {
+      list.scrollTop = 1200;
+      fireEvent.scroll(list);
+    });
+    const before = codesIn(list);
+    const target = before[5]!;
+    const rowOf = (code: string) =>
+      list.querySelector(`[data-wording-code="${code}"]`) as HTMLElement;
+    const inputOf = (code: string) =>
+      within(rowOf(code)).getByRole("textbox") as HTMLInputElement;
+
+    fireEvent.change(inputOf(target), { target: { value: "甲" } });
+    expect(codesIn(list)).toEqual(before);
+    expect(inputOf(target).value).toBe("甲");
+
+    // …and it stays put as the override grows, too.
+    fireEvent.change(inputOf(target), { target: { value: "甲乙" } });
+    expect(codesIn(list)).toEqual(before);
+    expect(list.scrollTop).toBe(1200);
+    expect(inputOf(target).value).toBe("甲乙");
+  });
+
+  it("keeps the caret in the row you are editing when the list scrolls away", async () => {
+    // The failure this guards is specific to windowing and did not exist
+    // before it: unmounting the row focus lives in makes the browser hand
+    // focus back to <body>, so an owner who scrolls down to compare a row
+    // against another one and scrolls back finds their caret gone and their
+    // keystrokes going nowhere. (The VALUE was never at risk — editWording
+    // lives above the window — which is why this needs its own assertion
+    // rather than leaning on the "override survives a scroll" one.)
+    const { list } = await openWordingEditor();
+
+    const code = codesIn(list)[0]!;
+    const input = within(
+      list.querySelector(`[data-wording-code="${code}"]`) as HTMLElement
+    ).getByRole("textbox") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "我的未存編輯" } });
+    act(() => {
+      input.focus();
+    });
+    expect(document.activeElement).toBe(input);
+
+    // Scroll far enough that the window cannot possibly still cover row 0.
+    act(() => {
+      list.scrollTop = 300 * ROW_PITCH_PX;
+      fireEvent.scroll(list);
+    });
+    expect(codesIn(list)).not.toContain(MESSAGE_KEYS[1]);
+
+    // Still the same element, still focused, still holding the edit.
+    expect(document.activeElement).toBe(input);
+    expect(input.value).toBe("我的未存編輯");
+    expect(input.isConnected).toBe(true);
+
+    // …and typing from there still lands on the right code.
+    fireEvent.change(input, { target: { value: "我的未存編輯2" } });
+    expect(
+      (
+        within(
+          list.querySelector(`[data-wording-code="${code}"]`) as HTMLElement
+        ).getByRole("textbox") as HTMLInputElement
+      ).value
+    ).toBe("我的未存編輯2");
+
+    // Blurring releases the pin — the row must not linger once focus is gone,
+    // or the window would slowly accumulate every row ever touched.
+    act(() => {
+      input.blur();
+    });
+    expect(codesIn(list)).not.toContain(code);
+  });
+});
+
 describe("ThemeSettings · alias-default colours", () => {
   it("offers the zone/split tokens a bundle never carries, and saves only the touched one", async () => {
     setToken("owner-token");

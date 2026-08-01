@@ -324,19 +324,41 @@
 .ts-wording-search {
   margin-top: 2px;
 }
+/* No row gap here on purpose: the list is windowed (see the WORDING_*
+   constants in ThemeSettings.tsx), and the two spacers that stand in for the
+   unmounted rows reserve height in whole row pitches. A flex gap would add an
+   extra 4px around each spacer that no row accounts for, so the row spacing
+   lives in .ts-wording-row's own padding instead — 6+6 here reads identically
+   to the previous 4+4 padding plus a 4px gap. */
 .ts-wording-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
   max-height: 340px;
   overflow-y: auto;
   padding-right: 4px;
+  /* Containing block for the pinned row below. */
+  position: relative;
 }
 .ts-wording-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 4px 0;
+  padding: 6px 0;
+}
+/* The row that holds keyboard focus, kept mounted after the window scrolled
+   past it (see ThemeSettings.tsx `wordingPinned`) — unmounting it would drop
+   the caret to <body>. Taken out of flow and placed at its own offset, which
+   the spacer above is already reserving, so it neither displaces a real row
+   nor appears anywhere but where it belongs. `right: 4px` matches the list's
+   padding-right: absolute children are laid out against the PADDING box, so
+   `right: 0` would let it run 4px wider than every in-flow row. */
+.ts-wording-row--pinned {
+  position: absolute;
+  left: 0;
+  right: 4px;
+}
+.ts-wording-pad {
+  flex: 0 0 auto;
 }
 .ts-wording-meta {
   flex: 0 0 46%;
