@@ -13,6 +13,7 @@ import type {
   BackupHealthView,
   GlobalContextView,
   DocumentKind,
+  InsightView,
   DocumentHistoryView,
   RoleDefView,
   BootstrapView,
@@ -74,6 +75,7 @@ import type {
   WireRoleDef,
   WireBootstrap,
   WireLessons,
+  WireInsight,
   WireOnboardResult,
   WireDeleteResult,
   WireUninstallResult,
@@ -90,6 +92,7 @@ import {
   toRoleDef,
   toBootstrap,
   toLessons,
+  toInsight,
   toOnboardResult,
   toDeleteResult,
   toUninstallResult,
@@ -495,6 +498,13 @@ const CUSTOM_ROLE_TEMPLATE_MD = `# 角色定義
 const lessonsOverlays = new Map<string, WireLessons>();
 const lessonsKey = (roleKey: string, taskType: string) =>
   `${roleKey}::${taskType}`;
+
+// Insight OVERLAY (T-3809), keyed by the BARE `role_key`. ⚠️ NOT the lessons
+// composite: insight has no task_type axis, so there is no "::" in this key and
+// nothing may derive one key format from the other. There is also NO SEED — an
+// absent entry folds to text "" with is_default=true, which is the whole point:
+// "has this role moved anything over yet?" has to stay answerable.
+const insightOverlays = new Map<string, WireInsight>();
 
 // In-memory chat log. HONEST HARD LINE: this stores ONLY messages the owner
 // actually sends (postChat). The mock NEVER fabricates a reply from Mira (or any
@@ -911,6 +921,29 @@ function dropRoleLessonsHistory(roleKey: string): void {
   }
 }
 
+/** The one insight document of one role (T-3809). 🔴 EXACT EQUALITY, not the
+ * prefix match its lessons twin above uses — and the difference is load-bearing
+ * in BOTH directions:
+ *
+ *   * the lessons key is compound, so it needs the prefix or sibling task types
+ *     survive the role's deletion;
+ *   * the insight key is the bare role_key with no "::" terminator, so copying
+ *     that prefix match here would delete r-abcdef's retained versions while
+ *     deleting r-abc. The server's cascade makes exactly this distinction
+ *     (dal.go, DeleteInsightOfRole) and this mock has to agree with it.
+ *
+ * 🔴 WHY THIS FUNCTION EXISTS AT ALL rather than a line added above: adding
+ * "insight" to DocumentKind produces NO error anywhere in this file — the type
+ * is used as a parameter type here, never in an exhaustive switch, so the
+ * compiler cannot notice a missing branch. Before this, deleting a role left the
+ * mock still serving that role's insight history while the server had dropped
+ * it, and no test in the repo would have gone red. */
+function dropRoleInsightHistory(roleKey: string): void {
+  documentHistories.delete(historySlot("insight", roleKey));
+  documentRows.delete(historySlot("insight", roleKey));
+  insightOverlays.delete(roleKey);
+}
+
 /** The document's CURRENT persisted state as a history content map, or null
  * when there is no such document (the server 404s / no-ops there). */
 function snapshotDocument(
@@ -946,6 +979,15 @@ function snapshotDocument(
       const overlay = lessonsOverlays.get(key);
       return {
         text: overlay?.text ?? SEED_LESSONS_MD,
+        tombstoned: String(overlay === undefined),
+      };
+    }
+    case "insight": {
+      // No seed to fall back to, so an absent overlay snapshots as the honest
+      // empty doc rather than as seed text.
+      const overlay = insightOverlays.get(key);
+      return {
+        text: overlay?.text ?? "",
         tombstoned: String(overlay === undefined),
       };
     }
@@ -1050,6 +1092,27 @@ function applyDocumentHistory(
         });
       }
       emitTopic("lessons");
+      return;
+    }
+    case "insight": {
+      // The key IS the role_key — nothing to split out of it.
+      if (tombstoned) {
+        insightOverlays.delete(key);
+      } else {
+        insightOverlays.set(key, {
+          ...docSizeFields(content.text ?? ""),
+          role_key: key,
+          text: content.text ?? "",
+          owner_id: MOCK_OWNER_ID,
+          schema_version: 3,
+          is_default: false,
+        });
+      }
+      // 🔴 The topic the server's publishDocumentHistoryRestore fans for this
+      // kind. Getting it wrong here is silent in exactly the way it is silent
+      // there: the restore still lands, and every other open surface just never
+      // hears about it.
+      emitTopic("insight");
       return;
     }
     case "task_manual": {
@@ -3506,6 +3569,7 @@ export const mockApi: Api = {
     }
     // The role's documents go with it, retained revisions included.
     dropRoleLessonsHistory(key);
+    dropRoleInsightHistory(key);
     dropDocumentHistory("role_definition", key);
     roleOverlays.delete(key);
     customRoles.delete(key);
@@ -3585,6 +3649,38 @@ export const mockApi: Api = {
     return toLessons(wire);
   },
 
+  async getInsight(roleKey: string): Promise<InsightView> {
+    // The folded PER-ROLE insight doc (T-3809). NO SEED: an absent overlay is a
+    // genuinely empty document, not seed text — is_default and text "" say the
+    // same thing here, and the card renders that as "nothing moved over yet".
+    const wire: WireInsight = insightOverlays.get(roleKey) ?? {
+      ...docSizeFields(""),
+      role_key: roleKey,
+      text: "",
+      owner_id: MOCK_OWNER_ID,
+      schema_version: 3,
+      is_default: true,
+    };
+    return toInsight(wire);
+  },
+
+  async saveInsight(roleKey: string, text: string): Promise<InsightView> {
+    // Whole-doc replace → store the per-role overlay. Keyed on the bare
+    // role_key; a sibling role's insight is untouched.
+    recordDocumentHistory("insight", roleKey);
+    const wire: WireInsight = {
+      ...docSizeFields(text),
+      role_key: roleKey,
+      text,
+      owner_id: MOCK_OWNER_ID,
+      schema_version: 3,
+      is_default: false,
+    };
+    insightOverlays.set(roleKey, wire);
+    emitTopic("insight");
+    return toInsight(wire);
+  },
+
   async listDocumentHistory(
     kind: DocumentKind,
     key: string
@@ -3642,6 +3738,7 @@ export function __resetMock(): void {
   roleOverlays.clear();
   customRoles.clear();
   lessonsOverlays.clear();
+  insightOverlays.clear();
   documentHistories.clear();
   documentRows.clear();
   nextDocumentHistoryId = 1;

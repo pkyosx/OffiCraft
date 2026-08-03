@@ -1309,6 +1309,164 @@
         "additionalProperties": false,
         "type": "object"
       },
+      "InsightDTO": {
+        "description": "The per-role INSIGHT doc (T-3809): the judgement calls and trade-offs this role\nkeeps reaching for. Third block of the role journal, alongside Duty (the role\ndefinition) and Learning (the lessons doc) — the owner asked for it because\ninsight and learning had been sharing one document.\n\n``role_key`` scopes the doc to a role; there is NO ``task_type`` axis (that is\nthe lessons key, and it is deliberately absent here). Unlike lessons there is\nalso NO file seed, so ``text`` is genuinely EMPTY until the role writes — and\n``is_default`` therefore answers \"this role has not moved anything over yet\".\n\nInsight is SEPARATE, not private. READ is unrestricted: any authenticated\nidentity may read ANY role's insight — the same floor Duty and Learning sit on.",
+        "properties": {
+          "cap_chars": {
+            "default": 0,
+            "description": "The document size cap now in force, in CHARACTERS (the doc_cap_chars setting). Served on the READ face so an agent can size an edit BEFORE writing it — the alternative is discovering the limit by being refused, and the settings surface is admin-only.",
+            "title": "Cap Chars",
+            "type": "integer"
+          },
+          "size_chars": {
+            "default": 0,
+            "description": "Size of `text` in CHARACTERS (Unicode code points) — the same unit as cap_chars.",
+            "title": "Size Chars",
+            "type": "integer"
+          },
+          "is_default": {
+            "default": true,
+            "description": "True while this role has never written its insight doc (or reset it). There is no seed to fall back to, so is_default and an empty `text` mean the same thing here — that equivalence is what makes \"has this role moved anything over?\" answerable at all.",
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "owner_id": {
+            "default": "",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "role_key": {
+            "default": "",
+            "title": "Role Key",
+            "type": "string"
+          },
+          "schema_version": {
+            "default": 3,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "text": {
+            "default": "",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "title": "InsightDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "InsightEditDTO": {
+        "description": "One ``patch_insight`` edit: replace the occurrence of ``old`` with ``new``. ``old`` must match the current doc EXACTLY ONCE (0 or >1 hits reject the whole batch — the unique anchor doubles as an optimistic concurrency check); an EMPTY ``old`` appends ``new`` at the end of the doc (joined with a newline when the doc does not already end in one).",
+        "properties": {
+          "new": {
+            "default": "",
+            "title": "New",
+            "type": "string"
+          },
+          "old": {
+            "default": "",
+            "title": "Old",
+            "type": "string"
+          }
+        },
+        "title": "InsightEditDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "InsightPatchDTO": {
+        "description": "Anchor-addressed PATCH of an insight doc: ``{edits: [{old, new}], allow_shrink?}``. ATOMIC — edits apply sequentially to an in-memory copy and any failing anchor (absent or ambiguous ``old``) rejects the ENTIRE batch with a flat 400 and ZERO writes. ``allow_shrink`` (default false) must be set explicitly for a patch that empties the doc or shrinks it to under a tenth of its size — the same wipe-guard posture patch_lessons carries.",
+        "properties": {
+          "allow_shrink": {
+            "default": false,
+            "title": "Allow Shrink",
+            "type": "boolean"
+          },
+          "edits": {
+            "items": {
+              "$ref": "#/components/schemas/InsightEditDTO"
+            },
+            "title": "Edits",
+            "type": "array"
+          }
+        },
+        "required": [
+          "edits"
+        ],
+        "title": "InsightPatchDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "InsightPatchResultDTO": {
+        "description": "Receipt of an insight PATCH. ``size_chars`` (CHARACTERS — Unicode code points, the SAME unit as the ``doc_cap_chars`` cap the write is judged against) and ``sha256`` (hex) are lightweight verification anchors over the RESULTING doc text, so the caller can confirm the write landed without re-reading the full doc. ``applied_edits`` counts the edits that ACTUALLY CHANGED the doc, so a batch of no-ops reports 0 rather than looking like a success.",
+        "properties": {
+          "applied_edits": {
+            "default": 0,
+            "title": "Applied Edits",
+            "type": "integer"
+          },
+          "cap_chars": {
+            "default": 0,
+            "description": "The document size cap now in force, in CHARACTERS (the doc_cap_chars setting) — the number this write was judged against.",
+            "title": "Cap Chars",
+            "type": "integer"
+          },
+          "is_default": {
+            "default": true,
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "owner_id": {
+            "default": "",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "role_key": {
+            "default": "",
+            "title": "Role Key",
+            "type": "string"
+          },
+          "schema_version": {
+            "default": 3,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "sha256": {
+            "default": "",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size_chars": {
+            "default": 0,
+            "description": "Size of the RESULTING doc in CHARACTERS (Unicode code points) — the same unit as cap_chars.",
+            "title": "Size Chars",
+            "type": "integer"
+          }
+        },
+        "title": "InsightPatchResultDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "InsightReplaceDTO": {
+        "description": "Whole-doc replace of an insight doc: ``{text}``. ``text`` is REQUIRED — a whole-doc replace must never infer \"empty\" from a missing key. ``allow_shrink`` (default false) must be set explicitly to replace existing content with an empty doc — the same wipe-guard posture replace_lessons carries.",
+        "properties": {
+          "allow_shrink": {
+            "default": false,
+            "title": "Allow Shrink",
+            "type": "boolean"
+          },
+          "text": {
+            "default": "",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "InsightReplaceDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
       "LessonsDTO": {
         "description": "The folded per-role lessons doc (§3.4 #27). ``role_key`` scopes the doc to a\nrole (per-role-learnings step1); ``task_type`` is the single fixed key (§9.7).\n``is_default`` = seed-vs-edited.",
         "properties": {
@@ -7764,6 +7922,204 @@
           }
         },
         "summary": "Liveness probe — 200 {\"status\":\"ok\"}."
+      }
+    },
+    "/api/insight/{role_key}": {
+      "get": {
+        "description": "Read the per-role INSIGHT doc (T-3809) — the judgement calls and trade-offs this\nrole keeps reaching for. Third block of the role journal alongside Duty (the\nrole definition) and Learning (the lessons doc).\n\nREAD is unrestricted: any authenticated identity may read ANY role's insight.\nThat is deliberate and it is what the delivery says out loud: insight is\nSEPARATE, not private. This release only narrowed WRITE. Anyone reading this\nexpecting a confidentiality boundary should stop here — there is none, and the\ndocument's placement on a machine's disk means one could not be promised by\nthis API alone even if the read face were closed.\n\nNo ``task_type`` axis (that belongs to lessons) and no file seed: an untouched\ndoc reads as genuinely EMPTY with ``is_default=true``, which is what makes\n\"has this role moved anything over yet?\" an answerable question.",
+        "operationId": "handle_get_insight_api_insight__role_key__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "role_key",
+            "required": true,
+            "schema": {
+              "title": "Role Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InsightDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Read a per-role insight doc (per role_key; no seed)."
+      },
+      "post": {
+        "description": "Whole-doc replace of a PER-ROLE insight doc (T-3809).\n\nPer-role WRITE authz (load-bearing, and the ONLY thing this release narrows): a\ncaller BELOW admin capability may write ONLY its OWN member's ``role_key`` — the\nserver reads that role_key from the member row keyed by the VERIFIED token\n``sub``, NEVER from a client field; a mismatch (or a member with no role, which\nincludes every outsource worker) is a flat 403 whose message names ``insight``.\nA caller at or above the ``admin_agent`` principal class (the owner's\n``scope=\"owner\"`` token, and an admin agent) may write ANY role's insight.\n\n``allow_shrink`` (default false) must be set explicitly to replace existing\ncontent with an empty doc. The ``doc_cap_chars`` cap is checked\nUNCONDITIONALLY — ``allow_shrink`` governs the opposite direction and is not a\nbypass for it.\n\nWrites the overlay (``is_default`` → false) and fans an ``insight`` delta.",
+        "operationId": "handle_replace_insight_api_insight__role_key__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "role_key",
+            "required": true,
+            "schema": {
+              "title": "Role Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InsightReplaceDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InsightDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Whole-doc replace of a per-role insight doc ({text})."
+      }
+    },
+    "/api/insight/{role_key}/patch": {
+      "post": {
+        "description": "Anchor-addressed PATCH of a PER-ROLE insight doc (T-3809) — the write cost scales with the CHANGE, not the doc, so this is the primary write seam and replace stays the last resort.\n\nSemantics: ``edits`` apply IN ORDER against the doc ``get_insight`` serves; each non-empty ``old`` must match the current text exactly once (0 hits or >1 hits → flat 400, WHOLE batch rejected, zero writes); an empty ``old`` appends ``new`` at the end. The unique anchor doubles as an optimistic lock under last-write-wins concurrency. A patch that empties the doc (or shrinks it below a tenth of its size) is refused unless ``allow_shrink=true``.\n\nPer-role WRITE authz — identical to ``replace_insight``, and the 403 names ``insight`` rather than borrowing the lessons wording: an agent told to re-read the wrong document is worse off than one told nothing.\n\nWrites the overlay (``is_default`` → false) and fans an ``insight`` delta. The receipt carries ``size_chars``/``sha256`` verification anchors over the resulting doc.",
+        "operationId": "handle_patch_insight_api_insight__role_key__patch_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "role_key",
+            "required": true,
+            "schema": {
+              "title": "Role Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InsightPatchDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InsightPatchResultDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Patch a per-role insight doc by unique anchors ({edits:[{old,new}]})."
       }
     },
     "/api/lessons/{role_key}/{task_type}": {

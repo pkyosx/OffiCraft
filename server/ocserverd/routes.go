@@ -932,6 +932,46 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			MCPTool:  "delete_role",
 		},
 		{
+			Method:  "GET",
+			Path:    "/api/insight/{role_key}",
+			Handler: w.HandleGetInsightApiInsightRoleKeyGet,
+			Auth:    authGated,
+			// T-3809. READ stays on the machine floor, matching Duty and
+			// Learning: the owner ruled on 2026-08-02 (rc-dc171587220c, option
+			// ①, verbatim 「包含 Insight：這一輪不關任何讀取」) that this release
+			// closes nothing on the read face. Insight is SEPARATE, not
+			// private — say it in every surface a reader can reach, because
+			// the word "insight" implies confidentiality that nobody promised.
+			Requires: principalMachine,
+			Summary:  "Read a per-role insight doc (per role_key; no seed).",
+			MCPTool:  "get_insight",
+		},
+		{
+			Method:  "POST",
+			Path:    "/api/insight/{role_key}",
+			Handler: w.HandleReplaceInsightApiInsightRoleKeyPost,
+			Auth:    authGated,
+			// principalAgent is the honest floor, for the reason spelled out at
+			// the lessons write rows below: per-ROLE authz cannot be expressed
+			// by the ladder, so it lives in the handler (insightWriteAuthz) and
+			// the row must not declare a floor lower than the gate it actually
+			// has. A warden-kind member is ranked machine regardless of
+			// role_key (classifyMember), so it cannot write insight even if it
+			// carries one — the same delineation the lessons rows document.
+			Requires: principalAgent,
+			Summary:  "Whole-doc replace of a per-role insight doc ({text}).",
+			MCPTool:  "replace_insight",
+		},
+		{
+			Method:   "POST",
+			Path:     "/api/insight/{role_key}/patch",
+			Handler:  w.HandlePatchInsightApiInsightRoleKeyPatchPost,
+			Auth:     authGated,
+			Requires: principalAgent,
+			Summary:  "Patch a per-role insight doc by unique anchors ({edits:[{old,new}]}).",
+			MCPTool:  "patch_insight",
+		},
+		{
 			Method:   "GET",
 			Path:     "/api/lessons/{role_key}/{task_type}",
 			Handler:  w.HandleGetLessonsApiLessonsRoleKeyTaskTypeGet,

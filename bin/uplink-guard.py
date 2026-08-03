@@ -67,7 +67,17 @@ SINK_PATTERNS = [
     re.compile(r"\.\s*(?:Post|PostForm|Do)\s*\("),
     re.compile(r"&\s*(?:\w+\.)?Request\s*{"),
     re.compile(r"\bnew\s*\(\s*(?:\w+\.)?Request\s*\)"),
-    # ── everything above this line touches net/http DIRECTLY (HTTP_LEVEL) ──
+    # A raw socket. net/http is not the only way to put a body on a server: the
+    # HTTP/1.1 request line is text, so `net.Dial` + `io.WriteString` posts JSON with
+    # nothing from net/http anywhere in the file. Independent review landed exactly
+    # that — a live POST of a real body to /api/monitoring/telemetry, rc=0, ZERO
+    # manifest rows, because every pattern above keys on net/http identifiers.
+    # Dialing is the choke: a conn to the server has to come from somewhere, and the
+    # other way of getting one (an http.Client) is already covered above. The three
+    # DialContext lines this repo has today are transport wiring and cost one row
+    # each — the same trade as everywhere else in this list.
+    re.compile(r"\b(?:\w+\.)?Dial(?:Timeout|Context|TLS|TLSContext)?\s*\("),
+    # ── everything above this line touches the WIRE directly (HTTP_LEVEL) ──
     # `[` too: a generic helper is instantiated as post[T](…), and the call would
     # otherwise sit just outside the pattern.
     re.compile(r"\b(?:\w+\.)?(?:post|postJSON|reportPost)\s*[\(\[]"),
@@ -105,7 +115,7 @@ SINK_PATTERNS = [
 # How many of SINK_PATTERNS are net/http-level. derived_sink_patterns keys on these
 # rather than on all of them: keying on the seam names too makes every caller of a
 # seam a sink, which is the transitive closure by another route.
-HTTP_LEVEL = 5
+HTTP_LEVEL = 6
 FUNC_DECL_PREFIX = re.compile(r"^\s*func\s*(\([^)]*\)\s*)?$")
 TEST_FUNC = re.compile(r"^func\s+Test\w*\s*\(", re.M)
 # The runtime half of "the list equals what was actually confronted". A wire test
@@ -186,7 +196,7 @@ def code_only(text, mask_strings=True):
             i += 1
     return "".join(out)
 
-FUNC_DECL = re.compile(r"^func\s+(?:\([^)]*\)\s*)?(\w+)\s*[\(\[]", re.M)
+FUNC_DECL = re.compile(r"^func\s+(\([^)]*\)\s*)?(\w+)\s*[\(\[]", re.M)
 
 def enclosing_funcs(code):
     """[(name, decl_start, decl_end, body_end)] for every top-level func."""
@@ -204,11 +214,86 @@ def enclosing_funcs(code):
                 if depth == 0:
                     break
             i += 1
-        spans.append((match.group(1), match.start(), match.end(), i))
+        spans.append((match.group(2), match.start(), match.end(), i))
     return spans
 
+# Entry-point names. They are excluded from the PAPERWORK — no callsite is raised
+# for calling them — and deliberately NOT from the propagation: they still become
+# sink names, so anything bound to them, or calling them, becomes one too.
+#
+# The distinction is the difference between two things measured on this file:
+#
+#   * Excluding them from PROPAGATION was a HOLE: a constructor named `run` that
+#     returns a sender meant `emit := run(base)` never made `emit` a sink, and two
+#     route-specific uplinks (`emit("/api/monitoring/telemetry", …)` and
+#     `emit("/api/agent/context", …)`) vanished into one generic seam row, guard
+#     green. Propagation now sees straight through this list, so that is closed.
+#   * Raising callsites for them was 39 rows for `package main` plus eleven for
+#     `ops.run` / `sys.run` — this repo's SHELL COMMAND RUNNER, a different function
+#     that merely shares a name with the entry point. Those rows would be committed
+#     records of sends that do not exist, which is worse than a missing row: a
+#     missing row can still be found by reading the code, a false one argues against
+#     doing so.
+#
+# What the exclusion still costs, plainly: a DIRECT call of a function named exactly
+# `main` / `run` / `realMain` raises no callsite of its own. The send inside such a
+# function is enumerated as it is anywhere else, and taking it as a value is now
+# caught — so what is left is narrow, but it is not nothing.
+CLOSURE_STOP = {"main", "run", "realMain"}
+# A single-value binding, immediately left of a send. `post := httpPoster(…)` and
+# `Report: newCommandReporter(cfg)` bind a SENDER; `status, body, err := post(…)`
+# binds that sender's RESULTS, and a tuple is how you tell them apart.
+SINGLE_BIND = re.compile(r"(?:^|[\{\(,;]|\bvar\s+)\s*(\w+)\s*(?::=|=|:)\s*$")
+
+def _name_pattern(name, generic=True):
+    """`f(` — and for a declared function also `f[` (generic instantiation).
+
+    A BOUND name gets the call form only: those names are ordinary identifiers
+    (`body`, `line`, `result`), and `body["x"]` is a map read, not a send. Reading
+    the two forms as one made three map indexings look like uplinks.
+    """
+    return re.compile(r"\b(?:\w+\.)?" + re.escape(name) + (r"\s*[\(\[]" if generic else r"\s*\("))
+
+def _method_names(code):
+    """Names declared WITH a receiver — `func (x T) name(…)`. They are only ever
+    called through something (`deps.report(…)`), never bare, and the distinction
+    matters: this repo has a top-level `run` (an entry point) and a `sysOps.run`
+    (the SHELL COMMAND RUNNER). Deriving one name for both made every caller of the
+    shell runner a sink — 36 committed rows for sends that do not exist."""
+    return {match.group(2) for match in FUNC_DECL.finditer(code) if match.group(1)}
+
+def _function_names(code):
+    """Names declared WITHOUT a receiver — `func name(…)`, called bare.
+
+    Derived by asking the declarations directly, NOT as `declared - methods`: a name
+    can be both (a package has `func run(…)` and `func (l *listener) run(…)`), and
+    subtracting made such a name method-only, so `emit := run(base)` stopped matching
+    and the value it binds was never seen — silently reopening the hole this rule is
+    for. Measured: the bind fired 0 times until this was split out.
+    """
+    return {match.group(2) for match in FUNC_DECL.finditer(code) if not match.group(1)}
+
+def _bare_pattern(name, generic=True):
+    """A call that is NOT a selector — `run(…)`, never `ops.run(…)`."""
+    return re.compile(r"(?<![\w.])" + re.escape(name) + (r"\s*[\(\[]" if generic else r"\s*\("))
+
+def _dotted_pattern(name, generic=True):
+    """A call THROUGH something — `deps.report(…)`, `s.post(…)`."""
+    return re.compile(r"\.\s*" + re.escape(name) + (r"\s*[\(\[]" if generic else r"\s*\("))
+
+def _value_pattern(name):
+    """The same name NOT being called — i.e. the function value being taken.
+
+    The hard-coded seams have had this since review shipped three live uplinks past
+    the call-only form (`apply(s.post, …)`, `return s.post`, `[]poster{s.post}`).
+    DERIVED names had only the call form, which reopened that exact bypass for half
+    the name set — `onData: l.dispatch,` in cli/ocagent/listen_run.go hands a sink
+    around as a value today. One rule, both halves of the set.
+    """
+    return re.compile(r"\b(?:\w+\.)?" + re.escape(name) + r"\b(?![ \t]*(?:[\(\[\w]|:?=|:))")
+
 def derived_sink_patterns(sources):
-    """Patterns for functions that TOUCH net/http, derived from the code itself.
+    """Sink names derived from the code itself, closed under two rules.
 
     The hard-coded names in SINK_PATTERNS are a list, and a list is exactly what
     this file exists to distrust. Independent review landed a live uplink in each
@@ -217,24 +302,171 @@ def derived_sink_patterns(sources):
     not match inside `httpPoster`) and `httpRequest(...)`. Both compile, both send
     for real, both were rc=0 with the manifest untouched.
 
-    So the second layer is not more names: it is a question asked of the tree.
-    Any function whose body reaches net/http directly becomes a sink itself, so
-    calling it is a callsite. Deliberately ONE layer and keyed on net/http rather
-    than on the transitive closure — the closure pulls in `run` and `main` (173
-    callsites, measured), which buries the signal in paperwork; this layer costs
-    13 and every one of them is a call to something that really does send.
+    So this layer is not more names: it is a question asked of the tree, closed to
+    a FIXPOINT rather than cut off at a depth. One layer (a function that touches
+    net/http directly) was what shipped first, and independent review then showed
+    the hole that any depth limit leaves, with four live uplinks to prove it:
+    `cli/ocwarden/command.go`'s four `deps.report(CommandResult{…})` calls really do
+    POST `command_result` to the telemetry ingest, and the enumeration of that file
+    was EMPTY — because the chain is `deps.report` → the `Report` field → the closure
+    `newCommandReporter` returns → `post`, which is three hops, and one layer sees
+    none of it. The cost of a relay that hides everything behind it was one function
+    that does not itself touch net/http. A depth-2 rule just moves that price to two.
+
+    Two rules, applied until nothing changes:
+
+      * **A function whose body contains a send is itself a send** — so calling it
+        is a callsite.
+      * **A name bound to a send's result, and itself called, is a send** — the
+        constructor-returns-a-sender shape (`post := httpPoster(…)`, and the struct
+        field `Report: newCommandReporter(cfg)` that the four invisible uplinks
+        travelled through). Restricted to single-value bindings that are CALLED
+        somewhere: `err := post(…)` binds an error, and `err` is never invoked.
+
+    Measured on the tree this landed against, by running both versions over the same
+    sources: 43 callsites at one layer, 93 at the fixpoint, and the difference is where
+    four real uplinks were hiding. The extra 50 are calls of functions that really can
+    put a body on the wire, and each costs one committed row — the trade this file makes
+    everywhere, because the other direction (a scan that covers less) is the one nothing
+    here goes red for. (An earlier draft measured 112: that number came from deriving
+    names across ALL modules at once, which is not what this does — see module_of.)
     """
-    names = set()
+    modules = {}
     for source in sources:
-        code = code_only(source.read_text())
-        funcs = enclosing_funcs(code)
+        modules.setdefault(module_of(source), []).append(source)
+    return {module: _module_sinks(files) for module, files in modules.items()}
+
+def module_of(source):
+    """The go.mod directory this file belongs to.
+
+    Sink names are derived PER MODULE because this repo has four Go modules that
+    cannot import each other — so a name defined in one says nothing about the same
+    name in another. Derived globally, `u.get` (ocwarden's authenticated HTTP getter)
+    made ocagent's local `get := func(key string) string {…}` — a lookup in a map that
+    is already in memory — read as eleven uplinks. Rows for those would have been
+    committed lies: eleven sends that do not exist, in a file whose real sends are
+    elsewhere.
+    """
+    for directory in [source.parent, *source.parents]:
+        if (directory / "go.mod").is_file():
+            return directory
+    return source.parent
+
+def _module_sinks(sources):
+    codes = [code_only(source.read_text()) for source in sources]
+    funcs = [enclosing_funcs(code) for code in codes]
+    names = set()
+    for code, spans in zip(codes, funcs):
         for pattern in SINK_PATTERNS[:HTTP_LEVEL]:
             for match in pattern.finditer(code):
-                for name, start, _, end in funcs:
+                for name, start, _, end in spans:
                     if start <= match.start() <= end:
                         names.add(name)
-    return [re.compile(r"\b(?:\w+\.)?" + re.escape(name) + r"\s*[\(\[]")
-            for name in sorted(names)]
+    declared = {name for spans in funcs for name, *_ in spans}
+    methods = set().union(*(_method_names(code) for code in codes)) if codes else set()
+    functions = set().union(*(_function_names(code) for code in codes)) if codes else set()
+
+    def call_patterns(name):
+        """How this name is CALLED, from how it was declared.
+
+        A method is only reachable through a receiver and a top-level function is
+        only called bare, so matching both forms for every name merges functions
+        that merely share a spelling. That is not hypothetical here: `run` is both
+        this repo's entry point and `sysOps.run`, its shell command runner.
+        A bound name (`post := httpPoster(…)`, `Report: newCommandReporter(…)`) can
+        be either, so it keeps both forms.
+        """
+        generic = name in declared
+        if name in methods and name not in functions:
+            return [_dotted_pattern(name, generic)]
+        if name in functions and name not in methods:
+            return [_bare_pattern(name, generic)]
+        return [_name_pattern(name, generic)]
+
+    invoked = {}
+    def is_invoked(name):
+        if name not in invoked:
+            pattern = _name_pattern(name, generic=False)
+            invoked[name] = any(pattern.search(code) for code in codes)
+        return invoked[name]
+    while True:
+        # (pattern, promotes) — a CLOSURE_STOP name still MATCHES, so a value bound
+        # from it is still caught (`emit := run(base)`), but it does not make its
+        # caller a sink. Without the match it is the hole review demonstrated; with
+        # the promotion it is 20 rows claiming that everything calling this repo's
+        # shell command runner (`sysOps.run`, a field that merely shares a name with
+        # the entry point `run`) reaches the wire. Neither is acceptable, and they
+        # are separable: matching is what the value rule needs, promotion is what
+        # the paperwork costs.
+        patterns = ([(pattern, name not in CLOSURE_STOP)
+                     for name in sorted(names) for pattern in call_patterns(name)]
+                    + [(pattern, True) for pattern in SINK_PATTERNS])
+        grown = set(names)
+        for code, spans in zip(codes, funcs):
+            for pattern, promotes in patterns:
+                for match in pattern.finditer(code):
+                    head = code[code.rfind("\n", 0, match.start()) + 1:match.start()]
+                    bound = SINGLE_BIND.search(head)
+                    if bound and is_invoked(bound.group(1)):
+                        grown.add(bound.group(1))
+                    if not promotes or FUNC_DECL_PREFIX.match(head):
+                        continue
+                    for name, start, _, end in spans:
+                        if start <= match.start() <= end:
+                            grown.add(name)
+        if grown == names:
+            # The value form only for names that are DECLARED FUNCTIONS. A name bound
+            # to a send's result (`now`, `clock`, a pid) is an ordinary identifier, and
+            # matching every bare mention of one raised eight callsites that are not
+            # sends. A declared function's name mentioned without being called is the
+            # function value being taken, which is the bypass this closes.
+            return [pattern for name in sorted(names) if name not in CLOSURE_STOP
+                    for pattern in (call_patterns(name)
+                                    + ([_value_pattern(name)] if name in declared else []))]
+        names = grown
+
+CALLEE_AT = re.compile(r"([A-Za-z_]\w*)\s*[\(\[]")
+# A body-carrying method, spelled in code (strings are masked before this runs, so a
+# `const verbPost = "POST"` cannot dress a POST as a GET).
+BODY_METHOD = re.compile(r"\bMethod(?:Post|Put|Patch)\b")
+GET_METHOD = re.compile(r"\bMethodGet\b")
+
+def callee_at(code, offset):
+    """The name being called AT this send's own offset.
+
+    Not "the first call on the line": an earlier version regexed the anchor text
+    left-to-right, so `noop(); s.post("/api/…", body)` resolved to `noop` and review
+    used that to declare a live POST as a seam. The offset the coverage loop already
+    computed is the send itself, so read the name there.
+    """
+    match = CALLEE_AT.match(code[offset:offset + 120])
+    return match.group(1) if match else ""
+
+def proves_it_reads(name, source):
+    """Does `name`'s own declaration, in this module, POSITIVELY prove a GET?
+
+    Positive proof, not absence of evidence: the declaration must spell MethodGet and
+    must not spell a body-carrying one. The first version of this asked only for the
+    absence of a name from a list, and review walked a live POST through it — a
+    function containing `http.Post(` was classified a reader because the list did not
+    happen to contain that spelling. Unknown name ⇒ False; the fallback has to be
+    "this is a send".
+    """
+    if not name:
+        return False
+    proven = False
+    for candidate in sorted(module_of(ROOT / source).rglob("*.go")):
+        if candidate.name.endswith("_test.go"):
+            continue
+        code = code_only(candidate.read_text())
+        for func_name, _, decl_end, body_end in enclosing_funcs(code):
+            if func_name != name:
+                continue
+            body = code[decl_end:body_end]
+            if BODY_METHOD.search(body):
+                return False
+            proven = proven or bool(GET_METHOD.search(body))
+    return proven
 
 def sink_callsites(text, extra=()):
     """(line, offset) of every send in already-lexed code.
@@ -297,8 +529,8 @@ def main():
     if not ids or len(ids) != len(set(ids)) or any(not one for one in ids):
         fail("manifest ids must be non-empty and unique")
     for item in manifest:
-        if item.get("kind") not in ("json", "seam", "skip"):
-            fail(f"{item.get('id')}: kind must be json, seam, or skip")
+        if item.get("kind") not in ("json", "seam", "skip", "read"):
+            fail(f"{item.get('id')}: kind must be json, read, seam, or skip")
         if not item.get("source") or not item.get("callsite"):
             fail(f"{item.get('id')}: every row must name its source file and the callsite line it claims")
         if item["kind"] == "skip" and not item.get("skip_reason"):
@@ -312,10 +544,26 @@ def main():
         # is sending to that API, and no committed sentence makes it otherwise.
         if item["kind"] in ("seam", "skip") and '"/api/' in item["callsite"]:
             fail(f"{item['id']}: this callsite names an API path in its own source line, "
-                 f"so it IS an uplink — declare it kind=json with that route, the OpenAPI "
-                 f"$ref, and a wire test that compares ITS body. kind=seam is the shared "
-                 f"send implementation (its path arrives as a parameter) and kind=skip is "
-                 f"for a nil body or bytes that are not JSON.")
+                 f"so it IS a request to that API — declare it kind=json (a body: with the "
+                 f"route, the OpenAPI $ref and a wire test that compares ITS body) or "
+                 f"kind=read (a GET: with the route, checked against OpenAPI to have no "
+                 f"request body at all). kind=seam is the shared send implementation (its "
+                 f"path arrives as a parameter) and kind=skip is for a nil body or bytes "
+                 f"that are not JSON — neither may name a route in its own source line.")
+        # A reader declares its route and is CHECKED AGAINST THE SPEC, not believed.
+        # The first version of this exemption trusted the callee's name instead: it
+        # asked whether the called function's declaration mentioned a body-carrying
+        # method, matched only `MethodPost|Put|Patch` and the lower-case seam names,
+        # and so classified a function containing `http.Post(` as a reader. Review
+        # landed a live POST to /api/reply-cards through it, guard green. What is
+        # checkable without believing anyone is the ROUTE: an operation that takes no
+        # requestBody in the frozen spec cannot be where a body was sent.
+        if item["kind"] == "read":
+            if not item.get("read_reason"):
+                fail(f"{item['id']}: a read needs its reason committed")
+            if item.get("method", "get").lower() != "get":
+                fail(f"{item['id']}: kind=read is for GETs; a {item.get('method')} carries a "
+                     f"body, so declare it kind=json")
 
     # Two uplinks may not point at the same piece of wire-test evidence. Without
     # this, a new uplink can be declared and aimed at an ALREADY-USED assertion:
@@ -353,13 +601,15 @@ def main():
         rows_by_source.setdefault(item["source"], []).append(item)
     unclaimed, misclaimed = [], []
     sending_modules = set()
+    enumerated = 0
     sources = cli_sources()
     derived = derived_sink_patterns(sources)
     for source in sources:
         rel = str(source.relative_to(ROOT))
         raw = source.read_text()
-        callsites = sink_callsites(code_only(raw), derived)
+        callsites = sink_callsites(code_only(raw), derived[module_of(source)])
         code = code_only(raw, mask_strings=False)
+        enumerated += len(callsites)
         if callsites:
             sending_modules.add(source.parent)
         claimed = {}
@@ -377,6 +627,20 @@ def main():
                 misclaimed.append(
                     f"{item['id']}'s anchor covers {len(covered)} sends at once — one row per "
                     "send, so shorten the anchor until it names exactly one")
+            # A `read` row is the one place a row may spell an API path without being a
+            # JSON uplink, so it is the one place a POST would go to hide. Two things
+            # have to hold, and neither is a sentence anybody wrote in this file: the
+            # ROUTE takes no request body in the frozen spec (checked below), and the
+            # function actually being called here PROVES it reads.
+            elif item["kind"] == "read" and not proves_it_reads(
+                    callee_at(code, next(iter(covered))[1]), rel):
+                misclaimed.append(
+                    f"{item['id']} is declared kind=read, but "
+                    f"{callee_at(code, next(iter(covered))[1])!r} — the function this callsite "
+                    f"actually calls — does not prove it reads: its declaration in this module "
+                    f"must spell MethodGet and must not spell MethodPost/Put/Patch. A GET and a "
+                    f"POST look identical at the callsite, so the proof has to come from the "
+                    f"callee, not from the row.")
             for one in covered:
                 if one in claimed:
                     misclaimed.append(f"{item['id']} and {claimed[one]} both claim {rel}:{one[0]}")
@@ -421,6 +685,23 @@ def main():
 
     # ── each declared row still has to be true ────────────────────────────────
     paths = spec.get("paths", {})
+    for item in manifest:
+        if item["kind"] != "read":
+            continue
+        route = item.get("path")
+        operation = paths.get(route, {}).get("get") if route else None
+        if operation is None:
+            fail(f"{item['id']}: kind=read must name a GET route the frozen spec has; "
+                 f"{route!r} is not one of them")
+        if operation.get("requestBody"):
+            fail(f"{item['id']}: GET {route} declares a requestBody in the frozen spec, so "
+                 f"this callsite can carry one — declare it kind=json with a wire test that "
+                 f"compares that body")
+        quoted = re.search(r'"(/api/[^"?]*)', item["callsite"])
+        if quoted and not route.startswith(quoted.group(1)):
+            fail(f"{item['id']}: its callsite reads {quoted.group(1)} but the row claims "
+                 f"{route}, so the route being checked is another one's")
+
     compared = 0
     for item in manifest:
         if item["kind"] != "json":
@@ -500,9 +781,16 @@ def main():
     # (JOIN_CALL), where "committed" and "actually put on the wire" are genuinely two
     # different sources; this file's job is to make sure that call is still wired in.
     kinds = {kind: sum(1 for item in manifest if item["kind"] == kind)
-             for kind in ("json", "seam", "skip")}
-    print(f"[uplink-guard] all green ({compared} JSON uplinks compared against OpenAPI; "
-          f"{kinds['seam']} send seam(s); {kinds['skip']} declared out of scope)")
+             for kind in ("json", "read", "seam", "skip")}
+    # The callsite total is printed because it is the one number a reader wants and
+    # the one number nothing stores: it is re-derived from the tree on every run, so a
+    # narrowed enumeration shows up here as a smaller number rather than as silence.
+    # (It cannot drift from the manifest without going red — an unclaimed callsite and
+    # a row whose anchor covers no send are the two directions, and both fail above.)
+    print(f"[uplink-guard] all green ({enumerated} callsites enumerated under cli/**, each "
+          f"claimed by exactly one row; {compared} JSON uplinks compared against OpenAPI; "
+          f"{kinds['read']} GET(s) checked to take no body; {kinds['seam']} send seam(s); "
+          f"{kinds['skip']} declared out of scope)")
 
 if __name__ == "__main__":
     main()

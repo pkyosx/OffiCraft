@@ -553,6 +553,67 @@ type HealthDTO struct {
 	Status *string `json:"status,omitempty"`
 }
 
+// InsightDTO The per-role INSIGHT doc (T-3809): the judgement calls and trade-offs this role
+// keeps reaching for. Third block of the role journal, alongside Duty (the role
+// definition) and Learning (the lessons doc) — the owner asked for it because
+// insight and learning had been sharing one document.
+//
+// “role_key“ scopes the doc to a role; there is NO “task_type“ axis (that is
+// the lessons key, and it is deliberately absent here). Unlike lessons there is
+// also NO file seed, so “text“ is genuinely EMPTY until the role writes — and
+// “is_default“ therefore answers "this role has not moved anything over yet".
+//
+// Insight is SEPARATE, not private. READ is unrestricted: any authenticated
+// identity may read ANY role's insight — the same floor Duty and Learning sit on.
+type InsightDTO struct {
+	// CapChars The document size cap now in force, in CHARACTERS (the doc_cap_chars setting). Served on the READ face so an agent can size an edit BEFORE writing it — the alternative is discovering the limit by being refused, and the settings surface is admin-only.
+	CapChars *int `json:"cap_chars,omitempty"`
+
+	// IsDefault True while this role has never written its insight doc (or reset it). There is no seed to fall back to, so is_default and an empty `text` mean the same thing here — that equivalence is what makes "has this role moved anything over?" answerable at all.
+	IsDefault     *bool   `json:"is_default,omitempty"`
+	OwnerId       *string `json:"owner_id,omitempty"`
+	RoleKey       *string `json:"role_key,omitempty"`
+	SchemaVersion *int    `json:"schema_version,omitempty"`
+
+	// SizeChars Size of `text` in CHARACTERS (Unicode code points) — the same unit as cap_chars.
+	SizeChars *int    `json:"size_chars,omitempty"`
+	Text      *string `json:"text,omitempty"`
+}
+
+// InsightEditDTO One “patch_insight“ edit: replace the occurrence of “old“ with “new“. “old“ must match the current doc EXACTLY ONCE (0 or >1 hits reject the whole batch — the unique anchor doubles as an optimistic concurrency check); an EMPTY “old“ appends “new“ at the end of the doc (joined with a newline when the doc does not already end in one).
+type InsightEditDTO struct {
+	New *string `json:"new,omitempty"`
+	Old *string `json:"old,omitempty"`
+}
+
+// InsightPatchDTO Anchor-addressed PATCH of an insight doc: “{edits: [{old, new}], allow_shrink?}“. ATOMIC — edits apply sequentially to an in-memory copy and any failing anchor (absent or ambiguous “old“) rejects the ENTIRE batch with a flat 400 and ZERO writes. “allow_shrink“ (default false) must be set explicitly for a patch that empties the doc or shrinks it to under a tenth of its size — the same wipe-guard posture patch_lessons carries.
+type InsightPatchDTO struct {
+	AllowShrink *bool            `json:"allow_shrink,omitempty"`
+	Edits       []InsightEditDTO `json:"edits"`
+}
+
+// InsightPatchResultDTO Receipt of an insight PATCH. “size_chars“ (CHARACTERS — Unicode code points, the SAME unit as the “doc_cap_chars“ cap the write is judged against) and “sha256“ (hex) are lightweight verification anchors over the RESULTING doc text, so the caller can confirm the write landed without re-reading the full doc. “applied_edits“ counts the edits that ACTUALLY CHANGED the doc, so a batch of no-ops reports 0 rather than looking like a success.
+type InsightPatchResultDTO struct {
+	AppliedEdits *int `json:"applied_edits,omitempty"`
+
+	// CapChars The document size cap now in force, in CHARACTERS (the doc_cap_chars setting) — the number this write was judged against.
+	CapChars      *int    `json:"cap_chars,omitempty"`
+	IsDefault     *bool   `json:"is_default,omitempty"`
+	OwnerId       *string `json:"owner_id,omitempty"`
+	RoleKey       *string `json:"role_key,omitempty"`
+	SchemaVersion *int    `json:"schema_version,omitempty"`
+	Sha256        *string `json:"sha256,omitempty"`
+
+	// SizeChars Size of the RESULTING doc in CHARACTERS (Unicode code points) — the same unit as cap_chars.
+	SizeChars *int `json:"size_chars,omitempty"`
+}
+
+// InsightReplaceDTO Whole-doc replace of an insight doc: “{text}“. “text“ is REQUIRED — a whole-doc replace must never infer "empty" from a missing key. “allow_shrink“ (default false) must be set explicitly to replace existing content with an empty doc — the same wipe-guard posture replace_lessons carries.
+type InsightReplaceDTO struct {
+	AllowShrink *bool  `json:"allow_shrink,omitempty"`
+	Text        string `json:"text"`
+}
+
 // LessonsDTO The folded per-role lessons doc (§3.4 #27). “role_key“ scopes the doc to a
 // role (per-role-learnings step1); “task_type“ is the single fixed key (§9.7).
 // “is_default“ = seed-vs-edited.
@@ -2281,6 +2342,12 @@ type HandleMarkChatReadApiChatMarkReadPostJSONRequestBody = MarkChatReadDTO
 // HandleReplaceGlobalContextApiGlobalContextPostJSONRequestBody defines body for HandleReplaceGlobalContextApiGlobalContextPost for application/json ContentType.
 type HandleReplaceGlobalContextApiGlobalContextPostJSONRequestBody = GlobalContextReplaceDTO
 
+// HandleReplaceInsightApiInsightRoleKeyPostJSONRequestBody defines body for HandleReplaceInsightApiInsightRoleKeyPost for application/json ContentType.
+type HandleReplaceInsightApiInsightRoleKeyPostJSONRequestBody = InsightReplaceDTO
+
+// HandlePatchInsightApiInsightRoleKeyPatchPostJSONRequestBody defines body for HandlePatchInsightApiInsightRoleKeyPatchPost for application/json ContentType.
+type HandlePatchInsightApiInsightRoleKeyPatchPostJSONRequestBody = InsightPatchDTO
+
 // HandleReplaceLessonsApiLessonsRoleKeyTaskTypePostJSONRequestBody defines body for HandleReplaceLessonsApiLessonsRoleKeyTaskTypePost for application/json ContentType.
 type HandleReplaceLessonsApiLessonsRoleKeyTaskTypePostJSONRequestBody = LessonsReplaceDTO
 
@@ -2549,6 +2616,15 @@ type ServerInterface interface {
 	// Liveness probe — 200 {"status":"ok"}.
 	// (GET /api/health)
 	HandleHealthApiHealthGet(w http.ResponseWriter, r *http.Request)
+	// Read a per-role insight doc (per role_key; no seed).
+	// (GET /api/insight/{role_key})
+	HandleGetInsightApiInsightRoleKeyGet(w http.ResponseWriter, r *http.Request, roleKey string)
+	// Whole-doc replace of a per-role insight doc ({text}).
+	// (POST /api/insight/{role_key})
+	HandleReplaceInsightApiInsightRoleKeyPost(w http.ResponseWriter, r *http.Request, roleKey string)
+	// Patch a per-role insight doc by unique anchors ({edits:[{old,new}]}).
+	// (POST /api/insight/{role_key}/patch)
+	HandlePatchInsightApiInsightRoleKeyPatchPost(w http.ResponseWriter, r *http.Request, roleKey string)
 	// Read a per-role lessons doc (per role_key; overlay ⊕ seed).
 	// (GET /api/lessons/{role_key}/{task_type})
 	HandleGetLessonsApiLessonsRoleKeyTaskTypeGet(w http.ResponseWriter, r *http.Request, roleKey string, taskType string)
@@ -3500,6 +3576,84 @@ func (siw *ServerInterfaceWrapper) HandleHealthApiHealthGet(w http.ResponseWrite
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleHealthApiHealthGet(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleGetInsightApiInsightRoleKeyGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleGetInsightApiInsightRoleKeyGet(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "role_key" -------------
+	var roleKey string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "role_key", r.PathValue("role_key"), &roleKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "role_key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleGetInsightApiInsightRoleKeyGet(w, r, roleKey)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleReplaceInsightApiInsightRoleKeyPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleReplaceInsightApiInsightRoleKeyPost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "role_key" -------------
+	var roleKey string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "role_key", r.PathValue("role_key"), &roleKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "role_key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleReplaceInsightApiInsightRoleKeyPost(w, r, roleKey)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandlePatchInsightApiInsightRoleKeyPatchPost operation middleware
+func (siw *ServerInterfaceWrapper) HandlePatchInsightApiInsightRoleKeyPatchPost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "role_key" -------------
+	var roleKey string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "role_key", r.PathValue("role_key"), &roleKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "role_key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandlePatchInsightApiInsightRoleKeyPatchPost(w, r, roleKey)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6140,6 +6294,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/global-context", wrapper.HandleReplaceGlobalContextApiGlobalContextPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/global-context/reset", wrapper.HandleResetGlobalContextApiGlobalContextResetPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/health", wrapper.HandleHealthApiHealthGet)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/insight/{role_key}", wrapper.HandleGetInsightApiInsightRoleKeyGet)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/insight/{role_key}", wrapper.HandleReplaceInsightApiInsightRoleKeyPost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/insight/{role_key}/patch", wrapper.HandlePatchInsightApiInsightRoleKeyPatchPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/lessons/{role_key}/{task_type}", wrapper.HandleGetLessonsApiLessonsRoleKeyTaskTypeGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lessons/{role_key}/{task_type}", wrapper.HandleReplaceLessonsApiLessonsRoleKeyTaskTypePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lessons/{role_key}/{task_type}/patch", wrapper.HandlePatchLessonsApiLessonsRoleKeyTaskTypePatchPost)

@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sort"
@@ -368,6 +370,111 @@ func nodeAt(t *testing.T, root *schemaNode, path string) *schemaNode {
 	return at
 }
 
+// wireBodies runs `drive` against a test server and returns every JSON body that
+// really went out, in order. The evidence for an uplink is what a producer PUT ON
+// THE WIRE — not a literal a test author typed next to it. Two of the three payloads
+// below used to be literals, and independent review measured exactly what that is
+// worth: adding an undeclared top-level key to the real command_result producer left
+// this file green, because nothing here had ever run that producer.
+func wireBodies(t *testing.T, drive func(base string)) []map[string]any {
+	t.Helper()
+	var bodies []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("producer sent a body that is not JSON: %v", err)
+		}
+		bodies = append(bodies, body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+	drive(server.URL)
+	return bodies
+}
+
+// realCommandReceipt drives the command_result reporter ITSELF — newCommandReporter's
+// closure, the one production wires onto CommandDeps.Report — and returns the body it
+// posted. This is the send `warden-command-result` claims in cli/uplinks.json.
+func realCommandReceipt(t *testing.T) map[string]any {
+	t.Helper()
+	var bodies []map[string]any
+	bodies = wireBodies(t, func(base string) {
+		report := newCommandReporter(Config{Base: base, Token: "tok", ID: "m-1"})
+		if err := report(CommandResult{MemberID: "m-1", RPC: rpcStop, OK: true,
+			Reason: "stopped", Log: "session=member-m-1: stopped"}); err != nil {
+			t.Fatalf("the real command_result reporter did not deliver: %v", err)
+		}
+	})
+	if len(bodies) != 1 {
+		t.Fatalf("the reporter put %d bodies on the wire, want exactly 1", len(bodies))
+	}
+	return bodies[0]
+}
+
+// realCommandReceipts drives the FOUR command_result producers in command.go — the
+// start / worker_stop / stop / uninstall receipts — through the real reporter, and
+// returns the bodies keyed by rpc verb.
+//
+// These four are why the enumeration in bin/uplink-guard.py is closed to a fixpoint.
+// They were invisible to it for as long as it stopped one hop from net/http: the path
+// is deps.report → CommandDeps.Report → newCommandReporter's closure → post, and the
+// guard's own report for cli/ocwarden/command.go was EMPTY while all four were live.
+// Each verb builds its own CommandResult, so each gets its own run here: a shared one
+// would let three of them be paid for by driving the fourth.
+func realCommandReceipts(t *testing.T) map[string]map[string]any {
+	t.Helper()
+	receipts := map[string]map[string]any{}
+	for _, one := range []struct {
+		rpc  string
+		args map[string]any
+	}{
+		{rpcStart, fullStartArgs()},
+		{rpcWorkerStop, map[string]any{"worker_id": "ow-9"}},
+		{rpcStop, map[string]any{"member_id": "m-5", "session_name": "member-m-5"}},
+		{rpcUninstall, uninstallArgs()},
+	} {
+		bodies := wireBodies(t, func(base string) {
+			deps := CommandDeps{
+				Spawn:    func(StartParams) SpawnOutcome { return SpawnOutcome{OK: true} },
+				Stop:     func(string) (bool, bool) { return true, false },
+				Teardown: func() (bool, string) { return true, "teardown complete\n" },
+				// The uninstall case self-exits after its receipt lands; a fake keeps
+				// the test binary alive without changing the producer's path.
+				Exit:   func(int) {},
+				Report: newCommandReporter(Config{Base: base, Token: "tok", ID: "m-1"}),
+			}
+			if err := dispatchCommand(&Command{RPC: one.rpc, Args: one.args}, deps); err != nil {
+				t.Fatalf("dispatch %s: %v", one.rpc, err)
+			}
+		})
+		if len(bodies) != 1 {
+			t.Fatalf("%s put %d bodies on the wire, want exactly 1", one.rpc, len(bodies))
+		}
+		receipts[one.rpc] = bodies[0]
+	}
+	return receipts
+}
+
+// realSelfUpdateAnnounce drives the real self-update announcement (updater.
+// announceSelfUpdate over the real httpPoster) and returns the body it posted.
+func realSelfUpdateAnnounce(t *testing.T) map[string]any {
+	t.Helper()
+	bodies := wireBodies(t, func(base string) {
+		up := &updater{
+			post:     httpPoster(&http.Client{Timeout: 5 * time.Second}, base, "tok"),
+			agentID:  "m-1",
+			logf:     func(string, ...any) {},
+			lastSwap: &selfUpdateEvent{Binary: "ocwarden", OldHash: "aaa", NewHash: "bbb", At: "2026-01-01T00:00:00Z"},
+		}
+		up.announceSelfUpdate()
+	})
+	if len(bodies) != 1 {
+		t.Fatalf("the self-update announce put %d bodies on the wire, want exactly 1", len(bodies))
+	}
+	return bodies[0]
+}
+
 // realHeartbeat builds the heartbeat payload from the REAL collectors, driven by
 // faked shell/fs seams — the same producers a live 30s cycle calls. Renaming a
 // key in any of them changes what this returns, which is the whole point: a
@@ -446,6 +553,46 @@ func realHeartbeat(t *testing.T) map[string]any {
 	return heartbeat
 }
 
+// TestMissingRequiredKeysActuallyNamesAMissingKey is the negative control for the
+// required-key half of the walker above.
+//
+// It needs one because that half is VACUOUS where it is used: AgentTelemetryIngestDTO
+// declares no `required` at any depth, so `missingRequiredKeys` returns nil for every
+// payload it is handed there — it is a forward-looking net for the day the spec grows
+// one, and until then a check that cannot fail. A check that cannot fail is worth
+// exactly nothing as evidence, so the walker is exercised HERE against the one frozen
+// request schema that does declare required keys (ReplyCardCreateDTO: kind, summary,
+// options). If the walker is ever broken, this is what goes red.
+func TestMissingRequiredKeysActuallyNamesAMissingKey(t *testing.T) {
+	declared := frozenRequestSchema(t, "post", "/api/reply-cards")
+	if len(declared.Required) == 0 {
+		t.Fatalf("precondition: the frozen spec no longer declares required keys for "+
+			"POST /api/reply-cards, so this control has nothing to prove; point it at a "+
+			"schema that does. required = %v", declared.Required)
+	}
+	complete := map[string]any{}
+	for _, key := range declared.Required {
+		complete[key] = "x"
+	}
+	if missing := missingRequiredKeys(complete, declared); len(missing) > 0 {
+		t.Errorf("a payload carrying every required key was reported as missing %v", missing)
+	}
+	for _, key := range declared.Required {
+		partial := map[string]any{}
+		for other := range complete {
+			if other != key {
+				partial[other] = "x"
+			}
+		}
+		missing := missingRequiredKeys(partial, declared)
+		if len(missing) != 1 || missing[0] != key {
+			t.Errorf("dropping %q was reported as missing %v, want exactly [%s] — a walker "+
+				"that cannot name an omitted required key is not evidence that our payloads "+
+				"carry theirs", key, missing, key)
+		}
+	}
+}
+
 // TestWardenTelemetryPayloadsMatchFrozenSchema covers all three payloads the
 // warden POSTs to the telemetry endpoint — the heartbeat, the command receipt and
 // the self-update announcement — because a single undeclared key kills whichever
@@ -455,14 +602,39 @@ func realHeartbeat(t *testing.T) map[string]any {
 func TestWardenTelemetryPayloadsMatchFrozenSchema(t *testing.T) {
 	declared := frozenTelemetrySchema(t)
 	heartbeat := realHeartbeat(t)
+	receipts := realCommandReceipts(t)
+	// Each receipt has to be ITS OWN receipt. Without this the four rows buy only
+	// "a command_result key was present": command_result is free-form in the frozen
+	// spec, so the walkers below never look inside it, and review measured that
+	// changing a verb to a value the server has never heard of left this green.
+	for _, want := range []struct{ wireCase, rpc, idKey, id string }{
+		{"start", rpcStart, "member_id", "m-1"},
+		{"worker_stop", rpcWorkerStop, "worker_id", "ow-9"},
+		{"stop", rpcStop, "member_id", "m-5"},
+		{"uninstall", rpcUninstall, "member_id", "m-5"},
+	} {
+		receipt, _ := receipts[want.rpc]["command_result"].(map[string]any)
+		if receipt == nil {
+			t.Errorf("the %s receipt carries no command_result object", want.wireCase)
+			continue
+		}
+		if receipt["rpc"] != want.rpc {
+			t.Errorf("the %s receipt says rpc=%v, so this row's evidence is another verb's "+
+				"run — the server folds last_op onto the member by this field", want.wireCase, receipt["rpc"])
+		}
+		if receipt[want.idKey] != want.id {
+			t.Errorf("the %s receipt addresses %s=%v, want %s — a receipt that names the wrong "+
+				"target is folded onto the wrong row", want.wireCase, want.idKey, receipt[want.idKey], want.id)
+		}
+	}
 	cases := map[string]map[string]any{
-		"heartbeat": heartbeat,
-		"command_result": {"command_result": map[string]any{
-			"member_id": "m-7", "rpc": "stop", "ok": true,
-		}},
-		"self_update": {"self_update": map[string]any{
-			"binary": "ocwarden", "old_hash": "a", "new_hash": "b",
-		}},
+		"heartbeat":                  heartbeat,
+		"command_result":             realCommandReceipt(t),
+		"command_result-start":       receipts[rpcStart],
+		"command_result-worker_stop": receipts[rpcWorkerStop],
+		"command_result-stop":        receipts[rpcStop],
+		"command_result-uninstall":   receipts[rpcUninstall],
+		"self_update":                realSelfUpdateAnnounce(t),
 	}
 	walked := map[string]int{}
 	for name, payload := range cases {
@@ -473,6 +645,12 @@ func TestWardenTelemetryPayloadsMatchFrozenSchema(t *testing.T) {
 		// that: a new warden uplink carrying a key that 422s the whole heartbeat, with
 		// a one-line `"extra": {}` as its committed proof. The marginal cost of a new
 		// uplink has to be a real payload, not a pair of braces.
+		// Measured, because "this branch never runs" was reported about it and the two
+		// reasons that could be true of it are not the same finding: it is REACHABLE
+		// (add an empty case and this is the error you get), and it does not change the
+		// VERDICT — delete it and an empty payload still fails, one check down, as
+		// "carries no key the frozen schema declares". Both halves were run. It stays
+		// for the message: the next check names the symptom, this one names the cause.
 		if len(payload) == 0 {
 			t.Errorf("%s has an empty payload, so every comparison below it is vacuous — "+
 				"the walkers only inspect keys that are present. Give this uplink the body "+
@@ -501,13 +679,16 @@ func TestWardenTelemetryPayloadsMatchFrozenSchema(t *testing.T) {
 	}
 	// The join, per (producer run → route) against the committed manifest — the same
 	// key the codex wire test uses. A per-route total alone is interchangeable between
-	// rows on one route, and all three of these post to the same one.
+	// rows on one route, and every case here posts to that same one.
 	//
-	// Be precise about what it does NOT prove: two of the three payloads are still
-	// hand-written literals rather than producer output, so this catches a row
-	// committed with nothing to walk, but it does not prove a producer emitted these
-	// bodies. The stronger form (routes observed by a real test server) is in
-	// codex_uplink_wire_test.go.
+	// Be precise about what it does and does not prove now that every payload above
+	// comes from a real producer driven against a test server: a producer that stops
+	// sending, or sends twice, reddens here, and so does a top-level key the frozen
+	// spec does not declare. What it still cannot see is drift INSIDE command_result /
+	// tokens / rate_limits: those blocks are free-form by owner ruling, the spec
+	// declares no properties under them, so the walkers have nothing to descend into.
+	// Measured: adding an undeclared key inside command_result leaves this green;
+	// adding one at the top level reddens it.
 	if want := manifestUplinkPaths(t, "cli/ocwarden/telemetry_wire_test.go"); !maps.Equal(walked, want) {
 		t.Errorf("cli/uplinks.json commits %v to this wire test but %v was walked against "+
 			"the frozen schema. A row nobody compared is coverage on paper only — that is "+

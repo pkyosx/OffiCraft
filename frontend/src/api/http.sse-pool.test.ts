@@ -48,6 +48,7 @@ const CLOSED_TOPICS = [
   "global_context",
   "role_def",
   "lessons",
+  "insight",
   "context",
   "monitoring",
 ];

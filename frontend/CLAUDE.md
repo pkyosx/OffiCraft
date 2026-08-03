@@ -585,10 +585,10 @@ reconcile-by-refetch 的規則沒變(**永遠不 merge payload**),但「refetch 
 - 🔴 **names 為空 = 「什麼都可能漏了」,一律全量重抓**。resync 名不指任何一項(串流沒有
   replay,漏了什麼本質上不可知),mock 更是連第二個參數都不傳。**空名字絕不可讀成
   「沒事發生」**,那會把 mock 座艙與每次重連後的自癒一起凍住。
-- **`lib/deltaSink.ts`:一「陣」delta 只做一次決定**。`resyncAll` 把 12 個 topic
+- **`lib/deltaSink.ts`:一「陣」delta 只做一次決定**。`resyncAll` 把 13 個 topic
   **同步**扇給每個訂閱者,所以聽 4 個 topic 的 hook 以前一次 resync 跑 4 次同樣的重抓
   (實測:一次 resync 21 個請求,12 個是重複)。**coalesce 只能發生在「決定要不要重抓」
-  那一層**——傳輸層不知道某個訂閱者對哪些 topic 有反應,也就不知道那 12 次會塌成 1 次。
+  那一層**——傳輸層不知道某個訂閱者對哪些 topic 有反應,也就不知道那 13 次會塌成 1 次。
   它靠的是「那個扇出是同步的」:累積到下一個 microtask 剛好抓到整陣。⚠️ **這不是 debounce**,
   跨 tick 不合併(那等於刻意讓畫面慢);`deltaSink.test.ts` 有一條專門釘這件事。
 - **`narrowToHeld` 是三態,而中間那態是關鍵**:`null`=名不指任何一項⇒全量;**非空陣列**=

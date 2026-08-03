@@ -1614,6 +1614,76 @@
       "name": "delete_role"
     },
     {
+      "description": "Read a per-role insight doc - this role's accumulated judgement calls and trade-offs (per role_key; no seed, so an untouched doc is genuinely empty). Separate from the lessons doc on purpose: lessons record what happened and what to do next time, insight records how this role weighs a call. Like lessons, reading is unrestricted: any authenticated identity may read ANY role's insight - it is SEPARATE, not private.",
+      "inputSchema": {
+        "properties": {
+          "role_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "role_key"
+        ],
+        "type": "object"
+      },
+      "name": "get_insight"
+    },
+    {
+      "description": "Whole-doc replace of a per-role insight doc ({text}). text is REQUIRED; unknown keys are rejected. Replacing existing content with an empty doc needs allow_shrink=true. Only the role's own agents (and admin) may WRITE it.",
+      "inputSchema": {
+        "properties": {
+          "allow_shrink": {
+            "type": "boolean"
+          },
+          "role_key": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "role_key",
+          "text"
+        ],
+        "type": "object"
+      },
+      "name": "replace_insight"
+    },
+    {
+      "description": "Patch a per-role insight doc by unique anchors ({edits:[{old,new}]}). Only the role's own agents (and admin) may WRITE it.",
+      "inputSchema": {
+        "properties": {
+          "allow_shrink": {
+            "type": "boolean"
+          },
+          "edits": {
+            "items": {
+              "properties": {
+                "new": {
+                  "type": "string"
+                },
+                "old": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "role_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "role_key",
+          "edits"
+        ],
+        "type": "object"
+      },
+      "name": "patch_insight"
+    },
+    {
       "description": "Read a per-role lessons doc (per role_key; overlay \u2295 seed).",
       "inputSchema": {
         "properties": {
@@ -2948,7 +3018,7 @@
       "name": "patch_task_learnings"
     },
     {
-      "description": "READ the retained versions of one editable document (global_context | role_definition | lessons | task_manual_sop | task_manual_learnings): what each version held, when it was replaced and by whom. Read-only, at most the 3 most recent versions, newest first. Putting a version BACK is deliberately not an agent tool — the owner does that from the cockpit — so this cannot change anything. `key` is the document: \"global\" for global_context, the role key, \"<role_key>::<task_type>\" for lessons, the type_key for either task-manual series. A task manual keeps TWO independent series — task_manual_sop holds only sop_md, task_manual_learnings holds only learnings — so editing one never consumes a retained slot of the other, and purpose / fields are not versioned at all. A retired kind is refused with 400 naming the series that replaced it.",
+      "description": "READ the retained versions of one editable document (global_context | role_definition | lessons | insight | task_manual_sop | task_manual_learnings): what each version held, when it was replaced and by whom. Read-only, at most the 3 most recent versions, newest first. Putting a version BACK is deliberately not an agent tool — the owner does that from the cockpit — so this cannot change anything. `key` is the document: \"global\" for global_context, the role key, \"<role_key>::<task_type>\" for lessons, the bare role key for insight, the type_key for either task-manual series. A task manual keeps TWO independent series — task_manual_sop holds only sop_md, task_manual_learnings holds only learnings — so editing one never consumes a retained slot of the other, and purpose / fields are not versioned at all. A retired kind is refused with 400 naming the series that replaced it.",
       "inputSchema": {
         "properties": {
           "key": {"type": "string"},

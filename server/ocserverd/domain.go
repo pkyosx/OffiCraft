@@ -493,6 +493,30 @@ func FoldLessons(overlay *Lessons, seedText string) (text string, isDefault bool
 	return overlay.Text, false
 }
 
+// ── insight: per-role overlay, NO seed (T-3809) ──────────────────────────────
+
+// FoldInsight resolves a per-role insight doc. Unlike FoldLessons there is no
+// file seed to fold against: an absent (or tombstoned) row reads as the EMPTY
+// document, and that emptiness is load-bearing.
+//
+// 🔴 WHY NO SEED — this is a decision, not an omission. lessons folds overlay ⊕
+// a shared seed, so every role reads non-empty from day one. Give insight a
+// seed and text=="" becomes unreachable, which makes 「這個角色還沒把 Insight
+// 搬過來」 undecidable — and under the owner's zero-automatic-split ruling
+// (rc-87e850241ef4 ②) that question is the ONLY observable this ticket ships.
+// The cost is stated rather than hidden: a role that never writes sees an empty
+// card, and nothing in the system compels it to write (owner deleted the
+// forcing mechanism deliberately; see the 誠實清單 on the ticket).
+//
+// isDefault reports "never written by this role" — the same contract
+// FoldLessons' isDefault carries, minus the seed.
+func FoldInsight(overlay *Insight) (text string, isDefault bool) {
+	if overlay == nil || overlay.Tombstoned {
+		return "", true
+	}
+	return overlay.Text, false
+}
+
 // ── lessons: anchor-addressed patch (MCP patch_lessons, T-8327) ──────────────
 
 // LessonsEdit is one {old, new} patch instruction: replace the UNIQUE
@@ -516,6 +540,24 @@ type LessonsEdit struct {
 // replace whose new equals its old) now decrements that count, so "0 applied"
 // becomes expressible and a silent no-op stops looking like a success.
 func ApplyLessonsEdits(text string, edits []LessonsEdit) (string, int, error) {
+	return ApplyDocEdits(text, edits, "get_lessons")
+}
+
+// ApplyDocEdits is the anchor-patch core shared by every per-role document that
+// takes {old,new} edits. Everything ApplyLessonsEdits documents above applies
+// here unchanged; the only parameter is rereadTool — the name of the tool the
+// caller should re-read with when an anchor misses.
+//
+// 🔴 WHY THE TOOL NAME IS A PARAMETER AND NOT A CONSTANT. The anchor-miss
+// message tells the caller what to do next, and "re-read (get_lessons)" is
+// FALSE advice for an agent patching its insight doc: re-reading lessons will
+// never show it the anchor it missed. This is the same defect class the ticket
+// already ruled on for the 403 path — insightWriteAuthz exists as its own
+// function rather than reusing lessonsWriteAuthz precisely because that one
+// hard-codes the word "lessons" into a message served on a different document.
+// A wrong instruction is worse than a vague one: it sends the reader somewhere
+// with confidence.
+func ApplyDocEdits(text string, edits []LessonsEdit, rereadTool string) (string, int, error) {
 	result := text
 	applied := 0
 	for i, edit := range edits {
@@ -535,7 +577,7 @@ func ApplyLessonsEdits(text string, edits []LessonsEdit) (string, int, error) {
 		switch n := strings.Count(result, edit.Old); {
 		case n == 0:
 			return "", 0, fmt.Errorf(
-				"edits[%d]: old not found in the current doc — re-read (get_lessons) and re-anchor; nothing was written", i)
+				"edits[%d]: old not found in the current doc — re-read (%s) and re-anchor; nothing was written", i, rereadTool)
 		case n > 1:
 			return "", 0, fmt.Errorf(
 				"edits[%d]: old matches %d locations — widen the anchor until it is unique; nothing was written", i, n)

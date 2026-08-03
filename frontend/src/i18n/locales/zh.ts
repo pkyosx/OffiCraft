@@ -804,6 +804,16 @@ export const zh = {
     lessonsEmpty: "尚無學習經驗。",
     lessonsShared: "此角色的學習經驗(同一角色的成員共用)。",
     lessonsSaveError: "儲存學習經驗失敗",
+    // ── 判準 Insight（T-3809）——角色誌的第三塊。刻意不寫成學習經驗的變體:
+    // 本票存在的理由就是「這個角色怎麼權衡」與「上次發生了什麼」不是同一份文件。──
+    insight: "判準(Insight)",
+    insightLoading: "載入中…",
+    insightError: "讀取判準失敗",
+    insightEmpty:
+      "這個角色還沒有 Insight。還沒有人把判準搬進來——這一塊上線時所有角色都是空的。",
+    insightShared:
+      "Insight 目前不是私有的,只是分開的——任何已認證身分都讀得到;只有這個角色自己的 agent 與 admin 寫得動。",
+    insightSaveError: "儲存判準失敗",
     // ── 回呼端點 · WEBHOOK（M4）──
     webhook: {
       title: "回呼端點 · WEBHOOK",
@@ -1279,6 +1289,7 @@ export const zh = {
     // 在畫面上踩到這件事。
     historyRoleDefTitle: "角色定義的版本紀錄",
     historyLessonsTitle: "學習經驗的版本紀錄",
+    historyInsightTitle: "判準(Insight)的版本紀錄",
     historyGlobalTitle: "全域情境的版本紀錄",
     historyManualLearningsTitle: "學習經驗的版本紀錄",
     // 任務定義頁：purpose／識別鍵已經不再留版本，卡片得說清楚它只代表 SOP。

@@ -85,6 +85,15 @@ var workerSharedCoreExclusions = []sharedCoreExclusion{
 			"學習經驗（write_task_learnings），由 overlay §3 說明。",
 	},
 	{
+		// T-3809. Anchor 必須與 seed 的 heading 開頭逐字一致（含尾隨空白）：
+		// 「## 9b. 」是 level-2，若有人把 seed 寫成 level-3 的「### 9b.」，
+		// 這條 anchor 會匹配不到而 assembly hard error——那正是我們要的紅。
+		Anchor: "## 9b. ",
+		Why: "判準（Insight）與角色 lessons 一樣掛在角色身上，worker 沒有角色，" +
+			"寫不動也不該被指示去搬。worker 的等價物仍是任務手冊的學習經驗" +
+			"（write_task_learnings），由 overlay §3 說明。",
+	},
+	{
 		Anchor: "### 10.1 接案",
 		Why:    "接案／建任務類型是成員治理職責；worker 只做綁給它的那一張任務。",
 	},

@@ -397,6 +397,18 @@ func (s *apiServer) HandleDeleteRoleApiRolesRoleDelete(w http.ResponseWriter, r 
 		// (repository.delete_lessons_for_role → _publish_overlay).
 		s.hub.Publish("lessons", "patch", "lessons", wireOwnerID+"::"+role, nil, audienceOwnerOnly(), requestTrigger(r))
 	}
+	// T-3809: the role's insight goes with the role, same transaction posture as
+	// its lessons above. Deliberately NOT reported in the response DTO — that
+	// would be a new wire field, and the count answers nothing a caller acts on;
+	// the delta below is what any open surface actually needs.
+	deletedInsight, err := s.dal.DeleteInsightForRole(role)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	if deletedInsight > 0 {
+		s.hub.Publish("insight", "patch", "insight", wireOwnerID+"::"+role, nil, audienceOwnerOnly(), requestTrigger(r))
+	}
 	if _, err := s.dal.DeleteRoleDef(role); err != nil {
 		internalError(w, err)
 		return

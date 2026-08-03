@@ -423,6 +423,14 @@ var authzOutsideRouteTable = map[string]string{
 		"Admin+ writes any role; a plain agent writes only its OWN role (roster row's " +
 		"role_key vs path role_key). A per-caller/per-target comparison the route table " +
 		"has no column for. Pinned by api_lessons_admin_authz_t5336_test.go.",
+	"api_insight.go :: insightWriteAuthz :: principalAtLeast(s.principalOfRequest(r), principalAdminAgent)": "" +
+		"T-3809: the insight doc's WRITE authz, same tier as lessons — admin+ writes any " +
+		"role, a plain agent writes only its OWN role (roster row's role_key vs path " +
+		"role_key), and READ is not gated at all (owner rc-dc171587220c: this release " +
+		"closes nothing on the read face). A separate function rather than a call into " +
+		"lessonsWriteAuthz ON PURPOSE: that one hard-codes the word \"lessons\" into its " +
+		"403 body, so sharing it would refuse an insight write with advice pointing at " +
+		"the wrong document. Pinned by api_insight_isolation_test.go.",
 	"api_document_history.go :: documentHistoryAllowed :: principalAtLeast(s.principalOfRequest(r), principalAdminAgent)": "" +
 		"history reads use the machine floor, while restoring global context and role definitions must " +
 		"retain their admin-only write boundary. Lessons restoration delegates to the existing per-role " +
