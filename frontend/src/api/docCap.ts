@@ -68,6 +68,11 @@ export const CAPPED_FIELDS: Record<DocumentKind, readonly string[]> = {
   global_context: [],
   role_definition: [],
   lessons: ["text"],
+  // T-3809: insight's restore runs the cap over `text` too, and deliberately —
+  // an older, larger revision is still a write, so letting history walk the doc
+  // back over the limit would make the cap a suggestion
+  // (api_document_history.go, case "insight").
+  insight: ["text"],
   // The retired bundle has no restore path left at all (both routes 400 since
   // T-1f39); its entry is kept only because this table is total over
   // DocumentKind. The two split kinds each write back exactly ONE field, and

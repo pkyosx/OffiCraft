@@ -33,6 +33,7 @@ const TOPIC_OF: Record<DocumentKind, string> = {
   global_context: "global_context",
   role_definition: "role_def",
   lessons: "lessons",
+  insight: "insight",
   // All three manual kinds fan the manual's own topic: the document they
   // version IS the manual, whichever slice of it a revision holds.
   task_manual: "task_manual",

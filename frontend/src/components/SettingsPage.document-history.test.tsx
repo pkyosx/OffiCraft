@@ -516,6 +516,8 @@ describe("SettingsPage · 版本紀錄", () => {
     await mockApi.saveRole(custom.key, { definitionMd: "第一版定義" });
     await mockApi.saveLessons(custom.key, "general", "第零版經驗");
     await mockApi.saveLessons(custom.key, "general", "第一版經驗");
+    await mockApi.saveInsight(custom.key, "第零版判準");
+    await mockApi.saveInsight(custom.key, "第一版判準");
     await mockApi.updateTaskManual(manual.typeKey, {
       sopMd: "第零版 SOP",
       learnings: "第零版經驗",
@@ -593,13 +595,36 @@ describe("SettingsPage · 版本紀錄", () => {
       seeded: false,
     });
 
-    // Lessons, and both of a task manual's documents, have no seed either.
-    // The definition editor above is still open, so the page's remaining 編輯
-    // is the lessons card's.
-    fireEvent.click(utils.getAllByText(s.edit).at(-1) as HTMLElement);
+    // Lessons, insight, and both of a task manual's documents have no seed
+    // either.
+    //
+    // ⚠️ These two cards are picked BY CARD, not by position. This used to be
+    // `getAllByText(s.edit).at(-1)` with a comment asserting the page's last
+    // 編輯 was the lessons card's — true only while lessons was the last card
+    // on the persona page. T-3809 put InsightCard after it and the selector
+    // silently started opening the wrong document; the failure surfaced three
+    // steps later as a missing lessons history entry, naming neither card.
+    const cardEdit = (cls: string) =>
+      within(
+        utils.container.querySelector(cls) as HTMLElement
+      ).getByText(s.edit);
+
+    fireEvent.click(cardEdit(".mp-lessons:not(.mp-insight)"));
     fireEvent.click(utils.getByTestId("doc-history-entry-lessons"));
     expect(await probe("lessons", "lessons")).toEqual({
       surface: "lessons",
+      seeded: false,
+    });
+
+    // Insight (T-3809): NO file seed, deliberately — that is what lets an
+    // untouched doc read as genuinely empty and makes "has this role moved
+    // anything over yet?" answerable. So it belongs on the negative side of
+    // this equivalence, and a seed row appearing here would offer a reset the
+    // server has nothing to reset to.
+    fireEvent.click(cardEdit(".mp-insight"));
+    fireEvent.click(utils.getByTestId("doc-history-entry-insight"));
+    expect(await probe("insight", "insight")).toEqual({
+      surface: "insight",
       seeded: false,
     });
 
