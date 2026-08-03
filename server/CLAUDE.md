@@ -214,6 +214,39 @@ owner 2026-07-27 兩句話 + 一個數字:「更新的時候不能塞超過這�
 - **代價是具體的**:這是 agent 換手前把該輪教訓寫回去的那條縫,誤擋一次 = 那一輪的經驗無聲全掉。所以拒絕訊息(`docCapRefusal`,五個面共用一份、不可能漂成五種說法)一定講出**三個數字**(這次多長 / 上限 / 現在多長)與**唯一合法出路**(把這次寫的弄短:同一次寫入裡先刪過時內容)。seeds 同批教(`system_interaction.md` §9a / `worker_context.md`)——agent 只知道 seed 教的做法。
 - 哨兵 `api_context_cap_t3351_test.go`:(a) 超標被擋 ×6 面、(b) 合法寫入不被誤擋(含「9,000 中文字必須放行」的 rune 單位釘)、(c) 超標但變短放行 ×5 面、(d) 等長且超標被擋。四件**分開釘**,但⚠️ **一個 mutant 未必只點名一件**(逐顆實測 2026-07-27,每顆前 `go clean -testcache`):整條閘拿掉 → (a) 6/6 紅 + (d) 5/5 紅,(b)(c) 全綠;`>=` 改 `>` → 只有 (d) 紅,5/5;**rune 改 byte → (b) 4/6 紅、而且 (d) 也紅 3/5**(此處原本記成「中文那條 + (b) 紅」,漏了 (d),已更正)。(d) 會被這顆 mutant 掃到的根因在測試夾具、不在生產碼:`capDoc` 的錨 `«DROP-THIS-SECTION»` 是 19 runes = **21 bytes**,而 (d) 的等長對照物是純 ASCII 的 `strings.Repeat("q", runes(before))`,在 byte 尺下比 `before` **短 2 bytes**,被誤判成合法縮小而放行;(d) 走 patch 面的兩個子測換的是等 byte 數的錨,所以仍綠。**要拿哨兵當單一診斷訊號的人請注意這顆是跨組的**——看到 (b)(d) 同時紅,先懷疑單位而不是 `>=` 邊界。
 
+## 角色誌的第三塊：Insight（T-3809，`api_insight.go` + migration `00047_role_insight.sql`）
+
+owner 2026-07-28 逐字：「其他人不需要知道 Insight，但是 **Insight 跟 Learning 也不應該混在一起**，後者應該是基於環境學習到的一些 Q&A」。角色誌從此是**三塊**，而三塊在儲存上是三個地方、不是一個欄位裡的三段：
+
+- **Duty**（這個角色負責什麼）＝ `role_def.definition_md`，**本票一個位元組都沒動**（也**沒有**任何字數上限——`HandleUpdateRoleApiRolesRolePost` 從 `body.DefinitionMd` 到 SQL 通篇無尺寸守衛，owner 2026-08-01 裁定 2 明文禁止本票替它補上限）。
+- **Insight**（這個角色怎麼權衡：反覆用到的取捨與界線）＝ **新表 `role_insight`**，上線時**每個角色都是空的**。
+- **Learning**（環境事實 Q&A）＝ `lessons.text`，**本票零改動**。
+
+🔴 **零自動切分**（owner 2026-08-01 `rc-87e850241ef4` 選 ②）：migration `00047` 裡**沒有任何 `UPDATE`、沒有 `INSERT … SELECT`**，今天的內容原地不動，由各角色自己搬。**已知代價，明說**：上線當天 Insight 全空，本票開票的痛點（同一把尺量刪除成本差十倍的東西）**一個字元都沒改善**——交付說明不得含糊帶過。理由是「切錯比切慢貴」：一句判準被誤歸成環境事實，下一次撞上限時會被刪掉，而刪的人不會知道自己刪掉了什麼。
+
+### 三條端點與它們的門檻
+
+| route | MCP tool | `Requires` | 實際閘 |
+|---|---|---|---|
+| `GET /api/insight/{role_key}` | `get_insight` | `principalMachine` | 無（讀不設限） |
+| `POST /api/insight/{role_key}` | `replace_insight` | `principalAgent` | `insightWriteAuthz` |
+| `POST /api/insight/{role_key}/patch` | `patch_insight` | `principalAgent` | `insightWriteAuthz` |
+
+- 🔴 **讀取一律不設限，而且要到處講出來。** owner 2026-08-02 於 `rc-dc171587220c` **點選項 ①**，逐字「**包含 Insight：這一輪不關任何讀取（維持我現在的做法）**」⇒ READ 停在 machine 地板，與 Duty（`GET /api/roles` 是 `principalMachine`）、Learning（`routes.go` 逐字 `READ stays on the machine floor`）完全一致。**Insight 是「分開的」，不是「私有的」**——`insight` 這個字本身會讓讀者以為有人承諾過機密性，所以這句交付語必須出現在**每一個讀者到得了的面**（`spec/openapi.json` 三條 description、`seeds/system_interaction.md` §9b、`docs/guide/settings.md` 的 `## 角色誌` 節、`InsightCard` 卡頭）。任何一處把它寫成「私有／別人讀不到」都是**假話**。
+- 🔴 **`insightWriteAuthz` 是自己一支，不准改成呼叫 `lessonsWriteAuthz`。** 那支把 `lessons` 這個字**寫死在 403 body 裡**；複用它會讓一次被拒的 insight 寫入回「an agent may only write its own role's lessons」——聽起來對、指錯文件，caller 的下一步（去翻 lessons）整個白費。insight 的 403 逐字是 **`an agent may only write its own role's insight`**。**同一個病也在 anchor-miss 訊息上**，所以 `ApplyDocEdits` 收「要用哪個工具重讀」而不是把 `get_lessons` 烤死。⚠️ 新增一個 authz 站點會讓 `authz_surface_gate_test.go` 的 `TestAuthzOutsideTheRouteTableIsEnumerated` 變紅，直到有人把它連同**理由**寫進清單——這是刻意的，閘會逼實作者具名。
+- 身分照憲章 §14 取自 verified `sub` 的名冊列，**不是請求欄位**。admin capability 以上寫任何角色，其餘只寫自己的 `role_key`。**沒有 role 的 caller 是零、不是「只能寫自己的」**——`memberRole == ""` 永遠不等於路徑上永遠非空的 `role_key`，外包 worker 首當其衝。這是要的姿態：worker 沒有角色，沒有自己的 Insight 可整理，也不該去整理別人的。
+
+### 與 lessons 逐項不同的地方（每一項不同都是「共用就會說錯話」的地方）
+
+- **key 只有一個**。lessons 的 key 是 `(role_key, task_type)`，insight 沒有 task_type 軸，`document_history` 的 key 就是**裸 `role_key`**。🔴 **這在 cascade 上是會咬人的**：lessons 的串刪用 `"<role>::"` **前綴**比對（那裡安全，`::` 這個終結符讓 `r-abc::` 不可能打中 `r-abcdef::general`），而單鍵文件**沒有終結符** ⇒ `DeleteInsightForRole` 一律用**精確相等**（`document_key = ?`，跟 `DeleteRoleDef` 同姿勢）。**在這裡用前綴會把 `r-abcdef` 的歷史跟著 `r-abc` 一起刪掉。** 刪角色的串接在 `api_roles.go` 的 delete_role 路徑上。
+- **沒有 seed 檔，刻意的**。lessons 折的是 overlay ⊕ 一份共用檔案 seed，所以沒寫過的角色也讀得到非空內容。insight 給了 seed 之後 `text == ""` 就永遠不成立，「**這個角色還沒搬**」這個問題就再也答不出來——而那正是本票唯一交付得出來的可觀測狀態（`FoldInsight` 的 `isDefault` 即由此而來）。
+- **guard 姿態與 lessons 對齊**：整份替換走 `WholeDocWipeBlocked`，patch 走 `LessonsShrinkBlocked`（`allow_shrink` 可放行），兩條都**無條件**再過 `DocCapBlocked(s.docCap(), before, after)`——cap 取自 `doc.cap_chars` 設定、request time 讀，與上一節同一把尺；Insight 拿的是**自己一份預算**，不跟 Learning 共用。回條同樣報 `size_chars` / `cap_chars`。
+- **歷史快照在交易內重讀**：`insightSnapshotIn` 跟它的 lessons 雙胞胎一樣，**不信 handler 早先折出來的值**——保留的那一版必須是這次寫入所取代的狀態，否則兩個寫者相撞會保留同一個祖先，中間那一版永久救不回來。
+- **SSE 是第 13 個 topic**：`hub.go` 的 `sseTopics` 多一格 `"insight"`；三個寫入面（replace／patch／history restore）都發 `topic="insight"`、key 為 `wireOwnerID+"::"+roleKey`。
+- 🔴 **`api_document_history.go` 的三個 switch 一個都不能漏**（`documentHistoryAllowed`／`publishDocumentHistoryRestore`／`restoreDocumentHistory`）。**`publishDocumentHistoryRestore` 是本票唯一的靜默面**：它沒有 `default` 分支，漏掉 `case "insight"` 的後果是 **HTTP 200、DB 已改、零錯誤、零紅**，只是沒有任何人的畫面會更新。守它的是 `api_document_history_insight_publish_test.go`（含 lessons 陽性對照——沒有對照的話「沒收到 frame」可能只是夾具沒接好，負斷言會空綠）。
+- **隔離證明**：`api_insight_isolation_test.go` 把某角色的 Insight 寫到 `doc.cap_chars` 上限，斷言 Duty 與 Learning 逐位元組不變、且各自都還寫得動。**陽性對照是那支測試的命脈**——先證明「再多一個字元會被 `DocCapBlocked` 擋」，否則「寫到上限」可能根本沒踩到 cap，三條斷言會一起空綠。cap 一律取自產品讀 cap 的同一條路，不准用測試自己編的數字。
+- **agent 面**：`seeds/system_interaction.md` 的 **level-2 `## 9b.`** 是唯一會被每一代 agent 開機讀到的招牌（`## 9.` 的**兄弟節**，不是子節——寫成 `### 9b.` 等於在開機分類表裡把 Insight 歸回 Learning，而且**沒有任何東西會紅**）。⚠️ 該節同時被 `worker_sharedcore.go` 的 `workerSharedCoreExclusions` 排除（`Anchor: "## 9b. "`），理由與 §9 那條相同：本文通篇對「有角色的你」說話，送給沒有角色的 worker 只會製造 T-108b 要消滅的那種殘留。**代價寫在這裡不藏**：worker 讀得到別人的 Insight，卻永遠不會被告知它讀得到——與 §9（Learning）今天的狀態一致，不是本票新造的。日後若要讓 worker 知道，正解是**在 worker overlay 加一句 worker 語境的說明**，不是把 exclusion 拿掉。
+
 ## 每位成員的個人圖片頭像(T-c826)
 
 - 個人圖以 stable member id 綁在 `member.avatar_attachment_id`，圖片 bytes 重用
