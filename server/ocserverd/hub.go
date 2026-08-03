@@ -353,11 +353,18 @@ func (h *Hub) AgentsOnMachine(machineID string) []string {
 	return out
 }
 
-// sseTopics is the CLOSED 12-topic vocabulary (spec/sse.md §3.1; reply_card
+// sseTopics is the CLOSED 13-topic vocabulary (spec/sse.md §3.1; reply_card
 // joined in the M2 reply-card batch; task / outsource_worker / task_manual in
-// the M3 task batch). Enforced at the publish seam (the mechanism §8
-// recommends): a topic outside the set is dropped, so a typo can never mint a
-// phantom wire topic.
+// the M3 task batch; insight in T-3809). Enforced at the publish seam (the
+// mechanism §8 recommends): a topic outside the set is dropped, so a typo can
+// never mint a phantom wire topic.
+//
+// ⚠️ That drop is SILENT by design, and it has bitten: a restore published
+// "role" instead of "role_def" and fanned nothing at all, with a 200 on the
+// wire and no error anywhere (the case is documented at
+// publishDocumentHistoryRestore). Adding a topic here is therefore only half
+// the work — every switch that maps a document kind to a topic has to learn it
+// too, and Go will not tell you when one of them did not.
 var sseTopics = map[string]bool{
 	"member":           true,
 	"chat":             true,
@@ -369,6 +376,7 @@ var sseTopics = map[string]bool{
 	"global_context":   true,
 	"role_def":         true,
 	"lessons":          true,
+	"insight":          true,
 	"context":          true,
 	"monitoring":       true,
 }

@@ -574,6 +574,43 @@ type lessonsDTO struct {
 // unit as the doc.cap_chars cap the write was just judged against, so a caller
 // can compare the two directly — which is the whole point of a receipt on a
 // capped write. Two units for one subject was the defect, not the field.
+// insightDTO is the per-role INSIGHT doc on the wire (T-3809) — the third block
+// of the role journal, beside Duty (role_def) and Learning (lessons).
+//
+// Deliberately NOT lessonsDTO minus a field: there is no task_type (that axis
+// belongs to lessons alone) and no seed to fold against, so IsDefault here means
+// "this role has never written", not "still reading the shared seed". That
+// distinction is the ticket's only observable — with a seed, Text=="" would be
+// unreachable and 「這個角色還沒搬」 would stop being answerable.
+type insightDTO struct {
+	// SizeChars / CapChars let a caller size its NEXT edit before making it,
+	// for the same reason lessonsDTO carries them: the settings surface that
+	// holds the cap is admin-only, so being refused would otherwise be the
+	// only way to learn the limit.
+	SizeChars     int    `json:"size_chars"`
+	CapChars      int    `json:"cap_chars"`
+	RoleKey       string `json:"role_key"`
+	Text          string `json:"text"`
+	OwnerID       string `json:"owner_id"`
+	SchemaVersion int    `json:"schema_version"`
+	IsDefault     bool   `json:"is_default"`
+}
+
+// insightPatchResultDTO is the patch_insight receipt — the insight twin of
+// lessonsPatchResultDTO, minus task_type. SizeChars is CHARACTERS (runes), the
+// cap's unit, per the owner's 2026-07-31 ruling that a size field must carry
+// its unit in its name.
+type insightPatchResultDTO struct {
+	RoleKey       string `json:"role_key"`
+	AppliedEdits  int    `json:"applied_edits"`
+	SizeChars     int    `json:"size_chars"`
+	CapChars      int    `json:"cap_chars"`
+	Sha256        string `json:"sha256"`
+	OwnerID       string `json:"owner_id"`
+	SchemaVersion int    `json:"schema_version"`
+	IsDefault     bool   `json:"is_default"`
+}
+
 type lessonsPatchResultDTO struct {
 	RoleKey       string `json:"role_key"`
 	TaskType      string `json:"task_type"`
