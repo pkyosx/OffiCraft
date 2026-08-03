@@ -297,7 +297,7 @@ def _(root):
         r for r in rows if r["id"] == "ocagent-presence").__setitem__(
             "path", "/api/monitoring/telemetry"))
 
-@case("a row with a kind the guard does not know", "kind must be json, seam, or skip")
+@case("a row with a kind the guard does not know", "kind must be json, read, seam, or skip")
 def _(root):
     edit_manifest(root, lambda rows: next(
         r for r in rows if r["id"] == "warden-heartbeat").__setitem__("kind", "jsonish"))
@@ -532,7 +532,162 @@ def stage(tmp):
 # None retires the rule AND its control while the names and the count are untouched
 # (review demonstrated it — the banner still read "each still caught"). So the
 # EXPECTATION is committed too. Both directions are edits a reviewer sees.
+# ── the bypass that was LIVE IN THIS REPO while the enumeration stopped one hop
+# from net/http (four uplinks, cli/ocwarden/command.go) ───────────────────────
+# Both fixtures below are the shape those four travelled: nothing about them
+# mentions net/http, so a scan that only asks "does this function touch http"
+# reports the file as sending nothing at all. The first is the cheap general form
+# (one relay); the second is the exact one that was live — a constructor's result
+# stored in a struct field of function type, called through the field.
+
+@case("a send two relays deep — the shape four live uplinks hid behind",
+      "cli/ocagent/selftest_relay.go:14")
+def _(root):
+    add_go(root, "cli/ocagent/selftest_relay.go", '''package main
+
+import ("bytes"; "net/http")
+
+func selftestRelaySend(base string, raw []byte) {
+	_, _ = http.Post(base+"/api/monitoring/telemetry", "application/json", bytes.NewReader(raw))
+}
+
+func selftestRelayHop(base string, raw []byte) {
+	selftestRelaySend(base, raw)
+}
+
+func selftestRelayCaller(base string, raw []byte) {
+	selftestRelayHop(base, raw)
+}
+''')
+
+@case("a reporter reached through a struct field of function type",
+      "cli/ocagent/selftest_field.go:20")
+def _(root):
+    add_go(root, "cli/ocagent/selftest_field.go", '''package main
+
+import ("bytes"; "net/http")
+
+type selftestFieldDeps struct {
+	Report func([]byte)
+}
+
+func newSelftestReporter(base string) func([]byte) {
+	return func(raw []byte) {
+		_, _ = http.Post(base+"/api/monitoring/telemetry", "application/json", bytes.NewReader(raw))
+	}
+}
+
+func selftestFieldWire(base string) selftestFieldDeps {
+	return selftestFieldDeps{Report: newSelftestReporter(base)}
+}
+
+func selftestFieldSend(deps selftestFieldDeps, raw []byte) {
+	deps.Report(raw)
+}
+''')
+
+# ── what independent review landed past the version that shipped before these ─────
+# All three were rc=0 with a live JSON body on a real test server.
+
+@case("a JSON body posted over a raw socket, with no net/http anywhere",
+      "cli/ocagent/selftest_socket.go:6")
+def _(root):
+    # The HTTP/1.1 request line is just text. Every pattern keyed on net/http sees
+    # nothing here, and review used exactly this to POST a real body with ZERO rows.
+    add_go(root, "cli/ocagent/selftest_socket.go", '''package main
+
+import ("fmt"; "io"; "net"; "strings")
+
+func selftestSocket(addr, body string) {
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+	head := strings.Join([]string{
+		"POST /api/monitoring/telemetry HTTP/1.1",
+		"Host: " + addr,
+		"Content-Type: application/json",
+		fmt.Sprintf("Content-Length: %d", len(body)),
+		"Connection: close", "", ""}, "\\r\\n")
+	_, _ = io.WriteString(conn, head+body)
+}
+''')
+
+@case("two uplinks behind a constructor named like an entry point",
+      "cli/ocagent/selftest_entryname.go:17")
+def _(root):
+    # `run` is on the paperwork stop list, so no row is raised for CALLING it. That
+    # must not stop the value it returns from becoming a sink: review shipped two
+    # route-specific uplinks through `emit := run(base)` while the guard stayed green
+    # and both routes collapsed into one generic seam row.
+    add_go(root, "cli/ocagent/selftest_entryname.go", '''package main
+
+import ("bytes"; "net/http")
+
+func selftestBeacon(base string) func(string, []byte) {
+	return func(path string, raw []byte) {
+		_, _ = http.Post(base+path, "application/json", bytes.NewReader(raw))
+	}
+}
+
+func run(base string) func(string, []byte) {
+	return selftestBeacon(base)
+}
+
+func selftestStage(base string) {
+	emit := run(base)
+	emit("/api/monitoring/telemetry", []byte(`{"a":1}`))
+	emit("/api/agent/context", []byte(`{"b":2}`))
+}
+''')
+    edit_manifest(root, lambda rows: rows.extend([
+        {"id": "selftest-entry-post", "source": "cli/ocagent/selftest_entryname.go",
+         "callsite": '_, _ = http.Post(base+path, "application/json", bytes.NewReader(raw))',
+         "kind": "seam", "seam_reason": "declared, so this case is not about it"},
+        {"id": "selftest-entry-ctor", "source": "cli/ocagent/selftest_entryname.go",
+         "callsite": "return selftestBeacon(base)",
+         "kind": "skip", "skip_reason": "declared, so this case is not about it"},
+    ]))
+
+@case("a POST dressed as a read, behind a harmless call on the same line",
+      "does not prove it reads")
+def _(root):
+    # Two bypasses in one line. kind=read is the only place a row may spell an API
+    # path without being a JSON uplink, so it is where a POST would hide; and an
+    # earlier version resolved "which function is this callsite calling?" by taking
+    # the FIRST call on the line, which `selftestNoop();` alone was enough to defeat.
+    add_go(root, "cli/ocagent/selftest_readmask.go", '''package main
+
+const selftestVerbPost = "POST"
+
+func selftestNoop() {}
+
+func selftestSend(client httpClient, cfg Config, path string, payload any) (int, string) {
+	return httpRequest(client, selftestVerbPost, cfg.Base+path, cfg.Token, payload, 0)
+}
+
+func selftestPushCard(client httpClient, cfg Config, payload any) (int, string) {
+	selftestNoop()
+	return selftestSend(client, cfg, "/api/reply-cards", payload)
+}
+''')
+    edit_manifest(root, lambda rows: rows.extend([
+        {"id": "selftest-readmask-seam", "source": "cli/ocagent/selftest_readmask.go",
+         "callsite": "return httpRequest(client, selftestVerbPost, cfg.Base+path, cfg.Token, payload, 0)",
+         "kind": "seam", "seam_reason": "declared, so this case is not about it"},
+        {"id": "selftest-readmask", "source": "cli/ocagent/selftest_readmask.go",
+         "callsite": 'return selftestSend(client, cfg, "/api/reply-cards", payload)',
+         "kind": "read", "method": "get", "path": "/api/reply-cards",
+         "read_reason": "claims to be a poll; it is a POST"},
+    ]))
+
 EXPECTED_CASES = frozenset([
+    ('a JSON body posted over a raw socket, with no net/http anywhere', 'cli/ocagent/selftest_socket.go:6'),
+    ('a POST dressed as a read, behind a harmless call on the same line', 'does not prove it reads'),
+    ('two uplinks behind a constructor named like an entry point', 'cli/ocagent/selftest_entryname.go:17'),
+    ('a reporter reached through a struct field of function type', 'cli/ocagent/selftest_field.go:20'),
+    ('a send two relays deep — the shape four live uplinks hid behind', 'cli/ocagent/selftest_relay.go:14'),
     ('(*http.Client).Post and http.PostForm', 'cli/ocagent/selftest_clientpost.go:7'),
     ('a JSON row sending to a route other than the one it claims', "the schema being compared is another route's"),
     ('a live uplink hidden behind allow_missing_spec', "the schema being compared is another route's"),
@@ -541,7 +696,7 @@ EXPECTED_CASES = frozenset([
     ('a route repointed at a different DTO', 'requestBody $ref is'),
     ('a row claiming to be JSON without naming its schema', 'needs its OpenAPI request_schema'),
     ('a row pointed at a line that sends nothing', 'does not cover any send'),
-    ('a row with a kind the guard does not know', 'kind must be json, seam, or skip'),
+    ('a row with a kind the guard does not know', 'kind must be json, read, seam, or skip'),
     ('a seam handed back as a return value', 'cli/ocwarden/selftest_returnform.go:5'),
     ('a seam handed to a function as an argument', 'cli/ocwarden/selftest_argform.go:7'),
     ('a seam placed in a composite literal', 'cli/ocwarden/selftest_sliceform.go:6'),
