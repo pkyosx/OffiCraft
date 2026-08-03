@@ -1302,6 +1302,94 @@ func (d *DAL) DeleteLessonsForRole(roleKey string) (int, error) {
 	return deleted, nil
 }
 
+// ── insight (per-role; SINGLE role_key key) ──────────────────────────────────
+
+// Insight mirrors the role_insight table: the per-role judgement doc — the
+// trade-offs and boundaries this role keeps reaching for (T-3809). It is the
+// sibling of Lessons, deliberately NOT the same document: lessons record what
+// happened and what to do next time, insight records how this role weighs a
+// call. The owner's whole reason for asking was that the two were mixed.
+//
+// No TaskType axis (unlike Lessons) — hence a single-column primary key, and
+// hence a BARE role_key as the document_history key.
+type Insight struct {
+	RoleKey    string
+	Text       string
+	Tombstoned bool
+}
+
+// GetInsight returns the row for roleKey, or nil if never written.
+func (d *DAL) GetInsight(roleKey string) (*Insight, error) {
+	return getInsightOn(d.rdb, roleKey)
+}
+
+func getInsightOn(q sqlQuerier, roleKey string) (*Insight, error) {
+	var i Insight
+	err := q.QueryRow(`
+		SELECT role_key, text, tombstoned FROM role_insight
+		WHERE role_key = ?`, roleKey,
+	).Scan(&i.RoleKey, &i.Text, &i.Tombstoned)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &i, nil
+}
+
+// PutInsight upserts a per-role insight doc.
+func (d *DAL) PutInsight(i Insight) error {
+	return putInsightOn(d.wdb, i)
+}
+
+func putInsightOn(ex sqlExecer, i Insight) error {
+	_, err := ex.Exec(`
+		INSERT INTO role_insight (role_key, text, tombstoned)
+		VALUES (?, ?, ?)
+		ON CONFLICT (role_key) DO UPDATE SET
+			text = excluded.text, tombstoned = excluded.tombstoned`,
+		i.RoleKey, i.Text, i.Tombstoned)
+	return err
+}
+
+// DeleteInsightForRole HARD-deletes the insight doc for roleKey — the
+// custom-role cascade twin of DeleteLessonsForRole. Returns the deleted count.
+//
+// 🔴 EXACT EQUALITY on the history key, NOT the prefix match DeleteLessonsForRole
+// uses. That difference is not stylistic. A lessons history key is composite
+// ("<role>::<task_type>"), so its prefix carries a "::" terminator and
+// "r-abc::" provably cannot match "r-abcdef::general". An insight history key is
+// the BARE role_key — no terminator — so a prefix match would delete r-abcdef's
+// retained versions while deleting r-abc. Exact equality is the only safe shape
+// for a single-key document, which is why this mirrors DeleteRoleDef rather
+// than the lessons cascade sitting right above it.
+func (d *DAL) DeleteInsightForRole(roleKey string) (int, error) {
+	var deleted int
+	err := d.inTx(func(tx *sql.Tx) error {
+		res, err := tx.Exec(`DELETE FROM role_insight WHERE role_key = ?`, roleKey)
+		if err != nil {
+			return err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		deleted = int(n)
+		// The retained versions go with the document, in the SAME transaction
+		// — same reason DeleteRoleDef gives: the history read face is open to
+		// every authenticated caller, so leaving them behind would be a
+		// readable echo of a deleted document.
+		_, err = tx.Exec(`DELETE FROM document_history
+			WHERE document_kind = 'insight' AND document_key = ?`, roleKey)
+		return err
+	})
+	if err != nil {
+		return 0, err
+	}
+	return deleted, nil
+}
+
 // ── display-name overlays (account_alias / machine_alias) ────────────────────
 
 // AccountAlias mirrors the account_alias table: account tag -> display name.
