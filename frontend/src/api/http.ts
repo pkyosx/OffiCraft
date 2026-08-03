@@ -234,6 +234,7 @@ const SSE_RESYNC_TOPICS = [
   "global_context",
   "role_def",
   "lessons",
+  "insight",
   "context",
   "monitoring",
 ] as const;
@@ -277,7 +278,7 @@ export function toSseDelta(topic: string, payload: unknown): SseDelta {
 // as "keep the stale value + warn", never an unhandled rejection.
 // A resync NAMES NOTHING on purpose: the stream has no replay, so what was
 // missed is unknowable and every subscriber has to re-pull its whole snapshot.
-// The whole fan is SYNCHRONOUS, which is what lets a subscriber coalesce the 12
+// The whole fan is SYNCHRONOUS, which is what lets a subscriber coalesce the 13
 // topics into one refetch (lib/deltaSink.ts) — do not make this loop async.
 function resyncAll(): void {
   for (const topic of SSE_RESYNC_TOPICS) {
