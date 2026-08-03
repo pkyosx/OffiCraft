@@ -719,6 +719,18 @@ export const en: Dict = {
     lessonsEmpty: "No lessons yet.",
     lessonsShared: "This role's learnings (shared by every agent of this role).",
     lessonsSaveError: "Failed to save lessons",
+    // ── Insight (T-3809) — the role journal's THIRD block. Deliberately not
+    // worded as a variant of lessons: the whole point of the ticket is that
+    // "how this role weighs a call" and "what happened last time" are not the
+    // same document. ──
+    insight: "Insight (judgement calls)",
+    insightLoading: "Loading…",
+    insightError: "Failed to load insight",
+    insightEmpty:
+      "This role has no Insight yet. Nobody has moved any judgement calls over — every role starts empty here.",
+    insightShared:
+      "Insight is SEPARATE, not private — any authenticated identity can read any role's Insight; only this role's own agent and an admin can write it.",
+    insightSaveError: "Failed to save insight",
     // ── Webhook endpoints (M4) ──
     webhook: {
       title: "WEBHOOK ENDPOINTS",
@@ -1195,6 +1207,7 @@ export const en: Dict = {
     historyClose: "Close",
     historyRoleDefTitle: "Role definition · version history",
     historyLessonsTitle: "Lessons · version history",
+    historyInsightTitle: "Insight · version history",
     historyGlobalTitle: "Global context · version history",
     historyManualLearningsTitle: "Lessons · version history",
     historySopTitle: "SOP version history",

@@ -26,13 +26,14 @@ import { api } from "../api";
  * publish (api_roles.go), the one useRoles listens on, and — since the restore
  * path was fixed on this branch — the one a RESTORE publishes too
  * (publishDocumentHistoryRestore). It used to publish "role", which is outside
- * the closed 12-topic set (hub.go sseTopics) and was dropped at the publish
+ * the closed 13-topic set (hub.go sseTopics) and was dropped at the publish
  * seam, so a restore fanned nothing at all; watching the document's own topic
  * was right then and is what keeps this list reconciling now. */
 const TOPIC_OF: Record<DocumentKind, string> = {
   global_context: "global_context",
   role_definition: "role_def",
   lessons: "lessons",
+  insight: "insight",
   // All three manual kinds fan the manual's own topic: the document they
   // version IS the manual, whichever slice of it a revision holds.
   task_manual: "task_manual",

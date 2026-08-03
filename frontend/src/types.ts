@@ -214,6 +214,33 @@ export interface LessonsView {
   isDefault: boolean;
 }
 
+/**
+ * The folded PER-ROLE insight doc for one `roleKey` (T-3809) — the role
+ * journal's third block, beside Duty (the role definition) and Learning (the
+ * lessons doc). No `task_type` axis: that belongs to lessons.
+ *
+ * ⚠️ UNLIKE `LessonsView` this DOES carry `sizeChars` / `capChars`, and that is
+ * load-bearing rather than tidy. `capChars` is the live `doc.cap_chars` setting,
+ * and the settings surface that otherwise shows it is admin-only — the insight
+ * card's header is the one place an owner sees the number a write will be judged
+ * against without being refused first. Dropping these two fields the way
+ * `LessonsView` drops `owner_id` would quietly delete that.
+ *
+ * There is NO file seed for this doc, so `isDefault` and an empty `text` mean
+ * the same thing: this role has not moved anything over yet. That equivalence is
+ * the only observable this ticket ships, so the card must render it as an honest
+ * empty rather than as a failed load.
+ */
+export interface InsightView {
+  roleKey: string;
+  text: string;
+  isDefault: boolean;
+  /** Size of `text` in CHARACTERS (Unicode code points) — cap_chars' unit. */
+  sizeChars: number;
+  /** The `doc.cap_chars` setting now in force, in the same unit. */
+  capChars: number;
+}
+
 // ── Machine lifecycle view models (onboard / teardown) ────────────────────────
 
 /**
@@ -606,6 +633,10 @@ export type DocumentKind =
   | "global_context"
   | "role_definition"
   | "lessons"
+  // T-3809: the role journal's third block. Its key is the BARE role_key — no
+  // task_type axis, so it is NOT the "<role_key>::<task_type>" composite lessons
+  // uses, and anything deriving one key format from the other is wrong for it.
+  | "insight"
   | "task_manual"
   | "task_manual_sop"
   | "task_manual_learnings";

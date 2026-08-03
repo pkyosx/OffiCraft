@@ -996,6 +996,68 @@ HAPPY: dict[str, Happy] = {
             and d["is_default"] is False,
         ),
     ),
+    # ── insight (T-3809) ─────────────────────────────────────────────────────
+    # The role journal's third block: the lessons trio with the task_type axis
+    # removed, so the key is the BARE role_key and the paths carry one segment
+    # rather than two.
+    "GET /api/insight/{role_key}": Happy(
+        path="/api/insight/assistant",
+        # ⚠️ This row deliberately does NOT assert the empty doc, and the reason
+        # is worth keeping. The first version asserted text == "" and
+        # is_default is True — "an untouched insight doc reads as genuinely
+        # empty", which is the one observable this ticket ships. It failed on
+        # the first live run: test_auth_matrix drives the SAME server earlier in
+        # the session and its write cells had already put content in
+        # assistant's doc. Any "this doc has never been written" assertion is
+        # unsound in a suite that shares one server across files — the property
+        # is real, but this is not the layer that can see it. It belongs to a
+        # server unit test and to the cockpit's mock.
+        #
+        # What IS order-independent is the size/cap contract, and it is worth
+        # more than the lessons GET row (which asserts nothing at all):
+        # size_chars must be the CHARACTER count of the served text — Python's
+        # len() over a str counts code points, exactly as the server counts
+        # runes — and the cap must be at or above it. A server that reported
+        # UTF-16 units, or bytes, or a stale cap, would still return 200 here.
+        check=lambda _c, r: _expect(
+            r,
+            lambda d: isinstance(d["text"], str)
+            and d["size_chars"] == len(d["text"])
+            and d["cap_chars"] >= d["size_chars"]
+            and d["role_key"] == "assistant",
+        ),
+    ),
+    "POST /api/insight/{role_key}": Happy(
+        path="/api/insight/assistant",
+        body={"text": "conformance happy insight doc"},
+        check=lambda _c, r: _expect(
+            r,
+            lambda d: d["text"] == "conformance happy insight doc"
+            # The write flips is_default off, and with no seed to fall back to
+            # that flip is the whole record of "someone has been here".
+            and d["is_default"] is False
+            and d["size_chars"] == len("conformance happy insight doc")
+            and d["cap_chars"] >= d["size_chars"],
+        ),
+    ),
+    "POST /api/insight/{role_key}/patch": Happy(
+        # An APPEND edit (empty `old`) always lands regardless of the doc's
+        # current content, so this row does not depend on what the replace row
+        # above left behind. The receipt carries size_chars / cap_chars / sha256
+        # verification anchors instead of the full text — same shape as the
+        # lessons patch receipt, and `size` (unitless) must stay absent.
+        path="/api/insight/assistant/patch",
+        body={"edits": [{"old": "", "new": "conformance happy insight patch"}]},
+        check=lambda _c, r: _expect(
+            r,
+            lambda d: d["applied_edits"] == 1
+            and d["size_chars"] > 0
+            and d["cap_chars"] >= d["size_chars"]
+            and "size" not in d
+            and len(d["sha256"]) == 64
+            and d["is_default"] is False,
+        ),
+    ),
     "GET /api/resume-summary": Happy(
         check=lambda _c, r: _expect(
             r, lambda d: isinstance(d.get("tasks"), list)

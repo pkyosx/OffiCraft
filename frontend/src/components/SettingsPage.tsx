@@ -38,6 +38,7 @@ import {
 import { isHttpStatus } from "../api/errors";
 import { Markdown } from "./Markdown";
 import { LessonsCard } from "./LessonsCard";
+import { InsightCard } from "./InsightCard";
 import {
   DocumentHistoryEntry,
   type DocumentHistoryEntryProps,
@@ -465,7 +466,16 @@ export function SettingsPage({
           docDeletable: role ? !role.isSeed : false,
           onRestored: rolesH.refetch,
         }}
-        extra={<LessonsCard roleKey={view.key} />}
+        // Duty (the role_def card above) → Learning → Insight: the three
+        // blocks of the role journal, oldest surface to newest, matching the
+        // order seeds/system_interaction.md introduces them in. `extra` is a
+        // ReactNode, so a fragment needs no prop or type change here.
+        extra={
+          <>
+            <LessonsCard roleKey={view.key} />
+            <InsightCard roleKey={view.key} />
+          </>
+        }
       />
     );
   }

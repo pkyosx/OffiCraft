@@ -112,13 +112,15 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
 
 ## 3. Topic and op vocabulary
 
-### 3.1 Topics — the closed set (12 topics)
+### 3.1 Topics — the closed set (13 topics)
 
 The server MUST emit deltas on exactly these topics and no others (`reply_card`
 joined the set in the M2 reply-card batch; `task` / `outsource_worker` /
 `task_manual` joined in the M3 task batch — the owner-tasked M3 scope [SPEC.md
 M3 任務系統] covers the task surface wholesale, these are its necessary
-delta topics; everything else is the M1 freeze):
+delta topics; `insight` joined in T-3809, which split the role journal's third
+block out of `lessons` and therefore needed its own delta rather than riding a
+topic that names a different document; everything else is the M1 freeze):
 
 | topic | trigger | op |
 |---|---|---|
@@ -132,6 +134,7 @@ delta topics; everything else is the M1 freeze):
 | `global_context` | user-context overlay write/reset | patch |
 | `role_def` | role overlay write/reset/delete | patch |
 | `lessons` | lessons overlay write/cascade delete | patch |
+| `insight` | insight overlay write (replace / patch) / restore / cascade delete | patch |
 | `context` | agent context-gauge ingest (`POST /api/agent/context`) | signal |
 | `monitoring` | warden telemetry ingest (`POST /api/monitoring/telemetry`) | signal |
 
@@ -489,7 +492,7 @@ data: {"topic":"task-close","data":{"topic":"task-close","to":"m-1a2b3c","task_i
 - The internal buffer/queue/poll mechanics and the 0.25 s poll cadence
   — implementation-free (any concurrency model is fine) provided §1–§8 hold.
 - Topic-list validation as a mechanism — an implementation MAY enforce the closed set at
-  the publish seam (recommended), so long as all 12 topics of §3.1 pass.
+  the publish seam (recommended), so long as all 13 topics of §3.1 pass.
 - Frame ordering **across** connections, and timing between a durable commit and its frame's
   arrival (only per-connection publish order is contract, §4).
 

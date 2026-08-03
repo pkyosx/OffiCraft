@@ -23,6 +23,7 @@ import type {
   RoleDefView,
   BootstrapView,
   LessonsView,
+  InsightView,
   OnboardResultView,
   DeleteResultView,
   UninstallResultView,
@@ -1570,6 +1571,25 @@ export interface Api {
     taskType: string,
     text: string,
   ): Promise<LessonsView>;
+  /**
+   * The folded PER-ROLE insight doc for a `roleKey` (T-3809) — the role
+   * journal's third block, beside Duty and Learning. No `task_type` axis and no
+   * file seed, so an untouched doc reads as genuinely empty.
+   *
+   * READ IS UNRESTRICTED and that is deliberate: any authenticated identity may
+   * read ANY role's insight. Insight is SEPARATE, not private — this release
+   * narrowed WRITE only. Do not build a surface that implies otherwise.
+   */
+  getInsight(roleKey: string): Promise<InsightView>;
+  /**
+   * Whole-doc replace of the PER-ROLE insight doc → returns the folded doc
+   * (`isDefault` flips false). WRITE authz is per-role and keyed on the
+   * PRINCIPAL CLASS: a caller at or above admin_agent — the owner (this UI's
+   * scope) and the admin agent — may write ANY role; every other agent may
+   * write only its own role, and the 403 names `insight` rather than borrowing
+   * the lessons wording.
+   */
+  saveInsight(roleKey: string, text: string): Promise<InsightView>;
   /**
    * The retained revisions of ONE editable long-form document, newest first
    * (`GET /api/document-history/{kind}/{key}`). At most 3 are kept — the

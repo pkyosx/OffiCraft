@@ -577,6 +577,19 @@
   color: var(--color-danger);
 }
 
+/* Insight (T-3809) reuses .mp-lessons__* wholesale — it is the same editor over
+ * a different document, and a parallel class tree would only drift. The one
+ * addition is the size/cap readout in the header: {size_chars} / {cap_chars},
+ * shown at every size INCLUDING zero, because the settings surface that
+ * otherwise carries doc.cap_chars is admin-only. Muted and tabular so a number
+ * changing under an edit does not shift the title beside it. */
+.mp-insight__size {
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+}
+
 @media (max-width: 720px) {
   /* Identity card: on a phone the avatar+text row and the action cluster stack
    * vertically instead of wrapping mid-row (which left the buttons crammed

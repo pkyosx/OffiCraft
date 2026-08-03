@@ -220,7 +220,7 @@ export function useTasks(
     // short id (T-a3e4's 「已結案的 dep 仍講得出標題」 lost). Re-pulling the list
     // is ONE GET either way; only the payload is bigger.
     //
-    // What T-8115 still buys here is the COALESCING below: a resync fans 12
+    // What T-8115 still buys here is the COALESCING below: a resync fans 13
     // topics synchronously and three of them land in this hook, which used to be
     // two identical list re-pulls plus a types re-pull for one reconnect.
     const full = () =>

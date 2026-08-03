@@ -808,6 +808,67 @@ MATRIX: dict[str, Route] = {
         ),
         body={"edits": [{"old": "", "new": "conformance patch probe"}]},
     ),
+    # ── insight (T-3809) ─────────────────────────────────────────────────────
+    # The role journal's third block. Its authz face is the lessons face with
+    # the task_type axis removed — three rows, same three floors, same handler
+    # seam shape. That parallel is the point of putting them next to each other:
+    # if the two blocks ever DIVERGE on who may read or write, the diff shows up
+    # here as an asymmetry rather than as prose in a design document.
+    #
+    # 🔴 READ SITS ON THE MACHINE FLOOR, DELIBERATELY, and this row is what
+    # states that as a testable fact rather than a claim. The owner ruled
+    # (rc-dc171587220c, option 1) that this release closes NOTHING on the read
+    # face: any authenticated identity may read ANY role's insight. Insight is
+    # SEPARATE, not private. Someone reading only the ticket title ("keep
+    # Insight and Learning apart") will reach for a narrower floor here; the
+    # expected 2xx for every gated identity is what stops that from landing
+    # quietly.
+    "GET /api/insight/{role_key}": Route(
+        requires="machine",
+        path="/api/insight/assistant",
+    ),
+    "POST /api/insight/{role_key}": Route(
+        # Per-role write authz ABOVE the declared floor (handler-level,
+        # insightWriteAuthz — a SEPARATE guard from lessonsWriteAuthz, because
+        # its 403 has to name `insight`: an agent told to re-read the wrong
+        # document is worse off than one told nothing). Same shape as the
+        # lessons replace row above: admin capability writes ANY role, everyone
+        # else writes ONLY its own member's role_key.
+        #
+        # Only ONE cell is hand-written, and only because the framework's
+        # requires-rank cannot express a caller-vs-target rule. Everything else
+        # in this row's 6 cells derives from requires="agent", so the row cannot
+        # drift away from routes_manifest.json without
+        # test_matrix_requires_match_manifest saying so.
+        #
+        # admin_agent deliberately aims at agent A's role — NOT its own — so
+        # this cell fails if the admin ever loses the cross-role write. agent B
+        # aims at assistant → 403 (cross-role poison denied); agent A writes its
+        # own role → 2xx. The warden this suite builds carries role_key "", so
+        # it is below the agent floor and derives to 403 without an override.
+        requires="agent",
+        overrides={"agent_other": 403},
+        path=lambda ctx, i: (
+            f"/api/insight/{ctx.agent_a.role_key}"
+            if i in ("agent_self", "admin_agent")
+            else "/api/insight/assistant"
+        ),
+        body={"text": "conformance insight doc"},
+    ),
+    "POST /api/insight/{role_key}/patch": Route(
+        # anchor-addressed patch: SAME per-role write seam as the whole-doc
+        # replace above. Positive faces use an always-valid APPEND edit (empty
+        # `old`) so cell order never matters — an anchored edit would make every
+        # cell after the first depend on what the previous one left behind.
+        requires="agent",
+        overrides={"agent_other": 403},
+        path=lambda ctx, i: (
+            f"/api/insight/{ctx.agent_a.role_key}/patch"
+            if i in ("agent_self", "admin_agent")
+            else "/api/insight/assistant/patch"
+        ),
+        body={"edits": [{"old": "", "new": "conformance insight patch probe"}]},
+    ),
     "GET /api/resume-summary": Route(requires="machine"),
     "GET /api/resume-summary-size": Route(requires="machine"),
     "POST /api/bootstrap": Route(
