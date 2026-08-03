@@ -23,6 +23,7 @@ export const DOC_FIELD_ORDER: Record<DocumentKind, readonly string[]> = {
   // one; see IGNORED_FIELDS.
   role_definition: ["definition_md"],
   lessons: ["text"],
+  insight: ["text"],
   task_manual: ["purpose", "fields", "sop_md", "learnings"],
   task_manual_sop: ["sop_md"],
   task_manual_learnings: ["learnings"],

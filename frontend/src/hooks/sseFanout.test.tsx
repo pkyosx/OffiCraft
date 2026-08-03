@@ -6,7 +6,7 @@
 //   1. A delta re-pulls only the ITEM it named. A chat line in someone else's
 //      conversation must not re-download the roster, the 外包 rail, or the open
 //      thread.
-//   2. ONE resync (http.ts fans one synthetic delta per closed topic, 12 of
+//   2. ONE resync (http.ts fans one synthetic delta per closed topic, 13 of
 //      them, synchronously) costs each hook ONE refetch — not one per topic it
 //      happens to listen to.
 //   3. Reading a thread is itself a durable write (`GET /api/chat?with=` = 列表
@@ -212,7 +212,7 @@ function emit(delta: SseDelta) {
   });
 }
 
-/** The 12 closed topics resyncAll replays, naming NOTHING (a resync means "you
+/** The 13 closed topics resyncAll replays, naming NOTHING (a resync means "you
  * may have missed anything"), fanned synchronously topic-major. */
 const RESYNC_TOPICS = [
   "member",
@@ -225,6 +225,7 @@ const RESYNC_TOPICS = [
   "global_context",
   "role_def",
   "lessons",
+  "insight",
   "context",
   "monitoring",
 ];
@@ -747,7 +748,7 @@ describe("one delta re-pulls only what it named (T-8115)", () => {
 });
 
 describe("one resync costs one refetch per hook (T-8115)", () => {
-  it("fans 12 topics and every hook refetches exactly once", async () => {
+  it("fans 13 topics and every hook refetches exactly once", async () => {
     const view = await mountedCockpit();
     h.members = [member(OPEN_PEER, 8), member("m-other"), member("m-third")];
 
@@ -758,7 +759,7 @@ describe("one resync costs one refetch per hook (T-8115)", () => {
     // re-pulled — this is not a "do less" assertion in disguise.
     expect(view.result.current.members[0].unreadCount).toBe(8);
 
-    // COST: useMembers listens to 4 of the 12 topics, useOutsourceWorkers to 4,
+    // COST: useMembers listens to 4 of the 13 topics, useOutsourceWorkers to 4,
     // useChatUnread to 4, useTasks to 3, useChat to 2. One each.
     expect(h.counts.listMembers).toBe(1);
     expect(h.counts.getChatUnreadCount).toBe(1);

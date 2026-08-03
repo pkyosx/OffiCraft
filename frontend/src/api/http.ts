@@ -36,6 +36,7 @@ import type {
   RoleDefView,
   BootstrapView,
   LessonsView,
+  InsightView,
   OnboardResultView,
   DeleteResultView,
   UninstallResultView,
@@ -98,6 +99,7 @@ import {
   toRoleDef,
   toBootstrap,
   toLessons,
+  toInsight,
   toOnboardResult,
   toDeleteResult,
   toUninstallResult,
@@ -234,6 +236,7 @@ const SSE_RESYNC_TOPICS = [
   "global_context",
   "role_def",
   "lessons",
+  "insight",
   "context",
   "monitoring",
 ] as const;
@@ -277,7 +280,7 @@ export function toSseDelta(topic: string, payload: unknown): SseDelta {
 // as "keep the stale value + warn", never an unhandled rejection.
 // A resync NAMES NOTHING on purpose: the stream has no replay, so what was
 // missed is unknowable and every subscriber has to re-pull its whole snapshot.
-// The whole fan is SYNCHRONOUS, which is what lets a subscriber coalesce the 12
+// The whole fan is SYNCHRONOUS, which is what lets a subscriber coalesce the 13
 // topics into one refetch (lib/deltaSink.ts) — do not make this loop async.
 function resyncAll(): void {
   for (const topic of SSE_RESYNC_TOPICS) {
@@ -1711,6 +1714,37 @@ export const httpApi: Api = {
       }),
     );
     return toLessons(wire);
+  },
+
+  async getInsight(roleKey: string): Promise<InsightView> {
+    // GET /api/insight/{role_key} -> InsightDTO (T-3809). PER-ROLE doc keyed on
+    // the BARE role_key: no task_type axis (that belongs to lessons) and no file
+    // seed, so an untouched doc comes back with text "" and is_default true.
+    // READ is unrestricted by owner ruling — insight is SEPARATE, not private.
+    const wire = unwrap(
+      await client.GET("/api/insight/{role_key}", {
+        params: { path: { role_key: roleKey } },
+      }),
+    );
+    return toInsight(wire);
+  },
+
+  async saveInsight(roleKey: string, text: string): Promise<InsightView> {
+    // POST /api/insight/{role_key} {text} -> InsightDTO (folded,
+    // isDefault=false). Same POST-verb contract as saveLessons — do NOT copy the
+    // global-context save's PUT/DELETE.
+    const wire = unwrap(
+      await client.POST("/api/insight/{role_key}", {
+        params: { path: { role_key: roleKey } },
+        // allow_shrink: identical reasoning to saveLessons — the server's wipe
+        // guard targets BLIND agent write-backs, and here a human is looking at
+        // the editor they just cleared, so the intent is already explicit. The
+        // doc_cap_chars cap is checked UNCONDITIONALLY and this does not bypass
+        // it; allow_shrink governs the opposite direction.
+        body: { text, allow_shrink: true },
+      }),
+    );
+    return toInsight(wire);
   },
 
   subscribeEvents(

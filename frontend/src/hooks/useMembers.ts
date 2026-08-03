@@ -150,7 +150,7 @@ export function useMembers(opts?: { light?: boolean }): UseMembers {
       });
 
     // SSE: reconcile the roster on the relevant topics — ONE decision per burst
-    // of deltas (a resync fans 12 topics at once, of which this hook listens to
+    // of deltas (a resync fans 13 topics at once, of which this hook listens to
     // four). The light set omits chat/chat_read (T-cf91) so a chat line never
     // re-pulls here at all.
     const unsubscribe = api.subscribeEvents(

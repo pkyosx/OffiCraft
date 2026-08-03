@@ -25,6 +25,7 @@ import type {
   RoleDefView,
   BootstrapView,
   LessonsView,
+  InsightView,
   OnboardResultView,
   DeleteResultView,
   UninstallResultView,
@@ -52,6 +53,7 @@ import type {
   WireRoleDef,
   WireBootstrap,
   WireLessons,
+  WireInsight,
   WireOnboardResult,
   WireDeleteResult,
   WireUninstallResult,
@@ -1219,6 +1221,21 @@ export function toLessons(w: WireLessons): LessonsView {
     taskType: w.task_type,
     text: w.text,
     isDefault: w.is_default,
+  };
+}
+
+/** Map the folded PER-ROLE insight doc (T-3809) → the view model. Unlike
+ * `toLessons` this KEEPS `size_chars` / `cap_chars`: the cap is the live
+ * `doc.cap_chars` setting and the settings surface is admin-only, so the card
+ * header is where the owner reads it. Dropping them here would make the card's
+ * one honest number un-renderable. */
+export function toInsight(w: WireInsight): InsightView {
+  return {
+    roleKey: w.role_key,
+    text: w.text,
+    isDefault: w.is_default,
+    sizeChars: w.size_chars,
+    capChars: w.cap_chars,
   };
 }
 

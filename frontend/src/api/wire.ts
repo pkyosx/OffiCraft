@@ -256,6 +256,12 @@ export type WireBootstrap = components["schemas"]["BootstrapDTO"];
  * one `role_key` + `task_type`. `is_default` = seed vs owner-edited. */
 export type WireLessons = components["schemas"]["LessonsDTO"];
 
+/** Mirrors `service/dto.py :: InsightDTO` (T-3809). The folded PER-ROLE
+ * insight doc for one `role_key` — the role journal's third block. No
+ * `task_type` axis and NO file seed, so `is_default` and an empty `text`
+ * carry the same meaning: this role has not moved anything over yet. */
+export type WireInsight = components["schemas"]["InsightDTO"];
+
 /** Mirrors `BackupHealthDTO` (`GET /api/backup-health`) — whether the
  * SCHEDULED database backup is still producing retreat points (T-da06).
  * `status` is a three-value closed set (healthy / unhealthy / unknown) and

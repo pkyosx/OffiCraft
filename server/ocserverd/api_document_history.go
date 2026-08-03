@@ -176,6 +176,15 @@ func (s *apiServer) documentHistoryAllowed(w http.ResponseWriter, r *http.Reques
 		if write && !s.lessonsWriteAuthz(w, r, primary) {
 			return false
 		}
+	case "insight":
+		// Same posture as lessons — and the `write &&` is the point, not a
+		// copy-paste: reading any role's retained insight versions is open to
+		// every authenticated caller, exactly like reading the current doc
+		// (owner ruling rc-dc171587220c). An earlier draft of this design said
+		// the opposite; the ruling settled it.
+		if write && !s.insightWriteAuthz(w, r, primary) {
+			return false
+		}
 	case docKindTaskManualSop, docKindTaskManualLearnings:
 	case docKindTaskManual:
 		// The legacy four-field bundle. Its rows were deleted by migration 00045
@@ -257,6 +266,15 @@ func (s *apiServer) publishDocumentHistoryRestore(r *http.Request, kind, key str
 		s.hub.Publish("role_def", "patch", "role_def", wireOwnerID+"::"+key, nil, audienceOwnerOnly(), requestTrigger(r))
 	case "lessons":
 		s.hub.Publish("lessons", "patch", "lessons", wireOwnerID+"::"+key, nil, audienceOwnerOnly(), requestTrigger(r))
+	case "insight":
+		// 🔴 THE SILENT ONE. This switch has no default: omitting a kind here
+		// costs nothing visible — the restore succeeds, the DB is changed, the
+		// DTO comes back, HTTP 200, no error, no failing test — and the only
+		// symptom is that every other surface keeps showing the old text until
+		// someone reloads by hand. role_definition already made this mistake
+		// once (see the case above). api_document_history_insight_publish_test.go
+		// exists solely because nothing else in the build would go red here.
+		s.hub.Publish("insight", "patch", "insight", wireOwnerID+"::"+key, nil, audienceOwnerOnly(), requestTrigger(r))
 	case docKindTaskManualSop, docKindTaskManualLearnings:
 		s.publishTaskManual(key, requestTrigger(r))
 	}
@@ -295,6 +313,22 @@ func (s *apiServer) restoreDocumentHistory(r *http.Request, kind, key string, co
 		}
 		return s.dal.SaveWithDocumentHistory(kind, key, actor, lessonsSnapshotIn(roleKey, taskType), func(ex sqlExecer) error {
 			return putLessonsOn(ex, Lessons{RoleKey: roleKey, TaskType: taskType, Text: content["text"], Tombstoned: historyTombstoned(content)})
+		})
+	case "insight":
+		// The key is the BARE role_key — insight has no task_type axis, so
+		// there is nothing to split out of it the way lessons does above.
+		current, err := s.foldInsightDTO(key)
+		if err != nil {
+			return err
+		}
+		// The cap applies to a restore too: an older, larger revision is still
+		// a write, and letting history walk a doc back over the limit would
+		// make the cap a suggestion.
+		if DocCapBlocked(s.docCap(), current.Text, content["text"]) {
+			return errDocumentHistoryCap
+		}
+		return s.dal.SaveWithDocumentHistory(kind, key, actor, insightSnapshotIn(key), func(ex sqlExecer) error {
+			return putInsightOn(ex, Insight{RoleKey: key, Text: content["text"], Tombstoned: historyTombstoned(content)})
 		})
 	case docKindTaskManualSop:
 		return s.restoreTaskManualField(key, taskManualHistoryStreams(key, actor, true, false),

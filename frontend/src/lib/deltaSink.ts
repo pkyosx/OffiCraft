@@ -2,7 +2,7 @@
 // one per delta (T-8115).
 //
 // Why this exists: a resync (api/http.ts `resyncAll`) fans one synthetic delta
-// per closed topic — 12 of them — SYNCHRONOUSLY to every subscriber. A hook that
+// per closed topic — 13 of them — SYNCHRONOUSLY to every subscriber. A hook that
 // listens to four of those topics therefore ran four identical refetches for one
 // resync, and there is exactly one resync per reconnect AND per return to the
 // foreground. Measured on the six-hook cockpit harness: one resync cost 21
@@ -10,7 +10,7 @@
 //
 // The coalescing has to happen HERE — at the point that decides to refetch — and
 // not in the fan-out: the transport cannot know which topics a given subscriber
-// reacts to, so it cannot know that its 12 calls will collapse into one refetch.
+// reacts to, so it cannot know that its 13 calls will collapse into one refetch.
 // What it CAN guarantee is that the fan is synchronous, so accumulating whatever
 // arrives before the next microtask captures the whole burst exactly.
 //

@@ -23,7 +23,7 @@ describe("createDeltaSink", () => {
     const batches: DeltaBatch[] = [];
     const sink = createDeltaSink((b) => batches.push(b));
 
-    // This is resyncAll's shape: 12 topics, one after another, no awaits.
+    // This is resyncAll's shape: 13 topics, one after another, no awaits.
     for (const t of ["member", "chat", "chat_read", "task"]) sink(t, delta(t));
     expect(batches).toHaveLength(0); // nothing runs mid-fan
     await flush();
