@@ -479,8 +479,15 @@ describe("validateBackgrounds", () => {
     );
     expect(validateBackgrounds({ canvas: pastAvatarCap })).toBeNull();
     // And an avatar of that same size is STILL refused — the relaxation did not
-    // leak across, which is the whole point of splitting the caps.
-    expect(validateAvatars({ member: pastAvatarCap })).toMatch(
+    // leak across, which is the whole point of splitting the caps. Probe a
+    // SINGLETON kind: T-cd6f moved member / outsource images into avatarPools,
+    // so "member" would be refused on the KIND and prove nothing about the cap.
+    expect(validateAvatars({ assistant: pastAvatarCap })).toMatch(
+      /not a valid image/
+    );
+    // The pool is the other entry point into the same cap, so it must refuse it
+    // too — otherwise the split leaks through the path member images now take.
+    expect(validateAvatarPools({ member: [pastAvatarCap] })).toMatch(
       /not a valid image/
     );
 

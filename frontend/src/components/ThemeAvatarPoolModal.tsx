@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { useEscapeLayer } from "../lib/useEscapeLayer";
 import { MAX_AVATAR_POOL_ITEMS, type PoolAvatarKind } from "../lib/themeBundle";
 
 export function ThemeAvatarPoolModal({
@@ -38,50 +39,59 @@ export function ThemeAvatarPoolModal({
   onClear: () => void;
   onClose: () => void;
 }) {
+  const rootRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = `theme-avatar-pool-${kind}-title`;
 
-  useEffect(() => {
+  // Esc goes through the shared layer stack, never a listener of our own:
+  // `lib/escapeLayers.ts` is the ONLY module allowed to bind window keydown
+  // (see frontend/CLAUDE.md). The ref is the surface root, so nesting — not
+  // registration order — decides whether Esc reaches us.
+  useEscapeLayer(onClose, rootRef);
+
+  const focusable = () => {
     const dialog = dialogRef.current;
-    if (!dialog) return;
-    const focusable = () =>
-      Array.from(
-        dialog.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
-        ),
-      );
+    if (!dialog) return [];
+    return Array.from(
+      dialog.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    );
+  };
+
+  useEffect(() => {
     focusable()[0]?.focus();
+    // Mount-only: refocusing on every pool edit would yank the caret away from
+    // whichever control the owner just used.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onClose();
-        return;
-      }
-      if (event.key !== "Tab") return;
-      const items = focusable();
-      if (items.length === 0) return;
-      const first = items[0];
-      const last = items[items.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
+  // The focus trap stays element-level. It is about Tab, not Esc, so it owes
+  // the layer stack nothing — and bound here it only ever sees keys pressed
+  // while focus is already inside this dialog.
+  function onTabKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "Tab") return;
+    const items = focusable();
+    if (items.length === 0) return;
+    const first = items[0];
+    const last = items[items.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
     }
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+  }
 
   return (
     <div
+      ref={rootRef}
       className="ts-avatar-modal"
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
+      onKeyDown={onTabKeyDown}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
