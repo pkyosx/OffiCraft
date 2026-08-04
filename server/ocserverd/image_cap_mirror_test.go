@@ -140,8 +140,17 @@ func feedImagePurpose(t *testing.T, purpose, value string) error {
 	t.Helper()
 	switch purpose {
 	case "avatar":
-		m := map[string]string{"member": value}
+		// A SINGLETON kind: T-cd6f moved member / outsource images into
+		// avatarPools, so "member" is no longer an admissible `avatars` key and
+		// probing with it would fail on the kind, never reaching the cap.
+		m := map[string]string{"assistant": value}
 		return validateAvatars(&m, "t")
+	case "avatarpool":
+		// The pool is the OTHER entry point into the same gate (T-cd6f) — where
+		// member / outsource images actually live now. Without this purpose the
+		// caps stay twinned only along the singleton path.
+		m := map[string][]string{"member": {value}}
+		return validateAvatarPools(&m, "t")
 	case "logo":
 		return validateLogo(&value, "t")
 	case "navicon":
