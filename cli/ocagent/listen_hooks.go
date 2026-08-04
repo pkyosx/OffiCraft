@@ -200,7 +200,7 @@ func (h *recycleHook) say(msg string) { fmt.Fprintf(h.out, "[ocagent] %s\n", msg
 func handoverSOP(selfID string) []string {
 	return []string{
 		"recycle: server 已標記回收（refocus）— 請立刻照換手 SOP 收尾（約 120 秒寬限，逾時 server 會強制回收，未落盤的 context 就沒了）：",
-		"recycle:   1) MCP report_stopping() — 先告知世界你開始收尾（座艙即顯停止中；server 不會因此提前收你）",
+		"recycle:   1) MCP report_stopping() — 先告知世界你開始收尾（控制台即顯停止中；server 不會因此提前收你）",
 		"recycle:   2) 用 MCP update_step_note 把還在進行中的工作寫回步驟備註（做到哪、下一步接什麼；任何步驟狀態下都寫得進）",
 		"recycle:   3) 用 MCP get_lessons / replace_lessons 整併這輪的長期教訓（合併、更新、刪過時，不是往後貼）",
 		"recycle:   4) 用 MCP post_chat 給自己（to=" + selfID + "）發一則交接 baton：現況 / 在途 / blocker",

@@ -152,7 +152,7 @@ CASE zwsp  | tag="副​本"    | wordingValidate=OK | reimport=OK
 
 也就是說:**裝了某個主題包之後,按內建主題的「下載」鈕,拿到的還是一個產品自己拒收的檔案**——正是第 4 項存在的理由,只是換成從 `themeCopyTag` 這一側進來。
 
-順帶暴露一個更廣的不對稱:**主題名稱擋 bidi,主題用詞不擋**。`hasBidiFormatChar` 只用在 `validateThemeBundle` 的 `name` 上;`validateWording` 的每個值都能塞 U+202E,而那些值會渲染在整個座艙裡。「存起來的字串和顯示出來的字串不一致」這個理由對用詞值一樣成立。
+順帶暴露一個更廣的不對稱:**主題名稱擋 bidi,主題用詞不擋**。`hasBidiFormatChar` 只用在 `validateThemeBundle` 的 `name` 上;`validateWording` 的每個值都能塞 U+202E,而那些值會渲染在整個控制台裡。「存起來的字串和顯示出來的字串不一致」這個理由對用詞值一樣成立。
 
 **建議**:(a) `validateWording` 一併套 `hasBidiFormatChar`(Go 側 `validateWording` 同步);(b) 匯出前對組出來的 `name` 跑一次 `validateThemeBundle`,不過就退回未覆寫的預設 tag。
 

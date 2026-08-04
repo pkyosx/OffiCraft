@@ -1,4 +1,4 @@
-// T-71e8 — the 座艙 task card must never show the transitional empty state
+// T-71e8 — the 控制台 task card must never show the transitional empty state
 // (「等待 ○○ 建立 Steps」) when the light list's progress already reports leaves
 // (4/6) but the hydrated detail hasn't delivered steps yet.
 //

@@ -17,7 +17,7 @@ const MD = [
   "把 .md 預覽接到請示卡的附件上。",
   "",
   "- **AttachmentStrip** — 唯一 renderer",
-  "- **MarkdownPreviewOverlay** — 座艙內預覽",
+  "- **MarkdownPreviewOverlay** — 控制台內預覽",
 ].join("\n");
 
 const MD_DATA_URL = "data:text/markdown;charset=utf-8," + encodeURIComponent(MD);

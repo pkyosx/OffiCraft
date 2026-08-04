@@ -1,4 +1,4 @@
-// T-6f11 — 座艙 step 狀態徽章必須套翻譯,不得漏出原始英文 status 值。
+// T-6f11 — 控制台 step 狀態徽章必須套翻譯,不得漏出原始英文 status 值。
 //
 // Owner bug:step 徽章顯示 raw "waiting_external",任務層徽章卻正常顯
 // 「等待外部」。DOM 層釘住兩件事:

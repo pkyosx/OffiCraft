@@ -13,7 +13,7 @@
 // in WorkerDetailPanel.tsx → the long sentence returns to the header → this
 // overflow assertion reddens at 375/390 (the desktop width has more slack and
 // may still pass, which is exactly why the mobile widths are the ones that
-// matter here — owner 主要在手機上看座艙).
+// matter here — owner 主要在手機上看控制台).
 import { test, expect } from "@playwright/experimental-ct-react";
 import { WorkerDetailPanelTaskOrderStory } from "./stories/WorkerDetailPanelTaskOrderStory";
 

@@ -184,7 +184,7 @@ export const RAGGED_ARTIFACTS: TaskView = mkTask({
       url: "/api/chat/attachment/ta-long",
       label: "",
       filename:
-        "2026-07-20-座艙產物彈窗列表對齊-超長檔名回歸測試用-really-long-artifact-filename.md",
+        "2026-07-20-控制台產物彈窗列表對齊-超長檔名回歸測試用-really-long-artifact-filename.md",
       mime: "text/markdown",
       isImage: false,
       attachmentId: "ta-long",

@@ -1,6 +1,6 @@
 :root {
   --color-bg: #191c24;
-  /* T-081b 版面分區:在此之前整個座艙只有「頁底」與「卡片底」兩層可被主題換色
+  /* T-081b 版面分區:在此之前整個控制台只有「頁底」與「卡片底」兩層可被主題換色
    * ——.topbar / .nav-tabs / .app__main 都沒有自己的 background,一律吃 body 的
    * --color-bg,所以主題只有「底色多深/多綠」這一個旋鈕,做不出區域層次。
    * 這三槽把外殼的三個區域各自開放出來。預設值刻意是 var(--color-bg):內建主題
@@ -12,7 +12,7 @@
    * isValidColorValue 濾掉、也會被 bundle 的顏色文法擋下。預設 none = 純色。
    * ⚠️ 只有最外層畫布有這一槽:頂列/頁籤列/內容區三個分區**不吃圖**。
    *    但它們的色值可以是半透明(#RRGGBBAA / rgba(),顏色文法本來就收),
-   *    所以主題想做「整個座艙浮在一張圖上」時,是把那三槽調透、讓這張圖透出來,
+   *    所以主題想做「整個控制台浮在一張圖上」時,是把那三槽調透、讓這張圖透出來,
    *    不是給它們各自一張圖。⚠️ 那三層底下坐著文字,調透就等於把文字放到圖上,
    *    可讀性由主題自己負責(owner 於 rc-f0e23286d75e 明示接受這個取捨)。 */
   --canvas-bg-image: none;
@@ -22,7 +22,7 @@
    *   sides — 兩層、各貼一邊、兩軸都不重複、貼齊視窗底部;
    *   cover — 一層、縮放填滿視窗、置中。
    * 兩者都用 attachment: fixed 釘在**視窗**上:畫布背景預設跟著文件捲動,而這個
-   * 座艙的文件真的會捲(實測),不釘住就會在長頁面上再冒出第二份。
+   * 控制台的文件真的會捲(實測),不釘住就會在長頁面上再冒出第二份。
    * 不做鏡像(owner 2026-07-27):要左右對稱由主題包畫在圖裡。 */
   --canvas-bg-repeat: repeat;
   --canvas-bg-position: 0 0;
@@ -167,7 +167,7 @@
   --color-logo-grad-from: #1f5a48; /* topbar logo 綠漸層起 */
   --color-logo-grad-to: #123a30;   /* topbar logo 綠漸層迄 */
 
-  /* onboarding 首啟失敗 banner(現況為深座艙裡的淺卡;P1 僅 token 化保像素,
+  /* onboarding 首啟失敗 banner(現況為深控制台裡的淺卡;P1 僅 token 化保像素,
    * 是否改深留 owner 後續設計決定,見 T-16a1 收尾摘要) */
   --color-onboarding-bg: #fff8ec;
   --color-onboarding-border: #e0b070;

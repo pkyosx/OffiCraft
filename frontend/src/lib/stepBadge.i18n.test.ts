@@ -1,6 +1,6 @@
 // stepBadge × i18n 枚舉守衛(T-6f11)。
 //
-// Owner bug:座艙 step 狀態徽章曾漏出原始英文值(waiting_external),任務層
+// Owner bug:控制台 step 狀態徽章曾漏出原始英文值(waiting_external),任務層
 // 卻正常顯「等待外部」——根因是三語 stepStatus map 都缺 waiting_external 這個
 // key,而 render site 的 map-miss fallback 直印 raw key;resolver 的特殊徽章
 // 分支只是恰好遮住唯一 render site,一旦分支被改動/新增狀態就漏。這檔把
@@ -8,7 +8,7 @@
 //
 //   ① 枚舉 STEP_STATUSES(closed set 的唯一出處,lib/stepBadge.ts)× 三語
 //      locales:tasks.stepStatus[status] 必須存在、非空、且不等於 raw key。
-//      新增狀態忘記補翻譯 → 這裡先紅,raw key 進不了座艙。
+//      新增狀態忘記補翻譯 → 這裡先紅,raw key 進不了控制台。
 //   ② waiting_external 三處同詞:step map 項 == 特殊徽章 stepWaitingExternal
 //      == 任務層 tasks.status.waiting_external —— 兩層(任務/步驟)與兩條
 //      render 路徑(特殊徽章/後防 map)永遠讀成同一個詞。

@@ -154,7 +154,7 @@ describe("產物 popover — the one list (T-49fb)", () => {
     // filename stretched the row and pushed the actions out of column). It
     // truncates via CSS, so the whole name has to survive on `title=`.
     const longName =
-      "2026-07-20-座艙產物彈窗列表對齊-超長檔名回歸測試用-really-long-artifact-filename.pdf";
+      "2026-07-20-控制台產物彈窗列表對齊-超長檔名回歸測試用-really-long-artifact-filename.pdf";
     const { container } = renderBadge(
       [mkArtifact({ id: "ta-long", kind: "file", filename: longName, mime: "application/pdf", url: "/api/chat/attachment/ta-long" })],
       { count: 1 },
