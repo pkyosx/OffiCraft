@@ -334,17 +334,25 @@ func (s *apiServer) HandlePatchInsightApiInsightRoleKeyPatchPost(w http.Response
 		writeError(w, http.StatusBadRequest, docCapRefusal(cap, "insight doc", current.Text, next))
 		return
 	}
-	if err := s.dal.SaveWithDocumentHistory("insight", roleKey, currentActor(r), insightSnapshotIn(roleKey), func(ex sqlExecer) error {
-		return putInsightOn(ex, Insight{
-			RoleKey:    roleKey,
-			Text:       next,
-			Tombstoned: false,
-		})
-	}); err != nil {
-		internalError(w, err)
-		return
+	// 🔴 applied == 0 → the doc is byte-identical, so there is nothing to write
+	// and nothing to retain. Writing anyway burns one of the THREE document
+	// history slots on a snapshot of text nobody replaced, silently shortening
+	// the owner's undo path. Full reasoning at the patch_lessons twin
+	// (api_roles.go, HandlePatchLessonsApiLessonsRoleKeyTaskTypePatchPost). The
+	// receipt below stays outside the gate and unchanged.
+	if applied > 0 {
+		if err := s.dal.SaveWithDocumentHistory("insight", roleKey, currentActor(r), insightSnapshotIn(roleKey), func(ex sqlExecer) error {
+			return putInsightOn(ex, Insight{
+				RoleKey:    roleKey,
+				Text:       next,
+				Tombstoned: false,
+			})
+		}); err != nil {
+			internalError(w, err)
+			return
+		}
+		s.hub.Publish("insight", "patch", "insight", wireOwnerID+"::"+roleKey, nil, audienceOwnerOnly(), requestTrigger(r))
 	}
-	s.hub.Publish("insight", "patch", "insight", wireOwnerID+"::"+roleKey, nil, audienceOwnerOnly(), requestTrigger(r))
 	sum := sha256.Sum256([]byte(next))
 	writeJSON(w, http.StatusOK, insightPatchResultDTO{
 		RoleKey:       roleKey,
