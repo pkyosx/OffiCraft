@@ -282,7 +282,7 @@ owner 2026-07-28 逐字：「其他人不需要知道 Insight，但是 **Insight
 - `PATCH /api/members/{member_id}/avatar-index` 是 owner-only、MCP-excluded，
   staff 發 `member` delta，outsource 發 `outsource_worker` delta；warden/machine
   目標拒絕。索引只要求非負，不受當前 pool 長度限制。
-- migration `00042` 刪除舊 `avatar_attachment_id` 前先刪其專用 `ava-` blobs，
+- migration `00049` 刪除舊 `avatar_attachment_id` 前先刪其專用 `ava-` blobs，
   並退役 personal-avatar PUT/DELETE route、DTO 欄與 editor。Down 只還原空 pointer，
   不假裝能重建已刪除的個人圖片。
 

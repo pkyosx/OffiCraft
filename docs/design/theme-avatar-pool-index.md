@@ -40,7 +40,7 @@ Status: owner-approved on 2026-07-29 (`rc-e9da3501194f`)
 
 ## Persistence and rollback
 
-Migration `00042`:
+Migration `00049`:
 
 1. Add `avatar_index INTEGER NOT NULL DEFAULT 0 CHECK (avatar_index >= 0)`.
 2. Delete every `chat_attachment` row referenced by a non-empty
@@ -56,6 +56,26 @@ The deleted personal image bytes are intentionally not reconstructed on
 rollback. The pointer is restored empty so the old schema is valid and never
 references a missing blob. This is the owner-approved irreversible cleanup of
 the rejected personal-avatar model.
+
+### The only retreat is a backup restore
+
+Down does not undo this migration in any useful sense. It restores the column
+shape, not the bytes, so every member that had a personal avatar comes back
+with an empty pointer. Whoever presses merge should know that:
+
+- **Recovering the images requires restoring the database from a backup taken
+  before the upgrade.** There is no in-place repair, and no partial one.
+- The scheduled backup (`~/.officraft/server/data/backups/`) plus the
+  pre-migration snapshot that `bin/migrate` takes are the two candidate
+  restore points. Verify one exists before upgrading a station that has
+  personal avatars.
+- Nothing else is destroyed. The deletion is scoped to attachments whose id
+  starts with `ava-`, which only the retired personal-avatar model ever wrote.
+
+Measured on a copy of this station's production database (25 members, 319
+attachments, schema at version 46): 5 `ava-` attachments totalling 155,095
+bytes were deleted, 314 attachments were untouched, and no member row was
+lost. The five affected members render from the active theme afterwards.
 
 ## Deployment
 
