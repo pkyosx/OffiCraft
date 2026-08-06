@@ -73,7 +73,7 @@ export const zh = {
     clearFilters: "清除篩選",
     // 「所有人」→「所有負責人」(T-17be): 這顆篩的是 executor,但「所有人」在中文
     // 有兩讀 ——「所有的人」與「所有權人(owner)」——「所有」本身就是所有權的
-    // 意思,而這個座艙裡真的有 owner 這個角色,兩讀都講得通。補上被篩的名詞就
+    // 意思,而這個控制台裡真的有 owner 這個角色,兩讀都講得通。補上被篩的名詞就
     // 消歧義,也跟隔壁 filterExecutorNoun:「負責人」對齊。
     // 同類掃描過 en/xian,兩者都不動:en「Everyone」沒有所有權那一讀;
     // xian「眾人」的「眾」只有「多」的意思,也沒有。歧義是中文「所有」這個詞
@@ -505,7 +505,7 @@ export const zh = {
     submitting: "登入中…",
     error: "密碼錯誤，請再試一次",
   },
-  // 首設密碼(全新安裝第一次打開座艙;啟用碼 = server 啟動訊息印出的一次性
+  // 首設密碼(全新安裝第一次打開控制台;啟用碼 = server 啟動訊息印出的一次性
   // claim token,證明你是這台機器的主人)。
   firstRun: {
     title: "設定管理密碼",
@@ -523,7 +523,7 @@ export const zh = {
     gotoLogin: "前往登入",
   },
   // T-ba62 首次安裝自動化的結果橫幅:設完初始密碼後,server 會自己把這台機器的
-  // warden 裝好、把助理叫醒。這個橫幅只在「沒有全部成功」時出現,因為成功時座艙
+  // warden 裝好、把助理叫醒。這個橫幅只在「沒有全部成功」時出現,因為成功時控制台
   // 上有一個醒著的助理本身就是訊號;失敗時它是使用者唯一看得到的「為什麼」。
   onboarding: {
     titleFailed: "自動設定沒有全部完成",
@@ -632,7 +632,7 @@ export const zh = {
     langZh: "中文",
     langEn: "English",
     pushContactEmail: "通知信箱",
-    pushContactEmailSub: "推播服務用來識別這個座艙的公開信箱；未填時不會送出通知。",
+    pushContactEmailSub: "推播服務用來識別這個控制台的公開信箱；未填時不會送出通知。",
     pushContactEmailPlaceholder: "name@company.com",
     pushContactEmailError: "請填入可公開使用的信箱。",
     layout: "版面",
@@ -723,7 +723,7 @@ export const zh = {
     copyShareLink: "複製分享連結",
     shareLinkCopied: "已複製連結",
     shareLinkCopyFailed: "複製連結失敗",
-    // .md 附件的座艙內預覽(T-a1c4):與下載分開的動作;overlay 內用
+    // .md 附件的控制台內預覽(T-a1c4):與下載分開的動作;overlay 內用
     // Markdown.tsx render(不是開新分頁看原始碼)。
     // T-7bc2: the chip itself is the trigger now — no separate "action" label.
     mdPreview: {
@@ -1149,7 +1149,7 @@ export const zh = {
     reasonNeverRan: "排程備份從來沒有成功產生過還原點。",
     reasonStale: "最新的排程備份已經超過保鮮期，備份可能已經停掉了。",
     reasonFailed: "最近一次排程備份失敗或被略過，沒有產生新的還原點。",
-    // unknown 的兩種來源分開講:伺服器說它還沒評估 vs 座艙根本問不到伺服器。
+    // unknown 的兩種來源分開講:伺服器說它還沒評估 vs 控制台根本問不到伺服器。
     reasonUnknown: "監看器還沒評估過，或讀不到自己的狀態，所以現在無法判斷有沒有還原點。",
     reasonUnavailable: "讀不到備份狀態（問不到伺服器），所以現在無法判斷有沒有還原點。",
     // 事實列

@@ -19,7 +19,7 @@
 // still fits a 390px row. Nothing below asserts a look; ② asserts the CLASS
 // that carries the colour, which is the part a mutant can break in TS. The
 // 390px fit is the CT guard's job (taskcard-longtoken-wrap.ct.spec.tsx) and
-// the look is owner's 座艙驗收.
+// the look is owner's 控制台驗收.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, waitFor } from "@testing-library/react";

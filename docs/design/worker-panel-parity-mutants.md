@@ -59,7 +59,7 @@ deps 沒變，cleanup 根本不會執行。**兩個成因是耦合的，mutant �
 | A2b | 永遠不清（過度修正） | `_ClearsTheStopTraceOnAnOrdinaryBoot` |
 | B1 | restart 守衛退回 INTENT-only | `TestRestartWorker_RevivesAWorkerWhoseSessionDiedOnItsOwn` |
 | B1b | restart 守衛整個拿掉（`if false`） | `TestRestartWorker_ClearsAndRedispatches`（活著的 worker 該 409） |
-| B2 | 座艙 toggle 退回 `stopped`-only | 當時的 `a worker whose session died on its own offers 重新啟動…` |
+| B2 | 控制台 toggle 退回 `stopped`-only | 當時的 `a worker whose session died on its own offers 重新啟動…` |
 | B2b | toggle 永遠顯示重啟（過度修正） | 當時的 `stop → the worker reads 已停止 and the toggle flips to 重啟` |
 | B3 | mock adapter 漂回 INTENT-only 守衛 | 當時的 `a worker whose session died on its own offers 重新啟動…` |
 

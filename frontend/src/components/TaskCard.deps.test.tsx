@@ -25,7 +25,7 @@
 // "it looks faded" — only that the class carrying the fade is applied and that
 // the title attribute (the affordance truncation depends on) is present with
 // the FULL text. Asserting the look in jsdom would launder an unverified claim
-// as a test; the look is owner's 座艙驗收.
+// as a test; the look is owner's 控制台驗收.
 
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";
@@ -279,7 +279,7 @@ describe("T-1d82 ① 非終態 dep: 編號 + 標題, 整列可點跳轉", () => 
 
   it("a long title keeps its FULL text in the title attribute (what hover reads)", async () => {
     const long =
-      "座艙任務卡 deps「等 t-xxx」列可點跳轉+顯示 task 編號與標題;終態 dep 收斂顯示";
+      "控制台任務卡 deps「等 t-xxx」列可點跳轉+顯示 task 編號與標題;終態 dep 收斂顯示";
     const blocker = mkTask({ taskNo: "T-ea82", title: long });
     __injectMockTask(blocker);
     __injectMockTask(mkTask({ title: "被長標題擋的", deps: [blocker.id] }));

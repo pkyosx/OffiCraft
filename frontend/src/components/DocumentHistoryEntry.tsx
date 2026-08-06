@@ -146,7 +146,7 @@ export function DocumentHistoryEntry({
   useEscapeLayer(() => setOpen(false), listRef, open && reading === null);
 
   const actorLine = (actorId: string) =>
-    // 座艙自己寫的版本掛的是 owner token 的 sub，名冊裡永遠查不到 —— 沒有這一支
+    // 控制台自己寫的版本掛的是 owner token 的 sub，名冊裡永遠查不到 —— 沒有這一支
     // 分岔，owner 在自己的修改上看到的只有 "owner" 四個字母 (裁定 2026-07-31)。
     actorId === OWNER_ACTOR_ID
       ? t.user

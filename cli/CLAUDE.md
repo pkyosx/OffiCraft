@@ -25,7 +25,7 @@
 - **warden restart 不斷 agent online**:ocagent 是獨立進程、持自己的 SSE,warden 重啟不影響。
 - **完全不做 code signing(T-0398,owner 2026-07-31 拍板「全部拿掉,連手動簽章的逃生門一起刪」)**:repo 裡已**沒有**簽章機制——`bin/codesign-artifact`、`bin/setup-codesign-cert`、`bin/build-release`、`bin/release publish --sign`、`OC_CODESIGN_*` env knob 全部刪除。所以 fleet self-update 換進去的 binary 一律是素 `go build` 的 adhoc 產物。這個 loop 也**不再 log 簽章身分**:舊的 `signatureOf` seam → `codesignIdentity`(shell out `/usr/bin/codesign -dv`,只記錄不驗證)一併移除,`hostseam_test.go` 的兩份名單也隨之少一筆。防自殺閘門只有 exec probe + content hash,就這兩道。
   - ⚠️ **不要把這條跟 TCC 身分錨點搞混**:錨點(`cli/officraft` / `dist/officraft/officraft`)是**用 bytes 認身分**的,從來不依賴簽章憑證,owner 核可保留(見下方 plist 那條紅字)。也**不要寫「簽章讓 TCC 授權跨版延續」或「已證明 self-signed 對 TCC 無用」**——兩個方向都是過度宣稱;現況只是**高度懷疑無效、沒有 100% 結論**(owner 2026-07-26)。刪除的理由是作業面的:它卡測試又卡發佈。詳見 `docs/dev/README.md`〈發佈簽章 —— 已整個移除〉。
-- **event-driven kick(T-c93d)+ `update` 動詞(T-5f01)**:self-update 的 15m 輪詢只是 backstop;`updater.Kick()`(buffered-1 去抖)有兩個 producer——SSE transport 每次成功 (re)connect(server 換版必踢斷所有 stream)、與 server push 的 **`update` warden-command 動詞**(owner 座艙一鍵升級 `POST /api/machines/{id}/upgrade` → `CommandDeps.Update` seam → 同一個 Kick)。update 動詞無 receipt(swap 自己會經 telemetry `self_update` 宣告);舊版 warden 對不認得的動詞 = log+skip 安全忽略(transport_test 釘死)。
+- **event-driven kick(T-c93d)+ `update` 動詞(T-5f01)**:self-update 的 15m 輪詢只是 backstop;`updater.Kick()`(buffered-1 去抖)有兩個 producer——SSE transport 每次成功 (re)connect(server 換版必踢斷所有 stream)、與 server push 的 **`update` warden-command 動詞**(owner 控制台一鍵升級 `POST /api/machines/{id}/upgrade` → `CommandDeps.Update` seam → 同一個 Kick)。update 動詞無 receipt(swap 自己會經 telemetry `self_update` 宣告);舊版 warden 對不認得的動詞 = log+skip 安全忽略(transport_test 釘死)。
 - **心跳 warden_shape(T-ff5d)**:30s telemetry payload 另帶 `warden_shape`(`anchor`/`legacy`/`unknown`),值由 **`cutover.go` 的同一支 `detectShape`** 從**父行程 exe** 讀出(不是「磁碟上有沒有 anchor 檔」——機器可以有檔卻仍被 legacy plist 起來,那正是本遷移要修的狀態),經 `newCutoverOps` seam 取得,所以測試 binary 摸不到真 `ps`。每輪重讀不快取:cutover 會 bootout 再由 launchd 重起,快取的行程不是回報的那個。⚠️ **省略 ≠ `unknown`**:省略 = 這台的 warden build 還沒收到本次發佈,`unknown` = 新 build 跑了但讀不到父行程,server 兩者互不推導(`warden_shape` 只有非空才進 payload,鏡 `machine`/`binaries`/`claude` 的條件寫法;anchorPath 解不出來時回報 `unknown` 而非空字串——空 anchorPath 會讓 `detectShape` 把**每一台** launchd 起的 warden 都判成 `legacy`)。同批 `binaries` 多一支 `officraft`(TCC 錨點,self-update 刻意永不換它,所以只有指紋看得出機器跑的是哪一份錨點);anchorPath 一律由 `resolvePaths` 供給,不在 fingerprint.go 再推導一次。
 - **心跳 binaries 指紋(T-5f01)**:30s telemetry payload 順帶 `binaries: {ocwarden, ocagent}`——live binary 的 sha256 12-hex 前綴(`fingerprint.go`,stat (size,mtime) cache 免每 30s 重讀 multi-MB)。server 拿它比對自己 embed 的 bindist hash 算機器表 `bin_status`(current/stale/缺=unknown)。**刻意 content-hash、不埋版號**(同 self-update swap oracle 理由:埋 sha 會造成 update 迴圈)。
 
@@ -104,7 +104,7 @@ effort 只留在 in-memory entry(**沒有 `actual_effort`**),所以別從一個�
   display_name,但上線的必須是 id:(a) `seeds/boot_sequence.md` 早就教成員「填 Claude Code
   提供的**真實 model id**,不要猜值」,用 display_name 會讓正職自報與這支自報變成兩種詞彙;
   (b) **只有 id 帶 `[1m]`**——display_name 對 1M 與標準版都寫「Opus 4.5」,送它等於把兩種
-  不同的 session 併成同一個字串,而座艙現在就在顯示這個區別。
+  不同的 session 併成同一個字串,而控制台現在就在顯示這個區別。
 - 空值 `omitempty` 省略,**絕不送空字串**(與 effort 同理)。
 - **只掛 `/api/monitoring/telemetry`**;`AgentContextIngestDTO` 沒宣告 model 且
   `additionalProperties:false`,塞進 context POST 會 422 掉整個 gauge 回報。
@@ -162,7 +162,7 @@ owner 拍板「乾淨新建」:warden 長出**臨時 session** 形態伺候外�
 ## deploy
 唯一安裝入口是 **`ocwarden install`**(Go,`cli/ocwarden/install.go`;flip 時期的 bash `bin/warden-install` 已退役刪除)。
 
-🔴 **plist 起的不是 ocwarden,是 TCC 身分錨點 `officraft`(T-5831)**:launchd 的 job leader 是整棵樹的 TCC responsible process,而 adhoc 簽章的 binary 是用 bytes 的雜湊被認出來的——plist 指向會被 self-update 抽換的 ocwarden 時,每更新一次就作廢一次全機授權(症狀是**卡住、無 log**,不是被拒絕)。錨點只 fork 隔壁的 ocwarden(帶 `run`)、轉發停止訊號、用 child 的結束狀態當自己的;**裝過就永不覆寫**(連相同 bytes 也不行,重寫會換 inode)。它同時被 embed 進 ocwarden(`anchor_embed.go`,`bin/build-bindist` staging 進 `anchordist/`),因為座艙的一鍵安裝只下載 ocwarden 一支——embed、出貨、`dist/officraft/` 三份是**同一次 build 的同一份 bytes**,三份不同就是三個身分。
+🔴 **plist 起的不是 ocwarden,是 TCC 身分錨點 `officraft`(T-5831)**:launchd 的 job leader 是整棵樹的 TCC responsible process,而 adhoc 簽章的 binary 是用 bytes 的雜湊被認出來的——plist 指向會被 self-update 抽換的 ocwarden 時,每更新一次就作廢一次全機授權(症狀是**卡住、無 log**,不是被拒絕)。錨點只 fork 隔壁的 ocwarden(帶 `run`)、轉發停止訊號、用 child 的結束狀態當自己的;**裝過就永不覆寫**(連相同 bytes 也不行,重寫會換 inode)。它同時被 embed 進 ocwarden(`anchor_embed.go`,`bin/build-bindist` staging 進 `anchordist/`),因為控制台的一鍵安裝只下載 ocwarden 一支——embed、出貨、`dist/officraft/` 三份是**同一次 build 的同一份 bytes**,三份不同就是三個身分。
 install 把發佈流程 fresh build 的 binary 安到 `~/.officraft/warden/`(home,per-machine)並 render 真實 plist;plist template 在 `cli/ocwarden/deploy/`(REFERENCE,實際 plist 由 install 於 runtime 寫)。⚠️ `cli/ocwarden/CUTOVER.md` 是 **2024 年 python→golang 的歷史 runbook**,跟下面這條 anchor 遷移無關(它那句「No plist backup is kept」講的是退休 `com.officraft.warden`/`com.officraft.telemetry` 兩份 python 期 plist,別拿來當本節的依據)。
 
 ### legacy→anchor 自動遷移(T-ff5d;`cutover.go`)— 面向「要處理一台使用者機器」的人
@@ -181,7 +181,7 @@ install 把發佈流程 fresh build 的 binary 安到 `~/.officraft/warden/`(hom
 | `~/Library/LaunchAgents/com.officraft.ocwarden.plist.prev` | 轉換前那份 plist 的**唯一**副本(`writePlist` 是無條件覆寫、自己不留底) | ⚠️ 這是手動回滾唯一的依據,救援結束前別刪 |
 
 **怎麼從外面看出一台轉了沒**:
-- **座艙(不用登入那台)**:機器表的 `warden_shape` 欄——`anchor` = 轉好了、`legacy` = 還沒、`unknown` = 新 build 跑了但讀不到父行程。**空白/null 不是「沒轉」**,是「這台的 warden build 還沒收到這次發佈,根本不會回報」。這欄每 30s 隨心跳更新。
+- **控制台(不用登入那台)**:機器表的 `warden_shape` 欄——`anchor` = 轉好了、`legacy` = 還沒、`unknown` = 新 build 跑了但讀不到父行程。**空白/null 不是「沒轉」**,是「這台的 warden build 還沒收到這次發佈,根本不會回報」。這欄每 30s 隨心跳更新。
 - **在那台機器上**:`launchctl print gui/$(id -u)/com.officraft.ocwarden | grep -A3 arguments` —— 印出 `…/warden/officraft` = anchor;印出 `…/warden/ocwarden run` = legacy。(判準刻意是 **launchd 實際在跑什麼**,不是「磁碟上有沒有 officraft 這個檔」——機器可以有檔卻仍被 legacy plist 起著,那正是要修的狀態。)
 - 轉換發生過就一定有 `log/cutover.log`;什麼都沒有 = 這台從沒進過這條路。
 
@@ -192,7 +192,7 @@ install 把發佈流程 fresh build 的 binary 安到 `~/.officraft/warden/`(hom
 
 - **anchor shape 之前裝的機器** = legacy plist **且沒有 anchor 檔**;self-update 只換 ocwarden/ocagent(`selfupdate.go` 從不碰 plist、也從不部署 anchor),那個檔**不會自己出現**。
 - ⇒ gate **恆偽**,轉換**一次都不會啟動**。而**被擋掉的正是這個遷移唯一要救的母群體**。
-- 現場(fleet 三台跑 T-ff5d build 的機器,實查其中一台的 `log/ocwarden.err/out.log`):每次啟動都印 `anchor cutover: skipped — anchor preflight: cannot execute …/warden/officraft: no such file or directory`,而且**沒有** `cutover.lock`、**沒有** `cutover.failed`、**沒有** `log/cutover.log` —— 孫行程從未被生出來。心跳照實回報 `legacy`,座艙照實顯示 LEGACY;**回報是誠實的,失效的是動作**。這也是為什麼「等它自己收斂」是錯的建議:那個 skip 是決定性的,每次啟動都會再跳過一次。
+- 現場(fleet 三台跑 T-ff5d build 的機器,實查其中一台的 `log/ocwarden.err/out.log`):每次啟動都印 `anchor cutover: skipped — anchor preflight: cannot execute …/warden/officraft: no such file or directory`,而且**沒有** `cutover.lock`、**沒有** `cutover.failed`、**沒有** `log/cutover.log` —— 孫行程從未被生出來。心跳照實回報 `legacy`,控制台照實顯示 LEGACY;**回報是誠實的,失效的是動作**。這也是為什麼「等它自己收斂」是錯的建議:那個 skip 是決定性的,每次啟動都會再跳過一次。
 
 **修法**:gate 中間插一步 `ensureAnchorPresent`(順序變成 shape → sentinel → **anchor-present** → preflight → lock),形狀是 **stage → probe → promote**:
 
@@ -242,7 +242,7 @@ launchctl print gui/$(id -u)/com.officraft.ocwarden | head     # 確認真的起
 **claude 路徑鏈(OC_CLAUDE_BIN stamp)**:launchd warden 的 minimal PATH 找不到 version-manager(asdf/nvm/volta)的 claude → runtime `resolveClaudeBin`(transport.go)的 ②LookPath/③common-dirs 全 miss。解法是**在還找得到的環節解析、stamp 進 plist 讓優先序① 命中**:(a) `ocwarden install` 於安裝環境解析 claude(`resolveClaudeForInstall`,install.go:OC_CLAUDE_BIN env → LookPath → common dirs),用 `--version` 在 minimal PATH 下實測——過 = 只 stamp OC_CLAUDE_BIN;不過但在 installer PATH 下過(shim/env-shebang)= 連 installer PATH 一起 stamp 進 plist;都找不到 = 印人話 WARNING+指引(裝 claude 或 export OC_CLAUDE_BIN 重跑),不 fatal。(b) bootstrap-here 鏈(server 在 launchd minimal env 下跑 `ocwarden install`):`bin/ocserver install`(使用者互動 shell 跑)先解析 claude、stamp OC_CLAUDE_BIN(+必要時 full PATH)進 **serve plist**;bootstrap-here 的 env passthrough(`api_machines.go`)原樣帶給 ocwarden install → 其解析優先序① 命中 → 轉 stamp 進 warden plist。foreground `ocwarden run` 的 OC_CLAUDE_BIN env 優先序不變(同一個優先序①)。
 
 ## bootstrap / teardown on server(一鍵,server 本機跑;server-side handlers)
-server RUN ON 被操作的機器時,owner 不用 copy-paste shell,座艙一鍵讓 **server 在本機**跑 warden 起 / 收:
+server RUN ON 被操作的機器時,owner 不用 copy-paste shell,控制台一鍵讓 **server 在本機**跑 warden 起 / 收:
 - **bootstrap-here**(`POST /api/machines/{id}/bootstrap-here`):server 解析 ocwarden binary(503 若缺)→ 跑 **`ocwarden install --force`**(帶 install 需要的 `OC_BASE`/`OC_TOKEN`;identity 只來自 token `sub`,**不注入 OC_ID 且會清掉 server process 繼承來的雜散 OC_ID**——對齊 self-update 的 `env -u OC_ID` 防污染)。`--force` = **一律 OVERWRITE** 前一個 warden(重裝、跳 skip-if-present),讓重裝可靠冪等。handler `handle_bootstrap_here`。
 - **teardown-here**(`POST /api/machines/{id}/teardown-here`):bootstrap-here 的對稱反向。server 在**自己 host** 跑 **`ocwarden teardown`(顯式目標,見下方 §teardown 顯式目標契約:canonical instance 送 `--canonical`、namespaced instance 送 `OC_NAMESPACE` 且**不**帶旗標)**(= `launchctl bootout` + **poll `launchctl print` 至 launchd 回報 label 真消失**(bootout 是 async;走 install 同一支 `bootoutUntilGone`)+ 移除 install artifacts,**靠 launchd 停 daemon、絕不 pkill**)。**CONFIRM-THEN-REMOVE**:僅在 daemon 確認 torn down(`exit_code == 0`,= label 確認消失 + artifacts 移除)才 soft-delete warden member;非零 / timeout 則 member 留在 roster(`removed=false`)——失敗的本機 teardown 不會把還活著的 daemon 從 registry 孤兒化,`log`(stdout+stderr)帶原因給 FE。handler `handle_teardown_here`。teardown 身分無關(只讀 HOME + uid),不需 token 接線。
   🔴 **T-42a0(2026-07-27):上面整段描述的是那條路徑「會做什麼」,但它現在對任何 `{id}` 都不會被走到——兩道 409 擋在 subprocess 之前。**
@@ -250,7 +250,7 @@ server RUN ON 被操作的機器時,owner 不用 copy-paste shell,座艙一鍵�
   - **指名別台 → 409**(`teardownHereForeignTargetMsg`):這個動詞碰不到那台。別台退役走 `uninstall_machine` → `delete_machine`。
   - **指名 server 這台 → 409**(`serverSelfUndeletableMsg`,T-9cf8):修這台的 warden 用 **bootstrap-here / `install_warden_on_server_host`**(`install --force` 本來就覆蓋既有安裝,不需先拆)。
   兩道拒絕整併在 `server/ocserverd/api_machines.go` 的**單一** `teardownHereRefusal`(寫成兩道連續 `if` 時第二個是可證恆真的死條件,獨立審查實測 `if true` 全綠)。**CONFIRM-THEN-REMOVE 那段因此經 HTTP 不可達**;端點要不要退役是待 owner 裁定的獨立問題。詳見 `server/CLAUDE.md` 的 T-42a0 條。
-- **治理**:兩者都是 `requires="admin_agent"`(`server/ocserverd/authz.go` 單一 choke)——T-6020(owner 2026-07-26 拍板)把它們從 owner-only 降到 remote-command uninstall / DELETE **同一級**:在 server host 上裝機拆機是 admin 助理該能跑的辦公室維運。**一般 agent 與 warden 仍是 flat 403**(這仍是在 server host 上跑碼的特權本機動作,只是治理層而非 owner 一人)。若座艙沒跑在該機上,fallback 是 copy-command 到遠端 shell 貼上跑。
+- **治理**:兩者都是 `requires="admin_agent"`(`server/ocserverd/authz.go` 單一 choke)——T-6020(owner 2026-07-26 拍板)把它們從 owner-only 降到 remote-command uninstall / DELETE **同一級**:在 server host 上裝機拆機是 admin 助理該能跑的辦公室維運。**一般 agent 與 warden 仍是 flat 403**(這仍是在 server host 上跑碼的特權本機動作,只是治理層而非 owner 一人)。若控制台沒跑在該機上,fallback 是 copy-command 到遠端 shell 貼上跑。
 
 ### teardown 顯式目標契約(T-2257,2026-07-25 事故後)
 `ocwarden teardown` **fail-closed、不再有隱含目標**。事故:一個 namespaced E2E cleanup 跑了沒帶 `--namespace` 的 `ocwarden teardown`,fallback 到 **canonical** warden,在一台 fleet 機上殺掉 live warden、刪掉 canonical launchd plist 與 `exec-warden.tok`(不可復原),7 個 live agent 失去監管。

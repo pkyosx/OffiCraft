@@ -56,7 +56,7 @@
 
 | # | 項目 | 正職有什麼 | 外包有什麼 | 差在哪 | 期望行為 |
 |---|------|-----------|-----------|--------|---------|
-| D1 | 喚醒（`spawn`／`t.lifecycle.action.spawn`） | 有：離線／已停止／waking／stopping 皆提供，開設定 dialog 後 `activateMember` | `restartWorker` | ~~差~~ **已修（T-7526 追加範圍，owner 核可）** | ✅ **已完成，不再是開放問題**。原本 `restart` 的守衛是 `desired_state != offline → 409`（問「有沒有人按過停止」），所以 session 自己死掉的外包（`desired_state` 仍是 online）叫不起來。守衛改成 `desired_state != offline && hub.IsOnline(id)`（問「還活著嗎」），座艙的 `noLiveSession = stopped \|\| offline` 讓那顆鍵在死掉的 worker 上顯示「重新啟動」。護欄：`TestRestartWorker_RevivesAWorkerWhoseSessionDiedOnItsOwn` |
+| D1 | 喚醒（`spawn`／`t.lifecycle.action.spawn`） | 有：離線／已停止／waking／stopping 皆提供，開設定 dialog 後 `activateMember` | `restartWorker` | ~~差~~ **已修（T-7526 追加範圍，owner 核可）** | ✅ **已完成，不再是開放問題**。原本 `restart` 的守衛是 `desired_state != offline → 409`（問「有沒有人按過停止」），所以 session 自己死掉的外包（`desired_state` 仍是 online）叫不起來。守衛改成 `desired_state != offline && hub.IsOnline(id)`（問「還活著嗎」），控制台的 `noLiveSession = stopped \|\| offline` 讓那顆鍵在死掉的 worker 上顯示「重新啟動」。護欄：`TestRestartWorker_RevivesAWorkerWhoseSessionDiedOnItsOwn` |
 | D2 | 取消喚醒（`cancel`） | `waking` 時提供 → `deactivateMember` | 無 | 差 | **待裁定**，同 D1：外包的 `stop` 端點是否吃 `waking` 態，wire 沒明說 |
 | D3 | 強制停止 + 二次確認 | `stopping` 時 Stop 升級為 force-stop，`mp-force-stop-confirm` modal | **無此端點**（`spec/openapi.json` 只有 `/api/members/{id}/force-stop`） | 差 | **待裁定**。要對齊得新增 `/api/outsource-workers/{id}/force-stop`，屬 wire 變更（§13 先改 spec + owner 過目） |
 | D4 | 「只儲存，不喚醒」 | `mp-settings-save-only`，未喚醒時出現 | 無 | 差 | **不需要**（可自裁定）：外包 dialog 本來就**不啟動任何東西**（只打 `model` 與 `relocate` 兩個端點），所以整份 dialog 就是「只儲存」，多一顆同義鍵反而製造「另一顆會啟動」的錯覺 |

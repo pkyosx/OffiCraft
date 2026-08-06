@@ -1,4 +1,4 @@
-// T-8115 — 一次座艙載入只讀一份 /api/settings.
+// T-8115 — 一次控制台載入只讀一份 /api/settings.
 //
 // MEASURED PREMISE: the production `GET /api/settings` body is 639,270 bytes
 // uncompressed (373 kB gzipped; `custom_themes` is 626,721 of it — 98%, and

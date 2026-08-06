@@ -39,7 +39,7 @@ wire 那頭是裸 `string`(spec 已凍結),不認得的字 → `undefined`,再�
 ## unread 計數 badge(M2-1 紅點升級;與 presence 各自獨立)
 roster MemberCard 成員列**右側(flex 尾端)的紅色計數 badge**(>99 顯示 99+、count=0 完全不渲染)= server 算好的 `member.unreadCount`(MemberDTO `unread_count`,chat_read watermark 的反相計數;只算成員→owner 訊息,agent↔agent 不計;舊純紅點 boolean 已整顆換掉)——FE 純 passthrough、**不自己算**。清除即既有已讀 choke:進對話的 `listChat` auto-mark / `markChatRead`;`useMembers` 的 ROSTER_TOPICS 含 `chat` / `chat_read` 讓 badge 即時亮/滅;開著的那個對話卡片以 `selected` 壓掉 badge(對話中新訊息永不累積)。badge 在整列(聊天入口)內,點 badge = 點列 = 進聊天,無獨立 handler。mock 以同一規則 live 計算(`unreadCountOf`)、行為與 http 一致;測試用 `__injectMockChat` 注入 inbound 訊息。
 
-**三個顏色槽,外框自 T-d593 起獨立且無下限。** 這顆紅圓圈在座艙有 **7 個 render site
+**三個顏色槽,外框自 T-d593 起獨立且無下限。** 這顆紅圓圈在控制台有 **7 個 render site
 但只有 3 條 CSS 規則**(`.nav-tab__badge` in chrome.css、`.office__tab-badge` 與
 `.member-card__unread` in office.css;⚠️ 側欄那兩個 site 是**同一段 JSX**——
 `SidebarTab` 只有一個 `className` 字面、被呼叫兩次)。三條規則吃同一組槽:
@@ -69,7 +69,7 @@ ChatArea 兩個行為,皆不動 server:
 - **房內新訊息浮條**:owner 上滾(沿用既有 `nearBottomRef` 判定,80px 帶)時新進 `to===owner` 訊息 → `.chat__new-msg-chip` 灰底 pill 浮在 `.chat__body` 底部;錨點 = 浮條出現後**第一則**未看訊息(session 內以 message-id diff 追蹤,不動 server);點擊 smooth 捲到該則(`[data-msg-id]`);**捲到底才消失**(onScroll near-bottom 清除),點擊本身不清。在底部時維持原自動跟底、永不出浮條。i18n key:`chat.newMessages` / `chat.unreadBelow`(三語)。
 
 ## 全幅閱覽 = 一個 overlay、三種來源(owner 2026-07-28;T-f014 收編圖片)
-`MarkdownPreviewOverlay` 是**唯一**的座艙內全幅面 —— markdown **與圖片都算**,
+`MarkdownPreviewOverlay` 是**唯一**的控制台內全幅面 —— markdown **與圖片都算**,
 三個入口共用:
 - **`url`**:已存檔的 .md 附件(T-a1c4),overlay 自己 fetch,header 保留「下載」
   **與複製分享連結**;因此 `url` 一定**併帶必填的 `attachmentId`**(T-4fdc:分享連結
@@ -84,7 +84,7 @@ ChatArea 兩個行為,皆不動 server:
   傳兩個是 compile error;`url` 少了 `attachmentId` 也是 compile error。
 
 **T-f014:舊的 `Lightbox`(`chat__lightbox*`)已退役、連同樣式整塊刪除。**
-座艙裡**只剩這一個**全尺寸看圖面,所以每張圖(已存檔附件 / staged 預覽)都拿到同一組
+控制台裡**只剩這一個**全尺寸看圖面,所以每張圖(已存檔附件 / staged 預覽)都拿到同一組
 標題列:檔名、分享連結(僅已存檔)、下載、關閉、Esc/backdrop 關閉、縮放。
 退役前的實況比票面描述更糟:`AttachmentStrip` 早就**不讀** `onOpenImage` 了,
 於是五個 call site 一邊把 handler 傳進一個忽略它的元件、一邊掛著一個永遠打不開的第二層
@@ -290,7 +290,7 @@ T-e862 的 generation guard **救不了這一格**:它只在「有更新的 refe
 `handledCount` 因此要把「被按住的張數」加回去(那份 count 與被按住的列來自**同一個**
 pre-write 快照)。**兩個方向各有一條測試**,見下方護欄。
 🔴 **本檔上一版寫「delta 是唯一的 reconcile trigger」,那句對動作路徑是錯的、
-而且是個 production blocker**:它把座艙的正確性押在一個**可有可無的即時事件**上
+而且是個 production blocker**:它把控制台的正確性押在一個**可有可無的即時事件**上
 ——EventSource 斷線或漏一帧時,server 已經收下答覆,等我回覆頁與導覽列徽章卻還
 把那張卡畫成等待中,owner 再點一次就吃 409。**「SSE 斷線時卡片不再就地翻面」不是
 已接受的交換,別再引用它**:step 8 換到的是**少一輪往返**,不是少一條 fallback。
@@ -300,7 +300,7 @@ delta 仍然是**別人**的寫入的 reconcile trigger,而它對 owner 自己�
 generation guard **只擋 commit、不擋請求**,所以多的那一輪是「整份下載完再丟掉」
 ——畫面上完全看不出來,任何「答完卡片會離開清單」的斷言在壞碼上照樣綠。
 真 ocserverd 實測(25 張 waiting 卡):答一張卡 = **48 次逐卡 GET / 100,952 B**
-→ 修後 **24 次 / 51,406 B**;對照組(別人開的卡、座艙沒動作)改動前後都是一輪,
+→ 修後 **24 次 / 51,406 B**;對照組(別人開的卡、控制台沒動作)改動前後都是一輪,
 那正是坐實「第二輪屬於本地動作路徑」的實驗。
 ⚠️ **`refresh()` 不在此列、仍無條件重抓**:它的 caller 是 409(卡已被別處處理),
 那是別人的寫入,沒有自己的 delta 會來。
@@ -586,7 +586,7 @@ reconcile-by-refetch 的規則沒變(**永遠不 merge payload**),但「refetch 
   護欄:`api/http.sse-delta.test.ts`(每條都斷言那個值**不在**投影裡)。
 - 🔴 **names 為空 = 「什麼都可能漏了」,一律全量重抓**。resync 名不指任何一項(串流沒有
   replay,漏了什麼本質上不可知),mock 更是連第二個參數都不傳。**空名字絕不可讀成
-  「沒事發生」**,那會把 mock 座艙與每次重連後的自癒一起凍住。
+  「沒事發生」**,那會把 mock 控制台與每次重連後的自癒一起凍住。
 - **`lib/deltaSink.ts`:一「陣」delta 只做一次決定**。`resyncAll` 把 13 個 topic
   **同步**扇給每個訂閱者,所以聽 4 個 topic 的 hook 以前一次 resync 跑 4 次同樣的重抓
   (實測:一次 resync 21 個請求,12 個是重複)。**coalesce 只能發生在「決定要不要重抓」
@@ -624,7 +624,7 @@ reconcile-by-refetch 的規則沒變(**永遠不 merge payload**),但「refetch 
     ⚠️ **「兩支 handler 共用」的範圍就是那兩支,不是「每個回 MemberDTO 的端點」**
     (2026-08-01 實查):六個 `newMemberDTO` 呼叫點裡只有清單與單筆帶真的數字,
     `writeMemberDTO`(約 15 個 handler 共用)、`api_members.go:462`/`:565`、
-    `api_roles.go:222` **仍然傳 literal 0**。今天沒有使用者可見後果(座艙不把那些
+    `api_roles.go:222` **仍然傳 literal 0**。今天沒有使用者可見後果(控制台不把那些
     回應塞回 roster),但別把上面那句讀成「到處都是真的」。同理它**不是** repo 尺度的
     「一支共用計算」——`api_outsource.go` :136/:199/:348 與 `api_chat.go` :873 還有
     **四份** inline 複製。
@@ -646,7 +646,7 @@ reconcile-by-refetch 的規則沒變(**永遠不 merge payload**),但「refetch 
     `ListChat()` 全表掃描**,所以逐項的成本是 k 倍、不是 k 個小請求。
     🔴 **k≥2 不是邊角情況,而且不需要 burst coalescing**:一則 chat delta 帶
     `{id, from, to}`(`api_chat.go`),`toSseDelta` 五個欄位全收,而 hub 對
-    owner/dashboard 連線(`MemberID==""`)是**全量投遞**(`hub.go`)⇒ 座艙收得到
+    owner/dashboard 連線(`MemberID==""`)是**全量投遞**(`hub.go`)⇒ 控制台收得到
     agent↔agent 的訊息,**單一 SSE frame 就同時指名兩個名冊成員**。agent 互相講話
     在這個產品裡是常態。(反面:分開三個 tick 的三則 delta 是三個 k=1 的 burst,
     改動前也是 3 次清單 GET ⇒ **那條路沒有回歸**,放大只發生在單一 burst 內。)
@@ -662,7 +662,7 @@ reconcile-by-refetch 的規則沒變(**永遠不 merge payload**),但「refetch 
     會讓下一個人以為這條路已經解完了——它是常態的「浪費」,不是常態的「需求」。**
     `UnreadCounts`(`server/ocserverd/domain.go:411-425`)只數
     `m.Recipient == reader` 的訊息(它自己的 doc comment 就寫明「Messages between two
-    other participants never count」),而座艙這份 roster 的 reader 是 **owner**;
+    other participants never count」),而控制台這份 roster 的 reader 是 **owner**;
     owner **不是名冊列**(single-owner schema,沒有 owner 的 member row),所以
     `heldRef` 永遠不含它。把這兩件事接上 `narrowToHeld` 就得到:
 
@@ -727,7 +727,7 @@ reconcile-by-refetch 的規則沒變(**永遠不 merge payload**),但「refetch 
     價值所在**:`getChatUnreadCount` 的回應只有 1 個位元組(一個數字),但它在 server
     側是一次 `ListChat()` **全表掃描** + 一次名冊 + 一次 worker 清單。**價值在往返次數
     與 server 端的掃描,不在下載量。**
-    🔴 **這四個實例已經全部收完,但「座艙 0 請求」只對這些形狀成立。** 別把它讀成
+    🔴 **這四個實例已經全部收完,但「控制台 0 請求」只對這些形狀成立。** 別把它讀成
     「任何 delta 都不再打 API」——真的會動 badge 的照舊全打(見上面的對照組)。
 
     🔴 **`k > 1 → full()` 沒有刪 —— 而且它是混合陣的熱路徑,不是 fail-safe。**
@@ -814,7 +814,7 @@ reconcile-by-refetch 的規則沒變(**永遠不 merge payload**),但「refetch 
   只可能被 peer 的 watermark 推動,自己那份 echo 永遠不會改到它)。名字空的照舊無條件重抓。
   ⚠️ 它**本來就會停**(那一輪裡沒有人再打一次列表即讀,而 `PutChatRead` 只在真的前進時才扇
   ——`dal.go` + `server_test.go`),所以這不是無窮迴圈,是**每則訊息固定多一輪**的放大。
-- **實測(改前 → 改後,六個 hook 同掛的座艙,單一 delta 造成的請求數,不含 mount)**:
+- **實測(改前 → 改後,六個 hook 同掛的控制台,單一 delta 造成的請求數,不含 mount)**:
   別的對話一則聊天 **5 → 2**;自己讀取的 echo **4 → 2**;一次 resync **21 → 9**。
   ⚠️ **這幾個數字量的是「請求次數」,而逐項 vs 清單在次數上是一樣的(都是一個 GET)**
   ——所以上面那些數字**不因為 members/tasks 改走清單而變**,變的是那一個 GET 的 payload
@@ -868,7 +868,7 @@ reconcile-by-refetch 的規則沒變(**永遠不 merge payload**),但「refetch 
 
 `GET /api/settings` 在正式站是 **639,270 bytes**(gzip 後 373 kB;`custom_themes`
 一欄佔 626,721 = 98%,其餘 15 欄合計約 2.5 kB)。它同時是**六個**互不相識的
-mount-fetch 消費者的來源,所以那份 payload 一次座艙載入被下載六遍。
+mount-fetch 消費者的來源,所以那份 payload 一次控制台載入被下載六遍。
 
 - **唯一入口 `hooks/sharedServerSettings.ts`**(核心在 `lib/sharedSnapshot.ts`):
   合併(single-flight)+ 快取 + 世代守衛。**mount-fetch 一律走 `loadServerSettings()`,
@@ -896,7 +896,7 @@ mount-fetch 消費者的來源,所以那份 payload 一次座艙載入被下載�
 
 **`onboarding: null` 是終態——而這是與 server 的成對契約(T-8115)。** DTO 明訂 null 是
 「onboarding never ran」的**正常值**(舊安裝、或建庫時就有密碼),正式站正是 null;
-舊碼的 `isTerminal(null) === false` 讓每次開座艙輪滿 3 分鐘 = **61 次** × 373 kB
+舊碼的 `isTerminal(null) === false` 讓每次開控制台輪滿 3 分鐘 = **61 次** × 373 kB
 (這個數字是 mutant 讓測試自己印出來的,不是推的)。
 - **憑什麼敢把 null 當終態**:`kickFirstRunOnboardingWith`(`server/ocserverd/onboarding.go`)
   在**開 goroutine 之前**就把 `running` 報告寫進 DB,所以那一列在
@@ -1052,7 +1052,7 @@ min-content 是整個單字,所以**同一段 CSS 對 en 幾乎沒有作用**(�
   nowrap 造成的新溢出的洩壓閥**,不是原缺陷的一部分:不再可壓縮之後,zh 在 320px
   會溢出 23px。斷點**刻意不用站上的 720px**——開了 wrap 之後標題會以 max-content
   參與斷行,375/390 那些**本來排得下**的一列會被推成兩行(列高 42→61px 實測),
-  而 owner 就是在那些寬度看座艙。
+  而 owner 就是在那些寬度看控制台。
 - 🔴 **已知缺口:上面每一個數字都是 zh 量的,en 不一樣。** 英文在 **360–380px 仍會
   溢出**(實測 headOver 22 @360、7 @375、0 @390),因為 `nowrap` 對拉丁 min-content
   沒有作用。**那是既有缺陷、不是這包造成的**——pre-fix 樹量到**逐位元組相同**的 en
@@ -1416,9 +1416,9 @@ theme.css 裡定義值是裸 `var(--other)` 的 token(分區三槽)是「跟隨�
     是唯一的真相表,兩側各自對它斷言
     (`server/ocserverd/image_cap_mirror_test.go` / `frontend/src/lib/imageCap.test.ts`),
     任一側漂掉都會紅**而且訊息點得出是哪一側**。照 `doc-cap-cases.tsv` 的先例做。
-  - **座艙那道 UI 閘也要跟著分流**:`ThemeSettings.tsx` 的 `readValidatedImage`
+  - **控制台那道 UI 閘也要跟著分流**:`ThemeSettings.tsx` 的 `readValidatedImage`
     是四個 picker 共用的,背景那個 picker 要傳 `isValidBackgroundValue`,
-    否則會出現「後端說可以、座艙說圖片無效」。
+    否則會出現「後端說可以、控制台說圖片無效」。
 - **色與圖並存**:`global.css` 的 body 改成 `background-color: var(--color-bg)` +
   `background-image: var(--canvas-bg-image, none)` + `background-repeat: repeat`。
   沒有圖 = 完全等同從前的純色;舊主題包(沒有這個欄位)一個像素都不會變。

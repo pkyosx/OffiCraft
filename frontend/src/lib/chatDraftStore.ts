@@ -1,6 +1,6 @@
 // lib/chatDraftStore.ts — the composer DRAFT survival layer for the office chat.
 //
-// The bug (T-8aaa): the座艙 chat composer's draft (typed text AND staged image
+// The bug (T-8aaa): the控制台 chat composer's draft (typed text AND staged image
 // attachments) lived ONLY in ChatArea's component state. Navigating to another
 // page unmounts OfficePage (and with it the single ChatArea instance), so the
 // draft was dropped; coming back showed an empty composer.

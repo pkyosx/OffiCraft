@@ -433,7 +433,7 @@ describe("one delta re-pulls only what it named (T-8115)", () => {
       "m-third",
     ]);
 
-    // 🔴 **座艙整體現在真的是 0(T-b17f)**。這兩條原本是刻意的絆線,寫著 1 / 1 並
+    // 🔴 **控制台整體現在真的是 0(T-b17f)**。這兩條原本是刻意的絆線,寫著 1 / 1 並
     // 註明「`useChatUnread` 被修好的那天它們會紅,那是進展不是回歸」。那一天到了:
     // 全公司未讀總數同樣是 `UnreadCounts(reader=owner)` 的和(api_chat.go:873),
     // agent↔agent 的訊息動不了它一個單位,所以那次 `GET /api/chat/unread-count`

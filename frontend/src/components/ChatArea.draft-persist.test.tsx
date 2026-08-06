@@ -1,4 +1,4 @@
-// ChatArea draft survival (T-8aaa) — the座艙 chat composer's draft (typed text
+// ChatArea draft survival (T-8aaa) — the控制台 chat composer's draft (typed text
 // AND staged image attachments) must outlive a 跳頁 (component unmount) and be
 // restored on return, per chat peer. Locked here:
 //   • text + attachment restore after an unmount/remount of the SAME peer;

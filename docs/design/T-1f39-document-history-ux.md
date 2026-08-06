@@ -34,9 +34,9 @@ owner 原話（2026-07-31，逐字）：
 | 手冊快照內容 | `{purpose, fields, sop_md, learnings}` **四欄同一包** | `server/ocserverd/api_taskmanuals.go` |
 | 角色誌快照內容 | `{text, tombstoned}` — **本來就只有自己一欄** | `server/ocserverd/api_roles.go` |
 | 讀取 | `GET /api/document-history/{kind}/{key}`（MCP `list_document_history`，floor=machine） | `server/ocserverd/routes.go` |
-| 還原 | `POST /api/document-history/{kind}/{key}/{id}/restore`，`MCPExclude: true`（owner 2026-07-30 裁定：讀是 agent 工具、寫回只有座艙做） | 同上 |
-| 座艙 | **已經有一張「版本紀錄」卡** `DocumentHistoryCard`，掛在四個編輯面下方；每列顯示時間／actor／逐欄預覽片段＋「還原這個版本」＋超上限的不可還原徽章 | `frontend/src/components/DocumentHistoryCard.tsx` |
-| 座艙缺什麼 | **沒有 modal、沒有任何 diff**；只能看片段預覽 | 同上 |
+| 還原 | `POST /api/document-history/{kind}/{key}/{id}/restore`，`MCPExclude: true`（owner 2026-07-30 裁定：讀是 agent 工具、寫回只有控制台做） | 同上 |
+| 控制台 | **已經有一張「版本紀錄」卡** `DocumentHistoryCard`，掛在四個編輯面下方；每列顯示時間／actor／逐欄預覽片段＋「還原這個版本」＋超上限的不可還原徽章 | `frontend/src/components/DocumentHistoryCard.tsx` |
+| 控制台缺什麼 | **沒有 modal、沒有任何 diff**；只能看片段預覽 | 同上 |
 | 上限 | `contextDocMaxChars`（rune；**寫此文時**是寫死的常數，見下方 §6 補記），`DocCapBlocked(before, after)`：未滿放行／超標但比原本短放行／超標且不短於原本擋下 | `server/ocserverd/domain.go` |
 | 上限套用欄位 | 角色誌 `text`、手冊 `sop_md`、手冊 `learnings` **各自獨立計**；`purpose`、`fields`、全域情境、角色定義**不受限** | `api_roles.go` / `api_taskmanuals.go` |
 
@@ -61,7 +61,7 @@ owner 原話（2026-07-31，逐字）：
 
 ## 2. 角色誌
 
-後端不動（已經獨立）。「同辦」落在**座艙 UX**：角色誌的版本紀錄卡一樣可點開 modal、一樣有 diff 切換。
+後端不動（已經獨立）。「同辦」落在**控制台 UX**：角色誌的版本紀錄卡一樣可點開 modal、一樣有 diff 切換。
 
 ## 3. 既有歷史的處置 ❓Q1
 
@@ -73,10 +73,10 @@ owner 原話（2026-07-31，逐字）：
 - 拆完超過 3 版的照樣修剪。
 - `sop_md` 或 `learnings` 為空的那半不產生列。
 - **Down**：把同 `(key, created_ts, actor_id)` 的兩列合回一列 `task_manual`，`purpose` 與 `fields` 還原成空字串——**這一段是不可逆的損失**，因為新模型從此不存這兩欄。
-- 理由：不遷移的話，舊列會變成座艙讀不到、agent 也問不到的殘骸，正是任務要求避免的；而丟掉的恰好是 owner 說「不需要版本控制」的兩欄。
+- 理由：不遷移的話，舊列會變成控制台讀不到、agent 也問不到的殘骸，正是任務要求避免的；而丟掉的恰好是 owner 說「不需要版本控制」的兩欄。
 - 代價我明講：**遷移一旦上線，purpose／識別鍵的既有歷史就永久消失**，Down 救不回來。
 
-替代案（若不接受損失）：舊列原封不動、新寫入走新 kind，座艙對手冊多顯示一個唯讀的「舊版整包歷史」區塊直到自然被淘汰。代價是 UI 多一塊只為過渡存在的東西。
+替代案（若不接受損失）：舊列原封不動、新寫入走新 kind，控制台對手冊多顯示一個唯讀的「舊版整包歷史」區塊直到自然被淘汰。代價是 UI 多一塊只為過渡存在的東西。
 
 ## 4. diff 跟誰比
 
@@ -108,7 +108,7 @@ owner 原話（2026-07-31，逐字）：
 - 拆開後每份的上限仍是各自一份**設定的上限**，**與現行行為完全一致，沒有默默改變任何東西**。
 - 還原時的上限檢查跟著縮小範圍：還原 `task_manual_sop` 只檢查 `sop_md`，還原 `task_manual_learnings` 只檢查 `learnings`（今天是兩欄一起檢查，任一超標就整包擋下）。這是拆包的**附帶好處**，也是一項行為改變，需要測試釘住。
 
-## 7. 座艙 UX
+## 7. 控制台 UX
 
 1. 四個編輯面（全域情境、角色誌、手冊 SOP、手冊學習經驗）的版本紀錄卡，每一列變成**可點**。
 2. 點開 `DocumentHistoryModal`：
@@ -123,7 +123,7 @@ owner 原話（2026-07-31，逐字）：
 
 - `list_document_history` 的 `kind` 列舉新增 `task_manual_sop`、`task_manual_learnings`。
 - 舊值 `task_manual` **已退場**（Q2 裁定）：list 與 restore 都回 400，訊息指名兩個新 kind。
-- 還原路由沿用同一條，只是 kind 多兩個；`MCPExclude` 不變（還原仍只有座艙做）。
+- 還原路由沿用同一條，只是 kind 多兩個；`MCPExclude` 不變（還原仍只有控制台做）。
 - **不新增任何路由**（diff 在前端算）。
 - 需同步：`spec/openapi.json` → `bin/gen-ocapi` → `frontend` `gen:api`；`spec/mcp-catalog.json`（手維護、byte-equality）；`conformance/routes_manifest.json`（路由集合沒變，只有描述／列舉變動）；`spec_catalog_conformance_test.go` 的 drift 基線；`seeds/system_interaction.md` §4。
 
@@ -419,7 +419,7 @@ restored series writes back」是全庫**唯一**一處用 `kind: "task_manual_s
 > 時候再打 API 就可以，也不會有不知道版本是對哪一個 section 的狀況，所有頁面都這樣處理
 
 並在明示的二選一卡片上選了：**取代：重置鈕改成版本入口，「初始版本」當清單裡的一項**。
-追加一句（同日）：修改者若是 owner，顯示座艙自己的 `t.user`，不要裸代號。
+追加一句（同日）：修改者若是 owner，顯示控制台自己的 `t.user`，不要裸代號。
 
 落地的形狀：`DocumentHistoryCard`（永遠掛在編輯面下方的卡）**退場**，改成
 `DocumentHistoryEntry` —— 一顆站在編輯列（原本 重置 的位置）的 `.doc-btn`，點開才
