@@ -681,18 +681,41 @@ func (s *apiServer) HandlePatchLessonsApiLessonsRoleKeyTaskTypePatchPost(w http.
 		writeError(w, http.StatusBadRequest, docCapRefusal(cap, "lessons doc", current.Text, next))
 		return
 	}
-	if err := s.dal.SaveWithDocumentHistory("lessons", roleKey+"::"+taskType, currentActor(r), lessonsSnapshotIn(roleKey, taskType), func(ex sqlExecer) error {
-		return putLessonsOn(ex, Lessons{
-			RoleKey:    roleKey,
-			TaskType:   taskType,
-			Text:       next,
-			Tombstoned: false,
-		})
-	}); err != nil {
-		internalError(w, err)
-		return
+	// 🔴 A batch that changed NOTHING must not reach the write. applied == 0
+	// means `next` is byte-identical to the stored doc, so the only thing
+	// SaveWithDocumentHistory would accomplish is RETAINING A HISTORY VERSION of
+	// text that is not being replaced — and document history keeps only the
+	// three most recent versions per doc (dal.go, documentHistoryKeep = 3).
+	// Three no-op patches therefore evict every restorable version the owner
+	// had, which is the owner's undo path in the cockpit, and they do it with no
+	// signal at all: the doc still reads the same, the receipt still answers
+	// 200, nothing goes red. That is worse than a loud failure, and it is
+	// reachable by accident — agents send `old == new` batches deliberately as a
+	// cheap "count the occurrences / read back sha256+size_chars without pulling
+	// the whole doc into context" probe, which is a legitimate use of this
+	// endpoint's receipt and must stay one.
+	//
+	// The receipt below is deliberately OUTSIDE this gate and unchanged: same
+	// fields, same values (applied_edits: 0 plus the anchors over the doc as it
+	// stands), so callers cannot tell the two paths apart by shape. The write
+	// and the SSE delta are what is skipped — nothing was written, so nothing is
+	// announced. update_task_manual and update_role already gate their retention
+	// on "did this field actually change" (roleDefHistoryStreams /
+	// taskManualHistoryStreams); the anchor-patch seams were the outliers.
+	if applied > 0 {
+		if err := s.dal.SaveWithDocumentHistory("lessons", roleKey+"::"+taskType, currentActor(r), lessonsSnapshotIn(roleKey, taskType), func(ex sqlExecer) error {
+			return putLessonsOn(ex, Lessons{
+				RoleKey:    roleKey,
+				TaskType:   taskType,
+				Text:       next,
+				Tombstoned: false,
+			})
+		}); err != nil {
+			internalError(w, err)
+			return
+		}
+		s.hub.Publish("lessons", "patch", "lessons", wireOwnerID+"::"+roleKey+"::"+taskType, nil, audienceOwnerOnly(), requestTrigger(r))
 	}
-	s.hub.Publish("lessons", "patch", "lessons", wireOwnerID+"::"+roleKey+"::"+taskType, nil, audienceOwnerOnly(), requestTrigger(r))
 	sum := sha256.Sum256([]byte(next))
 	writeJSON(w, http.StatusOK, lessonsPatchResultDTO{
 		RoleKey:       roleKey,

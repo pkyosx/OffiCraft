@@ -575,17 +575,28 @@ func (s *apiServer) HandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchP
 		writeError(w, http.StatusBadRequest, docCapRefusal(cap, "learnings doc", m.Learnings, next))
 		return
 	}
-	m.Learnings = next
-	m.UpdatedTS = nowSecs()
-	if err := s.dal.SaveWithDocumentHistories(
-		taskManualHistoryStreams(typeKey, currentActor(r), false, true),
-		func(ex sqlExecer) error {
-			return putTaskManualOn(ex, *m)
-		}); err != nil {
-		internalError(w, err)
-		return
+	// 🔴 applied == 0 → the learnings doc is byte-identical, so there is nothing
+	// to write and nothing to retain. Writing anyway burns one of the THREE
+	// document history slots on a snapshot of text nobody replaced (and bumps
+	// updated_ts for a change that did not happen), silently shortening the
+	// owner's undo path. Full reasoning at the patch_lessons twin (api_roles.go,
+	// HandlePatchLessonsApiLessonsRoleKeyTaskTypePatchPost). This is the same
+	// "did the field actually change" gate update_task_manual already applies
+	// above via taskManualHistoryStreams; the receipt below stays outside the
+	// gate and unchanged.
+	if applied > 0 {
+		m.Learnings = next
+		m.UpdatedTS = nowSecs()
+		if err := s.dal.SaveWithDocumentHistories(
+			taskManualHistoryStreams(typeKey, currentActor(r), false, true),
+			func(ex sqlExecer) error {
+				return putTaskManualOn(ex, *m)
+			}); err != nil {
+			internalError(w, err)
+			return
+		}
+		s.publishTaskManual(typeKey, requestTrigger(r))
 	}
-	s.publishTaskManual(typeKey, requestTrigger(r))
 	sum := sha256.Sum256([]byte(next))
 	writeJSON(w, http.StatusOK, taskLearningsPatchResultDTO{
 		TypeKey:      typeKey,

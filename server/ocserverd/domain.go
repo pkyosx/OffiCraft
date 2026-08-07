@@ -549,6 +549,14 @@ type LessonsEdit struct {
 // information about whether anything landed. A no-op edit (appending "", or a
 // replace whose new equals its old) now decrements that count, so "0 applied"
 // becomes expressible and a silent no-op stops looking like a success.
+//
+// 🔴 applied == 0 IS ALSO THE WRITE GATE, not just a number on the receipt.
+// Every edit either changes the doc or increments nothing, so applied == 0 with
+// a nil error means the returned text is byte-identical to the input: there is
+// no write to make. The three handlers built on this engine therefore skip BOTH
+// the persist and the document-history retention in that case — see the
+// `if applied > 0` gates in api_roles.go, api_insight.go and api_taskmanuals.go
+// and the reason spelled out there.
 func ApplyLessonsEdits(text string, edits []LessonsEdit) (string, int, error) {
 	return ApplyDocEdits(text, edits, "get_lessons")
 }
