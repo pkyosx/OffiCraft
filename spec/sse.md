@@ -82,7 +82,7 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
   `{owner}::{reader}::{peer}` for chat_read,
   `{owner}::{role_key}::{task_type}` for lessons, the bare owner id for global_context, the bare agent id for context/monitoring signals.
 
-### 2.3 `trigger` — actor attribution (and the client-side echo rule)
+### 2.3 `trigger` — actor attribution (and the client-side echo rules)
 
 - `trigger` is the verified identity of the principal whose action caused the durable
   write this delta reports. Closed vocabulary of forms:
@@ -109,6 +109,44 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
   (wind-down / recycle hooks), not printed content, and the self-requested recycle
   (`restart_self`, T-4c71) deliberately rides a SELF-triggered member delta whose SOP
   wake must still land; suppressing it would break graceful handover for zero token gain.
+- **The echo rule has a SECOND layer, on the refetched message's `from`.** The frame layer
+  above is necessary but NOT sufficient, because on its own it can only ever DELAY a self
+  echo: a suppressed chat delta never drives the listener's chat drain, so the message that
+  delta announced is never marked seen. It stays in the unread window until something else
+  drives a drain — a chat delta from some OTHER actor, which then flushes the whole
+  self-sent backlog alongside the message that actually arrived, or the silent boot
+  baseline of a listener restart. Closing that half means applying the same predicate one
+  layer down, to the sender of each refetched message. A listener that suppresses at the
+  frame layer MUST therefore also suppress at this one — adopting half of the rule is the
+  bug above, not a partial fix:
+  - a message whose `from` equals the listener's own id MUST NOT be printed, and MUST NOT
+    count toward the unread total the drain reports;
+  - it MUST still **advance the seen cursor** (`seen[mid] = true`). This half is the entire
+    point: skipping without marking leaves the message permanently unread and merely changes
+    the bug's shape;
+  - the **silent boot baseline** obeys both halves — nothing prints, the cursor still
+    advances;
+  - **fail-open, exactly as at the frame layer**: a blank or missing sender is NEVER an echo.
+    Unknown attribution MUST cost a printed line, never a dropped message;
+  - it is the SAME predicate (case-insensitive on the id, both sides trimmed) applied to a
+    DIFFERENT field, because the two fields attribute different things: `trigger` attributes
+    a FRAME, `from` attributes a MESSAGE — and a self-sent message can reach the drain along
+    a frame somebody else triggered. The drain only ever sees messages already addressed to
+    the listener (`to == self`), so in practice this fires on self→self messages, such as the
+    handover baton an agent posts to itself;
+  - the cursor half is written MUST where the frame layer is only SHOULD, deliberately: frame
+    suppression is a pure token-burn optimisation, but a listener that skips a message without
+    marking it loses that message, which is a correctness failure. The not-printed and
+    not-counted halves are stated MUST because they come as one rule with the cursor half —
+    a listener cannot advance the cursor past a message and still print it as unread;
+  - the `member`-topic exemption above is frame-level ONLY. There is no message-level
+    exemption: a chat message is printed content, not a lifecycle nudge;
+  - *provenance* — this layer was implemented first (PR #24, in `drainChat`); the doc gap was
+    escalated rather than settled by whoever noticed it, per the M1-freeze note closing §3.1
+    below and `seeds/system_interaction.md` §4.1, and the owner adjudicated on 2026-07-29 that
+    it be written into this spec. The adjudication came over Slack and reached this edit
+    relayed, not first-hand, through task T-c98f — which is the record to follow back, as
+    there is no reply card to cite.
 
 ## 3. Topic and op vocabulary
 
