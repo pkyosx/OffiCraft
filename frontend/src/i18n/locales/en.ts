@@ -99,6 +99,7 @@ export const en: Dict = {
       low: "low effort",
       medium: "mid effort",
       high: "high effort",
+      max: "max effort",
     } as Record<string, string>,
     status: {
       not_started: "Not started",
@@ -696,7 +697,7 @@ export const en: Dict = {
     model: "Model",
     agentRuntime: "AI runtime",
     effort: "EFFORT · Thinking",
-    effortOf: { low: "Low", medium: "Medium", high: "High" } as Record<
+    effortOf: { low: "Low", medium: "Medium", high: "High", max: "Max" } as Record<
       Effort,
       string
     >,

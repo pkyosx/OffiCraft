@@ -29,20 +29,22 @@
 #       list to keep in sync) + frontend typecheck + vitest.
 #   (2) HYGIENE — the tracked-file path denylist. The content-level gitleaks
 #       scan deliberately stays local.
-#   (3) CONSISTENCY — the contract + regenerate-and-byte-compare drift gates: the
-#       client uplink contract guard AND its own positive-control selftest,
-#       gen-ocapi (server wire), FE schema.ts (client wire), theme tokens, message
-#       keys, font whitelist, plus the two CSS token lints. These are the M1
-#       wire-freeze gates.
-#       The uplink pair moved here from local-only (T-9c8d shipped it in ci.sh
-#       alone) because it is stdlib python3 over tracked files: no service, no
-#       credential, nothing macOS-shaped. Both halves moved, never just the
-#       scanner — the selftest is what proves the scanner still bites, and a
+#   (3) CONSISTENCY — the contract + regenerate-and-byte-compare drift gates. Which
+#       ones is not listed here on purpose (repo CLAUDE.md's 文件鐵律: a list goes
+#       stale and nothing goes red for it) — the step headers below are the
+#       answer: grep -n '^echo "\[ci-cloud\]' bin/ci-cloud.sh. Two shapes live in
+#       this class: stdlib CONTRACT guards, each paired with its own
+#       positive-control selftest, and the regenerate-and-byte-compare DRIFT gates
+#       that are the M1 wire freeze.
+#       A contract guard belongs here (rather than local-only, where T-9c8d first
+#       shipped the uplink one) because it is stdlib python3 over tracked files: no
+#       service, no credential, nothing macOS-shaped. Both halves move, never just
+#       the scanner — the selftest is what proves the scanner still bites, and a
 #       scanner nobody verified is a green with a hole in it. ci.sh keeps running
 #       both: it is the full set and the land authority, this is its subset.
 #       ⚠️ THIS CLASS IS THE TOOLCHAIN-SENSITIVE ONE — meaning the DRIFT GATES
-#       specifically, not the uplink pair above it (that one reads tracked files
-#       and never regenerates anything). Every drift gate asserts
+#       specifically, not the contract guards above them (those read tracked files
+#       and never regenerate anything). Every drift gate asserts
 #       "regenerating produces byte-identical output", so a generator that
 #       behaves differently on a different Node/Go build reddens CI while the
 #       CODE IS FINE. That is precisely why the workflow pins go + node to the
@@ -194,6 +196,17 @@ python3 "$ROOT/bin/uplink-guard.py"
 # each of which must still be caught. Shipping the scanner here WITHOUT this would be
 # strictly worse than not shipping it: an unverified scanner still prints all green.
 python3 "$ROOT/bin/tests/uplink-guard-selftest.py"
+
+# 2y. Effort-vocabulary contract gate (T-dbd4), same class and for the same reason
+# as the pair above: every hand-written copy of the closed `effort` vocabulary must
+# list exactly what the server's validEffort enforces, or a level is selectable and
+# storable while some copy silently coerces it away. Pure stdlib python3 over
+# tracked files — no service, no credential, no toolchain, nothing macOS-shaped.
+echo "[ci-cloud]   effort vocabulary — every hand-written copy lists exactly what the server enforces"
+python3 "$ROOT/bin/effort-vocab-guard.py"
+# ...and its positive control. Shipping the scanner here WITHOUT this would be
+# strictly worse than not shipping it: an unverified scanner still prints all green.
+python3 "$ROOT/bin/tests/effort-vocab-guard-selftest.py"
 
 # 2a. gen-ocapi drift — the wire-freeze gate on the SERVER's REST surface.
 # server/ocserverd/ocapi_gen.go is generated from the frozen spec/openapi.json.

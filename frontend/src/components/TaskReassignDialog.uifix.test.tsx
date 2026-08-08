@@ -125,7 +125,9 @@ describe("模型 picker — 2x2 grid modifier + selection parity with 投入程�
     expect(
       modelGroup!.classList.contains("task-reassign__seg--grid2")
     ).toBe(true);
-    // 投入程度: 3 chips stay a flex row — must NOT inherit the grid.
+    // 投入程度: its cells stay a flex row — must NOT inherit the grid. (Deliberately
+    // not stated as a count: it was "3 chips" until T-dbd4 added max, and the
+    // assertion below never depended on the number.)
     expect(
       effortGroup!.classList.contains("task-reassign__seg--grid2")
     ).toBe(false);

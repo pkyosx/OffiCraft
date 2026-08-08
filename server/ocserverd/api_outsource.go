@@ -556,7 +556,7 @@ func (s *apiServer) HandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(
 		if !validEffort(effort) {
 			s.outsourceMu.Unlock()
 			writeError(w, http.StatusUnprocessableEntity,
-				"effort must be one of [high low medium]; got '"+effort+"'")
+				"effort must be one of [high low max medium]; got '"+effort+"'")
 			return
 		}
 		worker.Effort = effort

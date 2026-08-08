@@ -25,7 +25,7 @@
 //                   review-pr.md chip is deliberately not built).
 //   Assignee edit — segmented 指定成員/外包 toggle; model = the member panel's
 //                   quick-pick chips (MODEL_QUICK_PICKS — the same source as
-//                   ModelEffortEditor) + free input; 投入程度 = 低/中/高
+//                   ModelEffortEditor) + free input; 投入程度 = 低/中/高/最高
 //                   segmented; 機器 = the machines list, one of which must be
 //                   chosen for the type to run at all (states joined honestly
 //                   from /api/machines + monitoring agents: 閒置/忙碌/離線);
@@ -1274,7 +1274,7 @@ function AssigneeCard({
                 )}
               </div>
 
-              {/* 投入程度 — 低/中/高 segmented. */}
+              {/* 投入程度 — 低/中/高/最高 segmented. */}
               <div className="manual-assignee-editor__section">
                 <div className="manual-assignee-editor__label">
                   {t.settings.assigneeEffort}

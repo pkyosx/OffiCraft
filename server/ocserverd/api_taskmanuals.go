@@ -117,7 +117,7 @@ func validateManualAssignee(assignee map[string]any) string {
 		if effort, ok := assignee["effort"]; ok {
 			e, isStr := effort.(string)
 			if !isStr || !validEffort(e) {
-				return "assignee effort must be one of low, medium, high"
+				return "assignee effort must be one of low, medium, high, max"
 			}
 		}
 		if copies, ok := assignee["copies"]; ok {

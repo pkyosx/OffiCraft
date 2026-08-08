@@ -17,7 +17,7 @@ export type MemberLifecycle =
   | "stopping"
   | "stopped";
 
-export type Effort = "low" | "medium" | "high";
+export type Effort = "low" | "medium" | "high" | "max";
 export type AgentRuntime = "claude" | "codex";
 
 // Role keys are OPEN since M2-2: the seed "assistant" plus any owner-created

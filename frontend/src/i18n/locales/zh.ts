@@ -110,6 +110,7 @@ export const zh = {
       low: "低投入",
       medium: "中投入",
       high: "高投入",
+      max: "最高投入",
     } as Record<string, string>,
     // 八態(SPEC 核心名詞;文案照 spec,不用 mockup 的「等我核可/等待外部事件」)
     status: {
@@ -775,7 +776,7 @@ export const zh = {
     model: "模型",
     agentRuntime: "AI 執行環境",
     effort: "EFFORT · 思考強度",
-    effortOf: { low: "低", medium: "中", high: "高" } as Record<Effort, string>,
+    effortOf: { low: "低", medium: "中", high: "高", max: "最高" } as Record<Effort, string>,
     // model/effort 可設定（M2-2）— launch intents, 變更於下次喚醒生效
     // （編輯鈕本身用全站共用的 settings.edit 樣式/文案）
     modelEffortSave: "儲存",

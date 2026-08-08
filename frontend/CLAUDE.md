@@ -554,8 +554,7 @@ commit 時丟棄)/Q3 SOP markdown),編輯模式比照角色誌(編輯/取消/完
 回寫面);**負責成員編輯 = 成員面板式**(照 seth-ui-3):指定成員/外包全寬
 segmented(成員 pick row 右側顯示該成員的**角色 label**,解析順序同
 PresenceBadge:i18n seed key → server roleName → raw key;無角色資料誠實省略
-——owner 2026-07-13,選人時看得出誰是什麼角色)、模型 = 成員面板同源 MODEL_QUICK_PICKS chips+自由輸入、投入程度 =
-低/中/高 segmented、**機器段**(**純機器清單、無「自動分配」列**,狀態字 =
+——owner 2026-07-13,選人時看得出誰是什麼角色)、模型 = 成員面板同源 MODEL_QUICK_PICKS chips+自由輸入、投入程度 = 低/中/高/最高 segmented、**機器段**(**純機器清單、無「自動分配」列**,狀態字 =
 machines.online × monitoring agents 誠實映射:閒置/忙碌/離線;說明「沒選機器或
 該機器離線一律不啟動,原因顯示在該外包上」——**離線自動 fallback 的承諾已廢**)、
 **雇用數量 = −/＋ stepper+無限鈕**(wire `copies:0` = 無限、`machine:<machine id>`

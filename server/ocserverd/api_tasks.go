@@ -1179,7 +1179,7 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 		dispatch.Effort = trimmedOrEmpty(body.Target.Effort)
 		if dispatch.Effort != "" && !validEffort(dispatch.Effort) {
 			writeError(w, http.StatusBadRequest,
-				"target.effort must be one of low, medium, high")
+				"target.effort must be one of low, medium, high, max")
 			return
 		}
 		dispatch.Machine = trimmedOrEmpty(body.Target.Machine)
@@ -1679,7 +1679,7 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 		dispatch.Effort = trimmedOrEmpty(dispatchTarget.Effort)
 		if dispatch.Effort != "" && !validEffort(dispatch.Effort) {
 			writeError(w, http.StatusBadRequest,
-				"target.effort must be one of low, medium, high")
+				"target.effort must be one of low, medium, high, max")
 			return
 		}
 		dispatch.Machine = trimmedOrEmpty(dispatchTarget.Machine)

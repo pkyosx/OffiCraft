@@ -80,7 +80,7 @@ type StartParams struct {
 	Runtime        string // claude (default) | codex
 	Model          string
 	// Effort is the member's owner-set reasoning-effort launch intent
-	// (low/medium/high, from member.effort server-side). Empty ⇒ the historic
+	// (low/medium/high/max, from member.effort server-side). Empty ⇒ the historic
 	// "medium" default, keeping an old frame's launch line byte-identical.
 	Effort      string
 	SessionName string

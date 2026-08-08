@@ -1959,8 +1959,13 @@ button.task-card__waiting--dep:focus-visible {
 }
 /* 模型 picker only: 4 chips as a fixed 2x2 so haiku never wraps alone into a
    full-width, centered row (owner review: that read as "broken"). A grid keeps
-   the four chips on an even 2x2 at 390px; the 3-item 投入程度 and 2-item
-   轉給/轉外包 toggles keep the flex row. */
+   the four chips on an even 2x2 at 390px. 投入程度 also has four cells since
+   T-dbd4 added max, and 轉給/轉外包 has two; both keep the flex row. So chip COUNT
+   is NOT what selects the grid — this class is opted into by one picker and the
+   others are left alone. ⚠️ What the rule actually is, is not written down here
+   and cannot be read off this file: the codex 模型 picker has the widest chips in
+   the dialog and does NOT opt in, so "widest chips" is not it either. Do not
+   infer a rule from this comment; check the callsite. */
 .task-reassign__seg--grid2 {
   display: grid;
   grid-template-columns: 1fr 1fr;

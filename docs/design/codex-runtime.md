@@ -196,7 +196,7 @@ telemetry or placement changes.
 The selected adapter receives the shared launch knobs:
 
 - `model`: provider-specific free string; blank uses that provider's default.
-- `effort`: exact shared vocabulary `low | medium | high`; omitted uses `medium`.
+- `effort`: exact shared vocabulary `low | medium | high | max`; omitted uses `medium`.
 - Codex sandbox: `danger-full-access`.
 - Codex approvals: `never`.
 

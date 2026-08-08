@@ -10,7 +10,7 @@
 //     chip / a blank input delegates to the Codex configuration on the selected
 //     machine, just like Claude.  The input remains an escape hatch for a new
 //     model identifier or an incident workaround.
-//   • effort = a low/medium/high dropdown (closed vocabulary, server-422
+//   • effort = a low/medium/high/max dropdown (closed vocabulary, server-422
 //     outside it).
 //
 // Controlled + stateless: the caller owns the draft values (it decides when to
@@ -30,7 +30,7 @@ export const CODEX_MODEL_OPTIONS = [
   "gpt-5.6-luna",
 ] as const;
 /** The closed effort vocabulary (server 422s anything else). */
-export const EFFORTS: readonly Effort[] = ["low", "medium", "high"] as const;
+export const EFFORTS: readonly Effort[] = ["low", "medium", "high", "max"] as const;
 
 /** Codex's picker follows Claude's chips + authoritative free-form input. */
 export function CodexModelSelect({

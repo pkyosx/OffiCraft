@@ -3,7 +3,7 @@
 // Locked here:
 //   1. The in-place editor is the SHARED <ModelEffortEditor>: model = quick
 //      chips (fable/opus/sonnet/haiku) + a free custom string input (blank ⇒
-//      server default), effort = a low/medium/high dropdown. A chip click fills
+//      server default), effort = a low/medium/high/max dropdown. A chip click fills
 //      the input; a typed string overrides the chip; 儲存 PATCHes the member
 //      with the drafted launch intents.
 //   2. The member NAME is editable in the panel via the shared pencil
@@ -122,7 +122,7 @@ describe("MemberDetailPanel · model/effort quick-pick editor", () => {
       (utils.getByTestId("me-model-input") as HTMLInputElement).value
     ).toBe("sonnet");
 
-    // Effort is a plain dropdown (closed low/medium/high vocabulary).
+    // Effort is a plain dropdown (closed low/medium/high/max vocabulary).
     fireEvent.change(utils.getByTestId("me-effort-select"), {
       target: { value: "high" },
     });

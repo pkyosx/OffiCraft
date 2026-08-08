@@ -68,7 +68,7 @@ func buildCodexLaunchCommand(wardenBin, codexBin, workdir, personaFile, tokenFil
 
 func normalizeCodexEffort(effort string) string {
 	switch strings.TrimSpace(effort) {
-	case "low", "high":
+	case "low", "high", "max":
 		return strings.TrimSpace(effort)
 	default:
 		return "medium"

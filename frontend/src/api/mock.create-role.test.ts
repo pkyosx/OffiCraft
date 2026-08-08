@@ -8,7 +8,7 @@
 //      The mock used to hard-code "MB-NEW001" for every role — so two roles
 //      collided on the same badge, unlike the server.
 //   2. effort 422 message — the server appends the offending value:
-//      `effort must be one of [high low medium]; got '<value>'`
+//      `effort must be one of [high low max medium]; got '<value>'`
 //      (ocserverd/api_roles.go:128-129). The mock used a different, value-less
 //      string.
 //
@@ -66,12 +66,12 @@ describe("mock createRole — effort 422 parity", () => {
     // Byte-for-byte the Go writeError message (ocserverd/api_roles.go:128-129),
     // including the offending value.
     expect(api.serverMessage).toBe(
-      "effort must be one of [high low medium]; got 'extreme'"
+      "effort must be one of [high low max medium]; got 'extreme'"
     );
   });
 
-  it("accepts the closed low/medium/high vocabulary", async () => {
-    for (const effort of ["low", "medium", "high"] as const) {
+  it("accepts the closed low/medium/high/max effort vocabulary", async () => {
+    for (const effort of ["low", "medium", "high", "max"] as const) {
       const r = await mockApi.createRole({ name: `Role ${effort}`, effort });
       expect(r.member.effort).toBe(effort);
     }

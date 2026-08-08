@@ -6,7 +6,7 @@
 # went PUBLIC: standard-runner minutes are free for public repos. The real
 # reason this stays local is that the gate below includes host-shaped and
 # regenerate-and-byte-compare steps whose authority we do not want to move.)
-# A SUBSET — the Linux-portable guards, the client uplink contract gate (with its
+# A SUBSET — the Linux-portable guards, the stdlib contract gates (each with its
 # own positive-control selftest), the consistency / wire-freeze drift gates,
 # and the black-box conformance suite —
 # now also runs on every pull request AND on every push to main (T-ab2a) via
@@ -364,6 +364,22 @@ python3 "$ROOT/bin/uplink-guard.py"
 # live, each of which must still be caught. Without it, narrowing the scan is a
 # silent edit — the gate keeps printing all green over a smaller and smaller set.
 python3 "$ROOT/bin/tests/uplink-guard-selftest.py"
+
+# Effort-vocabulary contract gate (T-dbd4). `effort` is a closed vocabulary that
+# is written down by hand in a dozen places across server, cli, frontend, spec and
+# docs, and the copy that matters most is invisible from the cockpit: the codex
+# launcher coerces anything it does not recognise down to "medium", so a level the
+# server accepts and stores can still launch the session at the wrong effort with
+# nothing going red. The gate discovers the copies BY SHAPE rather than from a
+# path list — a list would keep printing all green over a shrinking set — and
+# requires each to list exactly what validEffort enforces. Read
+# bin/effort-vocab-guard.py's header before changing its shape.
+echo "[ci]   effort vocabulary — every hand-written copy lists exactly what the server enforces"
+python3 "$ROOT/bin/effort-vocab-guard.py"
+# ...and its positive control: one planted mutant per copy shape, each of which
+# must still be caught AND still be named. A scanner nobody verified is a green
+# with a hole in it.
+python3 "$ROOT/bin/tests/effort-vocab-guard-selftest.py"
 
 # 1g. gen-ocapi drift gate — the wire-freeze gate on the server's REST surface.
 # server/ocserverd/ocapi_gen.go is a COMMITTED generated artifact (bin/gen-ocapi:

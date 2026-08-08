@@ -705,7 +705,7 @@ describe("設定 › 任務手冊 — detail", () => {
     fireEvent.click(getByTestId("manual-assignee-kind-outsource"));
     // Model = the member panel's quick-pick chips (opus is one of them).
     fireEvent.click(getByTestId("manual-assignee-model-opus"));
-    // 投入程度 = 低/中/高 segmented.
+    // 投入程度 = 低/中/高/最高 segmented.
     fireEvent.click(getByTestId("manual-assignee-effort-high"));
     // 雇用數量 = −/＋ stepper: 1 → 2.
     fireEvent.click(getByTestId("manual-assignee-copies-inc"));

@@ -1440,7 +1440,7 @@ export interface paths {
          * Edit a member (name / model / effort). Blank name / bad effort → 422.
          * @description Partially update a member's owner-editable fields (§3.4 #11: name / runtime /
          *     model / effort). PATCH semantics — only supplied fields change. A blank ``name``
-         *     is a 422; a runtime outside claude/codex or effort outside low/medium/high is a
+         *     is a 422; a runtime outside claude/codex or effort outside low/medium/high/max is a
          *     422. A runtime change applies on the next wake/recycle. The immutable ``id`` and
          *     all observed lifecycle fields (presence/desired_state/status) are untouched.
          */
@@ -2287,7 +2287,7 @@ export interface paths {
          *     included so a revived audit-trail name never doubles). ``runtime`` is
          *     claude/codex (omitted ⇒ claude); ``model`` is a free provider launch string
          *     (blank/omitted ⇒ selected-runtime default); ``effort`` is the closed
-         *     low/medium/high vocabulary (422 outside it; omitted ⇒ medium) — all three are
+         *     low/medium/high/max vocabulary (422 outside it; omitted ⇒ medium) — all three are
          *     baked into the NEXT wake's launch command by the reconcile START payload
          *     (change-takes-effect-on-next-wake).
          */
@@ -4965,7 +4965,7 @@ export interface components {
          * MemberUpdateDTO
          * @description Partial edit of a member's owner-editable fields (§3.4 #11). Every field is
          *     optional (PATCH). A blank ``name`` is a 422; an ``effort`` outside
-         *     low/medium/high or a ``runtime`` outside claude/codex is a 422. Changing
+         *     low/medium/high/max or a ``runtime`` outside claude/codex is a 422. Changing
          *     runtime takes effect on the next wake/recycle. The server owns everything else.
          */
         MemberUpdateDTO: {
@@ -6007,7 +6007,7 @@ export interface components {
          *     colliding with an existing roster member. ``runtime`` / ``model`` / ``effort``
          *     are the member's launch knobs — runtime is claude/codex (omitted ⇒ claude),
          *     model is a free string (blank/omitted ⇒ selected-runtime default), effort is
-         *     the closed low/medium/high vocabulary (unknown → 422; omitted ⇒ medium). The
+         *     the closed low/medium/high/max vocabulary (unknown → 422; omitted ⇒ medium). The
          *     server mints BOTH ids (role key + member id) — never client-supplied.
          */
         RoleCreateDTO: {
@@ -6521,7 +6521,7 @@ export interface components {
         };
         /**
          * TaskCreateTargetDTO
-         * @description Optional dispatch target (agent 發包給外包). When present with ``kind='outsource'`` the task is created as an **unassigned outsource task** — no owner-approval card and no per-task approval. The existing outsource scheduler then picks up unassigned outsource tasks against the global concurrency cap (``outsourceParallelCap``, owner-configurable in the cockpit; default unchanged): below the cap it mints a fresh worker immediately, at the cap it queues for capacity and is picked up automatically when a slot frees. The owner may reassign a still-queued task (to a member or another outsource) at any time. ``runtime`` is claude/codex (absent = claude); ``model`` is the worker's model (blank/absent = selected-runtime default); ``effort`` is low|medium|high (absent = ``medium``); ``machine`` is the machine the worker boots on (a machine id that must resolve; absent inherits — see below). Any of ``runtime``/``model``/``effort``/``machine`` that is OMITTED is INHERITED: a TYPED task takes the type manual's outsource assignee, a FREE (ad-hoc) task takes the DISPATCHING member's own runtime/model/effort and the machine it is itself pinned to (發包 without a spec means "one like me"). ``runtime`` and ``model`` inherit together — an inherited model is kept only under the runtime it belongs to, else the runtime's default model applies. ``effort`` falls back to ``medium``. ``machine`` has NO final fallback: when nothing names one the task carries no placement and no worker is started until one is chosen. The resolved spec is persisted on the task row and re-read on handover/rebirth, never re-derived. Absent (or ``kind='member'``) keeps the current create semantics (manual assignee / ``executor_member_id``).
+         * @description Optional dispatch target (agent 發包給外包). When present with ``kind='outsource'`` the task is created as an **unassigned outsource task** — no owner-approval card and no per-task approval. The existing outsource scheduler then picks up unassigned outsource tasks against the global concurrency cap (``outsourceParallelCap``, owner-configurable in the cockpit; default unchanged): below the cap it mints a fresh worker immediately, at the cap it queues for capacity and is picked up automatically when a slot frees. The owner may reassign a still-queued task (to a member or another outsource) at any time. ``runtime`` is claude/codex (absent = claude); ``model`` is the worker's model (blank/absent = selected-runtime default); ``effort`` is low|medium|high|max (absent = ``medium``); ``machine`` is the machine the worker boots on (a machine id that must resolve; absent inherits — see below). Any of ``runtime``/``model``/``effort``/``machine`` that is OMITTED is INHERITED: a TYPED task takes the type manual's outsource assignee, a FREE (ad-hoc) task takes the DISPATCHING member's own runtime/model/effort and the machine it is itself pinned to (發包 without a spec means "one like me"). ``runtime`` and ``model`` inherit together — an inherited model is kept only under the runtime it belongs to, else the runtime's default model applies. ``effort`` falls back to ``medium``. ``machine`` has NO final fallback: when nothing names one the task carries no placement and no worker is started until one is chosen. The resolved spec is persisted on the task row and re-read on handover/rebirth, never re-derived. Absent (or ``kind='member'``) keeps the current create semantics (manual assignee / ``executor_member_id``).
          */
         TaskCreateTargetDTO: {
             /**
@@ -7105,7 +7105,7 @@ export interface components {
         };
         /**
          * TaskReassignTargetDTO
-         * @description The reassignment target. ``kind='member'`` requires ``member_id`` — an ACTIVE roster member below the warden layer (a warden or an inactive/unknown member is a 400). ``kind='outsource'`` lands the task unassigned for the scheduler to spawn a fresh worker under the global parallel cap (no owner-approval card; T-35e0): ``runtime`` is claude/codex (absent = claude); ``model`` is the worker's model (blank/absent = selected-runtime default); ``effort`` is low|medium|high (absent = ``medium``); ``machine`` is the machine the worker boots on — a machine id that must resolve; absent inherits (see below). An offline machine is NOT substituted at spawn time: nothing is dispatched and the reason is recorded on the worker. Any of ``runtime``/``model``/``effort``/``machine`` that is OMITTED is INHERITED: a TYPED task takes the type manual's outsource assignee, a FREE (ad-hoc) task takes the DISPATCHING member's own runtime/model/effort and the machine it is itself pinned to (發包 without a spec means "one like me"). ``runtime`` and ``model`` inherit together — an inherited model is kept only under the runtime it belongs to, else the runtime's default model applies. ``effort`` falls back to ``medium``. ``machine`` has NO final fallback: when nothing names one the task carries no placement and no worker is started until one is chosen. The resolved spec is persisted on the task row and re-read on handover/rebirth, never re-derived.
+         * @description The reassignment target. ``kind='member'`` requires ``member_id`` — an ACTIVE roster member below the warden layer (a warden or an inactive/unknown member is a 400). ``kind='outsource'`` lands the task unassigned for the scheduler to spawn a fresh worker under the global parallel cap (no owner-approval card; T-35e0): ``runtime`` is claude/codex (absent = claude); ``model`` is the worker's model (blank/absent = selected-runtime default); ``effort`` is low|medium|high|max (absent = ``medium``); ``machine`` is the machine the worker boots on — a machine id that must resolve; absent inherits (see below). An offline machine is NOT substituted at spawn time: nothing is dispatched and the reason is recorded on the worker. Any of ``runtime``/``model``/``effort``/``machine`` that is OMITTED is INHERITED: a TYPED task takes the type manual's outsource assignee, a FREE (ad-hoc) task takes the DISPATCHING member's own runtime/model/effort and the machine it is itself pinned to (發包 without a spec means "one like me"). ``runtime`` and ``model`` inherit together — an inherited model is kept only under the runtime it belongs to, else the runtime's default model applies. ``effort`` falls back to ``medium``. ``machine`` has NO final fallback: when nothing names one the task carries no placement and no worker is started until one is chosen. The resolved spec is persisted on the task row and re-read on handover/rebirth, never re-derived.
          */
         TaskReassignTargetDTO: {
             /**

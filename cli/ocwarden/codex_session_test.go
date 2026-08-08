@@ -56,6 +56,10 @@ func TestBuildCodexLaunchCommandKeepsTokenOutOfArgv(t *testing.T) {
 func TestNormalizeCodexEffort(t *testing.T) {
 	for input, want := range map[string]string{
 		"": "medium", "low": "low", "medium": "medium", "high": "high",
+		// max is the level T-dbd4 added. It has to survive VERBATIM: this func
+		// is an allowlist, not a ladder, so a level missing from it does not get
+		// nudged down a notch — it lands in the same catch-all as a typo.
+		"max":     "max",
 		"extreme": "medium",
 	} {
 		if got := normalizeCodexEffort(input); got != want {

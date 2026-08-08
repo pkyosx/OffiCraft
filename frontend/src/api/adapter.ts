@@ -786,7 +786,7 @@ export interface ServerSettingsPatch {
 
 /** Fields the owner may edit on a member (PATCH; every field optional).
  * `model` is a FREE string (spawn --model is a free string; "" ⇒ CLI default);
- * `effort` is the closed low/medium/high vocabulary (server 422s outside it).
+ * `effort` is the closed low/medium/high/max vocabulary (server 422s outside it).
  * Both are LAUNCH INTENTS — a change takes effect on the member's NEXT wake /
  * handover (the reconcile START payload bakes them into the launch command). */
 export interface MemberPatch {
@@ -825,7 +825,7 @@ export interface RolePatch {
  * `RoleCreateDTO`). `name` = the role title; `memberName` is OPTIONAL — omitted
  * (the create flow's default) ⇒ the SERVER picks a fresh Mira-style name from
  * its pool, never colliding with an existing roster member; `model` free string
- * / `effort` low|medium|high are the member's launch knobs (omitted ⇒ server
+ * / `effort` low|medium|high|max are the member's launch knobs (omitted ⇒ server
  * defaults: "" / "medium"). */
 export interface RoleCreateInput {
   name: string;
@@ -1569,7 +1569,7 @@ export interface Api {
    * The server mints both ids; the role doc starts from the 「你是誰 / 你做什麼」
    * fill-me template; the member starts OFFLINE (never spawns) with the given
    * model/effort launch knobs. 422 (throws) on a blank name/memberName or an
-   * effort outside low/medium/high.
+   * effort outside low/medium/high/max.
    */
   createRole(input: RoleCreateInput): Promise<RoleCreateResult>;
   /**

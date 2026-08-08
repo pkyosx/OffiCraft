@@ -270,7 +270,7 @@ func (s *apiServer) HandleHireMemberApiMembersPost(w http.ResponseWriter, r *htt
 	}
 	if body.Effort != nil && !validEffort(*body.Effort) {
 		writeError(w, http.StatusUnprocessableEntity,
-			"effort must be one of [high low medium]; got '"+*body.Effort+"'")
+			"effort must be one of [high low max medium]; got '"+*body.Effort+"'")
 		return
 	}
 	runtime := RuntimeClaude
@@ -387,7 +387,7 @@ func (s *apiServer) HandleUpdateMemberApiMembersMemberIdPatch(w http.ResponseWri
 	if body.Effort != nil {
 		if !validEffort(*body.Effort) {
 			writeError(w, http.StatusUnprocessableEntity,
-				"effort must be one of [high low medium]; got '"+*body.Effort+"'")
+				"effort must be one of [high low max medium]; got '"+*body.Effort+"'")
 			return
 		}
 		launchIntentChanged = launchIntentChanged || *body.Effort != m.Effort

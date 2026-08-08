@@ -203,7 +203,10 @@ export function AgentDetailPanel({
   // Known effort levels render 中文字 + the raw key (the member page's format,
   // now the ONE format); an unknown/custom effort string renders verbatim.
   const effortLevelText =
-    shownEffort === "low" || shownEffort === "medium" || shownEffort === "high"
+    shownEffort === "low" ||
+    shownEffort === "medium" ||
+    shownEffort === "high" ||
+    shownEffort === "max"
       ? effortText(t, shownEffort)
       : null;
   const pending = vm.pending ?? {};

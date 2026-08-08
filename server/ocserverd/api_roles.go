@@ -156,7 +156,7 @@ func (s *apiServer) HandleCreateRoleApiRolesPost(w http.ResponseWriter, r *http.
 	}
 	if body.Effort != nil && !validEffort(*body.Effort) {
 		writeError(w, http.StatusUnprocessableEntity,
-			"effort must be one of [high low medium]; got '"+*body.Effort+"'")
+			"effort must be one of [high low max medium]; got '"+*body.Effort+"'")
 		return
 	}
 	runtime := RuntimeClaude
