@@ -9,7 +9,7 @@ import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { joinSessionRuntime, findSessionFor } from "../lib/runtime";
 import { useHashRoute } from "../lib/hashRoute";
-import { updateCachedWorkerAvatar } from "../hooks/useWorkerCodenames";
+import { updateCachedWorkerAvatarIndex } from "../hooks/useWorkerCodenames";
 import { MemberCard } from "./MemberCard";
 import { ChatArea } from "./ChatArea";
 import { MemberDetailPanel } from "./MemberDetailPanel";
@@ -28,6 +28,7 @@ import "./office.css";
 function blankChatPeer(id: string, name: string, kind: Member["kind"]): Member {
   return {
     id,
+    avatarIndex: 0,
     memberId: "",
     name,
     role: "",
@@ -224,7 +225,7 @@ export function OfficePage() {
         status: "online",
         lifecycle: "online",
         model: workerPeer.model,
-        avatarUrl: workerPeer.avatarUrl,
+        avatarIndex: workerPeer.avatarIndex,
         // ChatArea snapshots this before listChat marks the room read.  The
         // live worker's server-computed badge is therefore part of the same
         // entry contract as a regular member's unreadCount.
@@ -350,13 +351,9 @@ export function OfficePage() {
             effort,
           });
         }}
-        onUpdateAvatar={async (file) => {
-          const avatarUrl = await api.updateMemberAvatar(workerDetail.id, file);
-          updateCachedWorkerAvatar(workerDetail.id, avatarUrl);
-        }}
-        onRemoveAvatar={async () => {
-          await api.removeMemberAvatar(workerDetail.id);
-          updateCachedWorkerAvatar(workerDetail.id, "");
+        onUpdateAvatarIndex={async (avatarIndex) => {
+          await api.updateMemberAvatarIndex(workerDetail.id, avatarIndex);
+          updateCachedWorkerAvatarIndex(workerDetail.id, avatarIndex);
         }}
         // Initial-prompt PREVIEW (T-ba6b): the server re-runs the spawn fold
         // over the CURRENT task/manual rows (no token minted) — the worker twin
@@ -439,13 +436,13 @@ export function OfficePage() {
           await api.patchMember(detail.id, { name });
           await refetch();
         }}
-        onUpdateAvatar={async (file) => {
-          await api.updateMemberAvatar(detail.id, file);
-          await refetch();
-        }}
-        onRemoveAvatar={async () => {
-          await api.removeMemberAvatar(detail.id);
-          await refetch();
+        onUpdateAvatarIndex={async (avatarIndex) => {
+          await api.updateMemberAvatarIndex(detail.id, avatarIndex);
+          try {
+            await refetch();
+          } catch {
+            /* the acknowledged mutation outlives a failed refresh */
+          }
         }}
       />
     );

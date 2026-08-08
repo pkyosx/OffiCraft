@@ -411,8 +411,8 @@ export interface TaskArtifactView {
  * worker drops off (closed tasks honestly fall back to the bare 外包 label). */
 export interface OutsourceWorkerView {
   id: string;
-  /** Personal image URL bound to this stable worker id. */
-  avatarUrl?: string;
+  /** Stable slot in the active outsource avatar pool. */
+  avatarIndex?: number;
   /** Model-flavoured anonymous codename (O-7 / S-3 / H-1 …). */
   codename: string;
   /** The owner-CONFIGURED launch trio — what the settings dialog round-trips. */
@@ -1015,10 +1015,8 @@ export interface Api {
    */
   listMembers(opts?: { light?: boolean }): Promise<Member[]>;
   getMember(id: string): Promise<Member>;
-  /** Owner-only personal avatar mutation; raw PNG/JPEG/WEBP, max 64 KiB. */
-  updateMemberAvatar(id: string, file: File): Promise<string>;
-  /** Owner-only removal; returns the member to the theme/glyph fallback. */
-  removeMemberAvatar(id: string): Promise<void>;
+  /** Owner-only stable theme-avatar slot update for staff or outsource. */
+  updateMemberAvatarIndex(id: string, avatarIndex: number): Promise<void>;
   /**
    * Write desired_state=online INTENT — and, when `machineId` is given, BIND the agent
    * to that machine (sent as `{machine_id}` in the activate body; the field was

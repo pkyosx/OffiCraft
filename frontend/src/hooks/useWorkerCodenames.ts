@@ -19,7 +19,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 
-type WorkerIdentity = { codename: string; avatarUrl?: string };
+type WorkerIdentity = { codename: string; avatarIndex: number };
 
 // id → identity; null = fetch attempted, unresolvable (negative cache).
 const cache = new Map<string, WorkerIdentity | null>();
@@ -39,10 +39,10 @@ export function __resetWorkerCodenameCache() {
 
 /** Keep lazy released-worker identity consumers coherent with an owner avatar
  * mutation made from a detail panel that may be open beside them. */
-export function updateCachedWorkerAvatar(id: string, avatarUrl: string) {
+export function updateCachedWorkerAvatarIndex(id: string, avatarIndex: number) {
   const current = cache.get(id);
   if (!current) return;
-  cache.set(id, { ...current, avatarUrl });
+  cache.set(id, { ...current, avatarIndex });
   notifyAll();
 }
 
@@ -72,7 +72,10 @@ export function useWorkerCodenames(ids: readonly string[]): Map<string, string> 
         .getOutsourceWorker(id)
         .then(
           (w) =>
-            cache.set(id, { codename: w.codename, avatarUrl: w.avatarUrl }),
+            cache.set(id, {
+              codename: w.codename,
+              avatarIndex: w.avatarIndex ?? 0,
+            }),
           () => cache.set(id, null), // honest miss — raw id stays
         )
         .then(() => {
@@ -97,14 +100,14 @@ export function useWorkerCodenames(ids: readonly string[]): Map<string, string> 
 }
 
 /** Personal avatar URLs from the same per-id identity fetch/cache. */
-export function useWorkerAvatarUrls(ids: readonly string[]): Map<string, string> {
+export function useWorkerAvatarIndexes(ids: readonly string[]): Map<string, number> {
   const codenames = useWorkerCodenames(ids);
   const key = ids.filter((id) => id.startsWith("ow-")).sort().join("|");
   return useMemo(() => {
-    const out = new Map<string, string>();
+    const out = new Map<string, number>();
     for (const id of ids) {
-      const src = cache.get(id)?.avatarUrl;
-      if (src) out.set(id, src);
+      const index = cache.get(id)?.avatarIndex;
+      if (index !== undefined) out.set(id, index);
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps

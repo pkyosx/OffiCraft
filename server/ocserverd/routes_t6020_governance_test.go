@@ -106,16 +106,15 @@ func t6020AllOpenedRows() map[[2]string]string {
 // t6020Withheld is the exact set the owner declined to open. The reason lives
 // on each row in routes.go; the short version: minting an identity is
 // self-escalation, and the password / Web Push rows are the owner's own account
-// and own browser, not an office capability. T-c826 later added the owner's
-// explicit choice that personal member identity/presentation also stays here.
+// and own browser, not an office capability. Theme-avatar index selection is
+// likewise owner-managed cockpit presentation and remains withheld.
 var t6020Withheld = [][2]string{
 	{"POST", "/api/mint"},
 	{"POST", "/api/auth/change-password"},
 	{"GET", "/api/push/public-key"},
 	{"POST", "/api/push/subscription"},
 	{"DELETE", "/api/push/subscription"},
-	{"PUT", "/api/members/{member_id}/avatar"},
-	{"DELETE", "/api/members/{member_id}/avatar"},
+	{"PATCH", "/api/members/{member_id}/avatar-index"},
 }
 
 func t6020RouteIndex(t *testing.T) map[[2]string]RouteSpec {
@@ -246,8 +245,8 @@ func TestT6020OpenedToolsAreInTheFrozenCatalog(t *testing.T) {
 }
 
 func TestT6020WithheldRoutesStayOwnerOnlyAndOffTheMCPSurface(t *testing.T) {
-	if len(t6020Withheld) != 7 {
-		t.Fatalf("the owner rulings withheld 7 routes, this table lists %d", len(t6020Withheld))
+	if len(t6020Withheld) != 6 {
+		t.Fatalf("the owner rulings withheld 6 routes, this table lists %d", len(t6020Withheld))
 	}
 	index := t6020RouteIndex(t)
 	// Scan the tool index by ROUTE (not by name): a withheld row that grew a
@@ -268,7 +267,7 @@ func TestT6020WithheldRoutesStayOwnerOnlyAndOffTheMCPSurface(t *testing.T) {
 		if spec.Requires != principalOwner {
 			t.Errorf("%s %s declares Requires=%q — the owner explicitly kept "+
 				"this route owner-only (T-6020: identity minting/account/browser; "+
-				"T-c826: personal member avatar identity/presentation). Read the note on the row "+
+				"T-cd6f: theme avatar index identity/presentation). Read the note on the row "+
 				"in routes.go before changing this.", key[0], key[1], spec.Requires)
 		}
 		if !spec.MCPExclude {

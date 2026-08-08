@@ -154,7 +154,7 @@ export function toMember(w: WireMember): Member {
   const presence = toPresence(w.presence) ?? "offline";
   return {
     id: w.id, // wire id (attribution key)
-    avatarUrl: w.avatar_url ?? "",
+    avatarIndex: w.avatar_index ?? 0,
     memberId: w.member_no, // display badge "MB-XXX###"
     name: w.name, // direct
     // role_key is the wire role; view model narrows to the RoleKey union. Fall
@@ -526,7 +526,7 @@ export function toTaskListItem(w: WireTaskListItem): TaskView {
 export function toOutsourceWorker(w: WireOutsourceWorker): OutsourceWorkerView {
   return {
     id: w.id,
-    avatarUrl: w.avatar_url ?? "",
+    avatarIndex: w.avatar_index ?? 0,
     codename: w.codename,
     runtime: (w.runtime || "claude") as "claude" | "codex",
     model: w.model ?? "",
@@ -926,6 +926,7 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
       // Avatar overlay (bb2e3b4) — optional; carried through verbatim when
       // present (never fabricated to an empty object).
       ...(b.avatars !== undefined ? { avatars: b.avatars } : {}),
+      ...(b.avatarPools !== undefined ? { avatarPools: b.avatarPools } : {}),
       // Logo + nav-icon overlays (T-ea81) — optional; carried through verbatim
       // when present. Omitting these dropped uploaded logo/nav icons on every
       // read-back (reload + login), which also emptied them from theme export.

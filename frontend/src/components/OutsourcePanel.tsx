@@ -194,7 +194,7 @@ export function OutsourcePanel({
                 }}
                 onKeyDown={(e) => e.stopPropagation()}
               >
-                <Avatar size={40} kind="outsource" src={w.avatarUrl} />
+                <Avatar size={40} kind="outsource" avatarIndex={w.avatarIndex} />
               </button>
               <span className="outsource-row__body">
                 {/* line 1 — the worker's name (代號; an outsource has no

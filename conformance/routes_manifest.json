@@ -163,15 +163,8 @@
   {
     "auth": "gated",
     "mcp_tool": null,
-    "method": "DELETE",
-    "path": "/api/members/{member_id}/avatar",
-    "requires": "owner"
-  },
-  {
-    "auth": "gated",
-    "mcp_tool": null,
-    "method": "PUT",
-    "path": "/api/members/{member_id}/avatar",
+    "method": "PATCH",
+    "path": "/api/members/{member_id}/avatar-index",
     "requires": "owner"
   },
   {

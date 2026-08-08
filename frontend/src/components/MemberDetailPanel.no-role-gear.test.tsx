@@ -20,8 +20,8 @@
 // arrive under some NEW name, and the structural form still catches it.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render } from "@testing-library/react";
-import { I18nProvider } from "../i18n";
+import { act, render } from "@testing-library/react";
+import { I18nProvider, useI18n } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { MemberDetailPanel } from "./MemberDetailPanel";
 import type { Member } from "../types";
@@ -94,6 +94,44 @@ function renderPanel(over: Partial<Member> = {}) {
   );
 }
 
+let themeContext!: ReturnType<typeof useI18n>;
+function CaptureThemeContext() {
+  themeContext = useI18n();
+  return null;
+}
+
+function renderPanelWithPool(over: Partial<Member> = {}) {
+  const result = render(
+    <I18nProvider>
+      <CaptureThemeContext />
+      <MemberDetailPanel
+        member={mkMember(over)}
+        onBack={() => {}}
+        onUpdateAvatarIndex={vi.fn().mockResolvedValue(undefined)}
+      />
+    </I18nProvider>,
+  );
+  act(() => {
+    themeContext.commitCustomThemes(
+      [
+        {
+          id: "member-pool",
+          name: "Member pool",
+          colors: { "--color-bg": "#101018" },
+          avatarPools: {
+            member: [
+              "data:image/png;base64,iVBORw0KGgo=",
+              "data:image/png;base64,iVBORw0KGgp=",
+            ],
+          },
+        },
+      ],
+      "member-pool",
+    );
+  });
+  return result;
+}
+
 describe("MemberDetailPanel identity card — no role gear (T-dfae)", () => {
   beforeEach(() => {
     window.location.hash = "";
@@ -138,5 +176,22 @@ describe("MemberDetailPanel identity card — no role gear (T-dfae)", () => {
     const statusLine = container.querySelector(".mp-identity__status")!;
     expect(statusLine.textContent).toContain("reviewer");
     expect(statusLine.querySelector("button")).toBeNull();
+  });
+});
+
+describe("MemberDetailPanel avatar pool eligibility", () => {
+  it("keeps the singleton assistant role out of the member pool chooser", () => {
+    const { queryByRole } = renderPanelWithPool({ role: "assistant" });
+    expect(queryByRole("radiogroup", { name: zh.mp.avatarIndexLabel })).toBeNull();
+  });
+
+  it("offers the visual member pool to an ordinary staff role", () => {
+    const { getByRole, getAllByRole } = renderPanelWithPool({
+      role: "reviewer",
+    });
+    expect(
+      getByRole("radiogroup", { name: zh.mp.avatarIndexLabel }),
+    ).toBeTruthy();
+    expect(getAllByRole("radio")).toHaveLength(2);
   });
 });

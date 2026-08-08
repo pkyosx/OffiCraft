@@ -131,15 +131,15 @@ describe("mock settings — display prefs (display_theme / display_language)", (
           id: "faced",
           name: "Faced",
           colors: { "--color-bg": "#101018" },
-          avatars: { outsource: pngAvatar },
+          avatarPools: { outsource: [pngAvatar] },
         },
       ],
     });
-    expect(s.customThemes[0].avatars?.outsource).toBe(pngAvatar);
+    expect(s.customThemes[0].avatarPools?.outsource).toEqual([pngAvatar]);
     // The regression: a fresh read must still carry avatars — the read-back
     // mapper dropping this field was the "avatar lost after refresh" defect.
     const again = await mockApi.getServerSettings();
-    expect(again.customThemes[0].avatars?.outsource).toBe(pngAvatar);
+    expect(again.customThemes[0].avatarPools?.outsource).toEqual([pngAvatar]);
   });
 
   it("saves logo + nav-icon overlays and reads them back durably", async () => {

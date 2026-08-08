@@ -109,6 +109,10 @@ type apiServer struct {
 	// PATCH /api/settings so the set syncs across devices; display.theme may
 	// point at any id in it. NOT an agent read path.
 	displayCustomThemes []ThemeBundleDTO
+	// avatarIndexPicker is nil in production (RandomAvatarIndex). Tests inject
+	// it to prove the real creation seams pass the active pool length through
+	// to persisted member state.
+	avatarIndexPicker func(poolLen int) int
 	// selfBase is this server's OWN loopback base URL ("http://127.0.0.1:PORT"),
 	// stamped by cmdServe once the bind address is known. It exists for the ONE
 	// in-process caller that needs an OC_BASE with no HTTP request to derive it
@@ -433,6 +437,36 @@ func (s *apiServer) displayCustomThemesSnapshot() []ThemeBundleDTO {
 	out := make([]ThemeBundleDTO, len(s.displayCustomThemes))
 	copy(out, s.displayCustomThemes)
 	return out
+}
+
+// activeAvatarPoolSize returns the number of choices used when a new identity
+// is born. Built-in/unknown themes and missing pools intentionally return zero.
+func (s *apiServer) activeAvatarPoolSize(kind string) int {
+	poolKind := ""
+	switch kind {
+	case KindAssistant:
+		poolKind = "member"
+	case KindOutsource:
+		poolKind = "outsource"
+	default:
+		return 0
+	}
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	for _, bundle := range s.displayCustomThemes {
+		if bundle.Id != s.displayTheme || bundle.AvatarPools == nil {
+			continue
+		}
+		return len((*bundle.AvatarPools)[poolKind])
+	}
+	return 0
+}
+
+func (s *apiServer) pickAvatarIndex(poolLen int) int {
+	if s.avatarIndexPicker != nil {
+		return s.avatarIndexPicker(poolLen)
+	}
+	return RandomAvatarIndex(poolLen)
 }
 
 // ctxHighConfig returns the live context-high band config (by value — one

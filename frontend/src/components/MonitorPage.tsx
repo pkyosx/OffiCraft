@@ -198,13 +198,13 @@ export function MonitorPage() {
           await api.patchMember(detail.id, { name });
           await refetchMembers();
         }}
-        onUpdateAvatar={async (file) => {
-          await api.updateMemberAvatar(detail.id, file);
-          await refetchMembers();
-        }}
-        onRemoveAvatar={async () => {
-          await api.removeMemberAvatar(detail.id);
-          await refetchMembers();
+        onUpdateAvatarIndex={async (avatarIndex) => {
+          await api.updateMemberAvatarIndex(detail.id, avatarIndex);
+          try {
+            await refetchMembers();
+          } catch {
+            /* the acknowledged mutation outlives a failed refresh */
+          }
         }}
       />
     );
@@ -1458,7 +1458,7 @@ function SessionRow({
           <Avatar
             size={34}
             kind={roster ? avatarKindForMember(roster) : "member"}
-            src={roster?.avatarUrl}
+            avatarIndex={roster?.avatarIndex}
           />
           <div className="mon-member__body">
             <div className="mon-member__name">{name}</div>
@@ -1568,7 +1568,7 @@ function OutsourceSessionRow({
     >
       <td className="mon-table__left" data-label={t.monitor.sessionCol.member}>
         <div className="mon-member">
-          <Avatar size={34} kind="outsource" src={worker.avatarUrl} />
+          <Avatar size={34} kind="outsource" avatarIndex={worker.avatarIndex} />
           <div className="mon-member__body">
             <div className="mon-member__name">
               {worker.codename ? msg.outsourceLabel(worker.codename) : dash}

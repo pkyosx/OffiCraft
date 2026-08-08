@@ -220,7 +220,10 @@ func (s *apiServer) publishOutsourceWorker(w OutsourceWorker, trigger string) {
 	// the panel — owner-only.
 	s.hub.Publish("outsource_worker", "patch", "outsource_worker",
 		wireOwnerID+"::"+w.ID,
-		map[string]any{"id": w.ID, "codename": w.Codename, "status": w.Status},
+		map[string]any{
+			"id": w.ID, "codename": w.Codename, "status": w.Status,
+			"avatar_index": w.AvatarIndex,
+		},
 		audienceOwnerOnly(), trigger)
 }
 
@@ -2552,11 +2555,6 @@ func (s *apiServer) HandleAddTaskArtifactApiTasksTaskIdArtifactPost(w http.Respo
 		if attID == "" {
 			writeError(w, http.StatusBadRequest,
 				"attachment_id is required for a "+kind+" artifact")
-			return
-		}
-		if isMemberAvatarAttachmentID(attID) {
-			writeError(w, http.StatusBadRequest,
-				"attachment '"+attID+"' is reserved for a member avatar")
 			return
 		}
 		att, err := s.dal.GetChatAttachment(attID)

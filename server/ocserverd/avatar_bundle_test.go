@@ -106,11 +106,8 @@ func TestValidateAvatars(t *testing.T) {
 		t.Fatalf("nil avatars must be admissible: %v", err)
 	}
 
-	// A legal kind→image overlay round-trips across the full kind set
-	// (member/outsource + owner/assistant added in T-ea81).
+	// Canonical single-image identities remain owner and assistant.
 	ok := map[string]string{
-		"member":    dataURI("image/png", pngBytes),
-		"outsource": dataURI("image/webp", webpBytes),
 		"owner":     dataURI("image/jpeg", jpegBytes),
 		"assistant": dataURI("image/png", pngBytes),
 	}
@@ -118,18 +115,55 @@ func TestValidateAvatars(t *testing.T) {
 		t.Fatalf("legal avatars overlay must pass: %v", err)
 	}
 
-	// An unknown kind key is rejected, and the message names the full kind set.
+	// An unknown kind key is rejected, and the message names the canonical set.
 	badKind := map[string]string{"boss": dataURI("image/png", pngBytes)}
 	if err := validateAvatars(&badKind, "t"); err == nil ||
-		!strings.Contains(err.Error(), "only member, outsource, owner, assistant") {
+		!strings.Contains(err.Error(), "only owner, assistant") {
 		t.Fatalf("unknown avatar kind must 422 naming the kind set: %v", err)
 	}
 
 	// A bad value under a legal kind is rejected with the locator.
-	badVal := map[string]string{"member": dataURI("image/svg+xml", []byte("<svg/>"))}
+	badVal := map[string]string{"assistant": dataURI("image/svg+xml", []byte("<svg/>"))}
 	if err := validateAvatars(&badVal, "cx[0]"); err == nil ||
-		!strings.Contains(err.Error(), "cx[0]: avatars[member]") {
+		!strings.Contains(err.Error(), "cx[0]: avatars[assistant]") {
 		t.Fatalf("bad avatar value must 422 with locator: %v", err)
+	}
+}
+
+func TestNormalizeAndValidateAvatarPools(t *testing.T) {
+	memberImage := dataURI("image/png", pngBytes)
+	legacy := map[string]string{
+		"member": memberImage,
+		"owner":  dataURI("image/jpeg", jpegBytes),
+	}
+	bundle := ThemeBundleDTO{Avatars: &legacy}
+	if err := normalizeThemeAvatarPools(&bundle, "theme"); err != nil {
+		t.Fatal(err)
+	}
+	if bundle.AvatarPools == nil || len((*bundle.AvatarPools)["member"]) != 1 ||
+		(*bundle.AvatarPools)["member"][0] != memberImage {
+		t.Fatalf("legacy member image was not normalized: %+v", bundle.AvatarPools)
+	}
+	if bundle.Avatars == nil || (*bundle.Avatars)["owner"] == "" {
+		t.Fatalf("owner singleton must remain canonical: %+v", bundle.Avatars)
+	}
+	if _, exists := (*bundle.Avatars)["member"]; exists {
+		t.Fatal("legacy member key must be omitted after normalization")
+	}
+
+	tooMany := map[string][]string{
+		"member": make([]string, maxAvatarPoolItems+1),
+	}
+	if err := validateAvatarPools(&tooMany, "theme"); err == nil ||
+		!strings.Contains(err.Error(), "at most 12") {
+		t.Fatalf("oversized pool must be rejected: %v", err)
+	}
+	bothAvatar := map[string]string{"member": memberImage}
+	bothPool := map[string][]string{"member": {memberImage}}
+	both := ThemeBundleDTO{Avatars: &bothAvatar, AvatarPools: &bothPool}
+	if err := normalizeThemeAvatarPools(&both, "theme"); err == nil ||
+		!strings.Contains(err.Error(), "cannot define both") {
+		t.Fatalf("ambiguous legacy/canonical input must be rejected: %v", err)
 	}
 }
 

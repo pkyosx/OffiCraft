@@ -12,9 +12,9 @@ vi.mock("../api", () => ({
 }));
 
 import {
-  useWorkerAvatarUrls,
+  useWorkerAvatarIndexes,
   useWorkerCodenames,
-  updateCachedWorkerAvatar,
+  updateCachedWorkerAvatarIndex,
   __resetWorkerCodenameCache,
 } from "./useWorkerCodenames";
 
@@ -34,36 +34,34 @@ describe("useWorkerCodenames", () => {
     expect(getOutsourceWorker).toHaveBeenCalledWith("ow-abc");
   });
 
-  it("shares the per-id read for a released worker's personal avatar", async () => {
+  it("shares the per-id read for a released worker's avatar index", async () => {
     getOutsourceWorker.mockResolvedValue({
       id: "ow-abc",
       codename: "X-1",
-      avatarUrl: "/api/chat/attachment/ava-x1",
+      avatarIndex: 3,
     });
-    const { result } = renderHook(() => useWorkerAvatarUrls(["ow-abc"]));
+    const { result } = renderHook(() => useWorkerAvatarIndexes(["ow-abc"]));
     await waitFor(() => {
-      expect(result.current.get("ow-abc")).toBe(
-        "/api/chat/attachment/ava-x1",
-      );
+      expect(result.current.get("ow-abc")).toBe(3);
     });
     expect(getOutsourceWorker).toHaveBeenCalledTimes(1);
   });
 
-  it("updates mounted released-worker avatar consumers after an owner mutation", async () => {
+  it("updates mounted released-worker index consumers after an owner mutation", async () => {
     getOutsourceWorker.mockResolvedValue({
       id: "ow-abc",
       codename: "X-1",
-      avatarUrl: "/api/chat/attachment/ava-old",
+      avatarIndex: 1,
     });
-    const { result } = renderHook(() => useWorkerAvatarUrls(["ow-abc"]));
+    const { result } = renderHook(() => useWorkerAvatarIndexes(["ow-abc"]));
     await waitFor(() => {
-      expect(result.current.get("ow-abc")).toContain("ava-old");
+      expect(result.current.get("ow-abc")).toBe(1);
     });
     act(() => {
-      updateCachedWorkerAvatar("ow-abc", "/api/chat/attachment/ava-new");
+      updateCachedWorkerAvatarIndex("ow-abc", 5);
     });
     await waitFor(() => {
-      expect(result.current.get("ow-abc")).toContain("ava-new");
+      expect(result.current.get("ow-abc")).toBe(5);
     });
   });
 

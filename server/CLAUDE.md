@@ -271,23 +271,21 @@ owner 2026-07-28 逐字：「其他人不需要知道 Insight，但是 **Insight
 - **隔離證明**：`api_insight_isolation_test.go` 把某角色的 Insight 寫到 `doc.cap_chars.insight` 上限，斷言 Duty 與 Learning 逐位元組不變、且各自都還寫得動。**陽性對照是那支測試的命脈**——先證明「再多一個字元會被 `DocCapBlocked` 擋」，否則「寫到上限」可能根本沒踩到 cap，三條斷言會一起空綠。cap 一律取自產品讀 cap 的同一條路，不准用測試自己編的數字。
 - **agent 面**：`seeds/system_interaction.md` 的 **level-2 `## 9b.`** 是唯一會被每一代 agent 開機讀到的招牌（`## 9.` 的**兄弟節**，不是子節——寫成 `### 9b.` 等於在開機分類表裡把 Insight 歸回 Learning，而且**沒有任何東西會紅**）。⚠️ 該節同時被 `worker_sharedcore.go` 的 `workerSharedCoreExclusions` 排除（`Anchor: "## 9b. "`），理由與 §9 那條相同：本文通篇對「有角色的你」說話，送給沒有角色的 worker 只會製造 T-108b 要消滅的那種殘留。**代價寫在這裡不藏**：worker 讀得到別人的 Insight，卻永遠不會被告知它讀得到——與 §9（Learning）今天的狀態一致，不是本票新造的。日後若要讓 worker 知道，正解是**在 worker overlay 加一句 worker 語境的說明**，不是把 exclusion 拿掉。
 
-## 每位成員的個人圖片頭像(T-c826)
+## 主題頭像池與持久索引(T-cd6f，取代 T-c826)
 
-- 個人圖以 stable member id 綁在 `member.avatar_attachment_id`，圖片 bytes 重用
-  `chat_attachment`，但 id 使用專用 `ava-` 前綴。顯示鏈固定為「個人圖 →
-  role/theme 圖 → glyph」，不以 display name 當 key，也不在 Avatar 上畫 presence。
-- `PUT/DELETE /api/members/{member_id}/avatar` 由 owner 2026-07-27 明確裁定
-  `requires=owner` 且 `MCPExclude`；外包與正職共用 member row，warden/machine
-  目標一律 422。PUT 只收原始 PNG/JPEG/WEBP、最多 64 KiB，server 以 magic bytes
-  驗證，不能只信瀏覽器 MIME。
-- replacement、remove、hard delete 與 migration rollback 都必須在同一 transaction
-  內維護 pointer/blob，不得留下舊 blob 或懸空 pointer。每次 replacement mint 新
-  `ava-` id，自然 cache-bust。staff 發既有 `member` delta，外包發
-  `outsource_worker` delta；SSE 永不攜帶圖片 bytes。
-- `ava-` blob 是 single-owner，chat/reply/task attachment ref 與 task artifact
-  一律拒收，避免 replacement/remove 讓一般紀錄懸空。一般 `PutMember` conflict
-  update 也不得寫 `avatar_attachment_id`；只有專用 avatar mutator 可改該 pointer，
-  避免 stale lifecycle/model snapshot 洗掉較新的頭像。
+- `member` 與 `outsource` 圖片屬於 ThemeBundle 的有序 pool；owner／assistant
+  仍沿用單圖。每個 pool 最多 12 張，每張沿用 PNG/JPEG/WEBP、magic bytes 與
+  decoded 64 KiB 的既有圖片守衛。
+- staff 與 outsource 建立時依 active theme 的對應非空 pool 隨機分配
+  `member.avatar_index`；空 pool 配 0。索引持久化，換主題、重啟與換手都不改。
+- render 契約是 `pool[avatar_index % len(pool)]`；空 pool 使用 glyph。較短 pool
+  不觸發資料庫重寫，因此主題切換不會製造 broken image 或隱性 identity mutation。
+- `PATCH /api/members/{member_id}/avatar-index` 是 owner-only、MCP-excluded，
+  staff 發 `member` delta，outsource 發 `outsource_worker` delta；warden/machine
+  目標拒絕。索引只要求非負，不受當前 pool 長度限制。
+- migration `00049` 刪除舊 `avatar_attachment_id` 前先刪其專用 `ava-` blobs，
+  並退役 personal-avatar PUT/DELETE route、DTO 欄與 editor。Down 只還原空 pointer，
+  不假裝能重建已刪除的個人圖片。
 
 ## AI 會話清單 = 正職 ∪ 外包,而且每一欄都是自報值(T-e12c,owner 2026-07-31)
 

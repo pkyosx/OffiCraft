@@ -8,8 +8,8 @@ import { AgentDetailPanel, runtimeLabel } from "./AgentDetailPanel";
 import { pendingChangeHint, reportedMachine } from "../lib/pendingChange";
 import { ModelEffortEditor } from "./ModelEffortEditor";
 import { ChevronLeftIcon, ChevronRightIcon } from "./icons";
-import { AvatarEditor } from "./AvatarEditor";
 import { Avatar } from "./Avatar";
+import { AvatarIndexEditor } from "./AvatarIndexEditor";
 import { LifecycleDot, presenceVisual } from "./LifecycleDot";
 // 🔴 This panel renders its settings dialog with the .machine-picker* classes,
 // so it must import their stylesheet ITSELF (T-7526). Both panels used to
@@ -58,8 +58,7 @@ interface WorkerDetailPanelProps {
    * returns the text (no token). Undefined ⇒ the initial-prompt card is hidden
    * (a caller below the admin_agent floor omits it — T-6020). */
   onFetchBootContext?: () => Promise<string>;
-  onUpdateAvatar?: (file: File) => Promise<void>;
-  onRemoveAvatar?: () => Promise<void>;
+  onUpdateAvatarIndex?: (avatarIndex: number) => Promise<void>;
 }
 
 /**
@@ -87,8 +86,7 @@ export function WorkerDetailPanel({
   onWake,
   onSetModel,
   onFetchBootContext,
-  onUpdateAvatar,
-  onRemoveAvatar,
+  onUpdateAvatarIndex,
 }: WorkerDetailPanelProps) {
   const { t, msg } = useI18n();
   const dash = t.workerDetail.dash;
@@ -386,20 +384,20 @@ export function WorkerDetailPanel({
     .join(" · ");
   const hasTask = Boolean(worker.taskId && taskLabel);
 
-  // ── identity slot: stable worker id's personal image, then the outsource
-  // theme image and glyph fallbacks, plus codename + real presence. ──────────
+  // ── identity slot: active-theme outsource pool + persistent index, then
+  // glyph fallback, plus codename + real presence. ───────────────────────────
   const identity = (
     <div className="mp-card mp-identity">
-      {onUpdateAvatar && onRemoveAvatar ? (
-        <AvatarEditor
-          size={52}
+      <Avatar size={52} kind="outsource" avatarIndex={worker.avatarIndex} />
+      {onUpdateAvatarIndex && (
+        <AvatarIndexEditor
+          value={worker.avatarIndex}
           kind="outsource"
-          src={worker.avatarUrl}
-          onUpload={onUpdateAvatar}
-          onRemove={onRemoveAvatar}
+          onSave={onUpdateAvatarIndex}
+          label={t.workerDetail.avatarIndexLabel}
+          savingLabel={t.workerDetail.avatarIndexSaving}
+          errorLabel={t.workerDetail.avatarIndexError}
         />
-      ) : (
-        <Avatar size={52} kind="outsource" src={worker.avatarUrl} />
       )}
       <div className="mp-identity__body">
         <div className="mp-identity__line">
@@ -655,7 +653,7 @@ export function WorkerDetailPanel({
           <span>{t.mp.back}</span>
         </button>
         <div className="mp-card mp-identity">
-          <Avatar size={52} kind="outsource" src={worker.avatarUrl} />
+          <Avatar size={52} kind="outsource" avatarIndex={worker.avatarIndex} />
           <div className="mp-identity__body">
             <div className="mp-identity__line">
               {/* The codename when we still have it (the worker was in view when

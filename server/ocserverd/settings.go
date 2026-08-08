@@ -417,6 +417,9 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 			return out, fmt.Errorf("settings %s: not a valid theme-bundle array: %v",
 				settingDisplayCustomThemes, err)
 		}
+		if err := normalizeThemeBundles(out.displayCustomThemes); err != nil {
+			return out, fmt.Errorf("settings %s: %v", settingDisplayCustomThemes, err)
+		}
 		// Prune unrecognised wording codes on READ too (T-081b). The write path
 		// prunes, but a row written BEFORE the whitelist shrank still carries the
 		// retired codes, and this load is what GET /api/settings echoes — so

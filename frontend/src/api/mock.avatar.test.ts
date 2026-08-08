@@ -5,25 +5,17 @@ import {
   mockApi,
 } from "./mock";
 
-describe("mock personal-avatar mutation parity", () => {
+describe("mock avatar-index mutation parity", () => {
   beforeEach(() => {
     __resetMock();
-    vi.stubGlobal("URL", {
-      createObjectURL: vi.fn(() => "blob:mock-avatar"),
-      revokeObjectURL: vi.fn(),
-    });
   });
-
-  afterEach(() => vi.unstubAllGlobals());
 
   it("emits the same kind-specific refetch topics as the server", async () => {
     const seen: string[] = [];
     const unsubscribe = mockApi.subscribeEvents((topic) => seen.push(topic));
-    const file = new File(["png"], "avatar.png", { type: "image/png" });
-
-    await mockApi.updateMemberAvatar("mira", file);
-    await mockApi.removeMemberAvatar("mira");
-    expect(seen).toEqual(["member", "member"]);
+    await mockApi.updateMemberAvatarIndex("mira", 2);
+    expect((await mockApi.getMember("mira")).avatarIndex).toBe(2);
+    expect(seen).toEqual(["member"]);
 
     __injectMockOutsourceWorker({
       id: "ow-avatar",
@@ -37,14 +29,51 @@ describe("mock personal-avatar mutation parity", () => {
       createdTs: 1,
     });
     seen.length = 0;
-    await mockApi.updateMemberAvatar("ow-avatar", file);
-    expect((await mockApi.getOutsourceWorker("ow-avatar")).avatarUrl).toBe(
-      "blob:mock-avatar",
-    );
-    await mockApi.removeMemberAvatar("ow-avatar");
-    expect(seen).toEqual(["outsource_worker", "outsource_worker"]);
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:mock-avatar");
+    await mockApi.updateMemberAvatarIndex("ow-avatar", 4);
+    expect((await mockApi.getOutsourceWorker("ow-avatar")).avatarIndex).toBe(4);
+    expect(seen).toEqual(["outsource_worker"]);
 
     unsubscribe();
+  });
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("mock avatar-index creation parity", () => {
+  beforeEach(() => {
+    __resetMock();
+  });
+
+  it("assigns a founding staff member from the active theme pool", async () => {
+    const png = (tail: number) =>
+      "data:image/png;base64," +
+      btoa(
+        String.fromCharCode(
+          0x89,
+          0x50,
+          0x4e,
+          0x47,
+          0x0d,
+          0x0a,
+          0x1a,
+          0x0a,
+          tail,
+        ),
+      );
+    await mockApi.patchServerSettings({
+      customThemes: [{
+        id: "portraits",
+        name: "Portraits",
+        colors: { "--color-bg": "#000000" },
+        avatarPools: { member: [png(1), png(2), png(3)] },
+      }],
+      displayTheme: "portraits",
+    });
+    vi.spyOn(Math, "random").mockReturnValue(0.75);
+
+    const created = await mockApi.createRole({ name: "Pool role" });
+    expect(created.member.avatarIndex).toBe(2);
   });
 });

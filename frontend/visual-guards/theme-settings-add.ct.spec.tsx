@@ -28,6 +28,24 @@ for (const width of [390, 1280]) {
     const colorRows = cmp.locator(".ts-color-row");
     expect(await colorRows.count()).toBeGreaterThan(5);
 
+    // Upload plumbing stays visually hidden. Browser automation may temporarily
+    // reveal file inputs to drive setFiles, but the production stylesheet must
+    // never expose native "Choose File / No file chosen" chrome to the owner.
+    const fileInputs = cmp.locator(
+      [
+        'input[type="file"].ts-file[aria-label="正職頭像"]',
+        'input[type="file"].ts-file[aria-label="外包頭像"]',
+        'input[type="file"].ts-file[aria-label="CEO 頭像"]',
+        'input[type="file"].ts-file[aria-label="助理頭像"]',
+      ].join(","),
+    );
+    await expect(fileInputs).toHaveCount(4);
+    expect(
+      await fileInputs.evaluateAll((inputs) =>
+        inputs.every((input) => getComputedStyle(input).display === "none"),
+      ),
+    ).toBe(true);
+
     // Back to the list: customThemes grew by one, and the new row lands in the
     // 自訂 group (rows carry no badge of their own).
     await cmp.getByRole("button", { name: "取消" }).click();

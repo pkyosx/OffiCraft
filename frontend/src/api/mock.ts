@@ -112,7 +112,11 @@ import {
   SEED_BOOT_SEQUENCE_MD,
 } from "./seeds";
 import { ApiError } from "./errors";
-import { validateThemeBundles, isValidDisplayTheme } from "../lib/themeBundle";
+import {
+  validateThemeBundles,
+  isValidDisplayTheme,
+  type ThemeBundle,
+} from "../lib/themeBundle";
 
 // The always-present server-self machine id (mirrors the server seed):
 // the warden for the host running the server itself — listed FIRST, is_self, NOT
@@ -127,6 +131,7 @@ const MOCK_WIRE_MEMBERS: WireMember[] = [
   // (is_self=true via listMachines), and is NOT deletable. Offline until it reports.
   {
     id: MOCK_SERVER_SELF_ID,
+    avatar_index: 0,
     member_no: "MB-WDN000",
     name: "伺服器這一台",
     kind: "warden",
@@ -158,6 +163,7 @@ const MOCK_WIRE_MEMBERS: WireMember[] = [
   },
   {
     id: "mira",
+    avatar_index: 0,
     member_no: "MB-AST001",
     name: "Mira",
     kind: "assistant", // mirror the real seed (dal/seed.py: Mira kind="assistant")
@@ -199,6 +205,7 @@ const MOCK_WIRE_MEMBERS: WireMember[] = [
   // its id. Offline / never-online — no fabricated telemetry.
   {
     id: "warden-mbp5",
+    avatar_index: 0,
     member_no: "MB-WDN001",
     name: "Warden · mbp5",
     kind: "warden",
@@ -1279,14 +1286,7 @@ const DEFAULT_MOCK_SETTINGS = {
   display_wide: false,
   // Custom theme bundles (T-16a1 P2) — none saved out of the box, mirroring the
   // server (display.custom_themes absent).
-  custom_themes: [] as {
-    id: string;
-    name: string;
-    colors: Record<string, string>;
-    wording?: Record<string, Record<string, string>>;
-    fonts?: Record<string, string>;
-    avatars?: { member?: string; outsource?: string };
-  }[],
+  custom_themes: [] as ThemeBundle[],
 };
 
 /** Mirror of the server's per-document size/cap reporting (T-3aeb). Runes, not
@@ -1313,6 +1313,14 @@ function docSizeFields(
 let mockServerSettings = { ...DEFAULT_MOCK_SETTINGS };
 const MOCK_CLAIM_TOKEN = "mock-claim-token";
 const TOKEN_TTL_CHOICES = new Set([43200, 86400, 604800, 2592000]);
+
+function mockAvatarIndex(kind: "member" | "outsource"): number {
+  const active = mockServerSettings.custom_themes.find(
+    (theme) => theme.id === mockServerSettings.display_theme,
+  );
+  const pool = active?.avatarPools?.[kind] ?? [];
+  return pool.length > 0 ? Math.floor(Math.random() * pool.length) : 0;
+}
 
 // M4 回呼端點 — an in-memory store keyed by member id. Seeded with one endpoint
 // on mira (the mockup's `pr-event`) so the panel renders a populated section.
@@ -1470,41 +1478,18 @@ export const mockApi: Api = {
     return mapWithExtras({ ...w, unread_count: unreadCountOf(id) });
   },
 
-  async updateMemberAvatar(id: string, file: File): Promise<string> {
-    const url = URL.createObjectURL(file);
+  async updateMemberAvatarIndex(id: string, avatarIndex: number): Promise<void> {
+    if (!Number.isInteger(avatarIndex) || avatarIndex < 0) {
+      throw new Error("mock: avatar_index must be a non-negative integer");
+    }
     const worker = outsourceWorkers.find((item) => item.id === id);
     if (worker) {
-      if (worker.avatarUrl?.startsWith("blob:")) {
-        URL.revokeObjectURL(worker.avatarUrl);
-      }
-      worker.avatarUrl = url;
-      emitTopic("outsource_worker");
-      return url;
-    }
-    const member = findWire(id);
-    if (member.avatar_url?.startsWith("blob:")) {
-      URL.revokeObjectURL(member.avatar_url);
-    }
-    member.avatar_url = url;
-    emitTopic("member");
-    return url;
-  },
-
-  async removeMemberAvatar(id: string): Promise<void> {
-    const worker = outsourceWorkers.find((item) => item.id === id);
-    if (worker) {
-      if (worker.avatarUrl?.startsWith("blob:")) {
-        URL.revokeObjectURL(worker.avatarUrl);
-      }
-      worker.avatarUrl = "";
+      worker.avatarIndex = avatarIndex;
       emitTopic("outsource_worker");
       return;
     }
     const member = findWire(id);
-    if (member.avatar_url?.startsWith("blob:")) {
-      URL.revokeObjectURL(member.avatar_url);
-    }
-    member.avatar_url = "";
+    member.avatar_index = avatarIndex;
     emitTopic("member");
   },
 
@@ -2443,6 +2428,7 @@ export const mockApi: Api = {
       // scheduler here) — validated by the server, dropped honestly here.
       newWorker = {
         id: `ow-mock-${Date.now().toString(16)}`,
+        avatarIndex: mockAvatarIndex("outsource"),
         codename: deriveCodename(
           target.model.trim(),
           outsourceWorkers.map((w) => w.codename)
@@ -3063,6 +3049,7 @@ export const mockApi: Api = {
 
     wireMembers.push({
       id: machineId,
+      avatar_index: 0,
       member_no: `MB-WDN${String(wireMembers.length).padStart(3, "0")}`,
       name: name || machineId,
       kind: "warden",
@@ -3695,6 +3682,7 @@ export const mockApi: Api = {
     const memberId = `m-${hex()}`;
     const wireMember: WireMember = {
       id: memberId,
+      avatar_index: mockAvatarIndex("member"),
       // Server derives member_no from the member id (ocserverd/api_helpers.go:198
       // → domain.go MemberNo): a SHA-256 of the id projected to MB-XXX###. NOT a
       // constant — deriving here keeps mock parity so two createRole calls mint

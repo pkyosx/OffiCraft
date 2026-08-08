@@ -65,7 +65,7 @@ describe("Avatar avatars-by-kind (T-16a1 P5)", () => {
           id: "portraits",
           name: "Portraits",
           colors: { "--color-bg": "#101018" },
-          avatars: { member: MEMBER_IMG, outsource: OUTSOURCE_IMG },
+          avatarPools: { member: [MEMBER_IMG], outsource: [OUTSOURCE_IMG] },
         },
       ]);
       ctx.setTheme("portraits");
@@ -131,7 +131,7 @@ describe("Avatar avatars-by-kind (T-16a1 P5)", () => {
           id: "memberonly",
           name: "MemberOnly",
           colors: { "--color-bg": "#101018" },
-          avatars: { member: MEMBER_IMG },
+          avatarPools: { member: [MEMBER_IMG] },
         },
       ]);
       ctx.setTheme("memberonly");
@@ -160,7 +160,7 @@ describe("Avatar avatars-by-kind (T-16a1 P5)", () => {
           id: "half",
           name: "Half",
           colors: { "--color-bg": "#101018" },
-          avatars: { member: MEMBER_IMG },
+          avatarPools: { member: [MEMBER_IMG] },
         },
       ]);
       ctx.setTheme("half");
@@ -173,11 +173,11 @@ describe("Avatar avatars-by-kind (T-16a1 P5)", () => {
     expect(getByTestId("outsource").querySelector("svg")).not.toBeNull();
   });
 
-  it("prefers the stable member image, then falls back to the role theme image on load failure", () => {
+  it("wraps avatarIndex by pool length and falls back to glyph on load failure", () => {
     const { container } = render(
       <I18nProvider>
         <Capture />
-        <Avatar size={40} kind="member" src="blob:personal-avatar" />
+        <Avatar size={40} kind="member" avatarIndex={3} />
       </I18nProvider>
     );
     act(() => {
@@ -186,16 +186,15 @@ describe("Avatar avatars-by-kind (T-16a1 P5)", () => {
           id: "fallback",
           name: "Fallback",
           colors: { "--color-bg": "#101018" },
-          avatars: { member: MEMBER_IMG },
+          avatarPools: { member: [OUTSOURCE_IMG, MEMBER_IMG] },
         },
       ]);
       ctx.setTheme("fallback");
     });
-    const personal = container.querySelector("img.avatar__img");
-    expect(personal?.getAttribute("src")).toBe("blob:personal-avatar");
-    fireEvent.error(personal!);
-    expect(
-      container.querySelector("img.avatar__img")?.getAttribute("src")
-    ).toBe(MEMBER_IMG);
+    const selected = container.querySelector("img.avatar__img");
+    expect(selected?.getAttribute("src")).toBe(MEMBER_IMG);
+    fireEvent.error(selected!);
+    expect(container.querySelector("img.avatar__img")).toBeNull();
+    expect(container.querySelector("svg")).not.toBeNull();
   });
 });

@@ -402,15 +402,11 @@ var authzOutsideRouteTable = map[string]string{
 	"api_monitoring.go :: HandleGetMonitoringApiMonitoringGet :: m.Kind == machineKind": "" +
 		"monitoring splits member rows from machine rows by kind for rendering.",
 
-	// ── personal-avatar target scoping (T-c826, owner 2026-07-27) ────────────
-	"api_members.go :: HandlePutMemberAvatarApiMembersMemberIdAvatarPut :: m.Kind == KindWarden": "" +
-		"T-c826 owner ruling: the route table already makes the caller owner-only; this " +
-		"separate predicate classifies the requested TARGET. Wardens are infrastructure, " +
-		"not people with personal avatars, so the avatar face returns 422 for that kind.",
-	"api_members.go :: HandleDeleteMemberAvatarApiMembersMemberIdAvatarDelete :: m.Kind == KindWarden": "" +
-		"the delete half of the same T-c826 target rule. It cannot be a Requires floor: " +
-		"the caller remains owner in both cases, while eligibility depends on the member " +
-		"identified by the path parameter.",
+	// ── theme-avatar target scoping ──────────────────────────────────────────
+	"api_members.go :: HandleUpdateMemberAvatarIndexApiMembersMemberIdAvatarIndexPatch :: m.Kind == KindWarden": "" +
+		"the route table makes the caller owner-only; this separate predicate classifies " +
+		"the requested TARGET. Wardens are infrastructure, not a staff/outsource visual " +
+		"identity, so the avatar-index face returns 422 for that kind.",
 
 	// ── chat ─────────────────────────────────────────────────────────────────
 	"api_chat.go :: HandlePostChatApiChatPost :: currentActor(r) != wireOwnerID": "" +

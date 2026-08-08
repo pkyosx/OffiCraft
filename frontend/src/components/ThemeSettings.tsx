@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { en } from "../i18n/locales/en";
 import { zh } from "../i18n/locales/zh";
@@ -6,7 +6,7 @@ import { readDictMessage } from "../i18n/wording";
 import { MESSAGE_KEYS } from "../i18n/messageKeys.generated";
 import {
   MAX_CUSTOM_THEMES,
-  AVATAR_KINDS,
+  MAX_AVATAR_POOL_ITEMS,
   NAV_ICON_KEYS,
   isValidAvatarValue,
   isValidBackgroundValue,
@@ -14,6 +14,7 @@ import {
   BACKGROUND_MODES,
   DEFAULT_BACKGROUND_MODE,
   type AvatarKind,
+  type PoolAvatarKind,
   type BackgroundMode,
   type NavIconKey,
   type ThemeBundle,
@@ -47,6 +48,7 @@ import {
   UserIcon,
 } from "./icons";
 import { ConfirmModal } from "./ConfirmModal";
+import { ThemeAvatarPoolModal } from "./ThemeAvatarPoolModal";
 import "./theme-settings.css";
 
 type View = "list" | "import" | "edit";
@@ -92,9 +94,9 @@ const FONT_SLOTS = [
 ] as const;
 
 // The four avatar slots the editor offers (T-16a1 P5; T-ea81): 正職 member /
-// 外包 outsource / owner CEO / assistant 助理. Each accepts one uploaded image
-// (validated client-side, embedded as a base64 data URI so it travels inside
-// the bundle).
+// 外包 outsource use ordered pools; owner CEO / assistant 助理 remain single
+// images. Every upload is validated client-side and embedded as a base64 data
+// URI so it travels inside the bundle.
 type AvatarLabelKey =
   | "themeAvatarMember"
   | "themeAvatarOutsource"
@@ -165,8 +167,21 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   // absent entry means "no avatar for this kind" (falls back to the built-in
   // glyph). Per-kind upload error surfaced inline.
   const [editAvatars, setEditAvatars] = useState<
-    Partial<Record<AvatarKind, string>>
+    Partial<Record<"owner" | "assistant", string>>
   >({});
+  const [editAvatarPools, setEditAvatarPools] = useState<
+    Partial<Record<PoolAvatarKind, string[]>>
+  >({});
+  const avatarReplaceTargetRef = useRef<{
+    kind: PoolAvatarKind;
+    index: number;
+  } | null>(null);
+  const [avatarPoolModalKind, setAvatarPoolModalKind] =
+    useState<PoolAvatarKind | null>(null);
+  const avatarPoolTriggerRefs = {
+    member: useRef<HTMLButtonElement>(null),
+    outsource: useRef<HTMLButtonElement>(null),
+  };
   const [avatarError, setAvatarError] = useState("");
   const avatarInputRefs = {
     member: useRef<HTMLInputElement>(null),
@@ -355,7 +370,12 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
     );
     setEditFonts({ ...(bundle.fonts ?? {}) });
     setEditAvatars({ ...(bundle.avatars ?? {}) });
+    setEditAvatarPools({
+      member: [...(bundle.avatarPools?.member ?? [])],
+      outsource: [...(bundle.avatarPools?.outsource ?? [])],
+    });
     setAvatarError("");
+    setAvatarPoolModalKind(null);
     setEditLogo(bundle.logo ?? "");
     setEditNavIcons({ ...(bundle.navIcons ?? {}) });
     setEditCanvasBg(bundle.backgrounds?.canvas ?? "");
@@ -400,6 +420,11 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
     kind: AvatarKind,
     e: React.ChangeEvent<HTMLInputElement>
   ) {
+    const replaceTarget =
+      avatarReplaceTargetRef.current?.kind === kind
+        ? avatarReplaceTargetRef.current
+        : null;
+    avatarReplaceTargetRef.current = null;
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
@@ -409,11 +434,34 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
       setAvatarError(t.settings.themeAvatarInvalid);
       return;
     }
-    setEditAvatars((prev) => ({ ...prev, [kind]: dataUri }));
+    if (kind === "member" || kind === "outsource") {
+      setEditAvatarPools((prev) => {
+        const current = prev[kind] ?? [];
+        if (
+          replaceTarget &&
+          replaceTarget.index >= 0 &&
+          replaceTarget.index < current.length
+        ) {
+          const next = [...current];
+          next[replaceTarget.index] = dataUri;
+          return { ...prev, [kind]: next };
+        }
+        if (current.length >= MAX_AVATAR_POOL_ITEMS) return prev;
+        return { ...prev, [kind]: [...current, dataUri] };
+      });
+    } else {
+      setEditAvatars((prev) => ({ ...prev, [kind]: dataUri }));
+    }
     setEditError("");
   }
 
   function clearAvatar(kind: AvatarKind) {
+    if (kind === "member" || kind === "outsource") {
+      setEditAvatarPools((prev) => ({ ...prev, [kind]: [] }));
+      setAvatarError("");
+      setEditError("");
+      return;
+    }
     setEditAvatars((prev) => {
       const next = { ...prev };
       delete next[kind];
@@ -422,6 +470,19 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
     setAvatarError("");
     setEditError("");
   }
+
+  function removePoolAvatar(kind: PoolAvatarKind, index: number) {
+    setEditAvatarPools((prev) => ({
+      ...prev,
+      [kind]: (prev[kind] ?? []).filter((_, i) => i !== index),
+    }));
+  }
+
+  const closeAvatarPoolModal = useCallback(() => {
+    const kind = avatarPoolModalKind;
+    setAvatarPoolModalKind(null);
+    if (kind) requestAnimationFrame(() => avatarPoolTriggerRefs[kind].current?.focus());
+  }, [avatarPoolModalKind]);
 
   async function handleLogoPicked(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -542,10 +603,15 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
     // Keep only the avatar kinds that actually hold an image — an absent kind
     // means "no avatar" (falls back to the built-in glyph). Each value already
     // passed isValidAvatarValue at upload time; the bundle validator re-checks.
-    const avatars: Partial<Record<AvatarKind, string>> = {};
-    for (const kind of AVATAR_KINDS) {
+    const avatars: Partial<Record<"owner" | "assistant", string>> = {};
+    for (const kind of ["owner", "assistant"] as const) {
       const v = editAvatars[kind];
       if (typeof v === "string" && v !== "") avatars[kind] = v;
+    }
+    const avatarPools: Partial<Record<PoolAvatarKind, string[]>> = {};
+    for (const kind of ["member", "outsource"] as const) {
+      const values = editAvatarPools[kind] ?? [];
+      if (values.length > 0) avatarPools[kind] = [...values];
     }
 
     // Same for nav-tab icons — keep only the tabs that hold an image (an absent
@@ -561,6 +627,7 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
     if (Object.keys(wording).length > 0) bundle.wording = wording;
     if (Object.keys(fonts).length > 0) bundle.fonts = fonts;
     if (Object.keys(avatars).length > 0) bundle.avatars = avatars;
+    if (Object.keys(avatarPools).length > 0) bundle.avatarPools = avatarPools;
     if (editLogo !== "") bundle.logo = editLogo;
     if (Object.keys(navIcons).length > 0) bundle.navIcons = navIcons;
     // The outer-canvas tile (T-081b) — absent means "no image", i.e. the plain
@@ -893,16 +960,67 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
           <div className="ts-wording-sub">{t.settings.themeAvatarsHint}</div>
           <div className="ts-avatar-slots">
             {AVATAR_SLOTS.map(({ kind, labelKey }) => {
-              const src = editAvatars[kind];
+              const isPool = kind === "member" || kind === "outsource";
+              const pool = isPool ? editAvatarPools[kind] ?? [] : [];
+              const src = !isPool ? editAvatars[kind] : undefined;
               return (
                 <div key={kind} className="ts-avatar-slot">
                   <div className="ts-avatar-label">{t.settings[labelKey]}</div>
-                  <div className="ts-avatar-row">
-                    <span
-                      className="avatar ts-avatar-preview"
-                      style={{ width: 48, height: 48 }}
-                    >
-                      {src ? (
+                  {isPool ? (
+                    <div className="ts-avatar-pool-summary">
+                      <div className="ts-avatar-pool-summary__previews">
+                        {pool.slice(0, 4).map((item, index) => (
+                          <span
+                            key={`${kind}-${index}`}
+                            className="avatar ts-avatar-preview"
+                            style={{ width: 40, height: 40 }}
+                          >
+                            <img
+                              className="avatar__img"
+                              src={item}
+                              alt=""
+                              width={40}
+                              height={40}
+                              draggable={false}
+                            />
+                          </span>
+                        ))}
+                        {pool.length === 0 && (
+                          <span className="ts-wording-sub">
+                            {t.settings.themeAvatarPoolEmpty}
+                          </span>
+                        )}
+                      </div>
+                      <span className="ts-wording-sub">
+                        {pool.length} / {MAX_AVATAR_POOL_ITEMS}
+                      </span>
+                      <input
+                        ref={avatarInputRefs[kind]}
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="ts-file"
+                        aria-label={t.settings[labelKey]}
+                        onChange={(e) => handleAvatarPicked(kind, e)}
+                      />
+                      <button
+                        ref={avatarPoolTriggerRefs[kind]}
+                        type="button"
+                        className="doc-btn"
+                        onClick={() => {
+                          setAvatarError("");
+                          setAvatarPoolModalKind(kind);
+                        }}
+                      >
+                        {t.settings.themeAvatarManage}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="ts-avatar-row">
+                      <span
+                        className="avatar ts-avatar-preview"
+                        style={{ width: 48, height: 48 }}
+                      >
+                        {src ? (
                         <img
                           className="avatar__img"
                           src={src}
@@ -914,37 +1032,72 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
                       ) : (
                         <UserIcon size={24} className="avatar__glyph" />
                       )}
-                    </span>
-                    <input
-                      ref={avatarInputRefs[kind]}
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp"
-                      className="ts-file"
-                      aria-label={t.settings[labelKey]}
-                      onChange={(e) => handleAvatarPicked(kind, e)}
-                    />
-                    <button
-                      type="button"
-                      className="doc-btn"
-                      onClick={() => avatarInputRefs[kind].current?.click()}
-                    >
-                      {t.settings.themeAvatarChoose}
-                    </button>
-                    {src && (
+                      </span>
+                      <input
+                        ref={avatarInputRefs[kind]}
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="ts-file"
+                        aria-label={t.settings[labelKey]}
+                        onChange={(e) => handleAvatarPicked(kind, e)}
+                      />
                       <button
                         type="button"
                         className="doc-btn"
-                        onClick={() => clearAvatar(kind)}
+                        onClick={() => avatarInputRefs[kind].current?.click()}
                       >
-                        {t.settings.themeAvatarClear}
+                        {t.settings.themeAvatarChoose}
                       </button>
-                    )}
-                  </div>
+                      {src && (
+                        <button
+                          type="button"
+                          className="doc-btn"
+                          onClick={() => clearAvatar(kind)}
+                        >
+                          {t.settings.themeAvatarClear}
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
           {avatarError && <div className="set-error">{avatarError}</div>}
+          {avatarPoolModalKind && (
+            <ThemeAvatarPoolModal
+              kind={avatarPoolModalKind}
+              title={t.settings[
+                avatarPoolModalKind === "member"
+                  ? "themeAvatarMember"
+                  : "themeAvatarOutsource"
+              ]}
+              hint={t.settings.themeAvatarPoolHint}
+              pool={editAvatarPools[avatarPoolModalKind] ?? []}
+              addLabel={t.settings.themeAvatarAdd}
+              replaceLabel={t.settings.themeAvatarReplace}
+              removeLabel={t.settings.themeAvatarRemove}
+              clearLabel={t.settings.themeAvatarClear}
+              closeLabel={t.settings.themeAvatarClose}
+              doneLabel={t.settings.themeAvatarDone}
+              emptyLabel={t.settings.themeAvatarPoolEmpty}
+              error={avatarError}
+              onAdd={() => {
+                avatarReplaceTargetRef.current = null;
+                avatarInputRefs[avatarPoolModalKind].current?.click();
+              }}
+              onReplace={(index) => {
+                avatarReplaceTargetRef.current = {
+                  kind: avatarPoolModalKind,
+                  index,
+                };
+                avatarInputRefs[avatarPoolModalKind].current?.click();
+              }}
+              onRemove={(index) => removePoolAvatar(avatarPoolModalKind, index)}
+              onClear={() => clearAvatar(avatarPoolModalKind)}
+              onClose={closeAvatarPoolModal}
+            />
+          )}
 
           {/* ── studio logo (工作室 logo) — single top-bar mark image ── */}
           <div className="ts-section-label">{t.settings.themeLogoSection}</div>
