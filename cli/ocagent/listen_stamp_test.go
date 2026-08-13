@@ -27,7 +27,7 @@ var (
 // applied on the real path (remove the wrap in cmdListen ⇒ red).
 func TestCmdListen_StampsTheProductionPath(t *testing.T) {
 	var out bytes.Buffer
-	if rc := cmdListen(Config{ID: "kyle"}, noEnv, false, &out); rc != 0 {
+	if rc := cmdListen(Config{ID: "kyle"}, noEnv, false, false, &out); rc != 0 {
 		t.Fatalf("rc = %d want 0", rc)
 	}
 	got := out.String()

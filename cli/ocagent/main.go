@@ -87,13 +87,22 @@ func realMain(argv []string, env func(string) string, in io.Reader, out io.Write
 		// online), turn each delta into a wake (chat refetch / member hooks / work
 		// wake), and self-exit when this agent's own tmux session disappears. --once
 		// does a single connect (the test hook, mirrors argparse). See listen*.go.
+		//
+		// -verbose is opt-IN because the connection-status lines are suppressed by
+		// DEFAULT: every stdout line wakes the agent and re-reads its whole context,
+		// so a reconnect storm is a token bill, not a diagnostic. Making silence the
+		// default (rather than a `--quiet` someone must remember to pass) is the
+		// point — a warden-owned listener has no call site to add a flag to.
 		fs := flag.NewFlagSet("ocagent listen", flag.ContinueOnError)
 		fs.SetOutput(out)
 		once := fs.Bool("once", false, "do a single connect then return (test/diagnostic hook)")
+		verbose := fs.Bool("verbose", false,
+			"also print the connection-status lines (connected / stream ended / connect "+
+				"refused / connect failed), which are suppressed by default")
 		if err := fs.Parse(rest); err != nil {
 			return 2
 		}
-		return cmdListen(cfg, env, *once, out)
+		return cmdListen(cfg, env, *once, *verbose, out)
 
 	case "suicide":
 		// The graceful self-kill: kill my own tmux session (OC_SESSION on

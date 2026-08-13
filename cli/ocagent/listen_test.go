@@ -1740,7 +1740,7 @@ func TestListener_NonRefusalOutcomesNeverTripFailClosed(t *testing.T) {
 
 func TestCmdListen_NoTokenExitsQuietly(t *testing.T) {
 	var out bytes.Buffer
-	if rc := cmdListen(Config{ID: "kyle"}, func(string) string { return "" }, false, &out); rc != 0 {
+	if rc := cmdListen(Config{ID: "kyle"}, func(string) string { return "" }, false, false, &out); rc != 0 {
 		t.Fatalf("rc = %d want 0", rc)
 	}
 	if !strings.Contains(out.String(), "no OC_ID/OC_TOKEN") {

@@ -31,6 +31,7 @@ type listener struct {
 	idleReadTimeout time.Duration // 0 disables the idle-read watchdog
 	jitter          func() float64
 	out             io.Writer
+	verbose         bool // -verbose: also print the connection-status lines (logConnf)
 
 	// stamp decides which clock the next transcript line reports; dispatch
 	// parks the current frame's server ts on it (T-7fb2, listen_stamp.go).
@@ -46,6 +47,7 @@ type listener struct {
 	probeUnknownSpan time.Duration    // wall-clock bound for the unknown run
 	refusals         int              // consecutive server 409 refusals
 	firstRefusalAt   time.Time        // start of the current refusal run
+	lastRefusal      error            // newest 409 body — the fail-closed ALARM quotes it
 	refusalGraceSpan time.Duration    // wall-clock bound for the refusal run
 	selfTerminate    func()           // kill my own tmux session (default: `ocagent suicide`)
 
@@ -76,6 +78,28 @@ func newSSEStreamClient() *http.Client {
 
 func (l *listener) logf(format string, args ...any) {
 	fmt.Fprintf(l.out, "[ocagent] "+format+"\n", args...)
+}
+
+// logConnf prints a CONNECTION-STATUS line — connected / stream ended / connect
+// refused / connect failed. These say only "the transport is doing transport
+// things"; they carry no event and ask nothing of the agent, yet the runtime
+// treats every stdout line as a wake, so one server outage reconnect-storm
+// re-reads the whole context hundreds of times (a measured 4143s outage printed
+// 367 of these). Default: DROPPED. `-verbose` prints them.
+//
+// Classification lives HERE, at the call site, not in a pattern matched against
+// the rendered output. An external `grep -v` (the previous stop-gap) decides per
+// PHYSICAL LINE, so any log line whose payload contains a newline — an error
+// string, a server 409 body — can have its tail survive as a headless fragment,
+// and a filter anchored on ^ can swallow the middle of a multi-line event block.
+// A call-site split cannot do that: a suppressed line is never written at all,
+// and every OTHER logf call — including all four self-exit alarms below and the
+// no-OC_ID/OC_TOKEN mis-wire notice — is untouched by construction.
+func (l *listener) logConnf(format string, args ...any) {
+	if !l.verbose {
+		return
+	}
+	l.logf(format, args...)
 }
 
 // foldProbe runs ONE session-existence probe and folds its tri-state verdict
@@ -271,7 +295,7 @@ func (l *listener) connectOnce(ctx context.Context) (opened, activity, selfExit 
 		_, _ = io.Copy(io.Discard, resp.Body)
 		return false, false, false, fmt.Errorf("unexpected status %d", resp.StatusCode)
 	}
-	l.logf("listen: connected — streaming %s%s (⇒ online while held)", l.cfg.Base, eventsPath)
+	l.logConnf("listen: connected — streaming %s%s (⇒ online while held)", l.cfg.Base, eventsPath)
 
 	// Boot/reconnect drain: /api/events has no replay, so any reply_card delta
 	// fanned while this listener held no stream is lost — catch up from the
@@ -330,9 +354,13 @@ func (l *listener) run(ctx context.Context) int {
 				backoff = l.backoffStart // a byte proved health → reconnect fast
 			}
 			l.resetRefusals() // an opened stream breaks any refusal run
-			l.logf("listen: stream ended: %v", err)
+			l.logConnf("listen: stream ended: %v", err)
 		} else if errors.Is(err, errSSERefused) {
-			l.logf("listen: connect refused: %v", err)
+			// The PER-ATTEMPT line is transport noise (one per retry). The server's
+			// reason is not: it is parked on the listener so the fail-closed ALARM
+			// below still quotes it verbatim, even in the default quiet mode.
+			l.lastRefusal = err
+			l.logConnf("listen: connect refused: %v", err)
 			if l.foldRefusal() {
 				// FAIL-CLOSED (zombie defence line B): the server has refused this
 				// listener authoritatively for the whole grace window — I am a
@@ -342,8 +370,10 @@ func (l *listener) run(ctx context.Context) int {
 				// exiting this loop — either way the reconnect hammering stops.
 				l.logf("listen: server refused the SSE %d consecutive times over %s — "+
 					"fail-closed: self-terminating instead of retrying forever "+
-					"(a refused listener is a zombie, not a client with bad luck).",
-					l.refusals, l.clock().Sub(l.firstRefusalAt).Round(time.Second))
+					"(a refused listener is a zombie, not a client with bad luck). "+
+					"last refusal: %v",
+					l.refusals, l.clock().Sub(l.firstRefusalAt).Round(time.Second),
+					l.lastRefusal)
 				if l.selfTerminate != nil {
 					l.selfTerminate()
 				}
@@ -354,7 +384,7 @@ func (l *listener) run(ctx context.Context) int {
 			// authoritative refusal — reset the run so a briefly-unavailable
 			// server can never accumulate toward the fail-closed kill.
 			l.resetRefusals()
-			l.logf("listen: connect failed: %v", err)
+			l.logConnf("listen: connect failed: %v", err)
 		}
 
 		if l.once {
@@ -387,8 +417,9 @@ func sleepCtx(ctx context.Context, sleep func(time.Duration), d time.Duration) b
 // listener (long-lived SSE client, short-timeout API client, real backoff/jitter, the
 // tmux session probe from OC_SESSION, the graceful hooks) and runs it under a
 // signal-cancellable context so SIGINT/SIGTERM stops the stream cleanly. `once` is the
-// single-connect flag (mirrors argparse --once). Always returns 0.
-func cmdListen(cfg Config, env func(string) string, once bool, out io.Writer) int {
+// single-connect flag (mirrors argparse --once); `verbose` re-enables the connection-status
+// lines that logConnf drops by default. Always returns 0.
+func cmdListen(cfg Config, env func(string) string, once, verbose bool, out io.Writer) int {
 	// Wrap BEFORE the first print: the mis-wire notice below is a transcript
 	// line like any other and must carry a time too (T-7fb2). Everything the
 	// listener and its hooks print goes through this one writer, so a stamp can
@@ -412,6 +443,7 @@ func cmdListen(cfg Config, env func(string) string, once bool, out io.Writer) in
 		idleReadTimeout:  listenIdleReadTimeout,
 		jitter:           defaultJitter,
 		out:              out,
+		verbose:          verbose,
 		probe:            makeSessionProbe(env),
 		clock:            time.Now,
 		probeUnknownSpan: probeUnknownGrace,
