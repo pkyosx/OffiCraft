@@ -446,6 +446,118 @@ func TestDrainChat_NoAttachmentsByteIdentical(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// drain_chat echo suppression (T-2c6d) — the MESSAGE-level half of the rule the
+// dispatch gate applies frame-level.
+// ---------------------------------------------------------------------------
+
+// A message this agent sent to ITSELF (the handover baton of persona §8b) must
+// never print — and must still advance the seen cursor. Advancing is the whole
+// fix: the live dispatch gate (listen_run.go, isSelfEcho on the frame trigger)
+// drops the self-triggered chat delta WITHOUT running drainChat, so such a
+// message was never marked seen and sat in the unread window indefinitely.
+func TestDrainChat_SelfSentToSelfIsSuppressedAndMarkedSeen(t *testing.T) {
+	srv, _ := chatServer(t, `[{"id":"m-self","from":"kyle","to":"kyle","body":"baton for the next me"}]`)
+	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
+	seen := map[string]bool{}
+	var out bytes.Buffer
+
+	if n := drainChat(srv.Client(), cfg, seen, &out, false); n != 0 {
+		t.Fatalf("self-sent message counted as unread: n=%d want 0", n)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("self-sent message must NOT print, got %q", out.String())
+	}
+	if !seen["m-self"] {
+		t.Fatal("self-sent message must still advance the seen cursor — " +
+			"leaving it unread is what lets it pile up and ride out on someone else's delta")
+	}
+}
+
+// The bug's actual shape (T-2c6d): self-sent messages accumulate unread while
+// the frame-level gate silently drops their deltas, then a delta from ANYONE
+// ELSE runs drainChat and flushes the whole backlog — the other party's message
+// arrives buried behind them. After the fix the drain prints exactly the one
+// message that is genuinely for this agent.
+func TestDrainChat_SelfEchoBacklogNeverCrowdsOutRealMessages(t *testing.T) {
+	srv, _ := chatServer(t, `[
+	  {"id":"m-old1","from":"kyle","to":"kyle","body":"收攤紀錄 …"},
+	  {"id":"m-old2","from":"kyle","to":"kyle","body":"baton delta …"},
+	  {"id":"m-new","from":"hook:slack-hook","to":"kyle","body":"加到 todo"}
+	]`)
+	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
+	seen := map[string]bool{}
+	var out bytes.Buffer
+
+	if n := drainChat(srv.Client(), cfg, seen, &out, false); n != 1 {
+		t.Fatalf("unread-for-me count = %d want 1 (only the hook message)", n)
+	}
+	if got, want := out.String(), "[ocagent] chat from hook:slack-hook (id): 加到 todo\n"; got != want {
+		t.Fatalf("drain must print ONLY the real message:\n got %q\nwant %q", got, want)
+	}
+	for _, id := range []string{"m-old1", "m-old2", "m-new"} {
+		if !seen[id] {
+			t.Fatalf("%s must be marked seen after the drain", id)
+		}
+	}
+}
+
+// The suppression reuses isSelfEcho, so it is case-insensitive on the id —
+// matching how the to-filter already lowercases both sides.
+func TestDrainChat_SelfEchoIsCaseInsensitive(t *testing.T) {
+	srv, _ := chatServer(t, `[{"id":"m1","from":"KYLE","to":"kyle","body":"mine"}]`)
+	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
+	var out bytes.Buffer
+	if n := drainChat(srv.Client(), cfg, map[string]bool{}, &out, false); n != 0 || out.Len() != 0 {
+		t.Fatalf("case-different self id must still suppress: n=%d out=%q", n, out.String())
+	}
+}
+
+// A padded sender is matched like the `to` filter one line above it — both
+// sides of the message are trimmed before comparison.
+func TestDrainChat_SelfEchoIgnoresSurroundingWhitespace(t *testing.T) {
+	srv, _ := chatServer(t, `[{"id":"m1","from":"  kyle  ","to":"kyle","body":"mine"}]`)
+	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
+	seen := map[string]bool{}
+	var out bytes.Buffer
+	if n := drainChat(srv.Client(), cfg, seen, &out, false); n != 0 || out.Len() != 0 {
+		t.Fatalf("padded self id must still suppress: n=%d out=%q", n, out.String())
+	}
+	if !seen["m1"] {
+		t.Fatal("a padded self-sent message must still advance the seen cursor")
+	}
+}
+
+// FAIL-OPEN (spec/sse.md §2.3): a blank sender is NEVER an echo. Unknown
+// attribution must cost a printed line, never a lost message.
+func TestDrainChat_BlankFromIsNeverAnEcho(t *testing.T) {
+	srv, _ := chatServer(t, `[{"id":"m1","from":"","to":"kyle","body":"who sent this"}]`)
+	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
+	var out bytes.Buffer
+	if n := drainChat(srv.Client(), cfg, map[string]bool{}, &out, false); n != 1 {
+		t.Fatalf("blank sender must fail OPEN (print), n=%d", n)
+	}
+	if got := out.String(); got != "[ocagent] chat from  (id): who sent this\n" {
+		t.Fatalf("blank-sender line = %q", got)
+	}
+}
+
+// The silent boot baseline keeps its contract for self-sent messages too:
+// nothing prints, and the cursor still advances.
+func TestDrainChat_SilentBaselineAlsoConsumesSelfSent(t *testing.T) {
+	srv, _ := chatServer(t, `[{"id":"m-self","from":"kyle","to":"kyle","body":"baton"}]`)
+	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
+	seen := map[string]bool{}
+	var out bytes.Buffer
+	drainChat(srv.Client(), cfg, seen, &out, true)
+	if out.Len() != 0 {
+		t.Fatalf("silent baseline must print nothing, got %q", out.String())
+	}
+	if !seen["m-self"] {
+		t.Fatal("silent baseline must advance the cursor past a self-sent message")
+	}
+}
+
 func TestFmtAgo(t *testing.T) {
 	for _, tc := range []struct {
 		secs float64
