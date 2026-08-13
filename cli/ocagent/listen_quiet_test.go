@@ -213,6 +213,116 @@ func TestListener_ConnectFailedIsQuietByDefault(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// 4xx is a CLIENT fault (expired/wrong OC_TOKEN, wrong OC_ID) — a human must
+// act, so it is never suppressed; 5xx and dial errors are the transient server
+// trouble this change exists to silence. Both live on the same code path, so
+// each of these tests pins one against the other.
+// ---------------------------------------------------------------------------
+
+// statusServer answers /api/events with a scripted sequence of statuses, one per
+// connection, so a run loop can be walked through a status CHANGE.
+func statusServer(codes []int, conns *int32) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/chat") {
+			w.WriteHeader(200)
+			_, _ = w.Write([]byte("[]"))
+			return
+		}
+		i := int(atomic.AddInt32(conns, 1)) - 1
+		if i >= len(codes) {
+			i = len(codes) - 1
+		}
+		w.WriteHeader(codes[i])
+	}))
+}
+
+// runStatusLoop drives the run loop until it has seen `want` /api/events dials,
+// then cancels. Quiet mode throughout — the default is what is under test.
+func runStatusLoop(t *testing.T, codes []int, want int32) string {
+	t.Helper()
+	cfgTempDir = t.TempDir()
+	var conns int32
+	srv := statusServer(codes, &conns)
+	defer srv.Close()
+
+	out := &syncBuf{}
+	l := newTestListener(srv, Config{Base: srv.URL, Token: "t", ID: "kyle"}, out)
+	l.verbose = false
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan int, 1)
+	go func() { done <- l.run(ctx) }()
+	waitForCond(t, func() bool { return atomic.LoadInt32(&conns) >= want },
+		"the run loop kept dialing the scripted statuses")
+	cancel()
+	<-done
+	return out.String()
+}
+
+// 陽: a 401 speaks. 陰: a 500 on the identical path stays quiet.
+func TestListener_ClientFaultSpeaksServerFaultStaysQuiet(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		code  int
+		voice bool
+	}{
+		{"401 expired token", 401, true},
+		{"403 wrong member", 403, true},
+		{"500 server having a bad day", 500, false},
+		{"503 server restarting", 503, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := runStatusLoop(t, []int{tc.code}, 3)
+			has := strings.Contains(got, "server rejected the SSE")
+			if has != tc.voice {
+				t.Fatalf("status %d printed the actionable notice = %v want %v:\n%s",
+					tc.code, has, tc.voice, got)
+			}
+			// Either way the transport chatter stays suppressed.
+			if strings.Contains(got, "listen: connect failed") {
+				t.Fatalf("connect-failed chatter must stay quiet:\n%s", got)
+			}
+		})
+	}
+}
+
+// The dedup, both directions: an UNCHANGING 4xx says its piece exactly once no
+// matter how many retries, and a CHANGE speaks again. Without the second half
+// the dedup could be "print once ever", which would hide a real escalation.
+func TestListener_ClientFaultIsDedupedOnStatusChangeOnly(t *testing.T) {
+	t.Run("same status N times prints once", func(t *testing.T) {
+		got := runStatusLoop(t, []int{401}, 5)
+		if n := strings.Count(got, "server rejected the SSE"); n != 1 {
+			t.Fatalf("a persistent 401 must print exactly 1 line, got %d:\n%s", n, got)
+		}
+		if !strings.Contains(got, "with 401") {
+			t.Fatalf("the notice must name the status:\n%s", got)
+		}
+	})
+	t.Run("a changed status speaks again", func(t *testing.T) {
+		got := runStatusLoop(t, []int{401, 401, 403, 403}, 5)
+		if n := strings.Count(got, "server rejected the SSE"); n != 2 {
+			t.Fatalf("401→403 must print 2 lines (one per distinct status), got %d:\n%s", n, got)
+		}
+		assertContainsAll(t, got, []string{"with 401", "with 403"},
+			"the dedup swallowed a status change")
+	})
+}
+
+// 409 keeps its own louder path (foldRefusal → the fail-closed alarm) and must
+// NOT also come out of the 4xx notice — that would be the same event twice.
+func TestListener_409IsNotDoubleReportedAsAClientFault(t *testing.T) {
+	if code, actionable := clientFault(&sseStatusError{code: 409}); actionable {
+		t.Fatalf("409 must not route to the 4xx notice (got code=%d)", code)
+	}
+	// Positive control: the same helper DOES classify its neighbours, so the
+	// assertion above is not passing because clientFault always says false.
+	if _, actionable := clientFault(&sseStatusError{code: 401}); !actionable {
+		t.Fatal("clientFault must classify 401 as actionable")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // what must NEVER be suppressed: the alarms a human has to act on.
 // ---------------------------------------------------------------------------
 

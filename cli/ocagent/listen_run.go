@@ -48,6 +48,7 @@ type listener struct {
 	refusals         int              // consecutive server 409 refusals
 	firstRefusalAt   time.Time        // start of the current refusal run
 	lastRefusal      error            // newest 409 body — the fail-closed ALARM quotes it
+	lastStatus       int              // last actionable 4xx printed; 0 = re-armed (dedup)
 	refusalGraceSpan time.Duration    // wall-clock bound for the refusal run
 	selfTerminate    func()           // kill my own tmux session (default: `ocagent suicide`)
 
@@ -100,6 +101,30 @@ func (l *listener) logConnf(format string, args ...any) {
 		return
 	}
 	l.logf(format, args...)
+}
+
+// sseStatusError is a non-200, non-409 response to GET /api/events, carrying the
+// status so the run loop can tell the two very different things a bad status
+// means apart. 5xx / a dial error is the SERVER having a bad day — transient,
+// self-healing, and exactly the reconnect storm this change exists to silence.
+// A 4xx is MY problem: an expired or wrong OC_TOKEN, a wrong OC_ID. Retrying
+// cannot fix it, a human must, so it is an actionable config error and prints.
+type sseStatusError struct{ code int }
+
+func (e *sseStatusError) Error() string { return fmt.Sprintf("unexpected status %d", e.code) }
+
+// clientFault reports whether err is a 4xx other than 409. 409 is excluded
+// because it already has its own louder path (foldRefusal → the fail-closed
+// self-termination alarm); logging it twice would just be noise.
+func clientFault(err error) (int, bool) {
+	var se *sseStatusError
+	if !errors.As(err, &se) {
+		return 0, false
+	}
+	if se.code < 400 || se.code >= 500 || se.code == http.StatusConflict {
+		return se.code, false
+	}
+	return se.code, true
 }
 
 // foldProbe runs ONE session-existence probe and folds its tri-state verdict
@@ -293,7 +318,7 @@ func (l *listener) connectOnce(ctx context.Context) (opened, activity, selfExit 
 				errSSERefused, strings.TrimSpace(string(snippet)))
 		}
 		_, _ = io.Copy(io.Discard, resp.Body)
-		return false, false, false, fmt.Errorf("unexpected status %d", resp.StatusCode)
+		return false, false, false, &sseStatusError{code: resp.StatusCode}
 	}
 	l.logConnf("listen: connected — streaming %s%s (⇒ online while held)", l.cfg.Base, eventsPath)
 
@@ -354,6 +379,7 @@ func (l *listener) run(ctx context.Context) int {
 				backoff = l.backoffStart // a byte proved health → reconnect fast
 			}
 			l.resetRefusals() // an opened stream breaks any refusal run
+			l.lastStatus = 0  // a healthy connect re-arms the 4xx notice
 			l.logConnf("listen: stream ended: %v", err)
 		} else if errors.Is(err, errSSERefused) {
 			// The PER-ATTEMPT line is transport noise (one per retry). The server's
@@ -384,7 +410,23 @@ func (l *listener) run(ctx context.Context) int {
 			// authoritative refusal — reset the run so a briefly-unavailable
 			// server can never accumulate toward the fail-closed kill.
 			l.resetRefusals()
-			l.logConnf("listen: connect failed: %v", err)
+			if code, actionable := clientFault(err); actionable {
+				// A 4xx needs a HUMAN (expired/wrong OC_TOKEN, wrong OC_ID) —
+				// never suppressed. But printing it once per retry would just
+				// move the token fire to a new grate, so it is deduped on the
+				// status VALUE: an unchanging fault says its piece once, and a
+				// CHANGE (401→403, or recovery then relapse) speaks again.
+				if l.lastStatus != code {
+					l.lastStatus = code
+					l.logf("listen: server rejected the SSE with %d — actionable: a 4xx is a "+
+						"CLIENT fault (expired/wrong OC_TOKEN, wrong OC_ID); retrying cannot "+
+						"clear it. Further retries at this status stay silent until it changes.",
+						code)
+				}
+			} else {
+				l.lastStatus = 0 // transient (5xx / dial) — a later 4xx must speak again
+				l.logConnf("listen: connect failed: %v", err)
+			}
 		}
 
 		if l.once {

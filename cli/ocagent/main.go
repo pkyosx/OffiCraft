@@ -98,7 +98,10 @@ func realMain(argv []string, env func(string) string, in io.Reader, out io.Write
 		once := fs.Bool("once", false, "do a single connect then return (test/diagnostic hook)")
 		verbose := fs.Bool("verbose", false,
 			"also print the connection-status lines (connected / stream ended / connect "+
-				"refused / connect failed), which are suppressed by default")
+				"refused / connect failed), which are suppressed by default. Pass this to "+
+				"watch a listener connect: a healthy quiet listener prints NOTHING until "+
+				"its first event, which is deliberate, not a hang. Events, self-exit "+
+				"alarms and config errors print either way")
 		if err := fs.Parse(rest); err != nil {
 			return 2
 		}
