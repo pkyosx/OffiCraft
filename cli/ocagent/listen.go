@@ -102,6 +102,20 @@ const (
 	sseRefusalMin   = 4
 	sseRefusalGrace = 120 * time.Second
 
+	// listenOutageReportMin is how long an unbroken run of failed reconnects must
+	// last before RECOVERY prints its one-line summary. Anything shorter is the
+	// routine drop the quiet default exists to swallow.
+	//
+	// The 5 minutes is not a taste call — it is the root-cause finding on this
+	// ticket, which concluded verbatim: routine drops are normal and must not
+	// wake the agent; a SINGLE outage over 5 minutes should wake a human; and
+	// the hundreds of per-retry `connect failed` lines are a COST problem to fix
+	// in code, not an alert. Suppressing the per-retry lines without this
+	// summary would have satisfied the third clause by deleting the second: the
+	// measured 4143 s / 367-retry outage would have left the transcript
+	// completely empty. Do not raise this without re-reading that finding.
+	listenOutageReportMin = 5 * time.Minute
+
 	// Connection-setup bounds (NEVER the long-lived body stream — a body deadline would
 	// guillotine the always-open SSE every N seconds). Values match ocwarden/transport.
 	listenDialTimeout   = 10 * time.Second

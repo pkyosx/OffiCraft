@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -88,9 +90,15 @@ func TestLogConnf_SuppressesOnlyItselfAndOnlyWhenQuiet(t *testing.T) {
 // body closes and scanSSE reports the stream ended — the real "connected …
 // stream ended" cycle, with no second long-lived connection and no real network
 // beyond loopback.
-func closingEventsServer(frames []string, chatList string) *httptest.Server {
-	var chatCalls int32
+// failFirst /api/events dials are answered 500 (a server outage) before the
+// stream is served.
+func closingEventsServer(failFirst int32, frames []string, chatList string) *httptest.Server {
+	var chatCalls, dials int32
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, eventsPath) && atomic.AddInt32(&dials, 1) <= failFirst {
+			w.WriteHeader(500)
+			return
+		}
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/api/chat"):
 			w.WriteHeader(200)
@@ -134,7 +142,7 @@ func runOneConnectCycle(t *testing.T, verbose bool) string {
 			"\"payload\":{\"id\":\"rc-9\",\"from\":\"kyle\",\"status\":\"answered\"}}}\n\n",
 		"data: {\"topic\":\"context-high\",\"data\":{\"reason\":\"context usage high — hand over now\"}}\n\n",
 	}
-	srv := closingEventsServer(frames, `[{"id":"c1","from":"boss","to":"kyle","body":"ping"}]`)
+	srv := closingEventsServer(0, frames, `[{"id":"c1","from":"boss","to":"kyle","body":"ping"}]`)
 	defer srv.Close()
 
 	cfg := Config{Base: srv.URL, Token: "tok", ID: "kyle"}
@@ -209,6 +217,188 @@ func TestListener_ConnectFailedIsQuietByDefault(t *testing.T) {
 				t.Fatalf("connect-failed printed = %v want %v:\n%s", has, tc.want, got)
 			}
 		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// the outage summary: ONE line per outage, on recovery.
+//
+// Silencing the 367 per-retry lines of a 4143-second outage without this would
+// have made that outage invisible — which is the failure mode this whole ticket
+// is about, just relocated. So the summary carries what those lines carried:
+// how long, how many retries, and the three-state drop cause.
+// ---------------------------------------------------------------------------
+
+// runOutageCycle scripts `failures` failed dials followed by a working stream,
+// with a clock that makes the outage exactly `gap` long. Quiet mode throughout.
+// Returns everything printed.
+func runOutageCycle(t *testing.T, failures int32, gap time.Duration, verbose bool) string {
+	t.Helper()
+	cfgTempDir = t.TempDir()
+	frames := []string{
+		"data: {\"topic\":\"task\",\"seq\":3}\n\n",
+		"data: {\"topic\":\"chat\"}\n\n",
+		"data: {\"topic\":\"reply_card\",\"data\":{\"key\":\"owner::rc-9\"," +
+			"\"payload\":{\"id\":\"rc-9\",\"from\":\"kyle\",\"status\":\"answered\"}}}\n\n",
+		"data: {\"topic\":\"context-high\",\"data\":{\"reason\":\"context usage high — hand over now\"}}\n\n",
+	}
+	srv := closingEventsServer(failures, frames,
+		`[{"id":"c1","from":"boss","to":"kyle","body":"ping"}]`)
+	defer srv.Close()
+
+	out := &syncBuf{}
+	l := newTestListener(srv, Config{Base: srv.URL, Token: "t", ID: "kyle"}, out)
+	l.verbose = verbose
+	l.winddown = newWindDownHook(srv.Client(), Config{Base: srv.URL, ID: "kyle"}, noEnv, out)
+	l.recycle = newRecycleHook(srv.Client(), Config{Base: srv.URL, ID: "kyle"}, out)
+	// Exact, not approximate: the FIRST clock read is when the outage starts,
+	// every later read is `gap` after it, so the reported duration is a value
+	// the test can name rather than bound.
+	base := time.Unix(1785717600, 0)
+	var reads int
+	l.clock = func() time.Time {
+		reads++
+		if reads == 1 {
+			return base
+		}
+		return base.Add(gap)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan int, 1)
+	go func() { done <- l.run(ctx) }()
+	// The events only arrive AFTER recovery, and the summary is printed before
+	// them, so waiting on the events means the summary has had its chance.
+	waitForCond(t, func() bool {
+		got := out.String()
+		for _, s := range wantEventLines {
+			if !strings.Contains(got, s) {
+				return false
+			}
+		}
+		return true
+	}, "the listener recovered and dispatched its events")
+	cancel()
+	<-done
+	return out.String()
+}
+
+// 陽: an outage past the threshold prints exactly one summary, and the numbers
+// in it are the real ones — asserted as an exact line, not as "contains a digit".
+func TestListener_LongOutagePrintsOneSummaryOnRecovery(t *testing.T) {
+	got := runOutageCycle(t, 3, 6*time.Minute, false)
+
+	want := "listen: recovered after a 6m0s outage — 3 failed reconnect attempts; " +
+		"dropped with: n/a (no prior stream); last failure: unexpected status 500"
+	if !strings.Contains(got, want) {
+		t.Fatalf("outage summary wrong.\nwant substring: %s\ngot:\n%s", want, got)
+	}
+	if n := strings.Count(got, "recovered after"); n != 1 {
+		t.Fatalf("one outage must print exactly 1 summary, got %d:\n%s", n, got)
+	}
+	// Positive control: the run really did recover and deliver every event.
+	assertContainsAll(t, got, wantEventLines, "the outage summary cost us an event")
+	// And the per-retry chatter is still gone — 3 failures, 0 chatter lines.
+	assertNoConnNoise(t, got)
+}
+
+// 陰: a SHORT outage is the routine drop this change exists to swallow — the
+// same code path, one constant below the threshold, prints nothing at all.
+func TestListener_ShortOutagePrintsNothing(t *testing.T) {
+	got := runOutageCycle(t, 3, 1*time.Minute, false)
+
+	if strings.Contains(got, "recovered after") {
+		t.Fatalf("a 1m outage is under the %s threshold and must stay silent:\n%s",
+			listenOutageReportMin, got)
+	}
+	// Positive control: the run DID happen and DID recover, so the silence
+	// above is a decision, not an empty buffer.
+	assertContainsAll(t, got, wantEventLines, "the run never got as far as recovering")
+	assertNoConnNoise(t, got)
+}
+
+// Under -verbose the per-retry lines are back, so the summary could read as
+// saying the same thing twice. It is kept anyway, and printed exactly once: it
+// is the ONLY line carrying the total duration and the retry count, so dropping
+// it would make -verbose strictly less informative than the quiet default —
+// backwards. The per-retry lines are the trace; this is the verdict.
+func TestListener_VerboseKeepsExactlyOneOutageSummary(t *testing.T) {
+	got := runOutageCycle(t, 3, 6*time.Minute, true)
+
+	if n := strings.Count(got, "recovered after"); n != 1 {
+		t.Fatalf("-verbose must not duplicate the summary, got %d:\n%s", n, got)
+	}
+	// The trace is present too — 3 failures, 3 per-retry lines.
+	if n := strings.Count(got, "listen: connect failed"); n != 3 {
+		t.Fatalf("-verbose must show all 3 per-retry lines, got %d:\n%s", n, got)
+	}
+	assertContainsAll(t, got, []string{"6m0s outage — 3 failed reconnect attempts"},
+		"-verbose lost the summary's numbers")
+}
+
+// The drop cause is the three-state that diagnosed the last incident (`<nil>`
+// clean close vs `unexpected EOF` hard kill vs `context canceled` watchdog).
+// Losing it would leave "why does it keep dropping?" unanswerable, so each
+// state is pinned to the exact text it must produce.
+func TestReportOutage_QuotesTheThreeStateDropCause(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		drop error
+		want string
+	}{
+		{"clean close", nil, "dropped with: <nil>"},
+		{"killed mid-read", io.ErrUnexpectedEOF, "dropped with: unexpected EOF"},
+		{"idle watchdog", context.Canceled, "dropped with: context canceled"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out := &syncBuf{}
+			now := time.Unix(1785717600, 0)
+			l := &listener{out: out, clock: func() time.Time { return now }}
+
+			l.noteStreamDropped(tc.drop)
+			l.noteConnectFailure(errors.New("dial tcp: connection refused"))
+			now = now.Add(10 * time.Minute)
+			l.reportOutage()
+
+			got := out.String()
+			if !strings.Contains(got, tc.want) {
+				t.Fatalf("want %q in:\n%s", tc.want, got)
+			}
+			// The rest of the line is exact too, so a reshuffle that drops a
+			// field cannot pass on the drop cause alone.
+			want := "recovered after a 10m0s outage — 1 failed reconnect attempts; " +
+				tc.want + "; last failure: dial tcp: connection refused"
+			if !strings.Contains(got, want) {
+				t.Fatalf("want substring:\n%s\ngot:\n%s", want, got)
+			}
+		})
+	}
+}
+
+// A drop that reconnects on the FIRST try is not an outage, however long the
+// wall clock says the gap was. Without this, a listener idle across a laptop
+// suspend would announce an "outage" it never had.
+func TestReportOutage_ADropWithNoFailedRetryIsNotAnOutage(t *testing.T) {
+	out := &syncBuf{}
+	now := time.Unix(1785717600, 0)
+	l := &listener{out: out, clock: func() time.Time { return now }}
+
+	l.noteStreamDropped(io.ErrUnexpectedEOF)
+	now = now.Add(3 * time.Hour) // a very long gap …
+	l.reportOutage()             // … but zero failed retries in between
+
+	if got := out.String(); got != "" {
+		t.Fatalf("a clean reconnect must print nothing, got:\n%s", got)
+	}
+	// Positive control: the SAME listener over the SAME gap, with one failed
+	// retry added, does speak — so the silence above is the retry count, not a
+	// dead code path or a mis-wired test clock.
+	l.noteStreamDropped(io.ErrUnexpectedEOF)
+	l.noteConnectFailure(errors.New("boom"))
+	now = now.Add(3 * time.Hour)
+	l.reportOutage()
+	if !strings.Contains(out.String(), "recovered after") {
+		t.Fatalf("one failed retry over the threshold must report:\n%s", out.String())
 	}
 }
 
