@@ -63,7 +63,6 @@ vi.mock("../api", () => ({
 function mkMember(over: Partial<Member> = {}): Member {
   return {
     id: "mira",
-    memberId: "MB-AST001",
     name: "Mira",
     role: "assistant",
     status: "offline",
@@ -171,7 +170,7 @@ describe("MemberDetailPanel · the notice does not outlive its truth (T-7fa1)", 
     rerender(
       <I18nProvider>
         <MemberDetailPanel
-          member={mkMember({ id: "kyle", name: "Kyle", memberId: "MB-DEV001" })}
+          member={mkMember({ id: "kyle", name: "Kyle" })}
           onBack={() => {}}
           onActivate={onActivate}
         />
@@ -215,7 +214,7 @@ describe("MemberDetailPanel · the notice does not outlive its truth (T-7fa1)", 
     rerender(
       <I18nProvider>
         <MemberDetailPanel
-          member={mkMember({ id: "kyle", name: "Kyle", memberId: "MB-DEV001" })}
+          member={mkMember({ id: "kyle", name: "Kyle" })}
           onBack={() => {}}
           onActivate={onActivate}
         />
@@ -493,7 +492,6 @@ describe("relocate notice self-heals", () => {
         mkAwake({
           id: "kyle",
           name: "Kyle",
-          memberId: "MB-DEV001",
           desiredMachineId: "mach-b",
           machine: "mach-a",
         }),
@@ -586,7 +584,6 @@ describe("relocate notice self-heals", () => {
         mkAwake({
           id: "kyle",
           name: "Kyle",
-          memberId: "MB-DEV001",
           desiredMachineId: "mach-a",
           machine: "mach-a",
         }),
@@ -620,7 +617,6 @@ describe("relocate notice self-heals", () => {
         mkAwake({
           id: "kyle",
           name: "Kyle",
-          memberId: "MB-DEV001",
           desiredMachineId: "mach-b",
           machine: "mach-a",
         }),

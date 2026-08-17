@@ -42,6 +42,49 @@
   font-size: 24px;
 }
 
+/* NO STACKED-DOCUMENT PAGE EXISTS ANY MORE (T-bac4 retired `.settings-stack`).
+ *
+ * It was T-6278's other half: every DocCard wraps itself in `.settings`, which
+ * is height:100% + overflow-y:auto, so a page holding TWO of them had two
+ * full-height scrollers and the second document began a screen below the first
+ * however short the first was — measured then at y=860 on an 844-tall phone.
+ * The wrapper made the PAGE the single scroller instead.
+ *
+ * 啟動程序 is now an index of two nav rows, each runtime on its own page, so
+ * nothing in this repo stacks two DocCards: the rule was removed rather than
+ * left as dead CSS that reads like a live constraint. Re-stacking two DocCards
+ * without restoring something like it puts the second one off screen again —
+ * that is the fact worth keeping, not the rule. */
+
+/* A heading that opens its own document (T-6278). The whole heading is the hit
+ * target, and it keeps the heading's type — a collapsed document must still
+ * READ as the document's name, since when both are closed the two names are
+ * the only thing telling them apart. */
+.settings__title--toggle {
+  margin-bottom: 10px;
+}
+.doc-collapse {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 2px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  /* The names are long ("啟動程序（Claude Code）") and the phone is narrow —
+   * this is the surface a phone met the bug on, so it wraps rather than
+   * pushing the page sideways. */
+  overflow-wrap: anywhere;
+}
+.doc-collapse > svg {
+  flex: none;
+  color: var(--color-text-muted);
+}
+
 /* ── breadcrumbs (T-8f6e unified settings navigation) — generalized from the
  * 任務手冊 detail page's crumbs: 「設定 › 子頁 › …」 heads EVERY settings page
  * (each segment clickable back up the tree; the trailing segment is the
@@ -459,6 +502,30 @@
 }
 .doc-btn--accent:hover:not(:disabled) {
   background: var(--color-accent-cta-bg-hover);
+}
+/* T-791e. The 還原出廠版 entry on a boot-context page. It lives in THIS sheet
+   because `.doc-btn` is this sheet's block and a modifier belongs with the
+   block it modifies — a `.doc-btn--*` rule in another file is the free-riding
+   shape styleOwnership.test.ts exists to stop. */
+.doc-btn--danger {
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 35%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+}
+.doc-btn--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-danger) 20%, transparent);
+}
+
+/* T-c33e — one muted line under the head, for a fact about the SAVE the card
+   would otherwise leave implicit (today: that it replaces the whole document).
+   Muted, not a warning colour: nothing is wrong, it is the term of the
+   surface, and a red panel on every visit trains the reader to skip it. */
+.doc-card__note {
+  margin: 0 20px;
+  padding: 8px 0 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .doc-card__body {

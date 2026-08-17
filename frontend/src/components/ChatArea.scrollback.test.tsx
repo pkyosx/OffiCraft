@@ -55,7 +55,6 @@ vi.mock("../hooks/useChat", () => ({
 function mkMember(id = "b", name = "Beto"): Member {
   return {
     id,
-    memberId: id,
     name,
     role: "assistant",
     status: "online",

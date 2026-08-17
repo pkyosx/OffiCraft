@@ -266,12 +266,23 @@ describe("T-ae38 — capForKind routes each document kind to its own cap", () =>
       learning: 3,
       manualSop: 4,
       manualLearnings: 5,
+      systemInteraction: 6,
+      bootSequence: 7,
+      offboard: 8,
     };
     expect(capForKind("role_definition", caps)).toBe(1);
     expect(capForKind("insight", caps)).toBe(2);
     expect(capForKind("lessons", caps)).toBe(3);
     expect(capForKind("task_manual_sop", caps)).toBe(4);
     expect(capForKind("task_manual_learnings", caps)).toBe(5);
+    // T-791e: the two boot-context blocks answer to their own
+    // `doc.cap_chars.*` settings, so they route like every other capped kind
+    // rather than abstaining — and they route to DIFFERENT numbers, because
+    // the system block's default is four times the boot sequence's.
+    expect(capForKind("system_interaction", caps)).toBe(6);
+    expect(capForKind("boot_sequence", caps)).toBe(7);
+    // T-c9c0: the 下線程序 document has its own knob too.
+    expect(capForKind("offboard", caps)).toBe(8);
     // The retired bundle kind covers both documents and has no restore path
     // left; it takes the learnings cap, as the deprecated wire field does.
     expect(capForKind("task_manual", caps)).toBe(5);

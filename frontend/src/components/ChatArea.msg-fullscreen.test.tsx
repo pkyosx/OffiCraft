@@ -34,7 +34,6 @@ vi.mock("../hooks/useChat", () => ({
 function mkMember(): Member {
   return {
     id: "m1",
-    memberId: "m1",
     name: "Mira",
     role: "assistant",
     status: "online",
@@ -132,14 +131,14 @@ describe("chat message 放大閱讀 button", () => {
     // so an unscoped heading query matches the thread copy too.
     await waitFor(() =>
       expect(
-        container.querySelector(".md-preview__md h1")?.textContent,
+        document.body.querySelector(".md-preview__md h1")?.textContent,
       ).toBe("Design"),
     );
     expect(globalThis.fetch).not.toHaveBeenCalled();
     // Nothing to download — the message body was never a stored file.
-    expect(container.querySelector(".md-preview__download")).toBeNull();
+    expect(document.body.querySelector(".md-preview__download")).toBeNull();
     // The header names the sender, so a full-view read still says who wrote it.
-    expect(container.querySelector(".md-preview__title")?.textContent).toContain(
+    expect(document.body.querySelector(".md-preview__title")?.textContent).toContain(
       "Mira",
     );
   });
@@ -157,9 +156,9 @@ describe("chat message 放大閱讀 button", () => {
     const bubble = container.querySelector(".chat__msg-text")!;
     fireEvent.click(container.querySelector("button.chat__msg-expand")!);
     await waitFor(() =>
-      expect(container.querySelector(".md-preview__md")).toBeTruthy(),
+      expect(document.body.querySelector(".md-preview__md")).toBeTruthy(),
     );
-    const reader = container.querySelector(".md-preview__md")!;
+    const reader = document.body.querySelector(".md-preview__md")!;
     // Same shape on both surfaces — two hard breaks, one paragraph.
     expect(bubble.querySelectorAll("br").length).toBe(2);
     expect(reader.querySelectorAll("br").length).toBe(2);

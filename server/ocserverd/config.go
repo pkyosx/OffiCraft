@@ -82,42 +82,56 @@ type AuthConfig struct {
 	TokenTTLSet bool
 }
 
-// SseContextHighConfig mirrors service.config.SseContextHighConfig — the
-// [sse_context_high] knobs for the server-side context band push. A threshold
-// <= 0 disables that band entirely (reversible kill-switch).
+// SseContextHighConfig is the server-side context band config. HandoverPct <= 0
+// disables the band entirely (reversible kill-switch).
+//
+// warn_pct and remind_step_pct USED to live here and are gone (T-c382). They
+// were a SECOND threshold beside HandoverPct, hard-wired at 40 and 5 with no UI
+// on either, so an owner who moved the handover threshold to 65% did not move
+// the reminder — it kept firing from 40%, every 5%, five times before the event
+// it was warning about. The advance notice is now DERIVED from HandoverPct (see
+// handoverNoticeLeadPct in sse_bands.go), which is the only threshold the owner
+// can actually see and set. Do not reintroduce a standalone one: two thresholds
+// for one decision is how this drifted in the first place.
+// T-a9d6 turned the single threshold into a PAIR, which is not the same shape
+// as the warn_pct that was removed above. NoticePct is the FIRST, soft notice;
+// HandoverPct is the SECOND, final one — and the final one is still the single
+// point the handover decision reads, so the two can never disagree about when a
+// session ends. Owner 2026-08-16, verbatim: 「以 claude 來說我們允許設定第二個
+// 數字 65% / 75% 表示第一次通知會是 65% 第二次通知會是 75%」.
+// What made warn_pct wrong was that it did NOT track the threshold the owner
+// could see; this pair is set together in one UI, validated against each other
+// (notice must sit below final), and neither is derived behind his back.
 type SseContextHighConfig struct {
-	WarnPct     int
+	NoticePct   int
 	HandoverPct int
-	// RemindStepPct is the width (in gauge %) of one remind bucket: a same-band
-	// WARN re-reminds only when the gauge climbs a full step into a new higher
-	// bucket (T-7826 dedup, replacing the old per-tick cooldown that bombarded
-	// the agent). <= 0 falls back to 1% buckets.
-	RemindStepPct int
-	MinBootSecs   float64
-	StaleGuard    bool
+	MinBootSecs float64
+	StaleGuard  bool
 }
 
-// defaultSseContextHigh mirrors the Python dataclass defaults (WARN=40,
-// HANDOVER=50, 5% remind buckets, 120s boot-storm guard, stale guard on).
+// defaultSseContextHigh: NOTICE=40, HANDOVER=50, 120s boot-storm guard, stale
+// guard on. The 10-point default gap is the lead T-c382 derived; T-a9d6 keeps
+// the same shipped behaviour while making the gap the owner's to set.
 func defaultSseContextHigh() SseContextHighConfig {
 	return SseContextHighConfig{
-		WarnPct:       40,
-		HandoverPct:   50,
-		RemindStepPct: 5,
-		MinBootSecs:   120.0,
-		StaleGuard:    true,
+		NoticePct:   40,
+		HandoverPct: 50,
+		MinBootSecs: 120.0,
+		StaleGuard:  true,
 	}
 }
 
 // SseContextHighSet records which RETIRED [sse_context_high] knobs the file
 // wrote explicitly — the one-shot ctx.* DB migration (settings.go) imports
 // exactly those, so an old file's tuned knobs survive the key retirement.
+// warn_pct / remind_step_pct dropped out with the knobs themselves (T-c382):
+// an old file may still carry them and is still parsed without error, but there
+// is no longer anything for the migration to import them INTO.
 type SseContextHighSet struct {
-	WarnPct       bool
-	HandoverPct   bool
-	RemindStepPct bool
-	MinBootSecs   bool
-	StaleGuard    bool
+	NoticePct   bool
+	HandoverPct bool
+	MinBootSecs bool
+	StaleGuard  bool
 }
 
 // Config is the fully resolved oc.toml. The EFFECTIVE schema is Server
@@ -159,6 +173,7 @@ type tomlFile struct {
 	// (e.g. stale_guard true), which a plain field could not distinguish.
 	SseContextHigh struct {
 		WarnPct       *int     `toml:"warn_pct"`
+		NoticePct     *int     `toml:"notice_pct"`
 		HandoverPct   *int     `toml:"handover_pct"`
 		RemindStepPct *int     `toml:"remind_step_pct"`
 		MinBootSecs   *float64 `toml:"min_boot_secs"`
@@ -253,17 +268,16 @@ func loadConfig(path string) (Config, []string, error) {
 	} else {
 		cfg.StorageDSN = f.Storage.DatabaseURL
 	}
-	if f.SseContextHigh.WarnPct != nil {
-		cfg.SseContextHigh.WarnPct = *f.SseContextHigh.WarnPct
-		cfg.SseContextHighSet.WarnPct = true
+	// warn_pct / remind_step_pct are still PARSED (an old file must not become
+	// fatal) but no longer land anywhere: the knobs they fed were removed in
+	// T-c382 and the advance notice is derived from handover_pct.
+	if f.SseContextHigh.NoticePct != nil {
+		cfg.SseContextHigh.NoticePct = *f.SseContextHigh.NoticePct
+		cfg.SseContextHighSet.NoticePct = true
 	}
 	if f.SseContextHigh.HandoverPct != nil {
 		cfg.SseContextHigh.HandoverPct = *f.SseContextHigh.HandoverPct
 		cfg.SseContextHighSet.HandoverPct = true
-	}
-	if f.SseContextHigh.RemindStepPct != nil {
-		cfg.SseContextHigh.RemindStepPct = *f.SseContextHigh.RemindStepPct
-		cfg.SseContextHighSet.RemindStepPct = true
 	}
 	if f.SseContextHigh.MinBootSecs != nil {
 		cfg.SseContextHigh.MinBootSecs = *f.SseContextHigh.MinBootSecs

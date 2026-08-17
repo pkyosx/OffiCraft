@@ -239,7 +239,16 @@ def test_other_role_agent_cannot_restore_victim_insight(client, agent_b, subject
     r = client.get(history, headers=_auth(agent_b.token))
     _log("list-insight-history", "GET", history, "agent_other", r)
     assert r.status_code == 200, r.text
-    v1_ids = [v["id"] for v in r.json() if v["content"].get("text") == v1]
+    # The listing names the revisions but carries no prose (T-1170), so finding
+    # the one holding V1 means fetching each body by id — which is itself the
+    # read the ruling leaves open, on the same identity.
+    v1_ids = []
+    for row in r.json():
+        body = client.get(f"{history}/{row['id']}", headers=_auth(agent_b.token))
+        _log("get-insight-version", "GET", f"{history}/{row['id']}", "agent_other", body)
+        assert body.status_code == 200, body.text
+        if body.json()["content"].get("text") == v1:
+            v1_ids.append(row["id"])
     assert v1_ids, f"no retained revision holding V1 — nothing to try to restore: {r.text}"
     version_id = v1_ids[0]
 

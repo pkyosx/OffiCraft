@@ -19,19 +19,14 @@ import { zh } from "../i18n/locales/zh";
 import { DocumentHistoryModal } from "./DocumentHistoryModal";
 import { ApiError } from "../api/errors";
 import { DOC_CAP_CHARS_DEFAULT, DOC_CAP_CHARS_DEFAULTS } from "../api/docCap";
-import type { DocumentHistoryView, DocumentKind } from "../types";
+import type { DocumentKind } from "../types";
+import { contentSizes } from "../api/docCap";
 
 const s = zh.settings;
 
 const VERSION_TS = 1753776180; // 2025-07-29 in the runner's local zone
 const VERSION_MD = ["## 標題", "", "- 第一項", "- 第二項"].join("\n");
 
-function version(
-  content: Record<string, string>,
-  id = 7
-): DocumentHistoryView {
-  return { id, content, createdTs: VERSION_TS, actorId: "owner-1" };
-}
 
 function open(opts: {
   kind?: DocumentKind;
@@ -57,7 +52,13 @@ function open(opts: {
     <I18nProvider>
       <DocumentHistoryModal
         kind={kind}
-        version={version(content)}
+        // The host passes the row's facts and the revision's OWN text — two
+        // reads since T-1170, so the fixture spells both rather than one
+        // object that carries everything.
+        createdTs={VERSION_TS}
+        tombstoned={content.tombstoned === "true"}
+        sizes={contentSizes(content)}
+        content={content}
         actorLine="Mira（owner-1）"
         currentContent={currentContent}
         docCaps={DOC_CAP_CHARS_DEFAULTS}
@@ -377,12 +378,13 @@ describe("DocumentHistoryModal", () => {
         <I18nProvider>
           <DocumentHistoryModal
             kind="global_context"
-            version={{
-              id: 0,
-              content: opts.content ?? { text: "", tombstoned: "true" },
-              createdTs: 0,
-              actorId: "",
-            }}
+            createdTs={0}
+            tombstoned={
+              (opts.content ?? { text: "", tombstoned: "true" }).tombstoned ===
+              "true"
+            }
+            sizes={contentSizes(opts.content ?? { text: "", tombstoned: "true" })}
+            content={opts.content ?? { text: "", tombstoned: "true" }}
             seed
             seedUnavailable={opts.seedUnavailable}
             actorLine=""

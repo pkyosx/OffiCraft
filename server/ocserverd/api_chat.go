@@ -9,6 +9,7 @@ package main
 import (
 	"bytes"
 	"encoding/base64"
+	"fmt"
 	"io"
 	"mime"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -24,8 +26,126 @@ const (
 	chatAttachmentImageMaxBytes = 20 * 1024 * 1024
 	chatAttachmentMaxBytes      = 100 * 1024 * 1024
 	chatAttachmentsMaxCount     = 10
-	resumeChatN                 = 30
-	resumeChatBodyPreview       = 500
+	// ── the wake snapshot's chat budget ──────────────────────────────────────
+	//
+	// The snapshot used to take a FIXED 30 newest messages and cut every body
+	// at 500 runes, on every line alike. Two things were wrong with that and
+	// they are separate faults:
+	//
+	//  1. A fixed message COUNT does not bound the payload — 30 messages is
+	//     600 characters or 60,000 depending on who was talking — and it does
+	//     not spend the room where it is worth spending. What a waking agent
+	//     needs is a CHARACTER budget, filled newest-first.
+	//  2. ~~One global newest-N has no notion of a conversation LINE~~ — this
+	//     used to be listed as the second fault, and the per-line FLOOR built to
+	//     answer it is what the owner removed on 2026-08-13. The floor's reserved
+	//     messages were billed to the budget and then never evicted by it, so the
+	//     block grew without any upper bound at all: measured on one real member,
+	//     chat_chars 80,140 across 496 messages (~165 lines × 3) against the
+	//     ceiling of the day — 6.7× over, paid by every agent on every single
+	//     wake. Owner ruling, verbatim: 「不要管每條對話線」/「只管從最新一則訊息
+	//     往前推,直到超出我們 budget 上限前最後一則」. So the budget is now a real
+	//     CEILING: global newest-first, stop at the last message that still fits.
+	//
+	// The total the chat block may spend is counted in RUNES — one CJK character
+	// is one, matching every other cap in this file (see chatBodyMaxChars).
+	// 🔴 It covers EVERYTHING overview.chat_chars counts: the messages and their
+	// folded cards, plus the snapshot header and the cut hint that ride outside
+	// the array. Nothing is exempt from it any more — that exemption WAS the
+	// defect. It is a budget, not a target: a quiet studio produces a much
+	// smaller payload.
+	//
+	// 🔴 THE NUMBER ITSELF NO LONGER LIVES HERE. It was the constant 8000 (owner
+	// 2026-08-13, 「聊天區塊字數留 8000 就好」) until T-c9b4 made it the
+	// `chat.budget_chars` SETTING — default chatBudgetCharsDefault, adjustable
+	// from the settings page between minChatBudgetChars and maxChatBudgetChars
+	// (domain.go). There is exactly one source: the chat.budget_chars setting, read at
+	// request time by resumeSnapshotParts (s.chatBudget()) and handed to
+	// resumeChatPackBudget.
+	// Do not reintroduce a constant here — a second copy is how the peek and the
+	// snapshot start disagreeing about how big the block is.
+	//
+	// resumeChatFetch caps how many of the caller's newest messages are READ
+	// before packing — GLOBALLY, not per conversation line (see
+	// ListChatInvolving). It bounds the read itself so a busy studio cannot drag
+	// its whole history into memory just to have it dropped by the budget.
+	//
+	// 🔴 WHY 500, and why the number is a FLOOR-derived one rather than a taste
+	// call: the packer must never run out of candidates before it runs out of
+	// budget, or the snapshot would silently under-fill. The CHEAPEST possible
+	// message costs 27 runes (resumeChatMessageChars counts ts_display — always
+	// 26 runes of resumeTimeLayout — plus at least one rune for the "0" of
+	// body_omitted_chars; body and both names can be empty). 500 × 27 = 13,500 >
+	// maxChatBudgetChars — the CEILING of the adjustable budget, not the default,
+	// because the guarantee has to hold at every value the owner can dial in. That
+	// is exactly why maxChatBudgetChars is 13000 and not higher; raising it past
+	// 13,500 means raising this number FIRST. Even an all-minimum stream therefore
+	// fills the budget with rows to spare. Realistic messages cost far more, so the loop almost always
+	// stops on the budget long before this cap.
+	//
+	// 🔴 It replaces a PER-LINE quota of 40. On the measured member (~165 lines)
+	// that read 6,600 rows to fill one budget's worth; this reads at most 500. It is
+	// still ONE query and still a full chat_message scan (sender/recipient carry
+	// no index) — what changed is how many rows come back.
+	//
+	// A caller whose stream fills this cap always reports the cut through
+	// chat_earlier_omitted.
+	resumeChatFetch = 500
+	// resumeChatOtherPreview is where ANOTHER AGENT's message body is COLLAPSED.
+	// 120 runes is a lead, not a summary: enough to recognise which exchange
+	// this is and decide whether to go and read it, which is all a third party's
+	// traffic has to do for a wake.
+	//
+	// 🔴 TWO LINES ARE EXEMPT and carried IN FULL, because on those two the
+	// content IS the wake:
+	//   - the SELF hand-off (sender == recipient == the subject). An agent's
+	//     baton to its own next session is literally a post_chat to itself;
+	//     collapsing it truncates the handover instructions the wake exists to
+	//     resume from.
+	//   - anything to or from the owner (wireOwnerID). Instructions from the
+	//     human, and what was answered back, are not summarisable material.
+	// Both exemptions are applied in resumeChatCarriesFullBody.
+	resumeChatOtherPreview = 120
+	// resumeTimeLayout renders an epoch second for a READER: full date, full
+	// time, and the zone OFFSET, e.g. "2026-08-13 09:47:11 +08:00".
+	//
+	// The offset is in the string because there is no timezone SETTING anywhere
+	// in the studio to read it from — the server's own local zone is the only
+	// zone that exists here, and a local time printed without its offset cannot
+	// be interpreted by anyone who is not this process. Introducing a timezone
+	// setting to avoid that is a governance change (another thing the owner must
+	// set, another thing that can be wrong), not a formatting one.
+	//
+	// 🔴 The DATE IS ALWAYS WRITTEN, same-day messages included. "Drop the date
+	// when it is today" is the obvious-looking optimisation and it is wrong
+	// here: the reader is an agent that just woke up and does not know what day
+	// it is, so a bare "09:47:11" is unreadable to exactly the audience this
+	// field was added for. generated_at is the anchor it reads these against.
+	resumeTimeLayout = "2006-01-02 15:04:05 -07:00"
+	// resumeOwnerDisplayName is the owner's name in a wake snapshot. The owner
+	// has NO roster row, so it cannot be resolved like every other id and must
+	// be special-cased somewhere; this is that somewhere.
+	//
+	// It is deliberately NOT the owner.name setting: settings.go states that
+	// nickname is not an agent read path, and turning it into one would both
+	// reverse that and add a settings query to the path every agent runs on
+	// every wake. What a member needs from this field is WHO IT IS TALKING TO,
+	// and that is the role, not the human's chosen nickname.
+	resumeOwnerDisplayName = "Owner"
+	// resumeChatCutHint tells a reader how to get back what chat_earlier_omitted
+	// says MAY be missing. It names the tool AND the exact parameter pairing
+	// because the reader is mid-wake with nothing loaded: a hint that requires
+	// looking something up is not a hint. The 422-on-one-of-two is stated
+	// because that is the failure a first attempt actually hits (see
+	// HandleListChatApiChatGet).
+	//
+	// 🔴 It says MAY, not DOES. The marker is raised when the read filled its
+	// window as well as when the budget stopped the pack, and the read never
+	// looks past the window — so a caller holding exactly resumeChatFetch
+	// messages and nothing older raises it too (see resumeChatBlock for why that
+	// one-sidedness is the right side to err on). Wording it as a fact would
+	// make this text false in exactly that case.
+	resumeChatCutHint = "這條線上**可能**還有更早的訊息沒被帶進來。它在讀取或字數上限被切斷，而沒有人往切口後面看過——所以就算其實沒有更舊的，這一句也會出現；只有真的去抓才知道。（這跟 `body_omitted_chars` 是**兩回事**：那個是「這一則就在這裡，只是被摺短了」，確定的事實；這一句講的是「整則整則可能不在」，是個可能。）要確認並讀回來：呼叫 `get_chat`，`with` 填對方的 id，再把這份資料裡「對方那條線最舊的那一則」的 `before_ts` 與 `before_id` 一起帶上。這兩個游標欄位**必須成對送**，只送一個會被退回（422）。如果某個人的**整條線一則都不在**這份資料裡（他最後一則太舊，整條被擠出去了），那就沒有游標可抄——這時只填 `with`、不帶游標，直接從最新的往回讀，並**一起帶上 `peek`**（值要填字串 `true`，填別的會被當成沒填、而且不會報錯）：不帶 `peek` 的那條路會順手把那條線標成已讀（連你還沒看過的新訊息一起），而帶游標的補抓不會這樣。"
 	// resumeDutyPreview caps a roster row's duty and resumeTaskTitlePreview
 	// caps a contractor's task title (T-1b09). Both exist because this
 	// payload is read by EVERY member on EVERY wake, so an unbounded field
@@ -83,13 +203,28 @@ const (
 	// stays tight.
 	resumeDutyPreview      = 1000
 	resumeTaskTitlePreview = 40
-	resumeNote             = "This is a BOUNDED wake snapshot (recent chat involving you, bodies truncated; your open tasks as LIGHT rows — no plan detail; `roster` = everyone in the studio with their status, machine and their duty (capped, `…` marks a cut); `machines` = the machine list plus which one you are on). Peek `overview` first (sizes/counts), then pull only what you need: get_task per task (hand a big detail_chars pull to a sub-agent), list_reply_cards (use `limit`) for your cards, list_chat / list_tasks for more."
+	// 🔴 resumeNote used to say "bodies truncated", full stop. After the
+	// collapse/cut split that sentence is FALSE TWICE OVER: most bodies are not
+	// shortened at all (the owner's line and your own hand-off are carried
+	// whole), and the thing it did not mention — whole messages left out — is
+	// the one a reader most needs told. The note now names both, in the two
+	// different words the payload uses for them.
+	resumeNote = "這是一份**開機快照**，不是完整資料。\n聊天：只帶最近的往來，而且是照**字數**（不是則數）收的，收到裝不下為止，由舊到新排。每則都附寄件與收件者的名字、以及帶時區的時間（請跟最上面的 `generated_at` 對照著看）；有回覆卡的會一併附上。\n有兩種「不完整」，意思不一樣，不要混：\n· `body_omitted_chars` > 0 ＝ **這一則就在這裡，只是被摺短了**，數字是被摺掉的字數，這是確定的事實（你自己寫給自己的交接、以及你跟 owner 之間的往來——他說的和你對他說的都算——一律不摺）。要看全文，把那一則的 `id` 放進 `get_chat` 的 `ids`。\n· `chat_earlier_omitted` ＝ **可能整則整則不見了**。這是「可能」不是「一定」：那條線在讀取或字數上限被切斷，而沒有人往切口後面看過，所以就算其實沒有更舊的也會標。它自己會附上怎麼去抓。\n任務：只給精簡列，沒有計畫細節。名冊：工作室裡每個人的狀態、所在機器與職責（過長會截斷，`…` 是切口）。機器：機器清單，以及你在哪一台。\n先看 `overview` 的數量與大小，再決定要拉什麼：單張任務用 `get_task`（`detail_chars` 很大的就交給分身去拉），你的卡片用 `list_reply_cards`（記得給 `limit`），要更多聊天或任務用 `list_chat`／`list_tasks`。"
 	// peekNote guides the two-step boot (T-7974): peek_resume_summary_size is
 	// size-only (no content); the agent reads estimated_total_chars and, when
 	// it is small, calls resume_summary directly in its own context, else has
 	// a cheap sub-agent (e.g. haiku) call resume_summary and hand back a
 	// compressed digest — the full payload never burns the main session.
-	peekNote                     = "Size-only preview of resume_summary — counts/sizes ONLY, no chat or task content. Use estimated_total_chars to decide: if small (rule of thumb < 20000 chars, ≈ 5k tokens) call resume_summary directly in your main session; if large, spawn a cheap sub-agent (e.g. haiku) to call resume_summary and return a compressed digest, so the full payload never burns your own context."
+	//
+	// 🔴 It states the SUM, not a list of ingredients. Three prose copies of
+	// this used to itemise what the number covers, each with a DIFFERENT
+	// incomplete subset, and all three left out the same item: the cut hint,
+	// which resumeSnapshotParts adds to chat_chars and which is a FIXED block
+	// of several hundred runes (measured 560 at the time of writing — it is a
+	// constant in this file, so re-measure it there rather than trusting this
+	// number). An itemised list can only go stale against that function; the
+	// four addends are checkable against the code that computes them.
+	peekNote                     = "Size-only preview of resume_summary — counts/sizes ONLY, no chat or task content. estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars, all four reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit and the two studio-floor blocks. So it is what pulling the snapshot actually costs. Use it to decide: if small (rule of thumb < 20000 chars, ≈ 5k tokens) call resume_summary directly in your main session; if large, spawn a cheap sub-agent (e.g. haiku) to call resume_summary and return a compressed digest, so the full payload never burns your own context."
 	attachmentOctetStream        = "application/octet-stream"
 	attachmentDefaultPastedImage = "pasted-image"
 	// chatBodyMaxChars caps a chat message BODY at 4,000 UTF-8 CHARACTERS
@@ -494,6 +629,158 @@ func (s *apiServer) servedChatMessageDTO(m ChatMessage) chatMessageDTO {
 	return dto
 }
 
+// ── by-id re-read (T-a828) ───────────────────────────────────────────────────
+//
+// The wake snapshot COLLAPSES other agents' long messages and marks each one
+// with `body_omitted_chars` > 0, whose whole meaning is "the text is still
+// here, go and re-read it with get_chat". Until this seam existed get_chat took
+// a PEER plus a paging CURSOR and nothing else — there was no way to name one
+// message — so that marker pointed at a door with no handle, and a fold was in
+// practice a silent drop. `?ids=` is the handle.
+const (
+	// chatByIDsMax is the hard ceiling on how many messages one call may name.
+	//
+	// It is a RESPONSE BOUND, not a taste: these messages come back with their
+	// bodies WHOLE (that is the entire point), and a body is capped at
+	// chatBodyMaxChars, so this constant times that cap is the worst case a
+	// single call can be made to emit — 20 × 4,000 = 80,000 runes.
+	//
+	// 🔴 It is deliberately NOT "enough to unfold a whole snapshot in one call".
+	// The snapshot's own chat block is capped at the chat budget setting and a
+	// folded message costs it very little, so a busy line can carry more folds
+	// than this; unfolding all of them at once would hand back a payload many
+	// times the budget the snapshot was shrunk to. The reader is meant to name
+	// the ones that matter and call again — the refusal below says so.
+	chatByIDsMax = 20
+	// chatByIDsTooManyMsg states the limit, because a refusal that does not say
+	// what the limit is leaves the caller to bisect for it.
+	chatByIDsTooManyMsg = "get_chat accepts at most %d ids per call (asked for %d) — " +
+		"messages come back with their bodies whole, so the count is what bounds " +
+		"the response; name the ones you actually need and call again for the rest"
+	// chatByIDsNotFoundMsg is the ALL-OR-NOTHING refusal for an id no message
+	// carries. Skipping the unknown one and returning the rest was the obvious
+	// alternative and it is wrong HERE specifically: a short array is exactly
+	// what a fold looks like, so the caller could not tell "that message is
+	// gone" from "I mistyped one id" from "the server dropped it" — and this
+	// seam exists to end that ambiguity, not to reproduce it one level up.
+	chatByIDsNotFoundMsg = "no message carries id %s — the whole call is refused rather " +
+		"than answered short, because a shortened answer is indistinguishable from the " +
+		"folded message you are trying to read back; drop that id and ask again"
+	// chatByIDsNotYoursMsg is the permission refusal. It states the rule and
+	// offers NO way around it, deliberately: there is no parameter, no flag and
+	// no other endpoint that widens a by-id read past the caller's own
+	// conversations, and a refusal that hints at one teaches a bypass that
+	// either does not exist or should not be used.
+	//
+	// 🔴 IT SPEAKS FOR THIS PATH, NOT FOR THE WHOLE TOOL. It used to open by
+	// naming the endpoint as the thing that is bounded to the caller's own
+	// messages, and that claim is FALSE: the ordinary listing filters on `with`
+	// — a PARTICIPANT — not on the caller, so a plain read of a peer's line
+	// answers with a conversation the caller was never in, and that is the
+	// designed behaviour, not a leak (`caller_only` is what narrows a listing to
+	// the caller). Only the by-ids read is bounded to the caller's own ends. A
+	// refusal that overstates its own reach teaches every agent that reads it a
+	// rule the server does not enforce, which is worse than saying nothing.
+	chatByIDsNotYoursMsg = "message %s is between other members — a by-ids read returns only " +
+		"messages you sent or received (one such id refuses the whole call), and holding " +
+		"an id is not permission to read someone else's conversation"
+)
+
+// requestedChatIDs normalises the repeatable ?ids= parameter: blanks dropped,
+// duplicates collapsed, request order preserved. An empty result means the
+// parameter was not usefully sent, and the caller falls through to the ordinary
+// listing path — `?ids=` alone is the same request as no `?ids=` at all, the
+// same way `?statuses=` is on the task list.
+func requestedChatIDs(ids *[]string) []string {
+	if ids == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := []string{}
+	for _, raw := range *ids {
+		id := strings.TrimSpace(raw)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
+}
+
+// chatMessageInvolvesCaller is the participation boundary, and it is one
+// expression on purpose: a caller may read a message back only when it is one
+// of the two ends of it.
+//
+// The comparison is against the VERIFIED JWT sub (§14 — identity comes from
+// auth, never from a parameter) and against the STORED sender/recipient, so
+// nothing in the request can move this line. It is written against
+// currentActor(r) rather than a hoisted local so that it is VISIBLE to
+// authz_surface_gate_test.go: this is authorisation living outside the route
+// table's Requires column, and that gate exists precisely so such a predicate
+// has to be enumerated with a reason rather than added quietly.
+func chatMessageInvolvesCaller(r *http.Request, m ChatMessage) bool {
+	return m.Sender == currentActor(r) || m.Recipient == currentActor(r)
+}
+
+// chatMessagesTheCallerWasIn returns the first named id the caller was not a
+// party to, so the refusal can name it.
+func chatMessagesTheCallerWasIn(r *http.Request, byID map[string]ChatMessage, ids []string) (foreign string, ok bool) {
+	for _, id := range ids {
+		if !chatMessageInvolvesCaller(r, byID[id]) {
+			return id, false
+		}
+	}
+	return "", true
+}
+
+// serveChatByIDs answers `?ids=` — the named messages IN FULL, oldest→newest.
+//
+// 🔴 NO WATERMARK ADVANCE. Re-reading a message the snapshot already showed you
+// (shortened) is not reading the conversation, and sliding a read receipt from
+// here would mark a whole thread read on the strength of one unfolded line —
+// the same reasoning that keeps a history page from advancing it.
+//
+// REFUSAL ORDER is cap → unknown id → not yours, and each refusal names the id
+// it is about. The unknown-before-foreign order means an id that exists but
+// belongs to two other members answers 403 while an id that exists nowhere
+// answers 404, so a caller CAN learn that some id exists. That is accepted with
+// eyes open: ids are server-minted `c-` + 12 random hex (48 bits), so they are
+// not enumerable, and the case this seam was built for is an agent holding an
+// id it was already shown. The alternative — one indistinguishable refusal —
+// costs every honest caller the ability to tell a typo from a boundary.
+func (s *apiServer) serveChatByIDs(w http.ResponseWriter, r *http.Request, ids []string) {
+	if len(ids) > chatByIDsMax {
+		writeError(w, http.StatusBadRequest,
+			fmt.Sprintf(chatByIDsTooManyMsg, chatByIDsMax, len(ids)))
+		return
+	}
+	msgs, err := s.dal.ListChatByIDs(ids)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	byID := make(map[string]ChatMessage, len(msgs))
+	for _, m := range msgs {
+		byID[m.ID] = m
+	}
+	for _, id := range ids {
+		if _, found := byID[id]; !found {
+			writeError(w, http.StatusNotFound, fmt.Sprintf(chatByIDsNotFoundMsg, id))
+			return
+		}
+	}
+	if foreign, ok := chatMessagesTheCallerWasIn(r, byID, ids); !ok {
+		writeError(w, http.StatusForbidden, fmt.Sprintf(chatByIDsNotYoursMsg, foreign))
+		return
+	}
+	out := []chatMessageDTO{}
+	for _, m := range msgs {
+		out = append(out, s.servedChatMessageDTO(m))
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
 // GET /api/chat — the stream oldest→newest, capped to the most recent limit
 // (default 30; negative = uncapped; 0 = empty). ?with= filters to a
 // participant, and listing a specific conversation ADVANCES the caller's read
@@ -516,7 +803,17 @@ func (s *apiServer) servedChatMessageDTO(m ChatMessage) chatMessageDTO {
 // browser: the payload was the entire chat history, growing without bound.
 // Omitting peek (or any value other than "true") is byte-for-byte the old
 // behaviour — the marking auto-receipt still fires on a plain ?with= list.
+//
+// ?ids= (T-a828) is answered FIRST and ON ITS OWN — see serveChatByIDs. It is
+// not a filter layered on the listing below: with/limit/before_*/peek are not
+// consulted at all, so nothing about the paths above changes for a caller that
+// does not send it. A request whose ids are all blank is not a by-id read and
+// falls through here unchanged.
 func (s *apiServer) HandleListChatApiChatGet(w http.ResponseWriter, r *http.Request, params HandleListChatApiChatGetParams) {
+	if ids := requestedChatIDs(params.Ids); len(ids) > 0 {
+		s.serveChatByIDs(w, r, ids)
+		return
+	}
 	with := strOrEmpty(params.With)
 	peek := trimmedOrEmpty(params.Peek) == "true"
 	callerOnly := params.CallerOnly != nil && *params.CallerOnly
@@ -801,76 +1098,103 @@ func (s *apiServer) HandleListChatReadsApiChatReadsGet(w http.ResponseWriter, r 
 }
 
 // GET /api/resume-summary — the bounded, identity-locked wake snapshot
-// (handlers.handle_resume_summary): the caller's recent chat (bodies
-// truncated) + the caller's open tasks as LIGHT rows (SPEC §6.2 — a handover
-// resumes in-flight tasks, not just chat; assembled by resumeTasksFor,
-// api_tasks.go; T-3f31: no plan detail rides the snapshot) + the overview
-// size/概要 block (peek-then-decide) + identity + the fixed bounded-snapshot
-// note.
+// (handlers.handle_resume_summary): the caller's recent chat (budget-packed,
+// other agents' bodies collapsed, reply cards folded in place) + the caller's
+// open tasks as LIGHT rows (SPEC §6.2 — a handover resumes in-flight tasks, not
+// just chat; assembled by resumeTasksFor, api_tasks.go; T-3f31: no plan detail
+// rides the snapshot) + the overview size/概要 block (peek-then-decide) +
+// identity + the fixed bounded-snapshot note.
 func (s *apiServer) HandleResumeSummaryApiResumeSummaryGet(w http.ResponseWriter, r *http.Request) {
 	actor := currentActor(r)
-	chat, tasks, roster, machines, overview, err := s.resumeSnapshotParts(actor)
+	snap, err := s.resumeSnapshotParts(actor)
 	if err != nil {
 		internalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, resumeSummaryDTO{
-		Identity: &actor,
-		Chat:     chat,
-		Tasks:    tasks,
-		Roster:   roster,
-		Machines: &machines,
-		Overview: overview,
-		Note:     resumeNote,
+		Identity:           &actor,
+		GeneratedAt:        snap.GeneratedAt,
+		Chat:               snap.Chat,
+		ChatEarlierOmitted: snap.ChatCut,
+		Tasks:              snap.Tasks,
+		Roster:             snap.Roster,
+		Machines:           &snap.Machines,
+		Overview:           snap.Overview,
+		Note:               resumeNote,
 	})
 }
 
-// resumeSnapshotParts assembles the caller's wake snapshot in three parts:
-// the recent chat (bodies truncated to resumeChatBodyPreview), the caller's
-// open tasks as LIGHT rows, and the overview size/概要 block. resume_summary
-// serves all three; peek_resume_summary_size serves only the overview (+
-// identity) — both go THROUGH this one assembly so the sizes the peek reports
-// can never drift from what a full resume_summary would carry (T-7974: the
-// two-step boot lets an agent size the snapshot before deciding whether to
-// pull it into its own context or hand it to a cheap sub-agent).
-func (s *apiServer) resumeSnapshotParts(actor string) ([]chatMessageDTO, []resumeTaskDTO, []resumeRosterMemberDTO, resumeMachinesDTO, resumeOverviewDTO, error) {
-	msgs, err := s.dal.ListChatInvolving(actor, resumeChatN)
+// resumeWakeSnapshot is one assembled wake snapshot. It replaced a six-value return
+// when the chat block grew a cut marker and the payload grew a header: past
+// about four returns the call sites stop being readable and a mis-ordered pair
+// of same-typed values compiles silently.
+type resumeWakeSnapshot struct {
+	// GeneratedAt anchors every ts_display in the payload. It is stamped ONCE,
+	// here, so the header and the rows cannot disagree about when "now" was.
+	GeneratedAt string
+	Chat        []chatMessageDTO
+	ChatCut     resumeChatCutDTO
+	Tasks       []resumeTaskDTO
+	Roster      []resumeRosterMemberDTO
+	Machines    resumeMachinesDTO
+	Overview    resumeOverviewDTO
+}
+
+// resumeSnapshotParts assembles the caller's wake snapshot: the recent chat
+// (budget-packed per conversation line, other agents' bodies collapsed, reply
+// cards folded in place), the caller's open tasks as LIGHT rows, the studio
+// floor, and the overview size/概要 block. resume_summary serves all of it;
+// peek_resume_summary_size serves only the overview (+ identity) — both go
+// THROUGH this one assembly so the sizes the peek reports can never drift from
+// what a full resume_summary would carry (T-7974: the two-step boot lets an
+// agent size the snapshot before deciding whether to pull it into its own
+// context or hand it to a cheap sub-agent).
+//
+// 🔴 There is exactly ONE size estimator in this file and it is the one below.
+// Every character the new chat format adds — display names, rendered
+// timestamps, folded card content, the collapse marker, the cut hint, the
+// header — is counted HERE, into overview.chat_chars, precisely because the
+// peek and the snapshot share this path. A second estimator written "just for
+// the peek" is how the peek starts lying about the thing it exists to measure.
+func (s *apiServer) resumeSnapshotParts(actor string) (resumeWakeSnapshot, error) {
+	snap := resumeWakeSnapshot{
+		GeneratedAt: resumeDisplayTime(nowSecs()),
+		Chat:        []chatMessageDTO{},
+	}
+	// The floor is folded FIRST because the chat block needs its member list to
+	// resolve display names. That list is a by-product of a query the boot path
+	// ALREADY runs (see resumeFloorParts' cost note) — the names cost nothing
+	// extra, and adding a second member query to resolve them would have.
+	roster, machines, rosterChars, machinesChars, names, err := s.resumeFloorParts(actor)
 	if err != nil {
-		return nil, nil, nil, resumeMachinesDTO{}, resumeOverviewDTO{}, err
+		return resumeWakeSnapshot{}, err
 	}
-	chat := []chatMessageDTO{}
-	chatChars := 0
-	for _, m := range msgs {
-		dto := s.servedChatMessageDTO(m)
-		if len([]rune(dto.Body)) > resumeChatBodyPreview {
-			dto.Body = string([]rune(dto.Body)[:resumeChatBodyPreview]) + "…"
-		}
-		// chat_chars sums the truncated body runes THIS snapshot carries (the
-		// dominant payload contributor) — the peek's size signal for "how big
-		// is resume_summary itself", distinct from tasks_detail_chars (the
-		// text a later get_task pull would load).
-		chatChars += len([]rune(dto.Body))
-		chat = append(chat, dto)
-	}
-	tasks, tasksOpenTotal, err := s.resumeTasksFor(actor)
-	if err != nil {
-		return nil, nil, nil, resumeMachinesDTO{}, resumeOverviewDTO{}, err
-	}
-	roster, machines, rosterChars, machinesChars, err := s.resumeFloorParts(actor)
-	if err != nil {
-		return nil, nil, nil, resumeMachinesDTO{}, resumeOverviewDTO{}, err
-	}
-	// The caller's own reply-card counts (peek signals for list_reply_cards):
-	// cards it INITIATED, waiting vs answered-within-24h (the same window the
-	// answered pane serves).
+	snap.Roster, snap.Machines = roster, machines
+
+	// ONE ListReplyCards serves BOTH the peek counts and the inline fold.
+	//
+	// 🔴 COST: ListReplyCards is a FULL TABLE SCAN and it is already on this
+	// path (the waiting / answered-recently counts below). Folding card content
+	// into chat therefore adds NO query — it reads the same rows through a map
+	// built in the same pass. A per-message GetReplyCard inside the chat loop
+	// would have been one point query per carded message, on every wake.
+	// The map also REPLACES servedChatMessageDTO's per-message GetReplyCard for
+	// reply_card_status, so this path runs NO MORE queries than before — and
+	// strictly fewer whenever the snapshot carries at least one carded message,
+	// which is the only case where the replaced per-message lookups existed at
+	// all. On a snapshot with no cards there is nothing to save and the count
+	// is simply unchanged.
+	cardsByID := map[string]ReplyCard{}
 	cardsWaiting, cardsAnsweredRecent := 0, 0
 	if actor != "" {
 		cards, err := s.dal.ListReplyCards()
 		if err != nil {
-			return nil, nil, nil, resumeMachinesDTO{}, resumeOverviewDTO{}, err
+			return resumeWakeSnapshot{}, err
 		}
 		now := nowSecs()
 		for _, c := range cards {
+			cardsByID[c.ID] = c
+			// The counts stay scoped to cards the subject INITIATED, unchanged.
 			if c.FromMember != actor {
 				continue
 			}
@@ -883,13 +1207,38 @@ func (s *apiServer) resumeSnapshotParts(actor string) ([]chatMessageDTO, []resum
 			}
 		}
 	}
+
+	msgs, err := s.dal.ListChatInvolving(actor, resumeChatFetch)
+	if err != nil {
+		return resumeWakeSnapshot{}, err
+	}
+	chat, cut, chatChars := resumeChatBlock(
+		actor, msgs, names, cardsByID,
+		resumeChatPackBudget(s.chatBudget(), snap.GeneratedAt))
+	snap.Chat, snap.ChatCut = chat, cut
+
+	tasks, tasksOpenTotal, err := s.resumeTasksFor(actor)
+	if err != nil {
+		return resumeWakeSnapshot{}, err
+	}
+	snap.Tasks = tasks
 	detailChars := 0
 	for _, t := range tasks {
 		detailChars += t.DetailChars
 	}
-	overview := resumeOverviewDTO{
-		ChatCount:           len(chat),
-		ChatChars:           chatChars,
+	snap.Overview = resumeOverviewDTO{
+		ChatCount: len(chat),
+		// chat_chars is the WHOLE chat block's rune cost — every message's
+		// carried body plus everything the wake format wraps around it, plus
+		// the snapshot header (generated_at) and the cut hint, which are part
+		// of what a caller must read even though they sit outside the array.
+		// It is NOT "the sum of the bodies" any more; peekNote says so too.
+		//
+		// 🔴 This sum is what the chat budget setting bounds, and the packer was
+		// handed its budget with exactly these two addends already subtracted
+		// (resumeChatPackBudget) — so it can never come out above the ceiling.
+		ChatChars: chatChars + utf8.RuneCountInString(snap.GeneratedAt) +
+			utf8.RuneCountInString(cut.Hint),
 		TasksReturned:       len(tasks),
 		TasksOpenTotal:      tasksOpenTotal,
 		TasksDetailChars:    detailChars,
@@ -898,7 +1247,244 @@ func (s *apiServer) resumeSnapshotParts(actor string) ([]chatMessageDTO, []resum
 		RosterChars:         rosterChars,
 		MachinesChars:       machinesChars,
 	}
-	return chat, tasks, roster, machines, overview, nil
+	return snap, nil
+}
+
+// resumeDisplayTime renders an epoch second as resumeTimeLayout in the SERVER's
+// local zone. "" for a zero/absent timestamp — an unanswered card must not be
+// dressed up as having happened at the epoch.
+func resumeDisplayTime(ts float64) string {
+	if ts <= 0 {
+		return ""
+	}
+	sec := int64(ts)
+	nsec := int64((ts - float64(sec)) * 1e9)
+	return time.Unix(sec, nsec).Local().Format(resumeTimeLayout)
+}
+
+// resumeDisplayName resolves an id to a display name for the wake snapshot.
+// The owner is special-cased because it has no roster row (see
+// resumeOwnerDisplayName); anything else unresolved stays "" rather than
+// echoing its own id back — a name that is really an id is worse than no name,
+// because a reader cannot tell which of the two fields it is looking at.
+func resumeDisplayName(id string, names map[string]string) string {
+	if id == wireOwnerID {
+		return resumeOwnerDisplayName
+	}
+	return names[id]
+}
+
+// resumeChatCarriesFullBody decides, PER MESSAGE, whether this one is exempt
+// from collapsing. See resumeChatOtherPreview for why these two and only these
+// two: the self hand-off IS the baton a wake resumes from, and the owner's line
+// is instruction from the human. Everything else is third-party traffic that
+// only has to be recognisable.
+func resumeChatCarriesFullBody(subject string, m ChatMessage) bool {
+	if subject != "" && m.Sender == subject && m.Recipient == subject {
+		return true
+	}
+	return m.Sender == wireOwnerID || m.Recipient == wireOwnerID
+}
+
+// resumeChatMessageDTO projects ONE message for the wake snapshot: names beside
+// ids, a rendered timestamp beside the epoch one, the body collapsed unless
+// exempt, and the reply card folded in place.
+func resumeChatMessageDTO(subject string, m ChatMessage, names map[string]string, cards map[string]ReplyCard) chatMessageDTO {
+	d := newChatMessageDTO(m)
+	d.FromName = resumeDisplayName(m.Sender, names)
+	d.ToName = resumeDisplayName(m.Recipient, names)
+	d.TSDisplay = resumeDisplayTime(m.TS)
+	if !resumeChatCarriesFullBody(subject, m) {
+		if r := []rune(d.Body); len(r) > resumeChatOtherPreview {
+			// body_omitted_chars counts what was FOLDED AWAY, not what is left:
+			// the reader already has what is left, in front of it.
+			omitted := len(r) - resumeChatOtherPreview
+			if resumeChatCollapseIsWorthIt(omitted) {
+				d.BodyOmittedChars = omitted
+				d.Body = string(r[:resumeChatOtherPreview]) + "…"
+			}
+		}
+	}
+	if id := replyCardIDFromMeta(m.Meta); id != "" {
+		if c, ok := cards[id]; ok {
+			d.ReplyCardStatus = c.Status
+			// Scope: cards the SUBJECT initiated. A card the subject merely
+			// answered belongs to whoever asked, and folding it in here would
+			// put someone else's pending decision in this agent's wake.
+			if c.FromMember == subject {
+				options := c.Options
+				if options == nil {
+					options = []string{}
+				}
+				d.Card = &chatInlineReplyCardDTO{
+					Options:           options,
+					AnswerOptionIdx:   c.AnswerOptionIdx,
+					AnswerText:        c.AnswerText,
+					AnsweredTS:        c.AnsweredTS,
+					AnsweredAtDisplay: resumeDisplayTime(c.AnsweredTS),
+				}
+			}
+		}
+	}
+	return d
+}
+
+// resumeChatCollapseIsWorthIt answers whether folding a body actually SAVES
+// anything, and it exists because for a while it did not have to.
+//
+// 🔴 A COLLAPSE IS NOT FREE. Marking a message as folded costs the payload the
+// ellipsis that replaces the cut text (1 rune) plus the digits of
+// body_omitted_chars (resumeChatMessageChars counts exactly those), and it costs
+// the READER a marker beside the message and, if it matters, a get_chat round
+// trip to recover what was taken. Folding a body that was barely over the
+// preview therefore buys a handful of runes and pays for them twice — owner,
+// 2026-08-13: 「省不到就不要折」.
+//
+// So the rule is the literal one: fold only when the saving is STRICTLY GREATER
+// than what the marker itself costs. The marker cost is DERIVED here rather than
+// written down as a constant, because it is the same arithmetic
+// resumeChatMessageChars bills — a constant would be a second copy of it and
+// would go stale the first time the marker changes shape.
+//
+// Boundary: equal is NOT worth it. A fold that breaks even has made the payload
+// no smaller and the message harder to read, which is a pure loss.
+func resumeChatCollapseIsWorthIt(omitted int) bool {
+	markerCost := 1 /* the … that replaces the cut text */ +
+		len(strconv.Itoa(omitted))
+	return omitted > markerCost
+}
+
+// resumeChatMessageChars is the rune cost ONE projected message puts on the
+// wire. It counts the body as CARRIED (post-collapse) plus everything the wake
+// format adds around it. Ids are deliberately NOT counted: they were already on
+// the wire before this format existed and were never in chat_chars, so counting
+// them now would move the number for a reason that has nothing to do with what
+// changed.
+func resumeChatMessageChars(d chatMessageDTO) int {
+	n := utf8.RuneCountInString(d.Body) +
+		utf8.RuneCountInString(d.FromName) +
+		utf8.RuneCountInString(d.ToName) +
+		utf8.RuneCountInString(d.TSDisplay) +
+		len(strconv.Itoa(d.BodyOmittedChars))
+	if d.Card != nil {
+		for _, o := range d.Card.Options {
+			n += utf8.RuneCountInString(o)
+		}
+		n += utf8.RuneCountInString(d.Card.AnswerText) +
+			utf8.RuneCountInString(d.Card.AnsweredAtDisplay)
+		if d.Card.AnswerOptionIdx != nil {
+			n += len(strconv.Itoa(*d.Card.AnswerOptionIdx))
+		}
+	}
+	return n
+}
+
+// resumeChatBlock packs the wake snapshot's chat and reports what it left out.
+//
+// msgs arrives oldest→newest and is the caller's GLOBAL newest window
+// (ListChatInvolving, capped at resumeChatFetch). Packing is one pass:
+// walk NEWEST FIRST and take messages while they fit; the first one that would
+// push the block past `budget` STOPS the walk and everything older is left out.
+//
+// 🔴 STOP, not skip. The previous packer kept going past a message that did not
+// fit, hoping a smaller older one would — which spends the budget more fully but
+// hands the reader a stream with holes punched in it at unpredictable places.
+// The owner's ruling is literally a prefix: 「只管從最新一則訊息往前推,直到超出
+// 我們 budget 上限前最後一則」. A contiguous newest-first run is also what makes
+// the boundary checkable: the block is at the budget, and the very next message
+// would exceed it.
+//
+// 🔴 There is NO per-line reserve any more. It was removed on 2026-08-13
+// (「不要管每條對話線」) because its reserved messages were billed to the budget
+// and never evicted by it, so the block had no upper bound at all — see
+// the chat budget setting. The cost is real and is not hidden: a quiet
+// correspondent whose last message is older than the budget reaches now falls
+// off the snapshot entirely. It is not SILENT, though — that is what
+// chat_earlier_omitted and its hint are for, and dropping anything raises them.
+//
+// `budget` is passed in rather than read from the setting directly,
+// because the caller must subtract what rides OUTSIDE this array yet still
+// counts against the same ceiling (the snapshot header and the cut hint). A
+// packer that spent the whole constant would put overview.chat_chars over it by
+// construction, which is the defect this whole change exists to remove.
+//
+// Returns the messages oldest→newest, the cut marker, and the block's rune cost.
+func resumeChatBlock(subject string, msgs []ChatMessage, names map[string]string, cards map[string]ReplyCard, budget int) ([]chatMessageDTO, resumeChatCutDTO, int) {
+	type packedMsg struct {
+		dto  chatMessageDTO
+		cost int
+	}
+	all := make([]packedMsg, 0, len(msgs))
+	for _, m := range msgs {
+		d := resumeChatMessageDTO(subject, m, names, cards)
+		all = append(all, packedMsg{dto: d, cost: resumeChatMessageChars(d)})
+	}
+
+	// The read filled its window, so older messages MAY exist that were never
+	// even fetched. Reported as a cut whether or not the budget stopped the walk.
+	//
+	// Deliberately one-sided: a caller with exactly resumeChatFetch messages and
+	// nothing older reports a cut that is not there. That costs a reader one
+	// wasted get_chat; the opposite error costs it a conversation it never learns
+	// exists.
+	atFetchCap := len(all) >= resumeChatFetch
+
+	used := 0
+	first := len(all) // index of the OLDEST message that made it in
+	dropped := false
+	for i := len(all) - 1; i >= 0; i-- { // newest first: `all` is oldest→newest
+		if used+all[i].cost > budget {
+			// Everything from here back is older, so the walk is over.
+			dropped = true
+			break
+		}
+		used += all[i].cost
+		first = i
+	}
+
+	// `all` is already the one chronological stream the chat surface serves, so
+	// the surviving suffix is in order with no re-sort needed.
+	chat := []chatMessageDTO{}
+	for i := first; i < len(all); i++ {
+		chat = append(chat, all[i].dto)
+	}
+
+	cut := resumeChatCutDTO{}
+	if dropped || atFetchCap {
+		cut.Omitted = true
+		cut.Hint = resumeChatCutHint
+	}
+	return chat, cut, used
+}
+
+// resumeChatPackBudget is what resumeChatBlock may spend on MESSAGES, once the
+// runes that ride outside the array but inside overview.chat_chars are set
+// aside: the snapshot header (generated_at) and the cut hint.
+//
+// 🔴 The hint is reserved UNCONDITIONALLY, even though it is only emitted when
+// something was actually left out. Reserving it only when needed is circular —
+// whether the hint appears depends on whether the pack overflowed, which depends
+// on the budget. Reserving it always makes `chat_chars <= budget`
+// true in every case, and makes the bound TIGHT in exactly the case that matters
+// (the block that dropped something carries the hint, so it lands on the ceiling
+// rather than under it). A snapshot that dropped nothing simply comes in a few
+// hundred runes under — which is the cheap side to err on.
+//
+// Never negative: a pathologically long hint would otherwise make the budget
+// negative and empty the chat block silently.
+//
+// `budget` is the LIVE `chat.budget_chars` setting, passed in rather than read
+// from a constant (T-c9b4). This function stays pure so the caller — which has
+// the *apiServer receiver and therefore the accessor — is the single place the
+// number is sourced.
+func resumeChatPackBudget(budget int, generatedAt string) int {
+	b := budget -
+		utf8.RuneCountInString(generatedAt) -
+		utf8.RuneCountInString(resumeChatCutHint)
+	if b < 0 {
+		return 0
+	}
+	return b
 }
 
 // resumeFloorParts assembles the studio floor a waking agent lands on: the
@@ -930,18 +1516,18 @@ func (s *apiServer) resumeSnapshotParts(actor string) ([]chatMessageDTO, []resum
 //     ONCE for the whole roster and read from the resulting map per
 //     contractor — never a per-contractor ListTaskSteps, which would drag
 //     back every step's Name/DoD text onto a path every agent boots through.
-func (s *apiServer) resumeFloorParts(actor string) ([]resumeRosterMemberDTO, resumeMachinesDTO, int, int, error) {
+func (s *apiServer) resumeFloorParts(actor string) ([]resumeRosterMemberDTO, resumeMachinesDTO, int, int, map[string]string, error) {
 	members, err := s.dal.ListMembersIncludingOutsource()
 	if err != nil {
-		return nil, resumeMachinesDTO{}, 0, 0, err
+		return nil, resumeMachinesDTO{}, 0, 0, nil, err
 	}
 	displayNames, err := s.dal.MachineDisplayNames()
 	if err != nil {
-		return nil, resumeMachinesDTO{}, 0, 0, err
+		return nil, resumeMachinesDTO{}, 0, 0, nil, err
 	}
 	stepProgress, err := s.dal.AllTaskStepProgress()
 	if err != nil {
-		return nil, resumeMachinesDTO{}, 0, 0, err
+		return nil, resumeMachinesDTO{}, 0, 0, nil, err
 	}
 	online := s.hub.OnlineMembers()
 	now := nowSecs()
@@ -969,6 +1555,23 @@ func (s *apiServer) resumeFloorParts(actor string) ([]resumeRosterMemberDTO, res
 		roleNameByRole[roleKey] = def.Name
 		dutyByRole[roleKey] = dutyText(def.DefinitionMD)
 		return roleNameByRole[roleKey], dutyByRole[roleKey]
+	}
+
+	// names is the id→display-name table the chat block resolves from_name /
+	// to_name with. It is built from the ALREADY-LOADED member slice — no extra
+	// query, which is the only reason names could be added to the wake snapshot
+	// at all under this function's cost discipline.
+	//
+	// 🔴 It is populated BEFORE the roster filters below, and that is the whole
+	// point: the roster carries only ACTIVE non-machine rows, but a chat message
+	// keeps its sender forever. A dismissed colleague, a released contractor and
+	// a warden all still have to read by name in a hand-off — dropping them here
+	// would silently degrade exactly the old conversations a wake goes looking
+	// for. The owner is NOT in this table at all (it has no member row); see
+	// resumeDisplayName.
+	names := make(map[string]string, len(members))
+	for _, m := range members {
+		names[m.ID] = m.Name
 	}
 
 	// Members first, contractors after (each already name-ordered by the
@@ -1033,7 +1636,7 @@ func (s *apiServer) resumeFloorParts(actor string) ([]resumeRosterMemberDTO, res
 		// the wrong box silently.
 		YouAreOn: callerHost,
 	}
-	return roster, machinesBlock, rosterChars(roster), machinesChars(machinesBlock), nil
+	return roster, machinesBlock, rosterChars(roster), machinesChars(machinesBlock), names, nil
 }
 
 // contractorTaskFields returns the TRUNCATED title of the one task a
@@ -1218,18 +1821,23 @@ func machinesChars(m resumeMachinesDTO) int {
 // code resume_summary runs, so they are consistent by construction.
 func (s *apiServer) HandlePeekResumeSummarySizeApiResumeSummarySizeGet(w http.ResponseWriter, r *http.Request) {
 	actor := currentActor(r)
-	_, _, _, _, overview, err := s.resumeSnapshotParts(actor)
+	snap, err := s.resumeSnapshotParts(actor)
 	if err != nil {
 		internalError(w, err)
 		return
 	}
+	overview := snap.Overview
 	writeJSON(w, http.StatusOK, resumeSummarySizeDTO{
 		Identity: &actor,
 		Overview: overview,
 		// estimated_total_chars ≈ the context cost of pulling resume_summary
-		// AND then expanding every task via get_task: the chat bodies the
-		// snapshot carries plus the plan text those rows omit. The single
-		// number the boot threshold gates on (see the note / boot_sequence).
+		// AND then expanding every task via get_task: the WHOLE chat block the
+		// snapshot carries — whatever chat_chars counts, which is the RENDERED
+		// block and not the sum of the bodies (resumeSnapshotParts is the one
+		// place that says what goes into it; do not restate the list here, the
+		// three prose copies that did each restated a different, incomplete
+		// one) — plus the plan text those rows omit. The single number the boot
+		// threshold gates on (see the note / boot_sequence).
 		//
 		// T-1b09: the roster and machine blocks are ADDED here because they are
 		// part of what pulling the snapshot costs. Leaving them out would have
@@ -1271,21 +1879,23 @@ func (s *apiServer) HandleGetMemberResumeSummaryApiMembersMemberIdResumeSummaryG
 		writeResolveError(w, err, "member", memberId)
 		return
 	}
-	chat, tasks, roster, machines, overview, err := s.resumeSnapshotParts(m.ID)
+	snap, err := s.resumeSnapshotParts(m.ID)
 	if err != nil {
 		internalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, resumeSummaryDTO{
-		Identity: &m.ID,
-		Chat:     chat,
-		Tasks:    tasks,
-		Roster:   roster,
+		Identity:           &m.ID,
+		GeneratedAt:        snap.GeneratedAt,
+		Chat:               snap.Chat,
+		ChatEarlierOmitted: snap.ChatCut,
+		Tasks:              snap.Tasks,
+		Roster:             snap.Roster,
 		// machines.you_are_on resolves for the TARGET member, not for the
 		// admin doing the lookup — this route answers "what does THAT agent
 		// wake up to", so every field must be from that agent's vantage.
-		Machines: &machines,
-		Overview: overview,
+		Machines: &snap.Machines,
+		Overview: snap.Overview,
 		Note:     resumeNote,
 	})
 }

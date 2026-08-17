@@ -118,7 +118,7 @@ func TestBuildWorkerBootContext_FullAssembly(t *testing.T) {
 	for _, want := range []string{
 		"# Global Context",     // slot 1 — the 系統互動 seed's own H1
 		"# 啟動程序（Boot Sequence", // slot 4 — the shared boot sequence
-		"## Claude Code 執行環境",  // that runtime's 執行環境 section, inside slot 4
+		"# Claude Code 執行環境",   // that runtime's 執行環境 section, leading slot 4
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("boot context missing the shared block %q", want)
@@ -160,20 +160,26 @@ func TestBuildWorkerBootContext_FullAssembly(t *testing.T) {
 // reads Claude's "hold `ocagent listen` under Monitor" while running under a
 // codex sidecar is the T-4595-era regression this repo already paid for once.
 // What changed is WHERE it comes from: it used to be a hand-written outsource
-// tail appended after the seed, and it is now the 執行環境 section of the
-// runtime's own boot-sequence seed — the same bytes staff read.
+// tail appended after the seed, and it now arrives inside the runtime's own
+// boot-sequence seed — the same bytes staff read.
+//
+// The seed's shape changed again when the owner rewrote both files (2026-08-15):
+// 執行環境 is now a top-level section that LEADS the boot-sequence block instead
+// of a subsection inside it. So "the boot sequence is the tail" is asserted on
+// the 啟動程序 heading, and 執行環境 is required to be the only heading between
+// the rest of the document and it.
 func TestBuildWorkerBootContext_RuntimeGuidanceIsTheSeedsOwnAndItIsLast(t *testing.T) {
 	for _, tc := range []struct {
 		name           string
 		runtime        string
-		wantEnvH2      string
+		wantEnvH1      string
 		wantOwnership  string
-		otherRuntimeH2 string
+		otherRuntimeH1 string
 	}{
-		{"codex", RuntimeCodex, "## Codex App Server 執行環境",
-			"**不要**自行啟動 `ocagent listen`", "## Claude Code 執行環境"},
-		{"claude", RuntimeClaude, "## Claude Code 執行環境",
-			"用內建 **Monitor 工具**在背景掛住", "## Codex App Server 執行環境"},
+		{"codex", RuntimeCodex, "# Codex App Server 執行環境",
+			"不要自己啟動 `ocagent listen`", "# Claude Code 執行環境"},
+		{"claude", RuntimeClaude, "# Claude Code 執行環境",
+			"用內建 Monitor 工具在背景掛住", "# Codex App Server 執行環境"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newWorkerTestServer(t)
@@ -186,19 +192,26 @@ func TestBuildWorkerBootContext_RuntimeGuidanceIsTheSeedsOwnAndItIsLast(t *testi
 			if !strings.Contains(got, tc.wantOwnership) {
 				t.Errorf("%s worker is not told who owns the listener", tc.name)
 			}
-			if strings.Contains(got, tc.otherRuntimeH2) {
+			if strings.Contains(got, tc.otherRuntimeH1) {
 				t.Errorf("%s worker received the OTHER runtime's 執行環境 section", tc.name)
 			}
-			// Recency-authoritative: the boot sequence is the TAIL, so its
-			// 執行環境 section is the last heading in the document. Before
-			// T-4595 the three shared blocks were grouped at the TOP for
-			// workers and the persona came after them — the one asymmetry with
-			// nothing behind it.
-			env := strings.LastIndex(got, tc.wantEnvH2)
+			// Recency-authoritative: the boot-sequence block is the TAIL, so
+			// nothing follows it, and the runtime's 執行環境 section is the only
+			// heading between the rest of the document and it. Before T-4595 the
+			// three shared blocks were grouped at the TOP for workers and the
+			// persona came after them — the one asymmetry with nothing behind it.
+			env := strings.LastIndex(got, tc.wantEnvH1)
 			if env < 0 {
-				t.Fatalf("%s worker is missing %q", tc.name, tc.wantEnvH2)
+				t.Fatalf("%s worker is missing %q", tc.name, tc.wantEnvH1)
 			}
-			if strings.Contains(got[env+len(tc.wantEnvH2):], "\n# ") {
+			rest := got[env+len(tc.wantEnvH1):]
+			next := strings.Index(rest, "\n# ")
+			if next < 0 || !strings.HasPrefix(rest[next+1:], bootSequenceH1) {
+				t.Fatalf("%s: 執行環境 is not immediately followed by the 啟動程序 heading — "+
+					"the runtime note must lead the tail block, not sit loose in the "+
+					"document", tc.name)
+			}
+			if strings.Contains(rest[next+1:], "\n# ") {
 				t.Errorf("%s: something follows the 啟動程序 block; it must be last", tc.name)
 			}
 		})
@@ -257,10 +270,15 @@ func TestWorkerBootContextIsTheStaffFoldMinusThePersona(t *testing.T) {
 	}
 
 	// Cut slot 3 out of the staff document: everything from the 角色說明 header
-	// up to (but not including) the 啟動程序 header, plus the "\n\n" that joined
+	// up to (but not including) the START of slot 4, plus the "\n\n" that joined
 	// it to the block before.
+	//
+	// Slot 4 no longer BEGINS at the 啟動程序 heading: the owner's 2026-08-15
+	// rewrite hoisted the runtime 執行環境 note into a top-level section that
+	// leads the block. Cutting at 啟動程序 would leave that note on one side of
+	// the equality only — which is how this anchor announced the change.
 	role := strings.Index(staff.Context, "# Role: ")
-	boot := strings.Index(staff.Context, "# 啟動程序（Boot Sequence")
+	boot := strings.Index(staff.Context, "# Claude Code 執行環境")
 	if role < 0 || boot < 0 || role >= boot {
 		t.Fatalf("cannot locate slot 3 in the staff fold (角色說明=%d 啟動程序=%d) — "+
 			"the staff assembly moved and this equality must be re-derived", role, boot)

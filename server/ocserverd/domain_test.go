@@ -204,37 +204,6 @@ func TestCanonicalKindMapsBlankToAssistant(t *testing.T) {
 	}
 }
 
-// ── MemberNo ─────────────────────────────────────────────────────────────────
-
-func TestMemberNoFormatAndDeterministic(t *testing.T) {
-	a, b := MemberNo("mira"), MemberNo("mira")
-	if a != b {
-		t.Fatalf("MemberNo must be deterministic: %q != %q", a, b)
-	}
-	if !regexp.MustCompile(`^MB-[A-Z]{3}\d{3}$`).MatchString(a) {
-		t.Fatalf("bad Member-ID format: %q", a)
-	}
-	if MemberNo("mira") == MemberNo("m-abc123") {
-		t.Fatal("MemberNo must be id-sensitive")
-	}
-}
-
-func TestMemberNoMatchesPythonDerivation(t *testing.T) {
-	// Fixtures computed with the Python domain.member.member_no — the display
-	// label must stay byte-identical across the port (same id → same badge on
-	// both stacks).
-	want := map[string]string{
-		"mira":          "MB-IRZ635",
-		"m-abc123":      "MB-OTI651",
-		"m-server-self": "MB-OGT003",
-	}
-	for id, exp := range want {
-		if got := MemberNo(id); got != exp {
-			t.Fatalf("MemberNo(%q) = %q, want Python-parity %q", id, got, exp)
-		}
-	}
-}
-
 // ── member name pool / PickMemberName ────────────────────────────────────────
 
 func TestMemberNamePoolIsMiraStyleAndBigEnough(t *testing.T) {

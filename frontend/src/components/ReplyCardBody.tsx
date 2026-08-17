@@ -117,6 +117,52 @@ export function ReplyCardQuestionAttachments({
   );
 }
 
+/** §3.6 請示 → 任務: the 精簡任務資訊 row a TASK-derived ask wears — the task's
+ * own TITLE and the 查看任務詳情 jump. A pure chat ask (task absent/null)
+ * renders NOTHING: an empty slot reads as "this ask has no task", which is a
+ * different claim from "it has one and we would not say which".
+ *
+ * The TYPE chip (label +「tm-05f7c776d6ff」-shaped typeKey) is GONE — owner
+ * 2026-08-14, T-ee17 acceptance: an internal code on screen answers nothing the
+ * title does not already answer better. `task.typeKey` stays on the wire; it is
+ * simply no longer shown here.
+ *
+ * STILL never the task number/識別鍵 — that adjudication (請示卡不露任務編號)
+ * is untouched: a title is not a number, and this change does not reopen it.
+ *
+ * ONE HOME for both surfaces (RepliesPage 的 Ask 頁 and the inline
+ * ChatReplyCard): the row was copied into both files, so the title would have
+ * had to be written twice — and the two copies would then drift apart the way
+ * only duplicated facts do. The jump is a callback so this stays presentational
+ * (each surface owns its own router). */
+export function ReplyCardTaskRef({
+  task,
+  onJump,
+}: {
+  task: NonNullable<ReplyCard["task"]>;
+  onJump: () => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="reply-card__task" data-testid="reply-task-ref">
+      {task.title && (
+        <span className="reply-card__task-title" title={task.title}>
+          {task.title}
+        </span>
+      )}
+      <button
+        type="button"
+        className="reply-card__task-jump"
+        data-testid="reply-task-jump"
+        onClick={onJump}
+      >
+        {t.replies.viewTask}
+        <ChevronRightIcon size={12} />
+      </button>
+    </div>
+  );
+}
+
 /** A WAITING card's interior: pickable chips + the typed composer. `onAnswer`
  * rejecting must be surfaced by the caller (the chips can simply be clicked
  * again; the composer keeps its content). */

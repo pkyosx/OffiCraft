@@ -757,14 +757,21 @@
   },
   {
     "auth": "gated",
-    "mcp_tool": "update_task_description",
+    "mcp_tool": "update_task",
+    "method": "POST",
+    "path": "/api/tasks/{task_id}",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
     "method": "POST",
     "path": "/api/tasks/{task_id}/description",
     "requires": "agent"
   },
   {
     "auth": "gated",
-    "mcp_tool": "update_task_title",
+    "mcp_tool": null,
     "method": "POST",
     "path": "/api/tasks/{task_id}/title",
     "requires": "agent"
@@ -960,6 +967,13 @@
   },
   {
     "auth": "gated",
+    "mcp_tool": "get_document_version",
+    "method": "GET",
+    "path": "/api/document-history/{kind}/{key}/{id}",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
     "mcp_tool": null,
     "method": "POST",
     "path": "/api/document-history/{kind}/{key}/{id}/restore",
@@ -985,5 +999,68 @@
     "method": "GET",
     "path": "/api/docs/assets/{name}",
     "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "get_system_interaction",
+    "method": "GET",
+    "path": "/api/system-interaction",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "replace_system_interaction",
+    "method": "POST",
+    "path": "/api/system-interaction",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "reset_system_interaction",
+    "method": "POST",
+    "path": "/api/system-interaction/reset",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "get_boot_sequence",
+    "method": "GET",
+    "path": "/api/boot-sequence/{runtime_key}",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "replace_boot_sequence",
+    "method": "POST",
+    "path": "/api/boot-sequence/{runtime_key}",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "reset_boot_sequence",
+    "method": "POST",
+    "path": "/api/boot-sequence/{runtime_key}/reset",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "get_offboard",
+    "method": "GET",
+    "path": "/api/offboard",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "replace_offboard",
+    "method": "POST",
+    "path": "/api/offboard",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "reset_offboard",
+    "method": "POST",
+    "path": "/api/offboard/reset",
+    "requires": "admin_agent"
   }
 ]

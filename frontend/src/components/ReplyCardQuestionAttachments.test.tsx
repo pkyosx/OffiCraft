@@ -90,13 +90,15 @@ describe("reply-card question attachments", () => {
     const chip = strip!.querySelector("button.chat__msg-file") as HTMLButtonElement;
     expect(chip.textContent).toContain("report.pdf");
     fireEvent.click(chip);
-    expect(container.querySelector(".md-preview")).not.toBeNull();
-    expect(container.textContent).toContain("此檔案無法預覽，請下載");
-    fireEvent.click(container.querySelector(".md-preview__close") as HTMLButtonElement);
+    expect(document.body.querySelector(".md-preview")).not.toBeNull();
+    expect(
+      document.body.querySelector(".md-preview__status")?.textContent,
+    ).toContain("此檔案無法預覽，請下載");
+    fireEvent.click(document.body.querySelector(".md-preview__close") as HTMLButtonElement);
 
     // The answered and waiting sides both use the attachment-owned modal.
     fireEvent.click(img);
-    const modal = container.querySelector(".md-preview")!;
+    const modal = document.body.querySelector(".md-preview")!;
     expect(modal).toBeTruthy();
     const preview = modal.querySelector<HTMLImageElement>(".md-preview__image")!;
     expect(preview.src).toBe(IMG_DATA_URI);
@@ -109,7 +111,7 @@ describe("reply-card question attachments", () => {
     expect(preview.style.maxWidth).toBe("");
     expect(modal.querySelector(".md-preview__zoom")!.textContent).toContain("100%");
     fireEvent.click(modal.querySelector(".md-preview__close") as HTMLButtonElement);
-    expect(container.querySelector(".md-preview")).toBeNull();
+    expect(document.body.querySelector(".md-preview")).toBeNull();
   });
 
   it("renders the same strip on the inline chat card (shared implementation)", async () => {
@@ -128,7 +130,7 @@ describe("reply-card question attachments", () => {
     fireEvent.click(
       container.querySelector(".reply-card__question-atts img") as HTMLElement
     );
-    const modal = container.querySelector(".md-preview");
+    const modal = document.body.querySelector(".md-preview");
     expect(modal).not.toBeNull();
     expect(modal!.getAttribute("role")).toBe("dialog");
   });

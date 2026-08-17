@@ -6,6 +6,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { mockApi, __resetMock } from "./mock";
 import { ApiError, isHttpStatus } from "./errors";
+import { documentRevisions } from "../test/documentHistory";
 
 beforeEach(() => {
   __resetMock();
@@ -13,7 +14,7 @@ beforeEach(() => {
 
 describe("mockApi · document history", () => {
   it("has no revisions for a document nobody has edited, nor after its first write", async () => {
-    expect(await mockApi.listDocumentHistory("global_context", "global")).toEqual(
+    expect(await documentRevisions(mockApi, "global_context", "global")).toEqual(
       []
     );
 
@@ -26,13 +27,13 @@ describe("mockApi · document history", () => {
     await mockApi.saveLessons("assistant", "general", "first learnings");
 
     expect(
-      await mockApi.listDocumentHistory("global_context", "global")
+      await documentRevisions(mockApi, "global_context", "global")
     ).toEqual([]);
     expect(
-      await mockApi.listDocumentHistory("role_definition", "assistant")
+      await documentRevisions(mockApi, "role_definition", "assistant")
     ).toEqual([]);
     expect(
-      await mockApi.listDocumentHistory("lessons", "assistant::general")
+      await documentRevisions(mockApi, "lessons", "assistant::general")
     ).toEqual([]);
   });
 
@@ -45,7 +46,7 @@ describe("mockApi · document history", () => {
     await mockApi.resetGlobalContext();
     await mockApi.saveGlobalContext("fourth");
 
-    const versions = await mockApi.listDocumentHistory(
+    const versions = await documentRevisions(mockApi, 
       "global_context",
       "global"
     );
@@ -62,7 +63,7 @@ describe("mockApi · document history", () => {
     for (const text of ["a", "b", "c", "d", "e"]) {
       await mockApi.saveGlobalContext(text);
     }
-    const versions = await mockApi.listDocumentHistory(
+    const versions = await documentRevisions(mockApi, 
       "global_context",
       "global"
     );
@@ -73,17 +74,17 @@ describe("mockApi · document history", () => {
     await mockApi.saveLessons("assistant", "general", "assistant learnings");
     await mockApi.saveLessons("assistant", "general", "assistant learnings v2");
     expect(
-      await mockApi.listDocumentHistory("lessons", "researcher::general")
+      await documentRevisions(mockApi, "lessons", "researcher::general")
     ).toEqual([]);
     expect(
-      await mockApi.listDocumentHistory("lessons", "assistant::general")
+      await documentRevisions(mockApi, "lessons", "assistant::general")
     ).toHaveLength(1);
   });
 
   it("restore puts the old text back and retains what it overwrote", async () => {
     await mockApi.saveGlobalContext("original");
     await mockApi.saveGlobalContext("replacement");
-    const [target] = await mockApi.listDocumentHistory(
+    const [target] = await documentRevisions(mockApi, 
       "global_context",
       "global"
     );
@@ -97,7 +98,7 @@ describe("mockApi · document history", () => {
     expect(restored.id).toBe(target.id);
     expect((await mockApi.getGlobalContext()).text).toBe("original");
 
-    const after = await mockApi.listDocumentHistory("global_context", "global");
+    const after = await documentRevisions(mockApi, "global_context", "global");
     expect(after[0].content.text).toBe("replacement");
   });
 
@@ -107,7 +108,7 @@ describe("mockApi · document history", () => {
     // after it is what retains that state as a revision.
     await mockApi.resetRole("assistant");
     await mockApi.saveRole("assistant", { definitionMd: "second rewrite" });
-    const [seedVersion] = await mockApi.listDocumentHistory(
+    const [seedVersion] = await documentRevisions(mockApi, 
       "role_definition",
       "assistant"
     );
@@ -159,7 +160,7 @@ describe("mockApi · document history", () => {
       fields: [],
     });
 
-    const [previous] = await mockApi.listDocumentHistory(
+    const [previous] = await documentRevisions(mockApi, 
       "task_manual_sop",
       manual.typeKey
     );
@@ -192,14 +193,14 @@ describe("mockApi · document history", () => {
     }
     await mockApi.updateTaskManual(manual.typeKey, { learnings: "第二版經驗" });
 
-    const learnings = await mockApi.listDocumentHistory(
+    const learnings = await documentRevisions(mockApi, 
       "task_manual_learnings",
       manual.typeKey
     );
     expect(learnings.map((v) => v.content)).toEqual([
       { learnings: "第一版經驗" },
     ]);
-    const sops = await mockApi.listDocumentHistory(
+    const sops = await documentRevisions(mockApi, 
       "task_manual_sop",
       manual.typeKey
     );
@@ -225,10 +226,10 @@ describe("mockApi · document history", () => {
     // Those three are not versioned at all (owner ruling), so neither series
     // moved — and the SOP series still holds only what a SOP write retained.
     expect(
-      await mockApi.listDocumentHistory("task_manual_sop", manual.typeKey)
+      await documentRevisions(mockApi, "task_manual_sop", manual.typeKey)
     ).toEqual([]);
     expect(
-      await mockApi.listDocumentHistory("task_manual_learnings", manual.typeKey)
+      await documentRevisions(mockApi, "task_manual_learnings", manual.typeKey)
     ).toEqual([]);
   });
 
@@ -250,23 +251,23 @@ describe("mockApi · document history", () => {
       await mockApi.saveLessons(role.key, taskType, "第一版");
       await mockApi.saveLessons(role.key, taskType, "第二版");
       expect(
-        await mockApi.listDocumentHistory("lessons", `${role.key}::${taskType}`)
+        await documentRevisions(mockApi, "lessons", `${role.key}::${taskType}`)
       ).toHaveLength(1);
     }
     expect(
-      await mockApi.listDocumentHistory("role_definition", role.key)
+      await documentRevisions(mockApi, "role_definition", role.key)
     ).toHaveLength(1);
 
     await mockApi.deleteRole(role.key);
 
     expect(
-      await mockApi.listDocumentHistory("role_definition", role.key)
+      await documentRevisions(mockApi, "role_definition", role.key)
     ).toEqual([]);
     expect(
-      await mockApi.listDocumentHistory("lessons", `${role.key}::general`)
+      await documentRevisions(mockApi, "lessons", `${role.key}::general`)
     ).toEqual([]);
     expect(
-      await mockApi.listDocumentHistory("lessons", `${role.key}::planning`)
+      await documentRevisions(mockApi, "lessons", `${role.key}::planning`)
     ).toEqual([]);
   });
 
@@ -283,19 +284,19 @@ describe("mockApi · document history", () => {
     // Both series really hold something — a delete test whose fixture retained
     // nothing would pass on a delete that dropped nothing.
     expect(
-      await mockApi.listDocumentHistory("task_manual_sop", manual.typeKey)
+      await documentRevisions(mockApi, "task_manual_sop", manual.typeKey)
     ).toHaveLength(1);
     expect(
-      await mockApi.listDocumentHistory("task_manual_learnings", manual.typeKey)
+      await documentRevisions(mockApi, "task_manual_learnings", manual.typeKey)
     ).toHaveLength(1);
 
     await mockApi.deleteTaskManual(manual.typeKey);
 
     expect(
-      await mockApi.listDocumentHistory("task_manual_sop", manual.typeKey)
+      await documentRevisions(mockApi, "task_manual_sop", manual.typeKey)
     ).toEqual([]);
     expect(
-      await mockApi.listDocumentHistory("task_manual_learnings", manual.typeKey)
+      await documentRevisions(mockApi, "task_manual_learnings", manual.typeKey)
     ).toEqual([]);
   });
 
@@ -317,7 +318,7 @@ describe("mockApi · document history", () => {
     await mockApi.updateTaskManual(manual.typeKey, { sopMd: "第一版" });
 
     await expect(
-      mockApi.listDocumentHistory("task_manual", manual.typeKey)
+      documentRevisions(mockApi, "task_manual", manual.typeKey)
     ).rejects.toSatisfy((e) => isHttpStatus(e, 400));
     await expect(
       mockApi.restoreDocumentHistory("task_manual", manual.typeKey, 1)
@@ -330,7 +331,7 @@ describe("mockApi · document history", () => {
 
     // Positive control: the two live series on the SAME manual still answer.
     expect(
-      await mockApi.listDocumentHistory("task_manual_sop", manual.typeKey)
+      await documentRevisions(mockApi, "task_manual_sop", manual.typeKey)
     ).toHaveLength(1);
   });
 

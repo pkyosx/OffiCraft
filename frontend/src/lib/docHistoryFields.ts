@@ -32,6 +32,13 @@ export const DOC_FIELD_ORDER: Record<DocumentKind, readonly string[]> = {
   task_description: ["description"],
   // T-2ebe. Same shape as the description's, one field for the same reason.
   task_title: ["title"],
+  // T-791e. One field each — a boot-context block IS its text. `tombstoned`
+  // rides alongside on both (they are overlay kinds with a factory version to
+  // fall back to) and is a flag, not content, so it is not listed.
+  system_interaction: ["text"],
+  boot_sequence: ["text"],
+  // T-c9c0. Same overlay shape, same single field.
+  offboard: ["text"],
 };
 
 /** Keys a revision may CARRY but that are not content of the document.
@@ -71,6 +78,28 @@ export function documentFields(
   return documentFieldNames(kind, content)
     .map((name): [string, string] => [name, content[name] ?? ""])
     .filter(([, value]) => value.trim() !== "");
+}
+
+/**
+ * Does this revision carry any content at all, judged from the DIRECTORY row's
+ * size map (T-1170) rather than from text the list no longer has?
+ *
+ * ⚠️ One honest difference from `documentFields`, which drops a value whose
+ * `trim()` is empty: a whitespace-only field has a non-zero size, so it counts
+ * as content here. The row would then say nothing instead of 「(當時是空白內容)」,
+ * and the reader one click deeper — which does hold the text — still gets it
+ * right. Nobody can tell whitespace from text by counting characters, and
+ * inventing an answer is the worse of the two.
+ */
+export function documentHasContent(
+  kind: DocumentKind,
+  sizes: Record<string, number>
+): boolean {
+  return Object.entries(sizes).some(
+    ([name, size]) =>
+      size > 0 &&
+      (DOC_FIELD_ORDER[kind].includes(name) || isContentField(kind, name))
+  );
 }
 
 /**

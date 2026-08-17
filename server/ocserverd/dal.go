@@ -143,7 +143,19 @@ type Member struct {
 	// ("relocate" | "runtime/model" | "context_high" | "refocus" |
 	// "restart_self"), "" when none is in flight. Stamped and cleared in lockstep
 	// with RefocusSince — see refocusOp* in member_ownerop_winddown.go.
-	RefocusOp    string
+	RefocusOp string
+	// ForcedStopAt is the durable record that a session was CUT OFF rather than
+	// collected (migrations/00057): unix seconds of the last force-stop, 0 when
+	// there has never been one. Force-stop is the one offboard path that sends
+	// no notice, so the session it kills leaves exactly what a session with
+	// nothing to write leaves — no hand-off, no fresh step note, no folded
+	// lesson. This column is what tells those two apart.
+	//
+	// 🔴 NOT cleared on the next boot, unlike every other lifecycle anchor: it
+	// describes the session BEFORE this one, and that is precisely who needs to
+	// read it. Written through SetMemberForcedStopAt only; PutMember's upsert
+	// deliberately does not carry it.
+	ForcedStopAt float64
 	BankedCost   float64
 	LastOp       string
 	LastOpOK     *bool // nil = no op reported yet (three-valued)
@@ -182,7 +194,7 @@ const memberColumns = `id, name, kind, role_key, runtime, model, actual_model, e
 	waking_since, stopping_since, stopped_since, refocus_since, refocus_op, banked_cost,
 	last_op, last_op_ok, last_op_log, last_op_reason, last_op_at, roster_status,
 	linked_task_id, codename, created_ts, released_ts, activated_ts,
-	avatar_attachment_id`
+	avatar_attachment_id, forced_stop_at`
 
 func scanMember(row interface{ Scan(...any) error }) (Member, error) {
 	var m Member
@@ -196,7 +208,7 @@ func scanMember(row interface{ Scan(...any) error }) (Member, error) {
 		&m.BankedCost,
 		&m.LastOp, &lastOpOK, &m.LastOpLog, &m.LastOpReason, &m.LastOpAt, &m.RosterStatus,
 		&linkedTaskID, &codename, &m.CreatedTS, &m.ReleasedTS, &m.ActivatedTS,
-		&m.AvatarAttachmentID,
+		&m.AvatarAttachmentID, &m.ForcedStopAt,
 	)
 	if err != nil {
 		return Member{}, err
@@ -299,7 +311,7 @@ func (d *DAL) PutMember(m Member) error {
 	}
 	_, err := d.wdb.Exec(`
 		INSERT INTO member (`+memberColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
 			name = excluded.name, kind = excluded.kind,
 			role_key = excluded.role_key, runtime = excluded.runtime,
@@ -325,7 +337,14 @@ func (d *DAL) PutMember(m Member) error {
 			codename = excluded.codename,
 			created_ts = excluded.created_ts,
 			released_ts = excluded.released_ts,
-			activated_ts = excluded.activated_ts`,
+			activated_ts = excluded.activated_ts,
+			-- forced_stop_at only ever moves FORWARD. A caller holding the
+			-- current row carries the stamp it just set and it lands here; a
+			-- STALE snapshot carries an older value (or 0) and max() keeps
+			-- what is already stored, so the record that a session was cut off
+			-- survives every other writer — the property the avatar pointer
+			-- and the session anchor each needed their own seam for.
+			forced_stop_at = max(forced_stop_at, excluded.forced_stop_at)`,
 		m.ID, m.Name, m.Kind, m.RoleKey, NormalizeRuntime(m.Runtime), m.Model, m.ActualModel, m.Effort,
 		m.ActualRuntime, m.ActualEffort,
 		m.DesiredState, m.DesiredMachineID, m.LastMachineID, m.SessionBootTS,
@@ -333,8 +352,25 @@ func (d *DAL) PutMember(m Member) error {
 		m.BankedCost,
 		m.LastOp, lastOpOK, m.LastOpLog, m.LastOpReason, m.LastOpAt, m.RosterStatus,
 		linkedTaskID, codename, m.CreatedTS, m.ReleasedTS, m.ActivatedTS,
-		m.AvatarAttachmentID,
+		m.AvatarAttachmentID, m.ForcedStopAt,
 	)
+	return err
+}
+
+// SetMemberForcedStopAt stamps the force-stop record on ONE column. It is the
+// BACKSTOP now, not the only writer: PutMember's upsert carries the column
+// under max(), so the value lands in the same write that publishes the member
+// — and a stale lifecycle snapshot still cannot erase it, because max() keeps
+// whatever is already stored.
+//
+// 🔴 Why the upsert had to carry it (independent review): the SSE stop gate now
+// READS this column to tell "cut off deliberately" from "working its close-out".
+// While this seam was the only writer, and its failure is deliberately
+// non-fatal, a failed UPDATE left the column at 0 — and a force-stopped member
+// then reconnected as if it were closing out, on an arm that runs no clock to
+// collect it. A safety verdict must not hang on a best-effort write.
+func (d *DAL) SetMemberForcedStopAt(id string, ts float64) error {
+	_, err := d.wdb.Exec(`UPDATE member SET forced_stop_at = ? WHERE id = ?`, ts, id)
 	return err
 }
 
@@ -511,9 +547,65 @@ func (d *DAL) listChatBefore(participant, caller string, beforeTS float64, befor
 	return out, nil
 }
 
+// ListChatByIDs returns the messages carrying the given ids, oldest→newest in
+// the stream's total (ts, id) order — the by-id re-read behind
+// `get_chat?ids=` (T-a828). A blank id list reads nothing.
+//
+// 🔴 IT DOES NOT FILTER BY CALLER, AND THAT IS THE POINT. The handler has to
+// tell "no such message" (404) apart from "that conversation is not yours"
+// (403), and a query that filtered here would collapse both into an empty row
+// set — leaving the handler to guess, which is how a permission refusal ends up
+// worded as "not found" and a caller goes hunting for a message that is right
+// there. The participation check lives at the seam that knows who is asking
+// (chatMessagesTheCallerWasIn).
+//
+// Ids are matched exactly and the result carries at most one row per id, so a
+// duplicated id cannot inflate the answer. Rows are returned for whichever ids
+// exist; the caller compares the returned set against what it asked for.
+func (d *DAL) ListChatByIDs(ids []string) ([]ChatMessage, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	placeholders := make([]string, len(ids))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	rows, err := d.rdb.Query(`
+		SELECT id, sender, recipient, body, ts, meta FROM chat_message
+		WHERE id IN (`+strings.Join(placeholders, ", ")+`)
+		ORDER BY ts, id`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ChatMessage
+	for rows.Next() {
+		m, err := scanChat(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
 // ListChatInvolving returns the most recent `limit` messages involving
 // `participant` (sender OR recipient), oldest→newest — the bounded
 // wake-snapshot read. A blank participant / non-positive limit reads nothing.
+//
+// 🔴 GLOBAL newest-N, and that is the point. A per-conversation-line quota
+// (ListChatPerPeerInvolving, removed 2026-08-13) existed to feed a per-line
+// floor in the packer; that floor was the reason the wake snapshot had no upper
+// bound at all, and the owner removed it (「不要管每條對話線」). The packer now
+// walks this one stream newest-first and stops at the budget, so a per-line read
+// would only return rows nobody can spend — the measured member read 6,600 rows
+// per wake to fill a 12,000-rune budget.
+//
+// COST: one query, one full chat_message scan (`sender`/`recipient` carry no
+// index) — unchanged. What changed is the row count it hands back: bounded by
+// `limit` outright rather than by limit × the caller's number of correspondents.
 func (d *DAL) ListChatInvolving(participant string, limit int) ([]ChatMessage, error) {
 	if participant == "" || limit <= 0 {
 		return nil, nil
@@ -575,7 +667,43 @@ type DocumentHistory struct {
 	ActorID      string
 }
 
-const documentHistoryKeep = 3
+// documentHistoryKeepDefault is how many pre-write snapshots a document keeps
+// when nothing says otherwise.
+const documentHistoryKeepDefault = 3
+
+// documentHistoryKeepByKind raises the retained-version depth for the owner's
+// editable boot-context/global documents: system_interaction, which has the
+// single key `global`; boot_sequence, which has one key per runtime (`claude`,
+// `codex`); and offboard (T-c9c0), a singleton keyed `global`. Four documents
+// across the three kinds, which is why this table has three entries while the
+// sentence below counts documents.
+//
+// WRITTEN DOWN BECAUSE IT IS A DECISION, NOT AN OVERSIGHT: those documents are
+// the ones an owner can now retype at will from the cockpit,
+// and the sequence that matters — "put back the version from
+// before I broke it" — is exactly the one a handful of idle saves would push off
+// the end of a three-deep list. Ten is the owner's number; every other kind
+// stays at three deliberately, because nothing about this change made THEM
+// easier to churn.
+//
+// The no-op guard in the handlers is the other half of the same protection (a
+// save that changes nothing retains nothing at all); depth alone would still be
+// spent by anyone who edits, reverts, and edits again.
+var documentHistoryKeepByKind = map[string]int{
+	docKindSystemInteraction: 10,
+	docKindBootSequence:      10,
+	docKindOffboard:          10,
+}
+
+// documentHistoryKeepFor answers the depth for one kind: the table above, else
+// documentHistoryKeepDefault. A kind that is not listed is not a missing entry
+// — three is the answer for every document that has not been argued up.
+func documentHistoryKeepFor(kind string) int {
+	if keep, ok := documentHistoryKeepByKind[kind]; ok {
+		return keep
+	}
+	return documentHistoryKeepDefault
+}
 
 // documentHistoryStream addresses one retained-version series plus the reader
 // that serializes its live state. One row can carry SEVERAL independent series:
@@ -633,7 +761,7 @@ func retainDocumentVersion(tx *sql.Tx, stream documentHistoryStream) error {
 			SELECT id FROM document_history
 			WHERE document_kind = ? AND document_key = ?
 			ORDER BY id DESC LIMIT ?
-		)`, stream.Kind, stream.Key, stream.Kind, stream.Key, documentHistoryKeep)
+		)`, stream.Kind, stream.Key, stream.Kind, stream.Key, documentHistoryKeepFor(stream.Kind))
 	return err
 }
 
@@ -1431,6 +1559,56 @@ func (d *DAL) DeleteInsightForRole(roleKey string) (int, error) {
 		return 0, err
 	}
 	return deleted, nil
+}
+
+// BootDocument mirrors the boot_document table: the owner's overlay over ONE
+// shipped boot-context block (T-791e) — the 系統互動 seed, or one runtime's
+// 啟動程序 seed. Same three-state shape as Insight: no row / tombstoned row =
+// "serve the embedded seed", a live row = "serve this instead".
+//
+// The seed itself is never written here, which is what makes the reset route
+// reach factory text by construction rather than by anyone remembering to keep
+// a copy.
+type BootDocument struct {
+	Kind       string
+	Key        string
+	Text       string
+	Tombstoned bool
+}
+
+// GetBootDocument returns the overlay for (kind, key), or nil if never written.
+func (d *DAL) GetBootDocument(kind, key string) (*BootDocument, error) {
+	return getBootDocumentOn(d.rdb, kind, key)
+}
+
+func getBootDocumentOn(q sqlQuerier, kind, key string) (*BootDocument, error) {
+	var b BootDocument
+	err := q.QueryRow(`
+		SELECT doc_kind, doc_key, text, tombstoned FROM boot_document
+		WHERE doc_kind = ? AND doc_key = ?`, kind, key,
+	).Scan(&b.Kind, &b.Key, &b.Text, &b.Tombstoned)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &b, nil
+}
+
+// PutBootDocument upserts one boot-context block overlay.
+func (d *DAL) PutBootDocument(b BootDocument) error {
+	return putBootDocumentOn(d.wdb, b)
+}
+
+func putBootDocumentOn(ex sqlExecer, b BootDocument) error {
+	_, err := ex.Exec(`
+		INSERT INTO boot_document (doc_kind, doc_key, text, tombstoned)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT (doc_kind, doc_key) DO UPDATE SET
+			text = excluded.text, tombstoned = excluded.tombstoned`,
+		b.Kind, b.Key, b.Text, b.Tombstoned)
+	return err
 }
 
 // ── display-name overlays (account_alias / machine_alias) ────────────────────

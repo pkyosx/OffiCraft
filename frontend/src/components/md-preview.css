@@ -11,21 +11,114 @@
  *
  * A centered modal panel over a backdrop, with a header (title + share +
  * 下載 + close) and a scrolling body. */
+/* T-76cd — the mobile-safety properties below. owner opened a long .md on an
+ * iPhone: the title was cut in half at the top, the bottom stopped mid-paragraph
+ * and nothing scrolled.
+ *
+ * ⚠️ NOT REPRODUCED, so none of this is a confirmed root cause. The report did
+ * not reproduce in Chromium/WebKit device emulation, and a full ancestor scan on
+ * the REAL running app (16 layers, .md-preview up to <html>) found ZERO
+ * transform/filter/backdrop-filter/perspective/contain/will-change/container-type
+ * — so "an ancestor is trapping the fixed box" is dead, and the panel measured
+ * 32..632 inside a 664 viewport with its body scrollable to the last line.
+ *
+ * 🔴 THE VIEWPORT UNITS ARE A SET. iOS gives three heights: `lvh` (URL bar
+ * retracted — what `vh` also equals, and what `inset: 0` resolves against),
+ * `dvh` (what is on screen right now), and `svh`. Mixing them inside one layout
+ * is its own bug: a box sized in `vh` believes it has more room than the box in
+ * `dvh` that contains it. That is not hypothetical here — an earlier draft of
+ * this change converted the PANEL to `dvh` and left the image frame below on
+ * `vh`, and the repo's own "ONE scrollbar" guard goes 4-passed → 4-FAILED under
+ * a simulated 90px lvh/dvh gap (Chromium cannot see it unaided because there
+ * dvh == lvh == vh). If you add a viewport-unit length to this file, it goes in
+ * `dvh`.
+ *
+ * 🔴🔴 AND IT SUBTRACTS A LITERAL, NEVER `var()`. THIS IS THE OPPOSITE OF THE
+ * USUAL ADVICE AND IT IS NOT NEGOTIABLE. A declaration containing `var()` is NOT
+ * syntax-checked when it is parsed (css-variables-1 §3) — it wins the cascade
+ * first, and the bad unit is only discovered at computed-value time, where the
+ * rule is "invalid at computed-value time" ⇒ the property takes its INITIAL
+ * value. The fallback declaration above it already LOST the cascade and cannot
+ * come back. Without `var()` the declaration is dropped at parse time and the
+ * fallback survives, which is the entire safety net.
+ *
+ * MEASURED on an engine that does not know the unit (Chrome <108, Safari and
+ * iOS <15.4, Firefox <101), by rewriting `dvh`→`xvh`:
+ *   `max-height: 100%; max-height: calc(100dvh - 2*var(--i))` ⇒ computed `none`,
+ *   panel 21820px tall; with `align-items: center` (those engines mostly lack
+ *   `safe` too) the panel top lands at −10562px — the title a full screen above
+ *   the viewport and the × unreachable, i.e. EXACTLY owner's original report,
+ *   turned from a maybe into a certainty. The same file on origin/main measures
+ *   `max-height: 100%`, panel 32..632: those engines were FINE before.
+ * Without the `var()` the same probe reads `max-height: 100%` and
+ * `padding-bottom: 32px`. That is why the 32/64/160 below are written out.
+ *
+ * 🔴 AND THE BACKDROP STAYS ON `lvh`. Sizing the overlay itself to `100dvh` is
+ * the obvious way to make centring track the visible viewport, and it is wrong:
+ * while the URL bar is retracting the visible area has already grown to `lvh`
+ * and the box is still `dvh`, so the bottom ~60-100px is UNPAINTED for the
+ * length of that animation — strictly worse than before. Painting and layout are
+ * therefore split: `inset: 0` keeps the painted box at `lvh` exactly as it has
+ * always been, and only the CONTENT box is pulled in to the visible slice by the
+ * bottom padding below. */
 .md-preview {
+  /* The overlay's breathing room. 🔴 THIS PROPERTY IS DELIBERATELY NOT USED BY
+   * THE CAPS THAT SUBTRACT IT (the panel's 64, the image frame's 160). Putting
+   * it there is the obvious tidy-up and it is exactly the regression described
+   * at the top of this file: `var()` suppresses parse-time validation, so on an
+   * engine without `dvh` the cap becomes `none` instead of falling back. The
+   * literals are the safety net; this property is only for lengths with NO
+   * viewport unit in them.
+   *
+   * ⚠️ SO IT ONLY CONTROLS THREE OF THE FOUR SIDES. `padding-bottom` below is a
+   * literal too (it carries a viewport unit), which means changing this property
+   * ALONE leaves the bottom inset behind and silently un-centres the panel —
+   * measured: setting it to 0 gives padding `0px` on three sides and `32px` on
+   * the bottom, a 768px content box, and a panel at 16..752 instead of 32..768.
+   * That is not hypothetical; it is a live mutant in md-preview.ct.spec.tsx.
+   * CHANGING THE INSET MEANS EDITING FOUR PLACES BY HAND: this property, the
+   * `padding-bottom` literal, the panel's 64 (= 2x), and the image frame's 160
+   * (= 2x + 96) — plus their counterparts inside the @media block at the bottom
+   * of this file. The guards are what catch you; there is no single knob, and
+   * making one is what broke the fallback in the first place. */
+  --md-preview-inset: 32px;
   position: fixed;
   inset: 0;
   z-index: 1100;
   display: flex;
+  /* `safe center` degrades to `center` when the panel fits, and to flex-start
+   * when it does NOT — so an overflowing panel loses its BOTTOM rather than
+   * spilling equally off both ends and taking the header (and with it the ×,
+   * the only way out) off the top. A UA that does not understand it falls back
+   * to the plain `center` above, which is today's behaviour. */
   align-items: center;
+  align-items: safe center;
   justify-content: center;
-  padding: 32px;
+  /* No viewport unit here, so `var()` is safe — and it carries its OWN fallback
+   * (`, 32px`) rather than relying on a declaration above it, which is the only
+   * kind of fallback a `var()` declaration actually gets. */
+  padding: var(--md-preview-inset, 32px);
+  /* The band at the bottom that iOS is covering with browser chrome right now.
+   * Zero wherever the three viewport heights agree (every desktop engine), so
+   * the wide behaviour is byte-identical. No `var()`: `lvh`/`dvh` shipped
+   * together, so a UA with neither drops this declaration AT PARSE TIME and
+   * keeps the shorthand above — that only works because the 32 is a literal. */
+  padding-bottom: calc(32px + (100lvh - 100dvh));
   background: color-mix(in srgb, var(--color-backdrop) 75%, transparent);
 }
 .md-preview__panel {
   display: flex;
   flex-direction: column;
   width: min(760px, 100%);
+  /* The cap is stated TWICE on purpose, and the second one is not a percentage:
+   * a percentage max-height needs its parent's height to resolve, and this panel
+   * has exactly one job it must never fail — staying inside the screen. The dvh
+   * form needs nothing from the parent, so the panel is capped even if the
+   * percentage resolves to `none`. Both come to the same number: the parent's
+   * content box is already `dvh` minus the two insets, by the padding above.
+   * The 64 is `2 * 32` written out — see the var() warning at the top. */
   max-height: 100%;
+  max-height: calc(100dvh - 64px);
   border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
   border-radius: 14px;
   background: var(--color-card);
@@ -153,21 +246,74 @@
  * are simply clipped away (T-7e68). It is focusable (tabIndex in the
  * component) so arrow keys reach the same overflow the drag does. */
 /* ONE overflow deserves ONE scrollbar. These caps are viewport units, but the
- * frame does not get the whole viewport: the overlay's 32px inset (top+bottom),
- * the panel border, the header and the body's 18px padding (top+bottom) come off
- * first — 160px of chrome. Ignore it and at a short viewport the frame overshoots
- * the space the body actually has, so `.md-preview__body` grows a scrollbar of
- * its OWN behind the frame's: two scrollbars for one overflow (measured at
- * 900x500: the body scrolled by 20px).
+ * frame does not get the whole viewport: the overlay's inset (top+bottom), the
+ * panel border, the header and the body's 18px padding (top+bottom) come off
+ * first — 2 * `--md-preview-inset` for the overlay plus 96px of panel chrome.
+ * Ignore it and at a short viewport the frame overshoots the space the body
+ * actually has, so `.md-preview__body` grows a scrollbar of its OWN behind the
+ * frame's: two scrollbars for one overflow (measured at 900x500: the body
+ * scrolled by 20px).
  *
- * The min-height alone is not the culprit — relaxing only it to `min(360px, 50vh)`
- * still left 10px, because `max-height: 70vh` is the half that overshoots once the
- * viewport is short. Both caps have to know about the chrome.
+ * The min-height alone is not the culprit — relaxing only it to `min(360px, 50dvh)`
+ * still left 10px, because the `70dvh` half is what overshoots once the viewport
+ * is short. Both caps have to know about the chrome.
  *
- * The expression is written out at both call sites rather than hoisted into a
- * shared custom property: there are only two, and the frame and the image have
- * to agree exactly, so seeing the same text twice is easier to check than
- * chasing an indirection. (A `--md-preview-*` property works fine here too —
+ * 🔴 THE `calc(100dvh - …)` HALF IS LOAD-BEARING: `vh` == `lvh` on iOS, so a
+ * `vh` frame inside a `dvh` panel sizes itself against a viewport taller than
+ * the panel it lives in — the exact two-scrollbar defect this comment is about,
+ * arriving through the units instead of through the 160. Simulating a 90px
+ * lvh/dvh gap turns the four "ONE scrollbar" guards below from 4 passed to
+ * 4 FAILED.
+ *
+ * ⚠️ THE `70dvh` HALF IS NOT. It is here for unit consistency — one rule for the
+ * whole file beats a rule with an exception nobody can restate — and NOT for the
+ * reason an earlier version of this comment gave. That version claimed that at
+ * lvh 745 / dvh 664 the `70vh` term computes 521.5 against 504 of body and
+ * overshoots by 17.5px. That is wrong, and it is wrong in a way worth naming:
+ * `min()` takes the SMALLER, so 521.5 is precisely the value that gets
+ * DISCARDED — it can never reach the box. MEASURED: putting `70vh` back leaves
+ * the four "ONE scrollbar" guards and the landscape numbers byte-identical at
+ * every gap tried (0/50/60/90) ⇒ within everything measurable here this half is
+ * INERT. ⚠️ Its cost is not zero: `70vh` is universally supported and `70dvh` is
+ * not, so this half now leans on the fallback declaration in front of it too.
+ *
+ * 🔴 WHICH IS WHY EVERY dvh CAP HERE IS PRECEDED BY ITS `vh` TWIN. These three
+ * properties have no natural fallback (unlike the panel's `max-height: 100%`),
+ * so on an engine that drops the `dvh` declaration at parse time they would be
+ * left at their INITIAL values — `min-height: 0`, `max-height: none`, i.e. no
+ * caps at all: the frame grows to the image's natural size and the body starts
+ * scrolling behind it.
+ *
+ * MEASURED on the dvh→xvh probe, four configurations at four sizes, because
+ * conflating the twins with the @media block below produced a misleading
+ * one-line summary once already. Frame height / body overflow:
+ *
+ *            900x700      900x500     900x420     844x390
+ *   main     448.8 / 0    340 / 0     260 / 0     230 / 0
+ *   A ship   448.8 / 0    350 / 0     294 / 0     273 / 0
+ *   B -media 448.8 / 0    340 / 0     260 / 0     230 / 0
+ *   C -twins 448.8 / 0    448.8 / 61  448.8 / 141 448.8 / 171
+ *   D neither 448.8 / 0   448.8 / 109 448.8 / 189 448.8 / 219
+ *
+ * Read it in two steps, because they are two separate effects:
+ *   · B (twins, @media removed) is IDENTICAL to origin/main in every cell, and
+ *     so are the overlay padding (32/32) and the panel rect. The twins alone do
+ *     not approximate main's behaviour on an old engine — they reproduce it.
+ *   · A (shipped) departs from main ONLY where the @media block applies, i.e.
+ *     viewport height <= 500px: the frame is 10-43px larger and the inset is 8px
+ *     instead of 32px. That deviation is the media query's, not the twins'.
+ * C and D are both the no-twins disaster, and they differ from each other only
+ * by the @media block — which is why "61" and "109" are both real numbers for
+ * the same defect at 900x500. Quote a cell, not a number.
+ *
+ * The 96 is still measured, so a header that changes height still invalidates
+ * it — that half has not gotten safer, only the viewport half has.
+ *
+ * The expression is written out at each call site rather than hoisted into a
+ * cap of its own: the frame and the image have to agree exactly, so seeing the
+ * same text is easier to check than chasing an indirection — and a `var()` is
+ * FORBIDDEN here anyway (see the file header: it would take the parse-time
+ * fallback away, which is the whole point of the twins above). (A `--md-preview-*` property works fine here too —
  * an earlier version of this comment claimed it went stale across a resize;
  * that was a stale CT dev-server build being measured, not a browser
  * behaviour. Don't repeat that claim.)
@@ -185,7 +331,7 @@
  * ⚠️ Do NOT "simplify" this to `manipulation`/`auto`, and do NOT reach for
  * `user-scalable=no` in index.html instead — that fixes the overlay by taking
  * page zoom away from the entire app. */
-.md-preview__image-wrap { display: grid; place-items: center; min-height: min(360px, 70vh, calc(100vh - 160px)); max-height: min(70vh, calc(100vh - 160px)); overflow: auto; overscroll-behavior: contain; touch-action: pan-x pan-y; background: var(--color-backdrop); }
+.md-preview__image-wrap { display: grid; place-items: center; min-height: min(360px, 70vh, calc(100vh - 160px)); min-height: max(200px, min(360px, 70dvh, calc(100dvh - 160px))); max-height: min(70vh, calc(100vh - 160px)); max-height: max(200px, min(70dvh, calc(100dvh - 160px))); overflow: auto; overscroll-behavior: contain; touch-action: pan-x pan-y; background: var(--color-backdrop); }
 .md-preview__image-wrap:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
 /* Grab only when there is somewhere to go: at 100% the image fits the frame
  * and the cursor must not promise a drag that does nothing. */
@@ -193,7 +339,7 @@
 .md-preview__image-wrap--panning { cursor: grabbing; }
 /* The caps here define the 100% box the component measures its fit box from;
  * above 100% the component sets width/height inline and turns them off. */
-.md-preview__image { display: block; max-width: 100%; max-height: min(70vh, calc(100vh - 160px)); object-fit: contain; user-select: none; -webkit-user-drag: none; }
+.md-preview__image { display: block; max-width: 100%; max-height: min(70vh, calc(100vh - 160px)); max-height: min(70dvh, calc(100dvh - 160px)); object-fit: contain; user-select: none; -webkit-user-drag: none; }
 .md-preview__zoom { position: absolute; left: 50%; transform: translateX(-50%); bottom: 12px; display: inline-flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; background: color-mix(in srgb, var(--color-backdrop) 75%, transparent); color: var(--color-on-backdrop); }
 /* 40px is the touch target, not a taste call: at 28px these were below every
  * mobile hit-target guideline on the one surface whose whole job is to be
@@ -212,4 +358,57 @@
 }
 .md-preview__md.doc-md > :last-child {
   margin-bottom: 0;
+}
+
+/* SHORT VIEWPORTS (a phone held sideways — iPhone 13 landscape is 390px tall).
+ * 32px of inset top and bottom is 16% of that screen, and it comes off the image
+ * frame first: at 390px tall the frame gets 230px, and once iOS takes its own
+ * 30-60px for browser chrome the frame drops to 170-200px — below the 200px
+ * floor this project's own "must not collapse" guard sets.
+ *
+ * 🔴 THE FLOOR ALONE IS NOT THE FIX, and this is the measurement that says so.
+ * With `max(200px, …)` on the frame and this block absent, the frame does come
+ * back to 200px — but the body only HAS 180px, so it grows a scrollbar behind
+ * the frame's: bodyOverflow 20px at a 50px chrome gap, 30px at 60px. That is
+ * the exact two-scrollbar defect the block above this one exists to prevent —
+ * one project invariant traded for the other. There is no arithmetic that puts
+ * a 200px frame plus 96px of panel chrome plus 64px of inset inside a 340px
+ * visible viewport; the only free variable is the inset, so the inset is what
+ * moves.
+ *
+ * The caps are restated rather than derived, for the reason at the top of this
+ * file: a `var()` in a declaration carrying a viewport unit destroys the
+ * parse-time fallback. 16 = 2 * 8, 112 = 16 + the same 96px of panel chrome.
+ *
+ * ⚠️ THIS BLOCK IS THE ONE PLACE THE FILE STOPS MATCHING origin/main ON OLD
+ * ENGINES. `@media (max-height: 500px)` carries no viewport unit and is not
+ * gated behind `dvh`, so an engine that drops every `dvh` line still applies
+ * everything here. MEASURED on the dvh→xvh probe (identical with and without
+ * `safe center`): at 900x500 the overlay pads 8/8 and the panel sits 8..492
+ * where main gives 32/32 and 32..468; at 844x390, 8..382 against main's
+ * 32..358; the image frame is 350 vs 340 at 900x500, 294 vs 260 at 900x420, 273
+ * vs 230 at 844x390. Above 500px tall (checked at 1280x800, 390x664, 900x700,
+ * 390x745) every one of those readings is identical to main. The deviations are
+ * all in the roomier direction and every measured body overflow stayed 0 — but
+ * "old engines get exactly main" is false below the breakpoint, and this comment
+ * exists so nobody has to rediscover that. */
+@media (max-height: 500px) {
+  .md-preview {
+    --md-preview-inset: 8px;
+    padding-bottom: calc(8px + (100lvh - 100dvh));
+  }
+  .md-preview__panel {
+    max-height: 100%;
+    max-height: calc(100dvh - 16px);
+  }
+  .md-preview__image-wrap {
+    min-height: min(360px, 70vh, calc(100vh - 112px));
+    min-height: max(200px, min(360px, 70dvh, calc(100dvh - 112px)));
+    max-height: min(70vh, calc(100vh - 112px));
+    max-height: max(200px, min(70dvh, calc(100dvh - 112px)));
+  }
+  .md-preview__image {
+    max-height: min(70vh, calc(100vh - 112px));
+    max-height: min(70dvh, calc(100dvh - 112px));
+  }
 }

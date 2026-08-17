@@ -473,6 +473,26 @@ else
   bad "bin/tests/ci-run-checks-entrypoint-guard.sh is missing"
 fi
 
+# ── T-1170 cost-comparison refusal ──────────────────────────────────────────
+# Own file, own tempdir, no server and no network: the comparator is a pure
+# function over two JSON files. It is folded in here because the thing it
+# guards is a CLAIM — the before/after cost figures this ticket reported — and
+# the first version of that claim was a comment rather than an assertion, which
+# an independent reviewer falsified by raising one cap on one arm and watching
+# the run stay green. A number nobody can falsify is what this guard exists to
+# stop being quoted again.
+GUARD="$HERE/t1170-cost-compare-guard.sh"
+echo
+if [[ -f "$GUARD" ]]; then
+  if run_guard "$GUARD"; then
+    ok "T-1170 cost-comparison refusal suite passed"
+  else
+    bad "T-1170 cost-comparison refusal suite FAILED (see output above)"
+  fi
+else
+  bad "bin/tests/t1170-cost-compare-guard.sh is missing"
+fi
+
 # ── guard-of-the-guard (T-d3e3 rework) ──────────────────────────────────────
 # The ci success-marker guard is dispatched at the very BOTTOM of this file,
 # AFTER the `[[ "$FAIL" == "0" ]] || exit 1` enforcement below, so its exit code

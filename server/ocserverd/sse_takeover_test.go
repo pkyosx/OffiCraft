@@ -289,8 +289,18 @@ func TestEventsTakeoverThrottled409(t *testing.T) {
 // never takes over (and so never kicks) an existing listener.
 func TestEventsStopGateOutranksTakeover(t *testing.T) {
 	api, dal := newGateTestAPI(t)
+	// A FORCED stop, not a bare stopping anchor: since T-a9d6 a member sitting
+	// at desired-offline ∧ stopping_since is a close-out IN FLIGHT and its
+	// reconnect is admitted on purpose (下線 runs no clock, and refusing the
+	// reconnect is what kills a session mid-hand-off). This test is about the
+	// gate outranking takeover, so it needs a state the gate actually refuses.
+	//
+	// 🔴 Feeding it the admitted state does not fail this test — it HANGS it:
+	// the handler stops answering 409 and enters the stream loop, which never
+	// returns, so the whole package dies on the 10m panic timeout with this
+	// test named as the one still running. That is how it was found.
 	putGateMember(t, dal, Member{ID: "tk-4", Kind: KindAssistant,
-		DesiredState: DesiredStateOffline, StoppingSince: 1.0})
+		DesiredState: DesiredStateOffline, StoppingSince: 1.0, ForcedStopAt: 2.0})
 
 	incumbent, err := api.hub.Connect("tk-4", "")
 	if err != nil {

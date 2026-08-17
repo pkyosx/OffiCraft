@@ -24,10 +24,11 @@ func TestDocumentHistoryRestoreKeepsCurrentDocumentAndRestoresSnapshot(t *testin
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list history: status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	var history []DocumentHistoryDTO
-	if err := json.Unmarshal(rec.Body.Bytes(), &history); err != nil {
+	var rows []DocumentHistoryDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil {
 		t.Fatal(err)
 	}
+	history := hydrateHistory(t, api, "global_context", "global", "owner", "owner", rows)
 	if len(history) != 3 || history[0].Content["text"] != "three" || history[2].Content["text"] != "one" {
 		t.Fatalf("retained history = %+v, want three versions from three through one", history)
 	}
@@ -66,7 +67,7 @@ func TestDocumentHistoryRestorePreservesOverlayTombstones(t *testing.T) {
 	ownerReq := func(method, path string, body any) *http.Request {
 		return taskReq(t, method, path, body, "owner", "owner")
 	}
-	list := func(kind, key string) []DocumentHistoryDTO {
+	list := func(kind, key string) []historyRow {
 		t.Helper()
 		rec := httptest.NewRecorder()
 		api.HandleListDocumentHistoryApiDocumentHistoryKindKeyGet(rec,
@@ -74,11 +75,11 @@ func TestDocumentHistoryRestorePreservesOverlayTombstones(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("list %s/%s: status=%d body=%s", kind, key, rec.Code, rec.Body.String())
 		}
-		var history []DocumentHistoryDTO
-		if err := json.Unmarshal(rec.Body.Bytes(), &history); err != nil {
+		var rows []DocumentHistoryDTO
+		if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil {
 			t.Fatal(err)
 		}
-		return history
+		return hydrateHistory(t, api, kind, key, "owner", "owner", rows)
 	}
 	restore := func(kind, key string, id int64) {
 		t.Helper()
@@ -160,7 +161,7 @@ func TestDocumentHistoryRestorePreservesOverlayTombstones(t *testing.T) {
 // agentList reads a document's history as a plain agent: the routes sit on the
 // machine floor, so "the document was deleted" has to mean the versions are
 // gone, not merely that the cockpit stopped linking to them.
-func agentList(t *testing.T, api *apiServer, kind, key string) []DocumentHistoryDTO {
+func agentList(t *testing.T, api *apiServer, kind, key string) []historyRow {
 	t.Helper()
 	rec := httptest.NewRecorder()
 	api.HandleListDocumentHistoryApiDocumentHistoryKindKeyGet(rec, taskReq(t, http.MethodGet,
@@ -168,11 +169,11 @@ func agentList(t *testing.T, api *apiServer, kind, key string) []DocumentHistory
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list %s/%s: status=%d body=%s", kind, key, rec.Code, rec.Body.String())
 	}
-	var history []DocumentHistoryDTO
-	if err := json.Unmarshal(rec.Body.Bytes(), &history); err != nil {
+	var rows []DocumentHistoryDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil {
 		t.Fatal(err)
 	}
-	return history
+	return hydrateHistory(t, api, kind, key, "m-agent", "agent", rows)
 }
 
 func replaceLessonsThrough(t *testing.T, api *apiServer, roleKey, taskType, text string) {

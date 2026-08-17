@@ -36,15 +36,6 @@
       "wire_needle": "if bad := schemaViolations(tel.body, telemetryDeclared); len(bad) > 0 {"
     },
     {
-      "id": "ocagent-presence",
-      "source": "cli/ocagent/listen_hooks.go",
-      "callsite": "postJSON(client, cfg, membersPath+cfg.ID+\"/presence\"",
-      "kind": "json",
-      "method": "post",
-      "path": "/api/members/{self}/presence",
-      "allow_missing_spec": "The route this reports to does not exist on the server, so there is no requestBody to compare against — it 404s on every stop. Retiring the uplink touches the shutdown path and needs its own owner-approved task; until then this row is what keeps it visible instead of forgotten. It carries no request_schema and no wire_test ON PURPOSE: there is nothing to compare it to, and the earlier version of this row filled both fields in with an unrelated DTO and an unrelated test just to satisfy the guard — paperwork that could only be filled in with something untrue."
-    },
-    {
       "id": "ocagent-request-seam",
       "source": "cli/ocagent/http.go",
       "callsite": "req, err := http.NewRequest(method, url, body)",
@@ -327,7 +318,7 @@
       "source": "cli/ocagent/listen_run.go",
       "callsite": "opened, activity, selfExit, err := l.connectOnce(ctx)",
       "kind": "seam",
-      "seam_reason": "hop: opens the event stream AND wires onData to dispatch, so the presence POST (ocagent-presence) is reachable underneath it through the wind-down hook. Was kind=skip with 'no body goes out', which was true only of the stream itself."
+      "seam_reason": "hop: opens the event stream AND wires onData to dispatch, so the sends the frame handlers make (the hooks' authoritative member refetch, the chat/reply-card/task drains) are reachable underneath it. Was kind=skip with 'no body goes out', which was true only of the stream itself. It used to say the PRESENCE POST was what hung below here; that POST retired with the client-side stop reports (T-a9d6) and the wind-down hook now puts nothing on the wire."
     },
     {
       "id": "ocagent-cmd-download",
@@ -423,34 +414,6 @@
       "skip_reason": "GET: reads this member's row back through getJSON — no request body"
     },
     {
-      "id": "ocagent-hook-3",
-      "source": "cli/ocagent/listen_hooks.go",
-      "callsite": "reportPhase:   phaseReporter(client, cfg),",
-      "kind": "seam",
-      "seam_reason": "builds the presence reporter; the send it closes over is ocagent-presence"
-    },
-    {
-      "id": "ocagent-hook-4",
-      "source": "cli/ocagent/listen_hooks.go",
-      "callsite": "status := h.reportPhase(phase)",
-      "kind": "seam",
-      "seam_reason": "hop to the presence POST declared by ocagent-presence"
-    },
-    {
-      "id": "ocagent-hook-5",
-      "source": "cli/ocagent/listen_hooks.go",
-      "callsite": "h.reportChecked(\"stopping\")",
-      "kind": "seam",
-      "seam_reason": "hop to the presence POST declared by ocagent-presence"
-    },
-    {
-      "id": "ocagent-hook-6",
-      "source": "cli/ocagent/listen_hooks.go",
-      "callsite": "h.reportChecked(\"stopped\")",
-      "kind": "seam",
-      "seam_reason": "hop to the presence POST declared by ocagent-presence"
-    },
-    {
       "id": "ocagent-hook-7",
       "source": "cli/ocagent/listen_hooks.go",
       "callsite": "fetchMember: func() (map[string]any, bool) { return fetchMemberRow(client, cfg) },",
@@ -462,7 +425,7 @@
       "source": "cli/ocagent/listen_run.go",
       "callsite": "drainChat(l.api, l.cfg, l.seen, l.out, false)",
       "kind": "seam",
-      "seam_reason": "hop: drains the chat backlog through fetchChat — a GET. No POST below it; the presence POST is reached from the wind-down hook, which is claimed on its own callsite."
+      "seam_reason": "hop: drains the chat backlog through fetchChat — a GET. No POST below it. (It used to add 'the presence POST is reached from the wind-down hook' — that POST and that hook's sends are both gone since T-a9d6.)"
     },
     {
       "id": "ocagent-run-2",
@@ -479,13 +442,6 @@
       "seam_reason": "hop: task-event handling reaches the GET seam below it"
     },
     {
-      "id": "ocagent-run-4",
-      "source": "cli/ocagent/listen_run.go",
-      "callsite": "l.winddown.maybeWindDown(frame)",
-      "kind": "seam",
-      "seam_reason": "hop: wind-down reaches the presence POST (ocagent-presence) through its hook"
-    },
-    {
       "id": "ocagent-run-5",
       "source": "cli/ocagent/listen_run.go",
       "callsite": "drainReplyCards(l.api, l.cfg, l.replySeen, l.out)",
@@ -497,14 +453,14 @@
       "source": "cli/ocagent/listen_run.go",
       "callsite": "drainChat(l.api, l.cfg, l.seen, l.out, true)",
       "kind": "seam",
-      "seam_reason": "hop: drains the chat backlog through fetchChat — a GET. No POST below it; the presence POST is reached from the wind-down hook, which is claimed on its own callsite."
+      "seam_reason": "hop: drains the chat backlog through fetchChat — a GET. No POST below it. (It used to add 'the presence POST is reached from the wind-down hook' — that POST and that hook's sends are both gone since T-a9d6.)"
     },
     {
       "id": "ocagent-run-7",
       "source": "cli/ocagent/listen_run.go",
-      "callsite": "winddown:         newWindDownHook(api, cfg, env, out),",
+      "callsite": "winddown:         newWindDownHook(api, cfg, out),",
       "kind": "seam",
-      "seam_reason": "builds the wind-down hook; the sends it closes over are declared on their own callsites"
+      "seam_reason": "builds the wind-down hook. It no longer closes over any send: the hook wakes the session with the notice the server pushed and leaves the stop reports to the session's own MCP calls."
     },
     {
       "id": "ocagent-run-8",
@@ -551,7 +507,7 @@
     {
       "id": "codex-hop-4",
       "source": "cli/ocwarden/codex_session.go",
-      "callsite": "s.reportIdentity()\n\t\t\t\ts.requestRateLimits()",
+      "callsite": "s.reportIdentity()\n\t\t\t\t\ts.requestRateLimits()",
       "kind": "seam",
       "seam_reason": "hop to the codex identity POST declared by codex-identity"
     },
@@ -741,7 +697,7 @@
       "source": "cli/ocagent/listen_run.go",
       "callsite": "onData:     l.dispatch,",
       "kind": "seam",
-      "seam_reason": "the dispatch handler handed over as a VALUE: the stream calls it for every frame, and it reaches the presence POST through the wind-down hook. Taking the value is the callsite here — the call itself is spelled onData(…) inside the stream loop, a name no rule can know."
+      "seam_reason": "the dispatch handler handed over as a VALUE: the stream calls it for every frame, and the sends below it are the frame handlers' own (member refetch, chat/reply-card/task drains). Taking the value is the callsite here — the call itself is spelled onData(…) inside the stream loop, a name no rule can know. It used to name the presence POST as what hangs below; that retired with the client-side stop reports (T-a9d6)."
     },
     {
       "id": "warden-hostseam-value",

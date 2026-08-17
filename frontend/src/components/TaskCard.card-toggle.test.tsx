@@ -262,7 +262,7 @@ describe("TaskCard whole-card toggle (mobile refactor)", () => {
     fireEvent.click(thumb);
     // The card STAYS expanded, and the attachment modal is up.
     expect(card.getAttribute("aria-expanded")).toBe("true");
-    const modal = card.querySelector(".md-preview");
+    const modal = document.body.querySelector(".md-preview");
     expect(modal).toBeTruthy();
     expect(modal!.getAttribute("role")).toBe("dialog");
   });

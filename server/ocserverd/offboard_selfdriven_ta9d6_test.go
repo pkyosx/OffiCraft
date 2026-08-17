@@ -1,0 +1,663 @@
+package main
+
+import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
+
+// The sentence itself. The owner cut four differently-worded notices down to
+// ONE (「不需要太多不同描述吧, 就請他按照步驟做好下線, 頂多告訴他剩下 120 秒」),
+// so what tells the situations apart is the FIELDS, not the tone — and each of
+// the two clauses below is load-bearing in a way that is invisible from the
+// code:
+//
+//   - "then call restart_self yourself" blocks BOTH failure directions at once.
+//     Without the second half an agent idles until the server cuts it off (dead
+//     time the owner explicitly does not want); without the first, it stops
+//     mid-work — a predecessor read the old wording as "you are done" and
+//     announced its own end of life at 40%.
+//   - "You have 120 seconds left." is the ONLY difference between a notice that
+//     means "there is room" and one that means "you are out of time".
+//
+// 🔴 Both were measured to be UNGUARDED before this test existed: deleting
+// either clause left the entire ocserverd suite green (228s and 186s, whole
+// suite, no cache). A sentence nothing asserts is a sentence the next edit
+// silently rewrites.
+func TestOffboardNotice_TheApprovedSentence(t *testing.T) {
+	const where = "context 62% (your limits: 60% / 75%)"
+	doc := "1. 報開始收尾\n2. 給自己留交接"
+
+	soft := offboardNotice(where, offboardCloserRestartSelf, false, doc)
+	if !strings.Contains(soft, where+" — offboard now: work the sequence below, "+
+		"then call restart_self yourself.") {
+		t.Fatalf("the soft notice must carry the approved sentence verbatim:\n%s", soft)
+	}
+	if strings.Contains(soft, "120 seconds") {
+		t.Fatalf("the soft notice must NOT start a countdown — that is the whole "+
+			"difference between the two:\n%s", soft)
+	}
+	if !strings.Contains(soft, doc) {
+		t.Fatalf("the steps must be the DOCUMENT's, carried verbatim:\n%s", soft)
+	}
+
+	final := offboardNotice(where, offboardCloserRestartSelf, true, doc)
+	if !strings.Contains(final, "then call restart_self yourself. You have 120 seconds left.") {
+		t.Fatalf("the final call must say how long is left, right after the same "+
+			"sentence:\n%s", final)
+	}
+
+	// An empty document degrades to the sentence alone: losing the checklist is
+	// survivable, losing the notice is not.
+	bare := offboardNotice(where, offboardCloserRestartSelf, false, "")
+	if !strings.Contains(bare, "offboard now") || strings.Contains(bare, "\n") {
+		t.Fatalf("an empty document must leave the sentence intact and alone:\n%q", bare)
+	}
+}
+
+// Who gets which sentence. This is the judgement the whole ticket turns on —
+// soft or final, and when one becomes the other — and BOTH directions of it
+// survived the entire server suite before this test existed (independent
+// review: forcing every answer to final, then every answer to soft, each left
+// `ok ocserverd ~200s`). A judgement nothing asserts is a judgement the next
+// edit is free to invert.
+func TestOffboardKindOf_WhoGetsWhichSentence(t *testing.T) {
+	const t0 = 1_000_000.0
+	soft, final := offboardKindSoft, offboardKindFinal
+
+	cases := []struct {
+		name   string
+		member Member
+		now    float64
+		want   string
+		// carries=false means the member is not being wound down at all.
+		carries bool
+	}{
+		{"下線 just pressed", Member{DesiredState: DesiredStateOffline, StoppingSince: t0}, t0 + 1, soft, true},
+		// 🔴 …and it is STILL soft long after any window, because nothing
+		// collects it on a clock. A final call here would promise 120 seconds
+		// nobody keeps.
+		{"下線 an hour later", Member{DesiredState: DesiredStateOffline, StoppingSince: t0}, t0 + 3600, soft, true},
+		{"desired offline with no anchor", Member{DesiredState: DesiredStateOffline}, t0, "", false},
+
+		{"重新聚焦 inside its window", Member{DesiredState: DesiredStateOnline, RefocusSince: t0, RefocusOp: refocusOpRefocus}, t0 + SoftOffboardGraceSecs - 1, soft, true},
+		// …this one DOES escalate: the recycle clock really is running once the
+		// window lapses, so the sentence that says so is true.
+		{"重新聚焦 past its window", Member{DesiredState: DesiredStateOnline, RefocusSince: t0, RefocusOp: refocusOpRefocus}, t0 + SoftOffboardGraceSecs, final, true},
+
+		{"context pressure", Member{DesiredState: DesiredStateOnline, RefocusSince: t0, RefocusOp: refocusOpContextHigh}, t0 + 1, final, true},
+		{"改機器", Member{DesiredState: DesiredStateOnline, RefocusSince: t0, RefocusOp: memberOpRelocate}, t0 + 1, final, true},
+		{"the agent's own restart_self", Member{DesiredState: DesiredStateOnline, RefocusSince: t0, RefocusOp: refocusOpRestartSelf}, t0 + 1, final, true},
+
+		{"online and untouched", Member{DesiredState: DesiredStateOnline}, t0, "", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			kind, carries := offboardKindOf(c.member, c.now)
+			if carries != c.carries || kind != c.want {
+				t.Fatalf("got (%q, %v), want (%q, %v)", kind, carries, c.want, c.carries)
+			}
+		})
+	}
+}
+
+// …and the classification has to reach the wire, because the sentence is
+// composed from it. 下線 must never carry the countdown clause.
+func TestOffboardDeltaPayload_下線NeverCarriesACountdown(t *testing.T) {
+	s := newReconcileTestServer(t)
+	m := testAgent("m-quiet")
+	m.DesiredState = DesiredStateOffline
+	m.StoppingSince = nowSecs() - 10*SoftOffboardGraceSecs // long past any window
+	putTestMember(t, s, m)
+
+	payload := s.offboardDeltaPayload(m)
+	notice, ok := payload["offboard_notice"].(string)
+	if !ok || notice == "" {
+		t.Fatalf("下線 must carry the offboard notice: %+v", payload)
+	}
+	if strings.Contains(notice, "120 seconds") {
+		t.Fatalf("nothing collects 下線 on a clock, so nothing may claim one:\n%s", notice)
+	}
+	// 🔴 …and it must name the tool that actually WORKS here. restart_self
+	// refuses a member the owner has taken down (it is a RE-start), so naming it
+	// on this arm would be an instruction that can only answer 409 — and with no
+	// clock collecting 下線, the session would sit refused until someone pressed
+	// force-stop. Its sequence ends at report_stopped, which is also step 6 of
+	// the document it is being shown.
+	if !strings.Contains(notice, "then call report_stopped yourself") {
+		t.Fatalf("the approved sentence must survive, naming the tool that works "+
+			"on this arm:\n%s", notice)
+	}
+	// …in the SENTENCE. The document carried below it is the owner's and
+	// mentions restart_self in its own right (it covers every offboard path),
+	// so the assertion is on the first line only.
+	if sentence, _, _ := strings.Cut(notice, "\n"); strings.Contains(sentence, "restart_self") {
+		t.Fatalf("下線 must not be told to re-start itself:\n%s", sentence)
+	}
+}
+
+// The sequence the notice tells the agent to work must actually be workable.
+// Step 1 is report_stopping, and the notice ends 「then call restart_self
+// yourself」 — so an agent that has declared its close-out must still be able
+// to make that call. It could not: report_stopping makes PresenceState project
+// `stopping`, the endpoint gated on `online`, and once close-out anchors
+// stopped being swept every tick the refusal lasted the whole soft window.
+func TestRestartSelf_WorksWhileTheAgentIsClosingOut(t *testing.T) {
+	s := newReconcileTestServer(t)
+	putWarden(t, s, "mach-a")
+	m := testAgent("m-closing")
+	m.DesiredMachineID = "mach-a"
+	putTestMember(t, s, m)
+	connectOnline(t, s, "mach-a")
+	connectOnlineMachine(t, s, "m-closing", "mach-a")
+	// A mature session: past the respawn-storm floor, which is a separate guard.
+	s.gauge.Set("m-closing", map[string]any{"boot_ts": nowSecs() - 10*minSelfRestartSecs})
+
+	rec := httptest.NewRecorder()
+	s.HandleReportStoppingApiSelfStoppingPost(rec,
+		taskReq(t, "POST", "/api/self/stopping", map[string]any{}, "m-closing", "agent"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("report_stopping: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	s.HandleRestartSelfApiSelfRefocusPost(rec,
+		taskReq(t, "POST", "/api/self/refocus", map[string]any{}, "m-closing", "agent"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("an agent doing exactly what the notice told it must not be "+
+			"refused: %d %s", rec.Code, rec.Body.String())
+	}
+	after, _ := s.dal.GetMember("m-closing")
+	if after.RefocusSince <= 0 {
+		t.Fatalf("the self-restart must open a handover epoch: %+v", after)
+	}
+
+	// The owner's 重新聚焦 has the same gate and the same reason to survive it.
+	rec = httptest.NewRecorder()
+	s.HandleRefocusMemberApiMembersMemberIdRefocusPost(rec,
+		taskReq(t, "POST", "/api/members/m-closing/refocus", map[string]any{},
+			wireOwnerID, "owner"), "m-closing")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("重新聚焦 must still reach an agent that is mid-hand-off: %d %s",
+			rec.Code, rec.Body.String())
+	}
+}
+
+// codex is judged in ROUNDS, and the notice has to say WHERE IT IS, not just
+// where the limits are. The final call substitutes the threshold round because
+// that is where the session has arrived; the soft notice must report the round
+// the gauge actually shows.
+//
+// 🔴 Measured: deleting that substitution left the whole ocserverd suite green
+// (259s) — the codex arm of the composer had no test at all.
+func TestOffboardNoticeFor_CodexReportsWhereItActuallyIs(t *testing.T) {
+	s := newReconcileTestServer(t)
+	m := testAgent("m-codex")
+	m.Runtime = RuntimeCodex
+	m.RefocusSince = nowSecs()
+	m.RefocusOp = refocusOpRefocus
+	putTestMember(t, s, m)
+	s.gauge.Set("m-codex", map[string]any{"compaction_count": 3.0})
+
+	final := s.codexCompactionThresholdSetting()
+	soft := s.offboardNoticeFor(m, offboardKindSoft)
+	if !strings.Contains(soft, "compaction round 3 ") {
+		t.Fatalf("the soft notice must report the round the session is ON:\n%s", soft)
+	}
+	hard := s.offboardNoticeFor(m, offboardKindFinal)
+	if !strings.Contains(hard, fmt.Sprintf("compaction round %d ", final)) {
+		t.Fatalf("the final call must report the round it has ARRIVED at (%d):\n%s",
+			final, hard)
+	}
+	// Both must still carry the limits, which is how the agent tells the two apart.
+	for _, n := range []string{soft, hard} {
+		if !strings.Contains(n, fmt.Sprintf("round %d)", final)) {
+			t.Fatalf("every codex notice must carry its limits:\n%s", n)
+		}
+	}
+}
+
+// The deadline the cockpit renders, and the clock that actually collects the
+// session, must be the SAME number. They were not: refocus_deadline was computed
+// from RecycleGrace while an owner-pressed 重新聚焦 is collected at the soft
+// window PLUS that — the owner watched a time pass with nothing happening. The
+// fix was one call; nothing asserted it, so this pins every arm.
+//
+// 🔴 Measured before writing this: collapsing recycleGraceFor to
+// `return cfg.RecycleGrace` — i.e. reintroducing the exact bug — left the whole
+// ocserverd suite green (339s).
+func TestRecycleGraceFor_MatchesTheClockThatActuallyCollects(t *testing.T) {
+	cfg := defaultReconcileConfig()
+	soft := cfg.SoftOffboardGrace + cfg.RecycleGrace
+
+	cases := map[string]float64{
+		// The owner's button opens SOFT — it says there is no countdown — so the
+		// countdown may not start until that window is gone.
+		refocusOpRefocus: soft,
+		// Everything else arrives already saying 120 seconds.
+		refocusOpContextHigh: cfg.RecycleGrace,
+		refocusOpRestartSelf: cfg.RecycleGrace,
+		memberOpRelocate:     cfg.RecycleGrace,
+		memberOpModel:        cfg.RecycleGrace,
+		"":                   cfg.RecycleGrace,
+	}
+	for op, want := range cases {
+		if got := recycleGraceFor(op, cfg); got != want {
+			t.Errorf("recycleGraceFor(%q) = %v, want %v", op, got, want)
+		}
+	}
+	if soft == cfg.RecycleGrace {
+		t.Fatal("this test cannot tell the two apart if the windows are equal")
+	}
+
+	// …and the wire field the cockpit reads must agree with it, or the owner is
+	// shown a ceiling the server does not intend to honour.
+	s := newReconcileTestServer(t)
+	m := testAgent("m-deadline")
+	m.RefocusSince = 1000
+	m.RefocusOp = refocusOpRefocus
+	putTestMember(t, s, m)
+	dto := s.newMemberDTO(m, "", "", 0)
+	if dto.RefocusDeadline != 1000+soft {
+		t.Fatalf("refocus_deadline = %v, want %v (the grace this epoch is really "+
+			"collected on)", dto.RefocusDeadline, 1000+soft)
+	}
+}
+
+// The pair the owner sets is 「第一次通知 / 最後通牒」, and a pair whose first
+// number is not below its second is not a pair — the notice would fire at or
+// after the handover it is supposed to precede, i.e. never. The handler refuses
+// it rather than silently reordering, because a silently corrected setting is
+// one the owner cannot see he got wrong.
+//
+// 🔴 The claude half of that refusal was UNGUARDED: disabling it left the whole
+// ocserverd suite green (240s, no cache). Measured, not assumed — the codex half
+// below is asserted for the same reason, since the two are separate checks and a
+// test for one says nothing about the other.
+func TestSettingsPair_NoticeMustBeStrictlyBelowTheFinalCall(t *testing.T) {
+	patch := func(t *testing.T, api *apiServer, body map[string]any) *httptest.ResponseRecorder {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		api.HandleUpdateSettingsApiSettingsPatch(rec,
+			taskReq(t, http.MethodPatch, "/api/settings", body, "owner", "owner"))
+		return rec
+	}
+
+	t.Run("claude: equal is refused, and so is inverted", func(t *testing.T) {
+		s := newReconcileTestServer(t)
+		for _, body := range []map[string]any{
+			{"notice_pct": 65, "handover_pct": 65},
+			{"notice_pct": 75, "handover_pct": 65},
+		} {
+			rec := patch(t, s, body)
+			if rec.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("%v must be refused, got %d %s", body, rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), "notice_pct") {
+				t.Fatalf("the refusal must name the field: %s", rec.Body.String())
+			}
+		}
+		// …and a real pair still lands, so the check is a guard and not a wall.
+		if rec := patch(t, s, map[string]any{"notice_pct": 60, "handover_pct": 75}); rec.Code != http.StatusOK {
+			t.Fatalf("a valid pair must be accepted: %d %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("codex: rounds obey the same rule", func(t *testing.T) {
+		s := newReconcileTestServer(t)
+		rec := patch(t, s, map[string]any{"codex_notice_round": 6, "codex_compaction_threshold": 6})
+		if rec.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("equal rounds must be refused, got %d %s", rec.Code, rec.Body.String())
+		}
+		if rec := patch(t, s, map[string]any{"codex_notice_round": 5, "codex_compaction_threshold": 6}); rec.Code != http.StatusOK {
+			t.Fatalf("a valid round pair must be accepted: %d %s", rec.Code, rec.Body.String())
+		}
+	})
+}
+
+// The self-driven offboard: an agent that was told to close out and stop
+// itself, does so, and reaches the end of the sequence.
+//
+// This path had no receiver. Collection was armed only by a refocus epoch —
+// something ELSE deciding to take the session — which held while the offboard
+// sequence was shown only to a session already being collected. Once the notice
+// began telling agents to close out on their own (T-c382) and the sequence
+// became a document any session could work (T-c9c0), an agent could finish its
+// close-out, report stopped, and have nothing happen: it stayed alive holding a
+// session it had already declared finished.
+//
+// owner 2026-08-16 (card rc-b08d49dc3b03, option ①): 「收掉並重生」.
+func TestSelfDrivenOffboard_StoppedReportCollectsAndRespawns(t *testing.T) {
+	s := newReconcileTestServer(t)
+	putWarden(t, s, "mach-a")
+
+	m := testAgent("m-self")
+	m.DesiredMachineID = "mach-a"
+	putTestMember(t, s, m)
+	connectOnline(t, s, "mach-a")
+	session := connectOnlineMachine(t, s, "m-self", "mach-a")
+
+	// Nobody is collecting it: no refocus epoch, desired_state=online. This is
+	// the whole point — the agent decided this by itself.
+	rec := httptest.NewRecorder()
+	s.HandleReportStoppingApiSelfStoppingPost(rec,
+		taskReq(t, "POST", "/api/self/stopping", map[string]any{}, "m-self", "agent"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("report_stopping: %d %s", rec.Code, rec.Body.String())
+	}
+	if f := drainFrames(t, s, "mach-a"); len(f) != 0 {
+		t.Fatalf("declaring the close-out must not kill anything: %+v", f)
+	}
+
+	// …and the cockpit must still show it, which is what the owner watched fail
+	// (T-2123): the stale-stopping sweep used to erase a close-out in flight.
+	s.runReconcileTick(nowSecs())
+	after, _ := s.dal.GetMember("m-self")
+	if after == nil || after.StoppingSince <= 0 {
+		t.Fatalf("an in-flight close-out must keep its anchor: %+v", after)
+	}
+
+	rec = httptest.NewRecorder()
+	s.HandleReportStoppedApiSelfStoppedPost(rec,
+		taskReq(t, "POST", "/api/self/stopped", map[string]any{}, "m-self", "agent"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("report_stopped: %d %s", rec.Code, rec.Body.String())
+	}
+	stops := drainFrames(t, s, "mach-a")
+	if len(stops) != 1 || stops[0].RPC != "stop" {
+		t.Fatalf("a self-driven close-out must be collected on its stopped report: %+v", stops)
+	}
+
+	// …and a new generation takes its place, which is what the document has
+	// been promising all along (「server 原地重生新的你」).
+	s.hub.Disconnect(session)
+	s.reconcileMemberNow("m-self")
+	starts := drainFrames(t, s, "mach-a")
+	if len(starts) != 1 || starts[0].RPC != "start" {
+		t.Fatalf("the respawn must follow the collect: %+v", starts)
+	}
+}
+
+// The same report on a member the owner has taken DOWN collects it just as
+// promptly — and does NOT bring it back. desired_state is the only thing that
+// decides which of the two happens.
+func TestSelfDrivenOffboard_StoppedReportOnADesiredOfflineMemberDoesNotRespawn(t *testing.T) {
+	s := newReconcileTestServer(t)
+	putWarden(t, s, "mach-a")
+
+	m := testAgent("m-down")
+	m.DesiredMachineID = "mach-a"
+	m.DesiredState = DesiredStateOffline
+	m.StoppingSince = nowSecs()
+	putTestMember(t, s, m)
+	connectOnline(t, s, "mach-a")
+	session := connectOnlineMachine(t, s, "m-down", "mach-a")
+
+	rec := httptest.NewRecorder()
+	s.HandleReportStoppedApiSelfStoppedPost(rec,
+		taskReq(t, "POST", "/api/self/stopped", map[string]any{}, "m-down", "agent"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("report_stopped: %d %s", rec.Code, rec.Body.String())
+	}
+	stops := drainFrames(t, s, "mach-a")
+	if len(stops) != 1 || stops[0].RPC != "stop" {
+		t.Fatalf("a finished close-out must be collected immediately: %+v", stops)
+	}
+
+	s.hub.Disconnect(session)
+	s.reconcileMemberNow("m-down")
+	if f := drainFrames(t, s, "mach-a"); len(f) != 0 {
+		t.Fatalf("a member the owner took down must stay down: %+v", f)
+	}
+}
+
+// 強制下線 leaves a mark. It is the one offboard path that sends no notice, so
+// what it kills leaves exactly what a session with nothing to say leaves —
+// no hand-off, no fresh step note. This column is the difference, and the
+// reader who needs it is the generation that comes after, so the next boot
+// must NOT clear it.
+func TestForceStop_RecordsThatTheSessionWasCutOff(t *testing.T) {
+	s := newReconcileTestServer(t)
+	putWarden(t, s, "mach-a")
+
+	m := testAgent("m-cut")
+	m.DesiredMachineID = "mach-a"
+	putTestMember(t, s, m)
+	connectOnline(t, s, "mach-a")
+	connectOnlineMachine(t, s, "m-cut", "mach-a")
+
+	before, _ := s.dal.GetMember("m-cut")
+	if before.ForcedStopAt != 0 {
+		t.Fatalf("a member that was never force-stopped must carry 0: %+v", before)
+	}
+
+	rec := httptest.NewRecorder()
+	s.HandleForceStopMemberApiMembersMemberIdForceStopPost(rec,
+		taskReq(t, "POST", "/api/members/m-cut/force-stop", map[string]any{},
+			wireOwnerID, "owner"), "m-cut")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("force-stop: %d %s", rec.Code, rec.Body.String())
+	}
+	cut, _ := s.dal.GetMember("m-cut")
+	if cut.ForcedStopAt <= 0 {
+		t.Fatalf("the force-stop must be recorded: %+v", cut)
+	}
+
+	// The next generation boots — and must still be able to see that its
+	// predecessor was cut off rather than allowed to finish. report_waking
+	// clears every OTHER lifecycle anchor on this row.
+	rec = httptest.NewRecorder()
+	s.HandleReportWakingApiSelfWakingPost(rec,
+		taskReq(t, "POST", "/api/self/waking", map[string]any{}, "m-cut", "agent"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("report_waking: %d %s", rec.Code, rec.Body.String())
+	}
+	woke, _ := s.dal.GetMember("m-cut")
+	if woke.ForcedStopAt != cut.ForcedStopAt {
+		t.Fatalf("the next boot must not erase the record: %v → %v",
+			cut.ForcedStopAt, woke.ForcedStopAt)
+	}
+
+	// 🔴 …and the assertion above passes for a reason that is NOT the one that
+	// protects this column: report_waking rewrites a row it just read, so it
+	// carries the right value either way. Both halves of that were measured —
+	// zeroing it in the handler AND letting the upsert carry it each left the
+	// check green. What actually protects it is PutMember declining to write
+	// the column at all, and the shape that finds out is a STALE snapshot:
+	// any writer holding a member value from before the force-stop. That is
+	// how the avatar pointer and the session anchor lost data before they got
+	// their own seams.
+	stale := *before
+	stale.Name = "renamed by a writer holding an old snapshot"
+	if err := s.dal.PutMember(stale); err != nil {
+		t.Fatalf("stale put: %v", err)
+	}
+	survived, _ := s.dal.GetMember("m-cut")
+	if survived.ForcedStopAt != cut.ForcedStopAt {
+		t.Fatalf("a stale snapshot must not erase the force-stop record: %v → %v",
+			cut.ForcedStopAt, survived.ForcedStopAt)
+	}
+	if survived.Name != stale.Name {
+		t.Fatalf("…while the rest of that write must land normally: %+v", survived)
+	}
+}
+
+// 下線 must not downgrade a 強制下線. The stop gate tells "close-out in flight"
+// (admit the reconnect, because 下線 runs no clock and a refused reconnect
+// self-terminates the session mid-hand-off) from "cut off deliberately"
+// (refuse it) by comparing the two anchors. deactivate re-stamps
+// stopping_since UNCONDITIONALLY — so without the exception this test pins, a
+// deactivate arriving after a force-stop moves a cut-off member onto the
+// admitted side, and nothing collects it afterwards.
+//
+// Found by independent review, not by me: I compared the anchors without
+// asking who else writes them.
+func TestDeactivate_DoesNotDowngradeAForcedStop(t *testing.T) {
+	s := newReconcileTestServer(t)
+	putWarden(t, s, "mach-a")
+
+	m := testAgent("m-forced")
+	m.DesiredMachineID = "mach-a"
+	putTestMember(t, s, m)
+	connectOnline(t, s, "mach-a")
+	connectOnlineMachine(t, s, "m-forced", "mach-a")
+
+	rec := httptest.NewRecorder()
+	s.HandleForceStopMemberApiMembersMemberIdForceStopPost(rec,
+		taskReq(t, "POST", "/api/members/m-forced/force-stop", map[string]any{},
+			wireOwnerID, "owner"), "m-forced")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("force-stop: %d %s", rec.Code, rec.Body.String())
+	}
+	forced, _ := s.dal.GetMember("m-forced")
+	if s.sseStopGateRefusal("m-forced") == "" {
+		t.Fatalf("a force-stopped member must be refused to begin with: %+v", forced)
+	}
+
+	rec = httptest.NewRecorder()
+	s.HandleDeactivateMemberApiMembersMemberIdDeactivatePost(rec,
+		taskReq(t, "POST", "/api/members/m-forced/deactivate", map[string]any{},
+			wireOwnerID, "owner"), "m-forced")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("deactivate: %d %s", rec.Code, rec.Body.String())
+	}
+	after, _ := s.dal.GetMember("m-forced")
+	if after.StoppingSince != forced.StoppingSince {
+		t.Fatalf("a forced epoch's anchor must not move: %v → %v",
+			forced.StoppingSince, after.StoppingSince)
+	}
+	if s.sseStopGateRefusal("m-forced") == "" {
+		t.Fatalf("a deactivate after a force-stop must not re-open the gate: %+v", after)
+	}
+
+	// …and the exception stays narrow: activate clears the stop anchors (it
+	// keeps forced_stop_at, which is the durable record), so the NEXT 下線 is a
+	// fresh soft epoch and its reconnect must be admitted again. Testing
+	// forced_stop_at alone instead of the live epoch would fail right here — it
+	// would strip the soft-offboard admission from every member ever forced.
+	rec = httptest.NewRecorder()
+	s.HandleActivateMemberApiMembersMemberIdActivatePost(rec,
+		taskReq(t, "POST", "/api/members/m-forced/activate", map[string]any{},
+			wireOwnerID, "owner"), "m-forced")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("activate: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	s.HandleDeactivateMemberApiMembersMemberIdDeactivatePost(rec,
+		taskReq(t, "POST", "/api/members/m-forced/deactivate", map[string]any{},
+			wireOwnerID, "owner"), "m-forced")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("deactivate after activate: %d %s", rec.Code, rec.Body.String())
+	}
+	fresh, _ := s.dal.GetMember("m-forced")
+	if fresh.StoppingSince <= forced.StoppingSince {
+		t.Fatalf("a fresh soft epoch must stamp a NEW anchor: %+v", fresh)
+	}
+	if msg := s.sseStopGateRefusal("m-forced"); msg != "" {
+		t.Fatalf("a fresh close-out must still be admitted: %s", msg)
+	}
+}
+
+// 強制下線 sends NO message — the owner ruled it outright ("強制還需要發訊息嗎"
+// → no), and both this file's sibling comment and HandleForceStopMember's own
+// godoc say so in prose.
+//
+// 🔴 Prose was all that said it. force-stop sets desired_state=offline and
+// stamps stopping_since BEFORE it publishes, and the offboard payload attaches
+// a notice to exactly that state — so the member being killed received a full
+// SOFT notice on its own stream, telling it to work the sequence and call
+// restart_self. Independent e2e verification caught the frame on the wire; the
+// server suite was green throughout, because nothing asserted the promise.
+func TestForceStop_SendsNoNotice(t *testing.T) {
+	s := newReconcileTestServer(t)
+	putWarden(t, s, "mach-a")
+
+	// Positive control FIRST: the same payload builder on the graceful arm must
+	// carry a notice, otherwise an assertion of "no notice" below proves only
+	// that the notice machinery is off entirely.
+	soft := testAgent("m-soft")
+	soft.DesiredState = DesiredStateOffline
+	soft.StoppingSince = nowSecs()
+	if _, ok := s.offboardDeltaPayload(soft)["offboard_notice"]; !ok {
+		t.Fatalf("a graceful 下線 must still carry the sequence: %+v", soft)
+	}
+
+	m := testAgent("m-killed")
+	m.DesiredMachineID = "mach-a"
+	putTestMember(t, s, m)
+	connectOnline(t, s, "mach-a")
+	connectOnlineMachine(t, s, "m-killed", "mach-a")
+
+	rec := httptest.NewRecorder()
+	s.HandleForceStopMemberApiMembersMemberIdForceStopPost(rec,
+		taskReq(t, "POST", "/api/members/m-killed/force-stop", map[string]any{},
+			wireOwnerID, "owner"), "m-killed")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("force-stop: %d %s", rec.Code, rec.Body.String())
+	}
+
+	killed, _ := s.dal.GetMember("m-killed")
+	if _, carries := offboardKindOf(*killed, nowSecs()); carries {
+		t.Fatalf("force-stop must send nothing: %+v", killed)
+	}
+	if got, ok := s.offboardDeltaPayload(*killed)["offboard_notice"]; ok {
+		t.Fatalf("force-stop must send nothing, got %q", got)
+	}
+}
+
+// The force-stop record must land in the SAME write that publishes the member,
+// not only through its own targeted seam. Independent review found the coupling:
+// the SSE stop gate now READS forced_stop_at to tell "cut off deliberately" from
+// "working its close-out", while the only writer was SetMemberForcedStopAt,
+// whose failure is deliberately non-fatal — so a failed UPDATE left the column
+// at 0 and a force-stopped member reconnected as if it were closing out, on an
+// arm that runs no clock to collect it. A safety verdict must not hang on a
+// best-effort write.
+//
+// The upsert carries it under max(), which is what keeps BOTH properties: a
+// fresh writer's stamp lands, and a stale snapshot (older value, or 0) cannot
+// erase one that is already stored.
+func TestPutMemberCarriesForcedStopAtForwardOnly(t *testing.T) {
+	s := newReconcileTestServer(t)
+	m := testAgent("m-upsert")
+	putTestMember(t, s, m)
+
+	stamped := m
+	stamped.ForcedStopAt = 5000.0
+	if err := s.dal.PutMember(stamped); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+	got, _ := s.dal.GetMember("m-upsert")
+	if got.ForcedStopAt != 5000.0 {
+		t.Fatalf("the publishing write must carry the record: %v", got.ForcedStopAt)
+	}
+
+	// A stale snapshot — the shape that cost the avatar pointer and the session
+	// anchor their data — must not roll it back.
+	stale := m
+	stale.ForcedStopAt = 0
+	stale.Name = "written by a holder of an older row"
+	if err := s.dal.PutMember(stale); err != nil {
+		t.Fatalf("stale put: %v", err)
+	}
+	got, _ = s.dal.GetMember("m-upsert")
+	if got.ForcedStopAt != 5000.0 {
+		t.Fatalf("a stale snapshot must not erase the record: %v", got.ForcedStopAt)
+	}
+	if got.Name != stale.Name {
+		t.Fatalf("…while the rest of that write must land normally: %+v", got)
+	}
+
+	// …and an EARLIER force-stop cannot overwrite a later one either.
+	older := m
+	older.ForcedStopAt = 4000.0
+	if err := s.dal.PutMember(older); err != nil {
+		t.Fatalf("older put: %v", err)
+	}
+	got, _ = s.dal.GetMember("m-upsert")
+	if got.ForcedStopAt != 5000.0 {
+		t.Fatalf("forced_stop_at must only move forward: %v", got.ForcedStopAt)
+	}
+}

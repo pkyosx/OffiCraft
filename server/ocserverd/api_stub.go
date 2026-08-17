@@ -70,6 +70,18 @@ type apiServer struct {
 	docCapCharsLearning        int
 	docCapCharsManualSop       int
 	docCapCharsManualLearnings int
+	// The two boot-context document kinds, editable since T-791e (DB
+	// doc.cap_chars.{system_interaction,boot_sequence}). bootSequence is ONE cap
+	// serving both runtimes. The 下線程序 document (T-c9c0) joins them with its
+	// own knob, doc.cap_chars.offboard.
+	docCapCharsSystemInteraction int
+	docCapCharsBootSequence      int
+	docCapCharsOffboard          int
+	// chatBudgetChars is the live budget of the wake snapshot's chat block (DB
+	// chat.budget_chars; T-c9b4). Read through chatBudget() by
+	// resumeSnapshotParts — the ONE place the number enters the packer, which is
+	// why resume_summary and peek_resume_summary_size cannot disagree about it.
+	chatBudgetChars int
 	// updaterReceiveBeta picks which GitHub releases the update check follows
 	// (false = official only, true = prereleases too); updaterAutoUpdate arms
 	// the background self-upgrade cadence (auto_update.go). Both default OFF
@@ -125,7 +137,20 @@ type apiServer struct {
 	// ctxhigh is the context-high band config the /api/events stream loop
 	// evaluates each quiet tick (DB ctx.* settings; defaults when unset).
 	ctxhigh                  SseContextHighConfig
-	codexCompactionThreshold int
+	codexCompactionThreshold int // the FINAL round (handover)
+	codexNoticeRound         int // the FIRST, soft notice round (T-a9d6)
+	// handoverNoticed records, per agent id, the SESSION anchor (the gauge's
+	// boot_ts) whose one-and-only advance handover notice has already gone out.
+	// Guarded by settingsMu. See claimHandoverNotice for why the key is the
+	// session anchor and not the connection.
+	handoverNoticed map[string]float64
+	// softEscalated records, per member id, the soft-offboard epoch whose
+	// promotion to the final call has already been announced — the frame that
+	// tells the agent its 120 seconds have started. Keyed by the epoch so a
+	// re-armed wind-down announces again; guarded by its own mutex because it is
+	// touched from the reconcile tick, not the settings path.
+	softEscalated            map[string]float64
+	softEscalatedMu          sync.Mutex
 	monitoringRefreshSeconds int
 	// root anchors the repo-file assets (seeds / prebuilt binaries / frozen
 	// MCP catalog) — see assets.go.
@@ -397,6 +422,45 @@ func (s *apiServer) manualLearningsCap() int {
 	return s.docCapCharsManualLearnings
 }
 
+// systemInteractionCap / bootSequenceCap are the same accessor shape for the
+// two boot-context document kinds that became editable in T-791e.
+// bootSequenceCap is ONE number serving BOTH runtimes — each document is
+// measured on its own text, but the budget is shared, because the two are the
+// same short checklist rendered for two runtimes.
+func (s *apiServer) systemInteractionCap() int {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.docCapCharsSystemInteraction
+}
+
+func (s *apiServer) bootSequenceCap() int {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.docCapCharsBootSequence
+}
+
+func (s *apiServer) offboardCap() int {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.docCapCharsOffboard
+}
+
+// chatBudget is the live wake-snapshot chat budget (chat.budget_chars;
+// T-c9b4). Read at request time like every cap above, so a PATCH takes effect
+// on the next snapshot with no restart.
+//
+// 🔴 It has exactly ONE caller — resumeSnapshotParts — and that is the point:
+// GET /api/resume-summary, GET /api/resume-summary-size and
+// GET /api/members/{id}/resume-summary are all assembled by that one function,
+// so the peek's estimated_total_chars and the snapshot's own chat_chars are
+// bounded by the same read of the same setting. Adding a second call site is
+// how the two faces start disagreeing.
+func (s *apiServer) chatBudget() int {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.chatBudgetChars
+}
+
 // orgNameSnapshot returns the live studio display name (org.name; T-d693).
 // "" = never set — callers decide the fallback (the topbar's localized default
 // lives frontend-side; agents see the empty name as "studio unnamed").
@@ -455,4 +519,55 @@ func (s *apiServer) ctxHighConfig() SseContextHighConfig {
 	s.settingsMu.RLock()
 	defer s.settingsMu.RUnlock()
 	return s.ctxhigh
+}
+
+// codexNoticeRoundSetting returns the codex FIRST-notice round under the same
+// lock as ctxHighConfig — the two are read together on every quiet tick and a
+// torn pair would notify against one setting and hand over against the other.
+func (s *apiServer) codexNoticeRoundSetting() int {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.codexNoticeRound
+}
+
+// codexCompactionThresholdSetting is its FINAL-round twin, read under the same
+// lock for the same reason.
+func (s *apiServer) codexCompactionThresholdSetting() int {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.codexCompactionThreshold
+}
+
+// claimHandoverNotice is the once-per-SESSION gate on the advance handover
+// notice (T-c382, owner: 「只通知一次」). It returns true exactly once per agent
+// session and false every tick after; the caller sends only on true.
+//
+// 🔴 The key is the gauge's boot_ts, i.e. the SESSION anchor — NOT the
+// connection. The distinction is the whole requirement: boot_ts is stamped once
+// per session and RESTORED from the durable member row when an SSE stream
+// flaps, so a reconnect finds the notice already claimed and stays quiet, while
+// a genuinely new session brings a new anchor and is entitled to its own
+// notice. Per-connection state would re-nudge on every network blip, which is
+// the bombardment this ticket exists to remove — just wearing a different hat,
+// and invisible in any test that only ever opens one connection.
+//
+// Fail-safe: no usable boot_ts (missing gauge, or amnesia after a server
+// restart) → refuse to claim, so no notice fires off an anchor we cannot
+// recognise again. That errs toward SILENCE, which is the cheap direction here:
+// the agent still gets the handover SOP at the handover itself.
+func (s *apiServer) claimHandoverNotice(agentID string, record map[string]any) bool {
+	bootTS, ok := gaugeBootTS(record)
+	if !ok || bootTS <= 0 {
+		return false
+	}
+	s.settingsMu.Lock()
+	defer s.settingsMu.Unlock()
+	if s.handoverNoticed == nil {
+		s.handoverNoticed = map[string]float64{}
+	}
+	if sent, seen := s.handoverNoticed[agentID]; seen && sent == bootTS {
+		return false
+	}
+	s.handoverNoticed[agentID] = bootTS
+	return true
 }

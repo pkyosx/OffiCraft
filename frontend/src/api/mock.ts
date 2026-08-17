@@ -12,10 +12,15 @@ import type {
   ReleaseCheckView,
   BackupHealthView,
   GlobalContextView,
+  BootDocKind,
+  BootDocView,
   DocumentKind,
   InsightView,
+  DocumentHistoryEntryView,
   DocumentHistoryView,
+  DocumentRevisionView,
   DocumentSeedView,
+  RoleSummaryView,
   RoleDefView,
   BootstrapView,
   LessonsView,
@@ -62,11 +67,14 @@ import type {
   OutsourceWorkerView,
   TaskTypeView,
   TaskCountView,
+  TaskManualSummaryView,
   TaskManualView,
   TaskManualPatch,
   DocSummaryView,
   DocView,
   MemberResumeSummaryView,
+  ResumeRosterMemberView,
+  ResumeMachinesView,
   ResumeTaskView,
 } from "./adapter";
 import type {
@@ -76,6 +84,7 @@ import type {
   WireVersion,
   WireBackupHealth,
   WireGlobalContext,
+  WireBootDoc,
   WireDocumentHistory,
   WireDocumentSeed,
   WireRoleDef,
@@ -94,9 +103,12 @@ import {
   toReleaseCheck,
   toBackupHealth,
   toGlobalContext,
+  toBootDoc,
   toDocumentHistory,
+  toDocumentHistoryEntry,
   toDocumentSeed,
   toRoleDef,
+  toRoleSummary,
   toBootstrap,
   toLessons,
   toInsight,
@@ -106,7 +118,18 @@ import {
   toMachine,
   toServerSettings,
 } from "./mappers";
-import { DOC_CAP_CHARS_DEFAULTS } from "./docCap";
+import {
+  DOC_CAP_CHARS_DEFAULTS,
+  BOOT_DOC_CAP_CHARS_DEFAULTS,
+  BOOT_DOC_HISTORY_KEPT,
+  contentSizes,
+  docCapBlocked,
+} from "./docCap";
+import {
+  CHAT_BUDGET_CHARS_DEFAULT,
+  CHAT_BUDGET_CHARS_MAX,
+  CHAT_BUDGET_CHARS_MIN,
+} from "./chatBudget";
 import {
   MOCK_OWNER_ID,
   SEED_SYSTEM_INTERACTION_MD,
@@ -115,6 +138,7 @@ import {
   SEED_INSIGHT_ASSISTANT_MD,
   SEED_BOOT_SEQUENCE_MD,
   SEED_BOOT_SEQUENCE_CODEX_MD,
+  SEED_OFFBOARD_MD,
 } from "./seeds";
 import { ApiError } from "./errors";
 import { validateThemeBundles, isValidDisplayTheme } from "../lib/themeBundle";
@@ -132,7 +156,6 @@ const MOCK_WIRE_MEMBERS: WireMember[] = [
   // (is_self=true via listMachines), and is NOT deletable. Offline until it reports.
   {
     id: MOCK_SERVER_SELF_ID,
-    member_no: "MB-WDN000",
     name: "伺服器這一台",
     kind: "warden",
     role_key: "",
@@ -156,6 +179,7 @@ const MOCK_WIRE_MEMBERS: WireMember[] = [
     last_op_log: "",
     last_op_reason: "",
     last_op_at: 0,
+    forced_stop_at: 0,
     roster_status: "active",
     owner_id: "",
     unread_count: 0,
@@ -163,7 +187,6 @@ const MOCK_WIRE_MEMBERS: WireMember[] = [
   },
   {
     id: "mira",
-    member_no: "MB-AST001",
     name: "Mira",
     kind: "assistant", // mirror the real seed (dal/seed.py: Mira kind="assistant")
     role_key: "assistant",
@@ -191,6 +214,7 @@ const MOCK_WIRE_MEMBERS: WireMember[] = [
     last_op_log: "",
     last_op_reason: "",
     last_op_at: 0,
+    forced_stop_at: 0,
     roster_status: "active",
     owner_id: "",
     unread_count: 0,
@@ -204,7 +228,6 @@ const MOCK_WIRE_MEMBERS: WireMember[] = [
   // its id. Offline / never-online — no fabricated telemetry.
   {
     id: "warden-mbp5",
-    member_no: "MB-WDN001",
     name: "Warden · mbp5",
     kind: "warden",
     role_key: "assistant",
@@ -228,6 +251,7 @@ const MOCK_WIRE_MEMBERS: WireMember[] = [
     last_op_log: "",
     last_op_reason: "",
     last_op_at: 0,
+    forced_stop_at: 0,
     roster_status: "active",
     owner_id: "",
     unread_count: 0,
@@ -453,6 +477,76 @@ let wireMonitoring: MockMonitoring = structuredClone(MOCK_WIRE_MONITORING);
 // back to the seed (is_default=true). Reset deletes the overlay (idempotent).
 // For the user-custom block the "seed" is the EMPTY block above.
 let globalContextOverlay: WireGlobalContext | null = null;
+
+// ── the three boot-context blocks (T-791e) ─────────────────────────────────
+// Three INDEPENDENT overlay streams, keyed "<kind>/<key>" — the same slot
+// spelling the history uses, so one document never reaches another's storage.
+// Absent overlay = the block is following its factory seed (is_default=true).
+//
+// 🔴 `boot_sequence/claude` and `boot_sequence/codex` are two DOCUMENTS, not
+// two renderings of one. Their third step means opposite things, so there is
+// deliberately no shared cell here for anything to fall back into: a lookup
+// miss on one key resolves to that key's OWN seed, never to the other's text.
+const BOOT_DOC_SEEDS: Record<string, string> = {
+  "system_interaction/global": SEED_SYSTEM_INTERACTION_MD.trim(),
+  "boot_sequence/claude": SEED_BOOT_SEQUENCE_MD.trim(),
+  "boot_sequence/codex": SEED_BOOT_SEQUENCE_CODEX_MD.trim(),
+  // T-c9c0 — a singleton keyed "global", like system_interaction.
+  "offboard/global": SEED_OFFBOARD_MD.trim(),
+};
+const bootDocOverlays = new Map<string, string>();
+
+/** The SSE topic a boot-block write fans. `global_context`, NOT a topic named
+ * after the block: spec/sse.md §3.1 is a CLOSED set and the server drops
+ * anything outside it at the publish seam, so an invented topic would fan
+ * nothing while looking entirely correct here. Kept in step with TOPIC_OF in
+ * hooks/useDocumentHistory.ts — the mock fanning a different topic than the
+ * hook listens on is the one way this stays silent under test too. */
+const BOOT_DOC_TOPIC = "global_context";
+
+/** The seed text for one block, or null when (kind, key) names no such
+ * document — which is what makes an unknown runtime key a 404 rather than a
+ * silently empty page. */
+function bootDocSeed(kind: BootDocKind, key: string): string | null {
+  return BOOT_DOC_SEEDS[`${kind}/${key}`] ?? null;
+}
+
+function foldBootDoc(kind: BootDocKind, key: string): WireBootDoc {
+  const seed = bootDocSeed(kind, key);
+  if (seed === null) {
+    throw new ApiError(
+      `http 404 for GET /api/${kind.replace(/_/g, "-")}/${key}`,
+      404,
+      "not_found",
+      `boot document '${kind}/${key}' does not exist`
+    );
+  }
+  const overlay = bootDocOverlays.get(`${kind}/${key}`);
+  const text = overlay ?? seed;
+  return {
+    kind,
+    key,
+    text,
+    owner_id: MOCK_OWNER_ID,
+    schema_version: 3,
+    size_chars: [...text].length,
+    // The LIVE setting, not the shipped default: the server enforces this
+    // read's `cap_chars` against `doc.cap_chars.<kind>`, so a mock pinned to
+    // the default would keep answering 60000/15000 after the owner moved the
+    // knob — and the page sizes its edits against exactly this number.
+    cap_chars: {
+      system_interaction: mockServerSettings.doc_cap_chars_system_interaction,
+      boot_sequence: mockServerSettings.doc_cap_chars_boot_sequence,
+      offboard: mockServerSettings.doc_cap_chars_offboard,
+    }[kind],
+    is_default: overlay === undefined,
+    // Every one of the three ships a seed, so the 還原出廠版 path is always
+    // real here. The field is still reported rather than hardcoded true at the
+    // call site: it is the flag the cockpit gates that affordance on, and a
+    // block added later without a seed must be able to say so.
+    has_seed: true,
+  };
+}
 const roleOverlays = new Map<string, WireRoleDef>();
 // Owner-created CUSTOM roles (M2-2): a wire doc per minted key (is_seed=false).
 // Distinct from roleOverlays (edits over a seed) — a custom role IS its doc.
@@ -486,24 +580,6 @@ function pickMockMemberName(): string {
     const candidate = `${base}-${2 + Math.floor(Math.random() * 998)}`;
     if (!taken.has(candidate.toLowerCase())) return candidate;
   }
-}
-// Derives the display Member-ID ("MB-XXX###") from a roster id — byte-for-byte
-// the server's domain.MemberNo (server/ocserverd/domain.go:160-168): SHA-256 the
-// id, take the first 8 bytes big-endian as a uint64, peel three uppercase letters
-// (n%26, n/=26) then three digits (n%1000). Stateless display projection, never a
-// lookup key. BigInt keeps the uint64 arithmetic exact (the value overflows Number).
-export async function deriveMemberNo(memberID: string): Promise<string> {
-  const digest = new Uint8Array(
-    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(memberID))
-  );
-  let n = 0n;
-  for (let i = 0; i < 8; i++) n = (n << 8n) | BigInt(digest[i]);
-  let letters = "";
-  for (let i = 0; i < 3; i++) {
-    letters += String.fromCharCode(65 + Number(n % 26n));
-    n /= 26n;
-  }
-  return `MB-${letters}${String(Number(n % 1000n)).padStart(3, "0")}`;
 }
 // Mirrors the server custom-role template (server/ocserverd/domain.go; the 兩 section
 // 待填說明 scaffold a fresh custom role starts from).
@@ -886,7 +962,57 @@ function foldRole(key: string): WireRoleDef {
 // — restoring a tombstoned revision must put the doc back on the seed, not
 // write the folded seed text back as an owner edit.
 const DOCUMENT_HISTORY_CAP = 3;
-const documentHistories = new Map<string, WireDocumentHistory[]>();
+
+/** T-791e: the three boot-context blocks keep TEN revisions, not three.
+ *
+ * The owner's ruling, and the reason is the workflow this surface is for: these
+ * blocks are where pasted proposals land, one section at a time, so a single
+ * afternoon can be a dozen small saves. Three slots would mean the version
+ * before the afternoon started is gone before it ends. Retention is counted in
+ * WRITES, not in time — ten saves is ten saves whether they took a minute or a
+ * month — which is exactly why the surface has to say so on screen: nothing
+ * else would tell an owner that tapping save five times just consumed half of
+ * what he could go back to. 還原出廠版 is never consumed by any of this. */
+const BOOT_DOC_HISTORY_CAP = BOOT_DOC_HISTORY_KEPT;
+
+/** How many revisions this kind retains. One place, so the two numbers cannot
+ * end up meaning different things at the write door and the read door. */
+function historyCapFor(kind: DocumentKind): number {
+  return kind === "system_interaction" ||
+    kind === "boot_sequence" ||
+    kind === "offboard"
+    ? BOOT_DOC_HISTORY_CAP
+    : DOCUMENT_HISTORY_CAP;
+}
+/** ONE retained revision as the mock STORES it — the whole snapshot, because a
+ * restore has to be able to write the text back. The three reads project it:
+ * the list through `directoryRow` (no text), the named read and the restore
+ * receipt through their own mappers. Deliberately NOT `WireDocumentHistory`:
+ * since T-1170 that DTO is the catalogue row and carries no `content`, so
+ * typing the store as it would make the store unable to hold what it is for. */
+interface StoredRevision {
+  id: number;
+  content: Record<string, string>;
+  created_ts: number;
+  actor_id: string;
+}
+
+/** The stored revision as the CATALOGUE ROW the server serves — `field_chars`
+ * measured off the snapshot in code points, `tombstoned` lifted out as its own
+ * boolean. Going through the wire shape (rather than building the view row
+ * directly) is what keeps the mock honest: it exercises the same mapper the
+ * http adapter does, so a rename on either side of that seam breaks both. */
+function directoryRow(h: StoredRevision): WireDocumentHistory {
+  return {
+    id: h.id,
+    created_ts: h.created_ts,
+    actor_id: h.actor_id,
+    tombstoned: h.content["tombstoned"] === "true",
+    field_chars: contentSizes(h.content),
+  };
+}
+
+const documentHistories = new Map<string, StoredRevision[]>();
 let nextDocumentHistoryId = 1;
 
 const historySlot = (kind: DocumentKind, key: string) => `${kind}/${key}`;
@@ -1098,6 +1224,21 @@ function snapshotDocument(
       if (!task) return null;
       return { title: task.title };
     }
+    // T-791e. Same overlay shape as global_context: a tombstoned row stores the
+    // ZERO VALUE, never the seed text — restoring it must put the block back
+    // ON the factory version rather than write the factory text in as an owner
+    // edit (they read identically today and diverge the moment the seed file
+    // changes under a restore).
+    case "system_interaction":
+    case "boot_sequence":
+    case "offboard": {
+      if (bootDocSeed(kind, key) === null) return null;
+      const overlay = bootDocOverlays.get(`${kind}/${key}`);
+      return {
+        text: overlay ?? "",
+        tombstoned: String(overlay === undefined),
+      };
+    }
   }
 }
 
@@ -1119,7 +1260,7 @@ function recordDocumentHistory(kind: DocumentKind, key: string): void {
     created_ts: Date.now() / 1000,
     actor_id: MOCK_OWNER_ID,
   });
-  documentHistories.set(slot, kept.slice(0, DOCUMENT_HISTORY_CAP));
+  documentHistories.set(slot, kept.slice(0, historyCapFor(kind)));
 }
 
 /** Write a retained revision back over the live document + fan the doc's own
@@ -1252,6 +1393,19 @@ function applyDocumentHistory(
       emitTopic("task");
       return;
     }
+    // T-791e. The tombstoned arm drops the overlay so the block goes back to
+    // following its factory seed — writing the seed text in as an owner edit
+    // would leave `is_default` false and the 預設 badge off for a document that
+    // IS the default.
+    case "system_interaction":
+    case "boot_sequence":
+    case "offboard": {
+      if (bootDocSeed(kind, key) === null) return;
+      if (tombstoned) bootDocOverlays.delete(`${kind}/${key}`);
+      else bootDocOverlays.set(`${kind}/${key}`, content.text ?? "");
+      emitTopic(BOOT_DOC_TOPIC);
+      return;
+    }
   }
 }
 
@@ -1291,6 +1445,41 @@ function findResumeSummaryTarget(memberId: string): void {
   );
 }
 
+/** Render an epoch second the way the SERVER renders `ts_display` /
+ * `generated_at`: `YYYY-MM-DD HH:MM:SS ±HH:MM`, date ALWAYS written (a reader
+ * of a hand-off must be able to tell 昨天 from 上週 without knowing what day
+ * the snapshot was taken), and the zone offset carried IN the string because
+ * the studio has no configured timezone setting.
+ *
+ * 🔴 This lives in the mock — the API seam — precisely so the COMPONENT never
+ * grows one. The panel prints the string it is given; the only formatter in
+ * the cockpit is the one that stands in for the server. */
+function mockTsDisplay(ts: number): string {
+  const d = new Date(ts * 1000);
+  const p = (n: number) => String(n).padStart(2, "0");
+  const offMin = -d.getTimezoneOffset();
+  const sign = offMin < 0 ? "-" : "+";
+  const abs = Math.abs(offMin);
+  return (
+    `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ` +
+    `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())} ` +
+    `${sign}${p(Math.floor(abs / 60))}:${p(abs % 60)}`
+  );
+}
+
+/** Resolve a chat participant id to its DISPLAY name the way the server's
+ * `from_name` / `to_name` do: through the roster, ANY status (a dismissed
+ * member still reads by name). Returns "" when the id resolves to nothing —
+ * the HONEST empty. It deliberately does NOT fall back to the id: a reader
+ * could then not tell "no name on file" from "the name really is that id". */
+function resumeDisplayNameOf(id: string): string {
+  const m = wireMembers.find((w) => w.id === id);
+  if (m) return m.name;
+  const w = outsourceWorkers.find((o) => o.id === id);
+  if (w) return w.codename;
+  return "";
+}
+
 // ── mock owner credential + settings state (B3) ─────────────────────────────
 // The mock boots "installed": password set (AuthGate's mock mode never shows
 // the first-run page anyway), default settings. Same validation rules as the
@@ -1301,7 +1490,9 @@ const DEFAULT_MOCK_SETTINGS = {
   owner_token_ttl: 86400,
   agent_token_ttl: 604800,
   handover_pct: 50,
+  notice_pct: 40,
   codex_compaction_threshold: 3,
+  codex_notice_round: 2,
   monitoring_refresh_seconds: 5,
   // M3 global outsource cap — mirrors the server's code-side default (3).
   outsource_max_parallel: 3,
@@ -1313,6 +1504,20 @@ const DEFAULT_MOCK_SETTINGS = {
   doc_cap_chars_learning: DOC_CAP_CHARS_DEFAULTS.learning,
   doc_cap_chars_manual_sop: DOC_CAP_CHARS_DEFAULTS.manualSop,
   doc_cap_chars_manual_learnings: DOC_CAP_CHARS_DEFAULTS.manualLearnings,
+  // T-791e added the two boot-context caps to the SAME settings surface, so the
+  // mock has to serve them or it is answering a settings DTO the server does
+  // not send. They mirror the same shipped defaults foldBootDoc reports as
+  // `cap_chars` — one number per kind, and the boot-sequence one is ONE cap
+  // across both runtimes. `capForKind` routes to them, so the version list's
+  // un-restorable marking is judged against these.
+  doc_cap_chars_system_interaction:
+    BOOT_DOC_CAP_CHARS_DEFAULTS.system_interaction,
+  doc_cap_chars_boot_sequence: BOOT_DOC_CAP_CHARS_DEFAULTS.boot_sequence,
+  doc_cap_chars_offboard: BOOT_DOC_CAP_CHARS_DEFAULTS.offboard,
+  // T-c9b4 wake-snapshot chat budget. Served here for the same reason as the
+  // caps above — a settings DTO missing a field the server always sends is a
+  // mock the page can go green against while the real one breaks.
+  chat_budget_chars: CHAT_BUDGET_CHARS_DEFAULT,
   // The two software-update toggles — both OFF out of the box, mirroring the
   // server (updates come from GitHub Releases; there is no updater server to
   // configure any more).
@@ -2281,18 +2486,45 @@ export const mockApi: Api = {
     // shared assembly gives). READ-ONLY: unlike listChat, this never advances a
     // read watermark.
     //
-    // NOT mocked: the T-1b09 studio-floor blocks (roster / machines) and their
-    // roster_chars / machines_chars sizes. Said explicitly because "mirrors the
-    // server" is exactly the kind of claim a reader trusts without checking —
-    // a mock that silently covers less than it says it does is worse than one
-    // that admits the gap.
+    // The T-1b09 studio-floor blocks (roster / machines) ARE mocked now, and
+    // so are their roster_chars / machines_chars sizes — see below. They used
+    // to be the admitted gap in this comment; the panel now renders them, and
+    // a mock that does not carry a section the panel draws would make the
+    // offline cockpit disagree with the real one exactly where this section's
+    // whole purpose is that the two agree.
     const RESUME_CHAT_N = 5;
     const RESUME_TASKS_N = 5;
 
     const chatAll = chatLog
       .filter((m) => m.from === memberId || m.to === memberId)
       .sort((a, b) => a.ts - b.ts);
-    const chat = chatAll.slice(-RESUME_CHAT_N).map((m) => ({ ...m }));
+    // The cut point: whole messages this payload does NOT carry. TRUNCATION —
+    // a different thing from a message that IS here with its body folded, and
+    // the hint is the SERVER's own recovery instruction, carried verbatim.
+    const chatCut = chatAll.slice(0, Math.max(0, chatAll.length - RESUME_CHAT_N));
+    const chatWindow = chatAll.slice(-RESUME_CHAT_N);
+    const oldestCarried = chatWindow[0];
+    const chatEarlierOmitted = {
+      omitted: chatCut.length > 0,
+      hint:
+        chatCut.length > 0 && oldestCarried
+          ? `call get_chat with with='${oldestCarried.from === memberId ? oldestCarried.to : oldestCarried.from}' and BOTH before_ts=${oldestCarried.ts} and before_id='${oldestCarried.id}' (sending only one is a 422)`
+          : "",
+    };
+
+    // Display names beside the ids, and a rendered timestamp beside the epoch
+    // one — the same two-fields-not-one shape the server serves. `fromName` /
+    // `toName` resolve through the roster; an id that resolves to nothing keeps
+    // the HONEST "" (the panel then shows the id alone rather than a name it
+    // invented).
+    const chat = chatWindow.map((m) => ({
+      ...m,
+      fromName: resumeDisplayNameOf(m.from),
+      toName: resumeDisplayNameOf(m.to),
+      tsDisplay: mockTsDisplay(m.ts),
+      bodyOmittedChars: m.bodyOmittedChars ?? 0,
+      card: m.card ?? null,
+    }));
 
     // EXECUTOR MATCH IS BY ID ALONE — no executorKind gate. That mirrors the
     // server exactly: `resumeTasksFor` → `ListOpenTasksByExecutor` filters on
@@ -2345,6 +2577,66 @@ export const mockApi: Api = {
       (c) => c.status === "answered" && (c.answeredTs ?? 0) >= dayAgoTs
     ).length;
 
+    // ── studio-floor blocks (T-1b09) ────────────────────────────────────────
+    // roster: every member AND every contractor, with the presence the ruling
+    // rc-4e98c0481852 asks for. Members carry `duty` and leave `currentTask`
+    // empty; contractors carry the bound task's TITLE and its progress and
+    // leave `duty` empty (正職給職責、外包給任務標題) — the same asymmetry the
+    // server serves, so a reader that learns the rule here reads the real one.
+    const roster: ResumeRosterMemberView[] = [
+      ...wireMembers
+        .filter((m) => m.kind !== "warden")
+        .map((m) => ({
+          id: m.id,
+          name: m.name,
+          kind: "member",
+          roleName: m.role_name ?? "",
+          duty: m.role_key ? `職責定義：${m.role_key}` : "",
+          currentTask: "",
+          taskStatus: "",
+          waitingReason: "",
+          progressDone: 0,
+          progressTotal: 0,
+          machine: m.machine ?? "",
+          presence: m.presence ?? "offline",
+        })),
+      ...outsourceWorkers.map((w) => {
+        const bound = tasks.find((t) => t.executorId === w.id);
+        return {
+          id: w.id,
+          name: w.codename,
+          kind: "outsource",
+          roleName: "",
+          duty: "",
+          currentTask: bound?.title ?? "",
+          taskStatus: bound?.status ?? "",
+          waitingReason: bound?.waitingReason ?? "",
+          progressDone: bound?.progressDone ?? 0,
+          progressTotal: bound?.progressTotal ?? 0,
+          machine: w.machine ?? "",
+          presence: w.presence ?? "offline",
+        };
+      }),
+    ];
+
+    // machines: the fleet, keyed by the STABLE machine id (never the name a
+    // host reports for itself). `youAreOn` is the subject's SERVER-RECORDED
+    // binding — "" when it has none, never guessed from anything else.
+    const machineRows = wireMembers.filter(
+      (m) => m.kind === "warden" && m.roster_status !== "removed"
+    );
+    const machines: ResumeMachinesView = {
+      list: machineRows.map((m) => ({
+        machineId: m.id,
+        displayName: m.name,
+        online: m.presence === "online",
+      })),
+      youAreOn:
+        wireMembers.find((m) => m.id === memberId)?.machine ??
+        outsourceWorkers.find((w) => w.id === memberId)?.machine ??
+        "",
+    };
+
     return {
       identity: memberId,
       chat,
@@ -2357,7 +2649,23 @@ export const mockApi: Api = {
         tasksDetailChars: tasksOut.reduce((sum, t) => sum + t.detailChars, 0),
         cardsWaiting,
         cardsAnsweredRecent,
+        // Sized FROM the blocks actually returned, never fabricated — the same
+        // honesty contract the counts above already keep.
+        rosterChars: roster.reduce(
+          (sum, r) =>
+            sum + r.id.length + r.name.length + r.duty.length +
+            r.currentTask.length + r.roleName.length,
+          0
+        ),
+        machinesChars: machines.list.reduce(
+          (sum: number, m) => sum + m.machineId.length + m.displayName.length,
+          0
+        ),
       },
+      generatedAt: mockTsDisplay(Math.floor(Date.now() / 1000)),
+      chatEarlierOmitted,
+      roster,
+      machines,
       note:
         "BOUNDED snapshot — recent chat + open tasks only; page the rest with list_chat / list_tasks / get_task.",
     };
@@ -2878,13 +3186,23 @@ export const mockApi: Api = {
     //   * an unchanged text is a no-op: nothing versioned, no `task` delta.
     //     The server compares before writing for the same reason.
     //
+    //   * the value is TRIMMED before it is stored, and the unchanged
+    //     comparison runs AFTER the trim — so re-sending a description with a
+    //     stray trailing space is no change: nothing versioned, no `task`
+    //     delta. 🔴 T-646a (owner card rc-0fb94a25a8a8, option ①) added this;
+    //     before it, this field was stored raw and the title's twin trimmed,
+    //     which is the drift that ticket existed to remove. A CONSEQUENCE worth
+    //     knowing before you "simplify" it: a description of only whitespace
+    //     trims to "" and therefore CLEARS.
+    //
     // The absent-vs-empty distinction lives one layer up (the wire's optional
     // `description`); this seam's argument is always a concrete string, so ""
     // means clear, exactly as the http twin sends it.
     const t = findTask(id);
-    if (t.description === description) return t;
+    const trimmed = description.trim();
+    if (t.description === trimmed) return t;
     recordDocumentHistory("task_description", id);
-    t.description = description;
+    t.description = trimmed;
     t.updatedTs = Date.now() / 1000;
     emitTopic("task");
     return t;
@@ -3448,8 +3766,13 @@ export const mockApi: Api = {
     }));
   },
 
-  async listTaskManuals(): Promise<TaskManualView[]> {
-    return structuredClone(taskManuals);
+  async listTaskManuals(): Promise<TaskManualSummaryView[]> {
+    // T-1170: the DIRECTORY. The two long documents are DROPPED here, the way
+    // the server drops them — a mock that kept serving them would let the
+    // manual sub-pages keep reading a list row and stay green.
+    return taskManuals.map(({ sopMd: _sop, learnings: _learn, ...row }) =>
+      structuredClone(row)
+    );
   },
 
   async getTaskManual(typeKey: string): Promise<TaskManualView> {
@@ -3648,7 +3971,6 @@ export const mockApi: Api = {
 
     wireMembers.push({
       id: machineId,
-      member_no: `MB-WDN${String(wireMembers.length).padStart(3, "0")}`,
       name: name || machineId,
       kind: "warden",
       role_key: "assistant",
@@ -3672,6 +3994,7 @@ export const mockApi: Api = {
       last_op_log: "",
       last_op_reason: "",
       last_op_at: 0,
+      forced_stop_at: 0,
       roster_status: "active",
       owner_id: MOCK_OWNER_ID,
       unread_count: 0,
@@ -3922,6 +4245,27 @@ export const mockApi: Api = {
     if (patch.codexCompactionThreshold !== undefined && (patch.codexCompactionThreshold < 1 || patch.codexCompactionThreshold > 10)) {
       throw new ApiError("http 422 for PATCH /api/settings", 422, "validation_error", "codex_compaction_threshold must be between 1 and 10");
     }
+    if (patch.noticePct !== undefined && (patch.noticePct < 1 || patch.noticePct > 89)) {
+      throw new ApiError("http 422 for PATCH /api/settings", 422, "validation_error", "notice_pct must be between 1 and 89");
+    }
+    if (patch.codexNoticeRound !== undefined && (patch.codexNoticeRound < 1 || patch.codexNoticeRound > 10)) {
+      throw new ApiError("http 422 for PATCH /api/settings", 422, "validation_error", "codex_notice_round must be between 1 and 10");
+    }
+    // The pair is checked against the POST-PATCH values, exactly like the
+    // server: either number may be sent on its own, and what must hold is that
+    // the soft notice still lands strictly before the final one.
+    {
+      const notice = patch.noticePct ?? mockServerSettings.notice_pct;
+      const final = patch.handoverPct ?? mockServerSettings.handover_pct;
+      if (notice >= final) {
+        throw new ApiError("http 422 for PATCH /api/settings", 422, "validation_error", "notice_pct must be strictly below handover_pct");
+      }
+      const noticeRound = patch.codexNoticeRound ?? mockServerSettings.codex_notice_round;
+      const finalRound = patch.codexCompactionThreshold ?? mockServerSettings.codex_compaction_threshold;
+      if (noticeRound >= finalRound) {
+        throw new ApiError("http 422 for PATCH /api/settings", 422, "validation_error", "codex_notice_round must be strictly below codex_compaction_threshold");
+      }
+    }
     if (patch.monitoringRefreshSeconds !== undefined && (patch.monitoringRefreshSeconds < 1 || patch.monitoringRefreshSeconds > 60)) {
       throw new ApiError("http 422 for PATCH /api/settings", 422, "validation_error", "monitoring_refresh_seconds must be between 1 and 60");
     }
@@ -3964,6 +4308,21 @@ export const mockApi: Api = {
         "doc_cap_chars_manual_learnings",
         DOC_CAP_CHARS_DEFAULTS.manualLearnings,
       ],
+      [
+        patch.docCapCharsSystemInteraction,
+        "doc_cap_chars_system_interaction",
+        DOC_CAP_CHARS_DEFAULTS.systemInteraction,
+      ],
+      [
+        patch.docCapCharsBootSequence,
+        "doc_cap_chars_boot_sequence",
+        DOC_CAP_CHARS_DEFAULTS.bootSequence,
+      ],
+      [
+        patch.docCapCharsOffboard,
+        "doc_cap_chars_offboard",
+        DOC_CAP_CHARS_DEFAULTS.offboard,
+      ],
     ] as const) {
       if (field !== undefined && (field < min || field > 100000)) {
         throw new ApiError(
@@ -3973,6 +4332,21 @@ export const mockApi: Api = {
           `${wire} must be between ${min} and 100000 characters — the floor is the shipped default, so the document cap can only be raised, never lowered`
         );
       }
+    }
+    // T-c9b4: checked on its own, NOT as a row above — it has its own ceiling,
+    // and the message above ("the floor is the shipped default … can only be
+    // raised") would be a lie about a knob that may be turned down.
+    if (
+      patch.chatBudgetChars !== undefined &&
+      (patch.chatBudgetChars < CHAT_BUDGET_CHARS_MIN ||
+        patch.chatBudgetChars > CHAT_BUDGET_CHARS_MAX)
+    ) {
+      throw new ApiError(
+        "http 422 for PATCH /api/settings",
+        422,
+        "validation_error",
+        `chat_budget_chars must be between ${CHAT_BUDGET_CHARS_MIN} and ${CHAT_BUDGET_CHARS_MAX} characters`
+      );
     }
     if (
       patch.orgName !== undefined &&
@@ -4052,6 +4426,12 @@ export const mockApi: Api = {
     if (patch.codexCompactionThreshold !== undefined) {
       mockServerSettings.codex_compaction_threshold = patch.codexCompactionThreshold;
     }
+    if (patch.noticePct !== undefined) {
+      mockServerSettings.notice_pct = patch.noticePct;
+    }
+    if (patch.codexNoticeRound !== undefined) {
+      mockServerSettings.codex_notice_round = patch.codexNoticeRound;
+    }
     if (patch.monitoringRefreshSeconds !== undefined) {
       mockServerSettings.monitoring_refresh_seconds = patch.monitoringRefreshSeconds;
     }
@@ -4073,6 +4453,20 @@ export const mockApi: Api = {
     if (patch.docCapCharsManualLearnings !== undefined) {
       mockServerSettings.doc_cap_chars_manual_learnings =
         patch.docCapCharsManualLearnings;
+    }
+    if (patch.docCapCharsSystemInteraction !== undefined) {
+      mockServerSettings.doc_cap_chars_system_interaction =
+        patch.docCapCharsSystemInteraction;
+    }
+    if (patch.docCapCharsBootSequence !== undefined) {
+      mockServerSettings.doc_cap_chars_boot_sequence =
+        patch.docCapCharsBootSequence;
+    }
+    if (patch.docCapCharsOffboard !== undefined) {
+      mockServerSettings.doc_cap_chars_offboard = patch.docCapCharsOffboard;
+    }
+    if (patch.chatBudgetChars !== undefined) {
+      mockServerSettings.chat_budget_chars = patch.chatBudgetChars;
     }
     if (patch.updaterReceiveBeta !== undefined) {
       mockServerSettings.updater_receive_beta = patch.updaterReceiveBeta;
@@ -4184,12 +4578,64 @@ export const mockApi: Api = {
     return toGlobalContext(foldGlobalContext());
   },
 
-  async listRoles(): Promise<RoleDefView[]> {
+  async getBootDoc(kind: BootDocKind, key: string): Promise<BootDocView> {
+    return toBootDoc(foldBootDoc(kind, key));
+  },
+
+  async saveBootDoc(
+    kind: BootDocKind,
+    key: string,
+    text: string
+  ): Promise<BootDocView> {
+    // 404 BEFORE anything is written: foldBootDoc is the one place that knows
+    // whether (kind, key) names a document, and a save that created a fourth
+    // stream out of a typo'd runtime key would be the mock inventing a
+    // document the server has no route for.
+    const before = foldBootDoc(kind, key);
+    // The server's floor, mirrored: over cap AND not getting shorter is
+    // refused. The cockpit blocks first (it has the number on screen), so
+    // reaching this is either a stale page or a non-cockpit caller.
+    if (docCapBlocked(before.cap_chars, before.text, text)) {
+      throw new ApiError(
+        `http 400 for POST /api/${kind.replace(/_/g, "-")}/${key}`,
+        400,
+        "bad_request",
+        `document is ${[...text].length} characters, over the ${before.cap_chars} character limit`
+      );
+    }
+    // 🔴 Identical content retains NO version (owner ruling). Ten slots sound
+    // generous until the surface is used the way it is meant to be — paste,
+    // look, paste again — and a save that changed nothing spending one of them
+    // is how the version worth going back to disappears. Nothing is written at
+    // all in that case, so `is_default` is not flipped either: re-saving a
+    // document that is still the factory text must not make it stop saying so.
+    if (before.text === text) return toBootDoc(before);
+    recordDocumentHistory(kind, key);
+    bootDocOverlays.set(`${kind}/${key}`, text);
+    emitTopic(BOOT_DOC_TOPIC);
+    return toBootDoc(foldBootDoc(kind, key));
+  },
+
+  async resetBootDoc(kind: BootDocKind, key: string): Promise<BootDocView> {
+    // Existence check first, same as the save — and NO cap check: going back to
+    // the factory version can only ever be the shipped size, and refusing it on
+    // length would take away the recovery path exactly when the document is at
+    // its worst.
+    foldBootDoc(kind, key);
+    recordDocumentHistory(kind, key);
+    bootDocOverlays.delete(`${kind}/${key}`);
+    emitTopic(BOOT_DOC_TOPIC);
+    return toBootDoc(foldBootDoc(kind, key));
+  },
+
+  async listRoles(): Promise<RoleSummaryView[]> {
     // Seeds first (stable), then the owner-created custom roles — mirrors
-    // handle_list_roles.
+    // handle_list_roles. T-1170: the DIRECTORY — `toRoleSummary` is what makes
+    // the mock stop handing out `definition_md` on this route, which is the
+    // half that keeps the tests honest about the new server.
     return [
-      ...MOCK_WIRE_ROLES_SEED.map((seed) => toRoleDef(foldRole(seed.key))),
-      ...[...customRoles.keys()].map((key) => toRoleDef(foldRole(key))),
+      ...MOCK_WIRE_ROLES_SEED.map((seed) => toRoleSummary(foldRole(seed.key))),
+      ...[...customRoles.keys()].map((key) => toRoleSummary(foldRole(key))),
     ];
   },
 
@@ -4295,11 +4741,6 @@ export const mockApi: Api = {
     const memberId = `m-${hex()}`;
     const wireMember: WireMember = {
       id: memberId,
-      // Server derives member_no from the member id (ocserverd/api_helpers.go:198
-      // → domain.go MemberNo): a SHA-256 of the id projected to MB-XXX###. NOT a
-      // constant — deriving here keeps mock parity so two createRole calls mint
-      // distinct member_no values, exactly as the server does.
-      member_no: await deriveMemberNo(memberId),
       name: memberName,
       kind: "",
       role_key: roleKey,
@@ -4323,6 +4764,7 @@ export const mockApi: Api = {
       last_op_log: "",
       last_op_reason: "",
       last_op_at: 0,
+      forced_stop_at: 0,
       roster_status: "active",
       owner_id: MOCK_OWNER_ID,
       unread_count: 0,
@@ -4543,12 +4985,43 @@ export const mockApi: Api = {
   async listDocumentHistory(
     kind: DocumentKind,
     key: string
-  ): Promise<DocumentHistoryView[]> {
+  ): Promise<DocumentHistoryEntryView[]> {
     refuseRetiredDocumentKind(kind, `GET /api/document-history/${kind}/${key}`);
     // Newest first, at most DOCUMENT_HISTORY_CAP — the retention the server
     // applies, so an offline cockpit sees the same bounded list.
+    //
+    // 🔴 T-1170: the DIRECTORY, and the mock serves it as the new server does
+    // — `sizes` + `tombstoned`, and the text NOT on the answer. That is the
+    // point of changing the mock at all: a mock that kept handing the text back
+    // would let every test in this repo pass against a fake server the real one
+    // no longer resembles, and the surfaces that read a revision off the list
+    // would stay green while being broken.
     const kept = documentHistories.get(historySlot(kind, key)) ?? [];
-    return kept.map((h) => toDocumentHistory(structuredClone(h)));
+    return kept.map((h) => toDocumentHistoryEntry(directoryRow(h)));
+  },
+
+  async getDocumentRevision(
+    kind: DocumentKind,
+    key: string,
+    id: number
+  ): Promise<DocumentRevisionView> {
+    const route = `GET /api/document-history/${kind}/${key}/${id}`;
+    refuseRetiredDocumentKind(kind, route);
+    // Named revision → its content, the only read that carries text (T-1170).
+    // A pruned or unknown id 404s exactly where the restore of that id would:
+    // the reader must be able to say "this version could not be read" instead
+    // of drawing an empty document next to a destructive button.
+    const kept = documentHistories.get(historySlot(kind, key)) ?? [];
+    const found = kept.find((h) => h.id === id);
+    if (!found) {
+      throw new ApiError(
+        `http 404 for ${route}`,
+        404,
+        "not_found",
+        `document revision ${id} is no longer retained`
+      );
+    }
+    return { id: found.id, content: structuredClone(found.content) };
   },
 
   async getDocumentSeed(
@@ -4583,7 +5056,15 @@ export const mockApi: Api = {
           ? { definition_md: roleSeed(key).definition_md, tombstoned: "true" }
           : kind === "insight" && key in INSIGHT_SEEDS
             ? { text: INSIGHT_SEEDS[key], tombstoned: "true" }
-            : null;
+            : // T-791e: all three boot-context blocks ship a factory version,
+              // and it is the SEED TEXT (unlike global_context, whose default
+              // is the empty document) — so 初始版本 can be read and diffed
+              // before anyone decides to go back to it. `tombstoned` marks it
+              // as "follow the seed", which is what restoring it must do.
+              (kind === "system_interaction" || kind === "boot_sequence") &&
+                bootDocSeed(kind, key) !== null
+              ? { text: bootDocSeed(kind, key)!, tombstoned: "true" }
+              : null;
     if (content === null) {
       throw new ApiError(`http 404 for ${route}`, 404, "not_found", `document '${kind}/${key}' has no shipped default to compare against`);
     }
@@ -4634,6 +5115,7 @@ export function __resetMock(): void {
   mockBinStatus.clear();
   mockBinStatus.set("warden-mbp5", "stale");
   globalContextOverlay = null;
+  bootDocOverlays.clear();
   roleOverlays.clear();
   customRoles.clear();
   lessonsOverlays.clear();
@@ -4718,7 +5200,6 @@ export function __injectMockMember(
 ): void {
   wireMembers.push({
     ...structuredClone(MOCK_WIRE_MEMBERS[1]),
-    member_no: `MB-TEST-${wireMembers.length}`,
     name: over.id,
     ...over,
   });

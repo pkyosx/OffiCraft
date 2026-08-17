@@ -26,6 +26,7 @@ import { zh } from "../i18n/locales/zh";
 import { SettingsPage } from "./SettingsPage";
 import { __resetMock, mockApi } from "../api/mock";
 import { DOC_CAP_CHARS_DEFAULT } from "../api/docCap";
+import { runeLength } from "../api/docCap";
 
 const s = zh.settings;
 
@@ -153,9 +154,17 @@ describe("SettingsPage · 版本紀錄", () => {
     fireEvent.click(
       (rows[1] as HTMLElement).querySelector(".doc-hist__row") as HTMLElement
     );
+    // …and it FETCHES that revision (T-1170) rather than showing something the
+    // list already had — the await is the round trip, and the pane says
+    // 「載入中」 in the meantime instead of drawing an empty document.
     expect(
-      utils.getByTestId("doc-history-modal").textContent
-    ).toContain("第二版：少用 emoji");
+      utils.getByTestId("doc-history-content-loading")
+    ).toBeTruthy();
+    await waitFor(() =>
+      expect(utils.getByTestId("doc-history-modal").textContent).toContain(
+        "第二版：少用 emoji"
+      )
+    );
   });
 
   it("restore asks first, then rides the adapter and refreshes doc and list", async () => {
@@ -272,6 +281,13 @@ describe("SettingsPage · 版本紀錄", () => {
     fireEvent.click(await utils.findByTestId(`doc-history-open-${target.id}`));
     fireEvent.click(utils.getByTestId("doc-history-pane-diff"));
 
+    // The `-` side is the revision's OWN text, which is fetched (T-1170), so
+    // the diff exists only once that read lands.
+    await waitFor(() =>
+      expect(
+        utils.container.querySelectorAll(".diff-view__row").length
+      ).toBeGreaterThan(0)
+    );
     const rows = Array.from(
       utils.container.querySelectorAll(".diff-view__row")
     ).map((row) =>
@@ -307,9 +323,11 @@ describe("SettingsPage · 版本紀錄", () => {
     fireEvent.click(await utils.findByTestId(`doc-history-open-${target.id}`));
     fireEvent.click(utils.getByTestId("doc-history-pane-diff"));
 
-    expect(
-      utils.getByTestId("doc-history-diff-definition_md").textContent
-    ).toContain("第二版定義");
+    await waitFor(() =>
+      expect(
+        utils.getByTestId("doc-history-diff-definition_md").textContent
+      ).toContain("第二版定義")
+    );
     expect(utils.queryByTestId("doc-history-diff-pending")).toBeNull();
   });
 
@@ -766,7 +784,7 @@ describe("SettingsPage · 版本紀錄", () => {
       "lessons",
       "assistant::general"
     );
-    expect(target.content.text).toBe(overCap);
+    expect(target.sizes.text).toBe(runeLength(overCap));
 
     const row = await utils.findByTestId(`doc-history-item-${target.id}`);
     // Listed, never hidden — this row is the only place that text still exists.
@@ -823,7 +841,7 @@ describe("SettingsPage · 版本紀錄", () => {
       "lessons",
       "assistant::general"
     );
-    expect(target.content.text).toBe(overDefault);
+    expect(target.sizes.text).toBe(runeLength(overDefault));
 
     const row = await utils.findByTestId(`doc-history-item-${target.id}`);
     expect(within(row).queryByText(s.historyBlockedBadge)).toBeNull();
@@ -1028,8 +1046,11 @@ describe("SettingsPage · 版本紀錄", () => {
     fireEvent.click(sopRow.querySelector(".doc-hist__row") as HTMLElement);
     const sopModal = utils.getByTestId("doc-history-modal");
     // No field LABEL to look for: a single-field kind IS its one field, and
-    // the modal deliberately drops the heading there.
-    expect(within(sopModal).getByText("第一版 SOP")).toBeTruthy();
+    // the modal deliberately drops the heading there. The text arrives from
+    // the revision's own read (T-1170), so it is awaited.
+    await waitFor(() =>
+      expect(within(sopModal).getByText("第一版 SOP")).toBeTruthy()
+    );
     expect(sopModal.textContent).not.toContain("第一版經驗");
     expect(sopModal.textContent).not.toContain("每週回顧");
     fireEvent.click(within(sopModal).getByTestId("doc-history-modal-close"));
@@ -1041,7 +1062,9 @@ describe("SettingsPage · 版本紀錄", () => {
     expect(utils.getByText(s.historyManualLearningsTitle)).toBeTruthy();
     fireEvent.click(learningsRow.querySelector(".doc-hist__row") as HTMLElement);
     const learnModal = utils.getByTestId("doc-history-modal");
-    expect(within(learnModal).getByText("第一版經驗")).toBeTruthy();
+    await waitFor(() =>
+      expect(within(learnModal).getByText("第一版經驗")).toBeTruthy()
+    );
     expect(learnModal.textContent).not.toContain("第一版 SOP");
   });
 

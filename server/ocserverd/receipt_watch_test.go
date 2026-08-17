@@ -137,6 +137,10 @@ func TestReceiptDeadline_NoOpStopReceiptStillDisarmsTheDeadline(t *testing.T) {
 	m.DesiredState = DesiredStateOffline
 	putTestMember(t, s, m)
 	connectOnline(t, s, "m-noop") // online + desired offline ⇒ the STOP arm
+	// 下線 no longer collects on a timer (owner's ruling — see decideDown), so
+	// this test drives the TIMED wind-down explicitly: it is about receipts,
+	// not about who decides time is up.
+	s.reconcileCfg.SoftOffboardGrace = 0
 	// Skip past the self-stop grace window so this tick dispatches the robust
 	// STOP rather than opening the clock (decideDown's first observation).
 	s.reconcileStates["m-noop"] = reconcileState{

@@ -53,7 +53,7 @@ func TestRelocateMember_PlacementOnly(t *testing.T) {
 // making the move graceful HAD to redden it.
 //
 // The move is now a wind-down: the pin lands, a refocus epoch is stamped (which
-// is the ONLY thing cli/ocagent's recycleHook gates the five-step SOP on), and
+// is the ONLY thing cli/ocagent's recycleHook gates the 下線程序 wake on), and
 // NOTHING is dispatched until the agent answers report_stopped (or RecycleGrace
 // expires). Both halves are asserted here, because either alone is satisfiable
 // by a broken implementation: "no frame yet" alone is also true of a relocate

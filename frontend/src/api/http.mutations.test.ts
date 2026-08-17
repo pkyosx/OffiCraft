@@ -197,14 +197,14 @@ describe("httpApi · perf-light query contracts (T-2b9d/cf91/ec2c)", () => {
     expect((await lastRequest()).url).toBe("/api/tasks");
   });
 
-  it("listTaskTypes narrows the manuals read to view=list", async () => {
+  it("listTaskTypes asks for the manuals plainly — the light shape is the DEFAULT now", async () => {
     fetchMock.mockImplementation(async () => jsonResponse([]));
     await httpApi.listTaskTypes();
-    expect(
-      new URLSearchParams((await lastRequest()).url.split("?")[1] ?? "").get(
-        "view"
-      )
-    ).toBe("list");
+    // T-1170 retired `?view=list`. The directory IS the answer, so sending a
+    // flag would be asking for a shape the route no longer offers — and the
+    // flag was itself the defect: an opt-in escape hatch leaves the expensive
+    // shape pointed at every caller that does not know to ask.
+    expect((await lastRequest()).url).toBe("/api/task-manuals");
   });
 });
 

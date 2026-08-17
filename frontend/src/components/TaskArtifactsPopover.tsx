@@ -90,19 +90,30 @@ export function TaskArtifactsBadge({
   // hook to reuse, so this follows the majority spelling rather than inventing
   // a fourth one.
   //
-  // The ref is on the ANCHOR, which wraps BOTH the badge and the popover. Two
-  // things fall out of that and are the reason this doesn't need extra guards:
-  //   · a mousedown on the badge is INSIDE, so it never closes-then-reopens —
-  //     the badge's own onClick stays the single toggle (the classic bug).
-  //   · the MarkdownPreviewOverlay renders INSIDE the popover (it does not use
-  //     createPortal), so opening a preview and clicking its
-  //     backdrop stays inside the anchor and leaves the popover open.
+  // The ref is on the ANCHOR, which wraps BOTH the badge and the popover, so a
+  // mousedown on the badge is INSIDE and never closes-then-reopens — the badge's
+  // own onClick stays the single toggle (the classic bug).
+  //
+  // 🔴 THE PREVIEW OVERLAY IS NO LONGER INSIDE THE ANCHOR (T-76cd). It used to
+  // render in place, and containment alone then carried the ruling: a click on
+  // its backdrop landed inside `anchorRef` and this popover stayed open. It now
+  // portals to `document.body` so no ancestor stacking context can confine it
+  // (see MarkdownPreviewOverlay.tsx), which makes `contains()` FALSE for every
+  // point of the preview — backdrop, panel and close button alike. Containment
+  // is therefore not the whole predicate any more: the overlay is matched by its
+  // own root instead, and "inside" means inside EITHER. Dropping that half puts
+  // the ruling straight back into the bug it was written against — one click on
+  // the preview's grey backdrop and the artifacts panel is gone.
+  //
   // `mousedown` (not `click`) matches the siblings and fires before the anchor
   // is torn down. Esc is handled by the popover itself (see ArtifactsPopover).
   useEffect(() => {
     if (!open) return;
     function onDown(e: MouseEvent) {
-      if (!anchorRef.current?.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node | null;
+      if (anchorRef.current?.contains(target ?? null)) return;
+      if (target instanceof Element && target.closest(".md-preview")) return;
+      setOpen(false);
     }
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);

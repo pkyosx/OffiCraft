@@ -101,8 +101,12 @@ func (s *apiServer) writeTaskDescription(t *Task, actor, description string) (bo
 	return true, nil
 }
 
-// POST /api/tasks/{task_id}/description — correct one task's description (MCP
-// update_task_description).
+// POST /api/tasks/{task_id}/description — correct one task's description.
+//
+// 🔴 T-646a: this is no longer an MCP tool. The agent-facing tool is
+// update_task, which writes this same field through the same code
+// (updateTaskText). The route stays on the HTTP surface for the cockpit and any
+// existing client.
 //
 // PARTIAL update, shaped after update_task_manual: the body's only field is
 // description, omitting it is a legal no-op, and an unknown key is refused by
@@ -163,36 +167,21 @@ func (s *apiServer) writeTaskDescription(t *Task, actor, description string) (bo
 //
 // Guard order: 404 unknown task → 403 not the executor → write. There is no
 // 409 anywhere on this route.
+// 🔴 T-646a: the body of this route now lives in updateTaskText, shared with
+// update_task_title and with update_task, which supersedes both on the MCP
+// surface. ONE BEHAVIOUR CHANGED HERE and it is deliberate: the description is
+// now TRIMMED of surrounding whitespace, before storage and before the
+// unchanged-value comparison, which is what the title has always done. Owner
+// ruling, card rc-0fb94a25a8a8 (2026-08-16), option ①. Leaving this door
+// untrimmed while the new one trims would have been the same defect the ticket
+// set out to remove, one door further in. Consequence worth naming: a
+// description of nothing but whitespace now trims to "" and therefore CLEARS,
+// where before it was stored as-is. This route stays on the HTTP surface for the
+// frontend and any existing client.
 func (s *apiServer) HandleUpdateTaskDescriptionApiTasksTaskIdDescriptionPost(w http.ResponseWriter, r *http.Request, taskId string) {
 	var body TaskDescriptionDTO
 	if !decodeJSONBody(w, r, &body) {
 		return
 	}
-	t, err := s.resolveTask(taskId)
-	if err != nil {
-		writeResolveError(w, err, "task", taskId)
-		return
-	}
-	if !s.callerMayDriveTask(r, *t) {
-		writeError(w, http.StatusForbidden, "caller is not the task's executor")
-		return
-	}
-	// Field not named ⇒ nothing changes. Nothing is versioned either: a write
-	// that replaces the text with itself would spend one of the three retained
-	// revisions saying the text did not change, and fan an SSE delta for it.
-	if body.Description == nil || *body.Description == t.Description {
-		s.writeTask(w, *t)
-		return
-	}
-	ok, err := s.writeTaskDescription(t, currentActor(r), *body.Description)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	if !ok {
-		writeError(w, http.StatusNotFound, "task '"+taskId+"' not found")
-		return
-	}
-	s.publishTask(*t, requestTrigger(r))
-	s.writeTask(w, *t)
+	s.updateTaskText(w, r, taskId, nil, body.Description)
 }

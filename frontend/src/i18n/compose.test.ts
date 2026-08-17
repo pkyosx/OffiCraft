@@ -47,6 +47,10 @@ const EXPECTED: [Lang, string, (string | number | string[] | number[])[], string
     ["zh", "replyExpireConfirmBody", ["要不要買新的"], "要把「要不要買新的」標為過期嗎?此動作不可復原、也不算回答——成員會收到通知,問題還在的話他會重新開一張新卡。"],
     ["zh", "outsourceLabel", ["O-7"], "外包 · O-7"],
     ["zh", "workerRefocusSince", ["2 天"], "上次換手 2 天"],
+    // 🔴 折疊,不是截斷。這一句只可以講「這則還在、只是折起來了」;
+    // 「更早的訊息沒有被帶進來」是另一件事,而且刻意沒有 composer——
+    // 共用一個組裝器正是兩者會開始共用詞彙的那條路。
+    ["zh", "resumeBodyOmitted", [1284], "折起 1284"],
     ["zh", "chatOfflineTitle", ["Mira"], "Mira 目前離線"],
     ["zh", "chatOfflineQueueHint", ["Mira"], "你仍可在下方留言，Mira 上線後就會讀到。"],
     ["zh", "chatWakeQueueHint", ["Mira"], "Mira 目前離線中 — 訊息會排隊，或立即喚醒上線"],
@@ -82,6 +86,16 @@ const EXPECTED: [Lang, string, (string | number | string[] | number[])[], string
     ["zh", "deleteManualConfirm", ["review-pr"], "確定刪除任務類型「review-pr」？其手冊（定義、SOP、學習經驗）將一併移除，無法復原。"],
     ["zh", "manualEditSection", ["這是什麼任務？"], "編輯「這是什麼任務？」"],
     ["zh", "docHistoryVersionLabel", ["7/29 14:03"], "此版本（7/29 14:03）"],
+    // T-791e. Both numbers, both sentences: the retention line has to say the
+    // count is in SAVES, and the over-cap line has to carry the current size
+    // AND the limit — an owner cannot act on "too long".
+    [
+      "zh",
+      "bootDocNoteHistory",
+      [10],
+      "版本紀錄只保留最近 10 版，而且是以「存檔次數」計、不是以時間計——連按幾次小修就會把較舊的版本沖掉。「還原出廠版」不受影響，永遠在。",
+    ],
+    ["zh", "docOverCap", [61234, 60000], "現在 61234 字，超過上限 60000 字，請先刪掉一些再儲存。"],
     ["zh", "docHistoryActor", ["Kyle", "m-f663"], "Kyle（m-f663）"],
     ["zh", "docHistoryActor", ["", "ow-c975"], "ow-c975"],
     ["zh", "diffTooLarge", [2400], "內容太長，無法逐行比對（2400 行）。"],
@@ -140,6 +154,7 @@ const EXPECTED: [Lang, string, (string | number | string[] | number[])[], string
     ["en", "replyExpireConfirmBody", ["要不要買新的"], "Mark \"要不要買新的\" as expired? This cannot be undone and does not count as an answer — the member is notified and will open a fresh card if the question still matters."],
     ["en", "outsourceLabel", ["O-7"], "Outsource · O-7"],
     ["en", "workerRefocusSince", ["2 天"], "Last handover 2 天"],
+    ["en", "resumeBodyOmitted", [1284], "folded 1284"],
     ["en", "chatOfflineTitle", ["Mira"], "Mira is offline"],
     ["en", "chatOfflineQueueHint", ["Mira"], "You can still leave a message — Mira will read it once back online."],
     ["en", "chatWakeQueueHint", ["Mira"], "Mira is offline — your message will queue, or wake them now"],
@@ -181,6 +196,18 @@ const EXPECTED: [Lang, string, (string | number | string[] | number[])[], string
     ["en", "deleteManualConfirm", ["review-pr"], "Delete the task type “review-pr”? Its manual (definition, SOP, learnings) is removed with it and cannot be restored."],
     ["en", "manualEditSection", ["What is this task?"], "Edit “What is this task?”"],
     ["en", "docHistoryVersionLabel", ["7/29 14:03"], "This version (7/29 14:03)"],
+    [
+      "en",
+      "bootDocNoteHistory",
+      [10],
+      "Version history keeps the last 10 versions, counted in SAVES rather than in time — a run of small saves pushes the older ones out. Restoring the factory version is never affected and is always available.",
+    ],
+    [
+      "en",
+      "docOverCap",
+      [61234, 60000],
+      "Now 61234 characters, over the limit of 60000 — remove some before saving.",
+    ],
     ["en", "docHistoryActor", ["Kyle", "m-f663"], "Kyle (m-f663)"],
     ["en", "docHistoryActor", ["", "ow-c975"], "ow-c975"],
     ["en", "diffTooLarge", [2400], "Too long to compare line by line (2400 lines)."],

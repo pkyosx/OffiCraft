@@ -159,13 +159,13 @@ describe("MonitorPage AI Sessions — outsource workers", () => {
     // own worker lane below and must not duplicate or reclassify them.
     listMembers.mockResolvedValue([
       {
-        id: "mira", memberId: "mira", name: "Mira", role: "assistant", roleName: "", kind: "assistant",
+        id: "mira", name: "Mira", role: "assistant", roleName: "", kind: "assistant",
         status: "online", lifecycle: "online", model: "", effort: "medium", runtime: "claude",
         machine: "mbp5", desiredMachineId: "mbp5", account: "", contextPct: null, estimatedCost: null, bankedCost: null,
         tmuxSession: "", refocusSince: null, lastOp: "", lastOpOk: null, lastOpLog: "", lastOpAt: null, unreadCount: 0,
       } as Member,
       {
-        id: "ow-in-list", memberId: "ow-in-list", name: "O-12", role: "", roleName: "", kind: "outsource",
+        id: "ow-in-list", name: "O-12", role: "", roleName: "", kind: "outsource",
         status: "online", lifecycle: "online", model: "", effort: "medium", runtime: "codex",
         machine: "mbp5", desiredMachineId: "mbp5", account: "", contextPct: null, estimatedCost: null, bankedCost: null,
         tmuxSession: "", refocusSince: null, lastOp: "", lastOpOk: null, lastOpLog: "", lastOpAt: null, unreadCount: 0,

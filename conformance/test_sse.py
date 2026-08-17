@@ -830,20 +830,30 @@ def test_first_connect_clears_waking(base_url, client, owner_token) -> None:
     )
 
 
-# ── zombie stop gate (pre-stream 409 while a stop is in effect) ──────────────
+# ── zombie stop gate (pre-stream 409 once the stop has COLLECTED) ────────────
 #
 # Defence line B of the zombie-agent work: a listener that survived its kill
-# must never RE-project a stopped member online by reconnecting. While a stop
-# is in effect (desired_state=offline ∧ a stop anchor stamped — deactivate /
-# force-stop always stamp stopping_since) or the member is dismissed, a fresh
-# /api/events connection is refused PRE-stream with the conflict envelope
-# (the dual-SSE guard's envelope family). The gate is deliberately narrower
-# than desired_state=offline alone: a freshly hired member (desired offline,
-# NO anchors) still connects — pinned below — and activate lifts the gate in
-# the same write it flips desired_state in.
+# must never RE-project a stopped member online by reconnecting. A dismissed
+# member's reconnect, a force-stopped member's reconnect and a member that has
+# REPORTED stopped are refused PRE-stream with the conflict envelope (the
+# dual-SSE guard's envelope family).
+#
+# What the gate deliberately does NOT refuse is the window in between: 下線 has
+# no clock, so a session legitimately sits at desired_state=offline ∧
+# stopping_since for as long as its close-out takes, and the listener treats a
+# run of authoritative refusals as "I have been retired" and kills its own
+# session — refusing there is how a station upgrade or a network blip takes a
+# hand-off down half-written. The invariant the refusal used to carry in that
+# window is carried instead by the §5 projection: stopping_since DOMINATES, so
+# a readmitted connection reads `stopping`, never `online` — pinned below, and
+# it is the assertion that keeps this widening honest.
+#
+# The gate is also narrower than desired_state=offline alone: a freshly hired
+# member (desired offline, NO anchors) still connects — pinned below — and
+# activate lifts the gate in the same write it flips desired_state in.
 
 
-def test_zombie_reconnect_refused_while_stop_in_effect(
+def test_close_out_in_flight_reconnect_admitted_then_refused_once_stopped(
     base_url, client, owner_token
 ) -> None:
     agent = _fresh_agent(client, owner_token, f"zombie-{uuid.uuid4().hex[:6]}")
@@ -858,15 +868,32 @@ def test_zombie_reconnect_refused_while_stop_in_effect(
         # (the member delta) must still reach the agent's own stream.
         conn.wait_for_frame("member")
         assert _presence(client, owner_token, agent.member_id) == "stopping"
-    # Wait for the disconnect to land server-side (rules out a dual-SSE 409
-    # explaining the refusal below: presence "stopped" ⇒ no live listener).
+    # Wait for the disconnect to land server-side (so the reconnect below is a
+    # genuine re-admission, not a dual-SSE takeover of a live slot).
     got = _poll_presence(client, owner_token, agent.member_id, "stopped")
     assert got == "stopped", f"expected the graceful-stop projection, got {got!r}"
 
-    # The zombie reconnect: refused pre-stream, conflict envelope, no stream.
+    # Close-out still in flight: the reconnect is ADMITTED and streams…
+    with SSEConnection(base_url, agent.token) as resumed:
+        assert resumed.status_code == 200, (
+            "a reconnect during the close-out must be admitted (refusing it "
+            f"self-terminates the agent mid-hand-off), got {resumed.status_code}"
+        )
+        resumed.wait_for(lambda ev: ev["comment"] == "connected")
+        # …and it does NOT buy the connection a green light: the stop anchor
+        # dominates the projection, which is what makes admitting it safe.
+        assert _presence(client, owner_token, agent.member_id) == "stopping"
+        # The agent finishes its sequence on that resumed stream.
+        r = client.post("/api/self/stopped", json={}, headers=_auth(agent.token))
+        assert r.status_code == 200, r.text
+    got = _poll_presence(client, owner_token, agent.member_id, "stopped")
+    assert got == "stopped", f"expected the graceful-stop projection, got {got!r}"
+
+    # Reported stopped ⇒ the close-out is over ⇒ the zombie reconnect is
+    # refused pre-stream, conflict envelope, no stream.
     zombie = SSEConnection(base_url, agent.token)
     assert zombie.status_code == 409, (
-        f"a stop-in-effect reconnect must be refused 409, got {zombie.status_code}"
+        f"a reconnect after report_stopped must be refused 409, got {zombie.status_code}"
     )
     ctype = (zombie.headers or {}).get("content-type", "")
     assert not ctype.startswith("text/event-stream"), (
@@ -875,6 +902,9 @@ def test_zombie_reconnect_refused_while_stop_in_effect(
     body = json.loads(zombie.error_body)
     assert set(body) == {"error"} and set(body["error"]) == {"code", "message"}, body
     assert body["error"]["code"] == "conflict", body
+    # Pin WHICH arm refused: the roster arm answers a different message, and a
+    # 409 that came from there would make this test blind to the stop arm.
+    assert "stop in effect" in body["error"]["message"], body
     # …and it never projected online (the whole point of the gate).
     assert _presence(client, owner_token, agent.member_id) == "stopped"
 
@@ -893,6 +923,50 @@ def test_zombie_reconnect_refused_while_stop_in_effect(
     client.post(
         f"/api/members/{agent.member_id}/deactivate", headers=_auth(owner_token)
     )
+
+
+def test_force_stopped_member_reconnect_refused(
+    base_url, client, owner_token
+) -> None:
+    """The other arm that stays shut: a member the owner FORCE-stopped was cut
+    off deliberately, so it must not come back on its own — unlike the graceful
+    close-out above, which is admitted precisely because it is still working."""
+    agent = _fresh_agent(client, owner_token, f"forced-{uuid.uuid4().hex[:6]}")
+    with SSEConnection(base_url, agent.token) as conn:
+        assert conn.status_code == 200, conn.error_body
+        conn.wait_for(lambda ev: ev["comment"] == "connected")
+        r = client.post(
+            f"/api/members/{agent.member_id}/force-stop", json={},
+            headers=_auth(owner_token),
+        )
+        assert r.status_code == 200, r.text
+    _poll_presence(client, owner_token, agent.member_id, "stopped")
+
+    zombie = SSEConnection(base_url, agent.token)
+    assert zombie.status_code == 409, (
+        f"a force-stopped member's reconnect must be refused 409, got {zombie.status_code}"
+    )
+    body = json.loads(zombie.error_body)
+    assert body["error"]["code"] == "conflict", body
+    assert "stop in effect" in body["error"]["message"], body
+    zombie.close()
+
+    # …and a LATER deactivate must not downgrade that verdict. The two arms are
+    # told apart by comparing the anchors, so a deactivate that re-stamped
+    # stopping_since to now would move a force-stopped member onto the admitted
+    # side — and the 下線 arm runs no clock, so nothing would collect it after.
+    # The cockpit offers no 下線 button in this state, but the API does.
+    r = client.post(
+        f"/api/members/{agent.member_id}/deactivate", headers=_auth(owner_token)
+    )
+    assert r.status_code == 200, r.text
+    still = SSEConnection(base_url, agent.token)
+    assert still.status_code == 409, (
+        "a deactivate after a force-stop must not re-open the gate, got "
+        f"{still.status_code}"
+    )
+    assert "stop in effect" in json.loads(still.error_body)["error"]["message"]
+    still.close()
 
 
 def test_fresh_hire_desired_offline_still_connects(

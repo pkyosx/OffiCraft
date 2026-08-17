@@ -16,8 +16,6 @@ package main
 //     "assistant" at the ingest seam (CanonicalKind).
 
 import (
-	"crypto/sha256"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -111,6 +109,25 @@ const WakingTTLSecs = 90.0
 // this long to wind down before a stuck collect is force-killed.
 const StoppingTimeoutSecs = 120.0
 
+// SoftOffboardGraceSecs: how long a soft offboard runs before anything else
+// happens. The soft notice says "work the sequence, then call restart_self
+// yourself" and carries no countdown, so there must not be one running behind
+// it.
+//
+// What happens AFTER the window differs by path, and the difference is the
+// owner's ruling, not an oversight:
+//
+//   - 重新聚焦 escalates: the final call goes out and StoppingTimeoutSecs
+//     starts, because that handover has to complete for his change to land.
+//   - 下線 never escalates. He chose to be the only escalation there
+//     (rc-27d1710174dd 「不要兜底：只有你按強制下線才收它」), so the window is
+//     only the period during which a close-out is treated as in-flight — see
+//     clearStaleStoppingOnOnline, which is what keeps the force-stop button
+//     on screen for him to press.
+//
+// Setting it to 0 restores the pre-T-a9d6 timed wind-down wholesale.
+const SoftOffboardGraceSecs = 600.0
+
 // livenessInput is the normalized input to the shared liveness kernel
 // (deriveLiveness): the two actor kinds (member / outsource worker) map their
 // own durable anchors onto these three facts and read back the SAME unified
@@ -198,23 +215,6 @@ func StoppingTimedOut(m Member, now float64, online bool) bool {
 	return online &&
 		m.StoppingSince > 0.0 &&
 		now-m.StoppingSince > StoppingTimeoutSecs
-}
-
-// ── member: display Member-ID projection ─────────────────────────────────────
-
-// MemberNo derives the display Member-ID ("MB-XXX###") for a roster id: a
-// stable SHA-256 of the id mapped to three uppercase letters and three
-// digits. Deterministic and stateless — a display label only, never a lookup
-// key. Byte-for-byte the Python domain.member.member_no derivation.
-func MemberNo(memberID string) string {
-	sum := sha256.Sum256([]byte(memberID))
-	n := binary.BigEndian.Uint64(sum[:8])
-	letters := make([]byte, 3)
-	for i := range letters {
-		letters[i] = byte('A' + n%26)
-		n /= 26
-	}
-	return fmt.Sprintf("MB-%s%03d", letters, n%1000)
 }
 
 // ── member: random founding-member name pool ─────────────────────────────────
@@ -822,6 +822,26 @@ func FoldInsight(overlay *Insight, seedText string, hasSeed bool) (text string, 
 	return "", true
 }
 
+// FoldBootDocument resolves ONE boot-context block: owner overlay ⊕ the
+// embedded seed (T-791e). Same three states FoldInsight has, and the same
+// reading of is_default — "nobody has edited this block", never "the text is
+// empty".
+//
+// 🔴 THE OVERLAY NEVER TOUCHES THE SEED, which is the property the reset route
+// is built on: `hasSeed`/`seedText` come from the go:embed copy this binary was
+// built with, so "restore to default" is answered from a source no editing path
+// can reach. A design that wrote the edit back over the seed would look
+// identical until the first reset.
+func FoldBootDocument(overlay *BootDocument, seedText string, hasSeed bool) (text string, isDefault bool) {
+	if overlay != nil && !overlay.Tombstoned {
+		return overlay.Text, false
+	}
+	if hasSeed {
+		return seedText, true
+	}
+	return "", true
+}
+
 // ── lessons: anchor-addressed patch (MCP patch_lessons, T-8327) ──────────────
 
 // LessonsEdit is one {old, new} patch instruction: replace the UNIQUE
@@ -1017,14 +1037,66 @@ const contextDocMaxCharsDefault = 15000
 // "fix".
 const dutyCapCharsDefault = 1000
 
+// systemInteractionCapCharsDefault / bootSequenceCapCharsDefault are the
+// shipped defaults of the two boot-context document kinds that became
+// editable in T-791e. Both are sized against the SEEDS THEY SHIP WITH, not
+// picked round:
+// the system-interaction seed is a long studio handbook and the two boot
+// sequences are short checklists, so one shared number would either strand the
+// handbook in shrink-only mode on day one or hand the checklists a budget forty
+// times their own size.
+//
+// The boot-sequence cap is ONE knob for BOTH runtimes (claude and codex), each
+// measured on its own text. They are two renderings of the same short document;
+// a studio that needs more room for one needs it for the other.
+//
+// The 下線程序 cap (T-c9c0) is sized with the boot sequences rather than the
+// handbook, and for the same reason: it is a short ordered checklist an agent
+// has to be able to finish inside a ~120s grace window, not a reference text.
+const (
+	systemInteractionCapCharsDefault = 60000
+	bootSequenceCapCharsDefault      = 15000
+	offboardCapCharsDefault          = 15000
+)
+
 // min*CapChars / maxDocCapChars bound the adjustable caps. Each floor is THAT
 // segment's own default by design (see above), not a coincidence to be "tidied
 // up" into one shared number — putting the other segments' floor on Duty would
-// make dutyCapCharsDefault unreachable from the settings surface.
+// make dutyCapCharsDefault unreachable from the settings surface. The same
+// applies to the two boot-context document kinds: their floors are their own
+// defaults, so an owner can only ever RAISE them.
 const (
-	minDocCapChars  = contextDocMaxCharsDefault
-	minDutyCapChars = dutyCapCharsDefault
-	maxDocCapChars  = 100000
+	minDocCapChars               = contextDocMaxCharsDefault
+	minDutyCapChars              = dutyCapCharsDefault
+	minSystemInteractionCapChars = systemInteractionCapCharsDefault
+	minBootSequenceCapChars      = bootSequenceCapCharsDefault
+	minOffboardCapChars          = offboardCapCharsDefault
+	maxDocCapChars               = 100000
+)
+
+// chatBudgetCharsDefault / minChatBudgetChars / maxChatBudgetChars bound the
+// wake snapshot's chat block budget (T-c9b4; the number resumeChatPackBudget
+// spends, see api_chat.go). It was the hard-coded constant 8000 until this
+// change made it the `chat.budget_chars` setting.
+//
+// 🔴 THE FLOOR IS NOT THE DEFAULT, unlike every doc.cap_chars.* above. Those
+// floors equal their own defaults because LOWERING a document cap puts existing
+// legal documents into shrink-only mode — a real, permanent cost. The chat
+// block carries no such state: it is repacked from scratch on every read, so a
+// smaller budget just returns fewer messages next time. Copying the doc-cap
+// rule here would mean the knob could only ever go up, which is not "adjustable".
+//
+// 🔴 THE CEILING IS TIED TO resumeChatFetch, not picked round. That constant's
+// own comment derives 500 as a FLOOR from this budget: the cheapest possible
+// message costs 27 runes, so 500 × 27 = 13,500 runes of candidates must exceed
+// the budget or the packer could run out of messages before it runs out of
+// budget and silently under-fill the snapshot. 13000 keeps that guarantee with
+// room to spare. To raise this ceiling past 13,500 you MUST raise
+// resumeChatFetch first.
+const (
+	chatBudgetCharsDefault = 6000
+	minChatBudgetChars     = 1000
+	maxChatBudgetChars     = 13000
 )
 
 // DocCapBlocked reports whether replacing before with after must be refused by

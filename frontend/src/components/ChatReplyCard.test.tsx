@@ -57,7 +57,6 @@ function mkCard(over: Partial<ReplyCard>): ReplyCard {
 function mkMember(): Member {
   return {
     id: "mira",
-    memberId: "mira",
     name: "Mira",
     role: "assistant",
     status: "online",

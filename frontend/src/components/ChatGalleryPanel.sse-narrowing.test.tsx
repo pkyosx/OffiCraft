@@ -46,7 +46,6 @@ vi.mock("../api", () => ({
 function mkMember(id: string = MEMBER_ID): Member {
   return {
     id,
-    memberId: id,
     name: "Mira",
     role: "assistant",
     status: "online",

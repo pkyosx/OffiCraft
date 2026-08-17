@@ -549,6 +549,36 @@ a.task-card__chip--link {
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
+  /* z-index: 40 — this panel has to outrank the card it floats over. Some of
+   * what it covers is z-indexed (the 優先權 / 狀態 menus at z:20), and the rest
+   * of the card's own content is in flow BELOW it in DOM order — the identity
+   * rows (負責探員 / 建立者 / 前任 / 識別鑰) with their avatars, and the 送出
+   * button — so painting order alone does NOT put the panel above them.
+   *
+   * ⚠️ THE PREVIOUS ROUND (b59c753) SET THIS TO `auto` AND THAT WAS A REGRESSION.
+   * The reasoning then was sound but its remedy was aimed at the wrong layer:
+   * a non-auto z-index on a positioned box establishes a STACKING CONTEXT, and
+   * MarkdownPreviewOverlay used to render INSIDE this popover, so `z-index: 40`
+   * scoped the overlay's own 1100 to THIS box and the app chrome painted over
+   * the preview (owner's iPhone report: 「看不到按關閉的按鈕, 被擋住了 且上面的
+   * tab 全部都不能按」). Dropping to `auto` did free the preview — and cost this
+   * panel its rank over its OWN card: with the panel open, owner's screenshot
+   * shows the identity rows, their avatars and the 送出 button drawn ON TOP of
+   * it. That commit's cost table measured four layers OUTSIDE the card and never
+   * measured a single element inside it, which is exactly the gap that shipped.
+   *
+   * The confinement is fixed at the layer that actually owns it instead: the
+   * overlay portals to `document.body` (MarkdownPreviewOverlay.tsx), so no
+   * ancestor of this popover can scope it — this z-index, a future one, an
+   * `opacity`, a `transform`, anything. That is strictly stronger than raising
+   * the number here: 1200 or 9999 would still confine the overlay, it would only
+   * move the whack-a-mole to whatever outranks it next.
+   *
+   * MEASURED with the panel open, at each element's own centre point inside the
+   * panel's rect (`elementFromPoint`, visual-guards/artifacts-stacking.ct.spec.tsx):
+   * every card descendant overlapping the panel hit-tests to something inside
+   * `.task-artifacts`. With this declaration removed, the same probe reports the
+   * identity rows, the avatars and the 送出 button on top instead. */
   z-index: 40;
   width: min(340px, 78vw);
   display: flex;
@@ -960,113 +990,33 @@ button.task-card__status-chip:hover {
   margin-bottom: 0;
 }
 
-/* ── description in-place editing (T-e271) ──────────────────────────────────
-   Colours come only from theme tokens — no literals, per the tokens gate. */
+/* ── description block (read-only since T-e5b1) ─────────────────────────────
+   The in-place editors (T-e271 description, T-2ebe title) and their whole
+   atom family — hint / input / actions / save / cancel / editbtn — were
+   removed with the affordances that used them. What is left is the read
+   surface. Colours come only from theme tokens, per the tokens gate. */
+/* T-4aa0 — no `align-items: flex-start` here. In a COLUMN flex container that
+   makes each item take fit-content as its width, and fit-content floors at
+   min-content: an unbreakable `<pre>` line — or a wide table, which does it on
+   its own and by more — set the description's min-content to 479px, far past
+   what the card can give it, so the LIST (`.tasks`, the real scroller) dragged
+   sideways on a phone. The quote block the owner photographed was the visible
+   symptom, not the cause; it merely filled the widened container
+   (measured: hiding the <pre> takes the overflow to 0, hiding the quote changes
+   nothing).
+   Stretching instead binds the description to the card, and `.doc-md pre` /
+   `.doc-md table` then scroll INSIDE themselves, which is the posture
+   settings.css already documents. The flex-start was left over from when this
+   block also held the in-place editor's buttons, which must not stretch; T-e5b1
+   removed them and the only child now is the description itself. */
 .task-card__desc-block {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  align-items: flex-start;
 }
 .task-card__desc-empty {
   color: var(--color-text-muted);
   font-size: 12.5px;
-}
-.task-card__desc-editbtn {
-  border: 1px solid var(--color-border);
-  background: transparent;
-  color: var(--color-text-muted);
-  border-radius: 6px;
-  padding: 3px 10px;
-  font-size: 12px;
-  cursor: pointer;
-}
-.task-card__desc-editbtn:hover {
-  color: var(--color-text);
-  background: color-mix(in srgb, var(--color-text) 8%, transparent);
-}
-.task-card__desc-edit {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  width: 100%;
-}
-.task-card__desc-hint {
-  color: var(--color-text-muted);
-  font-size: 12px;
-  line-height: 1.5;
-  /* Free text with no markdown rendering, so it does not inherit `.doc-md`'s
-     long-token rule (T-d451) and has to declare it here. */
-  overflow-wrap: anywhere;
-}
-.task-card__desc-input {
-  width: 100%;
-  box-sizing: border-box;
-  min-height: 96px;
-  resize: vertical;
-  border-radius: 10px;
-  border: 1px solid var(--color-border);
-  background: var(--color-bg);
-  color: var(--color-text);
-  padding: 8px 10px;
-  font: inherit;
-  font-size: 13px;
-  line-height: 1.55;
-}
-.task-card__desc-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-.task-card__desc-save,
-.task-card__desc-cancel {
-  border-radius: 6px;
-  padding: 3px 12px;
-  font-size: 12px;
-  cursor: pointer;
-  border: 1px solid var(--color-border);
-  background: transparent;
-  color: var(--color-text);
-}
-.task-card__desc-save {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-}
-.task-card__desc-save:disabled,
-.task-card__desc-cancel:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-/* ── title in-place editing (T-2ebe) ────────────────────────────────────────
-   Reuses the description editor's hint / actions / button atoms verbatim so the
-   two editors cannot drift apart; only the container and the single-line input
-   are its own. Colours come only from theme tokens, per the tokens gate. */
-.task-card__title-edit {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  width: 100%;
-  min-width: 0;
-}
-.task-card__title-input {
-  width: 100%;
-  box-sizing: border-box;
-  border-radius: 10px;
-  border: 1px solid var(--color-border);
-  background: var(--color-bg);
-  color: var(--color-text-strong);
-  padding: 6px 10px;
-  font: inherit;
-  font-size: 15px;
-  font-weight: 700;
-  line-height: 1.4;
-}
-/* The affordance sits next to the heading on a flex row, so it must not be
-   squeezed by a long title. */
-.task-card__title-editbtn {
-  flex: none;
 }
 
 /* ── progress + elapsed ── */
@@ -1661,33 +1611,48 @@ button.task-card__waiting--dep:focus-visible {
    alarm. Always-stack like the waiting row — the label takes line 1, the
    markdown note line 2 — because a handover note is routinely several lines
    and wrapping it around a leading label reads badly. */
-.task-step__note {
+/* ── the note's entry point (T-e5b1 → T-6630 ④) ── the note is READ IN AN
+   OVERLAY now (owner 2026-08-16:「備註不是很常按,可以放在 step 的右下角,點開
+   再跳出另一個 Modal」), so what lives in the step is a small corner control,
+   not a panel. It still renders ONLY on a step that HAS a note and still
+   carries the 備註 word: while every note is closed, the presence of this
+   control is the ONLY thing separating a step someone wrote a note on from one
+   nobody did — the reason the owner reads this timeline at all.
+   🔴 min-height is a 44px TOUCH TARGET even though the control reads small.
+   A corner control sits surrounded by the card's own hit area (the whole
+   .task-card is role=button), and that geometry is what produced this ticket:
+   miss it and you collapse the entire task. Small on screen, not small to the
+   thumb. */
+.task-step__note-actions {
   display: flex;
-  align-items: flex-start;
-  flex-wrap: wrap;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+/* 🔴 NO FILL AND NO BORDER — owner-picked appearance (2026-08-17), chosen from
+   photographs of six real variants. The predecessor was a bordered, filled pill
+   and he called it 好醜: on a LIGHT theme its fill reads as a black block, which
+   is what he actually reported. Icon-only was rejected in the same message
+   (「只有圖真的有點怪」), so the word stays and the icon only flags it.
+   The 44px touch target now lives as PADDING around a 15px glyph and a 12px
+   word — big enough to press, not big enough to look like a panel. Do not put
+   a background back on the resting state; hover is the only painted state. */
+.task-step__note-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   gap: 6px;
-  margin-top: 6px;
+  min-height: 44px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  cursor: pointer;
+  font-size: 12px;
   color: var(--color-text-muted);
-  font-size: 12px;
 }
-.task-step__note-label {
-  flex: none;
-  font-weight: 700;
-  color: color-mix(in srgb, var(--color-text-muted) 80%, transparent);
-}
-.task-step__note-md.doc-md {
-  flex-basis: 100%;
-  min-width: 0;
-  padding: 0;
-  font-size: 12px;
-  line-height: 1.5;
-  /* T-d451: long-token break inherited from the `.doc-md` base (settings.css). */
-}
-.task-step__note-md.doc-md > :first-child {
-  margin-top: 0;
-}
-.task-step__note-md.doc-md > :last-child {
-  margin-bottom: 0;
+.task-step__note-open:hover {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
 }
 
 /* ── step-level 等待外部 reason row (T-9ca5) ── shares the waiting purple
@@ -1821,6 +1786,19 @@ button.task-card__waiting--dep:focus-visible {
   }
   .task-card__title {
     word-break: break-word;
+  }
+  /* T-e4ae: the owner chose content-aware table sizing. Markdown measures each
+     column's intrinsic width and stores the chosen C1 floor on every cell;
+     activate that variable only on the phone layout so desktop tables keep
+     their existing auto sizing. Short columns stay short, while long columns
+     become the table's own horizontal scroller instead of making the task list
+     wider. */
+  .task-card__desc.doc-md table[data-md-table-sizing="content-aware"] th,
+  .task-card__desc.doc-md table[data-md-table-sizing="content-aware"] td {
+    min-width: var(--md-table-column-min-width, auto);
+  }
+  .task-card__desc.doc-md table[data-md-table-sizing="content-aware"] th {
+    white-space: nowrap;
   }
   .task-step__name {
     overflow-wrap: anywhere;

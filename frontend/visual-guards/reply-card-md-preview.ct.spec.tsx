@@ -29,10 +29,11 @@ for (const width of [390, 1280]) {
     await page.setViewportSize({ width, height: 800 });
     const cmp = await mount(<ReplyCardMdPreviewStory />);
     await cmp.getByRole("button", { name: "design-proposal.md" }).click();
-    const panel = cmp.locator(".md-preview__panel");
+    const panel = page.locator(".md-preview__panel");
     await expect(panel).toBeVisible();
     await expect(
-      cmp.getByRole("heading", { name: "design-proposal.md" })
+      // The overlay portals to `document.body` (T-76cd) — reach it via `page`.
+      page.locator(".md-preview").getByRole("heading", { name: "design-proposal.md" })
     ).toBeVisible();
     // The panel must stay inside the viewport at THIS width — the owner's
     // named concern (narrow reply-card layout getting cramped).
@@ -76,12 +77,12 @@ for (const width of [390, 1280]) {
     await expect(btn).toBeFocused();
 
     await page.keyboard.press("Enter");
-    await expect(cmp.locator(".md-preview__panel")).toBeVisible();
+    await expect(page.locator(".md-preview__panel")).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(cmp.locator(".md-preview__panel")).toHaveCount(0);
+    await expect(page.locator(".md-preview__panel")).toHaveCount(0);
 
     await page.keyboard.press("Space");
-    await expect(cmp.locator(".md-preview__panel")).toBeVisible();
+    await expect(page.locator(".md-preview__panel")).toBeVisible();
   });
 }
 

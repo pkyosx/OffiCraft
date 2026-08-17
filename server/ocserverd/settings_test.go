@@ -268,21 +268,46 @@ func TestLoadAuthSettingsDisplayWide(t *testing.T) {
 
 func TestLoadAuthSettingsCtxOverrides(t *testing.T) {
 	d := newTestDAL(t)
+	// The retired keys (ctx.warn_pct / ctx.remind_step_pct, T-c382) are written
+	// here ON PURPOSE, as a stale row an old install would really have: the
+	// assertion below is what proves they now reach nothing.
 	for key, value := range map[string]string{
-		settingCtxWarnPct:       "55",
-		settingCtxHandoverPct:   "70",
-		settingCtxRemindStepPct: "8",
-		settingCtxMinBootSecs:   "60.5",
-		settingCtxStaleGuard:    "false",
+		"ctx.warn_pct":        "55",
+		settingCtxHandoverPct: "70",
+		"ctx.remind_step_pct": "8",
+		settingCtxMinBootSecs: "60.5",
+		settingCtxStaleGuard:  "false",
 	} {
 		if err := d.PutSetting(key, value); err != nil {
 			t.Fatal(err)
 		}
 	}
 	got, _ := loadForTest(t, d, defaultConfig())
-	want := SseContextHighConfig{WarnPct: 55, HandoverPct: 70, RemindStepPct: 8, MinBootSecs: 60.5, StaleGuard: false}
+	// NoticePct 60 is the UPGRADE fallback, not a default: no ctx.notice_pct row
+	// was written, so the pair is completed from the stored handover (70 - the
+	// T-c382 lead). An install whose owner had tuned the handover therefore
+	// keeps notifying exactly where it did before the pair existed.
+	want := SseContextHighConfig{NoticePct: 60, HandoverPct: 70, MinBootSecs: 60.5, StaleGuard: false}
 	if got.ctxhigh != want {
-		t.Fatalf("DB ctx overrides must apply: %+v", got.ctxhigh)
+		t.Fatalf("DB ctx overrides must apply, the retired keys must reach "+
+			"nothing, and the missing notice point must come from the stored "+
+			"handover: %+v", got.ctxhigh)
+	}
+
+	// An explicitly stored notice point WINS over that fallback — otherwise the
+	// owner's first number would be unsettable and the derivation permanent.
+	dPair := newTestDAL(t)
+	for key, value := range map[string]string{
+		settingCtxHandoverPct: "70",
+		settingCtxNoticePct:   "45",
+	} {
+		if err := dPair.PutSetting(key, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gotPair, _ := loadForTest(t, dPair, defaultConfig())
+	if gotPair.ctxhigh.NoticePct != 45 || gotPair.ctxhigh.HandoverPct != 70 {
+		t.Fatalf("a stored notice point must win over the upgrade fallback: %+v", gotPair.ctxhigh)
 	}
 
 	// Absent keys keep the oc.toml/default value.
@@ -291,9 +316,9 @@ func TestLoadAuthSettingsCtxOverrides(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := defaultConfig()
-	cfg.SseContextHigh.WarnPct = 45
+	cfg.SseContextHigh.MinBootSecs = 45
 	got2, _ := loadForTest(t, d2, cfg)
-	if got2.ctxhigh.WarnPct != 45 || got2.ctxhigh.HandoverPct != 70 || got2.ctxhigh.RemindStepPct != 5 {
+	if got2.ctxhigh.MinBootSecs != 45 || got2.ctxhigh.HandoverPct != 70 {
 		t.Fatalf("absent ctx keys must keep the config value: %+v", got2.ctxhigh)
 	}
 
@@ -306,21 +331,21 @@ func TestLoadAuthSettingsCtxOverrides(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg3 := defaultConfig()
-	cfg3.SseContextHigh.WarnPct = 45
-	cfg3.SseContextHighSet.WarnPct = true
+	cfg3.SseContextHigh.MinBootSecs = 45
+	cfg3.SseContextHighSet.MinBootSecs = true
 	cfg3.SseContextHigh.HandoverPct = 60
 	cfg3.SseContextHighSet.HandoverPct = true
 	got3, logs := loadForTest(t, d3, cfg3)
-	if v, err := d3.GetSetting(settingCtxWarnPct); err != nil || v == nil || *v != "45" {
+	if v, err := d3.GetSetting(settingCtxMinBootSecs); err != nil || v == nil || *v != "45" {
 		t.Fatalf("an explicitly-set knob must migrate into the DB: %v %v", v, err)
 	}
 	if v, err := d3.GetSetting(settingCtxHandoverPct); err != nil || v == nil || *v != "70" {
 		t.Fatalf("a pre-existing DB value must win over the file: %v %v", v, err)
 	}
-	if got3.ctxhigh.WarnPct != 45 || got3.ctxhigh.HandoverPct != 70 {
+	if got3.ctxhigh.MinBootSecs != 45 || got3.ctxhigh.HandoverPct != 70 {
 		t.Fatalf("runtime snapshot after migration: %+v", got3.ctxhigh)
 	}
-	if v, err := d3.GetSetting(settingCtxRemindStepPct); err != nil || v != nil {
+	if v, err := d3.GetSetting(settingCtxStaleGuard); err != nil || v != nil {
 		t.Fatalf("an unset knob must not be written: %v %v", v, err)
 	}
 	found := false

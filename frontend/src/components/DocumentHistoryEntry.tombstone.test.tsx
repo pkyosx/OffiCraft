@@ -31,6 +31,7 @@ import { zh } from "../i18n/locales/zh";
 import { DocumentHistoryEntry } from "./DocumentHistoryEntry";
 import { __resetMock, mockApi } from "../api/mock";
 import type { DocumentHistoryView, DocumentKind } from "../types";
+import { stubDocumentHistory } from "../test/documentHistory";
 
 const s = zh.settings;
 
@@ -55,7 +56,7 @@ async function openReader(opts: {
    * kind whose /seed route 404s). */
   seedFails?: boolean;
 }) {
-  vi.spyOn(mockApi, "listDocumentHistory").mockResolvedValue([opts.revision]);
+  stubDocumentHistory(mockApi, [opts.revision]);
   if (opts.seedFails) {
     vi.spyOn(mockApi, "getDocumentSeed").mockRejectedValue(
       new Error("seed GET failed")

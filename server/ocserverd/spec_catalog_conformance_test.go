@@ -73,6 +73,13 @@ import (
 // gate, which needs its own ticket and its own conformance run. Baselining keeps
 // this test fail-closed for anything NEW while staying loud about the debt.
 //
+// ⚠️ The list_task_manuals.view paragraph below is HISTORY, not current state:
+// T-1170 retired that parameter outright — the light row is the only answer the
+// tool gives now, so there is no lever left to advertise or to hide. It is kept
+// because the reasoning ("a lever that is the sole escape from an unreadable
+// default does not exist at all while it is off tools/list") is what argued the
+// default itself should change.
+//
 // ONE OF THE SIX IS REPAID: list_task_manuals.view is now advertised (T-a98d).
 // It was the entry that cost the most to leave sitting here — that tool's
 // DEFAULT answer is every manual in full, six figures of characters, and
@@ -182,10 +189,6 @@ type openapiSpec struct {
 	} `json:"components"`
 }
 
-// Keep this false legacy prose out of the map literal: gitleaks' generic-api-key
-// rule misclassifies the inline summary entry whose prose begins `Submit/replace`.
-const legacySubmitPlanDescription = "Submit/replace the workflow plan (done and answered-card steps are kept)."
-
 // knownToolDescriptionDrift records the known-inaccurate prose that predates
 // T-960d. Every nonempty entry is an already-known FALSE statement; an empty
 // entry records a missing summary. Neither is a correct example to copy. This
@@ -200,196 +203,20 @@ const legacySubmitPlanDescription = "Submit/replace the workflow plan (done and 
 // remains a visible, reviewable PR change. This guard compares prose only: it
 // cannot detect a handler's behavior drifting while its descriptions stay put.
 var knownToolDescriptionDrift = map[string]map[string]string{
-	"add_task_artifact": {
-		"openapi_summary": "",
-		"route_summary":   "Register a deliverable (file/image/link) onto the task's artifact set.",
-	},
 	"answer_reply_card": {
 		"openapi_summary": "Answer a waiting reply card — the only way a card closes.",
-	},
-	"claim_task": {
-		"openapi_summary": "Take over a reassigned task (the new executor claims it -- clears the reassigning lock).",
-		"route_summary":   "Take over a reassigned task (the new executor claims it — clears the reassigning lock).",
-	},
-	"create_reply_card": {
-		"openapi_summary": "Open a reply card: an ask the owner must answer (options ≤4, [0]=AI pick).",
-		"route_summary":   "Open a reply card: an ask the owner must answer (options ≤4, [0]=AI pick). Auto-binds to your single active task's current step when unambiguous — that step (and usually the task) enters waiting_owner until the owner answers.",
-	},
-	"create_role": {
-		"openapi_summary": "Create a custom role + its founding member (one pair per call).",
-		"route_summary":   "Create a custom role + its founding member (one pair per call).",
-	},
-	"create_task": {
-		"openapi_summary": "Create a task (dedupes on the manual's key; ad-hoc when type_key omitted).",
-		"route_summary":   "Create a task (dedupes on the manual's key; ad-hoc when type_key omitted).",
-	},
-	"create_task_manual": {
-		"openapi_summary": "Create a task type: pass display_name; the server mints and returns the tm- type_key id (legacy explicit type_key still accepted; duplicate → 409; assignee = owner/admin agent).",
-		"route_summary":   "Create a task type: pass display_name; the server mints and returns the tm- type_key id (legacy explicit type_key still accepted; duplicate → 409; assignee = owner/admin agent).",
 	},
 	"expire_reply_card": {
 		"openapi_summary": "Mark a waiting card expired (its author, the owner, or an admin agent; not an answer; terminal).",
 	},
-	"get_chat": {
-		"openapi_summary": "List the chat stream (?with=<id>&limit=<n>; oldest→newest).",
-		"route_summary":   "List the chat stream (?with=<id>&limit=<n>; oldest→newest).",
-	},
-	"get_chat_attachment_share_link": {
-		"openapi_summary": "Mint a permanent single-file share link (?sig= HMAC; grants read of this one attachment only).",
-		"route_summary":   "Mint a permanent single-file share link (?sig= HMAC; grants read of this one attachment only).",
-	},
-	"get_document_seed": {
-		"openapi_summary": "Read the shipped default of an editable document.",
-		"route_summary":   "Read the shipped default of an editable document.",
-	},
-	"get_insight": {
-		"openapi_summary": "Read a per-role insight doc (per role_key; may have a PER-ROLE factory seed).",
-		"route_summary":   "Read a per-role insight doc (per role_key; may have a PER-ROLE factory seed).",
-	},
-	"get_member_resume_summary": {
-		"openapi_summary": "Bounded LIGHT wake snapshot for a TARGET member (admin_agent+; same shape as resume_summary).",
-		"route_summary":   "Bounded LIGHT wake snapshot for a TARGET member (admin_agent+; same shape as resume_summary).",
-	},
-	"get_members": {
-		"openapi_summary": "List members, including outsource members by default; fields=light preserves kind.",
-		"route_summary":   "List the owner's roster (presence-derived MemberDTO[]).",
-	},
-	"get_task_manual": {
-		"openapi_summary": "Read one task manual (purpose/fields/SOP/learnings/assignee).",
-		"route_summary":   "Read one task manual (purpose/fields/SOP/learnings/assignee).",
-	},
-	"get_version": {
-		"openapi_summary": "Build identity: version + git sha + MCP catalog hash.",
-		"route_summary":   "Build identity: version + git sha + MCP catalog hash.",
-	},
-	"hire_member": {
-		"openapi_summary": "Hire a member (server mints the id). Pure seam, no UI (§9.1).",
-		"route_summary":   "Hire a member (server mints the id). Pure seam, no UI (§9.1).",
-	},
-	"list_document_history": {
-		"openapi_summary": "List retained versions of an editable document.",
-		"route_summary":   "List the retained history of an editable document.",
-	},
-	"list_reply_cards": {
-		"openapi_summary": "List reply cards — LIGHT rows (?status=waiting|answered|expired; ?limit= caps; get_reply_card for full).",
-		"route_summary":   "List reply cards — LIGHT rows: summary+decision digest, no body/options (?status=waiting|answered|expired; ?limit= caps; get_reply_card for full).",
-	},
-	"list_task_manuals": {
-		"openapi_summary": "List task types (match by display_name/purpose; address by type_key).",
-		"route_summary":   "List task types (match by display_name/purpose; address by type_key).",
-	},
-	"list_tasks": {
-		"openapi_summary": "List tasks (?executor=&type=&status=; light list items — get_task for full).",
-		"route_summary":   "List tasks (?executor=&type=&status=; light list items — get_task for full).",
-	},
-	"mark_duplicate": {
-		"openapi_summary": "Mark a task duplicated, pointing at the original (executor/owner; terminal).",
-		"route_summary":   "Mark a task duplicated, pointing at the original (executor/owner; terminal).",
-	},
-	"open_gate": {
-		"openapi_summary": "Arm a gate step: opens the reply card the owner must answer.",
-		"route_summary":   "Arm a gate step: opens the reply card the owner must answer.",
-	},
-	"patch_insight": {
-		"openapi_summary": "Patch a per-role insight doc by unique anchors ({edits:[{old,new}]}).",
-		"route_summary":   "Patch a per-role insight doc by unique anchors ({edits:[{old,new}]}).",
-	},
-	"patch_task_learnings": {
-		"openapi_summary": "Patch a type's learnings by unique anchors ({edits:[{old,new}]}).",
-		"route_summary":   "Patch a type's learnings by unique anchors ({edits:[{old,new}]}).",
-	},
-	"peek_doc_sizes": {
-		"openapi_summary": "Size-only overview of every capped document (each against its own cap; NO content; role lessons = DEFAULT bucket only).",
-		"route_summary":   "Size-only overview of every capped document (each against its own cap; NO content; role lessons = DEFAULT bucket only).",
-	},
-	"peek_resume_summary_size": {
-		"openapi_summary": "Size-only PEEK of the wake snapshot (overview counts/sizes + estimated_total_chars, NO content).",
-		"route_summary":   "Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO content) — size resume_summary before pulling it.",
-	},
-	"post_chat": {
-		"openapi_summary": "Post a chat message (sender = verified JWT sub; auto SSE fan-out).",
-		"route_summary":   "Post a chat message (sender = verified JWT sub; auto SSE fan-out).",
-	},
-	"reassign_task": {
-		"openapi_summary": "Reassign a task to a member or a fresh outsource worker (the task's executor or an admin; an outsource target lands the task unassigned for the scheduler to spawn under the global parallel cap; enters the reassigning handover state).",
-		"route_summary":   "Reassign a task to a member or a fresh outsource worker (the task's executor or an admin; outsource targets pass the owner-approval gate; enters the reassigning handover state).",
-	},
 	"refocus_outsource_worker": {
 		"openapi_summary": "Refocus (換手) an outsource worker's context (owner/admin agent, online-only else 409).",
-	},
-	"relocate_member": {
-		"openapi_summary": "Relocate a member to a machine (placement only; never touches desired_state). Also accepts an outsource-worker id: the same move-one-agent verb relocates the worker.",
-		"route_summary":   "Relocate a member to a machine (placement only; never touches desired_state). Also accepts an outsource-worker id: the same move-one-agent verb relocates the worker.",
-	},
-	"remove_task_artifact": {
-		"openapi_summary": "",
-		"route_summary":   "Remove one artifact from a task's set (executor/owner/admin).",
-	},
-	"replace_global_context": {
-		"openapi_summary": "Whole-block replace of the user-custom additive block ({text}).",
-		"route_summary":   "Whole-block replace of the user-custom additive block ({text}).",
-	},
-	"replace_insight": {
-		"openapi_summary": "Whole-doc replace of a per-role insight doc ({text}).",
-		"route_summary":   "Whole-doc replace of a per-role insight doc ({text}).",
-	},
-	"replace_lessons": {
-		"openapi_summary": "Whole-doc replace of a per-role lessons doc ({text}).",
-		"route_summary":   "Whole-doc replace of a per-role lessons doc ({text}).",
-	},
-	"reset_insight": {
-		"openapi_summary": "Reset a per-role insight doc to its factory seed (idempotent tombstone overlay).",
-		"route_summary":   "Reset a per-role insight doc to its factory seed (idempotent tombstone overlay).",
-	},
-	"resume_summary": {
-		"openapi_summary": "Bounded LIGHT wake snapshot for the caller (what it carries is enumerated in the description, not here).",
-		"route_summary":   "Bounded LIGHT wake snapshot for the caller (identity-locked; what it carries is enumerated in the description, not here).",
-	},
-	"set_task_priority": {
-		"openapi_summary": "Set a task's priority (owner/admin agent any value; the executor any value on their own task — frozen included, T-6020).",
-		"route_summary":   "Set a task's priority (owner/admin agent any value; the executor any value on their own task — frozen included, T-6020).",
 	},
 	"stop_outsource_worker": {
 		"openapi_summary": "Stop (停止) an outsource worker (owner/admin agent; kill + hold down).",
 	},
-	"submit_plan": {
-		"openapi_summary": legacySubmitPlanDescription,
-		"route_summary":   "Submit/replace the workflow plan (done steps are kept).",
-	},
-	"uninstall_warden_on_server_host": {
-		"openapi_summary": "Teardown on server: run ocwarden teardown on the server's OWN host; machine_id is not a target selector and every target is currently refused (409).",
-		"route_summary":   "Teardown on server: run ocwarden teardown on the server's OWN host; machine_id is not a target selector and every target is currently refused (409).",
-	},
-	"update_member": {
-		"openapi_summary": "Edit a member (name / model / effort). Blank name / bad effort → 422.",
-		"route_summary":   "Edit a member (name / model / effort). Blank name / bad effort → 422.",
-	},
 	"update_settings": {
 		"route_summary": "Edit settings (owner and agent token TTLs / handover threshold); live immediately.",
-	},
-	"update_step_note": {
-		"openapi_summary": "Write a step's working note (any status; wholesale replace).",
-		"route_summary":   "Write a step's working note (any status; wholesale replace).",
-	},
-	"update_step_status": {
-		"openapi_summary": "Report a step status (pending/in_progress/done).",
-		"route_summary":   "Report a step status (pending/in_progress/done).",
-	},
-	"update_task_description": {
-		"openapi_summary": "Correct a task's description (executor/admin; closed tasks included).",
-		"route_summary":   "Correct a task's description (executor/admin; closed tasks included).",
-	},
-	"update_task_manual": {
-		"openapi_summary": "Edit a task manual (partial; content fields agent-editable; assignee = owner/admin agent).",
-		"route_summary":   "Edit a task manual (partial; content fields agent-editable; assignee = owner/admin agent).",
-	},
-	"update_task_title": {
-		"openapi_summary": "Correct a task's title (executor/admin; closed tasks included).",
-		"route_summary":   "Correct a task's title (executor/admin; closed tasks included).",
-	},
-	"write_task_learnings": {
-		"openapi_summary": "Whole-doc replace of a type's learnings (task-close write-back).",
-		"route_summary":   "Whole-doc replace of a type's learnings (task-close write-back).",
 	},
 }
 

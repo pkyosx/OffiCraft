@@ -33,10 +33,19 @@ var tokenTTLWhitelist = map[int]bool{
 	2592000: true,
 }
 
-// handover_pct bounds: the warn band sits at 40 (ctx.warn_pct default) — a
-// handover threshold below it would fire before the warning.
+// handover_pct bounds. The floor is no longer about out-ordering a separate
+// warn threshold (that knob is gone — T-c382): the advance notice is now
+// DERIVED as handover_pct - handoverNoticeLeadPct, so the two can never invert.
+// 40 remains the floor because the notice must still land somewhere useful —
+// below it the lead would put the notice on a barely-used gauge, and at
+// handoverNoticeLeadPct or less there would be no notice at all.
 const (
-	minHandoverPct              = 40
+	minHandoverPct = 40
+	// minNoticePct is deliberately 1, not 40: the SOFT notice is an invitation
+	// to start closing out, and an owner who wants it early should get it early.
+	// What actually protects the pair is the ordering check (notice strictly
+	// below final), not a floor.
+	minNoticePct                = 1
 	maxHandoverPct              = 90
 	minCodexCompactionThreshold = 1
 	maxCodexCompactionThreshold = 10
@@ -275,8 +284,68 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		writeError(w, http.StatusUnprocessableEntity, "handover_pct must be between 40 and 90")
 		return
 	}
+	if body.NoticePct != nil &&
+		(*body.NoticePct < minNoticePct || *body.NoticePct > maxHandoverPct-1) {
+		writeError(w, http.StatusUnprocessableEntity, "notice_pct must be between 1 and 89")
+		return
+	}
 	if body.CodexCompactionThreshold != nil && (*body.CodexCompactionThreshold < minCodexCompactionThreshold || *body.CodexCompactionThreshold > maxCodexCompactionThreshold) {
 		writeError(w, http.StatusUnprocessableEntity, "codex_compaction_threshold must be between 1 and 10")
+		return
+	}
+	if body.CodexNoticeRound != nil && (*body.CodexNoticeRound < minCodexCompactionThreshold || *body.CodexNoticeRound > maxCodexCompactionThreshold) {
+		writeError(w, http.StatusUnprocessableEntity, "codex_notice_round must be between 1 and 10")
+		return
+	}
+	// The two offboard points are a PAIR and are checked against the POST-PATCH
+	// values, not against whatever arrived in this body: either one may be sent
+	// alone, and what must hold is that the SOFT notice still lands strictly
+	// before the FINAL one. A pair that crosses is REFUSED rather than quietly
+	// reordered — silently swapping them would leave the owner looking at a
+	// cockpit that disagrees with when his agents actually get notified. Same
+	// rule on both axes; codex measures in rounds because that is what its
+	// handover reads.
+	//
+	// Both sides read the EFFECTIVE current value, not the raw stored one: a
+	// server whose pair has never been written holds zeroes, and comparing
+	// those would refuse an unrelated patch (org_name, a doc cap) with a
+	// complaint about numbers the caller never sent.
+	ctxNow := s.ctxHighConfig()
+	shipped := defaultSseContextHigh()
+	noticePct, handoverPct := ctxNow.NoticePct, ctxNow.HandoverPct
+	if handoverPct <= 0 {
+		handoverPct = shipped.HandoverPct
+	}
+	if noticePct <= 0 {
+		noticePct = shipped.NoticePct
+	}
+	if body.NoticePct != nil {
+		noticePct = *body.NoticePct
+	}
+	if body.HandoverPct != nil {
+		handoverPct = *body.HandoverPct
+	}
+	if noticePct >= handoverPct {
+		writeError(w, http.StatusUnprocessableEntity,
+			"notice_pct must be strictly below handover_pct")
+		return
+	}
+	noticeRound, finalRound := s.codexNoticeRoundSetting(), s.codexCompactionThresholdSetting()
+	if finalRound < 1 {
+		finalRound = defaultCodexCompactionThreshold
+	}
+	if noticeRound < 1 {
+		noticeRound = finalRound - 1
+	}
+	if body.CodexNoticeRound != nil {
+		noticeRound = *body.CodexNoticeRound
+	}
+	if body.CodexCompactionThreshold != nil {
+		finalRound = *body.CodexCompactionThreshold
+	}
+	if noticeRound >= finalRound {
+		writeError(w, http.StatusUnprocessableEntity,
+			"codex_notice_round must be strictly below codex_compaction_threshold")
 		return
 	}
 	if body.MonitoringRefreshSeconds != nil && (*body.MonitoringRefreshSeconds < minMonitoringRefreshSeconds || *body.MonitoringRefreshSeconds > maxMonitoringRefreshSeconds) {
@@ -310,6 +379,9 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		{body.DocCapCharsLearning, "doc_cap_chars_learning", minDocCapChars},
 		{body.DocCapCharsManualSop, "doc_cap_chars_manual_sop", minDocCapChars},
 		{body.DocCapCharsManualLearnings, "doc_cap_chars_manual_learnings", minDocCapChars},
+		{body.DocCapCharsSystemInteraction, "doc_cap_chars_system_interaction", minSystemInteractionCapChars},
+		{body.DocCapCharsBootSequence, "doc_cap_chars_boot_sequence", minBootSequenceCapChars},
+		{body.DocCapCharsOffboard, "doc_cap_chars_offboard", minOffboardCapChars},
 	}
 	for _, c := range capRange {
 		if c.field != nil && (*c.field < c.min || *c.field > maxDocCapChars) {
@@ -318,6 +390,23 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 					c.name, c.min, maxDocCapChars))
 			return
 		}
+	}
+	// chat_budget_chars (T-c9b4) is checked on its own and NOT as a row in the
+	// table above: it has its own ceiling, and the message above ("the floor is
+	// the shipped default … can only be raised") would be a lie about it. The
+	// chat block is repacked from scratch on every read, so lowering the budget
+	// costs nothing that the doc caps' floor rule exists to protect — the owner
+	// asked for a knob he can turn DOWN.
+	//
+	// 🔴 maxChatBudgetChars is pinned to resumeChatFetch (see domain.go). Raising
+	// it here without raising that constant first breaks the packer's guarantee
+	// that it never runs out of candidates before it runs out of budget.
+	if body.ChatBudgetChars != nil &&
+		(*body.ChatBudgetChars < minChatBudgetChars || *body.ChatBudgetChars > maxChatBudgetChars) {
+		writeError(w, http.StatusUnprocessableEntity,
+			fmt.Sprintf("chat_budget_chars must be between %d and %d characters",
+				minChatBudgetChars, maxChatBudgetChars))
+		return
 	}
 	var orgName string
 	if body.OrgName != nil {
@@ -408,6 +497,14 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		}
 		s.ctxhigh.HandoverPct = *body.HandoverPct
 	}
+	if body.NoticePct != nil {
+		if err := s.dal.PutSetting(settingCtxNoticePct, strconv.Itoa(*body.NoticePct)); err != nil {
+			s.settingsMu.Unlock()
+			internalError(w, err)
+			return
+		}
+		s.ctxhigh.NoticePct = *body.NoticePct
+	}
 	if body.CodexCompactionThreshold != nil {
 		if err := s.dal.PutSetting(settingCodexCompactionThreshold, strconv.Itoa(*body.CodexCompactionThreshold)); err != nil {
 			s.settingsMu.Unlock()
@@ -415,6 +512,14 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			return
 		}
 		s.codexCompactionThreshold = *body.CodexCompactionThreshold
+	}
+	if body.CodexNoticeRound != nil {
+		if err := s.dal.PutSetting(settingCodexNoticeRound, strconv.Itoa(*body.CodexNoticeRound)); err != nil {
+			s.settingsMu.Unlock()
+			internalError(w, err)
+			return
+		}
+		s.codexNoticeRound = *body.CodexNoticeRound
 	}
 	if body.MonitoringRefreshSeconds != nil {
 		if err := s.dal.PutSetting(settingMonitoringRefreshSeconds, strconv.Itoa(*body.MonitoringRefreshSeconds)); err != nil {
@@ -443,6 +548,10 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		{body.DocCapCharsLearning, settingDocCapCharsLearning, &s.docCapCharsLearning},
 		{body.DocCapCharsManualSop, settingDocCapCharsManualSop, &s.docCapCharsManualSop},
 		{body.DocCapCharsManualLearnings, settingDocCapCharsManualLearnings, &s.docCapCharsManualLearnings},
+		{body.DocCapCharsSystemInteraction, settingDocCapCharsSystemInteraction, &s.docCapCharsSystemInteraction},
+		{body.DocCapCharsBootSequence, settingDocCapCharsBootSequence, &s.docCapCharsBootSequence},
+		{body.DocCapCharsOffboard, settingDocCapCharsOffboard, &s.docCapCharsOffboard},
+		{body.ChatBudgetChars, settingChatBudgetChars, &s.chatBudgetChars},
 	}
 	for _, c := range capWrite {
 		if c.field == nil {
@@ -577,26 +686,32 @@ func (s *apiServer) settingsView() settingsDTO {
 		customThemes = []ThemeBundleDTO{}
 	}
 	return settingsDTO{
-		OwnerTokenTTL:              s.ownerTokenTTL,
-		AgentTokenTTL:              s.agentTokenTTL,
-		HandoverPct:                s.ctxhigh.HandoverPct,
-		CodexCompactionThreshold:   s.codexCompactionThreshold,
-		MonitoringRefreshSeconds:   s.monitoringRefreshSeconds,
-		OutsourceMaxParallel:       s.outsourceMaxParallel,
-		DocCapCharsDuty:            s.docCapCharsDuty,
-		DocCapCharsInsight:         s.docCapCharsInsight,
-		DocCapCharsLearning:        s.docCapCharsLearning,
-		DocCapCharsManualSop:       s.docCapCharsManualSop,
-		DocCapCharsManualLearnings: s.docCapCharsManualLearnings,
-		UpdaterReceiveBeta:         s.updaterReceiveBeta,
-		UpdaterAutoUpdate:          s.updaterAutoUpdate,
-		OrgName:                    s.orgName,
-		OwnerName:                  s.ownerName,
-		PushContactEmail:           s.pushContactEmail,
-		DisplayTheme:               s.displayTheme,
-		DisplayLanguage:            s.displayLanguage,
-		DisplayWide:                s.displayWide,
-		CustomThemes:               customThemes,
+		OwnerTokenTTL:                s.ownerTokenTTL,
+		AgentTokenTTL:                s.agentTokenTTL,
+		HandoverPct:                  s.ctxhigh.HandoverPct,
+		NoticePct:                    s.ctxhigh.NoticePct,
+		CodexCompactionThreshold:     s.codexCompactionThreshold,
+		CodexNoticeRound:             s.codexNoticeRound,
+		MonitoringRefreshSeconds:     s.monitoringRefreshSeconds,
+		OutsourceMaxParallel:         s.outsourceMaxParallel,
+		DocCapCharsDuty:              s.docCapCharsDuty,
+		DocCapCharsInsight:           s.docCapCharsInsight,
+		DocCapCharsLearning:          s.docCapCharsLearning,
+		DocCapCharsManualSop:         s.docCapCharsManualSop,
+		DocCapCharsManualLearnings:   s.docCapCharsManualLearnings,
+		DocCapCharsSystemInteraction: s.docCapCharsSystemInteraction,
+		DocCapCharsBootSequence:      s.docCapCharsBootSequence,
+		DocCapCharsOffboard:          s.docCapCharsOffboard,
+		ChatBudgetChars:              s.chatBudgetChars,
+		UpdaterReceiveBeta:           s.updaterReceiveBeta,
+		UpdaterAutoUpdate:            s.updaterAutoUpdate,
+		OrgName:                      s.orgName,
+		OwnerName:                    s.ownerName,
+		PushContactEmail:             s.pushContactEmail,
+		DisplayTheme:                 s.displayTheme,
+		DisplayLanguage:              s.displayLanguage,
+		DisplayWide:                  s.displayWide,
+		CustomThemes:                 customThemes,
 		// Read from the DAL, NOT from the settings snapshot: onboarding runs in
 		// its own goroutine and finishes after this handler returned, so a
 		// boot-time snapshot would serve a permanently stale "running".

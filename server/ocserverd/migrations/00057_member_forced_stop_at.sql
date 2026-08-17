@@ -1,0 +1,33 @@
+-- +goose Up
+-- T-a9d6 — the record that a session was CUT OFF rather than collected.
+--
+-- Every other offboard path now ends with the agent having been shown the
+-- 下線程序 and given room to work it: context pressure, the owner's 下線, the
+-- owner's 重新聚焦. Force-stop is the one that deliberately does not — it sends
+-- no notice at all (owner 2026-08-16: 「強制還需要發訊息嗎」 → no, the recipient
+-- is about to stop existing, so a sentence written to change its behaviour has
+-- no one to change).
+--
+-- What that costs is a fact nobody could see afterwards. A session killed
+-- mid-work leaves exactly what a session that had nothing to write leaves:
+-- no hand-off chat, no fresh step note, no folded lesson. The next generation
+-- reads the same empty task and concludes the work was never started, and the
+-- cockpit shows a member that stopped. This column is the difference between
+-- those two, and it is the only place it exists.
+--
+--   0      never force-stopped (every pre-column row starts here, which is the
+--          honest state: nothing was recorded for them).
+--   >0     unix seconds of the LAST force-stop.
+--
+-- 🔴 Deliberately NOT cleared on the next boot, unlike waking/stopping/stopped
+-- /refocus. Those anchors describe the session that carries them; this one
+-- describes the session BEFORE it, and the reader who needs it most is the one
+-- that comes after. Clearing it on report_waking would erase it at exactly the
+-- moment it becomes useful.
+--
+-- On the wire as MemberDTO.forced_stop_at (additive-optional) so the cockpit
+-- can show it; a constant-DEFAULT ADD COLUMN (cheap metadata op, no rebuild).
+ALTER TABLE member ADD COLUMN forced_stop_at REAL NOT NULL DEFAULT 0;
+
+-- +goose Down
+ALTER TABLE member DROP COLUMN forced_stop_at;

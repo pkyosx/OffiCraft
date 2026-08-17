@@ -61,7 +61,6 @@ function makeMember(lifecycle: MemberLifecycle): Member {
         : lifecycle;
   return {
     id: "m1",
-    memberId: "m1",
     name: "Mira",
     role: "assistant",
     status,

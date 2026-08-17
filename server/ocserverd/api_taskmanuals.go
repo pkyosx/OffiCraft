@@ -173,28 +173,27 @@ func (s *apiServer) callerMaySetAssignee(r *http.Request) bool {
 const assigneeGovernanceMsg = "assignee is owner/admin-agent governance — " +
 	"a plain agent may not set who executes a task type"
 
-// GET /api/task-manuals — the type cards (full DTOs; the list view shows
-// type_key + purpose, the rest rides along — one DTO, no second shape).
+// GET /api/task-manuals — the type rows. The catalogue and the bodies are
+// separate reads: this answers WHICH types exist and how big each one's two
+// long documents are; the SOP and the learnings themselves come one type at a
+// time from get_task_manual.
 //
-// ?view=list (T-ec2c) is the ADDITIVE light projection for the surfaces that
-// only need the type identity — the tasks/office 類型 filter (listTaskTypes
-// reads type_key / display_name / purpose) — NOT the full manual body. It
-// keeps the SAME taskManualDTO wire shape (additive, no new response schema)
-// but HONEST-EMPTIES the heavy authored blobs the identity view never shows:
-// sop_md, learnings (both free-form markdown, the bulk of a manual's bytes),
-// fields, and assignee. The full-body consumers (設定 › 任務手冊 detail via the
-// per-type GET, and any caller omitting the param) are byte-for-byte
-// unchanged. The matching FE change stops the office 外包 panel from
-// re-pulling this endpoint on chat SSE deltas at all (a chat line changes no
-// manual) — together the office page's per-message re-download collapses.
-func (s *apiServer) HandleListTaskManualsApiTaskManualsGet(w http.ResponseWriter, r *http.Request, params HandleListTaskManualsApiTaskManualsGetParams) {
+// This used to answer with the FULL manual of every type by default and offer
+// the light row behind ?view=list. A default is where the cost actually lands,
+// so the light row IS the answer now and the parameter is gone: an opt-in flag
+// left the expensive shape as the thing every naive caller got.
+//
+// It is NOT the old ?view=list row verbatim — that one blanked `fields` and
+// `assignee` too, which merely forced a per-row second request for two small
+// bounded values. Only the two free-form markdown blobs are dropped, and their
+// SIZES and CAPS stay on every row.
+func (s *apiServer) HandleListTaskManualsApiTaskManualsGet(w http.ResponseWriter, r *http.Request) {
 	manuals, err := s.dal.ListTaskManuals()
 	if err != nil {
 		internalError(w, err)
 		return
 	}
-	list := trimmedOrEmpty(params.View) == "list"
-	out := []taskManualDTO{}
+	out := []taskManualListItemDTO{}
 	// Read each cap ONCE for the whole listing: per-row reads could straddle a
 	// PATCH and hand back one list quoting two different caps for the same
 	// segment. The two segments' caps are still read independently — they are
@@ -203,11 +202,7 @@ func (s *apiServer) HandleListTaskManualsApiTaskManualsGet(w http.ResponseWriter
 	sopCapChars := s.manualSopCap()
 	learningsCapChars := s.manualLearningsCap()
 	for _, m := range manuals {
-		if list {
-			out = append(out, newTaskManualListItemDTO(m, sopCapChars, learningsCapChars))
-			continue
-		}
-		dto, err := newTaskManualDTO(m, sopCapChars, learningsCapChars)
+		dto, err := newTaskManualListItemDTO(m, sopCapChars, learningsCapChars)
 		if err != nil {
 			internalError(w, err)
 			return

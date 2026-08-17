@@ -88,10 +88,10 @@ import sys
 
 path = Path(sys.argv[1])
 text = path.read_text(encoding="utf-8")
-needle = "The station's own build identity:"
-if text.count(needle) != 2:
-    raise SystemExit(f"expected x-mcp description and legacy descriptor, found {text.count(needle)}")
-text = text.replace(needle, "MUTANT station build identity:")
+needle = "Read the build identity this station is RUNNING:"
+if text.count(needle) != 3:
+    raise SystemExit(f"expected summary, x-mcp description and legacy descriptor, found {text.count(needle)}")
+text = text.replace(needle, "MUTANT Read the build identity this station is RUNNING:")
 path.write_text(text, encoding="utf-8")
 PY
 
@@ -108,7 +108,7 @@ fi
 if ! diff -u "$CATALOG" "$AUTHORITY_OUTPUT" >"$WORK/authority.diff"; then
   :
 fi
-if ! grep -q 'MUTANT station build identity:' "$WORK/authority.diff"; then
+if ! grep -q 'MUTANT Read the build identity this station is RUNNING:' "$WORK/authority.diff"; then
   echo "[mcp-catalog-test] FAIL — legacy-bootstrap diff did not name the mutated descriptor"
   cat "$WORK/authority.diff"
   exit 1
@@ -122,10 +122,10 @@ import sys
 
 path = Path(sys.argv[1])
 text = path.read_text(encoding="utf-8")
-needle = "The station's own build identity"
+needle = "Read the build identity this station is RUNNING:"
 if text.count(needle) != 1:
     raise SystemExit(f"expected one catalog description to mutate, found {text.count(needle)}")
-path.write_text(text.replace(needle, "MUTANT station build identity"), encoding="utf-8")
+path.write_text(text.replace(needle, "MUTANT Read the build identity this station is RUNNING:"), encoding="utf-8")
 PY
 
 MUTANT_GATE_OUTPUT="$WORK/catalog-gate-output.json"
@@ -141,7 +141,7 @@ fi
 if ! diff -u "$MUTANT_CATALOG" "$MUTANT_GATE_OUTPUT" >"$WORK/drift.diff"; then
   :
 fi
-if ! grep -q 'MUTANT station build identity' "$WORK/drift.diff"; then
+if ! grep -q 'MUTANT Read the build identity this station is RUNNING:' "$WORK/drift.diff"; then
   echo "[mcp-catalog-test] FAIL — catalog gate diff did not name the mutated descriptor"
   cat "$WORK/drift.diff"
   exit 1

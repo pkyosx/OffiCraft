@@ -1,65 +1,26 @@
 # e2e_test/ — Playwright 端到端
 
-進入 `e2e_test/` 時 nested-load。repo-wide 憲章見 root `CLAUDE.md`;本檔記 e2e 專屬。
+進入 `e2e_test/` 時讀本檔；repo-wide 規則在根目錄 `CLAUDE.md`。本檔只保留 e2e harness 會讓實作者猜錯的隔離、生命週期與驗證邊界。
 
-## target:Go(唯一)
-Go(ocserverd)是唯一 target(py leg 已隨 Python backend 退役;那段歷史不在本 repo,沒有回滾錨點):`bash run_all.sh`(`OC_E2E_TARGET=go` 仍可顯式指定;其他值 fail loud)。:8791 / repo-root oc.toml / fresh-DB 生命週期 / EXACT-PID teardown;流程 = stage SPA→webdist + docs→docsdist + seeds→seedsdist + binaries/MCP catalog→bindist → go build 進 `.state/` → goose migrate → serve。四種 embed asset 一律先 stage；漏 seedsdist 會讓真 agent boot persona 缺檔，漏 bindist 會讓 MCP `tools/list` 回 catalog unavailable 且 warden binary route 503。
+## 1. target 與一次 run
 
-## 誰會自動跑這套(T-ff8a)
-`bin/ci.sh` **不跑 playwright spec**(只跑 `tests_guard/run.sh` 那套 hermetic 守衛)。⚠️ **但別把這句
-讀成「本機那一輪跟 `run_all.sh` 無關」**:`tests_guard` 會把 `run_all.sh` **複製進拋棄式樹實際執行**
-(走 record-only seam),並靜態釘住它的 **wiring shape**——`RC=$?` 必須緊接在 `playwright test` 那行、
-`[run_all] specs exit=$RC` 又緊接其後,以及 EXIT trap 必須經 `oc_e2e_teardown_on_exit` 這道閘而不是直接
-叫 `teardown.sh`。**實測**:在 `playwright test` 與 `RC=$?` 中間插一行 ⇒ FAIL=2 rc=1;把 trap 改成直接叫
-`teardown.sh` ⇒ FAIL=4 rc=1。<br>
-⇒ **本機綠證明的是那幾條 wiring,不證明任何一支 spec 跑過**(那一輪一支都沒跑)。**spec 面的驗收是 PR 上
-`macos-e2e` 那一輪與它的 log。** 要在本機把 spec 真的跑起來,那一輪是 `bash bin/local-ci.sh`(＝`bin/ci.sh` ＋ 這一套;`--live-agent` 才會花錢),
-**但它不是自動的、也不是每次都跑**——它是出 GA 前、或改到 live-agent 行為時才跑的那一支。
-至於 `assert-specs-ran.sh`,⚠️ **舊文寫「本機完全碰不到、唯一呼叫者是 `ci.yml`」,T-4d88 之後不成立**:
-`bin/local-ci.sh` 也會把 run_all 的 log 交給它。呼叫者是一條查詢、不是一句話——`git grep -nF assert-specs-ran.sh`,
-而且只算**真的呼叫**、不算註解裡提到它。自動關卡在
-**`.github/workflows/ci.yml` 的 `macos-e2e` job**:macOS runner、`pull_request` **與 push-to-`main`**
-兩個觸發都跑(T-ab2a 補上後者;`main` 上不 cancel-in-progress,見那個檔的註解),
-**那個 job 什麼旗標都不用設**(T-c329):要**活的 agent** 的 spec 是**預設不跑**的,所以雲端不必
-「記得排除」——它只是從來沒有要求花錢。🔴 **要跑那一類得自己帶 `OC_E2E_LIVE_AGENT=1`,而那會
-spawn 真 agent、燒真 API 額度(真的花錢)。** 成員資格由 spec **自己用檔名宣告**
-(`*.live-agent.spec.js`),`playwright.config.js` 裡**沒有檔名清單**——清單會讓下一支忘記登記的
-spec 預設偷偷跑、偷偷花錢。判定是嚴格 `=== '1'`,所以 `true`/`yes` 這種打錯字一律落到
-「沒跑、沒花錢」。
-⚠️ **所以這一類 e2e 沒有任何自動守衛在跑它——而那是 owner 看過選項後刻意否決的決定,不是待補的缺口**
-(卡 `rc-d51e755d3207`)。要「補上」它就是在推翻一個已經做過的裁定,不是補一個洞。**這句話刻意不提
-這一類今天有幾支 spec**——成員資格由上面那個檔名後綴自己宣告,所以它不隨數量變。
-⚠️ **舊做法反過來、而且是這張票要修的 bug**:以前是 `OC_E2E_EXCLUDE_REAL_FLEET=1` 這個**排除**旗標、
-且**只設在 `ci.yml`** ⇒ 雲端有防護、每台筆電都沒有,本機跑一輪就靜靜 spawn 真 agent 並付錢
-(2026-08-05 實際發生過)。**防護只存在於某一條路徑上,等於另一條路徑從來沒有防護。**
-兩個前提由 repo 裡的具名腳本負責,**不靠人記得**:
-- `gen-oc-toml.sh` 生 gitignored 的 `oc.toml`(port 8791 ＋ repo-local DSN,也就是 setup.sh
-  兩道 prod guard 要的東西);**已存在就拒絕覆蓋**——那可能是開發者指向正式 DB 的真設定。
-- `assert-specs-ran.sh` 在 job 綠之後再問一次「到底有沒有跑」:沒有 `N passed` 統計、低於下限、
-  或**那一類 live-agent spec 在沒被要求的情況下竟然跑了**,都判紅。**rc == 0 只回答「沒有東西失敗」,
-  不回答「有東西跑過」。** 它比對的是**檔名後綴**(不是某一支的標題——標題會被改寫,守衛就會盯著一個
-  沒人再寫的字串而什麼都不報);而**帶了 `OC_E2E_LIVE_AGENT=1` 的人它會放行**,不然主動選擇花錢的人
-  會撞到一道對他報 FATAL、還引用一個他從沒設過的旗標的守衛。
-`workers` 已釘死 **1**(見 `playwright.config.js` 註解:整套共用一台 server／一顆 SQLite,
-並行 7 → 7 紅、序列 → 4 紅,假紅會讓一個新閘一週內被關掉)。
+- Go `ocserverd` 是唯一 target；入口是 `bash e2e_test/run_all.sh`。每輪使用隔離 port（預設由 e2e config 指定）、repo-local SQLite、臨時 owner password、fresh DB、exact-PID teardown；不能碰 repo 根 config 或 production server。產生隔離 `oc.toml` 時已有檔案要拒絕覆蓋，因為它可能正指向正式 DB。
+- setup 必須在 server 前 stage 全部 embed assets：SPA→`webdist`、docs→`docsdist`、seeds→`seedsdist`、binaries/catalog→`bindist`，再 fresh build/migrate/serve。缺一項可能讓 server 起得來但 agent boot、MCP catalog 或 binary route 假綠／假紅。
+- 失敗時 teardown 仍跑，但只處理本輪捕獲的 listener/process；不能用模糊 process kill。prod safety 依 `lib/common.sh` 從現行 source 取得 production ports、identity、residue 與 explicit isolation/destructiveness ack，不能把某個歷史 port 當唯一防線。
 
-## seven_gate/ — 任務路徑關卡(另一條路徑,不在 playwright 套件裡)
-`seven_gate/` 驗的是「一個只讀開機說明的 agent,能不能把一條真實任務路徑走完」
-(路徑固定幾格、每格讀哪個 server 事實,以 `seven_gate/judge.py` 的 `STEPS` 為準——**這裡刻意不複製
-一份步驟清單**,那種清單會過期;資料夾名裡的「七」就是這樣過期的),判定**只讀 server 上的
-事實**、不問 agent。它不是 spec、不在 `run_all.sh`、也不在 `bin/ci.sh` 的服務型步驟裡——CI 守的是它的
-**判定邏輯**(`tests_guard` 案例 21,hermetic、不起服務)。候選開機說明用 `OC_SEEDS_SRC` 換,不動
-被追蹤的 `seeds/`。設計、每一格各讀哪個事實、產物放哪、以及**哪些部分還沒有真 agent 驗證過**,見
-`seven_gate/CLAUDE.md`。
+## 2. CI、本機與 live-agent 分界
 
-## 鐵律:絕不碰 prod
-e2e 一律跑**隔離 port / 隔離 server**(如 `:8791`),**絕不**碰 prod(officraft live 現跑 `:7755`,`:8766` vibe;`:8770` 是 2026-07-20 退役的舊 prod 埠)。造真實素材(真 `ocwarden run`、真 claude spawn)但全在隔離環境。spec 進 repo = 永久回歸守衛。
+- `bin/ci.sh` 的 e2e 相關守衛會在 disposable tree 執行/檢查 `run_all.sh` wiring；它不代表 Playwright specs 已跑。spec 的自動驗收由 workflow 的 macOS e2e job 與其 log 證明，本機要真的跑整套可用 `bin/local-ci.sh`。
+- `run_all.sh` 必須把 Playwright rc 立即保存並印出，EXIT trap 必須經 `oc_e2e_teardown_on_exit`；不要直接呼叫 teardown 或讓後續命令覆蓋 spec rc。`assert-specs-ran.sh` 的呼叫者以 source query 為準，不在文件列 job/spec 清單。
+- live-agent spec 由檔名後綴 `.live-agent.spec.js` 自我宣告，預設不跑；只有 `OC_E2E_LIVE_AGENT === "1"` 才 build/啟動真 ocagent/ocwarden、花 API 額度。`true`、`yes` 等值都視為未要求；不要改成 exclude flag，也不要自行把 live class 加進 CI。
+- `playwright.config.js` 的 workers 必須維持單一 server/SQLite 的序列語意；要改並行先用 source/guard 證明隔離，不以加 workers 掩蓋假紅。
 
-## 造 online agent 的機制知識(給需要真 online member 的 e2e)
-- **online = 純由 SSE 連線判定**(`GET /api/events`),**無 TTL / heartbeat、綁連線生命週期**——只要 listen 掛著就恆 online、穩定。
-- **建議做法(繞開真 claude 掛 listen 的 flaky)**:tmux session 內手動持長駐 `ocagent listen &`(持 member token)→ `is_online=True`。
-- `observed_host` 靠 POST presence 設;member token 靠 `POST /api/mint`。
+## 3. seven_gate 是另一條載體
 
-## precondition 誠實(root §13 verify 誠實線)
-有些鏈需**真 online agent** 才觸發(STOP robust-stop 需 online 的 session_id;relocate 需 `observed_host≠desired_host`,靠 online 回報)。這類 runtime 實測下來 **flaky + 燒 token**——若機制已由單元測試 + 決策探針驗證過,runtime 是**額外封印非必須**:隔離難穩定就**誠實標 `precondition-blocked`**,別硬燒 token。
-- ⚠️ **relocate 無乾淨 runtime 可觀測信號**:reconcile decision 的 phase 翻在 reconcile-store 內部、不落 member row(member DTO 的 `phase` 是 presence phase,非 reconcile phase);唯一乾淨的完成信號 = warden 執行後 report 的 `last_op*`(command_result projection)。
+- `e2e_test/seven_gate/` 不在 Playwright、`run_all.sh` 或 CI service run 裡；CI 只守它的 hermetic `tests_guard`。其 server-fact journal/judge、七 gate/兩 observation、live 未真跑界線與產物規則只讀 `seven_gate/CLAUDE.md`，本檔不複製步驟清單。
+
+## 4. online member 與誠實前置條件
+
+- server 的 online 純由 SSE `GET /api/events` 連線生命週期判定，不靠 TTL/heartbeat；需要真 online member 時，用隔離 tmux 內持續執行 `ocagent listen` 並帶 member token。`observed_host` 另由 presence POST 設定，machine token 由 server mint。
+- STOP robust-stop、relocate 等鏈若真的需要 online session 或 observed host，隔離 runtime 不穩定時標 `precondition-blocked`，不要硬燒 token 只為得到一個看似完整的數字。relocate 的乾淨完成信號是 warden 回報的 `last_op*`，不是 member DTO 的 presence phase 或 reconcile 內部 phase。
+- 新增/修改 spec 時先讀 setup/run/teardown、Playwright config、spec 自身與 production guard；把「沒跑過」與「跑過且通過」分開報告，不用本機 wiring 綠替代 PR 雲端 spec log。

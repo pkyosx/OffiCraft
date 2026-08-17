@@ -30,7 +30,6 @@ export interface Member {
   /** Personal image URL bound to this stable member id. Empty/absent keeps the
    * role-theme avatar and built-in glyph fallback chain. */
   avatarUrl?: string;
-  memberId: string;
   name: string;
   role: RoleKey;
   /** The role's display TITLE resolved server-side (wire `role_name`): the seed
@@ -671,13 +670,102 @@ export type DocumentKind =
   // T-2ebe: the description's twin, keyed on the task id in the same way. A
   // SEPARATE series over that shared key — restoring a title never disturbs the
   // description's own three retained revisions, and the other way round.
-  | "task_title";
+  | "task_title"
+  // T-791e: the two boot-context blocks that used to be read-only seed
+  // previews. `system_interaction` is keyed "global" (one document for the
+  // whole studio); `boot_sequence` is keyed by RUNTIME ("claude" / "codex")
+  // and the two keys are DIFFERENT DOCUMENTS, not two views of one — their
+  // third step means opposite things, so nothing may copy one over the other.
+  | "system_interaction"
+  | "boot_sequence"
+  // T-c9c0: the 下線程序 document. A SINGLETON keyed "global" like
+  // system_interaction — being collected is the same procedure whatever
+  // runtime an agent runs, so there is deliberately no runtime axis here.
+  | "offboard";
+
+/** The DocumentKinds that carry a seeded, owner-editable boot-context block
+ * (T-791e). Narrower than DocumentKind on purpose: the adapter's three boot-doc
+ * methods take THIS, so no caller can address `lessons` through them. */
+export type BootDocKind = "system_interaction" | "boot_sequence" | "offboard";
 
 /**
- * ONE retained revision of an editable long-form document. `content` is the
- * field→value snapshot of the doc as it stood BEFORE the write that retained
- * it — the field names belong to the kind, so the view keeps them verbatim
- * rather than inventing a per-kind view model. At most 3 are kept per doc.
+ * One seeded boot-context block as the cockpit reads it (T-791e) — the folded
+ * GET of `system_interaction/global`, `boot_sequence/claude` or
+ * `boot_sequence/codex`. Three INDEPENDENT streams: nothing is shared between
+ * them, and in particular the two boot_sequence keys are separate documents.
+ *
+ * `isDefault` true = the shipped seed is what agents boot with (nobody has
+ * written this block). `hasSeed` says a factory version exists to restore to;
+ * it is what makes the 還原出廠版 affordance honest rather than a button that
+ * 404s.
+ */
+export interface BootDocView {
+  kind: BootDocKind;
+  key: string;
+  text: string;
+  /** Size of `text` in CHARACTERS (Unicode code points) — capChars' unit. */
+  sizeChars: number;
+  /** The cap the SERVER enforces for this kind, in the same unit. The cockpit
+   * blocks over-cap saves against this number rather than a local constant, so
+   * a raised cap does not need a frontend release to take effect. */
+  capChars: number;
+  isDefault: boolean;
+  hasSeed: boolean;
+}
+
+/**
+ * ONE ROW of the version list — the DIRECTORY shape (T-1170). Identity, who,
+ * when, and HOW BIG each field was; never the text.
+ *
+ * 🔴 It is a separate type from `DocumentHistoryView` on purpose, and the
+ * separation is the guard: the list can no longer hand a caller a `content` it
+ * does not have, so "read the text off the list row" is a compile error rather
+ * than a blank pane. The text arrives from `getDocumentRevision`, named one
+ * revision at a time.
+ */
+export interface DocumentHistoryEntryView {
+  id: number;
+  createdTs: number;
+  /** Who wrote the version that replaced this one (owner id / member id). */
+  actorId: string;
+  /** The overlay was a TOMBSTONE — "follow the shipped default". A flag, never
+   * a content field: the surfaces render it as the 預設內容 badge and the
+   * reader substitutes the seed for it. */
+  tombstoned: boolean;
+  /** Per WIRE FIELD size in CHARACTERS (Unicode code points — `runeLength`'s
+   * unit, the one the server's cap is measured in). This is what lets the list
+   * mark an un-restorable revision and tell an empty revision from a full one
+   * WITHOUT the text. A field the revision does not carry is absent, which is
+   * not the same as 0 — `docCapBlockedFields` reads absence as "no such
+   * field", exactly as it read a missing key out of `content` before. */
+  sizes: Record<string, number>;
+}
+
+/**
+ * The BODY of ONE named retained revision — what `getDocumentRevision` answers
+ * (T-1170).
+ *
+ * 🔴 It carries `content` and NOTHING ELSE about the revision, because that is
+ * all the server's named-revision route carries. Who wrote it, when, whether it
+ * was a tombstone and how long its fields were all live on the DIRECTORY row
+ * (`DocumentHistoryEntryView`) the reader opened to get here — so putting them
+ * on this type too would mean inventing values the wire never sent.
+ */
+export interface DocumentRevisionView {
+  id: number;
+  content: Record<string, string>;
+}
+
+/**
+ * ONE retained revision of an editable long-form document, IN FULL. `content`
+ * is the field→value snapshot of the doc as it stood BEFORE the write that
+ * retained it — the field names belong to the kind, so the view keeps them
+ * verbatim rather than inventing a per-kind view model. At most 3 are kept per
+ * doc.
+ *
+ * Since T-1170 this is the RESTORE RECEIPT's shape. The list does not carry it
+ * (see `DocumentHistoryEntryView`) and neither does the named-revision read
+ * (see `DocumentRevisionView`).
  */
 export interface DocumentHistoryView {
   id: number;
@@ -707,13 +795,20 @@ export interface DocumentSeedView {
 }
 
 /**
- * The folded role-definition doc (Settings › 角色誌 › 角色定義). `name` is the
- * role title and `definitionMd` the persona body (both from the real seed —
- * never the mockup's illustrative Chinese desc). `isDefault` true → seed ("預設").
+ * ONE ROW of the role roster (`GET /api/roles`) — everything a role has EXCEPT
+ * its persona body. `name` is the role title; `isDefault` true → seed ("預設").
+ *
+ * 🔴 T-1170 split this off `RoleDefView`. The roster answer no longer carries
+ * `definition_md` — only its size and the cap in force — so the list type must
+ * not promise one. `useRoles` used to hand the SAME array to the roster and to
+ * the role page, which is why the page needed no fetch of its own; that shared
+ * array is now a directory, and the page reads its document through
+ * `useRole` (`GET /api/roles/{key}`).
  */
-export interface RoleDefView {
+export interface RoleSummaryView {
   /** Size of `definitionMd` in CHARACTERS (Unicode code points) — capChars'
-   * unit. */
+   * unit. On a directory row this is the ONLY thing that says how much text is
+   * there. */
   sizeChars: number;
   /** The `doc.cap_chars.duty` setting now in force, in the same unit (T-ae38).
    *
@@ -724,7 +819,6 @@ export interface RoleDefView {
   capChars: number;
   key: string;
   name: string;
-  definitionMd: string;
   ownerId: string;
   schemaVersion: number;
   isDefault: boolean;
@@ -732,6 +826,18 @@ export interface RoleDefView {
    * FALSE for an owner-created custom role (deletable; the server re-enforces —
    * this flag only drives the UI affordance). */
   isSeed: boolean;
+}
+
+/**
+ * The folded role-definition doc IN FULL (Settings › 角色誌 › 角色定義) —
+ * a roster row plus the persona body it describes (from the real seed, never
+ * the mockup's illustrative Chinese desc).
+ *
+ * Answered by `GET /api/roles/{key}` and by every role WRITE (the response IS
+ * the folded doc). Never by the roster list.
+ */
+export interface RoleDefView extends RoleSummaryView {
+  definitionMd: string;
 }
 
 /**

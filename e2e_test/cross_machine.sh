@@ -617,6 +617,14 @@ DEACT_JSON="$(api_post_logged "/api/members/$TEST_AGENT/deactivate" '{}' || echo
 # stamped member as stopping (SSE live) → stopped (SSE dropped); the stamp is
 # only cleared on the NEXT spawn (into waking). "offline" is the never-stamped
 # case, so accept either as "the stop took".
+#
+# 🔴 …and 下線 alone no longer GUARANTEES the stop (T-a9d6). The owner ruled it
+# runs no countdown: the agent is shown the offboard sequence and collected when
+# it reports stopped, and if it never does, 「萬一我發現他不理我，我就按下強制
+# 下線」 is the escalation. This harness's agent is a stub that never reports, so
+# it models exactly the case he described — press 下線, watch, then press the
+# second button. Waiting only on the first would hang here forever and read as
+# "relocation is broken" when the flow is working as ruled.
 deadline=$(( $(date +%s) + PRESENCE_TIMEOUT ))
 cur_presence=""
 while [[ "$(date +%s)" -lt "$deadline" ]]; do
@@ -624,8 +632,18 @@ while [[ "$(date +%s)" -lt "$deadline" ]]; do
   [[ "$cur_presence" == "offline" || "$cur_presence" == "stopped" ]] && break
   sleep 3
 done
+if [[ "$cur_presence" != "offline" && "$cur_presence" != "stopped" ]]; then
+  log "cold relocate: $TEST_AGENT did not stop itself (presence='$cur_presence') — escalating with force-stop, the owner's second button"
+  api_post_logged "/api/members/$TEST_AGENT/force-stop" '{}' >/dev/null || true
+  deadline=$(( $(date +%s) + PRESENCE_TIMEOUT ))
+  while [[ "$(date +%s)" -lt "$deadline" ]]; do
+    cur_presence="$(api_get "/api/members/$TEST_AGENT" 2>/dev/null | json_field presence)"
+    [[ "$cur_presence" == "offline" || "$cur_presence" == "stopped" ]] && break
+    sleep 3
+  done
+fi
 [[ "$cur_presence" == "offline" || "$cur_presence" == "stopped" ]] \
-  || fail_stage "$TEST_AGENT never settled (offline|stopped) after deactivate within ${PRESENCE_TIMEOUT}s (last='$cur_presence' — stop did not take)"
+  || fail_stage "$TEST_AGENT never settled (offline|stopped) after deactivate+force-stop within ${PRESENCE_TIMEOUT}s (last='$cur_presence' — neither button took)"
 log "presence[$TEST_AGENT]=$cur_presence (stop took on origin machine)"
 
 log "cold relocate step 2/2: activate $TEST_AGENT on $MACHINE_ID (wake on the 2nd machine)"

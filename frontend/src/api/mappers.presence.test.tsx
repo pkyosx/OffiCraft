@@ -25,7 +25,6 @@ import type { WireMember, WireOutsourceWorker } from "./wire";
 function mkWireMember(over: Partial<WireMember>): WireMember {
   return {
     id: "m-1",
-    member_no: "MB-AAA001",
     name: "Mira",
     role_key: "assistant",
     role_name: "助理",
@@ -47,6 +46,7 @@ function mkWireMember(over: Partial<WireMember>): WireMember {
     machine: "",
     last_op: "",
     last_op_at: 0,
+    forced_stop_at: 0,
     last_op_log: "",
     last_op_reason: "",
     refocus_since: 0,

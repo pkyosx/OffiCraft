@@ -35,7 +35,6 @@ const machine = (id: string, displayName: string): MachineView => ({
 
 const mkMember = (over: Partial<Member> = {}): Member => ({
   id: "mem-eva",
-  memberId: "MB-AST001",
   name: "Eva",
   role: "assistant",
   status: "online",

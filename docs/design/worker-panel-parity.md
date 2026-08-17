@@ -64,7 +64,7 @@
 | A1 | 返回鍵 | `mp__back`（共用面板畫） | 同 | 同 | 維持共用，不動 |
 | A2 | 頭像上傳／移除 | `AvatarEditor`，未傳 handler 時降級成唯讀 `Avatar` | 同（kind=`outsource`） | 同 | 維持 |
 | A3 | 名字 | `InlineEdit` 就地改名 → `onRename` | 無；顯示系統建立的代號 `msg.outsourceLabel(codename)` | 差（結構性） | **保留現狀**。外包代號是系統建立的匿名識別，不是人取的名字；給外包改名等於發明一個後端沒有的欄位 |
-| A4 | 成員編號 chip | `member.memberId` badge | 無 | 差（結構性） | **保留現狀**，理由同 A3（代號本身就是識別） |
+| A4 | 身分 id chip | `member.id` badge（T-5dab 起顯示真 id；在那之前是由 id 推導的 `MB-XXX###` 標籤） | 無 | 差（結構性） | **保留現狀**，理由同 A3（代號本身就是識別） |
 | A5 | presence 指示 | `PresenceBadge`（點＋角色名） | `LifecycleDot` + `presenceVisual`（同一份映射） | 視覺元件不同、映射同源 | **保留現狀**：`frontend/CLAUDE.md` 明文「presence→視覺的推導只有一份」，兩者都走 `presenceVisual`，未漂移；外包沒有角色名可顯示，套 `PresenceBadge` 會多出一個空欄 |
 | A6 | 任務 chip（`T-xxxx`）+ 任務類型 | 無 | 有，可點 → `#tasks/<id>` | 外包獨有 | **保留**。外包的「角色」就是它綁的任務類型，這是 rail 列形的同一條裁定（`frontend/CLAUDE.md` 外包面板節），移除等於拔掉外包唯一的身分線索 |
 | A7 | 動作鍵列（喚醒／取消／停止／強制停止） | `MemberActionButtons`，依 `visual` 五態切換按鈕集合 | ~~無此列~~ **已補（owner 2026-07-31）**：身分卡右上角有 `worker-detail-change` ＋ `worker-detail-stop`／`worker-detail-wake` | ~~差~~ **已對齊** | ✅ 見下方「owner 2026-07-31 四項裁定」 |

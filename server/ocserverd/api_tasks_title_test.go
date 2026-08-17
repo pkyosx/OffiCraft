@@ -43,7 +43,7 @@ func readTaskTitle(t *testing.T, api *apiServer, taskID string) string {
 	return decodeBody[taskDTO](t, rec).Title
 }
 
-func listTaskTitleHistory(t *testing.T, api *apiServer, taskID, caller, scope string) []DocumentHistoryDTO {
+func listTaskTitleHistory(t *testing.T, api *apiServer, taskID, caller, scope string) []historyRow {
 	t.Helper()
 	rec := httptest.NewRecorder()
 	api.HandleListDocumentHistoryApiDocumentHistoryKindKeyGet(rec,
@@ -52,7 +52,7 @@ func listTaskTitleHistory(t *testing.T, api *apiServer, taskID, caller, scope st
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list title history: %d %s", rec.Code, rec.Body.String())
 	}
-	return decodeBody[[]DocumentHistoryDTO](t, rec)
+	return historyRowsFrom(t, api, docKindTaskTitle, taskID, caller, scope, rec)
 }
 
 // TestTaskTitleRoundTripsThroughTheTaskView is the core assertion: the corrected
@@ -525,7 +525,7 @@ func TestTaskTitleRestoreFansATaskDelta(t *testing.T) {
 	}
 
 	// Positive control first: the description arm has always been present.
-	descHistory := decodeBody[[]DocumentHistoryDTO](t, func() *httptest.ResponseRecorder {
+	descHistory := historyRowsFrom(t, api, docKindTaskDescription, task.ID, "m-exec", "agent", func() *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
 		api.HandleListDocumentHistoryApiDocumentHistoryKindKeyGet(rec,
 			taskReq(t, "GET", "/api/document-history/task_description/"+task.ID, nil,

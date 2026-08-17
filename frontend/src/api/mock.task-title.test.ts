@@ -13,6 +13,7 @@ import { mockApi, __resetMock, __injectMockTask } from "./mock";
 import { isHttpStatus } from "./errors";
 import { ApiError } from "./errors";
 import type { TaskView } from "./adapter";
+import { documentRevisions } from "../test/documentHistory";
 
 beforeEach(() => {
   __resetMock();
@@ -76,7 +77,7 @@ describe("mockApi · updateTaskTitle", () => {
     }
     // The refusal is a refusal, not a partially applied write.
     expect((await mockApi.getTask(id)).title).toBe("原本的標題");
-    expect(await mockApi.listDocumentHistory("task_title", id)).toEqual([]);
+    expect(await documentRevisions(mockApi, "task_title", id)).toEqual([]);
   });
 
   it("stores the TRIMMED value, matching create_task", async () => {
@@ -92,7 +93,7 @@ describe("mockApi · updateTaskTitle", () => {
     const id = seedTask();
     await mockApi.updateTaskTitle(id, "原本的標題");
     await mockApi.updateTaskTitle(id, "  原本的標題 ");
-    expect(await mockApi.listDocumentHistory("task_title", id)).toEqual([]);
+    expect(await documentRevisions(mockApi, "task_title", id)).toEqual([]);
   });
 
   // 🔴 The asymmetry with every other task write, inherited from the twin.
@@ -123,7 +124,7 @@ describe("mockApi · updateTaskTitle", () => {
     for (const text of ["第二版", "第三版", "第四版"]) {
       await mockApi.updateTaskTitle(id, text);
     }
-    const versions = await mockApi.listDocumentHistory("task_title", id);
+    const versions = await documentRevisions(mockApi, "task_title", id);
     expect(versions.map((v) => v.content.title)).toEqual([
       "第三版",
       "第二版",
@@ -134,13 +135,13 @@ describe("mockApi · updateTaskTitle", () => {
   it("restores an earlier wording over the live task", async () => {
     const id = seedTask();
     await mockApi.updateTaskTitle(id, "改壞的標題");
-    const [version] = await mockApi.listDocumentHistory("task_title", id);
+    const [version] = await documentRevisions(mockApi, "task_title", id);
     expect(version.content.title).toBe("原本的標題");
 
     await mockApi.restoreDocumentHistory("task_title", id, version.id);
     expect((await mockApi.getTask(id)).title).toBe("原本的標題");
     // The restore is itself a write, so what it overwrote is now retained.
-    const after = await mockApi.listDocumentHistory("task_title", id);
+    const after = await documentRevisions(mockApi, "task_title", id);
     expect(after[0].content.title).toBe("改壞的標題");
   });
 
@@ -154,17 +155,17 @@ describe("mockApi · updateTaskTitle", () => {
     await mockApi.updateTaskTitle(id, "新標題");
 
     expect(
-      (await mockApi.listDocumentHistory("task_title", id)).map(
+      (await documentRevisions(mockApi, "task_title", id)).map(
         (v) => v.content.title
       )
     ).toEqual(["原本的標題"]);
     expect(
-      (await mockApi.listDocumentHistory("task_description", id)).map(
+      (await documentRevisions(mockApi, "task_description", id)).map(
         (v) => v.content.description
       )
     ).toEqual(["第一版敘述"]);
 
-    const [titleVersion] = await mockApi.listDocumentHistory("task_title", id);
+    const [titleVersion] = await documentRevisions(mockApi, "task_title", id);
     await mockApi.restoreDocumentHistory("task_title", id, titleVersion.id);
     const task = await mockApi.getTask(id);
     expect(task.title).toBe("原本的標題");

@@ -72,6 +72,13 @@ export interface Messages {
   agentPendingChange: (value: string) => string;
   workerMachineMovingTo: (machine: string) => string;
   agentWindDownForChange: (by: string) => string;
+  // ── RESUME SUMMARY · the COLLAPSE marker (T-8b0d follow-up) ──
+  // 🔴 There is deliberately NO composer for the TRUNCATION marker beside it.
+  // A shared composer is exactly how the two would drift into sharing a word,
+  // and "this message is folded" vs "older messages are not here at all" are
+  // the two statements a reader must never confuse. The cut point is a plain
+  // label leaf plus the SERVER's own hint, shown verbatim.
+  resumeBodyOmitted: (chars: number) => string;
   // ── 定期訊息 · custom cadence (T-49e7) ──
   schedCustomMonths: (months: number[]) => string;
   schedCustomDays: (days: number[]) => string;
@@ -102,6 +109,8 @@ export interface Messages {
   docHistoryBlockedReason: (fields: string[], cap: number) => string;
   docHistoryVersionLabel: (when: string) => string;
   docHistoryActor: (name: string, actorId: string) => string;
+  bootDocNoteHistory: (kept: number) => string;
+  docOverCap: (size: number, cap: number) => string;
   deleteManualConfirm: (key: string) => string;
   manualEditSection: (section: string) => string;
   // ── diff ──
@@ -141,6 +150,7 @@ export function makeMessages(t: Dict, language: Lang): Messages {
   const chat = t.chat;
   const mp = t.mp;
   const sched = t.mp.schedmsg;
+  const resume = t.mp.resumeSummary;
   const mon = t.monitor;
   const mach = t.monitor.machine;
   const set = t.settings;
@@ -237,6 +247,20 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     // says 最晚 rather than promising a time.
     agentWindDownForChange: (by) =>
       `${mp.windDownForChangeLabel}${sp}·${sp}${mp.windDownByLabel} ${by} ${mp.windDownEffectSuffix}`,
+
+    // MARK shape, not sentence shape: one word plus the count, and nothing
+    // else. What "folded" MEANS is stated once per chat block
+    // (`bodyOmittedNote`) instead of once per message — the template used to be
+    // repeated under every folded row and cost more than the folds saved
+    // (owner, 2026-08-13).
+    //
+    // 🔴 A LITERAL SPACE, deliberately NOT `sp`. `sp` is "" for zh, which is
+    // right where a fragment runs into CJK punctuation — and wrong here. Seen
+    // on the trial station it rendered 「折起188」, where the numeral abuts the
+    // word and the whole thing reads as one token. A space between CJK text and
+    // a Latin numeral is correct in both languages, so this separator is not
+    // locale-dependent and must not be routed through `sp`.
+    resumeBodyOmitted: (chars) => `${resume.bodyOmittedMark} ${chars}`,
 
     // 定期訊息 · 自訂頻率 (T-49e7 round 2). The whole-set day phrase reuses the
     // cadence menu's own 每天 / Daily rather than keeping a second word for the
@@ -371,6 +395,19 @@ export function makeMessages(t: Dict, language: Lang): Messages {
       name
         ? `${name}${set.historyActorLead}${actorId}${set.historyActorTail}`
         : actorId,
+
+    // The retention number is a PARAMETER, not a word in the sentence: it is
+    // the adapter's own cap and the sentence is wrong the moment the two
+    // disagree. Saying "counted in saves" here rather than in a tooltip is the
+    // point — an owner who reads it as "the last 10 days" will read a normal
+    // afternoon of edits as the cockpit losing his work.
+    bootDocNoteHistory: (kept) =>
+      `${set.bootDocNoteHistoryLead}${kept}${set.bootDocNoteHistoryTail}`,
+    // BOTH numbers, always. "Too long" without the current size gives an owner
+    // nothing to act on, and without the limit he cannot tell how far over he
+    // is — that is the difference between this and a silent truncation.
+    docOverCap: (size, cap) =>
+      `${set.docOverCapLead}${size}${set.docOverCapMid}${cap}${set.docOverCapTail}`,
 
     // Reports the longer side's line count, the only number the refused diff
     // still knows (lib/lineDiff returns the counts even when it declines).

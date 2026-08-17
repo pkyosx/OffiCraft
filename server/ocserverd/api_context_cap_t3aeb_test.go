@@ -451,11 +451,11 @@ func TestTaskManualReadReportsPerDocumentSizes(t *testing.T) {
 	}
 }
 
-// TestListViewOmitsTheTextButNotItsSize — the light ?view=list projection drops
-// the bulky sop_md / learnings, and it would have been easy to let their sizes
-// fall out as 0 along with them. A 0 that looks like a measurement is worse
-// than the omission it describes: the list is exactly where "which manual is
-// close to the cap" gets asked.
+// TestListViewOmitsTheTextButNotItsSize — the listing drops the bulky sop_md /
+// learnings, and it would have been easy to let their sizes fall out as 0 along
+// with them. A 0 that looks like a measurement is worse than the omission it
+// describes: the list is exactly where "which manual is close to the cap" gets
+// asked.
 func TestListViewOmitsTheTextButNotItsSize(t *testing.T) {
 	s := &apiServer{dal: newTestDAL(t), hub: NewHub(),
 		docCapCharsManualSop:       contextDocMaxCharsDefault,
@@ -469,15 +469,17 @@ func TestListViewOmitsTheTextButNotItsSize(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	list := listManuals(t, s, HandleListTaskManualsApiTaskManualsGetParams{View: ptrTo("list")})
+	list := listManuals(t, s)
 	if len(list) != 1 {
 		t.Fatalf("want 1 manual, got %d", len(list))
 	}
 	got := list[0]
 	// The narrowing still happened — otherwise this test would pass on the
-	// full projection and prove nothing about the list view.
-	if got.Learnings != "" || got.SopMD != "" {
-		t.Fatalf("list view must still omit the bulky text: %+v", got)
+	// full projection and prove nothing about the listing.
+	for _, absent := range []string{"sop_md", "learnings"} {
+		if _, present := listManualRows(t, s)[0][absent]; present {
+			t.Fatalf("listing must still omit %q", absent)
+		}
 	}
 	if got.LearningsChars != utf8.RuneCountInString(learnings) {
 		t.Fatalf("learnings_chars must survive the narrowing: got %d want %d",

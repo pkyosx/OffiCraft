@@ -31,15 +31,18 @@
 
 import { useRef, useState } from "react";
 import { useI18n } from "../i18n";
-import type { DocumentHistoryView, DocumentKind } from "../types";
-import { useDocumentHistory } from "../hooks/useDocumentHistory";
+import type { DocumentHistoryEntryView, DocumentKind } from "../types";
+import {
+  useDocumentHistory,
+  useDocumentRevision,
+} from "../hooks/useDocumentHistory";
 import { useDocumentSeed } from "../hooks/useDocumentSeed";
 import { useMembers } from "../hooks/useMembers";
 import { useServerSettings } from "../hooks/useServerSettings";
 import { OWNER_ACTOR_ID, actorDisplayName } from "../lib/actorLabel";
-import { capForKind, docCapBlockedFields } from "../api/docCap";
+import { capForKind, contentSizes, docCapBlockedFields } from "../api/docCap";
 import type { DocCaps } from "../api/docCap";
-import { documentFields } from "../lib/docHistoryFields";
+import { documentHasContent } from "../lib/docHistoryFields";
 import { formatAbsolute } from "../lib/dateFormat";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
 import { DocumentHistoryModal } from "./DocumentHistoryModal";
@@ -107,7 +110,9 @@ export function DocumentHistoryEntry({
   // A discriminated union rather than two booleans — "both at once" is not a
   // state this surface can be in, so it must not be representable.
   const [reading, setReading] = useState<
-    { kind: "version"; version: DocumentHistoryView } | { kind: "seed" } | null
+    | { kind: "version"; version: DocumentHistoryEntryView }
+    | { kind: "seed" }
+    | null
   >(null);
 
   // 點了才載入 — 這是 owner 裁定的字面意思，不是效能微調。
@@ -135,6 +140,9 @@ export function DocumentHistoryEntry({
     learning: settings.docCapCharsLearning,
     manualSop: settings.docCapCharsManualSop,
     manualLearnings: settings.docCapCharsManualLearnings,
+    systemInteraction: settings.docCapCharsSystemInteraction,
+    bootSequence: settings.docCapCharsBootSequence,
+    offboard: settings.docCapCharsOffboard,
   } : undefined;
   // The shipped default, so the 初始版本 row can be READ and COMPARED like every
   // other row (T-40f0). Fetched only where that row exists (`onReset`) and only
@@ -142,6 +150,15 @@ export function DocumentHistoryEntry({
   const seedDoc = useDocumentSeed(kind, docKey, {
     enabled: open && onReset !== undefined,
   });
+  // T-1170 「要看內文時真的去取內文」: the list carries no text, so the reader's
+  // document is fetched for the revision that was actually picked — and only
+  // then. `null` while the list is up or the 初始版本 row is being read (that
+  // row's content is the seed, which has its own read above).
+  const revision = useDocumentRevision(
+    kind,
+    docKey,
+    reading?.kind === "version" ? reading.version.id : null
+  );
 
   const listRef = useRef<HTMLDivElement>(null);
   useEscapeLayer(() => setOpen(false), listRef, open && reading === null);
@@ -229,14 +246,14 @@ export function DocumentHistoryEntry({
                 <ul className="doc-hist__list">
                   {versions.map((v) => {
                     const when = formatAbsolute(v.createdTs, nowSecs);
-                    const fields = documentFields(kind, v.content);
+                    const hasContent = documentHasContent(kind, v.sizes);
                     // A revision the server WOULD refuse is still listed —
                     // hiding it would deny the owner the one place that content
                     // still exists. It is marked and told why HERE, and the
                     // modal it opens repeats the verdict with a dead control.
                     const blockedFields = docCapBlockedFields(
                       kind,
-                      v.content,
+                      v.sizes,
                       currentContent,
                       docCaps
                     );
@@ -274,7 +291,7 @@ export function DocumentHistoryEntry({
                               {t.settings.historyByLabel}{" "}
                               {actorLine(v.actorId)}
                             </span>
-                            {v.content.tombstoned === "true" && (
+                            {v.tombstoned && (
                               <span className="set-badge">
                                 {t.settings.historyDefaultBadge}
                               </span>
@@ -317,9 +334,9 @@ export function DocumentHistoryEntry({
                             * 「（當時是空白內容）」 is false there. That line is
                             * kept for the version that really did store an
                             * empty string. */}
-                          {fields.length === 0 && (
+                          {!hasContent && (
                             <div className="doc-hist__empty">
-                              {v.content.tombstoned === "true"
+                              {v.tombstoned
                                 ? t.settings.historyDefaultContent
                                 : t.settings.historyNoContent}
                             </div>
@@ -387,23 +404,34 @@ export function DocumentHistoryEntry({
       {reading && (
         <DocumentHistoryModal
           kind={kind}
-          // The seed rides in as a PSEUDO-version so the reader, the diff and
-          // the cap verdict stay one code path. Its id/actor/timestamp are the
-          // honest "nobody and never" (`seed` makes the modal name it 初始版本
-          // instead of rendering a fabricated 修改者 line), and its content is
-          // `{}` only while the seed GET is in flight or failed — which is the
-          // case `seedUnavailable` exists to state out loud rather than let it
-          // read as 「這個版本沒有內容」.
-          version={
+          // The seed still rides in as a PSEUDO-version so the reader, the diff
+          // and the cap verdict stay one code path. Its timestamp is the honest
+          // "never" (`seed` makes the modal name it 初始版本 instead of
+          // rendering a fabricated 修改者 line), and its content is `undefined`
+          // only while the seed GET is in flight or failed — which is the case
+          // `seedUnavailable` exists to state out loud rather than let it read
+          // as 「這個版本沒有內容」.
+          createdTs={reading.kind === "version" ? reading.version.createdTs : 0}
+          // A retained revision's flag comes off the DIRECTORY row; the seed's
+          // comes off its own document, which carries `tombstoned` because
+          // restoring it is what puts the doc back ON the default.
+          tombstoned={
             reading.kind === "version"
-              ? reading.version
-              : {
-                  id: 0,
-                  content: seedDoc.content ?? {},
-                  createdTs: 0,
-                  actorId: "",
-                }
+              ? reading.version.tombstoned
+              : seedDoc.content?.tombstoned === "true"
           }
+          // Same split for the cap verdict's input: the list already measured
+          // the retained revision, and the seed is measured from the document
+          // in hand (it is not a list row, so nothing measured it upstream).
+          sizes={
+            reading.kind === "version"
+              ? reading.version.sizes
+              : contentSizes(seedDoc.content ?? {})
+          }
+          content={
+            reading.kind === "version" ? revision.content : seedDoc.content
+          }
+          contentLoading={reading.kind === "version" && revision.loading}
           seed={reading.kind === "seed"}
           seedUnavailable={
             reading.kind === "seed" && seedDoc.content === undefined

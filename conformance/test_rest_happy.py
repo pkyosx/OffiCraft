@@ -258,6 +258,117 @@ def _nonempty_list(_ctx: HCtx, r: httpx.Response) -> None:
     assert isinstance(r.json(), list) and r.json(), "expected a non-empty list"
 
 
+def test_list_answers_carry_sizes_but_never_the_documents(client, owner_token):
+    """The three list endpoints answer a DIRECTORY, not the documents (T-1170).
+
+    This is the ticket's core promise and the ONLY thing this test looks at: a
+    list row must carry the SIZE of each long document and not the document.
+    It lives in the black-box suite because the promise is about the WIRE, and
+    the two halves that implement it — the Go handlers and the cockpit's
+    generated client — were each green against their own fixtures while
+    disagreeing with one another about a field name. A suite that only ever
+    asks one side cannot see that.
+
+    Every assertion is written to fail on the two DIFFERENT ways this regresses:
+      * the prose comes back (the key is present at all), and
+      * the size stops being real (0, or absent) — a size-shaped 0 is worse
+        than an honest omission, because it reads as a measurement.
+
+    The corpus is seeded here rather than assumed, so an empty station cannot
+    make this pass by having nothing to leak.
+    """
+    h = _auth(owner_token)
+    prose = "conformance directory probe — long enough to be worth omitting\n" * 4
+    n = len(prose)
+
+    # ── seed: one manual with both documents, one role definition, one
+    # retained revision. Absence has to mean "omitted", never "empty".
+    type_key = f"conf-dir-{uuid.uuid4().hex[:8]}"
+    r = client.post("/api/task-manuals", json={"type_key": type_key}, headers=h)
+    assert r.status_code == 200, r.text
+    r = client.post(
+        f"/api/task-manuals/{type_key}",
+        json={"sop_md": prose, "learnings": prose},
+        headers=h,
+    )
+    assert r.status_code == 200, r.text
+
+    r = client.post("/api/roles", json={"name": "conformance directory role"}, headers=h)
+    assert r.status_code == 200, r.text
+    role_key = r.json()["role"]["key"]
+    r = client.post(
+        f"/api/roles/{role_key}", json={"definition_md": "conf role prose"}, headers=h
+    )
+    assert r.status_code == 200, r.text
+
+    for text in ("conf directory history v1", "conf directory history v2"):
+        r = client.post("/api/global-context", json={"text": text}, headers=h)
+        assert r.status_code == 200, r.text
+
+    # ── list_task_manuals ───────────────────────────────────────────────────
+    r = client.get("/api/task-manuals", headers=h)
+    assert r.status_code == 200, r.text
+    rows = {m["type_key"]: m for m in r.json()}
+    assert type_key in rows, "the manual just created is not on its own listing"
+    m = rows[type_key]
+    for absent in ("sop_md", "learnings"):
+        assert absent not in m, (
+            f"list_task_manuals still carries {absent!r} — the default answer "
+            f"is the directory, and the body is GET /api/task-manuals/{{type_key}}"
+        )
+    assert m["sop_md_chars"] == n, f"sop_md_chars={m['sop_md_chars']!r}, want {n}"
+    assert m["learnings_chars"] == n, f"learnings_chars={m['learnings_chars']!r}, want {n}"
+
+    # ── list_roles ──────────────────────────────────────────────────────────
+    r = client.get("/api/roles", headers=h)
+    assert r.status_code == 200, r.text
+    roles = {x["key"]: x for x in r.json()}
+    assert role_key in roles, "the role just created is not on the roster"
+    role = roles[role_key]
+    assert "definition_md" not in role, (
+        "list_roles still carries definition_md — the document is GET /api/roles/{role}"
+    )
+    assert role["size_chars"] == len("conf role prose"), (
+        f"size_chars={role['size_chars']!r}, want {len('conf role prose')}"
+    )
+
+    # ── list_document_history ───────────────────────────────────────────────
+    r = client.get("/api/document-history/global_context/global", headers=h)
+    assert r.status_code == 200, r.text
+    versions = r.json()
+    assert versions, "two writes retained no version — this check would be vacuous"
+    v = versions[0]
+    assert "content" not in v, (
+        "list_document_history still carries content — the body is "
+        "GET /api/document-history/{kind}/{key}/{id}"
+    )
+    # `field_chars` is a MAP keyed by the kind's own field names, and
+    # `tombstoned` is its OWN boolean rather than an entry of that map: leaving
+    # it in would report the length of the string "true" — a 4 that looks like
+    # a measurement — where a reader looks for how long a field was.
+    assert isinstance(v["field_chars"], dict) and v["field_chars"], (
+        f"field_chars is not a populated map: {v.get('field_chars')!r}"
+    )
+    assert "tombstoned" not in v["field_chars"], (
+        f"tombstoned leaked into field_chars: {v['field_chars']!r}"
+    )
+    assert isinstance(v["tombstoned"], bool), (
+        f"tombstoned is not a boolean: {v['tombstoned']!r}"
+    )
+    want = len("conf directory history v1")
+    assert v["field_chars"]["text"] == want, (
+        f"field_chars.text={v['field_chars']['text']!r}, want {want} — a size "
+        f"that is not the real length is worse than no size at all"
+    )
+    # …and the text IS reachable, one revision at a time. Without this the
+    # assertions above would also pass against a server that lost the prose.
+    r = client.get(
+        f"/api/document-history/global_context/global/{v['id']}", headers=h
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["content"]["text"] == "conf directory history v1", r.text
+
+
 def test_members_default_includes_outsource_workers_and_light_preserves_kind(
     client, owner_token, hctx, fresh_machine
 ):
@@ -540,6 +651,17 @@ def _happy_restorable_revision(ctx: HCtx) -> str:
     return f"/api/document-history/global_context/global/{versions[0]['id']}/restore"
 
 
+def _happy_document_version(ctx) -> str:
+    """The same retained revision, addressed for a READ of its body.
+
+    It reuses _happy_restorable_revision's seeding so both rows face a version
+    that really exists; the listing itself carries no text since T-1170, so the
+    id has to come from the listing and the prose from this route.
+    """
+    restore_path = _happy_restorable_revision(ctx)
+    return restore_path.removesuffix("/restore")
+
+
 _RESET_INSIGHT_OVERLAY = "conformance happy insight overlay to be discarded"
 
 
@@ -590,6 +712,57 @@ def _check_reset_insight(ctx: HCtx, r: httpx.Response) -> None:
     assert g.status_code == 200, f"{g.status_code} {g.text}"
     assert g.json()["text"] == d["text"], "GET after reset disagrees with the reset response"
     assert g.json()["is_default"] is True, g.text
+
+
+# ── the two editable boot-context blocks (T-791e) ────────────────────────────
+
+_BOOT_DOC_EDIT = "# conformance edit — 系統互動 / 啟動程序\n\nnot the factory text\n"
+
+
+def _boot_doc_written(ctx: HCtx, r: httpx.Response) -> None:
+    """The edit came back verbatim and the block stopped reading as default."""
+    d = r.json()
+    assert d["text"] == _BOOT_DOC_EDIT, d
+    assert d["is_default"] is False, d
+    assert d["size_chars"] == len(d["text"]), d
+    assert d["cap_chars"] >= d["size_chars"], d
+    assert d["has_seed"] is True, d
+
+
+def _boot_doc_reset(path: str):
+    """Reset check: the factory text is back and the edit is provably gone.
+
+    🔴 Deliberately does NOT compare against the seed's TEXT — the suite is
+    black-box and must not read seeds/*.md. What it can state order-independently
+    is that the answer is no longer the edit, that is_default flipped, and that
+    the document is NOT EMPTY: these blocks are the ones every agent boots from,
+    so an empty answer would mean the fold stopped finding the shipped seed.
+    """
+
+    def check(ctx: HCtx, r: httpx.Response) -> None:
+        d = r.json()
+        assert d["is_default"] is True, d
+        assert d["text"] != _BOOT_DOC_EDIT, "reset left the edit in place"
+        assert d["text"].strip(), "reset served an EMPTY block — the shipped seed was not restored"
+        assert d["has_seed"] is True, d
+        g = ctx.client.get(path, headers={"Authorization": f"Bearer {ctx.owner_token}"})
+        assert g.status_code == 200, f"{g.status_code} {g.text}"
+        assert g.json()["text"] == d["text"], "GET after reset disagrees with the reset response"
+
+    return check
+
+
+def _boot_doc_read(kind: str, key: str):
+    def check(_ctx: HCtx, r: httpx.Response) -> None:
+        d = r.json()
+        assert d["kind"] == kind and d["key"] == key, d
+        assert d["text"].strip(), "the block is empty — the shipped seed was not folded in"
+        assert d["size_chars"] == len(d["text"]), d
+        assert d["cap_chars"] >= d["size_chars"], d
+        assert isinstance(d["is_default"], bool), d
+        assert d["has_seed"] is True, d
+
+    return check
 
 
 HAPPY: dict[str, Happy] = {
@@ -1062,6 +1235,20 @@ HAPPY: dict[str, Happy] = {
             and d["content"]["tombstoned"] == "true",
         ),
     ),
+    # The BODY of one named revision (T-1170). It reuses the same seeded
+    # revision the restore row aims at, so the row exercises a version that
+    # REALLY EXISTS rather than a 404 dressed up as coverage — and it asserts
+    # the text, which is the whole point of the route: the listing above no
+    # longer carries any.
+    "GET /api/document-history/{kind}/{key}/{id}": Happy(
+        path=_happy_document_version,
+        check=lambda _c, r: _expect(
+            r,
+            lambda d: d["kind"] == "global_context"
+            and d["key"] == "global"
+            and d["content"]["text"] == "conformance happy history v1",
+        ),
+    ),
     "POST /api/document-history/{kind}/{key}/{id}/restore": Happy(
         path=_happy_restorable_revision,
         check=lambda _c, r: _expect(r, lambda d: d["id"] and d["content"]),
@@ -1078,6 +1265,40 @@ HAPPY: dict[str, Happy] = {
     "POST /api/global-context/reset": Happy(
         check=lambda _c, r: _expect(r, lambda d: d["is_default"] is True),
     ),
+    # ── the boot context's other two blocks, editable since T-791e ───────────
+    # The reset rows run against a block the replace rows may or may not have
+    # edited first: reset is idempotent and replace is a whole document, so
+    # neither row depends on the other's order.
+    "GET /api/system-interaction": Happy(
+        check=lambda _c, r: _boot_doc_read("system_interaction", "global")(_c, r)
+    ),
+    "POST /api/system-interaction": Happy(
+        body={"text": _BOOT_DOC_EDIT}, check=_boot_doc_written
+    ),
+    "POST /api/system-interaction/reset": Happy(
+        check=_boot_doc_reset("/api/system-interaction")
+    ),
+    "GET /api/boot-sequence/{runtime_key}": Happy(
+        path="/api/boot-sequence/claude",
+        check=lambda _c, r: _boot_doc_read("boot_sequence", "claude")(_c, r),
+    ),
+    "POST /api/boot-sequence/{runtime_key}": Happy(
+        path="/api/boot-sequence/codex",
+        body={"text": _BOOT_DOC_EDIT},
+        check=_boot_doc_written,
+    ),
+    "POST /api/boot-sequence/{runtime_key}/reset": Happy(
+        path="/api/boot-sequence/codex/reset",
+        check=_boot_doc_reset("/api/boot-sequence/codex"),
+    ),
+    # ── 下線程序, the fourth owner-editable global document (T-c9c0) ──────────
+    # A singleton keyed `global`, so it takes the system-interaction shape
+    # rather than the boot-sequence one: no runtime on the path.
+    "GET /api/offboard": Happy(
+        check=lambda _c, r: _boot_doc_read("offboard", "global")(_c, r)
+    ),
+    "POST /api/offboard": Happy(body={"text": _BOOT_DOC_EDIT}, check=_boot_doc_written),
+    "POST /api/offboard/reset": Happy(check=_boot_doc_reset("/api/offboard")),
     "GET /api/roles": Happy(check=_nonempty_list),
     "GET /api/doc-sizes": Happy(
         # Size-only overview: every capped document reports its own size and
@@ -1347,6 +1568,30 @@ HAPPY: dict[str, Happy] = {
         identity="agent",
         path=lambda ctx: f"/api/tasks/{_happy_reassigning_task(ctx)}/claim",
         check=lambda _c, r: _expect(r, lambda d: d["lock"] == ""),
+    ),
+    "POST /api/tasks/{task_id}": Happy(
+        # T-646a: the executor corrects its own task's title AND description in
+        # ONE call — the case its two predecessors could not express, and the
+        # reason this route exists. Aimed at the same CLOSED task as the two
+        # rows below and for the same reason: a terminal task stays correctable,
+        # and a 200 echoing both new values on a card whose artifact set is
+        # frozen is the wire statement of that.
+        #
+        # The check reads BOTH fields back rather than only asserting 200 — a
+        # route that accepted the body and wrote nothing, or wrote one field and
+        # dropped the other, would pass a status check. It also re-asserts the
+        # task is still done and still closed, so a text write that quietly
+        # disturbed the terminal state could not pass either.
+        identity="agent",
+        path=lambda ctx: f"/api/tasks/{_happy_closed_task(ctx)}",
+        body={"title": "one call", "description": "both fields"},
+        check=lambda _c, r: _expect(
+            r,
+            lambda d: d["title"] == "one call"
+            and d["description"] == "both fields"
+            and d["status"] == "done"
+            and d["closed_ts"] is not None,
+        ),
     ),
     "POST /api/tasks/{task_id}/description": Happy(
         # T-e271: the executor corrects its own task's wording. Aimed at a

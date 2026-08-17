@@ -107,8 +107,8 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
   trigger MUST be processed (fail-open — old producer, unknown actor). **Exemption: the
   `member` topic is NOT suppressed** — a member delta naming self is a lifecycle NUDGE
   (wind-down / recycle hooks), not printed content, and the self-requested recycle
-  (`restart_self`, T-4c71) deliberately rides a SELF-triggered member delta whose SOP
-  wake must still land; suppressing it would break graceful handover for zero token gain.
+  (`restart_self`, T-4c71) deliberately rides a SELF-triggered member delta whose
+  handover wake must still land; suppressing it would break graceful handover for zero token gain.
 
 ## 3. Topic and op vocabulary
 
@@ -283,7 +283,7 @@ Owner/dashboard connections MUST never receive it.
   stream):
 
 ```
-data: {"topic":"context-high","data":{"topic":"context-high","to":"m-1a2b3c","level":"warn","pct":42,"reason":"context 42% — start converging; ..."}}
+data: {"topic":"context-high","data":{"topic":"context-high","to":"m-1a2b3c","level":"warn","pct":55,"reason":"context 55% — 65% is the handover ceiling, and this is the ONLY notice ..."}}
 ```
 
   The inner payload duplicates `topic` and carries `{topic, to, level, pct, reason}`.
@@ -292,25 +292,42 @@ data: {"topic":"context-high","data":{"topic":"context-high","to":"m-1a2b3c","le
 - **Only `level:"warn"` is ever emitted on the wire.** The HANDOVER band (≥ handover_pct)
   MUST NOT emit an SSE signal — it is owned by the server-side producer auto-recycle
   (spec/lifecycle.md §4.5).
+- **Exactly ONE notice per agent SESSION** (T-c382). Not one per connection: the
+  dedup key MUST be the session anchor (`boot_ts`), which is restored across an
+  SSE reconnect, so a mid-session flap MUST NOT re-notify. A genuinely new
+  session (new `boot_ts`) is entitled to its own single notice.
+- **The notice point is a SETTING the owner sets, as one half of a PAIR**
+  (`ctx.notice_pct` / `ctx.handover_pct`; codex: `codex.notice_round` /
+  `codex.compaction_threshold`). The first is where the soft notice fires, the
+  second is both the final call and the handover itself, and the pair is refused
+  unless the first is strictly below the second (T-a9d6).
+  🔴 This SUPERSEDES the rule that stood here before — "the notice point is
+  DERIVED from the handover threshold; there MUST NOT be a second,
+  independently-set warn threshold". That rule was written against
+  `ctx.warn_pct`, a threshold with no UI that drifted from the only number the
+  owner could see (T-c382). What replaced it is not that: both numbers are set
+  by the owner, in the same place, and neither can silently drift from the
+  other. `ctx.warn_pct` and `ctx.remind_step_pct` stay retired and unread.
 - Decision inputs and guards (all MUST hold for an emit):
   - the gauge pct is **actionable**: `context_pct_ts` present and strictly >
     the connection's `boot_ts` (stale-pct guard) — a predecessor
     session's leftover pct MUST NOT trigger;
-  - band thresholds: defaults warn=40, handover=50, configurable via the DB
-    settings (`ctx.warn_pct` / `ctx.handover_pct`); a threshold ≤ 0 disables that
-    band (kill-switch);
-  - the reminder is **deduped per remind-bucket** — the gauge is sliced into
-    `remind_step_pct`-wide buckets (default 5%, `ctx.remind_step_pct`): a WARN
-    fires when the gauge first enters the band, and again ONLY when it climbs
-    into a HIGHER bucket. Sitting in the same bucket (e.g. drifting 40→41→42)
-    MUST stay silent — it must not re-remind every tick. A drop to a lower
-    bucket re-arms it (so a later re-climb reminds again); dropping below WARN
-    fully resets.
-- Band state (`last_bucket`, the highest remind-bucket already reminded in the
-  current in-band run) is **per-connection, in-memory** (inventory #4); it MUST
-  reset on reconnect and MUST NOT be persisted.
-- Fail-safe: a missing/non-numeric/stale pct or any internal error MUST emit nothing and
-  MUST NOT disturb the delta stream.
+  - `handover_pct` (default 50, DB setting `ctx.handover_pct`, owner-settable
+    40–90); ≤ 0 disables the band, and with it the notice (kill-switch);
+  - **claude**: notify at `handover_pct - 10`. A lead landing at or below 0%
+    MUST produce no notice.
+  - **codex**: a codex session hands over on compaction count, not percent, so
+    the percentage rule MUST NOT be applied to it. Notify during the round
+    BEFORE its ceiling (`compaction_count == codex.compaction_threshold - 1`)
+    once that round is ≥ 60% through its context.
+- The notice MUST state the agent's own ceiling (it cannot read its own context
+  percentage) and MUST tell it to close out while it still has room. Its wording
+  is not contract; carrying the ceiling and the close-out instruction is.
+- Notice state is **in-memory**, keyed by agent id and session anchor
+  (inventory #4); it MUST NOT be persisted. A server restart therefore permits
+  one repeat, which is the accepted failure direction.
+- Fail-safe: a missing/non-numeric/stale pct, a missing session anchor, or any
+  internal error MUST emit nothing and MUST NOT disturb the delta stream.
 
 ### 6.1 Token-expiry reminder (directed signal, restartable agent connections only)
 

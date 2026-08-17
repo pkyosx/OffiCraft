@@ -45,7 +45,6 @@ let detailDesiredMachineId = "mach-a";
 // stays offline/stopped — the exact window the bug lived in.
 const mkMember = (over: Partial<Member> = {}): Member => ({
   id: "mem-eva",
-  memberId: "MB-AST001",
   name: "Eva",
   role: "assistant",
   status: detailOnline ? "online" : "offline",

@@ -41,6 +41,7 @@ import type {
   ManualAssigneeView,
   TaskManualFieldView,
   TaskManualPatch,
+  TaskManualSummaryView,
   TaskManualView,
 } from "../api/adapter";
 import { isHttpStatus } from "../api/errors";
@@ -74,7 +75,7 @@ export function TaskManualsList({
   onCreate,
   onDelete,
 }: {
-  manuals: TaskManualView[];
+  manuals: TaskManualSummaryView[];
   loading: boolean;
   error: boolean;
   /** The unified settings breadcrumb (T-8f6e) — 設定 › 任務手冊. */
@@ -307,7 +308,10 @@ export function TaskManualHub({
   onOpenDefinition,
   onOpenLearnings,
 }: {
-  manual: TaskManualView;
+  /** The DIRECTORY row is enough here (T-1170): the hub renders the display
+   * name, the 負責成員 card and two links. Neither long document is on this
+   * page, so it must not ask for a shape that carries them. */
+  manual: TaskManualSummaryView;
   /** The office roster (real assistants) — the assignee member picker. */
   members: Member[];
   /** The unified settings breadcrumb (T-8f6e) — 設定 › 任務手冊 › <type>. */
@@ -395,11 +399,19 @@ export function TaskManualHub({
 
 export function TaskManualDefinitionPage({
   manual,
+  loadError,
   crumbs,
   onSave,
   onRestored,
 }: {
-  manual: TaskManualView;
+  /** The manual IN FULL — `null` until its own read lands (T-1170: the SOP is
+   * not on the list answer). The page keeps its breadcrumb and title either
+   * way; only the card waits, because a card seeded from a fabricated blank
+   * manual would let 完成編輯 write an empty SOP over a real one. */
+  manual: TaskManualView | null;
+  /** That read REJECTED — said out loud, because the list row can be there
+   * while this document could not be fetched. */
+  loadError?: boolean;
   crumbs: Crumb[];
   onSave: (patch: TaskManualPatch) => Promise<unknown>;
   /** Re-read the manual after a 版本紀錄 restore (T-7d33). A restore writes ONE
@@ -418,18 +430,32 @@ export function TaskManualDefinitionPage({
         * 2026-07-31) and covers the SOP ONLY — this page also edits 用途 and
         * 識別鍵, which are not versioned at all, so the list names the SOP in
         * both its heading and its note. */}
-      <DefinitionCard manual={manual} onSave={onSave} onRestored={onRestored} />
+      {loadError && (
+        <div className="set-error" data-testid="manual-doc-load-error">
+          {t.settings.manualsLoadError}
+        </div>
+      )}
+      {manual && (
+        <DefinitionCard
+          manual={manual}
+          onSave={onSave}
+          onRestored={onRestored}
+        />
+      )}
     </div>
   );
 }
 
 export function TaskManualLearningsPage({
   manual,
+  loadError,
   crumbs,
   onSave,
   onRestored,
 }: {
-  manual: TaskManualView;
+  /** See TaskManualDefinitionPage — `null` until this page's own read lands. */
+  manual: TaskManualView | null;
+  loadError?: boolean;
   crumbs: Crumb[];
   onSave: (patch: TaskManualPatch) => Promise<unknown>;
   /** Re-read the manual after a 版本紀錄 restore (T-7d33). */
@@ -445,7 +471,14 @@ export function TaskManualLearningsPage({
       {/* The manual's learnings have their OWN revision series since T-1f39, so
         * a SOP rewrite no longer washes the list out — and restoring from the
         * card's own 版本紀錄 puts back the learnings alone. */}
-      <LearningsCard manual={manual} onSave={onSave} onRestored={onRestored} />
+      {loadError && (
+        <div className="set-error" data-testid="manual-doc-load-error">
+          {t.settings.manualsLoadError}
+        </div>
+      )}
+      {manual && (
+        <LearningsCard manual={manual} onSave={onSave} onRestored={onRestored} />
+      )}
     </div>
   );
 }
@@ -967,7 +1000,7 @@ function AssigneeCard({
   members,
   onSave,
 }: {
-  manual: TaskManualView;
+  manual: TaskManualSummaryView;
   members: Member[];
   onSave: (patch: TaskManualPatch) => Promise<unknown>;
 }) {

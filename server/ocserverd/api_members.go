@@ -47,7 +47,7 @@ func (s *apiServer) putMember(m Member, trigger string) error {
 	// A member delta reaches ITS OWN connection (the wind-down / recycle hooks
 	// key on a member delta naming self — cli/ocagent shouldWindDown) plus the
 	// owner cockpit; other agents ignore it (spec/sse.md §4).
-	s.hub.Publish("member", op, "member", wireOwnerID+"::"+m.ID, memberDeltaPayload(m),
+	s.hub.Publish("member", op, "member", wireOwnerID+"::"+m.ID, s.offboardDeltaPayload(m),
 		audienceMembers(m.ID), trigger)
 	return nil
 }
@@ -62,6 +62,189 @@ func memberDeltaPayload(m Member) map[string]any {
 		"desired_state": m.DesiredState,
 		"owner_id":      wireOwnerID,
 	}
+}
+
+// offboardDeltaPayload is memberDeltaPayload plus the offboard notice, and it is
+// the whole of "改回真的推播" (owner 2026-08-16, card rc-66b82a584c4d): the
+// SERVER composes the sentence and carries the 下線程序 steps in the frame it
+// pushes, instead of the agent fetching them back over HTTP once it notices it
+// is being collected.
+//
+// The notice rides ONLY a member that is actually being wound down — a refocus
+// epoch, or a graceful 下線 (offboardKindOf decides). Attaching it to every
+// member delta would put a document fold and a couple of kilobytes on every
+// roster change. ⚠️ Within those states it rides EVERY write to that row, not
+// just the first: the client is what de-duplicates, by keying on the sentence
+// it last printed.
+//
+// An empty notice omits the key rather than sending "": the client's fallback
+// arms on the key being absent, and an empty string would read as "the server
+// sent me a notice and it said nothing".
+func (s *apiServer) offboardDeltaPayload(m Member) map[string]any {
+	payload := memberDeltaPayload(m)
+	kind, carries := offboardKindOf(m, nowSecs())
+	if !carries {
+		return payload
+	}
+	if notice := s.offboardNoticeFor(m, kind); notice != "" {
+		payload["offboard_notice"] = notice
+	}
+	return payload
+}
+
+// offboardKindOf answers the two questions every offboard delta turns on: does
+// this member carry a notice at all, and is it the SOFT one or the FINAL call.
+//
+// The owner's ruling (2026-08-16) is that his own two buttons and the agent's
+// own context pressure walk the SAME sequence, and that what tells the
+// situations apart is whether there is still room:
+//
+//   - SOFT — 下線 (desired offline + a stopping anchor, the graceful arm) and
+//     重新聚焦. It says work the sequence, then call restart_self yourself; no
+//     countdown clause, because at this point there is not one.
+//   - FINAL — every other refocus cause (context_high, 改機器, model/runtime,
+//     restart_self): the collection is already under way and the 120s recycle
+//     clock is running, so the sentence has to say so.
+//
+// 🔴 The soft arm is the ONLY reason 下線 reaches the agent at all. Before this,
+// a deactivate stamped stopping_since and nothing else, so the notice condition
+// (refocus_since > 0) was false and the agent was collected having never been
+// shown the sequence — while the client-side wind-down declared "durable state
+// already server-side — nothing extra to flush" on its behalf, which was not
+// true of any session holding an unwritten hand-off.
+// The soft→final promotion is DERIVED FROM TIME, not written down: the same
+// anchor and the same soft window that decide when the collection is forced
+// decide which sentence the agent is being sent. A stored flag would be a
+// second copy of that judgement, free to disagree with the clock actually
+// collecting the session — and the disagreement would read as a notice
+// promising 120 seconds while several minutes remained, or the reverse.
+func offboardKindOf(m Member, now float64) (kind string, carries bool) {
+	softExpired := func(anchor float64) string {
+		if now >= anchor+SoftOffboardGraceSecs {
+			return offboardKindFinal
+		}
+		return offboardKindSoft
+	}
+	if m.DesiredState == DesiredStateOffline {
+		// Only the graceful arm: a member with no stopping anchor is not being
+		// wound down (and a cancelled wake is force-stopped outright, which is
+		// deliberately silent — see HandleForceStopMember).
+		//
+		// 🔴 And it stays SOFT forever, because nothing collects it on a clock:
+		// the owner ruled 下線 runs no countdown at all (rc-27d1710174dd), so a
+		// notice claiming 120 seconds here would be a promise nobody keeps —
+		// an agent would cut its hand-off short to beat a deadline that does
+		// not exist. Escalation on this arm is the owner pressing force-stop,
+		// and that path deliberately says nothing.
+		//
+		// 🔴 …and "deliberately says nothing" has to be enforced HERE, not just
+		// asserted in prose. force-stop sets desired_state=offline AND stamps
+		// stopping_since before it publishes, so on the sentence above alone the
+		// member it just killed receives a full SOFT notice on its own stream —
+		// telling a session that is about to be cut off to work the sequence and
+		// call restart_self. Independent e2e verification observed exactly that
+		// frame; the owner's ruling is that force-stop sends no message at all.
+		if m.StoppingSince > 0 && !forcedEpochLive(m) {
+			return offboardKindSoft, true
+		}
+		return "", false
+	}
+	if m.RefocusSince <= 0 {
+		return "", false
+	}
+	if m.RefocusOp == refocusOpRefocus {
+		return softExpired(m.RefocusSince), true
+	}
+	return offboardKindFinal, true
+}
+
+const (
+	offboardKindSoft  = "soft"
+	offboardKindFinal = "final"
+)
+
+// forcedEpochLive: the stop this member is currently under was opened by a
+// FORCE-stop, not by 下線. It is the one judgement that separates "cut off
+// deliberately" from "working its close-out", and three places need it — the
+// notice (a forced path says nothing), the SSE stop gate (a forced member's
+// reconnect is refused) and deactivate (a forced epoch must not be re-stamped
+// into a softer one). One definition, because two copies of this could disagree
+// about the same member.
+//
+// stopping_since > 0 is what scopes it to a LIVE epoch: activate clears the stop
+// anchors but deliberately KEEPS forced_stop_at as the durable record that a
+// past session was cut off, so reading that column alone would treat every
+// member ever force-stopped as permanently forced.
+//
+// 🔴 The >= is LOAD-BEARING, not defensive. force-stop stamps stopping_since
+// and forced_stop_at from two nowSecs() calls with no I/O between them, and at
+// 1.78e9 a float64 tick is ~238ns — so the two anchors landing on the SAME
+// value is the NORMAL path, not a coincidence. Independent review measured it:
+// every failure dump from the mutants that exercise the real handler shows the
+// two columns identical. Tidying this into > breaks force-stop outright.
+func forcedEpochLive(m Member) bool {
+	return m.ForcedStopAt > 0.0 && m.StoppingSince > 0.0 &&
+		m.ForcedStopAt >= m.StoppingSince
+}
+
+// offboardCloserFor names the tool that ACTUALLY ends this member's sequence.
+// A member still wanted online is being handed over and re-starts itself; one
+// the owner has taken down is not coming back, and restart_self refuses it by
+// design (it is a RE-start). Telling it otherwise would be an instruction that
+// can only answer 409 — on an arm where nothing collects it on a clock, so it
+// would sit there refused until someone pressed force-stop.
+func offboardCloserFor(m Member) string {
+	if m.DesiredState == DesiredStateOffline {
+		return offboardCloserReportStopped
+	}
+	return offboardCloserRestartSelf
+}
+
+// offboardNoticeFor composes the sentence for a member that is being wound
+// down: the ONE approved sentence, plus the 120-second clause when this is the
+// final call. It reads the session's own gauge so the agent is told where it
+// actually is, not just that it is over the line — the owner's requirement that
+// the notice carry 「他現在 context / round 狀況，以及我們兩個系統數字是多少」.
+func (s *apiServer) offboardNoticeFor(m Member, kind string) string {
+	cfg := s.ctxHighConfig()
+	// The gauge is absent on a server assembled without one (and a session that
+	// never reported has no entry either). Degrade to "?" for the position
+	// rather than dropping the notice: WHERE the session is is useful, being
+	// told it is being collected is essential.
+	var record map[string]any
+	if s.gauge != nil {
+		record = s.gauge.Get(m.ID)
+	}
+	var where string
+	if NormalizeRuntime(m.Runtime) == RuntimeCodex {
+		final := s.codexCompactionThresholdSetting()
+		notice := s.codexNoticeRoundSetting()
+		if notice < 1 {
+			notice = final - 1
+		}
+		round := "?"
+		if record != nil {
+			if v, ok := asNumber(record["compaction_count"]); ok {
+				round = fmt.Sprintf("%d", int(v))
+			}
+		}
+		if kind == offboardKindFinal {
+			round = fmt.Sprintf("%d", final)
+		}
+		where = fmt.Sprintf("compaction round %s (your limits: round %d / round %d)",
+			round, notice, final)
+	} else {
+		pct := "?"
+		if record != nil {
+			if v, ok := asNumber(record["context_pct"]); ok {
+				pct = fmt.Sprintf("%v", formatPct(v))
+			}
+		}
+		where = fmt.Sprintf("context %s%% (your limits: %d%% / %d%%)",
+			pct, cfg.NoticePct, cfg.HandoverPct)
+	}
+	return offboardNotice(where, offboardCloserFor(m), kind == offboardKindFinal,
+		s.offboardText())
 }
 
 // resolveAvatarMember admits active staff and outsource rows but rejects
@@ -83,7 +266,7 @@ func (s *apiServer) publishMemberAvatarChanged(m Member, trigger string) {
 		return
 	}
 	s.hub.Publish("member", "patch", "member", wireOwnerID+"::"+m.ID,
-		memberDeltaPayload(m), audienceMembers(m.ID), trigger)
+		s.offboardDeltaPayload(m), audienceMembers(m.ID), trigger)
 }
 
 func memberAvatarResult(m Member, mime string, filename *string) MemberAvatarDTO {
@@ -482,7 +665,7 @@ func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.Re
 // owner-pinned desired_machine_id, then run the SAME event-driven reconcile the
 // activate click uses (reconcileMemberNow). A LIVE member is auto-migrated onto
 // the chosen machine, but SINCE T-b6d9 GRACEFULLY: the pin is written together
-// with a refocus epoch, the agent gets the ordinary five-step wind-down SOP, and
+// with a refocus epoch, the agent gets the ordinary 下線程序 wake, and
 // the kill+re-spawn happens at the 收口 (its own report_stopped, or the recycle
 // arm's RecycleGrace ceiling). It used to be an immediate robust STOP with no
 // warning at all (fbc5280). An offline member just re-pins so the next wake
@@ -609,7 +792,30 @@ func (s *apiServer) HandleDeactivateMemberApiMembersMemberIdDeactivatePost(w htt
 	cancellingWake := PresenceState(*m, nowSecs(), s.hub.IsOnline(m.ID)) ==
 		MemberPresenceWaking
 	m.DesiredState = DesiredStateOffline
-	m.StoppingSince = nowSecs()
+	// …UNCONDITIONAL with ONE exception: a stop epoch that a FORCE-stop opened
+	// must not be re-stamped into a softer one. The SSE stop gate separates
+	// "close-out in flight" (admit the reconnect) from "cut off deliberately"
+	// (refuse it) by comparing the two anchors — forced_stop_at >= this epoch's
+	// stopping_since means forced — so re-stamping stopping_since to now would
+	// move a force-stopped member to the ADMIT side, and the 下線 arm runs no
+	// clock, so nothing would collect it afterwards. Found by independent
+	// review; reachable through the API/MCP surface (the cockpit offers no 下線
+	// button in stopping/stopped, but that is a UI fact, not a gate).
+	//
+	// The three conditions are each load-bearing. `stopping_since > 0` is what
+	// keeps this narrow to a LIVE forced epoch: activate clears the stop anchors
+	// but deliberately KEEPS forced_stop_at (it is the durable record that a
+	// past session was cut off), so testing forced_stop_at alone would strip the
+	// soft-offboard admission from every member that was ever force-stopped.
+	//
+	// Consequence, deliberate: a forced epoch's anchor stops moving, so this
+	// call no longer restarts the grace clock for it. Nothing reads it that way
+	// — the 下線 arm returns decisionNone while the soft grace is on, and
+	// offboardKindOf answers soft for desired-offline without consulting the
+	// anchor's age.
+	if !forcedEpochLive(*m) {
+		m.StoppingSince = nowSecs()
+	}
 	if err := s.putMember(*m, requestTrigger(r)); err != nil {
 		internalError(w, err)
 		return
@@ -642,25 +848,46 @@ func (s *apiServer) HandleForceStopMemberApiMembersMemberIdForceStopPost(w http.
 	if m.StoppingSince <= 0.0 {
 		m.StoppingSince = nowSecs()
 	}
+	// The record that this session was cut off (T-a9d6). Force-stop sends no
+	// notice — the recipient is about to stop existing, so a sentence meant to
+	// change its behaviour has no one to change — and that silence is exactly
+	// why the fact has to be written down: everything a killed session leaves
+	// behind is indistinguishable from what a session with nothing to say
+	// leaves behind. Stamped on the member itself so the NEXT generation and the
+	// cockpit can both see it; its own column, so no later snapshot erases it.
+	m.ForcedStopAt = nowSecs()
 	if err := s.putMember(*m, requestTrigger(r)); err != nil {
 		internalError(w, err)
 		return
+	}
+	if err := s.dal.SetMemberForcedStopAt(m.ID, m.ForcedStopAt); err != nil {
+		// Best-effort, and deliberately not fatal: the kill below is the point
+		// of the call and the member IS being force-stopped. Reporting a
+		// failure here would say "force-stop failed" about a member that is
+		// about to be killed anyway — the same shape as the dismiss sweep.
+		taskLog("force-stop %s: forced_stop_at not recorded: %v", m.ID, err)
 	}
 	s.dispatchRobustStopNow(m.ID)
 	s.writeMemberDTO(w, *m)
 }
 
-// POST /api/members/{member_id}/refocus — online-only (409 otherwise); stamps
-// refocus_since.
+// POST /api/members/{member_id}/refocus — needs a live session (409 otherwise);
+// stamps refocus_since.
+//
+// The gate is the SSE connection rather than the presence projection, for the
+// same reason restart_self's is: a member that has begun closing out projects
+// `stopping`, and refusing the owner there would mean 重新聚焦 stops working on
+// an agent that is mid-hand-off — the moment he is most likely to press it.
 func (s *apiServer) HandleRefocusMemberApiMembersMemberIdRefocusPost(w http.ResponseWriter, r *http.Request, memberId string) {
 	m, err := s.resolveMember(memberId)
 	if err != nil {
 		writeResolveError(w, err, "member", memberId)
 		return
 	}
-	if PresenceState(*m, nowSecs(), s.hub.IsOnline(m.ID)) != MemberPresenceOnline {
+	if !s.hub.IsOnline(m.ID) || !aRefocusStampWouldReachTheAgent(*m) {
 		writeError(w, http.StatusConflict,
-			"refocus requires the member to be online (§3.4 #14)")
+			"refocus requires the member to have a live session and to be wanted "+
+				"online (§3.4 #14)")
 		return
 	}
 	m.RefocusSince = nowSecs()
@@ -707,7 +934,7 @@ func (s *apiServer) HandleDismissMemberApiMembersMemberIdDelete(w http.ResponseW
 // — e.g. the owner's sub has none: self-report is agent-only by construction).
 // Unlike resolveMember it does NOT fold kind='outsource' onto errNotFound:
 // since the graceful worker handover (T-ea82) an outsource worker walks the
-// SAME five-step SOP as a member and reports its own presence through these
+// SAME 下線程序 wake as a member and reports its own presence through these
 // self endpoints — only the member_id-target admin surface keeps the pre-fold
 // ow- 404.
 func (s *apiServer) resolveSelf(r *http.Request) (*Member, error) {
@@ -797,10 +1024,11 @@ func (s *apiServer) HandleReportStoppingApiSelfStoppingPost(w http.ResponseWrite
 }
 
 // POST /api/self/stopped — anchors stopped_since ONCE (never re-stamped).
-// The FIRST stopped-report of a refocus-marked, still-desired-online agent
-// (graceful dump complete) fires the event-driven recycle kill so
-// kill→respawn happens immediately, not on the next ~30s tick
-// (handlers._dispatch_recycle_kill).
+// That FIRST report fires the event-driven collect, so kill→respawn happens
+// immediately rather than on the next ~30s tick. It no longer matters what
+// opened the offboard: an agent that says it is done is collected either way
+// (owner rc-b08d49dc3b03), and desired_state alone decides whether a new
+// generation follows.
 func (s *apiServer) HandleReportStoppedApiSelfStoppedPost(w http.ResponseWriter, r *http.Request) {
 	m, err := s.resolveSelf(r)
 	if err != nil {
@@ -820,12 +1048,26 @@ func (s *apiServer) HandleReportStoppedApiSelfStoppedPost(w http.ResponseWriter,
 		s.writeMemberDTO(w, *fresh)
 		return
 	}
-	recycleKill := false
+	// 🔴 A stopped-report is now ALWAYS collected (owner 2026-08-16, card
+	// rc-b08d49dc3b03 option ①: 「收掉並重生」).
+	//
+	// It used to be collected only when something was already collecting it —
+	// a refocus epoch was in flight. That was sound while the offboard sequence
+	// was shown ONLY to a session being collected: the last step always had a
+	// receiver. Then the notice began telling agents to close out on their own
+	// (T-c382) and the sequence became a document any session could work
+	// (T-c9c0), which opened a path nobody was waiting at the end of: an agent
+	// finished its close-out, reported stopped, and NOTHING happened. It stayed
+	// alive holding a session it had already declared finished — and the sweep
+	// that clears stale stopping anchors erased the evidence, painting it green
+	// again (the owner's T-2123 report, and the previous generation of THIS
+	// member lived it).
+	//
+	// desired_state decides what follows, and neither arm needs a special case
+	// here: online respawns on the next tick's plain START, offline stays down.
+	recycleKill := m.StoppedSince <= 0.0
 	if m.StoppedSince <= 0.0 {
 		m.StoppedSince = nowSecs()
-		if m.DesiredState == DesiredStateOnline && m.RefocusSince > 0.0 {
-			recycleKill = true
-		}
 	}
 	if err := s.putMember(*m, requestTrigger(r)); err != nil {
 		internalError(w, err)
@@ -844,13 +1086,22 @@ func (s *apiServer) HandleReportStoppedApiSelfStoppedPost(w http.ResponseWriter,
 // the CALLER, so it is strictly weaker than the admin-gated refocus_member —
 // zero privilege-escalation surface. The EFFECT is identical to refocus_member:
 // stamp the caller's refocus_since and fan the member delta; the standard §4.5
-// recycle orchestration (the agent's own RecycleHook → five-step SOP →
+// recycle orchestration (the agent's own RecycleHook → 下線程序 wake →
 // report_stopped → server kill/respawn) carries the rest. Nothing is dispatched
 // here (same as refocus_member — no reconcileMemberNow).
 //
 // Two abuse guards refuse LOUDLY (readable by the agent):
-//   - ONLINE-ONLY (409): a self-restart is meaningless with no live session
-//     (mirrors refocus_member's gate).
+//   - LIVE-SESSION-ONLY (409): a self-restart is meaningless with no live
+//     session to recycle. 🔴 The test is the SSE connection, not the presence
+//     projection. Those differ for exactly the caller this endpoint exists for:
+//     the offboard notice says 「work the sequence below, then call
+//     restart_self yourself」, step 1 of that sequence is report_stopping, and
+//     that stamps the anchor which makes PresenceState project `stopping`. So
+//     an agent doing precisely what it was told was refused — and once a
+//     close-out's anchor stopped being swept away every tick (T-2123) the
+//     refusal lasted the whole soft window instead of clearing on the next
+//     tick. A session holding an open stream has something to recycle; that is
+//     the whole question here.
 //   - MINIMUM-LIVENESS (429): a call within minSelfRestartSecs of this session
 //     connecting is refused — the server-authoritative boot_ts (stamped on the
 //     SSE first-connect edge, onFirstConnect) is the anchor; reusing the
@@ -867,9 +1118,10 @@ func (s *apiServer) HandleRestartSelfApiSelfRefocusPost(w http.ResponseWriter, r
 		return
 	}
 	now := nowSecs()
-	if PresenceState(*m, now, s.hub.IsOnline(m.ID)) != MemberPresenceOnline {
+	if !s.hub.IsOnline(m.ID) || !aRefocusStampWouldReachTheAgent(*m) {
 		writeError(w, http.StatusConflict,
-			"restart_self requires you to be online (no live session to recycle)")
+			"restart_self requires a live session to recycle, on a member that is "+
+				"still wanted online")
 		return
 	}
 	secsSinceBoot := gaugeSecsSinceBoot(s.gauge.Get(m.ID), now)

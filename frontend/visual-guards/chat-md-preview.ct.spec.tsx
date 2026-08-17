@@ -28,10 +28,11 @@ for (const width of [390, 1280]) {
     await page.setViewportSize({ width, height: 800 });
     const cmp = await mount(<ChatMdPreviewStory />);
     await cmp.getByRole("button", { name: "design-proposal.md" }).click();
-    const panel = cmp.locator(".md-preview__panel");
+    const panel = page.locator(".md-preview__panel");
     await expect(panel).toBeVisible();
     await expect(
-      cmp.getByRole("heading", { name: "design-proposal.md" })
+      // The overlay portals to `document.body` (T-76cd) — reach it via `page`.
+      page.locator(".md-preview").getByRole("heading", { name: "design-proposal.md" })
     ).toBeVisible();
     const box = await panel.boundingBox();
     expect(box).not.toBeNull();
@@ -52,5 +53,5 @@ test("narrow 390: Enter activates the .md chip (native <button> keyboard semanti
   const chip = cmp.getByRole("button", { name: "design-proposal.md" });
   await chip.focus();
   await page.keyboard.press("Enter");
-  await expect(cmp.locator(".md-preview")).toBeVisible();
+  await expect(page.locator(".md-preview")).toBeVisible();
 });

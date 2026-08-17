@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useI18n } from "../i18n";
 import type {
-  GlobalContextView,
-  RoleDefView,
+  RoleSummaryView,
   VersionView,
   ReleaseCheckView,
 } from "../types";
@@ -18,10 +17,10 @@ import {
 import { formatDuration } from "../lib/duration";
 import { formatBuildVersion } from "../lib/versionFormat";
 import { useGlobalContext } from "../hooks/useGlobalContext";
-import { useRoles } from "../hooks/useRoles";
+import { useRole, useRoles } from "../hooks/useRoles";
 import { useServerSettings } from "../hooks/useServerSettings";
 import { refreshServerSettings } from "../hooks/sharedServerSettings";
-import { useTaskManuals } from "../hooks/useTaskManuals";
+import { useTaskManual, useTaskManuals } from "../hooks/useTaskManuals";
 import { useMembers } from "../hooks/useMembers";
 import {
   TaskManualsList,
@@ -30,21 +29,17 @@ import {
   TaskManualLearningsPage,
 } from "./TaskManualsPage";
 import type { TaskManualPatch } from "../api/adapter";
-import {
-  SEED_BOOT_SEQUENCE_MD,
-  SEED_BOOT_SEQUENCE_CODEX_MD,
-  SEED_SYSTEM_INTERACTION_MD,
-} from "../api/seeds";
 import { isHttpStatus } from "../api/errors";
-import { Markdown } from "./Markdown";
+import { BootDocPage } from "./BootDocPage";
+import { DocCard } from "./DocCard";
 import { LessonsCard } from "./LessonsCard";
 import { InsightCard } from "./InsightCard";
-import {
-  DocumentHistoryEntry,
-  type DocumentHistoryEntryProps,
-} from "./DocumentHistoryEntry";
 import { navigateHash } from "../lib/hashRoute";
 import { DOC_CAP_CHARS_DEFAULTS } from "../api/docCap";
+import {
+  CHAT_BUDGET_CHARS_MAX,
+  CHAT_BUDGET_CHARS_MIN,
+} from "../api/chatBudget";
 
 /** The adjustable document caps (T-ae38, widened by T-30f1), in the order the
  * parameters card lists them: the three role-journal segments in journal order
@@ -93,6 +88,8 @@ import {
   UserIcon,
   PencilIcon,
   BoltIcon,
+  LogOutIcon,
+  MonitorIcon,
   GearIcon,
   TrashIcon,
   RefreshIcon,
@@ -100,15 +97,16 @@ import {
 } from "./icons";
 import { ThemeSettings } from "./ThemeSettings";
 import { ConfirmModal } from "./ConfirmModal";
-import { InlineEdit } from "./InlineEdit";
 import "./settings.css";
 
 // Which settings sub-view is showing. Navigation is internal to the page; the
 // user leaves Settings entirely by clicking a nav tab (App owns that).
-// The old single "global" doc is now the THREE blocks of the assembled boot
-// context (global-context-3block-restructure): "system" (系統互動, read-only
-// seed) / "custom" (使用者自訂, the owner-editable additive block behind
-// /api/global-context) / "boot" (啟動程序, read-only seed).
+// The old single "global" doc is the blocks of the assembled boot context
+// (global-context-3block-restructure): "system" (系統互動) / "custom"
+// (使用者自訂, the additive block behind /api/global-context) / "boot"
+// (啟動程序, ONE VIEW PER RUNTIME — see the boot view below). T-791e: all of
+// them are owner-editable now; "read-only seed" no longer describes any of
+// them, and the two boot sequences are separate documents.
 type View =
   | { kind: "landing" }
   | { kind: "software" }
@@ -117,7 +115,15 @@ type View =
   | { kind: "theme" }
   | { kind: "system" }
   | { kind: "custom" }
+  // 啟動程序 is TWO documents. `boot` is the INDEX — two nav rows, one per
+  // runtime — and `bootDoc` is one runtime's own page (T-bac4, owner:「可以改成
+  // 像任務手冊那樣嗎」). The index carries no document of its own, which is why
+  // it may be keyless; every document still has its own page.
   | { kind: "boot" }
+  | { kind: "bootDoc"; runtime: "claude" | "codex" }
+  // 下線程序 (T-c9c0) — ONE document, so no index/detail split: the nav row
+  // opens the page directly, the shape 系統互動 already has.
+  | { kind: "offboard" }
   | { kind: "role"; key: string }
   | { kind: "manuals" }
   // 任務手冊詳情 = hub (摘要卡 + 任務規劃入口卡): the two 任務規劃 cards
@@ -185,6 +191,16 @@ export function SettingsPage({
   // the roster feeds the manual detail's 負責成員 member picker.
   const manualsH = useTaskManuals();
   const { members } = useMembers();
+  // T-1170: neither list answer carries its long documents any more, so the
+  // pages that RENDER one read it themselves — named, and only while that page
+  // is on screen (`""` requests nothing). Called unconditionally here because
+  // hooks must be; the branches below just consume the result.
+  const roleDoc = useRole(view.kind === "role" ? view.key : "");
+  const manualDoc = useTaskManual(
+    view.kind === "manualDef" || view.kind === "manualLearnings"
+      ? view.key
+      : ""
+  );
 
   // ── unified breadcrumb navigation (T-8f6e) ──
   // Crumb jumps move the internal view via setView; where the target segment
@@ -237,6 +253,7 @@ export function SettingsPage({
         onOpenSystem={() => setView({ kind: "system" })}
         onOpenCustom={() => setView({ kind: "custom" })}
         onOpenBoot={() => setView({ kind: "boot" })}
+        onOpenOffboard={() => setView({ kind: "offboard" })}
         onOpenRole={(key) => setView({ kind: "role", key })}
         onCreate={rolesH.create}
         onDelete={rolesH.remove}
@@ -337,20 +354,35 @@ export function SettingsPage({
             : t.settings.manualTabLearnings,
       },
     ];
-    const onSave = (patch: TaskManualPatch) => manualsH.update(key, patch);
+    // The update echo is the manual AFTER the edit, so this page adopts it
+    // rather than waiting for the list refetch (which no longer carries either
+    // document) or for an SSE frame.
+    const onSave = async (patch: TaskManualPatch) => {
+      const next = await manualsH.update(key, patch);
+      manualDoc.adopt(next);
+      return next;
+    };
+    // A restore rewrites ONE of the manual's documents server-side, so this
+    // page re-reads its own manual; the list follows for the row it shows.
+    const onRestored = async () => {
+      await manualDoc.refetch();
+      await manualsH.refetch();
+    };
     return view.kind === "manualDef" ? (
       <TaskManualDefinitionPage
-        manual={manual}
+        manual={manualDoc.manual}
+        loadError={manualDoc.error}
         crumbs={subCrumbs}
         onSave={onSave}
-        onRestored={manualsH.refetch}
+        onRestored={onRestored}
       />
     ) : (
       <TaskManualLearningsPage
-        manual={manual}
+        manual={manualDoc.manual}
+        loadError={manualDoc.error}
         crumbs={subCrumbs}
         onSave={onSave}
-        onRestored={manualsH.refetch}
+        onRestored={onRestored}
       />
     );
   }
@@ -378,19 +410,35 @@ export function SettingsPage({
   }
 
   if (view.kind === "system") {
-    // 系統互動 — the read-only FIRST block of every agent's boot context. The
-    // backend has NO write endpoint for it BY CONSTRUCTION (enforcement by
-    // construction, not validation), so the card is READ-ONLY and the text
-    // mirrors dal/seeds/system_interaction.md via SEED_SYSTEM_INTERACTION_MD —
-    // the same constant assemble_boot_context heads with. No filename: blocks
-    // are presented as content, not files.
+    // 系統互動 — the FIRST block of every agent's boot context, and editable
+    // since T-791e. It used to be a read-only render of SEED_SYSTEM_INTERACTION_MD
+    // ("the backend has NO write endpoint BY CONSTRUCTION"); it now has one, so
+    // the page reads the LIVE document through the api seam. The seed still
+    // exists — as the FACTORY version behind 還原出廠版 and the history list's
+    // 初始版本 row — but it is no longer what the page body renders.
     return (
-      <DocDetail
+      <BootDocPage
+        kind="system_interaction"
+        docKey="global"
         title={t.settings.systemName}
-        doc={{ text: SEED_SYSTEM_INTERACTION_MD.trim(), isDefault: false }}
-        badge={t.settings.readOnlyBadge}
-        readOnly
+        historyTitle={t.settings.historyBootSystemTitle}
         crumbs={[crumbRoot, crumbRoles, { label: t.settings.systemName }]}
+      />
+    );
+  }
+
+  if (view.kind === "offboard") {
+    // 下線程序 — what an agent is handed at the moment the server collects its
+    // session (T-c9c0). Same editable-document shape as 系統互動, and a
+    // SINGLETON for the same reason: being collected is one procedure whatever
+    // runtime an agent runs, so there is no runtime to choose here.
+    return (
+      <BootDocPage
+        kind="offboard"
+        docKey="global"
+        title={t.settings.offboardName}
+        historyTitle={t.settings.historyBootOffboardTitle}
+        crumbs={[crumbRoot, crumbRoles, { label: t.settings.offboardName }]}
       />
     );
   }
@@ -400,7 +448,7 @@ export function SettingsPage({
     // Empty text + isDefault=true = never written; the assembled boot context
     // skips the block entirely. Save = whole-block replace, reset = tombstone.
     return (
-      <DocDetail
+      <DocCard
         title={t.settings.customName}
         doc={gc.ctx}
         crumbs={[crumbRoot, crumbRoles, { label: t.settings.customName }]}
@@ -425,23 +473,109 @@ export function SettingsPage({
   }
 
   if (view.kind === "boot") {
-    // Boot sequence is a FIXED, runtime-selected studio SOP. Both read-only
-    // variants are shown here so the cockpit exposes exactly what Claude and
-    // Codex members receive; the server selects only one for each persona.
-    const bootPreview = [
-      "## Claude Code",
-      SEED_BOOT_SEQUENCE_MD.trim(),
-      "---",
-      "## Codex CLI",
-      SEED_BOOT_SEQUENCE_CODEX_MD.trim(),
-    ].join("\n\n");
+    // 🔴 AN INDEX OF TWO, NOT TWO DOCUMENTS STACKED (T-bac4, owner 2026-08-15
+    // on rc-08e1e073c293:「我覺得呈現方式不好，可以改成像任務手冊那樣嗎」, with
+    // the 任務手冊 hub as the reference picture). Same `.set-entry` rows the
+    // 任務規劃 cards use — icon, title, one-line sub, right chevron — and each
+    // one PUSHES its runtime's own page.
+    //
+    // WHAT THIS REPLACED, AND WHY THE HISTORY MATTERS. The page used to render
+    // BOTH documents stacked, then both stacked-and-collapsed (T-6278). Both
+    // shapes were answers to the same complaint: he met this page on a phone,
+    // scrolled the first document to its end, and read that as the end of the
+    // PAGE — 啟動程序 (Codex CLI) sat below the fold and might as well not have
+    // existed. Collapsing put both headings on one screen; an index does it
+    // without an expand/collapse mechanism at all, so the identity of each
+    // document is carried by a permanent row rather than by a heading whose
+    // position moves when its neighbour opens.
+    //
+    // ⚠️ THE INVARIANT THAT SURVIVES EVERY SHAPE: the two remain two SEPARATE
+    // documents with separate editors, save buttons and version histories, and
+    // nothing writes both. Their third step means OPPOSITE things (claude
+    // attaches `ocagent listen` itself; codex must NOT — the sidecar does), so
+    // copying one runtime's text over the other stops that runtime's agents
+    // ever coming online, silently. Separate PAGES make that copy harder than
+    // the stacked shape did, not easier.
+    //
+    // 🔴 EACH ROW NAMES ITS OWN DOCUMENT. T-6278's review sent that build back
+    // precisely here: its collapse toggles carried an aria-label that covered
+    // both documents' identity, so the very defect being fixed was reproduced
+    // in the accessibility tree. The rows below take their accessible name from
+    // their own visible title (bootClaudeName / bootCodexName), which is the
+    // runtime — do not replace that with a shared label.
     return (
-      <DocDetail
-        title={t.settings.bootName}
-        doc={{ text: bootPreview, isDefault: false }}
-        badge={t.settings.bootBadge}
-        readOnly
-        crumbs={[crumbRoot, crumbRoles, { label: t.settings.bootName }]}
+      <div className="settings">
+        <Breadcrumbs
+          items={[crumbRoot, crumbRoles, { label: t.settings.bootName }]}
+        />
+        <h1 className="settings__title">{t.settings.bootName}</h1>
+        <div className="set-entries">
+          <button
+            type="button"
+            className="set-entry"
+            data-testid="boot-entry-claude"
+            onClick={() => setView({ kind: "bootDoc", runtime: "claude" })}
+          >
+            <span className="set-entry__icon set-entry__icon--violet">
+              <BoltIcon size={18} />
+            </span>
+            <span className="set-entry__body">
+              <span className="set-entry__name">{t.settings.bootClaudeName}</span>
+              <span className="set-entry__sub">{t.settings.bootClaudeSub}</span>
+            </span>
+            <ChevronRightIcon size={18} className="set-entry__chev" />
+          </button>
+          <button
+            type="button"
+            className="set-entry"
+            data-testid="boot-entry-codex"
+            onClick={() => setView({ kind: "bootDoc", runtime: "codex" })}
+          >
+            <span className="set-entry__icon set-entry__icon--blue">
+              <MonitorIcon size={18} />
+            </span>
+            <span className="set-entry__body">
+              <span className="set-entry__name">{t.settings.bootCodexName}</span>
+              <span className="set-entry__sub">{t.settings.bootCodexSub}</span>
+            </span>
+            <ChevronRightIcon size={18} className="set-entry__chev" />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (view.kind === "bootDoc") {
+    // One runtime, one page, its own editor / save / version history / restore
+    // — all of it BootDocPage's, untouched by T-bac4. `collapsible` is
+    // deliberately NOT passed: a page that holds one document has nothing to
+    // collapse, and the fold it existed to solve is gone with the stack.
+    const claude = view.runtime === "claude";
+    return (
+      <BootDocPage
+        kind="boot_sequence"
+        docKey={view.runtime}
+        title={claude ? t.settings.bootClaudeName : t.settings.bootCodexName}
+        historyTitle={
+          claude
+            ? t.settings.historyBootClaudeTitle
+            : t.settings.historyBootCodexTitle
+        }
+        // The runtime's own name is the TERMINAL crumb, so 啟動程序 sits one
+        // step up and stays clickable — Breadcrumbs renders the last segment as
+        // plain text on purpose, so a trail ending at 啟動程序 would leave the
+        // reader unable to reach the other runtime without going out to 角色誌
+        // and back in.
+        crumbs={[
+          crumbRoot,
+          crumbRoles,
+          { label: t.settings.bootName, onClick: () => setView({ kind: "boot" }) },
+          {
+            label: claude
+              ? t.settings.bootClaudeName
+              : t.settings.bootCodexName,
+          },
+        ]}
       />
     );
   }
@@ -452,7 +586,7 @@ export function SettingsPage({
     // (per-role-learnings step1). The lessons card is the SAME shared
     // <LessonsCard> the app uses everywhere — scoped here to view.key so the
     // owner edits exactly this persona's accumulated learnings. `extra` renders
-    // inside DocDetail's <div className="settings"> so the card inherits page
+    // inside DocCard's <div className="settings"> so the card inherits page
     // width/gutters and sits directly under the role_def card.
     //
     // Localized role label (matches the office/monitor roster + mockup 助理),
@@ -463,7 +597,7 @@ export function SettingsPage({
       role?.name ??
       view.key;
     return (
-      <DocDetail
+      <DocCard
         title={roleTitle}
         // 角色名 rename — CUSTOM roles only (seed titles are i18n-localized by
         // key AND server-side name-locked). Same pencil inline-edit pattern as
@@ -471,26 +605,84 @@ export function SettingsPage({
         // the roster's role display names follow (single truth: role.name).
         onRenameTitle={
           role && !role.isSeed
-            ? (name) => rolesH.save(view.key, { name })
+            ? async (name) => {
+                roleDoc.adopt(await rolesH.save(view.key, { name }));
+              }
             : undefined
         }
+        // T-1170: the persona body is NOT on the roster row any more, so the
+        // page's own read supplies it. `null` until it lands — DocCard already
+        // treats that as "not loaded" (edit stays disabled) rather than as an
+        // empty document, which is what stops 完成編輯 writing a blank over a
+        // real definition.
         doc={
-          role
-            ? { text: role.definitionMd, isDefault: role.isDefault }
+          roleDoc.role
+            ? {
+                text: roleDoc.role.definitionMd,
+                isDefault: roleDoc.role.isDefault,
+              }
             : null
+        }
+        // 預設 comes off the ROSTER ROW, not off the document. The roster has
+        // carried `is_default` all along and it answers on its own request, so
+        // this stays true through the window where `getRole` is in flight or
+        // has failed — which is exactly the window in which reading it off the
+        // (absent) document badged an owner-edited role as shipped-default.
+        isDefault={role?.isDefault}
+        // The roster answering while THIS read failed is a new state (they are
+        // two requests now), and it has to say so instead of showing an empty
+        // card under a real role's title.
+        errorNote={
+          roleDoc.error ? (
+            <div className="set-error" data-testid="role-doc-load-error">
+              {t.settings.loadError}
+            </div>
+          ) : roleDoc.loading ? (
+            // Loading and "this document is empty" are different screens, and
+            // an empty <Markdown> is indistinguishable from the second. The
+            // manuals page draws no card at all until the body lands
+            // (TaskManualsPage's `{manual && …}`); this page keeps its card
+            // because the title, the breadcrumb and 版本紀錄 are all readable
+            // without the body — so it says which state it is in instead.
+            <div className="doc-card__note" data-testid="role-doc-loading">
+              {t.settings.historyLoading}
+            </div>
+          ) : undefined
         }
         crumbs={[crumbRoot, crumbRoles, { label: roleTitle }]}
         // The Duty doc has had a cap since T-ae38, and this is the only place
         // an owner or an agent sees how close it is to it. Omitted while the
         // role has not loaded — an invented 0/0 would read as a real budget.
-        usage={role ? { size: role.sizeChars, cap: role.capChars } : undefined}
-        onSave={(text) => rolesH.save(view.key, { definitionMd: text })}
+        //
+        // ⚠️ ALSO omitted while the DOCUMENT has not landed, even though the
+        // roster row (which carries both numbers) has. The two facts come from
+        // two requests now, and printing 「310 / 1000」 above a body that is
+        // blank because its own read failed puts two statements on screen that
+        // contradict each other — and the reader has no way to tell which one
+        // is the broken half.
+        usage={
+          role && roleDoc.role
+            ? { size: role.sizeChars, cap: role.capChars }
+            : undefined
+        }
+        // Adopt the write echo: this page is no longer the roster's array, so
+        // nothing else would put the saved text back on screen until an SSE
+        // frame arrived — and a save must not depend on the stream being up.
+        onSave={async (text) => {
+          roleDoc.adopt(await rolesH.save(view.key, { definitionMd: text }));
+        }}
         // 重置 = "restore the FILE SEED" — only a seed role has one. A custom
         // role's doc IS its only truth (the server 404s its reset — verified
         // live), so the affordance is omitted rather than left half-dead: on a
         // seed role it becomes the list's 初始版本 row, on a custom one there
         // is no such row at all.
-        onReset={role?.isSeed ? () => rolesH.reset(view.key) : undefined}
+        onReset={
+          role?.isSeed
+            ? async () => {
+                roleDoc.adopt(await rolesH.reset(view.key));
+              }
+            : undefined
+        }
         history={{
           kind: "role_definition",
           docKey: view.key,
@@ -501,13 +693,18 @@ export function SettingsPage({
           // The definition text alone: the role's name is not versioned
           // (owner ruling 2026-07-31), so putting it on this side would make a
           // rename show up as a difference nothing can restore.
-          currentContent: role
-            ? { definition_md: role.definitionMd }
+          currentContent: roleDoc.role
+            ? { definition_md: roleDoc.role.definitionMd }
             : undefined,
           // Only a CUSTOM role has a delete affordance (seed roles are
           // server-refused), so only there is the scope note true.
           docDeletable: role ? !role.isSeed : false,
-          onRestored: rolesH.refetch,
+          onRestored: async () => {
+            // A restore rewrites the LIVE document, so the page re-reads its
+            // own doc; the roster follows for the size it shows.
+            await roleDoc.refetch();
+            await rolesH.refetch();
+          },
         }}
         // Duty (the role_def card above) → Insight → Learning: the three
         // blocks of the role journal, in the order the owner ruled on
@@ -643,12 +840,15 @@ function ServerParams({
   // keystroke would PATCH the server mid-typing ("5" on the way to "50").
   const [handoverDraft, setHandoverDraft] = useState<string | null>(null);
   const [codexHandoverDraft, setCodexHandoverDraft] = useState<string | null>(null);
+  const [noticeDraft, setNoticeDraft] = useState<string | null>(null);
+  const [codexNoticeDraft, setCodexNoticeDraft] = useState<string | null>(null);
   const [monitoringRefreshDraft, setMonitoringRefreshDraft] = useState<string | null>(null);
   // T-ae38, widened by T-30f1: five independent caps, so five independent
   // drafts. A shared draft would make typing in one field snap the others back.
   const [docCapDrafts, setDocCapDrafts] = useState<
     Partial<Record<DocCapField, string>>
   >({});
+  const [chatBudgetDraft, setChatBudgetDraft] = useState<string | null>(null);
   const [rangeError, setRangeError] = useState(false);
 
   const ttlLabel: Record<number, string> = {
@@ -662,8 +862,9 @@ function ServerParams({
     if (!settings) return;
     if (handoverDraft === null) return;
     const n = Number(handoverDraft);
-    if (!Number.isInteger(n) || n < 40 || n > 90) {
-      // Local guard mirrors the server's 422 range — snap back, mark it.
+    if (!Number.isInteger(n) || n < 40 || n > 90 || n <= settings.noticePct) {
+      // Local guard mirrors the server's 422 range AND the pair order — snap
+      // back, mark it.
       setRangeError(true);
       setHandoverDraft(null);
       return;
@@ -673,10 +874,39 @@ function ServerParams({
     void onSave({ handoverPct: n });
   }
 
+  // The two offboard points are a PAIR, so each local guard checks the ORDER as
+  // well as the range — the server refuses a crossing pair with a 422, and
+  // letting the input accept it here would show a saved value the server never
+  // took. Checked against the OTHER field's live value, so either box can be
+  // edited on its own.
+  function commitNotice() {
+    if (!settings || noticeDraft === null) return;
+    const n = Number(noticeDraft);
+    if (!Number.isInteger(n) || n < 1 || n > 89 || n >= settings.handoverPct) {
+      setRangeError(true);
+      setNoticeDraft(null);
+      return;
+    }
+    setNoticeDraft(null);
+    if (n !== settings.noticePct) void onSave({ noticePct: n });
+  }
+
+  function commitCodexNotice() {
+    if (!settings || codexNoticeDraft === null) return;
+    const n = Number(codexNoticeDraft);
+    if (!Number.isInteger(n) || n < 1 || n > 10 || n >= settings.codexCompactionThreshold) {
+      setRangeError(true);
+      setCodexNoticeDraft(null);
+      return;
+    }
+    setCodexNoticeDraft(null);
+    if (n !== settings.codexNoticeRound) void onSave({ codexNoticeRound: n });
+  }
+
   function commitCodexHandover() {
     if (!settings || codexHandoverDraft === null) return;
     const n = Number(codexHandoverDraft);
-    if (!Number.isInteger(n) || n < 1 || n > 10) {
+    if (!Number.isInteger(n) || n < 1 || n > 10 || n <= settings.codexNoticeRound) {
       setRangeError(true); setCodexHandoverDraft(null); return;
     }
     setCodexHandoverDraft(null);
@@ -695,6 +925,28 @@ function ServerParams({
   // cap (owner 2026-07-31; five of them since T-30f1) — the local guard mirrors
   // the server's 422 range exactly, INCLUDING Duty's own smaller floor. Reusing
   // the other four's floor here would locally reject the shipped Duty default.
+  // T-c9b4: the wake snapshot's chat budget. Deliberately its OWN row and its
+  // own commit rather than a sixth entry in DOC_CAP_FIELDS — that table's floor
+  // is each segment's shipped default and its ceiling is 100000, and neither is
+  // true here. This one may be turned DOWN (the block is repacked on every read,
+  // so a smaller budget just returns fewer messages), and its ceiling is pinned
+  // to how many messages the server reads before packing.
+  function commitChatBudget() {
+    if (!settings || chatBudgetDraft === null) return;
+    const n = Number(chatBudgetDraft);
+    if (
+      !Number.isInteger(n) ||
+      n < CHAT_BUDGET_CHARS_MIN ||
+      n > CHAT_BUDGET_CHARS_MAX
+    ) {
+      setRangeError(true);
+      setChatBudgetDraft(null);
+      return;
+    }
+    setChatBudgetDraft(null);
+    if (n !== settings.chatBudgetChars) void onSave({ chatBudgetChars: n });
+  }
+
   function commitDocCap(field: DocCapField) {
     const draft = docCapDrafts[field];
     if (!settings || draft === undefined) return;
@@ -765,6 +1017,36 @@ function ServerParams({
 
           <div className="param-row">
             <div className="param-row__body">
+              <label className="param-row__name" htmlFor="param-notice">
+                {t.settings.notice}
+              </label>
+              <div className="param-row__sub">{t.settings.noticeSub}</div>
+            </div>
+            <div className="param-pct">
+              <input
+                id="param-notice"
+                className="param-input"
+                type="number"
+                min={1}
+                max={89}
+                aria-label={t.settings.notice}
+                value={noticeDraft ?? String(settings.noticePct)}
+                onChange={(e) => {
+                  setRangeError(false);
+                  onClearSaveError();
+                  setNoticeDraft(e.target.value);
+                }}
+                onBlur={commitNotice}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitNotice();
+                }}
+              />
+              <span className="param-pct__sign">%</span>
+            </div>
+          </div>
+
+          <div className="param-row">
+            <div className="param-row__body">
               <label className="param-row__name" htmlFor="param-handover">
                 {t.settings.handover}
               </label>
@@ -790,6 +1072,29 @@ function ServerParams({
                 }}
               />
               <span className="param-pct__sign">%</span>
+            </div>
+          </div>
+
+          <div className="param-row">
+            <div className="param-row__body">
+              <label className="param-row__name" htmlFor="param-codex-notice">
+                {t.settings.codexNotice}
+              </label>
+              <div className="param-row__sub">{t.settings.codexNoticeSub}</div>
+            </div>
+            <div className="param-pct">
+              <input
+                id="param-codex-notice"
+                className="param-input"
+                type="number"
+                min={1}
+                max={10}
+                aria-label={t.settings.codexNotice}
+                value={codexNoticeDraft ?? String(settings.codexNoticeRound)}
+                onChange={(e) => { setRangeError(false); onClearSaveError(); setCodexNoticeDraft(e.target.value); }}
+                onBlur={commitCodexNotice}
+                onKeyDown={(e) => { if (e.key === "Enter") commitCodexNotice(); }}
+              />
             </div>
           </div>
 
@@ -850,6 +1155,22 @@ function ServerParams({
               </div>
             );
           })}
+
+          <div className="param-row">
+            <div className="param-row__body">
+              <div className="param-row__name">{t.settings.chatBudget}</div>
+              <div className="param-row__sub">{t.settings.chatBudgetSub}</div>
+            </div>
+            <div className="param-pct">
+              <input id="param-chat-budget" className="param-input" type="number"
+                min={CHAT_BUDGET_CHARS_MIN} max={CHAT_BUDGET_CHARS_MAX}
+                aria-label={t.settings.chatBudget}
+                value={chatBudgetDraft ?? String(settings.chatBudgetChars)}
+                onChange={(e) => { setRangeError(false); onClearSaveError(); setChatBudgetDraft(e.target.value); }}
+                onBlur={commitChatBudget} onKeyDown={(e) => { if (e.key === "Enter") commitChatBudget(); }} />
+              <span className="param-pct__sign">{t.settings.chars}</span>
+            </div>
+          </div>
 
           {(saveError || rangeError) && (
             <div className="set-error param-error">
@@ -1408,16 +1729,12 @@ function BackupHealthCard() {
 }
 
 // ── 角色誌 (list) ───────────────────────────────────────────────────────────
-/** First non-heading, non-empty line of a markdown doc, trimmed — an HONEST
- * preview drawn from the real seed (never the mockup's illustrative desc). */
-function firstBodyLine(md: string): string {
-  for (const raw of md.split("\n")) {
-    const line = raw.trim();
-    if (line === "" || line.startsWith("#") || line.startsWith(">")) continue;
-    return line.replace(/^[-*]\s+/, "").replace(/\*\*/g, "");
-  }
-  return "";
-}
+// `firstBodyLine` lived here — the roster row's one-line persona preview. It
+// went with T-1170: the roster answer no longer carries `definition_md`, so
+// there is no text to take a first line from, and the only way to keep the
+// preview would be one document fetch per row, which is the download the
+// directory exists to stop. Deleted rather than left dead: a helper with no
+// caller reads exactly like a live one.
 
 function RolesLog({
   roles,
@@ -1426,17 +1743,23 @@ function RolesLog({
   onOpenSystem,
   onOpenCustom,
   onOpenBoot,
+  onOpenOffboard,
   onOpenRole,
   onCreate,
   onDelete,
   autoCreate,
 }: {
-  roles: RoleDefView[];
+  roles: RoleSummaryView[];
   error: boolean;
   crumbs: Crumb[];
   onOpenSystem: () => void;
   onOpenCustom: () => void;
-  onOpenBoot: () => void;
+  /** 🔴 Takes the RUNTIME. A no-argument opener would have to pick one, and
+   * whichever it picked would be the wrong document half the time — with no
+   * way for the reader to tell, because the two pages look identical. */
+  onOpenBoot: (runtime: "claude" | "codex") => void;
+  /** 下線程序 (T-c9c0) — one document, so no runtime to pass. */
+  onOpenOffboard: () => void;
   onOpenRole: (key: string) => void;
   onCreate: (input: { name: string }) => Promise<unknown>;
   onDelete: (key: string) => Promise<void>;
@@ -1532,10 +1855,11 @@ function RolesLog({
        * bounced to login) never masquerades as an empty role journal. */}
       {error && <div className="set-error">{t.settings.loadError}</div>}
 
-      {/* zone 1: the THREE global-context blocks, in boot-assembly order:
-       * 系統互動 (read-only seed, heads the boot context) → 使用者自訂 (the
-       * owner-editable additive block) → 啟動程序 (read-only seed, appended
-       * LAST). No filenames — the blocks are content, not files. */}
+      {/* zone 1: the global-context blocks, in boot-assembly order:
+       * 系統互動 (heads the boot context) → 使用者自訂 (the additive block) →
+       * 啟動程序, ONE row that opens a page holding both runtimes' documents.
+       * All of them are editable since T-791e. No filenames — the blocks are
+       * content, not files. */}
       <div className="set-group-label">{t.settings.globalSection}</div>
       <div className="set-entries">
         <button type="button" className="set-entry" onClick={onOpenSystem}>
@@ -1558,7 +1882,23 @@ function RolesLog({
           </span>
           <ChevronRightIcon size={18} className="set-entry__chev" />
         </button>
-        <button type="button" className="set-entry" onClick={onOpenBoot}>
+        {/* ONE row, not one per runtime (owner 2026-08-14, card rc-e1abbc506b70
+          * option 1). He asked why this had been "split into so many", and he
+          * was right about the half that matters: the two seed FILES predate
+          * this work, but the settings list carried a single 啟動程序 row until
+          * T-791e made both editable and gave each its own. The runtime is
+          * chosen INSIDE the page now.
+          *
+          * What did NOT change, and must not: the two documents stay separate.
+          * Their third step means opposite things (claude attaches `ocagent
+          * listen` itself; codex must NOT and hands that to the sidecar), so
+          * merging the TEXT would silently stop one runtime's agents ever
+          * coming online. One entry, two documents. */}
+        <button
+          type="button"
+          className="set-entry"
+          onClick={() => onOpenBoot("claude")}
+        >
           <span className="set-entry__icon set-entry__icon--violet">
             <BoltIcon size={18} />
           </span>
@@ -1568,13 +1908,27 @@ function RolesLog({
           </span>
           <ChevronRightIcon size={18} className="set-entry__chev" />
         </button>
+        {/* 下線程序 sits FOURTH, right after 啟動程序: the two are the same
+          * agent's life read end to end, so the list runs 開機 → 下線. This
+          * document is NOT part of the boot fold — the server hands it over at
+          * the moment it collects a session — which is exactly why it needs a
+          * row of its own here rather than a paragraph inside another block. */}
+        <button type="button" className="set-entry" onClick={onOpenOffboard}>
+          <span className="set-entry__icon set-entry__icon--violet">
+            <LogOutIcon size={18} />
+          </span>
+          <span className="set-entry__body">
+            <span className="set-entry__name">{t.settings.offboardName}</span>
+            <span className="set-entry__sub">{t.settings.offboardSub}</span>
+          </span>
+          <ChevronRightIcon size={18} className="set-entry__chev" />
+        </button>
       </div>
 
       {/* zone 2: role definitions */}
       <div className="set-group-label">{t.settings.roleDefsSection}</div>
       <div className="set-entries">
         {roles.map((r) => {
-          const preview = firstBodyLine(r.definitionMd);
           return (
             <div className="set-entry-row" key={r.key}>
               {/* __main is the visual role card: the open-detail button fills
@@ -1600,9 +1954,12 @@ function RolesLog({
                       <span className="set-badge">{t.settings.customBadge}</span>
                     )}
                   </span>
-                  {preview && (
-                    <span className="set-entry__sub">{preview}</span>
-                  )}
+                  {/* NO body preview any more (T-1170). The roster answer
+                    * carries no `definition_md`, so the first line of a
+                    * persona is not something this list has — and fetching
+                    * every role's document to print one line each is exactly
+                    * what the directory exists to stop. The row keeps the
+                    * name and its badges; the text is one click away. */}
                 </span>
                 <ChevronRightIcon size={18} className="set-entry__chev" />
               </button>
@@ -1740,220 +2097,3 @@ function RolesLog({
   );
 }
 
-// ── Doc detail (global context / role def): view + edit ─────────────────────
-interface DocDetailDoc {
-  text: string;
-  isDefault: boolean;
-}
-
-function DocDetail({
-  title,
-  onRenameTitle,
-  doc,
-  crumbs,
-  onSave,
-  onReset,
-  history,
-  extra,
-  readOnly = false,
-  badge,
-  usage,
-}: {
-  title: string;
-  /** Rename the doc's TITLE (custom roles only — the 角色名 is owner-editable
-   * there; seed roles pass none and keep the plain heading). Renders the shared
-   * pencil InlineEdit in the heading; commits ride the role PATCH choke. */
-  onRenameTitle?: (name: string) => Promise<void> | void;
-  doc: DocDetailDoc | GlobalContextView | null;
-  /** The unified settings breadcrumb (T-8f6e) — 設定 › 角色誌 › <this doc>. */
-  crumbs: Crumb[];
-  /** Save/reset are omitted for read-only docs (e.g. the boot sequence, a fixed
-   * studio SOP with no owner overlay). */
-  onSave?: (text: string) => Promise<void> | void;
-  onReset?: () => Promise<void> | void;
-  /** The document's 版本紀錄 (T-1f39). Rendered in the EDIT toolbar, in the
-   * slot 重置 used to hold; the reset itself survives as the list's 初始版本
-   * row and is wired from `onReset` here, so a document without a seed simply
-   * does not grow that row. */
-  history?: Omit<DocumentHistoryEntryProps, "onReset" | "disabled">;
-  /** Optional content rendered below the doc card (e.g. the persona page's
-   * per-role <LessonsCard>). The global-context view passes none. */
-  extra?: ReactNode;
-  /** Read-only mode: no edit/reset affordances, just the rendered markdown.
-   * Used by the boot-sequence card (fixed studio SOP, no owner overlay). */
-  readOnly?: boolean;
-  /** Overrides the "Default" is_default badge (e.g. "Studio SOP" for boot). */
-  badge?: string;
-  /** This document's size budget, `{size, cap}` in CHARACTERS (T-ae38).
-   *
-   * Passed only by documents that HAVE a cap — the role definition today. The
-   * global-context views omit it because they genuinely have none, and showing
-   * a "0 / 0" there would invent a limit the server does not enforce. The two
-   * role-journal cards below (Insight, Learning) carry their own readouts; this
-   * one is the Duty doc's, and it exists because an agent condensing its own
-   * role definition had no way to see how much room was left. */
-  usage?: { size: number; cap: number };
-}) {
-  const { t } = useI18n();
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  const text = doc ? doc.text : "";
-  const isDefault = doc ? doc.isDefault : true;
-
-  function startEdit() {
-    setDraft(text);
-    setEditing(true);
-  }
-
-  function cancelEdit() {
-    setEditing(false);
-    setDraft("");
-  }
-
-  async function commit() {
-    if (!onSave) return;
-    setBusy(true);
-    try {
-      await onSave(draft);
-      setEditing(false);
-      setDraft("");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function doReset() {
-    if (!onReset) return;
-    setBusy(true);
-    try {
-      await onReset();
-      setEditing(false);
-      setDraft("");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="settings">
-      <Breadcrumbs items={crumbs} />
-      <h1 className="settings__title settings__title--doc">
-        {onRenameTitle ? (
-          <InlineEdit
-            value={title}
-            onCommit={(next) => void onRenameTitle(next)}
-            ariaLabel={t.settings.renameRole}
-            placeholder={t.settings.addRoleName}
-          />
-        ) : (
-          title
-        )}
-      </h1>
-
-      <div className="doc-card">
-        <div className="doc-card__head">
-          {/* No filename chip here — docs are presented as CONTENT, not files
-           * (the role page's internal role-….md name was implementation detail
-           * the owner should never see). The head keeps only the badge. */}
-          <span className="doc-card__file">
-            {badge ? (
-              <span className="set-badge">{badge}</span>
-            ) : (
-              isDefault && (
-                <span className="set-badge">{t.settings.defaultBadge}</span>
-              )
-            )}
-            {/* Always rendered when this document has a cap — including while
-              * editing, which is precisely when the number is wanted, and
-              * including at 0 chars, since that is when someone is about to
-              * write the first thing into it. */}
-            {usage && (
-              <span
-                className="doc-card__usage"
-                data-testid="doc-card-usage"
-                title={t.settings.docUsage}
-              >
-                {usage.size} / {usage.cap}
-              </span>
-            )}
-          </span>
-          {readOnly ? null : editing ? (
-            <div className="doc-card__actions">
-              {/* 版本紀錄 stands where 重置 stood (owner 2026-07-31). The reset
-               * did not disappear — it is the 初始版本 row inside, and only
-               * where a seed exists (onReset omitted ⇒ no such row, e.g. a
-               * custom role whose reset the server 404s). */}
-              {history && (
-                <DocumentHistoryEntry
-                  {...history}
-                  // A restore rewrote the document under the editor, so the
-                  // editor's draft is now a pending overwrite of the version
-                  // just restored. Leave edit mode with it — the same exit the
-                  // reset has always made.
-                  onRestored={async () => {
-                    await history.onRestored?.();
-                    cancelEdit();
-                  }}
-                  onReset={onReset ? doReset : undefined}
-                  disabled={busy}
-                />
-              )}
-              <button
-                type="button"
-                className="doc-btn"
-                onClick={cancelEdit}
-                disabled={busy}
-              >
-                {t.settings.cancel}
-              </button>
-              <button
-                type="button"
-                className="doc-btn doc-btn--accent"
-                onClick={commit}
-                disabled={busy}
-              >
-                {t.settings.doneEdit}
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              className="doc-btn doc-btn--edit"
-              onClick={startEdit}
-              /* T-2d99: a null doc means the mount fetch has not landed (or
-               * failed) — NOT "an empty doc". Editing then seeds draft from
-               * text="" and the editor opens blank over content the user has
-               * never seen; committing that sends a whole-doc replace of ""
-               * which, because this call site passes allow_shrink, sails past
-               * the server's wipe guard. Gate the affordance on the load
-               * instead of weakening the guard: you cannot edit what has not
-               * arrived. */
-              disabled={doc === null}
-            >
-              <PencilIcon size={14} />
-              <span>{t.settings.edit}</span>
-            </button>
-          )}
-        </div>
-
-        <div className="doc-card__body">
-          {editing && !readOnly ? (
-            <textarea
-              className="doc-editor"
-              value={draft}
-              autoFocus
-              spellCheck={false}
-              placeholder={t.settings.editorPlaceholder}
-              onChange={(e) => setDraft(e.target.value)}
-            />
-          ) : (
-            <Markdown source={text} className="doc-md" />
-          )}
-        </div>
-      </div>
-      {extra}
-    </div>
-  );
-}

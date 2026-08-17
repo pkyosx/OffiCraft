@@ -102,9 +102,9 @@ describe("reply-card question attachments: .md preview (T-7bc2)", () => {
     await waitFor(() =>
       expect(getByRole("heading", { name: "design-proposal" })).toBeTruthy()
     );
-    const dl = container.querySelector("a.md-preview__download") as HTMLAnchorElement;
+    const dl = document.body.querySelector("a.md-preview__download") as HTMLAnchorElement;
     expect(dl.getAttribute("download")).toBe("design-proposal.md");
-    const actions = container.querySelector(".md-preview__actions") as HTMLElement;
+    const actions = document.body.querySelector(".md-preview__actions") as HTMLElement;
     const share = within(actions).getByRole("button", { name: "複製分享連結" });
     fireEvent.click(share);
     await waitFor(() => expect(mint).toHaveBeenCalledWith("att-md"));
@@ -129,7 +129,7 @@ describe("reply-card question attachments: .md preview (T-7bc2)", () => {
     expect(container.querySelector("a.chat__msg-file")).toBeNull();
     fireEvent.click(file!);
     await waitFor(() =>
-      expect(container.querySelector(".md-preview__status")?.textContent).toContain("此檔案無法預覽")
+      expect(document.body.querySelector(".md-preview__status")?.textContent).toContain("此檔案無法預覽")
     );
   });
 });

@@ -116,8 +116,15 @@ func (s *apiServer) listRoleKeys() ([]string, error) {
 
 // GET /api/roles — seed roles (folded with any owner edit) FIRST, then every
 // custom role (non-tombstoned overlay with no file seed).
+//
+// The rows carry NO definition_md: a listing is where a caller picks a role,
+// and the persona body is the bulk of the document. Each row still reports
+// size_chars / cap_chars measured on the folded document, so "which definition
+// is nearly full" is answerable without the text; get_role reads the one you
+// picked. The fold itself is unchanged and shared with get_role, so the two
+// faces cannot disagree about is_default / is_seed / the size.
 func (s *apiServer) HandleListRolesApiRolesGet(w http.ResponseWriter, r *http.Request) {
-	dtos := []roleDefDTO{}
+	dtos := []roleDefListItemDTO{}
 	keys, err := s.listRoleKeys()
 	if err != nil {
 		internalError(w, err)
@@ -130,7 +137,7 @@ func (s *apiServer) HandleListRolesApiRolesGet(w http.ResponseWriter, r *http.Re
 			return
 		}
 		if dto != nil {
-			dtos = append(dtos, *dto)
+			dtos = append(dtos, newRoleDefListItemDTO(*dto))
 		}
 	}
 	writeJSON(w, http.StatusOK, dtos)

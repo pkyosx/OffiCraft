@@ -19,6 +19,7 @@ import { zh } from "../i18n/locales/zh";
 import { DocumentHistoryEntry } from "./DocumentHistoryEntry";
 import { __resetMock, mockApi } from "../api/mock";
 import type { DocumentHistoryView, Member } from "../types";
+import { stubDocumentHistory } from "../test/documentHistory";
 
 const s = zh.settings;
 
@@ -62,7 +63,9 @@ async function openList() {
 beforeEach(() => {
   __resetMock();
   vi.restoreAllMocks();
-  vi.spyOn(mockApi, "listDocumentHistory").mockResolvedValue([
+  // Both reads are stubbed from the same fixtures — the row the list serves
+  // has no text, exactly as the adapter's does.
+  stubDocumentHistory(mockApi, [
     revision(KYLE, 1),
     revision(RELEASED_WORKER, 2),
     revision("owner", 3),

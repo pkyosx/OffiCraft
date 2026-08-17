@@ -85,7 +85,6 @@ vi.mock("../api", () => ({
 function mkMember(id: string, name: string, kind: Member["kind"]): Member {
   return {
     id,
-    memberId: id,
     name,
     role: "assistant",
     roleName: "",

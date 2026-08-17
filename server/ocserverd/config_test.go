@@ -80,13 +80,17 @@ stale_guard = false
 	}
 	// Set keys land (with their Set flags — the migration imports exactly
 	// those); absent keys keep the non-zero convention defaults.
+	//
+	// The fixture still WRITES warn_pct (an old install's file must keep
+	// parsing without error after T-c382 retired the knob), and the assertion
+	// below is what proves it now lands NOWHERE: the config equals the default
+	// except for stale_guard, and only stale_guard is flagged as set.
 	want := defaultSseContextHigh()
-	want.WarnPct = 45
 	want.StaleGuard = false
 	if cfg.SseContextHigh != want {
 		t.Fatalf("sse_context_high: %+v", cfg.SseContextHigh)
 	}
-	if cfg.SseContextHighSet != (SseContextHighSet{WarnPct: true, StaleGuard: true}) {
+	if cfg.SseContextHighSet != (SseContextHighSet{StaleGuard: true}) {
 		t.Fatalf("sse_context_high set flags: %+v", cfg.SseContextHighSet)
 	}
 }

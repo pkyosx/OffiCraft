@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"strings"
 )
 
 // ---------------------------------------------------------------------------
@@ -16,59 +17,52 @@ import (
 // read of the matching intent. From there the two DIVERGE:
 //
 // WIND-DOWN (desired_state=offline — the member is being taken DOWN, no respawn):
-// declare the stop intent ONCE over the presence wire (phase=stopping → stopped),
-// then self-terminate via `ocagent suicide` (kill my OWN tmux session). Killing the
-// session drops THIS SSE, so the server derives stopped from the connection fact —
-// BEFORE the grace clock elapses, with no second actor required. The warden's killpg
-// ladder stays as the UNTOUCHED force fallback for a crashed/wedged agent that never
-// reaches here. The phase reports are 錦上添花 — convergence rides the SSE drop
-// either way, so a failed report is logged HONESTLY (never masked) but never aborts
-// the self-kill.
+// WAKE the session with the server's offboard notice and leave the closing-out and
+// the stop reports to it, exactly like RECYCLE below. It does NOT report phases and
+// does NOT self-kill.
+//
+// 🔴 It used to do both — declare phase=stopping → stopped and `suicide` — with the
+// line 「durable state already server-side — nothing extra to flush」. That was
+// false of any session still holding an unwritten hand-off, an unposted step note
+// or an unfolded lesson, and the sequence took the session down before it could
+// write them; 下線 was the ONE offboard path that never showed the agent the
+// checklist. The collection is now the server's, on the session's own
+// report_stopped, which collects it immediately. There is no timer behind that:
+// the owner ruled the only other way out is his force-stop button, so a session
+// that never reports simply stays up, visible to him as 停止中, until he presses
+// it (the warden killpg ladder is unchanged underneath).
 //
 // RECYCLE (desired_state=online ∧ refocus_since>0 — handover: a NEW me respawns):
 // ocagent does NOT report phases and does NOT self-kill. It WAKES the interactive
-// Claude session by printing an explicit handover SOP on stdout (the session's
+// Claude session by printing the server's 下線程序 document on stdout (the session's
 // Monitor tool holds this listener, so the wake lands in its transcript) and the
-// SESSION walks the SOP itself over MCP: report_stopping first (honest "winding
-// down" signal) → persist in-flight work → consolidate lessons → post a baton
-// chat to its own id → report_stopped.
+// SESSION walks that checklist itself over MCP. The text is NOT this binary's:
+// the SERVER composes it and pushes it IN the member delta (owner 2026-08-16:
+// 「改回真的推播」), so an owner can change what a collected session is told
+// without a release, and this binary has no fetch of its own to get wrong.
 // The kill is then SERVER-orchestrated end to end: the stopped report of a
 // refocus-marked, still-desired-online member fires an immediate event-driven
 // robust STOP (server api_members.go HandleReportStopped… → dispatchRobustStopNow
 // → warden killpg kills the tmux session, taking this listener with it) → the SSE
 // drop makes ¬online → the next tick's plain START respawns. A dead/unresponsive
-// session that never reports is covered by the server's recycle_grace (120 s)
-// fallback: the reconcile tick dispatches the same robust STOP once the grace
-// elapses (spec/lifecycle.md §4.5) — so ocagent needs NO local timeout and NO
+// session that never reports is covered by the server's recycle grace (120 s for
+// every cause except an owner-pressed 重新聚焦, which opens SOFT and gets the
+// soft window first — recycleGraceFor): the reconcile tick dispatches the same
+// robust STOP once the grace elapses (spec/lifecycle.md §4.5) — so ocagent needs
+// NO local timeout and NO
 // self-kill; a client-side kill on a frozen-wire observable is impossible anyway
 // (the member DTO exposes no stopped_since, and `presence` still projects
 // "stopping" while this SSE is held).
 //
-// The presence PHASE wire body is {"sessions": [], "phase": <phase>} POSTed to
-// /api/members/<self>/presence — the SAME route + body the MCP `set_member_presence`
-// tool hits for the boot-step phase=waking report; here the self-stop hook reuses it
-// for stopping/stopped. All IO seams are injectable so tests drive the sequences
-// with NO network / NO tmux.
+// All IO seams are injectable so tests drive the sequences with NO network and
+// NO tmux.
 
-// presenceBody is the FROZEN presence wire body. A struct (not a map) pins the
-// field set + guarantees `sessions` marshals as `[]` (never `null`) — a phase
-// edge carries an EMPTY sessions list, matching HttpPresencePort.report_phase.
-type presenceBody struct {
-	Sessions []any  `json:"sessions"`
-	Phase    string `json:"phase"`
-}
-
-// phaseReporter POSTs the frozen presence phase body and returns the observed HTTP
-// status (0 on a transport fault — postJSON surfaces a fault as a falsy status). This
-// is the default reportPhase seam shared by both hooks and mirrors Python's wrapper
-// around HttpPresencePort.report_phase.
-func phaseReporter(client httpClient, cfg Config) func(string) int {
-	return func(phase string) int {
-		status, _ := postJSON(client, cfg, membersPath+cfg.ID+"/presence",
-			presenceBody{Sessions: []any{}, Phase: phase})
-		return status
-	}
-}
+// Nothing in this binary reports a presence phase any more. Both stop phases
+// are the SESSION's to report over MCP (report_stopping / report_stopped are
+// steps 1 and 6 of the 下線程序), which is the point of the change: a hook that
+// declared them on the session's behalf was declaring a close-out that had not
+// happened. The route and its wire body are unchanged and still served — this
+// binary simply is not one of its callers.
 
 // fetchMemberRow refetches the authoritative member row for THIS agent (R7 — the
 // truth is GET /api/members/<self>). ok=false on any fault (⇒ do NOT act; a stop/
@@ -92,15 +86,18 @@ func fetchMemberRow(client httpClient, cfg Config) (map[string]any, bool) {
 type windDownHook struct {
 	cfg     Config
 	out     io.Writer
-	started bool // one-shot: a repeated member delta does NOT re-report
+	started bool // a repeated member delta carrying the SAME notice is silent
+	// lastNotice is the sentence already shown for this wind-down. The soft
+	// notice and the final call differ by the 120-second clause, so keying on
+	// the text is what lets the second one through without re-printing the
+	// first on every follow-up delta.
+	lastNotice string
 
 	// seams (injectable for tests)
-	fetchDesired  func() (string, bool) // authoritative desired_state refetch
-	reportPhase   func(string) int      // presence phase POST → HTTP status
-	selfTerminate func()                // graceful self-kill (default: `ocagent suicide`)
+	fetchDesired func() (string, bool) // authoritative desired_state refetch
 }
 
-func newWindDownHook(client httpClient, cfg Config, env func(string) string, out io.Writer) *windDownHook {
+func newWindDownHook(client httpClient, cfg Config, out io.Writer) *windDownHook {
 	return &windDownHook{
 		cfg: cfg,
 		out: out,
@@ -112,61 +109,66 @@ func newWindDownHook(client httpClient, cfg Config, env func(string) string, out
 			d, ok := m["desired_state"].(string)
 			return d, ok
 		},
-		reportPhase:   phaseReporter(client, cfg),
-		selfTerminate: func() { cmdSuicide(cfg, env, out) },
 	}
 }
 
 func (h *windDownHook) say(msg string) { fmt.Fprintf(h.out, "[ocagent] %s\n", msg) }
 
-// reportChecked reports a phase best-effort with an HONEST status check: a non-2xx
-// (including a transport-fault 0) is logged FAILED and NOT masked, but never aborts the
-// sequence (the warden tmux kill is the real drop, not this report).
-func (h *windDownHook) reportChecked(phase string) {
-	status := h.reportPhase(phase)
-	if status >= 200 && status < 300 {
-		h.say(fmt.Sprintf("self-stop: reported phase=%s (HTTP %d).", phase, status))
-		return
-	}
-	h.say(fmt.Sprintf("self-stop: report phase=%s FAILED (HTTP %d) — NOT masked; "+
-		"continuing (the warden tmux kill is the real drop, not this report).", phase, status))
-}
-
 // maybeWindDown is the listen-loop trigger (side-effect ONLY — it NEVER asks the
-// listener to self-exit). Returns true iff it DECLARED the stop intent this call.
-// Gated (in order) by the NUDGE match, a one-shot re-entry flag, then a POSITIVE
-// authoritative desired_state=offline refetch. Mirrors maybe_wind_down.
+// listener to self-exit). Returns true iff it WOKE the session this call.
+// Gated (in order) by the NUDGE match, then a POSITIVE authoritative
+// desired_state=offline refetch, then a notice this hook has not already shown.
+//
+// 🔴 IT NO LONGER STOPS THE SESSION ON ITS BEHALF. It used to declare
+// phase=stopping, print 「durable state already server-side — nothing extra to
+// flush」, declare phase=stopped and `suicide` — a sentence that was FALSE of
+// any session holding an unwritten hand-off, an unposted step note or an
+// unfolded lesson, and a sequence that gave the agent no chance to write them.
+// 下線 now walks the SAME path as context pressure (owner 2026-08-16): the
+// server pushes the offboard notice, the SESSION works it and reports stopped
+// itself, and that report is what collects it.
+//
+// Not one-shot but notice-keyed: the soft notice and the final call are two
+// different sentences on the same wind-down, and the second one — the one that
+// says the 120 seconds have started — has to get through.
 func (h *windDownHook) maybeWindDown(frame map[string]any) bool {
 	if !shouldWindDown(frame, h.cfg.ID) {
 		return false
-	}
-	if h.started {
-		return false // already declared — keep listening (the warden owns the kill)
 	}
 	desired_state, ok := h.fetchDesired()
 	if !ok || desired_state != desiredOffline {
 		return false // my row changed but NOT a stop — keep listening
 	}
-	h.started = true
-	h.say("self-stop: desired_state=offline confirmed — winding down (report stopping → " +
-		"stopped, then self-terminate via `suicide`; the warden killpg stays as the " +
-		"force fallback).")
-	h.reportChecked("stopping")
-	h.say("self-stop: winding down: durable state already server-side (step notes " +
-		"/ learnings post via MCP) — nothing extra to flush.")
-	h.reportChecked("stopped")
-	h.say("self-stop: reported phase=stopped (intent gone) — self-terminating: killing " +
-		"my own tmux session drops the SSE → server derives offline before the grace " +
-		"deadline (warden killpg = force fallback for a crashed agent).")
-	if h.selfTerminate != nil {
-		h.selfTerminate()
+	notice := offboardNoticeIn(frame)
+	if h.started && notice == h.lastNotice {
+		return false // same sentence already delivered — do not repeat it
 	}
+	h.started = true
+	h.lastNotice = notice
+	h.wake(notice)
 	return true
+}
+
+// wake prints the server-composed notice into the session's transcript, or the
+// shared fallback when the frame carried none. Same contract as the recycle
+// hook's: losing the checklist is survivable, being collected without knowing
+// it is not.
+func (h *windDownHook) wake(notice string) {
+	if strings.TrimSpace(notice) == "" {
+		h.say(offboardFallback)
+		return
+	}
+	for _, line := range strings.Split(notice, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		h.say("offboard: " + line)
+	}
 }
 
 // ---------------------------------------------------------------------------
 // RecycleHook — desired_state=online ∧ refocus_since>0: wake the session with the
-// handover SOP (wake-only; the kill is server-orchestrated — see the file header).
+// server's 下線程序 text (wake-only; the kill is server-orchestrated — see the header).
 // ---------------------------------------------------------------------------
 
 type recycleHook struct {
@@ -175,6 +177,11 @@ type recycleHook struct {
 	// The refocus epoch already woken for (0 = none). A NEW, larger epoch re-arms the
 	// one-shot (the owner refocused again after a respawn).
 	handledRefocus float64
+	// lastNotice is the sentence already shown for that epoch. An owner-pressed
+	// 重新聚焦 opens SOFT and is promoted to the final call on the same epoch,
+	// so the epoch alone would swallow the sentence that says the 120 seconds
+	// have started.
+	lastNotice string
 
 	fetchMember func() (map[string]any, bool)
 }
@@ -189,22 +196,52 @@ func newRecycleHook(client httpClient, cfg Config, out io.Writer) *recycleHook {
 
 func (h *recycleHook) say(msg string) { fmt.Fprintf(h.out, "[ocagent] %s\n", msg) }
 
-// handoverSOP is the wake message printed into the session's Monitor transcript when
-// the server marks THIS agent for recycle. The five steps mirror the boot-context
-// handover contract (seeds/system_interaction.md §8b): stopping is reported FIRST
-// (the cockpit flips to "stopping" the moment wind-down begins — an honest
-// transition, and harmless: the server only kills on the stopped report or the
-// grace timeout), durable writes follow (2–4), and the stopped report comes LAST —
-// it is what lets the server kill/respawn immediately instead of waiting out the
-// 120 s grace.
-func handoverSOP(selfID string) []string {
-	return []string{
-		"recycle: server 已標記回收（refocus）— 請立刻照換手 SOP 收尾（約 120 秒寬限，逾時 server 會強制回收，未落盤的 context 就沒了）：",
-		"recycle:   1) MCP report_stopping() — 先告知世界你開始收尾（座艙即顯停止中；server 不會因此提前收你）",
-		"recycle:   2) 用 MCP update_step_note 把還在進行中的工作寫回步驟備註（做到哪、下一步接什麼；任何步驟狀態下都寫得進）",
-		"recycle:   3) 用 MCP get_lessons / replace_lessons 整併這輪的長期教訓（合併、更新、刪過時，不是往後貼）",
-		"recycle:   4) 用 MCP post_chat 給自己（to=" + selfID + "）發一則交接 baton：現況 / 在途 / blocker",
-		"recycle:   5) MCP report_stopped() — 報完就停手；runtime 會自動收攤，server 原地重生新的你",
+// offboardFallback is the ONLY hard-coded wake text left in this binary. The wake
+// message itself is the server's 下線程序 document (owner-editable, seed-backed) —
+// it is fetched on the same edge that refetches the member row, so a fetch that
+// faults or answers an EMPTY document must still leave the agent knowing it is
+// being collected. Losing the checklist is survivable; losing the notice is not.
+const offboardFallback = "recycle: server 要收你了，但這則通知沒有帶到下線程序 —— " +
+	"請立刻用 MCP get_offboard 拿完整收尾清單並照做，別空手停下。"
+
+// offboardNoticeIn digs the server-composed notice out of a member delta:
+// frame → data → payload → offboard_notice. Every miss answers "", which is
+// what arms the fallback — a frame from a server too old to push the notice
+// looks exactly like a frame whose payload lost it, and both must still leave
+// the agent knowing it is being collected.
+func offboardNoticeIn(frame map[string]any) string {
+	data, ok := frame["data"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	payload, ok := data["payload"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	notice, _ := payload["offboard_notice"].(string)
+	return notice
+}
+
+// wakeForRecycle prints the wake message into the session's Monitor transcript:
+// the notice the SERVER composed and pushed in this frame, line by line, or the
+// fallback above when the frame carried none. Blank lines are dropped — the
+// transcript is a line wire, not a rendered document.
+//
+// The text is no longer fetched back over HTTP (owner 2026-08-16: 「改回真的
+// 推播」). What that costs is the one thing worth writing down: a frame that
+// arrives without the notice cannot be repaired from this side, so the fallback
+// has to name the tool that gets it — losing the checklist is survivable, being
+// collected without knowing it is not.
+func (h *recycleHook) wakeForRecycle(notice string) {
+	if strings.TrimSpace(notice) == "" {
+		h.say(offboardFallback)
+		return
+	}
+	for _, line := range strings.Split(notice, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		h.say("recycle: " + line)
 	}
 }
 
@@ -214,7 +251,9 @@ func handoverSOP(selfID string) []string {
 // Gated (in order) by the NUDGE match, then a POSITIVE authoritative refetch of
 // desired_state=online ∧ refocus_since>0 ∧ a NEW refocus epoch (one wake per epoch —
 // the follow-up member deltas fanned by the session's own stopping/stopped reports
-// re-enter here and must NOT re-print the SOP). Mutually exclusive with wind-down
+// re-enter here and must NOT re-print the wake). The epoch is claimed BEFORE the
+// document is fetched, so a failed fetch spends the epoch on the fallback notice
+// rather than re-waking on every later delta. Mutually exclusive with wind-down
 // (offline vs online intent), so both are safe to call on every member delta.
 func (h *recycleHook) maybeRecycle(frame map[string]any) bool {
 	if !shouldWindDown(frame, h.cfg.ID) { // identical NUDGE gate
@@ -231,12 +270,12 @@ func (h *recycleHook) maybeRecycle(frame map[string]any) bool {
 	if !ok || refocus <= 0 {
 		return false // no pending refocus marker → nothing to recycle
 	}
-	if refocus == h.handledRefocus {
-		return false // already woke THIS epoch — a NEW, larger epoch re-arms below
+	notice := offboardNoticeIn(frame)
+	if refocus == h.handledRefocus && notice == h.lastNotice {
+		return false // already woke THIS epoch with THIS sentence
 	}
 	h.handledRefocus = refocus
-	for _, line := range handoverSOP(h.cfg.ID) {
-		h.say(line)
-	}
+	h.lastNotice = notice
+	h.wakeForRecycle(notice)
 	return true
 }

@@ -7,6 +7,12 @@
 // The popover cases cover the ONE list (T-49fb dropped the 檔案/圖片/連結 tabs —
 // every kind is listed at once), the .md 預覽 action, the owner-only 移除
 // affordance, and click-outside dismissal.
+//
+// T-76cd: the preview overlay portals to `document.body`, so it is NOT inside
+// the popover's subtree (or inside `container`) any more — it is reached through
+// `document.body`. The click-outside case below is the one that cares about more
+// than the query: containment used to be what kept the popover open behind an
+// open preview, and it is now a `closest(".md-preview")` arm in the handler.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, fireEvent, waitFor, screen } from "@testing-library/react";
@@ -255,10 +261,10 @@ describe("任務產物 markdown 預覽的分享連結", () => {
     fireEvent.click(screen.getByTestId("task-artifacts-badge"));
     await waitFor(() => expect(container.querySelector("button.task-artifacts__chip")).toBeTruthy());
     fireEvent.click(container.querySelector("button.task-artifacts__chip")!);
-    await waitFor(() => expect(container.querySelector(".md-preview")).toBeTruthy());
+    await waitFor(() => expect(document.body.querySelector(".md-preview")).toBeTruthy());
     // Two layers are up. The first Esc must reach the preview ALONE…
     fireEvent.keyDown(window, { key: "Escape" });
-    expect(container.querySelector(".md-preview")).toBeNull();
+    expect(document.body.querySelector(".md-preview")).toBeNull();
     expect(container.querySelector(".task-artifacts")).toBeTruthy();
     // …and only the second one, now that the preview is gone, closes the
     // popover underneath it.
@@ -288,7 +294,7 @@ describe("任務產物 markdown 預覽的分享連結", () => {
     });
     fireEvent.click(chip);
     const share = await waitFor(() => {
-      const button = container.querySelector("button.md-preview__share") as HTMLButtonElement;
+      const button = document.body.querySelector("button.md-preview__share") as HTMLButtonElement;
       expect(button).toBeTruthy();
       return button;
     });
@@ -333,7 +339,7 @@ describe("任務產物 markdown 預覽的分享連結", () => {
 
     // The message bubble also has a same-named hover button. Scope to this
     // overlay's action row so this test cannot pass by clicking that twin.
-    const actions = container.querySelector(".md-preview__actions")!;
+    const actions = document.body.querySelector(".md-preview__actions")!;
     const share = actions.querySelector("button.md-preview__share")!;
     fireEvent.click(share);
     await waitFor(() => expect(mint).toHaveBeenCalledWith("att-backing"));
@@ -355,6 +361,37 @@ describe("產物 popover — click-outside dismissal (T-49fb)", () => {
     expect(container.querySelector(".task-artifacts")).toBeTruthy();
 
     // Outside → dismissed.
+    fireEvent.mouseDown(document.body);
+    await waitFor(() => expect(container.querySelector(".task-artifacts")).toBeNull());
+  });
+
+  it("keeps the panel open when the mousedown lands on an open preview (owner 2026-07-20)", async () => {
+    // 「點其他地方都不會自動關閉,一定要點 X」. This used to hold for free: the
+    // preview rendered inside the anchor, so its backdrop was 'inside'. It
+    // portals to document.body now (T-76cd), so the handler has to recognise it
+    // by selector — and a mousedown on the BACKDROP, which is the overlay root
+    // itself, is the point where that matters.
+    const { container } = renderBadge([
+      mkArtifact({
+        id: "ta-preview",
+        kind: "file",
+        filename: "bundle.zip",
+        mime: "application/zip",
+        url: "/api/chat/attachment/att-preview",
+        attachmentId: "att-preview",
+      }),
+    ]);
+    fireEvent.click(screen.getByTestId("task-artifacts-badge"));
+    await waitFor(() =>
+      expect(container.querySelector("button.task-artifacts__chip")).toBeTruthy(),
+    );
+    fireEvent.click(container.querySelector("button.task-artifacts__chip")!);
+    await waitFor(() => expect(document.body.querySelector(".md-preview")).toBeTruthy());
+
+    fireEvent.mouseDown(document.body.querySelector(".md-preview")!);
+    expect(container.querySelector(".task-artifacts")).toBeTruthy();
+
+    // The control: the rule is scoped to the preview, not "never close".
     fireEvent.mouseDown(document.body);
     await waitFor(() => expect(container.querySelector(".task-artifacts")).toBeNull());
   });

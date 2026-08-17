@@ -3,16 +3,25 @@ package main
 // sse_bands.go — the DIRECTED SSE bands (spec/sse.md §6/§6.1/§7/§8), ported from
 // the retired Python service/sse/{context_high,warden_command}.py:
 //
-//   * context-high (§6): the server watches each agent's context_pct gauge
-//     and pushes a directed "start converging" WARN reminder down the agent's
-//     OWN connection. Pure decision functions (band / per-bucket dedup /
-//     stale-pct guard) — the stream loop in api_infra.go calls the composed
-//     decideContextHighSignal each quiet tick. The reminder is deduped per
-//     remind-bucket (T-7826): one WARN per stepPct-wide gauge slice, re-firing
-//     only on a climb into a higher bucket — never the old per-cooldown-tick
-//     re-remind that bombarded a gauge parked just over the threshold. Only
-//     WARN ever emits on the wire; the HANDOVER band belongs to the producer
-//     auto-recycle (reconcile.go stampContextHighRecycle).
+//   * context-high (§6): the server watches each agent's context_pct gauge and
+//     pushes ONE directed advance notice down the agent's own connection before
+//     that agent's handover — the stream loop in api_infra.go calls
+//     decideHandoverNotice each quiet tick. Only that notice ever emits on the
+//     wire; the HANDOVER band itself belongs to the producer auto-recycle
+//     (reconcile.go stampContextHighRecycle).
+//
+//     T-c382 rewrote WHEN it fires and HOW OFTEN, and both halves matter:
+//       - WHEN: derived from the handover threshold the owner actually sets
+//         (claude: threshold - handoverNoticeLeadPct; codex: the round before
+//         its compaction ceiling). It used to be its own hard-wired 40 with no
+//         UI, so an owner who moved handover to 65% did not move the notice.
+//       - HOW OFTEN: exactly once per SESSION. It used to re-fire every
+//         RemindStepPct of gauge climb, which is five nudges between 40 and 65
+//         — and the agent that obeys the first one has stopped working with a
+//         quarter of its context unspent.
+//     Both knobs (warn_pct, remind_step_pct) are gone rather than retuned: a
+//     threshold that does not track the one the owner can see is a second
+//     source of truth, and it was already wrong in production.
 //
 //   * token-expiry (§6.1): the server watches the verified JWT exp carried by
 //     the live SSE request and repeatedly asks a restartable agent to use
@@ -30,7 +39,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"math"
 )
 
 // ── context-high band (service/sse/context_high.py) ─────────────────────────
@@ -49,11 +57,29 @@ const (
 	// levelHandover is decided but NEVER emitted on the wire (spec §6): the
 	// >= handover response is the server-side producer auto-recycle (step ⑥).
 	levelHandover = "handover"
+)
 
-	// bucketReset is the per-connection "no bucket reminded yet" marker — the
-	// state a connection carries below WARN (and at boot). Any real bucket
-	// (>= 0) is strictly greater, so the first climb into the band emits.
-	bucketReset = -1
+// The advance notice is DERIVED from the handover threshold the owner actually
+// sets, never configured beside it (T-c382). That is the whole bug: warn_pct
+// used to be its own hard-wired 40 with no UI, so setting handover to 65% left
+// the notice 25 points early and re-firing every 5 — five nudges before the
+// event they were warning about, and an agent that obeys the first one winds
+// down with a quarter of its context unspent (measured: a member wrote three
+// batons and announced its own end of life at 50%).
+//
+// One lead figure per runtime, because the two runtimes hand over on different
+// axes and a percentage means nothing to one of them:
+const (
+	// handoverNoticeLeadPct is the claude lead: notify at HandoverPct - 10.
+	// Owner 2026-08-16, verbatim: 「上限前的 10%…例如 65% 的話會從 55% 開始通知,
+	// 但是只通知一次」.
+	handoverNoticeLeadPct = 10
+	// codexNoticeRoundPct is the codex lead: a codex session hands over on
+	// COMPACTION COUNT, so "10% before" has no meaning on its axis. Owner
+	// 2026-08-16, verbatim: 「codex 的話則是在前一輪的 60% 開始提醒」「例如我設定
+	// 是 5 那就是在第四輪的 60% 提醒一次」 — i.e. one round before the last, at
+	// 60% through that round's context.
+	codexNoticeRoundPct = 60
 )
 
 const (
@@ -81,60 +107,63 @@ func asNumber(value any) (float64, bool) {
 }
 
 // bandFor is the pure band decision. FAIL-SAFE: no pct → none. A threshold
-// <= 0 disables that band (kill-switch); handover wins when both match.
-func bandFor(pct *float64, warnPct, handoverPct int) string {
-	if pct == nil {
-		return levelNone
-	}
-	if handoverPct > 0 && *pct >= float64(handoverPct) {
+// <= 0 disables the band (kill-switch).
+//
+// Since T-c382 there is only one band left to decide: the ADVANCE NOTICE is no
+// longer a band with its own threshold (it is derived — see
+// decideHandoverNotice), so warnPct is gone from the signature and levelWarn is
+// never returned here. Keeping a warn arm that nothing could reach would be a
+// dead branch that reads like a live one.
+func bandFor(pct *float64, handoverPct int) string {
+	if pct != nil && handoverPct > 0 && *pct >= float64(handoverPct) {
 		return levelHandover
-	}
-	if warnPct > 0 && *pct >= float64(warnPct) {
-		return levelWarn
 	}
 	return levelNone
 }
 
-// bucketFor maps an actionable gauge pct to its remind-bucket index — a
-// stepPct-wide slice of the gauge (e.g. step 5 → 40–44 is one bucket, 45–49 the
-// next). This is the dedup key: one reminder per bucket. A step <= 0 falls back
-// to 1 (every 1% its own bucket) so we never divide by zero.
-func bucketFor(pct float64, stepPct int) int {
-	if stepPct <= 0 {
-		stepPct = 1
+// claudeNoticePct DERIVES the old single-threshold notice point (handover minus
+// the lead). Since T-a9d6 the notice point is a SETTING, not a derivation — the
+// owner sets the pair — so this is no longer part of the live decision. Its one
+// remaining caller is the UPGRADE PATH (settings.go): an install that predates
+// the pair has no stored notice_pct, and filling it from here is what makes the
+// upgrade change no behaviour at all. Do not wire it back into the band.
+func claudeNoticePct(handoverPct int) (int, bool) {
+	if handoverPct <= 0 {
+		return 0, false
 	}
-	return int(math.Floor(pct / float64(stepPct)))
+	at := handoverPct - handoverNoticeLeadPct
+	if at <= 0 {
+		return 0, false
+	}
+	return at, true
 }
 
-// advanceContext advances the per-connection band state for ONE poll tick
-// (pure). The reminder is DEDUPED per remind-bucket (T-7826): a WARN fires when
-// the gauge first enters the band, and again ONLY when it climbs into a HIGHER
-// bucket than the one last reminded. Sitting in the same bucket — the
-// 40→41→42 quiet-tick drift that used to re-fire every cooldown and bombard the
-// agent — stays silent. A drop to a LOWER bucket re-arms it (lower the marker,
-// no emit) so a later re-climb reminds again; dropping below WARN fully resets.
-// HANDOVER advances the marker but never emits on the wire (spec §6).
-func advanceContext(
-	pct *float64, lastBucket int,
-	warnPct, handoverPct, stepPct int,
-) (emit bool, level string, newBucket int) {
-	band := bandFor(pct, warnPct, handoverPct)
-	if band == levelNone {
-		return false, levelNone, bucketReset
+// codexNoticeDue reports whether a CODEX session is in its notice window: the
+// round BEFORE the one that hands over (compaction_count == threshold-1), and
+// at least codexNoticeRoundPct through that round's context.
+//
+// It reads compaction_count, NOT percent-against-the-handover-threshold, and
+// that asymmetry is the second half of the T-c382 bug: the old band was
+// runtime-blind, so a codex worker — whose handover is decided purely by
+// compaction count — was being warned on a percentage with no relation to its
+// own lifecycle (坐實: worker ow-638847c9d5f6 carrying context_pct 45.6 and
+// compaction_count 3 while the band's threshold was 40).
+// Since T-a9d6 the notice ROUND is the owner's own setting (the first of his
+// pair, e.g. 「codex 則是 5 / 6 表示第五輪開始通知，第六輪 120 秒」) rather than
+// threshold-1; noticeRound <= 0 falls back to that old derivation so a config
+// that predates the pair behaves exactly as it did.
+func codexNoticeDue(record map[string]any, pct *float64, noticeRound, codexThreshold int) bool {
+	if codexThreshold < 1 {
+		codexThreshold = defaultCodexCompactionThreshold
 	}
-	bucket := bucketFor(*pct, stepPct)
-	switch {
-	case bucket > lastBucket:
-		// A new, higher bucket than anything reminded in this in-band run: the
-		// one condition that (re)emits — WARN on the wire, HANDOVER stays quiet.
-		return band == levelWarn, band, bucket
-	case bucket < lastBucket:
-		// 降檔 within the band: re-arm this lower bucket (no emit) so climbing
-		// back up into a higher bucket reminds again.
-		return false, band, bucket
+	if noticeRound < 1 {
+		noticeRound = codexThreshold - 1
 	}
-	// Same bucket: already reminded — stay silent, hold the marker.
-	return false, band, lastBucket
+	count, ok := record["compaction_count"].(int)
+	if !ok {
+		return false
+	}
+	return count == noticeRound && pct != nil && *pct >= codexNoticeRoundPct
 }
 
 // gaugeBootTS narrows a gauge record's boot_ts to a float64 (false when absent /
@@ -196,35 +225,116 @@ type contextHighSignal struct {
 	Reason string    `json:"reason"`
 }
 
-// decideContextHighSignal composes the whole per-tick decision: gauge record →
-// actionable pct → band advance → the WARN signal (or nil to stay quiet).
-// Returns the carry-forward remind-bucket marker. Fail-safe by construction.
-func decideContextHighSignal(
-	agentID string, record map[string]any,
-	lastBucket int,
-	cfg SseContextHighConfig,
-) (*contextHighSignal, int) {
+// decideHandoverNotice composes the whole per-tick decision: gauge record →
+// actionable pct → this runtime's notice rule → the ONE advance notice (or nil
+// to stay quiet). Fail-safe by construction: no usable gauge → nil.
+//
+// It does NOT dedupe. Firing exactly once is a SESSION-scoped fact and this
+// function is pure, so the caller owns it (api_infra.go, keyed on the gauge's
+// boot_ts) — see the once-per-session note there for why per-connection state
+// is not good enough.
+//
+// The reason line is not decoration. It carries the ceiling (an agent cannot
+// read its own context %, which is why the server pushes at all) and the three
+// things the owner requires done before the handover — verbatim, 2026-08-16:
+// 「1. 把交接事項放進 chat 留給自己 2. 更新 task 把狀態或備注寫進去 3. 把
+// learning / lesson 寫回去」. A notice that only says "you are running out"
+// tells the agent nothing it can act on.
+func decideHandoverNotice(
+	agentID, runtime string, record map[string]any,
+	cfg SseContextHighConfig, codexNoticeRound, codexThreshold int,
+	offboard func() string,
+) *contextHighSignal {
 	pct := actionableContextPct(record, cfg.StaleGuard)
-	emit, _, newBucket := advanceContext(
-		pct, lastBucket,
-		cfg.WarnPct, cfg.HandoverPct, cfg.RemindStepPct,
-	)
-	if !emit {
-		// Not a fresh WARN bucket (same/lower bucket, below band, or a HANDOVER
-		// tick — recycle is server-driven, step ⑥, never an SSE emit): stay
-		// quiet on the wire but keep the bucket marker advancing.
-		return nil, newBucket
+	var where string
+	switch {
+	case NormalizeRuntime(runtime) == RuntimeCodex:
+		if !codexNoticeDue(record, pct, codexNoticeRound, codexThreshold) {
+			return nil
+		}
+		if codexThreshold < 1 {
+			codexThreshold = defaultCodexCompactionThreshold
+		}
+		if codexNoticeRound < 1 {
+			codexNoticeRound = codexThreshold - 1
+		}
+		where = fmt.Sprintf("compaction round %d (your limits: round %d / round %d)",
+			codexNoticeRound, codexNoticeRound, codexThreshold)
+	default:
+		if cfg.HandoverPct <= 0 || cfg.NoticePct <= 0 ||
+			pct == nil || *pct < float64(cfg.NoticePct) {
+			return nil
+		}
+		where = fmt.Sprintf("context %v%% (your limits: %d%% / %d%%)",
+			formatPct(*pct), cfg.NoticePct, cfg.HandoverPct)
+	}
+	// The document is read ONLY once the notice is going out. Reading it on
+	// every quiet tick would put a DB fold on the idle path of every connection
+	// to serve a frame that fires once per session.
+	var text string
+	if offboard != nil {
+		text = offboard()
 	}
 	return &contextHighSignal{
 		Topic: contextHighTopic,
 		To:    agentID,
 		Level: levelWarn,
 		Pct:   jsonFloat(*pct),
-		Reason: fmt.Sprintf(
-			"context %v%% — start converging; flush in-flight state to durable "+
-				"stores (task notes, worklist memory) before you fill up",
-			formatPct(*pct)),
-	}, newBucket
+		// A context-pressure notice always goes to a member that is still wanted
+		// online, so its sequence ends in a re-start.
+		Reason: offboardNotice(where, offboardCloserRestartSelf, false, text),
+	}
+}
+
+// offboardNotice composes EVERY offboard notice this server sends, in the one
+// sentence the owner approved (2026-08-16, card rc-ec5859a4c384):
+//
+//	<where> — offboard now: work the sequence below, then call <closer> yourself.[ You have 120 seconds left.]
+//	<the 下線程序 document, verbatim>
+//
+// Three things about it are deliberate and must survive edits:
+//
+//   - ONE sentence for every situation. The owner cut four differently-worded
+//     notices down to this: 「不需要太多不同描述吧, 就請他按照步驟做好下線, 頂多
+//     告訴他剩下 120 秒」. What tells the situations apart is the FIELDS — the
+//     numbers in `where`, and whether the 120-second clause is there — not tone.
+//   - "work the sequence below, THEN call <closer> yourself" blocks both
+//     failure directions at once. Without the second half an agent idles until
+//     the server cuts it off (dead time the owner explicitly does not want);
+//     without the first, it stops mid-work — a predecessor read the old wording
+//     as "you are done" and announced its own end of life at 40%.
+//   - 🔴 <closer> is the tool that ACTUALLY works for this member, and the two
+//     arms differ. A handover (desired online) ends in restart_self. A 下線
+//     does NOT: restart_self refuses a member that is no longer wanted online,
+//     by design — it is a RE-start. Naming it there told the agent to do
+//     something that could only answer 409, and on that arm nothing collects it
+//     on a clock, so it would sit refused until the owner pressed force-stop.
+//     Its sequence ends at report_stopped, which is also step 6 of the document
+//     it is being shown.
+//   - The steps are the DOCUMENT's, carried verbatim, never a summary written
+//     here. A summary in code is a second source of truth that the owner cannot
+//     edit and nothing keeps in step (T-c382 shipped exactly that mistake).
+//
+// An empty document degrades to the sentence alone: losing the checklist is
+// survivable, losing the notice is not.
+// The two tools a session can end its own sequence with. Which one is TRUE for
+// a given member is decided by offboardCloserFor — naming the wrong one asks it
+// to make a call that can only be refused.
+const (
+	offboardCloserRestartSelf   = "restart_self"
+	offboardCloserReportStopped = "report_stopped"
+)
+
+func offboardNotice(where, closer string, finalCall bool, offboardText string) string {
+	reason := where + " — offboard now: work the sequence below, then call " +
+		closer + " yourself."
+	if finalCall {
+		reason += " You have 120 seconds left."
+	}
+	if offboardText != "" {
+		reason += "\n" + offboardText
+	}
+	return reason
 }
 
 // formatPct renders the pct for the human reason line (45 not 45.0 for whole

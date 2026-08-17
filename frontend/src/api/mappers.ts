@@ -6,6 +6,7 @@
 
 import type { ThemeBundle } from "../lib/themeBundle";
 import { DOC_CAP_CHARS_DEFAULTS } from "./docCap";
+import { CHAT_BUDGET_CHARS_DEFAULT } from "./chatBudget";
 import type {
   Member,
   MemberStatus,
@@ -22,9 +23,14 @@ import type {
   BackupHealthStatus,
   BackupHealthCode,
   GlobalContextView,
+  BootDocView,
+  BootDocKind,
+  DocumentHistoryEntryView,
   DocumentHistoryView,
+  DocumentRevisionView,
   DocumentSeedView,
   DocumentKind,
+  RoleSummaryView,
   RoleDefView,
   BootstrapView,
   LessonsView,
@@ -52,9 +58,13 @@ import type {
   WireReleaseCheck,
   WireBackupHealth,
   WireGlobalContext,
+  WireBootDoc,
   WireDocumentHistory,
+  WireDocumentHistoryVersion,
+  WireDocumentHistoryRestore,
   WireDocumentSeed,
   WireRoleDef,
+  WireRoleDefListItem,
   WireBootstrap,
   WireLessons,
   WireInsight,
@@ -77,11 +87,15 @@ import type {
   WireTaskArtifact,
   WireOutsourceWorker,
   WireTaskManual,
+  WireTaskManualListItem,
   WireTaskManualUpdate,
   WireTaskReassign,
   WireResumeOverview,
   WireResumeTask,
   WireResumeSummary,
+  WireResumeRosterMember,
+  WireResumeMachines,
+  WireChatInlineReplyCard,
 } from "./wire";
 import type {
   ChatMessage,
@@ -96,6 +110,7 @@ import type {
   TaskArtifactView,
   OutsourceWorkerView,
   TaskTypeView,
+  TaskManualSummaryView,
   TaskManualView,
   TaskManualPatch,
   TaskReassignInput,
@@ -106,6 +121,9 @@ import type {
   ResumeOverviewView,
   ResumeTaskView,
   MemberResumeSummaryView,
+  ResumeRosterMemberView,
+  ResumeMachinesView,
+  ChatInlineReplyCardView,
 } from "./adapter";
 
 /** The five real presence words, as a runtime set — the type union's twin. */
@@ -157,7 +175,6 @@ export function toMember(w: WireMember): Member {
   return {
     id: w.id, // wire id (attribution key)
     avatarUrl: w.avatar_url ?? "",
-    memberId: w.member_no, // display badge "MB-XXX###"
     name: w.name, // direct
     // role_key is the wire role; view model narrows to the RoleKey union. Fall
     // back to "assistant" (the only M1 role) when the wire leaves it blank.
@@ -289,6 +306,36 @@ export function toChatMessage(w: WireChatMessage): ChatMessage {
       mime: a.mime ?? "",
       isImage: a.is_image ?? false,
     })),
+    // Display names beside the ids, and the SERVER-rendered timestamp beside
+    // the epoch one. All honest passthrough: an absent/defaulted wire field
+    // reads as "" (or 0), NEVER back-filled from the id — a name the server
+    // could not resolve is a name nobody has, and printing the address in its
+    // place would make an unresolved sender indistinguishable from one whose
+    // display name happens to equal its id.
+    fromName: w.from_name ?? "",
+    toName: w.to_name ?? "",
+    tsDisplay: w.ts_display ?? "",
+    bodyOmittedChars: w.body_omitted_chars ?? 0,
+    // The reply card folded onto this message (wake snapshot only). Absent on
+    // every other chat read, so the honest null — the message carries no card.
+    card: w.card ? toChatInlineReplyCard(w.card) : null,
+  };
+}
+
+/** Map one wire in-place reply card (`ChatMessageDTO.card`) → the view model.
+ * Pure passthrough of the DECISION fields; `answer_option_idx` keeps its
+ * three-way meaning (a number = that option was picked, null = free text only
+ * or not answered yet), so it is NOT coerced to a sentinel index. */
+export function toChatInlineReplyCard(
+  w: WireChatInlineReplyCard,
+): ChatInlineReplyCardView {
+  return {
+    options: w.options ?? [],
+    answerOptionIdx:
+      typeof w.answer_option_idx === "number" ? w.answer_option_idx : null,
+    answerText: w.answer_text ?? "",
+    answeredTs: w.answered_ts ?? 0,
+    answeredAtDisplay: w.answered_at_display ?? "",
   };
 }
 
@@ -601,7 +648,9 @@ export function toOutsourceWorker(w: WireOutsourceWorker): OutsourceWorkerView {
 /** Map one wire task manual → the LIGHT `TaskTypeView` the type filter reads.
  * DROPS fields/sop/learnings/assignee on purpose — the tasks page must not
  * grow a manual-editing surface (that is 設定 › 任務手冊's `toTaskManual`). */
-export function toTaskType(w: WireTaskManual): TaskTypeView {
+export function toTaskType(
+  w: WireTaskManualListItem | WireTaskManual
+): TaskTypeView {
   return {
     typeKey: w.type_key,
     displayName: w.display_name ?? "",
@@ -639,7 +688,9 @@ export function toManualAssignee(
 /** Map one wire task manual → the FULL `TaskManualView` (設定 › 任務手冊).
  * Pure snake→camel passthrough; the open assignee object narrows through
  * `toManualAssignee` (unset {} → null). */
-export function toTaskManual(w: WireTaskManual): TaskManualView {
+export function toTaskManualSummary(
+  w: WireTaskManualListItem | WireTaskManual,
+): TaskManualSummaryView {
   return {
     typeKey: w.type_key,
     displayName: w.display_name ?? "",
@@ -649,10 +700,25 @@ export function toTaskManual(w: WireTaskManual): TaskManualView {
       required: f.required ?? false,
       isKey: f.is_key ?? false,
     })),
-    sopMd: w.sop_md ?? "",
-    learnings: w.learnings ?? "",
     assignee: toManualAssignee(w.assignee as Record<string, unknown>),
     updatedTs: w.updated_ts ?? 0,
+    // The directory answer ALSO carries sop_md_chars / learnings_chars and
+    // their caps. They are deliberately NOT mapped: no manual surface renders
+    // a size budget today, and a view field with no reader is indistinguishable
+    // from a live one. Map them when something draws them.
+  };
+}
+
+/** Map one wire manual → the FULL view (`GET /{type_key}` and every write
+ * echo). `sop_md` / `learnings` are optional on the wire and ABSENT from the
+ * list answer since T-1170; `?? ""` here is the geometry of a manual that has
+ * never been written, not a stand-in for a projection that dropped them — this
+ * mapper is only ever handed a full-document response. */
+export function toTaskManual(w: WireTaskManual): TaskManualView {
+  return {
+    ...toTaskManualSummary(w),
+    sopMd: w.sop_md ?? "",
+    learnings: w.learnings ?? "",
   };
 }
 
@@ -881,6 +947,8 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     ownerTokenTtl: w.owner_token_ttl,
     agentTokenTtl: w.agent_token_ttl,
     handoverPct: w.handover_pct,
+    noticePct: w.notice_pct,
+    codexNoticeRound: w.codex_notice_round,
     codexCompactionThreshold: w.codex_compaction_threshold ?? 3,
     monitoringRefreshSeconds: w.monitoring_refresh_seconds ?? 5,
     outsourceMaxParallel: w.outsource_max_parallel ?? 0,
@@ -895,6 +963,18 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     docCapCharsManualSop: w.doc_cap_chars_manual_sop ?? DOC_CAP_CHARS_DEFAULTS.manualSop,
     docCapCharsManualLearnings:
       w.doc_cap_chars_manual_learnings ?? DOC_CAP_CHARS_DEFAULTS.manualLearnings,
+    // T-791e boot-context caps — same rule and same reason as the five above.
+    docCapCharsSystemInteraction:
+      w.doc_cap_chars_system_interaction ??
+      DOC_CAP_CHARS_DEFAULTS.systemInteraction,
+    docCapCharsBootSequence:
+      w.doc_cap_chars_boot_sequence ?? DOC_CAP_CHARS_DEFAULTS.bootSequence,
+    docCapCharsOffboard:
+      w.doc_cap_chars_offboard ?? DOC_CAP_CHARS_DEFAULTS.offboard,
+    // T-c9b4 chat budget. Same "?? the shipped default, never 0" reasoning as
+    // the caps above: against a server too old to send the field, 0 would read
+    // as "no chat at all", which is the one answer that is never right.
+    chatBudgetChars: w.chat_budget_chars ?? CHAT_BUDGET_CHARS_DEFAULT,
     // The two software-update toggles (schema-optional for DTO-compat; the
     // Go wire always emits both — `?? false` only fires against an older
     // server, where OFF is exactly the honest reading).
@@ -1049,17 +1129,94 @@ export function toGlobalContext(w: WireGlobalContext): GlobalContextView {
   };
 }
 
-/** Map one wire retained revision → the view model (snake→camel). `content`
- * keeps the kind's OWN field names verbatim — they are data, not a schema the
- * cockpit gets to rename. */
+/**
+ * Map one folded boot-context block → the view model (T-791e).
+ *
+ * `kind` is narrowed rather than passed through: the wire field is a bare
+ * string (see WireBootDoc's note on the frozen spec), and every cockpit surface
+ * that reads it branches on the closed pair. An unrecognised value would sail
+ * into a `switch` with no arm for it and render as a boot_sequence page for a
+ * document that is not one, so it is refused at the seam instead — the same
+ * "narrow at the mapper, never downstream" rule toPresence follows.
+ */
+export function toBootDoc(w: WireBootDoc): BootDocView {
+  if (
+    w.kind !== "system_interaction" &&
+    w.kind !== "boot_sequence" &&
+    w.kind !== "offboard"
+  ) {
+    throw new Error(`toBootDoc: unknown boot document kind ${JSON.stringify(w.kind)}`);
+  }
+  const kind: BootDocKind = w.kind;
+  return {
+    kind,
+    key: w.key,
+    text: w.text,
+    sizeChars: w.size_chars,
+    capChars: w.cap_chars,
+    isDefault: w.is_default,
+    hasSeed: w.has_seed,
+  };
+}
+
+/** Map the RESTORE RECEIPT → the view model (snake→camel). `content` keeps the
+ * kind's OWN field names verbatim — they are data, not a schema the cockpit
+ * gets to rename. Since T-1170 this is the only document-history answer that
+ * carries actor+time alongside text; the list carries no text and the
+ * named-revision read carries no actor (see `toDocumentRevision`). */
 export function toDocumentHistory(
-  w: WireDocumentHistory
+  w: WireDocumentHistoryRestore
 ): DocumentHistoryView {
   return {
     id: w.id,
     content: { ...w.content },
     createdTs: w.created_ts,
     actorId: w.actor_id,
+  };
+}
+
+/** Map ONE named revision's body → the view model (T-1170).
+ *
+ * `kind` / `key` are the address echoed back and are deliberately NOT mapped:
+ * the caller supplied both, and a view field with no reader is
+ * indistinguishable from a live one. What the reader needs from this read is
+ * the text — everything else about the revision (when, who, tombstoned, sizes)
+ * it already holds from the directory row it opened. */
+export function toDocumentRevision(
+  w: WireDocumentHistoryVersion
+): DocumentRevisionView {
+  return { id: w.id, content: { ...w.content } };
+}
+
+/**
+ * Map one wire revision → the DIRECTORY row (T-1170).
+ *
+ * 🔴 THE WIRE NAME IS `field_chars`, the view name is `sizes`, and the rename
+ * is the ONE line this mapper exists to hold. Reading a name the server does
+ * not send is the failure mode this seam is built to make impossible: the map
+ * would simply be absent, every size would read as 0, and NOTHING would throw
+ * — the version list would draw every revision as empty and `docCapBlockedFields`
+ * would clear every restore, both silently and both wrong.
+ *
+ * `tombstoned` is its OWN boolean on the wire, not an entry of `field_chars`:
+ * it is a flag, not a field of the document, and counting the characters of
+ * the string "true" would put a 4 in the size map where a reader looks for
+ * content.
+ *
+ * The counts are the SERVER's — code points, the unit `runeLength` and the
+ * server's cap both use (see api/docCap.ts). Nothing is derived here: a list
+ * row carries no text to derive from, which is what makes "read the revision
+ * off the list" impossible rather than merely discouraged.
+ */
+export function toDocumentHistoryEntry(
+  w: WireDocumentHistory
+): DocumentHistoryEntryView {
+  return {
+    id: w.id,
+    createdTs: w.created_ts,
+    actorId: w.actor_id,
+    tombstoned: w.tombstoned,
+    sizes: { ...w.field_chars },
   };
 }
 
@@ -1082,13 +1239,14 @@ export function toDocumentSeed(w: WireDocumentSeed): DocumentSeedView {
  * wire marks both optional for DTO-compat; a server too old to send them
  * reports 0, which the editor renders as an honest "not known" rather than as
  * a doc of length zero. */
-export function toRoleDef(w: WireRoleDef): RoleDefView {
+export function toRoleSummary(
+  w: WireRoleDefListItem | WireRoleDef
+): RoleSummaryView {
   return {
     sizeChars: w.size_chars ?? 0,
     capChars: w.cap_chars ?? 0,
     key: w.key,
     name: w.name,
-    definitionMd: w.definition_md,
     ownerId: w.owner_id,
     schemaVersion: w.schema_version,
     isDefault: w.is_default,
@@ -1096,6 +1254,15 @@ export function toRoleDef(w: WireRoleDef): RoleDefView {
     // on a doc we can't prove is custom; the server re-enforces anyway).
     isSeed: w.is_seed ?? true,
   };
+}
+
+/** Map one wire role-def doc → the FULL view (`GET /{key}` and every write
+ * echo). `definition_md` is optional on the wire and ABSENT from the roster
+ * answer since T-1170; `?? ""` is the empty document, not a stand-in for a
+ * projection that dropped it — this mapper is only ever handed a
+ * full-document response. */
+export function toRoleDef(w: WireRoleDef): RoleDefView {
+  return { ...toRoleSummary(w), definitionMd: w.definition_md ?? "" };
 }
 
 /** Map bootstrap wire → view. DROPS `token` on purpose: a UI preview must never
@@ -1366,6 +1533,8 @@ const EMPTY_RESUME_OVERVIEW: ResumeOverviewView = {
   tasksDetailChars: 0,
   cardsWaiting: 0,
   cardsAnsweredRecent: 0,
+  rosterChars: 0,
+  machinesChars: 0,
 };
 
 /** Map one wire resume-snapshot overview block → the view model (pure
@@ -1379,6 +1548,11 @@ export function toResumeOverview(w: WireResumeOverview): ResumeOverviewView {
     tasksDetailChars: w.tasks_detail_chars,
     cardsWaiting: w.cards_waiting,
     cardsAnsweredRecent: w.cards_answered_recent,
+    // The two studio-floor block sizes (T-1b09). Optional on the wire, so an
+    // older server reads as 0 — that is "this snapshot carries no such block",
+    // which is exactly what a 0-length block means.
+    rosterChars: w.roster_chars ?? 0,
+    machinesChars: w.machines_chars ?? 0,
   };
 }
 
@@ -1401,11 +1575,57 @@ export function toResumeTask(w: WireResumeTask): ResumeTaskView {
   };
 }
 
+/** Map one wire roster row of the wake snapshot → the view model. Pure
+ * passthrough; every "" is the server's own honest empty (a contractor carries
+ * no role, a member carries no bound task) and is never substituted. */
+export function toResumeRosterMember(
+  w: WireResumeRosterMember,
+): ResumeRosterMemberView {
+  return {
+    id: w.id,
+    name: w.name,
+    kind: w.kind,
+    roleName: w.role_name,
+    duty: w.duty,
+    currentTask: w.current_task,
+    taskStatus: w.task_status,
+    waitingReason: w.waiting_reason,
+    progressDone: w.progress_done,
+    progressTotal: w.progress_total,
+    machine: w.machine,
+    presence: w.presence,
+  };
+}
+
+/** Map the wire machine block of the wake snapshot → the view model. */
+export function toResumeMachines(
+  w: WireResumeMachines,
+): ResumeMachinesView {
+  return {
+    list: (w.list ?? []).map((m) => ({
+      machineId: m.machine_id,
+      displayName: m.display_name,
+      online: m.online,
+    })),
+    youAreOn: w.you_are_on ?? "",
+  };
+}
+
 /** Map a target member's wire resume snapshot → the view model (RESUME
  * SUMMARY panel section). `identity`/`overview` are optional on the wire only
  * to keep old hand-built fixtures valid — a real snapshot always sets them;
  * `overview` falls back to all-zero counts rather than `undefined` so the
- * panel never has to null-check the size figures it renders. */
+ * panel never has to null-check the size figures it renders.
+ *
+ * 🔴 EVERY section the server assembles is carried across. This mapper used to
+ * drop `roster` and `machines` on the floor — the payload had them, the view
+ * model did not declare them, and nothing was red — so the cockpit could not
+ * show a snapshot section the agent reading the same payload could see. The
+ * whole point of this panel is that the two line up section by section, and a
+ * seam that silently narrows the payload defeats it before the component is
+ * ever reached. `machines` stays NULLABLE (the wire distinguishes "no machine
+ * block" from "a block with an empty list"); `roster` collapses an absent list
+ * to `[]`, which is the same statement the wire's empty list makes. */
 export function toMemberResumeSummary(
   w: WireResumeSummary,
 ): MemberResumeSummaryView {
@@ -1415,5 +1635,15 @@ export function toMemberResumeSummary(
     tasks: (w.tasks ?? []).map(toResumeTask),
     overview: w.overview ? toResumeOverview(w.overview) : EMPTY_RESUME_OVERVIEW,
     note: w.note ?? "",
+    generatedAt: w.generated_at ?? "",
+    chatEarlierOmitted: {
+      omitted: w.chat_earlier_omitted?.omitted ?? false,
+      hint: w.chat_earlier_omitted?.hint ?? "",
+    },
+    // The SIZE marker. An absent block maps to all-zero / false — the same
+    // statement the server makes for a snapshot inside its budget — so the
+    // panel never has to distinguish "no marker" from "marker down".
+    roster: (w.roster ?? []).map(toResumeRosterMember),
+    machines: w.machines ? toResumeMachines(w.machines) : null,
   };
 }

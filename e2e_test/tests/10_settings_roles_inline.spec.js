@@ -140,10 +140,15 @@ test.describe('B10 · settings roles + monitor — inline create rows & gating',
       "the roster member card's role label must follow the rename",
     ).toContainText(ROLE_RENAMED);
 
-    // ── seed role (助理): locked name (no pencil), 重置 offered ──
+    // ── seed role (特助): locked name (no pencil), 重置 offered ──
+    // Matched on the role's own LABEL. It used to be '助理', which came from the
+    // persona's first body line — the roster row printed a one-line preview of
+    // `definition_md`. T-1170 removed both the field from the list answer and
+    // the preview from the row (owner-approved, card rc-a86771f4476f), so that
+    // text is no longer on this page at all.
     await openSettings(page);
     await page.locator('.set-entry', { hasText: '角色誌' }).click();
-    await page.locator('.set-entry', { hasText: '助理' }).first().click();
+    await page.locator('.set-entry', { hasText: '特助' }).first().click();
     await expect(page.locator('.settings__title--doc')).toBeVisible();
     await expect(
       page.locator('.settings__title--doc .inline-edit__iconbtn'),

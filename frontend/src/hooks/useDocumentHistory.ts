@@ -8,6 +8,12 @@
 // refreshing the VISIBLE document to the caller that owns it — this hook does
 // not know which doc hook is on screen.
 //
+// T-1170: this hook reads the DIRECTORY. What it used to hand back — every
+// retained revision's full text, three documents downloaded so that at most one
+// of them could be read — is now split in two: this list (identity, actor,
+// time, tombstone flag, per-field sizes) and `useDocumentRevision` below, which
+// fetches ONE named revision when the reader opens it.
+//
 // T-1f39 (owner 2026-07-31 「有點選的時候再打 API 就可以」): the history is no
 // longer on screen by default, it is behind a button in the editor's own
 // toolbar. `enabled` is what makes that literal — while it is false NOTHING is
@@ -16,7 +22,7 @@
 // before, which is why this is one hook with a switch rather than two.
 
 import { useCallback, useEffect, useState } from "react";
-import type { DocumentHistoryView, DocumentKind } from "../types";
+import type { DocumentHistoryEntryView, DocumentKind } from "../types";
 import { api } from "../api";
 
 /** The SSE topic each document kind fans on a write. One home for the mapping,
@@ -45,11 +51,26 @@ const TOPIC_OF: Record<DocumentKind, string> = {
   task_description: "task",
   // T-2ebe: a title belongs to the same TASK, so it fans the same topic.
   task_title: "task",
+  // T-791e: both boot-context blocks ride the EXISTING `global_context` topic
+  // rather than a topic named after themselves. The SSE vocabulary is a CLOSED
+  // set declared in spec/sse.md §3.1 (SSE_RESYNC_TOPICS, pinned against that
+  // file by api/sseResyncTopics.test.ts), and the server drops anything outside
+  // it at the publish seam — a `boot_sequence` topic would fan NOTHING and the
+  // failure would be perfectly silent: the write lands, and every other open
+  // surface simply never hears. These blocks are parts of the assembled boot
+  // context, so the topic is honest as well as available; the cost is that a
+  // write to one block makes the other two re-read, which is a wasted request,
+  // not a wrong screen.
+  system_interaction: "global_context",
+  boot_sequence: "global_context",
+  offboard: "global_context",
 };
 
 interface UseDocumentHistory {
-  /** Retained revisions, newest first (server-ordered, at most 3). */
-  versions: DocumentHistoryView[];
+  /** Retained revisions as DIRECTORY rows, newest first (server-ordered, at
+   * most 3). T-1170: no `content` — the list is a picker, and the text of the
+   * one revision the reader picks comes from `useDocumentRevision`. */
+  versions: DocumentHistoryEntryView[];
   loading: boolean;
   /** True when the load REJECTED — an honest "could not load" is not the same
    * screen as "this doc has never been edited". */
@@ -71,7 +92,7 @@ export function useDocumentHistory(
   } = {}
 ): UseDocumentHistory {
   const enabled = options.enabled ?? true;
-  const [versions, setVersions] = useState<DocumentHistoryView[]>([]);
+  const [versions, setVersions] = useState<DocumentHistoryEntryView[]>([]);
   const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState(false);
 
@@ -137,4 +158,76 @@ export function useDocumentHistory(
   }, [kind, key, enabled]);
 
   return { versions, loading, error, refetch, restore };
+}
+
+interface UseDocumentRevision {
+  /** The named revision's field→value snapshot, or `undefined` when there is
+   * nothing on screen, while it loads, or when the read failed. The reader
+   * distinguishes those with `loading`/`error`: an undefined content is NEVER
+   * rendered as "this version is empty", which is a different and false claim
+   * to make next to a destructive 還原 button. */
+  content?: Record<string, string>;
+  loading: boolean;
+  error: boolean;
+}
+
+/**
+ * ONE named retained revision's content (T-1170).
+ *
+ * `id` is `null` while no revision is open — nothing is requested, which is the
+ * same 「點了才打 API」 rule the list itself follows, one level deeper: opening
+ * the list costs the directory, opening a row costs that row.
+ *
+ * Deliberately NOT cached across ids: stepping back to the list and into
+ * another revision must show that revision, and a revision that was restored in
+ * between is a different document under the same id nowhere — but the live doc
+ * it is compared against HAS changed, so re-reading is also the cheap way to
+ * stay honest. Three documents, at most one open, no cache to invalidate.
+ */
+export function useDocumentRevision(
+  kind: DocumentKind,
+  key: string,
+  id: number | null
+): UseDocumentRevision {
+  const [content, setContent] = useState<Record<string, string> | undefined>(
+    undefined
+  );
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    if (id === null) {
+      setContent(undefined);
+      setLoading(false);
+      setError(false);
+      return;
+    }
+    let alive = true;
+    // Clear FIRST: without this, opening a second revision renders the first
+    // one's text under the second one's timestamp — the stale-cache failure,
+    // and on this surface it sits next to a button that overwrites the live
+    // document with what the reader believes it is looking at.
+    setContent(undefined);
+    setLoading(true);
+    setError(false);
+
+    api
+      .getDocumentRevision(kind, key, id)
+      .then((revision) => {
+        if (alive) setContent(revision.content);
+      })
+      .catch((e) => {
+        console.warn("useDocumentRevision: load failed", e);
+        if (alive) setError(true);
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [kind, key, id]);
+
+  return { content, loading, error };
 }

@@ -584,6 +584,13 @@ func (s *apiServer) runOutsourceTick(now float64) {
 			outsourceLog("assign %s: task bind failed: %v", t.ID, err)
 			continue
 		}
+		// T-51b0: the bind used to post a kickoff notice here. It no longer
+		// does (owner 2026-08-15, card rc-a4f6a7f8cd71). The reason the notice
+		// was never load-bearing for a FRESH worker is that the worker's own
+		// boot context already carries this task and its boot sequence ends in
+		// "continue work" — the agent it was meant to wake is, at that moment,
+		// in the middle of waking itself. What covers a worker that is ALREADY
+		// up is its sidecar's post-connect turn (cli/ocwarden: codexPostBootWake).
 		s.publishOutsourceWorker(worker, triggerServer)
 		s.publishTask(*t, triggerServer)
 		outsourceLog("assigned %s (%s) → task %s (type %q, model %q)",

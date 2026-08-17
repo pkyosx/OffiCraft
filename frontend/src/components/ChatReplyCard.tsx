@@ -23,6 +23,7 @@ import {
   ReplyCardAnsweredBody,
   ReplyCardExpiredBody,
   ReplyCardQuestionAttachments,
+  ReplyCardTaskRef,
   ReplyCardWaitingBody,
 } from "./ReplyCardBody";
 import { ChevronRightIcon } from "./icons";
@@ -252,6 +253,20 @@ export function ChatReplyCard({
       data-testid="chat-reply-card"
       data-reply-card-id={replyCardId}
     >
+      {/* §3.6 請示 → 任務 (chat surface): the SAME row RepliesPage renders —
+       * one component, so TITLE and 查看任務詳情 can never drift between the two
+       * surfaces. Only the route is ours. It leads the card (owner 2026-08-14,
+       * T-ee17:「這個不能夠放到最一開始嗎？」) — WHICH piece of work this asks
+       * about should not require reading the whole card first. Both surfaces
+       * moved together; a lead row on one and a trailing row on the other is
+       * exactly the drift this shared component exists to prevent. */}
+      {card?.task && (
+        <ReplyCardTaskRef
+          task={card.task}
+          onJump={() => setRoute({ page: "tasks", taskId: card.task!.id })}
+        />
+      )}
+
       {/* T-a20b: summary is agent-authored free text (markdown), like body. */}
       <Markdown
         source={card?.summary || fallbackSummary}
@@ -264,29 +279,6 @@ export function ChatReplyCard({
        * on every status — click an image to preview in the lightbox. */}
       {card && (
         <ReplyCardQuestionAttachments card={card} />
-      )}
-
-      {/* §3.6 請示 → 任務 (chat surface, same rule as RepliesPage): a
-       * TASK-derived ask shows the 精簡任務資訊 row — TYPE + 查看任務詳情
-       * (never the task number/識別鍵); a pure chat ask shows nothing. */}
-      {card?.task && (
-        <div className="reply-card__task" data-testid="reply-task-ref">
-          <span className="reply-card__task-type">
-            <span className="reply-card__task-label">
-              {t.replies.taskBadge}
-            </span>
-            {card.task.typeKey || t.tasks.adhoc}
-          </span>
-          <button
-            type="button"
-            className="reply-card__task-jump"
-            data-testid="reply-task-jump"
-            onClick={() => setRoute({ page: "tasks", taskId: card.task!.id })}
-          >
-            {t.replies.viewTask}
-            <ChevronRightIcon size={12} />
-          </button>
-        </div>
       )}
 
       {loadError && (

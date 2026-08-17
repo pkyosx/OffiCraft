@@ -26,7 +26,6 @@ import type { Member } from "../../src/types";
 function mkMember(over: Partial<Member> = {}): Member {
   return {
     id: "mira",
-    memberId: "MB-AST001",
     name: "Mira",
     role: "assistant",
     status: "online",

@@ -17,6 +17,11 @@
 //   6. Answering never touches the chat unread red dot — the badge and the
 //      red dot clear independently (red dot clears only by entering the
 //      conversation).
+//
+// KNOWN BOUNDARY (T-ee17). The task-title assertions below cover BOTH surfaces
+// at once: the chat inline card (ChatReplyCard) and this Ask page render the
+// same ReplyCardTaskRef, so one set of assertions is all there is.
+// 若日後有人在聊天面單獨加條件（例如聊天面不顯示標題），不會有任何東西變紅。
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";
@@ -512,5 +517,106 @@ describe("RepliesPage", () => {
     // the conversation (listChat) clears it.
     const members = await api.listMembers();
     expect(members.find((m) => m.id === "mira")?.unreadCount).toBe(1);
+  });
+
+  // T-ee17: the card has to say WHICH piece of work it is about. A contractor
+  // card read only「外勤支援 · X-79」and the owner could not tell what he was
+  // being asked about without leaving the page.
+  it("names the task a contractor's ask belongs to, verbatim", async () => {
+    __injectMockReplyCard(
+      mkCard({
+        from: "ow-rel",
+        task: {
+          id: "t-1",
+          typeKey: "review-pr",
+          title: "[ACE-7580] SOC2 年度風險評估：review Google Drive 上的 ISMS 文件",
+        },
+      }),
+    );
+    const { findByTestId } = renderPage();
+    const ref = await findByTestId("reply-task-ref");
+    // Verbatim — a shortened or reworded title is a different claim about
+    // which task this is.
+    expect(ref.textContent).toContain(
+      "[ACE-7580] SOC2 年度風險評估：review Google Drive 上的 ISMS 文件",
+    );
+    // The initiator is still named: the row answers WHO and WHICH, not one
+    // instead of the other.
+    const card = await findByTestId("waiting-card");
+    expect(card.textContent).toContain("R-2");
+  });
+
+  // Same field, different path (a staff member's card binds to its own step),
+  // so it gets its own assertion rather than riding on the contractor one.
+  it("names the task a staff member's ask belongs to", async () => {
+    __injectMockMember({ id: "m-dev", name: "Kyle", kind: "assistant" });
+    __injectMockReplyCard(
+      mkCard({
+        from: "m-dev",
+        task: { id: "t-2", typeKey: "", title: "把開機說明改成座艙可編輯" },
+      }),
+    );
+    const { findByTestId } = renderPage();
+    const ref = await findByTestId("reply-task-ref");
+    expect(ref.textContent).toContain("把開機說明改成座艙可編輯");
+  });
+
+  // Owner 2026-08-14, T-ee17 acceptance:「這個不能夠放到最一開始嗎？」— at the
+  // bottom of the card the row only answered WHICH work after the whole ask had
+  // been read. Judged by DOM order, not by geometry: a rendered-later row can
+  // still be painted high by CSS, and then the reading order screen readers and
+  // keyboards follow would disagree with the picture.
+  it("puts the task row ahead of the summary on both a waiting and a handled card", async () => {
+    __injectMockReplyCard(
+      mkCard({ task: { id: "t-4", typeKey: "review-pr", title: "改設定頁" } }),
+    );
+    __injectMockReplyCard(
+      mkCard({
+        status: "answered",
+        answer: { optionIdx: 0, text: "好", attachments: [] },
+        answeredTs: Date.now() / 1000 - 60,
+        task: { id: "t-5", typeKey: "review-pr", title: "改開機說明" },
+      }),
+    );
+    const { findByTestId } = renderPage();
+    fireEvent.click(await findByTestId("answered-toggle"));
+
+    for (const testId of ["waiting-card", "answered-card"]) {
+      const card = await findByTestId(testId);
+      const ref = card.querySelector('[data-testid="reply-task-ref"]')!;
+      const summary = card.querySelector(".reply-card__summary")!;
+      expect(ref).toBeTruthy();
+      expect(summary).toBeTruthy();
+      expect(
+        ref.compareDocumentPosition(summary) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+  });
+
+  // An empty title leaves the jump alone on the row — the cell is not drawn at
+  // all, so there is no empty box and no placeholder standing in for a title
+  // nobody wrote. The typeKey does NOT step in as a substitute: the chip is
+  // gone on every card, including the ones with nothing else to say.
+  it("draws no title cell when the task's title is empty", async () => {
+    __injectMockReplyCard(
+      mkCard({ task: { id: "t-3", typeKey: "review-pr", title: "" } }),
+    );
+    const { findByTestId } = renderPage();
+    const ref = await findByTestId("reply-task-ref");
+    expect(ref.querySelector(".reply-card__task-title")).toBeNull();
+    expect(ref.querySelector(".reply-card__task-type")).toBeNull();
+    expect(ref.textContent).not.toContain("review-pr");
+    expect(ref.textContent).toContain("查看任務詳情");
+  });
+
+  // The negative half: no task means the row says nothing about a task —
+  // NOT an empty slot, which reads as "this ask has no title" rather than
+  // "this ask has no task".
+  it("shows no task row at all on a pure chat ask", async () => {
+    __injectMockReplyCard(mkCard({ task: null }));
+    const { findByTestId, queryByTestId } = renderPage();
+    await findByTestId("waiting-card");
+    expect(queryByTestId("reply-task-ref")).toBeNull();
   });
 });

@@ -60,7 +60,7 @@ func TestMemberOwnerOp_ModelChangeWindsDownThenRespawns(t *testing.T) {
 		t.Fatalf("the new model must persist: %+v", got)
 	}
 	// (a) the agent was told — refocus_since>0 ∧ desired_state=online is the exact
-	// condition cli/ocagent's recycleHook prints the five-step SOP on.
+	// condition cli/ocagent's recycleHook prints the 下線程序 wake on.
 	if got.RefocusSince <= 0.0 {
 		t.Fatalf("a live 換模型 must open a wind-down (refocus epoch): %+v", got)
 	}

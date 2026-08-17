@@ -222,20 +222,43 @@ func TestReconcileDecide(t *testing.T) {
 		}
 	})
 
-	t.Run("desired offline and online arms the grace clock without a command", func(t *testing.T) {
+	// 下線 runs NO clock (owner 2026-08-16, card rc-27d1710174dd 「不要兜底：只有
+	// 你按強制下線才收它」). The button shows the agent the offboard sequence and
+	// asks it to stop itself; the escalation is the owner's force-stop, not a
+	// timer's. Collection still happens the instant the agent reports stopped.
+	t.Run("desired offline and online waits indefinitely, arming no clock", func(t *testing.T) {
 		d := reconcileDecide(obsOf("m", DesiredStateOffline, true), newReconcileState(), cfg, 1000)
 		if d.Command != reconcileCmdNone || d.State.Phase != reconcilePhaseStopping ||
-			d.State.StopDeadline != 1000+cfg.StopGrace {
+			d.State.StopDeadline != 0 {
 			t.Fatalf("decision: %+v", d)
 		}
-		// Within the grace window: keep waiting, still no command.
-		d2 := reconcileDecide(obsOf("m", DesiredStateOffline, true), d.State, cfg, 1000+cfg.StopGrace-1)
+		// A day later — far past every window this server has ever had — still
+		// nothing. The owner is the one who decides time is up.
+		d2 := reconcileDecide(obsOf("m", DesiredStateOffline, true), d.State, cfg, 1000+86400)
 		if d2.Command != reconcileCmdNone {
-			t.Fatalf("within grace: %+v", d2)
+			t.Fatalf("a day of silence must still dispatch nothing: %+v", d2)
+		}
+	})
+
+	// …and the timed wind-down is still REACHABLE, as the one value that
+	// restores the old behaviour wholesale (a compile-time constant today, not
+	// something the owner can set).
+	t.Run("soft window of zero restores the timed wind-down", func(t *testing.T) {
+		timed := cfg
+		timed.SoftOffboardGrace = 0
+		d := reconcileDecide(obsOf("m", DesiredStateOffline, true), newReconcileState(), timed, 1000)
+		if d.Command != reconcileCmdNone || d.State.StopDeadline != 1000+timed.StopGrace {
+			t.Fatalf("decision: %+v", d)
+		}
+		d2 := reconcileDecide(obsOf("m", DesiredStateOffline, true), d.State, timed, 1000+timed.StopGrace)
+		if d2.Command != reconcileCmdStop {
+			t.Fatalf("grace elapsed must dispatch the robust stop: %+v", d2)
 		}
 	})
 
 	t.Run("grace elapsed dispatches the single robust STOP with stop_retry dedupe", func(t *testing.T) {
+		cfg := cfg
+		cfg.SoftOffboardGrace = 0 // the timed wind-down — see the sub-test above
 		st := newReconcileState()
 		st.StopDeadline = 1000
 		d := reconcileDecide(obsOf("m", DesiredStateOffline, true), st, cfg, 1000)
@@ -728,12 +751,18 @@ func TestRunReconcileTick(t *testing.T) {
 		connectOnline(t, s, ServerSelfHost)
 		connectOnline(t, s, "m-stop") // still online while desired offline
 
-		s.runReconcileTick(1000) // arms the grace clock
-		s.runReconcileTick(1030) // within grace
+		// The default (owner's ruling) runs no clock at all: a day of ticks
+		// dispatches nothing, because the escalation is his force-stop.
+		s.runReconcileTick(1000)
+		s.runReconcileTick(1000 + 86400)
 		if frames := drainFrames(t, s, ServerSelfHost); len(frames) != 0 {
-			t.Fatalf("grace window must dispatch nothing: %+v", frames)
+			t.Fatalf("下線 must dispatch nothing on a timer: %+v", frames)
 		}
-		s.runReconcileTick(1000 + s.reconcileCfg.StopGrace)
+		// With the soft window off — the value that restores the timed
+		// wind-down — the same tick collects it.
+		s.reconcileCfg.SoftOffboardGrace = 0
+		s.runReconcileTick(2000)
+		s.runReconcileTick(2000 + s.reconcileCfg.StopGrace)
 		frames := drainFrames(t, s, ServerSelfHost)
 		if len(frames) != 1 || frames[0].RPC != "stop" || frames[0].Args["member_id"] != "m-stop" {
 			t.Fatalf("grace elapsed must dispatch the robust stop: %+v", frames)
@@ -976,6 +1005,45 @@ func TestStampContextHighRecycle(t *testing.T) {
 	}
 	now := 10000.0
 
+	// 🔴 POSITIVE CONTROL, and it has to come first (T-c382). Every other
+	// subtest here asserts that something must NOT recycle, which means a
+	// mutant that disables auto-refocus outright — shouldAutoRefocus returning
+	// a flat false — left this whole test GREEN. "The handover works" and "the
+	// handover is dead" were indistinguishable, and nothing would have said so.
+	// Measured, not assumed: that mutant was planted and this file passed.
+	t.Run("an online member over the handover line IS recycled", func(t *testing.T) {
+		s, members := newHot(t)
+		connectOnline(t, s, "m-hot")
+		s.gauge.Set("m-hot", freshGauge(now, float64(s.ctxhigh.HandoverPct)))
+		s.stampContextHighRecycle(members, now)
+		if members[0].RefocusSince != now {
+			t.Fatalf("crossing the handover line must stamp refocus_since, got %v",
+				members[0].RefocusSince)
+		}
+	})
+
+	t.Run("codex is recycled on compaction count, not percent", func(t *testing.T) {
+		// The other half of the positive control: codex has its own axis, and a
+		// change that quietly folded it onto the percentage rule would still
+		// look green against the claude case above.
+		s := newReconcileTestServer(t)
+		m := testAgent("m-codex")
+		m.Runtime = RuntimeCodex
+		putTestMember(t, s, m)
+		fresh, _ := s.dal.GetMember("m-codex")
+		members := []Member{*fresh}
+		connectOnline(t, s, "m-codex")
+		s.gauge.Set("m-codex", map[string]any{
+			"context_pct": 1.0, "context_pct_ts": now - 10, "boot_ts": now - 500,
+			"compaction_count": defaultCodexCompactionThreshold,
+		})
+		s.stampContextHighRecycle(members, now)
+		if members[0].RefocusSince != now {
+			t.Fatalf("a codex member at its compaction threshold must recycle even "+
+				"at 1%% context, got %v", members[0].RefocusSince)
+		}
+	})
+
 	t.Run("skips a stale pct", func(t *testing.T) {
 		s, members := newHot(t)
 		connectOnline(t, s, "m-hot")
@@ -1002,13 +1070,16 @@ func TestStampContextHighRecycle(t *testing.T) {
 		}
 	})
 
-	t.Run("skips the WARN band and an offline member", func(t *testing.T) {
+	t.Run("skips a below-handover gauge and an offline member", func(t *testing.T) {
 		s, members := newHot(t)
 		connectOnline(t, s, "m-hot")
-		s.gauge.Set("m-hot", freshGauge(now, float64(s.ctxhigh.WarnPct)))
+		// One point below the handover line — including the region where the
+		// advance notice fires (T-c382). Being NOTIFIED must never recycle; only
+		// crossing the handover threshold does.
+		s.gauge.Set("m-hot", freshGauge(now, float64(s.ctxhigh.HandoverPct-1)))
 		s.stampContextHighRecycle(members, now)
 		if members[0].RefocusSince != 0 {
-			t.Fatal("WARN alone must not recycle")
+			t.Fatal("below the handover line must not recycle")
 		}
 
 		s2, members2 := newHot(t) // no SSE connection → offline
@@ -1079,7 +1150,9 @@ func TestClearStaleStoppingOnOnline(t *testing.T) {
 		putTestMember(t, s, m)
 		connectOnline(t, s, "m-s")
 		members := []Member{m}
-		s.clearStaleStoppingOnOnline(members)
+		// An anchor older than the whole soft window cannot be a live
+		// close-out; a fresh one can, and the sub-test below pins that.
+		s.clearStaleStoppingOnOnline(members, 900+SoftOffboardGraceSecs)
 		if members[0].StoppingSince != 0 {
 			t.Fatal("a survived-stop anchor must clear")
 		}
@@ -1099,9 +1172,29 @@ func TestClearStaleStoppingOnOnline(t *testing.T) {
 		putTestMember(t, s, down)
 		connectOnline(t, s, "m-s3")
 		members := []Member{offline, down}
-		s.clearStaleStoppingOnOnline(members)
+		s.clearStaleStoppingOnOnline(members, 900+SoftOffboardGraceSecs)
 		if members[0].StoppingSince != 900 || members[1].StoppingSince != 900 {
 			t.Fatalf("no false clears: %+v", members)
+		}
+	})
+
+	// T-2123: the owner watched a member report 「開始收尾」 and go straight back
+	// to green. This sweep was the eraser — a session WORKING its offboard
+	// sequence is online, wanted online, and carries the anchor, which is the
+	// same shape as a session that survived a stop. The fresh anchor stays.
+	t.Run("leaves a close-out that has only just started alone", func(t *testing.T) {
+		m := testAgent("m-s4")
+		m.StoppingSince = 900
+		putTestMember(t, s, m)
+		connectOnline(t, s, "m-s4")
+		members := []Member{m}
+		s.clearStaleStoppingOnOnline(members, 900+SoftOffboardGraceSecs-1)
+		if members[0].StoppingSince != 900 {
+			t.Fatalf("an in-flight close-out must keep its anchor: %+v", members[0])
+		}
+		persisted, _ := s.dal.GetMember("m-s4")
+		if persisted.StoppingSince != 900 {
+			t.Fatalf("nothing may be persisted either: %+v", persisted)
 		}
 	})
 }

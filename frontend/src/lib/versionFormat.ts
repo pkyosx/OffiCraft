@@ -8,7 +8,16 @@
 // commit's own recorded wall clock + offset), NOT converted to the viewer's
 // local timezone — the same build must label identically on every machine.
 
-/** First 7 chars of a git sha (already-short shas pass through unchanged). */
+/**
+ * First 7 chars of a git sha — a fixed label width, deliberately, so the same
+ * build reads identically everywhere.
+ *
+ * It does NOT pass short shas through unchanged, which the comment here used to
+ * claim: `git rev-parse --short` widens with the clone's object count, so
+ * `git_sha` can arrive at 8+ characters and this trims it. The label and the
+ * `/api/version` field can therefore differ in their last character(s) — that is
+ * the display choice, not a bug, but do not read one as proof of the other.
+ */
 function shortSha(gitSha: string): string {
   return gitSha.slice(0, 7);
 }

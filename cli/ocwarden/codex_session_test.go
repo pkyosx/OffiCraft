@@ -316,12 +316,100 @@ func TestActionableCodexListenerLineFiltersTransportDiagnostics(t *testing.T) {
 	for line, want := range map[string]bool{
 		"[ocagent] listen: connected — streaming http://127.0.0.1": false,
 		"[ocagent] listen: stream ended: EOF":                      false,
-		"[ocagent] chat from owner (id, 1s ago): hello":            true,
+		"[ocagent] chat from owner (#CM-9F2A11, 1s ago): hello":    true,
 		"[ocagent] task T-1 updated · by owner":                    true,
 	} {
 		if got := actionableCodexListenerLine(line); got != want {
 			t.Errorf("%q: got %v want %v", line, got, want)
 		}
+	}
+}
+
+// A codex agent only ever runs when a listener line becomes a turn, and the
+// "connected" line is deliberately filtered out of that path. So the moment SSE
+// comes up — the moment its boot document says to carry on with the task
+// inventory — nothing calls it, and a session that never continues looks exactly
+// like a session with nothing to do. This pins the wake that closes that gap,
+// and pins that it happens once: a reconnect is a network blip, and re-sending
+// "go do your inventory" would interrupt whatever the agent is doing by then.
+func TestCodexListenerActionsWakesTheSessionOnceWhenSSEComesUp(t *testing.T) {
+	const connected = "[ocagent] listen: connected — streaming http://127.0.0.1"
+
+	wake, forward := codexListenerActions(connected, false)
+	if !wake {
+		t.Error("SSE came up and nothing woke the session; its boot stops at the " +
+			"step before the task inventory and nothing reports it")
+	}
+	if forward {
+		t.Error("the transport diagnostic itself was forwarded as a turn")
+	}
+
+	if wake, _ := codexListenerActions(connected, true); wake {
+		t.Error("a reconnect woke the session again; the boot it exists to finish " +
+			"is long over by then and the extra turn interrupts real work")
+	}
+
+	// Negative control: an ordinary event is forwarded and wakes nothing, so the
+	// assertions above are about the connect line rather than about any line.
+	wake, forward = codexListenerActions("[ocagent] chat from owner (#c-1, 1s ago): hi", false)
+	if wake || !forward {
+		t.Errorf("ordinary event: wake=%v forward=%v, want false/true", wake, forward)
+	}
+}
+
+// The BEHAVIOUR, not the decision table. Independent review (T-99a6) deleted
+// the wake call from the listener loop, and then the once-only flag write, and
+// the whole ocwarden suite stayed green both times: the truth table above says
+// what should happen and nothing said it happened. This drives the real branch
+// and records the turns that were actually opened.
+func TestListenerLoopOpensTheWakeTurnExactlyOnce(t *testing.T) {
+	const connected = "[ocagent] listen: connected — streaming http://127.0.0.1"
+	const event = "[ocagent] chat from owner (#c-1, 1s ago): hi"
+
+	var turns []string
+	connects := 0
+	st := &codexListenerState{}
+	feed := func(line string) {
+		st.handleListenerLine(line, func() { connects++ }, func(text string) {
+			turns = append(turns, text)
+		})
+	}
+
+	feed(connected)
+	if len(turns) != 1 || turns[0] != codexPostBootWake {
+		t.Fatalf("SSE came up and the session was not woken; turns=%q", turns)
+	}
+
+	feed(connected) // a reconnect
+	if len(turns) != 1 {
+		t.Errorf("a reconnect opened another wake turn; turns=%q — the boot it "+
+			"exists to finish is long over by then", turns)
+	}
+	if connects != 2 {
+		t.Errorf("telemetry must still fire on every connect, got %d", connects)
+	}
+
+	feed(event)
+	if len(turns) != 2 || turns[1] != event {
+		t.Errorf("an ordinary event must still be forwarded as its own turn; turns=%q", turns)
+	}
+}
+
+// The other order: an event that arrives BEFORE the stream is announced must not
+// consume the one wake. Without this, "exactly once" could be satisfied by a
+// flag that any line sets.
+func TestListenerLoopStillWakesAfterAnEarlierEvent(t *testing.T) {
+	var turns []string
+	st := &codexListenerState{}
+	feed := func(line string) {
+		st.handleListenerLine(line, func() {}, func(text string) { turns = append(turns, text) })
+	}
+
+	feed("[ocagent] task T-1 updated · by owner")
+	feed("[ocagent] listen: connected — streaming http://127.0.0.1")
+
+	if len(turns) != 2 || turns[1] != codexPostBootWake {
+		t.Fatalf("the wake was lost to an earlier event; turns=%q", turns)
 	}
 }
 

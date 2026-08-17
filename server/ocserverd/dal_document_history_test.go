@@ -159,8 +159,8 @@ func TestSaveWithDocumentHistoryUnderConcurrentWritersKeepsTheChainContiguous(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(history) != documentHistoryKeep {
-		t.Fatalf("history count = %d, want %d", len(history), documentHistoryKeep)
+	if want := documentHistoryKeepFor("global_context"); len(history) != want {
+		t.Fatalf("history count = %d, want %d", len(history), want)
 	}
 	var retained []string
 	seen := map[string]bool{}

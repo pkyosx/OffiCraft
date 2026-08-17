@@ -12,6 +12,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { mockApi, __resetMock } from "./mock";
 import { isHttpStatus } from "./errors";
+import { documentRevisions } from "../test/documentHistory";
 
 const WRITTEN = "# Insight — 這一份是角色自己寫的，不是出廠版。\n";
 
@@ -47,13 +48,13 @@ describe("mockApi · resetInsight", () => {
     // The first write replaced a default document, which retains nothing (the
     // server skips the empty snapshot) — so anything found below came from the
     // reset itself.
-    expect(await mockApi.listDocumentHistory("insight", "assistant")).toEqual(
+    expect(await documentRevisions(mockApi, "insight", "assistant")).toEqual(
       []
     );
 
     await mockApi.resetInsight("assistant");
 
-    const [newest] = await mockApi.listDocumentHistory("insight", "assistant");
+    const [newest] = await documentRevisions(mockApi, "insight", "assistant");
     expect(newest).toBeDefined();
     expect(newest.content.text).not.toBe(seed.text);
     expect(newest.content.text).toBe(WRITTEN);

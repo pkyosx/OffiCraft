@@ -44,7 +44,6 @@ function ThemeSeeder({ children }: { children: React.ReactNode }) {
 function mkMember(over: Partial<Member>): Member {
   return {
     id: "m1",
-    memberId: "m1",
     name: "Mira",
     role: "assistant",
     roleName: "",

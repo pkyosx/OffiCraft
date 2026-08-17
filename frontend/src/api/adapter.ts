@@ -18,9 +18,14 @@ import type {
   ReleaseCheckView,
   BackupHealthView,
   GlobalContextView,
+  BootDocKind,
+  BootDocView,
   DocumentKind,
+  DocumentHistoryEntryView,
   DocumentHistoryView,
+  DocumentRevisionView,
   DocumentSeedView,
+  RoleSummaryView,
   RoleDefView,
   BootstrapView,
   LessonsView,
@@ -62,6 +67,62 @@ export interface ChatMessage {
    * `ReplyCard.task`); the mapper always sets it (null when the wire carries
    * ""). */
   replyCardStatus?: "waiting" | "answered" | "expired" | null;
+  /** The sender's DISPLAY name, resolved server-side from the roster (wire
+   * `from_name`). `from` stays the ADDRESS and never changes meaning — this
+   * rides ALONGSIDE it, never instead of it. `""` when the sender does not
+   * resolve to a roster row: an HONEST empty, and a reader that back-fills the
+   * id into it is fabricating a name. OPTIONAL so hand-built fixtures stay
+   * valid (same precedent as `replyCardStatus`); the mapper always sets it. */
+  fromName?: string;
+  /** The addressee's DISPLAY name (wire `to_name`), resolved the same way and
+   * carrying the same honest-empty rule as `fromName`. */
+  toName?: string;
+  /** `ts` rendered BY THE SERVER for a reader as `YYYY-MM-DD HH:MM:SS ±HH:MM`
+   * in the server's own zone (wire `ts_display`).
+   *
+   * 🔴 The cockpit renders THIS STRING and never formats `ts` itself. A second
+   * formatter here would be a second answer to "when was this" — and it would
+   * be the WRONG one: the studio has no configured timezone, so a browser-side
+   * format silently re-states the message in the viewer's zone while the agent
+   * reading the same snapshot sees the server's. Same payload, two different
+   * times. `""` outside the wake snapshot (`list_chat` does not render one). */
+  tsDisplay?: string;
+  /** COLLAPSE marker (wire `body_omitted_chars`): how many characters of THIS
+   * message's body the wake snapshot folded away; `0` = the body is here in
+   * full. The folded text is STILL ON THE SERVER — `get_chat` re-reads it.
+   *
+   * 🔴 This is NOT `MemberResumeSummaryView.chatEarlierOmitted`. That one
+   * reports whole messages that are ABSENT from the payload. One shortened
+   * message versus messages not carried at all — reading one as the other is
+   * how a reader concludes it has seen a conversation it has not seen, so the
+   * two must never share a word on screen. */
+  bodyOmittedChars?: number;
+  /** The reply card this message carries, FOLDED IN PLACE onto the message
+   * that opened it (wire `card`) — so the decision reads IN the chat stream
+   * rather than in a second, separately-joined card list. null ⇒ no card. */
+  card?: ChatInlineReplyCardView | null;
+}
+
+/** One reply card folded onto the chat message that opened it (view model of
+ * `ChatInlineReplyCardDTO`) — the DECISION and nothing else: the options as
+ * they were offered, which one was picked, the free text, and when. The card's
+ * summary/body/kind/attachments are deliberately NOT here (the message this
+ * rides on already carries the ask). */
+export interface ChatInlineReplyCardView {
+  /** The frozen quick-reply wording as offered (`options[0]` is the AI pick).
+   * Empty for a card opened without options. */
+  options: string[];
+  /** Index into `options` of the option that was picked; null when answered
+   * with free text only, or not answered yet. */
+  answerOptionIdx: number | null;
+  /** The free-text answer; "" when none was given. */
+  answerText: string;
+  /** Epoch seconds the card was answered; 0 while still waiting. */
+  answeredTs: number;
+  /** `answeredTs` rendered by the SERVER in the same full date + time + offset
+   * form as `ChatMessage.tsDisplay`, for the same reason. "" while unanswered.
+   * The cockpit prints it as given and never re-formats `answeredTs`. */
+  answeredAtDisplay: string;
 }
 
 /** ONE attachment on a chat message, in view-model form. `url` is the served
@@ -574,11 +635,18 @@ export type ManualAssigneeView =
     }
   | null;
 
-/** One FULL task manual (任務手冊 — a task type / playbook): the guided
- * definition (Q1 purpose / Q2 fields / Q3 SOP markdown), the accumulated
- * 學習經驗, and the 負責成員 assignee setting. NO internal filename anywhere —
- * manuals are presented as content, not files (spec §5.2 note). */
-export interface TaskManualView {
+/** ONE ROW of the manuals list (任務手冊 — a task type / playbook) WITHOUT its
+ * two long documents: the guided definition's short answers (Q1 purpose / Q2
+ * fields), the 負責成員 assignee setting, and how big the SOP and the 學習經驗
+ * are. NO internal filename anywhere — manuals are presented as content, not
+ * files (spec §5.2 note).
+ *
+ * 🔴 T-1170 split this off `TaskManualView`. `GET /api/task-manuals` now
+ * answers what `?view=list` used to: `sop_md` / `learnings` are NOT on the
+ * wire, only their char counts and the caps in force. The two sub-pages that
+ * render those documents read them through `useTaskManual`
+ * (`GET /api/task-manuals/{type_key}`). */
+export interface TaskManualSummaryView {
   typeKey: string;
   /** Owner/agent-editable label; empty ⇒ the UI falls back to typeKey. */
   displayName: string;
@@ -586,12 +654,19 @@ export interface TaskManualView {
   purpose: string;
   /** Q2 需要哪些資訊 — the input-field list. */
   fields: TaskManualFieldView[];
+  assignee: ManualAssigneeView;
+  updatedTs: number;
+}
+
+/** One FULL task manual — a list row plus the two long documents it sizes
+ * (Q3 SOP markdown, and the accumulated 學習經驗 agents write back on task
+ * close). Answered by `GET /api/task-manuals/{type_key}` and by every manual
+ * write; never by the list. */
+export interface TaskManualView extends TaskManualSummaryView {
   /** Q3 該怎麼做 — the SOP markdown the AI plans the workflow from. */
   sopMd: string;
   /** 學習經驗 — agent write-back on task close; owner-editable too. */
   learnings: string;
-  assignee: ManualAssigneeView;
-  updatedTs: number;
 }
 
 /** One product-guide doc row (使用說明 tab landing): the addressable slug +
@@ -665,6 +740,10 @@ export interface ServerSettingsView {
   agentTokenTtl: number;
   /** Context auto-handover threshold in percent (40..90). */
   handoverPct: number;
+  /** The FIRST (soft) offboard point — T-a9d6. `handoverPct` is the second. */
+  noticePct: number;
+  /** The codex twin of `noticePct`: the SOFT-notice compaction round. */
+  codexNoticeRound: number;
   /** Codex context compactions before automatic refocus (1..10). */
   codexCompactionThreshold: number;
   /** Minimum seconds between telemetry-triggered monitoring refreshes (1..60). */
@@ -686,6 +765,20 @@ export interface ServerSettingsView {
   docCapCharsLearning: number;
   docCapCharsManualSop: number;
   docCapCharsManualLearnings: number;
+  /** T-791e: the two boot-context blocks' caps, on the SAME settings surface
+   * and in the same rune unit. `docCapCharsBootSequence` is ONE number across
+   * both runtimes — claude and codex are two documents of one block, each
+   * measured on its own text. Defaults in `BOOT_DOC_CAP_CHARS_DEFAULTS`
+   * (docCap.ts); same floor-is-the-default, ceiling-100000 rule as above. */
+  docCapCharsSystemInteraction: number;
+  docCapCharsBootSequence: number;
+  /** T-c9c0: the 下線程序 document's cap, same surface and same rule. */
+  docCapCharsOffboard: number;
+  /** T-c9b4: the wake snapshot's chat block budget, in the same rune unit.
+   * NOT a document cap — it bounds a block the server repacks on every read, so
+   * it may be lowered as well as raised, and it has its own ceiling. Default and
+   * range in `chatBudget.ts` (mirroring server/ocserverd/domain.go). */
+  chatBudgetChars: number;
   /** Whether the GitHub-release update check also admits prereleases
    * (false = official releases only, the default). */
   updaterReceiveBeta: boolean;
@@ -751,6 +844,8 @@ export interface ServerSettingsPatch {
   ownerTokenTtl?: number;
   agentTokenTtl?: number;
   handoverPct?: number;
+  noticePct?: number;
+  codexNoticeRound?: number;
   codexCompactionThreshold?: number;
   monitoringRefreshSeconds?: number;
   outsourceMaxParallel?: number;
@@ -761,6 +856,16 @@ export interface ServerSettingsPatch {
   docCapCharsLearning?: number;
   docCapCharsManualSop?: number;
   docCapCharsManualLearnings?: number;
+  /** T-791e boot-context caps, same range rule. Editable because the version
+   * list judges an old revision against these — a cap the cockpit can read but
+   * never write would leave the one number the marking depends on unreachable
+   * from the only surface that edits settings. */
+  docCapCharsSystemInteraction?: number;
+  docCapCharsBootSequence?: number;
+  docCapCharsOffboard?: number;
+  /** T-c9b4 wake-snapshot chat budget; range 1000..13000 (chatBudget.ts). The
+   * floor is NOT the shipped default — this one may be turned down. */
+  chatBudgetChars?: number;
   /** Also admit GitHub prereleases in update checks (default false). */
   updaterReceiveBeta?: boolean;
   /** Arm unattended background self-upgrade (default false = manual-only). */
@@ -1046,6 +1151,78 @@ export interface ResumeOverviewView {
   tasksDetailChars: number;
   cardsWaiting: number;
   cardsAnsweredRecent: number;
+  /** Size of the roster block THIS snapshot carries (T-1b09). Reported
+   * separately from `tasksDetailChars` on purpose: that one counts text the
+   * snapshot does NOT carry. */
+  rosterChars: number;
+  /** Size of the machine block THIS snapshot carries (T-1b09). */
+  machinesChars: number;
+}
+
+/** The CUT POINT of the snapshot's chat (view model of `ResumeChatCutDTO`):
+ * whether whole messages exist that this payload does NOT carry, and how to go
+ * and get them.
+ *
+ * 🔴 TRUNCATION, not collapse. `ChatMessage.bodyOmittedChars` reports a message
+ * that IS here with part of its text folded away; this reports messages that
+ * are NOT here at all. The panel must word the two differently — see the
+ * `chatEarlierOmitted` / `bodyOmitted` i18n leaves. */
+export interface ResumeChatCutView {
+  /** true ⇒ at least one message involving the subject was left out. */
+  omitted: boolean;
+  /** How to retrieve what was cut, stated concretely by the SERVER. The panel
+   * shows it VERBATIM — re-writing it here would be the cockpit inventing a
+   * recovery procedure it cannot keep in step with the endpoint. "" when
+   * nothing was cut. */
+  hint: string;
+}
+
+/** One roster entry in the wake snapshot (view model of
+ * `ResumeRosterMemberDTO`) — who else is in the studio and how to reach them.
+ * `id` is what you address a message to; names are editable and roles repeat,
+ * so the panel shows BOTH and never treats the name as an address. */
+export interface ResumeRosterMemberView {
+  id: string;
+  name: string;
+  /** `member` | `outsource` — permanent members vs disposable contractors. */
+  kind: string;
+  /** The role's display name. The wire carries NO `role_key` on this row —
+   * only the name — so the panel shows what the server sends and does not
+   * synthesise a key. "" for contractors, which carry no role. */
+  roleName: string;
+  /** The role's own definition text (capped server-side). "" for contractors,
+   * which carry `currentTask` instead. */
+  duty: string;
+  /** The TITLE of the one task a contractor is bound to; "" for members. */
+  currentTask: string;
+  /** The bound task's status — contractors only. It is also what tells a
+   * `0/0` progress apart: non-empty ⇒ a bound task with no steps yet, "" ⇒ no
+   * bound task at all. */
+  taskStatus: string;
+  waitingReason: string;
+  progressDone: number;
+  progressTotal: number;
+  /** Which machine that member runs on (live binding); "" when unbound. */
+  machine: string;
+  /** The online/offline status the roster block reports. */
+  presence: string;
+}
+
+/** One machine in the wake snapshot's machine block (view model of
+ * `ResumeMachineDTO`). `machineId` is the STABLE id — address a machine by id,
+ * never by the name a host reports for itself. */
+export interface ResumeMachineView {
+  machineId: string;
+  displayName: string;
+  online: boolean;
+}
+
+/** The machine block of the wake snapshot (view model of `ResumeMachinesDTO`):
+ * the machine LIST plus which one the subject is standing on. `youAreOn` is the
+ * SERVER-RECORDED binding, "" when there is none yet. */
+export interface ResumeMachinesView {
+  list: ResumeMachineView[];
+  youAreOn: string;
 }
 
 /** One LIGHT open-task row inside a resume snapshot (view model of
@@ -1077,6 +1254,19 @@ export interface MemberResumeSummaryView {
   tasks: ResumeTaskView[];
   overview: ResumeOverviewView;
   note: string;
+  /** When the snapshot was assembled, `YYYY-MM-DD HH:MM:SS ±HH:MM` in the
+   * server's zone. It is the ONLY anchor that turns any `tsDisplay` in this
+   * payload into "how long ago", so the panel shows it at the TOP: a reader
+   * (agent or owner) has no reliable clock of its own to measure against. */
+  generatedAt: string;
+  /** The chat CUT POINT — whole messages this payload does not carry. */
+  chatEarlierOmitted: ResumeChatCutView;
+  /** Who else is in the studio (owner ruling rc-4e98c0481852: "All members and
+   * contractors and their online / offline status"). Empty ⇒ the snapshot
+   * carries no roster block. */
+  roster: ResumeRosterMemberView[];
+  /** The fleet the subject can reason about; null ⇒ no machine block. */
+  machines: ResumeMachinesView | null;
 }
 
 /** Partial edit of a webhook endpoint (status toggle, purpose, and/or a
@@ -1477,10 +1667,23 @@ export interface Api {
    * server accepts them and the cockpit would be lying about what it can do.
    *
    * The write is wholesale within that one field: `description` replaces
-   * whatever was there and `""` clears it. Every change that actually alters
-   * the text retains the previous one as a `task_description` revision keyed on
-   * the task id, readable through listDocumentHistory. Returns the task after
-   * the change; the SSE `task` delta also fans.
+   * whatever was there and `""` clears it. The stored value is TRIMMED of
+   * surrounding whitespace, and the server compares AFTER trimming, so
+   * re-sending a description with a stray trailing space is correctly seen as
+   * no change. 🔴 That trim arrived in T-646a (owner card rc-0fb94a25a8a8,
+   * option ①) — before it this field was stored raw while its title twin
+   * trimmed, and closing that gap is what the ticket was for. Its CONSEQUENCE:
+   * a description of only whitespace trims to `""` and therefore CLEARS.
+   *
+   * 🔴 The agent-facing MCP tool for this is no longer `update_task_description`
+   * — since T-646a it is `update_task`, which writes title and description
+   * together through one seam. This ROUTE is unchanged and stays here for the
+   * cockpit; only the tool surface moved.
+   *
+   * Every change that actually alters the text retains the previous one as a
+   * `task_description` revision keyed on the task id, readable through
+   * listDocumentHistory. Returns the task after the change; the SSE `task`
+   * delta also fans.
    */
   updateTaskDescription(id: string, description: string): Promise<TaskView>;
   /**
@@ -1499,9 +1702,13 @@ export interface Api {
    * an explicit BLANK title (empty or whitespace-only) is a 400 `title must not
    * be blank`, NOT a clear. `create_task` refuses a blank title on the same
    * terms, and an edit door looser than the create door would let a caller
-   * reach a task-list row with nothing in it. The stored value is TRIMMED,
-   * matching create — and the server compares after trimming, so re-sending a
-   * title with a stray trailing space is correctly seen as no change.
+   * reach a task-list row with nothing in it. (Trimming used to be a second
+   * difference; since T-646a both fields are trimmed, so the blank rule is the
+   * only one left.)
+   *
+   * 🔴 The agent-facing MCP tool for this is no longer `update_task_title` —
+   * since T-646a it is `update_task`. This ROUTE is unchanged and stays here for
+   * the cockpit; only the tool surface moved.
    *
    * There is NO length cap, on this door or on create. Every change that
    * actually alters the text retains the previous one as a `task_title`
@@ -1595,9 +1802,11 @@ export interface Api {
    * the manual editor reads the FULL manuals below. */
   listTaskTypes(): Promise<TaskTypeView[]>;
   // ── Task manuals (設定 › 任務手冊, SPEC §5) ────────────────────────────────
-  /** List the FULL manuals (`GET /api/task-manuals`) — the 任務手冊 list page
-   * (type cards: 類型名 + 用途摘要). 出廠不含任何類型 (honest empty list). */
-  listTaskManuals(): Promise<TaskManualView[]>;
+  /** List the manuals as a DIRECTORY (`GET /api/task-manuals`) — the 任務手冊
+   * list page (type cards: 類型名 + 用途摘要). 出廠不含任何類型 (honest empty
+   * list). T-1170: `sop_md` / `learnings` are NOT in this answer, only their
+   * sizes; the body comes from `getTaskManual`. */
+  listTaskManuals(): Promise<TaskManualSummaryView[]>;
   /** Read ONE manual in full (`GET /api/task-manuals/{type_key}`) — the detail
    * page's 任務定義/學習經驗 tabs + 負責成員 card. Unknown → 404 (throws). */
   getTaskManual(typeKey: string): Promise<TaskManualView>;
@@ -1740,8 +1949,44 @@ export interface Api {
   saveGlobalContext(text: string): Promise<GlobalContextView>;
   /** Reset the global context to seed (idempotent tombstone → `isDefault` true). */
   resetGlobalContext(): Promise<GlobalContextView>;
-  /** List the folded role definitions (seed defaults + owner edits). */
-  listRoles(): Promise<RoleDefView[]>;
+  /**
+   * The folded boot-context block (T-791e) — one of THREE independent document
+   * streams, addressed by (kind, key):
+   *
+   *   system_interaction / global   — the studio's how-the-system-works block
+   *   boot_sequence      / claude   — the Claude Code boot SOP
+   *   boot_sequence      / codex    — the Codex CLI boot SOP
+   *
+   * 🔴 The two boot_sequence keys are DIFFERENT DOCUMENTS whose third step
+   * means opposite things. `key` is required rather than defaulted for exactly
+   * that reason: there is no "the boot sequence", so there is nothing sensible
+   * for a default to pick, and an omitted key would silently address one
+   * runtime while the caller meant the other.
+   */
+  getBootDoc(kind: BootDocKind, key: string): Promise<BootDocView>;
+  /** Whole-document replace of ONE boot-context block → the folded doc
+   * (`isDefault` flips false). Rejects with a 400 ApiError when `text` is over
+   * that kind's `cap_chars` and not getting shorter — the cockpit blocks first,
+   * this is the server's own floor. Requires admin or above. */
+  saveBootDoc(
+    kind: BootDocKind,
+    key: string,
+    text: string
+  ): Promise<BootDocView>;
+  /**
+   * Restore ONE boot-context block to its FACTORY version → the folded doc
+   * (`isDefault` true).
+   *
+   * 🔴 This is the recovery path for the failure this whole surface risks: a
+   * broken boot sequence means agents never attach to SSE, so they never come
+   * online, so there is nobody online to fix it from. It must stay reachable
+   * from the cockpit without a successful read and without any agent being up.
+   */
+  resetBootDoc(kind: BootDocKind, key: string): Promise<BootDocView>;
+  /** List the role roster as a DIRECTORY (seed defaults + owner edits).
+   * T-1170: `definition_md` is NOT in this answer, only its size and the cap;
+   * the persona body comes from `getRole`. */
+  listRoles(): Promise<RoleSummaryView[]>;
   /** The folded role definition for `key`. */
   getRole(key: string): Promise<RoleDefView>;
   /** Partial edit of a role definition → returns the folded doc. */
@@ -1823,14 +2068,36 @@ export interface Api {
    */
   resetInsight(roleKey: string): Promise<InsightView>;
   /**
-   * The retained revisions of ONE editable long-form document, newest first
-   * (`GET /api/document-history/{kind}/{key}`). At most 3 are kept — the
-   * server prunes, the cockpit never has to.
+   * The retained revisions of ONE editable long-form document as a DIRECTORY,
+   * newest first (`GET /api/document-history/{kind}/{key}`). At most 3 are
+   * kept — the server prunes, the cockpit never has to.
+   *
+   * 🔴 T-1170: no `content`. Identity, actor, timestamp, the tombstone flag,
+   * and each field's size — enough to draw the picker and to mark a revision
+   * the server would refuse, and nothing more. Reading a revision means naming
+   * it: `getDocumentRevision`.
    */
   listDocumentHistory(
     kind: DocumentKind,
     key: string,
-  ): Promise<DocumentHistoryView[]>;
+  ): Promise<DocumentHistoryEntryView[]>;
+  /**
+   * The BODY of ONE named retained revision (T-1170). This is the only read
+   * that carries a revision's text, and it is deliberately per-revision: the
+   * reader opens exactly one at a time, so downloading three documents to show
+   * one was paying for two nobody asked for.
+   *
+   * It answers `content` and nothing else about the revision — actor, time,
+   * tombstone flag and sizes come from the directory row the reader opened.
+   *
+   * A pruned / unknown id rejects (404) — the caller says so rather than
+   * rendering the revision as empty, which is a different and false claim.
+   */
+  getDocumentRevision(
+    kind: DocumentKind,
+    key: string,
+    id: number,
+  ): Promise<DocumentRevisionView>;
   /**
    * The document's SHIPPED DEFAULT — the version list's 初始版本 row
    * (`GET /api/document-history/{kind}/{key}/seed`, T-40f0).

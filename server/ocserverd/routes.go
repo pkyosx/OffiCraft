@@ -93,7 +93,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleVersionApiVersionGet,
 			Auth:     authPublic,
 			Requires: requiresPublic,
-			Summary:  "Build identity: version + git sha + MCP catalog hash.",
+			Summary:  "Read the build identity this station is RUNNING: version, git sha, git time and the MCP catalog hash, plus the cached update status. Settle whether something is deployed by git sha ancestry, never by the version string.",
 		},
 		{
 			Method:     "GET",
@@ -289,7 +289,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleListMembersApiMembersGet,
 			Auth:     authGated,
 			Requires: principalMachine,
-			Summary:  "List the owner's roster (presence-derived MemberDTO[]).",
+			Summary:  "List every member that has not been removed, including outsource members by default (presence-derived MemberDTO[]). fields=light returns an identity-only projection that preserves kind.",
 		},
 		{
 			Method:   "POST",
@@ -297,7 +297,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleHireMemberApiMembersPost,
 			Auth:     authGated,
 			Requires: principalMachine,
-			Summary:  "Hire a member (server mints the id). Pure seam, no UI (§9.1).",
+			Summary:  "Hire a member (server mints the id). runtime defaults to claude and only claude/codex are accepted; effort defaults to medium and is validated; a hire that names kind or role_key is admin-gated.",
 			MCPTool:  "hire_member",
 		},
 		{
@@ -330,7 +330,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleUpdateMemberApiMembersMemberIdPatch,
 			Auth:     authGated,
 			Requires: principalMachine,
-			Summary:  "Edit a member (name / model / effort). Blank name / bad effort → 422.",
+			Summary:  "Partially update a member's name / runtime / model / effort. Blank name, invalid runtime or invalid effort → 422, and changing a launch-intent field arms a graceful handover.",
 			MCPTool:  "update_member",
 		},
 		{
@@ -371,7 +371,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleRelocateMemberApiMembersMemberIdRelocatePost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Relocate a member to a machine (placement only; never touches desired_state). Also accepts an outsource-worker id: the same move-one-agent verb relocates the worker.",
+			Summary:  "Relocate a member to a machine (placement only; never touches desired_state). Also accepts an outsource-worker id: the same move-one-agent verb relocates the worker. machine_id is REQUIRED (owner 2026-07-27): a relocate NAMES the destination machine and no longer doubles as an unpin — an absent key is a 422, an explicit null or \"\" is a 400.",
 			MCPTool:  "relocate_member", // owner-cockpit 改機器 + admin-agent 工具 (T-8655): Mira 可經 MCP 把 member 搬機; 權限仍 principalAdminAgent (一般 agent 擋)。P7c: member_id 也吃 worker id (ow-…) — handler falls through to the worker relocate core (外包對齊正職)
 		},
 		{
@@ -579,7 +579,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleGetMemberResumeSummaryApiMembersMemberIdResumeSummaryGet,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Bounded LIGHT wake snapshot for a TARGET member (admin_agent+; same shape as resume_summary).",
+			Summary:  "The SAME bounded wake snapshot as resume_summary, for a TARGET member (member_id) instead of the caller — control-others, admin_agent+ only (owner-scope or role=assistant); an ordinary agent gets 403. Same identity/chat/light-task-rows/roster/machines/overview/note shape, assembled by the identical resumeSnapshotParts function (so the roster and machine blocks cannot drift from what that member would get on waking; note that machines.you_are_on resolves for the TARGET member, not for you); resume_summary itself is unchanged and still identity-locked to the caller.",
 			MCPTool:  "get_member_resume_summary",
 		},
 		// ── Webhook inlet — PUBLIC (M4 §2) ─────────────────────────────────────
@@ -601,7 +601,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandlePostChatApiChatPost,
 			Auth:     authGated,
 			Requires: principalMachine,
-			Summary:  "Post a chat message (sender = verified JWT sub; auto SSE fan-out).",
+			Summary:  "Post a chat message (sender = verified JWT sub; auto SSE fan-out). ``to`` must name the owner or an active AI member; unknown, removed, and machine ids are rejected. Presence is not a gate: an offline member keeps its durable mailbox.",
 		},
 		{
 			Method:   "GET",
@@ -609,7 +609,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleListChatApiChatGet,
 			Auth:     authGated,
 			Requires: principalMachine,
-			Summary:  "List the chat stream (?with=<id>&limit=<n>; oldest→newest).",
+			Summary:  "List the chat stream (?with=<id>&limit=<n>; oldest→newest). History paging: before_ts + before_id (both together) return the limit messages strictly OLDER than that keyset cursor — a history page NEVER advances the read watermark. Re-read specific messages by id: ids=<id>&ids=<id> returns those messages in full without a peer and without a cursor; the ids schema states who may read what, the per-call limit, and what an unknown id does.",
 		},
 		{
 			Method:     "GET",
@@ -628,7 +628,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleGetChatAttachmentShareLinkApiChatAttachmentsAttachmentIdShareLinkGet,
 			Auth:     authGated,
 			Requires: principalMachine,
-			Summary:  "Mint a permanent single-file share link (?sig= HMAC; grants read of this one attachment only).",
+			Summary:  "Mint a permanent single-file share link (?sig= HMAC; grants read of this one attachment only). Returns {url} as a SERVER-RELATIVE path — prefix it with the origin you reach this server on to get a link you can paste to someone. The sig carries NO identity and NO expiry: whoever holds the link reads that one blob without signing in, forever, and it cannot be revoked. Mint it for deliverables you meant to hand over; do not paste it anywhere the blob itself would not belong.",
 			// This row used to read `MCPExclude: true, // a UI convenience
 			// seam, not an agent tool`. That call is REVERSED here, on
 			// purpose: minting is an agent seam too. An agent that produces a
@@ -687,7 +687,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleCreateReplyCardApiReplyCardsPost,
 			Auth:     authGated,
 			Requires: principalMachine,
-			Summary:  "Open a reply card: an ask the owner must answer (options ≤4, [0]=AI pick). Auto-binds to your single active task's current step when unambiguous — that step (and usually the task) enters waiting_owner until the owner answers.",
+			Summary:  "Open a reply card: an ask the owner must answer (options ≤4, [0]=AI pick). Auto-binds to your single active task's CURRENT step — that step (and the task) enters waiting_owner until the owner answers; several lanes of one parallel_group running at once is fine (the lowest order_idx lane carries the card, and the whole task holds either way). If that task has NO resolvable current step the call is REFUSED with 409 and no card is opened: binding the task without a step places no hold, so the task would finish underneath your question and the owner's answer would then be rejected. Fix what the error names — report the step you are on (update_step_status in_progress), use open_gate with an explicit task_id + step_id, or send bind=\"none\" if the ask is not about the task. With no single clear active task, a plain unbound 請示 opens as before. Optional attachments ride the question (same shape as post_chat: {id} from `ocagent upload` / POST /api/chat/attachments, or inline data_b64).",
 			MCPTool:  "create_reply_card",
 		},
 		{
@@ -696,7 +696,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleListReplyCardsApiReplyCardsGet,
 			Auth:     authGated,
 			Requires: principalMachine,
-			Summary:  "List reply cards — LIGHT rows: summary+decision digest, no body/options (?status=waiting|answered|expired; ?limit= caps; get_reply_card for full).",
+			Summary:  "List light reply-card rows (summary and decision digest, without the full body/options). status is waiting (the default, longest-waiting first), answered (the last 24 hours) or expired (the last 24 hours); a positive limit is applied after each pane is ordered. Read one card in full with get_reply_card.",
 			MCPTool:  "list_reply_cards",
 		},
 		{
@@ -898,7 +898,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleTeardownHereApiMachinesMachineIdTeardownHerePost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Teardown on server: run ocwarden teardown on the server's OWN host; machine_id is not a target selector and every target is currently refused (409).",
+			Summary:  "Teardown on server: runs `ocwarden teardown` on the SERVER's own host. machine_id is NOT a target — this verb has no way to reach another machine, and naming one is refused (409). The server-local machine is refused too (retiring it revokes credentials fleet-wide). To retire another machine use uninstall_machine then delete_machine; to repair the server host's own warden use install_warden_on_server_host, which runs `install --force` over the existing install.",
 			MCPTool:  "uninstall_warden_on_server_host",
 		},
 		{
@@ -965,7 +965,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleReplaceGlobalContextApiGlobalContextPost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Whole-block replace of the user-custom additive block ({text}).",
+			Summary:  "Whole-block replace of the user-custom additive block ({text}). text is REQUIRED; unknown keys are rejected. Replacing existing content with an empty block needs allow_shrink=true (or use reset_global_context).",
 			MCPTool:  "replace_global_context",
 		},
 		{
@@ -977,13 +977,113 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary:  "Reset the user-custom block to empty (idempotent tombstone).",
 			MCPTool:  "reset_global_context",
 		},
+		// ── the two boot-context document kinds that became editable (T-791e) ──
+		//
+		// 系統互動 and 啟動程序 used to be go:embed seeds with no editable
+		// representation at all: one wrong sentence cost a release. They now
+		// carry the same read / whole-document replace / reset-to-factory shape
+		// the 使用者自訂 block above has, plus document history.
+		//
+		// FLOORS: read at the machine floor (an agent already reads both blocks
+		// in its own boot context — nothing here is new to it); WRITE at
+		// admin_agent, because this text lands in EVERY agent's boot context and
+		// a broken 啟動程序 keeps them from coming online at all. That failure is
+		// silent: an agent that never boots is never there to report it, which is
+		// also why the reset route has to work from the cockpit alone, with no
+		// live agent and no MCP client anywhere in the path.
+		{
+			Method:   "GET",
+			Path:     "/api/system-interaction",
+			Handler:  w.HandleGetSystemInteractionApiSystemInteractionGet,
+			Auth:     authGated,
+			Requires: principalMachine,
+			Summary:  "Read the 系統互動 block of the boot context — the shared studio handbook every agent reads at boot. Folded: the owner's edit when one exists, otherwise the shipped factory seed, with is_default saying which of the two you are holding and has_seed saying a factory version exists to go back to. The reply carries size_chars/cap_chars (this document's own size limit, in characters) and is_default/has_seed, so a caller can size an edit before making it and can tell an edited block from the shipped one.",
+			MCPTool:  "get_system_interaction",
+		},
+		{
+			Method:   "POST",
+			Path:     "/api/system-interaction",
+			Handler:  w.HandleReplaceSystemInteractionApiSystemInteractionPost,
+			Auth:     authGated,
+			Requires: principalAdminAgent,
+			Summary:  "Replace the WHOLE 系統互動 block of the boot context ({text}) — the handbook every agent reads at boot. text is REQUIRED and unknown keys are rejected; emptying a block that had content needs allow_shrink=true. The write is judged against the doc.cap_chars.system_interaction cap unconditionally, and the refusal tells you what you wrote, the cap, and what is already stored. The shipped seed is never overwritten, so reset_system_interaction always gets the factory text back; the version this write replaces is retained in the document history (a save that changes nothing retains nothing). Owner or admin assistant only.",
+			MCPTool:  "replace_system_interaction",
+		},
+		{
+			Method:   "POST",
+			Path:     "/api/system-interaction/reset",
+			Handler:  w.HandleResetSystemInteractionApiSystemInteractionResetPost,
+			Auth:     authGated,
+			Requires: principalAdminAgent,
+			Summary:  "Restore the 系統互動 block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length cap is applied on this path — the factory text is part of the product, so no setting can block the way back to it. The overlay being discarded is retained in the document history, so the reset is itself recoverable. Owner or admin assistant only.",
+			MCPTool:  "reset_system_interaction",
+		},
+		{
+			Method:   "GET",
+			Path:     "/api/boot-sequence/{runtime_key}",
+			Handler:  w.HandleGetBootSequenceApiBootSequenceRuntimeKeyGet,
+			Auth:     authGated,
+			Requires: principalMachine,
+			Summary:  "Read one runtime's 啟動程序 block — the boot checklist that ends that runtime's boot context. runtime_key is 'claude' or 'codex'; they are separate documents because step 3 of the two says opposite things (claude mounts its own `ocagent listen`, codex must not — the sidecar owns it), so any other value is a 404 rather than a silent fallback to claude. Folded: the owner's edit when one exists, otherwise the shipped factory seed. The reply carries size_chars/cap_chars (this document's own size limit, in characters) and is_default/has_seed, so a caller can size an edit before making it and can tell an edited block from the shipped one.",
+			MCPTool:  "get_boot_sequence",
+		},
+		{
+			Method:   "POST",
+			Path:     "/api/boot-sequence/{runtime_key}",
+			Handler:  w.HandleReplaceBootSequenceApiBootSequenceRuntimeKeyPost,
+			Auth:     authGated,
+			Requires: principalAdminAgent,
+			Summary:  "Replace the WHOLE 啟動程序 block of ONE runtime ({runtime_key, text}). runtime_key is 'claude' or 'codex' and the two are separate documents whose step 3 contradicts each other, so writing the wrong one leaves those agents unable to come online — and nothing that never boots reports it. text is REQUIRED and unknown keys are rejected; emptying a block that had content needs allow_shrink=true. Judged against the doc.cap_chars.boot_sequence cap (one cap, both runtimes, each measured on its own text); the refusal tells you what you wrote, the cap, and what is stored. The shipped seed is never overwritten, so reset_boot_sequence always gets the factory text back. Owner or admin assistant only.",
+			MCPTool:  "replace_boot_sequence",
+		},
+		{
+			Method:   "POST",
+			Path:     "/api/boot-sequence/{runtime_key}/reset",
+			Handler:  w.HandleResetBootSequenceApiBootSequenceRuntimeKeyResetPost,
+			Auth:     authGated,
+			Requires: principalAdminAgent,
+			Summary:  "Restore ONE runtime's 啟動程序 block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). runtime_key is 'claude' or 'codex'; anything else is a 404. No length cap is applied on this path — the factory text is part of the product, so no setting can block the way back to it, which is what makes this the recovery route when a bad edit has stopped agents from booting. The overlay being discarded is retained in the document history. Owner or admin assistant only.",
+			MCPTool:  "reset_boot_sequence",
+		},
+		// 下線程序 (T-c9c0) — the fourth owner-editable global document, and the
+		// same three-row shape as the 系統互動 block above, floors included: read
+		// at the machine floor (every agent is handed this text when its session
+		// is collected), write at admin_agent (it is the last instruction an
+		// agent gets, with nobody online afterwards to correct it).
+		{
+			Method:   "GET",
+			Path:     "/api/offboard",
+			Handler:  w.HandleGetOffboardApiOffboardGet,
+			Auth:     authGated,
+			Requires: principalMachine,
+			Summary:  "Read the 下線程序 block — the wrap-up checklist the server hands an agent at the moment it is about to collect that session. It is a SINGLETON: one document for every agent and every runtime, keyed `global` like the 系統互動 block. Folded: the owner's edit when one exists, otherwise the shipped factory seed, with is_default saying which of the two you are holding and has_seed saying a factory version exists to go back to. The reply carries size_chars/cap_chars (this document's own size limit, in characters) and is_default/has_seed, so a caller can size an edit before making it and can tell an edited block from the shipped one.",
+			MCPTool:  "get_offboard",
+		},
+		{
+			Method:   "POST",
+			Path:     "/api/offboard",
+			Handler:  w.HandleReplaceOffboardApiOffboardPost,
+			Auth:     authGated,
+			Requires: principalAdminAgent,
+			Summary:  "Replace the WHOLE 下線程序 block ({text}) — the wrap-up checklist an agent is handed when its session is being collected. text is REQUIRED and unknown keys are rejected; emptying a block that had content needs allow_shrink=true. The write is judged against the doc.cap_chars.offboard cap unconditionally, and the refusal tells you what you wrote, the cap, and what is already stored. The shipped seed is never overwritten, so reset_offboard always gets the factory text back; the version this write replaces is retained in the document history (a save that changes nothing retains nothing). Owner or admin assistant only.",
+			MCPTool:  "replace_offboard",
+		},
+		{
+			Method:   "POST",
+			Path:     "/api/offboard/reset",
+			Handler:  w.HandleResetOffboardApiOffboardResetPost,
+			Auth:     authGated,
+			Requires: principalAdminAgent,
+			Summary:  "Restore the 下線程序 block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length cap is applied on this path — the factory text is part of the product, so no setting can block the way back to it. The overlay being discarded is retained in the document history, so the reset is itself recoverable. Owner or admin assistant only.",
+			MCPTool:  "reset_offboard",
+		},
 		{
 			Method:   "GET",
 			Path:     "/api/roles",
 			Handler:  w.HandleListRolesApiRolesGet,
 			Auth:     authGated,
 			Requires: principalMachine,
-			Summary:  "List role definitions (seed defaults + owner edits).",
+			Summary:  "List role definitions (seed defaults + owner edits) WITHOUT the persona bodies: each row is the role identity plus its definition size and cap, never definition_md itself. Read the one role you want with get_role.",
 			MCPTool:  "list_roles",
 		},
 		{
@@ -996,7 +1096,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			// are all machine). It cannot leak more than those already do — it
 			// carries strictly less than any of them.
 			Requires: principalMachine,
-			Summary:  "Size-only overview of every capped document (each against its own cap; NO content; role lessons = DEFAULT bucket only).",
+			Summary:  "Size-only overview of EVERY capped document on the station: each role's role definition / insight / DEFAULT lessons bucket, and each task manual's SOP / learnings, as size_chars plus the cap_chars in force for THAT segment (the five segments have five separate caps — each is reported against its own). LIMITATION: lessons is reported for the default bucket only; nothing stops a write from naming another bucket, and such a document spends the same lessons cap yet never appears here. Carries NO document text, so it costs a few hundred bytes. Use it to find which long-lived document is nearly full, then read only that one (get_role / get_insight / get_lessons / get_task_manual). It is the only way to see insight and lessons sizes in bulk — no listing reports those at any price; the manual sizes and caps are also on every list_task_manuals row, and a role definition's size and cap are already on every list_roles row.",
 			MCPTool:  "peek_doc_sizes",
 		},
 		{
@@ -1005,7 +1105,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleCreateRoleApiRolesPost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Create a custom role + its founding member (one pair per call).",
+			Summary:  "Create a custom role + its founding member (one pair per call). runtime is claude/codex (absent = claude).",
 			MCPTool:  "create_role",
 		},
 		{
@@ -1056,7 +1156,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			// private — say it in every surface a reader can reach, because
 			// the word "insight" implies confidentiality that nobody promised.
 			Requires: principalMachine,
-			Summary:  "Read a per-role insight doc (per role_key; may have a PER-ROLE factory seed).",
+			Summary:  "Read a per-role insight doc - this role's accumulated judgement calls and trade-offs (per role_key). A role may ship with a factory seed, and that seed is PER-ROLE (seeds/insight_<role_key>.md) - today only the assistant has one; a role without one reads genuinely empty until it writes. is_default=true means THIS ROLE has never written its own, whether what you are reading is the factory wording or nothing at all. Separate from the lessons doc on purpose: lessons record what happened and what to do next time, insight records how this role weighs a call. Like lessons, reading is unrestricted: any authenticated identity may read ANY role's insight - it is SEPARATE, not private.",
 			MCPTool:  "get_insight",
 		},
 		{
@@ -1072,7 +1172,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			// role_key (classifyMember), so it cannot write insight even if it
 			// carries one — the same delineation the lessons rows document.
 			Requires: principalAgent,
-			Summary:  "Whole-doc replace of a per-role insight doc ({text}).",
+			Summary:  "Whole-doc replace of a per-role insight doc ({text}). text is REQUIRED; unknown keys are rejected. Replacing existing content with an empty doc needs allow_shrink=true. Only the role's own agents (and admin) may WRITE it.",
 			MCPTool:  "replace_insight",
 		},
 		{
@@ -1081,7 +1181,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandlePatchInsightApiInsightRoleKeyPatchPost,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Patch a per-role insight doc by unique anchors ({edits:[{old,new}]}).",
+			Summary:  "Patch a per-role insight doc by unique anchors ({edits:[{old,new}]}). Only the role's own agents (and admin) may WRITE it.",
 			MCPTool:  "patch_insight",
 		},
 		{
@@ -1097,7 +1197,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			// gate to fall back on, insight does, and a role's own agent may
 			// already replace this document wholesale.
 			Requires: principalAgent,
-			Summary:  "Reset a per-role insight doc to its factory seed (idempotent tombstone overlay).",
+			Summary:  "Reset a per-role insight doc back to its factory seed (idempotent tombstone of the overlay) - the counterpart of reset_role on the Duty block. A role with NO seed file (seeds/insight_<role_key>.md) returns 404: there must be a factory version to reset TO. No length cap is applied on this path, matching reset_role - the factory text is part of the product. The overlay you are discarding is retained as a document-history revision, so the reset is recoverable. Only the role's own agents (and admin) may do it.",
 			MCPTool:  "reset_insight",
 		},
 		{
@@ -1142,7 +1242,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			// Per-ROLE authz stays in the handler (lessonsWriteAuthz) — the
 			// ladder cannot express "own role only".
 			Requires: principalAgent,
-			Summary:  "Whole-doc replace of a per-role lessons doc ({text}).",
+			Summary:  "Replace the WHOLE per-role lessons document. text is REQUIRED and unknown keys are rejected; only that role's agent or an admin may write it; emptying or sharply shrinking it needs allow_shrink=true; and the result is still judged against the lessons cap.",
 			MCPTool:  "replace_lessons",
 		},
 		{
@@ -1163,7 +1263,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleResumeSummaryApiResumeSummaryGet,
 			Auth:     authGated,
 			Requires: principalMachine,
-			Summary:  "Bounded LIGHT wake snapshot for the caller (identity-locked; what it carries is enumerated in the description, not here).",
+			Summary:  "Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task). CHAT is packed newest-first under a CHARACTER BUDGET, not a fixed message count, and stopping at the last message that still fits; each message carries from_name/to_name beside the ids and ts_display (full date + time + zone offset) beside the epoch ts, and folds in its reply card as `card` when it has one — read every ts_display against the top-level `generated_at`. TWO DIFFERENT things can be missing and they are marked DIFFERENTLY: `body_omitted_chars` > 0 means THAT message is here with that many characters COLLAPSED away (another agent's line — the owner's line and your own hand-off notes to yourself are carried in full), re-read it with get_chat; `chat_earlier_omitted` is the other kind and it is a MAYBE, not a fact: that line was cut at a read or budget limit and nothing looked past the cut, so whole messages may be missing from this payload entirely — it is raised even when there is in fact nothing older. Its hint tells you how to CHECK and fetch them. The two are asymmetric ON PURPOSE: the collapse marker is CERTAIN (that message IS here, shortened, exact count); this one is not, and only the fetch settles it. Also carries the STUDIO FLOOR you wake up onto: roster (every member and contractor, each with online/offline status, the machine it runs on, and its duty capped at 1000 chars with `…` marking a cut, the cap applied after the doc's own leading title line is removed — who to ask for help; no insight/learning by owner ruling. Contractors additionally carry their bound task's status, waiting_reason, and step progress (progress_done/progress_total) — members leave these at their zero value; a contractor's 0/0 is ambiguous (a task with no steps yet, or no task at all) and task_status is what tells them apart, non-empty vs empty) and machines (the machine list plus you_are_on, your server-recorded machine binding — never derive it from a hostname).",
 			MCPTool:  "resume_summary",
 		},
 		{
@@ -1172,7 +1272,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandlePeekResumeSummarySizeApiResumeSummarySizeGet,
 			Auth:     authGated,
 			Requires: principalMachine,
-			Summary:  "Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO content) — size resume_summary before pulling it.",
+			Summary:  "Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO chat/task content). estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars, all four reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit and the two studio-floor blocks — what pulling the snapshot actually costs. Step one of the two-step boot: call this FIRST to size resume_summary, then either call resume_summary directly (small) or hand the pull to a cheap sub-agent that returns a digest (large).",
 			MCPTool:  "peek_resume_summary_size",
 		},
 		{
@@ -1195,7 +1295,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleListTasksApiTasksGet,
 			Auth:     authGated,
 			Requires: principalMachine,
-			Summary:  "List tasks (?executor=&type=&status=; light list items — get_task for full).",
+			Summary:  "List tasks (?executor=&type=&status=, or statuses=[…] for a SET of states — every filter given is ANDed; LIGHT list items — id/task_no/title/type_key/status/priority/executor/creator_id/progress/timestamps/deps + dep_tasks, WITHOUT steps/description/inputs). Ask for the states you actually want (`statuses: [\"not_started\", \"in_progress\"]`) instead of listing everything and filtering yourself — the whole history is a large answer. `statuses` also accepts \"reassigning\", which matches the handover LOCK rather than the status column. `dep_tasks` already carries each blocker's task_no/title/status, so a blocked task needs no follow-up get_task just to name what it is waiting for. Call get_task for a task's full detail (steps, description, inputs).",
 			MCPTool:  "list_tasks",
 		},
 		{
@@ -1204,7 +1304,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleCreateTaskApiTasksPost,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Create a task (dedupes on the manual's key; ad-hoc when type_key omitted).",
+			Summary:  "Create a task (dedupes on the manual's key; ad-hoc when type_key omitted). Pass target.kind=outsource to drop the task as an unassigned outsource task (發包); target.runtime is claude/codex (absent = claude). The existing outsource scheduler then spawns workers against the global concurrency cap (outsourceParallelCap) — below the cap it starts immediately, at the cap it queues for capacity and is picked up automatically when a slot frees. No owner-approval card and no per-task approval; the owner may reassign a still-queued task at any time. Caller authorization (正職授權矩陣, T-23cf): an outsource worker may never create a task; a 發包 create is open to any 正職 (owner/admin included); a typed task the manual assigns to member X may be created only by X (owner/admin NOT exempt); an ad-hoc task with a member executor may name only the caller itself unless the caller is owner/admin (a 一般正職 may self-execute or 發包, never assign another member).",
 			MCPTool:  "create_task",
 		},
 		{
@@ -1243,7 +1343,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleSetTaskPriorityApiTasksTaskIdPriorityPost,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Set a task's priority (owner/admin agent any value; the executor any value on their own task — frozen included, T-6020).",
+			Summary:  "Set a task's priority (owner/admin agent any value on any task; the task's own executor any value on their task — frozen INCLUDED, and whoever may freeze may unfreeze, T-6020). The actor who sets frozen is recorded on the task as frozen_by and the field clears when the task leaves frozen. Anyone else is a flat 403. Answers with a bounded receipt (task_id, priority, frozen_by), not the whole task — use get_task when you need the rest.",
 			MCPTool:  "set_task_priority",
 		},
 		{
@@ -1263,8 +1363,33 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleSubmitTaskPlanApiTasksTaskIdPlanPost,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Submit/replace the workflow plan (done steps are kept).",
+			Summary:  "Submit/replace the workflow plan (done and answered-card steps are kept). T-74f8 交棒閘 (second door): a plan is a step-set write and the task status is DERIVED from the step set, so a plan that leaves EVERY step done CLOSES the task — the same irreversible close the final step report performs. If that task's creator is not its executor and no handover is declared or already real, the replan is refused with 422 BEFORE anything is written (the plan stays fully editable). A plan carries no handoff field, so the way out is to hand over first: create the successor task and point its ``blocked_by`` at this task (the gate then stands aside by itself), or keep one unfinished step and declare the handover on the ``update_step_status`` report that closes it. A replan that still leaves work in the plan is never gated. Answers with a bounded receipt (task_id, steps_total, progress_done, progress_total), not the plan you just sent — use get_task to read the stored step rows back.",
 			MCPTool:  "submit_plan",
+		},
+		// T-646a: the one door onto a task's own TEXT. Supersedes the
+		// update_task_description / update_task_title rows below, which stay
+		// REGISTERED for the frontend and any existing HTTP client but are off
+		// the MCP catalogue (x-mcp include:false), so an agent sees one tool
+		// rather than three. All three share updateTaskText, so a rule corrected
+		// once is corrected everywhere — the drift between two hand-kept copies
+		// of the same rules is what this ticket was about. Same executor gate,
+		// same closed-task editability, same document-history series as the two
+		// routes it folds in. POST sits on the GET row's PATH deliberately: this
+		// is a partial update of the task resource, not a fourth sub-path.
+		//
+		// 🔴 Its POSITION IN THIS TABLE is a wire fact, not cosmetics. The MCP
+		// catalogue's element-wise order mirrors this table, and conformance
+		// asserts the two agree, so this row sits where the two it folds in sit
+		// — not next to the GET row it shares a path with. Moving it moves the
+		// tool in tools/list.
+		{
+			Method:   "POST",
+			Path:     "/api/tasks/{task_id}",
+			Handler:  w.HandleUpdateTaskApiTasksTaskIdPost,
+			Auth:     authGated,
+			Requires: principalAgent,
+			Summary:  "Correct THIS task's own TEXT — its title, its description, or both in one write (T-646a). Replaces `update_task_title` and `update_task_description`, which documented the same rules twice and could not be applied together: changing both meant two calls, two transactions and two SSE deltas, with room for someone else's write to land in between. WHO: the task's own executor, or an admin/owner; anyone else is a flat 403. Creating a task grants NO standing to keep rewriting it — if you handed the task over, it is the new executor's text now. PARTIAL: only the fields you NAME are touched, so omitting a field is a legal no-op for it that versions nothing and fans nothing. ⚠️ THE TWO FIELDS TREAT AN EXPLICIT BLANK DIFFERENTLY, and that is an owner ruling rather than an inconsistency (card rc-796541192519, 2026-08-11, option ①): a blank `title` (\"\" or whitespace-only) is REFUSED with 400 and does NOT clear the field, because create_task refuses a blank title too and an edit door looser than the create door would let a caller reach a task-list row with nothing in it; a blank `description` IS accepted and DOES clear the text, because plenty of cards legitimately have no prose. VALIDATION IS WHOLE-BODY AND HAPPENS FIRST: a request carrying a blank title alongside a perfectly good description writes NEITHER — a 400 leaves the task exactly as it was, never half-applied. Both values are trimmed of surrounding whitespace before they are stored AND before they are compared with what is there, so re-sending the same text with a stray trailing space is correctly seen as no change rather than spending one of the retained revisions saying nothing moved. ⚠️ THAT HOLDS ONLY WHILE THE STORED TEXT IS ALREADY TRIMMED. Whenever the stored description carries untrimmed whitespace, the next edit here normalises it and therefore DOES spend a revision — even when you re-send exactly what you read back. TWO things can put untrimmed text in that column, so this is not a one-time settling: create_task, which never trims the description (it does trim the title), and a RESTORE of a revision that holds untrimmed text, which is written back verbatim. Before this ticket both doors stored it raw and agreed; this tool trims and create still does not, which is a divergence awaiting a ruling rather than a promise about the system. The write is wholesale within each field: send the full corrected text, not a fragment. ⚠️ Division of labour with update_step_note: the DESCRIPTION says what this task IS (stable); the step NOTE says where a step is RIGHT NOW (volatile, handover-facing) — do not put progress here. A CLOSED task (completed / terminated / duplicated) is STILL editable, on the same terms — unlike its artifact set, which freezes at close: artifacts record what the task PRODUCED and must stop moving, while a ticket worded wrongly is usually found to be wrong after it closed, and freezing the text would preserve a known falsehood in the permanent record. Every change that actually alters a field retains the previous value as a document version — kind `task_title` / `task_description`, key = the task id — so a correction is recoverable through list_document_history and the older wording is never simply gone.",
+			MCPTool:  "update_task",
 		},
 		// T-e271: the ticket's own TEXT is correctable after the fact. Until
 		// this row existed the tool catalogue had NO way to edit an existing
@@ -1279,8 +1404,10 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleUpdateTaskDescriptionApiTasksTaskIdDescriptionPost,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Correct a task's description (executor/admin; closed tasks included).",
-			MCPTool:  "update_task_description",
+			Summary:  "🔴 SINCE T-646a THIS ROUTE IS NO LONGER AN MCP TOOL — the agent-facing tool is `update_task`, which writes this same field through the same code. The route stays here for the cockpit and any existing HTTP client. What follows is why the capability exists and how it behaves; it is still accurate about the behaviour. Correct THIS task's description — the ticket's own text (what the task IS: scope, origin, acceptance). T-e271: until this tool existed there was NO way to change a description after creation — create_task takes one only at birth, submit_plan writes steps, update_task_manual writes the TYPE's manual — so a decision to reword a card had nowhere to land. WHO: the task's own executor, or an admin/owner; anyone else is a flat 403. Creating a task grants NO standing to keep rewriting it — if you handed the task over, it is the new executor's text now. PARTIAL like update_task_manual: omitting `description` changes nothing (a safe no-op), while an explicit \"\" CLEARS it — absent and empty are different on purpose; unknown keys are refused rather than dropped. The write is wholesale within that field: the value replaces whatever was there, so send the full corrected text, not a fragment. ⚠️ Division of labour with update_step_note: the DESCRIPTION says what this task IS (stable); the step NOTE says where a step is RIGHT NOW (volatile, handover-facing) — do not put progress here. A CLOSED task (completed / terminated / duplicated) is STILL editable, on the same terms — unlike its artifact set, which freezes at close. The reason they differ: artifacts are the record of what the task PRODUCED and must stop moving, while a ticket worded wrongly is usually found to be wrong after it closed, and freezing the text would preserve a known falsehood in the permanent record. Every change that actually alters the text retains the previous one as a document version (kind `task_description`, key = the task id) — list it with list_document_history, so a correction is recoverable and the older wording is never simply gone.",
+			// T-646a: folded into update_task; the ROUTE stays for the
+			// frontend and existing HTTP clients, the TOOL does not.
+			MCPExclude: true,
 		},
 		// T-2ebe: the same correctability for the ONE field the task list
 		// actually shows. T-e271 gave the description a way to catch up with
@@ -1299,8 +1426,10 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleUpdateTaskTitleApiTasksTaskIdTitlePost,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Correct a task's title (executor/admin; closed tasks included).",
-			MCPTool:  "update_task_title",
+			Summary:  "🔴 SINCE T-646a THIS ROUTE IS NO LONGER AN MCP TOOL — the agent-facing tool is `update_task`, which writes this same field through the same code. The route stays here for the cockpit and any existing HTTP client. What follows is why the capability exists and how it behaves; it is still accurate about the behaviour. Correct THIS task's title — the one line the task list shows. T-2ebe: until this tool existed a title could never be changed after creation, so a card whose scope was later overturned kept advertising its first wording forever — the description could correct itself, the title could not, and whoever scanned the list saw only the stale half. If you have just corrected a description because the scope moved, ask whether the title still says the same thing. WHO: the task's own executor, or an admin/owner; anyone else is a flat 403. Creating a task grants NO standing to keep rewriting it — if you handed the task over, it is the new executor's title now. PARTIAL like update_task_description: omitting `title` changes nothing (a safe no-op); unknown keys are refused rather than dropped. ⚠️ ONE DIFFERENCE FROM ITS DESCRIPTION TWIN: a blank title (\"\" or only whitespace) is REFUSED with 400, it does NOT clear the field — create_task refuses a blank title too, and a task with no title is a blank row on the list. Surrounding whitespace is trimmed. The write is wholesale within that field: send the full corrected title, not a fragment. A CLOSED task (completed / terminated / duplicated) is STILL editable, on the same terms — a ticket is usually found to be worded wrongly after it closed, and freezing the text would preserve a known falsehood; its artifact set is the opposite and freezes at close. Every change that actually alters the text retains the previous one as a document version (kind `task_title`, key = the task id) — list it with list_document_history, so a correction is recoverable.",
+			// T-646a: folded into update_task; the ROUTE stays for the
+			// frontend and existing HTTP clients, the TOOL does not.
+			MCPExclude: true,
 		},
 		{
 			Method:   "POST",
@@ -1308,7 +1437,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Mark a task duplicated, pointing at the original (executor/owner; terminal).",
+			Summary:  "Mark a not-yet-terminal task duplicated, pointing at an existing final original (executor/owner). A blank original, an original that cannot be found, a self-reference, a chained duplicate and a target that is already pointed at are all refused. Closing across executors creates a handoff_follow_up, and no dependency is added.",
 			MCPTool:  "mark_duplicate",
 		},
 		{
@@ -1317,7 +1446,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Report a step status (pending/in_progress/done).",
+			Summary:  "Report a step status (pending/in_progress/waiting_external/done). Entering waiting_external requires a non-blank waiting_reason (422 otherwise); the task status is derived from its steps. T-74f8 交棒閘: if this report would CLOSE the task (every step done) AND the task's creator is not its executor, the call is REFUSED with 422 unless you say where the ball goes IN THIS SAME CALL — handoff='return_to_creator' (the server opens a durable follow-up task on the creator), handoff='follow_up' + handoff_task_id=<a successor task you already created> (the server hangs this task off it as a dependency, and closing this one releases it), or handoff='none' + handoff_note=<why nothing follows>. The gate stands aside by itself when a non-terminal task already depends on this one — you never see it if the handover is already real. It refuses BEFORE writing anything, so a refused report leaves the plan fully editable: create the successor task, then re-send this same report with the declaration. This is your LAST chance — once the task closes it can never be replanned (submit_plan becomes a permanent 409).",
 			MCPTool:  "update_step_status",
 		},
 		{
@@ -1326,7 +1455,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Write a step's working note (any status; wholesale replace).",
+			Summary:  "Write this step's working note: where the work stands and what comes next — the field the handover SOP means by 「把還在進行中的工作寫回 task step note」. WHAT TO WRITE — three things, then stop: (1) STATE — one sentence on where this step actually got to; (2) NEXT — one sentence on what whoever takes over does next; (3) EVIDENCE POINTERS — version ids, file and log paths, what you verified YOURSELF versus what you are taking on someone's word, and the limits of what was NOT done. Long narrative does not live here: reasoning and scope belong in the task description, reports and diffs belong on the task as artifacts. The note is the current state — not a report, not an append-only log. Writable in ANY step status (pending, in_progress, waiting_owner, waiting_external, done, superseded), unlike `waiting_reason`, which is locked to waiting_external. Wholesale write: `note` replaces whatever was there and \"\" clears it, so rewrite it as the work moves rather than appending; over 4,000 characters (counted in runes) is refused. Same executor/admin gate as every other task-driving write (403 otherwise). ⚠️ A task auto-closes when its last step is reported done and a closed task 409s — so write the note BEFORE the report that finishes the last step, not after.",
 			MCPTool:  "update_step_note",
 		},
 		{
@@ -1335,7 +1464,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleOpenTaskGateApiTasksTaskIdStepsStepIdGatePost,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Arm a gate step: opens the reply card the owner must answer.",
+			Summary:  "Arm a gate step: opens the reply card the owner must answer. Optional attachments ride the question (same shape as post_chat: {id} from `ocagent upload` / POST /api/chat/attachments, or inline data_b64).",
 			MCPTool:  "open_gate",
 		},
 		{
@@ -1366,7 +1495,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleReassignTaskApiTasksTaskIdReassignPost,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Reassign a task to a member or a fresh outsource worker (the task's executor or an admin; outsource targets pass the owner-approval gate; enters the reassigning handover state).",
+			Summary:  "Reassign a task to a member or a fresh outsource worker (executor-guarded: a plain agent may reassign only a task it executes; owner/admin drive any task). Caller authorization (正職授權矩陣, T-23cf): owner/admin may hand a task to any active member or 發包 it to a fresh outsource worker; a 一般正職 may only turn its own task into a 發包 (a member target is 403); an outsource worker may not reassign at all. An outsource target uses target.runtime claude/codex (absent = claude), lands the task unassigned for the scheduler to spawn under the global parallel cap, and enters the reassigning handover state.",
 			MCPTool:  "reassign_task",
 		},
 		{
@@ -1381,7 +1510,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleClaimTaskApiTasksTaskIdClaimPost,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Take over a reassigned task (the new executor claims it — clears the reassigning lock).",
+			Summary:  "Take over a reassigned task (the new executor claims it): clears the reassigning lock and fires the predecessor worker. The task status stays derived from its steps; only the lock is cleared. 409 if the task is not under the reassigning lock.",
 			MCPTool:  "claim_task",
 		},
 		{
@@ -1393,7 +1522,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleAddTaskArtifactApiTasksTaskIdArtifactPost,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Register a deliverable (file/image/link) onto the task's artifact set.",
+			Summary:  "Register a deliverable (file, image, or link) onto the task's artifact set — the pinned deliverables shown on the task card. Append-only and repeatable: call it again to pin more. For a file or image, first upload the bytes via the chat-attachments upload to get an attachment id, then call this with kind=file|image and that attachment_id. For a link (e.g. a PR url) call it with kind=link and url — no upload needed. label is an optional display name (a link title such as \"PR #123\"). Answers with a bounded receipt (task_id, artifact_id, artifact_count), not the whole task.",
 			MCPTool:  "add_task_artifact",
 		},
 		{
@@ -1407,7 +1536,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleRemoveTaskArtifactApiTasksTaskIdArtifactArtifactIdDelete,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Remove one artifact from a task's set (executor/owner/admin).",
+			Summary:  "Un-pin (remove) one artifact from a task's artifact set — the counterpart to add_task_artifact. You may remove artifacts from a task you are the executor of (the owner/assistant may remove on any task). Give the task id and the artifact id (the id returned when it was added, or from get_task's artifacts). The underlying file blob is left intact; only the pin on the card is removed. ONLY WHILE THE TASK IS STILL OPEN: once a task closes (done / terminated / duplicated) its deliverable set is frozen in both directions — remove is refused with the same 409 as add. So swap a deliverable BEFORE you close the task, not after; after the close it can neither be removed nor put back. Answers with a bounded receipt (task_id, artifact_id, artifact_count), not the whole task.",
 			MCPTool:  "remove_task_artifact",
 		},
 		// T-4595: GET /api/self/task (get_my_task) is RETIRED — see the note in
@@ -1515,7 +1644,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleListTaskManualsApiTaskManualsGet,
 			Auth:     authGated,
 			Requires: principalMachine,
-			Summary:  "List task types (match by display_name/purpose; address by type_key).",
+			Summary:  "List task types WITHOUT their long documents: each row is the type identity (type_key / display_name / purpose), its input fields and its assignee setting, plus the SIZES of sop_md and learnings and the cap each is judged against. The SOP and the learnings text are not on this answer at all — read the one type you picked with get_task_manual.",
 			MCPTool:  "list_task_manuals",
 		},
 		{
@@ -1524,7 +1653,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleCreateTaskManualApiTaskManualsPost,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Create a task type: pass display_name; the server mints and returns the tm- type_key id (legacy explicit type_key still accepted; duplicate → 409; assignee = owner/admin agent).",
+			Summary:  "Create a task type: pass display_name; the server mints and returns the tm- type_key id (legacy explicit type_key still accepted; duplicate → 409; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude.",
 			MCPTool:  "create_task_manual",
 		},
 		{
@@ -1533,7 +1662,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleGetTaskManualApiTaskManualsTypeKeyGet,
 			Auth:     authGated,
 			Requires: principalMachine,
-			Summary:  "Read one task manual (purpose/fields/SOP/learnings/assignee).",
+			Summary:  "Read one task manual (purpose/fields/SOP/learnings/assignee). The SOP and the learnings are judged by two SEPARATE caps: read sop_md_cap_chars and learnings_cap_chars. The older cap_chars is DEPRECATED — it carries the LEARNINGS cap only and says nothing about sop_md, so read sop_md_cap_chars for the SOP.",
 			MCPTool:  "get_task_manual",
 		},
 		{
@@ -1542,7 +1671,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleUpdateTaskManualApiTaskManualsTypeKeyPost,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Edit a task manual (partial; content fields agent-editable; assignee = owner/admin agent).",
+			Summary:  "Edit a task manual (partial; content fields agent-editable; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Only the fields you name change, so omitting a field is safe — but unknown keys are rejected rather than dropped: the learnings doc goes in learnings (NOT text — that is write_task_learnings' field name). The SOP and the learnings are judged by two SEPARATE caps: read sop_md_cap_chars and learnings_cap_chars. The older cap_chars is DEPRECATED — it carries the LEARNINGS cap only and says nothing about sop_md, so read sop_md_cap_chars for the SOP.",
 			MCPTool:  "update_task_manual",
 		},
 		{
@@ -1561,7 +1690,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleWriteTaskLearningsApiTaskManualsTypeKeyLearningsPost,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Whole-doc replace of a type's learnings (task-close write-back).",
+			Summary:  "Whole-doc replace of a type's learnings (task-close write-back). The doc text goes in text (NOT learnings — that is update_task_manual's field name); text is REQUIRED and unknown keys are rejected. Wiping existing learnings needs allow_shrink=true.",
 			MCPTool:  "write_task_learnings",
 		},
 		{
@@ -1570,7 +1699,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchPost,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Patch a type's learnings by unique anchors ({edits:[{old,new}]}).",
+			Summary:  "Patch a type's learnings by unique anchors ({edits:[{old,new}]}) — the learnings twin of patch_lessons, so the write cost scales with the CHANGE, not the whole (30k-char) doc, and re-typing the whole doc can no longer silently drop content. Edits apply in order; a non-empty old must match the current learnings EXACTLY ONCE (0 or >1 hits reject the WHOLE batch with a 400, zero writes — the unique anchor also acts as an optimistic lock); an empty old appends. Wiping the doc, or shrinking it below a tenth, needs allow_shrink=true.",
 			MCPTool:  "patch_task_learnings",
 		},
 		// ── Retained history of the editable documents above ────────────────
@@ -1584,7 +1713,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleListDocumentHistoryApiDocumentHistoryKindKeyGet,
 			Auth:     authGated,
 			Requires: principalMachine,
-			Summary:  "List the retained history of an editable document.",
+			Summary:  "READ the CATALOGUE of retained versions of one editable document: which versions exist, when each was replaced and by whom, whether each was a tombstone, and HOW LONG each of its fields was. It does NOT carry the versions themselves — a version list is how you CHOOSE one, and choosing does not need the prose; fetch the one you picked with get_document_version. Read-only, newest first, and only the most recent few are kept — HOW MANY is per-document and is not stated here, because it differs by kind and this sentence would go stale silently; what you get back is the answer. Putting a version BACK is deliberately not an agent tool — the owner does that from the cockpit — so this cannot change anything.\n\nWHICH DOCUMENTS THIS COVERS, AND WHAT `key` LOOKS LIKE FOR EACH, ARE DELIBERATELY NOT LISTED HERE. A list of kinds — or of key shapes — written into a description goes stale the moment a new editable document ships, and NOTHING turns red when it does: this description used to enumerate six kinds and a key shape per kind, and both had already gone stale before the lists were taken out. Two rules you can actually execute replace them.\n\nADDRESSING: `kind` and `key` are validated by the same server-side gate that answers get_document_seed, so whatever that tool can address, this one can too, and the two can never silently disagree. A `kind` this server does not know is refused with 400; a retired kind is refused with 400 naming the series that replaced it. Some kinds also police the shape of `key` before answering — a key this kind does not serve, or one that fails that kind's required shape, is refused with 400 naming the problem. Neither is something to guess at: ask and read the answer.\n\nCOVERAGE: a syntactically valid `key` that simply has no retained versions yet is not an error — it returns an empty list, the honest 'nothing has been saved here', not a gap to work around.",
 			MCPTool:  "list_document_history",
 		},
 		{
@@ -1593,7 +1722,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleGetDocumentSeedApiDocumentHistoryKindKeySeedGet,
 			Auth:     authGated,
 			Requires: principalMachine,
-			Summary:  "Read the shipped default of an editable document.",
+			Summary:  "READ the SHIPPED DEFAULT of one editable document — the text a reset would put back, i.e. the 初始版本 entry of that document's version list. Read-only: this tool writes nothing, so reading the default can never replace the live document. Putting the default BACK is deliberately not an agent tool — the owner does that from the cockpit — exactly as with list_document_history. ``content`` carries the SAME field names a retained version carries, so the same reader can compare a default against the live document.\n\nWHICH DOCUMENTS THIS COVERS IS DELIBERATELY NOT LISTED HERE. A list of kinds written into a description goes stale the moment a new editable document ships and NOTHING turns red when it does — this one had gone wrong about three kinds before the list was taken out. Two rules you can actually execute replace it.\n\nADDRESSING: ``kind`` and ``key`` name a document exactly as they do for list_document_history — the same server-side gate answers both routes, so whatever that tool addresses is addressable here, and a ``kind`` this server does not know is refused with 400 while a ``key`` that names no document of that kind is refused with 404 that names it. Neither is something to guess at: ask and read the answer.\n\nCOVERAGE: whether THAT document ships a default is answered by asking for it. 200 means it does, and ``content`` is that text. 404 means it has none at all — a role the owner created, a task manual, per-role lessons — which is the same set whose reset the server also 404s, so it is the honest 'there is nothing to go back to', not a gap to work around. 400 on a retired kind names the series that replaced it.",
 			// A TOOL, by owner ruling rc-b7d29de0eb9c ("開放,照你 7/30 那句話
 			// 一律給"). This row first landed MCPExclude, argued from "an agent
 			// gains nothing here" — a role definition's seed is the very text
@@ -1607,6 +1736,28 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			// list_document_history's level (machine), and this row has no
 			// write verb to open — restore and reset keep their own gates.
 			MCPTool: "get_document_seed",
+		},
+		{
+			Method:  "GET",
+			Path:    "/api/document-history/{kind}/{key}/{id}",
+			Handler: w.HandleGetDocumentVersionApiDocumentHistoryKindKeyIdGet,
+			Auth:    authGated,
+			// Same floor as the two reads above, and for the same reason: this
+			// is the BODY of a version the sibling listing already names. The
+			// listing stopped carrying the prose (a single answer had a
+			// structural ceiling in the hundreds of thousands of characters),
+			// so this row is what makes the retained text reachable at all —
+			// one named revision at a time. Raising the floor here would put
+			// the text behind a gate the catalogue that advertises it is not
+			// behind, which is the shape that makes a listing useless.
+			Requires: principalMachine,
+			Summary:  "READ the BODY of one named retained version of an editable document — the ``content`` map that version was stored with, exactly as it was stored. Read-only: this fetches text, it never puts it back; restoring stays out of the agent tool surface, as it does for list_document_history.\n\nTHIS IS THE SECOND HALF OF A PAIR. list_document_history answers WHICH versions exist and how big each field of each one is, and carries no prose at all; this answers WHAT ONE OF THEM SAID. Name the ``id`` you read off that list. Asking for every version's text is the cost that pairing exists to remove, so fetch the one you actually mean to read.\n\nADDRESSING: ``kind`` and ``key`` name a document exactly as they do for list_document_history — the same server-side gate answers all three routes, so whatever that tool can address, this one can too, and they can never silently disagree. A ``kind`` this server does not know is refused with 400; a retired kind is refused with 400 naming the series that replaced it; a ``key`` that fails its kind's required shape is refused with 400 naming the problem. An ``id`` that is not a retained version of THAT document is a 404 — including an id that belongs to some other document, which is why the address is the whole triple and not the id alone.",
+			// A TOOL, on the same owner ruling the seed row cites
+			// (rc-b7d29de0eb9c, and the 2026-07-30 policy rc-b5fd1135e2dd
+			// behind it): READING a document's history is an agent tool,
+			// writing one back is not. The split is the VERB. Restore below
+			// keeps its MCPExclude.
+			MCPTool: "get_document_version",
 		},
 		{
 			Method:   "POST",

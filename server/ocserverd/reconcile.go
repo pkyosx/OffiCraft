@@ -42,14 +42,30 @@ import (
 // ── config (spec/lifecycle.md §4.4 — defaults are contract) ──────────────────
 
 type reconcileConfig struct {
-	StartTimeout     float64 // START unconfirmed → failed spawn (WakingTTLSecs)
-	StopGrace        float64 // self-stop window before the robust stop
-	StopRetry        float64 // STOP/UNINSTALL re-dispatch window (lost frame)
-	RecycleGrace     float64 // dump-stuck fallback from refocus_since
-	BackoffBase      float64
-	BackoffCap       float64
-	CircuitThreshold int
-	CircuitCooldown  float64
+	StartTimeout float64 // START unconfirmed → failed spawn (WakingTTLSecs)
+	StopGrace    float64 // self-stop window before the robust stop
+	StopRetry    float64 // STOP/UNINSTALL re-dispatch window (lost frame)
+	RecycleGrace float64 // dump-stuck fallback from refocus_since
+	// SoftOffboardGrace is the room 重新聚焦 buys the agent before its final
+	// call starts: it opens with the soft notice ("work the sequence, then call
+	// restart_self yourself") and no countdown, and only when this window lapses
+	// does the 120s recycle clock start — so a session genuinely closing out is
+	// never cut off mid-hand-off, and one that has died is still collected.
+	//
+	// 🔴 It does NOT apply to 下線, which is collected on NO clock at all: the
+	// owner ruled the escalation there is his force-stop, not a timer
+	// (rc-27d1710174dd). The value is shared because the two windows mean the
+	// same thing to the agent — how long it has before anyone acts — but only
+	// one of them ends in a collection.
+	//
+	// Setting it to 0 restores the pre-T-a9d6 timed wind-down wholesale, which
+	// is what the tests covering the robust-stop ladder drive. It is a compile-
+	// time constant today (domain.go), not an owner-facing setting.
+	SoftOffboardGrace float64
+	BackoffBase       float64
+	BackoffCap        float64
+	CircuitThreshold  int
+	CircuitCooldown   float64
 	// ZombieConfirmGrace (T-9adc) is the SECOND-CONFIRMATION window before the
 	// zombie-takeover STOP: a START that bounced off the warden clobber-guard
 	// proves a live-but-presence-deaf session squats the slot — but "presence-
@@ -69,14 +85,15 @@ type reconcileConfig struct {
 
 func defaultReconcileConfig() reconcileConfig {
 	return reconcileConfig{
-		StartTimeout:     WakingTTLSecs,
-		StopGrace:        StoppingTimeoutSecs,
-		StopRetry:        90.0,
-		RecycleGrace:     StoppingTimeoutSecs,
-		BackoffBase:      5.0,
-		BackoffCap:       300.0,
-		CircuitThreshold: 5,
-		CircuitCooldown:  120.0,
+		StartTimeout:      WakingTTLSecs,
+		StopGrace:         StoppingTimeoutSecs,
+		StopRetry:         90.0,
+		RecycleGrace:      StoppingTimeoutSecs,
+		SoftOffboardGrace: SoftOffboardGraceSecs,
+		BackoffBase:       5.0,
+		BackoffCap:        300.0,
+		CircuitThreshold:  5,
+		CircuitCooldown:   120.0,
 		// 2×StartTimeout — see the field comment (T-9adc zombie second-confirm).
 		ZombieConfirmGrace: 2 * WakingTTLSecs,
 	}
@@ -165,6 +182,11 @@ type memberObservation struct {
 	Desired      string // parsed (parseDesired)
 	Online       bool
 	RefocusSince float64
+	// RefocusOp is the CAUSE of that epoch (member.refocus_op). decideUp reads
+	// it for one reason only: an owner-pressed 重新聚焦 opens with the SOFT
+	// notice, so its collection clock is the soft window plus the final 120s,
+	// not 120s flat. Every other cause is already a final call when it lands.
+	RefocusOp    string
 	AgentStopped bool // stopped_since > 0 (the graceful dump-done fact)
 	// The last warden command_result folded onto this member (api_monitoring.go
 	// foldCommandResult → member.last_op*): the executed op kind + its structured
@@ -246,6 +268,23 @@ func reconcileDecide(
 	return decideDown(obs, st, cfg, now)
 }
 
+// recycleGraceFor is the one place that says how long a refocus epoch waits
+// before the collection is forced. An owner-pressed 重新聚焦 lands as the SOFT
+// notice — no countdown in the sentence — so its clock is the soft window plus
+// the final 120s; every other cause (context pressure, 改機器, model change,
+// the agent's own restart_self) arrives already saying 120 seconds, and gets
+// exactly that.
+//
+// Keeping the two windows ADDITIVE rather than switching between them is what
+// makes the second half honest: whatever the soft window is, the final call
+// still gets its full 120s afterwards.
+func recycleGraceFor(refocusOp string, cfg reconcileConfig) float64 {
+	if refocusOp == refocusOpRefocus {
+		return cfg.SoftOffboardGrace + cfg.RecycleGrace
+	}
+	return cfg.RecycleGrace
+}
+
 // decideUp — desired_state=online: converge to a live session; recycle takes
 // precedence over the converged path; back off on repeated failed starts.
 func decideUp(
@@ -265,7 +304,7 @@ func decideUp(
 		// agent reports dump-done OR the dump-stuck grace elapses; desired_state
 		// stays online the whole time, so the next tick's plain START respawns.
 		dumpDone := obs.AgentStopped
-		graceExpired := now >= obs.RefocusSince+cfg.RecycleGrace
+		graceExpired := now >= obs.RefocusSince+recycleGraceFor(obs.RefocusOp, cfg)
 		if dumpDone || graceExpired {
 			firstDispatch := st.LastCommand != reconcileCmdStop
 			if firstDispatch || (now-st.LastCommandAt) >= cfg.StopRetry {
@@ -448,9 +487,35 @@ func decideDown(
 		st.StopDeadline = 0.0
 		return decisionNone(obs, st, "offline: converged")
 	}
+	// 🔴 下線 does not run a clock at all any more (owner 2026-08-16, card
+	// rc-27d1710174dd option ①: 「不要兜底：只有你按強制下線才收它」).
+	//
+	// The button now REACHES the agent — it is shown the offboard sequence and
+	// asked to work it and stop itself — and the owner's ruling is that the
+	// escalation is HIS, not a timer's: 「萬一我發現他不理我，我就按下強制下線」.
+	// A clock here would cut off a session that was told there is no countdown,
+	// which is the shape this whole ticket exists to remove.
+	//
+	// What makes that safe to choose is that force-stop is genuinely reachable:
+	// the cockpit offers it exactly in the `stopping` state this button puts the
+	// member into, and the sweep that used to erase that state mid-close-out is
+	// fixed in this same change (T-2123) — without that fix the escalation path
+	// would disappear from under him.
+	//
+	// The collection still happens the instant the agent says it is done: its
+	// stopped report dispatches the robust STOP (HandleReportStopped). What is
+	// gone is the server deciding that time is up.
+	if cfg.SoftOffboardGrace > 0 {
+		st.Phase = reconcilePhaseStopping
+		return decisionNone(obs, st,
+			"stopping: agent is working its offboard sequence — collection is the "+
+				"agent's stopped report, or the owner's force-stop")
+	}
 	if st.StopDeadline == 0.0 {
-		// First observation of desired_state=offline → arm the grace clock. The
-		// clock arms from OBSERVING the intent, never from a dispatched command.
+		// The pre-T-a9d6 timed wind-down, reached by SoftOffboardGrace = 0 (a
+		// compile-time constant today, not an owner-facing setting): arm the
+		// grace clock from OBSERVING the intent, never from a dispatched
+		// command.
 		st.Phase = reconcilePhaseStopping
 		st.StopDeadline = now + cfg.StopGrace
 		return decisionNone(obs, st,
@@ -704,6 +769,7 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 		Desired:        parseDesired(m.DesiredState),
 		Online:         s.hub.IsOnline(m.ID),
 		RefocusSince:   m.RefocusSince,
+		RefocusOp:      m.RefocusOp,
 		AgentStopped:   m.StoppedSince > 0.0,
 		LastOpKind:     m.LastOp,
 		LastOpReason:   m.LastOpReason,
@@ -985,7 +1051,63 @@ func shouldAutoRefocus(runtime string, record map[string]any, cfg SseContextHigh
 		return ok && count >= codexThreshold
 	}
 	pct := actionableContextPct(record, cfg.StaleGuard)
-	return bandFor(pct, cfg.WarnPct, cfg.HandoverPct) == levelHandover
+	return bandFor(pct, cfg.HandoverPct) == levelHandover
+}
+
+// announceSoftOffboardEscalation pushes ONE member delta at the moment a soft
+// offboard becomes the final call, so the agent hears the 120 seconds start.
+//
+// Nothing is written: the promotion is derived from the clock (offboardKindOf),
+// and this is only the frame that carries the new sentence. Without it the
+// agent's last word on the subject would be the soft notice — it would be
+// collected 120 seconds later having been told there was no countdown, which is
+// the exact failure mode the pair of numbers exists to remove.
+//
+// De-duplicated in memory, one announcement per member per epoch. A station
+// re-exec forgets the set and can re-announce once; that repeats a true
+// sentence to a session that is genuinely out of time, which is the harmless
+// direction.
+func (s *apiServer) announceSoftOffboardEscalation(members []Member, now float64) {
+	for _, m := range members {
+		if !s.hub.IsOnline(m.ID) {
+			continue
+		}
+		kind, carries := offboardKindOf(m, now)
+		if !carries || kind != offboardKindFinal {
+			continue
+		}
+		// 重新聚焦 is the ONLY arm that opens soft and later escalates: it is
+		// collected by the recycle clock once its window lapses, so the notice
+		// that says so is true. 下線 never escalates (nothing collects it on a
+		// clock — the owner's ruling), and a cause that was final from the
+		// start already said its 120 seconds.
+		if m.RefocusOp != refocusOpRefocus {
+			continue
+		}
+		if !s.claimSoftOffboardEscalation(m.ID, softOffboardEpoch(m)) {
+			continue
+		}
+		s.hub.Publish("member", "patch", "member", wireOwnerID+"::"+m.ID,
+			s.offboardDeltaPayload(m), audienceMembers(m.ID), triggerServer)
+		reconcileLog("recycle: soft offboard escalated to the final call for %s", m.ID)
+	}
+}
+
+// softOffboardEpoch is the anchor the soft window was measured from, so a
+// fresh 重新聚焦 is a NEW epoch and gets its own announcement.
+func softOffboardEpoch(m Member) float64 { return m.RefocusSince }
+
+func (s *apiServer) claimSoftOffboardEscalation(memberID string, epoch float64) bool {
+	s.softEscalatedMu.Lock()
+	defer s.softEscalatedMu.Unlock()
+	if s.softEscalated == nil {
+		s.softEscalated = map[string]float64{}
+	}
+	if s.softEscalated[memberID] == epoch {
+		return false
+	}
+	s.softEscalated[memberID] = epoch
+	return true
 }
 
 // stampContextHighRecycle auto-stamps refocus_since on any candidate whose
@@ -1131,7 +1253,7 @@ func (s *apiServer) consumeUninstallOnDisconnect(memberID string) {
 // desired-online member OBSERVED online while still carrying a stopping_since
 // anchor is provably past that stop — clear the anchor so it can never derive
 // a phantom *stopping* forever.
-func (s *apiServer) clearStaleStoppingOnOnline(members []Member) {
+func (s *apiServer) clearStaleStoppingOnOnline(members []Member, now float64) {
 	for i := range members {
 		m := &members[i]
 		if m.DesiredState != DesiredStateOnline {
@@ -1142,6 +1264,19 @@ func (s *apiServer) clearStaleStoppingOnOnline(members []Member) {
 		}
 		if !s.hub.IsOnline(m.ID) {
 			continue // may be a genuine stopped terminal — leave it
+		}
+		// 🔴 …and not while a close-out could still be in progress (T-2123).
+		// This sweep exists for an anchor left by a stop the member SURVIVED,
+		// but "survived a stop" and "is working its offboard sequence right
+		// now" look identical from here: both are online, both are wanted
+		// online, both carry the anchor. Clearing the fresh one erased the
+		// owner's only signal that the session had begun closing out — the
+		// cockpit went back to green while the agent was writing its hand-off,
+		// which is exactly what he reported seeing. An anchor older than the
+		// whole soft window cannot be a live close-out any more, and that is
+		// the only kind this sweep ever meant.
+		if now-m.StoppingSince < SoftOffboardGraceSecs {
+			continue
 		}
 		m.StoppingSince = 0.0
 		if err := s.putMember(*m, triggerServer); err != nil {
@@ -1184,8 +1319,9 @@ func (s *apiServer) runReconcileTick(now float64) {
 		members = append(members, m)
 	}
 	s.stampContextHighRecycle(members, now)
+	s.announceSoftOffboardEscalation(members, now)
 	s.clearRecycleMarkersOnRespawn(members)
-	s.clearStaleStoppingOnOnline(members)
+	s.clearStaleStoppingOnOnline(members, now)
 	s.consumeUninstallIntentOnOffline(members)
 	// The receipt deadline (receipt_watch.go) — swept BEFORE the decide pass so
 	// a start/stop armed by THIS tick always gets a full window, never a same-

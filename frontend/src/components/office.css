@@ -365,6 +365,14 @@
   font-size: 14px;
   font-weight: 600;
   color: var(--color-text-strong);
+  /* T-959d: a member name is free owner input, and it declared no wrapping at
+   * all — one unbreakable latin run therefore ran straight over the unread pill
+   * at the row's flex end and off the right edge (measured at 390px: the name
+   * ends 20px past the viewport with the pill underneath it). `anywhere`, not
+   * `break-word`: only `anywhere` also shrinks min-content, which is what keeps
+   * the row from widening its grid track in the first place
+   * (frontend/.claude/rules/css-layout-traps.md). */
+  overflow-wrap: anywhere;
 }
 /* (no .member-card__offline — the 離線 text badge beside the name was retired
  * 2026-07-17; the LifecycleDot's grey already carries offline/stopped.) */
@@ -992,7 +1000,7 @@
  * must not collapse). The card's own width cap lives in replies.css. */
 .chat__msg--card .chat__msg-line,
 .chat__msg--card .chat__msg-content {
-  width: 100%;
+  width: max-content;
   min-width: 0;
 }
 /* B3 跳到原訊息: the located message flashes an accent ring, then settles
@@ -1606,7 +1614,15 @@ button.chat__msg-file {
    * chat), so the grid is a single full-height cell — no stacked second row that
    * used to render the chat below the roster and duplicate the member. */
   .office {
-    grid-template-columns: 1fr;
+    /* T-959d: `1fr` is `minmax(auto, 1fr)`, and that `auto` floor is the grid
+     * item's MIN-CONTENT — so anything in the rail that refuses to shrink (the
+     * nowrap task-type label, the `flex: none` T-xxxx chip, a member name with
+     * an unbreakable latin run) widens the TRACK, and the whole page drags
+     * sideways with the unread pill pushed off the right edge. `minmax(0, 1fr)`
+     * lets the track shrink to the viewport; the contents that would then
+     * overflow it are bound at their own rules (see `.outsource-row__type` and
+     * `.member-card__name`). */
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: 1fr;
   }
   /* The chat pane now hosts the back button above the chat, so lay it out as a
@@ -1662,7 +1678,11 @@ button.chat__msg-file {
     max-width: 100%;
   }
   .chat__msg--card .chat__msg-line {
+    width: 100%;
     flex-wrap: wrap;
+  }
+  .chat__msg--card .chat__msg-content {
+    width: 100%;
   }
 }
 
@@ -1817,9 +1837,13 @@ button.chat__msg-file {
  * the same line, and the presence 點 moved out to the LINE START — a direct
  * task-line child, member-row parity). */
 .outsource-row__type {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  /* T-959d: a BLOCK box, not inline-flex. `text-overflow: ellipsis` only applies
+   * to inline content in a block container, so as a flex container this label
+   * clipped its text mid-character instead of ending in 「…」 — visible the
+   * moment the rail stopped being widened by it (the track fix above). It
+   * carries a single text node on both surfaces that render it (the rail row and
+   * the worker detail header), so there is nothing left for flex to align. */
+  display: block;
   min-width: 0;
   font-size: 12.5px;
   color: var(--color-text);

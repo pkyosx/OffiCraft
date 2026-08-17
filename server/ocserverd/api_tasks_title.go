@@ -109,8 +109,12 @@ func (s *apiServer) writeTaskTitle(t *Task, actor, title string) (bool, error) {
 	return true, nil
 }
 
-// POST /api/tasks/{task_id}/title — correct one task's title (MCP
-// update_task_title).
+// POST /api/tasks/{task_id}/title — correct one task's title.
+//
+// 🔴 T-646a: this is no longer an MCP tool. The agent-facing tool is
+// update_task, which writes this same field through the same code
+// (updateTaskText). The route stays on the HTTP surface for the cockpit and any
+// existing client.
 //
 // Guard order: 404 unknown task → 403 not the executor → 400 blank → write.
 // The blank check sits AFTER the permission gate on purpose: a caller who may
@@ -136,44 +140,15 @@ func (s *apiServer) writeTaskTitle(t *Task, actor, title string) (bool, error) {
 // no-op write would spend one of the three retained revisions saying the title
 // did not change, and fan an SSE delta for it. Compare AFTER trimming, so
 // re-sending a title with a stray trailing space is correctly seen as no change.
+// 🔴 T-646a: the body of this route now lives in updateTaskText, shared with
+// update_task_description and with update_task, which supersedes both on the MCP
+// surface. Its behaviour through this door is unchanged; what changed is that
+// there is no longer a second copy of the rules to drift away from the first.
+// This route stays on the HTTP surface for the frontend and any existing client.
 func (s *apiServer) HandleUpdateTaskTitleApiTasksTaskIdTitlePost(w http.ResponseWriter, r *http.Request, taskId string) {
 	var body TaskTitleDTO
 	if !decodeJSONBody(w, r, &body) {
 		return
 	}
-	t, err := s.resolveTask(taskId)
-	if err != nil {
-		writeResolveError(w, err, "task", taskId)
-		return
-	}
-	if !s.callerMayDriveTask(r, *t) {
-		writeError(w, http.StatusForbidden, "caller is not the task's executor")
-		return
-	}
-	// Field not named ⇒ nothing changes, nothing is versioned, nothing fans.
-	if body.Title == nil {
-		s.writeTask(w, *t)
-		return
-	}
-	title := trimString(*body.Title)
-	if title == "" {
-		// Same words create_task uses, deliberately: one rule, one sentence.
-		writeError(w, http.StatusBadRequest, "title must not be blank")
-		return
-	}
-	if title == t.Title {
-		s.writeTask(w, *t)
-		return
-	}
-	ok, err := s.writeTaskTitle(t, currentActor(r), title)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	if !ok {
-		writeError(w, http.StatusNotFound, "task '"+taskId+"' not found")
-		return
-	}
-	s.publishTask(*t, requestTrigger(r))
-	s.writeTask(w, *t)
+	s.updateTaskText(w, r, taskId, body.Title, nil)
 }

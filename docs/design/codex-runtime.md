@@ -87,11 +87,20 @@ The Codex member boot sequence changes only execution ownership:
 3. The sidecar converts listener events into the established idle `turn/start` / active
    `turn/steer` policy. Thus SSE presence still means ready/online and false-online during
    boot remains impossible.
-4. App Server `thread/tokenUsage/updated` supplies total usage plus
+4. The moment the listener reports its stream is up, the sidecar opens ONE turn it authors
+   itself, telling the agent to carry on with the post-SSE steps of its boot document.
+   Without it the boot ends in a dead stop: this runtime's agent must not mount its own
+   listener, so it hands control back after step 1 — and it only ever runs when a listener
+   line becomes a turn, while the `connected` line is exactly the one the forwarding filter
+   drops. The wake fires ONCE per session and deliberately not on reconnects, which are
+   network blips whose only effect would be to interrupt work already under way. Its text
+   NAMES the step instead of restating it: the boot document belongs to the owner and
+   moves, and a copy of its wording here would be a second source of truth.
+5. App Server `thread/tokenUsage/updated` supplies total usage plus
    `modelContextWindow`; the sidecar computes and posts the same context percentage that
    Claude's `statusLine` reports. Existing warning/handover thresholds remain server-owned
    and unchanged.
-5. `request_user_input` is disabled and bridged to reply cards as described below.
+6. `request_user_input` is disabled and bridged to reply cards as described below.
 
 ### Context compaction and refocus
 
@@ -123,6 +132,9 @@ agent re-read authoritative state through MCP.
 
 - Idle thread: a durable pending wake starts a new turn.
 - Active thread: steer the active turn, matching Claude's Monitor delivery semantics.
+- Listener connected: transport chatter is never forwarded to the model, but the FIRST such
+  line in a session also opens the sidecar-authored post-boot wake turn described above.
+  This is the one turn whose trigger is a line the forwarding policy drops.
 - Listener or App Server exit: terminate the sidecar. The listener child is killed/reaped,
   SSE presence drops honestly, and existing OffiCraft reconciliation restarts the selected
   runtime. Durable server state and the existing `ocagent` cursor remain authoritative.

@@ -54,7 +54,6 @@ vi.mock("../api", () => ({
 function mkSettled(over: Partial<Member> = {}): Member {
   return {
     id: "mira",
-    memberId: "MB-AST001",
     name: "Mira",
     role: "assistant",
     status: "online",

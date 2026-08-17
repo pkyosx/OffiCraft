@@ -74,15 +74,30 @@ func TestSSEStopGateRefusalPredicate(t *testing.T) {
 		{"recycle admitted (desired online, stop anchors set)",
 			&Member{ID: "g-recycle", Kind: KindAssistant, DesiredState: DesiredStateOnline,
 				StoppingSince: 1.0, StoppedSince: 2.0, RefocusSince: 3.0}, false},
-		{"deactivated refused (desired offline + stopping_since)",
+		// 🔴 A plain deactivate is now ADMITTED while the close-out runs (T-a9d6):
+		// 下線 collects on the agent's own stopped report, not a clock, so the
+		// session legitimately holds this state for as long as the hand-off
+		// takes — and a refusal here is not inert, the listener reads a run of
+		// them as "I have been retired" and kills its own tmux session.
+		{"deactivated ADMITTED while the close-out is still in flight",
 			&Member{ID: "g-stop", Kind: KindAssistant, DesiredState: DesiredStateOffline,
-				StoppingSince: 1.0}, true},
+				StoppingSince: 1.0}, false},
+		// …and the two ways that stops being true: the agent says it is done,
+		// or the owner cut it off. Both must still be refused, or the gate has
+		// simply been removed.
+		{"force-stopped refused even before it reports",
+			&Member{ID: "g-forced", Kind: KindAssistant, DesiredState: DesiredStateOffline,
+				StoppingSince: 1.0, ForcedStopAt: 2.0}, true},
 		{"stopped refused (desired offline + stopped_since)",
 			&Member{ID: "g-stopped", Kind: KindAssistant, DesiredState: DesiredStateOffline,
 				StoppedSince: 1.0}, true},
-		{"junk desired parses offline → refused with anchor",
+		{"junk desired parses offline → still gated (admitted only because the " +
+			"close-out is in flight, same as a real deactivate)",
 			&Member{ID: "g-junk", Kind: KindAssistant, DesiredState: "bogus",
-				StoppingSince: 1.0}, true},
+				StoppingSince: 1.0}, false},
+		{"junk desired + reported stopped → refused",
+			&Member{ID: "g-junk2", Kind: KindAssistant, DesiredState: "bogus",
+				StoppingSince: 1.0, StoppedSince: 2.0}, true},
 		{"warden exempt from the desired-offline arm",
 			&Member{ID: "g-warden", Kind: KindWarden, DesiredState: DesiredStateOffline,
 				StoppingSince: 1.0}, false},
@@ -135,8 +150,11 @@ func doEvents(api *apiServer, sub string) *httptest.ResponseRecorder {
 
 func TestEventsHandlerAppliesStopGatePreStream(t *testing.T) {
 	api, dal := newGateTestAPI(t)
+	// A member that has REPORTED STOPPED — the finished case. (A stop anchor
+	// alone no longer refuses: that is a close-out in flight, see the predicate
+	// table above.)
 	putGateMember(t, dal, Member{ID: "z-1", Kind: KindAssistant,
-		DesiredState: DesiredStateOffline, StoppingSince: 1.0})
+		DesiredState: DesiredStateOffline, StoppingSince: 1.0, StoppedSince: 2.0})
 
 	rec := doEvents(api, "z-1")
 	if rec.Code != 409 {

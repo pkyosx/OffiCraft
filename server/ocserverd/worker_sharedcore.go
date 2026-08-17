@@ -42,7 +42,10 @@ import "strings"
 // SOP ABOVE the persona for workers and BELOW it for staff — one asymmetry with
 // nothing behind it.
 func (s *apiServer) workerSharedHead() (string, error) {
-	sys, err := s.root.readSeedFile("system_interaction.md")
+	// The FOLDED block (T-791e): the owner's edit when there is one, the shipped
+	// seed otherwise — the same call the staff fold makes, so an edited
+	// 系統互動 reaches workers and staff as one document rather than two.
+	sys, err := s.systemInteractionText()
 	if err != nil {
 		return "", err
 	}
@@ -70,7 +73,10 @@ func (s *apiServer) workerSharedHead() (string, error) {
 // listen` under Monitor, which directly contradicts the codex runtime tail its
 // spawn appends.
 func (s *apiServer) workerBootSequence(runtime string) (string, error) {
-	boot, err := s.root.readSeedFile(bootSequenceSeedName(runtime))
+	// Folded, exactly like the staff tail (T-791e), and still chosen through the
+	// one runtime decision point: bootSequenceText derives the document key from
+	// bootSequenceSeedName rather than testing the runtime a second time.
+	boot, err := s.bootSequenceText(runtime)
 	if err != nil {
 		return "", err
 	}

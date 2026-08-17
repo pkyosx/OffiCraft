@@ -3,6 +3,11 @@
 // browser's raw-source tab); preview and download are two distinct actions, so
 // the header keeps a 下載 link alongside the render. isMarkdownAttachment gates
 // which attachments get the 預覽 action.
+//
+// The overlay PORTALS to `document.body` (T-76cd), so it is not inside the
+// container `render()` hands back — every DOM reach for it goes through
+// `document.body` / `screen`. A `container.querySelector(".md-preview…")` here
+// returns null and reads like the overlay never rendered.
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, fireEvent, waitFor, screen } from "@testing-library/react";
@@ -60,12 +65,12 @@ describe("MarkdownPreviewOverlay", () => {
   });
 
   it("renders an image in the shared header shell and changes its zoom", () => {
-    const { container } = render(
+    render(
       <I18nProvider>
         <MarkdownPreviewOverlay title="shot.png" url="/api/chat/attachment/att-image" attachmentId="att-image" mime="image/png" onClose={() => {}} />
       </I18nProvider>,
     );
-    const image = container.querySelector<HTMLImageElement>(".md-preview__image")!;
+    const image = document.body.querySelector<HTMLImageElement>(".md-preview__image")!;
     expect(image.src).toContain("/api/chat/attachment/att-image");
     expect(image.alt).toBe("shot.png");
     // The zoom cluster is reachable by name, not by the bare −/+ glyphs: those
@@ -87,19 +92,19 @@ describe("MarkdownPreviewOverlay", () => {
   // data: URI IS the file.
   it("previews a staged image from bytes in hand, with download but no share link", () => {
     const dataUri = "data:image/png;base64,iVBORw0KGgo=";
-    const { container } = render(
+    render(
       <I18nProvider>
         <MarkdownPreviewOverlay title="pasted.png" imageSrc={dataUri} onClose={() => {}} />
       </I18nProvider>,
     );
-    const image = container.querySelector<HTMLImageElement>(".md-preview__image");
+    const image = document.body.querySelector<HTMLImageElement>(".md-preview__image");
     // Named, not a `!` deref: "the image element is missing" is a distinct
     // failure from "it points at the wrong bytes", and a TypeError reports
     // neither.
     expect(image, "the staged bytes must render through the image branch").not.toBeNull();
     expect(image!.getAttribute("src")).toBe(dataUri);
-    expect(container.querySelector("button.md-preview__share")).toBeNull();
-    const download = container.querySelector<HTMLAnchorElement>("a.md-preview__download");
+    expect(document.body.querySelector("button.md-preview__share")).toBeNull();
+    const download = document.body.querySelector<HTMLAnchorElement>("a.md-preview__download");
     expect(download, "staged bytes are a real file — the download stays").not.toBeNull();
     expect(download!.getAttribute("href")).toBe(dataUri);
     expect(download!.getAttribute("download")).toBe("pasted.png");
@@ -115,7 +120,7 @@ describe("MarkdownPreviewOverlay", () => {
       ok: true,
       text: async () => "# Hello",
     })) as unknown as typeof fetch;
-    const { container } = render(
+    render(
       <I18nProvider>
         <MarkdownPreviewOverlay
           title="x.md"
@@ -126,7 +131,7 @@ describe("MarkdownPreviewOverlay", () => {
       </I18nProvider>,
     );
     await waitFor(() => expect(screen.getByRole("heading", { name: "Hello" })).toBeTruthy());
-    const md = container.querySelector(".md-preview__md")!;
+    const md = document.body.querySelector(".md-preview__md")!;
     expect(md.classList.contains("doc-md")).toBe(true);
   });
 
@@ -134,7 +139,7 @@ describe("MarkdownPreviewOverlay", () => {
   // holds. Nothing to fetch, and no file to download.
   it("renders an inline source without fetching, and offers no download", async () => {
     globalThis.fetch = vi.fn(() => Promise.reject(new Error("must not fetch"))) as unknown as typeof fetch;
-    const { container } = render(
+    render(
       <I18nProvider>
         <MarkdownPreviewOverlay title="Mira" source={"# Inline\n\nbody text"} onClose={() => {}} />
       </I18nProvider>,
@@ -143,8 +148,8 @@ describe("MarkdownPreviewOverlay", () => {
     expect(screen.getByRole("heading", { name: "Inline" })).toBeTruthy();
     expect(globalThis.fetch).not.toHaveBeenCalled();
     expect(screen.queryByText("載入預覽中…")).toBeNull();
-    expect(container.querySelector(".md-preview__download")).toBeNull();
-    expect(container.querySelector(".md-preview__md")!.classList.contains("doc-md")).toBe(true);
+    expect(document.body.querySelector(".md-preview__download")).toBeNull();
+    expect(document.body.querySelector(".md-preview__md")!.classList.contains("doc-md")).toBe(true);
   });
 
   // A message body is a CHAT surface: Enter means "new line" there, and the
@@ -153,7 +158,7 @@ describe("MarkdownPreviewOverlay", () => {
   // plain multi-line message (the most common shape) came out as one run-on
   // line the moment it was opened (Seth 2026-07-28 on PR #18).
   it("keeps single newlines in an inline source (the bubble's own breaks)", () => {
-    const { container } = render(
+    render(
       <I18nProvider>
         <MarkdownPreviewOverlay
           title="Mira"
@@ -162,7 +167,7 @@ describe("MarkdownPreviewOverlay", () => {
         />
       </I18nProvider>,
     );
-    const md = container.querySelector(".md-preview__md")!;
+    const md = document.body.querySelector(".md-preview__md")!;
     // Three source lines ⇒ two hard breaks inside one paragraph.
     expect(md.querySelectorAll("br").length).toBe(2);
     expect(md.querySelectorAll("p").length).toBe(1);
@@ -181,7 +186,7 @@ describe("MarkdownPreviewOverlay", () => {
       ok: true,
       text: async () => "alpha line\nbeta line",
     })) as unknown as typeof fetch;
-    const { container } = render(
+    render(
       <I18nProvider>
         <MarkdownPreviewOverlay
           title="doc.md"
@@ -192,7 +197,7 @@ describe("MarkdownPreviewOverlay", () => {
       </I18nProvider>,
     );
     await waitFor(() => expect(screen.getByText(/alpha line/)).toBeTruthy());
-    const md = container.querySelector(".md-preview__md")!;
+    const md = document.body.querySelector(".md-preview__md")!;
     expect(md.querySelectorAll("br").length).toBe(0);
     expect(md.textContent).toContain("alpha line beta line");
   });
@@ -224,24 +229,24 @@ describe("MarkdownPreviewOverlay", () => {
       </I18nProvider>,
     );
     await waitFor(() =>
-      expect(blob.container.querySelector("button.md-preview__share")).toBeTruthy(),
+      expect(document.body.querySelector("button.md-preview__share")).toBeTruthy(),
     );
-    fireEvent.click(blob.container.querySelector("button.md-preview__share")!);
+    fireEvent.click(document.body.querySelector("button.md-preview__share")!);
     // The share link is minted for the ATTACHMENT ID, never the serve path.
     await waitFor(() => expect(mint).toHaveBeenCalledWith("att-backing"));
     expect(mint).not.toHaveBeenCalledWith("/api/chat/attachment/att-doc");
     expect(
-      blob.container.querySelector("a.md-preview__download"),
+      document.body.querySelector("a.md-preview__download"),
     ).toBeTruthy();
     blob.unmount();
 
-    const inline = render(
+    render(
       <I18nProvider>
         <MarkdownPreviewOverlay title="Mira" source="# body" onClose={() => {}} />
       </I18nProvider>,
     );
-    expect(inline.container.querySelector("button.md-preview__share")).toBeNull();
-    expect(inline.container.querySelector("a.md-preview__download")).toBeNull();
+    expect(document.body.querySelector("button.md-preview__share")).toBeNull();
+    expect(document.body.querySelector("a.md-preview__download")).toBeNull();
   });
 
   it("shows an honest error state on a failed fetch (never a blank render)", async () => {
@@ -306,9 +311,9 @@ describe("MarkdownPreviewOverlay 複製分享連結 (T-d10b)", () => {
   }
 
   it("sits LEFT of 下載 in the header action row", async () => {
-    const { container } = renderOverlay();
+    renderOverlay();
     await waitFor(() => expect(screen.getByRole("heading", { name: "doc" })).toBeTruthy());
-    const actions = container.querySelector(".md-preview__actions")!;
+    const actions = document.body.querySelector(".md-preview__actions")!;
     const share = screen.getByRole("button", { name: "複製分享連結" });
     const dl = screen.getByText("下載").closest("a.md-preview__download")!;
     expect(actions.contains(share)).toBe(true);

@@ -59,7 +59,6 @@ import {
   useWorkerCodenames,
 } from "../hooks/useWorkerCodenames";
 import { useI18n } from "../i18n";
-import { isHttpStatus } from "../api/errors";
 import type { Member } from "../types";
 import type {
   ChatAttachmentInput,
@@ -74,6 +73,7 @@ import { resolveStepBadge } from "../lib/stepBadge";
 import { autosizeTextarea } from "../lib/autosize";
 import { navigateHash } from "../lib/hashRoute";
 import { deriveTaskNo } from "../lib/taskNo";
+import { scrollParent, viewportSpanOf } from "../lib/scrollPort";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { enterShouldSend } from "../lib/composerKeys";
 import {
@@ -82,8 +82,8 @@ import {
 } from "../hooks/useAttachmentStaging";
 import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { ConfirmModal } from "./ConfirmModal";
-import { DocumentHistoryEntry } from "./DocumentHistoryEntry";
 import { Markdown } from "./Markdown";
+import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
 import { TaskArtifactsBadge } from "./TaskArtifactsPopover";
 import { TaskReassignDialog } from "./TaskReassignDialog";
 import { TaskReplyCard } from "./TaskReplyCard";
@@ -94,6 +94,7 @@ import {
   CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  FileTextIcon,
   ClockIcon,
   ExternalLinkIcon,
   GearIcon,
@@ -149,8 +150,6 @@ export function TaskCard({
   onTerminate,
   onMarkDuplicate,
   onSetPriority,
-  onUpdateDescription,
-  onUpdateTitle,
   onReassign,
   onSendMessage,
   onHydrate,
@@ -178,13 +177,6 @@ export function TaskCard({
    * the depth-1 graph + non-terminal guard; a rejection surfaces inline. */
   onMarkDuplicate: (id: string, duplicateOf: string) => Promise<void>;
   onSetPriority: (id: string, priority: string) => Promise<void>;
-  /** Correct the task's description in place (T-e271). Absent ⇒ the block stays
-   * read-only (no edit affordance), which is what every non-cockpit render of
-   * this card gets. */
-  onUpdateDescription?: (id: string, description: string) => Promise<void>;
-  /** Correct the task's title in place (T-2ebe). Absent ⇒ the title stays a
-   * plain heading (no edit affordance), same as the description block. */
-  onUpdateTitle?: (id: string, title: string) => Promise<void>;
   /** 轉派 (T-160e): hand the task to a member / a freshly minted 外包. The whole
    * handover is the server's; the dialog only names the target. */
   onReassign: (id: string, input: TaskReassignInput) => Promise<void>;
@@ -419,6 +411,41 @@ export function TaskCard({
     setExpanded((v) => !v);
   }
 
+  // 🔴 T-6630 ③ — collapsing the WHOLE task must leave you looking at that task.
+  // Owner 2026-08-16:「收和整個任務時,最後應該要定位到那則任務,現在好像會跑掉」.
+  // MEASURED baseline (12-card column, `.tasks` scrollport): read your way down
+  // inside a long expanded card until its top edge sits 296px above the fold,
+  // then collapse it — `scrollTop` does not change, the card's top stays at
+  // -296, and since the collapsed card is only ~250px tall it ends up ENTIRELY
+  // above the viewport. You are left staring at the tasks BELOW it. Nothing was
+  // correcting for this: the card just shrank under a fixed scroll offset.
+  // (A short list hides it — the browser clamps `scrollTop` to the shrunken
+  // range and that accidentally brings the card back. Depending on that is
+  // depending on how many tasks happen to be below yours.)
+  //
+  // The correction is deliberately ONE-SIDED: it only fires when the card's top
+  // has gone above the fold, and it puts that top edge back AT the fold. Collapse
+  // with the head already on screen therefore moves nothing at all (measured:
+  // top 104 → 104), which is the case that was never broken.
+  //
+  // This is NOT in conflict with ① (a step NOTE opening or closing must never
+  // move the scrollport). Different control, different owner ruling: a note grows
+  // inside a card you are already looking at, while collapsing the card removes
+  // the thing you were looking at. See lib/scrollPort.ts.
+  const wasExpanded = useRef(expanded);
+  useLayoutEffect(() => {
+    const was = wasExpanded.current;
+    wasExpanded.current = expanded;
+    if (!was || expanded) return;
+    const card = rootRef.current;
+    if (!card) return;
+    const port = scrollParent(card);
+    const view = viewportSpanOf(port);
+    const top = card.getBoundingClientRect().top;
+    if (top >= view.top) return;
+    port.scrollTop += top - view.top;
+  }, [expanded]);
+
   // Keyboard operability (repo convention for clickable surfaces — see the
   // chat header / MemberCard row: role="button" + tabIndex + Enter/Space).
   // Only keys on the card ITSELF toggle — an Enter bubbling out of the
@@ -597,27 +624,32 @@ export function TaskCard({
   // priority chip on the badge row drops a select-style menu right under it —
   // saved on pick, no card expand. Closed on pick / outside click.
   const [prioOpen, setPrioOpen] = useState(false);
+  // 步驟備註 (T-e5b1 → T-6630 ④): the note is no longer disclosed INSIDE the
+  // step. One step's note at a time is opened in the full-view overlay, so the
+  // state is the note being read, not a per-step open/closed map.
+  const [noteModal, setNoteModal] = useState<{
+    name: string;
+    note: string;
+  } | null>(null);
+  // 🔴 NO SCROLL CORRECTION FOR THE NOTE, BY OWNER RULING (2026-08-15, T-6630
+  // ①):「我要整個畫面不移動,只是單純往下展開,而收合時,就是向上收合,整個畫面
+  // 不能移動」. T-4e39 had shipped a keepAnchored() correction that re-scrolled
+  // `.tasks` when a note opened; re-scrolling IS the screen moving, so it was
+  // deleted rather than extended.
+  //
+  // Since ④ the note opens in an OVERLAY, so nothing in the column reflows at
+  // all and the rule is satisfied structurally rather than by restraint. That
+  // is not licence to re-add anything: opening or closing the note reader must
+  // still leave `.tasks` exactly where it was, and
+  // visual-guards/taskcard-note-anchor.ct.spec.tsx measures precisely that.
+  //
+  // ⚠️ "NOT FOR THE NOTE" IS THE WHOLE STATEMENT — this card DOES carry a
+  // scroll correction, on the WHOLE-CARD collapse (③, above), which the owner
+  // asked for in the same ticket. The two are not a contradiction and neither is
+  // a precedent for the other: reading a note takes nothing away, while
+  // collapsing the card removes the thing you were looking at. Copying either
+  // rule onto the other control reddens that control's guard.
   const prioRef = useRef<HTMLDivElement>(null);
-  // In-place description editing (T-e271), shaped after the priority chip
-  // above: local open state, closed by an outside click, its error cleared on
-  // the next successful write. What is deliberately NOT shared with that chip
-  // is the terminal rule — the priority chip renders a closed task's value as a
-  // frozen plain span, while the description stays editable after the task
-  // closes (owner ruling; a ticket worded wrongly is usually found to be wrong
-  // after it closed). Copying the chip's `closed ? span : button` shape here
-  // would quietly re-impose the freeze the server dropped.
-  const [descOpen, setDescOpen] = useState(false);
-  const [descDraft, setDescDraft] = useState("");
-  const [descBusy, setDescBusy] = useState(false);
-  const [descError, setDescError] = useState<string | null>(null);
-  const descRef = useRef<HTMLDivElement>(null);
-  // In-place TITLE editing (T-2ebe) — the description editor's twin, with the
-  // one asymmetry the server has: a blank title is REFUSED, never a clear.
-  const [titleOpen, setTitleOpen] = useState(false);
-  const [titleDraft, setTitleDraft] = useState("");
-  const [titleBusy, setTitleBusy] = useState(false);
-  const [titleError, setTitleError] = useState<string | null>(null);
-  const titleRef = useRef<HTMLDivElement>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -643,39 +675,6 @@ export function TaskCard({
   }, [prioOpen]);
 
   useEffect(() => {
-    if (!descOpen) return;
-    function onDown(e: MouseEvent) {
-      if (descRef.current?.contains(e.target as Node)) return;
-      // 🔴 An outside click closes this editor ONLY when nothing would be lost.
-      // The priority chip is a MENU — clicking away discards a decision the
-      // owner had not made yet. This is a textarea holding text they typed, and
-      // silently dropping a half-written correction is the same class of
-      // failure the whole ticket exists to remove (a write the owner believes
-      // happened, that did not). A dirty draft therefore stays open; 取消 is
-      // the explicit discard.
-      if (descDraft !== (view.description ?? "")) return;
-      setDescOpen(false);
-      setDescError(null);
-    }
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [descOpen, descDraft, view.description]);
-
-  useEffect(() => {
-    if (!titleOpen) return;
-    function onDown(e: MouseEvent) {
-      if (titleRef.current?.contains(e.target as Node)) return;
-      // Same rule as the description editor: a CLEAN editor closes on an
-      // outside click, a dirty one does not — the typed text is the only copy.
-      if (titleDraft !== task.title) return;
-      setTitleOpen(false);
-      setTitleError(null);
-    }
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [titleOpen, titleDraft, task.title]);
-
-  useEffect(() => {
     if (!statusOpen) return;
     function onDown(e: MouseEvent) {
       if (!statusRef.current?.contains(e.target as Node)) setStatusOpen(false);
@@ -693,68 +692,6 @@ export function TaskCard({
     } catch (e) {
       console.warn("TaskCard: priority change failed", e);
       setActionError(t.tasks.actionError);
-    }
-  }
-
-  function openDescEditor() {
-    setDescDraft(view.description ?? "");
-    setDescError(null);
-    setDescOpen(true);
-  }
-
-  async function doSaveDescription() {
-    if (!onUpdateDescription) return;
-    setDescBusy(true);
-    try {
-      await onUpdateDescription(task.id, descDraft);
-      setDescError(null);
-      setDescOpen(false);
-    } catch (e) {
-      // Stay OPEN and keep the draft: the text the owner typed is the only
-      // copy of it, and a failed save that also closed the editor would
-      // destroy exactly what it failed to store.
-      console.warn("TaskCard: description save failed", e);
-      setDescError(t.tasks.descError);
-    } finally {
-      setDescBusy(false);
-    }
-  }
-
-  function openTitleEditor() {
-    setTitleDraft(task.title);
-    setTitleError(null);
-    setTitleOpen(true);
-  }
-
-  // 🔴 The blank rule, and where it is enforced. The server refuses a blank
-  // title with 400 `title must not be blank`; the cockpit must not be STRICTER
-  // than that (no length rule, no character rule of its own) and must not
-  // silently send one either. So: 儲存 is disabled while the draft trims to
-  // nothing, and this guard refuses in the same breath — a keyboard-driven
-  // click on a disabled-looking button still cannot post the blank.
-  const titleBlank = titleDraft.trim() === "";
-
-  async function doSaveTitle() {
-    if (!onUpdateTitle) return;
-    if (titleBlank) {
-      setTitleError(t.tasks.titleBlank);
-      return;
-    }
-    setTitleBusy(true);
-    try {
-      await onUpdateTitle(task.id, titleDraft);
-      setTitleError(null);
-      setTitleOpen(false);
-    } catch (e) {
-      // Stay OPEN and keep the draft, exactly as the description editor does.
-      // A 400 gets the server's own rule spelled out rather than the generic
-      // "try again", which would be false — retrying an empty title cannot work.
-      console.warn("TaskCard: title save failed", e);
-      setTitleError(
-        isHttpStatus(e, 400) ? t.tasks.titleBlank : t.tasks.titleError
-      );
-    } finally {
-      setTitleBusy(false);
     }
   }
 
@@ -991,9 +928,44 @@ export function TaskCard({
             free text → <Markdown>, same treatment as the DoD and the waiting
             reason. */}
         {step.note && (
-          <div className="task-step__note" data-testid="step-note">
-            <span className="task-step__note-label">{t.tasks.stepNoteLabel}</span>
-            <Markdown source={step.note} className="task-step__note-md doc-md" />
+          <div className="task-step__note-actions">
+            {/* 🔴 T-6630 ④ (owner 2026-08-16, second acceptance round):「我覺得
+                備註不是很常按,可以放在 step 的右下角,點開再跳出另一個 Modal 打
+                開嗎?像是我們開 .md 檔那種方式,只是沒有下載或分享連結的功能」—
+                he circled the step's bottom-right corner in a screenshot.
+                The reader is a NOTE, not a disclosure any more: the entry is a
+                small corner control and the text opens in the same full-view
+                overlay the cockpit already uses for .md attachments. Feeding it
+                `source` (rather than a url) is exactly what drops the download
+                and share affordances — that is the overlay's own contract for
+                text a caller already holds, not something stripped here.
+                🔴 It is a real <button> for the same reason its predecessor
+                was: the whole card is role=button, and only interactive
+                elements are let through onCardToggleClick's closest() filter.
+                A <div> here would make "open the note" collapse the task.
+                🔴 And it keeps a 44px touch target even though it is small on
+                screen — a corner control sits in the middle of the card's own
+                hit area, which is the geometry that produced this ticket.
+                🔴 APPEARANCE is owner-picked, not derived (2026-08-17, from
+                photographs of six real variants): icon + the upright word, NO
+                fill and NO border. The filled pill it replaces was the thing he
+                called 好醜 —— on his LIGHT theme that fill read as a black
+                block. Position stays bottom-right (「右下角好像比較好」), and
+                icon-only was rejected in the same breath (「只有圖真的有點怪」),
+                so the word carries the meaning and the icon only flags it. */}
+            <button
+              type="button"
+              className="task-step__note-open"
+              data-testid="step-note-open"
+              aria-label={t.tasks.stepNoteExpand}
+              title={t.tasks.stepNoteExpand}
+              onClick={() =>
+                setNoteModal({ name: step.name, note: step.note ?? "" })
+              }
+            >
+              <FileTextIcon size={15} />
+              <span>{t.tasks.stepNoteLabel}</span>
+            </button>
           </div>
         )}
         {/* 等待外部 reason (T-9ca5): the step's own one-line reason. Since
@@ -1376,113 +1348,16 @@ export function TaskCard({
         </div>
 
         {/* Row 2 — the title. Demoted under the badges (v4); still the h3,
-            still the card's heading in the a11y tree. */}
-        {/* Row 2 — the title, and since T-2ebe the in-place editor for it. The
-            editor stands where the h3 stands, so what is being corrected is a
-            fact of the layout rather than something a heading has to explain.
-            The AFFORDANCE is expanded-only, the same rule the description block
-            already follows: the collapsed card stays a compact scanning row.
-            The EDITOR itself is not — it holds text the owner typed, and
-            collapsing the card must not be able to destroy that. */}
-        <div className="task-card__title-line" ref={titleRef}>
-          {titleOpen ? (
-            <div
-              className="task-card__title-edit"
-              data-testid="task-title-editor"
-              // Unlike the description block, this editor sits in the card HEAD
-              // — the toggle surface. closest() already exempts the input and
-              // the buttons; a click on the editor's own padding or on its hint
-              // line would otherwise collapse the card out from under a
-              // half-written correction.
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="task-card__desc-hint">{t.tasks.titleEditHint}</div>
-              {/* Only on a terminal card — without it the owner cannot tell
-                  "editing a closed ticket is supported" from "this screen
-                  forgot to stop me". */}
-              {closed && (
-                <div
-                  className="task-card__desc-hint task-card__desc-hint--closed"
-                  data-testid="task-title-closed-note"
-                >
-                  {t.tasks.titleClosedNote}
-                </div>
-              )}
-              <input
-                type="text"
-                className="task-card__title-input"
-                data-testid="task-title-input"
-                aria-label={t.tasks.titleLabel}
-                placeholder={t.tasks.titlePlaceholder}
-                value={titleDraft}
-                disabled={titleBusy}
-                onChange={(e) => setTitleDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") {
-                    e.preventDefault();
-                    setTitleOpen(false);
-                    setTitleError(null);
-                  }
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    void doSaveTitle();
-                  }
-                }}
-              />
-              <div className="task-card__desc-actions">
-                <button
-                  type="button"
-                  className="task-card__desc-save"
-                  data-testid="task-title-save"
-                  disabled={titleBusy || titleBlank}
-                  onClick={() => void doSaveTitle()}
-                >
-                  {t.tasks.titleSave}
-                </button>
-                <button
-                  type="button"
-                  className="task-card__desc-cancel"
-                  data-testid="task-title-cancel"
-                  disabled={titleBusy}
-                  onClick={() => {
-                    setTitleOpen(false);
-                    setTitleError(null);
-                  }}
-                >
-                  {t.tasks.titleCancel}
-                </button>
-                {/* The SHARED 版本紀錄 entry, its own series over the task id —
-                    separate from the description's three retained revisions. */}
-                <DocumentHistoryEntry
-                  kind="task_title"
-                  docKey={task.id}
-                  title={t.tasks.titleHistoryTitle}
-                  currentContent={{ title: task.title }}
-                  onRestored={() => onHydrate(task.id)}
-                  disabled={titleBusy}
-                />
-              </div>
-              {titleError && (
-                <div className="task-card__error" data-testid="task-title-error">
-                  {titleError}
-                </div>
-              )}
-            </div>
-          ) : (
-            <>
-              <h3 className="task-card__title">{task.title}</h3>
-              {onUpdateTitle && expanded && (
-                <button
-                  type="button"
-                  className="task-card__desc-editbtn task-card__title-editbtn"
-                  data-testid="task-title-edit"
-                  onClick={openTitleEditor}
-                >
-                  {t.tasks.titleEdit}
-                </button>
-              )}
-            </>
-          )}
+            still the card's heading in the a11y tree.
+            T-e5b1 (owner 2026-08-15「UI 不需要提供編輯標題或敘述的功能」): the
+            in-place title editor and its 編輯標題 affordance are GONE from the
+            cockpit. The capability is untouched — this removes the screen's
+            entry, not the ability to correct a title. T-646a moved WHERE that
+            capability lives: the MCP tool is now `update_task` (one tool, both
+            fields), while POST /api/tasks/{id}/title stays on the HTTP surface
+            for this client. */}
+        <div className="task-card__title-line">
+          <h3 className="task-card__title">{task.title}</h3>
         </div>
 
         {/* Below the badge row: an aligned label column (任務類型 / 負責人 /
@@ -2000,108 +1875,20 @@ export function TaskCard({
            compact — and still hydrated from the full task, so it appears once
            detail lands. ── */}
       {expanded && (hasDetail || view.description) && (
-        <div className="task-card__desc-block" ref={descRef}>
-          {descOpen ? (
-            <div className="task-card__desc-edit" data-testid="task-desc-editor">
-              <div className="task-card__desc-hint">{t.tasks.descEditHint}</div>
-              {/* The closed-task note is rendered ONLY on a terminal card, and
-                  it is not decoration: without it the owner has no way to tell
-                  "editing a closed ticket is supported" from "this screen
-                  forgot to stop me". */}
-              {closed && (
-                <div
-                  className="task-card__desc-hint task-card__desc-hint--closed"
-                  data-testid="task-desc-closed-note"
-                >
-                  {t.tasks.descClosedNote}
-                </div>
-              )}
-              <textarea
-                className="task-card__desc-input"
-                data-testid="task-desc-input"
-                aria-label={t.tasks.descLabel}
-                placeholder={t.tasks.descPlaceholder}
-                value={descDraft}
-                disabled={descBusy}
-                onChange={(e) => setDescDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  // Esc cancels THIS editor and must not also close whatever
-                  // layer the card sits in — the escapeLayers rule: an
-                  // element-level Esc handler preventDefaults so the dispatcher
-                  // leaves it alone.
-                  if (e.key === "Escape") {
-                    e.preventDefault();
-                    setDescOpen(false);
-                    setDescError(null);
-                  }
-                }}
-              />
-              <div className="task-card__desc-actions">
-                <button
-                  type="button"
-                  className="task-card__desc-save"
-                  data-testid="task-desc-save"
-                  disabled={descBusy}
-                  onClick={() => void doSaveDescription()}
-                >
-                  {t.tasks.descSave}
-                </button>
-                <button
-                  type="button"
-                  className="task-card__desc-cancel"
-                  data-testid="task-desc-cancel"
-                  disabled={descBusy}
-                  onClick={() => {
-                    setDescOpen(false);
-                    setDescError(null);
-                  }}
-                >
-                  {t.tasks.descCancel}
-                </button>
-                {/* 版本紀錄 — the SHARED entry (T-1f39), not a second history
-                    surface. It stands in the editor exactly as it does in every
-                    other editable document in the cockpit, so which document's
-                    history this is stays a fact of the layout. */}
-                <DocumentHistoryEntry
-                  kind="task_description"
-                  docKey={task.id}
-                  title={t.tasks.descHistoryTitle}
-                  currentContent={
-                    hasDetail
-                      ? { description: view.description ?? "" }
-                      : undefined
-                  }
-                  onRestored={() => onHydrate(task.id)}
-                  disabled={descBusy}
-                />
-              </div>
-              {descError && (
-                <div className="task-card__error" data-testid="task-desc-error">
-                  {descError}
-                </div>
-              )}
-            </div>
+        <div className="task-card__desc-block">
+          {/* T-e5b1 (owner 2026-08-15): READ-ONLY. The in-place description
+              editor and its 編輯敘述 affordance were removed with the title's;
+              the capability is untouched. T-646a: the MCP tool is now
+              `update_task`, and POST /api/tasks/{id}/description stays on the
+              HTTP surface for this client. */}
+          {view.description ? (
+            <Markdown
+              source={view.description}
+              className="task-card__desc doc-md"
+              tableSizing="content-aware"
+            />
           ) : (
-            <>
-              {view.description ? (
-                <Markdown
-                  source={view.description}
-                  className="task-card__desc doc-md"
-                />
-              ) : (
-                <div className="task-card__desc-empty">{t.tasks.descEmpty}</div>
-              )}
-              {onUpdateDescription && hasDetail && (
-                <button
-                  type="button"
-                  className="task-card__desc-editbtn"
-                  data-testid="task-desc-edit"
-                  onClick={openDescEditor}
-                >
-                  {t.tasks.descEdit}
-                </button>
-              )}
-            </>
+            <div className="task-card__desc-empty">{t.tasks.descEmpty}</div>
           )}
         </div>
       )}
@@ -2219,6 +2006,29 @@ export function TaskCard({
           danger
           onCancel={() => setConfirmOpen(false)}
           onConfirm={() => void doTerminate()}
+        />
+      )}
+
+      {/* 步驟備註的閱讀面 (T-6630 ④).
+          🔴 WHAT KEEPS A CLICK IN HERE FROM COLLAPSING THE CARD IS NOT THE
+          PORTAL. An earlier version of this comment said the overlay portals to
+          document.body so its clicks never reach onCardToggleClick; an
+          independent review showed that is false reasoning — a React portal
+          bubbles along the REACT tree, and this element is rendered inside the
+          <article> that carries onClick. What actually stops it is the filter's
+          `[role='dialog']` entry (the overlay's root carries that role) plus the
+          panel's own stopPropagation. MEASURED: deleting just that one token
+          from the filter leaves every note test green while a click on the
+          reader's backdrop closes it AND collapses the card underneath — so
+          taskcard-note-entry now clicks the backdrop on purpose.
+          `source` (not `url`) is what makes it a reader with no download and no
+          share link — the owner asked for「沒有下載或分享連結的功能」and that is
+          this overlay's existing contract for text the caller already holds. */}
+      {noteModal && (
+        <MarkdownPreviewOverlay
+          title={`${t.tasks.stepNoteLabel} · ${noteModal.name}`}
+          source={noteModal.note}
+          onClose={() => setNoteModal(null)}
         />
       )}
 

@@ -181,6 +181,10 @@ export const zh = {
     // T-cc3e:步驟備註 —— 這一步做到哪、下一步接什麼。同 waitingLabel,這裡
     // 只是標籤;備註本身是 agent 寫的自由文字(常帶 markdown),走 <Markdown>。
     stepNoteLabel: "備註",
+    // T-e5b1:備註預設收起(owner:「不然太長了」)。這兩句是每一步的展開開關。
+    // 收起時的字面留著「備註」兩字是刻意的 —— 有備註的步驟與沒備註的步驟,
+    // 在收起狀態下就靠這顆按鈕在不在分辨。
+    stepNoteExpand: "展開備註",
     // deps:「等 T-xxxx」chip 可多筆(mockup 樣式,owner 2026-07-13)
     blockedByLabel: "等",
     // T-1d82:dep 指向的任務查不到(已刪 / 壞 id)。保留原始 id(那是僅剩的線索),
@@ -197,33 +201,10 @@ export const zh = {
     // ⋮ 本身隨後由 owner 裁示刪除);優先權改卡面 chip 就地編輯(v2)
     statusMenuLabel: "狀態操作",
     priorityLabel: "優先權",
-    // 描述就地編輯(T-e271)。descEditHint 講的是這個編輯面與步驟備註的分工——
-    // 描述說「這張票是什麼」,備註說「這一步現在做到哪」;沒有它,兩個都能打字的
-    // 欄位長得一樣,進度就會被寫進描述裡。
-    descLabel: "詳細敘述",
-    descEdit: "編輯敘述",
-    descEditHint: "描述說明這張任務「是什麼」(範圍、緣由、驗收);進度請寫在步驟備註。",
-    descPlaceholder: "這張任務要做什麼、為什麼要做、做到什麼程度算完成…",
-    descSave: "儲存",
-    descCancel: "取消",
+    // T-e5b1(owner 2026-08-15):任務 UI 的標題／敘述就地編輯面已移除,整族
+    // 文案跟著走。能力未動 —— 移掉的是畫面的詞彙,不是能力。
+    // (T-646a 已把兩支工具合併成 `update_task`。)
     descEmpty: "尚未填寫敘述",
-    descError: "敘述儲存失敗,請稍後重試",
-    descHistoryTitle: "任務敘述",
-    // 結案任務照樣改得動(裁定②)。這句只在終態卡的編輯面出現,講清楚它不是漏擋:
-    // 票寫錯常常是結案後才發現的,而產出物清單相反、結案即凍結。
-    descClosedNote: "已結案的任務仍可更正敘述(產出物則已凍結)。",
-    // 標題就地編輯(T-2ebe),敘述那一家的雙生兄弟。唯一不同的規則是 titleBlank:
-    // 標題不能清空——它是任務清單上唯一看得到的那一格,空的等於整列沒東西。
-    titleLabel: "標題",
-    titleEdit: "編輯標題",
-    titleEditHint: "標題是任務清單上唯一看得到的內容,請用一句話說明這張任務是什麼。",
-    titlePlaceholder: "用一句話說明這張任務是什麼…",
-    titleSave: "儲存",
-    titleCancel: "取消",
-    titleBlank: "標題不能空白。",
-    titleError: "標題儲存失敗,請稍後重試",
-    titleHistoryTitle: "任務標題",
-    titleClosedNote: "已結案的任務仍可更正標題(產出物則已凍結)。",
     // 任務編號 chip 點擊複製(owner 2026-07-19 圈截圖):點 chip 把顯示的任務
     // 編號寫進剪貼簿,給一個短暫「已複製」回饋。copyTaskNo 是 chip 的 aria-label
     // (帶顯示號),taskNoCopied 是複製成功後的短暫提示文字。
@@ -341,9 +322,8 @@ export const zh = {
     redecide: "重新決定",
     redecideHint: "重新選一個，或直接打字改寫回覆",
     redecidePlaceholder: "或直接打字改寫回覆…",
-    // §3.6 請示 → 任務：任務衍生的請示卡顯示精簡任務資訊（類型）＋跳轉;
-    // 不露任務編號／識別鍵。純聊天請示不顯示。
-    taskBadge: "任務",
+    // §3.6 請示 → 任務：任務衍生的請示卡顯示精簡任務資訊（標題）＋跳轉;
+    // 不露任務編號／識別鍵／類型。純聊天請示不顯示。
     viewTask: "查看任務詳情",
   },
   office: {
@@ -1017,7 +997,12 @@ export const zh = {
       error: "讀取喚醒快照失敗",
       retry: "重試",
       chatCount: "近期訊息",
-      chatChars: "訊息字數",
+      // 🔴 這一格量的是「聊天那整塊要花多少 context」,不是內文長度。
+      // 這裡刻意不逐項列舉它加了哪些東西——server 端 resumeSnapshotParts 是
+      // 唯一說得準的地方,而過去每一份自己列一遍的散文都列漏了(切點 hint
+      // 那一塊固定幾百字的文字,三份全漏)。標籤寫成「訊息字數」不算說錯,但看畫面
+      // 的人(owner)正拿這些數字調預算,會把它讀成內文長度而低估真實成本。
+      chatChars: "聊天區塊字數",
       tasksReturned: "回傳任務",
       tasksOpenTotal: "進行中任務總數",
       tasksDetailChars: "任務細節字數",
@@ -1027,6 +1012,55 @@ export const zh = {
       chatEmpty: "尚無聊天訊息",
       tasksSection: "進行中任務",
       tasksEmpty: "尚無進行中任務",
+      // 抬頭:這份快照是什麼時候拍的。它是把底下每一個 ts_display 讀成
+      // 「多久以前」的唯一錨點——讀的人(不論是 agent 還是 owner)沒有
+      // 一個可信的時鐘可以拿來對。
+      generatedAtLabel: "本份產生於",
+      // 🔴 折疊 ≠ 截斷,兩者的文案不共用任何一個詞。
+      // 這一組講的是「這則在這裡,只是被折起來了,東西還在」。
+      //
+      // 🔴 每則後面那個只是**記號**,不是句子。它本來是
+      // 「此則已折起 46 字元(內容仍在,用 get_chat 重讀這則)」,而且**每一則
+      // 都重複一次**——幾百則乘起來,那句樣板比它省下來的還多,owner 2026-08-13
+      // 當場指出。慣例改成在聊天區塊抬頭只講一次(`bodyOmittedNote`),每則就
+      // 只剩數字。
+      bodyOmittedMark: "折起",
+      // 只在聊天區塊講一次,任何一則都不必再重複。
+      bodyOmittedNote: "折起 = 此則在此,僅縮短,全文仍存 server(用 get_chat 重讀全文)",
+      // 這一組講的是「更早的往來可能根本沒有被帶進來」——要去撈才知道。
+      // 🔴 措辭是「可能」而不是「一定」:server 端只要那條線被截在切點上就
+      // 亮這個標記,而它不會再往切點外看一眼,所以就算其實沒有更舊的往來,
+      // 標記一樣會亮(見 api_chat.go 的 resumeChatCutHint)。
+      // 🔴 這是區塊的「名字」,不是它的內容。原本這裡複述了 hint 的第一句,
+      // 兩句上下相連、意思一樣,讀者被同一件事講兩遍。不能改的是 hint 那一句:
+      // agent 拿到的只有那串文字、讀不到這個 label,所以 hint 必須自足;
+      // 而這個 label 是純畫面的用詞,改它不影響 agent 那一側。
+      chatCutLabel: "這條線往前被切斷了:",
+      // 就地顯示的回覆卡:owner 選了哪個、打了什麼、什麼時候回的。
+      cardOptionsLabel: "提供的選項",
+      cardAiPickTag: "AI 建議",
+      cardPickedTag: "已選",
+      cardAnswerTextLabel: "補充文字",
+      cardAnsweredAtLabel: "回覆於",
+      cardUnanswered: "尚未回覆",
+      cardAttachmentsLabel: "附件",
+      replyCardStatusLabel: "回覆卡狀態",
+      // studio floor 兩段:名冊與機器。
+      rosterSection: "名冊",
+      rosterEmpty: "這份快照沒有名冊區段",
+      rosterDutyLabel: "職責",
+      rosterCurrentTaskLabel: "手上的任務",
+      machinesSection: "機器",
+      machinesEmpty: "這份快照沒有機器區段",
+      machinesYouAreOnLabel: "這位站在",
+      machinesYouAreOnNone: "尚無機器綁定",
+      machineOnline: "線上",
+      machineOffline: "離線",
+      rosterChars: "名冊字數",
+      machinesChars: "機器字數",
+      // 長區段可收合,但預設看得到有哪些區段。
+      collapse: "收合",
+      expand: "展開",
     },
     dash: "—",
   },
@@ -1364,18 +1398,51 @@ export const zh = {
     upgrade: "升級到最新版",
     catalogHash: "MCP 目錄雜湊",
     // ── 角色誌 ──
-    // 全域情境 = boot context 的三塊（依組裝順序）：系統互動（唯讀 seed）→
-    // 使用者自訂（owner 可編輯的追加塊）→ 啟動程序（唯讀 seed）。UI 不露檔名。
+    // 全域情境 = boot context 的區塊，依組裝順序：系統互動 → 使用者自訂 →
+    // 啟動程序。T-791e 起**四列**、而且**全部可編輯**——啟動程序是 claude 與
+    // codex 兩份不同的文件，各佔一列。UI 不露檔名。
     globalSection: "全域情境（GLOBAL CONTEXT）",
     systemName: "系統互動",
-    systemSub: "系統運作說明，注入給每個 agent · 唯讀",
-    readOnlyBadge: "系統唯讀",
+    systemSub: "系統運作說明，注入給每個 agent · 可編輯",
     customName: "使用者自訂",
     customSub: "追加到每個 agent 開機情境的自訂內容 · 可編輯",
     roleDefsSection: "角色定義",
+    // 兩份**不同**的文件，分別開自己的頁：它們的第 3 步語意相反，
+    // 所以清單上不併成一列、詳情頁也不並排。
+    // The ONE list row. The runtime-specific names below still title the PAGE
+    // and its history list — the row no longer names a runtime because you
+    // pick one after you are inside.
     bootName: "啟動程序",
-    bootSub: "工作室固定 SOP · 唯讀",
-    bootBadge: "工作室 SOP",
+    bootSub: "AI 開機時照著做的步驟 · 兩種執行環境各一份 · 可編輯",
+    bootRuntimeClaude: "一般",
+    bootRuntimeCodex: "Codex",
+    bootClaudeName: "啟動程序（Claude Code）",
+    bootClaudeSub: "Claude Code 執行環境的開機 SOP · 可編輯",
+    bootCodexName: "啟動程序（Codex CLI）",
+    bootCodexSub: "Codex App Server 執行環境的開機 SOP · 可編輯",
+    // 下線程序（T-c9c0）——不進開機情境，是 server 要收掉這個 session 時
+    // 夾帶給 agent 的收尾指示，所以在清單上自成一列，排在啟動程序之後。
+    offboardName: "下線程序",
+    offboardSub: "server 要收掉這個 session 時夾帶給 agent 的收尾指示 · 可編輯",
+    // ── 開機情境區塊：可編輯面（T-791e）──
+    bootDocNoteHistoryLead: "版本紀錄只保留最近 ",
+    bootDocNoteHistoryTail:
+      " 版，而且是以「存檔次數」計、不是以時間計——連按幾次小修就會把較舊的版本沖掉。「還原出廠版」不受影響，永遠在。",
+    bootDocSaveConfirmBoot:
+      "要儲存這份啟動程序嗎？啟動程序改壞會讓之後開機的 agent 掛不上 SSE、因此永遠不會上線，而且不會有任何錯誤訊息——到時候也沒有人在線上可以救。存檔前請確認你看過預覽；真的出事就按「還原出廠版」。",
+    bootDocSaveConfirmSystem:
+      "要儲存這份系統互動說明嗎？之後開機的每一個 agent 都會讀到這份內容。",
+    bootDocSaveConfirmOffboard:
+      "要儲存這份下線程序嗎？之後每一個被收掉的 session 都會讀到這份內容，而且讀到的時候只剩約 120 秒、沒有人在線上可以問。",
+    bootDocSaveConfirmAction: "確認儲存",
+    // 堆疊呈現的文件，點標題才展開（T-6278）。兩份啟動程序都預設收疊，讓一個
+    // 畫面看得到兩份；標籤寫的是「按下去會怎樣」，不是目前狀態。
+    docExpand: "展開這份文件",
+    docCollapse: "收合這份文件",
+    historyBootSystemTitle: "系統互動的版本紀錄",
+    historyBootClaudeTitle: "啟動程序（Claude Code）的版本紀錄",
+    historyBootCodexTitle: "啟動程序（Codex CLI）的版本紀錄",
+    historyBootOffboardTitle: "下線程序的版本紀錄",
     // seed vs owner-edited
     defaultBadge: "預設",
     // ── detail: view / edit ──
@@ -1384,6 +1451,16 @@ export const zh = {
     cancel: "取消",
     reset: "重置",
     editorPlaceholder: "以 Markdown 撰寫…",
+    // 「儲存＝整份取代」的提示（T-c33e）。開機情境那三塊的編輯器從逐段改成
+    // 單一編輯框，原本由段落列隱含說出的事就必須明講：按下去送出的是整份文件。
+    docReplaceNote:
+      "儲存會用編輯框裡的內容「整份取代」這份文件——沒有逐段合併，沒被貼進來的段落就不會留下。",
+    // 存檔失敗但伺服器沒有給任何可引用的理由時的墊底文案（T-c33e）。
+    docActionFailed: "動作失敗，請稍後重試",
+    // 超過字數上限的紅字，兩個數字都要在螢幕上（T-791e，T-c33e 起共用）。
+    docOverCapLead: "現在 ",
+    docOverCapMid: " 字，超過上限 ",
+    docOverCapTail: " 字，請先刪掉一些再儲存。",
     // ── 版本紀錄（T-7d33）——每份可編輯長文件保留最近 3 次修改，可還原 ──
     historyTitle: "版本紀錄",
     historySub: "系統保留最近 3 次修改；還原會覆蓋目前內容。",
@@ -1500,10 +1577,14 @@ export const zh = {
     ttl24h: "24 小時",
     ttl7d: "7 天",
     ttl30d: "30 天",
-    handover: "Claude 自動換手門檻",
-    handoverSub: "Claude Code 的記憶用到這個比例，就自動交接給下一手（40–90%）",
-    codexHandover: "Codex 自動換手回合",
-    codexHandoverSub: "完成 3 次 context compaction 後自動重新聚焦；不依 context 百分比判斷",
+    notice: "Claude 第一次通知",
+    noticeSub: "記憶用到這個比例，就把下線程序送給它，請它收乾淨後自己換手（要比下面的最後通牒小）",
+    handover: "Claude 最後通牒",
+    handoverSub: "到這個比例送最後通牒並自動換手，之後 120 秒強制回收（40–90%）",
+    codexNotice: "Codex 第一次通知",
+    codexNoticeSub: "第幾輪 context compaction 後把下線程序送給它（要比下面的回合數小）",
+    codexHandover: "Codex 最後通牒回合",
+    codexHandoverSub: "完成這麼多次 context compaction 後自動重新聚焦；不依 context 百分比判斷",
     monitoringRefresh: "監控刷新間隔",
     monitoringRefreshSub: "收到連續事件時，最多每隔幾秒刷新一次（1–60）",
     seconds: "秒",
@@ -1524,6 +1605,11 @@ export const zh = {
     docCapManualLearnings: "任務手冊學習經驗字數上限",
     docCapManualLearningsSub:
       "任務手冊的學習經驗的字數上限，與上面的 SOP 那格各自獨立。下限就是出廠預設，上限 100000，所以只能調高。",
+    // T-c9b4:喚醒快照的聊天區塊預算。刻意不跟上面那幾格共用一段說明——那幾格
+    // 的下限就是出廠預設(只能調高),這一格兩個方向都能調。
+    chatBudget: "喚醒聊天字數預算",
+    chatBudgetSub:
+      "喚醒快照(resume_summary)裡聊天區塊的字數預算,含訊息、摺疊卡片、快照表頭與截斷提示;peek 回報的大小算的是同一個數字。範圍 1000~13000,可調高也可調低——聊天區塊每次都是重新裝箱的,調低只是下次帶回比較少則,被留下的部分照樣由「更早的訊息已省略」交代。",
     docUsage: "已用字數",
     chars: "字",
     // ── 存檔回讀對帳（T-1c2e，rework 後住在系統更新與備份區：secret 只顯示

@@ -82,8 +82,6 @@ export function TasksPage() {
     terminate,
     markDuplicate,
     setPriority,
-    updateDescription,
-    updateTitle,
     reassign,
     sendMessage,
     getDetail,
@@ -389,8 +387,6 @@ export function TasksPage() {
         onTerminate={terminate}
         onMarkDuplicate={markDuplicate}
         onSetPriority={setPriority}
-        onUpdateDescription={updateDescription}
-        onUpdateTitle={updateTitle}
         onReassign={reassign}
         onSendMessage={(id, body, attachments) =>
           sendMessage(id, { body, attachments })

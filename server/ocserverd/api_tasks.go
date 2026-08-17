@@ -998,6 +998,12 @@ func (s *apiServer) HandleSetTaskPriorityApiTasksTaskIdPriorityPost(w http.Respo
 		internalError(w, err)
 		return
 	}
+	// T-51b0: an unfreeze used to post a kickoff notice to the outsource
+	// executor here (and a freeze cleared that notice's ledger). The whole
+	// kickoff seam was withdrawn — owner 2026-08-15, card rc-a4f6a7f8cd71 —
+	// so nothing is posted on this transition any more. What starts a codex
+	// worker now is its own sidecar, which opens a turn the moment that
+	// worker's event stream is up (cli/ocwarden: codexPostBootWake).
 	s.publishTask(*t, requestTrigger(r))
 	writeJSON(w, http.StatusOK, taskPriorityReceiptDTO{
 		TaskID: t.ID, Priority: t.Priority, FrozenBy: t.FrozenBy,

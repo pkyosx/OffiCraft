@@ -13,7 +13,7 @@ package main
 // member". Do not read this file as proving the wider claim.
 //
 // WHY it is an invariant and not a preference (the cross-layer half): the agent
-// prints the five-step wind-down SOP from cli/ocagent/listen_hooks.go
+// prints the 下線程序 wake from cli/ocagent/listen_hooks.go
 // maybeRecycle, and that function's FIRST condition is
 // `desired_state == online`. A stamp on a desired-offline member is therefore
 // not a weaker signal, it is NO signal — no SOP, no partial credit — while the

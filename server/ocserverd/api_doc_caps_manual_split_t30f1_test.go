@@ -155,28 +155,21 @@ func TestManualReadFacesReportBothCaps(t *testing.T) {
 	})
 	assertCaps(t, "get_task_manual", single)
 
-	for _, view := range []string{"", "list"} {
-		params := HandleListTaskManualsApiTaskManualsGetParams{}
-		if view != "" {
-			v := view
-			params.View = &v
-		}
-		rec := httptest.NewRecorder()
-		api.HandleListTaskManualsApiTaskManualsGet(rec,
-			taskReq(t, "GET", "/api/task-manuals", nil, "m-exec", "agent"), params)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("list view=%q: %d %s", view, rec.Code, rec.Body.String())
-		}
-		var rows []map[string]any
-		if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil {
-			t.Fatalf("decode list view=%q: %v", view, err)
-		}
-		if len(rows) == 0 {
-			t.Fatalf("list view=%q returned no rows — the fixture stopped discriminating", view)
-		}
-		for _, row := range rows {
-			assertCaps(t, "list_task_manuals view="+view, row)
-		}
+	rec := httptest.NewRecorder()
+	api.HandleListTaskManualsApiTaskManualsGet(rec,
+		taskReq(t, "GET", "/api/task-manuals", nil, "m-exec", "agent"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list: %d %s", rec.Code, rec.Body.String())
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	if len(rows) == 0 {
+		t.Fatalf("list returned no rows — the fixture stopped discriminating")
+	}
+	for _, row := range rows {
+		assertCaps(t, "list_task_manuals", row)
 	}
 }
 

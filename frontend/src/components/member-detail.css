@@ -122,12 +122,37 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+/* The name yields, the id does not (T-5dab). The badge carries the member's
+   REAL id now — a longer string than the retired MB-XXX### label, and the one
+   thing on this row you cannot truncate without making it useless. So the name
+   half is the shrinkable one: it ellipses, and the id keeps its full width on
+   one line at every width. Without this the badge pushed out of the card at
+   ≤375px (the old label only did so at ≤320px). */
+.mp-identity__line .inline-edit {
+  min-width: 0;
 }
 .mp-identity__name {
   font-size: 20px;
   font-weight: 700;
   color: var(--color-text-strong);
   font-family: var(--font-title);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mp-identity__id {
+  /* Both are load-bearing, and `nowrap` is the one that states the intent (a
+     fixed-height chip must never take a second line — see
+     .claude/rules/css-layout-traps.md; `flex: none` is not a substitute for it).
+     Honest limit: on THIS card no measured width can force a break today, so
+     identity-real-id.ct.spec.tsx stays green without the nowrap (its M2). It is
+     unguarded, not unnecessary. */
+  white-space: nowrap;
+  flex: none;
 }
 /* The InlineEdit input inherits font via `font: inherit`; give the name row a
    larger, bold baseline so the edit field matches the display name's weight. */
@@ -672,12 +697,6 @@
   }
   .mp-identity__buttons .member-actions .btn {
     flex: 1 1 auto;
-  }
-  /* The id badge must never wrap its member id onto two lines or get clipped by
-   * the shrinking name field. */
-  .mp-identity__id {
-    white-space: nowrap;
-    flex: none;
   }
   .mp-info2,
   .mp-runtime__cells {
@@ -1662,10 +1681,20 @@
 }
 
 /* ---- resume summary card (RESUME SUMMARY, T-8b0d) ---- */
+/* The snapshot's own reading contract, drawn for the human with the SAME text
+ * the agent receives. It goes through `Markdown`, so this block styles a
+ * document, not a text node: the outer margins are collapsed away so the note
+ * still reads as one quiet paragraph block under the timestamp. */
 .mp-resume__note {
   margin-bottom: 12px;
   font-size: 12.5px;
   color: var(--color-text-muted);
+}
+.mp-resume__note > :first-child {
+  margin-top: 0;
+}
+.mp-resume__note > :last-child {
+  margin-bottom: 0;
 }
 .mp-resume__statsgrid {
   display: grid;
@@ -1710,16 +1739,61 @@
   color: var(--color-text-muted);
 }
 .mp-resume__chatrow {
+  /* 🔴 COLUMN, and this is the whole of the 2026-08-13 layout fix. It used to
+     be a plain `display: flex` — i.e. flex-direction: row — which laid the
+     meta, the body, the fold mark, the attachments and the card out as
+     HORIZONTAL siblings. All three things the owner circled on the screenshot
+     were that one fact:
+       - the body started to the RIGHT of the meta column, tens of pixels in
+         from the section title's left edge (measured: title.x=12, body.x=337
+         at 1280px) — 「標頭靠左、內文卻置中」;
+       - the fold mark was the third item on the row, pushed to the far right,
+         reading as a separate column rather than as a note on that message;
+       - the meta box got whatever width was left over, so the timestamp
+         wrapped onto its own line or not depending on how long the names were.
+     Stacking them puts every part of a message on the section's own left edge.
+     Pinned by visual-guards/resume-chat-row-align.ct.spec.tsx — the unit suite
+     cannot see any of this (jsdom resolves no flex). */
   display: flex;
-  gap: 8px;
-  padding: 6px 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
   font-size: 12.5px;
+  /* 🔴 A VISIBLE BOUNDARY PER MESSAGE (owner 2026-08-15, with a screenshot of
+     two messages running into each other). Before this the row was
+     `padding: 6px 0` with nothing else: no frame, no rule, no fill — so the
+     LAST LINE of one message's body and the FIRST LINE of the next message's
+     sender sat 12px apart with no signal of which message either belonged to.
+     He circled one message to show what he could not tell apart.
+     The frame is the cheapest thing that answers it: fill + hairline + radius,
+     and the gap between cards comes from the list's own `gap` below.
+     ⚠️ THE SIDE PADDING IS A KNOWN TRADE-OFF, not an oversight: it insets the
+     whole card ~10px from the section's left edge, which is the one thing
+     resume-chat-row-align.ct.spec.tsx was written to forbid. What that guard
+     actually protects — every PART of a message sharing ONE left edge — still
+     holds, and is what it asserts now; a card cannot have a visible boundary
+     and simultaneously bleed to the section edge. */
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 7%, transparent);
+  background: color-mix(in srgb, var(--color-overlay) 3%, transparent);
+}
+.mp-resume__chatrow + .mp-resume__chatrow {
+  /* The gap BETWEEN cards. Sibling-selector rather than a flex `gap` on a new
+     wrapper: the section's children are the folded-note legend, the truncation
+     marker and the messages, and only message-to-message needs this spacing —
+     the two notes already carry their own. */
+  margin-top: 6px;
 }
 .mp-resume__chatfrom {
   flex: none;
   color: var(--color-text-muted);
 }
 .mp-resume__chatbody {
+  /* Full width of the row now that the row is a column: without this the body
+     shrink-wraps to its longest word and a short message would sit in a narrow
+     box, which is the same "floating" look from a different cause. */
+  align-self: stretch;
   overflow-wrap: anywhere;
 }
 .mp-resume__taskrow {
@@ -1743,4 +1817,206 @@
 .mp-resume__taskstatus {
   flex: none;
   color: var(--color-text-muted);
+}
+
+/* ---- resume summary: the sections that line up with the agent's copy ----
+ * (roster / machines / in-place reply card / the two ABSENCE markers). The
+ * two absence markers are styled DIFFERENTLY on purpose: a folded message and
+ * a message that is not here at all are different statements, and giving them
+ * one look would undo the wording that keeps them apart. */
+.mp-resume__generated {
+  margin-bottom: 10px;
+  font-size: 12.5px;
+  color: var(--color-text-strong);
+}
+.mp-resume__generatedlabel {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.mp-resume__sectionhead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.mp-resume__sectiontoggle {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-text-muted);
+  font-size: 11.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mp-resume__chatmeta {
+  /* TWO STACKED LINES, structurally — the parties, then the timestamp. It was
+     one wrapping line, which is why the timestamp moved between rows: with
+     short names it fitted after the id, with long ones it wrapped. "Where does
+     the time go" then had no answer, only a width. Splitting it in the MARKUP
+     (rather than forcing a break with flex-basis) makes the answer the same at
+     every width and for every name length. */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  margin-bottom: 2px;
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+}
+/* Line 1 of the meta: from → to. Wraps internally when the names are long; that
+   wrap is fine because nothing downstream depends on this line's height. */
+.mp-resume__chatparties {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+/* Line 2 of the meta: the timestamp, and the reply-card status when there is
+   one. ALWAYS its own line, so it is always in the same place. */
+.mp-resume__chatstamp {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+.mp-resume__party {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.mp-resume__partyname {
+  color: var(--color-text-strong);
+  overflow-wrap: anywhere;
+}
+.mp-resume__partyid {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.mp-resume__arrow {
+  flex: none;
+}
+.mp-resume__chatts {
+  font-variant-numeric: tabular-nums;
+}
+.mp-resume__cardstatus {
+  font-size: 11px;
+}
+/* COLLAPSE marker — the text is still on the server. Muted: nothing is lost. */
+.mp-resume__folded {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+}
+/* TRUNCATION marker — messages are ABSENT and must be fetched. Set apart from
+ * the list with a rule and its own block, because it is a statement about the
+ * payload rather than about any one message in it.
+ *
+ * 🔴 THE RULE IS ON THE BOTTOM EDGE BECAUSE THE MARKER SITS ABOVE THE LIST.
+ * It carried `border-top` from the era when it rendered under the last message
+ * and had to be fenced off from what came before it. The marker moved to the
+ * top; a top rule now fences it off from the section heading (which it has no
+ * quarrel with) and leaves it touching the first message card — separating it
+ * from the wrong neighbour. What it must be set apart from is the list BELOW
+ * it, so the rule and the gap both live on that edge. */
+.mp-resume__chatcut {
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed
+    color-mix(in srgb, var(--color-overlay) 14%, transparent);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+.mp-resume__chatcutlabel {
+  display: block;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+/* The hint's own block. `Markdown` wraps its output in paragraphs, which carry
+ * the document margins from `.doc-md`; inside an 11.5px marker those read as a
+ * gap between the label and the sentence it introduces. */
+.mp-resume__chatcuthint > :first-child {
+  margin-top: 0;
+}
+.mp-resume__chatcuthint > :last-child {
+  margin-bottom: 0;
+}
+.mp-resume__foldednote {
+  /* The collapse LEGEND, drawn once above the message list. Quieter than a
+     message row: it explains a mark rather than reporting anything about the
+     conversation. */
+  margin-bottom: 8px;
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+.mp-resume__attachments {
+  margin-top: 2px;
+  font-size: 11.5px;
+}
+.mp-resume__card {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-overlay) 5%, transparent);
+  font-size: 12px;
+}
+.mp-resume__cardoptions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+.mp-resume__cardoption {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-overlay) 7%, transparent);
+  overflow-wrap: anywhere;
+}
+.mp-resume__cardoption[data-picked="true"] {
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  color: var(--color-text-strong);
+}
+.mp-resume__cardtag {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.mp-resume__cardtag--picked {
+  color: var(--color-text-strong);
+}
+.mp-resume__rosterrow,
+.mp-resume__machinerow {
+  padding: 6px 0;
+  font-size: 12.5px;
+}
+.mp-resume__machinerow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+.mp-resume__machinename {
+  overflow-wrap: anywhere;
+}
+.mp-resume__machineonline,
+.mp-resume__rosterkind,
+.mp-resume__rosterpresence {
+  color: var(--color-text-muted);
+  font-size: 11.5px;
+}
+.mp-resume__youareon {
+  padding: 4px 0 6px;
+  font-size: 12.5px;
 }

@@ -29,11 +29,17 @@
 //               `*.md` targets resolved through `resolveDocLink` into IN-APP
 //               navigation (T-68f1) — see the prop's doc comment.
 
-import { Fragment, type ReactNode } from "react";
+import { Fragment, useLayoutEffect, useRef, type ReactNode } from "react";
 
 interface MarkdownProps {
   source: string;
   className?: string;
+  /** Give task-card GFM tables a readable mobile posture without imposing one
+   * width on every column. The renderer measures each column's intrinsic
+   * unwrapped width; the task-card stylesheet applies the resulting floor only
+   * at the phone breakpoint. Other Markdown hosts keep their existing table
+   * behaviour unless they opt in. */
+  tableSizing?: "content-aware";
   /** Treat a single newline inside a paragraph as a HARD line break (<br>)
    * instead of markdown's default "soft wrap" (join with a space).
    *
@@ -118,6 +124,7 @@ const DOC_REL_PATH_RE = /^[A-Za-z0-9._~-]+(?:\/[A-Za-z0-9._~-]+)*\.md$/;
 /** Inline-render options threaded from <Markdown> down every block path. */
 interface InlineOpts {
   resolveDocLink?: (target: string) => (() => void) | null;
+  tableSizing?: "content-aware";
 }
 
 // Split one line of text into inline nodes: `code` spans, **bold** runs, and
@@ -181,6 +188,13 @@ function renderInline(text: string, opts?: InlineOpts): ReactNode[] {
     });
 }
 
+// 🔴 KEEP IN STEP WITH `blockOpeners` in server/ocserverd/
+// api_chat_resume_context_test.go. Two of the strings this renderer draws are
+// SERVER constants written for both a human and an agent (resumeNote,
+// resumeChatCutHint), and that guard asserts neither of them opens a block by
+// accident — a line that starts "1. " or "## " renders as markup for the human
+// while the agent reads it as prose. It works by mirroring the openers below,
+// so an opener added here without one added there is a hole nothing reports.
 const HEADING_RE = /^(#{1,3})\s+(.*)$/;
 const ULIST_RE = /^[-*]\s+(.*)$/;
 const OLIST_RE = /^(\d+)\.\s+(.*)$/;
@@ -300,6 +314,91 @@ function renderParagraph(
 // Never throw: a renderer shared by 18 surfaces must not be able to take the
 // page down over its input.
 const MAX_BLOCK_DEPTH = 16;
+
+const CONTENT_AWARE_TABLE_FLOOR_PX = 96;
+
+/**
+ * A table cell's useful mobile minimum is content-dependent. A short id/name
+ * column should stay narrow, while a column whose text would become a stack of
+ * single characters needs a readable floor. CSS intrinsic-size functions cannot
+ * express that branch reliably on table cells, so the opted-in renderer measures
+ * each column once and leaves the final mobile activation to the host stylesheet.
+ */
+function ContentAwareTable({
+  children,
+  measurementKey,
+}: {
+  children: ReactNode;
+  measurementKey: string;
+}) {
+  const tableRef = useRef<HTMLTableElement>(null);
+
+  useLayoutEffect(() => {
+    const table = tableRef.current;
+    if (!table || typeof document === "undefined") return;
+
+    const cells = Array.from(table.querySelectorAll("th, td")) as HTMLElement[];
+    const columns: HTMLElement[][] = [];
+    for (const cell of cells) {
+      const row = cell.parentElement;
+      if (!row) continue;
+      const column = Array.from(row.children).indexOf(cell);
+      (columns[column] ??= []).push(cell);
+    }
+
+    const intrinsicWidths = columns.map((columnCells) => {
+      let max = 0;
+      for (const cell of columnCells) {
+        // Measure a detached clone so the table's current max-width:100% does
+        // not feed back into the intrinsic width we are trying to discover.
+        const clone = cell.cloneNode(true) as HTMLElement;
+        const computed = getComputedStyle(cell);
+        clone.style.position = "absolute";
+        clone.style.left = "-100000px";
+        clone.style.top = "0";
+        clone.style.display = "inline-block";
+        clone.style.visibility = "hidden";
+        clone.style.pointerEvents = "none";
+        clone.style.width = "max-content";
+        clone.style.minWidth = "0";
+        clone.style.maxWidth = "none";
+        clone.style.whiteSpace = "nowrap";
+        clone.style.overflowWrap = "normal";
+        clone.style.wordBreak = "normal";
+        clone.style.boxSizing = computed.boxSizing;
+        clone.style.font = computed.font;
+        clone.style.lineHeight = computed.lineHeight;
+        clone.style.padding = computed.padding;
+        clone.style.border = computed.border;
+        document.body.appendChild(clone);
+        max = Math.max(max, clone.getBoundingClientRect().width);
+        clone.remove();
+      }
+      return max;
+    });
+
+    for (const [column, columnCells] of columns.entries()) {
+      const intrinsic = intrinsicWidths[column] ?? 0;
+      if (intrinsic <= 0) continue;
+      const minimum = Math.ceil(Math.min(intrinsic, CONTENT_AWARE_TABLE_FLOOR_PX));
+      for (const cell of columnCells) {
+        cell.style.setProperty("--md-table-column-min-width", `${minimum}px`);
+      }
+    }
+
+    return () => {
+      for (const cell of cells) {
+        cell.style.removeProperty("--md-table-column-min-width");
+      }
+    };
+  }, [measurementKey]);
+
+  return (
+    <table ref={tableRef} data-md-table-sizing="content-aware">
+      {children}
+    </table>
+  );
+}
 
 /** Parse the markdown source into an array of block-level React nodes. */
 function renderBlocks(
@@ -479,8 +578,8 @@ function renderBlocks(
         rows.push(cells);
         i++;
       }
-      blocks.push(
-        <table key={key++}>
+      const tableChildren = (
+        <>
           <thead>
             <tr>
               {headerCells.map((c, ci) => (
@@ -503,7 +602,17 @@ function renderBlocks(
               ))}
             </tbody>
           ) : null}
-        </table>
+        </>
+      );
+      const measurementKey = JSON.stringify([headerCells, rows]);
+      blocks.push(
+        opts?.tableSizing === "content-aware" ? (
+          <ContentAwareTable key={key++} measurementKey={measurementKey}>
+            {tableChildren}
+          </ContentAwareTable>
+        ) : (
+          <table key={key++}>{tableChildren}</table>
+        )
       );
       continue;
     }
@@ -586,13 +695,17 @@ function renderBlocks(
 export function Markdown({
   source,
   className,
+  tableSizing,
   breaks = false,
   resolveImageSrc,
   resolveDocLink,
 }: MarkdownProps) {
   return (
     <div className={className}>
-      {renderBlocks(source, breaks, resolveImageSrc, { resolveDocLink })}
+      {renderBlocks(source, breaks, resolveImageSrc, {
+        resolveDocLink,
+        tableSizing,
+      })}
     </div>
   );
 }

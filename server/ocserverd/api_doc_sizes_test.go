@@ -57,10 +57,20 @@ func listTaskManualsBody(t *testing.T, api *apiServer) string {
 	t.Helper()
 	rec := httptest.NewRecorder()
 	api.HandleListTaskManualsApiTaskManualsGet(rec,
-		taskReq(t, http.MethodGet, "/api/task-manuals", nil, "m-exec", "agent"),
-		HandleListTaskManualsApiTaskManualsGetParams{})
+		taskReq(t, http.MethodGet, "/api/task-manuals", nil, "m-exec", "agent"))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list_task_manuals: %d %s", rec.Code, rec.Body.String())
+	}
+	return rec.Body.String()
+}
+
+func getTaskManualBody(t *testing.T, api *apiServer, typeKey string) string {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	api.HandleGetTaskManualApiTaskManualsTypeKeyGet(rec,
+		taskReq(t, http.MethodGet, "/api/task-manuals/"+typeKey, nil, "m-exec", "agent"), typeKey)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get_task_manual: %d %s", rec.Code, rec.Body.String())
 	}
 	return rec.Body.String()
 }
@@ -80,8 +90,10 @@ func listTaskManualsBody(t *testing.T, api *apiServer) string {
 // same number of DIGITS, so an unchanged response length is exact equality and
 // needs no tolerance. The two controls stop this from passing vacuously: the
 // reported sizes must actually move (the writes landed and are reflected), and
-// list_task_manuals — the path this endpoint exists to replace — must grow by
-// roughly the document growth on the very same fixture.
+// get_task_manual — a path that still carries the prose — must grow by roughly
+// the document growth on the very same fixture. (That control used to be
+// list_task_manuals; since T-1170 the listing shares the property under test,
+// so it moved to the assertion side.)
 func TestPeekDocSizesResponseDoesNotGrowWithDocumentContent(t *testing.T) {
 	const small, large = 10000, 99999
 	api := capsTestServer(t, maxDocCapChars, maxDocCapChars, maxDocCapChars)
@@ -95,10 +107,12 @@ func TestPeekDocSizesResponseDoesNotGrowWithDocumentContent(t *testing.T) {
 	writeEveryCappedDoc(t, api, role, manualKey, small)
 	beforeBody, before := peekDocSizes(t, api)
 	beforeOldPath := len(listTaskManualsBody(t, api))
+	beforeFullRead := len(getTaskManualBody(t, api, manualKey))
 
 	writeEveryCappedDoc(t, api, role, manualKey, large)
 	afterBody, after := peekDocSizes(t, api)
 	afterOldPath := len(listTaskManualsBody(t, api))
+	afterFullRead := len(getTaskManualBody(t, api, manualKey))
 
 	if len(afterBody) != len(beforeBody) {
 		t.Fatalf("the response grew with the documents: %d -> %d bytes\nbefore=%s\nafter=%s",
@@ -127,13 +141,34 @@ func TestPeekDocSizesResponseDoesNotGrowWithDocumentContent(t *testing.T) {
 		}
 	}
 
-	// CONTROL 2 — the SAME growth on the SAME fixture, measured through the
-	// path this endpoint replaces. If list_task_manuals did not blow up here,
-	// the fixture never grew and control 1 alone could be satisfied by luck.
-	if afterOldPath-beforeOldPath < large-small {
-		t.Fatalf("list_task_manuals should have grown by at least the document growth "+
+	// CONTROL 2 — the SAME growth on the SAME fixture, measured through a path
+	// that DOES carry the text. Without it the fixture might never have grown
+	// and control 1 alone could be satisfied by luck.
+	//
+	// 🔴 This control used to be list_task_manuals, and that stopped working
+	// when T-1170 took the bodies off the listing: it now has the very property
+	// under test, so it can no longer play the "expensive path" role. The
+	// per-type read is what still carries the prose.
+	if afterFullRead-beforeFullRead < large-small {
+		t.Fatalf("get_task_manual should have grown by at least the document growth "+
 			"(%d runes) — it grew %d bytes (%d -> %d); the fixture is not exercising the problem",
-			large-small, afterOldPath-beforeOldPath, beforeOldPath, afterOldPath)
+			large-small, afterFullRead-beforeFullRead, beforeFullRead, afterFullRead)
+	}
+
+	// …and the listing, which used to be that control, must now hold the line
+	// too: it is the DEFAULT read, which is where the cost actually lands.
+	//
+	// Not byte-for-byte equality, and the slack is not a fudge: the row carries
+	// numbers that legitimately move (the reported sizes, and updated_ts, which
+	// the writes above bump), so a couple of digits' difference is metadata, not
+	// documents. The property is that the listing does not grow BY THE DOCUMENT,
+	// so the bound is a metadata-sized constant against a 90k-rune fixture —
+	// three orders of magnitude apart, which is why no tuning question arises.
+	const metadataSlack = 64
+	if grew := afterOldPath - beforeOldPath; grew > metadataSlack {
+		t.Fatalf("list_task_manuals grew with the documents: %d -> %d bytes (+%d, "+
+			"slack is %d — that is document-sized, not metadata-sized)",
+			beforeOldPath, afterOldPath, grew, metadataSlack)
 	}
 }
 

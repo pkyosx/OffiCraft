@@ -151,6 +151,23 @@ func (assetRoot) readSeedFileFrom(filename string, embedded fs.FS) (string, erro
 	return strings.ReplaceAll(string(raw), ownerPlaceholder, wireOwnerID), nil
 }
 
+// seedBlockMD reads one shipped boot-context seed and reports whether it EXISTS
+// (T-791e). It is readSeedFile with the missing-file case answered instead of
+// raised, for the same reason seedInsightMD does it: "there is no factory
+// version of this document" is a legitimate answer that the reset/compare faces
+// turn into a 404, while any other IO error must still propagate (fail-closed —
+// a read that failed for a real reason may never be laundered into "no seed").
+func (root assetRoot) seedBlockMD(filename string) (string, bool, error) {
+	text, err := root.readSeedFile(filename)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	return text, true, nil
+}
+
 // seedRoleDefinitionMD returns the file-backed role-definition markdown for a
 // SEED roleKey ("" + false when unknown).
 func (root assetRoot) seedRoleDefinitionMD(roleKey string) (string, bool, error) {
@@ -354,9 +371,68 @@ type bootContext struct {
 // historical default.
 func bootSequenceSeedName(runtime string) string {
 	if NormalizeRuntime(runtime) == RuntimeCodex {
-		return "boot_sequence_codex.md"
+		return bootSequenceSeedCodex
 	}
-	return "boot_sequence.md"
+	return bootSequenceSeedClaude
+}
+
+// The two shipped boot-sequence seed filenames + the one system-interaction
+// seed. Named so the doc-key derivation below can compare against the ANSWER of
+// bootSequenceSeedName instead of asking the runtime a second question.
+const (
+	bootSequenceSeedClaude   = "boot_sequence.md"
+	bootSequenceSeedCodex    = "boot_sequence_codex.md"
+	systemInteractionSeedMD  = "system_interaction.md"
+	bootSequenceKeyClaude    = RuntimeClaude
+	bootSequenceKeyCodex     = RuntimeCodex
+	systemInteractionDocKey  = "global"
+	docKindSystemInteraction = "system_interaction"
+	docKindBootSequence      = "boot_sequence"
+)
+
+// The 下線程序 document (T-c9c0). A SINGLETON like the system-interaction block —
+// one document keyed "global" for every agent and every runtime — because unlike
+// the boot sequence, being collected is the same procedure whatever runtime you
+// are: report, write the in-flight work back, hand yourself over, stop. There is
+// deliberately no runtime axis to get wrong here.
+const (
+	offboardSeedMD  = "offboard.md"
+	offboardDocKey  = "global"
+	docKindOffboard = "offboard"
+)
+
+// bootSequenceDocKey names the EDITABLE DOCUMENT that carries a runtime's boot
+// sequence (T-791e).
+//
+// 🔴 It reads the answer of bootSequenceSeedName rather than testing the runtime
+// itself, on purpose: that function is documented as the single place in the
+// tree that decides which runtime gets which sequence, and it holds that title
+// only as long as nobody writes a second `== RuntimeCodex` beside it. The two
+// boot sequences contradict each other in step 3 (claude: mount your own
+// `ocagent listen`; codex: do NOT, the sidecar owns it), so a second decision
+// point that drifts hands a worker the sequence that keeps it from booting —
+// silently, because a worker that never comes online is never there to say so.
+func bootSequenceDocKey(runtime string) string {
+	if bootSequenceSeedName(runtime) == bootSequenceSeedCodex {
+		return bootSequenceKeyCodex
+	}
+	return bootSequenceKeyClaude
+}
+
+// bootSequenceSeedForKey resolves a boot_sequence DOCUMENT KEY (as it arrives on
+// the URL) back to its seed filename, reporting whether the key names a real
+// document at all.
+//
+// The validity test is `bootSequenceDocKey(key) == key`: the keys ARE the
+// runtime names, so a key that survives a round trip through the single decision
+// point is one this server serves, and everything else ("", "Codex", "opus") is
+// not. Written this way rather than as a literal set so the set cannot fall out
+// of step with the decision point it is supposed to mirror.
+func bootSequenceSeedForKey(key string) (string, bool) {
+	if bootSequenceDocKey(key) != key {
+		return "", false
+	}
+	return bootSequenceSeedName(key), true
 }
 
 // buildBootContext resolves the role + folds the role docs + assembles the
@@ -388,7 +464,13 @@ func (s *apiServer) buildBootContext(role string, member *Member, taskType strin
 	if err != nil {
 		return nil, err
 	}
-	sysSeed, err := s.root.readSeedFile("system_interaction.md")
+	// 🔴 THE EDITED VERSION WINS, THE SEED IS THE FALLBACK (T-791e). These two
+	// blocks used to be bare readSeedFile calls, i.e. the shipped bytes and
+	// nothing else. They now go through the same overlay ⊕ seed fold the
+	// cockpit's editor reads and writes, which is what makes an edit take effect
+	// on the next boot instead of on the next release. An installation that has
+	// never edited them folds to the identical seed bytes.
+	sysSeed, err := s.systemInteractionText()
 	if err != nil {
 		return nil, err
 	}
@@ -396,7 +478,7 @@ func (s *apiServer) buildBootContext(role string, member *Member, taskType strin
 	if member != nil {
 		memberRuntime = member.Runtime
 	}
-	bootSeed, err := s.root.readSeedFile(bootSequenceSeedName(memberRuntime))
+	bootSeed, err := s.bootSequenceText(memberRuntime)
 	if err != nil {
 		return nil, err
 	}

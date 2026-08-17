@@ -666,11 +666,82 @@ func codexListenerArgv(workdir string) []string {
 	return []string{filepath.Join(workdir, "ocagent"), "listen", "-verbose"}
 }
 
+// codexListenerActions decides what ONE listener line does to the session:
+// whether it wakes a session whose boot is still unfinished, and whether it is
+// forwarded to the model as a turn. It is a pure function so the decision can be
+// tested without an App Server — the loop below owns only the side effects.
+// codexListenerState carries the once-only wake flag across listener lines.
+type codexListenerState struct{ wakeSent bool }
+
+// handleListenerLine runs the side effects ONE listener line is owed, with the
+// effects injected so the branching can be driven without an App Server.
+//
+// 🔴 THE DECISION TABLE IS NOT THE BEHAVIOUR. An earlier version of this
+// package pinned only codexListenerActions, and independent review deleted both
+// the wake call and the flag write from the loop with the whole ocwarden suite
+// still green — the ticket's entire reason for existing could be removed and
+// nothing turned red. A pure function says what SHOULD happen; this seam is
+// what lets a test see that it DID.
+//
+// ⚠️ ONE RESIDUE, AND WHAT HOLDS IT IS AN ACCIDENT. Deleting the CALL to this
+// method from the listener loop still leaves the whole ocwarden suite green;
+// what reddens is `uplink-guard`, because uplinks.json's codex-hop-4 anchors on
+// the reportIdentity/requestRateLimits pair that happens to live in the closure
+// passed here. That is INCIDENTAL COVERAGE, not design — move those two calls
+// out of the closure and the residue reopens with nothing to announce it.
+// Recorded rather than closed: closing it properly needs a test that drives the
+// real loop, and the review (T-99a6) judged the residue non-blocking.
+func (st *codexListenerState) handleListenerLine(
+	line string, onConnect func(), openTurn func(string),
+) {
+	wake, forward := codexListenerActions(line, st.wakeSent)
+	if strings.HasPrefix(strings.TrimSpace(line), "[ocagent] listen: connected") {
+		onConnect()
+	}
+	// ONCE per session, and deliberately not on reconnects: this wake exists to
+	// continue a boot that has not finished, and by the second connect that boot
+	// is long over. A reconnect is a network blip — every one of them opening a
+	// fresh "go do your inventory" turn would spend tokens re-doing work and
+	// would interrupt whatever the agent is actually in the middle of.
+	if wake {
+		st.wakeSent = true
+		openTurn(codexPostBootWake)
+	}
+	if forward {
+		openTurn(line)
+	}
+}
+
+func codexListenerActions(line string, wakeAlreadySent bool) (wake, forward bool) {
+	connected := strings.HasPrefix(strings.TrimSpace(line), "[ocagent] listen: connected")
+	return connected && !wakeAlreadySent, actionableCodexListenerLine(line)
+}
+
 func actionableCodexListenerLine(line string) bool {
 	// Transport diagnostics belong in the pane, not in the model transcript.
 	// Sending the connected/reconnect chatter creates empty, token-heavy turns.
 	return !strings.HasPrefix(strings.TrimSpace(line), "[ocagent] listen:")
 }
+
+// codexPostBootWake is the turn this sidecar opens ONCE, the first time the
+// listener's stream is up (T-51b0).
+//
+// 🔴 WITHOUT IT, THE BOOT SEQUENCE ENDS IN A DEAD STOP. The order the owner
+// asked for is wake → resume → SSE → continue work, and only a sidecar can
+// deliver the third arrow: this runtime's agent must NOT mount its own
+// listener, so it ends its boot turn and hands control back here. But a codex
+// agent only ever runs when a listener line is turned into a turn, and the
+// connected line above is deliberately filtered out — so the agent that just
+// handed control back would sit there until some unrelated event happened to
+// arrive. Its boot document's post-SSE steps (the task inventory) would never
+// run, and nothing anywhere would report it: an agent that never starts looks
+// exactly like an agent with nothing to do.
+//
+// The text names the STEP rather than restating it. The boot document is the
+// owner's and it moves; a copy of its wording here would be a second source of
+// truth that goes stale silently — the failure this whole ticket is made of.
+const codexPostBootWake = "[OffiCraft sidecar] 你的事件流（SSE）已經接上了。" +
+	"請接著做開機說明裡「接上 SSE 之後」的那些步驟（盤點你手上還沒結束的任務並開始推進）。"
 
 func runCodexSession(argv []string, env func(string) string, out io.Writer) int {
 	fs := flag.NewFlagSet("ocwarden codex-session", flag.ContinueOnError)
@@ -767,6 +838,7 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 
 	listenerLines := make(chan string, 32)
 	listenerStarted := false
+	listenerState := &codexListenerState{}
 	// Telemetry is intentionally in-memory on the server.  A quiet App Server
 	// thread must therefore re-announce its lightweight identity after a server
 	// restart; use the same 30-second cadence as token telemetry, not a noisy
@@ -791,15 +863,20 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 			// ocagent emits this exact lifecycle line each time its SSE stream
 			// opens. A server restart therefore restores account telemetry
 			// immediately, then restarts the normal 30-second cadence.
-			if strings.HasPrefix(strings.TrimSpace(line), "[ocagent] listen: connected") {
-				s.reportIdentity()
-				s.requestRateLimits()
-				identityHeartbeat.Reset(codexTelemetryThrottle)
-			}
-			if actionableCodexListenerLine(line) {
-				s.activity("OffiCraft event: %s", line)
-				s.steerOrStart(line)
-			}
+			listenerState.handleListenerLine(line,
+				func() {
+					s.reportIdentity()
+					s.requestRateLimits()
+					identityHeartbeat.Reset(codexTelemetryThrottle)
+				},
+				func(text string) {
+					if text == codexPostBootWake {
+						s.activity("waking the session now that SSE is up")
+					} else {
+						s.activity("OffiCraft event: %s", text)
+					}
+					s.steerOrStart(text)
+				})
 		case msg, ok := <-s.messages:
 			if !ok {
 				s.messages = nil

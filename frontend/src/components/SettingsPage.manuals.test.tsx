@@ -136,9 +136,16 @@ describe("設定 › 任務手冊 — list", () => {
       displayName: "審查 PR",
       purpose: "",
       fields: [],
+      assignee: null,
+    });
+    // T-1170: the LIST answer does not carry either long document — so the
+    // blankness of a fresh manual is asserted where it is actually readable,
+    // on the manual's own read.
+    expect(manual).not.toHaveProperty("sopMd");
+    expect(manual).not.toHaveProperty("learnings");
+    expect(await api.getTaskManual(manual.typeKey)).toMatchObject({
       sopMd: "",
       learnings: "",
-      assignee: null,
     });
     const row = getByTestId(`manual-open-${manual.typeKey}`);
     expect(

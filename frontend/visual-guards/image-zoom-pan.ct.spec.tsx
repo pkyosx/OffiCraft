@@ -117,8 +117,11 @@ async function swipe(page: Page, wrap: Locator, dx: number, dy: number) {
 
 async function mountStory(mount: (c: JSX.Element) => Promise<Locator>, page: Page) {
   await page.setViewportSize({ width: 900, height: 700 });
-  const cmp = await mount(<ImageZoomPanStory />);
-  const wrap = cmp.locator(".md-preview__image-wrap");
+  await mount(<ImageZoomPanStory />);
+  // The overlay portals to `document.body` (T-76cd), so the mount root does not
+  // contain it. `body` is the smallest root that does.
+  const cmp = page.locator("body");
+  const wrap = page.locator(".md-preview__image-wrap");
   await expect(wrap).toBeVisible();
   // The fit box is measured on load; wait for a settled non-zero image rect.
   await expect
@@ -286,7 +289,7 @@ test("the zoom controls stay on screen while the image is panned", async ({ moun
     el.scrollLeft = el.scrollWidth;
     el.scrollTop = el.scrollHeight;
   });
-  const cluster = cmp.locator(".md-preview__zoom");
+  const cluster = page.locator(".md-preview__zoom");
   const c = (await cluster.boundingBox())!;
   const f = (await geometry(wrap)).frame;
   expect(c.x, "the zoom cluster must not travel out of the frame with the content").toBeGreaterThanOrEqual(f.left - EPS);
@@ -302,8 +305,11 @@ test("the zoom controls stay on screen while the image is panned", async ({ moun
 // itself the zoom cannot be left switched on.
 test("the zoom percentage is the true magnification for a width-fitted image", async ({ mount, page }) => {
   await page.setViewportSize({ width: 900, height: 700 });
-  const cmp = await mount(<WideShortImageZoomStory />);
-  const wrap = cmp.locator(".md-preview__image-wrap");
+  await mount(<WideShortImageZoomStory />);
+  // The overlay portals to `document.body` (T-76cd), so the mount root does not
+  // contain it. `body` is the smallest root that does.
+  const cmp = page.locator("body");
+  const wrap = page.locator(".md-preview__image-wrap");
   await expect(wrap).toBeVisible();
   await expect.poll(async () => (await geometry(wrap)).image.right - (await geometry(wrap)).image.left).toBeGreaterThan(100);
 
@@ -333,12 +339,13 @@ test("the zoom percentage is the true magnification for a width-fitted image", a
 for (const height of [420, 500, 560, 700]) {
   test(`a ${height}px-tall viewport gives the image ONE scrollbar, not two`, async ({ mount, page }) => {
     await page.setViewportSize({ width: 900, height });
-    const cmp = await mount(<ImageZoomPanStory />);
-    const wrap = cmp.locator(".md-preview__image-wrap");
+    await mount(<ImageZoomPanStory />);
+    const cmp = page.locator("body");
+    const wrap = page.locator(".md-preview__image-wrap");
     await expect(wrap).toBeVisible();
     await expect.poll(async () => (await geometry(wrap)).image.right - (await geometry(wrap)).image.left).toBeGreaterThan(100);
 
-    const body = cmp.locator(".md-preview__body");
+    const body = page.locator(".md-preview__body");
     const bodyOverflow = await body.evaluate((el) => el.scrollHeight - el.clientHeight);
     expect(bodyOverflow, "the panel body must not scroll behind the image frame's own scrollbar").toBeLessThanOrEqual(1);
 
@@ -572,9 +579,12 @@ test.describe("touch", () => {
 // while the declaration still reads 40.
 test("the zoom controls are thumb-sized at phone width", async ({ mount, page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  const cmp = await mount(<ImageZoomPanStory />);
-  await expect(cmp.locator(".md-preview__image-wrap")).toBeVisible();
-  const buttons = cmp.locator(".md-preview__zoom button");
+  await mount(<ImageZoomPanStory />);
+  // The overlay portals to `document.body` (T-76cd), so the mount root does not
+  // contain it. `body` is the smallest root that does.
+  const cmp = page.locator("body");
+  await expect(page.locator(".md-preview__image-wrap")).toBeVisible();
+  const buttons = page.locator(".md-preview__zoom button");
   await expect(buttons).toHaveCount(2);
   for (const name of ["縮小", "放大"]) {
     const box = (await cmp.getByRole("button", { name }).boundingBox())!;

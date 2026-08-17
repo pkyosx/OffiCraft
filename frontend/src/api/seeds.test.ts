@@ -14,6 +14,7 @@ import {
   SEED_INSIGHT_ASSISTANT_MD,
   SEED_BOOT_SEQUENCE_MD,
   SEED_BOOT_SEQUENCE_CODEX_MD,
+  SEED_OFFBOARD_MD,
 } from "./seeds";
 
 // The same raw sources seeds.ts reads — imported independently here so the
@@ -24,6 +25,7 @@ import LESSONS_RAW from "../../../seeds/lessons.md?raw";
 import INSIGHT_ASSISTANT_RAW from "../../../seeds/insight_assistant.md?raw";
 import BOOT_SEQUENCE_RAW from "../../../seeds/boot_sequence.md?raw";
 import BOOT_SEQUENCE_CODEX_RAW from "../../../seeds/boot_sequence_codex.md?raw";
+import OFFBOARD_RAW from "../../../seeds/offboard.md?raw";
 
 const foldOwnerId = (raw: string): string =>
   raw.replace(/\{OWNER_ID\}/g, MOCK_OWNER_ID);
@@ -46,6 +48,7 @@ describe("seeds constants track seeds/*.md by construction", () => {
     { name: "insight_assistant", exported: SEED_INSIGHT_ASSISTANT_MD, raw: INSIGHT_ASSISTANT_RAW },
     { name: "boot_sequence", exported: SEED_BOOT_SEQUENCE_MD, raw: BOOT_SEQUENCE_RAW },
     { name: "boot_sequence_codex", exported: SEED_BOOT_SEQUENCE_CODEX_MD, raw: BOOT_SEQUENCE_CODEX_RAW },
+    { name: "offboard", exported: SEED_OFFBOARD_MD, raw: OFFBOARD_RAW },
   ];
 
   it.each(cases)(

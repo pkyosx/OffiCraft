@@ -429,6 +429,42 @@ type BootCommandResultDTO struct {
 	Token          string `json:"token"`
 }
 
+// BootDocumentDTO ONE editable block of the boot context (T-791e): the 系統互動 handbook (“kind="system_interaction"“, “key="global"“) or one runtime's 啟動程序 checklist (“kind="boot_sequence"“, “key="claude"“/“"codex"“).
+//
+// The served text is FOLDED: the owner's overlay when one exists, otherwise the seed compiled into this binary. Editing writes only the overlay — the seed is never modified, which is what lets the reset route reach factory text without depending on anything the editor could have corrupted.
+//
+// “is_default“ and “has_seed“ answer DIFFERENT questions: the first is "has anybody edited this block", the second is "does a factory version exist to go back TO" (the reset's precondition — that route 404s when it is false).
+type BootDocumentDTO struct {
+	// CapChars The size cap now in force on THIS document, in CHARACTERS (the doc.cap_chars.system_interaction or doc.cap_chars.boot_sequence setting). Served on the read face so an edit can be sized BEFORE it is written — the settings surface holding the cap is admin-only, so otherwise being refused is the only way to learn it.
+	CapChars *int `json:"cap_chars,omitempty"`
+
+	// HasSeed True when a FACTORY version of this block ships in this binary, i.e. there is something for the reset route to restore. It says nothing about whether what you are holding IS that factory text — is_default answers that. True in every shipped build; served rather than assumed so a build whose seeds were not staged cannot be offered a 還原 button that 404s.
+	HasSeed *bool `json:"has_seed,omitempty"`
+
+	// IsDefault True while nobody has edited this block (or it has been reset), i.e. the text you are reading is the shipped seed. False means you are reading somebody's edit.
+	IsDefault *bool `json:"is_default,omitempty"`
+
+	// Key Which document within the kind: "global" for system_interaction; the RUNTIME ("claude" or "codex") for boot_sequence. The two boot sequences are separate documents because step 3 of each says the opposite of the other.
+	Key *string `json:"key,omitempty"`
+
+	// Kind "system_interaction" or "boot_sequence" — also the document-history kind of this document's retained versions.
+	Kind          *string `json:"kind,omitempty"`
+	OwnerId       *string `json:"owner_id,omitempty"`
+	SchemaVersion *int    `json:"schema_version,omitempty"`
+
+	// SizeChars Size of `text` in CHARACTERS (Unicode code points) — the same unit as cap_chars.
+	SizeChars *int `json:"size_chars,omitempty"`
+
+	// Text The folded document: the overlay when one exists, otherwise the shipped seed.
+	Text *string `json:"text,omitempty"`
+}
+
+// BootDocumentReplaceDTO Whole-document replace of one boot-context block: “{text}“. “text“ is REQUIRED — a whole-document replace must never infer "empty" from a missing key. “allow_shrink“ (default false) must be set explicitly to replace existing content with an empty document, the same wipe-guard posture “replace_global_context“ carries.
+type BootDocumentReplaceDTO struct {
+	AllowShrink *bool  `json:"allow_shrink,omitempty"`
+	Text        string `json:"text"`
+}
+
 // BootstrapDTO The agent boot package (§3.4 #29, §2.4). “context“ is the assembled agent
 // persona — role definition + global context + lessons, folded and concatenated
 // into one readable markdown block (the North Star's "rich enough to converse and
@@ -568,20 +604,64 @@ type ChatGalleryEntryDTO struct {
 	Url       string   `json:"url"`
 }
 
+// ChatInlineReplyCardDTO One reply card FOLDED IN PLACE onto the chat message that opened it
+// (“ChatMessageDTO.card“), so the wake snapshot reads as a single stream and
+// not as a chat list plus a card list to be joined by hand.
+//
+// This is deliberately NOT a second top-level “cards“ section: a card already
+// HAS a home in the stream (its “chat_message_id“), and giving it a second one
+// would carry the same decision twice in one payload.
+//
+// It carries the DECISION and nothing else — the options offered, which one was
+// picked, the free text, and when. The card's “summary“ / “body“ / kind /
+// attachments are NOT here: the chat message this rides on already carries the
+// ask, and “get_reply_card“ serves the rest.
+type ChatInlineReplyCardDTO struct {
+	// AnswerOptionIdx Index into ``options`` of the option that was picked; ``null`` when the card was answered with free text only, or is not answered yet.
+	AnswerOptionIdx *int `json:"answer_option_idx,omitempty"`
+
+	// AnswerText The free-text answer, ``""`` when none was given.
+	AnswerText *string `json:"answer_text,omitempty"`
+
+	// AnsweredAtDisplay ``answered_ts`` rendered as ``YYYY-MM-DD HH:MM:SS ±HH:MM`` in the server's local zone — the same full date + time + offset form as ``ChatMessageDTO.ts_display``, for the same reason. ``""`` while the card is unanswered.
+	AnsweredAtDisplay *string `json:"answered_at_display,omitempty"`
+
+	// AnsweredTs Epoch seconds the card was answered; ``0`` while it is still waiting.
+	AnsweredTs *float64 `json:"answered_ts,omitempty"`
+
+	// Options The frozen quick-reply wording as it was offered (``options[0]`` is the AI pick). Empty for a card opened without options.
+	Options *[]string `json:"options,omitempty"`
+}
+
 // ChatMessageDTO API representation of one “domain.ChatMessage“. The wire uses “from“ /
 // “to“; “from“ is a Python reserved word so the field is “from_“ carrying
 // the alias “from“ (FastAPI serialises by alias).
 type ChatMessageDTO struct {
-	Attachments *[]ChatAttachmentDTO    `json:"attachments,omitempty"`
-	Body        *string                 `json:"body,omitempty"`
-	From        string                  `json:"from"`
-	Id          string                  `json:"id"`
-	Meta        *map[string]interface{} `json:"meta,omitempty"`
+	Attachments *[]ChatAttachmentDTO `json:"attachments,omitempty"`
+	Body        *string              `json:"body,omitempty"`
+
+	// BodyOmittedChars COLLAPSE marker: how many characters of THIS message's body were folded away when the wake snapshot shortened it; ``0`` = the body is carried in full. The folded text is still on the server — re-read the message with ``get_chat`` to see it. This is NOT the same thing as ``ResumeSummaryDTO.chat_earlier_omitted``, which reports whole messages that are ABSENT from the payload: one message shortened, versus messages not carried at all. Always ``0`` outside the wake snapshot (``list_chat`` never collapses a body).
+	BodyOmittedChars *int `json:"body_omitted_chars,omitempty"`
+
+	// Card The reply card this message carries, FOLDED IN PLACE onto the message that opened it — the options offered and the answer given, so a waking agent reads the decision in the chat stream instead of joining a second list. Omitted (``null``) when the message carries no card, and only ever filled for cards the snapshot's own subject INITIATED.
+	Card *ChatInlineReplyCardDTO `json:"card,omitempty"`
+	From string                  `json:"from"`
+
+	// FromName The sender's DISPLAY name, resolved server-side from the roster (ANY roster status, so a dismissed member still reads by name). ``from`` stays the ADDRESS and never changes meaning — this field is carried IN ADDITION so a reader gets both the human name and the id it must reply to. ``""`` when the sender does not resolve to a roster row (honest empty — never fabricated).
+	FromName *string                 `json:"from_name,omitempty"`
+	Id       string                  `json:"id"`
+	Meta     *map[string]interface{} `json:"meta,omitempty"`
 
 	// ReplyCardStatus Read-time join: the CURRENT status (``waiting`` | ``answered``) of the reply card this message carries (``meta.reply_card_id``); ``""`` when the message carries no card. Lets the inline chat card (ChatReplyCard) decide AT MOUNT whether to load eagerly (waiting — show the answer composer) or lazily (answered — collapse, fetch the full card only when the owner expands it) WITHOUT a per-card GET. NOT stored — computed each read from the card's live status (the stored ``meta`` only ever holds the id, stamped ``waiting`` at open and never updated on answer).
-	ReplyCardStatus *string  `json:"reply_card_status,omitempty"`
-	To              string   `json:"to"`
-	Ts              *float64 `json:"ts,omitempty"`
+	ReplyCardStatus *string `json:"reply_card_status,omitempty"`
+	To              string  `json:"to"`
+
+	// ToName The addressee's DISPLAY name, resolved the same way as ``from_name``. ``to`` remains the address; this rides alongside it, never instead of it.
+	ToName *string  `json:"to_name,omitempty"`
+	Ts     *float64 `json:"ts,omitempty"`
+
+	// TsDisplay ``ts`` rendered for a READER as ``YYYY-MM-DD HH:MM:SS ±HH:MM`` in the SERVER's local zone, e.g. ``2026-08-13 09:47:11 +08:00``. The offset is part of the string because the studio has no configured timezone setting — the string must carry its own zone or it cannot be read. The DATE IS ALWAYS WRITTEN, including for messages sent today: an agent reading a hand-off must be able to tell 「昨天」 from 「上週」 without knowing what day the snapshot was taken. ``ts`` (epoch seconds) is untouched and stays the machine-readable field.
+	TsDisplay *string `json:"ts_display,omitempty"`
 }
 
 // ChatPostDTO Post one chat message (§3.4 #16). “to“ is the addressee. The sender / “id“ /
@@ -664,12 +744,31 @@ type DocSummaryDTO struct {
 	Title string `json:"title"`
 }
 
-// DocumentHistoryDTO defines model for DocumentHistoryDTO.
+// DocumentHistoryDTO ONE retained revision of an editable document as a CATALOGUE ROW: which revision it is, when it was retained and by whom, whether it was a tombstone, and HOW LONG each of its fields was — never the text. A version list is how a reader CHOOSES a revision, and choosing does not need the prose: one list_document_history answer had a structural ceiling in the hundreds of thousands of characters and no narrowing of any kind. The body of a chosen revision is fetched one at a time (get_document_version).
+//
+// “field_chars“ is a MAP because the field names differ by kind (“text“ / “definition_md“ / “description“ / “title“) — the same keys that revision's “content“ carries, MINUS “tombstoned“, which is served as its own boolean rather than as a stringly-typed entry with a character count.
 type DocumentHistoryDTO struct {
+	ActorId    string         `json:"actor_id"`
+	CreatedTs  float64        `json:"created_ts"`
+	FieldChars map[string]int `json:"field_chars"`
+	Id         int64          `json:"id"`
+	Tombstoned bool           `json:"tombstoned"`
+}
+
+// DocumentHistoryRestoreDTO Receipt of a restore: the retained revision that was just written back, in the shape this route has always answered with — “content“ included. It is deliberately NOT the light catalogue row list_document_history now serves: a restore receipt names exactly one revision and its whole point is that this text is what the live document now holds.
+type DocumentHistoryRestoreDTO struct {
 	ActorId   string            `json:"actor_id"`
 	Content   map[string]string `json:"content"`
 	CreatedTs float64           `json:"created_ts"`
 	Id        int64             `json:"id"`
+}
+
+// DocumentHistoryVersionDTO The BODY of ONE named retained revision: the same “content“ map that revision was stored with (field names by kind — “text“ / “definition_md“ / “description“ / “title“, plus “tombstoned“), echoed alongside the address that was asked for. Read-only. It is the companion of list_document_history, which carries every revision's identity and sizes but no prose: choose from the list, then fetch exactly the one revision you mean to read.
+type DocumentHistoryVersionDTO struct {
+	Content map[string]string `json:"content"`
+	Id      int64             `json:"id"`
+	Key     string            `json:"key"`
+	Kind    string            `json:"kind"`
 }
 
 // DocumentSeedDTO The SHIPPED DEFAULT of an editable long-form document — what a reset puts back, expressed in the SAME field names a retained revision uses so one reader can compare either against the live document. READ-ONLY: this route writes nothing, so looking at 初始版本 can never overwrite anything. 404 when the document has no shipped default (a custom role, a task manual, per-role lessons) — exactly the documents whose reset the server also 404s.
@@ -1066,9 +1165,8 @@ type MemberAvatarDTO struct {
 
 // MemberDTO API representation of one “domain.Member“ (a roster member; §3.4 #8/#10).
 //
-// Carries the durable roster fields PLUS two projections the domain computes at
-// read time: “member_no“ (the “MB-XXX###“ display badge derived from “id“,
-// §3.10) and “presence“ (the DERIVED five-state
+// Carries the durable roster fields PLUS one projection the domain computes at
+// read time: “presence“ (the DERIVED five-state
 // offline/waking/online/stopping/stopped, §3.6 — never stored; the SINGLE
 // presence word on this wire). The raw “online“ / “waking_since“ /
 // “stopping_timed_out“ projections were removed from the wire (2026-07-11
@@ -1098,21 +1196,23 @@ type MemberDTO struct {
 	ActualRuntime *string `json:"actual_runtime,omitempty"`
 
 	// AvatarUrl Authenticated URL of this stable member id's personal raster avatar. Empty means no personal image; clients fall back to the active theme's role avatar, then the built-in glyph. Additive-optional for older clients.
-	AvatarUrl        *string  `json:"avatar_url,omitempty"`
-	DesiredMachineId *string  `json:"desired_machine_id,omitempty"`
-	DesiredState     *string  `json:"desired_state,omitempty"`
-	Effort           *string  `json:"effort,omitempty"`
-	Id               string   `json:"id"`
-	Kind             *string  `json:"kind,omitempty"`
-	LastOp           *string  `json:"last_op,omitempty"`
-	LastOpAt         *float64 `json:"last_op_at,omitempty"`
-	LastOpLog        *string  `json:"last_op_log,omitempty"`
-	LastOpOk         *bool    `json:"last_op_ok,omitempty"`
+	AvatarUrl        *string `json:"avatar_url,omitempty"`
+	DesiredMachineId *string `json:"desired_machine_id,omitempty"`
+	DesiredState     *string `json:"desired_state,omitempty"`
+	Effort           *string `json:"effort,omitempty"`
+
+	// ForcedStopAt Unix seconds of the last time this member was FORCE-stopped (the owner's 強制下線, or POST /members/{id}/force-stop), 0 when it never was. Unlike every other lifecycle anchor it is deliberately NOT cleared by the next boot: it records that the PREVIOUS session was cut off mid-work instead of being allowed to work the offboard sequence, and the reader who needs that most is the session that comes after. Without it, a hand-off that was never written and a hand-off that was never needed look identical on the roster (T-a9d6). Additive-optional.
+	ForcedStopAt *float64 `json:"forced_stop_at,omitempty"`
+	Id           string   `json:"id"`
+	Kind         *string  `json:"kind,omitempty"`
+	LastOp       *string  `json:"last_op,omitempty"`
+	LastOpAt     *float64 `json:"last_op_at,omitempty"`
+	LastOpLog    *string  `json:"last_op_log,omitempty"`
+	LastOpOk     *bool    `json:"last_op_ok,omitempty"`
 
 	// LastOpReason Structured one-line cause of the most recent warden op (the warden's ``<code>: <detail>`` refusal/failure summary, e.g. ``session_already_exists: ...``) — distinct from the free-form ``last_op_log`` dump. Empty when the receipt carried no reason (older warden, or a successful op); consumers then fall back to status-only display.
 	LastOpReason *string `json:"last_op_reason,omitempty"`
 	Machine      *string `json:"machine,omitempty"`
-	MemberNo     *string `json:"member_no,omitempty"`
 	Model        *string `json:"model,omitempty"`
 	Name         string  `json:"name"`
 	OwnerId      *string `json:"owner_id,omitempty"`
@@ -1600,6 +1700,22 @@ type RestartSelfDTO struct {
 	Reason *string `json:"reason,omitempty"`
 }
 
+// ResumeChatCutDTO The CUT POINT of the wake snapshot's chat: whether messages exist that this
+// payload does NOT carry, and how to go and get them.
+//
+// TRUNCATION, NOT COLLAPSE — the two are different failures and the payload names
+// them with different words on purpose. “ChatMessageDTO.body_omitted_chars“
+// reports a message that IS here with part of its text folded away. This reports
+// whole messages that are NOT here at all. Reading one as the other is how an
+// agent concludes it has seen a conversation it has not seen.
+type ResumeChatCutDTO struct {
+	// Hint How to retrieve what was cut, stated concretely enough to act on without reading the API reference: call ``get_chat`` with ``with`` set to the peer id and BOTH ``before_ts`` and ``before_id`` taken from the OLDEST message of that peer's line in this payload. The two cursor fields must be supplied TOGETHER — sending only one is a 422. ``""`` when nothing was cut.
+	Hint *string `json:"hint,omitempty"`
+
+	// Omitted ``true`` when at least one message involving the subject was left out of this payload (older than the budget's cut point, or beyond a conversation line's fetch window). ``false`` means the snapshot carries every message it knows about.
+	Omitted *bool `json:"omitted,omitempty"`
+}
+
 // ResumeMachineDTO One machine in the wake snapshot's machine block — the fleet a waking agent can reason about. “machine_id“ is the STABLE id: address a machine by id, never by the name a host reports for itself (our hosts report the SAME name as each other, so a hostname-derived answer silently picks the wrong box and every path/dispatch downstream is wrong without erroring). “display_name“ is the human label; “online“ is whether that machine's warden is connected right now.
 type ResumeMachineDTO struct {
 	DisplayName string `json:"display_name"`
@@ -1650,11 +1766,21 @@ type ResumeRosterMemberDTO struct {
 //
 //   - “identity“: the caller id (the verified “sub“). “None“ for a bare /
 //     unauthenticated request (degrades to an empty snapshot, never an error).
-//   - “chat“: the most recent messages INVOLVING the caller (sender == caller OR
-//     recipient == caller), oldest→newest, each “body“ truncated to the tighter
-//     wake-snapshot cap (this batch catch-up stays small; UNLIKE “list_chat“ which
-//     returns full bodies for reading a single coordination message). Empty when the
-//     caller has no chat — never an error.
+//   - “chat“: the recent messages INVOLVING the caller (sender == caller OR
+//     recipient == caller), oldest→newest, packed newest-first under a CHARACTER
+//     BUDGET rather than a fixed message count, stopping at the last message that
+//     still fits. Each message carries “from_name“ / “to_name“ beside the
+//     ids and “ts_display“ beside the epoch “ts“, and folds in its reply card
+//     (“card“) when it has one. Bodies from OTHER AGENTS are COLLAPSED to a short
+//     lead with “body_omitted_chars“ saying how much was folded; the owner's line
+//     and the caller's own hand-off notes to itself are carried IN FULL, because
+//     those are the two lines a wake actually resumes from. Empty when the caller
+//     has no chat — never an error.
+//   - “chat_earlier_omitted“: the CUT POINT — whether messages exist that this
+//     payload does not carry at all, and how to fetch them. Distinct from
+//     “body_omitted_chars“, which is a shortened message that IS here.
+//   - “generated_at“: when the snapshot was taken, with date, time and zone
+//     offset — the anchor for reading every “ts_display“ as an elapsed time.
 //   - “tasks“: the NON-TERMINAL tasks the caller EXECUTES (SPEC §6.2 — a handover
 //     resumes in-flight tasks, not just chat), most recently updated first, capped to
 //     a small N — LIGHT rows only (owner ruling: 任務不該包含細節): task_no / title /
@@ -1680,10 +1806,23 @@ type ResumeRosterMemberDTO struct {
 //
 // DETERMINISTIC (same server state → same output; no LLM) and read-only.
 type ResumeSummaryDTO struct {
-	Chat     *[]ChatMessageDTO  `json:"chat,omitempty"`
-	Identity *string            `json:"identity,omitempty"`
-	Machines *ResumeMachinesDTO `json:"machines,omitempty"`
-	Note     *string            `json:"note,omitempty"`
+	Chat *[]ChatMessageDTO `json:"chat,omitempty"`
+
+	// ChatEarlierOmitted The CUT POINT of the wake snapshot's chat: whether messages exist that this
+	// payload does NOT carry, and how to go and get them.
+	//
+	// TRUNCATION, NOT COLLAPSE — the two are different failures and the payload names
+	// them with different words on purpose. ``ChatMessageDTO.body_omitted_chars``
+	// reports a message that IS here with part of its text folded away. This reports
+	// whole messages that are NOT here at all. Reading one as the other is how an
+	// agent concludes it has seen a conversation it has not seen.
+	ChatEarlierOmitted *ResumeChatCutDTO `json:"chat_earlier_omitted,omitempty"`
+
+	// GeneratedAt When this snapshot was assembled, as ``YYYY-MM-DD HH:MM:SS ±HH:MM`` in the server's local zone. It is the ONLY anchor for turning any ``ts_display`` in this payload into 「多久以前」: a waking agent has no reliable clock of its own and must not assume its own wall clock matches the server's.
+	GeneratedAt *string            `json:"generated_at,omitempty"`
+	Identity    *string            `json:"identity,omitempty"`
+	Machines    *ResumeMachinesDTO `json:"machines,omitempty"`
+	Note        *string            `json:"note,omitempty"`
 
 	// Overview The size/概要 block of the wake snapshot — the peek-then-decide signals (look at the SIZES first, then decide what to pull and whether to hand the digest to a sub-agent instead of loading it into your own context). ``chat_count`` / ``tasks_returned`` count what THIS snapshot carries; ``tasks_open_total`` is ALL the caller's open tasks (may exceed the bounded rows — page with ``list_tasks``); ``tasks_detail_chars`` sums every returned row's ``detail_chars`` (the plan text a full ``get_task`` pull would load); ``cards_waiting`` / ``cards_answered_recent`` count the CALLER'S reply cards still waiting on the owner / answered within the last 24h (pull with ``list_reply_cards``, cap with its ``limit``). ``roster_chars`` / ``machines_chars`` (T-1b09) size the two studio-floor blocks THIS snapshot carries — reported separately, and deliberately NOT folded into ``tasks_detail_chars``: that one counts text the snapshot does NOT carry (the plan text a later ``get_task`` would load), so mixing the two kinds of number is what made ``estimated_total_chars`` ambiguous in the first place.
 	Overview *ResumeOverviewDTO       `json:"overview,omitempty"`
@@ -1698,14 +1837,18 @@ type ResumeSummaryDTO struct {
 // Identity-locked to the caller's VERIFIED JWT “sub“, it returns the SAME
 // “overview“ counts/sizes a full “resume_summary“ would report (assembled
 // through the shared server path, so they cannot drift) plus
-// “estimated_total_chars“ — a derived single number (the snapshot's chat body
-// chars, the plan text its task rows omit, and the roster + machine blocks it
-// carries) the boot threshold gates on — and
+// “estimated_total_chars“ — a derived single number the boot threshold gates on:
+// exactly “chat_chars“ + “tasks_detail_chars“ + “roster_chars“ +
+// “machines_chars“, all four reported in “overview“. That is the WHOLE chat
+// block as the snapshot renders it (“chat_chars“ is the rendered block's cost,
+// NOT the sum of the message bodies), plus the plan text its task rows omit and
+// the two studio-floor blocks it carries — and
 // a fixed guidance “note“. It carries NO chat bodies and NO task rows: peeking
 // it costs a few hundred bytes, so a waking agent can size “resume_summary“
 // BEFORE deciding whether to pull it into its own context or hand the pull to a
 // cheap sub-agent. DETERMINISTIC and read-only; a caller with no chat and no
-// tasks gets zeroes, never an error.
+// tasks gets an EMPTY snapshot's sizes, never an error — every COUNT is zero, and
+// the only non-zero size is the header that rides every payload.
 type ResumeSummarySizeDTO struct {
 	EstimatedTotalChars int     `json:"estimated_total_chars"`
 	Identity            *string `json:"identity,omitempty"`
@@ -1758,9 +1901,8 @@ type RoleCreateDTO struct {
 type RoleCreateResultDTO struct {
 	// Member API representation of one ``domain.Member`` (a roster member; §3.4 #8/#10).
 	//
-	// Carries the durable roster fields PLUS two projections the domain computes at
-	// read time: ``member_no`` (the ``MB-XXX###`` display badge derived from ``id``,
-	// §3.10) and ``presence`` (the DERIVED five-state
+	// Carries the durable roster fields PLUS one projection the domain computes at
+	// read time: ``presence`` (the DERIVED five-state
 	// offline/waking/online/stopping/stopped, §3.6 — never stored; the SINGLE
 	// presence word on this wire). The raw ``online`` / ``waking_since`` /
 	// ``stopping_timed_out`` projections were removed from the wire (2026-07-11
@@ -1820,6 +1962,28 @@ type RoleDefDTO struct {
 	SchemaVersion *int    `json:"schema_version,omitempty"`
 
 	// SizeChars Size of `definition_md` in CHARACTERS (Unicode code points) — the same unit as cap_chars.
+	SizeChars *int `json:"size_chars,omitempty"`
+}
+
+// RoleDefListItemDTO One row of the ROLE LISTING: everything RoleDefDTO carries EXCEPT the persona
+// body. “definition_md“ is deliberately absent rather than served empty — an
+// empty string in a field that normally holds the persona reads as "this role
+// has no definition", which is a different and false claim.
+//
+// “size_chars“ / “cap_chars“ are measured on the STORED document, so the row
+// still answers "which role definition is nearly full" without carrying any of
+// the text. Read the one you picked with get_role.
+type RoleDefListItemDTO struct {
+	// CapChars The Duty (role definition) size cap now in force, in CHARACTERS (the doc.cap_chars.duty setting). Served on the READ face so an agent can size an edit BEFORE writing it — the alternative is discovering the limit by being refused, and the settings surface is admin-only.
+	CapChars      *int    `json:"cap_chars,omitempty"`
+	IsDefault     *bool   `json:"is_default,omitempty"`
+	IsSeed        *bool   `json:"is_seed,omitempty"`
+	Key           string  `json:"key"`
+	Name          *string `json:"name,omitempty"`
+	OwnerId       *string `json:"owner_id,omitempty"`
+	SchemaVersion *int    `json:"schema_version,omitempty"`
+
+	// SizeChars Size of the role definition in CHARACTERS (Unicode code points) — the same unit as cap_chars. Measured on the STORED document, which this row does not carry: a zero here would be a measurement, not an omission.
 	SizeChars *int `json:"size_chars,omitempty"`
 }
 
@@ -2077,8 +2241,14 @@ type SettingsDTO struct {
 	// AgentTokenTtl Agent and outsource-worker JWT lifetime in seconds. Fresh installs default to 7 days.
 	AgentTokenTtl int `json:"agent_token_ttl"`
 
+	// ChatBudgetChars The wake snapshot's chat block budget, in CHARACTERS (Unicode code points). It bounds EVERYTHING `overview.chat_chars` counts — the messages and their folded cards plus the snapshot header and the cut hint — and it is the same number `peek_resume_summary_size` sizes its `estimated_total_chars` against, because both faces are assembled by one code path. Unlike the `doc_cap_chars_*` knobs this one may be LOWERED as well as raised: the chat block is repacked from scratch on every read, so a smaller budget simply returns fewer messages next time, with `chat_earlier_omitted` reporting the cut. The adjustable range is 1000..13000; the ceiling is tied to how many messages the packer reads before packing, so it is not a number that can be raised on its own.
+	ChatBudgetChars *int `json:"chat_budget_chars,omitempty"`
+
 	// CodexCompactionThreshold Codex context-compaction threshold, 1 through 10.
 	CodexCompactionThreshold *int `json:"codex_compaction_threshold,omitempty"`
+
+	// CodexNoticeRound The codex twin of notice_pct (T-a9d6): the compaction round at which the SOFT notice fires. A codex session hands over on compaction count, not on a percentage, so its pair is a pair of ROUNDS. Must be 1..10 and strictly below codex_compaction_threshold.
+	CodexNoticeRound int `json:"codex_notice_round"`
 
 	// CustomThemes The owner's saved custom theme bundles (T-16a1 P2), each a `{id,name,colors}` colour bundle. `[]` = none saved. display_theme may point at any id in this set (or a built-in). Governance-gated (owner/admin agent): rides GET /api/settings only.
 	CustomThemes *[]ThemeBundleDTO `json:"custom_themes,omitempty"`
@@ -2091,6 +2261,9 @@ type SettingsDTO struct {
 
 	// DisplayWide Whether the cockpit uses the WIDE layout — the centred ~1040px content column is lifted, the side gutters stay (T-756f). false (the default) = the narrow centred column, the shipped look. Same dual-layer contract as display_theme: the frontend keeps a localStorage cache for the pre-auth paint and reconciles this server value in at login as the cross-device source of truth.
 	DisplayWide *bool `json:"display_wide,omitempty"`
+
+	// DocCapCharsBootSequence The size cap on a 啟動程序 block of the boot context, in CHARACTERS (Unicode code points). ONE knob for BOTH runtimes (claude and codex), each document measured on its own text — they are two renderings of one short checklist, so a studio that needs more room for one needs it for the other. The floor of the adjustable range is this document's shipped default (the `default` field above), the ceiling is 100000.
+	DocCapCharsBootSequence *int `json:"doc_cap_chars_boot_sequence,omitempty"`
 
 	// DocCapCharsDuty The size cap on a role's DUTY doc (the role definition), in CHARACTERS (Unicode code points — Chinese prose counts one per character). The floor of the adjustable range is this segment's OWN shipped default (the `default` field above), which is smaller than the other three segments'; the ceiling is 100000. Duty had no cap at all before T-ae38.
 	DocCapCharsDuty *int `json:"doc_cap_chars_duty,omitempty"`
@@ -2106,10 +2279,21 @@ type SettingsDTO struct {
 
 	// DocCapCharsManualSop The size cap on a TASK MANUAL's SOP doc (sop_md), in CHARACTERS (Unicode code points). The floor of the adjustable range is this segment's shipped default (the `default` field above), the ceiling is 100000. Independent of doc_cap_chars_manual_learnings: the SOP is a written-once-then-refined blueprint while learnings accumulate, so the two documents are sized against separate budgets since T-30f1.
 	DocCapCharsManualSop *int `json:"doc_cap_chars_manual_sop,omitempty"`
-	HandoverPct          int  `json:"handover_pct"`
+
+	// DocCapCharsOffboard The size cap on the 下線程序 block, in CHARACTERS (Unicode code points). The floor of the adjustable range is this document's shipped default (the `default` field above), the ceiling is 100000. It is sized like the 啟動程序 blocks rather than the 系統互動 handbook: both are short ordered checklists an agent has to be able to finish under a deadline.
+	DocCapCharsOffboard *int `json:"doc_cap_chars_offboard,omitempty"`
+
+	// DocCapCharsSystemInteraction The size cap on the 系統互動 block of the boot context, in CHARACTERS (Unicode code points). The floor of the adjustable range is this document's shipped default (the `default` field above), the ceiling is 100000. It is far larger than the role-journal caps because the block it governs is the studio handbook every agent reads at boot, and it is sized against the seed that ships with it.
+	DocCapCharsSystemInteraction *int `json:"doc_cap_chars_system_interaction,omitempty"`
+
+	// HandoverPct The SECOND of the two offboard points: the FINAL notice, and the point the automatic handover itself fires. Must be 40..90 and strictly greater than notice_pct.
+	HandoverPct int `json:"handover_pct"`
 
 	// MonitoringRefreshSeconds Minimum interval between monitoring and machine refreshes, in seconds (1 through 60).
 	MonitoringRefreshSeconds *int `json:"monitoring_refresh_seconds,omitempty"`
+
+	// NoticePct The FIRST of the two offboard points (T-a9d6): the SOFT notice, where the agent is asked to work the offboard sequence and then call restart_self itself rather than idle until it is cut off. Must be 1..89 and strictly below handover_pct. An install upgraded from the single-threshold era reports handover_pct - 10 here, which is where the notice used to be derived.
+	NoticePct int `json:"notice_pct"`
 
 	// Onboarding The first-run onboarding report (T-ba62), or null when onboarding never ran on this database. Governance-gated (owner/admin agent) by virtue of living on GET /api/settings — a failed step's detail can carry local paths, so it must never reach the PUBLIC /api/auth/status probe.
 	Onboarding *OnboardingReportDTO `json:"onboarding,omitempty"`
@@ -2135,9 +2319,15 @@ type SettingsDTO struct {
 // independent and each MUST be one of 43200 / 86400 / 604800 / 2592000 seconds
 // (12h / 24h / 7d / 30d — a whitelist, so a stray 0 can never lock future logins
 // or agent mints out); owner changes apply from the next login and agent changes
-// from the next bootstrap, reconcile, or outsource spawn. `handover_pct` MUST be
-// 40..90 (the warn band sits at 40 — a handover threshold below it would fire
-// before the warning). Anything else is a 422. `outsource_max_parallel` MUST be -1..20 (-1 = 無限/unlimited — no global cap; 0 pauses outsource assignment).
+// from the next bootstrap, reconcile, or outsource spawn. The offboard points are a
+// PAIR (T-a9d6): `notice_pct` is the SOFT notice and `handover_pct` is the FINAL one
+// (and the point the handover itself fires). `handover_pct` MUST be 40..90,
+// `notice_pct` MUST be 1..89, and `notice_pct` MUST be strictly below
+// `handover_pct` — the pair is checked against the POST-patch values, so either may
+// be sent on its own, and a pair that would cross is a 422 rather than being
+// quietly reordered. `codex_notice_round` / `codex_compaction_threshold` are the
+// same pair on the codex axis (rounds, 1..10, notice strictly below threshold).
+// Anything else is a 422. `outsource_max_parallel` MUST be -1..20 (-1 = 無限/unlimited — no global cap; 0 pauses outsource assignment).
 // `updater_receive_beta` toggles whether the GitHub-release update check also
 // admits prereleases; `updater_auto_update` toggles unattended background
 // self-upgrade to the newest admissible release (both booleans, default false;
@@ -2150,8 +2340,14 @@ type SettingsDTO struct {
 type SettingsUpdateDTO struct {
 	AgentTokenTtl *int `json:"agent_token_ttl,omitempty"`
 
+	// ChatBudgetChars The wake snapshot's chat block budget, in CHARACTERS (Unicode code points). Must be between 1000 and 13000. Unlike the `doc_cap_chars_*` knobs the floor is NOT the shipped default — this budget may be lowered as well as raised, because the chat block is repacked on every read rather than stored. The ceiling is pinned to how many messages the packer reads before packing and cannot be raised on its own.
+	ChatBudgetChars *int `json:"chat_budget_chars,omitempty"`
+
 	// CodexCompactionThreshold Codex context-compaction threshold, 1 through 10.
 	CodexCompactionThreshold *int `json:"codex_compaction_threshold,omitempty"`
+
+	// CodexNoticeRound The codex SOFT-notice compaction round (T-a9d6). 1..10, and strictly below codex_compaction_threshold.
+	CodexNoticeRound *int `json:"codex_notice_round,omitempty"`
 
 	// CustomThemes Replace the owner's custom theme bundles (T-16a1 P2) with this array (each `{id,name,colors}`). Omit to leave them unchanged; `[]` clears them. Every bundle is validated against the shape, the theme.css token whitelist, and the concrete-colour grammar — any violation is a 422 and nothing is written. The ONE exception is an unrecognised `wording` code, which is dropped from the bundle instead of failing it (see ThemeBundleDTO.wording): that request is a 200 whose echo carries the pruned overlay. When this and display_theme are patched together, display_theme is validated against the POST-patch set; and deleting the active custom theme resets display_theme to "".
 	CustomThemes *[]ThemeBundleDTO `json:"custom_themes,omitempty"`
@@ -2164,6 +2360,9 @@ type SettingsUpdateDTO struct {
 
 	// DisplayWide Turn the WIDE cockpit layout on/off (T-756f) — true lifts the centred ~1040px content column (the side gutters stay), false restores it. A plain boolean with no unset state: omit the field to leave it unchanged.
 	DisplayWide *bool `json:"display_wide,omitempty"`
+
+	// DocCapCharsBootSequence The size cap on a 啟動程序 block of the boot context, in CHARACTERS (Unicode code points). One knob for both runtimes, each measured on its own text. Must be at least this document's shipped default (see `SettingsDTO.doc_cap_chars_boot_sequence`, whose `default` is that floor) and at most 100000.
+	DocCapCharsBootSequence *int `json:"doc_cap_chars_boot_sequence,omitempty"`
 
 	// DocCapCharsDuty The size cap on a role's DUTY doc (the role definition), in CHARACTERS (Unicode code points). Must be at least this segment's own shipped default (see `SettingsDTO.doc_cap_chars_duty`, whose `default` is that floor) and at most 100000.
 	DocCapCharsDuty *int `json:"doc_cap_chars_duty,omitempty"`
@@ -2179,10 +2378,21 @@ type SettingsUpdateDTO struct {
 
 	// DocCapCharsManualSop The size cap on a TASK MANUAL's sop_md doc, in CHARACTERS (Unicode code points). Must be at least this segment's shipped default (see `SettingsDTO.doc_cap_chars_manual_sop`, whose `default` is that floor) and at most 100000.
 	DocCapCharsManualSop *int `json:"doc_cap_chars_manual_sop,omitempty"`
-	HandoverPct          *int `json:"handover_pct,omitempty"`
+
+	// DocCapCharsOffboard The size cap on the 下線程序 block, in CHARACTERS (Unicode code points). Must be at least this document's shipped default (see `SettingsDTO.doc_cap_chars_offboard`, whose `default` is that floor) and at most 100000.
+	DocCapCharsOffboard *int `json:"doc_cap_chars_offboard,omitempty"`
+
+	// DocCapCharsSystemInteraction The size cap on the 系統互動 block of the boot context, in CHARACTERS (Unicode code points). Must be at least this document's shipped default (see `SettingsDTO.doc_cap_chars_system_interaction`, whose `default` is that floor) and at most 100000.
+	DocCapCharsSystemInteraction *int `json:"doc_cap_chars_system_interaction,omitempty"`
+
+	// HandoverPct The SECOND offboard point: the FINAL notice, and where the automatic handover fires. 40..90, and strictly greater than notice_pct (the pair is validated together against the POST-patch values, so either one may be sent alone).
+	HandoverPct *int `json:"handover_pct,omitempty"`
 
 	// MonitoringRefreshSeconds Minimum interval between monitoring and machine refreshes, in seconds. Must be 1 through 60.
 	MonitoringRefreshSeconds *int `json:"monitoring_refresh_seconds,omitempty"`
+
+	// NoticePct The FIRST offboard point (T-a9d6): the SOFT notice. 1..89, and strictly below handover_pct.
+	NoticePct *int `json:"notice_pct,omitempty"`
 
 	// OrgName The studio display name (T-d693) — trimmed, max 80 runes; "" clears it back to the localized default. A value longer than 80 runes is a 422.
 	OrgName              *string `json:"org_name,omitempty"`
@@ -2344,9 +2554,15 @@ type TaskDepsDTO struct {
 	BlockedBy []string `json:"blocked_by"`
 }
 
-// TaskDescriptionDTO Correct one task's description in place (MCP “update_task_description“, T-e271). PARTIAL update, shaped exactly like “update_task_manual“: the ONLY field is “description“, and omitting it is a legal no-op rather than a clear — an omitted field never changes anything, while an explicit “""“ DOES clear the description. That distinction is why the field is nullable-with-no-default instead of “default: ""“: a defaulted body could silently erase a description the caller never mentioned. Unknown keys are refused (“additionalProperties: false“), so a caller who reaches for “text“ or “desc“ is told rather than ignored. The write is wholesale within that one field — the value replaces whatever was there; there is no append form, because a description states what the task IS, not what has happened to it.
+// TaskDescriptionDTO Correct one task's description in place (T-e271). 🔴 SINCE T-646a THIS ROUTE IS NO LONGER AN MCP TOOL: the agent-facing tool is “update_task“, which writes this same field through the same code (updateTaskText). The route stays on the HTTP surface for the cockpit and any existing client, and its behaviour here is unchanged EXCEPT that the value is now TRIMMED of surrounding whitespace, before storage and before the unchanged-value comparison — owner card rc-0fb94a25a8a8, option ①. A description of only whitespace therefore trims to "" and CLEARS. PARTIAL update, shaped exactly like “update_task_manual“: the ONLY field is “description“, and omitting it is a legal no-op rather than a clear — an omitted field never changes anything, while an explicit “""“ DOES clear the description. That distinction is why the field is nullable-with-no-default instead of “default: ""“: a defaulted body could silently erase a description the caller never mentioned. Unknown keys are refused (“additionalProperties: false“), so a caller who reaches for “text“ or “desc“ is told rather than ignored. The write is wholesale within that one field — the value replaces whatever was there; there is no append form, because a description states what the task IS, not what has happened to it.
 type TaskDescriptionDTO struct {
 	Description *string `json:"description,omitempty"`
+}
+
+// TaskFieldsDTO Partial update of one task's own text (MCP “update_task“, T-646a). Both fields are nullable-with-no-default rather than defaulted, and that shape is the whole point: it keeps ABSENT and PRESENT-BUT-EMPTY distinguishable, so a body that never mentions the description cannot silently erase it. Unknown keys are refused (“additionalProperties: false“), so a caller reaching for “name“, “summary“, “text“ or “desc“ is told rather than ignored. The two fields part company on an explicit blank — “title“ refuses it with 400, “description“ accepts it and clears — and that asymmetry is an owner ruling (card rc-796541192519, option ①), not a leftover from the two DTOs this replaces. The body is validated as a WHOLE before anything is written: a blank title next to a valid description writes neither.
+type TaskFieldsDTO struct {
+	Description *string `json:"description,omitempty"`
+	Title       *string `json:"title,omitempty"`
 }
 
 // TaskLearningsPatchDTO Anchor-addressed PATCH of a type's learnings (MCP “patch_task_learnings“ — the learnings twin of “patch_lessons“): “{edits: [{old, new}], allow_shrink?}“. The write cost scales with the CHANGE, not the doc — a whole-doc “write_task_learnings“ stops fitting in one model output as the learnings grow (30k chars observed), so this is the primary write seam and whole-doc replace stays the last resort. ATOMIC — edits apply sequentially to an in-memory copy and any failing anchor (absent or ambiguous “old“) rejects the ENTIRE batch with a flat 400 and ZERO writes. “allow_shrink“ (default false) must be set explicitly for a patch that empties the doc or shrinks it to under a tenth of its size — the r-76 wipe-guard posture.
@@ -2427,7 +2643,7 @@ type TaskManualDTO struct {
 	// LearningsCapChars The cap on `learnings` now in force, in CHARACTERS (the doc.cap_chars.manual_learnings setting). Served on the READ face so an agent can size an edit BEFORE writing it. Independent of sop_md_cap_chars since T-30f1.
 	LearningsCapChars *int `json:"learnings_cap_chars,omitempty"`
 
-	// LearningsChars Size of `learnings` in CHARACTERS. Reported PER CAPPED DOCUMENT rather than as one total, because learnings and sop_md are judged separately — against their own caps since T-30f1. Carried on the light ?view=list projection too, where the bulky text itself is omitted but its size is not.
+	// LearningsChars Size of `learnings` in CHARACTERS. Reported PER CAPPED DOCUMENT rather than as one total, because learnings and sop_md are judged separately — against their own caps since T-30f1. The listing carries the same measurement without the text (TaskManualListItemDTO).
 	LearningsChars *int    `json:"learnings_chars,omitempty"`
 	Purpose        *string `json:"purpose,omitempty"`
 	SopMd          *string `json:"sop_md,omitempty"`
@@ -2489,6 +2705,40 @@ type TaskManualFieldDTO struct {
 	IsKey    *bool  `json:"is_key,omitempty"`
 	Name     string `json:"name"`
 	Required *bool  `json:"required,omitempty"`
+}
+
+// TaskManualListItemDTO One row of the TASK-MANUAL LISTING: the type's identity and its dispatch
+// setting — “type_key“ / “display_name“ / “purpose“ / “fields“ /
+// “assignee“ / “updated_ts“ — plus the SIZES of the two long documents it
+// does NOT carry and the cap each is judged against.
+//
+// “sop_md“ and “learnings“ are deliberately ABSENT rather than served empty:
+// they are the bulk that made a listing unreadable, and an empty string in a
+// field that normally holds the SOP reads as "this type has no SOP". Their
+// sizes are measured on the STORED rows, so the row still answers "which manual
+// is nearly full" — read the one you picked with get_task_manual.
+type TaskManualListItemDTO struct {
+	Assignee map[string]interface{} `json:"assignee"`
+
+	// CapChars DEPRECATED since T-30f1 — read learnings_cap_chars or sop_md_cap_chars instead. The manual's SOP and learnings are judged by two SEPARATE caps now, and one field cannot report both: this one carries the LEARNINGS cap (doc.cap_chars.manual_learnings) only, and says nothing about sop_md. Kept so existing clients keep reading a real number rather than a zero.
+	CapChars    *int                 `json:"cap_chars,omitempty"`
+	DisplayName string               `json:"display_name"`
+	Fields      []TaskManualFieldDTO `json:"fields"`
+
+	// LearningsCapChars The cap on the type's learnings now in force, in CHARACTERS (the doc.cap_chars.manual_learnings setting). Served on the READ face so an agent can size an edit BEFORE writing it. Independent of sop_md_cap_chars since T-30f1.
+	LearningsCapChars *int `json:"learnings_cap_chars,omitempty"`
+
+	// LearningsChars Size of the type's learnings in CHARACTERS, measured on the STORED document — which this row does not carry. Reported PER CAPPED DOCUMENT rather than as one total, because learnings and sop_md are judged against their own caps since T-30f1.
+	LearningsChars *int    `json:"learnings_chars,omitempty"`
+	Purpose        *string `json:"purpose,omitempty"`
+
+	// SopMdCapChars The cap on the type's sop_md now in force, in CHARACTERS (the doc.cap_chars.manual_sop setting). See learnings_cap_chars.
+	SopMdCapChars *int `json:"sop_md_cap_chars,omitempty"`
+
+	// SopMdChars Size of the type's sop_md in CHARACTERS, measured on the STORED document. See learnings_chars.
+	SopMdChars *int     `json:"sop_md_chars,omitempty"`
+	TypeKey    string   `json:"type_key"`
+	UpdatedTs  *float64 `json:"updated_ts,omitempty"`
 }
 
 // TaskManualUpdateDTO Partial manual edit — only supplied fields change. “assignee“ is {"kind":"member","member_id":…} or {"kind":"outsource","runtime":"claude|codex","model":…,"effort":…,"copies":N,"machine":…}; {} unsets it. Outsource runtime absent means claude; “copies“ MUST be a number >= 0 (0 = 無限 — unlimited per-type parallel copies; absent = 1); “machine“ MUST be a non-blank machine id when present, and must resolve to a real machine ("auto" is rejected — it names no machine); absent leaves the type without a placement.
@@ -2633,7 +2883,7 @@ type TaskStepStatusUpdateDTO struct {
 	WaitingReason *string `json:"waiting_reason,omitempty"`
 }
 
-// TaskTitleDTO Correct one task's title in place (MCP “update_task_title“, T-2ebe). PARTIAL update in “TaskDescriptionDTO“'s shape: the ONLY field is “title“, omitting it is a legal no-op that versions nothing, and unknown keys are refused (“additionalProperties: false“) so a caller who reaches for “name“ or “summary“ is told rather than ignored. ONE DELIBERATE DIFFERENCE FROM THE DESCRIPTION TWIN, and it is a difference in kind rather than an oversight: an explicit blank (“""“ or whitespace-only) is REFUSED with 400 instead of clearing the field. “create_task“ has always refused a blank title on the same terms, and an edit door looser than the create door would let a caller reach a state the create door forbids — a task whose only cell on the task list is empty, which is precisely the surface this capability exists to keep true. The value is trimmed of surrounding whitespace before it is stored, again matching create. The write is wholesale within that one field; there is no append form.
+// TaskTitleDTO Correct one task's title in place (T-2ebe). 🔴 SINCE T-646a THIS ROUTE IS NO LONGER AN MCP TOOL: the agent-facing tool is “update_task“, which writes this same field through the same code (updateTaskText). The route stays on the HTTP surface for the cockpit and any existing client, and its behaviour here is unchanged. PARTIAL update in “TaskDescriptionDTO“'s shape: the ONLY field is “title“, omitting it is a legal no-op that versions nothing, and unknown keys are refused (“additionalProperties: false“) so a caller who reaches for “name“ or “summary“ is told rather than ignored. ONE DELIBERATE DIFFERENCE FROM THE DESCRIPTION TWIN, and it is a difference in kind rather than an oversight: an explicit blank (“""“ or whitespace-only) is REFUSED with 400 instead of clearing the field. “create_task“ has always refused a blank title on the same terms, and an edit door looser than the create door would let a caller reach a state the create door forbids — a task whose only cell on the task list is empty, which is precisely the surface this capability exists to keep true. The value is trimmed of surrounding whitespace before it is stored, again matching create. The write is wholesale within that one field; there is no append form.
 type TaskTitleDTO struct {
 	Title *string `json:"title,omitempty"`
 }
@@ -2805,6 +3055,19 @@ type HandleListChatApiChatGetParams struct {
 
 	// CallerOnly When true, return only messages involving both the verified caller and the optional `with` participant. Omitted or false preserves the existing participant-wide result.
 	CallerOnly *bool `form:"caller_only,omitempty" json:"caller_only,omitempty"`
+
+	// Ids RE-READ SPECIFIC MESSAGES BY ID — repeatable (``?ids=<id>&ids=<id>``), returning those messages IN FULL (whole body, attachment refs and all), oldest→newest.
+	//
+	// This is what makes the wake snapshot's fold marker honest (T-a828). ``ChatMessageDTO.body_omitted_chars`` > 0 says THIS message is here with part of its text folded away and tells the reader to re-read it with get_chat — but until this parameter existed get_chat took only a peer plus a paging cursor, so there was NO WAY TO NAME THE FOLDED MESSAGE. The promise beside the fold was not keepable, which made folding a silent drop.
+	//
+	// ANSWERED ON ITS OWN: when ``ids`` is present, ``with``, ``limit``, ``before_ts``/``before_id`` and ``peek`` are NOT consulted, and a by-ids read NEVER advances a read watermark — re-reading a message you were already shown is not reading the conversation. Blank entries are dropped and duplicates collapse; an all-blank or empty set behaves exactly as if the parameter had not been sent.
+	//
+	// YOURS ONLY, AND ONLY HERE: an id whose ``sender`` and ``recipient`` are both someone other than the verified caller is REFUSED with 403, and ONE such id refuses the WHOLE call rather than just that entry. Holding an id is not permission to read a conversation between two other people, and no parameter widens a by-ids read past that. This bound belongs to THIS PARAMETER, not to ``get_chat`` as a whole: the ordinary listing filters on ``with`` — a PARTICIPANT — not on the caller, so a plain read of a peer's line still answers with a conversation the caller was never in (designed behaviour; ``caller_only`` is what narrows a listing to the caller). Do not read this paragraph as a claim about the endpoint.
+	//
+	// ALL OR NOTHING ON AN UNKNOWN ID: an id no message carries refuses the WHOLE call with 404 and names it. Deliberately not 'skip it and return the rest': a short array is indistinguishable from the fold this parameter exists to undo, so a caller could not tell a deleted message from one it simply did not ask for.
+	//
+	// AT MOST 20 DISTINCT IDS per call (counted after blanks are dropped); more is a 400 that states the limit. The cap is the response bound: 20 × the 4,000-rune body cap is the worst case one call can emit. It is not 'unfold a whole snapshot in one call' — name the ones that matter and call again.
+	Ids *[]string `form:"ids,omitempty" json:"ids,omitempty"`
 }
 
 // HandleListChatAttachmentsApiChatAttachmentsGetParams defines parameters for HandleListChatAttachmentsApiChatAttachmentsGet.
@@ -2852,12 +3115,6 @@ type HandleListReplyCardsApiReplyCardsGet200JSONResponseBody struct {
 	union json.RawMessage
 }
 
-// HandleListTaskManualsApiTaskManualsGetParams defines parameters for HandleListTaskManualsApiTaskManualsGet.
-type HandleListTaskManualsApiTaskManualsGetParams struct {
-	// View ``list`` = the LIGHT row: type_key / display_name / purpose / updated_ts plus the SIZES of the omitted text (``sop_md_chars``, ``learnings_chars``) and the caps each is judged against (``sop_md_cap_chars``, ``learnings_cap_chars`` — the older ``cap_chars`` is DEPRECATED: it carries the LEARNINGS cap only and says nothing about sop_md), with sop_md and learnings served empty and fields/assignee empty. Any other value, or omitting it, keeps the DEFAULT: the full manual of every type, SOP and learnings included. Reach for ``list`` whenever you are matching or choosing a type rather than executing one — the two answers differ by orders of magnitude in size, and the light row still carries the sizes, so you can see what you skipped and fetch just that type with get_task_manual.
-	View *string `form:"view,omitempty" json:"view,omitempty"`
-}
-
 // HandleListTasksApiTasksGetParams defines parameters for HandleListTasksApiTasksGet.
 type HandleListTasksApiTasksGetParams struct {
 	Executor *string `form:"executor,omitempty" json:"executor,omitempty"`
@@ -2891,6 +3148,9 @@ type HandleChangePasswordApiAuthChangePasswordPostJSONRequestBody = ChangePasswo
 
 // HandleSetPasswordApiAuthSetPasswordPostJSONRequestBody defines body for HandleSetPasswordApiAuthSetPasswordPost for application/json ContentType.
 type HandleSetPasswordApiAuthSetPasswordPostJSONRequestBody = SetPasswordDTO
+
+// HandleReplaceBootSequenceApiBootSequenceRuntimeKeyPostJSONRequestBody defines body for HandleReplaceBootSequenceApiBootSequenceRuntimeKeyPost for application/json ContentType.
+type HandleReplaceBootSequenceApiBootSequenceRuntimeKeyPostJSONRequestBody = BootDocumentReplaceDTO
 
 // HandleBootstrapApiBootstrapPostJSONRequestBody defines body for HandleBootstrapApiBootstrapPost for application/json ContentType.
 type HandleBootstrapApiBootstrapPostJSONRequestBody = BootstrapRequestDTO
@@ -2958,6 +3218,9 @@ type HandleMintApiMintPostJSONRequestBody = MintRequestDTO
 // HandleIngestTelemetryApiMonitoringTelemetryPostJSONRequestBody defines body for HandleIngestTelemetryApiMonitoringTelemetryPost for application/json ContentType.
 type HandleIngestTelemetryApiMonitoringTelemetryPostJSONRequestBody = AgentTelemetryIngestDTO
 
+// HandleReplaceOffboardApiOffboardPostJSONRequestBody defines body for HandleReplaceOffboardApiOffboardPost for application/json ContentType.
+type HandleReplaceOffboardApiOffboardPostJSONRequestBody = BootDocumentReplaceDTO
+
 // HandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPostJSONRequestBody defines body for HandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost for application/json ContentType.
 type HandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPostJSONRequestBody = OutsourceWorkerModelDTO
 
@@ -2994,6 +3257,9 @@ type HandleReportWakingApiSelfWakingPostJSONRequestBody = ReportWakingDTO
 // HandleUpdateSettingsApiSettingsPatchJSONRequestBody defines body for HandleUpdateSettingsApiSettingsPatch for application/json ContentType.
 type HandleUpdateSettingsApiSettingsPatchJSONRequestBody = SettingsUpdateDTO
 
+// HandleReplaceSystemInteractionApiSystemInteractionPostJSONRequestBody defines body for HandleReplaceSystemInteractionApiSystemInteractionPost for application/json ContentType.
+type HandleReplaceSystemInteractionApiSystemInteractionPostJSONRequestBody = BootDocumentReplaceDTO
+
 // HandleCreateTaskManualApiTaskManualsPostJSONRequestBody defines body for HandleCreateTaskManualApiTaskManualsPost for application/json ContentType.
 type HandleCreateTaskManualApiTaskManualsPostJSONRequestBody = TaskManualCreateDTO
 
@@ -3008,6 +3274,9 @@ type HandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchPostJSONRequestB
 
 // HandleCreateTaskApiTasksPostJSONRequestBody defines body for HandleCreateTaskApiTasksPost for application/json ContentType.
 type HandleCreateTaskApiTasksPostJSONRequestBody = TaskCreateDTO
+
+// HandleUpdateTaskApiTasksTaskIdPostJSONRequestBody defines body for HandleUpdateTaskApiTasksTaskIdPost for application/json ContentType.
+type HandleUpdateTaskApiTasksTaskIdPostJSONRequestBody = TaskFieldsDTO
 
 // HandleAddTaskArtifactApiTasksTaskIdArtifactPostJSONRequestBody defines body for HandleAddTaskArtifactApiTasksTaskIdArtifactPost for application/json ContentType.
 type HandleAddTaskArtifactApiTasksTaskIdArtifactPostJSONRequestBody = TaskArtifactInputDTO
@@ -3133,13 +3402,22 @@ type ServerInterface interface {
 	// Backup health: is the scheduled backup still producing retreat points?
 	// (GET /api/backup-health)
 	HandleGetBackupHealthApiBackupHealthGet(w http.ResponseWriter, r *http.Request)
+	// Read one runtime's 啟動程序 block — the boot checklist that ends that runtime's boot context. runtime_key is 'claude' or 'codex'; they are separate documents because step 3 of the two says opposite things (claude mounts its own `ocagent listen`, codex must not — the sidecar owns it), so any other value is a 404 rather than a silent fallback to claude. Folded: the owner's edit when one exists, otherwise the shipped factory seed. The reply carries size_chars/cap_chars (this document's own size limit, in characters) and is_default/has_seed, so a caller can size an edit before making it and can tell an edited block from the shipped one.
+	// (GET /api/boot-sequence/{runtime_key})
+	HandleGetBootSequenceApiBootSequenceRuntimeKeyGet(w http.ResponseWriter, r *http.Request, runtimeKey string)
+	// Replace the WHOLE 啟動程序 block of ONE runtime ({runtime_key, text}). runtime_key is 'claude' or 'codex' and the two are separate documents whose step 3 contradicts each other, so writing the wrong one leaves those agents unable to come online — and nothing that never boots reports it. text is REQUIRED and unknown keys are rejected; emptying a block that had content needs allow_shrink=true. Judged against the doc.cap_chars.boot_sequence cap (one cap, both runtimes, each measured on its own text); the refusal tells you what you wrote, the cap, and what is stored. The shipped seed is never overwritten, so reset_boot_sequence always gets the factory text back. Owner or admin assistant only.
+	// (POST /api/boot-sequence/{runtime_key})
+	HandleReplaceBootSequenceApiBootSequenceRuntimeKeyPost(w http.ResponseWriter, r *http.Request, runtimeKey string)
+	// Restore ONE runtime's 啟動程序 block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). runtime_key is 'claude' or 'codex'; anything else is a 404. No length cap is applied on this path — the factory text is part of the product, so no setting can block the way back to it, which is what makes this the recovery route when a bad edit has stopped agents from booting. The overlay being discarded is retained in the document history. Owner or admin assistant only.
+	// (POST /api/boot-sequence/{runtime_key}/reset)
+	HandleResetBootSequenceApiBootSequenceRuntimeKeyResetPost(w http.ResponseWriter, r *http.Request, runtimeKey string)
 	// Assemble an agent boot context + mint the member JWT (spawn seam).
 	// (POST /api/bootstrap)
 	HandleBootstrapApiBootstrapPost(w http.ResponseWriter, r *http.Request)
-	// List the chat stream (?with=<id>&limit=<n>; oldest→newest).
+	// List the chat stream (?with=<id>&limit=<n>; oldest→newest). History paging: before_ts + before_id (both together) return the limit messages strictly OLDER than that keyset cursor — a history page NEVER advances the read watermark. Re-read specific messages by id: ids=<id>&ids=<id> returns those messages in full without a peer and without a cursor; the ids schema states who may read what, the per-call limit, and what an unknown id does.
 	// (GET /api/chat)
 	HandleListChatApiChatGet(w http.ResponseWriter, r *http.Request, params HandleListChatApiChatGetParams)
-	// Post a chat message (sender = verified JWT sub; auto SSE fan-out).
+	// Post a chat message (sender = verified JWT sub; auto SSE fan-out). “to“ must name the owner or an active AI member; unknown, removed, and machine ids are rejected. Presence is not a gate: an offline member keeps its durable mailbox.
 	// (POST /api/chat)
 	HandlePostChatApiChatPost(w http.ResponseWriter, r *http.Request)
 	// Serve a chat attachment blob (owner-gated; raw bytes + stored mime).
@@ -3151,7 +3429,7 @@ type ServerInterface interface {
 	// Upload one attachment blob (raw octet-stream body; returns the light ref).
 	// (POST /api/chat/attachments)
 	HandleUploadChatAttachmentApiChatAttachmentsPost(w http.ResponseWriter, r *http.Request, params HandleUploadChatAttachmentApiChatAttachmentsPostParams)
-	// Mint a permanent single-file share link (?sig= HMAC; grants read of this one attachment only).
+	// Mint a permanent single-file share link (?sig= HMAC; grants read of this one attachment only). Returns {url} as a SERVER-RELATIVE path — prefix it with the origin you reach this server on to get a link you can paste to someone. The sig carries NO identity and NO expiry: whoever holds the link reads that one blob without signing in, forever, and it cannot be revoked. Mint it for deliverables you meant to hand over; do not paste it anywhere the blob itself would not belong.
 	// (GET /api/chat/attachments/{attachment_id}/share-link)
 	HandleGetChatAttachmentShareLinkApiChatAttachmentsAttachmentIdShareLinkGet(w http.ResponseWriter, r *http.Request, attachmentId string)
 	// Mark a conversation read up to a watermark (reader = verified sub).
@@ -3163,7 +3441,7 @@ type ServerInterface interface {
 	// Total chat unread count (the office nav red dot).
 	// (GET /api/chat/unread-count)
 	HandleChatUnreadCountApiChatUnreadCountGet(w http.ResponseWriter, r *http.Request)
-	// Size-only overview of every capped document (each against its own cap; NO content; role lessons = DEFAULT bucket only).
+	// Size-only overview of EVERY capped document on the station: each role's role definition / insight / DEFAULT lessons bucket, and each task manual's SOP / learnings, as size_chars plus the cap_chars in force for THAT segment (the five segments have five separate caps — each is reported against its own). LIMITATION: lessons is reported for the default bucket only; nothing stops a write from naming another bucket, and such a document spends the same lessons cap yet never appears here. Carries NO document text, so it costs a few hundred bytes. Use it to find which long-lived document is nearly full, then read only that one (get_role / get_insight / get_lessons / get_task_manual). It is the only way to see insight and lessons sizes in bulk — no listing reports those at any price; the manual sizes and caps are also on every list_task_manuals row, and a role definition's size and cap are already on every list_roles row.
 	// (GET /api/doc-sizes)
 	HandlePeekDocSizesApiDocSizesGet(w http.ResponseWriter, r *http.Request)
 	// List the product-guide docs (slug + title).
@@ -3175,12 +3453,31 @@ type ServerInterface interface {
 	// Read one product-guide doc in full (markdown; unknown slug → 404).
 	// (GET /api/docs/{slug})
 	HandleGetDocApiDocsSlugGet(w http.ResponseWriter, r *http.Request, slug string)
-	// List retained versions of an editable document.
+	// READ the CATALOGUE of retained versions of one editable document: which versions exist, when each was replaced and by whom, whether each was a tombstone, and HOW LONG each of its fields was. It does NOT carry the versions themselves — a version list is how you CHOOSE one, and choosing does not need the prose; fetch the one you picked with get_document_version. Read-only, newest first, and only the most recent few are kept — HOW MANY is per-document and is not stated here, because it differs by kind and this sentence would go stale silently; what you get back is the answer. Putting a version BACK is deliberately not an agent tool — the owner does that from the cockpit — so this cannot change anything.
+	//
+	// WHICH DOCUMENTS THIS COVERS, AND WHAT `key` LOOKS LIKE FOR EACH, ARE DELIBERATELY NOT LISTED HERE. A list of kinds — or of key shapes — written into a description goes stale the moment a new editable document ships, and NOTHING turns red when it does: this description used to enumerate six kinds and a key shape per kind, and both had already gone stale before the lists were taken out. Two rules you can actually execute replace them.
+	//
+	// ADDRESSING: `kind` and `key` are validated by the same server-side gate that answers get_document_seed, so whatever that tool can address, this one can too, and the two can never silently disagree. A `kind` this server does not know is refused with 400; a retired kind is refused with 400 naming the series that replaced it. Some kinds also police the shape of `key` before answering — a key this kind does not serve, or one that fails that kind's required shape, is refused with 400 naming the problem. Neither is something to guess at: ask and read the answer.
+	//
+	// COVERAGE: a syntactically valid `key` that simply has no retained versions yet is not an error — it returns an empty list, the honest 'nothing has been saved here', not a gap to work around.
 	// (GET /api/document-history/{kind}/{key})
 	HandleListDocumentHistoryApiDocumentHistoryKindKeyGet(w http.ResponseWriter, r *http.Request, kind string, key string)
-	// Read the shipped default of an editable document.
+	// READ the SHIPPED DEFAULT of one editable document — the text a reset would put back, i.e. the 初始版本 entry of that document's version list. Read-only: this tool writes nothing, so reading the default can never replace the live document. Putting the default BACK is deliberately not an agent tool — the owner does that from the cockpit — exactly as with list_document_history. “content“ carries the SAME field names a retained version carries, so the same reader can compare a default against the live document.
+	//
+	// WHICH DOCUMENTS THIS COVERS IS DELIBERATELY NOT LISTED HERE. A list of kinds written into a description goes stale the moment a new editable document ships and NOTHING turns red when it does — this one had gone wrong about three kinds before the list was taken out. Two rules you can actually execute replace it.
+	//
+	// ADDRESSING: “kind“ and “key“ name a document exactly as they do for list_document_history — the same server-side gate answers both routes, so whatever that tool addresses is addressable here, and a “kind“ this server does not know is refused with 400 while a “key“ that names no document of that kind is refused with 404 that names it. Neither is something to guess at: ask and read the answer.
+	//
+	// COVERAGE: whether THAT document ships a default is answered by asking for it. 200 means it does, and “content“ is that text. 404 means it has none at all — a role the owner created, a task manual, per-role lessons — which is the same set whose reset the server also 404s, so it is the honest 'there is nothing to go back to', not a gap to work around. 400 on a retired kind names the series that replaced it.
 	// (GET /api/document-history/{kind}/{key}/seed)
 	HandleGetDocumentSeedApiDocumentHistoryKindKeySeedGet(w http.ResponseWriter, r *http.Request, kind string, key string)
+	// READ the BODY of one named retained version of an editable document — the “content“ map that version was stored with, exactly as it was stored. Read-only: this fetches text, it never puts it back; restoring stays out of the agent tool surface, as it does for list_document_history.
+	//
+	// THIS IS THE SECOND HALF OF A PAIR. list_document_history answers WHICH versions exist and how big each field of each one is, and carries no prose at all; this answers WHAT ONE OF THEM SAID. Name the “id“ you read off that list. Asking for every version's text is the cost that pairing exists to remove, so fetch the one you actually mean to read.
+	//
+	// ADDRESSING: “kind“ and “key“ name a document exactly as they do for list_document_history — the same server-side gate answers all three routes, so whatever that tool can address, this one can too, and they can never silently disagree. A “kind“ this server does not know is refused with 400; a retired kind is refused with 400 naming the series that replaced it; a “key“ that fails its kind's required shape is refused with 400 naming the problem. An “id“ that is not a retained version of THAT document is a 404 — including an id that belongs to some other document, which is why the address is the whole triple and not the id alone.
+	// (GET /api/document-history/{kind}/{key}/{id})
+	HandleGetDocumentVersionApiDocumentHistoryKindKeyIdGet(w http.ResponseWriter, r *http.Request, kind string, key string, id int64)
 	// Restore a retained document version as a new write.
 	// (POST /api/document-history/{kind}/{key}/{id}/restore)
 	HandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost(w http.ResponseWriter, r *http.Request, kind string, key string, id int64)
@@ -3190,7 +3487,7 @@ type ServerInterface interface {
 	// Read the user-custom additive context block (empty = is_default).
 	// (GET /api/global-context)
 	HandleGetGlobalContextApiGlobalContextGet(w http.ResponseWriter, r *http.Request)
-	// Whole-block replace of the user-custom additive block ({text}).
+	// Whole-block replace of the user-custom additive block ({text}). text is REQUIRED; unknown keys are rejected. Replacing existing content with an empty block needs allow_shrink=true (or use reset_global_context).
 	// (POST /api/global-context)
 	HandleReplaceGlobalContextApiGlobalContextPost(w http.ResponseWriter, r *http.Request)
 	// Reset the user-custom block to empty (idempotent tombstone).
@@ -3199,22 +3496,22 @@ type ServerInterface interface {
 	// Liveness probe — 200 {"status":"ok"}.
 	// (GET /api/health)
 	HandleHealthApiHealthGet(w http.ResponseWriter, r *http.Request)
-	// Read a per-role insight doc (per role_key; may have a PER-ROLE factory seed).
+	// Read a per-role insight doc - this role's accumulated judgement calls and trade-offs (per role_key). A role may ship with a factory seed, and that seed is PER-ROLE (seeds/insight_<role_key>.md) - today only the assistant has one; a role without one reads genuinely empty until it writes. is_default=true means THIS ROLE has never written its own, whether what you are reading is the factory wording or nothing at all. Separate from the lessons doc on purpose: lessons record what happened and what to do next time, insight records how this role weighs a call. Like lessons, reading is unrestricted: any authenticated identity may read ANY role's insight - it is SEPARATE, not private.
 	// (GET /api/insight/{role_key})
 	HandleGetInsightApiInsightRoleKeyGet(w http.ResponseWriter, r *http.Request, roleKey string)
-	// Whole-doc replace of a per-role insight doc ({text}).
+	// Whole-doc replace of a per-role insight doc ({text}). text is REQUIRED; unknown keys are rejected. Replacing existing content with an empty doc needs allow_shrink=true. Only the role's own agents (and admin) may WRITE it.
 	// (POST /api/insight/{role_key})
 	HandleReplaceInsightApiInsightRoleKeyPost(w http.ResponseWriter, r *http.Request, roleKey string)
-	// Patch a per-role insight doc by unique anchors ({edits:[{old,new}]}).
+	// Patch a per-role insight doc by unique anchors ({edits:[{old,new}]}). Only the role's own agents (and admin) may WRITE it.
 	// (POST /api/insight/{role_key}/patch)
 	HandlePatchInsightApiInsightRoleKeyPatchPost(w http.ResponseWriter, r *http.Request, roleKey string)
-	// Reset a per-role insight doc to its factory seed (idempotent tombstone overlay).
+	// Reset a per-role insight doc back to its factory seed (idempotent tombstone of the overlay) - the counterpart of reset_role on the Duty block. A role with NO seed file (seeds/insight_<role_key>.md) returns 404: there must be a factory version to reset TO. No length cap is applied on this path, matching reset_role - the factory text is part of the product. The overlay you are discarding is retained as a document-history revision, so the reset is recoverable. Only the role's own agents (and admin) may do it.
 	// (POST /api/insight/{role_key}/reset)
 	HandleResetInsightApiInsightRoleKeyResetPost(w http.ResponseWriter, r *http.Request, roleKey string)
 	// Read a per-role lessons doc (per role_key; overlay ⊕ seed).
 	// (GET /api/lessons/{role_key}/{task_type})
 	HandleGetLessonsApiLessonsRoleKeyTaskTypeGet(w http.ResponseWriter, r *http.Request, roleKey string, taskType string)
-	// Whole-doc replace of a per-role lessons doc ({text}).
+	// Replace the WHOLE per-role lessons document. text is REQUIRED and unknown keys are rejected; only that role's agent or an admin may write it; emptying or sharply shrinking it needs allow_shrink=true; and the result is still judged against the lessons cap.
 	// (POST /api/lessons/{role_key}/{task_type})
 	HandleReplaceLessonsApiLessonsRoleKeyTaskTypePost(w http.ResponseWriter, r *http.Request, roleKey string, taskType string)
 	// Patch a per-role lessons doc by unique anchors ({edits:[{old,new}]}).
@@ -3241,7 +3538,7 @@ type ServerInterface interface {
 	// Bootstrap on server: install this machine's warden on the host.
 	// (POST /api/machines/{machine_id}/bootstrap-here)
 	HandleBootstrapHereApiMachinesMachineIdBootstrapHerePost(w http.ResponseWriter, r *http.Request, machineId string)
-	// Teardown on server: run ocwarden teardown on the server's OWN host; machine_id is not a target selector and every target is currently refused (409).
+	// Teardown on server: runs `ocwarden teardown` on the SERVER's own host. machine_id is NOT a target — this verb has no way to reach another machine, and naming one is refused (409). The server-local machine is refused too (retiring it revokes credentials fleet-wide). To retire another machine use uninstall_machine then delete_machine; to repair the server host's own warden use install_warden_on_server_host, which runs `install --force` over the existing install.
 	// (POST /api/machines/{machine_id}/teardown-here)
 	HandleTeardownHereApiMachinesMachineIdTeardownHerePost(w http.ResponseWriter, r *http.Request, machineId string)
 	// Delete a machine: soft-delete its warden record (no command sent).
@@ -3256,10 +3553,10 @@ type ServerInterface interface {
 	// MCP JSON-RPC transport (tools/list + tools/call over the routes).
 	// (POST /api/mcp)
 	HandleMcpApiMcpPost(w http.ResponseWriter, r *http.Request)
-	// List members, including outsource members by default; fields=light preserves kind.
+	// List every member that has not been removed, including outsource members by default (presence-derived MemberDTO[]). fields=light returns an identity-only projection that preserves kind.
 	// (GET /api/members)
 	HandleListMembersApiMembersGet(w http.ResponseWriter, r *http.Request, params HandleListMembersApiMembersGetParams)
-	// Hire a member (server mints the id). Pure seam, no UI (§9.1).
+	// Hire a member (server mints the id). runtime defaults to claude and only claude/codex are accepted; effort defaults to medium and is validated; a hire that names kind or role_key is admin-gated.
 	// (POST /api/members)
 	HandleHireMemberApiMembersPost(w http.ResponseWriter, r *http.Request)
 	// Dismiss a member (soft delete). Pure seam, no UI (§9.1).
@@ -3268,7 +3565,7 @@ type ServerInterface interface {
 	// Read one roster member (removed → 404).
 	// (GET /api/members/{member_id})
 	HandleGetMemberApiMembersMemberIdGet(w http.ResponseWriter, r *http.Request, memberId string)
-	// Edit a member (name / model / effort). Blank name / bad effort → 422.
+	// Partially update a member's name / runtime / model / effort. Blank name, invalid runtime or invalid effort → 422, and changing a launch-intent field arms a graceful handover.
 	// (PATCH /api/members/{member_id})
 	HandleUpdateMemberApiMembersMemberIdPatch(w http.ResponseWriter, r *http.Request, memberId string)
 	// Activate: write desired_state=online intent (does NOT flip online).
@@ -3289,10 +3586,10 @@ type ServerInterface interface {
 	// Refocus a member's context (online-only, else 409).
 	// (POST /api/members/{member_id}/refocus)
 	HandleRefocusMemberApiMembersMemberIdRefocusPost(w http.ResponseWriter, r *http.Request, memberId string)
-	// Relocate a member to a machine (placement only; never touches desired_state). Also accepts an outsource-worker id: the same move-one-agent verb relocates the worker.
+	// Relocate a member to a machine (placement only; never touches desired_state). Also accepts an outsource-worker id: the same move-one-agent verb relocates the worker. machine_id is REQUIRED (owner 2026-07-27): a relocate NAMES the destination machine and no longer doubles as an unpin — an absent key is a 422, an explicit null or "" is a 400.
 	// (POST /api/members/{member_id}/relocate)
 	HandleRelocateMemberApiMembersMemberIdRelocatePost(w http.ResponseWriter, r *http.Request, memberId string)
-	// Bounded LIGHT wake snapshot for a TARGET member (admin_agent+; same shape as resume_summary).
+	// The SAME bounded wake snapshot as resume_summary, for a TARGET member (member_id) instead of the caller — control-others, admin_agent+ only (owner-scope or role=assistant); an ordinary agent gets 403. Same identity/chat/light-task-rows/roster/machines/overview/note shape, assembled by the identical resumeSnapshotParts function (so the roster and machine blocks cannot drift from what that member would get on waking; note that machines.you_are_on resolves for the TARGET member, not for you); resume_summary itself is unchanged and still identity-locked to the caller.
 	// (GET /api/members/{member_id}/resume-summary)
 	HandleGetMemberResumeSummaryApiMembersMemberIdResumeSummaryGet(w http.ResponseWriter, r *http.Request, memberId string)
 	// List one member's scheduled messages.
@@ -3331,6 +3628,15 @@ type ServerInterface interface {
 	// Ingest warden telemetry (hardware/limits/tokens/cost/self_update).
 	// (POST /api/monitoring/telemetry)
 	HandleIngestTelemetryApiMonitoringTelemetryPost(w http.ResponseWriter, r *http.Request)
+	// Read the 下線程序 block — the wrap-up checklist the server hands an agent at the moment it is about to collect that session. It is a SINGLETON: one document for every agent and every runtime, keyed `global` like the 系統互動 block. Folded: the owner's edit when one exists, otherwise the shipped factory seed, with is_default saying which of the two you are holding and has_seed saying a factory version exists to go back to. The reply carries size_chars/cap_chars (this document's own size limit, in characters) and is_default/has_seed, so a caller can size an edit before making it and can tell an edited block from the shipped one.
+	// (GET /api/offboard)
+	HandleGetOffboardApiOffboardGet(w http.ResponseWriter, r *http.Request)
+	// Replace the WHOLE 下線程序 block ({text}) — the wrap-up checklist an agent is handed when its session is being collected. text is REQUIRED and unknown keys are rejected; emptying a block that had content needs allow_shrink=true. The write is judged against the doc.cap_chars.offboard cap unconditionally, and the refusal tells you what you wrote, the cap, and what is already stored. The shipped seed is never overwritten, so reset_offboard always gets the factory text back; the version this write replaces is retained in the document history (a save that changes nothing retains nothing). Owner or admin assistant only.
+	// (POST /api/offboard)
+	HandleReplaceOffboardApiOffboardPost(w http.ResponseWriter, r *http.Request)
+	// Restore the 下線程序 block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length cap is applied on this path — the factory text is part of the product, so no setting can block the way back to it. The overlay being discarded is retained in the document history, so the reset is itself recoverable. Owner or admin assistant only.
+	// (POST /api/offboard/reset)
+	HandleResetOffboardApiOffboardResetPost(w http.ResponseWriter, r *http.Request)
 	// List live outsource workers (codename, model, effort, task).
 	// (GET /api/outsource-workers)
 	HandleListOutsourceWorkersApiOutsourceWorkersGet(w http.ResponseWriter, r *http.Request)
@@ -3367,10 +3673,10 @@ type ServerInterface interface {
 	// Check GitHub Releases for a newer official OffiCraft version.
 	// (GET /api/release/check)
 	HandleCheckReleaseApiReleaseCheckGet(w http.ResponseWriter, r *http.Request)
-	// List reply cards — LIGHT rows (?status=waiting|answered|expired; ?limit= caps; get_reply_card for full).
+	// List light reply-card rows (summary and decision digest, without the full body/options). status is waiting (the default, longest-waiting first), answered (the last 24 hours) or expired (the last 24 hours); a positive limit is applied after each pane is ordered. Read one card in full with get_reply_card.
 	// (GET /api/reply-cards)
 	HandleListReplyCardsApiReplyCardsGet(w http.ResponseWriter, r *http.Request, params HandleListReplyCardsApiReplyCardsGetParams)
-	// Open a reply card: an ask the owner must answer (options ≤4, [0]=AI pick).
+	// Open a reply card: an ask the owner must answer (options ≤4, [0]=AI pick). Auto-binds to your single active task's CURRENT step — that step (and the task) enters waiting_owner until the owner answers; several lanes of one parallel_group running at once is fine (the lowest order_idx lane carries the card, and the whole task holds either way). If that task has NO resolvable current step the call is REFUSED with 409 and no card is opened: binding the task without a step places no hold, so the task would finish underneath your question and the owner's answer would then be rejected. Fix what the error names — report the step you are on (update_step_status in_progress), use open_gate with an explicit task_id + step_id, or send bind="none" if the ask is not about the task. With no single clear active task, a plain unbound 請示 opens as before. Optional attachments ride the question (same shape as post_chat: {id} from `ocagent upload` / POST /api/chat/attachments, or inline data_b64).
 	// (POST /api/reply-cards)
 	HandleCreateReplyCardApiReplyCardsPost(w http.ResponseWriter, r *http.Request)
 	// Waiting reply-card count (the cockpit badge).
@@ -3388,16 +3694,16 @@ type ServerInterface interface {
 	// Mark a waiting card expired (its author, the owner, or an admin agent; not an answer; terminal).
 	// (POST /api/reply-cards/{card_id}/expire)
 	HandleExpireReplyCardApiReplyCardsCardIdExpirePost(w http.ResponseWriter, r *http.Request, cardId string)
-	// Bounded LIGHT wake snapshot for the caller (what it carries is enumerated in the description, not here).
+	// Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task). CHAT is packed newest-first under a CHARACTER BUDGET, not a fixed message count, and stopping at the last message that still fits; each message carries from_name/to_name beside the ids and ts_display (full date + time + zone offset) beside the epoch ts, and folds in its reply card as `card` when it has one — read every ts_display against the top-level `generated_at`. TWO DIFFERENT things can be missing and they are marked DIFFERENTLY: `body_omitted_chars` > 0 means THAT message is here with that many characters COLLAPSED away (another agent's line — the owner's line and your own hand-off notes to yourself are carried in full), re-read it with get_chat; `chat_earlier_omitted` is the other kind and it is a MAYBE, not a fact: that line was cut at a read or budget limit and nothing looked past the cut, so whole messages may be missing from this payload entirely — it is raised even when there is in fact nothing older. Its hint tells you how to CHECK and fetch them. The two are asymmetric ON PURPOSE: the collapse marker is CERTAIN (that message IS here, shortened, exact count); this one is not, and only the fetch settles it. Also carries the STUDIO FLOOR you wake up onto: roster (every member and contractor, each with online/offline status, the machine it runs on, and its duty capped at 1000 chars with `…` marking a cut, the cap applied after the doc's own leading title line is removed — who to ask for help; no insight/learning by owner ruling. Contractors additionally carry their bound task's status, waiting_reason, and step progress (progress_done/progress_total) — members leave these at their zero value; a contractor's 0/0 is ambiguous (a task with no steps yet, or no task at all) and task_status is what tells them apart, non-empty vs empty) and machines (the machine list plus you_are_on, your server-recorded machine binding — never derive it from a hostname).
 	// (GET /api/resume-summary)
 	HandleResumeSummaryApiResumeSummaryGet(w http.ResponseWriter, r *http.Request)
-	// Size-only PEEK of the wake snapshot (overview counts/sizes + estimated_total_chars, NO content).
+	// Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO chat/task content). estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars, all four reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit and the two studio-floor blocks — what pulling the snapshot actually costs. Step one of the two-step boot: call this FIRST to size resume_summary, then either call resume_summary directly (small) or hand the pull to a cheap sub-agent that returns a digest (large).
 	// (GET /api/resume-summary-size)
 	HandlePeekResumeSummarySizeApiResumeSummarySizeGet(w http.ResponseWriter, r *http.Request)
-	// List role definitions (seed defaults + owner edits).
+	// List role definitions (seed defaults + owner edits) WITHOUT the persona bodies: each row is the role identity plus its definition size and cap, never definition_md itself. Read the one role you want with get_role.
 	// (GET /api/roles)
 	HandleListRolesApiRolesGet(w http.ResponseWriter, r *http.Request)
-	// Create a custom role + its founding member (one pair per call).
+	// Create a custom role + its founding member (one pair per call). runtime is claude/codex (absent = claude).
 	// (POST /api/roles)
 	HandleCreateRoleApiRolesPost(w http.ResponseWriter, r *http.Request)
 	// Hard-delete a custom role + its members (seed → 403; online → 409).
@@ -3430,31 +3736,40 @@ type ServerInterface interface {
 	// Edit settings (owner-login and agent token TTLs / handover threshold); live immediately.
 	// (PATCH /api/settings)
 	HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, r *http.Request)
-	// List task types (match by display_name/purpose; address by type_key).
+	// Read the 系統互動 block of the boot context — the shared studio handbook every agent reads at boot. Folded: the owner's edit when one exists, otherwise the shipped factory seed, with is_default saying which of the two you are holding and has_seed saying a factory version exists to go back to. The reply carries size_chars/cap_chars (this document's own size limit, in characters) and is_default/has_seed, so a caller can size an edit before making it and can tell an edited block from the shipped one.
+	// (GET /api/system-interaction)
+	HandleGetSystemInteractionApiSystemInteractionGet(w http.ResponseWriter, r *http.Request)
+	// Replace the WHOLE 系統互動 block of the boot context ({text}) — the handbook every agent reads at boot. text is REQUIRED and unknown keys are rejected; emptying a block that had content needs allow_shrink=true. The write is judged against the doc.cap_chars.system_interaction cap unconditionally, and the refusal tells you what you wrote, the cap, and what is already stored. The shipped seed is never overwritten, so reset_system_interaction always gets the factory text back; the version this write replaces is retained in the document history (a save that changes nothing retains nothing). Owner or admin assistant only.
+	// (POST /api/system-interaction)
+	HandleReplaceSystemInteractionApiSystemInteractionPost(w http.ResponseWriter, r *http.Request)
+	// Restore the 系統互動 block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length cap is applied on this path — the factory text is part of the product, so no setting can block the way back to it. The overlay being discarded is retained in the document history, so the reset is itself recoverable. Owner or admin assistant only.
+	// (POST /api/system-interaction/reset)
+	HandleResetSystemInteractionApiSystemInteractionResetPost(w http.ResponseWriter, r *http.Request)
+	// List task types WITHOUT their long documents: each row is the type identity (type_key / display_name / purpose), its input fields and its assignee setting, plus the SIZES of sop_md and learnings and the cap each is judged against. The SOP and the learnings text are not on this answer at all — read the one type you picked with get_task_manual.
 	// (GET /api/task-manuals)
-	HandleListTaskManualsApiTaskManualsGet(w http.ResponseWriter, r *http.Request, params HandleListTaskManualsApiTaskManualsGetParams)
-	// Create a task type: pass display_name; the server mints and returns the tm- type_key id (legacy explicit type_key still accepted; duplicate → 409; assignee = owner/admin agent).
+	HandleListTaskManualsApiTaskManualsGet(w http.ResponseWriter, r *http.Request)
+	// Create a task type: pass display_name; the server mints and returns the tm- type_key id (legacy explicit type_key still accepted; duplicate → 409; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude.
 	// (POST /api/task-manuals)
 	HandleCreateTaskManualApiTaskManualsPost(w http.ResponseWriter, r *http.Request)
 	// Delete a task type (open tasks of the type → 409).
 	// (DELETE /api/task-manuals/{type_key})
 	HandleDeleteTaskManualApiTaskManualsTypeKeyDelete(w http.ResponseWriter, r *http.Request, typeKey string)
-	// Read one task manual (purpose/fields/SOP/learnings/assignee).
+	// Read one task manual (purpose/fields/SOP/learnings/assignee). The SOP and the learnings are judged by two SEPARATE caps: read sop_md_cap_chars and learnings_cap_chars. The older cap_chars is DEPRECATED — it carries the LEARNINGS cap only and says nothing about sop_md, so read sop_md_cap_chars for the SOP.
 	// (GET /api/task-manuals/{type_key})
 	HandleGetTaskManualApiTaskManualsTypeKeyGet(w http.ResponseWriter, r *http.Request, typeKey string)
-	// Edit a task manual (partial; content fields agent-editable; assignee = owner/admin agent).
+	// Edit a task manual (partial; content fields agent-editable; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Only the fields you name change, so omitting a field is safe — but unknown keys are rejected rather than dropped: the learnings doc goes in learnings (NOT text — that is write_task_learnings' field name). The SOP and the learnings are judged by two SEPARATE caps: read sop_md_cap_chars and learnings_cap_chars. The older cap_chars is DEPRECATED — it carries the LEARNINGS cap only and says nothing about sop_md, so read sop_md_cap_chars for the SOP.
 	// (POST /api/task-manuals/{type_key})
 	HandleUpdateTaskManualApiTaskManualsTypeKeyPost(w http.ResponseWriter, r *http.Request, typeKey string)
-	// Whole-doc replace of a type's learnings (task-close write-back).
+	// Whole-doc replace of a type's learnings (task-close write-back). The doc text goes in text (NOT learnings — that is update_task_manual's field name); text is REQUIRED and unknown keys are rejected. Wiping existing learnings needs allow_shrink=true.
 	// (POST /api/task-manuals/{type_key}/learnings)
 	HandleWriteTaskLearningsApiTaskManualsTypeKeyLearningsPost(w http.ResponseWriter, r *http.Request, typeKey string)
-	// Patch a type's learnings by unique anchors ({edits:[{old,new}]}).
+	// Patch a type's learnings by unique anchors ({edits:[{old,new}]}) — the learnings twin of patch_lessons, so the write cost scales with the CHANGE, not the whole (30k-char) doc, and re-typing the whole doc can no longer silently drop content. Edits apply in order; a non-empty old must match the current learnings EXACTLY ONCE (0 or >1 hits reject the WHOLE batch with a 400, zero writes — the unique anchor also acts as an optimistic lock); an empty old appends. Wiping the doc, or shrinking it below a tenth, needs allow_shrink=true.
 	// (POST /api/task-manuals/{type_key}/learnings/patch)
 	HandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchPost(w http.ResponseWriter, r *http.Request, typeKey string)
-	// List tasks (?executor=&type=&status=; light list items — get_task for full).
+	// List tasks (?executor=&type=&status=, or statuses=[…] for a SET of states — every filter given is ANDed; LIGHT list items — id/task_no/title/type_key/status/priority/executor/creator_id/progress/timestamps/deps + dep_tasks, WITHOUT steps/description/inputs). Ask for the states you actually want (`statuses: ["not_started", "in_progress"]`) instead of listing everything and filtering yourself — the whole history is a large answer. `statuses` also accepts "reassigning", which matches the handover LOCK rather than the status column. `dep_tasks` already carries each blocker's task_no/title/status, so a blocked task needs no follow-up get_task just to name what it is waiting for. Call get_task for a task's full detail (steps, description, inputs).
 	// (GET /api/tasks)
 	HandleListTasksApiTasksGet(w http.ResponseWriter, r *http.Request, params HandleListTasksApiTasksGetParams)
-	// Create a task (dedupes on the manual's key; ad-hoc when type_key omitted).
+	// Create a task (dedupes on the manual's key; ad-hoc when type_key omitted). Pass target.kind=outsource to drop the task as an unassigned outsource task (發包); target.runtime is claude/codex (absent = claude). The existing outsource scheduler then spawns workers against the global concurrency cap (outsourceParallelCap) — below the cap it starts immediately, at the cap it queues for capacity and is picked up automatically when a slot frees. No owner-approval card and no per-task approval; the owner may reassign a still-queued task at any time. Caller authorization (正職授權矩陣, T-23cf): an outsource worker may never create a task; a 發包 create is open to any 正職 (owner/admin included); a typed task the manual assigns to member X may be created only by X (owner/admin NOT exempt); an ad-hoc task with a member executor may name only the caller itself unless the caller is owner/admin (a 一般正職 may self-execute or 發包, never assign another member).
 	// (POST /api/tasks)
 	HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.Request)
 	// Open task count (the tasks nav badge).
@@ -3463,13 +3778,16 @@ type ServerInterface interface {
 	// Read one task (steps, deps, progress, gate cards).
 	// (GET /api/tasks/{task_id})
 	HandleGetTaskApiTasksTaskIdGet(w http.ResponseWriter, r *http.Request, taskId string)
-
+	// Correct THIS task's own TEXT — its title, its description, or both in one write (T-646a). Replaces `update_task_title` and `update_task_description`, which documented the same rules twice and could not be applied together: changing both meant two calls, two transactions and two SSE deltas, with room for someone else's write to land in between. WHO: the task's own executor, or an admin/owner; anyone else is a flat 403. Creating a task grants NO standing to keep rewriting it — if you handed the task over, it is the new executor's text now. PARTIAL: only the fields you NAME are touched, so omitting a field is a legal no-op for it that versions nothing and fans nothing. ⚠️ THE TWO FIELDS TREAT AN EXPLICIT BLANK DIFFERENTLY, and that is an owner ruling rather than an inconsistency (card rc-796541192519, 2026-08-11, option ①): a blank `title` ("" or whitespace-only) is REFUSED with 400 and does NOT clear the field, because create_task refuses a blank title too and an edit door looser than the create door would let a caller reach a task-list row with nothing in it; a blank `description` IS accepted and DOES clear the text, because plenty of cards legitimately have no prose. VALIDATION IS WHOLE-BODY AND HAPPENS FIRST: a request carrying a blank title alongside a perfectly good description writes NEITHER — a 400 leaves the task exactly as it was, never half-applied. Both values are trimmed of surrounding whitespace before they are stored AND before they are compared with what is there, so re-sending the same text with a stray trailing space is correctly seen as no change rather than spending one of the retained revisions saying nothing moved. ⚠️ THAT HOLDS ONLY WHILE THE STORED TEXT IS ALREADY TRIMMED. Whenever the stored description carries untrimmed whitespace, the next edit here normalises it and therefore DOES spend a revision — even when you re-send exactly what you read back. TWO things can put untrimmed text in that column, so this is not a one-time settling: create_task, which never trims the description (it does trim the title), and a RESTORE of a revision that holds untrimmed text, which is written back verbatim. Before this ticket both doors stored it raw and agreed; this tool trims and create still does not, which is a divergence awaiting a ruling rather than a promise about the system. The write is wholesale within each field: send the full corrected text, not a fragment. ⚠️ Division of labour with update_step_note: the DESCRIPTION says what this task IS (stable); the step NOTE says where a step is RIGHT NOW (volatile, handover-facing) — do not put progress here. A CLOSED task (completed / terminated / duplicated) is STILL editable, on the same terms — unlike its artifact set, which freezes at close: artifacts record what the task PRODUCED and must stop moving, while a ticket worded wrongly is usually found to be wrong after it closed, and freezing the text would preserve a known falsehood in the permanent record. Every change that actually alters a field retains the previous value as a document version — kind `task_title` / `task_description`, key = the task id — so a correction is recoverable through list_document_history and the older wording is never simply gone.
+	// (POST /api/tasks/{task_id})
+	HandleUpdateTaskApiTasksTaskIdPost(w http.ResponseWriter, r *http.Request, taskId string)
+	// Register a deliverable (file, image, or link) onto the task's artifact set — the pinned deliverables shown on the task card. Append-only and repeatable: call it again to pin more. For a file or image, first upload the bytes via the chat-attachments upload to get an attachment id, then call this with kind=file|image and that attachment_id. For a link (e.g. a PR url) call it with kind=link and url — no upload needed. label is an optional display name (a link title such as "PR #123"). Answers with a bounded receipt (task_id, artifact_id, artifact_count), not the whole task.
 	// (POST /api/tasks/{task_id}/artifact)
 	HandleAddTaskArtifactApiTasksTaskIdArtifactPost(w http.ResponseWriter, r *http.Request, taskId string)
-
+	// Un-pin (remove) one artifact from a task's artifact set — the counterpart to add_task_artifact. You may remove artifacts from a task you are the executor of (the owner/assistant may remove on any task). Give the task id and the artifact id (the id returned when it was added, or from get_task's artifacts). The underlying file blob is left intact; only the pin on the card is removed. ONLY WHILE THE TASK IS STILL OPEN: once a task closes (done / terminated / duplicated) its deliverable set is frozen in both directions — remove is refused with the same 409 as add. So swap a deliverable BEFORE you close the task, not after; after the close it can neither be removed nor put back. Answers with a bounded receipt (task_id, artifact_id, artifact_count), not the whole task.
 	// (DELETE /api/tasks/{task_id}/artifact/{artifact_id})
 	HandleRemoveTaskArtifactApiTasksTaskIdArtifactArtifactIdDelete(w http.ResponseWriter, r *http.Request, taskId string, artifactId string)
-	// Take over a reassigned task (the new executor claims it -- clears the reassigning lock).
+	// Take over a reassigned task (the new executor claims it): clears the reassigning lock and fires the predecessor worker. The task status stays derived from its steps; only the lock is cleared. 409 if the task is not under the reassigning lock.
 	// (POST /api/tasks/{task_id}/claim)
 	HandleClaimTaskApiTasksTaskIdClaimPost(w http.ResponseWriter, r *http.Request, taskId string)
 	// Report the task's close-out follow-ups done (terminal tasks only; idempotent).
@@ -3478,37 +3796,37 @@ type ServerInterface interface {
 	// Replace the blocking-deps list wholesale.
 	// (POST /api/tasks/{task_id}/deps)
 	HandleSetTaskDepsApiTasksTaskIdDepsPost(w http.ResponseWriter, r *http.Request, taskId string)
-	// Correct a task's description (executor/admin; closed tasks included).
+	// Correct THIS task's description — the ticket's own text (what the task IS: scope, origin, acceptance). T-e271: until this tool existed there was NO way to change a description after creation — create_task takes one only at birth, submit_plan writes steps, update_task_manual writes the TYPE's manual — so a decision to reword a card had nowhere to land. WHO: the task's own executor, or an admin/owner; anyone else is a flat 403. Creating a task grants NO standing to keep rewriting it — if you handed the task over, it is the new executor's text now. PARTIAL like update_task_manual: omitting `description` changes nothing (a safe no-op), while an explicit "" CLEARS it — absent and empty are different on purpose; unknown keys are refused rather than dropped. The write is wholesale within that field: the value replaces whatever was there, so send the full corrected text, not a fragment. ⚠️ Division of labour with update_step_note: the DESCRIPTION says what this task IS (stable); the step NOTE says where a step is RIGHT NOW (volatile, handover-facing) — do not put progress here. A CLOSED task (completed / terminated / duplicated) is STILL editable, on the same terms — unlike its artifact set, which freezes at close. The reason they differ: artifacts are the record of what the task PRODUCED and must stop moving, while a ticket worded wrongly is usually found to be wrong after it closed, and freezing the text would preserve a known falsehood in the permanent record. Every change that actually alters the text retains the previous one as a document version (kind `task_description`, key = the task id) — list it with list_document_history, so a correction is recoverable and the older wording is never simply gone.
 	// (POST /api/tasks/{task_id}/description)
 	HandleUpdateTaskDescriptionApiTasksTaskIdDescriptionPost(w http.ResponseWriter, r *http.Request, taskId string)
-	// Mark a task duplicated, pointing at the original (executor/owner; terminal).
+	// Mark a not-yet-terminal task duplicated, pointing at an existing final original (executor/owner). A blank original, an original that cannot be found, a self-reference, a chained duplicate and a target that is already pointed at are all refused. Closing across executors creates a handoff_follow_up, and no dependency is added.
 	// (POST /api/tasks/{task_id}/duplicate)
 	HandleMarkTaskDuplicateApiTasksTaskIdDuplicatePost(w http.ResponseWriter, r *http.Request, taskId string)
 	// Message the task's executor (owner/admin agent; task context auto-attached).
 	// (POST /api/tasks/{task_id}/message)
 	HandlePostTaskMessageApiTasksTaskIdMessagePost(w http.ResponseWriter, r *http.Request, taskId string)
-	// Submit/replace the workflow plan (done and answered-card steps are kept).
+	// Submit/replace the workflow plan (done and answered-card steps are kept). T-74f8 交棒閘 (second door): a plan is a step-set write and the task status is DERIVED from the step set, so a plan that leaves EVERY step done CLOSES the task — the same irreversible close the final step report performs. If that task's creator is not its executor and no handover is declared or already real, the replan is refused with 422 BEFORE anything is written (the plan stays fully editable). A plan carries no handoff field, so the way out is to hand over first: create the successor task and point its “blocked_by“ at this task (the gate then stands aside by itself), or keep one unfinished step and declare the handover on the “update_step_status“ report that closes it. A replan that still leaves work in the plan is never gated. Answers with a bounded receipt (task_id, steps_total, progress_done, progress_total), not the plan you just sent — use get_task to read the stored step rows back.
 	// (POST /api/tasks/{task_id}/plan)
 	HandleSubmitTaskPlanApiTasksTaskIdPlanPost(w http.ResponseWriter, r *http.Request, taskId string)
-	// Set a task's priority (owner/admin agent any value; the executor any value on their own task — frozen included, T-6020).
+	// Set a task's priority (owner/admin agent any value on any task; the task's own executor any value on their task — frozen INCLUDED, and whoever may freeze may unfreeze, T-6020). The actor who sets frozen is recorded on the task as frozen_by and the field clears when the task leaves frozen. Anyone else is a flat 403. Answers with a bounded receipt (task_id, priority, frozen_by), not the whole task — use get_task when you need the rest.
 	// (POST /api/tasks/{task_id}/priority)
 	HandleSetTaskPriorityApiTasksTaskIdPriorityPost(w http.ResponseWriter, r *http.Request, taskId string)
-	// Reassign a task to a member or a fresh outsource worker (the task's executor or an admin; an outsource target lands the task unassigned for the scheduler to spawn under the global parallel cap; enters the reassigning handover state).
+	// Reassign a task to a member or a fresh outsource worker (executor-guarded: a plain agent may reassign only a task it executes; owner/admin drive any task). Caller authorization (正職授權矩陣, T-23cf): owner/admin may hand a task to any active member or 發包 it to a fresh outsource worker; a 一般正職 may only turn its own task into a 發包 (a member target is 403); an outsource worker may not reassign at all. An outsource target uses target.runtime claude/codex (absent = claude), lands the task unassigned for the scheduler to spawn under the global parallel cap, and enters the reassigning handover state.
 	// (POST /api/tasks/{task_id}/reassign)
 	HandleReassignTaskApiTasksTaskIdReassignPost(w http.ResponseWriter, r *http.Request, taskId string)
-	// Arm a gate step: opens the reply card the owner must answer.
+	// Arm a gate step: opens the reply card the owner must answer. Optional attachments ride the question (same shape as post_chat: {id} from `ocagent upload` / POST /api/chat/attachments, or inline data_b64).
 	// (POST /api/tasks/{task_id}/steps/{step_id}/gate)
 	HandleOpenTaskGateApiTasksTaskIdStepsStepIdGatePost(w http.ResponseWriter, r *http.Request, taskId string, stepId string)
-	// Write a step's working note (any status; wholesale replace).
+	// Write this step's working note: where the work stands and what comes next — the field the handover SOP means by 「把還在進行中的工作寫回 task step note」. WHAT TO WRITE — three things, then stop: (1) STATE — one sentence on where this step actually got to; (2) NEXT — one sentence on what whoever takes over does next; (3) EVIDENCE POINTERS — version ids, file and log paths, what you verified YOURSELF versus what you are taking on someone's word, and the limits of what was NOT done. Long narrative does not live here: reasoning and scope belong in the task description, reports and diffs belong on the task as artifacts. The note is the current state — not a report, not an append-only log. Writable in ANY step status (pending, in_progress, waiting_owner, waiting_external, done, superseded), unlike `waiting_reason`, which is locked to waiting_external. Wholesale write: `note` replaces whatever was there and "" clears it, so rewrite it as the work moves rather than appending; over 4,000 characters (counted in runes) is refused. Same executor/admin gate as every other task-driving write (403 otherwise). ⚠️ A task auto-closes when its last step is reported done and a closed task 409s — so write the note BEFORE the report that finishes the last step, not after.
 	// (POST /api/tasks/{task_id}/steps/{step_id}/note)
 	HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost(w http.ResponseWriter, r *http.Request, taskId string, stepId string)
-	// Report a step status (pending/in_progress/done).
+	// Report a step status (pending/in_progress/waiting_external/done). Entering waiting_external requires a non-blank waiting_reason (422 otherwise); the task status is derived from its steps. T-74f8 交棒閘: if this report would CLOSE the task (every step done) AND the task's creator is not its executor, the call is REFUSED with 422 unless you say where the ball goes IN THIS SAME CALL — handoff='return_to_creator' (the server opens a durable follow-up task on the creator), handoff='follow_up' + handoff_task_id=<a successor task you already created> (the server hangs this task off it as a dependency, and closing this one releases it), or handoff='none' + handoff_note=<why nothing follows>. The gate stands aside by itself when a non-terminal task already depends on this one — you never see it if the handover is already real. It refuses BEFORE writing anything, so a refused report leaves the plan fully editable: create the successor task, then re-send this same report with the declaration. This is your LAST chance — once the task closes it can never be replanned (submit_plan becomes a permanent 409).
 	// (POST /api/tasks/{task_id}/steps/{step_id}/status)
 	HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost(w http.ResponseWriter, r *http.Request, taskId string, stepId string)
 	// Terminate a task (owner/admin agent; the only non-executor status change).
 	// (POST /api/tasks/{task_id}/terminate)
 	HandleTerminateTaskApiTasksTaskIdTerminatePost(w http.ResponseWriter, r *http.Request, taskId string)
-	// Correct a task's title (executor/admin; closed tasks included).
+	// Correct THIS task's title — the one line the task list shows. T-2ebe: until this tool existed a title could never be changed after creation, so a card whose scope was later overturned kept advertising its first wording forever — the description could correct itself, the title could not, and whoever scanned the list saw only the stale half. If you have just corrected a description because the scope moved, ask whether the title still says the same thing. WHO: the task's own executor, or an admin/owner; anyone else is a flat 403. Creating a task grants NO standing to keep rewriting it — if you handed the task over, it is the new executor's title now. PARTIAL like update_task_description: omitting `title` changes nothing (a safe no-op); unknown keys are refused rather than dropped. ⚠️ ONE DIFFERENCE FROM ITS DESCRIPTION TWIN: a blank title ("" or only whitespace) is REFUSED with 400, it does NOT clear the field — create_task refuses a blank title too, and a task with no title is a blank row on the list. Surrounding whitespace is trimmed. The write is wholesale within that field: send the full corrected title, not a fragment. A CLOSED task (completed / terminated / duplicated) is STILL editable, on the same terms — a ticket is usually found to be worded wrongly after it closed, and freezing the text would preserve a known falsehood; its artifact set is the opposite and freezes at close. Every change that actually alters the text retains the previous one as a document version (kind `task_title`, key = the task id) — list it with list_document_history, so a correction is recoverable.
 	// (POST /api/tasks/{task_id}/title)
 	HandleUpdateTaskTitleApiTasksTaskIdTitlePost(w http.ResponseWriter, r *http.Request, taskId string)
 	// Fetch a theme bundle from a link (owner/admin agent).
@@ -3517,7 +3835,7 @@ type ServerInterface interface {
 	// Trigger a software upgrade to the latest GitHub release.
 	// (POST /api/update/upgrade)
 	HandleUpgradeApiUpdateUpgradePost(w http.ResponseWriter, r *http.Request)
-	// Build identity: version + git sha + MCP catalog hash.
+	// Read the build identity this station is RUNNING: version, git sha, git time and the MCP catalog hash, plus the cached update status. Settle whether something is deployed by git sha ancestry, never by the version string.
 	// (GET /api/version)
 	HandleVersionApiVersionGet(w http.ResponseWriter, r *http.Request)
 	// Download the prebuilt ocwarden binary (octet-stream) for a machine.
@@ -3656,6 +3974,84 @@ func (siw *ServerInterfaceWrapper) HandleGetBackupHealthApiBackupHealthGet(w htt
 	handler.ServeHTTP(w, r)
 }
 
+// HandleGetBootSequenceApiBootSequenceRuntimeKeyGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleGetBootSequenceApiBootSequenceRuntimeKeyGet(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "runtime_key" -------------
+	var runtimeKey string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "runtime_key", r.PathValue("runtime_key"), &runtimeKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "runtime_key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleGetBootSequenceApiBootSequenceRuntimeKeyGet(w, r, runtimeKey)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleReplaceBootSequenceApiBootSequenceRuntimeKeyPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleReplaceBootSequenceApiBootSequenceRuntimeKeyPost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "runtime_key" -------------
+	var runtimeKey string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "runtime_key", r.PathValue("runtime_key"), &runtimeKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "runtime_key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleReplaceBootSequenceApiBootSequenceRuntimeKeyPost(w, r, runtimeKey)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleResetBootSequenceApiBootSequenceRuntimeKeyResetPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleResetBootSequenceApiBootSequenceRuntimeKeyResetPost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "runtime_key" -------------
+	var runtimeKey string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "runtime_key", r.PathValue("runtime_key"), &runtimeKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "runtime_key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleResetBootSequenceApiBootSequenceRuntimeKeyResetPost(w, r, runtimeKey)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // HandleBootstrapApiBootstrapPost operation middleware
 func (siw *ServerInterfaceWrapper) HandleBootstrapApiBootstrapPost(w http.ResponseWriter, r *http.Request) {
 
@@ -3753,6 +4149,19 @@ func (siw *ServerInterfaceWrapper) HandleListChatApiChatGet(w http.ResponseWrite
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "caller_only"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "caller_only", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "ids" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "ids", r.URL.Query(), &params.Ids, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "ids"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "ids", Err: err})
 		}
 		return
 	}
@@ -4115,6 +4524,50 @@ func (siw *ServerInterfaceWrapper) HandleGetDocumentSeedApiDocumentHistoryKindKe
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleGetDocumentSeedApiDocumentHistoryKindKeySeedGet(w, r, kind, key)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleGetDocumentVersionApiDocumentHistoryKindKeyIdGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleGetDocumentVersionApiDocumentHistoryKindKeyIdGet(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "kind" -------------
+	var kind string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "kind", r.PathValue("kind"), &kind, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "key" -------------
+	var key string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "key", r.PathValue("key"), &key, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "key", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "id" -------------
+	var id int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleGetDocumentVersionApiDocumentHistoryKindKeyIdGet(w, r, kind, key, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5382,6 +5835,48 @@ func (siw *ServerInterfaceWrapper) HandleIngestTelemetryApiMonitoringTelemetryPo
 	handler.ServeHTTP(w, r)
 }
 
+// HandleGetOffboardApiOffboardGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleGetOffboardApiOffboardGet(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleGetOffboardApiOffboardGet(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleReplaceOffboardApiOffboardPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleReplaceOffboardApiOffboardPost(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleReplaceOffboardApiOffboardPost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleResetOffboardApiOffboardResetPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleResetOffboardApiOffboardResetPost(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleResetOffboardApiOffboardResetPost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // HandleListOutsourceWorkersApiOutsourceWorkersGet operation middleware
 func (siw *ServerInterfaceWrapper) HandleListOutsourceWorkersApiOutsourceWorkersGet(w http.ResponseWriter, r *http.Request) {
 
@@ -6069,30 +6564,53 @@ func (siw *ServerInterfaceWrapper) HandleUpdateSettingsApiSettingsPatch(w http.R
 	handler.ServeHTTP(w, r)
 }
 
+// HandleGetSystemInteractionApiSystemInteractionGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleGetSystemInteractionApiSystemInteractionGet(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleGetSystemInteractionApiSystemInteractionGet(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleReplaceSystemInteractionApiSystemInteractionPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleReplaceSystemInteractionApiSystemInteractionPost(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleReplaceSystemInteractionApiSystemInteractionPost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleResetSystemInteractionApiSystemInteractionResetPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleResetSystemInteractionApiSystemInteractionResetPost(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleResetSystemInteractionApiSystemInteractionResetPost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // HandleListTaskManualsApiTaskManualsGet operation middleware
 func (siw *ServerInterfaceWrapper) HandleListTaskManualsApiTaskManualsGet(w http.ResponseWriter, r *http.Request) {
 
-	var err error
-	_ = err
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params HandleListTaskManualsApiTaskManualsGetParams
-
-	// ------------- Optional query parameter "view" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "view", r.URL.Query(), &params.View, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "view"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "view", Err: err})
-		}
-		return
-	}
-
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandleListTaskManualsApiTaskManualsGet(w, r, params)
+		siw.Handler.HandleListTaskManualsApiTaskManualsGet(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6376,6 +6894,32 @@ func (siw *ServerInterfaceWrapper) HandleGetTaskApiTasksTaskIdGet(w http.Respons
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleGetTaskApiTasksTaskIdGet(w, r, taskId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleUpdateTaskApiTasksTaskIdPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleUpdateTaskApiTasksTaskIdPost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "task_id" -------------
+	var taskId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "task_id", r.PathValue("task_id"), &taskId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "task_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleUpdateTaskApiTasksTaskIdPost(w, r, taskId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7127,6 +7671,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/set-password", wrapper.HandleSetPasswordApiAuthSetPasswordPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/status", wrapper.HandleAuthStatusApiAuthStatusGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/backup-health", wrapper.HandleGetBackupHealthApiBackupHealthGet)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/boot-sequence/{runtime_key}", wrapper.HandleGetBootSequenceApiBootSequenceRuntimeKeyGet)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/boot-sequence/{runtime_key}", wrapper.HandleReplaceBootSequenceApiBootSequenceRuntimeKeyPost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/boot-sequence/{runtime_key}/reset", wrapper.HandleResetBootSequenceApiBootSequenceRuntimeKeyResetPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/bootstrap", wrapper.HandleBootstrapApiBootstrapPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat", wrapper.HandleListChatApiChatGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/chat", wrapper.HandlePostChatApiChatPost)
@@ -7143,6 +7690,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/docs/{slug}", wrapper.HandleGetDocApiDocsSlugGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/document-history/{kind}/{key}", wrapper.HandleListDocumentHistoryApiDocumentHistoryKindKeyGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/document-history/{kind}/{key}/seed", wrapper.HandleGetDocumentSeedApiDocumentHistoryKindKeySeedGet)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/document-history/{kind}/{key}/{id}", wrapper.HandleGetDocumentVersionApiDocumentHistoryKindKeyIdGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/document-history/{kind}/{key}/{id}/restore", wrapper.HandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/events", wrapper.HandleEventsApiEventsGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/global-context", wrapper.HandleGetGlobalContextApiGlobalContextGet)
@@ -7193,6 +7741,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/mint", wrapper.HandleMintApiMintPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/monitoring", wrapper.HandleGetMonitoringApiMonitoringGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/monitoring/telemetry", wrapper.HandleIngestTelemetryApiMonitoringTelemetryPost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/offboard", wrapper.HandleGetOffboardApiOffboardGet)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/offboard", wrapper.HandleReplaceOffboardApiOffboardPost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/offboard/reset", wrapper.HandleResetOffboardApiOffboardResetPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/outsource-workers", wrapper.HandleListOutsourceWorkersApiOutsourceWorkersGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/outsource-workers/{id}", wrapper.HandleGetOutsourceWorkerApiOutsourceWorkersIdGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/outsource-workers/{id}/boot-context", wrapper.HandleGetWorkerBootContextApiOutsourceWorkersIdBootContextGet)
@@ -7226,6 +7777,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/self/waking", wrapper.HandleReportWakingApiSelfWakingPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/settings", wrapper.HandleGetSettingsApiSettingsGet)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/settings", wrapper.HandleUpdateSettingsApiSettingsPatch)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/system-interaction", wrapper.HandleGetSystemInteractionApiSystemInteractionGet)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/system-interaction", wrapper.HandleReplaceSystemInteractionApiSystemInteractionPost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/system-interaction/reset", wrapper.HandleResetSystemInteractionApiSystemInteractionResetPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/task-manuals", wrapper.HandleListTaskManualsApiTaskManualsGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/task-manuals", wrapper.HandleCreateTaskManualApiTaskManualsPost)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/task-manuals/{type_key}", wrapper.HandleDeleteTaskManualApiTaskManualsTypeKeyDelete)
@@ -7237,6 +7791,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks", wrapper.HandleCreateTaskApiTasksPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tasks/count", wrapper.HandleTaskCountApiTasksCountGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tasks/{task_id}", wrapper.HandleGetTaskApiTasksTaskIdGet)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}", wrapper.HandleUpdateTaskApiTasksTaskIdPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/artifact", wrapper.HandleAddTaskArtifactApiTasksTaskIdArtifactPost)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/tasks/{task_id}/artifact/{artifact_id}", wrapper.HandleRemoveTaskArtifactApiTasksTaskIdArtifactArtifactIdDelete)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/claim", wrapper.HandleClaimTaskApiTasksTaskIdClaimPost)

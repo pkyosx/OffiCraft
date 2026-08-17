@@ -1,7 +1,7 @@
 {
   "tools": [
     {
-      "description": "The station's own build identity: which version and git sha it is RUNNING right now. Settle \"has my change shipped?\" against git_sha (an ancestry test), never the version string - a self-build honestly reports 0.0.0. Distinct from check_release, which asks GitHub whether a NEWER release exists.",
+      "description": "Read the build identity this station is RUNNING: version, git sha, git time and the MCP catalog hash, plus the cached update status. Settle whether something is deployed by git sha ancestry, never by the version string.",
       "inputSchema": {
         "properties": {},
         "type": "object"
@@ -103,6 +103,30 @@
             "description": "Codex context-compaction threshold, 1 through 10.",
             "title": "Codex Compaction Threshold"
           },
+          "chat_budget_chars": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The wake snapshot's chat block budget, in CHARACTERS (Unicode code points). It is what bounds resume_summary's chat block AND the estimated_total_chars peek_resume_summary_size reports — one number, one code path, so the two can never disagree. Must be between 1000 and 13000. Unlike the doc_cap_chars_* knobs it may be LOWERED as well as raised (the block is repacked on every read, not stored). Read the current value from get_settings rather than assuming a number.",
+            "title": "Chat Budget Chars"
+          },
+          "doc_cap_chars_boot_sequence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The size cap on a 啟動程序 block of the boot context, in CHARACTERS (Unicode code points). ONE knob for BOTH runtimes (claude and codex), each document measured on its own text. Must be at least this document's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.",
+            "title": "Doc Cap Chars Boot Sequence"
+          },
           "doc_cap_chars_duty": {
             "anyOf": [
               {
@@ -162,6 +186,30 @@
             ],
             "description": "The size cap on a TASK MANUAL's sop_md doc, in CHARACTERS (Unicode code points). Must be at least this segment's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.",
             "title": "Doc Cap Chars Manual Sop"
+          },
+          "doc_cap_chars_offboard": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The size cap on the 下線程序 block, in CHARACTERS (Unicode code points). Must be at least this document's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.",
+            "title": "Doc Cap Chars Offboard"
+          },
+          "doc_cap_chars_system_interaction": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The size cap on the 系統互動 block of the boot context, in CHARACTERS (Unicode code points). Must be at least this document's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.",
+            "title": "Doc Cap Chars System Interaction"
           },
           "custom_themes": {
             "anyOf": [
@@ -223,7 +271,32 @@
                 "type": "null"
               }
             ],
+            "description": "The SECOND offboard point: the FINAL notice, and where the automatic handover fires. 40..90, and strictly greater than notice_pct (the pair is validated together against the POST-patch values, so either one may be sent alone).",
             "title": "Handover Pct"
+          },
+          "notice_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The FIRST offboard point (T-a9d6): the SOFT notice, where the agent is asked to work the offboard sequence and then call restart_self itself. 1..89, and strictly below handover_pct.",
+            "title": "Notice Pct"
+          },
+          "codex_notice_round": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The codex SOFT-notice compaction round (T-a9d6). 1..10, and strictly below codex_compaction_threshold.",
+            "title": "Codex Notice Round"
           },
           "monitoring_refresh_seconds": {
             "anyOf": [
@@ -351,11 +424,11 @@
       "name": "upgrade_station"
     },
     {
-      "description": "List all members, including outsource members by default. fields=light preserves kind for every row (presence-derived MemberDTO[]).",
+      "description": "List every member that has not been removed, including outsource members by default (presence-derived MemberDTO[]). fields=light returns an identity-only projection that preserves kind.",
       "inputSchema": {
         "properties": {
           "fields": {
-            "description": "The literal STRING \"light\" (not a boolean, and no other value does anything) asks for the identity-only projection of every row: id, member_no, name, kind, role_key/role_name, runtime, roster_status, avatar. It DROPS the per-member unread chat count and the observed live-host state, which is the expensive half of this endpoint. Pass it whenever you are looking someone up or resolving a name to an id; omit it only when you actually need unread counts or where a member is running.",
+            "description": "The literal STRING \"light\" (not a boolean, and no other value does anything) asks for the identity-only projection of every row: id, name, kind, role_key/role_name, runtime, roster_status, avatar. It DROPS the per-member unread chat count and the observed live-host state, which is the expensive half of this endpoint. Pass it whenever you are looking someone up or resolving a name to an id; omit it only when you actually need unread counts or where a member is running.",
             "type": "string"
           }
         },
@@ -364,7 +437,7 @@
       "name": "get_members"
     },
     {
-      "description": "Hire a member (server mints the id). runtime is claude/codex (absent = claude); model is provider-specific. Pure seam, no UI (\u00a79.1).",
+      "description": "Hire a member (server mints the id). runtime defaults to claude and only claude/codex are accepted; effort defaults to medium and is validated; a hire that names kind or role_key is admin-gated.",
       "inputSchema": {
         "properties": {
           "effort": {
@@ -401,6 +474,7 @@
               }
             ],
             "default": null,
+            "description": "Model the new member launches with. There is no model whitelist anywhere in the server: runtime and effort are validated against closed sets and 422 on an unknown value, while this string is stored exactly as sent. A misspelt or retired model name is accepted with 200 and becomes visible only much later, when the member fails to spawn. Blank is legal and leaves the launcher's default.",
             "title": "Model"
           },
           "name": {
@@ -417,6 +491,7 @@
               }
             ],
             "default": null,
+            "description": "Role to hire the member into. Supplying it at all is privilege-bearing - a caller below admin-agent is a flat 403 - but the value itself is never checked against the role table: a key nobody defined is stored verbatim and the member is created, 200. Your role_key is echoed back unchanged, so the only thing in the response that separates a typo from a real role is role_name, which comes back as an empty string.",
             "title": "Role Key"
           },
           "runtime": {
@@ -460,7 +535,7 @@
       "name": "get_member"
     },
     {
-      "description": "Edit a member (name / runtime / model / effort). runtime is claude/codex; blank name / bad runtime / bad effort \u2192 422.",
+      "description": "Partially update a member's name / runtime / model / effort. Blank name, invalid runtime or invalid effort → 422, and changing a launch-intent field arms a graceful handover.",
       "inputSchema": {
         "properties": {
           "effort": {
@@ -488,6 +563,7 @@
               }
             ],
             "default": null,
+            "description": "New launch model for the member. Unlike name - which is refused when blank - this field is written exactly as sent, with no whitelist and no blank check. And it is not a passive edit: a value DIFFERENT from the stored one arms the same graceful wind-down a refocus uses, so the member finishes what it is doing and comes back on the new value. A typo therefore does not just sit in a column, it recycles a working member onto a model nothing has checked. Re-sending the value the member already carries arms nothing.",
             "title": "Model"
           },
           "name": {
@@ -622,6 +698,7 @@
               }
             ],
             "default": null,
+            "description": "The model this session actually came up on. It is written verbatim into the member's actual_model - the value the roster and the monitoring view show as what this member is really running - with no validation and no comparison against the model that was requested. Omitting it is not an error and clears nothing: the field keeps whatever the previous session reported, so a session that wakes on a different model and stays quiet leaves the cockpit displaying a model nobody is running. Report what you are on, not what you were asked for.",
             "title": "Model"
           }
         },
@@ -662,6 +739,7 @@
               }
             ],
             "default": null,
+            "description": "Why you are restarting. It is used for exactly one thing - a single line in the server's log - and is never validated, stored or shown anywhere else. A wrong or missing reason does not fail and does not change what happens; the restart proceeds identically. Write it for the human who will read that log line, and do not expect to retrieve it from anywhere afterwards.",
             "title": "Reason"
           }
         },
@@ -801,11 +879,13 @@
           },
           "body": {
             "default": "",
+            "description": "The message text. Almost nothing is checked: only the character cap, and a refusal when the message is empty AND carries no attachments. Everything else - formatting, whether the content matches the recipient, whether you meant to send it here - is accepted as sent. Note the recipient bears the cost of whatever you write: the whole body enters their context, so keep it to what they must do or know and send bulk material as an attachment instead.",
             "title": "Body",
             "type": "string"
           },
           "meta": {
             "additionalProperties": true,
+            "description": "Free-form metadata carried alongside the message. The map is copied through wholesale with NO validation of keys or values, so a misspelled key is stored rather than refused and simply never read by anything. One key is different, and it is not simply taken from you: meta.attachments is the ONLY link a message has to its blobs. The handler overwrites it with what it computed - but ONLY when this call actually carried attachments. Send none, and whatever you put under that key is stored as this message's attachment refs; it also satisfies the 'must carry text or an attachment' check, so a message with no text and no real attachment gets through with a 200. If you are not sending attachments, do not put an attachments key in meta.",
             "title": "Meta",
             "type": "object"
           },
@@ -823,20 +903,31 @@
       "name": "post_chat"
     },
     {
-      "description": "List the chat stream (?with=<id>&limit=<n>; oldest\u2192newest). History paging: before_ts + before_id (both together) return the limit messages strictly OLDER than that keyset cursor \u2014 a history page NEVER advances the read watermark.",
+      "description": "List the chat stream (?with=<id>&limit=<n>; oldest\u2192newest). History paging: before_ts + before_id (both together) return the limit messages strictly OLDER than that keyset cursor \u2014 a history page NEVER advances the read watermark. Re-read specific messages by id: ids=<id>&ids=<id> returns those messages in full without a peer and without a cursor; the ids schema states who may read what, the per-call limit, and what an unknown id does.",
       "inputSchema": {
         "properties": {
           "before_id": {
+            "description": "Paging cursor, the id of the OLDEST message you already hold, and the partner of before_ts - sending one without the other is refused with 422. Beyond that pairing check the value is not verified to name a real message: a cursor that matches nothing answers 200 with an EMPTY page rather than an error, which is indistinguishable from having reached the true start of the conversation. Copy it verbatim from the oldest message in the page you are continuing from.",
             "type": "string"
           },
           "before_ts": {
+            "description": "Paging cursor, the ts of the OLDEST message you already hold. Must be sent TOGETHER with before_id - supplying only one is refused with 422, which is the one mistake here that announces itself. The pair is otherwise not validated against anything real: a cursor pointing nowhere in the stream (a fabricated value, or the right instant expressed in the wrong unit - these timestamps are epoch SECONDS, not milliseconds) is not an error, it just answers 200 with an EMPTY page. An empty page is the same answer you get at the true start of history, so it cannot tell you 'you have reached the beginning' apart from 'your cursor was garbage'. Copy both values from a message you actually received rather than constructing them.",
             "type": "number"
           },
           "caller_only": {
             "default": false,
+            "description": "A real BOOLEAN - the schema declares it type boolean, default false - not a string. A value the parameter binder cannot read as a boolean is refused with 422 rather than ignored; do not copy the sibling peek, which really is a string compared literally against 'true'. Omitted or false leaves the listing exactly as it was. True narrows it to messages the caller itself sent or received. Because the ordinary listing filters on a PARTICIPANT rather than on you, this is how you exclude conversations you were not part of - but applied to a conversation you were never in, it filters everything away and answers 200 with an EMPTY list, which reads exactly like a conversation with no messages. If you set this and got nothing, check whether you were a participant before concluding the thread is empty.",
             "type": "boolean"
           },
+          "ids": {
+            "description": "RE-READ SPECIFIC MESSAGES BY ID — repeatable (``?ids=<id>&ids=<id>``), returning those messages IN FULL (whole body, attachment refs and all), oldest→newest.\n\nThis is what makes the wake snapshot's fold marker honest (T-a828). ``ChatMessageDTO.body_omitted_chars`` > 0 says THIS message is here with part of its text folded away and tells the reader to re-read it with get_chat — but until this parameter existed get_chat took only a peer plus a paging cursor, so there was NO WAY TO NAME THE FOLDED MESSAGE. The promise beside the fold was not keepable, which made folding a silent drop.\n\nANSWERED ON ITS OWN: when ``ids`` is present, ``with``, ``limit``, ``before_ts``/``before_id`` and ``peek`` are NOT consulted, and a by-ids read NEVER advances a read watermark — re-reading a message you were already shown is not reading the conversation. Blank entries are dropped and duplicates collapse; an all-blank or empty set behaves exactly as if the parameter had not been sent.\n\nYOURS ONLY, AND ONLY HERE: an id whose ``sender`` and ``recipient`` are both someone other than the verified caller is REFUSED with 403, and ONE such id refuses the WHOLE call rather than just that entry. Holding an id is not permission to read a conversation between two other people, and no parameter widens a by-ids read past that. This bound belongs to THIS PARAMETER, not to ``get_chat`` as a whole: the ordinary listing filters on ``with`` — a PARTICIPANT — not on the caller, so a plain read of a peer's line still answers with a conversation the caller was never in (designed behaviour; ``caller_only`` is what narrows a listing to the caller). Do not read this paragraph as a claim about the endpoint.\n\nALL OR NOTHING ON AN UNKNOWN ID: an id no message carries refuses the WHOLE call with 404 and names it. Deliberately not 'skip it and return the rest': a short array is indistinguishable from the fold this parameter exists to undo, so a caller could not tell a deleted message from one it simply did not ask for.\n\nAT MOST 20 DISTINCT IDS per call (counted after blanks are dropped); more is a 400 that states the limit. The cap is the response bound: 20 × the 4,000-rune body cap is the worst case one call can emit. It is not 'unfold a whole snapshot in one call' — name the ones that matter and call again.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "limit": {
+            "description": "How many of the most recent messages to return. It is applied as a plain slice truncation with NO range validation, and the two out-of-range values fail in OPPOSITE directions without either being reported: 0 answers 200 with an EMPTY list (which reads exactly like 'this conversation has nothing in it'), while a NEGATIVE value skips truncation entirely and hands back everything that was fetched. Neither is refused, so a limit computed from arithmetic that slipped to 0 or below silently returns the wrong end of the range. Omit it for the default of 30.",
             "type": "integer"
           },
           "peek": {
@@ -844,6 +935,7 @@
             "type": "string"
           },
           "with": {
+            "description": "The peer whose line to read. It is an in-memory equality filter on each message's sender and recipient, and an id no one carries is NOT an error: the call answers 200 with an EMPTY list, which is byte for byte what a real peer you have never exchanged a message with answers. So an empty result is not evidence the conversation is empty; it is equally evidence you misspelled the peer. Confirm the id against the roster before concluding anything from emptiness - a wrong id and a quiet conversation are indistinguishable here.",
             "type": "string"
           }
         },
@@ -871,6 +963,7 @@
       "inputSchema": {
         "properties": {
           "with": {
+            "description": "Whose conversation's attachments to list. A blank value is refused (422), but any non-blank value is accepted without being checked against anything: an id nobody carries simply matches no messages and answers 200 with an EMPTY list, identical to a real conversation that has no attachments. Confirm the id before reading emptiness as an answer.",
             "type": "string"
           }
         },
@@ -884,10 +977,12 @@
         "properties": {
           "last_read_ts": {
             "default": 0.0,
+            "description": "Mark everything up to this timestamp as read. The watermark only ever moves FORWARD: a value at or below the one already stored changes nothing. That makes two easy mistakes silent - a timestamp in the wrong unit (these are epoch SECONDS, fractional) and OMITTING the field entirely, which sends 0 and therefore cannot advance anything you have already read. Nothing in the response announces whether it moved: the reply carries exactly three fields (reader_id, peer_id, last_read_ts) and the status is 200 either way. What it does give you is the EFFECTIVE stored watermark in last_read_ts, so compare that against the value you sent - getting back something higher than you sent means yours was stale and nothing happened.",
             "title": "Last Read Ts",
             "type": "number"
           },
           "peer": {
+            "description": "Whose conversation to mark as read. Only blankness is refused (422); the value is NEVER checked against the roster, so a misspelled peer is upserted as a read receipt for a conversation nobody is having and answers 200. The receipt you meant to file is not filed, and nothing in the response distinguishes the two cases.",
             "title": "Peer",
             "type": "string"
           }
@@ -905,6 +1000,7 @@
       "inputSchema": {
         "properties": {
           "with": {
+            "description": "Whose read receipts to fetch. The value goes into the query as a plain equality condition with no validation, so a peer id nobody carries answers 200 with an EMPTY result - the same answer a real peer with no receipts gives. Emptiness here cannot tell you 'nobody has read this' apart from 'you named the wrong peer'.",
             "type": "string"
           }
         },
@@ -982,6 +1078,7 @@
           },
           "body": {
             "default": "",
+            "description": "The question's full text - the part that lets the owner decide without going and looking things up. It is stored as sent with NO validation, so OMITTING it is not an error: the card is created with an empty body and answers 200, and what reaches the owner is a summary line and some options with no reasoning attached. Nothing warns you; the card simply arrives thinner than you meant it to.",
             "title": "Body",
             "type": "string"
           },
@@ -1016,7 +1113,7 @@
       "name": "create_reply_card"
     },
     {
-      "description": "List reply cards — LIGHT rows: summary (title) + decision digest only, NO body/options full text (?status=waiting longest-first | answered last-24h; ?limit=N caps the rows). Full card via get_reply_card.",
+      "description": "List light reply-card rows (summary and decision digest, without the full body/options). status is waiting (the default, longest-waiting first), answered (the last 24 hours) or expired (the last 24 hours); a positive limit is applied after each pane is ordered. Read one card in full with get_reply_card.",
       "inputSchema": {
         "properties": {
           "limit": {
@@ -1029,6 +1126,7 @@
               }
             ],
             "default": null,
+            "description": "Maximum number of cards to return. It only ever truncates: 0, a negative value, or omitting the field all mean the WHOLE pane - never an empty result, never an error - and a value larger than the pane is silently harmless. So 'limit: 0' does not mean 'none'; if you pass 0 as a computed default you fetch everything. And since the answer is a plain list with no total and no truncation flag, a full pane and a truncated one look exactly the same.",
             "title": "Limit"
           },
           "status": {
@@ -1139,6 +1237,7 @@
           },
           "text": {
             "default": "",
+            "description": "Free-text answer. An answer must carry at least one of option_idx, text or an attachment (400 otherwise), but text and option_idx are stored INDEPENDENTLY and nothing cross-checks them. So pasting an option's wording in here instead of sending its option_idx succeeds with 200 and records option_idx as null - byte for byte what a deliberate free-text answer looks like. The reader cannot tell that a listed option was chosen. If you mean to pick one of the options, send its index.",
             "title": "Text",
             "type": "string"
           }
@@ -1227,6 +1326,7 @@
           },
           "text": {
             "default": "",
+            "description": "Free-text replacement answer, sharing the answer path with answer_reply_card and its pitfall: text and option_idx are stored independently, so putting an option's wording here rather than sending its option_idx answers 200 with option_idx null, indistinguishable from a deliberate free-text reply. Send the index when you mean to pick a listed option.",
             "title": "Text",
             "type": "string"
           }
@@ -1265,10 +1365,12 @@
           },
           "context_pct": {
             "default": null,
+            "description": "How full this session's context window is, on a 0-100 PERCENT scale. The only check is that it is a JSON number - anything else is a flat 400 - with no range check at all, and the value is stored and echoed back exactly as sent. The scale is the whole point: this is the number the server's context-high band compares against the owner's PAIR of offboard points — notice_pct (the soft notice) and handover_pct (the final one, and where the handover fires), both whole percents. Reporting 0.85 for 'eighty-five percent' therefore sits below both and neither the notice nor the handover ever fires, while reporting 500 is above both and they fire at once. Both answer 200 and are indistinguishable in the response.",
             "title": "Context Pct"
           },
           "rate_limits": {
             "additionalProperties": true,
+            "description": "Free-form rate-limit gauge for this session. Its keys and values are copied into the store as they arrive - nothing is validated, so a misspelt key is kept just as faithfully as a correct one. The trap is the word MERGE: this call merges onto the session's previous entry, but rate_limits is the exception and is overwritten on EVERY call, so a report that omits it replaces whatever you last sent with an empty object and answers 200. Send the whole gauge every time, or the previous one is gone.",
             "title": "Rate Limits",
             "type": "object"
           }
@@ -1284,10 +1386,12 @@
         "properties": {
           "account": {
             "default": null,
+            "description": "Which billing account this session is drawing on. It is READ ONLY IN COMPANY WITH runtime, and the failure is worse than a dropped field: send a perfectly valid account WITHOUT runtime and the server does not merely ignore it, it CLEARS the account pairing already recorded for this entry and returns 200. A previously correct display therefore goes blank because of a report that carried the right value. A non-string value is dropped silently to empty by the same path. Always send runtime alongside account.",
             "title": "Account"
           },
           "account_label": {
             "default": null,
+            "description": "Human-readable label for the account. It rides the same path as account - read only in company with runtime, dropped silently when the value is not a string - and it is HARDER to notice going wrong than account is, because the ingest response does not echo it back at all. There is no field in the reply to compare against what you sent, so a dropped label is invisible from the call site; the only way to see it is to read the monitoring view afterwards.",
             "title": "Account Label"
           },
           "binaries": {
@@ -1303,30 +1407,37 @@
           },
           "command_result": {
             "default": null,
+            "description": "Receipt for a command this reporter was asked to run. The only check is that the value is an object. Everything inside is best-effort: an unknown member id, an unknown worker, or a receipt that matches no outstanding command is written to the server's stderr and then swallowed, and the call answers 200 either way. A 200 here means the report was accepted, NOT that it was matched to anything - if you need to know the result was recorded, read the state it should have changed.",
             "title": "Command Result"
           },
           "cost": {
             "default": null,
+            "description": "Accumulated cost for this session. The ONLY check is that the value is a number - there is no sign check, no unit check and no upper or lower bound, so a negative figure, a value in the wrong currency, or one off by a factor of a thousand is stored verbatim and answers 200. It becomes what the monitoring view reports, so the number is trusted exactly as far as the caller computing it.",
             "title": "Cost"
           },
           "effort": {
             "default": null,
+            "description": "The reasoning-effort level this session is actually running at. The ONLY check is that the value is a string: unlike hire_member and update_member, which validate against the known effort levels, this path deliberately does NOT, so any string at all is accepted and overwrites the recorded effort. A typo is not refused, it is displayed - the monitoring view will report whatever you sent as though it were a real level.",
             "title": "Effort"
           },
           "hardware": {
             "default": null,
+            "description": "Hardware readings for this machine. Nothing is validated AT INGEST: keys the schema does not declare are stored and then never read by anything, and a declared key carrying the wrong type is accepted here and only surfaces much later, on the READ side, as an entry in hardware_invalid. So a 200 from this call says nothing about whether the readings will be usable - the report and the complaint are separated by a whole round trip.",
             "title": "Hardware"
           },
           "machine": {
             "default": null,
+            "description": "Which machine this telemetry is about. It is CONSULTED ONLY IF the caller's token carries no machine claim: when the token does carry one, this field is not compared, not validated and not reported on - it is simply never read, and the call answers 200 exactly as if it had been honoured. So a wrong value here is undetectable from the response, and a right value is redundant. Send it only when reporting from a caller whose token is not already bound to a machine.",
             "title": "Machine"
           },
           "model": {
             "default": null,
+            "description": "The model this session is actually running. The only check is that the value is a string, and there is no allow-list - an unknown or misspelled model is stored and displayed as though real. An EMPTY string is a silent no-op: it is accepted, changes nothing, and answers 200 like any other report, so 'I reported the model' and 'the model was recorded' are not the same statement.",
             "title": "Model"
           },
         "rate_limits": {
           "default": null,
+          "description": "Rate-limit state for this account. The ONLY check is that the value is an object; every key and value inside is stored unvalidated, so a misspelled key or a wrong unit is accepted and answers 200. What is stored here drives the pacing figures a reader sees, so a wrong shape does not fail loudly - it produces a confident-looking number that is not true.",
           "title": "Rate Limits"
         },
         "runtime": {
@@ -1339,10 +1450,12 @@
         },
         "self_update": {
             "default": null,
+            "description": "Self-update status for the reporting binary. The ONLY check is that the value is an object - anything else is a flat 400, 'self_update must be an object' - and nothing inside it is checked. What you send IS kept: it is merged onto this reporter's telemetry entry and echoed back on THIS response under self_update, so a misspelled sub-key reads back looking fine and is simply never used by anything. The one place a wrong shape shows up is a line on the SERVER's stderr, which prints binary, old_hash, new_hash and at, substituting '?' for whatever is missing - and you cannot see it. Two consequences worth planning for: that entry is an IN-MEMORY map, so everything here is gone the moment the server re-execs; and this endpoint MERGES, so omitting self_update does not clear it - the previous report's value stays on the entry and is echoed back to you again.",
             "title": "Self Update"
           },
           "tokens": {
             "default": null,
+            "description": "Token counters for this session. The ONLY check is that the value is an object - the shape INSIDE it is not validated at all, so a misspelled counter name, a missing field or a string where a number belongs is stored as sent and answers 200. Nothing downstream will tell you the shape was wrong; the counters simply do not add up wherever they are read.",
             "title": "Tokens"
           }
         },
@@ -1364,6 +1477,7 @@
       "inputSchema": {
         "properties": {
           "account_id": {
+            "description": "Which account to give a display name to. NOTHING checks that the account exists - the id goes straight into an alias row and the call answers 200 echoing back the id you sent. A misspelled id therefore writes a perfectly valid-looking alias that will never join to anything: the name you set simply never appears, and the response gave you no way to tell. Copy the id from a monitoring read rather than typing it.",
             "type": "string"
           },
           "display_name": {
@@ -1404,6 +1518,7 @@
             "title": "Display Name"
           },
           "machine_id": {
+            "description": "Which machine to give a display name to. NOTHING checks that the machine exists - unlike most machine routes, this one does not resolve the id first; it writes the alias and answers 200 echoing back what you sent. A misspelled id leaves an orphan alias that will never be shown anywhere, and the successful-looking response is identical to the one a correct id produces. Copy the id from the machine list rather than typing it.",
             "type": "string"
           }
         },
@@ -1428,6 +1543,7 @@
       "inputSchema": {
         "properties": {
           "machine_id": {
+            "description": "Which machine's IDENTITY the installed warden runs as. An unknown or retired id is a 404, so the dangerous wrong value is the one that RESOLVES: the install always happens on the server's own host - the child process is addressed by the server's HOME and uid, never by this parameter - while the token it is handed is minted for the machine you named. Naming a valid but wrong machine therefore installs this host's warden under another machine's identity, answers 200 with ok true, and echoes your machine_id back as if it had been honoured. The install runs with --force, so it overwrites an existing one rather than refusing.",
             "type": "string"
           }
         },
@@ -1443,6 +1559,7 @@
       "inputSchema": {
         "properties": {
           "machine_id": {
+            "description": "Which machine the caller claims to be talking about - and today no value gets past the guard. An unknown or retired id is a 404; every id that resolves is a 409, in one of two ways, and the two refusals do NOT tell you the same amount. Naming the server-local machine (its id is 'm-server-self') answers one bare sentence - the server-local machine cannot be deleted - with no route to try instead. Naming any OTHER machine answers a long refusal that DOES name the way out, because this verb carries no machine selector at all: it can only ever tear down the warden on the server's own host, so honouring the request would destroy this host's daemon under another machine's name. That second message is the one that points at the remote uninstall plus a delete to retire another machine, and at install_warden_on_server_host, which runs install --force to repair this host. Read it even when you meant the first one: the repair path for THIS host is only ever printed there.",
             "type": "string"
           }
         },
@@ -1519,6 +1636,7 @@
           },
           "text": {
             "default": "",
+            "description": "The ENTIRE global context - the boot instructions every agent in the studio reads - not an addition to it. Sending a fragment answers 200 and permanently drops the rest, and the blast radius is the whole roster: every agent that boots after this write reads what you sent and nothing else. Read the current text first and fold your change into it. NOTE THE GUARD ASYMMETRY: emptying a document that had content is refused unless allow_shrink is set, but this document has NO CHARACTER CAP at all, so there is no upper bound and no refusal for a write that is merely far too long, or far too short without being empty.",
             "title": "Text",
             "type": "string"
           }
@@ -1541,7 +1659,7 @@
       "name": "reset_global_context"
     },
     {
-      "description": "List role definitions (seed defaults + owner edits).",
+      "description": "List role definitions (seed defaults + owner edits) WITHOUT the persona bodies: each row is the role identity plus its definition size and cap, never definition_md itself. Read the one role you want with get_role.",
       "inputSchema": {
         "properties": {},
         "type": "object"
@@ -1549,7 +1667,7 @@
       "name": "list_roles"
     },
     {
-      "description": "Size-only overview of EVERY capped document on the station: each role's role definition / insight / DEFAULT lessons bucket, and each task manual's SOP / learnings, as size_chars plus the cap_chars in force for THAT segment (the five segments have five separate caps — each is reported against its own). LIMITATION: lessons is reported for the default bucket only; nothing stops a write from naming another bucket, and such a document spends the same lessons cap yet never appears here. Carries NO document text, so it costs a few hundred bytes. Use it to find which long-lived document is nearly full, then read only that one (get_role / get_insight / get_lessons / get_task_manual). It is the only way to see insight and lessons sizes in bulk — no listing reports those at any price; the manual sizes and caps are also on list_task_manuals ?view=list, and a role definition's size and cap are already on every list_roles row.",
+      "description": "Size-only overview of EVERY capped document on the station: each role's role definition / insight / DEFAULT lessons bucket, and each task manual's SOP / learnings, as size_chars plus the cap_chars in force for THAT segment (the five segments have five separate caps — each is reported against its own). LIMITATION: lessons is reported for the default bucket only; nothing stops a write from naming another bucket, and such a document spends the same lessons cap yet never appears here. Carries NO document text, so it costs a few hundred bytes. Use it to find which long-lived document is nearly full, then read only that one (get_role / get_insight / get_lessons / get_task_manual). It is the only way to see insight and lessons sizes in bulk — no listing reports those at any price; the manual sizes and caps are also on every list_task_manuals row, and a role definition's size and cap are already on every list_roles row.",
       "inputSchema": {
         "properties": {},
         "type": "object"
@@ -1582,6 +1700,7 @@
               }
             ],
             "default": null,
+            "description": "Name for the first member created under the new role. Omitting it is neither an error nor a no-op: the server picks a name from its own pool (avoiding every name the roster has ever carried, removed rows included) and hires that member anyway, 200. Nothing tells you a name was chosen for you - the only place it appears is member.name in the response, so read that back rather than assuming the member is nameless or was not created at all.",
             "title": "Member Name"
           },
           "model": {
@@ -1594,9 +1713,11 @@
               }
             ],
             "default": null,
+            "description": "Model the new role's member launches with. There is NO model whitelist anywhere in the server: runtime and effort in this same call are checked against closed sets and 422 on anything else, but this string is trimmed and stored exactly as sent. A typo, a retired model name, or a model the chosen runtime cannot launch all answer 200 here and only surface much later, as a member that fails to spawn. Blank is legal and leaves the launcher's own default in place.",
             "title": "Model"
           },
           "name": {
+            "description": "The ROLE's name - the job, not the person. Blank is refused (422) and nothing else about it is checked, and the mistake this parameter invites is a silent one: put a person's name here and you get a role NAMED after a person plus a member whose own name the server picked out of its name pool, both created, 200. The member's name is member_name; this field is what the role is called. The duty document is not yours to set here either - the new role starts from the standard template and is written afterwards through update_role.",
             "title": "Name",
             "type": "string"
           },
@@ -1654,6 +1775,7 @@
               }
             ],
             "default": null,
+            "description": "Replaces the WHOLE role definition, not an addition to it - a fragment answers 200 and permanently drops the rest. The only guard here is the character cap, and it is one-directional BY DESIGN: it refuses writes that are too long, and never refuses one for being too short. There is no wipe guard on this path, so an empty string is accepted and clears the definition. Read the current text first and fold your change into it.",
             "title": "Definition Md"
           },
           "name": {
@@ -1666,6 +1788,7 @@
               }
             ],
             "default": null,
+            "description": "The role's display name - and for a FACTORY role it is SILENTLY DISCARDED rather than refused. The write applies the name only when the role is not one that ships with the product; for a factory role the field is skipped, the rest of the write proceeds, and the response answers 200 carrying the OLD name. Nothing says the rename was dropped, so the only way to know is to compare the name you sent against the name you got back. On roles you created yourself the field behaves as you would expect.",
             "title": "Name"
           },
           "role": {
@@ -1717,7 +1840,8 @@
       "inputSchema": {
         "properties": {
           "role_key": {
-            "type": "string"
+            "type": "string",
+            "description": "Names WHOSE insight to read, and an unknown role is NOT an error: measured 2026-08-14, a role_key no role carries answered 200 with text:\"\", size_chars:0, is_default:true and has_seed:false - byte for byte what a real role that has never written its insight answers. The response echoes back the role_key you sent, and that echo is the only signal available; it confirms what you asked, never that anyone answers to that name. So an empty read is not evidence the role wrote nothing, it is equally evidence you misspelled the role. Confirm the key against the roster before concluding anything from emptiness."
           }
         },
         "required": [
@@ -1735,9 +1859,11 @@
             "type": "boolean"
           },
           "role_key": {
+            "description": "Names WHOSE insight this replaces. Nothing checks the key against the roster - it becomes the storage key as sent - so who catches a typo depends on WHO YOU ARE. An ordinary member may only write its own role, so a misspelling is refused with 403. An admin or the owner may write any role, and for them a misspelling silently creates an insight document under a role nobody answers to, complete with its own version history and change notification, and answers 200. The role you meant is untouched and unmentioned.",
             "type": "string"
           },
           "text": {
+            "description": "The ENTIRE insight doc, not an addition to it. Sending a fragment answers 200 and permanently replaces everything else, so read the doc first and fold your change into it, or use patch_insight to edit by anchor. The two guards here catch only the extremes: emptying a doc that had content needs allow_shrink, and the character cap is enforced. A replace that simply loses most of the text is neither empty nor over cap and passes silently.",
             "type": "string"
           }
         },
@@ -1771,6 +1897,7 @@
             "type": "array"
           },
           "role_key": {
+            "description": "Names WHOSE insight to edit. Nothing checks the key against the roster, so who catches a typo depends on WHO YOU ARE: an ordinary member may write only its own role and is refused with 403, while an admin or the owner is not refused at all. For them, an edit with a non-empty old fails to find its anchor in an empty document and returns 400, but the APPEND form (empty old) has no anchor to miss - it creates an insight document under a role nobody answers to and answers 200, leaving the role you meant untouched.",
             "type": "string"
           }
         },
@@ -1802,10 +1929,12 @@
       "inputSchema": {
         "properties": {
           "role_key": {
+            "description": "Names WHOSE lessons to read. Reads are unrestricted and the key is not checked against the roster at all, so a role_key no role carries is not an error: the call answers 200 carrying the factory seed text, which is what a real role that has never written its own lessons also answers. The response echoes the role_key you sent - that echo confirms your input, never that anyone answers to that name. Treat a seed-looking answer as ambiguous between 'this role has written nothing' and 'this role does not exist', and settle it against the roster rather than against this response.",
             "type": "string"
           },
           "task_type": {
-            "type": "string"
+            "type": "string",
+            "description": "Names WHICH lessons bucket to read, and a name no bucket carries is NOT an error: the call answers 200 carrying the 14-character factory shell, which is indistinguishable from a bucket that exists and has simply never been written. Measured 2026-08-14 against one role: an invented bucket name answered size_chars=14 / is_default=true, while that same role's real bucket answered size_chars=14897 / is_default=false. NEITHER DIRECTION OF is_default SETTLES IT - true does not mean 'this role never wrote one', and false does not mean 'there is content here' (a bucket holding only the 14-character shell reads false). So a short answer is not evidence the role is empty; it is equally evidence you named a bucket that does not exist. Know which bucket names are legal BEFORE you ask - the response cannot tell you afterwards."
           }
         },
         "required": [
@@ -1817,7 +1946,7 @@
       "name": "get_lessons"
     },
     {
-      "description": "Whole-doc replace of a per-role lessons doc ({text}). text is REQUIRED; unknown keys are rejected. Replacing existing content with an empty doc needs allow_shrink=true.",
+      "description": "Replace the WHOLE per-role lessons document. text is REQUIRED and unknown keys are rejected; only that role's agent or an admin may write it; emptying or sharply shrinking it needs allow_shrink=true; and the result is still judged against the lessons cap.",
       "inputSchema": {
         "properties": {
           "allow_shrink": {
@@ -1826,13 +1955,16 @@
             "type": "boolean"
           },
           "role_key": {
+            "description": "Names WHOSE lessons this replaces. Nothing checks the key against the roster - it goes straight into the storage key - so who catches a typo depends entirely on WHO YOU ARE. An ordinary member is saved by authorization: it may only write its own role, so a misspelling is refused with 403 and the mistake announces itself. An ADMIN OR THE OWNER may write any role, and for them a misspelling is not refused at all: it creates a lessons document under a role nobody answers to, answers 200, and fans a delta for it. The role you meant is untouched and unmentioned. The higher your privilege, the quieter this fails.",
             "type": "string"
           },
           "task_type": {
-            "type": "string"
+            "type": "string",
+            "description": "Names WHICH lessons bucket this whole-doc replace lands in, and NOTHING validates it: the value is used verbatim as half of the storage key (role_key::task_type), so a name no bucket carries does not fail - it CREATES a new document under the misspelled name and answers 200. The bucket you meant is left exactly as it was and is never mentioned; the response echoes the task_type you sent, which is the only signal you get. The wipe guard does not save you, and not for the reason it looks: a bucket nobody has written does not read as empty, it reads as the ONE shared seed file every role falls back to, so writing real content over that seed is not a wipe and the guard passes. OMITTING the field is safe over MCP and is not the same risk - a blank task_type is folded to the default 'general' bucket at the tool boundary. It is a typo, not an omission, that loses the write."
           },
           "text": {
             "default": "",
+            "description": "The ENTIRE lessons doc, not an addition to it. Sending the paragraph you wanted to add answers 200 and permanently drops everything else, so read the doc first and send it back with your change folded in - or use patch_lessons, which edits by anchor. Two guards stand here and neither catches the ordinary version of this mistake: emptying a doc that had content is refused unless allow_shrink is set, and exceeding the character cap is refused. A replace that merely loses most of the text is neither empty nor over cap, so it passes without comment.",
             "title": "Text",
             "type": "string"
           }
@@ -1878,10 +2010,12 @@
             "type": "array"
           },
           "role_key": {
+            "description": "Names WHOSE lessons to edit. Nothing checks the key against the roster, so who catches a typo depends on WHO YOU ARE: an ordinary member may only write its own role and is refused with 403, while an admin or the owner may write any role and gets no refusal at all. For them the edit form decides what happens next - an edit with a non-empty old cannot find its anchor in an empty document and fails with 400, but an edit with an EMPTY old (the append form) has no anchor to miss and CREATES a lessons document under a role nobody answers to, answering 200 while the role you meant stays untouched.",
             "type": "string"
           },
           "task_type": {
-            "type": "string"
+            "type": "string",
+            "description": "Names WHICH lessons bucket to edit, and NOTHING validates it: the value is used verbatim as half of the storage key (role_key::task_type). A name no bucket carries does not fail - and it does not read as an empty document either. What you get back is the ONE shared seed file every role falls back to (a single line of boilerplate), marked is_default: true on get_lessons; that flag is the only thing distinguishing a bucket nobody has written from one that has. What happens next depends on the edit form. A NON-EMPTY old is refused with 400 - whole batch, zero writes - because your anchor is not in that seed line. An EMPTY old (the append form) has no anchor to miss: it appends onto the seed, CREATING a document under the misspelled name, and answers 200 while the bucket you meant stays untouched and unmentioned. OMITTING the field is safe over MCP, but nothing in your client does that for you: it is the SERVER's /api/mcp handler that substitutes the default 'general' bucket for a blank task_type, after your call has arrived and before it re-enters the route. So what actually lands is an ordinary write to 'general' - it is a typo, not an omission, that loses the write."
           }
         },
         "required": [
@@ -1895,7 +2029,7 @@
       "name": "patch_lessons"
     },
     {
-      "description": "Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task). Also carries the STUDIO FLOOR you wake up onto: roster (every member and contractor, each with online/offline status, the machine it runs on, and its duty capped at 1000 chars with `…` marking a cut, the cap applied after the doc's own leading title line is removed — who to ask for help; no insight/learning by owner ruling. Contractors additionally carry their bound task's status, waiting_reason, and step progress (progress_done/progress_total) — members leave these at their zero value; a contractor's 0/0 is ambiguous (a task with no steps yet, or no task at all) and task_status is what tells them apart, non-empty vs empty) and machines (the machine list plus you_are_on, your server-recorded machine binding — never derive it from a hostname).",
+      "description": "Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task). CHAT is packed newest-first under a CHARACTER BUDGET, not a fixed message count, and stopping at the last message that still fits; each message carries from_name/to_name beside the ids and ts_display (full date + time + zone offset) beside the epoch ts, and folds in its reply card as `card` when it has one — read every ts_display against the top-level `generated_at`. TWO DIFFERENT things can be missing and they are marked DIFFERENTLY: `body_omitted_chars` > 0 means THAT message is here with that many characters COLLAPSED away (another agent's line — the owner's line and your own hand-off notes to yourself are carried in full), re-read it with get_chat; `chat_earlier_omitted` is the other kind and it is a MAYBE, not a fact: that line was cut at a read or budget limit and nothing looked past the cut, so whole messages may be missing from this payload entirely — it is raised even when there is in fact nothing older. Its hint tells you how to CHECK and fetch them. The two are asymmetric ON PURPOSE: the collapse marker is CERTAIN (that message IS here, shortened, exact count); this one is not, and only the fetch settles it. Also carries the STUDIO FLOOR you wake up onto: roster (every member and contractor, each with online/offline status, the machine it runs on, and its duty capped at 1000 chars with `…` marking a cut, the cap applied after the doc's own leading title line is removed — who to ask for help; no insight/learning by owner ruling. Contractors additionally carry their bound task's status, waiting_reason, and step progress (progress_done/progress_total) — members leave these at their zero value; a contractor's 0/0 is ambiguous (a task with no steps yet, or no task at all) and task_status is what tells them apart, non-empty vs empty) and machines (the machine list plus you_are_on, your server-recorded machine binding — never derive it from a hostname).",
       "inputSchema": {
         "properties": {},
         "type": "object"
@@ -1903,7 +2037,7 @@
       "name": "resume_summary"
     },
     {
-      "description": "Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO chat/task content). Step one of the two-step boot: call this FIRST to size resume_summary, then either call resume_summary directly (small) or hand the pull to a cheap sub-agent that returns a digest (large).",
+      "description": "Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO chat/task content). estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars, all four reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit and the two studio-floor blocks — what pulling the snapshot actually costs. Step one of the two-step boot: call this FIRST to size resume_summary, then either call resume_summary directly (small) or hand the pull to a cheap sub-agent that returns a digest (large).",
       "inputSchema": {
         "properties": {},
         "type": "object"
@@ -1924,6 +2058,7 @@
               }
             ],
             "default": null,
+            "description": "Filter to one executor. It is a plain string comparison against each task's executor id - nothing resolves it, so an id nobody carries is not an error: you get 200 with an EMPTY list, which is exactly what a real executor with no tasks returns. An empty answer is therefore not evidence that someone has no work; it is equally evidence you misspelled them.",
             "title": "Executor"
           },
           "open": {
@@ -1968,6 +2103,7 @@
               }
             ],
             "default": null,
+            "description": "Filter to one task type. It is a plain string comparison against each task's type_key - no manual is looked up, so a type_key that names no manual answers 200 with an EMPTY list rather than an error, indistinguishable from a real type that currently has no tasks. Take the key from list_task_manuals rather than typing it.",
             "title": "Type"
           }
         },
@@ -1989,6 +2125,7 @@
               }
             ],
             "default": null,
+            "description": "The task's body text - what the executor reads to learn what is actually being asked. It is stored exactly as sent, with no validation and no length limit, and omitting it is not an error: the task is created with an empty description and answers 200. Nothing downstream fills it in and title is the only other free text the executor gets, so a task created without this arrives as a one-line instruction to whoever picks it up.",
             "title": "Description"
           },
           "executor_member_id": {
@@ -2001,6 +2138,7 @@
               }
             ],
             "default": null,
+            "description": "The member who is to execute the task. It is REQUIRED whenever the task ends up member-executed and the type manual names no assignee (blank is a 400), and it is ignored entirely when the manual assigns the type or when target routes the task to an outsource worker. What it never gets is a roster lookup - the id is stored as given. A plain agent is protected by the rule that it may only name ITSELF (anything else is a 403), so the silent failure belongs to owner and admin-agent callers: a mistyped id creates a task assigned to a member who does not exist, answers 200, and is then executed by nobody.",
             "title": "Executor Member Id"
           },
           "inputs": {
@@ -2014,7 +2152,8 @@
               }
             ],
             "default": null,
-            "title": "Inputs"
+            "title": "Inputs",
+            "description": "The manual's fields, as {field_name: value}. An UNDEFINED field name is NOT dropped: the whole map is stored on the task verbatim and reads straight back out of get_task, and the only thing marking it is one line in the response's warnings[] saying the field is not defined in that manual. So a value under a misspelled name survives, is never read by anything, and a 200 alone will not tell you. Two misspellings are NOT silent, because the field they were meant for is then left with no value: a required field answers 400 'required input ... is missing', and a manual's identifying (is_key) field answers 400 'identity key ... must not be empty' - so a typo cannot slip past dedupe by emptying the key. Matching is case- and space-insensitive, so two names that fold together keep the first in sort order and warn about the other. Ad-hoc tasks (no type_key) have no manual to check against at all: the map is stored unexamined, with no warnings. READ warnings[] on every typed create."
           },
           "priority": {
             "anyOf": [
@@ -2091,7 +2230,8 @@
               "kind"
             ],
             "type": "object",
-            "additionalProperties": false
+            "additionalProperties": false,
+            "description": "Dispatch target. The kind is matched as the EXACT string 'outsource' (surrounding whitespace is trimmed, case is not folded): any other spelling - 'outsourced', 'Outsource', a typo - does not fail and is not warned about. The entire target block is discarded and the task is created down the ordinary member path instead, which answers 200 with a perfectly normal-looking task. So a task you meant to put out to a contractor can come back as a task assigned to a member, and nothing in the response says so. Check the created task's executor_kind rather than trusting the create to have read your target. The MACHINE is the other quiet one, and it bites even when the kind is spelled right. Leaving target.machine out is not an error and usually costs nothing: the field is filled from the type manual's outsource assignee, and then from the machine YOU are pinned to as the creator - though an owner-scope caller has no roster row to lend and contributes nothing here. When none of those three names a machine the field simply stays empty: runtime and effort have defaults, a placement deliberately does not, and nothing else invents one. The task is still created with 200 and reads as normal, and the worker minted for it later does not boot at all until somebody names a machine on it - until then it just sits there with a no_machine_selected receipt on the WORKER row, which is the only place this ever surfaces."
           },
           "title": {
             "title": "Title",
@@ -2322,63 +2462,49 @@
       "name": "submit_plan"
     },
     {
-      "description": "Correct THIS task's description — the ticket's own text (what the task IS: scope, origin, acceptance). T-e271: until this tool existed there was NO way to change a description after creation — create_task takes one only at birth, submit_plan writes steps, update_task_manual writes the TYPE's manual — so a decision to reword a card had nowhere to land. WHO: the task's own executor, or an admin/owner; anyone else is a flat 403. Creating a task grants NO standing to keep rewriting it — if you handed the task over, it is the new executor's text now. PARTIAL like update_task_manual: omitting `description` changes nothing (a safe no-op), while an explicit \"\" CLEARS it — absent and empty are different on purpose; unknown keys are refused rather than dropped. The write is wholesale within that field: the value replaces whatever was there, so send the full corrected text, not a fragment. ⚠️ Division of labour with update_step_note: the DESCRIPTION says what this task IS (stable); the step NOTE says where a step is RIGHT NOW (volatile, handover-facing) — do not put progress here. A CLOSED task (completed / terminated / duplicated) is STILL editable, on the same terms — unlike its artifact set, which freezes at close. The reason they differ: artifacts are the record of what the task PRODUCED and must stop moving, while a ticket worded wrongly is usually found to be wrong after it closed, and freezing the text would preserve a known falsehood in the permanent record. Every change that actually alters the text retains the previous one as a document version (kind `task_description`, key = the task id) — list it with list_document_history, so a correction is recoverable and the older wording is never simply gone.",
-      "inputSchema": {
-        "properties": {
-          "description": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Description"
+        "description": "Correct THIS task's own TEXT — its title, its description, or both in one write (T-646a). Replaces `update_task_title` and `update_task_description`, which documented the same rules twice and could not be applied together: changing both meant two calls, two transactions and two SSE deltas, with room for someone else's write to land in between. WHO: the task's own executor, or an admin/owner; anyone else is a flat 403. Creating a task grants NO standing to keep rewriting it — if you handed the task over, it is the new executor's text now. PARTIAL: only the fields you NAME are touched, so omitting a field is a legal no-op for it that versions nothing and fans nothing. ⚠️ THE TWO FIELDS TREAT AN EXPLICIT BLANK DIFFERENTLY, and that is an owner ruling rather than an inconsistency (card rc-796541192519, 2026-08-11, option ①): a blank `title` (\"\" or whitespace-only) is REFUSED with 400 and does NOT clear the field, because create_task refuses a blank title too and an edit door looser than the create door would let a caller reach a task-list row with nothing in it; a blank `description` IS accepted and DOES clear the text, because plenty of cards legitimately have no prose. VALIDATION IS WHOLE-BODY AND HAPPENS FIRST: a request carrying a blank title alongside a perfectly good description writes NEITHER — a 400 leaves the task exactly as it was, never half-applied. Both values are trimmed of surrounding whitespace before they are stored AND before they are compared with what is there, so re-sending the same text with a stray trailing space is correctly seen as no change rather than spending one of the retained revisions saying nothing moved. ⚠️ THAT HOLDS ONLY WHILE THE STORED TEXT IS ALREADY TRIMMED. Whenever the stored description carries untrimmed whitespace, the next edit here normalises it and therefore DOES spend a revision — even when you re-send exactly what you read back. TWO things can put untrimmed text in that column, so this is not a one-time settling: create_task, which never trims the description (it does trim the title), and a RESTORE of a revision that holds untrimmed text, which is written back verbatim. Before this ticket both doors stored it raw and agreed; this tool trims and create still does not, which is a divergence awaiting a ruling rather than a promise about the system. The write is wholesale within each field: send the full corrected text, not a fragment. ⚠️ Division of labour with update_step_note: the DESCRIPTION says what this task IS (stable); the step NOTE says where a step is RIGHT NOW (volatile, handover-facing) — do not put progress here. A CLOSED task (completed / terminated / duplicated) is STILL editable, on the same terms — unlike its artifact set, which freezes at close: artifacts record what the task PRODUCED and must stop moving, while a ticket worded wrongly is usually found to be wrong after it closed, and freezing the text would preserve a known falsehood in the permanent record. Every change that actually alters a field retains the previous value as a document version — kind `task_title` / `task_description`, key = the task id — so a correction is recoverable through list_document_history and the older wording is never simply gone.",
+        "inputSchema": {
+          "properties": {
+            "task_id": {
+              "type": "string"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Title",
+              "description": "The new title, replacing the whole of it. OMITTING the field is a no-op for the title: nothing is written, nothing is versioned, nothing fans, and the call still answers 200 with the task — so the status code alone never tells you whether a rename happened; read the title back if you need to know. A blank or whitespace-only title is REFUSED (400, 'title must not be blank') and takes the WHOLE request down with it, `description` included. ⚠️ Reaching that guard requires the blank to actually arrive: at least one MCP client serializes an empty string as an ABSENT field, which lands in the no-op branch instead (observed four times over, 2026-08-11) — so a caller trying to clear a title may get silence rather than the 400. Surrounding whitespace is trimmed before the value is stored and before it is compared with the current title. Contrast `description` on this same tool, where a blank is a real write that clears the text."
+            },
+            "description": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Description",
+              "description": "The new description, replacing the whole of it. OMITTING the field is a no-op for the description: nothing is written, nothing is versioned, nothing fans. An EMPTY STRING is NOT refused — it is a genuine write that CLEARS the description, which is the opposite of what `title` does with the same input and is deliberate (a card with no prose is a true state; a card with no title is a blank row on the list). Surrounding whitespace is trimmed before the value is stored and before it is compared with the current description, so re-sending the same text with a stray trailing newline is correctly seen as no change. A description that is ONLY whitespace therefore trims to \"\" and CLEARS."
+            }
           },
-          "task_id": {
-            "type": "string"
-          }
+          "required": [
+            "task_id"
+          ],
+          "additionalProperties": false,
+          "type": "object"
         },
-        "required": [
-          "task_id"
-        ],
-        "additionalProperties": false,
-        "type": "object"
+        "name": "update_task"
       },
-      "name": "update_task_description"
-    },
     {
-      "description": "Correct THIS task's title — the one line the task list shows. T-2ebe: until this tool existed a title could never be changed after creation, so a card whose scope was later overturned kept advertising its first wording forever — the description could correct itself, the title could not, and whoever scanned the list saw only the stale half. If you have just corrected a description because the scope moved, ask whether the title still says the same thing. WHO: the task's own executor, or an admin/owner; anyone else is a flat 403. Creating a task grants NO standing to keep rewriting it — if you handed the task over, it is the new executor's title now. PARTIAL like update_task_description: omitting `title` changes nothing (a safe no-op); unknown keys are refused rather than dropped. ⚠️ ONE DIFFERENCE FROM ITS DESCRIPTION TWIN: a blank title (\"\" or only whitespace) is REFUSED with 400, it does NOT clear the field — create_task refuses a blank title too, and a task with no title is a blank row on the list. Surrounding whitespace is trimmed. The write is wholesale within that field: send the full corrected title, not a fragment. A CLOSED task (completed / terminated / duplicated) is STILL editable, on the same terms — a ticket is usually found to be worded wrongly after it closed, and freezing the text would preserve a known falsehood; its artifact set is the opposite and freezes at close. Every change that actually alters the text retains the previous one as a document version (kind `task_title`, key = the task id) — list it with list_document_history, so a correction is recoverable.",
-      "inputSchema": {
-        "properties": {
-          "task_id": {
-            "type": "string"
-          },
-          "title": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Title"
-          }
-        },
-        "required": [
-          "task_id"
-        ],
-        "additionalProperties": false,
-        "type": "object"
-      },
-      "name": "update_task_title"
-    },
-    {
-      "description": "Mark a task duplicated, pointing at the original (executor/owner; terminal). T-74f8 交棒閘 (third door): ``duplicated`` is terminal, so this closes the task; it is never refused. A duplicate's ball is on the ORIGINAL by construction, so the server records that itself — a cross-executor task marked duplicate lands ``handoff='follow_up'`` with ``handoff_task_id`` = ``duplicate_of``. No task_dep edge is added (the original is not blocked by its duplicate).",
+      "description": "Mark a not-yet-terminal task duplicated, pointing at an existing final original (executor/owner). A blank original, an original that cannot be found, a self-reference, a chained duplicate and a target that is already pointed at are all refused. Closing across executors creates a handoff_follow_up, and no dependency is added.",
       "inputSchema": {
         "properties": {
           "duplicate_of": {
@@ -2440,6 +2566,7 @@
               }
             ],
             "default": null,
+            "description": "Why this step is blocked on the outside world. It is read ONLY when the status being reported is waiting_external, where it is REQUIRED and a blank one is refused (422). Under EVERY OTHER status the field is not merely ignored - the reason is actively CLEARED, so a report that carries a perfectly good reason alongside, say, in_progress both discards what you sent and erases the reason already recorded, answering 200 either way. Leaving waiting_external is meant to clear it; the surprise is that any other report does too.",
             "title": "Waiting Reason"
           }
         },
@@ -2544,6 +2671,7 @@
           },
           "body": {
             "default": "",
+            "description": "The gate's full text - the background, the consequences and the trade-offs behind the approval being asked for. It is stored as sent with NO validation, so omitting it is not an error: the gate opens with an empty body and answers 200, leaving the owner a summary and some buttons with nothing explaining what he is approving. Nothing warns you that it went out empty.",
             "title": "Body",
             "type": "string"
           },
@@ -2639,9 +2767,11 @@
               }
             ],
             "default": null,
+            "description": "What the successor needs in order to pick the work up. The only check is a length cap, and a blank or omitted note is not an error - but it is not neutral either: the note is written onto the task ONLY when it is non-blank, so omitting it leaves whatever handover_note an EARLIER reassign put there, still carrying that author and timestamp, sitting on the card as though it described this handover. The takeover message itself is server-authored and goes out either way; your note is simply appended to it when present. On an outsource reassign there is no successor to message yet - the worker has not been minted - so the note reaches the task row only.",
             "title": "Note"
           },
           "target": {
+            "description": "Where the task goes next. kind is required and must be 'member' or 'outsource' (anything else is a 400) - and the two branches read DIFFERENT sub-fields, which is where this call loses things quietly. member_id is a DECLARED field of target, so strict decoding accepts it under EITHER kind; send it with kind 'outsource' and the outsource branch never reads it, so it simply vanishes - no 422, no warning. The reverse direction is destructive rather than merely lossy: kind 'member' does not just ignore runtime, model, effort and machine, it RESETS the outsource spec already sitting on the task row - runtime back to 'claude', model, effort and machine blanked, the explicit-dispatch flag cleared - and none of those columns appear in any response, so nothing you can read afterwards shows they were ever there. kind 'member' also needs member_id (owner or admin-agent only; the target must be an active, non-outsource, non-warden roster row, and naming the current executor is a 409). kind 'outsource' validates runtime and effort, and resolves machine ONLY when you send a non-blank one - an id that resolves to nothing is a 400 there, but omitting the field is asked nothing at all: it is then filled from the type manual or from you the dispatcher, and when neither of those names a machine either it stays EMPTY, the reassign still answers 200, and the worker minted for the task does not boot until somebody names a machine on it (a no_machine_selected receipt on the worker row is the only trace). It also names no successor: the task lands unassigned and the scheduler mints a worker for it later, under the global cap.",
             "properties": {
               "effort": {
                 "anyOf": [
@@ -2780,6 +2910,7 @@
               }
             ],
             "default": null,
+            "description": "The link target, read ONLY when kind is 'link' - where it IS required, a blank one being a 400. It is never parsed and never fetched: any non-empty string is accepted as sent, so a typo is pinned as a deliverable that leads nowhere. With kind 'file' or 'image' this field is not merely optional but never looked at at all - those artifacts are taken from attachment_id and the url is dropped without a word, so a file artifact sent with a url and no attachment_id is refused for the MISSING attachment_id, not for the field you actually filled in.",
             "title": "Url"
           },
           "label": {
@@ -2792,6 +2923,7 @@
               }
             ],
             "default": null,
+            "description": "Human-readable caption for this deliverable. It is stored exactly as sent and never validated - blank, duplicated or wrong, nothing objects - and omitting it is not an error: the artifact is pinned with an empty label and answers 200. What the reader gets then is an untitled row whose only identity is its kind and the file or link behind it, which on a task carrying several artifacts is the difference between a list someone can act on and a list they have to open one by one.",
             "title": "Label"
           }
         },
@@ -2913,6 +3045,7 @@
           },
           "model": {
             "default": "",
+            "description": "New model for the outsource worker. It is trimmed and stored with no whitelist of any kind - runtime and effort in this same call ARE checked and 422 on an unknown value, and that 422 returns BEFORE the row is written, so a rejected effort also throws away the model you sent alongside it - and a blank string is a legal value meaning the launcher's default, not 'leave it as it is'; to leave it alone, omit the field. The value is persisted before anything else happens, so a 200 says nothing about whether it is usable. Exactly ONE combination is acted on now: status 'active' AND a session that is connected at this moment. An assigned worker, or an active one whose session is not connected, is written to the row and nothing else - it picks the value up at its next spawn. The connected active worker then has THREE outcomes, not two. If the owner has already stopped it (desired_state offline), nothing is started at all: the model is saved and the row is stamped held_down, telling you to restart it when you want it to run. Otherwise the call opens a hand-over window and tells the worker to wind down, and the kill plus respawn on the new model happens when it reports stopped, or when that window's deadline runs out - UNLESS this refocus epoch's wind-down was already collected (its refocus AND stopped anchors both set), in which case the kill and the respawn go out inside this very call. So in the ordinary case an unusable model name does not take the worker down while you hold the 200 - the old model keeps running until the hand-over closes, and only then does the respawn fail.",
             "title": "Model",
             "type": "string"
           },
@@ -2942,14 +3075,9 @@
       "name": "set_outsource_worker_model"
     },
     {
-      "description": "List task types (match by display_name/purpose; address by type_key). WITHOUT view=list this returns the FULL manual of every type — every SOP and every learnings blob in one answer, six figures of characters on a real roster. Pass view=list unless you actually need the text.",
+      "description": "List task types WITHOUT their long documents: each row is the type identity (type_key / display_name / purpose), its input fields and its assignee setting, plus the SIZES of sop_md and learnings and the cap each is judged against. The SOP and the learnings text are not on this answer at all — read the one type you picked with get_task_manual.",
       "inputSchema": {
-        "properties": {
-          "view": {
-            "description": "\"list\" = the LIGHT row: type_key / display_name / purpose / updated_ts plus the SIZES of the omitted text (sop_md_chars, learnings_chars) and the caps each is judged against (sop_md_cap_chars, learnings_cap_chars \u2014 the older cap_chars is DEPRECATED: it carries the LEARNINGS cap only and says nothing about sop_md), with sop_md and learnings served empty. Omitted (the default) = the FULL manual of every type, SOP and learnings included. Use \"list\" whenever you are matching or choosing a type rather than executing one: the two answers differ by orders of magnitude, and the light row still tells you how big each manual is, so you can pull the one you picked with get_task_manual.",
-            "type": "string"
-          }
-        },
+        "properties": {},
         "type": "object"
       },
       "name": "list_task_manuals"
@@ -2969,6 +3097,7 @@
               }
             ],
             "default": null,
+            "description": "Who executes tasks of this type. Supplying it at all is governance - a caller below admin-agent is a 403 - and the sub-keys the server KNOWS are checked properly: kind must be 'member' or 'outsource' (400 otherwise), an outsource runtime, effort and copies are each validated against their own range, and an outsource machine must actually resolve. What is not checked is anything else you put in the object: unknown sub-keys are neither rejected nor read, just marshalled into the stored blob, so 'copys' or 'mashine' are accepted with 200 and then never take effect. TWO known keys also escape checking, and the second one is the expensive one. member_id is only tested for being non-empty, never looked up in the roster. model is never mentioned by the validator at all - yet it is what a spawn reads, and by two routes: every task this manual itself routes to outsource, AND an explicit target on create_task/reassign_task that left model unset on a task of this type, which inherits this one (the manual's model rides along when the two runtimes agree). So an unusable model name is stored with 200 and surfaces much later as a spawn that fails. A model that is not a string is not refused either: it is dropped as if you had never set it, and the field then falls through to the creator snapshot written on the task row when the task was created, reaching the launcher default only when that is empty too. Compare runtime and effort in this same object, which refuse a value they do not recognise.",
             "title": "Assignee"
           },
           "display_name": {
@@ -2981,6 +3110,7 @@
               }
             ],
             "default": null,
+            "description": "Human-readable label for the type. Whether a blank one is refused depends entirely on the OTHER field: with no type_key this is the only input there is, so blank is a 400; with a type_key supplied, a blank display_name is silently backfilled with that type_key and answers 200. The failure is therefore not an error message but a type list in which one row is labelled with its raw id while every other row carries a real name.",
             "title": "Display Name"
           },
           "type_key": {
@@ -2993,6 +3123,7 @@
               }
             ],
             "default": null,
+            "description": "Stable id for the new task type, and the legacy compatibility path: supply it and it is taken verbatim as the id, an existing one being a 409. OMITTING it is not a validation error - the server mints an id of its own ('tm-' plus twelve hex characters) and creates the manual under that, 200 - so a caller who meant to set a memorable key ends up with a random one and finds out only by reading type_key back out of the response. On that minting path display_name becomes mandatory (blank is a 400); on the legacy path a blank display_name is silently backfilled with this key.",
             "title": "Type Key"
           }
         },
@@ -3031,6 +3162,7 @@
               }
             ],
             "default": null,
+            "description": "Replacement assignee object for the type - governance, so a caller below admin-agent supplying it is a 403. It is a WHOLE-OBJECT replacement, not a merge: what you send becomes the entire assignee, so an outsource assignee re-sent as kind plus machine silently drops the copies and effort that were there before, and an empty object clears the assignee altogether. Both answer 200. The same checks as the create face apply - kind must be 'member' or 'outsource', an outsource runtime, effort and copies are range-checked and machine must resolve - and so does the same gap: unknown sub-keys are stored verbatim and never read, and member_id is only tested for being non-empty, never looked up.",
             "title": "Assignee"
           },
           "display_name": {
@@ -3091,7 +3223,8 @@
               }
             ],
             "default": null,
-            "title": "Learnings"
+            "title": "Learnings",
+            "description": "Replaces the WHOLE learnings doc of this manual - and unlike write_task_learnings, which writes the same document, this path has NO wipe guard. write_task_learnings refuses to empty a doc that had content unless allow_shrink is set; here {\"learnings\": \"\"} is simply accepted and answers 200 with the document gone. Only the character cap is checked. Because both calls write the same doc, the safety you get depends purely on which one you happened to use, and nothing in either response says which protections applied. Omit the field to leave the doc alone; send the full current text with your change folded in when you do mean to write. Also note the field names are NOT interchangeable between the two calls: this one is 'learnings', write_task_learnings takes 'text'."
           },
           "purpose": {
             "anyOf": [
@@ -3103,6 +3236,7 @@
               }
             ],
             "default": null,
+            "description": "Replaces the manual's whole purpose text. Nothing validates it - no cap, no wipe guard, no format check - so an empty string clears it and a fragment replaces the rest, both answering 200. Omit the field to leave it alone; send the full text when you do mean to write.",
             "title": "Purpose"
           },
           "sop_md": {
@@ -3115,6 +3249,7 @@
               }
             ],
             "default": null,
+            "description": "Replaces the WHOLE SOP of this manual, and it is the only way in - there is no patch-by-anchor counterpart for this document the way patch_task_learnings exists for the learnings half. The only guard is the character cap: unlike write_task_learnings, there is NO wipe guard here, so an empty string is accepted and clears the SOP, and a fragment silently replaces everything else. Both answer 200. Read the current SOP first and fold your change into it. Omit the field to leave it alone.",
             "title": "Sop Md"
           },
           "type_key": {
@@ -3156,7 +3291,8 @@
           "text": {
             "default": "",
             "title": "Text",
-            "type": "string"
+            "type": "string",
+            "description": "The ENTIRE learnings doc, not an addition to it: whatever you send becomes the whole document and everything else is gone. The field name says 'text' but the seam is a whole-doc replace, so sending the paragraph you wanted to add answers 200 and permanently drops the rest. Read the current doc first and send it back with your change folded in, or use patch_task_learnings, which edits by anchor instead. TWO guards stand here and they behave differently. The wipe guard catches only the extreme case - emptying a doc that had content - and allow_shrink=true switches it off; either way, a replace that merely loses most of the text passes without comment. The second is the learnings size cap, and it is UNCONDITIONAL: allow_shrink is not a bypass for it, it refuses any text over the cap that is not shorter than what is stored, and its refusal names your length, the cap and the current length. Note the sibling update_task_manual writes this same document through its 'learnings' field: it enforces the same cap, but it has NO wipe guard, so an empty string sent there erases the doc without asking."
           },
           "type_key": {
             "type": "string"
@@ -3215,10 +3351,10 @@
       "name": "patch_task_learnings"
     },
     {
-      "description": "READ the retained versions of one editable document (global_context | role_definition | lessons | insight | task_manual_sop | task_manual_learnings): what each version held, when it was replaced and by whom. Read-only, at most the 3 most recent versions, newest first. Putting a version BACK is deliberately not an agent tool — the owner does that from the cockpit — so this cannot change anything. `key` is the document: \"global\" for global_context, the role key, \"<role_key>::<task_type>\" for lessons, the bare role key for insight, the type_key for either task-manual series. A task manual keeps TWO independent series — task_manual_sop holds only sop_md, task_manual_learnings holds only learnings — so editing one never consumes a retained slot of the other, and purpose / fields are not versioned at all. A retired kind is refused with 400 naming the series that replaced it.",
+      "description": "READ the CATALOGUE of retained versions of one editable document: which versions exist, when each was replaced and by whom, whether each was a tombstone, and HOW LONG each of its fields was. It does NOT carry the versions themselves — a version list is how you CHOOSE one, and choosing does not need the prose; fetch the one you picked with get_document_version. Read-only, newest first, and only the most recent few are kept — HOW MANY is per-document and is not stated here, because it differs by kind and this sentence would go stale silently; what you get back is the answer. Putting a version BACK is deliberately not an agent tool — the owner does that from the cockpit — so this cannot change anything.\n\nWHICH DOCUMENTS THIS COVERS, AND WHAT `key` LOOKS LIKE FOR EACH, ARE DELIBERATELY NOT LISTED HERE. A list of kinds — or of key shapes — written into a description goes stale the moment a new editable document ships, and NOTHING turns red when it does: this description used to enumerate six kinds and a key shape per kind, and both had already gone stale before the lists were taken out. Two rules you can actually execute replace them.\n\nADDRESSING: `kind` and `key` are validated by the same server-side gate that answers get_document_seed, so whatever that tool can address, this one can too, and the two can never silently disagree. A `kind` this server does not know is refused with 400; a retired kind is refused with 400 naming the series that replaced it. Some kinds also police the shape of `key` before answering — a key this kind does not serve, or one that fails that kind's required shape, is refused with 400 naming the problem. Neither is something to guess at: ask and read the answer.\n\nCOVERAGE: a syntactically valid `key` that simply has no retained versions yet is not an error — it returns an empty list, the honest 'nothing has been saved here', not a gap to work around.",
       "inputSchema": {
         "properties": {
-          "key": {"type": "string"},
+          "key": {"description": "Which document of that kind to list revisions for. How strictly it is checked depends entirely on kind, so an empty list means different things in different places. For system_interaction and boot_sequence, a key this server does not serve is 400 and the message names the legal key(s). For lessons the key is 'role_key::task_type' and anything without both halves is 400 - but that is the ONLY check it gets: past the split nothing looks the bucket up (the one remaining gate there is a WRITE authorisation, which a list never reaches), so a well-formed name for a bucket nobody has ever written, 'r-nobody::typo', is 200 with an EMPTY list. The retired kind task_manual is 400 whatever the key, naming task_manual_sop and task_manual_learnings instead. For every REMAINING kind - global_context, role_definition, insight, the two task_manual series, task_description, task_title - the value is used as a plain equality condition and nothing checks that it names anything, so a key that names no document answers 200 with an EMPTY list too. That is the same answer a real document with no retained revisions gives, so on lessons and on all of those an empty list cannot tell you 'this document has never been edited' apart from 'you named it wrong'; only system_interaction, boot_sequence and the retired task_manual are loud about a WELL-FORMED name that points at nothing. A MALFORMED lessons key - one missing its '::' - is 400 and never reaches the empty list at all.", "type": "string"},
           "kind": {"type": "string"}
         },
         "required": ["kind", "key"],
@@ -3227,16 +3363,29 @@
       "name": "list_document_history"
     },
     {
-      "description": "READ the SHIPPED DEFAULT of one editable document (global_context | role_definition | lessons | task_manual_sop | task_manual_learnings) — the text a reset would put back, i.e. the 初始版本 entry of that document's version list. Read-only: this tool writes nothing, so reading the default can never replace the live document. Putting the default BACK is deliberately not an agent tool — the owner does that from the cockpit — exactly as with list_document_history. `content` carries the SAME field names a retained version carries, so the same reader can compare a default against the live document. `key` is the document: \"global\" for global_context, the role key, \"<role_key>::<task_type>\" for lessons, the type_key for either task-manual series. 400 for a retired kind (naming the series that replaced it). 404 when this document has no shipped default at all — a role the owner created, a task manual, per-role lessons — which is the same set whose reset the server also 404s.",
+      "description": "READ the SHIPPED DEFAULT of one editable document — the text a reset would put back, i.e. the 初始版本 entry of that document's version list. Read-only: this tool writes nothing, so reading the default can never replace the live document. Putting the default BACK is deliberately not an agent tool — the owner does that from the cockpit — exactly as with list_document_history. ``content`` carries the SAME field names a retained version carries, so the same reader can compare a default against the live document.\n\nWHICH DOCUMENTS THIS COVERS IS DELIBERATELY NOT LISTED HERE. A list of kinds written into a description goes stale the moment a new editable document ships and NOTHING turns red when it does — this one had gone wrong about three kinds before the list was taken out. Two rules you can actually execute replace it.\n\nADDRESSING: ``kind`` and ``key`` name a document exactly as they do for list_document_history — the same server-side gate answers both routes, so whatever that tool addresses is addressable here, and a ``kind`` this server does not know is refused with 400 while a ``key`` that names no document of that kind is refused with 404 that names it. Neither is something to guess at: ask and read the answer.\n\nCOVERAGE: whether THAT document ships a default is answered by asking for it. 200 means it does, and ``content`` is that text. 404 means it has none at all — a role the owner created, a task manual, per-role lessons — which is the same set whose reset the server also 404s, so it is the honest 'there is nothing to go back to', not a gap to work around. 400 on a retired kind names the series that replaced it.",
       "inputSchema": {
         "properties": {
-          "key": {"type": "string"},
+          "key": {"description": "Which document of that kind to fetch the shipped default for. For most kinds a key nothing carries answers 404 and names it, so the mistake surfaces - but kind=global_context is the exception: there the key is NEVER READ. Any non-empty key answers 200 with the one global-context seed, so a caller who asked for a specific document gets a document that has nothing to do with the name it asked for, and the response echoes the key back as though it had been honoured. When the kind is global_context, do not read the key you sent as evidence of what you received.", "type": "string"},
           "kind": {"type": "string"}
         },
         "required": ["kind", "key"],
         "type": "object"
       },
       "name": "get_document_seed"
+    },
+    {
+      "description": "READ the BODY of one named retained version of an editable document — the ``content`` map that version was stored with, exactly as it was stored. Read-only: this fetches text, it never puts it back; restoring stays out of the agent tool surface, as it does for list_document_history.\n\nTHIS IS THE SECOND HALF OF A PAIR. list_document_history answers WHICH versions exist and how big each field of each one is, and carries no prose at all; this answers WHAT ONE OF THEM SAID. Name the ``id`` you read off that list. Asking for every version's text is the cost that pairing exists to remove, so fetch the one you actually mean to read.\n\nADDRESSING: ``kind`` and ``key`` name a document exactly as they do for list_document_history — the same server-side gate answers all three routes, so whatever that tool can address, this one can too, and they can never silently disagree. A ``kind`` this server does not know is refused with 400; a retired kind is refused with 400 naming the series that replaced it; a ``key`` that fails its kind's required shape is refused with 400 naming the problem. An ``id`` that is not a retained version of THAT document is a 404 — including an id that belongs to some other document, which is why the address is the whole triple and not the id alone.",
+      "inputSchema": {
+        "properties": {
+          "id": {"description": "WHICH retained version to read, as the id list_document_history reported for it. It is scoped to the kind/key pair you also send: an id that names a version of a DIFFERENT document is a 404, not that other document's text.", "type": "integer"},
+          "key": {"description": "Which document of that kind the version belongs to - addressed exactly as list_document_history addresses it, by the same server-side gate.", "type": "string"},
+          "kind": {"type": "string"}
+        },
+        "required": ["kind", "key", "id"],
+        "type": "object"
+      },
+      "name": "get_document_version"
     },
     {
       "description": "List the product-guide docs (slug + title).",
@@ -3260,6 +3409,129 @@
         "type": "object"
       },
       "name": "get_doc"
+    },
+    {
+      "description": "Read the 系統互動 block of the boot context — the shared studio handbook every agent reads at boot. Folded: the owner's edit when one exists, otherwise the shipped factory seed, with is_default saying which of the two you are holding and has_seed saying a factory version exists to go back to. The reply carries size_chars/cap_chars (this document's own size limit, in characters) and is_default/has_seed, so a caller can size an edit before making it and can tell an edited block from the shipped one.",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "get_system_interaction"
+    },
+    {
+      "description": "Replace the WHOLE 系統互動 block of the boot context ({text}) — the handbook every agent reads at boot. text is REQUIRED and unknown keys are rejected; emptying a block that had content needs allow_shrink=true. The write is judged against the doc.cap_chars.system_interaction cap unconditionally, and the refusal tells you what you wrote, the cap, and what is already stored. The shipped seed is never overwritten, so reset_system_interaction always gets the factory text back; the version this write replaces is retained in the document history (a save that changes nothing retains nothing). Owner or admin assistant only.",
+      "inputSchema": {
+        "properties": {
+          "allow_shrink": {
+            "type": "boolean"
+          },
+          "text": {
+            "description": "The ENTIRE system-interaction document, not an addition to it - and this is the one every agent reads while booting. Sending a fragment answers 200 and permanently drops the rest, so read the current text first and fold your change into it. The guards catch only the extremes: emptying a document that had content needs allow_shrink, and the character cap is enforced. A write that keeps a few paragraphs and loses the rest is neither, and passes without comment - while every agent that boots afterwards reads the shortened version as though it were the whole rulebook.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "type": "object"
+      },
+      "name": "replace_system_interaction"
+    },
+    {
+      "description": "Restore the 系統互動 block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length cap is applied on this path — the factory text is part of the product, so no setting can block the way back to it. The overlay being discarded is retained in the document history, so the reset is itself recoverable. Owner or admin assistant only.",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "reset_system_interaction"
+    },
+    {
+      "description": "Read one runtime's 啟動程序 block — the boot checklist that ends that runtime's boot context. runtime_key is 'claude' or 'codex'; they are separate documents because step 3 of the two says opposite things (claude mounts its own `ocagent listen`, codex must not — the sidecar owns it), so any other value is a 404 rather than a silent fallback to claude. Folded: the owner's edit when one exists, otherwise the shipped factory seed. The reply carries size_chars/cap_chars (this document's own size limit, in characters) and is_default/has_seed, so a caller can size an edit before making it and can tell an edited block from the shipped one.",
+      "inputSchema": {
+        "properties": {
+          "runtime_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "runtime_key"
+        ],
+        "type": "object"
+      },
+      "name": "get_boot_sequence"
+    },
+    {
+      "description": "Replace the WHOLE 啟動程序 block of ONE runtime ({runtime_key, text}). runtime_key is 'claude' or 'codex' and the two are separate documents whose step 3 contradicts each other, so writing the wrong one leaves those agents unable to come online — and nothing that never boots reports it. text is REQUIRED and unknown keys are rejected; emptying a block that had content needs allow_shrink=true. Judged against the doc.cap_chars.boot_sequence cap (one cap, both runtimes, each measured on its own text); the refusal tells you what you wrote, the cap, and what is stored. The shipped seed is never overwritten, so reset_boot_sequence always gets the factory text back. Owner or admin assistant only.",
+      "inputSchema": {
+        "properties": {
+          "allow_shrink": {
+            "type": "boolean"
+          },
+          "runtime_key": {
+            "type": "string"
+          },
+          "text": {
+            "description": "The ENTIRE boot-sequence document for that runtime, not an addition to it. Sending a fragment answers 200 and permanently replaces the rest. This document is read by agents while they are starting up, so a bad write is felt at the worst possible moment: an agent missing a boot step does not report an error, it simply never finishes coming online, and an agent that never comes online cannot be asked what went wrong. Read the current text first and fold your change into it. The guards catch only the extremes (emptying a doc that had content needs allow_shrink; the character cap is enforced); losing most of the text is neither.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "runtime_key",
+          "text"
+        ],
+        "type": "object"
+      },
+      "name": "replace_boot_sequence"
+    },
+    {
+      "description": "Restore ONE runtime's 啟動程序 block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). runtime_key is 'claude' or 'codex'; anything else is a 404. No length cap is applied on this path — the factory text is part of the product, so no setting can block the way back to it, which is what makes this the recovery route when a bad edit has stopped agents from booting. The overlay being discarded is retained in the document history. Owner or admin assistant only.",
+      "inputSchema": {
+        "properties": {
+          "runtime_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "runtime_key"
+        ],
+        "type": "object"
+      },
+      "name": "reset_boot_sequence"
+    },
+    {
+      "description": "Read the 下線程序 block — the wrap-up checklist the server hands an agent at the moment it is about to collect that session. It is a SINGLETON: one document for every agent and every runtime, keyed `global` like the 系統互動 block. Folded: the owner's edit when one exists, otherwise the shipped factory seed, with is_default saying which of the two you are holding and has_seed saying a factory version exists to go back to. The reply carries size_chars/cap_chars (this document's own size limit, in characters) and is_default/has_seed, so a caller can size an edit before making it and can tell an edited block from the shipped one.",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "get_offboard"
+    },
+    {
+      "description": "Replace the WHOLE 下線程序 block ({text}) — the wrap-up checklist an agent is handed when its session is being collected. text is REQUIRED and unknown keys are rejected; emptying a block that had content needs allow_shrink=true. The write is judged against the doc.cap_chars.offboard cap unconditionally, and the refusal tells you what you wrote, the cap, and what is already stored. The shipped seed is never overwritten, so reset_offboard always gets the factory text back; the version this write replaces is retained in the document history (a save that changes nothing retains nothing). Owner or admin assistant only.",
+      "inputSchema": {
+        "properties": {
+          "allow_shrink": {
+            "type": "boolean"
+          },
+          "text": {
+            "description": "The ENTIRE offboard document, not an addition to it - and this is the one an agent reads while it is being collected, when there is no time left to ask anyone. Sending a fragment answers 200 and permanently drops the rest, so read the current text first and fold your change into it. The guards catch only the extremes: emptying a document that had content needs allow_shrink, and the character cap is enforced. A write that keeps a few steps and loses the rest is neither, and passes without comment - while every agent shut down afterwards reads the shortened checklist as though it were the whole procedure.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "type": "object"
+      },
+      "name": "replace_offboard"
+    },
+    {
+      "description": "Restore the 下線程序 block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length cap is applied on this path — the factory text is part of the product, so no setting can block the way back to it. The overlay being discarded is retained in the document history, so the reset is itself recoverable. Owner or admin assistant only.",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "reset_offboard"
     }
   ]
 }

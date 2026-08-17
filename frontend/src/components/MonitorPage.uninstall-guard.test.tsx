@@ -49,7 +49,6 @@ vi.mock("../api", () => ({
 
 function member(over: Partial<Member> & Pick<Member, "id" | "kind" | "desiredMachineId">): Member {
   return {
-    memberId: over.id,
     name: over.id,
     role: "assistant",
     status: "online",

@@ -39,7 +39,6 @@ const neverLands = () => new Promise<void>(() => {});
 
 const member: Member = {
   id: "mira",
-  memberId: "MB-AST001",
   name: "Mira",
   role: "assistant",
   status: "offline",

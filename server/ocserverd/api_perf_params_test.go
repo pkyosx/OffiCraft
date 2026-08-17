@@ -3,7 +3,8 @@ package main
 // api_perf_params_test.go — the cockpit-perf additive query params:
 //   * GET /api/tasks?open=true    (T-2b9d) — drop terminal rows
 //   * GET /api/members?fields=light (T-cf91) — identity-only, no unread scan
-//   * GET /api/task-manuals?view=list (T-ec2c) — drop the heavy authored blobs
+//   * GET /api/task-manuals (T-ec2c, then T-1170) — no long documents at all
+//   * GET /api/roles (T-1170) — no persona bodies at all
 //
 // The iron rule under test throughout: the DEFAULT (no new param) path is
 // unchanged, and the light path is a STRICT behavioural narrowing — it must
@@ -16,7 +17,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func perfReq(sub, scope string) *http.Request {
@@ -247,60 +250,159 @@ func seedManuals(t *testing.T, s *apiServer) {
 	}
 }
 
-func listManuals(t *testing.T, s *apiServer, params HandleListTaskManualsApiTaskManualsGetParams) []taskManualDTO {
+func listManuals(t *testing.T, s *apiServer) []taskManualListItemDTO {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	s.HandleListTaskManualsApiTaskManualsGet(rec, perfReq("owner", "owner"), params)
+	s.HandleListTaskManualsApiTaskManualsGet(rec, perfReq("owner", "owner"))
 	if rec.Code != 200 {
 		t.Fatalf("list manuals → %d: %s", rec.Code, rec.Body.String())
 	}
-	var out []taskManualDTO
+	var out []taskManualListItemDTO
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	return out
 }
 
-func TestManualsFullPathCarriesBody(t *testing.T) {
+// listManualRows reads the SAME response as untyped JSON. Decoding into the DTO
+// cannot tell "the key is absent" from "the key is an empty string", and absence
+// is the contract here: a served "" in a field that normally holds the SOP reads
+// as "this type has no SOP".
+func listManualRows(t *testing.T, s *apiServer) []map[string]any {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	s.HandleListTaskManualsApiTaskManualsGet(rec, perfReq("owner", "owner"))
+	if rec.Code != 200 {
+		t.Fatalf("list manuals → %d: %s", rec.Code, rec.Body.String())
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return rows
+}
+
+// The default — and now only — answer drops the two long documents and keeps
+// everything else, including the two small bounded values (`fields`,
+// `assignee`) the old ?view=list row also blanked. Blanking those bought
+// nothing and cost one extra request per row.
+func TestListTaskManualsDropsTheLongDocumentsAndKeepsTheRest(t *testing.T) {
 	s := &apiServer{dal: newTestDAL(t), hub: NewHub()}
 	seedManuals(t, s)
-	// Default → the full body (proof the list view below is a real narrowing).
-	full := listManuals(t, s, HandleListTaskManualsApiTaskManualsGetParams{})
-	if len(full) != 2 {
-		t.Fatalf("full manuals count: want 2, got %d", len(full))
+	rows := listManualRows(t, s)
+	if len(rows) != 2 {
+		t.Fatalf("manuals count: want 2, got %d", len(rows))
 	}
-	for _, m := range full {
-		if m.SopMD == "" || m.Learnings == "" || len(m.Fields) == 0 {
-			t.Fatalf("full path must carry sop/learnings/fields: %+v", m)
+	for _, row := range rows {
+		for _, absent := range []string{"sop_md", "learnings"} {
+			if _, present := row[absent]; present {
+				t.Fatalf("%q must be ABSENT from the listing row, got %v", absent, row[absent])
+			}
+		}
+		// Positive control: without these the absence assertions above would
+		// also pass on a handler that returned bare {} for every type.
+		for _, key := range []string{"type_key", "display_name", "purpose", "fields",
+			"assignee", "sop_md_chars", "learnings_chars",
+			"sop_md_cap_chars", "learnings_cap_chars"} {
+			if _, present := row[key]; !present {
+				t.Fatalf("listing row must still carry %q: %v", key, row)
+			}
+		}
+	}
+	for _, m := range listManuals(t, s) {
+		if len(m.Fields) == 0 {
+			t.Fatalf("fields must be the REAL parsed value, not blanked: %+v", m)
+		}
+		if m.Assignee["kind"] != "member" {
+			t.Fatalf("assignee must be the REAL parsed value, not blanked: %+v", m.Assignee)
 		}
 	}
 }
 
-func TestManualsListViewDropsHeavyBlobs(t *testing.T) {
+// The bodies are still reachable — one type at a time, which is the whole point
+// of splitting the catalogue from the prose.
+func TestGetTaskManualStillCarriesTheLongDocuments(t *testing.T) {
 	s := &apiServer{dal: newTestDAL(t), hub: NewHub()}
 	seedManuals(t, s)
-	list := listManuals(t, s, HandleListTaskManualsApiTaskManualsGetParams{View: strptr("list")})
-	if len(list) != 2 {
-		t.Fatalf("list-view count: want 2, got %d", len(list))
+	rec := httptest.NewRecorder()
+	s.HandleGetTaskManualApiTaskManualsTypeKeyGet(rec, perfReq("owner", "owner"), "tm-a")
+	if rec.Code != 200 {
+		t.Fatalf("get manual → %d: %s", rec.Code, rec.Body.String())
 	}
-	for _, m := range list {
-		// The type identity the 類型 filter reads IS served.
-		if m.TypeKey == "" || m.DisplayName == "" || m.Purpose == "" {
-			t.Fatalf("list view must keep type identity: %+v", m)
+	var got taskManualDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.SopMD == "" || got.Learnings == "" {
+		t.Fatalf("get_task_manual must still carry sop_md + learnings: %+v", got)
+	}
+}
+
+// ── T-1170: the role listing is a catalogue, not the personas ────────────────
+
+// The listing drops definition_md and keeps the two numbers that answer "which
+// definition is nearly full". Asserted on the RAW JSON: decoding into the DTO
+// cannot tell an absent key from an empty one, and absence is the contract —
+// a served "" in the field that normally holds the persona reads as "this role
+// has no definition".
+func TestListRolesDropsThePersonaBodyAndKeepsItsSize(t *testing.T) {
+	api := capsTestServer(t, maxDocCapChars, maxDocCapChars, maxDocCapChars)
+	role := seedRoleAssistant
+	duty := runesDoc(t, 300)
+	if rec := writeDutyOn(t, api, role, duty); rec.Code != http.StatusOK {
+		t.Fatalf("write duty: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec := httptest.NewRecorder()
+	api.HandleListRolesApiRolesGet(rec,
+		taskReq(t, http.MethodGet, "/api/roles", nil, "m-exec", "agent"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list roles: %d %s", rec.Code, rec.Body.String())
+	}
+	// The persona really is distinctive, so finding none of it in the bytes is
+	// evidence rather than luck.
+	if strings.Contains(rec.Body.String(), duty[:32]) {
+		t.Fatalf("the listing carries the persona body: %s", rec.Body.String())
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) == 0 {
+		t.Fatal("no roles listed — the assertions below would prove nothing")
+	}
+	var listed map[string]any
+	for _, row := range rows {
+		if row["key"] == role {
+			listed = row
 		}
-		// MUTANT: route the list branch through newTaskManualDTO and these go
-		// red — the heavy authored markdown leaks into the light list.
-		if m.SopMD != "" {
-			t.Fatalf("list view must drop sop_md: %q", m.SopMD)
+		if _, present := row["definition_md"]; present {
+			t.Fatalf("definition_md must be ABSENT from a listing row: %v", row)
 		}
-		if m.Learnings != "" {
-			t.Fatalf("list view must drop learnings: %q", m.Learnings)
-		}
-		if len(m.Fields) != 0 {
-			t.Fatalf("list view must drop fields: %+v", m.Fields)
-		}
-		if len(m.Assignee) != 0 {
-			t.Fatalf("list view must drop assignee: %+v", m.Assignee)
-		}
+	}
+	if listed == nil {
+		t.Fatalf("the edited role is not in the listing: %v", rows)
+	}
+	if got := listed["size_chars"]; got != float64(utf8.RuneCountInString(duty)) {
+		t.Fatalf("size_chars = %v, want %d (measured on the document the row omits)",
+			got, utf8.RuneCountInString(duty))
+	}
+	if _, present := listed["cap_chars"]; !present {
+		t.Fatalf("cap_chars must ride along so an agent can size an edit: %v", listed)
+	}
+
+	// Positive control: the body is still reachable, one role at a time.
+	one := httptest.NewRecorder()
+	api.HandleGetRoleApiRolesRoleGet(one,
+		taskReq(t, http.MethodGet, "/api/roles/"+role, nil, "m-exec", "agent"), role)
+	if one.Code != http.StatusOK {
+		t.Fatalf("get role: %d %s", one.Code, one.Body.String())
+	}
+	var single map[string]any
+	if err := json.Unmarshal(one.Body.Bytes(), &single); err != nil {
+		t.Fatal(err)
+	}
+	if single["definition_md"] != duty {
+		t.Fatalf("get_role must still carry the persona body: %v", single["definition_md"])
 	}
 }

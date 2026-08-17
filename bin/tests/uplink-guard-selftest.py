@@ -45,6 +45,49 @@ def edit_manifest(root, mutate):
     mutate(doc["uplinks"])
     path.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n")
 
+ALLOWLISTED_GO = """package main
+
+import "net/http"
+
+func selftestAllowlistedSend(base, route string) {
+	http.Post(base+route, "application/json", nil)
+}
+"""
+
+
+def plant_allowlisted(root, rows):
+    """Plant a send whose route is a PARAMETER, plus the allowlisted row for it.
+
+    The three cases below cover rules that only ever fire on a row carrying
+    `allow_missing_spec`, and they used to reach for whichever real row happened
+    to have it — `ocagent-presence`, which retired with the code it described
+    (T-a9d6). Three positive controls therefore depended on a row nobody had
+    promised to keep, and the day it went the selftest did not report a gap: it
+    raised StopIteration and took the guard's whole CI job down with it.
+
+    It has to be a planted send rather than a real row turned into one, because
+    every shipped JSON uplink spells its own route: the callsite/path cross-check
+    fires FIRST on those and the case then proves something else entirely (that
+    ordering is itself a case further down). A route arriving as a parameter is
+    the shape allow_missing_spec exists for.
+    """
+    add_go(root, "cli/ocagent/selftest_allowlisted.go", ALLOWLISTED_GO)
+    row = {
+        "id": "selftest-allowlisted",
+        "source": "cli/ocagent/selftest_allowlisted.go",
+        "callsite": 'http.Post(base+route, "application/json", nil)',
+        "kind": "json",
+        "method": "post",
+        "path": "/api/a-route-this-server-does-not-serve",
+        "allow_missing_spec": (
+            "selftest fixture: stands in for a row whose route carries no "
+            "requestBody to compare against."
+        ),
+    }
+    rows.append(row)
+    return row
+
+
 CASES = []
 
 def case(name, expect):
@@ -293,9 +336,8 @@ def _(root):
 
 @case("a stale allowlist entry whose route now exists", "allowlist entry is stale")
 def _(root):
-    edit_manifest(root, lambda rows: next(
-        r for r in rows if r["id"] == "ocagent-presence").__setitem__(
-            "path", "/api/monitoring/telemetry"))
+    edit_manifest(root, lambda rows: plant_allowlisted(root, rows).__setitem__(
+        "path", "/api/monitoring/telemetry"))
 
 @case("a row with a kind the guard does not know", "kind must be json, read, seam, or skip")
 def _(root):
@@ -307,9 +349,8 @@ def _(root):
     # The row this reproduces SHIPPED: a route that does not exist was made to name
     # a DTO and a wire test anyway, because the guard demanded both. The evidence
     # was necessarily false — the named test drove a different command entirely.
-    edit_manifest(root, lambda rows: next(
-        r for r in rows if r["id"] == "ocagent-presence").__setitem__(
-            "request_schema", "#/components/schemas/AgentContextIngestDTO"))
+    edit_manifest(root, lambda rows: plant_allowlisted(root, rows).__setitem__(
+        "request_schema", "#/components/schemas/AgentContextIngestDTO"))
 
 @case("a JSON row sending to a route other than the one it claims", "the schema being compared is another route's")
 def _(root):
@@ -488,8 +529,7 @@ func selftestSameSlot(s *codexSession) {
 def _(root):
     # Without this, allow_missing_spec is unconditional for every callsite whose path
     # arrives as a parameter — which is every row that goes through a seam.
-    edit_manifest(root, lambda rows: next(
-        r for r in rows if r["id"] == "ocagent-presence").pop("path"))
+    edit_manifest(root, lambda rows: plant_allowlisted(root, rows).pop("path"))
 
 @case("comment mentioning a send is not a send", None)
 def _(root):

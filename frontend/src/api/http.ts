@@ -31,9 +31,14 @@ import type {
   ReleaseCheckView,
   BackupHealthView,
   GlobalContextView,
+  BootDocKind,
+  BootDocView,
   DocumentKind,
+  DocumentHistoryEntryView,
   DocumentHistoryView,
+  DocumentRevisionView,
   DocumentSeedView,
+  RoleSummaryView,
   RoleDefView,
   BootstrapView,
   LessonsView,
@@ -75,6 +80,7 @@ import type {
   OutsourceWorkerView,
   TaskTypeView,
   TaskCountView,
+  TaskManualSummaryView,
   TaskManualView,
   TaskManualPatch,
   DocSummaryView,
@@ -99,9 +105,13 @@ import {
   toReleaseCheck,
   toBackupHealth,
   toGlobalContext,
+  toBootDoc,
   toDocumentHistory,
+  toDocumentHistoryEntry,
+  toDocumentRevision,
   toDocumentSeed,
   toRoleDef,
+  toRoleSummary,
   toBootstrap,
   toLessons,
   toInsight,
@@ -117,6 +127,7 @@ import {
   toOutsourceWorker,
   toTaskType,
   toTaskManual,
+  toTaskManualSummary,
   toWebhookEndpoint,
   toWebhookRequestLog,
   toScheduledMessage,
@@ -1361,24 +1372,26 @@ export const httpApi: Api = {
   },
 
   async listTaskTypes(): Promise<TaskTypeView[]> {
-    // GET /api/task-manuals?view=list -> TaskManualDTO[] (T-ec2c light
-    // projection: type_key / display_name / purpose meaningful, the heavy
-    // sop_md/learnings/fields/assignee honest-empty), narrowed to the
-    // {typeKey, displayName, purpose} the type filter reads. The full-body
-    // read stays the per-type getTaskManual on the settings detail page.
-    const wire = unwrap(
-      await client.GET("/api/task-manuals", {
-        params: { query: { view: "list" } },
-      }),
-    );
+    // GET /api/task-manuals -> TaskManualListItemDTO[], narrowed to the
+    // {typeKey, displayName, purpose} the type filter reads.
+    //
+    // T-1170: the `?view=list` escape hatch is GONE, because the light shape is
+    // now what the route answers by default — an opt-in flag left the expensive
+    // shape pointed at every naive caller, which is the whole reason the
+    // default changed. The full-body read stays the per-type getTaskManual on
+    // the settings detail page.
+    const wire = unwrap(await client.GET("/api/task-manuals"));
     return wire.map(toTaskType);
   },
 
-  async listTaskManuals(): Promise<TaskManualView[]> {
+  async listTaskManuals(): Promise<TaskManualSummaryView[]> {
     // GET /api/task-manuals -> TaskManualDTO[] — the SAME wire read as
-    // listTaskTypes, mapped FULL for the 設定 › 任務手冊 list page.
+    // listTaskTypes. T-1170: this answer is the DIRECTORY (sop_md / learnings
+    // absent, their char counts and caps present), so it is mapped to the
+    // summary; the 任務定義 / 學習經驗 sub-pages read their document through
+    // getTaskManual.
     const wire = unwrap(await client.GET("/api/task-manuals"));
-    return wire.map(toTaskManual);
+    return wire.map(toTaskManualSummary);
   },
 
   async getTaskManual(typeKey: string): Promise<TaskManualView> {
@@ -1653,6 +1666,8 @@ export const httpApi: Api = {
       owner_token_ttl?: number;
       agent_token_ttl?: number;
       handover_pct?: number;
+      notice_pct?: number;
+      codex_notice_round?: number;
       codex_compaction_threshold?: number;
       monitoring_refresh_seconds?: number;
       outsource_max_parallel?: number;
@@ -1661,6 +1676,10 @@ export const httpApi: Api = {
       doc_cap_chars_learning?: number;
       doc_cap_chars_manual_sop?: number;
       doc_cap_chars_manual_learnings?: number;
+      doc_cap_chars_system_interaction?: number;
+      doc_cap_chars_boot_sequence?: number;
+      doc_cap_chars_offboard?: number;
+      chat_budget_chars?: number;
       updater_receive_beta?: boolean;
       updater_auto_update?: boolean;
       org_name?: string;
@@ -1677,6 +1696,8 @@ export const httpApi: Api = {
     if (patch.ownerTokenTtl !== undefined) body.owner_token_ttl = patch.ownerTokenTtl;
     if (patch.agentTokenTtl !== undefined) body.agent_token_ttl = patch.agentTokenTtl;
     if (patch.handoverPct !== undefined) body.handover_pct = patch.handoverPct;
+    if (patch.noticePct !== undefined) body.notice_pct = patch.noticePct;
+    if (patch.codexNoticeRound !== undefined) body.codex_notice_round = patch.codexNoticeRound;
     if (patch.codexCompactionThreshold !== undefined) body.codex_compaction_threshold = patch.codexCompactionThreshold;
     if (patch.monitoringRefreshSeconds !== undefined) body.monitoring_refresh_seconds = patch.monitoringRefreshSeconds;
     if (patch.outsourceMaxParallel !== undefined) {
@@ -1696,6 +1717,18 @@ export const httpApi: Api = {
     }
     if (patch.docCapCharsManualLearnings !== undefined) {
       body.doc_cap_chars_manual_learnings = patch.docCapCharsManualLearnings;
+    }
+    if (patch.docCapCharsSystemInteraction !== undefined) {
+      body.doc_cap_chars_system_interaction = patch.docCapCharsSystemInteraction;
+    }
+    if (patch.docCapCharsBootSequence !== undefined) {
+      body.doc_cap_chars_boot_sequence = patch.docCapCharsBootSequence;
+    }
+    if (patch.docCapCharsOffboard !== undefined) {
+      body.doc_cap_chars_offboard = patch.docCapCharsOffboard;
+    }
+    if (patch.chatBudgetChars !== undefined) {
+      body.chat_budget_chars = patch.chatBudgetChars;
     }
     if (patch.updaterReceiveBeta !== undefined) {
       body.updater_receive_beta = patch.updaterReceiveBeta;
@@ -1765,8 +1798,9 @@ export const httpApi: Api = {
   async getGlobalContext(): Promise<GlobalContextView> {
     // GET /api/global-context -> GlobalContextDTO — the 使用者自訂 (user-custom)
     // ADDITIVE block of the 3-block boot context (empty text/is_default=true when
-    // never written). The read-only system-interaction / boot-sequence blocks
-    // have NO endpoint by construction.
+    // never written). The other two blocks — system-interaction and
+    // boot-sequence — became editable in T-791e and have their own routes; see
+    // getBootDoc below.
     const wire = unwrap(await client.GET("/api/global-context"));
     return toGlobalContext(wire);
   },
@@ -1794,19 +1828,128 @@ export const httpApi: Api = {
     return toGlobalContext(wire);
   },
 
+  // ── boot-context blocks (T-791e) ────────────────────────────────────────
+  // The two kinds have DIFFERENT route shapes, and collapsing them into one
+  // composed path string is what produced the 404 these three methods used to
+  // ship with. `system_interaction` is a singleton — one document, so its key
+  // ("global") is implied by the kind and appears nowhere in the URL;
+  // `boot_sequence` is two documents, so its key IS the `{runtime_key}` path
+  // parameter. Both now ride the schema-typed client: a BE path or verb rename
+  // is a tsc error here, the same protection every other method in this file
+  // gets.
+
+  async getBootDoc(kind: BootDocKind, key: string): Promise<BootDocView> {
+    if (kind === "system_interaction") {
+      return toBootDoc(unwrap(await client.GET("/api/system-interaction")));
+    }
+    if (kind === "offboard") {
+      return toBootDoc(unwrap(await client.GET("/api/offboard")));
+    }
+    return toBootDoc(
+      unwrap(
+        await client.GET("/api/boot-sequence/{runtime_key}", {
+          params: { path: { runtime_key: key } },
+        }),
+      ),
+    );
+  },
+
+  async saveBootDoc(
+    kind: BootDocKind,
+    key: string,
+    text: string,
+  ): Promise<BootDocView> {
+    // Whole-document replace, POST — same verb contract as
+    // /api/global-context: NOT a PUT and NOT a DELETE-then-write.
+    //
+    // allow_shrink stays FALSE here, the opposite of saveGlobalContext. There
+    // the owner clearing a textarea of their own additions is explicit intent
+    // worth honouring; here the same gesture ships agents a boot sequence with
+    // no instructions, and the server's refusal names the recovery path (reset
+    // to the shipped default) instead. Emptying is not what this surface is
+    // for — the 還原出廠版 button is.
+    if (kind === "system_interaction") {
+      return toBootDoc(
+        unwrap(
+          await client.POST("/api/system-interaction", {
+            body: { text, allow_shrink: false },
+          }),
+        ),
+      );
+    }
+    if (kind === "offboard") {
+      return toBootDoc(
+        unwrap(
+          await client.POST("/api/offboard", {
+            body: { text, allow_shrink: false },
+          }),
+        ),
+      );
+    }
+    return toBootDoc(
+      unwrap(
+        await client.POST("/api/boot-sequence/{runtime_key}", {
+          params: { path: { runtime_key: key } },
+          body: { text, allow_shrink: false },
+        }),
+      ),
+    );
+  },
+
+  async resetBootDoc(kind: BootDocKind, key: string): Promise<BootDocView> {
+    if (kind === "system_interaction") {
+      return toBootDoc(
+        unwrap(await client.POST("/api/system-interaction/reset")),
+      );
+    }
+    if (kind === "offboard") {
+      return toBootDoc(unwrap(await client.POST("/api/offboard/reset")));
+    }
+    return toBootDoc(
+      unwrap(
+        await client.POST("/api/boot-sequence/{runtime_key}/reset", {
+          params: { path: { runtime_key: key } },
+        }),
+      ),
+    );
+  },
+
   async listDocumentHistory(
     kind: DocumentKind,
     key: string,
-  ): Promise<DocumentHistoryView[]> {
+  ): Promise<DocumentHistoryEntryView[]> {
     // GET /api/document-history/{kind}/{key} -> DocumentHistoryDTO[], newest
     // first, at most 3 (the server prunes). `key` carries the "::" composite
     // for lessons verbatim — openapi-fetch encodes it as one path segment.
+    //
+    // T-1170: the answer IS the directory — `field_chars` + `tombstoned`, no
+    // text at all. A caller that wants a revision's prose names it through
+    // `getDocumentRevision`.
     const wire = unwrap(
       await client.GET("/api/document-history/{kind}/{key}", {
         params: { path: { kind, key } },
       }),
     );
-    return wire.map(toDocumentHistory);
+    return wire.map(toDocumentHistoryEntry);
+  },
+
+  async getDocumentRevision(
+    kind: DocumentKind,
+    key: string,
+    id: number,
+  ): Promise<DocumentRevisionView> {
+    // GET /api/document-history/{kind}/{key}/{id} -> DocumentHistoryVersionDTO.
+    // The ONE document-history read that carries text (T-1170): the list is a
+    // picker, and this is the revision the reader picked. A pruned or unknown
+    // id 404s exactly where the restore of that id would, so the reader can say
+    // "this version could not be read" instead of drawing an empty document
+    // next to a destructive button.
+    const wire = unwrap(
+      await client.GET("/api/document-history/{kind}/{key}/{id}", {
+        params: { path: { kind, key, id } },
+      }),
+    );
+    return toDocumentRevision(wire);
   },
 
   async getDocumentSeed(
@@ -1843,10 +1986,12 @@ export const httpApi: Api = {
     return toDocumentHistory(wire);
   },
 
-  async listRoles(): Promise<RoleDefView[]> {
-    // GET /api/roles -> RoleDefDTO[]
+  async listRoles(): Promise<RoleSummaryView[]> {
+    // GET /api/roles -> RoleDefListItemDTO[]. T-1170: the roster answer is the
+    // DIRECTORY (no definition_md, only size_chars + cap_chars), so it maps to
+    // the summary; the role page reads its document through getRole.
     const wire = unwrap(await client.GET("/api/roles"));
-    return wire.map(toRoleDef);
+    return wire.map(toRoleSummary);
   },
 
   async getRole(key: string): Promise<RoleDefView> {

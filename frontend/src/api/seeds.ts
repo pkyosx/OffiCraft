@@ -24,6 +24,7 @@ import SEED_LESSONS_RAW from "../../../seeds/lessons.md?raw";
 import SEED_INSIGHT_ASSISTANT_RAW from "../../../seeds/insight_assistant.md?raw";
 import SEED_BOOT_SEQUENCE_RAW from "../../../seeds/boot_sequence.md?raw";
 import SEED_BOOT_SEQUENCE_CODEX_RAW from "../../../seeds/boot_sequence_codex.md?raw";
+import SEED_OFFBOARD_RAW from "../../../seeds/offboard.md?raw";
 
 /** The out-of-box owner id (mirrors the server seed). */
 export const MOCK_OWNER_ID = "owner";
@@ -54,6 +55,11 @@ export const SEED_BOOT_SEQUENCE_MD = foldOwnerId(SEED_BOOT_SEQUENCE_RAW);
 /** seeds/boot_sequence_codex.md — the Codex App Server counterpart selected
  * when a member's runtime is codex. */
 export const SEED_BOOT_SEQUENCE_CODEX_MD = foldOwnerId(SEED_BOOT_SEQUENCE_CODEX_RAW);
+
+/** seeds/offboard.md — the 下線程序 checklist the server hands an agent at the
+ * moment it is about to collect that session (T-c9c0). One document for every
+ * agent and every runtime; it is NOT part of the boot fold. */
+export const SEED_OFFBOARD_MD = foldOwnerId(SEED_OFFBOARD_RAW);
 
 /** seeds/insight_assistant.md — the assistant's FACTORY judgement calls (T-e1e3).
  * 🔴 PER-ROLE, and there is deliberately no `SEED_INSIGHT_MD`: lessons folds one

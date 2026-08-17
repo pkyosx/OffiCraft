@@ -155,6 +155,11 @@ export const en: Dict = {
     // next. Label only; the note itself is agent-written free text and renders
     // through <Markdown>, same as the waiting reason above.
     stepNoteLabel: "Note",
+    // T-e5b1: the note is COLLAPSED by default (owner: the timeline got too
+    // long). These two label the per-step disclosure. The word "note" stays in
+    // the collapsed label on purpose — it is the only thing that tells a step
+    // WITH a note apart from one without while both are closed.
+    stepNoteExpand: "Show note",
     blockedByLabel: "Waiting on",
     // T-1d82: a dep row whose task cannot be resolved (deleted / bad id). Keeps
     // the raw id — it is the only handle left — but says plainly that there is
@@ -167,39 +172,11 @@ export const en: Dict = {
     messageError: "Failed to send the message. Please try again.",
     statusMenuLabel: "Status actions",
     priorityLabel: "Priority",
-    // In-place description editing (T-e271). descEditHint states the division
-    // of labour with the step note — the description says what the task IS,
-    // the note says where a step is right now.
-    descLabel: "Description",
-    descEdit: "Edit description",
-    descEditHint:
-      "The description says what this task IS (scope, origin, acceptance). Put progress in the step note.",
-    descPlaceholder:
-      "What this task is for, why it exists, and what counts as done\u2026",
-    descSave: "Save",
-    descCancel: "Cancel",
+    // T-e5b1 (owner 2026-08-15): the in-place title / description editors were
+    // removed from the task UI, and their whole label family went with them.
+    // The capability is untouched — this is the screen's vocabulary, not the
+    // capability's. (T-646a folded both tools into `update_task`.)
     descEmpty: "No description yet",
-    descError: "Failed to save the description. Please try again.",
-    descHistoryTitle: "Task description",
-    // Shown only on a closed card's editor, so the absence of a terminal guard
-    // reads as the decision it is.
-    descClosedNote:
-      "A closed task's description can still be corrected (its artifacts are frozen).",
-    // In-place title editing (T-2ebe), the description family's twin. titleBlank
-    // is the ONE rule that differs: a title may not be emptied, because it is
-    // the only cell of the task the list shows.
-    titleLabel: "Title",
-    titleEdit: "Edit title",
-    titleEditHint:
-      "The title is the only part of this task the list shows. Keep it a short statement of what the task is.",
-    titlePlaceholder: "A short statement of what this task is…",
-    titleSave: "Save",
-    titleCancel: "Cancel",
-    titleBlank: "A title cannot be blank.",
-    titleError: "Failed to save the title. Please try again.",
-    titleHistoryTitle: "Task title",
-    titleClosedNote:
-      "A closed task's title can still be corrected (its artifacts are frozen).",
     // Click-to-copy task-no chip (owner 2026-07-19).
     copyTaskNoLabel: "Copy task number",
     taskNoCopied: "Copied",
@@ -315,7 +292,6 @@ export const en: Dict = {
     redecide: "Change my decision",
     redecideHint: "Pick again, or type a new reply",
     redecidePlaceholder: "Or type a new reply…",
-    taskBadge: "Task",
     viewTask: "View task details",
   },
   office: {
@@ -952,7 +928,14 @@ export const en: Dict = {
       error: "Failed to load the wake snapshot",
       retry: "Retry",
       chatCount: "Recent messages",
-      chatChars: "Message chars",
+      // Sizes the WHOLE chat block, not the bodies. Deliberately NOT itemised
+      // here: the server's resumeSnapshotParts is the only place that says what
+      // goes into it, and every prose copy that listed the ingredients listed
+      // an incomplete set (all of them dropped the same one, the cut hint — a
+      // fixed block of several hundred runes). "Message chars" was not wrong, but the owner reads these numbers
+      // to budget context and would take it for body length — i.e. under-read
+      // the real cost.
+      chatChars: "Chat block chars",
       tasksReturned: "Tasks returned",
       tasksOpenTotal: "Open tasks total",
       tasksDetailChars: "Task detail chars",
@@ -962,6 +945,52 @@ export const en: Dict = {
       chatEmpty: "No chat messages",
       tasksSection: "Open tasks",
       tasksEmpty: "No open tasks",
+      generatedAtLabel: "This snapshot was taken at",
+      // 🔴 THE PER-MESSAGE MARK IS A MARK, NOT A SENTENCE. It used to be
+      // "This message is folded — 46 characters kept on the server (re-read it
+      // with get_chat)", repeated under EVERY folded message. On a snapshot with
+      // hundreds of rows that template outweighed what the folds saved, and the
+      // owner called it (2026-08-13). The recovery convention is stated ONCE, in
+      // `bodyOmittedNote` at the top of the chat block; each message then carries
+      // only the count.
+      //
+      // 🔴 It still may not share a word with `chatCutLabel` — folded and absent
+      // are different failures and the two-way vocabulary guard in the
+      // payload-parity test holds them apart. "folded" is this side's word.
+      bodyOmittedMark: "folded",
+      // Stated once per chat block, so no message has to repeat it.
+      bodyOmittedNote: "folded = shortened here, whole text still on the server (re-read with get_chat)",
+      // 🔴 "may", not "were": the server raises this marker as soon as a line
+      // was cut at its read window, and it never looks past the cut — so it is
+      // raised even when nothing older exists (see resumeChatCutHint).
+      // 🔴 This NAMES the block; the hint below it states the case. It used to
+      // restate the hint's own first sentence, so the reader was told the same
+      // thing twice, back to back. The hint is the half that cannot change: an
+      // agent receives that string alone and never sees this label, so the hint
+      // must stand on its own — this label is cockpit-only wording.
+      chatCutLabel: "This line was cut:",
+      cardOptionsLabel: "Options offered",
+      cardAiPickTag: "AI pick",
+      cardPickedTag: "Picked",
+      cardAnswerTextLabel: "Free text",
+      cardAnsweredAtLabel: "Answered at",
+      cardUnanswered: "Not answered yet",
+      cardAttachmentsLabel: "Attachments",
+      replyCardStatusLabel: "Reply card",
+      rosterSection: "Roster",
+      rosterEmpty: "This snapshot carries no roster section",
+      rosterDutyLabel: "Duty",
+      rosterCurrentTaskLabel: "Bound task",
+      machinesSection: "Machines",
+      machinesEmpty: "This snapshot carries no machine section",
+      machinesYouAreOnLabel: "Standing on",
+      machinesYouAreOnNone: "No machine binding",
+      machineOnline: "online",
+      machineOffline: "offline",
+      rosterChars: "Roster chars",
+      machinesChars: "Machine chars",
+      collapse: "Collapse",
+      expand: "Expand",
     },
     dash: "—",
   },
@@ -1311,20 +1340,52 @@ export const en: Dict = {
     catalogHash: "MCP catalog hash",
     globalSection: "GLOBAL CONTEXT",
     systemName: "System interaction",
-    systemSub: "How the system works, injected into every agent · read-only",
-    readOnlyBadge: "System · read-only",
+    systemSub: "How the system works, injected into every agent · editable",
     customName: "User additions",
     customSub: "Custom content appended to every agent's boot context · editable",
     roleDefsSection: "Role definitions",
     bootName: "Boot sequence",
-    bootSub: "Fixed studio SOP · read-only",
-    bootBadge: "Studio SOP",
+    bootSub: "What an AI follows while starting up · one per runtime · editable",
+    bootRuntimeClaude: "Standard",
+    bootRuntimeCodex: "Codex",
+    bootClaudeName: "Boot sequence (Claude Code)",
+    bootClaudeSub: "Boot SOP for the Claude Code runtime · editable",
+    bootCodexName: "Boot sequence (Codex CLI)",
+    bootCodexSub: "Boot SOP for the Codex App Server runtime · editable",
+    offboardName: "Offboard sequence",
+    offboardSub:
+      "Wrap-up instructions handed to an agent when the server is about to collect its session · editable",
+    bootDocNoteHistoryLead: "Version history keeps the last ",
+    bootDocNoteHistoryTail:
+      " versions, counted in SAVES rather than in time — a run of small saves pushes the older ones out. Restoring the factory version is never affected and is always available.",
+    bootDocSaveConfirmBoot:
+      "Save this boot sequence? A broken boot sequence stops agents booting after it from attaching to SSE, so they never come online — silently, with no error anywhere, and with nobody online to fix it. Check the preview first; if it does go wrong, press Restore factory version.",
+    bootDocSaveConfirmSystem:
+      "Save this system-interaction document? Every agent that boots after the save reads this content.",
+    bootDocSaveConfirmOffboard:
+      "Save this offboard sequence? Every session collected after the save reads this content — with about 120 seconds left and nobody online to ask.",
+    bootDocSaveConfirmAction: "Save",
+    // The click-to-open heading of a stacked document (T-6278). Both boot
+    // sequences start closed so the page shows both at once; the label is on
+    // the ACTION, so it says what pressing does, not what the state is.
+    docExpand: "Expand this document",
+    docCollapse: "Collapse this document",
+    historyBootSystemTitle: "System interaction · version history",
+    historyBootClaudeTitle: "Boot sequence (Claude Code) · version history",
+    historyBootCodexTitle: "Boot sequence (Codex CLI) · version history",
+    historyBootOffboardTitle: "Offboard sequence · version history",
     defaultBadge: "Default",
     edit: "Edit",
     doneEdit: "Done",
     cancel: "Cancel",
     reset: "Reset",
     editorPlaceholder: "Write in Markdown…",
+    docReplaceNote:
+      "Saving REPLACES this whole document with what is in the editor — there is no per-section merge, so anything not pasted back is gone.",
+    docActionFailed: "That did not go through — try again.",
+    docOverCapLead: "Now ",
+    docOverCapMid: " characters, over the limit of ",
+    docOverCapTail: " — remove some before saving.",
     historyTitle: "Version history",
     historySub:
       "The last 3 revisions are kept; restoring overwrites the current content.",
@@ -1417,12 +1478,18 @@ export const en: Dict = {
     ttl24h: "24 hours",
     ttl7d: "7 days",
     ttl30d: "30 days",
-    handover: "Claude auto-handover threshold",
+    notice: "Claude first notice",
+    noticeSub:
+      "At this level the offboard sequence is sent, and the agent is asked to close out and hand over under its own power (must be below the final call)",
+    handover: "Claude final call",
     handoverSub:
-      "When Claude Code's memory fills to this level, it hands over to a fresh one (40–90%)",
-    codexHandover: "Codex auto-handover rounds",
+      "At this level the final notice goes out and the handover fires; 120 seconds later the session is collected (40–90%)",
+    codexNotice: "Codex first notice",
+    codexNoticeSub:
+      "The compaction round at which the offboard sequence is sent (must be below the final round)",
+    codexHandover: "Codex final round",
     codexHandoverSub:
-      "Automatically refocus after 3 completed context compactions; context percentage is not used.",
+      "Automatically refocus after this many completed context compactions; context percentage is not used.",
     monitoringRefresh: "Monitoring refresh interval",
     monitoringRefreshSub: "Minimum seconds between monitoring refreshes (1–60)",
     seconds: "seconds",
@@ -1445,6 +1512,12 @@ export const en: Dict = {
     docCapManualLearnings: "Task manual learnings size cap",
     docCapManualLearningsSub:
       "Limit on a task manual's learnings doc, independent of the SOP cap above. The floor is the shipped default and the ceiling is 100000, so this can only be raised.",
+    // T-c9b4: the wake snapshot's chat budget. Deliberately not folded into the
+    // doc-cap wording above — those floors are their own shipped defaults and
+    // can only be raised; this one moves in both directions.
+    chatBudget: "Wake chat budget",
+    chatBudgetSub:
+      "How many characters the chat block of a wake snapshot (resume_summary) may spend — the messages, their folded cards, the snapshot header and the cut hint; the peek sizes itself against the same number. The range is 1000 to 13000 and it can be lowered as well as raised: the chat block is repacked on every read, so a smaller budget simply carries fewer messages, and whatever was left out is still reported as omitted.",
     docUsage: "Used",
     chars: "characters",
     // ── Verified-save read-back (T-1c2e; lives in the software-update view

@@ -225,10 +225,10 @@ func TestHandleDirectedBandPrintsTheServerMessage(t *testing.T) {
 		"data": map[string]any{
 			"topic": "context-high", "to": "m-1", "level": "warn",
 			"pct":    float64(45),
-			"reason": "context 45% — start converging; flush in-flight state",
+			"reason": "context 55% — 65% is the handover ceiling; close out now",
 		},
 	}, &out)
-	if got := out.String(); got != "[ocagent] signal context-high: context 45% — start converging; flush in-flight state\n" {
+	if got := out.String(); got != "[ocagent] signal context-high: context 55% — 65% is the handover ceiling; close out now\n" {
 		t.Fatalf("context-high out = %q", got)
 	}
 
@@ -292,11 +292,11 @@ func TestDispatchRoutesDirectedBandsAndIgnoresUnknownTopics(t *testing.T) {
 		return raw
 	}
 	// All directed band topics print their message through dispatch().
-	l.dispatch(frame("context-high", map[string]any{"reason": "context 45% — start converging"}))
+	l.dispatch(frame("context-high", map[string]any{"reason": "context 55% — 65% is the handover ceiling; close out now"}))
 	l.dispatch(frame("token-expiry", map[string]any{"reason": "agent token expires soon; call restart_self"}))
 	l.dispatch(frame("task-close", map[string]any{"reason": "任務 T-7d40 已結束（done）"}))
 	got := out.String()
-	if !strings.Contains(got, "[ocagent] signal context-high: context 45% — start converging") ||
+	if !strings.Contains(got, "[ocagent] signal context-high: context 55% — 65% is the handover ceiling; close out now") ||
 		!strings.Contains(got, "[ocagent] signal token-expiry: agent token expires soon; call restart_self") ||
 		!strings.Contains(got, "[ocagent] signal task-close: 任務 T-7d40 已結束（done）") {
 		t.Fatalf("dispatch must surface all directed bands, got %q", got)
@@ -364,7 +364,7 @@ func TestDrainChat_UnreadForMeOnly_AdvancesSeen(t *testing.T) {
 	if *gotWith != "kyle" {
 		t.Fatalf("with= param = %q want kyle", *gotWith)
 	}
-	if got := out.String(); got != "[ocagent] chat from boss (id, 2m ago): hello\n" {
+	if got := out.String(); got != "[ocagent] chat from boss (#m1, 2m ago): hello\n" {
 		t.Fatalf("drain out = %q", got)
 	}
 	if !seen["m1"] {
@@ -396,19 +396,44 @@ func TestDrainChat_MissingTsPrintsIdTagOnly(t *testing.T) {
 	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
 	var out bytes.Buffer
 	drainChat(srv.Client(), cfg, map[string]bool{}, &out, false)
-	if got := out.String(); got != "[ocagent] chat from boss (id): hi\n" {
+	if got := out.String(); got != "[ocagent] chat from boss (#m1): hi\n" {
 		t.Fatalf("no-ts drain out = %q", got)
 	}
 }
 
+// A message with NEITHER an id nor a ts has nothing to put in the tag, so the
+// parenthesised tag is dropped entirely rather than printed empty as "()".
+func TestDrainChat_NoIdNoTsDropsTheTagEntirely(t *testing.T) {
+	srv, _ := chatServer(t, `[{"from":"boss","to":"kyle","body":"hi"}]`)
+	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
+	var out bytes.Buffer
+	drainChat(srv.Client(), cfg, map[string]bool{}, &out, false)
+	if got := out.String(); got != "[ocagent] chat from boss: hi\n" {
+		t.Fatalf("id-less drain out = %q", got)
+	}
+}
+
+// T-a828 ①: an attachment-bearing notification carries BOTH halves — the real
+// message id (the handle for get_chat) AND the attachment badge. The id half is
+// asserted against the fixture's actual id value: a "does it mention id" check
+// would have passed against the old literal "id" tag, which named nothing.
 func TestDrainChat_ImageAttachmentAppendsBadge(t *testing.T) {
-	srv, _ := chatServer(t, `[{"id":"m1","from":"boss","to":"kyle","body":"看這張",
+	const wireID = "CM-7QW3ZK" // distinctive: cannot be matched by accident
+	srv, _ := chatServer(t, `[{"id":"`+wireID+`","from":"boss","to":"kyle","body":"看這張",
 		"attachments":[{"id":"a1","mime":"image/png","is_image":true,"filename":"x.png"}]}]`)
 	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
 	var out bytes.Buffer
 	drainChat(srv.Client(), cfg, map[string]bool{}, &out, false)
-	if got := out.String(); got != "[ocagent] chat from boss (id): 看這張 📎1圖\n" {
-		t.Fatalf("image attachment drain out = %q", got)
+	got := out.String()
+	if !strings.Contains(got, "#"+wireID) {
+		t.Errorf("notification must name the message id %q so the agent can get_chat it: %q",
+			wireID, got)
+	}
+	if !strings.Contains(got, "📎1圖") {
+		t.Errorf("attachment badge must survive alongside the id: %q", got)
+	}
+	if want := "[ocagent] chat from boss (#" + wireID + "): 看這張 📎1圖\n"; got != want {
+		t.Fatalf("image attachment drain out = %q want %q", got, want)
 	}
 }
 
@@ -418,7 +443,7 @@ func TestDrainChat_EmptyBodyWithAttachmentsPrintsBadgeOnly(t *testing.T) {
 	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
 	var out bytes.Buffer
 	drainChat(srv.Client(), cfg, map[string]bool{}, &out, false)
-	if got := out.String(); got != "[ocagent] chat from boss (id): 📎2圖\n" {
+	if got := out.String(); got != "[ocagent] chat from boss (#m1): 📎2圖\n" {
 		t.Fatalf("empty-body attachment drain out = %q", got)
 	}
 }
@@ -431,18 +456,33 @@ func TestDrainChat_MixedAttachmentsCountsImagesAndFiles(t *testing.T) {
 	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
 	var out bytes.Buffer
 	drainChat(srv.Client(), cfg, map[string]bool{}, &out, false)
-	if got := out.String(); got != "[ocagent] chat from boss (id): 附件 📎1圖 2檔\n" {
+	if got := out.String(); got != "[ocagent] chat from boss (#m1): 附件 📎1圖 2檔\n" {
 		t.Fatalf("mixed attachment drain out = %q", got)
 	}
 }
 
-func TestDrainChat_NoAttachmentsByteIdentical(t *testing.T) {
-	srv, _ := chatServer(t, `[{"id":"m1","from":"boss","to":"kyle","body":"hi","attachments":[]}]`)
+// T-a828 ②: a zero-attachment notification carries the real message id and NO
+// badge — the two halves stay tellable apart. ⚠️ This test used to pin the
+// zero-attachment line byte-for-byte as it stood BEFORE the id landed (that was
+// the badge work's guard against widening every line). T-a828 changes that line
+// on purpose, so the expectation moved with it; what must NOT be lost is the
+// discrimination it buys: with-attachment vs without still differ.
+func TestDrainChat_NoAttachmentsPrintsIdWithoutBadge(t *testing.T) {
+	const wireID = "CM-4KD9XP" // distinctive: cannot be matched by accident
+	srv, _ := chatServer(t, `[{"id":"`+wireID+`","from":"boss","to":"kyle","body":"hi","attachments":[]}]`)
 	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
 	var out bytes.Buffer
 	drainChat(srv.Client(), cfg, map[string]bool{}, &out, false)
-	if got := out.String(); got != "[ocagent] chat from boss (id): hi\n" {
-		t.Fatalf("zero-attachment drain out = %q", got)
+	got := out.String()
+	if !strings.Contains(got, "#"+wireID) {
+		t.Errorf("an attachment-less notification must still name the message id %q: %q",
+			wireID, got)
+	}
+	if strings.Contains(got, "📎") {
+		t.Errorf("zero attachments must print NO badge: %q", got)
+	}
+	if want := "[ocagent] chat from boss (#" + wireID + "): hi\n"; got != want {
+		t.Fatalf("zero-attachment drain out = %q want %q", got, want)
 	}
 }
 
@@ -996,45 +1036,76 @@ func TestFetchChat_NonListOrErrorYieldsNil(t *testing.T) {
 // WindDownHook — desired_state=offline graceful self-stop (intent-only, seams injected).
 // ---------------------------------------------------------------------------
 
-func TestWindDown_OfflineReportsStoppingThenStopped_OneShot(t *testing.T) {
-	var phases []string
-	terminated := 0
+// 下線 wakes the session with the server's notice and leaves the closing-out to
+// it. What this pins is the REPLACED behaviour as much as the new one: the hook
+// used to declare stopping → stopped and suicide on the session's behalf, with
+// 「durable state already server-side — nothing extra to flush」 — false of any
+// session still holding a hand-off, and it took the session down before it
+// could write one.
+func TestWindDown_OfflineWakesTheSessionAndDoesNotStopIt(t *testing.T) {
+	var out bytes.Buffer
 	h := &windDownHook{
-		cfg:           Config{ID: "kyle"},
-		out:           &bytes.Buffer{},
-		fetchDesired:  func() (string, bool) { return "offline", true },
-		reportPhase:   func(p string) int { phases = append(phases, p); return 200 },
-		selfTerminate: func() { phases = append(phases, "suicide"); terminated++ },
+		cfg:          Config{ID: "kyle"},
+		out:          &out,
+		fetchDesired: func() (string, bool) { return "offline", true },
+	}
+	frame := func(notice string) map[string]any {
+		return map[string]any{"topic": "member", "data": map[string]any{
+			"key":     "owner::kyle",
+			"payload": map[string]any{"offboard_notice": notice},
+		}}
+	}
+	soft := "context 31% (your limits: 60% / 75%) — offboard now: work the " +
+		"sequence below, then call restart_self yourself."
+	if !h.maybeWindDown(frame(soft)) {
+		t.Fatal("a confirmed offline must wake the session")
+	}
+	if !strings.Contains(out.String(), soft) {
+		t.Fatalf("the server's notice must reach the transcript:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "nothing extra to flush") {
+		t.Fatalf("the hook must not claim the session has nothing to flush:\n%s", out.String())
+	}
+	// The SAME sentence again is silence — but the FINAL call is a different
+	// sentence and has to get through, because it is the one that says the
+	// countdown has started.
+	if h.maybeWindDown(frame(soft)) {
+		t.Fatal("a repeat of the same notice must be a no-op")
+	}
+	final := soft + " You have 120 seconds left."
+	if !h.maybeWindDown(frame(final)) {
+		t.Fatal("the final call must reach a session already woken by the soft notice")
+	}
+	if !strings.Contains(out.String(), "You have 120 seconds left.") {
+		t.Fatalf("the final call must reach the transcript:\n%s", out.String())
+	}
+}
+
+// A frame that carries no notice must still leave the agent knowing it is being
+// collected — the fallback names the tool that fetches the sequence.
+func TestWindDown_NoticeMissingFallsBackToTheFetchInstruction(t *testing.T) {
+	var out bytes.Buffer
+	h := &windDownHook{
+		cfg:          Config{ID: "kyle"},
+		out:          &out,
+		fetchDesired: func() (string, bool) { return "offline", true },
 	}
 	frame := map[string]any{"topic": "member", "data": map[string]any{"key": "owner::kyle"}}
 	if !h.maybeWindDown(frame) {
-		t.Fatal("a confirmed offline must declare the stop intent")
+		t.Fatal("a confirmed offline must wake the session even with no notice")
 	}
-	// Self-terminate fires AFTER stopped is reported (the SSE-drop lever, not before).
-	if !reflect.DeepEqual(phases, []string{"stopping", "stopped", "suicide"}) {
-		t.Fatalf("phases = %v want [stopping stopped suicide]", phases)
-	}
-	if terminated != 1 {
-		t.Fatalf("self-terminate must fire exactly once, got %d", terminated)
-	}
-	// One-shot: a repeated delta does NOT re-report NOR re-terminate.
-	if h.maybeWindDown(frame) {
-		t.Fatal("second delta must be a no-op (one-shot)")
-	}
-	if terminated != 1 {
-		t.Fatalf("one-shot violated: self-terminate fired %d times", terminated)
+	if !strings.Contains(out.String(), "get_offboard") {
+		t.Fatalf("the fallback must name the tool that gets the sequence:\n%s", out.String())
 	}
 }
 
 func TestWindDown_SkipsWhenNotOfflineOrNotMine(t *testing.T) {
-	var reported, terminated int
+	var out bytes.Buffer
 	newH := func(desired_state string) *windDownHook {
 		return &windDownHook{
-			cfg:           Config{ID: "kyle"},
-			out:           &bytes.Buffer{},
-			fetchDesired:  func() (string, bool) { return desired_state, true },
-			reportPhase:   func(string) int { reported++; return 200 },
-			selfTerminate: func() { terminated++ },
+			cfg:          Config{ID: "kyle"},
+			out:          &out,
+			fetchDesired: func() (string, bool) { return desired_state, true },
 		}
 	}
 	mine := map[string]any{"topic": "member", "data": map[string]any{"key": "owner::kyle"}}
@@ -1045,26 +1116,8 @@ func TestWindDown_SkipsWhenNotOfflineOrNotMine(t *testing.T) {
 	if newH("offline").maybeWindDown(notmine) {
 		t.Fatal("a delta naming someone else must NOT wind down")
 	}
-	if reported != 0 {
-		t.Fatalf("no phase report expected, got %d", reported)
-	}
-	if terminated != 0 {
-		t.Fatalf("no self-terminate expected when it does not wind down, got %d", terminated)
-	}
-}
-
-func TestWindDown_ReportFailedNotMasked(t *testing.T) {
-	var out bytes.Buffer
-	h := &windDownHook{
-		cfg:          Config{ID: "kyle"},
-		out:          &out,
-		fetchDesired: func() (string, bool) { return "offline", true },
-		reportPhase:  func(string) int { return 0 }, // transport fault ⇒ falsy status
-	}
-	frame := map[string]any{"topic": "member", "data": map[string]any{"key": "owner::kyle"}}
-	h.maybeWindDown(frame)
-	if !strings.Contains(out.String(), "FAILED (HTTP 0)") {
-		t.Fatalf("a failed report must be logged FAILED, not masked:\n%s", out.String())
+	if out.Len() != 0 {
+		t.Fatalf("nothing may be said when it does not wind down:\n%s", out.String())
 	}
 }
 
@@ -1072,27 +1125,74 @@ func TestWindDown_ReportFailedNotMasked(t *testing.T) {
 // RecycleHook — desired_state=online ∧ refocus_since>0 (wake-only, epoch one-shot).
 // ---------------------------------------------------------------------------
 
-func TestRecycle_WakesSessionWithHandoverSOP_EpochOneShot(t *testing.T) {
+// offboardServer answers the two authoritative reads the recycle wake makes — the
+// member row and the 下線程序 document — off pointers the test mutates between
+// deltas, so a wake is driven by what the SERVER holds at that moment. Bearer +
+// status are asserted here so the delivery path (auth, route, JSON shape), not a
+// stubbed seam, is what the wake rides.
+func offboardServer(t *testing.T, member map[string]any) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer tok" {
+			t.Errorf("%s must ride the agent's own Bearer token, got %q",
+				r.URL.Path, r.Header.Get("Authorization"))
+		}
+		switch r.URL.Path {
+		case "/api/members/kyle":
+			w.WriteHeader(200)
+			_ = json.NewEncoder(w).Encode(member)
+		case "/api/offboard":
+			t.Errorf("the agent must NOT fetch the offboard document any more — " +
+				"the server pushes it in the delta (owner 2026-08-16: 改回真的推播)")
+			w.WriteHeader(404)
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// recycleFrame builds the member delta the server actually pushes when it is
+// collecting this session: the delta envelope plus the notice the SERVER
+// composed. `notice` empty = a frame that carried none (an older server, or a
+// payload that lost it), which is what must still leave the agent informed.
+func recycleFrame(notice string) map[string]any {
+	payload := map[string]any{"id": "kyle", "desired_state": "online"}
+	if notice != "" {
+		payload["offboard_notice"] = notice
+	}
+	return map[string]any{"topic": "member",
+		"data": map[string]any{"key": "owner::kyle", "payload": payload}}
+}
+
+func TestRecycle_WakesSessionWithThePushedOffboardNotice_EpochOneShot(t *testing.T) {
 	var out bytes.Buffer
 	member := map[string]any{"desired_state": "online", "refocus_since": float64(100)}
-	h := &recycleHook{
-		cfg:         Config{ID: "kyle"},
-		out:         &out,
-		fetchMember: func() (map[string]any, bool) { return member, true },
-	}
-	frame := map[string]any{"topic": "member", "data": map[string]any{"key": "owner::kyle"}}
+	// Deliberately NOT anything this binary knows: only text the SERVER put in
+	// the frame can produce these lines, so seeing them proves the pushed notice
+	// reached the session. A wake printing something hard-coded fails here.
+	notice := "收尾第一步：把在途的 X 寫回步驟備註\n\n收尾第二步：報 stopped"
+	srv := offboardServer(t, member)
+	cfg := Config{ID: "kyle", Token: "tok", Base: srv.URL}
+	h := newRecycleHook(defaultHTTPClient(), cfg, &out)
+
+	frame := recycleFrame(notice)
 	if !h.maybeRecycle(frame) {
-		t.Fatal("online + refocus must wake the session with the handover SOP")
+		t.Fatal("online + refocus must wake the session")
 	}
-	// The full SOP prints, one prefixed line each, baton addressed to MY OWN id.
-	for _, line := range handoverSOP("kyle") {
-		if !strings.Contains(out.String(), "[ocagent] "+line+"\n") {
-			t.Fatalf("wake output missing SOP line %q:\n%s", line, out.String())
+	for _, line := range []string{
+		"收尾第一步：把在途的 X 寫回步驟備註",
+		"收尾第二步：報 stopped",
+	} {
+		if !strings.Contains(out.String(), "[ocagent] recycle: "+line+"\n") {
+			t.Fatalf("the wake must print the SERVER's pushed line %q:\n%s", line, out.String())
 		}
 	}
-	if !strings.Contains(out.String(), "to=kyle") {
-		t.Fatalf("baton step must address the agent's OWN id:\n%s", out.String())
+	if strings.Contains(out.String(), "get_offboard") {
+		t.Fatalf("a notice that WAS delivered must not print the fallback:\n%s", out.String())
 	}
+
 	// SAME epoch again (e.g. the member deltas fanned by the session's own
 	// stopping/stopped reports) ⇒ no re-print.
 	out.Reset()
@@ -1105,13 +1205,66 @@ func TestRecycle_WakesSessionWithHandoverSOP_EpochOneShot(t *testing.T) {
 	if h.maybeRecycle(frame) || out.Len() != 0 {
 		t.Fatalf("a stopped report must not re-trigger anything client-side; out=%q", out.String())
 	}
-	// NEW, larger epoch ⇒ re-arms the wake.
+
+	// A NEW epoch re-arms the wake AND prints what THAT frame carried: an owner
+	// who edits 下線程序 changes what the next collected session is told, with no
+	// release — the edit rides the next push.
 	member["refocus_since"] = float64(200)
-	if !h.maybeRecycle(frame) {
+	if !h.maybeRecycle(recycleFrame("新版下線程序：先把 baton 發給自己")) {
 		t.Fatal("a new refocus epoch must re-wake")
 	}
-	if !strings.Contains(out.String(), "換手 SOP") {
-		t.Fatalf("re-armed wake must print the SOP again:\n%s", out.String())
+	if !strings.Contains(out.String(), "[ocagent] recycle: 新版下線程序：先把 baton 發給自己\n") {
+		t.Fatalf("the re-armed wake must carry the EDITED text:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "收尾第一步") {
+		t.Fatalf("the re-armed wake must not replay the superseded text:\n%s", out.String())
+	}
+}
+
+// The delivery path the agent actually runs is a member frame arriving on the SSE
+// downlink — not a direct hook call. This drives dispatch end to end (frame →
+// member refetch → transcript) so the wiring, not just the hook, is what carries
+// the server's text into the session.
+func TestDispatch_MemberDeltaCarriesThePushedOffboardNoticeIntoTheTranscript(t *testing.T) {
+	var out bytes.Buffer
+	member := map[string]any{"desired_state": "online", "refocus_since": float64(7)}
+	notice := "只有 server 塞進 frame 的字才會長這樣"
+	srv := offboardServer(t, member)
+	cfg := Config{ID: "kyle", Token: "tok", Base: srv.URL}
+	l := &listener{cfg: cfg, out: &out, recycle: newRecycleHook(defaultHTTPClient(), cfg, &out)}
+	l.winddown = &windDownHook{cfg: cfg, out: &out,
+		fetchDesired: func() (string, bool) { return "online", true },
+	}
+	raw, _ := json.Marshal(recycleFrame(notice))
+	l.dispatch(raw)
+	if !strings.Contains(out.String(), "[ocagent] recycle: "+notice+"\n") {
+		t.Fatalf("a member delta must land the SERVER's pushed notice in the transcript:\n%s", out.String())
+	}
+}
+
+func TestRecycle_MissingPushedNoticeStillTellsTheSessionItIsBeingCollected(t *testing.T) {
+	for name, notice := range map[string]string{
+		"no notice key": "",
+		"blank notice":  "\n  \n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			var out bytes.Buffer
+			member := map[string]any{"desired_state": "online", "refocus_since": float64(100)}
+			srv := offboardServer(t, member)
+			h := newRecycleHook(defaultHTTPClient(), Config{ID: "kyle", Token: "tok", Base: srv.URL}, &out)
+			frame := recycleFrame(notice)
+			if !h.maybeRecycle(frame) {
+				t.Fatal("a missing notice must NOT swallow the recycle — the agent still has to know")
+			}
+			if !strings.Contains(out.String(), "[ocagent] "+offboardFallback+"\n") {
+				t.Fatalf("the fallback notice must be printed, not silence:\n%q", out.String())
+			}
+			// Still one wake per epoch — the empty frame spent this epoch.
+			out.Reset()
+			if h.maybeRecycle(frame) || out.Len() != 0 {
+				t.Fatalf("a fallback wake must not re-print on the same epoch; out=%q", out.String())
+			}
+		})
 	}
 }
 
@@ -1255,7 +1408,7 @@ func TestListener_EndToEnd_DispatchAndCursor(t *testing.T) {
 	l := newTestListener(srv, cfg, out)
 	// seed a cursor so the Last-Event-ID replay header is asserted.
 	writeCursor(l.cursorPath, "5")
-	l.winddown = newWindDownHook(srv.Client(), cfg, noEnv, out)
+	l.winddown = newWindDownHook(srv.Client(), cfg, out)
 	l.recycle = newRecycleHook(srv.Client(), cfg, out)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1265,7 +1418,7 @@ func TestListener_EndToEnd_DispatchAndCursor(t *testing.T) {
 
 	waitForCond(t, func() bool {
 		return strings.Contains(out.String(), "wake seq=3 topic=task") &&
-			strings.Contains(out.String(), "chat from boss (id): ping") &&
+			strings.Contains(out.String(), "chat from boss (#c1): ping") &&
 			strings.Contains(out.String(),
 				"reply-card rc-9 answered: picked [0] \"ship\" | asked: ship it?")
 	}, "work wake + chat refetch + reply-card wake dispatched over the wire")
@@ -1301,7 +1454,7 @@ func TestListener_ReconnectsAfterDrop(t *testing.T) {
 	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
 	var out bytes.Buffer
 	l := newTestListener(srv, cfg, &out)
-	l.winddown = newWindDownHook(srv.Client(), cfg, noEnv, &out)
+	l.winddown = newWindDownHook(srv.Client(), cfg, &out)
 	l.recycle = newRecycleHook(srv.Client(), cfg, &out)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1342,7 +1495,7 @@ func TestListener_WatchdogReconnectsSilentStream(t *testing.T) {
 	var out bytes.Buffer
 	l := newTestListener(srv, cfg, &out)
 	l.idleReadTimeout = 40 * time.Millisecond
-	l.winddown = newWindDownHook(srv.Client(), cfg, noEnv, &out)
+	l.winddown = newWindDownHook(srv.Client(), cfg, &out)
 	l.recycle = newRecycleHook(srv.Client(), cfg, &out)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1402,7 +1555,7 @@ func TestListener_ReconnectDrainPrintsOfflineAnswerOnce(t *testing.T) {
 	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
 	out := &syncBuf{}
 	l := newTestListener(srv, cfg, out)
-	l.winddown = newWindDownHook(srv.Client(), cfg, noEnv, out)
+	l.winddown = newWindDownHook(srv.Client(), cfg, out)
 	l.recycle = newRecycleHook(srv.Client(), cfg, out)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1568,7 +1721,7 @@ func TestListener_SelfExitsOnHeartbeatWhenSessionGone(t *testing.T) {
 	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
 	var out bytes.Buffer
 	l := newTestListener(srv, cfg, &out)
-	l.winddown = newWindDownHook(srv.Client(), cfg, noEnv, &out)
+	l.winddown = newWindDownHook(srv.Client(), cfg, &out)
 	l.recycle = newRecycleHook(srv.Client(), cfg, &out)
 	l.probe = func() probeVerdict { return probeGone } // session always gone
 
@@ -1610,7 +1763,7 @@ func TestListener_SelfExitAtReconnectTop(t *testing.T) {
 	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
 	var out bytes.Buffer
 	l := newTestListener(srv, cfg, &out)
-	l.winddown = newWindDownHook(srv.Client(), cfg, noEnv, &out)
+	l.winddown = newWindDownHook(srv.Client(), cfg, &out)
 	l.recycle = newRecycleHook(srv.Client(), cfg, &out)
 	l.probe = func() probeVerdict { return probeGone }
 	l.miss = sessionMissLimit - 1 // one more miss trips at probe #1
@@ -1651,7 +1804,7 @@ func TestListener_SelfTerminatesAfterPersistentSSERefusal(t *testing.T) {
 	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
 	out := &syncBuf{}
 	l := newTestListener(srv, cfg, out)
-	l.winddown = newWindDownHook(srv.Client(), cfg, noEnv, out)
+	l.winddown = newWindDownHook(srv.Client(), cfg, out)
 	l.recycle = newRecycleHook(srv.Client(), cfg, out)
 	l.refusalGraceSpan = 0 // count bound only — no wall-clock wait in tests
 	var terminated int32
@@ -1709,7 +1862,7 @@ func TestListener_NonRefusalOutcomesNeverTripFailClosed(t *testing.T) {
 	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
 	out := &syncBuf{}
 	l := newTestListener(srv, cfg, out)
-	l.winddown = newWindDownHook(srv.Client(), cfg, noEnv, out)
+	l.winddown = newWindDownHook(srv.Client(), cfg, out)
 	l.recycle = newRecycleHook(srv.Client(), cfg, out)
 	l.refusalGraceSpan = 0 // even with NO grace, the broken run must never trip
 	var terminated int32
@@ -1874,14 +2027,13 @@ func TestDispatch_SelfTriggeredEchoSuppressed(t *testing.T) {
 func TestDispatch_MemberTopicExemptFromEchoSuppression(t *testing.T) {
 	// spec §2.3 exemption: a SELF-triggered member delta must STILL nudge the
 	// hooks — restart_self (T-4c71) stamps refocus_since via the agent's OWN
-	// request, and the handover-SOP wake rides exactly that self-triggered
-	// member delta. Suppressing it would break graceful self-recycle.
+	// request, and the recycle wake rides exactly that self-triggered member
+	// delta. Suppressing it would break graceful self-recycle.
 	var out bytes.Buffer
 	fetches := 0
 	l := &listener{cfg: Config{ID: "kyle"}, out: &out}
 	l.winddown = &windDownHook{cfg: l.cfg, out: &out,
 		fetchDesired: func() (string, bool) { fetches++; return "online", true },
-		reportPhase:  func(string) int { return 200 },
 	}
 	l.recycle = &recycleHook{cfg: l.cfg, out: &out,
 		fetchMember: func() (map[string]any, bool) {
@@ -1890,13 +2042,14 @@ func TestDispatch_MemberTopicExemptFromEchoSuppression(t *testing.T) {
 		},
 	}
 	raw, _ := json.Marshal(map[string]any{"topic": "member", "trigger": "kyle",
-		"data": map[string]any{"key": "owner::kyle"}})
+		"data": map[string]any{"key": "owner::kyle",
+			"payload": map[string]any{"offboard_notice": "照下線程序收尾"}}})
 	l.dispatch(raw)
 	if fetches == 0 {
-		t.Fatal("a self-triggered member delta must still nudge the hooks (restart_self SOP)")
+		t.Fatal("a self-triggered member delta must still nudge the hooks (restart_self)")
 	}
 	if !strings.Contains(out.String(), "recycle:") {
-		t.Fatalf("the self-requested recycle SOP wake must land, got %q", out.String())
+		t.Fatalf("the self-requested recycle wake must land, got %q", out.String())
 	}
 }
 
@@ -2023,7 +2176,7 @@ func TestDrainChat_UndersizeBodyPrintedInFull(t *testing.T) {
 		t.Fatalf("drain = %d", n)
 	}
 	line := out.String()
-	if want := "[ocagent] chat from boss (id): " + full + "\n"; line != want {
+	if want := "[ocagent] chat from boss (#c-full): " + full + "\n"; line != want {
 		t.Fatalf("under-cap body must print verbatim:\n got %q\nwant %q", line, want)
 	}
 	// Positive control for the truncation assertions below: an under-cap body
@@ -2046,7 +2199,7 @@ func TestDrainChat_MultiLineBodyPrintedIndentedAsOneBlock(t *testing.T) {
 	cfg := Config{Base: srv.URL, ID: "kyle", Token: "tok"}
 	var out bytes.Buffer
 	drainChat(srv.Client(), cfg, map[string]bool{}, &out, false)
-	want := "[ocagent] chat from boss (id): 交接 SOP:\n" +
+	want := "[ocagent] chat from boss (#c-ml): 交接 SOP:\n" +
 		"    1. 先接手 listen\n" +
 		"    [ocagent] 這行看起來像事件但其實是內文\n"
 	if got := out.String(); got != want {
@@ -2077,7 +2230,7 @@ func TestDrainChat_LongMustReadBodyPrintedInFull(t *testing.T) {
 	cfg := Config{Base: srv.URL, ID: "kyle", Token: "tok"}
 	var out bytes.Buffer
 	drainChat(srv.Client(), cfg, map[string]bool{}, &out, false)
-	if want := "[ocagent] chat from boss (id): " + long + "\n"; out.String() != want {
+	if want := "[ocagent] chat from boss (#c-5k): " + long + "\n"; out.String() != want {
 		t.Fatalf("5k-char must-read body must print verbatim (len got %d want %d)",
 			len(out.String()), len(want))
 	}
@@ -2104,7 +2257,7 @@ func TestDrainChat_PathologicalBodyTrippedBySafetyValve(t *testing.T) {
 	if strings.Contains(line, huge) {
 		t.Fatal("a valve-tripped body must not print the full text")
 	}
-	if !strings.HasPrefix(line, "[ocagent] chat from boss (id): 囉嗦") {
+	if !strings.HasPrefix(line, "[ocagent] chat from boss (#c-huge): 囉嗦") {
 		t.Fatal("a valve-tripped body must still print the head")
 	}
 	if len(line) > messageBodyValve+256 { // head (≤valve) + prefix + hint

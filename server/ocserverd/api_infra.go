@@ -71,8 +71,15 @@ func (s *apiServer) HandleEventsApiEventsGet(w http.ResponseWriter, r *http.Requ
 	// member the server has an ACTIVE stop record for must never RE-project
 	// online by reconnecting — see sseStopGateRefusal for the exact predicate
 	// and why each legitimate flow stays admitted. Deliberately checked BEFORE
-	// hub.Connect: a stop-in-effect member always gets the 409 and can never
-	// take the slot over from anyone (zombie-stop semantics outrank takeover).
+	// hub.Connect, so a member the gate REFUSES can never take the slot over
+	// from anyone (zombie-stop semantics outrank takeover).
+	//
+	// ⚠️ Read "refuses", not "has a stop anchor": since T-a9d6 a close-out in
+	// flight is admitted on purpose and therefore DOES reach hub.Connect with
+	// ordinary takeover semantics. The sentence that used to sit here said a
+	// stop-in-effect member "always" gets the 409, which this ticket's own
+	// change made false — the exact species of stale self-description it exists
+	// to remove (independent review caught it here).
 	if memberID != "" {
 		if msg := s.sseStopGateRefusal(memberID); msg != "" {
 			fmt.Fprintf(os.Stderr, "[sse] refused reconnect for %q: %s\n", memberID, msg)
@@ -163,10 +170,20 @@ func (s *apiServer) HandleEventsApiEventsGet(w http.ResponseWriter, r *http.Requ
 	_, _ = w.Write([]byte(": connected\n\n"))
 	flusher.Flush()
 
-	// Per-connection context-high band state (spec §6): the remind-bucket
-	// marker (T-7826 dedup). In-memory, reset on reconnect, never persisted;
-	// bucketReset (below WARN / boot) so the first climb into the band emits.
-	chLastBucket := bucketReset
+	// This connection's runtime, resolved ONCE (the notice rule differs per
+	// runtime — see decideHandoverNotice). Members and outsource workers live in
+	// different tables and both connect here, so both are tried; "" falls
+	// through to the claude rule, which is the fail-safe direction (a percentage
+	// notice on an unknown runtime is a wasted line, a missing one is a lost
+	// close-out).
+	connRuntime := ""
+	if memberID != "" {
+		if m, err := s.dal.GetMember(memberID); err == nil && m != nil {
+			connRuntime = m.Runtime
+		} else if w, err := s.dal.GetOutsourceWorker(memberID); err == nil && w != nil {
+			connRuntime = w.Runtime
+		}
+	}
 	// Per-connection token-expiry band state (spec §6.1): the last time the
 	// still-unacknowledged warning was sent. A restart replaces this connection
 	// and its JWT, which naturally clears the reminder state.
@@ -204,14 +221,26 @@ func (s *apiServer) HandleEventsApiEventsGet(w http.ResponseWriter, r *http.Requ
 			}
 			continue
 		}
-		// Quiet tick: the context-high band (any agent connection — the agent
-		// cannot read its own context %, so the server pushes the reminder).
+		// Quiet tick: the ONE advance handover notice (any agent connection — the
+		// agent cannot read its own context %, so the server pushes it).
 		if memberID != "" {
-			signal, newBucket := decideContextHighSignal(
-				memberID, s.gauge.Get(memberID), chLastBucket, s.ctxHighConfig())
-			chLastBucket = newBucket
+			record := s.gauge.Get(memberID)
+			signal := decideHandoverNotice(
+				memberID, connRuntime, record,
+				s.ctxHighConfig(), s.codexNoticeRoundSetting(), s.codexCompactionThreshold,
+				s.offboardText)
+			// ONCE PER SESSION, not once per connection (T-c382). The dedup key is
+			// the gauge's boot_ts — the SESSION anchor, restored from the durable
+			// member row on reconnect — so an SSE flap mid-session cannot re-fire
+			// the notice. Per-connection state (what this used to hold) would:
+			// every reconnect would nudge again, which is the bombardment the
+			// owner asked to be rid of, wearing a different hat.
 			if signal != nil {
-				if frame, err := directedFrameText(contextHighTopic, signal); err == nil {
+				// Build the frame BEFORE claiming: claiming first would burn the
+				// one-and-only notice on a marshal failure and go silent forever,
+				// and "sent it" vs "silently dropped it" would look identical.
+				if frame, err := directedFrameText(contextHighTopic, signal); err == nil &&
+					s.claimHandoverNotice(memberID, record) {
 					if !write(frame) {
 						return
 					}
@@ -355,6 +384,29 @@ func (s *apiServer) sseStopGateRefusal(memberID string) string {
 	}
 	if m.Kind != KindWarden && parseDesired(m.DesiredState) == DesiredStateOffline &&
 		(m.StoppingSince > 0.0 || m.StoppedSince > 0.0) {
+		// 🔴 …unless the session is still WORKING its offboard sequence
+		// (T-a9d6). 下線 no longer collects on a clock — the agent is shown the
+		// sequence and asked to close out and report stopped itself — so a
+		// session legitimately sits in exactly this state for as long as the
+		// close-out takes. Refusing its reconnect there does not stop anything:
+		// the agent's own listener treats a run of authoritative refusals as
+		// "I have been retired" and kills its tmux session (listen_run.go), so
+		// a network blip or a station upgrade mid-hand-off would take the
+		// session down with the hand-off unwritten. That is the exact harm this
+		// ticket exists to remove, arriving through a different door.
+		//
+		// The gate still closes the moment the close-out is DONE: stopped_since
+		// is what the agent stamps when it has finished, and from then on a
+		// reconnect is a stopped member re-projecting online, which is what the
+		// refusal was written for.
+		//
+		// What separates the two is what the member itself has done. A session
+		// that has reported stopped is finished; a member the owner FORCE-
+		// stopped was cut off deliberately and must not come back on its own.
+		// Anything else with a stop anchor is a close-out in flight.
+		if m.StoppedSince <= 0.0 && !forcedEpochLive(*m) {
+			return ""
+		}
 		return "member '" + m.ID + "' has a stop in effect (desired_state=offline) — " +
 			"SSE refused (a stopped member must not re-project online; " +
 			"activate it to reconnect)"
@@ -549,6 +601,13 @@ func (s *apiServer) clearSessionBootTS(id string) {
 		delete(entry, "compaction_count")
 		s.gauge.Set(id, entry)
 	}
+	// The advance-notice claim (T-c382) is keyed on the anchor being dropped
+	// here, so it is session-scoped state too — drop it on the same boundary
+	// rather than leaving one record per agent id alive for the process's
+	// lifetime.
+	s.settingsMu.Lock()
+	delete(s.handoverNoticed, id)
+	s.settingsMu.Unlock()
 	// Write-on-change: the clear runs on every session boundary, and an
 	// unconditional UPDATE would cost a row write per boundary for nothing.
 	m, err := s.dal.GetMember(id)

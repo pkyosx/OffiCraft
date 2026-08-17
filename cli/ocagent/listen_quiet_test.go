@@ -150,7 +150,7 @@ func runOneConnectCycle(t *testing.T, verbose bool) string {
 	l := newTestListener(srv, cfg, out)
 	l.verbose = verbose
 	l.once = true
-	l.winddown = newWindDownHook(srv.Client(), cfg, noEnv, out)
+	l.winddown = newWindDownHook(srv.Client(), cfg, out)
 	l.recycle = newRecycleHook(srv.Client(), cfg, out)
 
 	if rc := l.run(context.Background()); rc != 0 {
@@ -249,7 +249,7 @@ func runOutageCycle(t *testing.T, failures int32, gap time.Duration, verbose boo
 	out := &syncBuf{}
 	l := newTestListener(srv, Config{Base: srv.URL, Token: "t", ID: "kyle"}, out)
 	l.verbose = verbose
-	l.winddown = newWindDownHook(srv.Client(), Config{Base: srv.URL, ID: "kyle"}, noEnv, out)
+	l.winddown = newWindDownHook(srv.Client(), Config{Base: srv.URL, ID: "kyle"}, out)
 	l.recycle = newRecycleHook(srv.Client(), Config{Base: srv.URL, ID: "kyle"}, out)
 	// Exact, not approximate: the FIRST clock read is when the outage starts,
 	// every later read is `gap` after it, so the reported duration is a value

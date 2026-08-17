@@ -17,6 +17,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -2283,11 +2284,11 @@ func TestPeekResumeSummarySizeIsLightAndConsistent(t *testing.T) {
 		{"name": "build", "dod": longDoD},
 		{"name": "ship", "dod": "deployed"},
 	})
-	// … and a chat message longer than the preview cap, so chat_chars is the
-	// truncated size the snapshot would actually carry (not the raw body).
-	longBody := strings.Repeat("交接內容", 300) // 1200 runes > resumeChatBodyPreview
+	// … and a chat message from ANOTHER AGENT, long enough to be collapsed, so
+	// chat_chars is the size the snapshot actually carries (not the raw body).
+	longBody := strings.Repeat("交接內容", 300) // 1200 runes
 	if err := api.dal.PutChat(ChatMessage{
-		ID: "c-peek", Sender: "owner", Recipient: "m-exec", Body: longBody, TS: 1.0,
+		ID: "c-peek", Sender: "m-peer", Recipient: "m-exec", Body: longBody, TS: 1.0,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -2303,20 +2304,37 @@ func TestPeekResumeSummarySizeIsLightAndConsistent(t *testing.T) {
 		t.Fatalf("peek overview must match resume_summary's exactly:\n peek=%+v\n full=%+v",
 			peek.Overview, full.Overview)
 	}
-	// The chat body was truncated: chat_chars is the preview cap + the ellipsis
-	// rune, and it matches the runes the full snapshot's body carries.
+	// The chat body was COLLAPSED (another agent's line), and chat_chars is the
+	// WHOLE chat block: the carried body plus every character the wake format
+	// wraps around it, plus the header the snapshot carries outside the array.
+	//
+	// 🔴 This expectation is re-derived here from the WIRE VALUES, field by
+	// field — deliberately not by calling the production accounting helper,
+	// which would make the assertion true by construction. Drop any one of
+	// these contributions from the estimator and this line moves.
 	if peek.Overview.ChatCount != 1 {
 		t.Fatalf("expected the one seeded message, got %+v", peek.Overview)
 	}
-	wantChatChars := resumeChatBodyPreview + 1 // truncated body + "…"
+	m := full.Chat[0]
+	if len([]rune(m.Body)) != resumeChatOtherPreview+1 { // lead + the "…" rune
+		t.Fatalf("another agent's body must be collapsed to the lead: %d runes",
+			len([]rune(m.Body)))
+	}
+	if m.BodyOmittedChars != 1200-resumeChatOtherPreview {
+		t.Fatalf("body_omitted_chars must count what was folded away: %d",
+			m.BodyOmittedChars)
+	}
+	wantChatChars := len([]rune(m.Body)) +
+		len([]rune(m.FromName)) + len([]rune(m.ToName)) +
+		len([]rune(m.TSDisplay)) +
+		len(strconv.Itoa(m.BodyOmittedChars)) +
+		len([]rune(full.GeneratedAt))
 	if peek.Overview.ChatChars != wantChatChars {
 		t.Fatalf("chat_chars: want %d, got %d", wantChatChars, peek.Overview.ChatChars)
 	}
-	if got := len([]rune(full.Chat[0].Body)); got != wantChatChars {
-		t.Fatalf("chat_chars must equal the truncated body runes: overview %d, body %d",
-			peek.Overview.ChatChars, got)
-	}
-	// estimated_total_chars = chat bodies + the plan text the rows omit.
+	// estimated_total_chars = the whole chat block (chat_chars, whose exact
+	// composition is asserted just above from the code's own addends rather
+	// than restated in prose) + the plan text the rows omit.
 	wantEstimate := peek.Overview.ChatChars + peek.Overview.TasksDetailChars
 	if peek.EstimatedTotalChars != wantEstimate {
 		t.Fatalf("estimated_total_chars: want %d, got %d",
@@ -2346,13 +2364,21 @@ func TestPeekResumeSummarySizeIsLightAndConsistent(t *testing.T) {
 	}
 }
 
-// TestPeekResumeSummarySizeEmptyCallerIsZeroesNotError pins the degrade path:
-// a caller with no chat and no tasks peeks zeroes, never an error.
-func TestPeekResumeSummarySizeEmptyCallerIsZeroesNotError(t *testing.T) {
+// TestPeekResumeSummarySizeEmptyCallerCountsAreZeroButHeaderIsNot pins the
+// degrade path:
+// a caller with no chat and no tasks peeks an EMPTY snapshot, never an error.
+//
+// "Empty" is not literally zero characters any more: the payload still carries
+// its own generated_at header, and the estimate would be lying if it pretended
+// otherwise. Every COUNT is still zero, and the only non-zero size is exactly
+// that header — asserted against the header's own length, not a magic number.
+func TestPeekResumeSummarySizeEmptyCallerCountsAreZeroButHeaderIsNot(t *testing.T) {
 	api := newTasksTestServer(t)
 	peek := peekResumeSize(t, api, "m-nobody")
-	if peek.Overview != (resumeOverviewDTO{}) || peek.EstimatedTotalChars != 0 {
-		t.Fatalf("empty caller must peek zeroes: %+v", peek)
+	headerChars := len([]rune(resumeSnapshot(t, api, "m-nobody").GeneratedAt))
+	want := resumeOverviewDTO{ChatChars: headerChars}
+	if peek.Overview != want || peek.EstimatedTotalChars != headerChars {
+		t.Fatalf("empty caller must peek an empty snapshot: %+v", peek)
 	}
 	if peek.Note == "" {
 		t.Fatalf("peek must carry the guidance note")

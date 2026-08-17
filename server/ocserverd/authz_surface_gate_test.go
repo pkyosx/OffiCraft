@@ -513,6 +513,20 @@ var authzOutsideRouteTable = map[string]string{
 	"api_chat.go :: HandlePostChatApiChatPost :: msg.Sender != wireOwnerID": "" +
 		"the other half of the same push condition: do not push the owner their own " +
 		"message back.",
+	// ── the by-id chat re-read's participation boundary (T-a828) ─────────────
+	//
+	// It CANNOT be a Requires value: the route floor answers "may this class of
+	// principal call get_chat at all", and every member may. The question here is
+	// per-ROW and per-CALLER — was THIS caller one of the two ends of THIS
+	// message — which no column on the row can express.
+	"api_chat.go :: chatMessageInvolvesCaller :: m.Sender == currentActor(r)": "" +
+		"T-a828: ?ids= hands back named messages IN FULL, so holding an id must not " +
+		"be the same thing as permission to read it. This half asks whether the " +
+		"verified caller SENT the message; a caller who is neither end gets 403.",
+	"api_chat.go :: chatMessageInvolvesCaller :: m.Recipient == currentActor(r)": "" +
+		"the other half of the same boundary: whether the verified caller RECEIVED " +
+		"it. Written as two comparisons against currentActor(r) rather than a " +
+		"hoisted local precisely so this gate can see the rule at all.",
 	"api_tasks.go :: taskCallerOf :: classifyMember(m)": "" +
 		"the classification step of the task-caller resolver (the owner branch above " +
 		"returns before this line). Same primitive as the 發包 path, different entry.",

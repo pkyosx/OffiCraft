@@ -309,6 +309,18 @@ func (s *apiServer) mintCreatorFollowUpTask(
 	if note != "" {
 		desc += "\n\n執行者的交棒說明:" + note
 	}
+	// 🔴 THIS DESCRIPTION MUST STAY TRIMMED, and today it is only by luck of the
+	// caller: the literal above has no surrounding whitespace, so the value is
+	// clean only because handoffPlan.Note was TrimSpace'd where the plan was
+	// built. Nothing here enforces it and no test pins it.
+	//
+	// Why that matters beyond tidiness: create_task does NOT trim a description,
+	// so an INSERT that carried whitespace would be a THIRD way for untrimmed text
+	// to reach that column — and update_task's tool description, the seeds boot
+	// doc and api_tasks_fields.go all state that there are exactly TWO
+	// (create_task and a verbatim restore). Dropping one of those TrimSpace calls
+	// would make all three false at once, and nothing would turn red. Found by the
+	// independent review of T-646a as a near miss, not a live defect.
 	fu := Task{
 		ID:           "t-" + newHexID(12),
 		Title:        "接手 " + no + " 的後續:" + t.Title,
@@ -379,6 +391,18 @@ func (s *apiServer) releaseDependentsOnClose(t Task, now float64, trigger string
 			outsourceLog("deps-release %s: touch of %s failed: %v", t.ID, d.ID, err)
 			continue
 		}
+		// T-51b0: BOTH executor kinds take this one notice again. T-e77f had
+		// routed an outsource dependent through a separate kickoff seam; that
+		// seam was withdrawn wholesale (owner 2026-08-15, card
+		// rc-a4f6a7f8cd71), so this is the pre-T-e77f behaviour restored, not a
+		// new decision — the alternative, telling a member and saying nothing to
+		// a contractor, would silently make the release invisible to exactly the
+		// executor least able to notice it on its own.
+		//
+		// ⚠️ What the withdrawn seam DID check and this line does not: a
+		// dependent that is still FROZEN is told it can start (the release
+		// removed only one of its two reasons to wait), and a worker that has
+		// already left is still addressed. Both were true before T-e77f too.
 		if d.ExecutorID != "" {
 			s.postTaskChat(d, wireSystemSender, d.ExecutorID,
 				"["+TaskNo(d.ID)+"] 擋住這張任務的前置任務 "+TaskNo(t.ID)+

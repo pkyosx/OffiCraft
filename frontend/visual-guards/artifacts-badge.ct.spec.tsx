@@ -139,13 +139,13 @@ test("narrow 390: the .md chip opens the preview overlay on click and on Enter",
 
   const mdChip = cmp.getByRole("button", { name: "design.md" });
   await mdChip.click();
-  await expect(cmp.locator(".md-preview")).toBeVisible();
+  await expect(page.locator(".md-preview")).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(cmp.locator(".md-preview")).toHaveCount(0);
+  await expect(page.locator(".md-preview")).toHaveCount(0);
 
   await mdChip.focus();
   await page.keyboard.press("Enter");
-  await expect(cmp.locator(".md-preview")).toBeVisible();
+  await expect(page.locator(".md-preview")).toBeVisible();
 });
 
 test("narrow 390: popover stays in-viewport even when its badge is pinned to the right edge (T-2ca0)", async ({ mount, page }) => {
@@ -292,18 +292,18 @@ test("opening the shared attachment popup does not dismiss the popover (T-49fb)"
   await expect(popover).toBeVisible();
 
   await cmp.locator(".task-artifacts__thumb").click();
-  await expect(cmp.locator(".md-preview")).toBeVisible();
+  await expect(page.locator(".md-preview")).toBeVisible();
   await expect(popover).toBeVisible();
 
   // Dismissing the popup by its own backdrop leaves the popover standing.
-  await cmp.locator(".md-preview").click({ position: { x: 5, y: 5 } });
-  await expect(cmp.locator(".md-preview")).toHaveCount(0);
+  await page.locator(".md-preview").click({ position: { x: 5, y: 5 } });
+  await expect(page.locator(".md-preview")).toHaveCount(0);
   await expect(popover).toBeVisible();
 
   // Same contract for the .md 預覽 overlay — the other in-popover overlay.
   // T-7bc2: the file chip itself is the trigger now (no separate 眼睛 button).
   await cmp.getByRole("button", { name: "design.md" }).click();
-  await expect(cmp.locator(".md-preview")).toBeVisible();
+  await expect(page.locator(".md-preview")).toBeVisible();
   await expect(popover).toBeVisible();
 });
 

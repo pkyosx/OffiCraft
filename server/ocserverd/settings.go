@@ -51,12 +51,19 @@ const (
 	settingClaimToken = "auth.claim_token"
 	// ctx.* mirror the SseContextHighConfig knobs (defaults in
 	// defaultSseContextHigh; only handover_pct gets UI in B3).
-	settingCtxWarnPct               = "ctx.warn_pct"
+	//
+	// `ctx.warn_pct` and `ctx.remind_step_pct` are RETIRED (T-c382) and
+	// deliberately not listed: the key set is closed, so an unlisted key is
+	// never read — which is exactly the intent. They used to hold a SECOND
+	// threshold beside handover_pct, and the advance notice is now derived from
+	// handover_pct instead. Old rows stay in the table, unread. Do not re-add
+	// them; two thresholds for one decision is the bug this ticket fixed.
+	settingCtxNoticePct             = "ctx.notice_pct"
 	settingCtxHandoverPct           = "ctx.handover_pct"
-	settingCtxRemindStepPct         = "ctx.remind_step_pct"
 	settingCtxMinBootSecs           = "ctx.min_boot_secs"
 	settingCtxStaleGuard            = "ctx.stale_guard"
 	settingCodexCompactionThreshold = "codex.compaction_threshold"
+	settingCodexNoticeRound         = "codex.notice_round"
 	settingMonitoringRefreshSeconds = "monitoring.refresh_seconds"
 	// settingOutsourceMaxParallel (M3, owner ruling ③) is the GLOBAL cap on
 	// concurrently live (assigned + active) outsource workers — the Phase 2
@@ -90,6 +97,22 @@ const (
 	settingDocCapCharsLearning        = "doc.cap_chars.learning"
 	settingDocCapCharsManualSop       = "doc.cap_chars.manual_sop"
 	settingDocCapCharsManualLearnings = "doc.cap_chars.manual_learnings"
+	// The two boot-context document kinds (T-791e). Same shape as the five
+	// above, and deliberately suffixed the same way: a bare `doc.cap_chars`
+	// would read as a global default beside them, and an agent looking at
+	// get_settings sees key
+	// names only — never a description.
+	settingDocCapCharsSystemInteraction = "doc.cap_chars.system_interaction"
+	settingDocCapCharsBootSequence      = "doc.cap_chars.boot_sequence"
+	settingDocCapCharsOffboard          = "doc.cap_chars.offboard"
+	// settingChatBudgetChars (T-c9b4) is the wake snapshot's chat block budget —
+	// what resumeChatPackBudget spends (api_chat.go). It is deliberately NOT a
+	// `doc.cap_chars.*` key: those cap a STORED document and their floors equal
+	// their own defaults so a cap can only be raised, while this one bounds a
+	// block that is repacked from scratch on every read and is therefore free to
+	// move in both directions. See domain.go for the range and why its ceiling is
+	// tied to resumeChatFetch.
+	settingChatBudgetChars = "chat.budget_chars"
 	// The retired updater.url / updater.invite_code keys belonged to the
 	// removed ocupdaterd updater-server chain (updates now ship as GitHub
 	// Releases on pkyosx/OffiCraft — update_check.go). They are no longer
@@ -172,29 +195,34 @@ const defaultMonitoringRefreshSeconds = 5
 
 // authSettings is the boot-time snapshot cmdServe stamps onto the apiServer.
 type authSettings struct {
-	secret                     []byte
-	passwordHash               string // "" = not set in DB (first-run: set-password flow)
-	passwordChangedAt          int64  // epoch secs; owner tokens with iat before it are refused
-	ownerTokenTTL              int64
-	agentTokenTTL              int64
-	ctxhigh                    SseContextHighConfig
-	codexCompactionThreshold   int
-	monitoringRefreshSeconds   int
-	outsourceMaxParallel       int              // task.outsource_max_parallel (default 3)
-	docCapCharsDuty            int              // doc.cap_chars.duty (default dutyCapCharsDefault)
-	docCapCharsInsight         int              // doc.cap_chars.insight (default contextDocMaxCharsDefault)
-	docCapCharsLearning        int              // doc.cap_chars.learning (default contextDocMaxCharsDefault)
-	docCapCharsManualSop       int              // doc.cap_chars.manual_sop (default contextDocMaxCharsDefault)
-	docCapCharsManualLearnings int              // doc.cap_chars.manual_learnings (default contextDocMaxCharsDefault)
-	updaterReceiveBeta         bool             // updater.receive_beta (default false = official releases only)
-	updaterAutoUpdate          bool             // updater.auto_update (default false = manual upgrades only)
-	orgName                    string           // org.name ("" = never set → localized default in the topbar)
-	ownerName                  string           // owner.name ("" = never set → localized default in the profile pill)
-	pushContactEmail           string           // push.contact_email ("" = never set → Web Push delivery is refused)
-	displayTheme               string           // display.theme ("" = never set → frontend cache/default)
-	displayLanguage            string           // display.language ("" = never set → frontend cache/default)
-	displayWide                bool             // display.wide (default false = the narrow centred column)
-	displayCustomThemes        []ThemeBundleDTO // display.custom_themes (nil = none saved)
+	secret                       []byte
+	passwordHash                 string // "" = not set in DB (first-run: set-password flow)
+	passwordChangedAt            int64  // epoch secs; owner tokens with iat before it are refused
+	ownerTokenTTL                int64
+	agentTokenTTL                int64
+	ctxhigh                      SseContextHighConfig
+	codexCompactionThreshold     int // codex.compaction_threshold — the FINAL round (handover)
+	codexNoticeRound             int // codex.notice_round — the FIRST, soft notice round (T-a9d6)
+	monitoringRefreshSeconds     int
+	outsourceMaxParallel         int              // task.outsource_max_parallel (default 3)
+	docCapCharsDuty              int              // doc.cap_chars.duty (default dutyCapCharsDefault)
+	docCapCharsInsight           int              // doc.cap_chars.insight (default contextDocMaxCharsDefault)
+	docCapCharsLearning          int              // doc.cap_chars.learning (default contextDocMaxCharsDefault)
+	docCapCharsManualSop         int              // doc.cap_chars.manual_sop (default contextDocMaxCharsDefault)
+	docCapCharsManualLearnings   int              // doc.cap_chars.manual_learnings (default contextDocMaxCharsDefault)
+	docCapCharsSystemInteraction int              // doc.cap_chars.system_interaction (default systemInteractionCapCharsDefault)
+	docCapCharsBootSequence      int              // doc.cap_chars.boot_sequence (default bootSequenceCapCharsDefault; ONE cap, both runtimes)
+	docCapCharsOffboard          int              // doc.cap_chars.offboard (default offboardCapCharsDefault)
+	chatBudgetChars              int              // chat.budget_chars (default chatBudgetCharsDefault)
+	updaterReceiveBeta           bool             // updater.receive_beta (default false = official releases only)
+	updaterAutoUpdate            bool             // updater.auto_update (default false = manual upgrades only)
+	orgName                      string           // org.name ("" = never set → localized default in the topbar)
+	ownerName                    string           // owner.name ("" = never set → localized default in the profile pill)
+	pushContactEmail             string           // push.contact_email ("" = never set → Web Push delivery is refused)
+	displayTheme                 string           // display.theme ("" = never set → frontend cache/default)
+	displayLanguage              string           // display.language ("" = never set → frontend cache/default)
+	displayWide                  bool             // display.wide (default false = the narrow centred column)
+	displayCustomThemes          []ThemeBundleDTO // display.custom_themes (nil = none saved)
 }
 
 // loadAuthSettings loads the snapshot from the migrated DB, running the
@@ -338,6 +366,19 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 		}
 		out.codexCompactionThreshold = n
 	}
+	// codex.notice_round is the FIRST, soft notice round (T-a9d6). Absent (every
+	// install that predates the pair) → threshold - 1, which is exactly where
+	// T-c382 derived it, so an upgrade changes no behaviour.
+	out.codexNoticeRound = out.codexCompactionThreshold - 1
+	if v, err := d.GetSetting(settingCodexNoticeRound); err != nil {
+		return out, err
+	} else if v != nil {
+		n, err := strconv.Atoi(*v)
+		if err != nil || n < 1 || n > 10 {
+			return out, fmt.Errorf("settings %s: must be 1..10: %q", settingCodexNoticeRound, *v)
+		}
+		out.codexNoticeRound = n
+	}
 	if v, err := d.GetSetting(settingMonitoringRefreshSeconds); err != nil {
 		return out, err
 	} else if v != nil {
@@ -375,38 +416,62 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 	// `doc.cap_chars.manual` by migration 00048, and that row was in turn
 	// COPIED to `.manual_sop` and `.manual_learnings` and deleted by 00049 —
 	// the DB never holds a retired key beside its successors.
-	loadCap := func(key string, min int, dst *int, def int) error {
+	//
+	// The max is a parameter rather than maxDocCapChars because T-c9b4 added a
+	// bounded integer with its OWN ceiling (chat.budget_chars); baking one
+	// ceiling in would have forced a near-copy of this loader for it.
+	loadCap := func(key string, min, max int, dst *int, def int) error {
 		*dst = def
 		v, err := d.GetSetting(key)
 		if err != nil || v == nil {
 			return err
 		}
 		n, err := strconv.Atoi(*v)
-		if err != nil || n < min || n > maxDocCapChars {
+		if err != nil || n < min || n > max {
 			return fmt.Errorf("settings %s: must be %d..%d: %q",
-				key, min, maxDocCapChars, *v)
+				key, min, max, *v)
 		}
 		*dst = n
 		return nil
 	}
-	if err := loadCap(settingDocCapCharsDuty, minDutyCapChars,
+	if err := loadCap(settingDocCapCharsDuty, minDutyCapChars, maxDocCapChars,
 		&out.docCapCharsDuty, dutyCapCharsDefault); err != nil {
 		return out, err
 	}
-	if err := loadCap(settingDocCapCharsInsight, minDocCapChars,
+	if err := loadCap(settingDocCapCharsInsight, minDocCapChars, maxDocCapChars,
 		&out.docCapCharsInsight, contextDocMaxCharsDefault); err != nil {
 		return out, err
 	}
-	if err := loadCap(settingDocCapCharsLearning, minDocCapChars,
+	if err := loadCap(settingDocCapCharsLearning, minDocCapChars, maxDocCapChars,
 		&out.docCapCharsLearning, contextDocMaxCharsDefault); err != nil {
 		return out, err
 	}
-	if err := loadCap(settingDocCapCharsManualSop, minDocCapChars,
+	if err := loadCap(settingDocCapCharsManualSop, minDocCapChars, maxDocCapChars,
 		&out.docCapCharsManualSop, contextDocMaxCharsDefault); err != nil {
 		return out, err
 	}
-	if err := loadCap(settingDocCapCharsManualLearnings, minDocCapChars,
+	if err := loadCap(settingDocCapCharsManualLearnings, minDocCapChars, maxDocCapChars,
 		&out.docCapCharsManualLearnings, contextDocMaxCharsDefault); err != nil {
+		return out, err
+	}
+	if err := loadCap(settingDocCapCharsSystemInteraction, minSystemInteractionCapChars, maxDocCapChars,
+		&out.docCapCharsSystemInteraction, systemInteractionCapCharsDefault); err != nil {
+		return out, err
+	}
+	if err := loadCap(settingDocCapCharsBootSequence, minBootSequenceCapChars, maxDocCapChars,
+		&out.docCapCharsBootSequence, bootSequenceCapCharsDefault); err != nil {
+		return out, err
+	}
+	if err := loadCap(settingDocCapCharsOffboard, minOffboardCapChars, maxDocCapChars,
+		&out.docCapCharsOffboard, offboardCapCharsDefault); err != nil {
+		return out, err
+	}
+
+	// chat.budget_chars (T-c9b4) — range-checked at load for the same reason the
+	// caps above are: a hand-edited DB row must not install a value the PATCH
+	// face would have refused.
+	if err := loadCap(settingChatBudgetChars, minChatBudgetChars, maxChatBudgetChars,
+		&out.chatBudgetChars, chatBudgetCharsDefault); err != nil {
 		return out, err
 	}
 
@@ -501,13 +566,10 @@ func migrateCtxOverrides(d *DAL, cfg Config, logf func(string)) error {
 		return nil
 	}
 	c, s := cfg.SseContextHigh, cfg.SseContextHighSet
-	if err := put(s.WarnPct, settingCtxWarnPct, strconv.Itoa(c.WarnPct)); err != nil {
-		return err
-	}
 	if err := put(s.HandoverPct, settingCtxHandoverPct, strconv.Itoa(c.HandoverPct)); err != nil {
 		return err
 	}
-	if err := put(s.RemindStepPct, settingCtxRemindStepPct, strconv.Itoa(c.RemindStepPct)); err != nil {
+	if err := put(s.NoticePct, settingCtxNoticePct, strconv.Itoa(c.NoticePct)); err != nil {
 		return err
 	}
 	if err := put(s.MinBootSecs, settingCtxMinBootSecs, strconv.FormatFloat(c.MinBootSecs, 'f', -1, 64)); err != nil {
@@ -682,14 +744,36 @@ func applyCtxOverrides(d *DAL, c *SseContextHighConfig) error {
 		*dst = n
 		return nil
 	}
-	if err := getInt(settingCtxWarnPct, &c.WarnPct); err != nil {
-		return err
-	}
+	// ctx.warn_pct / ctx.remind_step_pct have NO reader since T-c382 — the
+	// advance notice is derived from handover_pct, so a second stored threshold
+	// could only ever disagree with the one the owner sets. Rows an old install
+	// migrated are left in the table (they are the record of what it used to be
+	// tuned to) and are simply never read.
 	if err := getInt(settingCtxHandoverPct, &c.HandoverPct); err != nil {
 		return err
 	}
-	if err := getInt(settingCtxRemindStepPct, &c.RemindStepPct); err != nil {
+	// ctx.notice_pct is the FIRST (soft) notice — T-a9d6. ABSENCE is what
+	// matters here, not the zero value: an install that predates the pair has
+	// no row, and its notice must land where T-c382 derived it (handover minus
+	// the lead) rather than at the shipped default, which would silently move
+	// the notice of every deployment whose handover the owner had tuned.
+	// Reading the row itself rather than checking c.NoticePct is the point —
+	// the config default is already non-zero, so the value alone cannot tell
+	// "never set" from "set to that number".
+	stored, err := d.GetSetting(settingCtxNoticePct)
+	if err != nil {
 		return err
+	}
+	if stored == nil {
+		if at, ok := claudeNoticePct(c.HandoverPct); ok {
+			c.NoticePct = at
+		}
+	} else {
+		n, err := strconv.Atoi(*stored)
+		if err != nil || n < 0 {
+			return fmt.Errorf("settings %s: not a non-negative integer: %q", settingCtxNoticePct, *stored)
+		}
+		c.NoticePct = n
 	}
 	if v, err := d.GetSetting(settingCtxMinBootSecs); err != nil {
 		return err

@@ -196,7 +196,6 @@ describe("AgentDetailPanel slot map", () => {
   it("renders nothing — not even the reason — for a slot this side declined", async () => {
     const member: Member = {
       id: "mira",
-      memberId: "MB-AST001",
       name: "Mira",
       role: "assistant",
       status: "offline",

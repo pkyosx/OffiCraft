@@ -33,8 +33,8 @@ import (
 // downlink delta becomes a wake: a `chat` delta drives an R7 refetch of the
 // authoritative /api/chat (the delta payload is NEVER trusted); a WORK delta
 // (action/task) logs a liveness wake; a `member` delta naming me nudges the graceful
-// self-stop hook (reports the presence PHASE then `suicide`s) and the recycle hook
-// (WAKE-ONLY: prints the handover SOP for the session — see listen_hooks.go).
+// self-stop hook (wakes the session with the offboard notice) and the recycle hook
+// (WAKE-ONLY: prints the server's 下線程序 document for the session — see listen_hooks.go).
 //
 // SELF-EXIT (the lifecycle tie — the agent's OWN death signal): the listener IS the
 // SSE holder, so a DEAD agent's orphaned listener would keep its SSE open forever,
@@ -64,7 +64,6 @@ const (
 	eventsPath = "/api/events"
 	// chatPath / membersPath are the R7 refetch authorities.
 	membersPath = "/api/members/"
-
 	// Backoff mirrors agent/oc_agent.py _BACKOFF_START / _BACKOFF_CAP (1s / 15s) — the
 	// self-heal cadence. Python jitters each delay by a factor in [0.5, 1.0] to de-sync
 	// a fleet reconnecting in lockstep after a server restart (thundering-herd).
@@ -97,8 +96,16 @@ const (
 	// its own tmux session). Any other outcome — a successful stream, a network
 	// fault, a 5xx, a brief server outage — RESETS the run, so a flapping or
 	// briefly-down server can never mass-kill healthy agents; only a standing
-	// refusal (zombie, stale dual-SSE twin) crosses both bounds. The grace
-	// mirrors the server's 120 s stop_grace.
+	// refusal (zombie, stale dual-SSE twin) crosses both bounds.
+	//
+	// The grace was sized to mirror the server's 120 s stop_grace. 🔴 That is no
+	// longer what it mirrors: 下線 runs no clock at all since T-a9d6, and the
+	// server's stop gate now lets a session that is still WORKING its offboard
+	// sequence reconnect (api_infra.go) — precisely so this ladder cannot take
+	// down an agent mid-hand-off, which is what it would otherwise do on a
+	// station upgrade or a network blip. The number stays as a bound on how long
+	// a genuine standing refusal is tolerated; it is no longer derived from
+	// anything.
 	sseRefusalMin   = 4
 	sseRefusalGrace = 120 * time.Second
 
@@ -583,8 +590,13 @@ func handleDirectedBand(frame map[string]any, out io.Writer) {
 	if line == "" {
 		switch topic {
 		case contextHighTopic:
-			line = fmt.Sprintf("context usage high (level=%s pct=%s) — start converging",
-				get("level"), get("pct"))
+			// Fallback only — the server always composes a reason, and that reason
+			// is the real message (it names the ceiling and the close-out steps,
+			// which this side cannot know). Kept deliberately vaguer than the
+			// server's: inventing a threshold here would be a second source of
+			// truth, which is the exact bug T-c382 removed.
+			line = fmt.Sprintf("context usage high (level=%s pct=%s) — close out your "+
+				"in-flight state before the handover", get("level"), get("pct"))
 		case tokenExpiryTopic:
 			line = fmt.Sprintf("agent token expires in %ss — checkpoint this turn, then call restart_self",
 				get("expires_in"))
@@ -727,19 +739,26 @@ func fmtAgo(secs float64) string {
 // drainChat refetches chat and prints the unread-for-me — ONE LINE per message so the
 // spawned session's Monitor reads exactly '誰、多久前、說了什麼':
 //
-//	[ocagent] chat from MB-ABC123 (id, 2m ago): ...
+//	[ocagent] chat from m-3417933c8632 (#c-ceb835093301, 2m ago): ...
 //
-// The `(id, …)` tag spells out that `from` is the STABLE member id (server-stamped,
-// never a display name) — reply straight to it with post_chat; the relative age is
-// computed client-side from the message ts (dropped when the wire carries no ts).
+// `from` is the STABLE member id (server-stamped, never a display name) — reply
+// straight to it with post_chat. The `#…` tag is the MESSAGE id: the handle to
+// name this exact message when calling get_chat for the full body/attachments.
+// Only the id goes in — filenames, attachment ids and mimes stay OUT, because
+// this line is a token cost every agent pays on every message; get_chat is where
+// that detail belongs. The relative age is computed client-side from the message
+// ts. Either tag half is dropped when the wire carries no id / no ts, and a
+// message with neither prints without the parenthesised tag at all.
 // Advances the seen-id cursor and returns the unread count. `silent` (the boot
 // baseline) advances the cursor WITHOUT printing so connecting does not re-print
 // history. R7: reads ONLY the refetched authority, never a delta. Mirrors drain_chat.
 // attachmentSummary renders a message's attachments as a terse badge appended
 // after the body: "📎2圖" (2 images), "📎1檔" (1 non-image file), or the mixed
 // "📎1圖 2檔". Images are counted by the server-computed is_image flag. Returns
-// "" when the message carries no attachments, so a zero-attachment line stays
-// byte-for-byte unchanged. Junk-safe: a non-array attachments field or non-map
+// "" when the message carries no attachments, so a zero-attachment line carries
+// no badge at all — not a badge that says zero. (This says nothing about the
+// rest of the line: it also carries the `#<message id>` tag, which is not this
+// function's business.) Junk-safe: a non-array attachments field or non-map
 // elements degrade to "" / are skipped, never a panic.
 func attachmentSummary(m map[string]any) string {
 	refs, ok := m["attachments"].([]any)
@@ -783,9 +802,12 @@ func drainChat(client httpClient, cfg Config, seen map[string]bool, out io.Write
 			continue
 		}
 		if !silent {
-			tag := "id"
+			tag := make([]string, 0, 2)
+			if mid != "" {
+				tag = append(tag, "#"+mid)
+			}
 			if ts, ok := m["ts"].(float64); ok && ts > 0 {
-				tag = "id, " + fmtAgo(now-ts) + " ago"
+				tag = append(tag, fmtAgo(now-ts)+" ago")
 			}
 			content := renderMessageBody(strOrEmpty(m["body"]), chatBodyAuthority)
 			if badge := attachmentSummary(m); badge != "" {
@@ -795,8 +817,12 @@ func drainChat(client httpClient, cfg Config, seen map[string]bool, out io.Write
 					content += " " + badge
 				}
 			}
-			fmt.Fprintf(out, "[ocagent] chat from %s (%s): %s\n",
-				pyStr(m["from"]), tag, content)
+			if len(tag) == 0 {
+				fmt.Fprintf(out, "[ocagent] chat from %s: %s\n", pyStr(m["from"]), content)
+			} else {
+				fmt.Fprintf(out, "[ocagent] chat from %s (%s): %s\n",
+					pyStr(m["from"]), strings.Join(tag, ", "), content)
+			}
 		}
 		if mid != "" {
 			seen[mid] = true

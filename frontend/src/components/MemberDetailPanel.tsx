@@ -813,7 +813,12 @@ export function MemberDetailPanel({
               ariaLabel={t.mp.rename}
               displayClassName="mp-identity__name"
             />
-            <span className="badge mp-identity__id">{member.memberId}</span>
+            {/* The STABLE member id itself — the same string that addresses this
+                member everywhere else (post_chat, resume summary, task rows).
+                It used to render the derived MB-XXX### badge, which gave one
+                person two identities and could not be used to look anything up
+                (owner 2026-08-15, rc-2a6b96d0fb0c). */}
+            <span className="badge mp-identity__id">{member.id}</span>
           </div>
           <div className="mp-identity__status">
             {/* Shared presence badge: lifecycle dot (colour = presence) + role.

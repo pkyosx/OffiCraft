@@ -815,6 +815,20 @@ MATRIX: dict[str, Route] = {
         requires="machine",
         path=lambda ctx, i: "/api/document-history/global_context/global/seed",
     ),
+    # The BODY of one named revision (T-1170) — the same read floor as the
+    # listing that names it. It aims at a version id that does not exist, so
+    # every at-or-above-floor identity lands on the same semantic 404 and the
+    # row measures the FLOOR rather than one document's contents; that the
+    # gate and its 400 refusals are the LISTING's is pinned in the Go tests
+    # (TestGetDocumentVersionSharesTheListingsGateAndRefusals).
+    "GET /api/document-history/{kind}/{key}/{id}": Route(
+        requires="machine",
+        path=lambda ctx, i: "/api/document-history/global_context/global/999999",
+        overrides={
+            "warden": 404, "agent_self": 404, "agent_other": 404,
+            "admin_agent": 404, "owner": 404,
+        },
+    ),
     # RESTORING is a write. The route floor is the agent floor, but each KIND
     # then keeps its own document's write floor in the handler — this row aims
     # at a task manual (no extra floor) with a revision id that does not exist,
@@ -834,6 +848,42 @@ MATRIX: dict[str, Route] = {
         body={"text": "conformance user-custom block"},
     ),
     "POST /api/global-context/reset": Route(requires="admin_agent"),
+    # ── the two editable boot-context blocks (T-791e) ────────────────────────
+    # Read at the machine floor, write at admin_agent — the shape the
+    # 使用者自訂 block above already has. The replace bodies are deliberately
+    # NON-EMPTY: an empty one would be refused by the wipe guard, and a 400 in
+    # this table would say nothing about the floor.
+    #
+    # 🔴 THE RESET ROWS RUN LAST-WRITE-WINS AGAINST THE REPLACE ROWS ABOVE and
+    # that is fine in either order: reset is idempotent, replace is a whole
+    # document, and neither depends on what the other left behind.
+    "GET /api/system-interaction": Route(requires="machine"),
+    "POST /api/system-interaction": Route(
+        requires="admin_agent",
+        body={"text": "conformance system-interaction block"},
+    ),
+    "POST /api/system-interaction/reset": Route(requires="admin_agent"),
+    "GET /api/boot-sequence/{runtime_key}": Route(
+        requires="machine",
+        path="/api/boot-sequence/claude",
+    ),
+    "POST /api/boot-sequence/{runtime_key}": Route(
+        requires="admin_agent",
+        path="/api/boot-sequence/codex",
+        body={"text": "conformance boot sequence"},
+    ),
+    "POST /api/boot-sequence/{runtime_key}/reset": Route(
+        requires="admin_agent",
+        path="/api/boot-sequence/codex/reset",
+    ),
+    # 下線程序 (T-c9c0) — same floors as the 系統互動 block: read at machine,
+    # write at admin_agent.
+    "GET /api/offboard": Route(requires="machine"),
+    "POST /api/offboard": Route(
+        requires="admin_agent",
+        body={"text": "conformance offboard block"},
+    ),
+    "POST /api/offboard/reset": Route(requires="admin_agent"),
     "GET /api/roles": Route(requires="machine"),
     "GET /api/doc-sizes": Route(requires="machine"),
     "POST /api/roles": Route(
@@ -1059,6 +1109,25 @@ MATRIX: dict[str, Route] = {
         overrides={"agent_other": 403},
         path=lambda ctx, _i: f"/api/tasks/{_matrix_task(ctx)}/plan",
         body={"steps": [{"name": "conf", "dod": "asserted"}]},
+    ),
+    "POST /api/tasks/{task_id}": Route(
+        # T-646a, the one door onto a task's own text. Same executor-or-admin
+        # gate as every other task-driving write (agent B on agent A's task →
+        # 403), so the authz face is the status route's. Pointed at a CLOSED
+        # task on purpose, exactly as its two predecessors below: a terminal
+        # task's text stays editable (T-e271 ruling 2), and a 200 here is the
+        # only place the matrix can say so on the wire — aimed at an open task
+        # the row would pass whether or not the terminal gate existed.
+        #
+        # The body names BOTH fields, which is the case neither predecessor row
+        # could express and the reason this route exists.
+        requires="agent",
+        overrides={"agent_other": 403},
+        path=lambda ctx, _i: f"/api/tasks/{_matrix_closed_task(ctx)}",
+        body={
+            "title": "conf matrix corrected title",
+            "description": "conf matrix corrected description",
+        },
     ),
     "POST /api/tasks/{task_id}/description": Route(
         # T-e271. Same executor-or-admin gate as every other task-driving write

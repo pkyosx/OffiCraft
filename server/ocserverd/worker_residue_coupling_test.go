@@ -56,13 +56,12 @@ func TestWorkerLaunchGuidanceIsTheSharedOneNotAReplacement(t *testing.T) {
 	if strings.Contains(ctx, "已從你這份的啟動程序裡拿掉") {
 		t.Error("worker boot context falsely claims shared boot steps were removed")
 	}
-	for _, want := range []string{
-		bootSequenceH1,     // the shared 啟動程序 block itself
-		"外包 worker 只綁一張任務", // …and the shared text covers the one-task case
-	} {
-		if !strings.Contains(ctx, want) {
-			t.Errorf("worker boot context is missing launch guidance %q", want)
-		}
+	// The shared 啟動程序 block itself must be there. What it SAYS is not pinned
+	// here: the owner authors that document by hand, and a test that spells out
+	// his sentences turns every edit of his into a red build with nothing wrong
+	// (owner 2026-08-15: 「context 寫守衛沒有什麼意義… 需要的是端到端的實測」).
+	if !strings.Contains(ctx, bootSequenceH1) {
+		t.Errorf("worker boot context is missing launch guidance %q", bootSequenceH1)
 	}
 	// And the shared seeds must not go back to naming the retired tool. This is
 	// a wording tripwire over an ASSEMBLED document, so it cannot catch a

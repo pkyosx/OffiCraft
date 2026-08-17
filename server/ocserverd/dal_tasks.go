@@ -94,6 +94,23 @@ type Task struct {
 	// the executor may all freeze, it has to be RECORDED or the owner cannot
 	// tell their own 喊停 from an agent's.
 	FrozenBy string
+	// KickoffNotifiedTo is VESTIGIAL (T-51b0). It was the de-duplication ledger
+	// of the outsource kickoff notice (T-e77f, migrations/00056); the notice was
+	// withdrawn wholesale (owner 2026-08-15, card rc-a4f6a7f8cd71) and NOTHING
+	// writes this any more — it round-trips as whatever the row already held.
+	//
+	// The field and its column stay on purpose. Dropping a column needs a
+	// migration whose only benefit is tidiness, while the owner's word for the
+	// withdrawal was 「先砍掉」— provisional — and a column that is still there
+	// is the difference between restoring the seam and re-deriving it. Do not
+	// read a non-empty value as "a notice is outstanding"; it is a fossil of one
+	// that was sent before this change.
+	//
+	// ⚠️ RESTORING the seam means CLEARING this column first. The fossils sit at
+	// stamp == executor, so a restored de-duplication check would swallow the
+	// first kickoff of exactly the tasks that were notified before — the subset
+	// nobody would think to look at.
+	KickoffNotifiedTo string
 }
 
 const taskColumns = `id, type_key, title, dedupe_key, inputs, description,
@@ -103,7 +120,7 @@ const taskColumns = `id, type_key, title, dedupe_key, inputs, description,
 	handover_note, handover_note_ts, handover_note_by,
 	outsource_runtime, outsource_model, outsource_effort, outsource_machine,
 	outsource_dispatched,
-	handoff, handoff_note, handoff_task_id, frozen_by`
+	handoff, handoff_note, handoff_task_id, frozen_by, kickoff_notified_to`
 
 // sqlTerminalStatuses is the SQL IN-list of the terminal statuses — every
 // "open task" filter (dedupe probe, resume block, open counts) excludes these.
@@ -125,6 +142,7 @@ func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 		&t.OutsourceRuntime, &t.OutsourceModel, &t.OutsourceEffort, &t.OutsourceMachine,
 		&dispatched,
 		&t.Handoff, &t.HandoffNote, &t.HandoffTaskID, &t.FrozenBy,
+		&t.KickoffNotifiedTo,
 	)
 	if err != nil {
 		return Task{}, err
@@ -310,7 +328,7 @@ func (d *DAL) PutTask(t Task) error {
 	}
 	_, err = d.wdb.Exec(`
 		INSERT INTO task (`+taskColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
 			type_key = excluded.type_key,
 			dedupe_key = excluded.dedupe_key, inputs = excluded.inputs,
@@ -337,7 +355,8 @@ func (d *DAL) PutTask(t Task) error {
 			handoff = excluded.handoff,
 			handoff_note = excluded.handoff_note,
 			handoff_task_id = excluded.handoff_task_id,
-			frozen_by = excluded.frozen_by`,
+			frozen_by = excluded.frozen_by,
+			kickoff_notified_to = excluded.kickoff_notified_to`,
 		t.ID, t.TypeKey, t.Title, t.DedupeKey, string(blob), t.Description,
 		t.Status, t.Lock, t.Priority, t.ExecutorKind, t.ExecutorID, t.CreatorID,
 		t.WaitingReason,
@@ -348,6 +367,7 @@ func (d *DAL) PutTask(t Task) error {
 		t.OutsourceModel, t.OutsourceEffort, t.OutsourceMachine,
 		dispatched,
 		t.Handoff, t.HandoffNote, t.HandoffTaskID, t.FrozenBy,
+		t.KickoffNotifiedTo,
 	)
 	return err
 }
@@ -421,6 +441,9 @@ func (d *DAL) ListTasksBlockedBy(blockerID string) ([]Task, error) {
 // AddTaskDep adds ONE blocked_by edge without disturbing the rest of the list
 // (set_task_deps' whole-list write would clobber deps the successor already
 // carries). Idempotent — INSERT OR IGNORE on the composite key.
+//
+// (T-e77f's warning about this bypassing the kickoff seam retired with the seam
+// itself in T-51b0 — nothing reads kickoff_notified_to any more.)
 func (d *DAL) AddTaskDep(taskID, blockedBy string) error {
 	_, err := d.wdb.Exec(
 		`INSERT OR IGNORE INTO task_dep (task_id, blocked_by) VALUES (?, ?)`,

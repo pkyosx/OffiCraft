@@ -35,21 +35,50 @@
 // number into two, so the manual's two streams no longer share an answer here
 // either.
 
-import type { DocumentKind } from "../types";
+import type { BootDocKind, DocumentKind } from "../types";
 
-/** The five SHIPPED DEFAULTS (server/ocserverd/domain.go:
- * dutyCapCharsDefault + contextDocMaxCharsDefault) — defaults, NOT the caps
- * themselves. Since T-3aeb the live values are the `doc.cap_chars.*` settings,
- * so callers pass them in; these exist only as the fallback for a caller with
- * no server value yet, and as the shared fixture's anchor. Do not inline these
- * numbers anywhere else. */
+/** One live number per CAPPED SEGMENT — the set `capForKind` routes a kind to.
+ * Total over every segment the server caps: the five role/manual ones
+ * (server/ocserverd/domain.go: dutyCapCharsDefault + contextDocMaxCharsDefault)
+ * and, since T-791e, the two boot-context blocks. Since T-3aeb the live values
+ * are the `doc.cap_chars.*` settings, so callers pass them in; the constants
+ * below are only the fallback for a caller with no server value yet, and the
+ * shared fixture's anchor. Do not inline these numbers anywhere else. */
 export interface DocCaps {
   duty: number;
   insight: number;
   learning: number;
   manualSop: number;
   manualLearnings: number;
+  systemInteraction: number;
+  bootSequence: number;
+  offboard: number;
 }
+
+/**
+ * The SHIPPED DEFAULT cap of each boot-context block, in the same rune unit
+ * (T-791e). Sized off the seeds actually in the tree, measured rather than
+ * guessed: `seeds/system_interaction.md` is 45,045 chars, and the two boot
+ * sequences 1,198 / 1,632 — so 60000 leaves the system block real room to grow
+ * while 15000 is roughly ten times what a boot SOP has ever needed.
+ *
+ * 🔴 A DEFAULT, not the cap: the number in force arrives on the document's own
+ * read (`BootDocView.capChars`), and every enforcement point reads THAT. This
+ * constant exists for the mock adapter (which has to answer with something) and
+ * as the anchor these numbers are stated once. Do not inline them elsewhere.
+ *
+ * Keyed by `BootDocKind` rather than folded into `DOC_CAP_CHARS_DEFAULTS`
+ * because the page and the mock address these by WIRE kind, not by the
+ * view-model field name.
+ */
+export const BOOT_DOC_CAP_CHARS_DEFAULTS: Record<BootDocKind, number> = {
+  system_interaction: 60000,
+  boot_sequence: 15000,
+  // T-c9c0. Sized with the boot sequences rather than the handbook: the
+  // 下線程序 seed is a short ordered checklist an agent has to finish inside a
+  // ~120s grace window, not a reference text.
+  offboard: 15000,
+};
 
 export const DOC_CAP_CHARS_DEFAULTS: DocCaps = {
   duty: 1000,
@@ -57,7 +86,26 @@ export const DOC_CAP_CHARS_DEFAULTS: DocCaps = {
   learning: 15000,
   manualSop: 15000,
   manualLearnings: 15000,
+  // Not restated: the boot blocks' numbers are stated once, above.
+  systemInteraction: BOOT_DOC_CAP_CHARS_DEFAULTS.system_interaction,
+  bootSequence: BOOT_DOC_CAP_CHARS_DEFAULTS.boot_sequence,
+  offboard: BOOT_DOC_CAP_CHARS_DEFAULTS.offboard,
 };
+
+/**
+ * How many retained revisions a boot-context block keeps (T-791e). TEN, where
+ * every other document keeps three — the owner's ruling, for the workflow this
+ * surface is for: proposals land one section at a time, so an afternoon is a
+ * dozen small saves and three slots would lose the version the afternoon
+ * started from before it ended.
+ *
+ * 🔴 Counted in WRITES, not in time, and the cockpit has to SAY so — an owner
+ * who reads it as "the last ten days" reads a normal editing session as the
+ * cockpit throwing his work away. The page's own note is composed from this
+ * constant (i18n/compose.ts `bootDocNoteHistory`) rather than restating the
+ * number, so the sentence cannot end up describing a retention nobody applies.
+ */
+export const BOOT_DOC_HISTORY_KEPT = 10;
 
 /** The single number the shared fixture (bin/tests/fixtures/doc-cap-cases.tsv)
  * anchors its rows to. That table tests the PREDICATE, which takes the cap as a
@@ -88,9 +136,22 @@ export function docCapBlocked(
   before: string,
   after: string
 ): boolean {
-  const n = runeLength(after);
-  if (n <= cap) return false;
-  return n >= runeLength(before);
+  return docCapBlockedBySize(cap, runeLength(before), runeLength(after));
+}
+
+/** The same predicate over SIZES rather than texts — the shape the version
+ * list has since T-1170 (the directory carries each field's char count, never
+ * its text). `docCapBlocked` is the text-taking face and is what the shared
+ * fixture (bin/tests/fixtures/doc-cap-cases.tsv) drives, so the rule stays
+ * measured against the server's twin in exactly one place; this is the same
+ * three branches with the measuring already done. */
+export function docCapBlockedBySize(
+  cap: number,
+  beforeChars: number,
+  afterChars: number
+): boolean {
+  if (afterChars <= cap) return false;
+  return afterChars >= beforeChars;
 }
 
 /** The wire field names each kind's restore runs the cap over. Empty = this
@@ -126,10 +187,23 @@ export const CAPPED_FIELDS: Record<DocumentKind, readonly string[]> = {
   // edit route deliberately declines to introduce a ceiling only the edit door
   // would enforce — so its restore runs no cap either.
   task_title: [],
+  // T-791e. Both boot-context blocks are capped on their restore, on `text`,
+  // against their own `doc.cap_chars.*` setting — so `capForKind` answers for
+  // them and this pair marks for real.
+  system_interaction: ["text"],
+  boot_sequence: ["text"],
+  // T-c9c0, same rule: capped on restore, on `text`, against
+  // `doc.cap_chars.offboard`.
+  offboard: ["text"],
 };
 
 /**
  * Which of a revision's fields would make the server refuse this restore.
+ *
+ * `sizes` is the revision's per-field CHARACTER COUNT — since T-1170 that is
+ * what the version list holds (the text is one read deeper), and it is all this
+ * verdict ever needed: the rule compares lengths. A field the revision does not
+ * carry is absent, and weighs nothing.
  *
  * `current` holds the LIVE document's values under the SAME wire field names.
  * Pass `undefined` (or omit a field) while the live doc has not loaded: the
@@ -147,7 +221,7 @@ export const CAPPED_FIELDS: Record<DocumentKind, readonly string[]> = {
  */
 export function docCapBlockedFields(
   kind: DocumentKind,
-  content: Record<string, string>,
+  sizes: Record<string, number>,
   current: Record<string, string> | undefined,
   caps: DocCaps | undefined
 ): string[] {
@@ -156,8 +230,27 @@ export function docCapBlockedFields(
   return CAPPED_FIELDS[kind].filter(
     (field) =>
       current[field] !== undefined &&
-      docCapBlocked(cap, current[field], content[field] ?? "")
+      docCapBlockedBySize(
+        cap,
+        runeLength(current[field]),
+        // A field the revision does not carry weighs nothing — the same
+        // reading `content[field] ?? ""` had.
+        sizes[field] ?? 0
+      )
   );
+}
+
+/** A document's own field sizes, for a caller holding the TEXT rather than a
+ * directory row (the reader, once it has fetched the revision it is showing).
+ * One measuring rule for both faces of `docCapBlockedFields`. */
+export function contentSizes(
+  content: Record<string, string>
+): Record<string, number> {
+  const sizes: Record<string, number> = {};
+  for (const [field, value] of Object.entries(content)) {
+    if (field !== "tombstoned") sizes[field] = runeLength(value);
+  }
+  return sizes;
 }
 
 /** WHICH cap judges this kind — transcribed from the same switch
@@ -193,5 +286,21 @@ export function capForKind(
     case "task_description":
     case "task_title":
       return undefined;
+    // T-791e. These abstained while the two blocks' caps existed only as the
+    // number the server reports on the document's OWN read — there was no live
+    // value to hand this table, and inventing one (the shipped 60000/15000)
+    // could only ever grey out a revision the server would accept. The same
+    // change made them `doc.cap_chars.system_interaction` /
+    // `doc.cap_chars.boot_sequence` settings, so the live value now arrives the
+    // way every other segment's does and abstaining would leave the one
+    // revision the server WILL refuse looking restorable.
+    case "system_interaction":
+      return caps.systemInteraction;
+    // ONE number across both runtimes: the setting is per BLOCK, and claude and
+    // codex are two documents of the same block, each measured on its own text.
+    case "boot_sequence":
+      return caps.bootSequence;
+    case "offboard":
+      return caps.offboard;
   }
 }

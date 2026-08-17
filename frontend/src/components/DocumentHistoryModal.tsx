@@ -62,11 +62,12 @@
 //     straight in the "the default cannot be read" branch below — `lessons` has
 //     no `onReset`, so its host never fetches a seed to substitute.
 //
-// 🔴 The CAP verdict deliberately still judges `version.content`, NOT the
-// effective content: the server's restore checks `content["text"]` too (it
+// 🔴 The CAP verdict deliberately still judges THIS REVISION's own sizes, NOT
+// the effective content: the server's restore checks `content["text"]` too (it
 // writes the tombstone, not the seed text), so judging the seed here would grey
 // out revisions the server accepts — the exact direction api/docCap.ts refuses
-// to be wrong in.
+// to be wrong in. Since T-1170 those sizes arrive from the DIRECTORY row, so
+// the verdict is also ready before the revision's text is.
 //
 // RESTORE MOVED IN HERE and is reachable nowhere else. Everything the row-level
 // button carried came with it, unchanged: it is DESTRUCTIVE so it still goes
@@ -76,7 +77,7 @@
 
 import { useRef, useState } from "react";
 import { useI18n } from "../i18n";
-import type { DocumentHistoryView, DocumentKind } from "../types";
+import type { DocumentKind } from "../types";
 import { capForKind, docCapBlockedFields } from "../api/docCap";
 import type { DocCaps } from "../api/docCap";
 import { ApiError } from "../api/errors";
@@ -99,7 +100,11 @@ type Pane = "content" | "diff";
 
 export function DocumentHistoryModal({
   kind,
-  version,
+  createdTs,
+  tombstoned,
+  sizes,
+  content: revisionContent,
+  contentLoading,
   actorLine,
   currentContent,
   docCaps,
@@ -111,7 +116,27 @@ export function DocumentHistoryModal({
   seedContent,
 }: {
   kind: DocumentKind;
-  version: DocumentHistoryView;
+  /** When the revision was retained (`0` for the seed — nobody wrote it). */
+  createdTs: number;
+  /** This revision was a TOMBSTONE — "follow the shipped default". Read off the
+   * directory row rather than off the text, so it is known before (and without)
+   * the content read. */
+  tombstoned: boolean;
+  /** The revision's per-field sizes — what the cap verdict judges. It comes
+   * from the DIRECTORY (T-1170), so a revision the server would refuse is
+   * marked and its 還原 dead from the first frame, rather than only once the
+   * text arrives. */
+  sizes: Record<string, number>;
+  /**
+   * The revision's own field→value snapshot — `undefined` while the per-revision
+   * read is in flight or failed. The panes then say so (`contentLoading`
+   * separates the two); NEITHER may call the revision empty, which is a
+   * different and false claim to make beside a destructive button.
+   */
+  content?: Record<string, string>;
+  /** The content read has not finished. Distinguishes 「載入中」 from 「讀不到」;
+   * both leave 還原 live, because restoring needs nothing from this client. */
+  contentLoading?: boolean;
   /** Who wrote this revision, already resolved to "name (id)" — or the bare id
    * when the roster cannot name them. Resolved by the host card, which is the
    * one holding the roster: a modal that pulled its own would fetch the whole
@@ -179,7 +204,7 @@ export function DocumentHistoryModal({
     if (!busy) onClose();
   }, rootRef);
 
-  const when = formatAbsolute(version.createdTs, Date.now() / 1000);
+  const when = formatAbsolute(createdTs, Date.now() / 1000);
   /** What the diff's `-` side is called, and what the confirmation names. The
    * seed has no timestamp to name it by — 初始版本 IS its name. */
   const versionLabel = seed
@@ -200,8 +225,7 @@ export function DocumentHistoryModal({
   // pseudo-version's `content` ALREADY IS the default — substituting there would
   // make that row depend on a second copy of what it is holding, and it has its
   // own `seedUnavailable` for the case where that copy is missing.
-  const tombstoned = version.content.tombstoned === "true";
-  const effectiveContent = tombstoned && !seed ? seedContent : version.content;
+  const effectiveContent = tombstoned && !seed ? seedContent : revisionContent;
   // Neither pane may call a tombstoned revision empty when the default could
   // not be read — that is a different, and false, statement. This branch is
   // LOAD-BEARING, not a formality: without it a tombstoned retained revision
@@ -213,17 +237,21 @@ export function DocumentHistoryModal({
    * 版本 twice; printed on a revision that HAS an id, a timestamp and an author
    * it misidentifies the version standing next to a destructive button, which
    * is the same family of defect as the one above. */
-  const unreadableNotice = seedUnavailable
-    ? t.settings.historySeedUnavailable
-    : t.settings.historyDefaultUnreadable;
-  const unreadableTestId = seedUnavailable
-    ? "doc-history-seed-unavailable"
-    : "doc-history-default-unreadable";
+  const unreadableNotice = contentLoading
+    ? t.settings.historyLoading
+    : seedUnavailable
+      ? t.settings.historySeedUnavailable
+      : t.settings.historyDefaultUnreadable;
+  const unreadableTestId = contentLoading
+    ? "doc-history-content-loading"
+    : seedUnavailable
+      ? "doc-history-seed-unavailable"
+      : "doc-history-default-unreadable";
   const content = effectiveContent ?? {};
 
   const blockedFields = docCapBlockedFields(
     kind,
-    version.content,
+    sizes,
     currentContent,
     docCaps
   );

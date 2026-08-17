@@ -27,7 +27,6 @@ vi.mock("../hooks/useChat", () => ({
 function mkMember(lifecycle: Member["lifecycle"]): Member {
   return {
     id: "m1",
-    memberId: "m1",
     name: "Mira",
     role: "assistant",
     status: lifecycle === "online" ? "online" : "offline",
@@ -319,9 +318,9 @@ describe("ChatArea multi-attachment message rendering", () => {
     const { container } = renderChat();
     fireEvent.click(container.querySelector("button.chat__msg-file")!);
     await waitFor(() =>
-      expect(container.querySelector("pre.md-preview__text")?.textContent).toContain("raw *asterisks* stay literal"),
+      expect(document.body.querySelector("pre.md-preview__text")?.textContent).toContain("raw *asterisks* stay literal"),
     );
-    expect(container.querySelector(".md-preview__md")).toBeNull();
+    expect(document.body.querySelector(".md-preview__md")).toBeNull();
     globalThis.fetch = originalFetch;
   });
 });

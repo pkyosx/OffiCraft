@@ -48,12 +48,19 @@ type authStatusDTO struct {
 // settingsDTO is the owner-adjustable settings surface (GET/PATCH
 // /api/settings).
 type settingsDTO struct {
-	OwnerTokenTTL            int64 `json:"owner_token_ttl"`
-	AgentTokenTTL            int64 `json:"agent_token_ttl"`
-	HandoverPct              int   `json:"handover_pct"`
-	CodexCompactionThreshold int   `json:"codex_compaction_threshold"`
-	MonitoringRefreshSeconds int   `json:"monitoring_refresh_seconds"`
-	OutsourceMaxParallel     int   `json:"outsource_max_parallel"`
+	OwnerTokenTTL int64 `json:"owner_token_ttl"`
+	AgentTokenTTL int64 `json:"agent_token_ttl"`
+	// The offboard points are a PAIR on each runtime's own axis (T-a9d6):
+	// NoticePct / CodexNoticeRound is the SOFT notice, HandoverPct /
+	// CodexCompactionThreshold the FINAL one — and the final one is also where
+	// the handover itself fires, so there is no third number that could
+	// disagree with it about when a session ends.
+	HandoverPct              int `json:"handover_pct"`
+	NoticePct                int `json:"notice_pct"`
+	CodexCompactionThreshold int `json:"codex_compaction_threshold"`
+	CodexNoticeRound         int `json:"codex_notice_round"`
+	MonitoringRefreshSeconds int `json:"monitoring_refresh_seconds"`
+	OutsourceMaxParallel     int `json:"outsource_max_parallel"`
 	// DocCapChars* are the live size caps on the accumulating context
 	// documents, in CHARACTERS (runes) — the same unit the patch receipts and
 	// the refusal message speak (T-3aeb). FIVE independent knobs: a role's
@@ -67,6 +74,17 @@ type settingsDTO struct {
 	DocCapCharsLearning        int `json:"doc_cap_chars_learning"`
 	DocCapCharsManualSop       int `json:"doc_cap_chars_manual_sop"`
 	DocCapCharsManualLearnings int `json:"doc_cap_chars_manual_learnings"`
+	// The two boot-context document kinds, editable since T-791e. One knob per
+	// kind, and the boot-sequence one is shared by the claude and codex
+	// documents (each measured on its own text).
+	DocCapCharsSystemInteraction int `json:"doc_cap_chars_system_interaction"`
+	DocCapCharsBootSequence      int `json:"doc_cap_chars_boot_sequence"`
+	DocCapCharsOffboard          int `json:"doc_cap_chars_offboard"`
+	// ChatBudgetChars is the wake snapshot's chat block budget (chat.budget_chars;
+	// T-c9b4). NOT a doc cap: it bounds a block repacked on every read, so unlike
+	// the seven above it may be lowered as well as raised, and its ceiling is its
+	// own (tied to resumeChatFetch, see domain.go).
+	ChatBudgetChars int `json:"chat_budget_chars"`
 	// UpdaterReceiveBeta / UpdaterAutoUpdate are the two software-update
 	// toggles (default false): follow GitHub prereleases too / self-upgrade
 	// in the background when a newer release exists.
@@ -141,32 +159,35 @@ type tokenDTO struct {
 }
 
 type memberDTO struct {
-	ID                string  `json:"id"`
-	AvatarURL         string  `json:"avatar_url"`
-	MemberNo          string  `json:"member_no"`
-	Name              string  `json:"name"`
-	Kind              string  `json:"kind"`
-	RoleKey           string  `json:"role_key"`
-	RoleName          string  `json:"role_name"`
-	Runtime           string  `json:"runtime"`
-	Model             string  `json:"model"`
-	ActualModel       string  `json:"actual_model"`
-	ActualRuntime     string  `json:"actual_runtime"`
-	ActualEffort      string  `json:"actual_effort"`
-	ActualMachine     string  `json:"actual_machine"`
-	Effort            string  `json:"effort"`
-	DesiredState      string  `json:"desired_state"`
-	DesiredMachineID  string  `json:"desired_machine_id"`
-	Machine           string  `json:"machine"`
-	Presence          string  `json:"presence"`
-	RefocusSince      float64 `json:"refocus_since"`
-	RefocusOp         string  `json:"refocus_op"`
-	RefocusDeadline   float64 `json:"refocus_deadline"`
-	LastOp            string  `json:"last_op"`
-	LastOpOK          *bool   `json:"last_op_ok"`
-	LastOpLog         string  `json:"last_op_log"`
-	LastOpReason      string  `json:"last_op_reason"`
-	LastOpAt          float64 `json:"last_op_at"`
+	ID               string  `json:"id"`
+	AvatarURL        string  `json:"avatar_url"`
+	Name             string  `json:"name"`
+	Kind             string  `json:"kind"`
+	RoleKey          string  `json:"role_key"`
+	RoleName         string  `json:"role_name"`
+	Runtime          string  `json:"runtime"`
+	Model            string  `json:"model"`
+	ActualModel      string  `json:"actual_model"`
+	ActualRuntime    string  `json:"actual_runtime"`
+	ActualEffort     string  `json:"actual_effort"`
+	ActualMachine    string  `json:"actual_machine"`
+	Effort           string  `json:"effort"`
+	DesiredState     string  `json:"desired_state"`
+	DesiredMachineID string  `json:"desired_machine_id"`
+	Machine          string  `json:"machine"`
+	Presence         string  `json:"presence"`
+	RefocusSince     float64 `json:"refocus_since"`
+	RefocusOp        string  `json:"refocus_op"`
+	RefocusDeadline  float64 `json:"refocus_deadline"`
+	LastOp           string  `json:"last_op"`
+	LastOpOK         *bool   `json:"last_op_ok"`
+	LastOpLog        string  `json:"last_op_log"`
+	LastOpReason     string  `json:"last_op_reason"`
+	LastOpAt         float64 `json:"last_op_at"`
+	// ForcedStopAt: unix seconds of the last force-stop, 0 when there has never
+	// been one. Deliberately NOT cleared by the next boot — it is the record
+	// that the PREVIOUS session was cut off mid-work (T-a9d6).
+	ForcedStopAt      float64 `json:"forced_stop_at"`
 	UnreadCount       int     `json:"unread_count"`
 	RosterStatus      string  `json:"roster_status"`
 	OwnerID           string  `json:"owner_id"`
@@ -312,13 +333,64 @@ type chatAttachmentUploadDTO struct {
 	Filename string `json:"filename"`
 }
 
+// chatInlineReplyCardDTO is one reply card FOLDED IN PLACE onto the chat
+// message that opened it (chatMessageDTO.Card). It exists so the wake snapshot
+// reads as ONE stream: the card already has a home in the chat (its
+// ChatMessageID), so a second top-level `cards` section would carry the same
+// decision twice in one payload.
+//
+// It carries the DECISION only — options offered, which was picked, the free
+// text, and when. Summary / body / kind / attachments are deliberately absent:
+// the message this rides on already carries the ask, and get_reply_card serves
+// the rest.
+type chatInlineReplyCardDTO struct {
+	Options         []string `json:"options"`
+	AnswerOptionIdx *int     `json:"answer_option_idx"`
+	AnswerText      string   `json:"answer_text"`
+	AnsweredTS      float64  `json:"answered_ts"`
+	// AnsweredAtDisplay is AnsweredTS in the same full date+time+offset form as
+	// chatMessageDTO.TSDisplay; "" while the card is unanswered.
+	AnsweredAtDisplay string `json:"answered_at_display"`
+}
+
 type chatMessageDTO struct {
-	ID   string         `json:"id"`
-	From string         `json:"from"`
-	To   string         `json:"to"`
-	Body string         `json:"body"`
-	TS   float64        `json:"ts"`
-	Meta map[string]any `json:"meta"`
+	ID   string `json:"id"`
+	From string `json:"from"`
+	// FromName / ToName are the DISPLAY names beside the ids, never instead of
+	// them: From/To stay the ADDRESS a reply must be sent to, and a name is
+	// editable and repeats across the roster. Both are carried so a reader gets
+	// the human name AND the id in one row. "" when the id does not resolve to
+	// a roster row — honest empty, never fabricated.
+	FromName string `json:"from_name"`
+	To       string `json:"to"`
+	ToName   string `json:"to_name"`
+	Body     string `json:"body"`
+	// BodyOmittedChars is the COLLAPSE marker: how many runes of THIS body were
+	// folded away, 0 when the body is whole. The folded text is still on the
+	// server — get_chat re-reads the message.
+	//
+	// 🔴 This is NOT resumeSummaryDTO.ChatEarlierOmitted, and the two must never
+	// borrow each other's wording. This one = one message that IS in the payload
+	// with part of its text shortened. That one = whole messages ABSENT from the
+	// payload. Before this split both showed up as a bare "…" and a reader had
+	// no way to tell "I have this message, shortened" from "I do not have this
+	// message" — which is exactly how an agent concludes it has read a
+	// conversation it has not read.
+	BodyOmittedChars int     `json:"body_omitted_chars"`
+	TS               float64 `json:"ts"`
+	// TSDisplay renders TS for a READER as "2006-01-02 15:04:05 +08:00" in the
+	// SERVER's local zone. The offset is IN the string because the studio has no
+	// timezone setting to read it from — a bare local time would be unreadable
+	// by anyone who is not the server. The DATE IS ALWAYS WRITTEN, same-day
+	// included: a waking agent must be able to tell 昨天 from 上週 without first
+	// knowing what day the snapshot was taken, and "drop the date when it is
+	// today" makes that impossible for exactly the messages a wake cares about.
+	// TS (epoch seconds) is untouched and stays the machine-readable field.
+	TSDisplay string         `json:"ts_display"`
+	Meta      map[string]any `json:"meta"`
+	// Card is the reply card this message carries, folded in place; nil (key
+	// omitted) when there is none.
+	Card *chatInlineReplyCardDTO `json:"card,omitempty"`
 	// ReplyCardStatus: read-time join of the card this message carries
 	// (meta.reply_card_id) — "waiting" | "answered", or "" when no card. Filled
 	// by servedChatMessageDTO; the inline ChatReplyCard reads it to lazy-load
@@ -544,6 +616,35 @@ type globalContextDTO struct {
 	OrgName string `json:"org_name"`
 }
 
+// bootDocDTO is ONE editable boot-context block on the wire (T-791e): the
+// 系統互動 block, or one runtime's 啟動程序 block.
+//
+// The four judgement fields are the pair the capped documents already carry
+// (SizeChars/CapChars — the settings surface holding the cap is admin-only, so
+// without them being refused is the only way to learn the limit) plus the pair
+// the insight doc carries (IsDefault/HasSeed), and they answer DIFFERENT
+// questions:
+//
+//	IsDefault — has anybody edited this block? (false = you are reading an edit)
+//	HasSeed   — does a factory version exist to go back TO? (the reset's
+//	            precondition; that route 404s when it is false)
+//
+// For these three documents HasSeed is true in every shipped build, which is
+// exactly why it must be SERVED rather than assumed: a build whose seedsdist was
+// not staged answers false, and a cockpit that offered 還原 anyway would hand the
+// owner a button that 404s at the one moment it matters.
+type bootDocDTO struct {
+	SizeChars     int    `json:"size_chars"`
+	CapChars      int    `json:"cap_chars"`
+	Kind          string `json:"kind"`
+	Key           string `json:"key"`
+	Text          string `json:"text"`
+	OwnerID       string `json:"owner_id"`
+	SchemaVersion int    `json:"schema_version"`
+	IsDefault     bool   `json:"is_default"`
+	HasSeed       bool   `json:"has_seed"`
+}
+
 type roleDefDTO struct {
 	// SizeChars / CapChars are the Duty doc's own budget (T-ae38) — the same
 	// pair lessonsDTO and insightDTO have carried since T-3aeb, and for the
@@ -563,6 +664,42 @@ type roleDefDTO struct {
 	SchemaVersion int    `json:"schema_version"`
 	IsDefault     bool   `json:"is_default"`
 	IsSeed        bool   `json:"is_seed"`
+}
+
+// roleDefListItemDTO is one row of GET /api/roles: everything roleDefDTO
+// carries EXCEPT the persona body. The listing is where a caller CHOOSES a
+// role; reading one is get_role.
+//
+// definition_md is ABSENT from the wire rather than served as "" — an empty
+// string in the field that normally holds the persona reads as "this role has
+// no definition", which is a different claim and a false one. SizeChars is
+// still measured on the STORED document (see newRoleDefListItemDTO), so the
+// row keeps answering "which definition is nearly full" without the text.
+type roleDefListItemDTO struct {
+	SizeChars     int    `json:"size_chars"`
+	CapChars      int    `json:"cap_chars"`
+	Key           string `json:"key"`
+	Name          string `json:"name"`
+	OwnerID       string `json:"owner_id"`
+	SchemaVersion int    `json:"schema_version"`
+	IsDefault     bool   `json:"is_default"`
+	IsSeed        bool   `json:"is_seed"`
+}
+
+// newRoleDefListItemDTO projects a folded role onto the listing row. It takes
+// the already-folded roleDefDTO precisely so the two faces cannot disagree
+// about is_default / is_seed / the size — the same fold answers get_role.
+func newRoleDefListItemDTO(d roleDefDTO) roleDefListItemDTO {
+	return roleDefListItemDTO{
+		SizeChars:     d.SizeChars,
+		CapChars:      d.CapChars,
+		Key:           d.Key,
+		Name:          d.Name,
+		OwnerID:       d.OwnerID,
+		SchemaVersion: d.SchemaVersion,
+		IsDefault:     d.IsDefault,
+		IsSeed:        d.IsSeed,
+	}
 }
 
 type roleCreateResultDTO struct {
@@ -803,14 +940,33 @@ type chatUnreadCountDTO struct {
 	Unread int `json:"unread"`
 }
 
+// resumeChatCutDTO is the CUT POINT of the wake snapshot's chat: whether
+// messages exist that this payload does NOT carry, and how to go and get them.
+//
+// 🔴 TRUNCATION, NOT COLLAPSE. See chatMessageDTO.BodyOmittedChars for the other
+// half of this split — that one is a message that is HERE, shortened; this one
+// is messages that are NOT HERE. Hint must stay actionable on its own (it names
+// the tool and the exact parameter pairing), because the agent reading it is
+// mid-wake and has no context to look anything up with.
+type resumeChatCutDTO struct {
+	Omitted bool   `json:"omitted"`
+	Hint    string `json:"hint"`
+}
+
 type resumeSummaryDTO struct {
-	Identity *string                 `json:"identity"`
-	Chat     []chatMessageDTO        `json:"chat"`
-	Tasks    []resumeTaskDTO         `json:"tasks"`
-	Roster   []resumeRosterMemberDTO `json:"roster"`
-	Machines *resumeMachinesDTO      `json:"machines"`
-	Overview resumeOverviewDTO       `json:"overview"`
-	Note     string                  `json:"note"`
+	Identity *string `json:"identity"`
+	// GeneratedAt is when this snapshot was assembled, with date, time AND zone
+	// offset. It is the ONLY anchor in the payload for turning a ts_display into
+	// 「多久以前」 — a waking agent must not assume its own wall clock agrees with
+	// the server's.
+	GeneratedAt        string                  `json:"generated_at"`
+	Chat               []chatMessageDTO        `json:"chat"`
+	ChatEarlierOmitted resumeChatCutDTO        `json:"chat_earlier_omitted"`
+	Tasks              []resumeTaskDTO         `json:"tasks"`
+	Roster             []resumeRosterMemberDTO `json:"roster"`
+	Machines           *resumeMachinesDTO      `json:"machines"`
+	Overview           resumeOverviewDTO       `json:"overview"`
+	Note               string                  `json:"note"`
 }
 
 // resumeRosterMemberDTO is one entry of the studio floor a waking agent lands
@@ -1252,6 +1408,29 @@ type taskManualDTO struct {
 	UpdatedTS         float64        `json:"updated_ts"`
 }
 
+// taskManualListItemDTO is one row of GET /api/task-manuals: the type's
+// identity, its input fields and its assignee setting — plus the SIZES of the
+// two long documents and the cap each is judged against.
+//
+// sop_md and learnings are ABSENT from the wire, not served as "". They are the
+// bulk that made this listing unreadable, and an empty string in the field that
+// normally holds the SOP reads as "this type has no SOP". The sizes are still
+// measured on the STORED row (see newTaskManualListItemDTO), because a zero that
+// looks like a measurement is worse than the omission it describes.
+type taskManualListItemDTO struct {
+	LearningsChars    int            `json:"learnings_chars"`
+	SopMDChars        int            `json:"sop_md_chars"`
+	LearningsCapChars int            `json:"learnings_cap_chars"`
+	SopMDCapChars     int            `json:"sop_md_cap_chars"`
+	CapChars          int            `json:"cap_chars"`
+	TypeKey           string         `json:"type_key"`
+	DisplayName       string         `json:"display_name"`
+	Purpose           string         `json:"purpose"`
+	Fields            []ManualField  `json:"fields"`
+	Assignee          map[string]any `json:"assignee"`
+	UpdatedTS         float64        `json:"updated_ts"`
+}
+
 type taskManualDeleteResultDTO struct {
 	TypeKey string `json:"type_key"`
 	Deleted bool   `json:"deleted"`
@@ -1633,20 +1812,36 @@ func newTaskManualDTO(m TaskManual, sopCapChars, learningsCapChars int) (taskMan
 	}, nil
 }
 
-// newTaskManualListItemDTO is the ?view=list light projection (T-ec2c): the
-// SAME taskManualDTO wire shape carrying only the type identity the 類型 filter
-// reads (type_key / display_name / purpose + updated_ts), with the heavy
-// authored blobs HONEST-EMPTY — sop_md / learnings "" (the markdown bulk),
-// fields an empty list, assignee an empty object. It never parses the stored
-// fields/assignee JSON, so unlike newTaskManualDTO it cannot fail on a corrupt
-// blob (the light path deliberately does not touch those columns).
-func newTaskManualListItemDTO(m TaskManual, sopCapChars, learningsCapChars int) taskManualDTO {
-	// The sizes are measured on the STORED row, not on the blanked-out wire
-	// fields: this projection omits the bulky text but must not therefore
-	// report it as 0 chars — a zero that looks like a measurement is worse
-	// than the omission it describes. Sizes without the bulk is exactly what
-	// a list view wants.
-	return taskManualDTO{
+// newTaskManualListItemDTO is the ONLY projection GET /api/task-manuals serves:
+// the type identity the 類型 filter reads (type_key / display_name / purpose +
+// updated_ts), the input fields, the assignee setting, and the SIZES + caps of
+// the two long documents it omits.
+//
+// fields and assignee are the REAL parsed values, not the honest-empty
+// placeholders the old ?view=list row carried: they are small, bounded, and
+// they are what a caller choosing or dispatching a type actually needs, so
+// blanking them only forced a second round trip per row. That is why this
+// parses the stored JSON blobs and, like newTaskManualDTO, fails loudly on a
+// corrupt one rather than answering with a silent empty.
+//
+// The sizes are measured on the STORED row, not on the omitted wire fields: a
+// zero that looks like a measurement is worse than the omission it describes.
+func newTaskManualListItemDTO(m TaskManual, sopCapChars, learningsCapChars int) (taskManualListItemDTO, error) {
+	fields, err := ParseManualFields(m.Fields)
+	if err != nil {
+		return taskManualListItemDTO{}, err
+	}
+	if fields == nil {
+		fields = []ManualField{}
+	}
+	assignee := map[string]any{}
+	if m.Assignee != "" {
+		if err := json.Unmarshal([]byte(m.Assignee), &assignee); err != nil {
+			return taskManualListItemDTO{}, fmt.Errorf(
+				"task_manual %s: bad assignee JSON: %w", m.TypeKey, err)
+		}
+	}
+	return taskManualListItemDTO{
 		LearningsChars:    utf8.RuneCountInString(m.Learnings),
 		SopMDChars:        utf8.RuneCountInString(m.SopMD),
 		LearningsCapChars: learningsCapChars,
@@ -1655,10 +1850,10 @@ func newTaskManualListItemDTO(m TaskManual, sopCapChars, learningsCapChars int) 
 		TypeKey:           m.TypeKey,
 		DisplayName:       m.DisplayName,
 		Purpose:           m.Purpose,
-		Fields:            []ManualField{},
-		Assignee:          map[string]any{},
+		Fields:            fields,
+		Assignee:          assignee,
 		UpdatedTS:         m.UpdatedTS,
-	}
+	}, nil
 }
 
 // actorRuntimeFold carries the per-actor telemetry/gauge runtime facts BOTH

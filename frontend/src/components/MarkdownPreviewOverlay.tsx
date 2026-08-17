@@ -54,6 +54,7 @@
 
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import { authedAttachmentUrl } from "../api/http";
 import { copyAttachmentShareLink } from "../lib/shareLink";
@@ -433,7 +434,26 @@ export function MarkdownPreviewOverlay({
   const rootRef = useRef<HTMLDivElement>(null);
   useEscapeLayer(onClose, rootRef);
 
-  return (
+  // T-76cd — PORTALLED TO `document.body`, and that is a correctness property,
+  // not tidiness. `z-index: 1100` is only worth what its nearest stacking-context
+  // ancestor is worth: rendered in place, this overlay sat inside the task
+  // artifacts popover, whose `z-index: 40` scoped the 1100 to that box — header
+  // and tab bar then painted over the preview and the close button was
+  // unreachable (owner, on his iPhone: 「看不到按關閉的按鈕, 被擋住了 且上面的 tab
+  // 全部都不能按」). Every OTHER host has the same exposure, latent: any ancestor
+  // with a z-index, an opacity, an `isolation`, or a `transform` (which also
+  // traps a fixed element's containing block) would confine it the same way.
+  // Portalling makes the overlay's root stacking context the ROOT one by
+  // construction, so no host can confine it and no host has to promise not to.
+  //
+  // 🔴 THIS BREAKS DOM CONTAINMENT, AND ONE CALLER DEPENDED ON IT.
+  // TaskArtifactsPopover's click-outside dismissal used to be satisfied for free
+  // — the overlay lived inside `anchorRef`, so a click on this backdrop counted
+  // as "inside" and left the popover open (owner's 2026-07-20 ruling: 「點其他
+  // 地方都不會自動關閉,一定要點 X」). After the portal that containment is gone,
+  // so that popover matches this root by SELECTOR instead (`closest(".md-preview")`).
+  // Anything else that reasons about this overlay by ancestry has to do the same.
+  return createPortal(
     <div
       ref={rootRef}
       className="md-preview"
@@ -589,7 +609,8 @@ export function MarkdownPreviewOverlay({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

@@ -28,7 +28,6 @@ import "./office.css";
 function blankChatPeer(id: string, name: string, kind: Member["kind"]): Member {
   return {
     id,
-    memberId: "",
     name,
     role: "",
     roleName: "",

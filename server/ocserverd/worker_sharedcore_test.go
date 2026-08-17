@@ -418,7 +418,7 @@ func TestThereIsNoOutsourceOnlySeed(t *testing.T) {
 //   - 「`report_waking` 不在你的開機序列」. False:
 //     HandleReportWakingApiSelfWakingPost routes an outsource caller through
 //     workerReportWaking on the very same /api/self/waking endpoint, and
-//     resolveSelf's own comment says a worker walks the SAME five-step SOP.
+//     resolveSelf's own comment says a worker walks the SAME 下線程序.
 //     THE HARM: a worker that skips it never reports its live model, so the
 //     cockpit's model column is structurally blank for every worker.
 //

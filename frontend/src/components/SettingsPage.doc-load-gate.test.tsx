@@ -66,5 +66,12 @@ describe("SettingsPage · DocDetail load gate (T-2d99)", () => {
     expect(utils.container.querySelector("textarea")).toBeNull();
     // And the commit affordance never appears, so there is nothing to submit.
     expect(utils.queryByText(s.doneEdit)).toBeNull();
+
+    // The same null doc must not be BADGED either. `預設` is a positive claim
+    // about a document nobody has read yet, and the card used to make it by
+    // default (`doc ? doc.isDefault : true`) — so a block the owner had in fact
+    // customised was labelled shipped-default for the whole load, and for ever
+    // if the load failed. An unknown document says nothing.
+    expect(utils.queryByTestId("doc-card-default-badge")).toBeNull();
   });
 });

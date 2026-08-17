@@ -89,12 +89,10 @@ func TestVersionProbeShapeMatchesPython(t *testing.T) {
 	if dto.Version != "0.0.0" {
 		t.Fatalf("version must stay 0.0.0 (M1 §3.9): %q", dto.Version)
 	}
-	// In this repo checkout the runtime git capture must yield the 7-char short
-	// sha + an ISO time (outside a checkout they honestly degrade to
+	// In this repo checkout the runtime git capture must yield the checkout's
+	// short sha + an ISO time (outside a checkout they honestly degrade to
 	// unknown/null, mirroring handlers.git_sha/git_time).
-	if len(dto.GitSHA) != 7 {
-		t.Fatalf("git_sha must be the 7-char short sha in a checkout: %q", dto.GitSHA)
-	}
+	assertCheckoutShortSHA(t, dto.GitSHA, "git_sha")
 	if dto.GitTime == nil || !strings.Contains(*dto.GitTime, "T") {
 		t.Fatalf("git_time must be ISO-8601 in a checkout: %v", dto.GitTime)
 	}
@@ -125,8 +123,28 @@ func TestGitSHAPrefersStampedBuildIdentity(t *testing.T) {
 
 	// Unstamped (plain `go build`) keeps the checkout probe alive.
 	buildSHA, buildTime = "", ""
-	if got := gitSHA(); len(got) != 7 {
-		t.Fatalf("unstamped gitSHA must probe the checkout's 7-char sha: %q", got)
+	assertCheckoutShortSHA(t, gitSHA(), "unstamped gitSHA")
+}
+
+// assertCheckoutShortSHA pins a probed sha against THIS checkout's own
+// abbreviation rather than against a fixed width.
+//
+// 🔴 The width is not a constant and never was: `--short` honours core.abbrev,
+// whose default (auto) grows the abbreviation with the object count of the
+// clone it runs in. A 7-char assertion therefore passes on a shallow working
+// clone and fails on a full one — which is exactly how it failed: green on
+// every PR check, red inside `bin/release`'s staging clone, so main went red at
+// the one moment nothing could ship. Asking git for the same answer the runtime
+// probe asks for keeps the assertion exact AND clone-independent; a bare
+// length range would have let a truncated or stamped-in value through.
+func assertCheckoutShortSHA(t *testing.T, got, field string) {
+	t.Helper()
+	want, err := gitOutput("rev-parse", "--short", "HEAD")
+	if err != nil || want == "" {
+		t.Fatalf("%s: this test needs a git checkout to compare against (err=%v)", field, err)
+	}
+	if got != want {
+		t.Fatalf("%s must be this checkout's short sha %q, got %q", field, want, got)
 	}
 }
 
@@ -524,9 +542,10 @@ func TestBareVersionProbeShapeMatchesPython(t *testing.T) {
 	if err := json.Unmarshal(body, &dto); err != nil {
 		t.Fatalf("unmarshal: %v (%s)", err, body)
 	}
-	if dto.Version != "0.0.0" || len(dto.SHA) != 7 || len(dto.CatalogHash) != 16 {
+	if dto.Version != "0.0.0" || len(dto.CatalogHash) != 16 {
 		t.Fatalf("probe shape diverges from ProbeVersionDTO: %s", body)
 	}
+	assertCheckoutShortSHA(t, dto.SHA, "sha")
 	// Field ORDER is part of the parity contract (version, sha, catalog_hash).
 	if !(strings.Index(string(body), `"version":`) < strings.Index(string(body), `"sha":`) &&
 		strings.Index(string(body), `"sha":`) < strings.Index(string(body), `"catalog_hash":`)) {

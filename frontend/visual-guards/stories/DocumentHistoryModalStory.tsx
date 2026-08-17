@@ -13,7 +13,7 @@
 import { useState } from "react";
 import { I18nProvider } from "../../src/i18n";
 import { DocumentHistoryModal } from "../../src/components/DocumentHistoryModal";
-import type { DocumentHistoryView } from "../../src/types";
+import { contentSizes } from "../../src/api/docCap";
 
 /** 300 chars, no space, no hyphen — the shape a pasted token/URL takes. */
 const LONG_TOKEN =
@@ -36,12 +36,9 @@ const AFTER = [
   LONG_TOKEN,
 ].join("\n");
 
-const VERSION: DocumentHistoryView = {
-  id: 42,
-  content: { text: BEFORE },
-  createdTs: 1753776180,
-  actorId: "owner-1",
-};
+/** The revision's own text — since T-1170 it reaches the modal as its own
+ * prop (the version LIST carries only the row facts beside it). */
+const VERSION_CONTENT = { text: BEFORE };
 
 export function DocumentHistoryModalStory({
   open = true,
@@ -69,7 +66,10 @@ export function DocumentHistoryModalStory({
       {showing && (
         <DocumentHistoryModal
           kind="lessons"
-          version={VERSION}
+          createdTs={1753776180}
+          tombstoned={false}
+          sizes={contentSizes(VERSION_CONTENT)}
+          content={VERSION_CONTENT}
           actorLine="Mira（owner-1）"
           currentContent={{ text: AFTER }}
           onClose={() => setShowing(false)}

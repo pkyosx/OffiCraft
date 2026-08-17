@@ -16,6 +16,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { mockApi, __resetMock, __injectMockTask } from "./mock";
 import { isHttpStatus } from "./errors";
 import type { TaskView } from "./adapter";
+import { documentRevisions } from "../test/documentHistory";
 
 beforeEach(() => {
   __resetMock();
@@ -104,7 +105,7 @@ describe("mockApi · updateTaskDescription", () => {
     // One real change happened, and it replaced an EMPTY description — which
     // retains nothing (see below). So: zero revisions, not one recording that
     // nothing changed.
-    expect(await mockApi.listDocumentHistory("task_description", id)).toEqual(
+    expect(await documentRevisions(mockApi, "task_description", id)).toEqual(
       []
     );
   });
@@ -117,7 +118,7 @@ describe("mockApi · updateTaskDescription", () => {
     const id = await anyTaskId();
     expect((await mockApi.getTask(id)).description).toBe("");
     await mockApi.updateTaskDescription(id, "第一版");
-    expect(await mockApi.listDocumentHistory("task_description", id)).toEqual(
+    expect(await documentRevisions(mockApi, "task_description", id)).toEqual(
       []
     );
   });
@@ -127,7 +128,7 @@ describe("mockApi · updateTaskDescription", () => {
     for (const text of ["第一版", "第二版", "第三版"]) {
       await mockApi.updateTaskDescription(id, text);
     }
-    const versions = await mockApi.listDocumentHistory("task_description", id);
+    const versions = await documentRevisions(mockApi, "task_description", id);
     // Two, not three: the first write replaced an empty description.
     expect(versions.map((v) => v.content.description)).toEqual([
       "第二版",
@@ -143,7 +144,7 @@ describe("mockApi · updateTaskDescription", () => {
     await mockApi.updateTaskDescription(id, "會被清掉的文字");
     const after = await mockApi.updateTaskDescription(id, "");
     expect(after.description).toBe("");
-    const versions = await mockApi.listDocumentHistory("task_description", id);
+    const versions = await documentRevisions(mockApi, "task_description", id);
     expect(versions[0].content.description).toBe("會被清掉的文字");
   });
 
@@ -151,15 +152,52 @@ describe("mockApi · updateTaskDescription", () => {
     const id = await anyTaskId();
     await mockApi.updateTaskDescription(id, "原本的說法");
     await mockApi.updateTaskDescription(id, "改壞的說法");
-    const [version] = await mockApi.listDocumentHistory("task_description", id);
+    const [version] = await documentRevisions(mockApi, "task_description", id);
     expect(version.content.description).toBe("原本的說法");
 
     await mockApi.restoreDocumentHistory("task_description", id, version.id);
     expect((await mockApi.getTask(id)).description).toBe("原本的說法");
     // The restore is itself a write, so what it overwrote is now retained —
     // server parity (SaveWithDocumentHistories wraps the restore too).
-    const after = await mockApi.listDocumentHistory("task_description", id);
+    const after = await documentRevisions(mockApi, "task_description", id);
     expect(after[0].content.description).toBe("改壞的說法");
+  });
+
+  // 🔴 T-646a (owner card rc-0fb94a25a8a8, option ①). Before that ticket this
+  // seam stored the description raw while its title twin trimmed — the drift the
+  // ticket removed. These three sit here, on the seam that changed, for the
+  // reason the ticket's own review made concrete on the Go side: with every trim
+  // assertion living somewhere else, the behaviour was silently revertible and
+  // an entire green suite said nothing about it.
+  it("stores the TRIMMED value, matching its title twin", async () => {
+    const id = await anyTaskId();
+    const after = await mockApi.updateTaskDescription(id, "  兩邊都有空白  ");
+    expect(after.description).toBe("兩邊都有空白");
+  });
+
+  it("an unchanged description is a no-op that versions nothing, trimming included", async () => {
+    // The server compares AFTER trimming, so re-sending a description with a
+    // stray trailing space is correctly seen as no change — without that, a
+    // no-op would spend one of the three retained slots saying nothing happened.
+    // This is the claim a read-back cannot see: both implementations leave the
+    // same text on the task, and only the revision list tells them apart.
+    const id = await anyTaskId();
+    await mockApi.updateTaskDescription(id, "原本的敘述");
+    const before = await documentRevisions(mockApi, "task_description", id);
+    await mockApi.updateTaskDescription(id, "  原本的敘述\n");
+    expect(await documentRevisions(mockApi, "task_description", id)).toEqual(before);
+  });
+
+  it("a description of only whitespace trims to \"\" and therefore CLEARS", async () => {
+    // Not a separate rule — the consequence of trimming a field whose empty
+    // value is a real write. Named so it is a decision on the record rather
+    // than something found in production. Its title twin REFUSES a
+    // whitespace-only value instead; that asymmetry is owner card
+    // rc-796541192519 ① and must not be "tidied up" on either seam.
+    const id = await anyTaskId();
+    await mockApi.updateTaskDescription(id, "先有內容");
+    const after = await mockApi.updateTaskDescription(id, "   \t ");
+    expect(after.description).toBe("");
   });
 
   it("restoring a description touches nothing else on the task", async () => {
@@ -170,7 +208,7 @@ describe("mockApi · updateTaskDescription", () => {
     await mockApi.updateTaskDescription(id, "早期敘述");
     await mockApi.setTaskPriority(id, "low");
     await mockApi.updateTaskDescription(id, "後來的敘述");
-    const [version] = await mockApi.listDocumentHistory("task_description", id);
+    const [version] = await documentRevisions(mockApi, "task_description", id);
 
     await mockApi.restoreDocumentHistory("task_description", id, version.id);
     const task = await mockApi.getTask(id);

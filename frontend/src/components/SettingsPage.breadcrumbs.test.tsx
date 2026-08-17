@@ -97,6 +97,29 @@ describe("SettingsPage · unified breadcrumb header (T-8f6e)", () => {
       fireEvent.click(utils.getByRole("button", { name: s.roles }));
       await utils.findByText(s.systemName);
     }
+
+    // 啟動程序 is ONE entry listing TWO documents (T-bac4: an index of two nav
+    // rows, replacing the stacked pair). It gets ONE trail — the second row
+    // must not add a second one. Without this half the loop above is satisfied
+    // by a page that dropped the codex document altogether.
+    //
+    // ⚠️ This used to count the STRING 啟動程序 and require exactly one. That
+    // stopped being the right probe when the index grew its own <h1> (every
+    // other settings page has one), which makes the string appear twice on a
+    // perfectly correct page. Counting the TRAIL is what the assertion always
+    // meant.
+    fireEvent.click(utils.getByText(s.bootName));
+    expect(await utils.findByTestId("boot-entry-claude")).toBeTruthy();
+    expect(utils.getByTestId("boot-entry-codex")).toBeTruthy();
+    expect(utils.container.querySelectorAll("nav.crumbs").length).toBe(1);
+
+    // …and one level deeper. The runtime's own name is the TERMINAL segment on
+    // purpose: Breadcrumbs renders the last one as plain text, so a trail
+    // ending at 啟動程序 would leave a reader who opened one runtime unable to
+    // reach the other without going out to 角色誌 and back in.
+    fireEvent.click(utils.getByTestId("boot-entry-claude"));
+    await utils.findByTestId("doc-card-edit");
+    expectHeader(utils, [s.title, s.roles, s.bootName, s.bootClaudeName]);
   });
 
   it("任務手冊列表: 設定 › 任務手冊 + title; hub: 設定 › 任務手冊 › <type>", async () => {

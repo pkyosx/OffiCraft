@@ -290,7 +290,7 @@ func (l *listener) resetRefusals() {
 // trigger and are untouched by construction. EXEMPTION (spec §2.3): the `member`
 // topic is never suppressed — a member delta naming self is a lifecycle NUDGE for the
 // hooks below (prints nothing by itself), and the self-requested recycle
-// (restart_self, T-4c71) rides a SELF-triggered member delta whose handover-SOP wake
+// (restart_self, T-4c71) rides a SELF-triggered member delta whose recycle wake
 // must still land.
 func (l *listener) dispatch(payload []byte) {
 	frame, _ := safeJSON(string(payload)).(map[string]any)
@@ -324,9 +324,9 @@ func (l *listener) dispatch(payload []byte) {
 	case memberTopic:
 		// Graceful self-stop (desired_state=offline) + recycle (desired_state=online ∧ refocus) are
 		// mutually exclusive, so both are safe to call on every member delta. Side-effect
-		// only: the listener keeps HOLDING the stream (wind-down's `suicide` / the
-		// server-dispatched warden kill is the real drop; recycle merely WAKES the
-		// session with the handover SOP — see listen_hooks.go).
+		// only: the listener keeps HOLDING the stream — BOTH hooks merely WAKE the
+		// session with the server-composed 下線程序 notice, and the server-
+		// dispatched warden kill is the real drop (see listen_hooks.go).
 		l.winddown.maybeWindDown(frame)
 		l.recycle.maybeRecycle(frame)
 	default:
@@ -575,7 +575,7 @@ func cmdListen(cfg Config, env func(string) string, once, verbose bool, out io.W
 		refusalGraceSpan: sseRefusalGrace,
 		selfTerminate:    func() { cmdSuicide(cfg, env, out) },
 		cursorPath:       cursorPath(cfg),
-		winddown:         newWindDownHook(api, cfg, env, out),
+		winddown:         newWindDownHook(api, cfg, out),
 		recycle:          newRecycleHook(api, cfg, out),
 		seen:             map[string]bool{},
 		replySeen:        loadReplyCardSeen(replyCardSeenPath(cfg)),
