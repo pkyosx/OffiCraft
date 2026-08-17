@@ -164,7 +164,7 @@ func runOneConnectCycle(t *testing.T, verbose bool) string {
 // one of each thing the agent is woken for.
 var wantEventLines = []string{
 	"wake seq=3 topic=task",
-	"chat from boss (id): ping",
+	"chat from boss (#c1): ping",
 	`reply-card rc-9 answered: picked [0] "ship" | asked: ship it?`,
 	"signal context-high: context usage high — hand over now",
 }
