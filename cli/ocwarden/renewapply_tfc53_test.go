@@ -33,12 +33,20 @@ type renewHarness struct {
 	logs       []string
 }
 
+// thisMachine is the `sub` both the running credential and its replacement must
+// carry. It is NOT a default value: the renewal refuses a replacement whose sub
+// does not match the one it is running as, so a fixture that left sub out would
+// be rejected before any of the assertions below were reached.
+const thisMachine = "m-7c1e4f0a92bd"
+
 // dueToken is a credential far enough into its life to be due; freshToken is one
 // that is not. Both carry iat, so the fraction rule (not the bare-expiry
-// fallback) is what decides.
+// fallback) is what decides, and both carry sub, which is what identifies them
+// as credentials for THIS machine.
 func dueToken(t *testing.T, now time.Time) string {
 	t.Helper()
 	return jwtWith(t, map[string]any{
+		"sub": thisMachine,
 		"iat": now.Unix() - 29*86400,
 		"exp": now.Unix() + 86400,
 	})
@@ -47,6 +55,7 @@ func dueToken(t *testing.T, now time.Time) string {
 func freshToken(t *testing.T, now time.Time) string {
 	t.Helper()
 	return jwtWith(t, map[string]any{
+		"sub": thisMachine,
 		"iat": now.Unix() - 86400,
 		"exp": now.Unix() + 29*86400,
 	})
@@ -175,7 +184,7 @@ func TestMaybeRenewCredential_FailedRenewalKeepsTheOldCredential(t *testing.T) {
 			// The control: the SAME wiring, answering properly, must renew — otherwise
 			// every arm above passes on a function that never renews anything.
 			ok := newRenewHarness(t, old, tokfile, now, http.StatusOK,
-				map[string]any{"token": "fresh.token.value"}, nil)
+				map[string]any{"token": freshToken(t, now)}, nil)
 			if !ok.u.maybeRenewCredential() {
 				t.Fatal("control: a well-formed 200 did not renew, so the refusal " +
 					"assertions above prove nothing")
@@ -192,7 +201,7 @@ func TestMaybeRenewCredential_WriteFailureNeverExecs(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	tokfile := filepath.Join(t.TempDir(), "exec-warden.tok")
 	h := newRenewHarness(t, dueToken(t, now), tokfile, now, http.StatusOK,
-		map[string]any{"token": "fresh.token.value"}, nil)
+		map[string]any{"token": freshToken(t, now)}, nil)
 	h.writeErr = errors.New("read-only file system")
 
 	if h.u.maybeRenewCredential() {
@@ -232,7 +241,7 @@ func TestMaybeRenewCredential_NotDueDoesNothing(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newRenewHarness(t, tc.token, tokfile, now, http.StatusOK,
-				map[string]any{"token": "fresh.token.value"}, nil)
+				map[string]any{"token": freshToken(t, now)}, nil)
 			if h.u.maybeRenewCredential() {
 				t.Fatal("renewed a credential that is not due")
 			}
@@ -247,7 +256,7 @@ func TestMaybeRenewCredential_NotDueDoesNothing(t *testing.T) {
 	}
 	// Paired control: the same harness with a due credential does renew.
 	h := newRenewHarness(t, dueToken(t, now), tokfile, now, http.StatusOK,
-		map[string]any{"token": "fresh.token.value"}, nil)
+		map[string]any{"token": freshToken(t, now)}, nil)
 	if !h.u.maybeRenewCredential() {
 		t.Fatal("control: a due credential did not renew, so the never-due arms above " +
 			"are satisfied by a function that never renews")
@@ -263,7 +272,7 @@ func TestMaybeRenewCredential_ExplicitOCTokenBlocksRenewal(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	tokfile := filepath.Join(t.TempDir(), "exec-warden.tok")
 	h := newRenewHarness(t, dueToken(t, now), tokfile, now, http.StatusOK,
-		map[string]any{"token": "fresh.token.value"}, nil)
+		map[string]any{"token": freshToken(t, now)}, nil)
 	h.u.envToken = h.u.token
 
 	if h.u.maybeRenewCredential() {
@@ -298,7 +307,7 @@ func TestMaybeRenewCredential_ExplicitOCTokenBlocksRenewal(t *testing.T) {
 func TestMaybeRenewCredential_UnresolvableTokfileDoesNotRenew(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	h := newRenewHarness(t, dueToken(t, now), "", now, http.StatusOK,
-		map[string]any{"token": "fresh.token.value"}, nil)
+		map[string]any{"token": freshToken(t, now)}, nil)
 	if h.u.maybeRenewCredential() {
 		t.Fatal("renewed with no resolvable token file path")
 	}
@@ -321,14 +330,14 @@ func TestRun_RenewsAndExecsInPlace(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	tokfile := filepath.Join(t.TempDir(), "exec-warden.tok")
 	h := newRenewHarness(t, dueToken(t, now), tokfile, now, http.StatusOK,
-		map[string]any{"token": "fresh.token.value", "machine_id": "m-box"}, nil)
+		map[string]any{"token": freshToken(t, now), "machine_id": "m-box"}, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { time.Sleep(2 * time.Second); cancel() }()
 	h.u.run(ctx)
 
-	if h.written[tokfile] != "fresh.token.value" {
+	if h.written[tokfile] != freshToken(t, now) {
 		t.Fatalf("the new credential did not land at %s; wrote %v", tokfile, h.written)
 	}
 	if h.execs != 1 {
@@ -345,7 +354,7 @@ func TestRun_RenewsEvenWhenTheStationHasNotShipped(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	tokfile := filepath.Join(t.TempDir(), "exec-warden.tok")
 	h := newRenewHarness(t, dueToken(t, now), tokfile, now, http.StatusOK,
-		map[string]any{"token": "fresh.token.value"}, nil)
+		map[string]any{"token": freshToken(t, now)}, nil)
 
 	// The station is standing still: /api/version answers the sha the updater has
 	// already reconciled against, which is precisely what makes checkOnce bail.
@@ -360,7 +369,7 @@ func TestRun_RenewsEvenWhenTheStationHasNotShipped(t *testing.T) {
 	go func() { time.Sleep(2 * time.Second); cancel() }()
 	h.u.run(ctx)
 
-	if h.written[tokfile] != "fresh.token.value" {
+	if h.written[tokfile] != freshToken(t, now) {
 		t.Fatalf("the credential was never renewed while the station's sha was "+
 			"unchanged — the check is sitting behind the self-update sha gate, so "+
 			"these machines only renew when somebody ships a release; wrote %v", h.written)
@@ -465,5 +474,218 @@ func TestOsTokfileWriter_WritesTheCredentialAtomicallyAt0600(t *testing.T) {
 		if strings.HasPrefix(e.Name(), ".exec-warden.tok.") {
 			t.Errorf("left a temp credential behind: %s", e.Name())
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ③ what the server sends back is not trusted just because it is non-empty.
+// ---------------------------------------------------------------------------
+
+// TestMaybeRenewCredential_RefusesACredentialThatIsNotForThisMachine covers the
+// one failure in this file that CANNOT be retried out of: anything renamed over
+// the token file replaces the only copy the host has, and the process then execs
+// into it. If what landed is not a JWT, credentialDueForRenewal is false forever
+// (no exp, not due), so the machine never tries again; nothing in the warden acts
+// on a 401; and the previous credential is gone.
+//
+// The first arm is the shape that makes this a real risk rather than a
+// hypothetical: the renewal DTO carries `token` beside two other strings, so a
+// server-side transposition answers 200 with a machine id in the token field, compiles,
+// and every machine in the fleet applies it within one poll of each other.
+func TestMaybeRenewCredential_RefusesACredentialThatIsNotForThisMachine(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	old := dueToken(t, now)
+	tokfile := filepath.Join(t.TempDir(), "exec-warden.tok")
+
+	otherMachine := jwtWith(t, map[string]any{
+		"sub": "m-somebody-else",
+		"iat": now.Unix() - 86400,
+		"exp": now.Unix() + 29*86400,
+	})
+	noSub := jwtWith(t, map[string]any{
+		"iat": now.Unix() - 86400,
+		"exp": now.Unix() + 29*86400,
+	})
+
+	for _, tc := range []struct {
+		name  string
+		token string
+	}{
+		{"a machine id where the token should be (field transposition)", "m-7c1e4f0a92bd"},
+		{"a plain sentence — non-empty, and nothing else", "renewed ok"},
+		{"a well-formed JWT belonging to another machine", otherMachine},
+		{"a well-formed JWT carrying no subject at all", noSub},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newRenewHarness(t, old, tokfile, now, http.StatusOK,
+				map[string]any{"token": tc.token}, nil)
+			if h.u.maybeRenewCredential() {
+				t.Fatal("reported success on a replacement that is not this machine's " +
+					"credential — the caller would exec, and this host would come back " +
+					"unable to authenticate and unable to renew again")
+			}
+			if len(h.written) != 0 {
+				t.Errorf("the token file was overwritten with %v", h.written)
+			}
+			if h.u.token != old {
+				t.Errorf("the in-process credential changed")
+			}
+			if !h.logged("not a credential for this machine") {
+				t.Errorf("nothing in the log names the reason; got %v", h.logs)
+			}
+		})
+	}
+
+	// The control. The same wiring with a credential that IS this machine's must
+	// renew — otherwise every arm above is satisfied by a function that never
+	// renews, which is exactly the shape this file keeps guarding against.
+	ok := newRenewHarness(t, old, tokfile, now, http.StatusOK,
+		map[string]any{"token": freshToken(t, now)}, nil)
+	if !ok.u.maybeRenewCredential() {
+		t.Fatal("control: a credential carrying this machine's own subject did not " +
+			"renew, so the refusals above prove nothing")
+	}
+}
+
+// TestMaybeRenewCredential_ReplacementAlreadyDueIsWrittenButNotExecd pins the
+// runaway guard. A replacement that is due the moment it arrives would otherwise
+// have this process exec, come back, find it due, renew, exec — once per poll
+// forever. The credential is still written (it is valid, and the next real
+// restart should pick it up); what is withheld is the exec.
+func TestMaybeRenewCredential_ReplacementAlreadyDueIsWrittenButNotExecd(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	old := dueToken(t, now)
+	tokfile := filepath.Join(t.TempDir(), "exec-warden.tok")
+
+	h := newRenewHarness(t, old, tokfile, now, http.StatusOK,
+		map[string]any{"token": dueToken(t, now)}, nil)
+	if h.u.maybeRenewCredential() {
+		t.Fatal("asked the caller to exec into a credential that is ALREADY due — " +
+			"that is one process replacement per poll cycle, indefinitely")
+	}
+	if h.written[tokfile] == "" {
+		t.Error("the replacement was not written; it is valid and the next restart " +
+			"should be able to pick it up")
+	}
+	if !h.logged("ALREADY due") {
+		t.Errorf("nothing in the log explains why the exec was withheld; got %v", h.logs)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ④ the write either happens or it does not — nothing in between.
+// ---------------------------------------------------------------------------
+
+// TestTokfileWriter_AVerificationFailureLeavesTheDestinationUntouched is the
+// assertion the renewal caller's log line depends on. It says "the previous
+// credential is untouched and still in use" whenever write returns an error, so
+// EVERY error path must leave the destination alone. The version that verified
+// perms AFTER the rename broke that: those two steps returned an error with the
+// destination already replaced, so the machine held a new credential on disk, an
+// old one in memory, refused to exec, and renewed again every poll — the runaway
+// this design exists to avoid, entering by a door nobody was watching.
+func TestTokfileWriter_AVerificationFailureLeavesTheDestinationUntouched(t *testing.T) {
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "exec-warden.tok")
+	if err := os.WriteFile(dest, []byte("the-credential-this-host-is-running-on"), 0o600); err != nil {
+		t.Fatalf("seed destination: %v", err)
+	}
+
+	renames := 0
+	removed := []string{}
+	w := osTokfileWriter()
+	w.statMode = func(string) (os.FileMode, error) {
+		return 0, fmt.Errorf("simulated stat failure")
+	}
+	realRename := w.rename
+	w.rename = func(o, n string) error { renames++; return realRename(o, n) }
+	realRemove := w.remove
+	w.remove = func(p string) error { removed = append(removed, p); return realRemove(p) }
+
+	err := w.write(dest, "the-replacement")
+	if err == nil {
+		t.Fatal("a failed verification reported success")
+	}
+	if renames != 0 {
+		t.Errorf("the destination was renamed over despite the verification failing "+
+			"(%d renames) — the caller's 'previous credential is untouched' is then a lie", renames)
+	}
+	body, readErr := os.ReadFile(dest)
+	if readErr != nil {
+		t.Fatalf("read destination: %v", readErr)
+	}
+	if string(body) != "the-credential-this-host-is-running-on" {
+		t.Errorf("the destination changed on a failed write: %q", body)
+	}
+	if len(removed) != 1 {
+		t.Errorf("the temp holding a live credential at 0600 was not cleaned up: %v", removed)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
+		t.Errorf("the directory should hold only the destination; got %d entries", len(entries))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ⑤ production hands the renewal the right values.
+// ---------------------------------------------------------------------------
+
+// TestNewRenewalWiring_ReadsTheRawEnvironmentAndTheRunningCredential exists
+// because newSelfUpdater opens with refuseInTestBinary, so nothing in this
+// package can construct it and every field it fills is otherwise unobserved.
+// Measured before this split: `envToken: ""` and `renew: nil` both compiled and
+// the whole suite stayed green — the OC_TOKEN guard and the entire feature could
+// be switched off in production without one red test.
+//
+// ⚠️ This covers the VALUES, not the single line in newSelfUpdater that copies
+// them onto the updater. Dropping a field there still compiles and still passes.
+func TestNewRenewalWiring_ReadsTheRawEnvironmentAndTheRunningCredential(t *testing.T) {
+	home := t.TempDir()
+	cfg := Config{Base: "https://station.example", Token: "the-running-credential", ID: "m-box"}
+
+	raw := map[string]string{"HOME": home}
+	w := newRenewalWiring(cfg, func(k string) string { return raw[k] }, &http.Client{})
+
+	if w.token != cfg.Token {
+		t.Errorf("token = %q, want the credential this process runs on (%q)", w.token, cfg.Token)
+	}
+	if want := tokfileFor(home, ""); w.tokfilePath != want {
+		t.Errorf("tokfilePath = %q, want the file readTokfile reads (%q)", w.tokfilePath, want)
+	}
+	if w.renew == nil {
+		t.Error("renew is nil — renewal is wired off in production and no other test would notice")
+	}
+	if w.writeTok == nil {
+		t.Error("writeTok is nil — a due credential could never be written")
+	}
+
+	// The one that matters most: envToken must come from the RAW environment. Given
+	// the tokfile-folded view instead, it reports the token FILE's contents as if
+	// somebody had exported OC_TOKEN, which disables the infinite-exec guard on
+	// precisely the machines it protects — every launchd warden, none of which sets
+	// OC_TOKEN.
+	if w.envToken != "" {
+		t.Errorf("envToken = %q, want empty: nothing set OC_TOKEN in this environment", w.envToken)
+	}
+	tokfile := tokfileFor(home, "")
+	if err := os.MkdirAll(filepath.Dir(tokfile), 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(tokfile, []byte("what-the-token-file-holds"), 0o600); err != nil {
+		t.Fatalf("seed tokfile: %v", err)
+	}
+	folded := tokfileEnv(func(k string) string { return raw[k] }, os.ReadFile)
+	if got := folded("OC_TOKEN"); got != "what-the-token-file-holds" {
+		t.Fatalf("control: the folded view should report the token file (%q) — without "+
+			"that the assertion below cannot tell the two views apart", got)
+	}
+	if w2 := newRenewalWiring(cfg, func(k string) string { return raw[k] }, &http.Client{}); w2.envToken != "" {
+		t.Errorf("envToken = %q with a token file present: the wiring is reading the "+
+			"folded view, not the raw environment", w2.envToken)
+	}
+
+	explicit := map[string]string{"HOME": home, "OC_TOKEN": "exported-by-hand"}
+	if w3 := newRenewalWiring(cfg, func(k string) string { return explicit[k] }, &http.Client{}); w3.envToken != "exported-by-hand" {
+		t.Errorf("envToken = %q, want the value actually exported — the guard cannot "+
+			"fire if this does not reach it", w3.envToken)
 	}
 }

@@ -647,7 +647,7 @@ func newSelfUpdater(cfg Config, env func(string) string, logf func(string, ...an
 	// Separate, short-timeout client for the best-effort announce so a slow announce
 	// can never eat into the generous multi-MB download budget on the swap→exit path.
 	reportClient := &http.Client{Timeout: selfUpdateReportBudget}
-	return &updater{
+	u := &updater{
 		get:          httpGetter(client, cfg.Base, cfg.Token),
 		ops:          osUpdaterOps{runner: newCmdRunner(selfUpdateProbeBudget)},
 		selfPath:     selfPath,
@@ -675,14 +675,16 @@ func newSelfUpdater(cfg Config, env func(string) string, logf func(string, ...an
 		post:    httpPoster(reportClient, cfg.Base, cfg.Token),
 		agentID: cfg.ID,
 		now:     time.Now,
-		// Self-renewal. `env` here is the RAW environment, NOT the tokfile-folded
-		// view loadConfig was given: envToken must say whether OC_TOKEN was set by
-		// whoever started this process, and the folded view would report the token
-		// file's contents as if someone had exported them.
-		renew:       httpCredentialRenewer(reportClient, cfg.Base, cfg.Token),
-		writeTok:    osTokfileWriter().write,
-		tokfilePath: tokfilePath(env),
-		token:       cfg.Token,
-		envToken:    env("OC_TOKEN"),
 	}
+	// Self-renewal, assembled by newRenewalWiring so the values are testable — this
+	// constructor is unreachable from any test (refuseInTestBinary above), so
+	// anything filled in HERE is filled in unobserved. See renewapply.go.
+	//
+	// It gets the GENEROUS client, not the short-budget reportClient beside it.
+	// That budget exists for the best-effort announce on the swap→exit critical
+	// path, where a hung server must not delay a relaunch. A renewal is neither:
+	// giving up on it early throws away a credential the server has already minted
+	// and leaves the machine one poll closer to an expiry it cannot come back from.
+	u.apply(newRenewalWiring(cfg, env, client))
+	return u
 }

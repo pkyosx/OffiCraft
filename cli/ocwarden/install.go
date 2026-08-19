@@ -893,6 +893,10 @@ type tokfileWriter struct {
 	chmod     func(path string, mode os.FileMode) error
 	rename    func(oldpath, newpath string) error
 	statMode  func(path string) (os.FileMode, error)
+	// remove deletes a temp that will never be renamed into place. Optional: a
+	// caller that does not supply it just leaves the temp behind, which is the
+	// pre-existing behaviour and never a write failure of its own.
+	remove func(path string) error
 }
 
 // tokfileWriter projects the install seam onto the narrow write. Not a `sysOps{`
@@ -904,6 +908,7 @@ func (s sysOps) tokfileWriter() tokfileWriter {
 		chmod:     s.chmod,
 		rename:    s.rename,
 		statMode:  s.statMode,
+		remove:    s.remove,
 	}
 }
 
@@ -923,6 +928,7 @@ func osTokfileWriter() tokfileWriter {
 			}
 			return fi.Mode(), nil
 		},
+		remove: os.Remove,
 	}
 }
 
@@ -947,17 +953,38 @@ func (w tokfileWriter) write(path, token string) error {
 	if err := w.chmod(tmp, 0o600); err != nil {
 		return fmt.Errorf("chmod temp tokfile %s: %w", tmp, err)
 	}
-	if err := w.rename(tmp, path); err != nil {
-		return fmt.Errorf("atomic rename tokfile -> %s: %w", path, err)
-	}
-	mode, err := w.statMode(path)
+	// The perms are verified on the TEMP, before the rename, so that rename is the
+	// LAST step that can fail. Verifying the destination afterwards read better and
+	// broke the guarantee this function's caller relies on: those two steps return
+	// an error with the destination ALREADY REPLACED, so the renewal loop logged
+	// "the previous credential is untouched" about a file it had just overwritten,
+	// then found the same credential due next turn and renewed again, forever.
+	mode, err := w.statMode(tmp)
 	if err != nil {
-		return fmt.Errorf("stat tokfile %s: %w", path, err)
+		w.cleanup(tmp)
+		return fmt.Errorf("stat temp tokfile %s: %w", tmp, err)
 	}
 	if mode.Perm() != 0o600 {
-		return fmt.Errorf("tokfile perms are not 0600: %s (got %o)", path, mode.Perm())
+		w.cleanup(tmp)
+		return fmt.Errorf("temp tokfile perms are not 0600: %s (got %o)", tmp, mode.Perm())
+	}
+	if err := w.rename(tmp, path); err != nil {
+		// The temp holds a VALID credential at 0600; leaving it behind litters the
+		// warden directory with live secrets, one per failed attempt.
+		w.cleanup(tmp)
+		return fmt.Errorf("atomic rename tokfile -> %s: %w", path, err)
 	}
 	return nil
+}
+
+// cleanup removes a temp that will never be renamed into place. Best-effort by
+// construction: the write has already failed, and a failure to tidy up must not
+// turn into a second error that hides the first. A nil remove seam (the install
+// seam predates this) simply skips it.
+func (w tokfileWriter) cleanup(tmp string) {
+	if w.remove != nil {
+		_ = w.remove(tmp)
+	}
 }
 
 // writeTokfile writes the exec-warden token 0600. The write itself is

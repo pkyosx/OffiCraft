@@ -66,12 +66,65 @@ func httpCredentialRenewer(client *http.Client, base, token string) credentialRe
 	}
 }
 
+// renewalWiring is everything the renewal path needs from the outside world,
+// built in ONE place so it can be asserted.
+//
+// WHY IT IS NOT ASSEMBLED INLINE IN newSelfUpdater. That constructor opens with
+// refuseInTestBinary, so NOTHING in this package can construct it — which means
+// every field it fills is outside the reach of every test. Measured: with the
+// wiring inline, `envToken: ""` and `renew: nil` both compiled and the whole
+// suite stayed green, i.e. the OC_TOKEN guard and the entire feature could be
+// switched off in production without a single red test. maybeRenewCredential was
+// well covered; whether production handed it the right values was not covered at
+// all.
+//
+// ⚠️ RESIDUAL GAP, stated rather than papered over: this makes the VALUES
+// testable, not the one line in newSelfUpdater that copies them onto the updater.
+// Dropping a field there still compiles and still goes green. Closing that needs
+// a static check of the shape hostseam_test.go uses, which is more machinery than
+// this ticket carries.
+type renewalWiring struct {
+	renew       credentialRenewer
+	writeTok    func(path, token string) error
+	tokfilePath string
+	token       string
+	envToken    string
+}
+
+// newRenewalWiring resolves the renewal inputs from config and the RAW
+// environment. `env` must be the raw environment, never the tokfile-folded view
+// loadConfig is given: envToken has to say whether OC_TOKEN was set by whoever
+// STARTED this process, and the folded view answers with the token file's
+// contents as if someone had exported them — which would silently disable the
+// infinite-exec guard on exactly the machines it protects.
+func newRenewalWiring(cfg Config, env func(string) string, client *http.Client) renewalWiring {
+	return renewalWiring{
+		renew:       httpCredentialRenewer(client, cfg.Base, cfg.Token),
+		writeTok:    osTokfileWriter().write,
+		tokfilePath: tokfilePath(env),
+		token:       cfg.Token,
+		envToken:    env("OC_TOKEN"),
+	}
+}
+
+// apply copies the wiring onto the updater. One line, so the copy itself is easy
+// to read against the struct above.
+func (u *updater) apply(w renewalWiring) {
+	u.renew, u.writeTok = w.renew, w.writeTok
+	u.tokfilePath, u.token, u.envToken = w.tokfilePath, w.token, w.envToken
+}
+
 // maybeRenewCredential runs ONE renewal attempt and reports whether the process
 // should now re-exec to pick the new credential up. It returns true ONLY after a
 // fresh non-empty token has been written to disk successfully; every other path
 // returns false having changed nothing at all.
 //
-// It is called once per poll turn, BEFORE the self-update's sha gate. That
+// It is called once per WAKE of the poll loop, BEFORE the self-update's sha gate.
+// A wake is the 15-minute timer OR a kick, and the SSE transport kicks on every
+// reconnect — so on a flapping network the attempts follow the reconnects, not the
+// timer. That is affordable only because a failed attempt costs one body-less
+// request and changes nothing; it is the reason there is no backoff, and also the
+// reason not to put anything expensive here. That
 // placement is deliberate and load-bearing: the sha gate returns early whenever
 // the server has not shipped a new commit, so a credential check living behind it
 // would only ever run on release days — and a machine's credential expires on its
@@ -125,6 +178,36 @@ func (u *updater) maybeRenewCredential() bool {
 		return false
 	}
 
+	// 🔴 WHAT ARRIVED MUST BE A CREDENTIAL FOR THIS MACHINE, and non-empty is not
+	// that. Every byte that gets past here is renamed over the only copy of the
+	// credential this host has, and the process then execs into it. The failure is
+	// UNRECOVERABLE in a way the other failures are not: a replacement that is not
+	// a JWT makes credentialDueForRenewal permanently false (renew.go — no exp, not
+	// due), so this machine never attempts a renewal again; nothing anywhere in the
+	// warden acts on a 401; and the old credential is gone. Somebody walks to the
+	// box.
+	//
+	// This is not hypothetical. The renewal response DTO carries `token` beside two
+	// other strings, so a server-side transposition — `Token: machine.ID` — compiles,
+	// answers 200, and is non-empty. Every machine in the fleet would receive the
+	// same wrong answer within one poll of each other and apply it simultaneously.
+	// Four lines here turn "the whole fleet is bricked" into "renewal refused, the
+	// machines keep running".
+	//
+	// The test is the strongest one that every REAL credential passes: it parses as
+	// a JWT carrying a `sub`, and that `sub` is the identity this process is already
+	// running as. Deliberately NOT jwtLifetime: warden credentials carry no exp
+	// today, so demanding one would reject every genuine renewal — a check that a
+	// lie and the truth both fail is not a check.
+	freshSub := jwtSub(fresh)
+	if freshSub == "" || freshSub != jwtSub(u.token) {
+		u.logf("[ocwarden] renew: POST %s answered 200, but what came back is not a "+
+			"credential for this machine (parsed subject %q, expected %q) — keeping the "+
+			"current credential and NOT exec'ing; retrying on the next poll",
+			renewCredentialPath, freshSub, jwtSub(u.token))
+		return false
+	}
+
 	if err := u.writeTok(u.tokfilePath, fresh); err != nil {
 		// The write is atomic (temp -> rename), so a failure here means the OLD
 		// credential is still the one on disk. That is the reason this returns
@@ -135,5 +218,22 @@ func (u *updater) maybeRenewCredential() bool {
 		return false
 	}
 	u.logf("[ocwarden] renew: wrote a fresh credential to %s", u.tokfilePath)
+
+	// A replacement that is ALREADY due is not worth an exec, and exec'ing on it is
+	// how this loop would run away: the new process reads a credential that is due
+	// the moment it starts, renews, execs, forever — once per poll. That can only
+	// come from the server minting a lifetime shorter than the renewal threshold or
+	// from a clock far enough out to look like it; both are somebody else's bug, and
+	// the harmless response to both is to leave the fresh credential on disk for the
+	// next real restart and say so. The renewal itself still repeats each poll, but
+	// a repeated mint is wasted work, not a machine that keeps replacing itself.
+	if credentialDueForRenewal(fresh, u.clock()) {
+		u.logf("[ocwarden] renew: the credential just issued is ALREADY due for renewal "+
+			"— not exec'ing, because doing so would replace this process once per poll. "+
+			"The new credential is on disk at %s and takes effect on the next restart; "+
+			"the lifetime the server mints, or this machine's clock, needs looking at.",
+			u.tokfilePath)
+		return false
+	}
 	return true
 }
