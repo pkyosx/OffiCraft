@@ -644,8 +644,10 @@ func TestTokfileWriter_AVerificationFailureLeavesTheDestinationUntouched(t *test
 // the whole suite stayed green — the OC_TOKEN guard and the entire feature could
 // be switched off in production without one red test.
 //
-// ⚠️ This covers the VALUES, not the single line in newSelfUpdater that copies
-// them onto the updater. Dropping a field there still compiles and still passes.
+// ⚠️ This covers the VALUES only. The copy onto the updater is covered separately
+// by TestApply_CarriesEveryFieldOntoTheUpdater below — an earlier version of this
+// note said that copy lived on an untestable line inside newSelfUpdater, which
+// had already stopped being true in the commit that wrote it.
 func TestNewRenewalWiring_ReadsTheRawEnvironmentAndTheRunningCredential(t *testing.T) {
 	home := t.TempDir()
 	cfg := Config{Base: "https://station.example", Token: "the-running-credential", ID: "m-box"}
@@ -914,32 +916,165 @@ func TestHttpCredentialVerifier_PresentsTheCandidateAtTheProbePath(t *testing.T)
 	}
 }
 
-// TestMaybeRenewCredential_AServerErrorIsNotARefusal keeps the log honest. The
-// auth path this probe runs through is fail-closed on a roster read (authz.go —
-// an unknown lookup refuses, the opposite of the revocation gate beside it), so
-// one database blink looks exactly like a refusal from the outside. The ACTION is
-// the same either way — keep the old credential — but "the station refused the
-// credential it just issued" would send whoever reads the log hunting a minting
-// bug that does not exist.
+// TestMaybeRenewCredential_AServerErrorIsNotARefusal keeps the log honest: a
+// station that failed to ANSWER is not a station saying no, and calling a 5xx a
+// refusal sends whoever reads the log hunting a minting bug that does not exist.
+// The ACTION is identical either way — keep the old credential — so only the log
+// is at stake.
+//
+// 🔴 WHAT THIS SPLIT DOES *NOT* CATCH, corrected after review. An earlier version
+// of this comment justified the split with the fail-closed roster read (authz.go:
+// permanentCredentialRefusal returns true when the lookup errors, the opposite of
+// the revocation gate beside it) and said one database blink therefore looks
+// exactly like a refusal. The first half is true and the conclusion does not
+// follow: server.go answers that refusal with writeError(w,
+// http.StatusUnauthorized, "invalid token") — a DB blink arrives here as 401, not
+// 5xx, so it lands in the REFUSED arm below and still reads as "the station
+// refused the credential it just issued". The mis-attribution this split was
+// argued from is the one case it cannot see. It is kept because a genuine 5xx is
+// still worth telling apart; it is NOT evidence that the blink case is handled.
+//
+// The subtests cover the whole 5xx range, not just 500. 502 and 503 are what a
+// proxy or load balancer in front of the station emits, i.e. the most likely 5xx
+// in production, and `status == 500` compiles, passes a 500-only test, and puts
+// them back in the refusal arm.
 func TestMaybeRenewCredential_AServerErrorIsNotARefusal(t *testing.T) {
-	now := time.Unix(1_800_000_000, 0)
-	tokfile := filepath.Join(t.TempDir(), "exec-warden.tok")
+	for _, status := range []int{
+		http.StatusInternalServerError,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+	} {
+		t.Run(fmt.Sprintf("station answers %d", status), func(t *testing.T) {
+			now := time.Unix(1_800_000_000, 0)
+			tokfile := filepath.Join(t.TempDir(), "exec-warden.tok")
 
-	h := newRenewHarness(t, dueToken(t, now), tokfile, now, http.StatusOK,
-		map[string]any{"token": freshToken(t, now)}, nil)
-	h.verifyStatus = http.StatusInternalServerError
+			h := newRenewHarness(t, dueToken(t, now), tokfile, now, http.StatusOK,
+				map[string]any{"token": freshToken(t, now)}, nil)
+			h.verifyStatus = status
 
-	if h.u.maybeRenewCredential() {
-		t.Fatal("renewed on a probe that never got an answer")
+			if h.u.maybeRenewCredential() {
+				t.Fatal("renewed on a probe that never got an answer")
+			}
+			if len(h.written) != 0 {
+				t.Errorf("the token file was replaced: %v", h.written)
+			}
+			if !h.logged("could not get an answer") {
+				t.Errorf("the log does not say the answer was missing; got %v", h.logs)
+			}
+			if h.logged("REFUSED") {
+				t.Errorf("the log calls a %d a refusal — that sends the reader hunting a "+
+					"minting bug that does not exist; got %v", status, h.logs)
+			}
+		})
 	}
-	if len(h.written) != 0 {
-		t.Errorf("the token file was replaced: %v", h.written)
+}
+
+// TestNewRenewalWiring_TheClosuresItBuildsReachTheRealEndpoints closes the hole
+// the fourth review found: every assertion above this one checks the wiring's
+// fields for `!= nil`, and `!= nil` is satisfied by a closure that does the wrong
+// thing or nothing at all. Measured on the tree before this test existed, each of
+// these compiled and left the whole package GREEN:
+//
+//	verify:   func(string) (int, error) { return http.StatusOK, nil }   // probe off
+//	writeTok: func(string, string) error { return nil }                 // write faked
+//	renew:    httpCredentialRenewer(client, cfg.Base, "")               // no credential
+//	renew's path -> "/api/version"; renew's method -> GET                // renewal off
+//
+// The first two are the fleet-scale ones. A no-op `verify` deletes the entire
+// confirm-before-write step, so an unusable credential replaces the working one
+// and the machine is exec'd into it; a no-op `writeTok` reports success without
+// touching disk, so the new process re-reads the SAME expired token, renews, execs
+// — the infinite-exec trap this file names elsewhere, arriving on every machine at
+// once because every warden runs this identical wiring on the same 15-minute beat.
+//
+// So this test does not inspect the fields: it CALLS them against an httptest
+// station and asserts what actually went over the wire. Every path, method and
+// header here is a LITERAL — asserting against renewCredentialPath or
+// credentialProbePath would move with the code under test and pass while the
+// probe was redirected to a public endpoint, which is exactly the shape this
+// branch has already hit once.
+func TestNewRenewalWiring_TheClosuresItBuildsReachTheRealEndpoints(t *testing.T) {
+	type seen struct {
+		method string
+		path   string
+		auth   string
 	}
-	if !h.logged("could not get an answer") {
-		t.Errorf("the log does not say the answer was missing; got %v", h.logs)
+	var got []seen
+	station := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, seen{r.Method, r.URL.Path, r.Header.Get("Authorization")})
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"token":"a-fresh-credential"}`))
+	}))
+	defer station.Close()
+
+	home := t.TempDir()
+	cfg := Config{Base: station.URL, Token: "the-credential-this-process-runs-on", ID: "m-box"}
+	w := newRenewalWiring(cfg, func(k string) string { return map[string]string{"HOME": home}[k] })
+
+	status, body, err := w.renew()
+	if err != nil {
+		t.Fatalf("renew: %v", err)
 	}
-	if h.logged("REFUSED") {
-		t.Errorf("the log calls a 500 a refusal — that sends the reader hunting a "+
-			"minting bug that does not exist; got %v", h.logs)
+	if status != http.StatusOK {
+		t.Fatalf("renew status = %d, want 200", status)
+	}
+	if body["token"] != "a-fresh-credential" {
+		t.Errorf("renew did not decode the station's body: %v", body)
+	}
+
+	if _, err := w.verify("the-candidate-not-the-running-one"); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("want one renewal request and one probe, got %d: %+v", len(got), got)
+	}
+
+	if got[0].method != "POST" {
+		t.Errorf("renew method = %s, want POST — a GET renews nothing and the station "+
+			"answers it, so the fleet would go quiet without one red test", got[0].method)
+	}
+	if got[0].path != "/api/machines/renew-credential" {
+		t.Errorf("renew path = %q, want the renewal endpoint literally", got[0].path)
+	}
+	if got[0].auth != "Bearer the-credential-this-process-runs-on" {
+		t.Errorf("renew Authorization = %q — the renewal must present the credential "+
+			"this process is running on; the endpoint names no target and acts on the "+
+			"caller's own verified sub, so an empty or wrong one renews nothing", got[0].auth)
+	}
+
+	if got[1].method != "GET" {
+		t.Errorf("probe method = %s, want GET — the probe must not be able to be "+
+			"mistaken for something that writes", got[1].method)
+	}
+	if got[1].path != "/api/machines" {
+		t.Errorf("probe path = %q, want /api/machines literally. A probe redirected to "+
+			"a public endpoint answers 200 to anybody and proves nothing about the "+
+			"candidate credential", got[1].path)
+	}
+	if got[1].auth != "Bearer the-candidate-not-the-running-one" {
+		t.Errorf("probe Authorization = %q, want the CANDIDATE credential. Probing with "+
+			"the credential this process already holds always succeeds and tells us "+
+			"nothing about the one about to be written", got[1].auth)
+	}
+
+	dest := filepath.Join(home, "written-by-the-production-writer")
+	if err := w.writeTok(dest, "a-fresh-credential"); err != nil {
+		t.Fatalf("writeTok: %v", err)
+	}
+	written, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("the production writer reported success and wrote nothing: %v", err)
+	}
+	if string(written) != "a-fresh-credential" {
+		t.Errorf("writeTok wrote %q", written)
+	}
+	info, err := os.Stat(dest)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf("credential written at %o, want 0600 — a writer that reports success "+
+			"without the real one's mode is not the real one", perm)
 	}
 }

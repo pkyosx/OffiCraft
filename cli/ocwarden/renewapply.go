@@ -104,10 +104,18 @@ type renewalWiring struct {
 // contents as if someone had exported them — which would silently disable the
 // infinite-exec guard on exactly the machines it protects.
 func newRenewalWiring(cfg Config, env func(string) string) renewalWiring {
-	// The client is built HERE rather than taken from the caller, so that WHICH
-	// budget a renewal runs under is a decision inside a function tests can call.
-	// Handed in from newSelfUpdater it sat beside a 10s announce client, one
-	// character away, with nothing able to tell the two apart.
+	// The client is built HERE rather than taken from the caller: handed in from
+	// newSelfUpdater it sat beside a 10s announce client, one character away, with
+	// nothing able to tell the two apart, and newSelfUpdater opens with
+	// refuseInTestBinary so no test could reach either.
+	//
+	// ⚠️ NO TEST WATCHES WHICH BUDGET THIS IS. Swapping selfUpdateHTTPTimeout for
+	// selfUpdateReportBudget here leaves the whole package green — measured. An
+	// earlier version of this comment claimed the move put the choice "inside a
+	// function tests can call", which was true of the location and false of the
+	// coverage. Observing it would mean waiting out a real timeout, and a field
+	// carrying the value for a test to read is the decoy this constructor already
+	// grew once and had removed. Stated rather than faked.
 	client := &http.Client{Timeout: selfUpdateHTTPTimeout}
 	return renewalWiring{
 		renew:       httpCredentialRenewer(client, cfg.Base, cfg.Token),
