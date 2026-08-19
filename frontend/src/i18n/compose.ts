@@ -98,6 +98,7 @@ export interface Messages {
   // ── monitor › machines ──
   machineBootstrapErrorDetail: (detail: string) => string;
   machineBootstrapFailed: (exitCode: number) => string;
+  machineBootstrapConfirmBody: (name: string) => string;
   machineUninstallConfirmBody: (name: string) => string;
   machineUninstallWarnBody: (name: string, count: number) => string;
   machineDeleteConfirmBody: (name: string) => string;
@@ -347,6 +348,8 @@ export function makeMessages(t: Dict, language: Lang): Messages {
       `${mach.bootstrapError}${language === "zh" ? ":" : ": "}${detail}`,
     machineBootstrapFailed: (exitCode) =>
       `${mach.bootstrapFailedLead}${exitCode}${mach.bootstrapFailedTail}`,
+    machineBootstrapConfirmBody: (name) =>
+      `${mach.bootstrapConfirmBodyLead}${name}${mach.bootstrapConfirmBodyTail}`,
     machineUninstallConfirmBody: (name) =>
       `${mach.uninstallConfirmBodyLead}${name}${mach.uninstallConfirmBodyTail}`,
     machineUninstallWarnBody: (name, count) =>

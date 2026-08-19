@@ -1103,6 +1103,15 @@ export const en: Dict = {
       // throw it away, so "installed" and "installed with warnings inside"
       // looked identical.
       bootstrapSucceeded: "Install finished. Log:",
+      // Reinstall-over-a-live-warden confirm (server-self row, machine ONLINE).
+      // The wording is deliberately NOT shared with the remote-machine install:
+      // that one only renders a command to copy, this one overwrites a warden
+      // that is serving right now.
+      bootstrapConfirmTitle: "Confirm reinstall on the server",
+      bootstrapConfirmBodyLead: "“",
+      bootstrapConfirmBodyTail:
+        "” is online and already running a warden. Installing again OVERWRITES the warden currently in service: every member on this machine is disconnected, and it CANNOT be undone — the replaced warden is not recoverable, the machine has to be installed again and its members brought back online.",
+      bootstrapConfirm: "Overwrite and reinstall",
       // uninstall (POST /uninstall): drive the uninstall RPC to the warden
       // (online-only)
       uninstallConfirmTitle: "Confirm uninstall",

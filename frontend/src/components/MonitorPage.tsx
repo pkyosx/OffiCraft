@@ -81,12 +81,22 @@ export function MonitorPage() {
   // candidate must not submit the row.
   const onboardComposingRef = useRef(false);
 
-  // ── install (安裝) ── the verb has TWO shapes by row kind:
-  //   • the server-self row → an in-place bootstrap-on-server, run DIRECTLY with
-  //     NO dialog (the server installs the warden on itself); see installSelf.
+  // ── install (安裝) ── the verb has TWO shapes by row kind, and they are NOT
+  // equally dangerous — which is why neither the gating nor the wording is
+  // shared between them:
+  //   • the server-self row → an in-place bootstrap-on-server (see installSelf).
+  //     OFFLINE: run directly, nothing is being replaced. ONLINE: it overwrites
+  //     the warden currently in service and every member on that box drops —
+  //     irreversible, so it goes through `bootstrapConfirmTarget` first.
   //   • every other (remote) machine → a SINGLE uniform copy-command dialog
-  //     (`installTarget`): copy the command, run it on that machine.
+  //     (`installTarget`): copy the command, run it on that machine. This sends
+  //     NO request and changes NOTHING — it renders a string. No confirm: a
+  //     second click that guards nothing only trains the owner to click through
+  //     the one above, which does guard something.
   const [installTarget, setInstallTarget] = useState<MachineView | null>(null);
+  // The server-self reinstall-over-a-live-warden confirm target; null = closed.
+  const [bootstrapConfirmTarget, setBootstrapConfirmTarget] =
+    useState<MachineView | null>(null);
   // The in-place bootstrap-on-server result for the server-self row (POST
   // /bootstrap-here): {ok, exitCode, log}; on !ok the `log` (failure reason, e.g.
   // the one-warden guard) is surfaced verbatim — never swallowed. `bootstrapTarget`
@@ -625,9 +635,10 @@ export function MonitorPage() {
                       )}
                     </td>
                     {/* Actions — the machine-lifecycle verbs (T-IUD):
-                     *   install   → server-self: in-place bootstrap-on-server, run
-                     *               DIRECTLY (no dialog); other machines: a single
-                     *               copy-command dialog.
+                     *   install   → server-self: in-place bootstrap-on-server —
+                     *               run directly while offline, but confirm first
+                     *               while ONLINE (it overwrites the live warden);
+                     *               other machines: a single copy-command dialog.
                      *   uninstall → POST /uninstall (drive the uninstall RPC to the
                      *               warden). ONLINE-ONLY — an offline machine has
                      *               nothing to uninstall (disabled + reason tooltip).
@@ -643,10 +654,21 @@ export function MonitorPage() {
                           type="button"
                           className="btn btn--accent-ghost"
                           data-testid="mon-install-btn"
-                          disabled={(m.isSelf && bootstrapBusy) || m.online}
-                          onClick={() =>
-                            m.isSelf ? void installSelf(m) : openInstall(m)
-                          }
+                          disabled={m.isSelf && bootstrapBusy}
+                          onClick={() => {
+                            if (!m.isSelf) {
+                              // Remote machine: shows a command to copy. No
+                              // request, online or not.
+                              openInstall(m);
+                              return;
+                            }
+                            if (m.online) {
+                              // Reinstalling over a LIVE warden — confirm first.
+                              setBootstrapConfirmTarget(m);
+                              return;
+                            }
+                            void installSelf(m);
+                          }}
                         >
                           {m.isSelf && bootstrapBusy
                             ? t.monitor.machine.bootstrapBusy
@@ -820,6 +842,56 @@ export function MonitorPage() {
                 </pre>
               </div>
             )}
+          </div>
+        )}
+
+        {/* reinstall confirm — server-self row, machine ONLINE. This is the one
+         * install shape that actually mutates a host: it overwrites the warden
+         * in service and drops every member on that box, and it cannot be
+         * undone. Cancel must leave NOTHING behind — no request, no state.
+         * The remote-machine install deliberately does NOT come through here;
+         * it renders a command and sends nothing. */}
+        {bootstrapConfirmTarget && (
+          <div
+            className="mon-confirm"
+            data-testid="mon-bootstrap-confirm"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="mon-confirm__box">
+              <div className="mon-confirm__title">
+                {t.monitor.machine.bootstrapConfirmTitle}
+              </div>
+              <p className="mon-confirm__body">
+                {msg.machineBootstrapConfirmBody(
+                  bootstrapConfirmTarget.displayName
+                )}
+              </p>
+              <div className="mon-confirm__actions">
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  data-testid="mon-bootstrap-cancel-btn"
+                  onClick={() => setBootstrapConfirmTarget(null)}
+                  disabled={bootstrapBusy}
+                >
+                  {t.common.cancel}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--danger-ghost"
+                  data-testid="mon-bootstrap-confirm-btn"
+                  onClick={() => {
+                    const target = bootstrapConfirmTarget;
+                    setBootstrapConfirmTarget(null);
+                    void installSelf(target);
+                  }}
+                  disabled={bootstrapBusy}
+                >
+                  {t.monitor.machine.bootstrapConfirm}
+                </button>
+              </div>
+            </div>
           </div>
         )}
 

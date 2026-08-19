@@ -1193,6 +1193,14 @@ export const zh = {
       // T-ba62:成功也保留安裝記錄。原本成功分支把整份 log 丟掉,於是
       // 「裝好了」與「裝好了但裡面有警告」長得一模一樣。
       bootstrapSucceeded: "安裝完成,記錄如下:",
+      // 覆蓋現役 warden 的確認(伺服器自己那台、且「在線上」時才跳)。
+      // 這段話刻意不與遠端機器的安裝共用:那邊只是顯示一段可複製的指令,
+      // 這邊是覆蓋掉一個正在服役的 warden。
+      bootstrapConfirmTitle: "確認在伺服器上重新安裝",
+      bootstrapConfirmBodyLead: "「",
+      bootstrapConfirmBodyTail:
+        "」目前在線上,已經有一個正在服役的 warden。再安裝一次會直接覆蓋它:這台機器上的成員會全部斷線,而且此動作不可逆 —— 被覆蓋掉的 warden 無法還原,只能重新安裝並讓成員重新上線。",
+      bootstrapConfirm: "覆蓋並重新安裝",
       // uninstall (POST /uninstall):驅動 uninstall RPC 給 warden(僅線上可用)
       uninstallConfirmTitle: "確認解除安裝",
       uninstallConfirmBodyLead: "確定要解除安裝「",
