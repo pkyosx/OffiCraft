@@ -1917,6 +1917,15 @@ SKIPPED_HAPPY: dict[str, str] = {
         "200 stamp + 429 liveness refusal in the server unit tests "
         "(api_members_restartself_test.go)."
     ),
+    "POST /api/machines/renew-credential": (
+        "the positive face needs a WARDEN identity: the endpoint names no target "
+        "and mints for the caller's own verified sub, so owner/agent — the only "
+        "identities this file has — get the 403 refusal, not the renewal. The "
+        "warden 200, the machine_id it reports and the 403 for every non-machine "
+        "principal are pinned in the auth matrix (which does have that identity), "
+        "and the credential's usability plus the removed-machine refusal in the "
+        "server unit tests (api_machines_renew_tfc53_test.go)."
+    ),
     "POST /api/machines/{machine_id}/bootstrap-here": (
         "positive face runs `ocwarden install` on the HOST under test — a side "
         "effect the black-box harness must not trigger (matrix DEGRADED row)."

@@ -281,7 +281,7 @@
     {
       "id": "warden-selfupdate-poster-built",
       "source": "cli/ocwarden/selfupdate.go",
-      "callsite": "post:    httpPoster(reportClient, cfg.Base, cfg.Token),",
+      "callsite": "post:     httpPoster(reportClient, cfg.Base, cfg.Token),",
       "kind": "seam",
       "seam_reason": "Construction of the poster seam for the self-update reporter. Nothing is on the wire at this line."
     },
@@ -618,7 +618,7 @@
     {
       "id": "warden-hop-3",
       "source": "cli/ocwarden/main.go",
-      "callsite": "up := newSelfUpdater(cfg, logf)",
+      "callsite": "up := newSelfUpdater(cfg, rawEnv{lookup: env}, logf)",
       "kind": "seam",
       "seam_reason": "builds the self-updater; its sends are declared on their own callsites"
     },
@@ -712,6 +712,120 @@
       "callsite": "return true, scanSSEWithActivity(resp.Body, t.handlePayload, onActivity)",
       "kind": "seam",
       "seam_reason": "the command-frame handler handed to the SSE scanner as a VALUE: the loop calls it per frame and it reaches the command_result receipts, each declared on its own callsite in command.go."
+    },
+    {
+      "id": "warden-renew-request",
+      "source": "cli/ocwarden/renewapply.go",
+      "callsite": "req, err := http.NewRequest(http.MethodPost, base+renewCredentialPath, nil)",
+      "kind": "skip",
+      "skip_reason": "The credential-renewal POST, and it carries NO body at all (the third argument is a literal nil). The endpoint names no target on purpose — the machine acted on is the caller's verified sub — so there is nothing for a wire test to compare against a request schema, and the frozen spec declares no requestBody for the operation."
+    },
+    {
+      "id": "warden-renew-request-do",
+      "source": "cli/ocwarden/renewapply.go",
+      "callsite": "resp, err := client.Do(req)",
+      "kind": "skip",
+      "skip_reason": "The send half of the body-less renewal POST above."
+    },
+    {
+      "id": "warden-renew-probe",
+      "source": "cli/ocwarden/renewapply.go",
+      "callsite": "status, _, err := httpGetter(client, base, candidate)(credentialProbePath)",
+      "kind": "read",
+      "method": "get",
+      "path": "/api/machines",
+      "read_reason": "Presents a CANDIDATE credential at the cheapest read-only endpoint a warden is entitled to, before anything on disk is replaced. A GET through the shared getter: no body goes out, and the frozen spec is checked to declare no requestBody for it."
+    },
+    {
+      "id": "warden-renew-renewer-built",
+      "source": "cli/ocwarden/renewapply.go",
+      "callsite": "renew:       httpCredentialRenewer(client, cfg.Base, cfg.Token),",
+      "kind": "seam",
+      "seam_reason": "Construction of the renewal sender itself (warden-renew-request). Nothing is on the wire at this line."
+    },
+    {
+      "id": "warden-renew-verifier-built",
+      "source": "cli/ocwarden/renewapply.go",
+      "callsite": "verify:      httpCredentialVerifier(client, cfg.Base),",
+      "kind": "seam",
+      "seam_reason": "Construction of the credential probe (warden-renew-probe). Nothing is on the wire at this line."
+    },
+    {
+      "id": "warden-renew-wiring-copied",
+      "source": "cli/ocwarden/renewapply.go",
+      "callsite": "u.renew, u.verify, u.writeTok = w.renew,",
+      "kind": "seam",
+      "seam_reason": "The renewal seams handed over as VALUES onto the updater. The requests they reach are declared on their own callsites (warden-renew-request, warden-renew-probe)."
+    },
+    {
+      "id": "warden-renew-invoked",
+      "source": "cli/ocwarden/renewapply.go",
+      "callsite": "status, body, err := u.renew()",
+      "kind": "skip",
+      "skip_reason": "Invocation of the body-less renewal POST (warden-renew-request). No body is built here or anywhere below it."
+    },
+    {
+      "id": "warden-renew-verify-value",
+      "source": "cli/ocwarden/renewapply.go",
+      "callsite": "if u.verify != nil {",
+      "kind": "seam",
+      "seam_reason": "The probe seam mentioned without being called — a nil check. It sends nothing; the GET is warden-renew-probe."
+    },
+    {
+      "id": "warden-renew-verify-invoked",
+      "source": "cli/ocwarden/renewapply.go",
+      "callsite": "status, err := u.verify(fresh)",
+      "kind": "seam",
+      "seam_reason": "hop: invokes the credential probe, whose GET is declared as warden-renew-probe."
+    },
+    {
+      "id": "warden-selfupdate-renew-hop",
+      "source": "cli/ocwarden/selfupdate.go",
+      "callsite": "if u.maybeRenewCredential() {",
+      "kind": "seam",
+      "seam_reason": "hop: one renewal attempt from the poll loop; the renewal POST and the credential probe are declared on their own callsites in renewapply.go."
+    },
+    {
+      "id": "warden-selfupdater-built",
+      "source": "cli/ocwarden/selfupdate.go",
+      "callsite": "return buildSelfUpdater(cfg, env, logf, os.Executable, syscallExecImage)",
+      "kind": "seam",
+      "seam_reason": "hop: the production constructor delegating to the injectable one; the senders it wires are declared on their own callsites."
+    },
+    {
+      "id": "warden-renew-wiring-applied",
+      "source": "cli/ocwarden/selfupdate.go",
+      "callsite": "u.apply(newRenewalWiring(cfg, env.lookup))",
+      "kind": "seam",
+      "seam_reason": "hop: builds and copies the renewal seams onto the updater; their requests are declared in renewapply.go."
+    },
+    {
+      "id": "warden-install-verify-binary",
+      "source": "cli/ocwarden/install.go",
+      "callsite": "if err := i.verify(p); err != nil {",
+      "kind": "seam",
+      "seam_reason": "Enumerated because `verify` is a DERIVED sink name in this module (the renewal's credential probe is a field of that name). This one is the installer's binary smoke check — it execs the downloaded binary and puts nothing on the wire."
+    },
+    {
+      "id": "warden-install-runinstall",
+      "source": "cli/ocwarden/install.go",
+      "callsite": "if err := i.runInstall(p); err != nil {",
+      "kind": "seam",
+      "seam_reason": "hop: the install path, which reaches the installer's binary smoke check above (warden-install-verify-binary). The downloads it performs are GETs declared on their own callsites."
+    },
+    {
+      "id": "warden-installcmd-hop",
+      "source": "cli/ocwarden/main.go",
+      "callsite": "return installCmd(env, out, force)",
+      "kind": "seam",
+      "seam_reason": "hop: the `install` verb, reaching warden-install-runinstall; its own requests are declared on their own callsites."
+    },
+    {
+      "id": "warden-renew-wiring-source",
+      "source": "cli/ocwarden/renewapply.go",
+      "callsite": "w.verify, w.writeTok",
+      "kind": "seam",
+      "seam_reason": "The other half of the same copy: the probe seam read OUT of the wiring struct. One row per send is why the two sides of one assignment are two rows."
     }
   ]
 }

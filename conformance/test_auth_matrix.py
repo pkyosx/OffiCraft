@@ -220,6 +220,32 @@ def _check_matrix_member_avatar_delete(
     )
 
 
+def _check_renewed_credential(
+    ctx: Ctx, identity: str, response: httpx.Response
+) -> None:
+    """The warden face must come back with a credential for ITSELF that the
+    station actually accepts. A 200 carrying a token nobody checked is the
+    failure this endpoint cannot afford: the warden writes what it gets over the
+    only credential the host has and then re-execs into it."""
+    if identity != "warden":
+        return
+    data = response.json()
+    assert data["machine_id"] == ctx.warden.member_id, (
+        f"renewal reported machine_id={data.get('machine_id')!r}, but the endpoint "
+        f"names no target and must act on the caller's own sub "
+        f"({ctx.warden.member_id!r})"
+    )
+    assert data["token"], "renewal answered 200 with no token"
+    probe = ctx.client.get(
+        "/api/machines",
+        headers={"Authorization": f"Bearer {data['token']}"},
+    )
+    assert probe.status_code == 200, (
+        f"the credential the station just minted does not authenticate: "
+        f"{probe.status_code} {probe.text[:200]}"
+    )
+
+
 def _matrix_webhook_requests_path(ctx: Ctx) -> str:
     """A fresh webhook endpoint on agent A (unique id per cell — the deny faces
     403 before resolve; only the owner face reads it)."""
@@ -791,6 +817,22 @@ MATRIX: dict[str, Route] = {
     "GET /api/machines/{machine_id}/boot-command": Route(
         requires="admin_agent",
         path=lambda ctx, _i: f"/api/machines/{ctx.machine_id}/boot-command",
+    ),
+    # The renewal seam a warden drives for itself. requires=machine is the FLOOR,
+    # not the audience: principalMachine is the lowest rank, so every authenticated
+    # identity clears the route gate and the handler is what refuses — it resolves
+    # the caller's own sub to an ACTIVE machine row, and an owner or an ordinary
+    # agent is not one. Those 403s are therefore semantic, not derived, which is
+    # why they are written here.
+    "POST /api/machines/renew-credential": Route(
+        requires="machine",
+        overrides={
+            "owner": 403,
+            "admin_agent": 403,
+            "agent_self": 403,
+            "agent_other": 403,
+        },
+        check=_check_renewed_credential,
     ),
     "POST /api/machines/{machine_id}/bootstrap-here": Route(
         # DEGRADED positive faces: unknown machine id → 404 (resolve runs

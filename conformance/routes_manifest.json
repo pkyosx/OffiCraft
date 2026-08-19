@@ -512,6 +512,13 @@
   },
   {
     "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/machines/renew-credential",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
     "mcp_tool": "install_warden_on_server_host",
     "method": "POST",
     "path": "/api/machines/{machine_id}/bootstrap-here",
