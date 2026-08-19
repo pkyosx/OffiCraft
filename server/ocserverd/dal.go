@@ -154,11 +154,12 @@ type Member struct {
 	// 🔴 NOT cleared on the next boot, unlike every other lifecycle anchor: it
 	// describes the session BEFORE this one, and that is precisely who needs to
 	// read it. Written through SetMemberForcedStopAt and PutMember's upsert. The
-	// upsert carries it forward-only with max(): the SSE stop gate reads this
-	// record to distinguish a deliberate cut-off from a session working its
-	// close-out. The targeted update is best-effort, so a failed update must not
-	// leave a force-stopped session looking like a close-out. max() also
-	// prevents a stale snapshot from erasing an existing record.
+	// upsert carries it forward-only with max(): forcedEpochLive has three
+	// readers — notice suppression, the SSE stop gate, and deactivate — that use
+	// it to distinguish a deliberate cut-off from a session working its close-out.
+	// The targeted update is best-effort, so a failed update must not leave a
+	// force-stopped session looking like a close-out. max() also prevents a stale
+	// snapshot from erasing an existing record.
 	ForcedStopAt float64
 	// HandoverNoticedTS is the durable twin of the in-memory handover-notice
 	// claim (T-6ebc, migrations/00058): the session anchor whose one-and-only

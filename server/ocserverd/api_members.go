@@ -897,7 +897,8 @@ func (s *apiServer) HandleForceStopMemberApiMembersMemberIdForceStopPost(w http.
 	// why the fact has to be written down: everything a killed session leaves
 	// behind is indistinguishable from what a session with nothing to say
 	// leaves behind. Stamped on the member itself so the NEXT generation and the
-	// cockpit can both see it; its own column, so no later snapshot erases it.
+	// cockpit can both see it; PutMember persists it forward-only with max(), so
+	// a stale snapshot cannot erase the record.
 	m.ForcedStopAt = nowSecs()
 	if err := s.putMember(*m, requestTrigger(r)); err != nil {
 		internalError(w, err)
