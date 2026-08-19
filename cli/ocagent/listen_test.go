@@ -1898,7 +1898,7 @@ func TestListener_NonRefusalOutcomesNeverTripFailClosed(t *testing.T) {
 
 func TestCmdListen_NoTokenExitsQuietly(t *testing.T) {
 	var out bytes.Buffer
-	if rc := cmdListen(Config{ID: "kyle"}, func(string) string { return "" }, false, &out); rc != 0 {
+	if rc := cmdListen(Config{ID: "kyle"}, func(string) string { return "" }, false, false, &out); rc != 0 {
 		t.Fatalf("rc = %d want 0", rc)
 	}
 	if !strings.Contains(out.String(), "no OC_ID/OC_TOKEN") {
@@ -2369,6 +2369,11 @@ func TestConnectOnce_ConnectionLineNamesTheShaTheStationSelfReports(t *testing.T
 
 	out := &syncBuf{}
 	l := newTestListener(srv, Config{Base: srv.URL, Token: "tok", ID: "kyle"}, out)
+	// This PR made the connection line opt-in (logConnf; -verbose). These two
+	// tests pin what the line SAYS, so they must be on the path that emits it —
+	// otherwise they would assert against a line that is correctly absent, and
+	// pass for the wrong reason. Nothing about the assertions themselves moved.
+	l.verbose = true
 	if _, _, _, err := l.connectOnce(context.Background()); err != nil {
 		t.Fatalf("connectOnce: %v", err)
 	}
@@ -2431,6 +2436,11 @@ func TestConnectOnce_NoStationSHALeavesTheLineUnadornedAndNeverReusesTheLastOne(
 	}
 
 	l := newTestListener(srv, Config{Base: srv.URL, Token: "tok", ID: "kyle"}, nil)
+	// This PR made the connection line opt-in (logConnf; -verbose). These two
+	// tests pin what the line SAYS, so they must be on the path that emits it —
+	// otherwise they would assert against a line that is correctly absent, and
+	// pass for the wrong reason. Nothing about the assertions themselves moved.
+	l.verbose = true
 	connect := func() string {
 		out := &syncBuf{}
 		l.out = out

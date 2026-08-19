@@ -479,7 +479,7 @@
     {
       "id": "ocagent-cmd-2",
       "source": "cli/ocagent/main.go",
-      "callsite": "return cmdListen(cfg, env, *once, out)",
+      "callsite": "return cmdListen(cfg, env, *once, *verbose, out)",
       "kind": "seam",
       "seam_reason": "hop: the listen command reaches the SSE stream and every send the listener makes, each declared on its own callsite"
     },

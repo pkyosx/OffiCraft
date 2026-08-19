@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -277,6 +278,37 @@ func TestRecordCompactionCountsOnlyContextCompactionItems(t *testing.T) {
 	session.recordCompaction(map[string]any{"item": map[string]any{"type": "contextCompaction"}})
 	if session.compactions != 1 {
 		t.Fatalf("compactions = %d, want 1 unique item", session.compactions)
+	}
+}
+
+// ocagent suppresses its connection-status lines by DEFAULT (they wake the agent
+// runtime and re-read its whole context). warden is not that runtime and needs
+// one of them: `listen: connected` is what re-announces identity + rate limits
+// the moment the SSE reopens. So this spawn must pass -verbose, and the two
+// halves below say why it is safe: the flag is present, AND the line it unlocks
+// is still filtered out of the model transcript by actionableCodexListenerLine.
+//
+// A one-off manual check would not survive the next person tidying the flag
+// away, so it is pinned here.
+func TestCodexListenerArgv_PassesVerbose(t *testing.T) {
+	argv := codexListenerArgv("/w")
+
+	// Positive control: this really is the ocagent listener argv, so a test
+	// that matched nothing at all cannot pass.
+	if len(argv) < 2 || filepath.Base(argv[0]) != "ocagent" {
+		t.Fatalf("spawned binary = %q want ocagent (argv: %q)", argv[0], argv)
+	}
+	if argv[1] != "listen" {
+		t.Fatalf("subcommand must be `listen`, got %q", argv)
+	}
+	if !slices.Contains(argv, "-verbose") {
+		t.Fatalf("warden's listener must spawn with -verbose or the "+
+			"`listen: connected` telemetry trigger never fires; got %q", argv)
+	}
+	// The flag is free precisely because the line it unlocks never reaches the
+	// model. If this ever flips, -verbose starts costing tokens.
+	if actionableCodexListenerLine("[ocagent] listen: connected — streaming http://127.0.0.1") {
+		t.Fatal("-verbose is only safe while connection lines are filtered from the transcript")
 	}
 }
 

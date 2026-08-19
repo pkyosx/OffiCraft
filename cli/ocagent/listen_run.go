@@ -31,6 +31,7 @@ type listener struct {
 	idleReadTimeout time.Duration // 0 disables the idle-read watchdog
 	jitter          func() float64
 	out             io.Writer
+	verbose         bool // -verbose: also print the connection-status lines (logConnf)
 
 	// stamp decides which clock the next transcript line reports; dispatch
 	// parks the current frame's server ts on it (T-7fb2, listen_stamp.go).
@@ -46,8 +47,17 @@ type listener struct {
 	probeUnknownSpan time.Duration    // wall-clock bound for the unknown run
 	refusals         int              // consecutive server 409 refusals
 	firstRefusalAt   time.Time        // start of the current refusal run
-	refusalGraceSpan time.Duration    // wall-clock bound for the refusal run
-	selfTerminate    func()           // kill my own tmux session (default: `ocagent suicide`)
+	lastRefusal      error            // newest 409 body — the fail-closed ALARM quotes it
+	lastStatus       int              // last actionable 4xx printed; 0 = re-armed (dedup)
+
+	// OUTAGE bookkeeping: one summary line per outage, printed on RECOVERY.
+	outageFails   int       // failed reconnects since the last healthy stream
+	outageStart   time.Time // when the outage began (the drop, or the first failed dial)
+	outageDrop    string    // how the stream before it ended; "" = no prior stream
+	outageLastErr error     // newest reconnect failure
+
+	refusalGraceSpan time.Duration // wall-clock bound for the refusal run
+	selfTerminate    func()        // kill my own tmux session (default: `ocagent suicide`)
 
 	cursorPath string
 	winddown   *windDownHook
@@ -76,6 +86,118 @@ func newSSEStreamClient() *http.Client {
 
 func (l *listener) logf(format string, args ...any) {
 	fmt.Fprintf(l.out, "[ocagent] "+format+"\n", args...)
+}
+
+// logConnf prints a CONNECTION-STATUS line — connected / stream ended / connect
+// refused / connect failed. These say only "the transport is doing transport
+// things"; they carry no event and ask nothing of the agent, yet the runtime
+// treats every stdout line as a wake, so one server outage reconnect-storm
+// re-reads the whole context hundreds of times (a measured 4143s outage printed
+// 367 of these). Default: DROPPED. `-verbose` prints them.
+//
+// Classification lives HERE, at the call site, not in a pattern matched against
+// the rendered output. An external `grep -v` (the previous stop-gap) decides per
+// PHYSICAL LINE, so any log line whose payload contains a newline — an error
+// string, a server 409 body — can have its tail survive as a headless fragment,
+// and a filter anchored on ^ can swallow the middle of a multi-line event block.
+// A call-site split cannot do that: a suppressed line is never written at all,
+// and every OTHER logf call — including all four self-exit alarms below and the
+// no-OC_ID/OC_TOKEN mis-wire notice — is untouched by construction.
+func (l *listener) logConnf(format string, args ...any) {
+	if !l.verbose {
+		return
+	}
+	l.logf(format, args...)
+}
+
+// sseStatusError is a non-200, non-409 response to GET /api/events, carrying the
+// status so the run loop can tell the two very different things a bad status
+// means apart. 5xx / a dial error is the SERVER having a bad day — transient,
+// self-healing, and exactly the reconnect storm this change exists to silence.
+// A 4xx is MY problem: an expired or wrong OC_TOKEN, a wrong OC_ID. Retrying
+// cannot fix it, a human must, so it is an actionable config error and prints.
+type sseStatusError struct{ code int }
+
+func (e *sseStatusError) Error() string { return fmt.Sprintf("unexpected status %d", e.code) }
+
+// clientFault reports whether err is a 4xx other than 409. 409 is excluded
+// because it already has its own louder path (foldRefusal → the fail-closed
+// self-termination alarm); logging it twice would just be noise.
+func clientFault(err error) (int, bool) {
+	var se *sseStatusError
+	if !errors.As(err, &se) {
+		return 0, false
+	}
+	if se.code < 400 || se.code >= 500 || se.code == http.StatusConflict {
+		return se.code, false
+	}
+	return se.code, true
+}
+
+// now is the injectable clock, nil-safe so a hand-built listener (there are
+// several in the tests) cannot panic on the outage path.
+func (l *listener) now() time.Time {
+	if l.clock == nil {
+		return time.Now()
+	}
+	return l.clock()
+}
+
+// noteStreamDropped records HOW a healthy stream ended and starts the clock on a
+// possible outage. The err is kept as text because its THREE STATES are the
+// diagnosis: `<nil>` is a clean close, `unexpected EOF` is being killed
+// mid-read, `context canceled` is the idle watchdog firing. Only ever reached
+// right after a reportOutage, so the fields are known-clear.
+func (l *listener) noteStreamDropped(err error) {
+	l.outageStart = l.now()
+	l.outageDrop = fmt.Sprintf("%v", err)
+}
+
+// noteConnectFailure folds ONE failed reconnect into the current outage. Cheap
+// and silent by design — an outage is REPORTED once, on recovery, not
+// accumulated line by line into the transcript.
+func (l *listener) noteConnectFailure(err error) {
+	if l.outageStart.IsZero() {
+		l.outageStart = l.now() // never had a stream to lose (outage at boot)
+	}
+	l.outageFails++
+	l.outageLastErr = err
+}
+
+// reportOutage closes the current outage and, if it lasted at least
+// listenOutageReportMin, prints ONE line for the whole thing.
+//
+// This line is the reason the quiet default is not a regression in
+// observability. Two signals were being carried by the per-retry chatter this
+// change silences, and both are preserved here rather than deleted:
+//
+//   - HOW BAD it got. A 4143-second, 367-retry outage must not vanish from the
+//     transcript just because its 367 individual lines were too expensive. The
+//     count and the duration say it in one line instead of 367.
+//   - WHY it dropped. `stream ended: <nil>` (clean close) vs `unexpected EOF`
+//     (killed mid-read) vs `context canceled` (the idle watchdog) is the
+//     three-state that diagnosed the last incident — 247 hard drops against 0
+//     clean closes is what proved the server was being hard-killed with no
+//     graceful shutdown. So the LAST failure is quoted verbatim, error and all.
+//
+// It goes through logf, never logConnf: an outage worth five minutes is worth
+// waking a human for, which is exactly the class -verbose must not gate.
+func (l *listener) reportOutage() {
+	fails, start := l.outageFails, l.outageStart
+	drop, lastErr := l.outageDrop, l.outageLastErr
+	l.outageFails, l.outageStart, l.outageDrop, l.outageLastErr = 0, time.Time{}, "", nil
+	if fails == 0 || start.IsZero() {
+		return // a drop that reconnected first try is not an outage
+	}
+	dur := l.now().Sub(start)
+	if dur < listenOutageReportMin {
+		return // the routine drop the quiet default exists to swallow
+	}
+	if drop == "" {
+		drop = "n/a (no prior stream)"
+	}
+	l.logf("listen: recovered after a %s outage — %d failed reconnect attempts; "+
+		"dropped with: %s; last failure: %v", dur.Round(time.Second), fails, drop, lastErr)
 }
 
 // foldProbe runs ONE session-existence probe and folds its tri-state verdict
@@ -269,8 +391,12 @@ func (l *listener) connectOnce(ctx context.Context) (opened, activity, selfExit 
 				errSSERefused, strings.TrimSpace(string(snippet)))
 		}
 		_, _ = io.Copy(io.Discard, resp.Body)
-		return false, false, false, fmt.Errorf("unexpected status %d", resp.StatusCode)
+		return false, false, false, &sseStatusError{code: resp.StatusCode}
 	}
+	// THE recovery moment (the 200 body is about to be read). If a long outage
+	// just ended, this is where it gets its one line — before the connected
+	// chatter, because the summary is the headline and the chatter is optional.
+	l.reportOutage()
 	// T-5b83: name the build we just attached to. A station version change
 	// necessarily restarts the station and therefore drops every stream, so
 	// this line ALREADY marks the moment of every changeover — it just never
@@ -298,7 +424,7 @@ func (l *listener) connectOnce(ctx context.Context) (opened, activity, selfExit 
 	if sha := strings.TrimSpace(resp.Header.Get(stationSHAHeader)); sha != "" {
 		station = " [station " + sha + "]"
 	}
-	l.logf("listen: connected — streaming %s%s (⇒ online while held)%s", l.cfg.Base, eventsPath, station)
+	l.logConnf("listen: connected — streaming %s%s (⇒ online while held)%s", l.cfg.Base, eventsPath, station)
 
 	// Boot/reconnect drain: /api/events has no replay, so any reply_card delta
 	// fanned while this listener held no stream is lost — catch up from the
@@ -357,9 +483,19 @@ func (l *listener) run(ctx context.Context) int {
 				backoff = l.backoffStart // a byte proved health → reconnect fast
 			}
 			l.resetRefusals() // an opened stream breaks any refusal run
-			l.logf("listen: stream ended: %v", err)
+			l.lastStatus = 0  // a healthy connect re-arms the 4xx notice
+			// The drop starts the outage clock and — crucially — parks the
+			// three-state cause, which is the signal the silenced per-drop line
+			// used to carry.
+			l.noteStreamDropped(err)
+			l.logConnf("listen: stream ended: %v", err)
 		} else if errors.Is(err, errSSERefused) {
-			l.logf("listen: connect refused: %v", err)
+			l.noteConnectFailure(err)
+			// The PER-ATTEMPT line is transport noise (one per retry). The server's
+			// reason is not: it is parked on the listener so the fail-closed ALARM
+			// below still quotes it verbatim, even in the default quiet mode.
+			l.lastRefusal = err
+			l.logConnf("listen: connect refused: %v", err)
 			if l.foldRefusal() {
 				// FAIL-CLOSED (zombie defence line B): the server has refused this
 				// listener authoritatively for the whole grace window — I am a
@@ -369,8 +505,10 @@ func (l *listener) run(ctx context.Context) int {
 				// exiting this loop — either way the reconnect hammering stops.
 				l.logf("listen: server refused the SSE %d consecutive times over %s — "+
 					"fail-closed: self-terminating instead of retrying forever "+
-					"(a refused listener is a zombie, not a client with bad luck).",
-					l.refusals, l.clock().Sub(l.firstRefusalAt).Round(time.Second))
+					"(a refused listener is a zombie, not a client with bad luck). "+
+					"last refusal: %v",
+					l.refusals, l.clock().Sub(l.firstRefusalAt).Round(time.Second),
+					l.lastRefusal)
 				if l.selfTerminate != nil {
 					l.selfTerminate()
 				}
@@ -381,7 +519,24 @@ func (l *listener) run(ctx context.Context) int {
 			// authoritative refusal — reset the run so a briefly-unavailable
 			// server can never accumulate toward the fail-closed kill.
 			l.resetRefusals()
-			l.logf("listen: connect failed: %v", err)
+			l.noteConnectFailure(err)
+			if code, actionable := clientFault(err); actionable {
+				// A 4xx needs a HUMAN (expired/wrong OC_TOKEN, wrong OC_ID) —
+				// never suppressed. But printing it once per retry would just
+				// move the token fire to a new grate, so it is deduped on the
+				// status VALUE: an unchanging fault says its piece once, and a
+				// CHANGE (401→403, or recovery then relapse) speaks again.
+				if l.lastStatus != code {
+					l.lastStatus = code
+					l.logf("listen: server rejected the SSE with %d — actionable: a 4xx is a "+
+						"CLIENT fault (expired/wrong OC_TOKEN, wrong OC_ID); retrying cannot "+
+						"clear it. Further retries at this status stay silent until it changes.",
+						code)
+				}
+			} else {
+				l.lastStatus = 0 // transient (5xx / dial) — a later 4xx must speak again
+				l.logConnf("listen: connect failed: %v", err)
+			}
 		}
 
 		if l.once {
@@ -414,8 +569,9 @@ func sleepCtx(ctx context.Context, sleep func(time.Duration), d time.Duration) b
 // listener (long-lived SSE client, short-timeout API client, real backoff/jitter, the
 // tmux session probe from OC_SESSION, the graceful hooks) and runs it under a
 // signal-cancellable context so SIGINT/SIGTERM stops the stream cleanly. `once` is the
-// single-connect flag (mirrors argparse --once). Always returns 0.
-func cmdListen(cfg Config, env func(string) string, once bool, out io.Writer) int {
+// single-connect flag (mirrors argparse --once); `verbose` re-enables the connection-status
+// lines that logConnf drops by default. Always returns 0.
+func cmdListen(cfg Config, env func(string) string, once, verbose bool, out io.Writer) int {
 	// Wrap BEFORE the first print: the mis-wire notice below is a transcript
 	// line like any other and must carry a time too (T-7fb2). Everything the
 	// listener and its hooks print goes through this one writer, so a stamp can
@@ -439,6 +595,7 @@ func cmdListen(cfg Config, env func(string) string, once bool, out io.Writer) in
 		idleReadTimeout:  listenIdleReadTimeout,
 		jitter:           defaultJitter,
 		out:              out,
+		verbose:          verbose,
 		probe:            makeSessionProbe(env),
 		clock:            time.Now,
 		probeUnknownSpan: probeUnknownGrace,

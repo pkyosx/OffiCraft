@@ -638,6 +638,34 @@ func (s *codexSession) handleServerRequest(msg appServerMessage) {
 	}
 }
 
+// codexListenerArgv is the full argv of the `ocagent listen` child this session
+// reads its OffiCraft events from. It returns the argv rather than an exec.Cmd
+// on purpose: building the Cmd here would make this a second process-starting
+// call site in the package, and hostseam_test.go's inventory of those is not
+// something a logging change should widen. The exec.Command stays at the
+// already-sanctioned site in runCodexSession.
+//
+// -verbose is DELIBERATE, and it does not contradict ocagent's quiet-by-default
+// connection status. Those two facts have to be read together:
+//
+//   - ocagent suppresses `listen: connected` and friends by default because the
+//     AGENT's runtime treats every stdout line as a wake, so a reconnect storm
+//     re-reads the whole context hundreds of times.
+//   - This process is NOT that runtime. Every line arriving here is screened by
+//     actionableCodexListenerLine below, which drops every `[ocagent] listen:`
+//     line before anything reaches the model transcript. So -verbose costs zero
+//     tokens here.
+//   - And warden needs one of those lines: `listen: connected` is the trigger
+//     that re-announces identity + rate limits the instant the SSE reopens
+//     (see the handler in runCodexSession). Without -verbose that trigger never
+//     fires and telemetry silently degrades to the 30-second ticker.
+//
+// So: do not "tidy" -verbose away — TestCodexListenerArgv_PassesVerbose will go
+// red, and the reason is above.
+func codexListenerArgv(workdir string) []string {
+	return []string{filepath.Join(workdir, "ocagent"), "listen", "-verbose"}
+}
+
 // codexListenerActions decides what ONE listener line does to the session:
 // whether it wakes a session whose boot is still unfinished, and whether it is
 // forwarded to the model as a turn. It is a pure function so the decision can be
@@ -879,7 +907,8 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 				s.activity("turn completed")
 				if !listenerStarted {
 					listenerStarted = true
-					listenerCmd = exec.Command(filepath.Join(*workdir, "ocagent"), "listen")
+					argv := codexListenerArgv(*workdir)
+					listenerCmd = exec.Command(argv[0], argv[1:]...)
 					listenerCmd.Dir = *workdir
 					listenerCmd.Stderr = out
 					pipe, pipeErr := listenerCmd.StdoutPipe()
