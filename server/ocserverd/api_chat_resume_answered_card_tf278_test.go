@@ -312,10 +312,11 @@ func TestResumeProseNamesTheAnsweredCardSignal(t *testing.T) {
 //
 // KNOWN GAPS — measured green, do not read this guard as covering them:
 //
-//   - The NUMERAL is not checked. Every face also says "all five reported in
-//     overview"; editing that word to "four" while leaving the five names in
-//     place is exactly the original lie in a shorter form, and this guard is
-//     blind to it. Nothing else in the package reads that word either.
+//   - The NUMERAL is not checked. Every face also says "all six reported in
+//     overview" (five until T-6bd2 added doc_capacity_chars); editing that word
+//     to "five" while leaving the six names in place is exactly the original lie
+//     in a shorter form, and this guard is blind to it. Nothing else in the
+//     package reads that word either.
 //   - A decoy chain naming NO real addend is dropped, not compared. Writing
 //     "…all four reported in overview (chat_count + task_count + roster_count +
 //     machine_count)" beside a correct chain stays green. The filter is what

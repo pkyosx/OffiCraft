@@ -2525,7 +2525,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO chat/task content). estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars + steps_on_answered_card_chars, all five reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit, the two studio-floor blocks, and the named steps sitting on an answered card — what pulling the snapshot actually costs. Step one of the two-step boot: call this FIRST to size resume_summary, then either call resume_summary directly (small) or hand the pull to a cheap sub-agent that returns a digest (large).
+         * Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO chat/task content). estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars + steps_on_answered_card_chars + doc_capacity_chars, all six reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit, the two studio-floor blocks, the named steps sitting on an answered card, and the near-cap document rows (0 unless something is close to its cap) — what pulling the snapshot actually costs. Step one of the two-step boot: call this FIRST to size resume_summary, then either call resume_summary directly (small) or hand the pull to a cheap sub-agent that returns a digest (large).
          * @description The size-only PEEK of the wake snapshot (``peek_resume_summary_size`` MCP
          *     tool, zero params; ``GET /api/resume-summary-size``) — step ONE of the two-step
          *     boot.
@@ -2536,12 +2536,13 @@ export interface paths {
          *     resume_summary actually carries) plus ``estimated_total_chars`` — a derived
          *     single number to gate the boot decision on — and a fixed guidance ``note``.
          *     ``estimated_total_chars`` is exactly ``chat_chars`` + ``tasks_detail_chars`` +
-         *     ``roster_chars`` + ``machines_chars`` + ``steps_on_answered_card_chars``, all
-         *     five reported in ``overview``: the
+         *     ``roster_chars`` + ``machines_chars`` + ``steps_on_answered_card_chars`` +
+         *     ``doc_capacity_chars``, all six reported in ``overview``: the
          *     WHOLE chat block as the snapshot renders it (``chat_chars`` is the rendered
          *     block's cost, NOT the sum of the message bodies), plus the plan text its task
-         *     rows omit, the two studio-floor blocks, and the named steps sitting on an
-         *     answered card — what pulling the snapshot actually costs. It carries
+         *     rows omit, the two studio-floor blocks, the named steps sitting on an
+         *     answered card, and the near-cap document rows (0 unless one of the caller's
+         *     long-lived documents is close to its cap) — what pulling the snapshot actually costs. It carries
          *     NO chat bodies and NO task rows of any kind: peeking it costs a few hundred
          *     bytes, so a waking agent sizes ``resume_summary`` BEFORE deciding whether to
          *     pull it into its own context or hand the pull to a cheap sub-agent (e.g. haiku)
@@ -6647,7 +6648,7 @@ export interface components {
         };
         /**
          * ResumeOverviewDTO
-         * @description The size/概要 block of the wake snapshot — the peek-then-decide signals (look at the SIZES first, then decide what to pull and whether to hand the digest to a sub-agent instead of loading it into your own context). ``chat_count`` / ``tasks_returned`` count what THIS snapshot carries; ``tasks_open_total`` is ALL the caller's open tasks (may exceed the bounded rows — page with ``list_tasks``); ``tasks_detail_chars`` sums every returned row's ``detail_chars`` (the plan text a full ``get_task`` pull would load); ``cards_waiting`` / ``cards_answered_recent`` count the CALLER'S reply cards still waiting on the owner / answered within the last 24h (pull with ``list_reply_cards``, cap with its ``limit``). ``roster_chars`` / ``machines_chars`` (T-1b09) size the two studio-floor blocks THIS snapshot carries — reported separately, and deliberately NOT folded into ``tasks_detail_chars``: that one counts text the snapshot does NOT carry (the plan text a later ``get_task`` would load), so mixing the two kinds of number is what made ``estimated_total_chars`` ambiguous in the first place. ``steps_on_answered_card`` counts the ``answered_card_steps`` rows across the returned tasks — steps sitting on a reply card the owner already answered while the step is still ``in_progress``, i.e. an answer nobody has picked up; ``steps_on_answered_card_chars`` sizes the text those rows carry and, like ``roster_chars``/``machines_chars``, IS folded into ``estimated_total_chars`` because the snapshot does carry it.
+         * @description The size/概要 block of the wake snapshot — the peek-then-decide signals (look at the SIZES first, then decide what to pull and whether to hand the digest to a sub-agent instead of loading it into your own context). ``chat_count`` / ``tasks_returned`` count what THIS snapshot carries; ``tasks_open_total`` is ALL the caller's open tasks (may exceed the bounded rows — page with ``list_tasks``); ``tasks_detail_chars`` sums every returned row's ``detail_chars`` (the plan text a full ``get_task`` pull would load); ``cards_waiting`` / ``cards_answered_recent`` count the CALLER'S reply cards still waiting on the owner / answered within the last 24h (pull with ``list_reply_cards``, cap with its ``limit``). ``roster_chars`` / ``machines_chars`` (T-1b09) size the two studio-floor blocks THIS snapshot carries — reported separately, and deliberately NOT folded into ``tasks_detail_chars``: that one counts text the snapshot does NOT carry (the plan text a later ``get_task`` would load), so mixing the two kinds of number is what made ``estimated_total_chars`` ambiguous in the first place. ``steps_on_answered_card`` counts the ``answered_card_steps`` rows across the returned tasks — steps sitting on a reply card the owner already answered while the step is still ``in_progress``, i.e. an answer nobody has picked up; ``steps_on_answered_card_chars`` sizes the text those rows carry and, like ``roster_chars``/``machines_chars``, IS folded into ``estimated_total_chars`` because the snapshot does carry it. ``doc_capacity_chars`` (T-6bd2) sizes the ``doc_capacity`` block the same way, and is folded in for the same reason: the snapshot CARRIES those rows. Leaving it out understated the peek by the whole block — measured on a station with nine near-cap documents, the peek reported 890 against a block of 1341 characters — which is the third time this same omission has had to be fixed (roster/machines, then the answered-card pointers). It is 0 whenever nothing is near its cap, which is the ordinary case.
          */
         ResumeOverviewDTO: {
             /** Cards Answered Recent */
@@ -6658,6 +6659,8 @@ export interface components {
             chat_chars: number;
             /** Chat Count */
             chat_count: number;
+            /** Doc Capacity Chars */
+            doc_capacity_chars?: number;
             /** Machines Chars */
             machines_chars?: number;
             /** Roster Chars */
@@ -6803,12 +6806,13 @@ export interface components {
          *     through the shared server path, so they cannot drift) plus
          *     ``estimated_total_chars`` — a derived single number the boot threshold gates on:
          *     exactly ``chat_chars`` + ``tasks_detail_chars`` + ``roster_chars`` +
-         *     ``machines_chars`` + ``steps_on_answered_card_chars``, all five reported in
-         *     ``overview``. That is the WHOLE chat
+         *     ``machines_chars`` + ``steps_on_answered_card_chars`` + ``doc_capacity_chars``,
+         *     all six reported in ``overview``. That is the WHOLE chat
          *     block as the snapshot renders it (``chat_chars`` is the rendered block's cost,
          *     NOT the sum of the message bodies), plus the plan text its task rows omit, the
-         *     two studio-floor blocks it carries and the answered-card pointers on its task
-         *     rows — and
+         *     two studio-floor blocks it carries, the answered-card pointers on its task
+         *     rows, and the near-cap document rows it carries (``doc_capacity_chars`` — 0
+         *     unless one of the caller's long-lived documents is close to its cap) — and
          *     a fixed guidance ``note``. It carries NO chat bodies and NO task rows: peeking
          *     it costs a few hundred bytes, so a waking agent can size ``resume_summary``
          *     BEFORE deciding whether to pull it into its own context or hand the pull to a

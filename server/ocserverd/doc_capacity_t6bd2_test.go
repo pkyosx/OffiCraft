@@ -214,8 +214,19 @@ func TestResumeSummaryDocCapacityQuietWhenNothingIsNear(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("resume-summary: %d %s", rec.Code, rec.Body.String())
 	}
-	if strings.Contains(rec.Body.String(), "doc_capacity") {
-		t.Fatalf("nothing is near a cap, so the payload must not mention the block at all: %s",
+	// The BLOCK — the rows — must be absent: not an empty array, no key.
+	//
+	// ⚠️ Scoped to `"doc_capacity":` rather than the bare word since T-6bd2's
+	// peek fix. The overview now carries `doc_capacity_chars`, the addend of
+	// estimated_total_chars that sizes this block, and it is present-and-0 on
+	// every wake exactly like roster_chars / steps_on_answered_card_chars. That
+	// is a SIZE, not the block: it adds nothing for an agent to scroll past, and
+	// the peek needs it to exist unconditionally or its total would be a
+	// different arithmetic on stations with room than on stations without. The
+	// property this test guards — no rows, no key — is unchanged and still
+	// checked, on the exact key that carries them.
+	if strings.Contains(rec.Body.String(), `"doc_capacity":`) {
+		t.Fatalf("nothing is near a cap, so the payload must not carry the block at all: %s",
 			rec.Body.String())
 	}
 	// And one carrier comfortably below its threshold stays out on its own:

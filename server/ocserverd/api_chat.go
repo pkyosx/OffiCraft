@@ -230,7 +230,7 @@ const (
 	// task rows (resumeTasksN), so an agent holding more tasks than that can
 	// have a step stuck on an answered card and still read 0 here. Both notes
 	// now say which population the number is over, and that 0 is not proof.
-	peekNote                     = "Size-only preview of resume_summary — counts/sizes ONLY, no chat or task content. estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars + steps_on_answered_card_chars, all five reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit, the two studio-floor blocks, and the answered-card pointers its task rows carry. steps_on_answered_card > 0 means that many steps AMONG THE FEW MOST-RECENTLY-UPDATED TASKS the snapshot carries — not across all your tasks — are sitting on a reply card the owner ALREADY answered while the step is still in_progress, and nobody has acted on the answer yet; pull resume_summary (or the cards) and read it before anything else. It is a FLOOR, not a total: the task block is capped at the most recently updated tasks, so when you hold more tasks than that cap, an older task stuck on an answered card is not counted here and 0 does not prove there is none — use list_tasks / list_reply_cards to be sure. So it is what pulling the snapshot actually costs. Use it to decide: if small (rule of thumb < 20000 chars, ≈ 5k tokens) call resume_summary directly in your main session; if large, spawn a cheap sub-agent (e.g. haiku) to call resume_summary and return a compressed digest, so the full payload never burns your own context."
+	peekNote                     = "Size-only preview of resume_summary — counts/sizes ONLY, no chat or task content. estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars + steps_on_answered_card_chars + doc_capacity_chars, all six reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit, the two studio-floor blocks, the answered-card pointers its task rows carry, and the near-cap document rows (doc_capacity_chars is 0 unless one of your long-lived documents is close to its character cap). steps_on_answered_card > 0 means that many steps AMONG THE FEW MOST-RECENTLY-UPDATED TASKS the snapshot carries — not across all your tasks — are sitting on a reply card the owner ALREADY answered while the step is still in_progress, and nobody has acted on the answer yet; pull resume_summary (or the cards) and read it before anything else. It is a FLOOR, not a total: the task block is capped at the most recently updated tasks, so when you hold more tasks than that cap, an older task stuck on an answered card is not counted here and 0 does not prove there is none — use list_tasks / list_reply_cards to be sure. So it is what pulling the snapshot actually costs. Use it to decide: if small (rule of thumb < 20000 chars, ≈ 5k tokens) call resume_summary directly in your main session; if large, spawn a cheap sub-agent (e.g. haiku) to call resume_summary and return a compressed digest, so the full payload never burns your own context."
 	attachmentOctetStream        = "application/octet-stream"
 	attachmentDefaultPastedImage = "pasted-image"
 	// chatBodyMaxChars caps a chat message BODY at 4,000 UTF-8 CHARACTERS
@@ -1267,6 +1267,12 @@ func (s *apiServer) resumeSnapshotParts(actor string) (resumeWakeSnapshot, error
 
 		StepsOnAnsweredCard:      answeredSteps,
 		StepsOnAnsweredCardChars: answeredStepChars,
+		// The near-cap block is text this payload CARRIES, so it is sized here
+		// like the roster and the answered-card pointers — and folded into the
+		// peek's estimated_total_chars for the same reason. It reads
+		// snap.DocCapacity, the very slice that is serialised, so the number and
+		// the block cannot describe different things.
+		DocCapacityChars: docCapacityChars(snap.DocCapacity),
 	}
 	return snap, nil
 }
@@ -1836,6 +1842,22 @@ func answeredCardStepChars(rows []resumeAnsweredCardStepDTO) int {
 	return n
 }
 
+// docCapacityChars sizes the doc_capacity block the way rosterChars sizes the
+// roster: every character of text the payload actually carries, the rendered
+// numbers included (a reader pays for "12500" exactly as it pays for the label).
+// `writable` is counted too — it arrives on the wire as the four or five
+// characters of `true`/`false`, and the whole point of this number is that it
+// stops leaving carried text uncounted.
+func docCapacityChars(rows []docCapacityRow) int {
+	n := 0
+	for _, r := range rows {
+		n += utf8.RuneCountInString(r.Doc) + utf8.RuneCountInString(r.Action) +
+			len(strconv.Itoa(r.SizeChars)) + len(strconv.Itoa(r.CapChars)) +
+			len(strconv.Itoa(r.Remaining)) + len(strconv.FormatBool(r.Writable))
+	}
+	return n
+}
+
 func machinesChars(m resumeMachinesDTO) int {
 	n := utf8.RuneCountInString(m.YouAreOn)
 	for _, x := range m.List {
@@ -1888,9 +1910,28 @@ func (s *apiServer) HandlePeekResumeSummarySizeApiResumeSummarySizeGet(w http.Re
 		// answered-card pointers are text the snapshot CARRIES, so leaving
 		// them out would make the peek understate what it exists to measure —
 		// the same mistake the roster/machine blocks were fixed for above.
+		//
+		// T-6bd2: doc_capacity_chars is the SIXTH, and it is the THIRD time the
+		// note above had to be applied to a block that had just been added —
+		// T-6bd2 shipped doc_capacity as carried text and did not count it.
+		// Measured on the nine-near-cap fixture: the peek reported 890 while the
+		// block it omitted was 1341 characters (2119 bytes of JSON), so the
+		// number the boot threshold gates on described less than half of what
+		// the caller was about to read. So stop reading the paragraph as history
+		// and read it as the rule: a block that is SERIALISED INTO THIS PAYLOAD
+		// is an addend, the moment it is added. tasks_detail_chars is the only
+		// member of the other kind — text the caller would have to go and fetch.
+		//
+		// ⚠️ NOTHING HERE CATCHES THE NEXT ONE AUTOMATICALLY.
+		// TestPeekCountsEveryBlockThePayloadCarries pins doc_capacity and
+		// TestEveryFaceOfThePeekSumMatchesWhatTheServerActuallyAdds keeps the
+		// prose faces agreeing with this expression — but a SEVENTH block added
+		// to the payload and left out of this sum turns nothing red, exactly as
+		// the previous three did not. Whoever adds it has to add its addend and
+		// its assertion by hand.
 		EstimatedTotalChars: overview.ChatChars + overview.TasksDetailChars +
 			overview.RosterChars + overview.MachinesChars +
-			overview.StepsOnAnsweredCardChars,
+			overview.StepsOnAnsweredCardChars + overview.DocCapacityChars,
 		Note: peekNote,
 	})
 }

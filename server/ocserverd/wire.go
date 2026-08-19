@@ -1119,6 +1119,19 @@ type resumeOverviewDTO struct {
 	// carry, like roster_chars, not text it omits like tasks_detail_chars.
 	StepsOnAnsweredCard      int `json:"steps_on_answered_card"`
 	StepsOnAnsweredCardChars int `json:"steps_on_answered_card_chars"`
+	// DocCapacityChars sizes the doc_capacity block (T-6bd2) and is the SIXTH
+	// addend of estimated_total_chars.
+	//
+	// 🔴 THIS IS THE THIRD TIME THE SAME OMISSION HAS HAD TO BE FIXED. T-1b09
+	// added roster/machines after the peek understated the payload by the whole
+	// studio floor; T-f278 added the answered-card pointers and said in this
+	// very file that it was "the same mistake"; T-6bd2 then shipped a block the
+	// payload CARRIES and did not count it — measured, the peek reported 872
+	// while that block was 1350 bytes on the wire. The rule the three share is
+	// one line long and is the only test worth writing: if the payload CARRIES
+	// the text, it is an addend; if the caller would have to go and FETCH it
+	// (tasks_detail_chars), it is not.
+	DocCapacityChars int `json:"doc_capacity_chars"`
 }
 
 // resumeSummarySizeDTO is the size-only PEEK of the wake snapshot (T-7974
