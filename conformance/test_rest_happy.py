@@ -72,6 +72,7 @@ class HCtx:
     fresh_machine: Callable[[], str]
     fresh_role: Callable[[], str]
     _attachment: tuple[str, bytes] | None = field(default=None, repr=False)
+    _put_theme_id: str | None = field(default=None, repr=False)
     _avatar_to_delete_url: str | None = field(default=None, repr=False)
 
     def token(self, identity: str) -> str | None:
@@ -553,6 +554,34 @@ def _happy_task_artifact(ctx: HCtx) -> tuple[str, str]:
     )
     assert r.status_code == 200, f"happy artifact failed: {r.status_code} {r.text}"
     return task_id, r.json()["artifact_id"]
+
+
+def _happy_theme(ctx: HCtx) -> str:
+    """A saved custom theme (owner-written); returns its id.
+
+    Created through the real PUT rather than seeded, so the rows that READ a
+    theme cannot pass against a fixture the product could not have produced."""
+    theme_id = f"conf-happy-theme-{uuid.uuid4().hex[:8]}"
+    r = ctx.client.put(
+        f"/api/themes/{theme_id}",
+        json={"id": theme_id, "name": "conf happy theme",
+              "colors": {"--color-bg": "#101018"}},
+        headers=_auth(ctx.owner_token),
+    )
+    assert r.status_code == 200, f"happy theme failed: {r.status_code} {r.text}"
+    assert r.json()["created"] is True, f"a new theme must report created: {r.text}"
+    return theme_id
+
+
+def _happy_theme_for_put(ctx: HCtx) -> str:
+    """The theme the PUT row replaces — created once and CACHED, because that
+    row's path and its body have to name the SAME theme and are evaluated
+    separately. Deliberately not shared with the other theme rows: DELETE
+    consumes the theme it is given, and a shared one would make these rows
+    order-dependent."""
+    if ctx._put_theme_id is None:
+        ctx._put_theme_id = _happy_theme(ctx)
+    return ctx._put_theme_id
 
 
 def _happy_manual(ctx: HCtx) -> str:
@@ -1671,6 +1700,21 @@ HAPPY: dict[str, Happy] = {
             and bool(d["task_id"]) and bool(d["step_id"]),
         ),
     ),
+    "POST /api/tasks/{task_id}/steps/{step_id}/note/patch": Happy(
+        # T-1667. Appends onto a step whose note is still empty (each Happy row
+        # gets its own scratch task/step), so the check reads BOTH halves of the
+        # receipt: applied_edits proves the engine ran, and the echoed note
+        # proves what landed — a handler that 200s without storing cannot pass.
+        identity="agent",
+        path=lambda ctx: "/api/tasks/{}/steps/{}/note/patch".format(
+            *_happy_task_step(ctx)),
+        body={"edits": [{"old": "", "new": "conf happy note patch"}]},
+        check=lambda _c, r: _expect(
+            r,
+            lambda d: d["applied_edits"] == 1
+            and d["note"] == "conf happy note patch",
+        ),
+    ),
     "POST /api/tasks/{task_id}/steps/{step_id}/gate": Happy(
         identity="agent",
         path=lambda ctx: "/api/tasks/{}/steps/{}/gate".format(
@@ -1754,6 +1798,38 @@ HAPPY: dict[str, Happy] = {
     "GET /api/task-manuals/{type_key}": Happy(
         path=lambda ctx: f"/api/task-manuals/{_happy_manual(ctx)}",
     ),
+    # ── custom themes (T-83ef) — themes left /api/settings and got their own
+    # resource; "change one theme" is now one request instead of re-sending
+    # every theme with every embedded image.
+    "GET /api/themes": Happy(
+        path=lambda ctx: (_happy_theme(ctx), "/api/themes")[1],
+        # The list carries id and name ONLY. Asserting the ABSENCE is the point:
+        # a list of whole bundles would satisfy any "id and name are present"
+        # check, and serving whole bundles is exactly what this resource exists
+        # not to do (owner ruling 2026-08-18).
+        check=lambda _c, r: _expect(
+            r, lambda d: len(d) >= 1 and set(d[0]) == {"id", "name"}
+        ),
+    ),
+    "GET /api/themes/{theme_id}": Happy(
+        path=lambda ctx: f"/api/themes/{_happy_theme(ctx)}",
+        check=lambda _c, r: _expect(r, lambda d: d["colors"]["--color-bg"] == "#101018"),
+    ),
+    "PUT /api/themes/{theme_id}": Happy(
+        path=lambda ctx: f"/api/themes/{_happy_theme_for_put(ctx)}",
+        body=lambda ctx: {
+            "id": _happy_theme_for_put(ctx), "name": "conf happy rename",
+            "colors": {"--color-bg": "#202028"},
+        },
+        # created is False: the row already exists, so this is the REPLACE face.
+        check=lambda _c, r: _expect(r, lambda d: d["created"] is False),
+    ),
+    "DELETE /api/themes/{theme_id}": Happy(
+        path=lambda ctx: f"/api/themes/{_happy_theme(ctx)}",
+        check=lambda _c, r: _expect(
+            r, lambda d: d["deleted"] is True and d["display_theme_reset"] is False
+        ),
+    ),
     "POST /api/task-manuals/{type_key}": Happy(
         # agent floor (owner ruling 2026-07-13): content fields are
         # agent-editable (assignee is governance: owner/admin agent since
@@ -1784,6 +1860,12 @@ HAPPY: dict[str, Happy] = {
         identity="agent",
         path=lambda ctx: f"/api/task-manuals/{_happy_manual(ctx)}/learnings/patch",
         body={"edits": [{"old": "", "new": "conf happy patch"}]},
+        check=lambda _c, r: _expect(r, lambda d: d["applied_edits"] == 1),
+    ),
+    "POST /api/task-manuals/{type_key}/sop/patch": Happy(
+        identity="agent",
+        path=lambda ctx: f"/api/task-manuals/{_happy_manual(ctx)}/sop/patch",
+        body={"edits": [{"old": "", "new": "conf happy sop patch"}]},
         check=lambda _c, r: _expect(r, lambda d: d["applied_edits"] == 1),
     ),
     # ── product guide (docs/guide embed) ────────────────────────────────────
@@ -2355,61 +2437,54 @@ def test_settings_updater_channel_toggles_roundtrip(hctx: HCtx) -> None:
         assert body["updater_auto_update"] is False, body
 
 
-def test_settings_custom_theme_background_and_mode_round_trip(hctx: HCtx) -> None:
+def test_theme_background_and_mode_round_trip(hctx: HCtx) -> None:
     """The outer-canvas image and its lay-down mode are wire fields (T-081b), so
     the server — not just the client validator — decides what is admissible and
     what comes back. A legal image + mode round-trips durably; the mode
     vocabulary is closed; and a mode naming a zone that carries no image is a
     422 that writes nothing (a mode alone paints nothing, so it is a mistake
-    worth naming rather than ignoring)."""
+    worth naming rather than ignoring).
+
+    T-83ef moved the transport, not the claims: themes left /api/settings, so
+    this exercises PUT/GET /api/themes/{id}. One shape genuinely changed — the
+    write no longer echoes the bundle back (it answers a receipt, because a
+    bundle carries its images), so what the write stored is checked by reading
+    it, which was the durability assertion here anyway."""
     h = _auth(hctx.owner_token)
     png = (
         "data:image/png;base64,"
         "iVBORw0KGgoAAAABAAAAAQ=="  # PNG magic + filler; the gate checks magic+size
     )
+    bundle = {
+        "id": "conf-canvas",
+        "name": "Conformance canvas",
+        "colors": {"--color-bg": "#101018"},
+        "backgrounds": {"canvas": png},
+        "backgroundModes": {"canvas": "cover"},
+    }
     try:
-        r = hctx.client.patch(
-            "/api/settings",
-            json={
-                "custom_themes": [
-                    {
-                        "id": "conf-canvas",
-                        "name": "Conformance canvas",
-                        "colors": {"--color-bg": "#101018"},
-                        "backgrounds": {"canvas": png},
-                        "backgroundModes": {"canvas": "cover"},
-                    }
-                ]
-            },
-            headers=h,
-        )
+        r = hctx.client.put("/api/themes/conf-canvas", json=bundle, headers=h)
         assert r.status_code == 200, f"{r.status_code} {r.text}"
-        b = r.json()["custom_themes"][0]
-        assert b["backgrounds"] == {"canvas": png}, b
-        assert b["backgroundModes"] == {"canvas": "cover"}, b
+        assert r.json()["created"] is True, r.text
 
         # Durable across a re-read — an omitted passthrough would empty it here.
-        r = hctx.client.get("/api/settings", headers=h)
+        r = hctx.client.get("/api/themes/conf-canvas", headers=h)
         assert r.status_code == 200, f"{r.status_code} {r.text}"
-        b = r.json()["custom_themes"][0]
+        b = r.json()
         assert b["backgrounds"] == {"canvas": png}, b
         assert b["backgroundModes"] == {"canvas": "cover"}, b
 
         # The mode vocabulary is CLOSED — and unlike an unknown wording code,
         # this one is not lenient: the whole bundle is refused.
         for bad in ({"canvas": "contain"}, {"topbar": "tile"}):
-            r = hctx.client.patch(
-                "/api/settings",
+            r = hctx.client.put(
+                "/api/themes/conf-bad-mode",
                 json={
-                    "custom_themes": [
-                        {
-                            "id": "conf-bad-mode",
-                            "name": "Bad",
-                            "colors": {"--color-bg": "#101018"},
-                            "backgrounds": {"canvas": png},
-                            "backgroundModes": bad,
-                        }
-                    ]
+                    "id": "conf-bad-mode",
+                    "name": "Bad",
+                    "colors": {"--color-bg": "#101018"},
+                    "backgrounds": {"canvas": png},
+                    "backgroundModes": bad,
                 },
                 headers=h,
             )
@@ -2417,94 +2492,89 @@ def test_settings_custom_theme_background_and_mode_round_trip(hctx: HCtx) -> Non
             assert r.json()["error"]["code"] == "validation_error", r.text
 
         # A mode with no image behind it is refused too.
-        r = hctx.client.patch(
-            "/api/settings",
+        r = hctx.client.put(
+            "/api/themes/conf-lone-mode",
             json={
-                "custom_themes": [
-                    {
-                        "id": "conf-lone-mode",
-                        "name": "Lone",
-                        "colors": {"--color-bg": "#101018"},
-                        "backgroundModes": {"canvas": "sides"},
-                    }
-                ]
+                "id": "conf-lone-mode",
+                "name": "Lone",
+                "colors": {"--color-bg": "#101018"},
+                "backgroundModes": {"canvas": "sides"},
             },
             headers=h,
         )
         assert r.status_code == 422, f"{r.status_code} {r.text}"
 
-        # …and none of the refusals disturbed what was already stored.
-        r = hctx.client.get("/api/settings", headers=h)
-        assert [b["id"] for b in r.json()["custom_themes"]] == ["conf-canvas"], r.text
+        # …and none of the refusals stored anything: the refused ids have no row,
+        # and the good one is untouched. (The old version asserted this by
+        # listing settings' whole array; the id list is where that fact lives
+        # now, and it is checked for the refused ids by NAME rather than by
+        # counting, so an unrelated theme left by another row cannot mask it.)
+        r = hctx.client.get("/api/themes", headers=h)
+        assert r.status_code == 200, f"{r.status_code} {r.text}"
+        ids = [b["id"] for b in r.json()]
+        assert "conf-canvas" in ids, ids
+        assert "conf-bad-mode" not in ids, ids
+        assert "conf-lone-mode" not in ids, ids
     finally:
-        r = hctx.client.patch("/api/settings", json={"custom_themes": []}, headers=h)
-        assert r.status_code == 200, f"restore failed: {r.status_code} {r.text}"
+        r = hctx.client.delete("/api/themes/conf-canvas", headers=h)
+        assert r.status_code in (200, 404), f"restore failed: {r.status_code} {r.text}"
 
 
-def test_settings_custom_theme_unknown_wording_code_is_dropped_not_rejected(
-    hctx: HCtx,
-) -> None:
-    """custom_themes has ONE lenient rule inside an otherwise all-or-nothing
+def test_theme_unknown_wording_code_is_dropped_not_rejected(hctx: HCtx) -> None:
+    """A theme bundle has ONE lenient rule inside an otherwise all-or-nothing
     validator: a `wording` code outside the message-key whitelist does not 422
     the bundle — it is dropped and the request succeeds, so an already-imported
-    theme pack stays usable when the whitelist shrinks (T-081b). The echo
-    therefore carries a wording map the client did not send. Everything else in
-    the overlay stays strict, and the surviving codes are durable."""
+    theme pack stays usable when the whitelist shrinks (T-081b). Everything else
+    in the overlay stays strict, and the surviving codes are durable.
+
+    T-83ef moved the transport only. The write used to echo the pruned overlay
+    back; it now answers a receipt, so the prune is observed where it was always
+    the more valuable claim — in what was STORED."""
     h = _auth(hctx.owner_token)
     try:
-        r = hctx.client.patch(
-            "/api/settings",
+        r = hctx.client.put(
+            "/api/themes/conf-wording",
             json={
-                "custom_themes": [
-                    {
-                        "id": "conf-wording",
-                        "name": "Conformance wording",
-                        "colors": {"--color-bg": "#101018"},
-                        "wording": {
-                            "zh": {
-                                "nav.tasks": "待辦",
-                                "profile.themeOffice": "精靈村",
-                                "not.a.real.key": "x",
-                            }
-                        },
+                "id": "conf-wording",
+                "name": "Conformance wording",
+                "colors": {"--color-bg": "#101018"},
+                "wording": {
+                    "zh": {
+                        "nav.tasks": "待辦",
+                        "profile.themeOffice": "精靈村",
+                        "not.a.real.key": "x",
                     }
-                ]
+                },
             },
             headers=h,
         )
         assert r.status_code == 200, f"{r.status_code} {r.text}"
-        zh = r.json()["custom_themes"][0]["wording"]["zh"]
-        assert zh == {"nav.tasks": "待辦"}, zh
 
         # Durable: a re-read carries only the surviving code.
-        r = hctx.client.get("/api/settings", headers=h)
+        r = hctx.client.get("/api/themes/conf-wording", headers=h)
         assert r.status_code == 200, f"{r.status_code} {r.text}"
-        zh = r.json()["custom_themes"][0]["wording"]["zh"]
+        zh = r.json()["wording"]["zh"]
         assert zh == {"nav.tasks": "待辦"}, zh
 
         # The leniency is scoped to the CODE. A language outside {zh,en} is
         # still a 422 and still writes nothing.
-        r = hctx.client.patch(
-            "/api/settings",
+        r = hctx.client.put(
+            "/api/themes/conf-bad-lang",
             json={
-                "custom_themes": [
-                    {
-                        "id": "conf-bad-lang",
-                        "name": "Bad",
-                        "colors": {"--color-bg": "#101018"},
-                        "wording": {"xian": {"nav.tasks": "仙"}},
-                    }
-                ]
+                "id": "conf-bad-lang",
+                "name": "Bad",
+                "colors": {"--color-bg": "#101018"},
+                "wording": {"xian": {"nav.tasks": "仙"}},
             },
             headers=h,
         )
         assert r.status_code == 422, f"{r.status_code} {r.text}"
         assert r.json()["error"]["code"] == "validation_error", r.text
-        r = hctx.client.get("/api/settings", headers=h)
-        assert [b["id"] for b in r.json()["custom_themes"]] == ["conf-wording"], r.text
+        r = hctx.client.get("/api/themes/conf-bad-lang", headers=h)
+        assert r.status_code == 404, f"a refused write must store nothing: {r.text}"
     finally:
-        r = hctx.client.patch("/api/settings", json={"custom_themes": []}, headers=h)
-        assert r.status_code == 200, f"restore failed: {r.status_code} {r.text}"
+        r = hctx.client.delete("/api/themes/conf-wording", headers=h)
+        assert r.status_code in (200, 404), f"restore failed: {r.status_code} {r.text}"
 
 
 def test_upload_then_ref_post_roundtrip(hctx: HCtx) -> None:

@@ -39,6 +39,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"time"
 )
 
 // ── context-high band (service/sse/context_high.py) ─────────────────────────
@@ -282,14 +283,16 @@ func decideHandoverNotice(
 		Pct:   jsonFloat(*pct),
 		// A context-pressure notice always goes to a member that is still wanted
 		// online, so its sequence ends in a re-start.
-		Reason: offboardNotice(where, offboardCloserRestartSelf, false, text),
+		// A context-pressure notice is never the final call, so it quotes no
+		// deadline (T-d6a7); 0 is passed rather than a value nobody reads.
+		Reason: offboardNotice(where, offboardCloserRestartSelf, false, 0, text),
 	}
 }
 
 // offboardNotice composes EVERY offboard notice this server sends, in the one
 // sentence the owner approved (2026-08-16, card rc-ec5859a4c384):
 //
-//	<where> — offboard now: work the sequence below, then call <closer> yourself.[ You have 120 seconds left.]
+//	<where> — offboard now: work the sequence below, then call <closer> yourself.[ Your deadline is <RFC3339 UTC>.]
 //	<the 下線程序 document, verbatim>
 //
 // Three things about it are deliberate and must survive edits:
@@ -297,7 +300,13 @@ func decideHandoverNotice(
 //   - ONE sentence for every situation. The owner cut four differently-worded
 //     notices down to this: 「不需要太多不同描述吧, 就請他按照步驟做好下線, 頂多
 //     告訴他剩下 120 秒」. What tells the situations apart is the FIELDS — the
-//     numbers in `where`, and whether the 120-second clause is there — not tone.
+//     numbers in `where`, and whether the deadline clause is there — not tone.
+//     ⚠️ That clause names an INSTANT, never a span. It was "You have 120
+//     seconds left." until T-d6a7; the deadline runs from the first stamp and
+//     this notice is REPLAYED on every write to the row, so a duration told a
+//     later replay it had the full window when most of it was gone — and a
+//     LIVE duration would be worse still, since the client de-dupes on the
+//     whole sentence verbatim.
 //   - "work the sequence below, THEN call <closer> yourself" blocks both
 //     failure directions at once. Without the second half an agent idles until
 //     the server cuts it off (dead time the owner explicitly does not want);
@@ -325,11 +334,40 @@ const (
 	offboardCloserReportStopped = "report_stopped"
 )
 
-func offboardNotice(where, closer string, finalCall bool, offboardText string) string {
+func offboardNotice(where, closer string, finalCall bool, deadline float64, offboardText string) string {
 	reason := where + " — offboard now: work the sequence below, then call " +
 		closer + " yourself."
-	if finalCall {
-		reason += " You have 120 seconds left."
+	// T-d6a7 — the final call quotes an ABSOLUTE deadline, not a duration.
+	//
+	// It used to say a hardcoded "You have 120 seconds left." while the deadline
+	// runs from the FIRST stamp, and this notice is REPLAYED whenever the row is
+	// rewritten (the context pct is part of `where`, so a pct change re-sends
+	// it). Measured on a live station: two notices 46 s apart, both claiming
+	// 120 s — the second one telling an agent it had 120 s when it had ~74.
+	//
+	// 🔴 The intuitive fix — printing the seconds REMAINING — is the one thing
+	// this must not do. The client de-dupes notices by comparing the whole
+	// sentence verbatim (cli/ocagent listen_hooks), so a countdown makes every
+	// replay a different string, the de-dupe never matches again, and an agent
+	// working its close-out is woken and re-fed the whole document on every
+	// write to its row. An absolute deadline is CONSTANT within the epoch, so
+	// the sentence is stable and the number cannot go stale.
+	//
+	// The value comes from refocusDeadlineOf — the SAME expression that fills
+	// the cockpit's refocus_deadline — so there is no second source of truth to
+	// drift. deadline <= 0 means nothing collects this epoch on a clock, and
+	// then no time is quoted at all: offboardKindOf only returns "final" for a
+	// clocked arm (refocus_since > 0 and refocus_op != refocus), so a final call
+	// with no deadline is a contradiction, and printing epoch 0 formatted as
+	// 1970 would be worse than saying nothing.
+	if finalCall && deadline > 0 {
+		// .UTC() is not cosmetic. The reader is an AGENT, which need not be
+		// running on this host, and the whole point of the sentence is that the
+		// same epoch renders to the same characters on every replay — an
+		// implicit local zone makes the literal depend on the server process's
+		// TZ. Every other machine-read RFC3339 in this tree is explicit.
+		reason += " Your deadline is " +
+			time.Unix(int64(deadline), 0).UTC().Format(time.RFC3339) + "."
 	}
 	if offboardText != "" {
 		reason += "\n" + offboardText

@@ -61,6 +61,48 @@ func TestHandoverNotice_OncePerSession(t *testing.T) {
 	}
 }
 
+// TestHandoverNotice_TwoAgentsOnTheSameAnchorEachGetTheirOwn guards the half of
+// the claim key nothing else measures: the AGENT identity in it.
+//
+// The durable half is a column on the member row, so it is per-agent by
+// construction. The cache half is one map hanging off the server object, SHARED
+// by every connection the process serves — so if its key ever loses the agent id
+// (keyed on the anchor value alone, or one claim slot for the whole process),
+// the first agent to reach the notice point eats the claim and the second is
+// never told. Anchors are not unique across agents: they are wall-clock session
+// stamps, and agents started together carry the same one.
+//
+// 🔴 That victim is SILENT. It does not know a notice was owed, nothing errors,
+// and it simply runs into the handover ceiling with a quarter of its context
+// unspent — the exact complaint this gate exists to answer.
+//
+// The interleaving matters: TestHandoverNotice_OncePerSession also calls a
+// second agent, but only AFTER the first has moved on to a different anchor, so
+// an anchor-keyed cache still hands it a claim and stays green. Two agents on
+// the SAME anchor, back to back, is the only order that separates the two.
+func TestHandoverNotice_TwoAgentsOnTheSameAnchorEachGetTheirOwn(t *testing.T) {
+	api := newTasksTestServer(t)
+	const anchor = 1000
+
+	if !api.claimHandoverNotice("m-1", noticeGauge(anchor)) {
+		t.Fatal("the first agent's session must claim its one notice")
+	}
+	if !api.claimHandoverNotice("m-2", noticeGauge(anchor)) {
+		t.Fatal("a second agent on the SAME session anchor must still get its own " +
+			"notice — a claim key without the agent id lets one agent swallow " +
+			"another's, and the victim never learns it was owed one")
+	}
+
+	// Both agents must still be deduped individually, so the assertion above
+	// cannot be satisfied by a gate that simply claims every time.
+	if api.claimHandoverNotice("m-1", noticeGauge(anchor)) {
+		t.Fatal("the first agent's session must not be re-notified")
+	}
+	if api.claimHandoverNotice("m-2", noticeGauge(anchor)) {
+		t.Fatal("the second agent's session must not be re-notified")
+	}
+}
+
 func TestHandoverNotice_FailsSafeWithoutASessionAnchor(t *testing.T) {
 	api := newTasksTestServer(t)
 	// No boot_ts (no gauge, or server-restart amnesia): refuse to claim rather

@@ -52,6 +52,7 @@ func (s *apiServer) projectWorker(
 		machineObserved = s.observedWorkerHost(worker.ID, tele[worker.ID])
 	}
 	return newOutsourceWorkerDTO(worker, task, outsourceWorkerProjection{
+		cfg:         s.reconcileCfg,
 		unread:      unread,
 		now:         now,
 		online:      s.hub.IsOnline(worker.ID),
@@ -460,6 +461,26 @@ func (s *apiServer) HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(w htt
 	worker.DesiredState = DesiredStateOffline // owner-explicit stop intent (member parity)
 	worker.RefocusSince = 0.0                 // an explicit stop supersedes any in-flight handover
 	worker.RefocusOp = ""                     // …and its cause goes with it
+	// 🔴 This verb is the FORCED shape, not the graceful one (T-c996). It kills
+	// the session below with no grace, no warning and no 預告 — exactly what
+	// 強制下線 does to a staff member — so it stamps the same two anchors that
+	// handler stamps, and for the same two reasons: forced_stop_at is what makes
+	// offboardKindOf stay silent (the owner's ruling that a session about to
+	// stop existing is told nothing), and it is the only durable record that
+	// this session was cut off rather than collected — without it, what a killed
+	// worker leaves behind is indistinguishable from what a worker with nothing
+	// to say leaves behind.
+	//
+	// Both anchors, together: forcedEpochLive scopes the record to a LIVE epoch
+	// by requiring forced_stop_at >= stopping_since, so stamping one without the
+	// other leaves a worker that had already announced its own wind-down
+	// (report_stopping) still reading as "working its close-out" — which is the
+	// arm that speaks.
+	forcedAt := nowSecs()
+	worker.ForcedStopAt = forcedAt
+	if worker.StoppingSince <= 0.0 || worker.StoppingSince > forcedAt {
+		worker.StoppingSince = forcedAt
+	}
 	if err := s.dal.PutOutsourceWorker(*worker); err != nil {
 		s.outsourceMu.Unlock()
 		internalError(w, err)

@@ -33,8 +33,10 @@ type ActionKey = "spawn" | "cancel" | "stop" | "force-stop";
  * activate endpoint, which unconditionally clears the winding-down anchors and always
  * revives the member ("always revive from a wrong state"). Spawn is listed FIRST in
  * these wedged states = rescue-first. In `stopping` the Stop button becomes
- * FORCE-STOP (=force-stop endpoint): the member is already inside its 120s graceful-
- * stop grace, so the escalation is an IMMEDIATE kill (robust STOP straight to the
+ * FORCE-STOP (=force-stop endpoint): the member is already inside its soft offboard
+ * window, which runs NO clock — nothing on the server will ever collect it, so this
+ * button is not an impatient shortcut, it is the ONLY escalation there is (owner
+ * ruling rc-27d1710174dd). It is an IMMEDIATE kill (robust STOP straight to the
  * warden), not another graceful deactivate — the parent gates it behind a confirm.
  * `online-awake` keeps the ordinary graceful
  * Stop (=deactivate); `waking` keeps Cancel (deactivate / cancel-wake) alongside the

@@ -117,11 +117,6 @@ type apiServer struct {
 	// default) = the centred ~1040px content column the cockpit ships with; true
 	// lifts that cap. NOT an agent read path.
 	displayWide bool
-	// displayCustomThemes is the owner's saved custom theme bundles (DB
-	// display.custom_themes; T-16a1 P2). nil = none saved. Owner-writable via
-	// PATCH /api/settings so the set syncs across devices; display.theme may
-	// point at any id in it. NOT an agent read path.
-	displayCustomThemes []ThemeBundleDTO
 	// selfBase is this server's OWN loopback base URL ("http://127.0.0.1:PORT"),
 	// stamped by cmdServe once the bind address is known. It exists for the ONE
 	// in-process caller that needs an OC_BASE with no HTTP request to derive it
@@ -141,16 +136,15 @@ type apiServer struct {
 	codexNoticeRound         int // the FIRST, soft notice round (T-a9d6)
 	// handoverNoticed records, per agent id, the SESSION anchor (the gauge's
 	// boot_ts) whose one-and-only advance handover notice has already gone out.
-	// Guarded by settingsMu. See claimHandoverNotice for why the key is the
-	// session anchor and not the connection.
+	// Guarded by handoverNoticedMu below. See claimHandoverNotice for why the
+	// key is the session anchor and not the connection.
 	handoverNoticed map[string]float64
-	// softEscalated records, per member id, the soft-offboard epoch whose
-	// promotion to the final call has already been announced — the frame that
-	// tells the agent its 120 seconds have started. Keyed by the epoch so a
-	// re-armed wind-down announces again; guarded by its own mutex because it is
-	// touched from the reconcile tick, not the settings path.
-	softEscalated            map[string]float64
-	softEscalatedMu          sync.Mutex
+	// handoverNoticedMu guards the map above. It is its OWN mutex, and the
+	// reason is load-bearing: the claim
+	// gate now reads and writes SQLite on a cache miss, and holding the shared
+	// settings lock across that I/O would stall every unrelated settings reader
+	// on a database round-trip. This lock protects one map and nothing else.
+	handoverNoticedMu        sync.Mutex
 	monitoringRefreshSeconds int
 	// root anchors the repo-file assets (seeds / prebuilt binaries / frozen
 	// MCP catalog) — see assets.go.
@@ -193,8 +187,20 @@ type apiServer struct {
 	reconcileStates map[string]reconcileState
 	reconcileCfg    reconcileConfig
 	// noReconcile is the --no-reconcile serve flag: disables the cadence loop
-	// AND every event-driven warden-command dispatch (the shadow-deployment
-	// kill-switch) while the rest of the server runs unchanged.
+	// AND the event-driven warden-command dispatch the producer owns (the
+	// shadow-deployment kill-switch) while the rest of the server runs
+	// unchanged. Not a server-wide gate — see spec/lifecycle.md §4.1.
+	//
+	// 🔴 SAY THE TRUE THING WHERE THE FALSE ONE STOOD (owner ruling, T-941e
+	// 2026-08-18). A SHADOW SERVER WITH THIS FLAG SET STILL COMMANDS REAL
+	// WARDENS: the owner-triggered outsource-worker verbs (stop, restart, model
+	// change, relocate, refocus), a task terminate that dismisses its workers,
+	// and the worker's own report_stopped all reach enqueueToWarden without
+	// consulting this field. Pressing stop on a shadow cockpit kills a REAL
+	// session. Whoever runs a rehearsal has to know which buttons are live;
+	// nothing in the code stops them, and this comment is the only warning
+	// there is — the four sentences that used to promise otherwise were the
+	// reason nobody looked.
 	noReconcile bool
 	// identitySweepAt (T-bb29 §3) → member id → last cross-machine identity-sweep
 	// dispatch ts. The connection-edge 正身 sweep fires on every SSE first-connect
@@ -502,17 +508,6 @@ func (s *apiServer) displayWideSnapshot() bool {
 	return s.displayWide
 }
 
-// displayCustomThemesSnapshot returns a copy of the live custom theme bundles
-// (display.custom_themes; T-16a1 P2). Always non-nil for the wire (an empty
-// array, never null), and a copy so a caller can never mutate the snapshot.
-func (s *apiServer) displayCustomThemesSnapshot() []ThemeBundleDTO {
-	s.settingsMu.RLock()
-	defer s.settingsMu.RUnlock()
-	out := make([]ThemeBundleDTO, len(s.displayCustomThemes))
-	copy(out, s.displayCustomThemes)
-	return out
-}
-
 // ctxHighConfig returns the live context-high band config (by value — one
 // coherent snapshot per call site).
 func (s *apiServer) ctxHighConfig() SseContextHighConfig {
@@ -555,17 +550,86 @@ func (s *apiServer) codexCompactionThresholdSetting() int {
 // restart) → refuse to claim, so no notice fires off an anchor we cannot
 // recognise again. That errs toward SILENCE, which is the cheap direction here:
 // the agent still gets the handover SOP at the handover itself.
+//
+// 🔴 T-6ebc — THE MAP IS A CACHE, THE COLUMN IS THE AUTHORITY. A process-local
+// map cannot answer "has this session been told?" across a station re-exec: the
+// map empties and the AGENTS DO NOT — they reconnect, restore the same anchor,
+// and were told the same "this is the ONLY notice you get" a second time, which
+// is the sentence this gate exists to keep true. So a map MISS is not an
+// answer; it falls through to member.handover_noticed_ts and only a miss THERE
+// grants the claim. The map's whole job is to keep the steady state off the
+// database: once an agent is in the high band, this runs on every quiet tick
+// and every one of those calls after the first is a refusal.
+//
+// Both stores are written together and cleared together (clearSessionBootTS),
+// so the only drift a bug could produce is a map that has forgotten a claim the
+// column still holds — and that direction is caught by the read below rather
+// than turning into a second notice.
 func (s *apiServer) claimHandoverNotice(agentID string, record map[string]any) bool {
 	bootTS, ok := gaugeBootTS(record)
 	if !ok || bootTS <= 0 {
 		return false
 	}
-	s.settingsMu.Lock()
-	defer s.settingsMu.Unlock()
+	if s.cachedHandoverClaim(agentID) == bootTS {
+		return false
+	}
+	// Cache miss. Ask the durable half before granting anything — and do it
+	// WITHOUT holding the lock: this runs on the SSE tick for every agent in the
+	// high band, and a database round-trip under a shared lock would serialise
+	// them all behind each other.
+	if m, err := s.dal.GetMember(agentID); err == nil && m != nil {
+		if m.HandoverNoticedTS == bootTS {
+			// Already sent for THIS anchor, by a previous process. Warm the
+			// cache so the remaining ticks of this high band cost nothing.
+			s.rememberHandoverClaim(agentID, bootTS)
+			return false
+		}
+	}
+	// A failed read falls through to granting the claim. That is the deliberate
+	// direction: the alternative is an agent that silently never gets its one
+	// notice because the database hiccuped once, and the notice is what makes it
+	// hand over cleanly. A duplicate notice costs a repeated sentence, and a
+	// repeated sentence gets reported while silence never does.
+	//
+	// 🔴 Changing this to fail silent is a JUDGEMENT about which error is
+	// cheaper, not a cleanup — it needs a ruling, not a refactor. Guarded by
+	// TestHandoverNotice_ADatabaseFailureFallsTowardSending, so the change
+	// argues with a test rather than with a comment nobody has to read.
+	if !s.rememberHandoverClaim(agentID, bootTS) {
+		// Someone else claimed this same anchor while we were reading the
+		// database. Exactly one of us may send.
+		return false
+	}
+	if err := s.dal.SetMemberHandoverNoticedTS(agentID, bootTS); err != nil {
+		// Non-fatal, but say so: the claim is now cache-only, so the next
+		// station re-exec will re-notify this session.
+		taskLog("handover notice %s: claim not persisted: %v", agentID, err)
+	}
+	return true
+}
+
+// cachedHandoverClaim reports the anchor this process has already claimed for
+// agentID, or 0 when it holds none.
+func (s *apiServer) cachedHandoverClaim(agentID string) float64 {
+	s.handoverNoticedMu.Lock()
+	defer s.handoverNoticedMu.Unlock()
+	return s.handoverNoticed[agentID]
+}
+
+// rememberHandoverClaim records agentID's claim on bootTS and reports whether
+// THIS caller is the one that took it. A false means someone else got there
+// first while the caller was off reading the database — the double-check that
+// keeps "exactly once" true when two ticks race through the cache miss.
+func (s *apiServer) rememberHandoverClaim(agentID string, bootTS float64) bool {
+	s.handoverNoticedMu.Lock()
+	defer s.handoverNoticedMu.Unlock()
 	if s.handoverNoticed == nil {
 		s.handoverNoticed = map[string]float64{}
 	}
-	if sent, seen := s.handoverNoticed[agentID]; seen && sent == bootTS {
+	// Deleting this branch makes every racing caller a winner — guarded by
+	// TestHandoverNotice_TwoRacingClaimsOnlyOneSends, which is why this
+	// function returns a bool rather than nothing.
+	if s.handoverNoticed[agentID] == bootTS {
 		return false
 	}
 	s.handoverNoticed[agentID] = bootTS

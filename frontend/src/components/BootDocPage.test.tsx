@@ -161,7 +161,7 @@ describe("BootDocPage", () => {
   it("says on screen that a save replaces the WHOLE document", async () => {
     // 🔴 T-c33e. The per-section editor made this implicit — a row was the unit,
     // so nothing else could be at risk. With one box over the whole text, the
-    // failure it prevents (pasting one proposed block over a 45,000-character
+    // failure it prevents (pasting one proposed block over a long document
     // document and saving the rest away) is silent and only recoverable through
     // history, so the page has to SAY it. All three blocks, and before the
     // editor is opened as well as after: the sentence is useless if it only

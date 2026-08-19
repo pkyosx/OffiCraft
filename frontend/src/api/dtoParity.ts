@@ -65,6 +65,47 @@
 //      in the mock's `getMember`, or let its `getTask` keep the dep join, → red.
 //   3. the COMPILE-TIME pin in `dtoParity.test.ts` (`TaskDTO` has no `dep_tasks`).
 //      The dep-join half rests on this ONE guard — do not treat it as decoration.
+// ── /api/themes (T-83ef) — SAFE, and the asymmetry runs the OTHER WAY ────────
+// This file exists because a per-item response can be POORER than the list row.
+// Themes are the opposite by design and it is worth writing down so nobody
+// "fixes" it: `GET /api/themes` returns id and name ONLY, while
+// `GET /api/themes/{id}` returns the whole bundle. A per-item read is therefore
+// a strict superset — the direction this file worries about cannot occur.
+//
+// The hazard is the mirror image, so state it plainly: a LIST ROW IS NOT A
+// BUNDLE. Anything that needs colours, wording, avatars, logo, nav icons or
+// backgrounds must fetch the one theme; treating a row as a bundle loses every
+// one of them. `ThemeListItem` is a separate type with no such fields, so this
+// is a compile error rather than a silent blank theme — that type separation IS
+// the guard, and collapsing the two types into one optional-field type would
+// remove it while looking tidier.
+//
+// Why the list is thin at all: a bundle carries its images embedded, so a list
+// of bundles is the several-hundred-kilobyte payload that made GET /api/settings
+// unusable and that T-83ef exists to remove (owner ruling 2026-08-18).
+//
+// ── PATCH /api/settings: THE MOCK MUST NOT SWEEP display_theme (T-83ef) ──────
+// An omitted display_theme changes nothing — on BOTH sides. Neither the server
+// nor the mock may reset a now-dangling active theme here.
+//
+// It used to be the other way: both swept, back when this endpoint also wrote
+// the bundles and so could orphan the active theme itself. It cannot any more —
+// DELETE /api/themes/{id} does the reset and says so in its receipt. The server
+// dropped its sweep for a stated reason ("a second opinion about a fact that
+// endpoint already settled, and the two would drift", api_settings.go); the
+// mock kept sweeping, so the two that drifted were the server and the mock, and
+// that comment described its own situation for a while with nobody noticing.
+//
+// 🔴 THIS ONE CANNOT BE PINNED BY A TEST, which is exactly why it is written
+// here. A dangling display_theme is unreachable through the mock's own API: the
+// PATCH refuses an unknown id (422) and deleteTheme resets the active one. The
+// state arises in production from a real race — the existence check in
+// PATCH /api/settings sits outside the lock it then writes under, so a DELETE
+// landing in between leaves settings naming a theme with no row (see the note
+// on displayThemeExists in api_themes.go). A mock that healed that state would
+// be kinder than the server about a condition the owner can actually be sitting
+// in, and no test would ever say so.
+//
 // Before adding any new per-item refetch, read the gap for that endpoint AND
 // those three. The fake-side protection lapses silently whenever a gap empties
 // or a consumer goes away; nothing announces it.

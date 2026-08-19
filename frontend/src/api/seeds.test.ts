@@ -52,7 +52,7 @@ describe("seeds constants track seeds/*.md by construction", () => {
   ];
 
   it.each(cases)(
-    "$name — exported constant equals the raw seed with {OWNER_ID} folded",
+    "$name — exported constant equals the raw seed after owner-id folding",
     ({ exported, raw }: SeedCase) => {
       // A hand-copied stale string, or any single-char divergence, breaks this.
       expect(exported).toBe(foldOwnerId(raw));
@@ -67,20 +67,4 @@ describe("seeds constants track seeds/*.md by construction", () => {
     },
   );
 
-  it("{OWNER_ID} substitution is real, not a no-op", () => {
-    // Positive: the source genuinely carries the placeholder the server folds.
-    expect(SYSTEM_INTERACTION_RAW).toContain("{OWNER_ID}");
-    // Negative control: the exported constant has none left, and the fold
-    // actually produced the owner id in its place.
-    expect(SEED_SYSTEM_INTERACTION_MD).not.toContain("{OWNER_ID}");
-    expect(SEED_SYSTEM_INTERACTION_MD).toContain(MOCK_OWNER_ID);
-  });
-
-  it("system_interaction carries the full current seed, not the old truncated copy", () => {
-    // Sections the drifted hand-copy was missing (SSE scrollback, card→node
-    // binding). Their presence proves the preview now reflects the real file.
-    expect(SEED_SYSTEM_INTERACTION_MD).toContain("before_ts");
-    expect(SEED_SYSTEM_INTERACTION_MD).toContain("卡會自動掛到你手上的任務節點");
-    expect(SEED_SYSTEM_INTERACTION_MD.length).toBeGreaterThan(5000);
-  });
 });

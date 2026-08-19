@@ -397,7 +397,34 @@ func (l *listener) connectOnce(ctx context.Context) (opened, activity, selfExit 
 	// just ended, this is where it gets its one line — before the connected
 	// chatter, because the summary is the headline and the chatter is optional.
 	l.reportOutage()
-	l.logConnf("listen: connected — streaming %s%s (⇒ online while held)", l.cfg.Base, eventsPath)
+	// T-5b83: name the build we just attached to. A station version change
+	// necessarily restarts the station and therefore drops every stream, so
+	// this line ALREADY marks the moment of every changeover — it just never
+	// said which commit. The sha rides the SSE response headers, so there is
+	// no second request: a changeover reconnects the whole fleet at once, and
+	// that is precisely the station's most fragile moment to be asked N times.
+	//
+	// 🔴 THE SUFFIX GOES AT THE END AND THE PREFIX DOES NOT MOVE. The codex
+	// sidecar reads this line through TWO prefix checks, and pushing those
+	// bytes rightward breaks BOTH (cli/ocwarden/codex_session.go):
+	//   - actionableCodexListenerLine (:695) keeps transport chatter out of
+	//     the model transcript by matching the SHORT prefix "[ocagent] listen:".
+	//     Miss it and every connect and every reconnect turns the raw line into
+	//     a turn — at a changeover, for the whole fleet at once.
+	//   - codexListenerActions (:687) opens the ONE post-boot wake (T-51b0) on
+	//     the long prefix "[ocagent] listen: connected". Miss it and that wake
+	//     never fires, silently, and nothing reports it.
+	// The long prefix implies the short one, so the test that pins it guards
+	// both paths.
+	//
+	// Absent header ⇒ the line is emitted byte-identical to what it was before
+	// this change. Nothing is fabricated and no earlier value is reused: each
+	// connection reads only its own response.
+	station := ""
+	if sha := strings.TrimSpace(resp.Header.Get(stationSHAHeader)); sha != "" {
+		station = " [station " + sha + "]"
+	}
+	l.logConnf("listen: connected — streaming %s%s (⇒ online while held)%s", l.cfg.Base, eventsPath, station)
 
 	// Boot/reconnect drain: /api/events has no replay, so any reply_card delta
 	// fanned while this listener held no stream is lost — catch up from the

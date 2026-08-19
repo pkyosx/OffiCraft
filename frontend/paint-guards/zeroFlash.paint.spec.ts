@@ -11,13 +11,23 @@
 // BAD_FRAMES=0 on a build whose reconcile handoff is completely untested — and
 // the very same build reads BAD_FRAMES=231 the moment a token is present. So
 // every test here proves, in-band:
-//   1. GET /api/settings really answered 200, and
-//   2. its body really carried this theme, and
+//   1. the reconcile's requests really answered 200, and
+//   2. the server really reported this theme as existing, and really handed
+//      back its bundle, and
 //   3. the app really adopted the server's copy — the seeded record is written
 //      with a DIFFERENT `name`, and the record on disk afterwards must carry the
 //      SERVER's name. That is only true if reconcile ran to completion.
 // If any of those is false the test fails as a setup error rather than passing
 // vacuously.
+//
+// [T-83ef] THE SAME THREE CLAIMS, ON THE NEW WIRE. Themes are their own resource
+// now, so "the server knows this theme" is no longer a field on the settings
+// body: the reconcile is Promise.all([GET /api/settings, GET /api/themes]) and
+// then GET /api/themes/{active}. Claim 1 splits across those three responses —
+// each leg is asserted, because a leg that never answered is exactly the setup
+// error this preamble exists to catch — and claim 2 is now read off the theme
+// list (existence) and the single-bundle read (the picture) instead of off
+// `custom_themes`. Nothing was dropped; only where each fact is read moved.
 
 import { expect, test } from "@playwright/test";
 import {
@@ -32,6 +42,8 @@ import {
   applyNetProfile,
   badFrames,
   captureSettingsResponses,
+  captureThemeBundleResponses,
+  captureThemeListResponses,
   collect,
   collectPageErrors,
   frameCarrying,
@@ -57,6 +69,8 @@ for (const profile of ["fourg", "loopback"] as NetProfile[]) {
   }) => {
     const pageErrors = collectPageErrors(page);
     const settingsBodies = captureSettingsResponses(page);
+    const themeListBodies = captureThemeListResponses(page);
+    const themeBundleBodies = captureThemeBundleResponses(page);
 
     await page.goto(OK_SERVER);
     await seedSession(page, {
@@ -75,17 +89,37 @@ for (const profile of ["fourg", "loopback"] as NetProfile[]) {
 
     // ---- preconditions: the scenario really is the one we meant to measure ----
     expect(settingsBodies.length, "GET /api/settings never answered 200").toBeGreaterThan(0);
-    const settings = (await settingsBodies[0]) as {
-      custom_themes?: { id: string }[];
-      display_theme?: string;
-    } | null;
+    const settings = (await settingsBodies[0]) as { display_theme?: string } | null;
+    // Settings still owns WHICH theme is active…
     expect(settings?.display_theme, "server did not report this theme as active").toBe(
       PAINT_THEME_ID
     );
+    // …and the theme resource owns WHICH THEMES EXIST. This is the assertion that
+    // used to read `settings.custom_themes`: same claim ("the server reported the
+    // theme as existing"), read off the face that carries it now.
+    expect(themeListBodies.length, "GET /api/themes never answered 200").toBeGreaterThan(0);
+    const themeList = (await themeListBodies[0]) as { id: string; name: string }[] | null;
     expect(
-      (settings?.custom_themes ?? []).map((b) => b.id),
+      (themeList ?? []).map((t) => t.id),
       "server did not report the theme as existing"
     ).toContain(PAINT_THEME_ID);
+    // …and the PICTURE itself only ever comes from the single-bundle read. Without
+    // this the run could not tell "the server confirmed the theme" from "the app
+    // kept its own cache and never asked for the bundle" — which is precisely the
+    // difference the seeded-name check below is measuring.
+    expect(
+      themeBundleBodies.length,
+      `GET /api/themes/${PAINT_THEME_ID} never answered 200 — the reconcile never ` +
+        "fetched the active bundle, so no server copy was ever adopted"
+    ).toBeGreaterThan(0);
+    const serverBundle = (await themeBundleBodies[0]) as {
+      id?: string;
+      name?: string;
+    } | null;
+    expect(serverBundle?.id, "the bundle the server handed back is a different theme").toBe(
+      PAINT_THEME_ID
+    );
+    expect(serverBundle?.name).toBe(VALID_RICH_BUNDLE.name);
 
     expect(storedPaint, "the paint record was removed — reconcile did not confirm it").not.toBeNull();
     const stored = JSON.parse(storedPaint as string) as { bundle: { name: string } };
@@ -138,6 +172,7 @@ test("server no longer knows the theme → the stale picture is dropped (documen
   // covering it, and so nobody "fixes" this into keeping a deleted theme.
   const pageErrors = collectPageErrors(page);
   const settingsBodies = captureSettingsResponses(page);
+  const themeListBodies = captureThemeListResponses(page);
 
   await page.goto(UNKNOWN_SERVER);
   await seedSession(page, {
@@ -154,8 +189,13 @@ test("server no longer knows the theme → the stale picture is dropped (documen
   const storedPaint = await readStoredPaint(page);
 
   expect(settingsBodies.length, "GET /api/settings never answered 200").toBeGreaterThan(0);
-  const settings = (await settingsBodies[0]) as { custom_themes?: unknown[] } | null;
-  expect(settings?.custom_themes, "this server was supposed to know no themes").toEqual([]);
+  expect(themeListBodies.length, "GET /api/themes never answered 200").toBeGreaterThan(0);
+  // The precondition that makes this scenario the one we meant: the server knows
+  // NO themes. It used to be `settings.custom_themes === []`; the empty set now
+  // lives on the theme resource, and settings reports no active theme to match.
+  expect(await themeListBodies[0], "this server was supposed to know no themes").toEqual([]);
+  const settings = (await settingsBodies[0]) as { display_theme?: string } | null;
+  expect(settings?.display_theme, "this server was supposed to have no active theme").toBe("");
 
   expect(samples.length).toBeGreaterThanOrEqual(MIN_SAMPLES);
   expect(pageErrors).toEqual([]);

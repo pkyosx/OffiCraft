@@ -17,6 +17,8 @@ paths:
 
 所有非 2xx 都轉成 ApiError，讀 server 的 error.code 與 error.message；不要用 message regex 判斷錯誤。mock 必須回同一個 envelope。
 
+`error.code` 只有一份表：`docs/design/api-error-envelope.codes.json`，由 `api/errorCodes.ts` 的 `codeForStatus` 讀入（server 的 `errorCodeForStatus` 與 conformance 的 `CODE_BY_STATUS` 也各自對它斷言）。mock 與測試都不得手寫 code：mock 用 `mockApiError(message, status, serverMessage)`，不 import `ApiError`；測試裡造假回應寫 `codeForStatus(status)`。手寫過的 `bad_request` 是 server 從來不會送的字串，讓依 code 分支的元件測試跟一個不存在的 server 達成一致。`ApiError.code` 本身仍是自由字串——它裝的是線上真回應，server 日後新增 code 不能讓前端編不過。
+
 ## SSE 與 refetch
 
 api/http.ts 的 toSseDelta 只投影事件身分欄：id、from、to、reader、peer；其他 status／priority 等欄位在 seam 就丟掉，讓下游型別上不可能偷偷 merge payload。姓名任一缺少就完整 refetch，不可當成「無變更」：串流沒有 replay，空名字代表不知道漏了什麼。

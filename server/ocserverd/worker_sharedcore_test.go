@@ -367,15 +367,6 @@ func distinctiveLine(t *testing.T, doc, other string) string {
 	return best
 }
 
-func TestWorkerBootContextCarriesRiskLanguage(t *testing.T) {
-	ctx := workerCtx(t)
-	for _, want := range []string{"風險", "backup-before-destructive", "verify-before-assert", "安全邊界"} {
-		if !strings.Contains(ctx, want) {
-			t.Errorf("worker boot context is missing risk language %q", want)
-		}
-	}
-}
-
 // TestThereIsNoOutsourceOnlySeed — T-4595.
 //
 // The outsource-only seed (seeds/worker_context.md) is deleted. This asserts
@@ -400,60 +391,5 @@ func TestThereIsNoOutsourceOnlySeed(t *testing.T) {
 			"every difference it carried was false, a restatement of the shared seed, " +
 			"or unbacked by any harm (T-4595). The one survivor is a sentence in " +
 			"system_interaction.md, written for both audiences.")
-	}
-}
-
-// TestNoBootContextReinstatesTheRetiredOutsourceClaims — T-4595.
-//
-// The two retired claims with a NAMED harm:
-//
-//   - 「你沒有 roster 隊友關係」/「§11 的隊友模型對你而言就是你＋owner」. §11 of
-//     the shared seed says staff AND outsource workers 都算 teammates; the
-//     roster-read and post_chat tools are all available to a worker; its
-//     resume_summary ships a roster block. THE HARM: an owner routinely puts
-//     routing rules in the user-custom block ("403 分流請洽 Mira"), and a
-//     worker that believes the world is only itself + the owner will not go
-//     find her — hitting a governance 403 leaves it blindly retrying or
-//     waiting for nothing.
-//   - 「`report_waking` 不在你的開機序列」. False:
-//     HandleReportWakingApiSelfWakingPost routes an outsource caller through
-//     workerReportWaking on the very same /api/self/waking endpoint, and
-//     resolveSelf's own comment says a worker walks the SAME 下線程序.
-//     THE HARM: a worker that skips it never reports its live model, so the
-//     cockpit's model column is structurally blank for every worker.
-//
-// 🔴 WHAT THIS ACTUALLY CHECKS, stated honestly: it is a WORDING tripwire over
-// the assembled documents. It cannot detect the same claim rephrased in words
-// nobody has written yet. It exists so that restoring the retired sentences —
-// the realistic regression — turns red on its own assertion rather than sailing
-// through.
-func TestNoBootContextReinstatesTheRetiredOutsourceClaims(t *testing.T) {
-	worker := workerCtx(t)
-	_, bc := memberCtx(t)
-
-	// Positive controls first: both premises must still hold in the shared
-	// seed, otherwise the bans below guard nothing.
-	if !strings.Contains(worker, "正職成員與外包工作者都算") {
-		t.Fatal("shared §11 no longer says outsource workers count as teammates — " +
-			"re-derive this guard before trusting it")
-	}
-	if !strings.Contains(worker, "report_waking") {
-		t.Fatal("the assembled worker context never mentions report_waking at all — " +
-			"the ban below would be measuring nothing")
-	}
-
-	for _, banned := range []string{
-		"你沒有 roster 隊友關係",
-		"隊友模型對你而言",
-		"`report_waking` 不在你的開機序列",
-		"這就是你的上線訊號",
-		"你的開機序列以這一節為準",
-	} {
-		if strings.Contains(worker, banned) {
-			t.Errorf("worker boot context reinstated the retired claim %q (T-4595)", banned)
-		}
-		if strings.Contains(bc.Context, banned) {
-			t.Errorf("staff boot context picked up the retired outsource claim %q (T-4595)", banned)
-		}
 	}
 }

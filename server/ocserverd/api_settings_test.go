@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -459,151 +458,16 @@ func TestDisplayPrefsSettingRoundTrips(t *testing.T) {
 		t.Fatalf("cleared display_theme must be live: %q", got)
 	}
 
-	// custom_themes (T-16a1 P2) defaults to an empty array on the settings surface.
-	if status, data = doJSON(t, "GET", srv.URL+"/api/settings", owner, ""); status != 200 {
-		t.Fatalf("settings GET: %d", status)
-	}
-	if arr, ok := data["custom_themes"].([]any); !ok || len(arr) != 0 {
-		t.Fatalf("custom_themes default must be an empty array: %v", data["custom_themes"])
-	}
-
-	// A legal bundle round-trips: 200, echoed, durable, and display_theme may
-	// point at the new custom id in the SAME patch.
-	legal := `{"custom_themes":[{"id":"midnight","name":"Midnight","colors":` +
-		`{"--color-bg":"#101018","--color-accent":"rgba(120, 200, 255, 0.9)",` +
-		`"--color-text":"transparent"}}],"display_theme":"midnight"}`
-	if status, data = doJSON(t, "PATCH", srv.URL+"/api/settings", owner, legal); status != 200 {
-		t.Fatalf("legal custom_themes bundle must 200: %d %v", status, data)
-	}
-	if data["display_theme"] != "midnight" {
-		t.Fatalf("display_theme must accept an existing custom id: %v", data["display_theme"])
-	}
-	if arr, ok := data["custom_themes"].([]any); !ok || len(arr) != 1 {
-		t.Fatalf("custom_themes must echo the saved bundle: %v", data["custom_themes"])
-	}
-	if v, err := d.GetSetting(settingDisplayCustomThemes); err != nil || v == nil ||
-		!strings.Contains(*v, "midnight") {
-		t.Fatalf("custom_themes must be durable: %v %v", v, err)
-	}
-
-	// A non-whitelisted token name → 422, nothing overwritten.
-	if status, _ := doJSON(t, "PATCH", srv.URL+"/api/settings", owner,
-		`{"custom_themes":[{"id":"x1","name":"X","colors":{"--color-bogus":"#fff"}}]}`); status != 422 {
-		t.Fatalf("non-whitelisted token must 422: got %d", status)
-	}
-
-	// Each illegal colour value → 422, and none of them is ever stored.
-	for _, bad := range []string{
-		`url(https://evil)`, `red;}`, `<script>`, `expression(1)`, `var(--x)`,
-		`#fff;background:url(x)`, strings.Repeat("f", 70),
-	} {
-		body := `{"custom_themes":[{"id":"bad1","name":"Bad","colors":{"--color-bg":` +
-			mustJSONString(bad) + `}}]}`
-		if status, _ := doJSON(t, "PATCH", srv.URL+"/api/settings", owner, body); status != 422 {
-			t.Fatalf("illegal colour %q must 422: got %d", bad, status)
-		}
-	}
-	// The rejected patches wrote nothing — the midnight bundle still stands alone.
-	if status, data = doJSON(t, "GET", srv.URL+"/api/settings", owner, ""); status != 200 {
-		t.Fatalf("settings GET: %d", status)
-	}
-	if arr, _ := data["custom_themes"].([]any); len(arr) != 1 {
-		t.Fatalf("a rejected custom_themes patch must write nothing: %v", data["custom_themes"])
-	}
-
-	// display_theme pointing at a non-existent custom id → 422.
-	if status, _ := doJSON(t, "PATCH", srv.URL+"/api/settings", owner,
-		`{"display_theme":"ghost"}`); status != 422 {
-		t.Fatalf("display_theme=non-existent custom id must 422: got %d", status)
-	}
-
-	// wording overlay (T-16a1 P3): a legal per-language overlay round-trips —
-	// 200, echoed, durable — keyed on whitelisted message codes with zh/en langs.
-	worded := `{"custom_themes":[{"id":"worded","name":"Worded","colors":` +
-		`{"--color-bg":"#101018"},"wording":{"zh":{"nav.tasks":"待辦"},` +
-		`"en":{"nav.office":"Office Mode"}}}]}`
-	if status, data = doJSON(t, "PATCH", srv.URL+"/api/settings", owner, worded); status != 200 {
-		t.Fatalf("legal wording overlay must 200: %d %v", status, data)
-	}
-	if got := wordingValue(t, data, 0, "zh", "nav.tasks"); got != "待辦" {
-		t.Fatalf("wording overlay must echo the zh override: %q", got)
-	}
-	if got := wordingValue(t, data, 0, "en", "nav.office"); got != "Office Mode" {
-		t.Fatalf("wording overlay must echo the en override: %q", got)
-	}
-	if v, err := d.GetSetting(settingDisplayCustomThemes); err != nil || v == nil ||
-		!strings.Contains(*v, "待辦") {
-		t.Fatalf("wording overlay must be durable: %v %v", v, err)
-	}
-
-	// A code outside the whitelist no longer fails the bundle (T-081b, owner
-	// ruling 2026-07-27): the patch is accepted, the unknown code is dropped,
-	// and the known code beside it takes effect.
-	unknownCode := `{"custom_themes":[{"id":"worded","name":"Worded","colors":` +
-		`{"--color-bg":"#101018"},"wording":{"zh":{"nav.tasks":"待辦",` +
-		`"profile.themeOffice":"精靈村","not.a.real.key":"x"}}}]}`
-	if status, data = doJSON(t, "PATCH", srv.URL+"/api/settings", owner, unknownCode); status != 200 {
-		t.Fatalf("an unknown wording code must not fail the bundle: %d %v", status, data)
-	}
-	if got := wordingValue(t, data, 0, "zh", "nav.tasks"); got != "待辦" {
-		t.Fatalf("the known wording code must still take effect: %q", got)
-	}
-	for _, dropped := range []string{"profile.themeOffice", "not.a.real.key"} {
-		if got := wordingValue(t, data, 0, "zh", dropped); got != "" {
-			t.Fatalf("the unknown wording code %q must be dropped: %q", dropped, got)
-		}
-	}
-	if v, err := d.GetSetting(settingDisplayCustomThemes); err != nil || v == nil ||
-		strings.Contains(*v, "profile.themeOffice") {
-		t.Fatalf("the unknown wording code must not be stored: %v %v", v, err)
-	}
-
-	// Every illegal wording overlay → 422, and none is ever stored: a language
-	// other than zh/en, an over-cap value, a value carrying a control character
-	// (newline), and an over-cap entry count of RAW submitted keys.
-	junk := make([]string, 0, maxWordingEntriesPerLang+1)
-	for i := 0; i <= maxWordingEntriesPerLang; i++ {
-		junk = append(junk, fmt.Sprintf(`"junk.key.%d":"x"`, i))
-	}
-	for _, bad := range []string{
-		`"wording":{"xian":{"nav.tasks":"仙"}}`,                              // language not in {zh,en}
-		`"wording":{"zh":{"nav.tasks":"` + strings.Repeat("字", 201) + `"}}`, // over the 200-rune cap
-		`"wording":{"zh":{"nav.tasks":"a\nb"}}`,                             // control character (newline)
-		`"wording":{"zh":{"nav.tasks":"   "}}`,                              // empty after trimming
-		`"wording":{"zh":{` + strings.Join(junk, ",") + `}}`,                // over the per-language entry cap
-	} {
-		body := `{"custom_themes":[{"id":"w2","name":"W2","colors":{"--color-bg":"#111"},` + bad + `}]}`
-		if status, _ := doJSON(t, "PATCH", srv.URL+"/api/settings", owner, body); status != 422 {
-			t.Fatalf("illegal wording %q must 422: got %d", bad, status)
-		}
-	}
-	// The rejected wording patches wrote nothing — the "worded" bundle still stands.
-	if status, data = doJSON(t, "GET", srv.URL+"/api/settings", owner, ""); status != 200 {
-		t.Fatalf("settings GET: %d", status)
-	}
-	if arr, _ := data["custom_themes"].([]any); len(arr) != 1 {
-		t.Fatalf("a rejected wording patch must write nothing: %v", data["custom_themes"])
-	}
-	if got := wordingValue(t, data, 0, "zh", "nav.tasks"); got != "待辦" {
-		t.Fatalf("a rejected wording patch must leave the stored overlay intact: %q", got)
-	}
-
-	// Deleting the active custom theme (replacing the set without it) resets
-	// display_theme back to "" server-side — no dangling active theme.
-	if status, data = doJSON(t, "PATCH", srv.URL+"/api/settings", owner,
-		`{"custom_themes":[]}`); status != 200 {
-		t.Fatalf("clearing custom_themes: %d %v", status, data)
-	}
-	if data["display_theme"] != "" {
-		t.Fatalf("deleting the active custom theme must reset display_theme to \"\": %v",
-			data["display_theme"])
-	}
-	if got := api.displayThemeSnapshot(); got != "" {
-		t.Fatalf("the dangling-theme reset must be live in the snapshot: %q", got)
-	}
-	if v, err := d.GetSetting(settingDisplayTheme); err != nil || v == nil || *v != "" {
-		t.Fatalf("the dangling-theme reset must be durable: %v %v", v, err)
-	}
+	// custom_themes / wording / dangling-active-theme MOVED OUT (T-83ef), not
+	// dropped. Themes left the settings surface entirely in that ticket — the
+	// field is gone from both faces — so every assertion here that reached them
+	// through /api/settings now reaches them through /api/themes and lives in
+	// api_themes_test.go. What moved, by claim: the legal-bundle round trip, the
+	// illegal-bundle refusals, the wording overlay round trip, the unknown-code
+	// prune on write, the illegal-wording matrix, display_theme validated against
+	// existing themes, and the reset of a display_theme whose theme was deleted.
+	// That the field is ABSENT from both faces is itself asserted, by
+	// TestSettingsNoLongerCarriesCustomThemes.
 }
 
 // TestDisplayWideSettingRoundTrips covers the T-756f layout-width pref: OFF out
@@ -668,21 +532,6 @@ func TestDisplayWideSettingRoundTrips(t *testing.T) {
 	if api.displayWideSnapshot() {
 		t.Fatalf("the flip back to narrow must be live in the snapshot")
 	}
-}
-
-// wordingValue digs custom_themes[idx].wording[lang][code] out of a settings
-// response body, failing the test if any hop is missing or mistyped.
-func wordingValue(t *testing.T, data map[string]any, idx int, lang, code string) string {
-	t.Helper()
-	arr, ok := data["custom_themes"].([]any)
-	if !ok || idx >= len(arr) {
-		t.Fatalf("custom_themes[%d] missing: %v", idx, data["custom_themes"])
-	}
-	bundle, _ := arr[idx].(map[string]any)
-	wording, _ := bundle["wording"].(map[string]any)
-	langMap, _ := wording[lang].(map[string]any)
-	v, _ := langMap[code].(string)
-	return v
 }
 
 // mustJSONString renders s as a JSON string literal (quoting embedded specials)

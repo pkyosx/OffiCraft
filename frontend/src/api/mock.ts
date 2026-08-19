@@ -76,6 +76,9 @@ import type {
   ResumeRosterMemberView,
   ResumeMachinesView,
   ResumeTaskView,
+  ThemeListItem,
+  ThemeWriteReceipt,
+  ThemeDeleteResult,
 } from "./adapter";
 import type {
   WireMember,
@@ -140,8 +143,13 @@ import {
   SEED_BOOT_SEQUENCE_CODEX_MD,
   SEED_OFFBOARD_MD,
 } from "./seeds";
-import { ApiError } from "./errors";
-import { validateThemeBundles, isValidDisplayTheme } from "../lib/themeBundle";
+import { mockApiError } from "./errorCodes";
+import {
+  validateThemeBundle,
+  isValidDisplayTheme,
+  MAX_CUSTOM_THEMES,
+} from "../lib/themeBundle";
+import type { ThemeBundle } from "../lib/themeBundle";
 
 // The always-present server-self machine id (mirrors the server seed):
 // the warden for the host running the server itself — listed FIRST, is_self, NOT
@@ -514,10 +522,9 @@ function bootDocSeed(kind: BootDocKind, key: string): string | null {
 function foldBootDoc(kind: BootDocKind, key: string): WireBootDoc {
   const seed = bootDocSeed(kind, key);
   if (seed === null) {
-    throw new ApiError(
+    throw mockApiError(
       `http 404 for GET /api/${kind.replace(/_/g, "-")}/${key}`,
       404,
-      "not_found",
       `boot document '${kind}/${key}' does not exist`
     );
   }
@@ -740,20 +747,18 @@ function validateReplyAnswer(card: ReplyCard, answer: ReplyCardAnswerInput) {
   const hasText = (answer.text ?? "").trim().length > 0;
   const hasAtts = (answer.attachments ?? []).length > 0;
   if (!hasOption && !hasText && !hasAtts) {
-    throw new ApiError(
+    throw mockApiError(
       `http 400 for answer /api/reply-cards/${card.id}/answer`,
       400,
-      "bad_request",
       "an answer needs an option, text, or attachments"
     );
   }
   if (hasOption) {
     const idx = answer.optionIdx as number;
     if (idx < 0 || idx >= card.options.length) {
-      throw new ApiError(
+      throw mockApiError(
         `http 400 for answer /api/reply-cards/${card.id}/answer`,
         400,
-        "bad_request",
         `option_idx ${idx} out of range`
       );
     }
@@ -792,10 +797,9 @@ function toStoredReplyAnswer(
 function findReplyCard(id: string): ReplyCard {
   const card = replyCards.find((c) => c.id === id);
   if (!card) {
-    throw new ApiError(
+    throw mockApiError(
       `http 404 for /api/reply-cards/${id}`,
       404,
-      "not_found",
       `reply card '${id}' not found`
     );
   }
@@ -872,10 +876,9 @@ function deriveCodename(model: string, existing: string[]): string {
 function findTaskManual(typeKey: string): TaskManualView {
   const m = taskManuals.find((x) => x.typeKey === typeKey);
   if (!m) {
-    throw new ApiError(
+    throw mockApiError(
       `http 404 for /api/task-manuals/${typeKey}`,
       404,
-      "not_found",
       `task type '${typeKey}' not found`
     );
   }
@@ -885,10 +888,9 @@ function findTaskManual(typeKey: string): TaskManualView {
 function findTask(id: string): TaskView {
   const t = tasks.find((x) => x.id === id);
   if (!t) {
-    throw new ApiError(
+    throw mockApiError(
       `http 404 for /api/tasks/${id}`,
       404,
-      "not_found",
       `task '${id}' not found`
     );
   }
@@ -1029,10 +1031,9 @@ const RETIRED_DOCUMENT_KIND_MSG =
 
 function refuseRetiredDocumentKind(kind: DocumentKind, call: string): void {
   if (kind !== "task_manual") return;
-  throw new ApiError(
+  throw mockApiError(
     `http 400 for ${call}`,
     400,
-    "bad_request",
     RETIRED_DOCUMENT_KIND_MSG
   );
 }
@@ -1437,10 +1438,9 @@ function findWire(id: string): WireMember {
 function findResumeSummaryTarget(memberId: string): void {
   if (wireMembers.some((m) => m.id === memberId)) return;
   if (outsourceWorkers.some((w) => w.id === memberId)) return;
-  throw new ApiError(
+  throw mockApiError(
     `http 404 for /api/members/${memberId}/resume-summary`,
     404,
-    "not_found",
     `member '${memberId}' not found`
   );
 }
@@ -1537,17 +1537,25 @@ const DEFAULT_MOCK_SETTINGS = {
   // Layout width (T-756f) — OFF out of the box, mirroring the server (the
   // cockpit ships with the narrow centred column).
   display_wide: false,
-  // Custom theme bundles (T-16a1 P2) — none saved out of the box, mirroring the
-  // server (display.custom_themes absent).
-  custom_themes: [] as {
-    id: string;
-    name: string;
-    colors: Record<string, string>;
-    wording?: Record<string, Record<string, string>>;
-    fonts?: Record<string, string>;
-    avatars?: { member?: string; outsource?: string };
-  }[],
 };
+
+// ── Themes (T-83ef): their OWN store, keyed by id ────────────────────────────
+//
+// A Map, not an array: the endpoints are all per-id, and Map keeps INSERTION
+// order — which is what makes "a replace keeps the theme's position in the
+// list, a create appends" fall out for free instead of being re-implemented
+// (and re-broken) here. `order_idx` on the write receipt is the key's index in
+// that order. Themes no longer ride on settings at all: `custom_themes` is
+// gone from SettingsDTO, so the mock must not keep a second copy of them
+// there either — one store, or the two would disagree.
+const mockThemes = new Map<string, ThemeBundle>();
+
+/** The saved theme ids, for the `display_theme` check ("" | office | a saved
+ * id). Reads the theme STORE, never a settings field — after T-83ef there is
+ * no settings field left to read. */
+function mockThemeIds(): Set<string> {
+  return new Set(mockThemes.keys());
+}
 
 /** Mirror of the server's per-document size/cap reporting (T-3aeb). Runes, not
  * UTF-16 units — same reason docCap.ts spells it [...s].length.
@@ -1808,10 +1816,9 @@ function resolveMockMonths(
 function findScheduleRecipient(memberId: string): void {
   if (wireMembers.some((m) => m.id === memberId)) return;
   if (outsourceWorkers.some((w) => w.id === memberId)) return;
-  throw new ApiError(
+  throw mockApiError(
     `http 404 for /api/members/${memberId}/scheduled-messages`,
     404,
-    "not_found",
     `member '${memberId}' not found`
   );
 }
@@ -1838,10 +1845,9 @@ function validateSchedulePart(
   cadenceInEffect?: string
 ): void {
   const bad = (detail: string) => {
-    throw new ApiError(
+    throw mockApiError(
       `http 422 for /api/members/${memberId}/scheduled-messages`,
       422,
-      "validation_error",
       detail
     );
   };
@@ -1935,10 +1941,9 @@ function requireAPossibleDate(
   );
   const earliest = Math.min(...days);
   if (earliest <= longest) return;
-  throw new ApiError(
+  throw mockApiError(
     `http 422 for /api/members/${memberId}/scheduled-messages`,
     422,
-    "validation_error",
     `custom_months [${months.join(", ")}] and custom_days [${days.join(", ")}] never occur ` +
       `together, so this schedule could never fire: the longest of the chosen months has ` +
       `${longest} days, and the earliest day chosen is the ${earliest}. Pick a day one of ` +
@@ -1972,10 +1977,9 @@ function requireCadenceFields(
   }
 ): void {
   const bad = (detail: string) => {
-    throw new ApiError(
+    throw mockApiError(
       `http 422 for /api/members/${memberId}/scheduled-messages`,
       422,
-      "validation_error",
       detail
     );
   };
@@ -2155,10 +2159,9 @@ export const mockApi: Api = {
     // server enforces (422 → throw), model stays a free string.
     if (patch.effort !== undefined) {
       if (!["low", "medium", "high", "max"].includes(patch.effort)) {
-        throw new ApiError(
+        throw mockApiError(
           `http 422 for PATCH /api/members/${id}`,
           422,
-          "validation_error",
           "effort must be one of ['high', 'low', 'max', 'medium']"
         );
       }
@@ -2188,19 +2191,17 @@ export const mockApi: Api = {
     const endpointId = input.endpointId.trim();
     // Same closed charset the server enforces (422 → throw).
     if (!/^[A-Za-z0-9_-]+$/.test(endpointId)) {
-      throw new ApiError(
+      throw mockApiError(
         `http 422 for POST /api/members/${memberId}/webhooks`,
         422,
-        "validation_error",
         "endpoint id may contain only letters, digits, '_' and '-'"
       );
     }
     const list = mockWebhooks.get(memberId) ?? [];
     if (list.some((e) => e.endpointId === endpointId)) {
-      throw new ApiError(
+      throw mockApiError(
         `http 409 for POST /api/members/${memberId}/webhooks`,
         409,
-        "conflict",
         `a webhook endpoint '${endpointId}' already exists for this member`
       );
     }
@@ -2208,10 +2209,9 @@ export const mockApi: Api = {
     const secret = input.signingSecret?.trim() ?? "";
     // slack/github require a signing secret (server 422 parity); generic ignores it.
     if ((platform === "slack" || platform === "github") && !secret) {
-      throw new ApiError(
+      throw mockApiError(
         `http 422 for POST /api/members/${memberId}/webhooks`,
         422,
-        "validation_error",
         `signing_secret is required when platform is '${platform}'`
       );
     }
@@ -2246,10 +2246,9 @@ export const mockApi: Api = {
     const list = mockWebhooks.get(memberId) ?? [];
     const e = list.find((x) => x.endpointId === endpointId);
     if (!e) {
-      throw new ApiError(
+      throw mockApiError(
         `http 404 for PATCH /api/members/${memberId}/webhooks/${endpointId}`,
         404,
-        "not_found",
         `webhook endpoint '${endpointId}' not found`
       );
     }
@@ -2273,10 +2272,9 @@ export const mockApi: Api = {
   async deleteWebhook(memberId: string, endpointId: string): Promise<void> {
     const list = mockWebhooks.get(memberId) ?? [];
     if (!list.some((x) => x.endpointId === endpointId)) {
-      throw new ApiError(
+      throw mockApiError(
         `http 404 for DELETE /api/members/${memberId}/webhooks/${endpointId}`,
         404,
-        "not_found",
         `webhook endpoint '${endpointId}' not found`
       );
     }
@@ -2373,10 +2371,9 @@ export const mockApi: Api = {
     const list = mockScheduledMessages.get(memberId) ?? [];
     const s = list.find((x) => x.id === scheduleId);
     if (!s) {
-      throw new ApiError(
+      throw mockApiError(
         `http 404 for PATCH /api/members/${memberId}/scheduled-messages/${scheduleId}`,
         404,
-        "not_found",
         `scheduled message '${scheduleId}' not found`
       );
     }
@@ -2456,10 +2453,9 @@ export const mockApi: Api = {
   ): Promise<void> {
     const list = mockScheduledMessages.get(memberId) ?? [];
     if (!list.some((x) => x.id === scheduleId)) {
-      throw new ApiError(
+      throw mockApiError(
         `http 404 for DELETE /api/members/${memberId}/scheduled-messages/${scheduleId}`,
         404,
-        "not_found",
         `scheduled message '${scheduleId}' not found`
       );
     }
@@ -2917,10 +2913,9 @@ export const mockApi: Api = {
     // counter-question — closes the card.
     const card = findReplyCard(id);
     if (card.status !== "waiting") {
-      throw new ApiError(
+      throw mockApiError(
         `http 409 for POST /api/reply-cards/${id}/answer`,
         409,
-        "conflict",
         `reply card '${id}' is already answered`
       );
     }
@@ -2943,10 +2938,9 @@ export const mockApi: Api = {
     // reopens the card or re-counts the badge).
     const card = findReplyCard(id);
     if (card.status !== "answered") {
-      throw new ApiError(
+      throw mockApiError(
         `http 409 for PUT /api/reply-cards/${id}/answer`,
         409,
-        "conflict",
         `reply card '${id}' is not answered yet`
       );
     }
@@ -2973,10 +2967,9 @@ export const mockApi: Api = {
     // left untouched (the orphan exit).
     const card = findReplyCard(id);
     if (card.status !== "waiting") {
-      throw new ApiError(
+      throw mockApiError(
         `http 409 for POST /api/reply-cards/${id}/expire`,
         409,
-        "conflict",
         `reply card '${id}' is already ${card.status} — only a waiting card can expire`
       );
     }
@@ -3094,10 +3087,9 @@ export const mockApi: Api = {
     // display honestly falls back to the bare label).
     const t = findTask(id);
     if (TERMINAL_TASK_STATUSES.has(t.status)) {
-      throw new ApiError(
+      throw mockApiError(
         `http 409 for POST /api/tasks/${id}/terminate`,
         409,
-        "conflict",
         `task '${id}' is already closed`
       );
     }
@@ -3117,17 +3109,15 @@ export const mockApi: Api = {
     // already be an original of another duplicate. Non-terminal only.
     const t = findTask(id);
     const conflict = (detail: string) =>
-      new ApiError(
+      mockApiError(
         `http 409 for POST /api/tasks/${id}/duplicate`,
         409,
-        "conflict",
         detail
       );
     if (!duplicateOf.trim()) {
-      throw new ApiError(
+      throw mockApiError(
         `http 422 for POST /api/tasks/${id}/duplicate`,
         422,
-        "validation_error",
         "duplicate_of must not be blank"
       );
     }
@@ -3139,10 +3129,9 @@ export const mockApi: Api = {
     }
     const original = tasks.find((x) => x.id === duplicateOf);
     if (!original) {
-      throw new ApiError(
+      throw mockApiError(
         `http 404 for POST /api/tasks/${id}/duplicate`,
         404,
-        "not_found",
         `duplicate_of task '${duplicateOf}' not found`
       );
     }
@@ -3227,16 +3216,9 @@ export const mockApi: Api = {
     const t = findTask(id);
     const trimmed = title.trim();
     if (trimmed === "") {
-      throw new ApiError(
+      throw mockApiError(
         `http 400 for POST /api/tasks/${id}/title`,
         400,
-        // The real server answers `validation_error` here (its envelope maps
-        // both 400 and 422 to that code) — pinned by the Go side's
-        // assertErrorEnvelope. An earlier draft said `bad_request`, which made
-        // this fake a FALSE ORACLE for anything that ever branches on the code
-        // rather than the status: component tests would agree with a server
-        // that does not exist.
-        "validation_error",
         "title must not be blank"
       );
     }
@@ -3256,18 +3238,16 @@ export const mockApi: Api = {
     // 403 faces never arise here.
     const t = findTask(id);
     if (TERMINAL_TASK_STATUSES.has(t.status)) {
-      throw new ApiError(
+      throw mockApiError(
         `http 409 for POST /api/tasks/${id}/priority`,
         409,
-        "conflict",
         `task '${id}' is closed`
       );
     }
     if (!["high", "mid", "low", "frozen"].includes(priority)) {
-      throw new ApiError(
+      throw mockApiError(
         `http 422 for POST /api/tasks/${id}/priority`,
         422,
-        "validation_error",
         "priority must be one of ['frozen', 'high', 'low', 'mid']"
       );
     }
@@ -3284,17 +3264,15 @@ export const mockApi: Api = {
     // task back to in_progress — the mock never flips it here either.
     const t = findTask(id);
     const badRequest = (detail: string) =>
-      new ApiError(
+      mockApiError(
         `http 400 for POST /api/tasks/${id}/reassign`,
         400,
-        "bad_request",
         detail
       );
     if (TERMINAL_TASK_STATUSES.has(t.status)) {
-      throw new ApiError(
+      throw mockApiError(
         `http 409 for POST /api/tasks/${id}/reassign`,
         409,
-        "conflict",
         `task '${id}' is already closed (${t.status})`
       );
     }
@@ -3323,10 +3301,9 @@ export const mockApi: Api = {
         );
       }
       if (t.executorKind === "member" && t.executorId === target.memberId) {
-        throw new ApiError(
+        throw mockApiError(
           `http 409 for POST /api/tasks/${id}/reassign`,
           409,
-          "conflict",
           `member '${target.memberId}' is already the task's executor`
         );
       }
@@ -3478,21 +3455,19 @@ export const mockApi: Api = {
     // than no mock at all, since the mock cockpit is how UI changes get checked.
     const t = findTask(taskId);
     if (TERMINAL_TASK_STATUSES.has(t.status)) {
-      throw new ApiError(
+      throw mockApiError(
         `http 409 for DELETE /api/tasks/${taskId}/artifact/${artifactId}`,
         409,
-        "conflict",
         `task '${taskId}' is closed (${t.status}) — its deliverables are frozen`
       );
     }
     const arts = t.artifacts ?? [];
     const art = arts.find((a) => a.id === artifactId);
     if (!art) {
-      throw new ApiError(
+      throw mockApiError(
         `http 404 for DELETE /api/tasks/${taskId}/artifact/${artifactId}`,
         404,
-        "not_found",
-        `artifact '${artifactId}' not found`,
+        `artifact '${artifactId}' not found`
       );
     }
     t.artifacts = arts.filter((a) => a.id !== artifactId);
@@ -3507,10 +3482,9 @@ export const mockApi: Api = {
     // unassigned executor is a 409; an empty message a 400.
     const t = findTask(id);
     if (!t.executorId) {
-      throw new ApiError(
+      throw mockApiError(
         `http 409 for POST /api/tasks/${id}/message`,
         409,
-        "conflict",
         `task '${id}' has no executor yet`
       );
     }
@@ -3518,10 +3492,9 @@ export const mockApi: Api = {
     const hasBody = trimmed.length > 0;
     const hasAtts = (msg.attachments ?? []).length > 0;
     if (!hasBody && !hasAtts) {
-      throw new ApiError(
+      throw mockApiError(
         `http 400 for POST /api/tasks/${id}/message`,
         400,
-        "bad_request",
         "a message needs a body or attachments"
       );
     }
@@ -3558,10 +3531,9 @@ export const mockApi: Api = {
     // roster). Live unread is computed the same way as the list.
     const w = outsourceWorkers.find((x) => x.id === id);
     if (!w) {
-      throw new ApiError(
+      throw mockApiError(
         `http 404 for GET /api/outsource-workers/${id}`,
         404,
-        "not_found",
         `outsource worker ${id} not found`
       );
     }
@@ -3584,10 +3556,9 @@ export const mockApi: Api = {
     // the owner-only server handler.
     const w = outsourceWorkers.find((x) => x.id === id);
     if (!w || w.status === "released") {
-      throw new ApiError(
+      throw mockApiError(
         `http 404 for POST /api/outsource-workers/${id}/relocate`,
         404,
-        "not_found",
         `outsource worker ${id} not found`
       );
     }
@@ -3614,21 +3585,21 @@ export const mockApi: Api = {
     // kill+respawn is server-side, invisible here, so lifecycle is left untouched.
     const w = outsourceWorkers.find((x) => x.id === id);
     if (!w || w.status === "released") {
-      throw new ApiError(
+      throw mockApiError(
         `http 404 for POST /api/outsource-workers/${id}/refocus`,
-        404, "not_found", `outsource worker ${id} not found`
+        404, `outsource worker ${id} not found`
       );
     }
     if (w.desiredState === "offline") {
-      throw new ApiError(
+      throw mockApiError(
         `http 409 for POST /api/outsource-workers/${id}/refocus`,
-        409, "conflict", "worker is stopped — restart it before refocusing"
+        409, "worker is stopped — restart it before refocusing"
       );
     }
     if (w.presence !== "online") {
-      throw new ApiError(
+      throw mockApiError(
         `http 409 for POST /api/outsource-workers/${id}/refocus`,
-        409, "conflict", "refocus requires the worker to be online"
+        409, "refocus requires the worker to be online"
       );
     }
     w.refocusSince = Date.now() / 1000;
@@ -3645,9 +3616,9 @@ export const mockApi: Api = {
     // Idempotent.
     const w = outsourceWorkers.find((x) => x.id === id);
     if (!w || w.status === "released") {
-      throw new ApiError(
+      throw mockApiError(
         `http 404 for POST /api/outsource-workers/${id}/stop`,
-        404, "not_found", `outsource worker ${id} not found`
+        404, `outsource worker ${id} not found`
       );
     }
     w.desiredState = "offline";
@@ -3667,9 +3638,9 @@ export const mockApi: Api = {
     // "waking" (the server re-dispatches; boots afresh).
     const w = outsourceWorkers.find((x) => x.id === id);
     if (!w || w.status === "released") {
-      throw new ApiError(
+      throw mockApiError(
         `http 404 for POST /api/outsource-workers/${id}/restart`,
-        404, "not_found", `outsource worker ${id} not found`
+        404, `outsource worker ${id} not found`
       );
     }
     // Mock ↔ http parity (T-7526): the guard asks whether the worker is ALIVE,
@@ -3677,9 +3648,9 @@ export const mockApi: Api = {
     // keeps desired_state=online and must still be revivable; a genuinely live
     // one is still refused.
     if (w.desiredState !== "offline" && w.presence === "online") {
-      throw new ApiError(
+      throw mockApiError(
         `http 409 for POST /api/outsource-workers/${id}/restart`,
-        409, "conflict", "worker is still online — nothing to restart"
+        409, "worker is still online — nothing to restart"
       );
     }
     w.desiredState = "online";
@@ -3699,9 +3670,9 @@ export const mockApi: Api = {
     // server-side (invisible here). unknown/released → 404.
     const w = outsourceWorkers.find((x) => x.id === id);
     if (!w || w.status === "released") {
-      throw new ApiError(
+      throw mockApiError(
         `http 404 for POST /api/outsource-workers/${id}/model`,
-        404, "not_found", `outsource worker ${id} not found`
+        404, `outsource worker ${id} not found`
       );
     }
     w.model = patch.model;
@@ -3726,16 +3697,16 @@ export const mockApi: Api = {
     // fake server that still ships a document the real one deleted.
     const w = outsourceWorkers.find((x) => x.id === id);
     if (!w) {
-      throw new ApiError(
+      throw mockApiError(
         `http 404 for GET /api/outsource-workers/${id}/boot-context`,
-        404, "not_found", `outsource worker ${id} not found`
+        404, `outsource worker ${id} not found`
       );
     }
     const task = tasks.find((x) => x.id === w.taskId);
     if (!task) {
-      throw new ApiError(
+      throw mockApiError(
         `http 404 for GET /api/outsource-workers/${id}/boot-context`,
-        404, "not_found", `task ${w.taskId} not found`
+        404, `task ${w.taskId} not found`
       );
     }
     // The worker and its bound task are still resolved above, because the two
@@ -3787,10 +3758,9 @@ export const mockApi: Api = {
     // parity), so there is no duplicate 409 on this path.
     const name = displayName.trim();
     if (name === "") {
-      throw new ApiError(
+      throw mockApiError(
         "http 400 for POST /api/task-manuals",
         400,
-        "bad_request",
         "display_name must not be blank"
       );
     }
@@ -3853,10 +3823,9 @@ export const mockApi: Api = {
       (t) => t.typeKey === typeKey && !TERMINAL_TASK_STATUSES.has(t.status)
     );
     if (open) {
-      throw new ApiError(
+      throw mockApiError(
         `http 409 for DELETE /api/task-manuals/${typeKey}`,
         409,
-        "conflict",
         `task type '${typeKey}' still has open tasks`
       );
     }
@@ -3874,10 +3843,9 @@ export const mockApi: Api = {
   async getDoc(slug: string): Promise<DocView> {
     const doc = mockDocs.find((d) => d.slug === slug);
     if (!doc) {
-      throw new ApiError(
+      throw mockApiError(
         `http 404 for GET /api/docs/${slug}`,
         404,
-        "not_found",
         `doc '${slug}' not found`
       );
     }
@@ -4122,26 +4090,23 @@ export const mockApi: Api = {
     // Same check order as the server: already set → 409; claim → 401; then
     // the length rule.
     if (mockPasswordSet) {
-      throw new ApiError(
+      throw mockApiError(
         "http 409 for POST /api/auth/set-password",
         409,
-        "conflict",
         "a password is already set"
       );
     }
     if (claimToken !== MOCK_CLAIM_TOKEN) {
-      throw new ApiError(
+      throw mockApiError(
         "http 401 for POST /api/auth/set-password",
         401,
-        "unauthorized",
         "invalid claim token"
       );
     }
     if (password.length < 8) {
-      throw new ApiError(
+      throw mockApiError(
         "http 422 for POST /api/auth/set-password",
         422,
-        "validation_error",
         "password must be at least 8 characters"
       );
     }
@@ -4154,18 +4119,16 @@ export const mockApi: Api = {
     newPassword: string
   ): Promise<void> {
     if (newPassword.length < 8) {
-      throw new ApiError(
+      throw mockApiError(
         "http 422 for POST /api/auth/change-password",
         422,
-        "validation_error",
         "new_password must be at least 8 characters"
       );
     }
     if (!mockPasswordSet || currentPassword !== mockPassword) {
-      throw new ApiError(
+      throw mockApiError(
         "http 401 for POST /api/auth/change-password",
         401,
-        "unauthorized",
         "invalid password"
       );
     }
@@ -4186,18 +4149,16 @@ export const mockApi: Api = {
     try {
       parsed = new URL(url.trim());
     } catch {
-      throw new ApiError(
+      throw mockApiError(
         "http 422 for POST /api/theme/fetch",
         422,
-        "validation_error",
         "url must be an absolute http:// or https:// link"
       );
     }
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      throw new ApiError(
+      throw mockApiError(
         "http 422 for POST /api/theme/fetch",
         422,
-        "validation_error",
         "url must be an absolute http:// or https:// link"
       );
     }
@@ -4212,6 +4173,89 @@ export const mockApi: Api = {
     );
   },
 
+  async listThemes(): Promise<ThemeListItem[]> {
+    // GET /api/themes -> id + name ONLY (T-83ef). The mock answers the same
+    // narrow row the server does: a mock that handed back whole bundles here
+    // would let a component read `colors` off a list row and still pass, then
+    // find it undefined in production.
+    return [...mockThemes.values()].map((t) => ({ id: t.id, name: t.name }));
+  },
+
+  async getTheme(id: string): Promise<ThemeBundle> {
+    const found = mockThemes.get(id);
+    if (!found) {
+      throw mockApiError(
+        `http 404 for GET /api/themes/${id}`,
+        404,
+        "theme not found"
+      );
+    }
+    return structuredClone(found);
+  },
+
+  async putTheme(bundle: ThemeBundle): Promise<ThemeWriteReceipt> {
+    // Server parity, in the server's order: the path key is the bundle's own
+    // id here (the adapter takes only the bundle), so the mismatch 422 is
+    // checked against that same identity — it can only fire on a bundle whose
+    // id is missing/not a string, which the validator names anyway.
+    const err = validateThemeBundle(bundle, "theme");
+    if (err) {
+      throw mockApiError(
+        `http 422 for PUT /api/themes/${bundle?.id}`,
+        422,
+        err
+      );
+    }
+    const existing = mockThemes.has(bundle.id);
+    if (!existing && mockThemes.size >= MAX_CUSTOM_THEMES) {
+      // Creating past the cap is a 422; REPLACING is not capped (server parity).
+      //
+      // 🔴 The WORDING is parity too, and it is not the array validator's line.
+      // `custom_themes must hold at most N themes` is what the whole-array
+      // validator says — still reachable through link import, which hands it an
+      // array. The per-theme endpoint counts rows instead and speaks to a person
+      // (api_themes.go), naming no field: the row it would have to name does not
+      // exist on the wire any more. This message is the one the cockpit actually
+      // renders when the cap is hit on a device that did not know it was full
+      // (the local pre-check catches the ordinary case), so a mock that made up
+      // its own phrasing would put words on screen in a test that the owner can
+      // never be shown.
+      throw mockApiError(
+        `http 422 for PUT /api/themes/${bundle.id}`,
+        422,
+        `at most ${MAX_CUSTOM_THEMES} custom themes may be saved — delete one first`
+      );
+    }
+    // Map.set on an EXISTING key keeps its insertion position — which is
+    // exactly the "a replace does not move the theme to the bottom" rule, so
+    // nothing here has to re-implement it.
+    mockThemes.set(bundle.id, structuredClone(bundle));
+    return {
+      id: bundle.id,
+      created: !existing,
+      orderIdx: [...mockThemes.keys()].indexOf(bundle.id),
+      updatedAt: Math.floor(Date.now() / 1000),
+    };
+  },
+
+  async deleteTheme(id: string): Promise<ThemeDeleteResult> {
+    if (!mockThemes.has(id)) {
+      throw mockApiError(
+        `http 404 for DELETE /api/themes/${id}`,
+        404,
+        "theme not found"
+      );
+    }
+    mockThemes.delete(id);
+    // The coupling the old whole-array settings write used to perform: the
+    // ACTIVE theme just stopped existing, so display_theme goes back to "" in
+    // this same call and the receipt SAYS so — that flag is the only way the
+    // caller learns its theme changed without re-reading settings.
+    const displayThemeReset = mockServerSettings.display_theme === id;
+    if (displayThemeReset) mockServerSettings.display_theme = "";
+    return { id, deleted: true, displayThemeReset };
+  },
+
   async getServerSettings(): Promise<ServerSettingsView> {
     return toServerSettings(structuredClone(mockServerSettings));
   },
@@ -4221,35 +4265,33 @@ export const mockApi: Api = {
   ): Promise<ServerSettingsView> {
     // Validate BOTH fields before writing anything (server parity).
     if (patch.ownerTokenTtl !== undefined && !TOKEN_TTL_CHOICES.has(patch.ownerTokenTtl)) {
-      throw new ApiError(
+      throw mockApiError(
         "http 422 for PATCH /api/settings",
         422,
-        "validation_error",
         "owner_token_ttl must be one of 43200, 86400, 604800, 2592000 seconds"
       );
     }
     if (patch.agentTokenTtl !== undefined && !TOKEN_TTL_CHOICES.has(patch.agentTokenTtl)) {
-      throw new ApiError("http 422 for PATCH /api/settings", 422, "validation_error", "agent_token_ttl must be one of 43200, 86400, 604800, 2592000 seconds");
+      throw mockApiError("http 422 for PATCH /api/settings", 422, "agent_token_ttl must be one of 43200, 86400, 604800, 2592000 seconds");
     }
     if (
       patch.handoverPct !== undefined &&
       (patch.handoverPct < 40 || patch.handoverPct > 90)
     ) {
-      throw new ApiError(
+      throw mockApiError(
         "http 422 for PATCH /api/settings",
         422,
-        "validation_error",
         "handover_pct must be between 40 and 90"
       );
     }
     if (patch.codexCompactionThreshold !== undefined && (patch.codexCompactionThreshold < 1 || patch.codexCompactionThreshold > 10)) {
-      throw new ApiError("http 422 for PATCH /api/settings", 422, "validation_error", "codex_compaction_threshold must be between 1 and 10");
+      throw mockApiError("http 422 for PATCH /api/settings", 422, "codex_compaction_threshold must be between 1 and 10");
     }
     if (patch.noticePct !== undefined && (patch.noticePct < 1 || patch.noticePct > 89)) {
-      throw new ApiError("http 422 for PATCH /api/settings", 422, "validation_error", "notice_pct must be between 1 and 89");
+      throw mockApiError("http 422 for PATCH /api/settings", 422, "notice_pct must be between 1 and 89");
     }
     if (patch.codexNoticeRound !== undefined && (patch.codexNoticeRound < 1 || patch.codexNoticeRound > 10)) {
-      throw new ApiError("http 422 for PATCH /api/settings", 422, "validation_error", "codex_notice_round must be between 1 and 10");
+      throw mockApiError("http 422 for PATCH /api/settings", 422, "codex_notice_round must be between 1 and 10");
     }
     // The pair is checked against the POST-PATCH values, exactly like the
     // server: either number may be sent on its own, and what must hold is that
@@ -4258,26 +4300,25 @@ export const mockApi: Api = {
       const notice = patch.noticePct ?? mockServerSettings.notice_pct;
       const final = patch.handoverPct ?? mockServerSettings.handover_pct;
       if (notice >= final) {
-        throw new ApiError("http 422 for PATCH /api/settings", 422, "validation_error", "notice_pct must be strictly below handover_pct");
+        throw mockApiError("http 422 for PATCH /api/settings", 422, "notice_pct must be strictly below handover_pct");
       }
       const noticeRound = patch.codexNoticeRound ?? mockServerSettings.codex_notice_round;
       const finalRound = patch.codexCompactionThreshold ?? mockServerSettings.codex_compaction_threshold;
       if (noticeRound >= finalRound) {
-        throw new ApiError("http 422 for PATCH /api/settings", 422, "validation_error", "codex_notice_round must be strictly below codex_compaction_threshold");
+        throw mockApiError("http 422 for PATCH /api/settings", 422, "codex_notice_round must be strictly below codex_compaction_threshold");
       }
     }
     if (patch.monitoringRefreshSeconds !== undefined && (patch.monitoringRefreshSeconds < 1 || patch.monitoringRefreshSeconds > 60)) {
-      throw new ApiError("http 422 for PATCH /api/settings", 422, "validation_error", "monitoring_refresh_seconds must be between 1 and 60");
+      throw mockApiError("http 422 for PATCH /api/settings", 422, "monitoring_refresh_seconds must be between 1 and 60");
     }
     if (
       patch.outsourceMaxParallel !== undefined &&
       (patch.outsourceMaxParallel < -1 || patch.outsourceMaxParallel > 20)
     ) {
       // Server parity: -1 = 無限 (unlimited), 0 = paused, 20 = ceiling.
-      throw new ApiError(
+      throw mockApiError(
         "http 422 for PATCH /api/settings",
         422,
-        "validation_error",
         "outsource_max_parallel must be between -1 and 20 (-1 = unlimited)"
       );
     }
@@ -4325,10 +4366,9 @@ export const mockApi: Api = {
       ],
     ] as const) {
       if (field !== undefined && (field < min || field > 100000)) {
-        throw new ApiError(
+        throw mockApiError(
           "http 422 for PATCH /api/settings",
           422,
-          "validation_error",
           `${wire} must be between ${min} and 100000 characters — the floor is the shipped default, so the document cap can only be raised, never lowered`
         );
       }
@@ -4341,10 +4381,9 @@ export const mockApi: Api = {
       (patch.chatBudgetChars < CHAT_BUDGET_CHARS_MIN ||
         patch.chatBudgetChars > CHAT_BUDGET_CHARS_MAX)
     ) {
-      throw new ApiError(
+      throw mockApiError(
         "http 422 for PATCH /api/settings",
         422,
-        "validation_error",
         `chat_budget_chars must be between ${CHAT_BUDGET_CHARS_MIN} and ${CHAT_BUDGET_CHARS_MAX} characters`
       );
     }
@@ -4353,10 +4392,9 @@ export const mockApi: Api = {
       [...patch.orgName.trim()].length > 80
     ) {
       // Server parity: trimmed, capped at 80 runes (T-d693).
-      throw new ApiError(
+      throw mockApiError(
         "http 422 for PATCH /api/settings",
         422,
-        "validation_error",
         "org_name must be at most 80 characters"
       );
     }
@@ -4365,39 +4403,23 @@ export const mockApi: Api = {
       [...patch.ownerName.trim()].length > 80
     ) {
       // Server parity: trimmed, capped at 80 runes (T-0b41).
-      throw new ApiError(
+      throw mockApiError(
         "http 422 for PATCH /api/settings",
         422,
-        "validation_error",
         "owner_name must be at most 80 characters"
       );
     }
-    // custom_themes (T-16a1 P2): validated in full before anything is written —
-    // shape + theme.css token whitelist + concrete-colour grammar (the SAME
-    // themeBundle validator the server mirrors). A bad bundle 422s, nothing set.
-    if (patch.customThemes !== undefined) {
-      const err = validateThemeBundles(patch.customThemes);
-      if (err) {
-        throw new ApiError(
-          "http 422 for PATCH /api/settings",
-          422,
-          "validation_error",
-          err
-        );
-      }
-    }
-    // display_theme is validated against the POST-patch custom set: "" | a
-    // built-in | an existing custom id (server parity).
-    const effectiveThemes = patch.customThemes ?? mockServerSettings.custom_themes;
-    const effectiveThemeIds = new Set(effectiveThemes.map((t) => t.id));
+    // display_theme is validated against the THEME STORE: "" | a built-in | an
+    // id that exists in /api/themes (server parity). T-83ef: settings no
+    // longer carries the bundles, so there is no "post-patch custom set" to
+    // resolve against — the store IS the set.
     if (
       patch.displayTheme !== undefined &&
-      !isValidDisplayTheme(patch.displayTheme.trim(), effectiveThemeIds)
+      !isValidDisplayTheme(patch.displayTheme.trim(), mockThemeIds())
     ) {
-      throw new ApiError(
+      throw mockApiError(
         "http 422 for PATCH /api/settings",
         422,
-        "validation_error",
         'display_theme must be "", office, or an existing custom theme id'
       );
     }
@@ -4407,10 +4429,9 @@ export const mockApi: Api = {
       !["zh", "en"].includes(patch.displayLanguage.trim())
     ) {
       // Server parity: enum-checked, "" clears (T-0b41-p2).
-      throw new ApiError(
+      throw mockApiError(
         "http 422 for PATCH /api/settings",
         422,
-        "validation_error",
         "display_language must be one of zh, en"
       );
     }
@@ -4483,23 +4504,28 @@ export const mockApi: Api = {
     if (patch.pushContactEmail !== undefined) {
       const email = patch.pushContactEmail.trim();
       if (email && (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || /\.(local|localhost|internal|test|invalid|example)$/i.test(email))) {
-        throw new ApiError("http 422 for PATCH /api/settings", 422, "validation_error", "push_contact_email must be a public email address");
+        throw mockApiError("http 422 for PATCH /api/settings", 422, "push_contact_email must be a public email address");
       }
       mockServerSettings.push_contact_email = email;
     }
-    // custom_themes + display_theme are coupled (server parity): write the set,
-    // then resolve the theme against the post-patch set — an explicit theme
-    // wins; otherwise a now-dangling active custom theme is reset to "".
-    if (patch.customThemes !== undefined) {
-      mockServerSettings.custom_themes = structuredClone(patch.customThemes);
-    }
+    // display_theme (T-83ef): an explicit value wins, and an omitted one changes
+    // NOTHING — no sweep of a now-dangling active theme.
+    //
+    // 🔴 THE ABSENCE IS THE PARITY. Both sides used to sweep here, back when
+    // this endpoint also wrote the bundles and could therefore orphan the active
+    // theme itself. It cannot any more: DELETE /api/themes/{id} performs the
+    // reset and reports it in its receipt. api_settings.go says exactly why it
+    // dropped its sweep — "a second opinion about a fact that endpoint already
+    // settled, and the two would drift" — and this mock kept sweeping, so the
+    // two that drifted were the server and this file. That comment predicted its
+    // own situation and nothing noticed.
+    //
+    // What it cost: a settings row naming a theme with no row heals ITSELF here
+    // on the next unrelated PATCH, and never heals in production. A mock that is
+    // kinder than the server lets a test go green on a state the owner would
+    // still be sitting in.
     if (patch.displayTheme !== undefined) {
       mockServerSettings.display_theme = patch.displayTheme.trim();
-    } else {
-      const ids = new Set(mockServerSettings.custom_themes.map((t) => t.id));
-      if (!isValidDisplayTheme(mockServerSettings.display_theme, ids)) {
-        mockServerSettings.display_theme = "";
-      }
     }
     if (patch.displayLanguage !== undefined) {
       mockServerSettings.display_language = patch.displayLanguage.trim();
@@ -4541,10 +4567,9 @@ export const mockApi: Api = {
   async triggerUpgrade(): Promise<void> {
     // Server parity: no newer GitHub release is ever known in mock mode → the
     // honest 409 precondition answer.
-    throw new ApiError(
+    throw mockApiError(
       "http 409 for POST /api/update/upgrade",
       409,
-      "conflict",
       "no newer release is known — the running build is the latest published on GitHub"
     );
   },
@@ -4596,10 +4621,9 @@ export const mockApi: Api = {
     // refused. The cockpit blocks first (it has the number on screen), so
     // reaching this is either a stale page or a non-cockpit caller.
     if (docCapBlocked(before.cap_chars, before.text, text)) {
-      throw new ApiError(
+      throw mockApiError(
         `http 400 for POST /api/${kind.replace(/_/g, "-")}/${key}`,
         400,
-        "bad_request",
         `document is ${[...text].length} characters, over the ${before.cap_chars} character limit`
       );
     }
@@ -4679,10 +4703,9 @@ export const mockApi: Api = {
     // refuses and the custom doc stays untouched). The UI offers no reset on
     // custom roles; this guard keeps the mock honest for parity tests.
     if (!MOCK_WIRE_ROLES_SEED.some((r) => r.key === key)) {
-      throw new ApiError(
+      throw mockApiError(
         `http 404 for POST /api/roles/${key}/reset`,
         404,
-        "not_found",
         `role '${key}' not found`
       );
     }
@@ -4700,10 +4723,9 @@ export const mockApi: Api = {
     // excluded case-insensitively.
     const name = input.name.trim();
     if (!name) {
-      throw new ApiError(
+      throw mockApiError(
         "http 422 for POST /api/roles",
         422,
-        "validation_error",
         "role requires a name"
       );
     }
@@ -4713,10 +4735,9 @@ export const mockApi: Api = {
     if (!["low", "medium", "high", "max"].includes(effort)) {
       // Byte-for-byte the server's message (ocserverd/api_roles.go:128-129):
       // the offending value rides along in `; got '<value>'`.
-      throw new ApiError(
+      throw mockApiError(
         "http 422 for POST /api/roles",
         422,
-        "validation_error",
         `effort must be one of [high low max medium]; got '${effort}'`
       );
     }
@@ -4784,27 +4805,24 @@ export const mockApi: Api = {
     // e.status (SettingsPage's isHttpStatus) behaves identically on mock.
     // Seed role → 403.
     if (MOCK_WIRE_ROLES_SEED.some((r) => r.key === key)) {
-      throw new ApiError(
+      throw mockApiError(
         `http 403 for DELETE /api/roles/${key}`,
         403,
-        "forbidden",
         `role '${key}' is a built-in seed role and cannot be deleted`
       );
     }
     if (!customRoles.has(key)) {
-      throw new ApiError(
+      throw mockApiError(
         `http 404 for DELETE /api/roles/${key}`,
         404,
-        "not_found",
         `role '${key}' not found`
       );
     }
     const members = wireMembers.filter((m) => m.role_key === key);
     if (members.some((m) => m.presence !== "offline")) {
-      throw new ApiError(
+      throw mockApiError(
         `http 409 for DELETE /api/roles/${key}`,
         409,
-        "conflict",
         `role '${key}' has online member(s) — stop them before deleting`
       );
     }
@@ -4966,10 +4984,9 @@ export const mockApi: Api = {
     // `seeds/insight_<role_key>.md` IS the roster, and a role can have a Duty
     // seed without an Insight one.
     if (!(roleKey in INSIGHT_SEEDS)) {
-      throw new ApiError(
+      throw mockApiError(
         `http 404 for POST /api/insight/${roleKey}/reset`,
         404,
-        "not_found",
         `role '${roleKey}' has no factory insight to reset to`
       );
     }
@@ -5014,10 +5031,9 @@ export const mockApi: Api = {
     const kept = documentHistories.get(historySlot(kind, key)) ?? [];
     const found = kept.find((h) => h.id === id);
     if (!found) {
-      throw new ApiError(
+      throw mockApiError(
         `http 404 for ${route}`,
         404,
-        "not_found",
         `document revision ${id} is no longer retained`
       );
     }
@@ -5066,7 +5082,7 @@ export const mockApi: Api = {
               ? { text: bootDocSeed(kind, key)!, tombstoned: "true" }
               : null;
     if (content === null) {
-      throw new ApiError(`http 404 for ${route}`, 404, "not_found", `document '${kind}/${key}' has no shipped default to compare against`);
+      throw mockApiError(`http 404 for ${route}`, 404, `document '${kind}/${key}' has no shipped default to compare against`);
     }
     const wire: WireDocumentSeed = { kind, key, content };
     return toDocumentSeed(structuredClone(wire));
@@ -5084,10 +5100,9 @@ export const mockApi: Api = {
     const slot = historySlot(kind, key);
     const found = (documentHistories.get(slot) ?? []).find((h) => h.id === id);
     if (!found) {
-      throw new ApiError(
+      throw mockApiError(
         `http 404 for POST /api/document-history/${kind}/${key}/${id}/restore`,
         404,
-        "not_found",
         "document history version not found"
       );
     }
@@ -5132,6 +5147,10 @@ export function __resetMock(): void {
   mockPasswordSet = true;
   mockPassword = "mock-password";
   mockServerSettings = { ...DEFAULT_MOCK_SETTINGS };
+  // T-83ef: themes are their own store now, so resetting settings no longer
+  // clears them — the reset hook has to name the store explicitly or a theme
+  // saved in one test leaks into the next.
+  mockThemes.clear();
   activationPendingNext = false;
   relocationPendingNext = false;
   relocationDeferredNext = false;

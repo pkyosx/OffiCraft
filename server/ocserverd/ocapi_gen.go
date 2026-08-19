@@ -1218,7 +1218,7 @@ type MemberDTO struct {
 	OwnerId      *string `json:"owner_id,omitempty"`
 	Presence     *string `json:"presence,omitempty"`
 
-	// RefocusDeadline Epoch seconds by which the in-flight handover stamped in ``refocus_since`` is force-collected (``refocus_since`` + the reconcile recycle grace), 0 when no handover is in flight. Derived at read time, never stored. It exists so a client can say WHEN a pending launch change takes effect at the latest without hard-coding a server constant; the collection fires the instant the agent answers ``report_stopped``, so this is a CEILING, not a prediction (T-7f28). Additive-optional.
+	// RefocusDeadline Epoch seconds by which the in-flight handover stamped in ``refocus_since`` is force-collected (``refocus_since`` + the reconcile recycle grace). ZERO CARRIES TWO MEANINGS, and a client that reads it as one of them will be wrong about the other: no handover is in flight, OR a handover is in flight that NOTHING collects on a clock at all — an owner-pressed ``refocus`` (owner 2026-08-19), whose deadline would otherwise be a time the cockpit renders and then watches pass. ``refocus_op`` is what tells the two apart. Rendering no deadline is correct for both. Derived at read time, never stored. It exists so a client can say WHEN a pending launch change takes effect at the latest without hard-coding a server constant; the collection fires the instant the agent answers ``report_stopped``, so this is a CEILING, not a prediction (T-7f28). Additive-optional.
 	RefocusDeadline *float64 `json:"refocus_deadline,omitempty"`
 
 	// RefocusOp Which owner operation opened the in-flight handover stamped in ``refocus_since``, empty when none is in flight. One of ``relocate`` (machine change), ``runtime/model`` (runtime / model / effort change), ``context_high`` (automatic context-pressure handover), ``refocus`` (owner-pressed refocus) or ``restart_self`` (agent-requested). Stamped and cleared in lockstep with ``refocus_since``. WAS: the cause lived only in a server log line, so a client could only say 'last refocus' — which reads as history — where it meant 'winding down right now so your change can take effect' (T-7f28). Additive-optional.
@@ -1700,6 +1700,13 @@ type RestartSelfDTO struct {
 	Reason *string `json:"reason,omitempty"`
 }
 
+// ResumeAnsweredCardStepDTO ONE step of a resume-summary task row that is sitting on a reply card the owner has ALREADY answered while the step itself is still “in_progress“ — the answer landed and nobody has acted on it yet. It carries “step_id“, “step_name“ and “card_id“ and NO card body: read the answer with “get_reply_card“. This is a POINTER, never a verdict — the server puts a held step back to “in_progress“ the moment the card is answered (it releases the wait, it does not do the executor's work), and an owner's answer is as often 不通過／改做 as it is approval, so nothing here means the step is finished.
+type ResumeAnsweredCardStepDTO struct {
+	CardId   string `json:"card_id"`
+	StepId   string `json:"step_id"`
+	StepName string `json:"step_name"`
+}
+
 // ResumeChatCutDTO The CUT POINT of the wake snapshot's chat: whether messages exist that this
 // payload does NOT carry, and how to go and get them.
 //
@@ -1729,17 +1736,19 @@ type ResumeMachinesDTO struct {
 	YouAreOn string             `json:"you_are_on"`
 }
 
-// ResumeOverviewDTO The size/概要 block of the wake snapshot — the peek-then-decide signals (look at the SIZES first, then decide what to pull and whether to hand the digest to a sub-agent instead of loading it into your own context). “chat_count“ / “tasks_returned“ count what THIS snapshot carries; “tasks_open_total“ is ALL the caller's open tasks (may exceed the bounded rows — page with “list_tasks“); “tasks_detail_chars“ sums every returned row's “detail_chars“ (the plan text a full “get_task“ pull would load); “cards_waiting“ / “cards_answered_recent“ count the CALLER'S reply cards still waiting on the owner / answered within the last 24h (pull with “list_reply_cards“, cap with its “limit“). “roster_chars“ / “machines_chars“ (T-1b09) size the two studio-floor blocks THIS snapshot carries — reported separately, and deliberately NOT folded into “tasks_detail_chars“: that one counts text the snapshot does NOT carry (the plan text a later “get_task“ would load), so mixing the two kinds of number is what made “estimated_total_chars“ ambiguous in the first place.
+// ResumeOverviewDTO The size/概要 block of the wake snapshot — the peek-then-decide signals (look at the SIZES first, then decide what to pull and whether to hand the digest to a sub-agent instead of loading it into your own context). “chat_count“ / “tasks_returned“ count what THIS snapshot carries; “tasks_open_total“ is ALL the caller's open tasks (may exceed the bounded rows — page with “list_tasks“); “tasks_detail_chars“ sums every returned row's “detail_chars“ (the plan text a full “get_task“ pull would load); “cards_waiting“ / “cards_answered_recent“ count the CALLER'S reply cards still waiting on the owner / answered within the last 24h (pull with “list_reply_cards“, cap with its “limit“). “roster_chars“ / “machines_chars“ (T-1b09) size the two studio-floor blocks THIS snapshot carries — reported separately, and deliberately NOT folded into “tasks_detail_chars“: that one counts text the snapshot does NOT carry (the plan text a later “get_task“ would load), so mixing the two kinds of number is what made “estimated_total_chars“ ambiguous in the first place. “steps_on_answered_card“ counts the “answered_card_steps“ rows across the returned tasks — steps sitting on a reply card the owner already answered while the step is still “in_progress“, i.e. an answer nobody has picked up; “steps_on_answered_card_chars“ sizes the text those rows carry and, like “roster_chars“/“machines_chars“, IS folded into “estimated_total_chars“ because the snapshot does carry it.
 type ResumeOverviewDTO struct {
-	CardsAnsweredRecent int  `json:"cards_answered_recent"`
-	CardsWaiting        int  `json:"cards_waiting"`
-	ChatChars           int  `json:"chat_chars"`
-	ChatCount           int  `json:"chat_count"`
-	MachinesChars       *int `json:"machines_chars,omitempty"`
-	RosterChars         *int `json:"roster_chars,omitempty"`
-	TasksDetailChars    int  `json:"tasks_detail_chars"`
-	TasksOpenTotal      int  `json:"tasks_open_total"`
-	TasksReturned       int  `json:"tasks_returned"`
+	CardsAnsweredRecent      int  `json:"cards_answered_recent"`
+	CardsWaiting             int  `json:"cards_waiting"`
+	ChatChars                int  `json:"chat_chars"`
+	ChatCount                int  `json:"chat_count"`
+	MachinesChars            *int `json:"machines_chars,omitempty"`
+	RosterChars              *int `json:"roster_chars,omitempty"`
+	StepsOnAnsweredCard      *int `json:"steps_on_answered_card,omitempty"`
+	StepsOnAnsweredCardChars *int `json:"steps_on_answered_card_chars,omitempty"`
+	TasksDetailChars         int  `json:"tasks_detail_chars"`
+	TasksOpenTotal           int  `json:"tasks_open_total"`
+	TasksReturned            int  `json:"tasks_returned"`
 }
 
 // ResumeRosterMemberDTO One roster entry in the wake snapshot — who else is in the studio and how to reach them (owner ruling rc-4e98c0481852, 2026-08-03, verbatim: "All members and contractors and their online / offline status"). “id“ is what you address a message to — names are editable and roles repeat, so NEVER address by name. “kind“ separates permanent members from disposable contractors (a contractor's id is retired with its one task). “duty“ is the role's own definition text, capped at 1000 characters with “…“ marking a cut (owner 2026-08-03: 「1000字 多的截斷」), applied to the definition MINUS its own leading title line (a role doc opens with its own title, which would otherwise spend the budget restating “role_name“; exactly ONE leading ATX heading line is removed — never an inner heading, never a chosen line, and a title-only doc is returned whole). It is NOT summarized and NOT reduced to a chosen line — a heuristic that picks WHICH line to show would silently change what a role appears responsible for whenever its author reorders their own doc, whereas a flat cap can only cut the tail and says so. The cap happens to be the SAME number the owner set for the cap on a duty document itself (「After separation of insight duty should not exceed 1000」), but the two are INDEPENDENT values: this one is a fixed wire constant, that one is an owner-adjustable setting, and raising the setting does not move this. Whether this cap binds at all depends on how long each role's duty happens to be at the moment — that is runtime state, not part of this frozen contract. Do NOT lower this number: the cost was put to the owner in rc-d88c445397a3 — an independent review argued for 150–200 until the separation lands — and he ruled to keep 1000. How often this cap actually fires is deliberately NOT recorded here: that is a runtime reading of one deployment, it goes stale, and nothing in a frozen wire spec can re-derive or correct it. Such measurements live — each carrying the date it was taken — in the server-side comments, where they can be re-checked and revised. NO insight and NO learning ride here — both are readable by ANY authenticated identity, so their absence is a deliberate owner ruling (2026-08-02 「之後應該給 duty 就好，不要給 insight / learning」) and NOT a gap left by lack of access; do not helpfully fill it in later. “machine“ is the live binding (which machine that member runs on); “presence“ is the online/offline status the ruling asks for. Contractors carry no role, so their “role_name“ and “duty“ are “”“ — instead they carry “current_task“, the TITLE of the one task that contractor is bound to, HARD-TRUNCATED (owner ruling rc-a02d8bc7fe23, 2026-08-03: 正職給職責、外包給任務標題): a contractor id is minted per task, so its task title IS its duty. The truncation is not cosmetic — measured task titles average ~99 chars and reach 147, so five untruncated contractor titles alone outweigh the whole machine block. Members carry “duty“ and leave “current_task“ “”“: duty is stable and answers "is this the right person to ask", whereas a member's task changes daily and would churn every agent's boot for less signal. “task_status“/“waiting_reason“/“progress_done“/“progress_total“ are the bound task's progress for contractors only (owner ruling rc-6935feeb293a 選①, T-925f): status and waiting_reason ride the SAME task row already loaded to build “current_task“, and progress comes from one roster-wide grouped step-count query. Members leave all four at their zero value — the same 正職給職責、外包給任務標題 ruling that keeps “current_task“ bare for members applies here, since progress churns even faster than a task title. A contractor reading “0/0“ is AMBIGUOUS — a bound task with no steps yet, or no bound task at all — and “task_status“ is what tells them apart (non-empty vs “”“).
@@ -1824,7 +1833,7 @@ type ResumeSummaryDTO struct {
 	Machines    *ResumeMachinesDTO `json:"machines,omitempty"`
 	Note        *string            `json:"note,omitempty"`
 
-	// Overview The size/概要 block of the wake snapshot — the peek-then-decide signals (look at the SIZES first, then decide what to pull and whether to hand the digest to a sub-agent instead of loading it into your own context). ``chat_count`` / ``tasks_returned`` count what THIS snapshot carries; ``tasks_open_total`` is ALL the caller's open tasks (may exceed the bounded rows — page with ``list_tasks``); ``tasks_detail_chars`` sums every returned row's ``detail_chars`` (the plan text a full ``get_task`` pull would load); ``cards_waiting`` / ``cards_answered_recent`` count the CALLER'S reply cards still waiting on the owner / answered within the last 24h (pull with ``list_reply_cards``, cap with its ``limit``). ``roster_chars`` / ``machines_chars`` (T-1b09) size the two studio-floor blocks THIS snapshot carries — reported separately, and deliberately NOT folded into ``tasks_detail_chars``: that one counts text the snapshot does NOT carry (the plan text a later ``get_task`` would load), so mixing the two kinds of number is what made ``estimated_total_chars`` ambiguous in the first place.
+	// Overview The size/概要 block of the wake snapshot — the peek-then-decide signals (look at the SIZES first, then decide what to pull and whether to hand the digest to a sub-agent instead of loading it into your own context). ``chat_count`` / ``tasks_returned`` count what THIS snapshot carries; ``tasks_open_total`` is ALL the caller's open tasks (may exceed the bounded rows — page with ``list_tasks``); ``tasks_detail_chars`` sums every returned row's ``detail_chars`` (the plan text a full ``get_task`` pull would load); ``cards_waiting`` / ``cards_answered_recent`` count the CALLER'S reply cards still waiting on the owner / answered within the last 24h (pull with ``list_reply_cards``, cap with its ``limit``). ``roster_chars`` / ``machines_chars`` (T-1b09) size the two studio-floor blocks THIS snapshot carries — reported separately, and deliberately NOT folded into ``tasks_detail_chars``: that one counts text the snapshot does NOT carry (the plan text a later ``get_task`` would load), so mixing the two kinds of number is what made ``estimated_total_chars`` ambiguous in the first place. ``steps_on_answered_card`` counts the ``answered_card_steps`` rows across the returned tasks — steps sitting on a reply card the owner already answered while the step is still ``in_progress``, i.e. an answer nobody has picked up; ``steps_on_answered_card_chars`` sizes the text those rows carry and, like ``roster_chars``/``machines_chars``, IS folded into ``estimated_total_chars`` because the snapshot does carry it.
 	Overview *ResumeOverviewDTO       `json:"overview,omitempty"`
 	Roster   *[]ResumeRosterMemberDTO `json:"roster,omitempty"`
 	Tasks    *[]ResumeTaskDTO         `json:"tasks,omitempty"`
@@ -1839,10 +1848,12 @@ type ResumeSummaryDTO struct {
 // through the shared server path, so they cannot drift) plus
 // “estimated_total_chars“ — a derived single number the boot threshold gates on:
 // exactly “chat_chars“ + “tasks_detail_chars“ + “roster_chars“ +
-// “machines_chars“, all four reported in “overview“. That is the WHOLE chat
+// “machines_chars“ + “steps_on_answered_card_chars“, all five reported in
+// “overview“. That is the WHOLE chat
 // block as the snapshot renders it (“chat_chars“ is the rendered block's cost,
-// NOT the sum of the message bodies), plus the plan text its task rows omit and
-// the two studio-floor blocks it carries — and
+// NOT the sum of the message bodies), plus the plan text its task rows omit, the
+// two studio-floor blocks it carries and the answered-card pointers on its task
+// rows — and
 // a fixed guidance “note“. It carries NO chat bodies and NO task rows: peeking
 // it costs a few hundred bytes, so a waking agent can size “resume_summary“
 // BEFORE deciding whether to pull it into its own context or hand the pull to a
@@ -1854,25 +1865,26 @@ type ResumeSummarySizeDTO struct {
 	Identity            *string `json:"identity,omitempty"`
 	Note                *string `json:"note,omitempty"`
 
-	// Overview The size/概要 block of the wake snapshot — the peek-then-decide signals (look at the SIZES first, then decide what to pull and whether to hand the digest to a sub-agent instead of loading it into your own context). ``chat_count`` / ``tasks_returned`` count what THIS snapshot carries; ``tasks_open_total`` is ALL the caller's open tasks (may exceed the bounded rows — page with ``list_tasks``); ``tasks_detail_chars`` sums every returned row's ``detail_chars`` (the plan text a full ``get_task`` pull would load); ``cards_waiting`` / ``cards_answered_recent`` count the CALLER'S reply cards still waiting on the owner / answered within the last 24h (pull with ``list_reply_cards``, cap with its ``limit``). ``roster_chars`` / ``machines_chars`` (T-1b09) size the two studio-floor blocks THIS snapshot carries — reported separately, and deliberately NOT folded into ``tasks_detail_chars``: that one counts text the snapshot does NOT carry (the plan text a later ``get_task`` would load), so mixing the two kinds of number is what made ``estimated_total_chars`` ambiguous in the first place.
+	// Overview The size/概要 block of the wake snapshot — the peek-then-decide signals (look at the SIZES first, then decide what to pull and whether to hand the digest to a sub-agent instead of loading it into your own context). ``chat_count`` / ``tasks_returned`` count what THIS snapshot carries; ``tasks_open_total`` is ALL the caller's open tasks (may exceed the bounded rows — page with ``list_tasks``); ``tasks_detail_chars`` sums every returned row's ``detail_chars`` (the plan text a full ``get_task`` pull would load); ``cards_waiting`` / ``cards_answered_recent`` count the CALLER'S reply cards still waiting on the owner / answered within the last 24h (pull with ``list_reply_cards``, cap with its ``limit``). ``roster_chars`` / ``machines_chars`` (T-1b09) size the two studio-floor blocks THIS snapshot carries — reported separately, and deliberately NOT folded into ``tasks_detail_chars``: that one counts text the snapshot does NOT carry (the plan text a later ``get_task`` would load), so mixing the two kinds of number is what made ``estimated_total_chars`` ambiguous in the first place. ``steps_on_answered_card`` counts the ``answered_card_steps`` rows across the returned tasks — steps sitting on a reply card the owner already answered while the step is still ``in_progress``, i.e. an answer nobody has picked up; ``steps_on_answered_card_chars`` sizes the text those rows carry and, like ``roster_chars``/``machines_chars``, IS folded into ``estimated_total_chars`` because the snapshot does carry it.
 	Overview ResumeOverviewDTO `json:"overview"`
 }
 
-// ResumeTaskDTO One task the resuming caller EXECUTES, in the resume-summary snapshot (SPEC §6.2) — a LIGHT row (owner ruling: 任務不該包含細節; the wake snapshot carries NO steps and NO DoD text). It names the task (“task_no“/“title“/“type_key“), its “status“/“priority“/“waiting_reason“, the current node (“current_step_id“ + “current_step_name“ — the first non-terminal step — “superseded“ replan history is skipped like “done“; both “”“ when the plan is empty or complete), the executed-vs-pending boundary as “progress_done“/“progress_total“, and “updated_ts“. “detail_chars“ is the SIZE (in characters) of the plan text this row omits (every step's name + DoD) — the peek-then-decide signal: check it BEFORE pulling detail, and hand a large “get_task“ pull to a sub-agent instead of loading it into your own context. Non-terminal tasks only; the list is BOUNDED (most recently updated first) — page the rest with “list_tasks“ / “get_task“.
+// ResumeTaskDTO One task the resuming caller EXECUTES, in the resume-summary snapshot (SPEC §6.2) — a LIGHT row (owner ruling: 任務不該包含細節; the wake snapshot carries NO steps and NO DoD text). It names the task (“task_no“/“title“/“type_key“), its “status“/“priority“/“waiting_reason“, the current node (“current_step_id“ + “current_step_name“ — the first non-terminal step — “superseded“ replan history is skipped like “done“; both “”“ when the plan is empty or complete), the executed-vs-pending boundary as “progress_done“/“progress_total“, and “updated_ts“. “detail_chars“ is the SIZE (in characters) of the plan text this row omits (every step's name + DoD) — the peek-then-decide signal: check it BEFORE pulling detail, and hand a large “get_task“ pull to a sub-agent instead of loading it into your own context. “answered_card_steps“ names the steps of THIS task that sit on a reply card the owner has ALREADY ANSWERED while the step is still “in_progress“ — the answer arrived and nobody picked it up; empty on a normal row. It is the one thing on this row a status field cannot tell you, because an answered card releases its step back to “in_progress“, which is the SAME value a step being actively worked carries. Read the card (“get_reply_card“) before deciding — the answer may well be 不通過／改做, and nothing about this signal marks the step done. Non-terminal tasks only; the list is BOUNDED (most recently updated first) — page the rest with “list_tasks“ / “get_task“.
 type ResumeTaskDTO struct {
-	CurrentStepId   *string  `json:"current_step_id,omitempty"`
-	CurrentStepName *string  `json:"current_step_name,omitempty"`
-	DetailChars     int      `json:"detail_chars"`
-	Id              string   `json:"id"`
-	Priority        string   `json:"priority"`
-	ProgressDone    int      `json:"progress_done"`
-	ProgressTotal   int      `json:"progress_total"`
-	Status          string   `json:"status"`
-	TaskNo          string   `json:"task_no"`
-	Title           *string  `json:"title,omitempty"`
-	TypeKey         *string  `json:"type_key,omitempty"`
-	UpdatedTs       *float64 `json:"updated_ts,omitempty"`
-	WaitingReason   *string  `json:"waiting_reason,omitempty"`
+	AnsweredCardSteps *[]ResumeAnsweredCardStepDTO `json:"answered_card_steps,omitempty"`
+	CurrentStepId     *string                      `json:"current_step_id,omitempty"`
+	CurrentStepName   *string                      `json:"current_step_name,omitempty"`
+	DetailChars       int                          `json:"detail_chars"`
+	Id                string                       `json:"id"`
+	Priority          string                       `json:"priority"`
+	ProgressDone      int                          `json:"progress_done"`
+	ProgressTotal     int                          `json:"progress_total"`
+	Status            string                       `json:"status"`
+	TaskNo            string                       `json:"task_no"`
+	Title             *string                      `json:"title,omitempty"`
+	TypeKey           *string                      `json:"type_key,omitempty"`
+	UpdatedTs         *float64                     `json:"updated_ts,omitempty"`
+	WaitingReason     *string                      `json:"waiting_reason,omitempty"`
 }
 
 // RoleCreateDTO Create ONE custom role + its ONE founding member in a single call (M2-2
@@ -2250,9 +2262,6 @@ type SettingsDTO struct {
 	// CodexNoticeRound The codex twin of notice_pct (T-a9d6): the compaction round at which the SOFT notice fires. A codex session hands over on compaction count, not on a percentage, so its pair is a pair of ROUNDS. Must be 1..10 and strictly below codex_compaction_threshold.
 	CodexNoticeRound int `json:"codex_notice_round"`
 
-	// CustomThemes The owner's saved custom theme bundles (T-16a1 P2), each a `{id,name,colors}` colour bundle. `[]` = none saved. display_theme may point at any id in this set (or a built-in). Governance-gated (owner/admin agent): rides GET /api/settings only.
-	CustomThemes *[]ThemeBundleDTO `json:"custom_themes,omitempty"`
-
 	// DisplayLanguage The owner's cockpit language (T-0b41-p2). "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login as the cross-device source of truth.
 	DisplayLanguage *string `json:"display_language,omitempty"`
 
@@ -2349,13 +2358,10 @@ type SettingsUpdateDTO struct {
 	// CodexNoticeRound The codex SOFT-notice compaction round (T-a9d6). 1..10, and strictly below codex_compaction_threshold.
 	CodexNoticeRound *int `json:"codex_notice_round,omitempty"`
 
-	// CustomThemes Replace the owner's custom theme bundles (T-16a1 P2) with this array (each `{id,name,colors}`). Omit to leave them unchanged; `[]` clears them. Every bundle is validated against the shape, the theme.css token whitelist, and the concrete-colour grammar — any violation is a 422 and nothing is written. The ONE exception is an unrecognised `wording` code, which is dropped from the bundle instead of failing it (see ThemeBundleDTO.wording): that request is a 200 whose echo carries the pruned overlay. When this and display_theme are patched together, display_theme is validated against the POST-patch set; and deleting the active custom theme resets display_theme to "".
-	CustomThemes *[]ThemeBundleDTO `json:"custom_themes,omitempty"`
-
 	// DisplayLanguage The owner's cockpit language (T-0b41-p2) — trimmed; "" clears it back to unset. Must be one of zh, en (or ""); anything else is a 422.
 	DisplayLanguage *string `json:"display_language,omitempty"`
 
-	// DisplayTheme The owner's cockpit visual theme (T-0b41-p2) — trimmed; "" clears it back to unset. Must be one of office, xian (or ""); anything else is a 422.
+	// DisplayTheme The owner's cockpit visual theme (T-0b41-p2) — trimmed; "" clears it back to unset. Accepted values are "", the built-in `office`, or the id of a theme that ALREADY EXISTS (T-83ef); anything else is a 422 reading `display_theme must be "", office, or an existing custom theme id`. The existence half is why this can no longer create a theme on the way past: themes are their own resource now, so save it with PUT /api/themes/{theme_id} first and select it here second. (This said "one of office, xian" until T-83ef — wrong twice over: `xian` stopped being built in when it became an importable pack, and the custom ids were never listed.)
 	DisplayTheme *string `json:"display_theme,omitempty"`
 
 	// DisplayWide Turn the WIDE cockpit layout on/off (T-756f) — true lifts the centred ~1040px content column (the side gutters stay), false restores it. A plain boolean with no unset state: omit the field to leave it unchanged.
@@ -2509,7 +2515,7 @@ type TaskDTO struct {
 	// HandoffNote The handover sentence recorded with the declaration.
 	HandoffNote *string `json:"handoff_note,omitempty"`
 
-	// HandoffTaskId The successor task the handover points at ("" for ``handoff='none'``).
+	// HandoffTaskId The successor task the handover points at. Only ``handoff='follow_up'`` ever sets it: it is "" for ``handoff='none'`` and "" for ``handoff='return_to_creator'`` too, which since T-f265 opens no task at all and notifies nobody — it only records where the ball went.
 	HandoffTaskId *string `json:"handoff_task_id,omitempty"`
 
 	// HandoverNote The latest durable reassign handover note.
@@ -2822,6 +2828,25 @@ type TaskRefDTO struct {
 	TypeKey *string `json:"type_key,omitempty"`
 }
 
+// TaskSopPatchDTO Anchor-addressed PATCH of a type's SOP (MCP “patch_task_sop“ — the sop_md twin of “patch_task_learnings“): “{edits: [{old, new}], allow_shrink?}“. It exists to stop CONCURRENT OVERWRITE: the only sop_md write face was “update_task_manual.sop_md“, a whole-doc replace, so a caller holding a stale copy silently deletes whatever landed in between — and because the stale copy is usually the LONGER one, the shrink guard never fires and the loss carries no signal at all. An anchor patch cannot express that write: each non-empty “old“ must match the current sop_md EXACTLY ONCE, so a concurrent write that moved or duplicated the anchor turns the batch into a visible refusal. ATOMIC — edits apply sequentially to an in-memory copy and any failing anchor (absent or ambiguous “old“) rejects the ENTIRE batch with a flat 400 and ZERO writes. “allow_shrink“ (default false) must be set explicitly for a patch that empties the doc or shrinks it to under a tenth of its size — the r-76 wipe-guard posture.
+type TaskSopPatchDTO struct {
+	AllowShrink *bool            `json:"allow_shrink,omitempty"`
+	Edits       []LessonsEditDTO `json:"edits"`
+}
+
+// TaskSopPatchResultDTO Receipt of a task-SOP PATCH (MCP “patch_task_sop“). “size_chars“ (CHARACTERS — Unicode code points, the SAME unit as the “doc.cap_chars.manual_sop“ cap the write is judged against) and “sha256“ (hex) are lightweight verification anchors over the RESULTING sop_md text, so the caller can confirm the write landed without re-reading the full doc. “applied_edits“ counts the edits that changed the text THEY were handed (a no-op append/replace does not count), so "0 applied" is expressible and a silent no-op cannot masquerade as success. It is not a report on whether the document ended up different from where it started: a batch whose edits undo one another (“anchor → middle“ then “middle → anchor“) reports the full count over a sop_md that never moved, and nothing is written in that case. To decide whether the doc actually changed, compare “sha256“ against the value you held before the call.
+type TaskSopPatchResultDTO struct {
+	AppliedEdits *int `json:"applied_edits,omitempty"`
+
+	// CapChars The document size cap in force when this write was judged, in CHARACTERS (the doc.cap_chars.manual_sop setting — this face only ever writes sop_md). Returned so a caller can see its remaining budget without a second request — the cap is adjustable and agents cannot read the settings surface.
+	CapChars *int    `json:"cap_chars,omitempty"`
+	Sha256   *string `json:"sha256,omitempty"`
+
+	// SizeChars Size of the RESULTING document in CHARACTERS (Unicode code points) — the same unit as cap_chars.
+	SizeChars *int    `json:"size_chars,omitempty"`
+	TypeKey   *string `json:"type_key,omitempty"`
+}
+
 // TaskStepDTO One workflow node on the task timeline. Every row is one progress leaf (parallel items are separate rows sharing “parallel_group“). A parallel stage is CONSECUTIVE rows sharing a non-empty “parallel_group“ — submit_plan refuses (400) split groups, one-lane groups and gates inside a group, so stored plans always fold cleanly. “status“ is the closed set “pending“ | “in_progress“ | “waiting_owner“ | “done“ | “superseded“. “done“ and “superseded“ are the step's terminal states: “superseded“ (T-1aea) is stamped by submit_plan alone — a replan freezes a step whose latest bound reply card was already answered/expired as kept history (original order, ahead of the fresh plan) unless the fresh plan re-lists the node by name; a superseded row counts toward neither “progress_done“ nor “progress_total“, is never the current node, is not agent-reportable and cannot be re-armed; its “finished_ts“ is the freeze moment. Gate projection: “is_gate“ with an empty “reply_card_id“ is the ANNOUNCED (dashed) gate; a non-empty “reply_card_id“ is a step carrying a live reply card — an ARMED gate, or a plain step a “create_reply_card“ ask auto-bound to. “reply_card_id“ always points at the LATEST bound card and persists after the step finishes (the permanent approval mark).
 type TaskStepDTO struct {
 	Dod        *string  `json:"dod,omitempty"`
@@ -2842,6 +2867,26 @@ type TaskStepDTO struct {
 	Status          string   `json:"status"`
 	TaskId          string   `json:"task_id"`
 	WaitingReason   *string  `json:"waiting_reason,omitempty"`
+}
+
+// TaskStepNotePatchDTO Anchor-addressed PATCH of one step's working note (MCP “patch_step_note“): “{edits: [{old, new}], allow_shrink?}“. It exists to stop CONCURRENT OVERWRITE: “update_step_note“ is a whole-doc replace, so a caller that read the note earlier and writes it back silently deletes whatever a second writer added in between — and because the stale copy is usually the LONGER one, no shrink guard fires and the loss carries no signal at all. An anchor patch cannot express that write: each non-empty “old“ must match the current note EXACTLY ONCE, so a concurrent write that moved or duplicated the anchor turns the batch into a refusal. ATOMIC — edits apply sequentially to an in-memory copy and any failing anchor (absent or ambiguous “old“) rejects the ENTIRE batch with a flat 400 and ZERO writes; an empty “old“ appends “new“. “allow_shrink“ (default false) must be set explicitly for a patch that empties the note or shrinks it to under a tenth of its size — the r-76 wipe-guard posture; use “update_step_note“ for an honest wholesale rewrite.
+type TaskStepNotePatchDTO struct {
+	AllowShrink *bool            `json:"allow_shrink,omitempty"`
+	Edits       []LessonsEditDTO `json:"edits"`
+}
+
+// TaskStepNotePatchResultDTO Receipt of a step-note PATCH (MCP “patch_step_note“). Echoes the note as STORED — the same posture as the wholesale receipt, since the whole point of the field is that a later session reads it back — plus “applied_edits“ (the edits that changed the text THEY were handed, so "0 applied" is expressible and a silent no-op cannot masquerade as success — it is not a report on whether the note ended up different from where it started: a batch whose edits undo one another (“anchor → middle“ then “middle → anchor“) reports the full count over a note that never moved, and in that case the stored note, the task's “updated_ts“ and every open cockpit card are left exactly as they stood, so compare “sha256“ against the value you held before the call to decide that) and “size_chars“/“cap_chars“/“sha256“ verification anchors over the resulting note. “size_chars“ and “cap_chars“ are CHARACTERS (Unicode code points), the unit the note's limit is enforced in.
+type TaskStepNotePatchResultDTO struct {
+	AppliedEdits *int `json:"applied_edits,omitempty"`
+
+	// CapChars The step-note ceiling this write was judged against, in CHARACTERS — the same limit ``update_step_note`` enforces, shared with the task-level handover note. NOT a setting: unlike the ``cap_chars`` on the manual patch receipts (which report the adjustable ``doc.cap_chars.*`` values), this one is a server CONSTANT and no settings key moves it. Same field name, different source — do not read one as evidence about the other.
+	CapChars   *int    `json:"cap_chars,omitempty"`
+	Note       string  `json:"note"`
+	Sha256     *string `json:"sha256,omitempty"`
+	SizeChars  *int    `json:"size_chars,omitempty"`
+	StepId     string  `json:"step_id"`
+	StepStatus string  `json:"step_status"`
+	TaskId     string  `json:"task_id"`
 }
 
 // TaskStepNoteReceiptDTO Bounded receipt returned after writing one step's working note (T-cc3e). Echoes the note as STORED, so the caller can confirm what actually landed without a follow-up GET — the point of the field is that the next session reads it back, so the write must be verifiable at the write. Fetch GET /api/tasks/{task_id} when full task detail is needed.
@@ -2915,6 +2960,13 @@ type ThemeBundleDTO struct {
 	Wording *map[string]map[string]string `json:"wording,omitempty"`
 }
 
+// ThemeDeleteResultDTO Receipt for deleting one custom theme (T-83ef). “display_theme_reset“ is the part a caller cannot work out on its own: deleting the ACTIVE theme resets “display_theme“ back to “""“ in the same request — the coupling the whole-array settings write used to perform — and this field says whether that happened, so the cockpit does not have to re-read settings to discover its theme changed under it.
+type ThemeDeleteResultDTO struct {
+	Deleted           bool   `json:"deleted"`
+	DisplayThemeReset bool   `json:"display_theme_reset"`
+	Id                string `json:"id"`
+}
+
 // ThemeFetchDTO One link to pull a theme bundle from (T-29c7). “url“ must be an absolute “http“/“https“ URL — that FORMAT check is the only thing asked of the address. The link's ORIGIN is deliberately unconstrained (owner ruling 2026-08-03: "不要限制 link 是哪邊來的", "不用驗證"): there is no host allowlist, no private-address refusal and no per-hop redirect re-check. What IS checked is the ANSWER — see ThemeFetchResultDTO.
 type ThemeFetchDTO struct {
 	Url string `json:"url"`
@@ -2923,6 +2975,20 @@ type ThemeFetchDTO struct {
 // ThemeFetchResultDTO The fetched theme bundle, handed back as the RAW response text in “content“ (T-29c7). It is verbatim on purpose: the cockpit feeds it into the very same “parseImportedBundle“ that a pasted / file-picked bundle goes through, so a link-imported theme and a hand-pasted one cannot diverge. The server has already proved the body parses as JSON and passes the shared theme-bundle validator, so “content“ is never arbitrary bytes.
 type ThemeFetchResultDTO struct {
 	Content string `json:"content"`
+}
+
+// ThemeListItemDTO One row of GET /api/themes (T-83ef): a saved theme's identity and its display name, and nothing else. It is a LIST ITEM rather than the bundle on purpose — see that endpoint's description for why a list of whole bundles is the payload this resource exists to stop serving. `name` is what the cockpit's theme list and the profile picker render; `id` is what selects it, edits it, or fetches it in full.
+type ThemeListItemDTO struct {
+	Id   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// ThemeWriteReceiptDTO Receipt for a single-theme write (T-83ef). It is a RECEIPT rather than the stored bundle echoed back on purpose: a bundle carries its images embedded, so echoing it would send hundreds of kilobytes a second time — the payload this split exists to remove. “created“ distinguishes a theme that did not exist before from one that was replaced; “order_idx“ is its position in the owner's list, which a replace KEEPS (re-colouring a theme does not move it to the bottom); “updated_at“ is when this write landed.
+type ThemeWriteReceiptDTO struct {
+	Created   bool    `json:"created"`
+	Id        string  `json:"id"`
+	OrderIdx  int     `json:"order_idx"`
+	UpdatedAt float64 `json:"updated_at"`
 }
 
 // TokenDTO Owner-scoped JWT issued by `/api/login` (the one token for REST/MCP/SSE).
@@ -3272,6 +3338,9 @@ type HandleWriteTaskLearningsApiTaskManualsTypeKeyLearningsPostJSONRequestBody =
 // HandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchPostJSONRequestBody defines body for HandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchPost for application/json ContentType.
 type HandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchPostJSONRequestBody = TaskLearningsPatchDTO
 
+// HandlePatchTaskSopApiTaskManualsTypeKeySopPatchPostJSONRequestBody defines body for HandlePatchTaskSopApiTaskManualsTypeKeySopPatchPost for application/json ContentType.
+type HandlePatchTaskSopApiTaskManualsTypeKeySopPatchPostJSONRequestBody = TaskSopPatchDTO
+
 // HandleCreateTaskApiTasksPostJSONRequestBody defines body for HandleCreateTaskApiTasksPost for application/json ContentType.
 type HandleCreateTaskApiTasksPostJSONRequestBody = TaskCreateDTO
 
@@ -3308,6 +3377,9 @@ type HandleOpenTaskGateApiTasksTaskIdStepsStepIdGatePostJSONRequestBody = ReplyC
 // HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePostJSONRequestBody defines body for HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost for application/json ContentType.
 type HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePostJSONRequestBody = TaskStepNoteUpdateDTO
 
+// HandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPostJSONRequestBody defines body for HandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPost for application/json ContentType.
+type HandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPostJSONRequestBody = TaskStepNotePatchDTO
+
 // HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPostJSONRequestBody defines body for HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost for application/json ContentType.
 type HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPostJSONRequestBody = TaskStepStatusUpdateDTO
 
@@ -3316,6 +3388,9 @@ type HandleUpdateTaskTitleApiTasksTaskIdTitlePostJSONRequestBody = TaskTitleDTO
 
 // HandleFetchThemeApiThemeFetchPostJSONRequestBody defines body for HandleFetchThemeApiThemeFetchPost for application/json ContentType.
 type HandleFetchThemeApiThemeFetchPostJSONRequestBody = ThemeFetchDTO
+
+// HandlePutThemeApiThemesThemeIdPutJSONRequestBody defines body for HandlePutThemeApiThemesThemeIdPut for application/json ContentType.
+type HandlePutThemeApiThemesThemeIdPutJSONRequestBody = ThemeBundleDTO
 
 // AsHandleListReplyCardsApiReplyCardsGet200JSONResponseBody0 returns the union data inside the HandleListReplyCardsApiReplyCardsGet200JSONResponseBody as a HandleListReplyCardsApiReplyCardsGet200JSONResponseBody0
 func (t HandleListReplyCardsApiReplyCardsGet200JSONResponseBody) AsHandleListReplyCardsApiReplyCardsGet200JSONResponseBody0() (HandleListReplyCardsApiReplyCardsGet200JSONResponseBody0, error) {
@@ -3535,7 +3610,7 @@ type ServerInterface interface {
 	// Re-fetch a machine's boot command anytime (re-mints its exec-token).
 	// (GET /api/machines/{machine_id}/boot-command)
 	HandleMachineBootCommandApiMachinesMachineIdBootCommandGet(w http.ResponseWriter, r *http.Request, machineId string)
-	// Bootstrap on server: install this machine's warden on the host.
+	// Bootstrap on server: runs `ocwarden install --force` on the SERVER's own host. machine_id is NOT a target — this verb has no way to reach another machine, and naming one is refused (409); the server-local machine is the only value it accepts, and the install overwrites the existing one, which is how you repair this host's warden. To install a different machine, fetch that machine's own boot command with GET /api/machines/{machine_id}/boot-command and run it on that host.
 	// (POST /api/machines/{machine_id}/bootstrap-here)
 	HandleBootstrapHereApiMachinesMachineIdBootstrapHerePost(w http.ResponseWriter, r *http.Request, machineId string)
 	// Teardown on server: runs `ocwarden teardown` on the SERVER's own host. machine_id is NOT a target — this verb has no way to reach another machine, and naming one is refused (409). The server-local machine is refused too (retiring it revokes credentials fleet-wide). To retire another machine use uninstall_machine then delete_machine; to repair the server host's own warden use install_warden_on_server_host, which runs `install --force` over the existing install.
@@ -3580,7 +3655,7 @@ type ServerInterface interface {
 	// Deactivate: desired_state=offline + stamp stopping_since (retains row).
 	// (POST /api/members/{member_id}/deactivate)
 	HandleDeactivateMemberApiMembersMemberIdDeactivatePost(w http.ResponseWriter, r *http.Request, memberId string)
-	// Force-stop: robust STOP now, bypassing the graceful-stop grace.
+	// Force-stop: robust STOP now. On the offboard arm this is the ONLY thing that ever collects the member -- nothing times out.
 	// (POST /api/members/{member_id}/force-stop)
 	HandleForceStopMemberApiMembersMemberIdForceStopPost(w http.ResponseWriter, r *http.Request, memberId string)
 	// Refocus a member's context (online-only, else 409).
@@ -3592,16 +3667,16 @@ type ServerInterface interface {
 	// The SAME bounded wake snapshot as resume_summary, for a TARGET member (member_id) instead of the caller — control-others, admin_agent+ only (owner-scope or role=assistant); an ordinary agent gets 403. Same identity/chat/light-task-rows/roster/machines/overview/note shape, assembled by the identical resumeSnapshotParts function (so the roster and machine blocks cannot drift from what that member would get on waking; note that machines.you_are_on resolves for the TARGET member, not for you); resume_summary itself is unchanged and still identity-locked to the caller.
 	// (GET /api/members/{member_id}/resume-summary)
 	HandleGetMemberResumeSummaryApiMembersMemberIdResumeSummaryGet(w http.ResponseWriter, r *http.Request, memberId string)
-	// List one member's scheduled messages.
+	// List one member's scheduled messages — 定期訊息, the wall-clock alarm that wakes that member with a chat message on a repeating cadence. admin_agent floor: the owner, or an admin assistant setting these up on the owner's behalf; an ordinary agent gets 403 even for its own member_id. Rows come oldest→newest and each carries the whole schedule — label, body, cadence, the slot fields `hour`/`minute`/`day_of_week`/`day_of_month`, the four `custom` sets, timezone, and the enabled/disabled toggle — plus the delivery cursor `last_fired_slot`/`last_fired_ts`. Read this before update_scheduled_message: that call is a partial edit against these stored values, and it re-aims the cursor only for a slot field whose value actually CHANGES. 404 if the member is absent or soft-removed.
 	// (GET /api/members/{member_id}/scheduled-messages)
 	HandleListScheduledMessagesApiMembersMemberIdScheduledMessagesGet(w http.ResponseWriter, r *http.Request, memberId string)
-	// Create a scheduled message on one member.
+	// Create a scheduled message on one member — 定期訊息, the mechanism for waking a member on a repeating wall-clock slot: at each due slot the server delivers `body` verbatim down the ORDINARY chat path, from the synthetic sender `sched:<schedule_id>`. admin_agent floor: the owner, or an admin assistant setting one up on the owner's behalf; an ordinary agent gets 403 even for its own member_id. The recipient follows chat's rule, so an `ow-` outsource worker is a legal target as well as a staff member. `body`, `cadence` and `timezone` are always required; `hour`/`minute` are required by `daily`/`weekly`/`monthly` and ignored by `custom` FOR SCHEDULING — their range is still checked under every cadence, so `hour: 99` is a 422 even for `custom`, which instead requires `custom_days`/`custom_hours`/`custom_minutes` (`custom_months` may be omitted to mean all twelve; an explicit empty set is a 422). Those conditional rules are NOT expressible in this schema — a wrong combination comes back as a 422 rather than folding into a silent midnight. TWO fields are the exception and they fail SILENTLY: `day_of_week` (used by `weekly`) and `day_of_month` (used by `monthly`) are NOT required — omit either one and the create returns 200 having defaulted it to 0 (Sunday) and 1 (the first of the month). 'Every Friday at 09:00' sent without `day_of_week` is a Sunday alarm and nothing reports it, so send the field explicitly whenever the cadence reads it. `timezone` must NAME A PLACE: `Local` and the empty string are refused with 422 even though they resolve, because they hand "what time is it" to wherever the server happens to run. Missed slots are never backfilled — only the slot most recently elapsed is ever considered — and the cursor starts at creation time, so a `daily` 09:00 schedule created at 10:00 does not fire today. 404 if the member is absent or soft-removed.
 	// (POST /api/members/{member_id}/scheduled-messages)
 	HandleCreateScheduledMessageApiMembersMemberIdScheduledMessagesPost(w http.ResponseWriter, r *http.Request, memberId string)
-	// Delete one scheduled message.
+	// Delete one scheduled message — 定期訊息, permanent and not undoable. admin_agent floor: the owner, or an admin assistant acting on the owner's behalf; an ordinary agent gets 403 even for its own member_id. When the schedule should merely STOP firing, call update_scheduled_message with `status: disabled` instead — that is the reversible half and this one is not. 404 if the member or the schedule is absent.
 	// (DELETE /api/members/{member_id}/scheduled-messages/{schedule_id})
 	HandleDeleteScheduledMessageApiMembersMemberIdScheduledMessagesScheduleIdDelete(w http.ResponseWriter, r *http.Request, memberId string, scheduleId string)
-	// Update one scheduled message (including enable/disable).
+	// Update one scheduled message, including the enabled/disabled toggle (`status`) — 定期訊息, the wall-clock wake-up for one member. admin_agent floor: the owner, or an admin assistant acting on the owner's behalf; an ordinary agent gets 403 even for its own member_id. PATCH semantics: only the fields you send change, and `id`/`member_id` are immutable. The create-side validation applies unchanged — `hour`/`minute` required by `daily`/`weekly`/`monthly` and ignored by `custom` for scheduling though still range-checked under every cadence, the custom sets never empty, `timezone` never `Local` or the empty string — all 422. Editing a timing field to a DIFFERENT value re-aims the delivery cursor to the slot most recently elapsed, so the edit never retroactively fires the slot it crossed; re-sending a value the schedule already holds moves nothing, which is what makes a whole-form save safe. `disabled` suspends firing and is reversible — it is not a lifecycle state; delete_scheduled_message is the permanent removal. 404 if the member or the schedule is absent.
 	// (PATCH /api/members/{member_id}/scheduled-messages/{schedule_id})
 	HandleUpdateScheduledMessageApiMembersMemberIdScheduledMessagesScheduleIdPatch(w http.ResponseWriter, r *http.Request, memberId string, scheduleId string)
 	// List a member's webhook endpoints (WebhookEndpointDTO[]).
@@ -3697,7 +3772,7 @@ type ServerInterface interface {
 	// Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task). CHAT is packed newest-first under a CHARACTER BUDGET, not a fixed message count, and stopping at the last message that still fits; each message carries from_name/to_name beside the ids and ts_display (full date + time + zone offset) beside the epoch ts, and folds in its reply card as `card` when it has one — read every ts_display against the top-level `generated_at`. TWO DIFFERENT things can be missing and they are marked DIFFERENTLY: `body_omitted_chars` > 0 means THAT message is here with that many characters COLLAPSED away (another agent's line — the owner's line and your own hand-off notes to yourself are carried in full), re-read it with get_chat; `chat_earlier_omitted` is the other kind and it is a MAYBE, not a fact: that line was cut at a read or budget limit and nothing looked past the cut, so whole messages may be missing from this payload entirely — it is raised even when there is in fact nothing older. Its hint tells you how to CHECK and fetch them. The two are asymmetric ON PURPOSE: the collapse marker is CERTAIN (that message IS here, shortened, exact count); this one is not, and only the fetch settles it. Also carries the STUDIO FLOOR you wake up onto: roster (every member and contractor, each with online/offline status, the machine it runs on, and its duty capped at 1000 chars with `…` marking a cut, the cap applied after the doc's own leading title line is removed — who to ask for help; no insight/learning by owner ruling. Contractors additionally carry their bound task's status, waiting_reason, and step progress (progress_done/progress_total) — members leave these at their zero value; a contractor's 0/0 is ambiguous (a task with no steps yet, or no task at all) and task_status is what tells them apart, non-empty vs empty) and machines (the machine list plus you_are_on, your server-recorded machine binding — never derive it from a hostname).
 	// (GET /api/resume-summary)
 	HandleResumeSummaryApiResumeSummaryGet(w http.ResponseWriter, r *http.Request)
-	// Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO chat/task content). estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars, all four reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit and the two studio-floor blocks — what pulling the snapshot actually costs. Step one of the two-step boot: call this FIRST to size resume_summary, then either call resume_summary directly (small) or hand the pull to a cheap sub-agent that returns a digest (large).
+	// Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO chat/task content). estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars + steps_on_answered_card_chars, all five reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit, the two studio-floor blocks, and the named steps sitting on an answered card — what pulling the snapshot actually costs. Step one of the two-step boot: call this FIRST to size resume_summary, then either call resume_summary directly (small) or hand the pull to a cheap sub-agent that returns a digest (large).
 	// (GET /api/resume-summary-size)
 	HandlePeekResumeSummarySizeApiResumeSummarySizeGet(w http.ResponseWriter, r *http.Request)
 	// List role definitions (seed defaults + owner edits) WITHOUT the persona bodies: each row is the role identity plus its definition size and cap, never definition_md itself. Read the one role you want with get_role.
@@ -3766,6 +3841,9 @@ type ServerInterface interface {
 	// Patch a type's learnings by unique anchors ({edits:[{old,new}]}) — the learnings twin of patch_lessons, so the write cost scales with the CHANGE, not the whole (30k-char) doc, and re-typing the whole doc can no longer silently drop content. Edits apply in order; a non-empty old must match the current learnings EXACTLY ONCE (0 or >1 hits reject the WHOLE batch with a 400, zero writes — the unique anchor also acts as an optimistic lock); an empty old appends. Wiping the doc, or shrinking it below a tenth, needs allow_shrink=true.
 	// (POST /api/task-manuals/{type_key}/learnings/patch)
 	HandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchPost(w http.ResponseWriter, r *http.Request, typeKey string)
+	// Patch a type's SOP (sop_md) by unique anchors ({edits:[{old,new}]}) — send only the section that changed, instead of re-typing the whole SOP. USE THIS WHENEVER YOU ARE AMENDING AN SOP THAT ALREADY HAS CONTENT. update_task_manual{sop_md} is a wholesale replace, so if anyone else edited the SOP between your read and your write, your copy is stale and the replace silently deletes their section — and because your stale copy is usually the LONGER one, no guard fires and nothing tells you. A patch cannot do that: a non-empty old must match the current sop_md EXACTLY ONCE (0 or >1 hits reject the WHOLE batch with a 400 that names which edit failed and which tool to re-read with, zero writes), so a concurrent write turns into a refusal you can see. Edits apply in order; an empty old appends. Wiping the doc, or shrinking it below a tenth, needs allow_shrink=true — for an honest rewrite from scratch use update_task_manual. The sop_md cap is judged on the RESULT and allow_shrink is not a bypass. Re-read with get_task_manual after a refusal.
+	// (POST /api/task-manuals/{type_key}/sop/patch)
+	HandlePatchTaskSopApiTaskManualsTypeKeySopPatchPost(w http.ResponseWriter, r *http.Request, typeKey string)
 	// List tasks (?executor=&type=&status=, or statuses=[…] for a SET of states — every filter given is ANDed; LIGHT list items — id/task_no/title/type_key/status/priority/executor/creator_id/progress/timestamps/deps + dep_tasks, WITHOUT steps/description/inputs). Ask for the states you actually want (`statuses: ["not_started", "in_progress"]`) instead of listing everything and filtering yourself — the whole history is a large answer. `statuses` also accepts "reassigning", which matches the handover LOCK rather than the status column. `dep_tasks` already carries each blocker's task_no/title/status, so a blocked task needs no follow-up get_task just to name what it is waiting for. Call get_task for a task's full detail (steps, description, inputs).
 	// (GET /api/tasks)
 	HandleListTasksApiTasksGet(w http.ResponseWriter, r *http.Request, params HandleListTasksApiTasksGetParams)
@@ -3820,7 +3898,10 @@ type ServerInterface interface {
 	// Write this step's working note: where the work stands and what comes next — the field the handover SOP means by 「把還在進行中的工作寫回 task step note」. WHAT TO WRITE — three things, then stop: (1) STATE — one sentence on where this step actually got to; (2) NEXT — one sentence on what whoever takes over does next; (3) EVIDENCE POINTERS — version ids, file and log paths, what you verified YOURSELF versus what you are taking on someone's word, and the limits of what was NOT done. Long narrative does not live here: reasoning and scope belong in the task description, reports and diffs belong on the task as artifacts. The note is the current state — not a report, not an append-only log. Writable in ANY step status (pending, in_progress, waiting_owner, waiting_external, done, superseded), unlike `waiting_reason`, which is locked to waiting_external. Wholesale write: `note` replaces whatever was there and "" clears it, so rewrite it as the work moves rather than appending; over 4,000 characters (counted in runes) is refused. Same executor/admin gate as every other task-driving write (403 otherwise). ⚠️ A task auto-closes when its last step is reported done and a closed task 409s — so write the note BEFORE the report that finishes the last step, not after.
 	// (POST /api/tasks/{task_id}/steps/{step_id}/note)
 	HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost(w http.ResponseWriter, r *http.Request, taskId string, stepId string)
-	// Report a step status (pending/in_progress/waiting_external/done). Entering waiting_external requires a non-blank waiting_reason (422 otherwise); the task status is derived from its steps. T-74f8 交棒閘: if this report would CLOSE the task (every step done) AND the task's creator is not its executor, the call is REFUSED with 422 unless you say where the ball goes IN THIS SAME CALL — handoff='return_to_creator' (the server opens a durable follow-up task on the creator), handoff='follow_up' + handoff_task_id=<a successor task you already created> (the server hangs this task off it as a dependency, and closing this one releases it), or handoff='none' + handoff_note=<why nothing follows>. The gate stands aside by itself when a non-terminal task already depends on this one — you never see it if the handover is already real. It refuses BEFORE writing anything, so a refused report leaves the plan fully editable: create the successor task, then re-send this same report with the declaration. This is your LAST chance — once the task closes it can never be replanned (submit_plan becomes a permanent 409).
+	// Patch this step's working note by unique anchors ({edits:[{old,new}]}) — send only the part that changed, instead of re-typing the whole note. USE THIS WHENEVER YOU ARE AMENDING A NOTE THAT ALREADY HAS CONTENT. update_step_note is a wholesale replace, so if anyone else wrote to the step between your read and your write, your copy is stale and the replace silently deletes their text — and because your stale copy is usually the LONGER one, no guard fires and nothing tells you. A patch cannot do that: a non-empty old must match the current note EXACTLY ONCE (0 or >1 hits reject the WHOLE batch with a 400 that names which edit failed and which tool to re-read with, zero writes), so a concurrent write turns into a refusal you can see. Edits apply in order; an empty old appends. Wiping the note, or shrinking it below a tenth, needs allow_shrink=true — for an honest rewrite from scratch use update_step_note. Same executor/admin gate, same any-step-status generality, same closed-task 409 as update_step_note. Re-read with get_task after a refusal.
+	// (POST /api/tasks/{task_id}/steps/{step_id}/note/patch)
+	HandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPost(w http.ResponseWriter, r *http.Request, taskId string, stepId string)
+	// Report a step status (pending/in_progress/waiting_external/done). Entering waiting_external requires a non-blank waiting_reason (422 otherwise); the task status is derived from its steps. T-74f8 交棒閘: if this report would CLOSE the task (every step done) AND the task's creator is not its executor, the call is REFUSED with 422 unless you say where the ball goes IN THIS SAME CALL — handoff='return_to_creator' (recorded on the task and nothing else — no task is opened and nobody is notified), handoff='follow_up' + handoff_task_id=<a successor task you already created> (the server hangs this task off it as a dependency, and closing this one releases it), or handoff='none' + handoff_note=<why nothing follows>. The gate stands aside by itself when a non-terminal task already depends on this one — you never see it if the handover is already real. It refuses BEFORE writing anything, so a refused report leaves the plan fully editable: create the successor task, then re-send this same report with the declaration. This is your LAST chance — once the task closes it can never be replanned (submit_plan becomes a permanent 409).
 	// (POST /api/tasks/{task_id}/steps/{step_id}/status)
 	HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost(w http.ResponseWriter, r *http.Request, taskId string, stepId string)
 	// Terminate a task (owner/admin agent; the only non-executor status change).
@@ -3832,6 +3913,18 @@ type ServerInterface interface {
 	// Fetch a theme bundle from a link (owner/admin agent).
 	// (POST /api/theme/fetch)
 	HandleFetchThemeApiThemeFetchPost(w http.ResponseWriter, r *http.Request)
+	// List the saved custom themes — id and name only, in list order (owner/admin agent).
+	// (GET /api/themes)
+	HandleListThemesApiThemesGet(w http.ResponseWriter, r *http.Request)
+	// Delete one custom theme; deleting the active one resets display_theme to "".
+	// (DELETE /api/themes/{theme_id})
+	HandleDeleteThemeApiThemesThemeIdDelete(w http.ResponseWriter, r *http.Request, themeId string)
+	// Read one saved custom theme (unknown id → 404).
+	// (GET /api/themes/{theme_id})
+	HandleGetThemeApiThemesThemeIdGet(w http.ResponseWriter, r *http.Request, themeId string)
+	// Create or replace ONE custom theme; the bundle's id must match the path (owner/admin agent).
+	// (PUT /api/themes/{theme_id})
+	HandlePutThemeApiThemesThemeIdPut(w http.ResponseWriter, r *http.Request, themeId string)
 	// Trigger a software upgrade to the latest GitHub release.
 	// (POST /api/update/upgrade)
 	HandleUpgradeApiUpdateUpgradePost(w http.ResponseWriter, r *http.Request)
@@ -6764,6 +6857,32 @@ func (siw *ServerInterfaceWrapper) HandlePatchTaskLearningsApiTaskManualsTypeKey
 	handler.ServeHTTP(w, r)
 }
 
+// HandlePatchTaskSopApiTaskManualsTypeKeySopPatchPost operation middleware
+func (siw *ServerInterfaceWrapper) HandlePatchTaskSopApiTaskManualsTypeKeySopPatchPost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "type_key" -------------
+	var typeKey string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "type_key", r.PathValue("type_key"), &typeKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "type_key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandlePatchTaskSopApiTaskManualsTypeKeySopPatchPost(w, r, typeKey)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // HandleListTasksApiTasksGet operation middleware
 func (siw *ServerInterfaceWrapper) HandleListTasksApiTasksGet(w http.ResponseWriter, r *http.Request) {
 
@@ -7294,6 +7413,41 @@ func (siw *ServerInterfaceWrapper) HandleUpdateTaskStepNoteApiTasksTaskIdStepsSt
 	handler.ServeHTTP(w, r)
 }
 
+// HandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPost operation middleware
+func (siw *ServerInterfaceWrapper) HandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "task_id" -------------
+	var taskId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "task_id", r.PathValue("task_id"), &taskId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "task_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "step_id" -------------
+	var stepId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "step_id", r.PathValue("step_id"), &stepId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "step_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPost(w, r, taskId, stepId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost operation middleware
 func (siw *ServerInterfaceWrapper) HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost(w http.ResponseWriter, r *http.Request) {
 
@@ -7386,6 +7540,98 @@ func (siw *ServerInterfaceWrapper) HandleFetchThemeApiThemeFetchPost(w http.Resp
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleFetchThemeApiThemeFetchPost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleListThemesApiThemesGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleListThemesApiThemesGet(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleListThemesApiThemesGet(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleDeleteThemeApiThemesThemeIdDelete operation middleware
+func (siw *ServerInterfaceWrapper) HandleDeleteThemeApiThemesThemeIdDelete(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "theme_id" -------------
+	var themeId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "theme_id", r.PathValue("theme_id"), &themeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "theme_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleDeleteThemeApiThemesThemeIdDelete(w, r, themeId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleGetThemeApiThemesThemeIdGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleGetThemeApiThemesThemeIdGet(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "theme_id" -------------
+	var themeId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "theme_id", r.PathValue("theme_id"), &themeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "theme_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleGetThemeApiThemesThemeIdGet(w, r, themeId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandlePutThemeApiThemesThemeIdPut operation middleware
+func (siw *ServerInterfaceWrapper) HandlePutThemeApiThemesThemeIdPut(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "theme_id" -------------
+	var themeId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "theme_id", r.PathValue("theme_id"), &themeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "theme_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandlePutThemeApiThemesThemeIdPut(w, r, themeId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7787,6 +8033,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/task-manuals/{type_key}", wrapper.HandleUpdateTaskManualApiTaskManualsTypeKeyPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/task-manuals/{type_key}/learnings", wrapper.HandleWriteTaskLearningsApiTaskManualsTypeKeyLearningsPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/task-manuals/{type_key}/learnings/patch", wrapper.HandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchPost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/task-manuals/{type_key}/sop/patch", wrapper.HandlePatchTaskSopApiTaskManualsTypeKeySopPatchPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tasks", wrapper.HandleListTasksApiTasksGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks", wrapper.HandleCreateTaskApiTasksPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tasks/count", wrapper.HandleTaskCountApiTasksCountGet)
@@ -7805,10 +8052,15 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/reassign", wrapper.HandleReassignTaskApiTasksTaskIdReassignPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/steps/{step_id}/gate", wrapper.HandleOpenTaskGateApiTasksTaskIdStepsStepIdGatePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/steps/{step_id}/note", wrapper.HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/steps/{step_id}/note/patch", wrapper.HandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/steps/{step_id}/status", wrapper.HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/terminate", wrapper.HandleTerminateTaskApiTasksTaskIdTerminatePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/title", wrapper.HandleUpdateTaskTitleApiTasksTaskIdTitlePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/theme/fetch", wrapper.HandleFetchThemeApiThemeFetchPost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/themes", wrapper.HandleListThemesApiThemesGet)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/themes/{theme_id}", wrapper.HandleDeleteThemeApiThemesThemeIdDelete)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/themes/{theme_id}", wrapper.HandleGetThemeApiThemesThemeIdGet)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/themes/{theme_id}", wrapper.HandlePutThemeApiThemesThemeIdPut)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/update/upgrade", wrapper.HandleUpgradeApiUpdateUpgradePost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/version", wrapper.HandleVersionApiVersionGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/warden/binary", wrapper.HandleWardenBinaryApiWardenBinaryGet)

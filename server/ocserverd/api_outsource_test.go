@@ -1240,9 +1240,13 @@ func TestNewOutsourceWorkerDTO_GoldenWireShape(t *testing.T) {
 	fullTask := &Task{ID: "t-1", Title: "review 1", Status: "in_progress",
 		CreatorID: "m-9", TypeKey: "tm-review", CreatedTS: 900.0}
 	fullProjection := outsourceWorkerProjection{
-		unread:         4,
-		now:            2000.0,
-		online:         true,
+		unread: 4,
+		now:    2000.0,
+		online: true,
+		// The deadline on the wire now comes from the SAME grace the tick
+		// collects on (T-fe5e), so the golden needs the real config — a zero
+		// config would quietly report the stamp itself as the deadline.
+		cfg:            defaultReconcileConfig(),
 		tele:           map[string]any{"account": "raw-key-1", accountRuntimeKey: RuntimeClaude, "cost": 1.5},
 		gaugeEntry:     map[string]any{"context_pct": 42.0},
 		spawnTarget:    "mac-1",

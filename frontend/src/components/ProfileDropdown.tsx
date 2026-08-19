@@ -61,7 +61,7 @@ export function ProfileDropdown({
     t,
     theme,
     setTheme,
-    customThemes,
+    themeList,
     language,
     setLanguage,
     wide,
@@ -287,7 +287,7 @@ export function ProfileDropdown({
               * row ahead of the built-in. */}
             <select className="profile-dd__input" aria-label={t.profile.theme} value={theme} onChange={(e) => setTheme(e.target.value)}>
               <option value="office">{t.themeIdentity.office}</option>
-              {customThemes.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              {themeList.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </div>
 

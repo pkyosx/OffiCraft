@@ -156,9 +156,10 @@ func TestContextDocCap_OverCapWriteIsRefused(t *testing.T) {
 		}
 	})
 
-	// update_task_manual is the ONLY write face for sop_md and a SECOND write
-	// face for learnings — capping only the learnings-specific tools would have
-	// left an uncapped door onto the same document.
+	// update_task_manual is one of TWO write faces for sop_md (patch_task_sop is
+	// the other, and judges the same cap on the RESULT of its patch) and a
+	// SECOND write face for learnings — capping only the learnings-specific
+	// tools would have left an uncapped door onto the same document.
 	t.Run("update_task_manual_learnings", func(t *testing.T) {
 		api := newTasksTestServer(t)
 		before := capDoc(t, contextDocMaxCharsDefault-10)

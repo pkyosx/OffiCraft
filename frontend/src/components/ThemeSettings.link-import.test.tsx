@@ -64,6 +64,13 @@ const SAME_BUNDLE_SPELLED_RIGHT = JSON.stringify({
   colors: { "--color-accent": "#0b1020" },
 });
 
+/** The ids the server actually holds. T-83ef moved themes out of
+ * settings.custom_themes and into their own resource, so "did the link import
+ * really land?" is a question for /api/themes now. */
+async function savedIds(): Promise<string[]> {
+  return (await api.listThemes()).map((x) => x.id);
+}
+
 async function renderManage() {
   let utils!: ReturnType<typeof render>;
   await act(async () => {
@@ -120,10 +127,11 @@ describe("ThemeSettings · import from a link", () => {
     // 2. …the theme is on the list…
     expect(await utils.findByText("連結來的主題")).toBeTruthy();
     // 3. …and it actually LANDED on the server, which is the difference
-    //    between "imported" and "rendered once".
+    //    between "imported" and "rendered once". T-83ef: themes are their own
+    //    resource, so this asks /api/themes rather than reading a field off
+    //    settings — the theme is the thing being written now.
     await waitFor(async () => {
-      const srv = await api.getServerSettings();
-      expect(srv.customThemes.map((b) => b.id)).toContain("linked-1");
+      expect(await savedIds()).toContain("linked-1");
     });
   });
 
@@ -156,7 +164,7 @@ describe("ThemeSettings · import from a link", () => {
     expect(utils.getByLabelText(p.themeImportLinkLabel)).toBeTruthy();
     // 3. and nothing was imported — neither on screen nor on the server.
     expect(utils.queryByText("伺服器放行的主題")).toBeNull();
-    expect((await api.getServerSettings()).customThemes).toHaveLength(0);
+    expect(await savedIds()).toEqual([]);
     utils.unmount();
 
     // POSITIVE CONTROL, and it is not a formality: without it "the import was
@@ -175,8 +183,7 @@ describe("ThemeSettings · import from a link", () => {
     });
     expect(await ok.findByText("伺服器放行的主題")).toBeTruthy();
     await waitFor(async () => {
-      const srv = await api.getServerSettings();
-      expect(srv.customThemes.map((b) => b.id)).toContain("linked-2");
+      expect(await savedIds()).toContain("linked-2");
     });
   });
 
@@ -229,8 +236,7 @@ describe("ThemeSettings · import from a link", () => {
     const err = utils.container.querySelector(".set-error");
     expect(err?.textContent).toContain("not a valid theme");
     // …and nothing was imported.
-    const srv = await api.getServerSettings();
-    expect(srv.customThemes).toHaveLength(0);
+    expect(await savedIds()).toEqual([]);
   });
 
   it("falls back to its own message when the failure carries none", async () => {

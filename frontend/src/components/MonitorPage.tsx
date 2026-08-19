@@ -184,8 +184,9 @@ export function MonitorPage() {
           await api.deactivateMember(detail.id);
           await refetchMembers();
         }}
-        // Force-stop (immediate kill): escalate a *stopping* member past the 120s
-        // grace — the server dispatches the robust STOP to the warden now.
+        // Force-stop (immediate kill): the offboard arm runs no clock, so this is
+        // the only server-side collection there is — the robust STOP goes to the
+        // warden now.
         onForceStop={async () => {
           await api.forceStopMember(detail.id);
           await refetchMembers();

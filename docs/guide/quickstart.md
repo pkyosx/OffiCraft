@@ -23,7 +23,7 @@ http://127.0.0.1:7755/?code=…
 > - server **只綁 loopback（`127.0.0.1`）**——預設不對外，你的資料不會因為裝了它就上網。想從手機或別台機器連，得自己開一條通道，見 [在手機上用控制台](mobile.md)。
 
 密碼設好後，server 會**自己接手最後兩步**：把這台機器的 warden 裝好、把預設助理 **Mira** 叫醒。
-你不用自己去按安裝，也不用自己把助理設成上線。（缺 `claude` 或 `tmux` 時它會在控制台上方橫幅明確說明原因——那時請回頭看 [install.md](install.md) 的前置需求。）
+你不用自己去按安裝，也不用自己把助理設成上線。（缺 `tmux`，或 `claude` 與 `codex` 一種都沒有時，它會在控制台上方橫幅明確說明原因——那時請回頭看 [install.md](install.md) 的前置需求。）
 
 ---
 
@@ -41,7 +41,7 @@ Staff 欄裡就站著 **Mira**。她名字旁邊有一顆 **presence 圓點**—
 第一次進來，Mira 通常正從 Waking 轉成 Online。等她亮成 Online，就可以開始了。
 
 > Mira 是你的助理：溫暖、簡潔、務實。她維運這間工作室的日常，也接你交辦的雜事。
-> 她底下就是一個跑在 tmux 裡的 Claude Code session——**跑的就是你機器上那個 `claude`**，你原本串好的 skill / plugin / MCP 原封不動全都在。
+> 她底下就是一個跑在 tmux 裡的 Claude Code 或 Codex session——**跑的就是你機器上那個 `claude` 或 `codex`**，你在它上面串好的設定照舊生效（Claude Code 的 skill / plugin / MCP 原封不動全都在）。
 
 ---
 

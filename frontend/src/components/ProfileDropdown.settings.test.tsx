@@ -1,6 +1,11 @@
 // ProfileDropdown change-password (B3): the main menu owns the account
 // sub-views while preferences keeps only appearance controls.
 //
+// T-83ef: the themes the picker lists no longer ride on /api/settings — they
+// are their own resource, so the seeding below writes them ONE AT A TIME
+// through api.putTheme. The picker itself reads `themeList` (id + name), which
+// is all it ever rendered.
+//
 // The /api/settings parameter knobs (登入有效期 / 自動換手門檻) MOVED to the
 // 設定 page's 參數調整 entry (owner 2026-07-12), and theme MANAGEMENT (import /
 // export / edit / delete) MOVED to 設定/主題 (T-16a1 P3b →
@@ -56,10 +61,10 @@ describe("ProfileDropdown · preferences scope", () => {
 
   it("keeps only the theme SELECTOR — no management affordances (moved to 設定/主題)", async () => {
     setToken("owner-token");
-    await api.patchServerSettings({
-      customThemes: [
-        { id: "midnight", name: "午夜藍", colors: { "--color-bg": "#101018" } },
-      ],
+    await api.putTheme({
+      id: "midnight",
+      name: "午夜藍",
+      colors: { "--color-bg": "#101018" },
     });
     const utils = await openPreferences();
     const select = utils.getByLabelText(p.theme);
@@ -94,10 +99,10 @@ describe("ProfileDropdown · preferences scope", () => {
     // has to be structure the name cannot reach.
     setToken("owner-token");
     const spoof = `${zh.themeIdentity.office}(${zh.themeMarkers.builtinGroup})`;
-    await api.patchServerSettings({
-      customThemes: [
-        { id: "spoofpack", name: spoof, colors: { "--color-bg": "#101018" } },
-      ],
+    await api.putTheme({
+      id: "spoofpack",
+      name: spoof,
+      colors: { "--color-bg": "#101018" },
     });
     const utils = await openPreferences();
     const select = utils.getByLabelText(p.theme);
@@ -129,11 +134,19 @@ describe("ProfileDropdown · preferences scope", () => {
     // sorts first nor the order the packs were imported in may push a pack
     // ahead of the built-in.
     setToken("owner-token");
-    await api.patchServerSettings({
-      customThemes: [
-        { id: "aaa", name: "AAA 最前面", colors: { "--color-bg": "#101018" } },
-        { id: "zzz", name: "000 更前面", colors: { "--color-bg": "#181018" } },
-      ],
+    // Saved one at a time — that is the only door there is now. The ORDER the
+    // picker must respect is the order the server keeps them in, which is the
+    // order they were created in, so seeding them in sequence is also what
+    // makes the assertion below about the render rather than about the data.
+    await api.putTheme({
+      id: "aaa",
+      name: "AAA 最前面",
+      colors: { "--color-bg": "#101018" },
+    });
+    await api.putTheme({
+      id: "zzz",
+      name: "000 更前面",
+      colors: { "--color-bg": "#181018" },
     });
     const utils = await openPreferences();
     const select = utils.getByLabelText(p.theme);

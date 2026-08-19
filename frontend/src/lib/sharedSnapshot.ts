@@ -2,15 +2,29 @@
 // snapshot that several independent mount-fetch callers all want at the same
 // moment (T-8115).
 //
-// WHY THIS EXISTS. `GET /api/settings` is 639,270 bytes uncompressed on the
-// production install (373 kB gzipped — `custom_themes` alone is 626,721 of it,
-// 98%), and FIVE unrelated consumers each fetched it for themselves on a single
-// cockpit load: the topbar studio name (hooks/useOrgName), the topbar owner
-// nickname (hooks/useOwnerName), the display-pref login reconcile
-// (i18n/index.tsx), the 外包 parallel cap (hooks/useOutsourceWorkers) and the
-// onboarding banner (components/OnboardingBanner). Same URL, same second, five
-// downloads. Nothing about that was a *correctness* requirement — each caller
-// simply had no way to know the others existed.
+// WHY THIS EXISTS. In 2026-07, `GET /api/settings` measured 639,270 bytes
+// uncompressed on the production install — 373 kB gzipped, of which
+// `custom_themes` alone was 626,721 (98%) — and FIVE unrelated consumers each
+// fetched it for themselves on a single cockpit load: the topbar studio name
+// (hooks/useOrgName), the topbar owner nickname (hooks/useOwnerName), the
+// display-pref login reconcile (i18n/index.tsx), the 外包 parallel cap
+// (hooks/useOutsourceWorkers) and the onboarding banner
+// (components/OnboardingBanner). Same URL, same second, five downloads. Nothing
+// about that was a *correctness* requirement — each caller simply had no way to
+// know the others existed.
+//
+// ⚠️ THAT PARAGRAPH IS HISTORY AND IS WRITTEN IN THE PAST TENSE ON PURPOSE. The
+// number has already been wrong once: measured again in 2026-08 the same field
+// was 1,592,133 bytes, about 2.5× the figure above. A measurement left in the
+// present tense becomes a lie on a schedule, and the next reader cannot tell a
+// figure taken today from one that went stale two tickets ago — which is why
+// this was not simply updated to the newer number. T-83ef then moved the themes
+// out to their own resource, so the settings payload is now a few hundred
+// characters and the SIZE half of the rationale is spent.
+//
+// What still holds is the other half, and it is enough on its own: five
+// unrelated consumers, same URL, same second, five requests. The single-flight
+// merge earns its keep on the request count whatever the payload weighs.
 //
 // The four properties this gives them, in the order they matter:
 //

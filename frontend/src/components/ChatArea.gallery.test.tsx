@@ -35,6 +35,12 @@ vi.mock("../api", () => ({
     // A token is set below, so I18nProvider's dual-layer reconcile (T-0b41-p2)
     // fetches settings on mount — unset prefs keep the local cache.
     getServerSettings: vi.fn(async () => ({ displayTheme: "", displayLanguage: "" })),
+    // [T-83ef] Themes left settings for their own resource, so the same
+    // reconcile now makes a SECOND call. This stub is hand-written, so a call
+    // it does not name is a TypeError rather than an empty answer — which is
+    // how this one announced itself. No themes saved: this case is about chat
+    // attachments, and the office base is what it was already rendering.
+    listThemes: vi.fn(async () => []),
   },
 }));
 

@@ -423,8 +423,9 @@ export function OfficePage() {
           await api.deactivateMember(detail.id);
           await refetch();
         }}
-        // Force-stop (immediate kill): escalate a *stopping* member past the 120s
-        // grace — the server dispatches the robust STOP to the warden now. Refetch
+        // Force-stop (immediate kill): the offboard arm runs no clock, so this is
+        // the only server-side collection there is — the robust STOP goes to the
+        // warden now. Refetch
         // and let server-driven presence surface stopped.
         onForceStop={async () => {
           await api.forceStopMember(detail.id);

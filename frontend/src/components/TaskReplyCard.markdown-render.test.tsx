@@ -4,7 +4,7 @@
 // embedding sibling (SPEC §3.2 內嵌等我回覆卡 reuses the identical body field).
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render } from "@testing-library/react";
+import { render, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { TaskReplyCard } from "./TaskReplyCard";
 import type { ReplyCard } from "../api/adapter";
@@ -52,6 +52,9 @@ describe("TaskReplyCard markdown render (T-13af)", () => {
     );
     const { container, findByTestId } = renderCard();
     await findByTestId("task-reply-card");
+    await waitFor(() => {
+      expect(container.querySelector(".reply-card__body")).not.toBeNull();
+    });
 
     const body = container.querySelector(".reply-card__body")!;
     expect(body.querySelector("strong")?.textContent).toBe("注意");
@@ -63,6 +66,9 @@ describe("TaskReplyCard markdown render (T-13af)", () => {
     __injectMockReplyCard(mkCard({ body: "<img src=x onerror=alert(1)>" }));
     const { container, findByTestId } = renderCard();
     await findByTestId("task-reply-card");
+    await waitFor(() => {
+      expect(container.querySelector(".reply-card__body")).not.toBeNull();
+    });
 
     const body = container.querySelector(".reply-card__body")!;
     expect(body.querySelector("img")).toBeNull();
@@ -76,6 +82,9 @@ describe("TaskReplyCard markdown render (T-13af)", () => {
     );
     const { container, findByTestId } = renderCard();
     await findByTestId("task-reply-card");
+    await waitFor(() => {
+      expect(container.querySelector(".reply-card__summary")).not.toBeNull();
+    });
 
     const summary = container.querySelector(".reply-card__summary")!;
     // positive control — the scope really holds the summary's text

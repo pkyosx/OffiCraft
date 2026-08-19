@@ -63,8 +63,29 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
 
 - A delta means "this topic changed → refetch its list/snapshot".
 - `payload` is carried **for convenience only**; a client MUST NOT merge it in place — it
-  lacks server-derived DTO fields. Payloads are deliberately partial:
-  - `member`: `{id, name, status, desired_state, owner_id}`
+  lacks server-derived DTO fields. Payloads are deliberately partial. **One field breaks that
+  rule and is named as an exception**: `offboard_notice` (below) is the only payload key that
+  a refetch CANNOT recover — no DTO carries it — so it is the one thing a client may act on
+  straight off the delta:
+  - `member`: `{id, name, status, desired_state, owner_id}`, plus `offboard_notice` on
+    the deltas that carry a collection order (T-c9c0). That field is the sentence telling
+    the agent it is being collected, `\n`-joined with the WHOLE 下線程序 document as the
+    server holds it — the server PUSHES the checklist; the agent never fetches it back.
+    Present ONLY while `offboardKindOf` says this member is being collected, and inside
+    those states it rides **every** write to that row, not just the first — **the client is
+    what de-duplicates**, by keying on the sentence it last printed (a server-side "only
+    once" would lose the soft→final upgrade, which is a different sentence).
+    A server MUST OMIT the key rather than send `""`: an empty string reads as "a notice
+    arrived and it said nothing". Omission does NOT make the cases separable — a client
+    cannot tell "this server is too old to push" from "there was nothing to say", and it is
+    not meant to: both collapse onto the ONE thing it must do. A client MUST arm its "I am
+    being collected but the checklist did not arrive" fallback on the key being **absent or
+    blank** — losing the checklist is survivable, being collected without knowing it is not.
+    The `context-high` directed band (§6) carries the same document through the same
+    composer, but it is **not the same string**: `where`, the closer verb and the final-call
+    clause are computed per path, and that band's `reason` wording is explicitly not
+    contract. Audience is the member itself and — like every delta — any owner/dashboard
+    connection, which reads no key of it.
   - `chat` (new message): `{id, from, to}`
   - `chat_read`: `{reader, peer, last_read_ts}`
   - `reply_card`: `{id, from, status}` (create / answer / answer revision / expire all

@@ -726,7 +726,8 @@ func TestResumeSummary_EstimateCountsEverythingTheChatBlockCarries(t *testing.T)
 	}
 	// And the peek's single headline number is still that plus the other blocks.
 	wantEstimate := full.Overview.ChatChars + full.Overview.TasksDetailChars +
-		full.Overview.RosterChars + full.Overview.MachinesChars
+		full.Overview.RosterChars + full.Overview.MachinesChars +
+		full.Overview.StepsOnAnsweredCardChars
 	if peek.EstimatedTotalChars != wantEstimate {
 		t.Fatalf("estimated_total_chars: want %d, got %d", wantEstimate, peek.EstimatedTotalChars)
 	}
@@ -881,7 +882,11 @@ var blockOpeners = []struct {
 	becomes string
 	trim    func(string) string
 }{
-	{re: regexp.MustCompile(`^#{1,3}` + jsSpace), becomes: "a heading", trim: trimASCIIStart},
+	// `{1,6}`, not `{1,3}`: T-2bb4 widened Markdown.tsx's HEADING_RE to all six
+	// levels. A guard that stops one level short of the renderer is a hole with
+	// a number on it — the same shape review already found on the digit ceiling
+	// two entries down.
+	{re: regexp.MustCompile(`^#{1,6}` + jsSpace), becomes: "a heading", trim: trimASCIIStart},
 	{re: regexp.MustCompile(`^[-*+]` + jsSpace), becomes: "a list item", trim: trimASCIIStart},
 	// `\d+`, not `\d{1,9}`: the renderer's OLIST_RE has no digit ceiling, and a
 	// guard that stops counting where the renderer does not is a hole with a

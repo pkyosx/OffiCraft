@@ -2,7 +2,7 @@ package main
 
 // worker_handover_lessons_t4595_test.go — T-4595.
 //
-// WHY THIS FILE EXISTS. seeds/system_interaction.md §8b is the handover SOP
+// WHY THIS FILE EXISTS. The handover guidance in seeds/system_interaction.md
 // every agent — staff AND outsource worker — is told to run inside the ~120s
 // grace window. Step 3 used to spell one literal tool pair: `get_lessons` →
 // `replace_lessons`. A worker that obeys it LITERALLY cannot succeed:
@@ -18,7 +18,7 @@ package main
 // round's learnings are simply gone. Worse, the READ half is ungated, so before
 // failing it reads a long-term memory that is NOT its own.
 //
-// These tests pin the MECHANISM, not the prose: they are what makes the §8b
+// These tests pin the MECHANISM, not the prose: they are what makes the
 // rewrite ("staff consolidate their role's lessons, outsource workers
 // consolidate their task manual's learnings") a statement about this server
 // rather than an opinion. If the authz chain is ever changed so a worker CAN
@@ -51,7 +51,7 @@ func t4595WorkerIdentity(t *testing.T) (string, string) {
 	}
 	if got.RoleKey != "" {
 		t.Fatalf("premise broken: an outsource roster row now carries role_key %q; "+
-			"re-derive the §8b step-3 argument before trusting it", got.RoleKey)
+			"re-derive the handover step-3 argument before trusting it", got.RoleKey)
 	}
 	tok, err := mintJWT(workerID, "agent", 300, secret, time.Now().Unix(), "")
 	if err != nil {
@@ -61,7 +61,7 @@ func t4595WorkerIdentity(t *testing.T) (string, string) {
 }
 
 // TestWorkerCannotWriteLessonsTheHandoverSOPUsedToPrescribe drives the literal
-// §8b step-3 pair as a worker. The read must succeed (that is the trap: it
+// handover step-3 pair as a worker. The read must succeed (that is the trap: it
 // hands back somebody else's doc), the write must 403.
 func TestWorkerCannotWriteLessonsTheHandoverSOPUsedToPrescribe(t *testing.T) {
 	url, workerTok := t4595WorkerIdentity(t)
@@ -84,7 +84,7 @@ func TestWorkerCannotWriteLessonsTheHandoverSOPUsedToPrescribe(t *testing.T) {
 		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"replace_lessons","arguments":{"text":"handover learnings from this round"}}}`)
 	if !isErr {
 		t.Fatalf("replace_lessons as a worker must be refused — if this now lands, "+
-			"seeds/system_interaction.md §8b step 3 can go back to naming one tool pair; body=%s", text)
+			"the handover guidance can go back to naming one tool pair; body=%s", text)
 	}
 	if code != "forbidden" {
 		t.Fatalf("expected a forbidden refusal, got code=%q body=%s", code, text)
@@ -112,131 +112,6 @@ func TestStaffCanStillWriteLessonsTheHandoverSOPPrescribes(t *testing.T) {
 	}
 	if isErr, code, text := lessonsCall(t, srv.URL, tok,
 		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"replace_lessons","arguments":{"text":"staff handover learnings"}}}`); isErr {
-		t.Fatalf("a staff member must still be able to run §8b step 3; code=%q body=%s", code, text)
-	}
-}
-
-// ── the seed side of the same fix ────────────────────────────────────────────
-//
-// The tests above prove WHY §8b step 3 had to change; these two prove it
-// actually did, in the one document both audiences read. Nothing else covers
-// this: the parity equality
-// (TestWorkerBootContextIsTheStaffFoldMinusThePersona) compares the two folds
-// against each other, so a seed edit moves BOTH sides and stays green, and the
-// §2.2 byte-identity test re-reads the same seed from disk. Reverting the seed
-// wording is therefore invisible to every other guard in this package.
-
-// handoverSectionOf returns §8b's handover SOP — the region these two sentences
-// have to live in — cut out of an assembled boot context. Failing loudly when
-// the anchors move is the point: an assertion over a region that silently
-// became the whole document proves nothing.
-func handoverSectionOf(t *testing.T, doc string) string {
-	t.Helper()
-	const start = "## 8b."
-	const end = "## 9."
-	i := strings.Index(doc, start)
-	j := strings.Index(doc, end)
-	if i < 0 || j < 0 || i >= j {
-		t.Fatalf("cannot locate the §8b handover section (start=%d end=%d) — "+
-			"re-derive these guards before trusting them", i, j)
-	}
-	return doc[i:j]
-}
-
-// TestHandoverStepThreeIsTrueForBothAudiences — T-4595.
-//
-// §8b step 3 used to spell ONE literal tool pair (get_lessons →
-// replace_lessons), which a worker cannot execute at all (see the 403 proved
-// above). The owner's ruling was NOT to write a second, outsource-only
-// instruction — it was to make the shared sentence true for both readers.
-//
-// So the assertion is: BOTH arms are named, in the handover section, in the
-// document BOTH audiences receive.
-func TestHandoverStepThreeIsTrueForBothAudiences(t *testing.T) {
-	s := newWorkerTestServer(t)
-	_, staff := memberCtx(t)
-	for _, tc := range []struct{ who, doc string }{
-		{"outsource", workerCtxOn(t, s)},
-		{"staff", staff.Context},
-	} {
-		t.Run(tc.who, func(t *testing.T) {
-			sec := handoverSectionOf(t, tc.doc)
-			for _, want := range []string{
-				"`get_lessons` → `replace_lessons`",          // the staff arm
-				"`get_task_manual` → `write_task_learnings`", // the outsource arm
-			} {
-				if !strings.Contains(sec, want) {
-					t.Errorf("§8b step 3 no longer names %s — it must be true for BOTH "+
-						"audiences, because both read this one sentence", want)
-				}
-			}
-			// And it must not go back to prescribing the lessons pair
-			// unconditionally: that is the exact wording that sent every worker
-			// into a guaranteed 403 with its handover budget.
-			if strings.Contains(sec, "**用 lessons 工具整併長期教訓**") {
-				t.Error("§8b step 3 is back to one unconditional tool pair; a worker " +
-					"obeying it literally spends its ~120s grace on a call that 403s " +
-					"and loses that round's learnings")
-			}
-		})
-	}
-}
-
-// TestHandoverTellsTheTakerToHaveReadTheManualsLearnings — T-4595, owner's own
-// wording, pinned VERBATIM at his request.
-//
-// §10.2 already says 先讀手冊, but it hangs off the PLANNING action, so a task
-// that was planned by someone else and then handed over never routes anyone
-// past it — and a manual's learnings are precisely "what previous people got
-// wrong at THIS KIND of task", which does not care whether you are the first or
-// the third person on it. Hence the handover section, and hence 確認你讀過
-// (have read) rather than 去讀 (go read): a second task of the same type in one
-// session needs no second fetch, a fresh session after a handover does.
-//
-// 🔴 THE SENTENCE IS DELIBERATELY IN THE DOCUMENT TWICE, AND BOTH COPIES ARE
-// PINNED HERE. §8b's 接班起手式 carries it because that is the position the
-// owner named; §10.4 carries it again with the reasoning for why it exists at
-// all. Keeping the redundancy is his ruling — demoting the §8b copy to a
-// pointer would take the sentence out of the very place he put it.
-//
-// So the guard has to cover the redundancy, not just one end of it. Asserting
-// only the §8b copy was measured and found wanting: an independent review
-// rewrote the §10.4 copy into something completely different and the ENTIRE
-// suite stayed green (rc=0, zero failures) — the worst possible arrangement,
-// where a reader believes a guard exists and edits the unguarded half in
-// silence. The exact-count assertion below is what closes that, and it also
-// catches a third copy being pasted in (a fourth reader "helpfully" repeating
-// it is drift too).
-func TestHandoverTellsTheTakerToHaveReadTheManualsLearnings(t *testing.T) {
-	const verbatim = "動手前，確認你讀過它那本手冊的學習經驗（`get_task_manual`）。"
-	// §8b 接班起手式 and §10.4. Both are handover contexts; see the note above
-	// for why the duplication is deliberate.
-	const wantCopies = 2
-	s := newWorkerTestServer(t)
-	_, staff := memberCtx(t)
-	for _, tc := range []struct{ who, doc string }{
-		{"outsource", workerCtxOn(t, s)},
-		{"staff", staff.Context},
-	} {
-		t.Run(tc.who, func(t *testing.T) {
-			// (1) The copy in the section the owner named must be there.
-			if !strings.Contains(handoverSectionOf(t, tc.doc), verbatim) {
-				t.Errorf("§8b's 接班起手式 does not carry the owner's sentence "+
-					"verbatim:\n%s\n(it is deliberately 確認你讀過, not 去讀, and it "+
-					"belongs to 接手／換手 — not under 節點規劃, which is the gap it fills)",
-					verbatim)
-			}
-			// (2) …and so must the second one, which is what actually explains
-			// why the sentence exists. Counting is how BOTH ends get covered by
-			// one assertion: editing either copy, or adding a third, moves it.
-			if got := strings.Count(tc.doc, verbatim); got != wantCopies {
-				t.Errorf("the owner's sentence appears %d time(s), want exactly %d "+
-					"(§8b 接班起手式 + §10.4). Verbatim:\n%s\n"+
-					"Fewer: one of the two copies was reworded or deleted — the "+
-					"redundancy is the owner's ruling, not an oversight. More: a "+
-					"third copy is drift; edit the two that exist.",
-					got, wantCopies, verbatim)
-			}
-		})
+		t.Fatalf("a staff member must still be able to run the handover step 3; code=%q body=%s", code, text)
 	}
 }

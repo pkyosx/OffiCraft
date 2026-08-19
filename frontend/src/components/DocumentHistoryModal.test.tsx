@@ -17,7 +17,7 @@ import { render, fireEvent, waitFor, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { DocumentHistoryModal } from "./DocumentHistoryModal";
-import { ApiError } from "../api/errors";
+import { mockApiError } from "../api/errorCodes";
 import { DOC_CAP_CHARS_DEFAULT, DOC_CAP_CHARS_DEFAULTS } from "../api/docCap";
 import type { DocumentKind } from "../types";
 import { contentSizes } from "../api/docCap";
@@ -255,7 +255,7 @@ describe("DocumentHistoryModal", () => {
     const onRestore = vi
       .fn()
       .mockRejectedValue(
-        new ApiError("http 400", 400, "bad_request", "learnings doc is over the limit")
+        mockApiError("http 400", 400, "learnings doc is over the limit")
       );
     const onClose = vi.fn();
     const utils = open({ onRestore, onClose });

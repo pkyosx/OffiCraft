@@ -116,9 +116,9 @@ func parseServeFlags(args []string, out io.Writer) (bool, bool, bool) {
 		switch a {
 		case "--no-reconcile", "-no-reconcile":
 			// The shadow-deployment kill-switch (spec/lifecycle.md Appendix B #1):
-			// disables the reconcile producer wholesale — cadence loop AND every
-			// event-driven warden-command dispatch — so a shadow server can never
-			// wake or kill a real agent. The rest of the server runs unchanged.
+			// disables the reconcile producer wholesale — cadence loop AND the
+			// event-driven warden-command dispatch it owns. The rest of the
+			// server runs unchanged; §4.1 enumerates what the flag does NOT cover.
 			noReconcile = true
 		case "--no-outsource", "-no-outsource":
 			// The outsource-scheduler kill-switch (the --no-reconcile mirror,

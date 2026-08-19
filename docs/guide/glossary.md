@@ -15,7 +15,7 @@
 
 ### member / agent（成員）
 常駐的 AI 同事，有名字、角色、模型，和跨對話不會忘的記憶。底下是一個跑在 tmux 裡的
-Claude Code session。你關掉瀏覽器，它還在跑。成員之間**平行協作**——沒有「管別人的 AI 上級」這種角色。
+Claude Code 或 Codex session。你關掉瀏覽器，它還在跑。成員之間**平行協作**——沒有「管別人的 AI 上級」這種角色。
 （技術上，這個 session 是**可丟棄的**：隨時可能被關掉、重啟、換掉，但身分與記憶都存在 server 上，新的它一開機就讀回、無縫接手。）
 
 ### Mira（助理）
@@ -77,7 +77,8 @@ Ask 分頁等你**，不替你決定；只有你（或你的 admin 助理代你�
 
 ### handover（換手）
 成員這個 session 記憶快滿時，把進行中的工作與長期教訓 checkpoint 落到 server，收尾退場，server 原地重生一個新的它
-接著跑——你察覺不到接縫。由 server 驅動（不歸你拍板）；門檻可在 **設定 › 參數調整** 調（自動換手門檻 40–90%）。
+接著跑——你察覺不到接縫。由 server 驅動（不歸你拍板）；門檻可在 **設定 › 參數調整** 調，**Claude 成員看記憶用量的
+百分比，Codex 成員看做過幾輪 context compaction**。
 線上時你也可以在成員面板按 **Refocus（重新聚焦）** 主動觸發一次。
 
 ---
@@ -97,7 +98,7 @@ Ask 分頁等你**，不替你決定；只有你（或你的 admin 助理代你�
 **不巡檢成員死活、也不自己決定要 spawn 或收掉誰**（巡檢與生殺決策都在 server）；另外會讓自己與隨身工具保持最新。它**推**成員（送 signal、喚醒），不是 AI——不要試圖跟它對話。
 
 ### ocagent（成員運行時）
-成員這個 Claude Code session 用來跟 server 打交道的小工具。它掛著一條長連線（`ocagent listen`）收 server 的即時
+成員這個 Claude Code 或 Codex session 用來跟 server 打交道的小工具。它掛著一條長連線（`ocagent listen`）收 server 的即時
 通知，也負責上傳／下載聊天附件。**成員持著這條連線，就是它「還活著、在線上」的訊號。**
 
 ### presence / online（線上）

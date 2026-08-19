@@ -8,6 +8,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
@@ -214,5 +215,41 @@ func TestEventsHandlerDeliversTokenExpiryReminderOnTheRealSSEWire(t *testing.T) 
 		!strings.Contains(text, `"expires_in":`) ||
 		!strings.Contains(text, "restart_self") {
 		t.Fatalf("expiry frame must target the live agent and instruct restart_self, got %q", text)
+	}
+}
+
+// The sha on the SSE response is only useful if it is the SAME build the
+// station names anywhere else — so it is pinned against /api/version's
+// git_sha rather than against a literal, and read off rec.Result().Header,
+// which is the snapshot httptest takes at WriteHeader. A header set after the
+// status line never reaches a real client; asserting on the post-hoc
+// rec.Header() map would not notice.
+func TestEventsHandlerStampsTheBuildApiVersionReportsAsGitSHA(t *testing.T) {
+	api, dal := newGateTestAPI(t)
+	putGateMember(t, dal, Member{ID: "sha-1", Kind: KindAssistant,
+		DesiredState: DesiredStateOnline})
+	api.processSHA = "deadbeefdead"
+
+	rec := doEvents(api, "sha-1")
+	if rec.Code != 200 {
+		t.Fatalf("admitted stream: want 200, got %d %s", rec.Code, rec.Body.String())
+	}
+	stamped := rec.Result().Header.Get(sseStationSHAHeader)
+	if stamped != api.processSHA {
+		t.Fatalf("SSE %s = %q, want the running build %q (set before WriteHeader?)",
+			sseStationSHAHeader, stamped, api.processSHA)
+	}
+
+	vrec := httptest.NewRecorder()
+	api.HandleVersionApiVersionGet(vrec, httptest.NewRequest("GET", "/api/version", nil))
+	var version struct {
+		GitSHA string `json:"git_sha"`
+	}
+	if err := json.Unmarshal(vrec.Body.Bytes(), &version); err != nil {
+		t.Fatalf("decode /api/version: %v (%s)", err, vrec.Body.String())
+	}
+	if version.GitSHA != stamped {
+		t.Fatalf("the two faces of one build disagree: /api/version git_sha=%q, "+
+			"SSE %s=%q", version.GitSHA, sseStationSHAHeader, stamped)
 	}
 }

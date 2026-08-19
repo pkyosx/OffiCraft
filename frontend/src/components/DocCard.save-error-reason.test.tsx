@@ -29,7 +29,7 @@ import { zh } from "../i18n/locales/zh";
 import { InsightCard } from "./InsightCard";
 import { LessonsCard } from "./LessonsCard";
 import { __resetMock, mockApi } from "../api/mock";
-import { ApiError } from "../api/errors";
+import { mockApiError } from "../api/errorCodes";
 
 const s = zh.settings;
 const mp = zh.mp;
@@ -40,7 +40,7 @@ const REASON =
   "判準超過上限 42 字（上限 1000 字）。已存的內容不會被截斷；請先刪掉過時的段落再寫入。";
 
 const apiError = (msg: string) =>
-  new ApiError("http 400 for POST /api/insight/assistant", 400, "doc_too_large", msg);
+  mockApiError("http 400 for POST /api/insight/assistant", 400, msg);
 
 beforeEach(() => {
   __resetMock();

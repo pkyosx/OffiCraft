@@ -22,6 +22,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { httpApi } from "./http";
+import { codeForStatus } from "./errorCodes";
 
 const WIRE_DOC = {
   kind: "boot_sequence",
@@ -144,7 +145,7 @@ describe("httpApi · boot-context block wire methods", () => {
     fetchMock.mockResolvedValueOnce(
       new Response(
         JSON.stringify({
-          error: { code: "bad_request", message: "over the character limit" },
+          error: { code: codeForStatus(400), message: "over the character limit" },
         }),
         { status: 400, headers: { "Content-Type": "application/json" } }
       )
@@ -153,7 +154,7 @@ describe("httpApi · boot-context block wire methods", () => {
       httpApi.saveBootDoc("boot_sequence", "claude", "x")
     ).rejects.toMatchObject({
       status: 400,
-      code: "bad_request",
+      code: codeForStatus(400),
       serverMessage: "over the character limit",
     });
   });

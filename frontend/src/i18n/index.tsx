@@ -11,6 +11,7 @@ import {
 import { zh, type Dict } from "./locales/zh";
 import { en } from "./locales/en";
 import { api } from "../api";
+import type { ThemeListItem } from "../api/adapter";
 import { hasToken, AUTH_LOGIN_EVENT } from "../api/auth";
 import {
   adoptServerSettings,
@@ -142,13 +143,31 @@ interface I18nContextValue {
   /** The active custom theme's per-nav-tab icon images (T-ea81), or undefined
    * when the active theme carries none — each tab then keeps its built-in icon. */
   activeNavIcons?: Partial<Record<NavIconKey, string>>;
-  /** The owner's saved custom theme bundles (server-backed, reconciled at
-   * login). Empty until reconcile / when none are saved. */
-  customThemes: ThemeBundle[];
-  /** Replace the custom-theme set (import / edit / delete). Optionally switch
-   * the active theme in the SAME server PATCH — required when deleting the
-   * active theme so the server's dangling-reset stays in sync. */
-  commitCustomThemes: (next: ThemeBundle[], nextTheme?: string) => void;
+  /** The owner's saved themes as ONE LINE EACH — id and name, no colours and
+   * no images (T-83ef). This is what the pickers render, and it is deliberately
+   * NOT the bundles: a bundle carries its images embedded, so the whole set runs
+   * to megabytes and used to be fetched on every login. Empty until reconcile /
+   * when none are saved. */
+  themeList: ThemeListItem[];
+  /** The ACTIVE custom theme in full, or null when the active theme is a
+   * built-in or its bundle has not been fetched yet.
+   *
+   * Every consumer inside this provider — the wording overlay, the avatars, the
+   * logo, the nav icons, the colour apply — only ever wanted the active one;
+   * they used to reach it by scanning the whole set. Naming it directly is what
+   * lets the set shrink to `themeList`. */
+  activeThemeBundle: ThemeBundle | null;
+  /** Fetch ONE theme in full — what editing and exporting need, and the only
+   * thing that needs a bundle at all. Rejects when the theme is gone. */
+  loadTheme: (id: string) => Promise<ThemeBundle>;
+  /** Create or replace ONE theme (import / add / edit-save). The whole-set write
+   * this replaced re-sent every theme with every embedded image to change one
+   * colour. Rejects on a refusal so the caller can say what went wrong. */
+  saveTheme: (bundle: ThemeBundle) => Promise<void>;
+  /** Delete ONE theme. When it is the ACTIVE one the server resets its stored
+   * display_theme and says so; this switches the cockpit back to the built-in
+   * so the owner is never looking at a theme that no longer exists. */
+  removeTheme: (id: string) => Promise<void>;
   /** Reset local preferences to initial (used by the honest M1 "logout").
    * Covers only the client-persisted prefs (theme/language); the owner
    * nickname is server-backed now (T-0b41) and is left untouched. */
@@ -163,7 +182,10 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   );
   const [theme, setThemeState] = useState<string>(() => readStoredTheme());
   const [wide, setWideState] = useState<boolean>(() => readStoredWide());
-  const [customThemes, setCustomThemesState] = useState<ThemeBundle[]>([]);
+  const [themeList, setThemeList] = useState<ThemeListItem[]>([]);
+  const [activeThemeBundle, setActiveThemeBundle] = useState<ThemeBundle | null>(
+    null
+  );
   // [T-1500] "the server has spoken". Flipped in reconcile's .then only.
   const [themesLoaded, setThemesLoaded] = useState(false);
   // Effective copy locale: the user's language toggle. Themes are copy-neutral
@@ -176,13 +198,36 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   // user overlay; a custom theme keys its overlay on `language` (zh/en). FALLBACK
   // (owner decision b): codes without an override keep the base dict's text, so
   // the interface's original language is preserved for everything unwrapped.
+  // 🔴 [T-83ef] ONE authority for "the bundle we are allowed to render": the
+  // fetched bundle ONLY while it is the active theme's.
+  //
+  // `theme` moves the instant the owner picks one; `activeThemeBundle` cannot
+  // move until its fetch lands a round trip later. Before the split there was
+  // no gap — the bundle was `customThemes.find(b => b.id === theme)`, resolved
+  // synchronously — so nothing had to say what happens in between. Now
+  // something does, and the answer must be the SAME for every consumer: the
+  // colour apply already refused a mismatched bundle, but wording, avatars,
+  // logo and nav icons each read the raw state, so for one round trip a switch
+  // rendered the NEXT theme's colours over the PREVIOUS theme's images and
+  // words. Not a rare race — every single theme switch, for as long as a
+  // several-hundred-KB bundle takes to arrive.
+  //
+  // Falling back to the built-in for that moment is the same answer the colour
+  // path already gave; a consistent built-in beats a blend of two themes that
+  // never existed.
+  const bundleForTheme = useMemo(
+    () =>
+      activeThemeBundle && activeThemeBundle.id === theme
+        ? activeThemeBundle
+        : null,
+    [activeThemeBundle, theme]
+  );
+
   const t = useMemo(() => {
     const base = DICTS[locale];
-    const overlay = (customThemes ?? []).find((b) => b.id === theme)?.wording?.[
-      language
-    ];
+    const overlay = bundleForTheme?.wording?.[language];
     return applyWording(base, overlay);
-  }, [locale, theme, language, customThemes]);
+  }, [locale, language, bundleForTheme]);
 
   // The composed parameterised messages ride the SAME memo inputs as `t` — a
   // wording overlay change re-composes them, so no message can serve stale
@@ -195,8 +240,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   // The built-in office theme carries none; a dangling active id resolves to
   // undefined (office glyph fallback — office never degrades).
   const activeAvatars = useMemo(
-    () => (customThemes ?? []).find((b) => b.id === theme)?.avatars,
-    [customThemes, theme]
+    () => bundleForTheme?.avatars,
+    [bundleForTheme]
   );
 
   // The active custom theme's studio logo image + per-nav-tab icons (T-ea81).
@@ -204,13 +249,13 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   // icons), so they ride the context rather than the DOM. Absent → the built-in
   // logo mark / built-in nav icons (office never degrades).
   const activeLogo = useMemo(
-    () => (customThemes ?? []).find((b) => b.id === theme)?.logo,
-    [customThemes, theme]
+    () => bundleForTheme?.logo,
+    [bundleForTheme]
   );
 
   const activeNavIcons = useMemo(
-    () => (customThemes ?? []).find((b) => b.id === theme)?.navIcons,
-    [customThemes, theme]
+    () => bundleForTheme?.navIcons,
+    [bundleForTheme]
   );
 
   // The --color-* inline props applied for the current custom theme, remembered
@@ -233,10 +278,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       root.dataset.theme = theme;
       return;
     }
-    const bundle = customThemes.find((b) => b.id === theme);
     root.dataset.theme = "office";
-    if (bundle) {
-      appliedTokensRef.current = applyThemeToRoot(root, bundle);
+    if (bundleForTheme) {
+      appliedTokensRef.current = applyThemeToRoot(root, bundleForTheme);
       return;
     }
     // [T-1500] the bundle is unresolved AND reconcile has not spoken: keep
@@ -249,7 +293,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         appliedTokensRef.current = applyThemeToRoot(root, cached);
       }
     }
-  }, [theme, customThemes, themesLoaded]);
+  }, [theme, bundleForTheme, themesLoaded]);
 
   // Apply the layout width (T-756f). Narrow REMOVES the attribute rather than
   // writing data-layout="narrow": the default DOM then looks exactly as it did
@@ -271,16 +315,76 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   // [T-1500] M3: the paint write must be driven by the BUNDLE SET, not by
   // the id — editing a theme's colours does not change its id.
+  // 🔴 ONE writer, and it is NOT this line's old job. `cacheTheme` is the only
+  // caller of setThemeState, and it moves this ref with the decision (see
+  // there). The `themeRef.current = theme` that used to sit here was therefore
+  // writing a value the ref already held — except in the one case that matters,
+  // where it wrote the value the ref had just been moved AWAY from: a render
+  // that happens before the state flush would push it BACKWARDS and undo the
+  // fix. It was also a mutation during render, which StrictMode and concurrent
+  // rendering are entitled to run more than once.
+  //
+  // It survived because it looked exactly like the writer that carries the
+  // weight — the same shape this ticket has been paying for all along, this
+  // time introduced BY the fix for it.
+  //
+  // ⚠️ BE HONEST ABOUT THE EVIDENCE: this removal is UNTESTABLE either way.
+  // Taking the line out leaves all 2204 green, and putting it back leaves all
+  // 2204 green — measured, both directions. So nothing here is a measurement;
+  // the reasons are structural, and they are the whole case:
+  //   - NOBODY READS THIS REF DURING RENDER. All eight touch sites sit inside
+  //     useCallback bodies, every one of them after an await. The only thing
+  //     the deleted line offered was synchrony *at render time*, which no
+  //     reader ever needed — so removing it cannot hand anyone a stale value.
+  //     This is the load-bearing reason.
+  //   - it mutates a ref during render, and main.tsx really does wrap the app
+  //     in <StrictMode>, which is entitled to run that body twice.
+  //   - two writers that look identical, one load-bearing and one not, is the
+  //     exact confusion this file has already been bitten by.
+  //
+  // One claim was WALKED BACK rather than left standing: an earlier draft of
+  // this note led with "a render before the state flush would push the ref
+  // BACKWARDS". That shape is real but its REACHABILITY IS UNPROVEN — cacheTheme
+  // calls setThemeState synchronously before returning, so every later render
+  // carries the update, and this repo has no useTransition / startTransition /
+  // Suspense to defer one. Kept here demoted rather than deleted, because
+  // "sounds right, nobody checked" is precisely what this ticket kept paying
+  // for; a reason that cannot be reached should not be the first one a reader
+  // sees.
+  // If a later reader wants it back, the bar is a test that goes red without
+  // it — not a green suite, which both versions already have.
   const themeRef = useRef(theme);
-  themeRef.current = theme;
 
-  const writePaint = useCallback((id: string, bundles: ThemeBundle[]) => {
-    const b = bundles.find((x) => x.id === id);
+  // [T-83ef] It takes the BUNDLE, not an id plus a set to search. The set is no
+  // longer held in full — and the thing being cached was always the active
+  // bundle, so passing it directly removes the lookup rather than hiding it.
+  const writePaint = useCallback((b: ThemeBundle | null) => {
     writeStored(LS_THEME_PAINT, b ? JSON.stringify(paintRecordFor(b)) : null);
   }, []);
 
   const cacheTheme = useCallback((next: string) => {
     setThemeState(next);
+    // 🔴 [T-83ef] The ref moves HERE, with the decision — not later, with the
+    // render. `themeRef.current = theme` at the top of the body only runs when
+    // React re-renders, and four separate places read this ref AFTER an await
+    // (setTheme's fetch, saveTheme's write, removeTheme's delete, reconcile's
+    // fetch). Any promise that settles before that render sees the PREVIOUS
+    // theme and concludes the owner switched away — so the code throws away the
+    // very bundle it just asked for.
+    //
+    // This is not hypothetical and it was already costing someone: the CT story
+    // in visual-guards/stories/AvatarKindStory.tsx routes around it in prose
+    // ("the save's promise settles before React has re-rendered with the new
+    // id … and the avatars never arrive"). The diagnosis there was right; the
+    // hole just never got closed. In production the three user-facing callers
+    // happen to fire from discrete DOM events, where React flushes
+    // synchronously — the gap is closed by React's scheduling, not by anything
+    // this file does, which is the kind of guarantee that quietly stops holding.
+    //
+    // Setting it where the decision is made makes all four readers correct at
+    // once, and keeps ONE answer to "which theme is active right now" instead of
+    // one per call site.
+    themeRef.current = next;
     writeStored(LS_THEME, next);
   }, []);
 
@@ -309,18 +413,39 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     [cacheLanguage]
   );
 
+  // [T-83ef] Switching theme now has to FETCH the chosen bundle: the provider no
+  // longer holds every bundle, only the active one. The id is cached first and
+  // synced first, so the choice is durable even if the fetch loses a race; the
+  // paint cache is written only once the bundle is actually in hand, because a
+  // paint record written from nothing would clear the cached picture and hand
+  // the next pre-auth load a flash.
   const setTheme = useCallback(
     (next: string) => {
       cacheTheme(next);
-      writePaint(next, customThemes);
+      if (next === "office") {
+        setActiveThemeBundle(null);
+        writePaint(null);
+      }
       if (hasToken()) {
         api
           .patchServerSettings({ displayTheme: next })
           .then(adoptServerSettings) // shared snapshot (T-8115)
           .catch((e) => console.warn("setTheme: server sync failed", e));
+        if (next !== "office") {
+          api
+            .getTheme(next)
+            .then((b) => {
+              // Ignore a fetch that lost a race to a later switch — otherwise a
+              // slow response could repaint a theme the owner already left.
+              if (themeRef.current !== next) return;
+              setActiveThemeBundle(b);
+              writePaint(b);
+            })
+            .catch((e) => console.warn("setTheme: bundle load failed", e));
+        }
       }
     },
-    [cacheTheme, writePaint, customThemes]
+    [cacheTheme, writePaint]
   );
 
   const setWide = useCallback(
@@ -336,34 +461,55 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     [cacheWide]
   );
 
-  // Replace the custom-theme set (import / rename / re-colour / delete). The
-  // server couples custom_themes + display_theme in one PATCH: deleting the
-  // active theme resets display_theme to "". Callers that touch the active
-  // theme pass `nextTheme` so both the local state and the single server PATCH
-  // stay consistent with that reset. State updates apply optimistically; a
-  // failed sync leaves them in place (next login reconcile settles divergence).
-  const commitCustomThemes = useCallback(
-    (next: ThemeBundle[], nextTheme?: string) => {
-      setCustomThemesState(next);
-      if (nextTheme !== undefined) cacheTheme(nextTheme);
-      // [T-1500] M3: unconditional — a colour edit keeps the same id and so
-      // never reaches the id choke. `theme` is the still-active id when
-      // nextTheme is absent.
-      writePaint(nextTheme ?? theme, next);
-      if (hasToken()) {
-        const patch: { customThemes: ThemeBundle[]; displayTheme?: string } = {
-          customThemes: next,
-        };
-        if (nextTheme !== undefined) patch.displayTheme = nextTheme;
-        api
-          .patchServerSettings(patch)
-          .then(adoptServerSettings) // shared snapshot (T-8115)
-          .catch((e) =>
-            console.warn("commitCustomThemes: server sync failed", e)
-          );
+  // [T-83ef] The whole-set write is GONE. It re-sent every theme, with every
+  // embedded image, to change one colour — that is the cost this ticket exists
+  // to remove, and there is no per-theme door it could keep using.
+
+  /** Fetch ONE theme in full. Editing and exporting are the only things that
+   * need a bundle, and they are always about one theme. */
+  const loadTheme = useCallback((id: string) => api.getTheme(id), []);
+
+  const saveTheme = useCallback(
+    async (bundle: ThemeBundle) => {
+      await api.putTheme(bundle);
+      // The list carries the NAME, so a rename has to land here too. A replace
+      // keeps its position (the server does not move an edited theme to the
+      // bottom); a create appends, which is the position the server gives it.
+      setThemeList((prev) =>
+        prev.some((x) => x.id === bundle.id)
+          ? prev.map((x) =>
+              x.id === bundle.id ? { id: bundle.id, name: bundle.name } : x
+            )
+          : [...prev, { id: bundle.id, name: bundle.name }]
+      );
+      // Editing the theme you are LOOKING AT must repaint it; editing another
+      // one must not touch the picture.
+      if (themeRef.current === bundle.id) {
+        setActiveThemeBundle(bundle);
+        writePaint(bundle);
       }
     },
-    [cacheTheme, writePaint, theme]
+    [writePaint]
+  );
+
+  const removeTheme = useCallback(
+    async (id: string) => {
+      const result = await api.deleteTheme(id);
+      setThemeList((prev) => prev.filter((x) => x.id !== id));
+      // ⚠️ The server stores "" for the reset and the cockpit shows the built-in.
+      // Those are not the same string, and the difference is pre-existing: ""
+      // means "never set", which tells ANOTHER device to keep its own cached
+      // choice — and that cache may still name the theme just deleted. Not
+      // silently papered over here; switching to the built-in is what this
+      // device must do either way, and the cross-device half is a separate
+      // question about what "" should mean.
+      if (result.displayThemeReset || themeRef.current === id) {
+        cacheTheme("office");
+        setActiveThemeBundle(null);
+        writePaint(null);
+      }
+    },
+    [cacheTheme, writePaint]
   );
 
   // Login reconcile (server = cross-device truth): pull /api/settings and adopt
@@ -374,18 +520,20 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   // value is a React state no-op, so the common (cache == server) case does not
   // repaint — no flash.
   const reconcileFromServer = useCallback(() => {
-    loadServerSettings()
-      .then((s) => {
-        // The server owns the custom-theme set — adopt it wholesale (so the
-        // apply effect can resolve a custom active id to its bundle). Coerce a
-        // missing field to [] so downstream `.find` (apply effect + wording
-        // memo) never sees undefined.
-        setCustomThemesState(s.customThemes ?? []);
+    // Both faces at once: settings still owns WHICH theme is active, the theme
+    // resource now owns what themes there are.
+    Promise.all([loadServerSettings(), api.listThemes()])
+      .then(([s, list]) => {
+        // [T-83ef] The set arrives as ONE LINE EACH; the bundles are fetched
+        // per theme. Only ONE bundle is ever needed to paint — the active one —
+        // so this is two small requests instead of one that carried every image
+        // the owner had ever saved.
+        setThemeList(list);
         // Adopt a stored active theme only when it is actually selectable given
         // that set (a built-in, or an id present in it). "" (never set) or a
         // dangling id keeps the local cache — a stale server value must not
         // override a live local choice.
-        const ids = new Set(s.customThemes.map((b) => b.id));
+        const ids = new Set(list.map((b) => b.id));
         if (s.displayTheme !== "" && isValidDisplayTheme(s.displayTheme, ids)) {
           cacheTheme(s.displayTheme);
         }
@@ -404,8 +552,36 @@ export function I18nProvider({ children }: { children: ReactNode }) {
           s.displayTheme !== "" && isValidDisplayTheme(s.displayTheme, ids)
             ? s.displayTheme
             : themeRef.current;
-        writePaint(active, s.customThemes ?? []);
-        setThemesLoaded(true);
+        // A built-in, or an id the server does not know: there is no bundle to
+        // hold and no picture to cache. Clearing the paint record is the T-1500
+        // rule ("never leave a picture the server no longer recognises") and it
+        // now has to be spelled out, because there is no set to fail a lookup in.
+        // No ref fix-up needed here: whichever branch above settled `active`
+        // either called cacheTheme (which moves the ref with the decision) or
+        // kept themeRef.current itself.
+        if (active === "office" || !ids.has(active)) {
+          setActiveThemeBundle(null);
+          writePaint(null);
+          setThemesLoaded(true);
+          return;
+        }
+        return api.getTheme(active).then((b) => {
+          // Same guard `setTheme` carries, for the same reason and it was
+          // missing here: reconcile fires on login/reload, so its fetch is in
+          // flight while the owner is free to pick a different theme. Without
+          // this, the slower of the two answers wins — and the damage outlives
+          // the moment, because writePaint would cache a picture of a theme the
+          // owner is not on and the NEXT cold load would paint it before React
+          // mounts. Two paths fetch one bundle; one of them having the guard is
+          // not the same as the guard existing.
+          if (themeRef.current !== active) {
+            setThemesLoaded(true);
+            return;
+          }
+          setActiveThemeBundle(b);
+          writePaint(b);
+          setThemesLoaded(true);
+        });
       })
       .catch((e) => console.warn("i18n reconcile: load failed", e));
   }, [cacheTheme, cacheLanguage, cacheWide, writePaint]);
@@ -430,10 +606,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     cacheTheme("office");
     writeStored(LS_THEME_PAINT, null);
     cacheWide(false);
-    // The custom set is server-backed — clear only the LOCAL mirror so the next
+    // The themes are server-backed — clear only the LOCAL mirror so the next
     // owner's paint is not tinted; the server copy is untouched (re-adopted at
     // that owner's reconcile).
-    setCustomThemesState([]);
+    setThemeList([]);
+    setActiveThemeBundle(null);
   }, [cacheLanguage, cacheTheme, cacheWide]);
 
   const value = useMemo<I18nContextValue>(
@@ -450,8 +627,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       activeAvatars,
       activeLogo,
       activeNavIcons,
-      customThemes,
-      commitCustomThemes,
+      themeList,
+      activeThemeBundle,
+      loadTheme,
+      saveTheme,
+      removeTheme,
       resetPreferences,
     }),
     [
@@ -467,8 +647,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       activeAvatars,
       activeLogo,
       activeNavIcons,
-      customThemes,
-      commitCustomThemes,
+      themeList,
+      activeThemeBundle,
+      loadTheme,
+      saveTheme,
+      removeTheme,
       resetPreferences,
     ]
   );

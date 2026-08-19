@@ -356,12 +356,15 @@ func (s *apiServer) HandleUpdateTaskManualApiTaskManualsTypeKeyPost(w http.Respo
 			return
 		}
 	}
-	// T-3351 hard cap. This handler is the ONLY write face for sop_md, and a
-	// SECOND write face for learnings (spelled `learnings` here, `text` in
-	// write_task_learnings) — capping only the learnings-specific seams would
-	// have left both an uncapped door onto the same document and sop_md with no
-	// gate at all. Validated BEFORE any field is applied, so a refusal leaves
-	// the whole partial update unwritten (the handler's existing posture).
+	// T-3351 hard cap. This handler is ONE OF TWO write faces for sop_md (the
+	// other is patch_task_sop, T-1667, which judges the SAME cap on the RESULT
+	// of its patch), and a SECOND write face for learnings (spelled `learnings`
+	// here, `text` in write_task_learnings) — capping only the
+	// learnings-specific seams would have left both an uncapped door onto the
+	// same document and sop_md with no gate at all; every sop_md door has to
+	// carry the cap or the cap is a suggestion. Validated BEFORE any field is
+	// applied, so a refusal leaves the whole partial update unwritten (the
+	// handler's existing posture).
 	// Each field is judged against ITS OWN cap, read once (T-30f1). Until then
 	// both were judged against one read of one shared cap, and the reason given
 	// was that two reads could straddle a concurrent PATCH and judge one doc by
@@ -613,6 +616,146 @@ func (s *apiServer) HandlePatchTaskLearningsApiTaskManualsTypeKeyLearningsPatchP
 	}
 	sum := sha256.Sum256([]byte(next))
 	writeJSON(w, http.StatusOK, taskLearningsPatchResultDTO{
+		TypeKey:      typeKey,
+		AppliedEdits: applied,
+		SizeChars:    utf8.RuneCountInString(next),
+		CapChars:     cap,
+		Sha256:       hex.EncodeToString(sum[:]),
+	})
+}
+
+// POST /api/task-manuals/{type_key}/sop/patch — anchor-addressed patch of a
+// type's SOP (T-1667; the patch_task_learnings twin for the OTHER long-form
+// document a manual carries). ApplyDocEdits is the SHARED engine, so the
+// anchor/append/atomicity semantics are byte-identical to the three patch faces
+// that came before it.
+//
+// WHY THIS EXISTS — CONCURRENT OVERWRITE, not token economy. update_task_manual
+// is the only other write face for sop_md and it is a whole-doc replace, so two
+// writers on one manual lose each other's work by construction: the second one
+// sends a copy it read before the first landed, and everything the first added
+// is gone. Nothing catches it. The shrink guard does not fire, because the
+// stale copy is typically the LONGER of the two (it was written by a session
+// that had the whole SOP in context and re-typed all of it) — so the write does
+// not even look like a deletion. The result is a silent loss with zero signal.
+// The anchor closes that shape by construction rather than by locking: the
+// caller sends only {old, new} and never a base copy, so "overwrite the whole
+// doc from a base I read earlier" is not expressible on this wire at all, and
+// the splice is matched against sop_md as it stands when this request reads it.
+// A concurrent write that moved or duplicated the anchor turns this batch into
+// a visible 400. Making the write cost scale with the CHANGE is the secondary
+// benefit.
+//
+// WHAT IS STILL OPEN. Concurrent edits to DIFFERENT anchors survive TOGETHER
+// once the two requests serialise — each is spliced onto whatever the doc says
+// at its own read. What remains is the read-then-write gap INSIDE one request,
+// which is milliseconds wide rather than session-long, but is not zero: an
+// interleaving there still eats one side's edit silently.
+// Concretely: the read above goes to the read pool, the write below to the
+// write pool, with no transaction spanning the two and no version compare. Two
+// patch requests interleaving in the server (A reads → B reads → A writes →
+// B writes) lose A's edit. Closing it needs the read and the write under one
+// transaction, or a version/etag compare at the write boundary. Tracked
+// separately.
+//
+// 🔴 AND THAT WINDOW IS WIDER HERE THAN ON THE patch_step_note TWIN, which is
+// why this caveat is not a copy of that one. putTaskManualOn is a WHOLE-ROW
+// upsert: it writes back purpose, fields, display_name, assignee and learnings
+// from the copy resolveTaskManual read at the top of this request, not just
+// sop_md. So an interleaving in the same window also REVERTS a concurrent write
+// to any of those other fields — a patch_task_learnings landing between this
+// face's read and its write is silently undone, and the caller of that write
+// already got its 200. The step-note twin does not have this: SetTaskStepNote
+// is a SINGLE-column UPDATE, so its window can only cost the note itself.
+// The narrow fix is to make this face write sop_md alone; that is out of
+// T-1667's scope and is recorded here rather than done.
+//
+// Same shape, same cause: a manual DELETED concurrently between the read and
+// the write is RESURRECTED by the upsert's INSERT arm and this face answers
+// 200. That is pre-existing behaviour of update_task_manual (identical write
+// seam), but this ticket opens a SECOND door onto it. Also not fixed here.
+//
+// Wording note: the two faces T-1667 added (this one and patch_step_note) are
+// the only ones rewritten to the description above. patch_task_learnings above,
+// and patch_lessons / patch_insight, still describe the anchor as an "optimistic
+// lock" in their comments and on the wire. Realigning those three is a
+// follow-up; do not read this comment as a claim that all five now agree.
+//
+// Semantics: edits apply IN ORDER; a non-empty old must match exactly once
+// (0/>1 → flat 400 naming the failing edit index and get_task_manual as the
+// re-read, WHOLE batch rejected, zero writes); an empty old appends. A patch
+// that wipes the doc, or shrinks a substantial doc to <10%, is refused without
+// allow_shrink=true. The sop_md cap is judged on the RESULT and allow_shrink is
+// not a bypass — the same posture the learnings twin takes. Same agent floor as
+// update_task_manual's content fields. Unknown type → 404.
+func (s *apiServer) HandlePatchTaskSopApiTaskManualsTypeKeySopPatchPost(w http.ResponseWriter, r *http.Request, typeKey string) {
+	var body TaskSopPatchDTO
+	if !decodeJSONBodyStrict(w, r, &body, "edits") {
+		return
+	}
+	if !requireNonEmptyEdits(w, body.Edits) {
+		return
+	}
+	// Target first, content second — the order patch_task_learnings takes, so an
+	// unknown type_key answers 404 on both faces rather than one of them ruling
+	// on the edits of a manual that does not exist.
+	m, err := s.resolveTaskManual(typeKey)
+	if err != nil {
+		writeResolveError(w, err, "task manual", typeKey)
+		return
+	}
+	edits, ok := decodePatchEdits(w, body.Edits)
+	if !ok {
+		return
+	}
+	// get_task_manual, not get_lessons: the anchor-miss message tells the caller
+	// where to look next, and naming the wrong document is worse than naming
+	// none (the reason ApplyDocEdits takes the tool name as a parameter).
+	next, applied, err := ApplyDocEdits(m.SopMD, edits, "get_task_manual")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	allowShrink := body.AllowShrink != nil && *body.AllowShrink
+	if !allowShrink && LessonsShrinkBlocked(m.SopMD, next) {
+		writeError(w, http.StatusBadRequest,
+			"patch would empty (or shrink to under a tenth of) the sop_md doc — pass allow_shrink=true if this is intended, or use update_task_manual; nothing was written")
+		return
+	}
+	// T-3351 hard cap, judged on the RESULT of the patch (not the patch's own
+	// size). Unconditional: allow_shrink is not a bypass. One read, reused by
+	// the receipt below.
+	cap := s.manualSopCap()
+	if DocCapBlocked(cap, m.SopMD, next) {
+		writeError(w, http.StatusBadRequest, docCapRefusal(cap, "sop_md doc", m.SopMD, next))
+		return
+	}
+	// 🔴 `next` byte-identical to the stored sop_md → there is nothing to write
+	// and nothing to retain. The gate is that text comparison and NOT applied > 0:
+	// `applied` counts edits that moved the INTERMEDIATE result, so a batch whose
+	// edits undo one another reports applied != 0 over a document that never
+	// changed. Writing anyway burns one of the THREE document history slots on a
+	// snapshot of text nobody replaced (and bumps updated_ts for a change that did
+	// not happen), silently shortening the owner's undo path. Full reasoning at
+	// ApplyDocEdits (domain.go), which marks `applied > 0` as the exact reasoning
+	// error the earlier faces were built on. SOP and learnings are two independent
+	// version series on one manual (T-1f39), so this face burns the SOP series'
+	// slots specifically. The receipt below stays outside the gate and unchanged.
+	if next != m.SopMD {
+		m.SopMD = next
+		m.UpdatedTS = nowSecs()
+		if err := s.dal.SaveWithDocumentHistories(
+			taskManualHistoryStreams(typeKey, currentActor(r), true, false),
+			func(ex sqlExecer) error {
+				return putTaskManualOn(ex, *m)
+			}); err != nil {
+			internalError(w, err)
+			return
+		}
+		s.publishTaskManual(typeKey, requestTrigger(r))
+	}
+	sum := sha256.Sum256([]byte(next))
+	writeJSON(w, http.StatusOK, taskSopPatchResultDTO{
 		TypeKey:      typeKey,
 		AppliedEdits: applied,
 		SizeChars:    utf8.RuneCountInString(next),

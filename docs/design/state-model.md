@@ -2,7 +2,7 @@
 
 > **owner(Seth)2026-07-10 定案。** 本文件是 member / warden「在不在線上」、狀態該存哪、與生命週期管理的**單一權威 logical spec**;相關 code 一律照此。
 > 取代舊的「host-mismatch 自動 relocate」機制(見文末「取代了什麼」;舊設計文件 t21-server-reconcile-design.md 已隨 Python 實作退場,而那段歷史不在本 repo)。
-> 現行實作 = Go server(`server/ocserverd/`):「warden 也算 online」「砍自動 relocate」已實作完成(hub.go / reconcile.go);**原則 3 的「handshake 機器比對→suicide」未實作**(owner 2026-07-12 定案 code is right:唯一性由 dual-SSE 409+stop gate 承擔、換機維持手動,原則 3 降級為 backlog 設計選項,見 §3)。code 與本文不合時 flag owner 定奪。(較小版:member 起停決策**留在 server**,warden 是純執行手 / remote calling tool;非「決策搬 warden」。)
+> 現行實作 = Go server(`server/ocserverd/`):「warden 也算 online」「砍自動 relocate」已實作完成(hub.go / reconcile.go);**原則 3 的「handshake 機器比對→suicide」未實作**(owner 2026-07-12 定案 code is right:唯一性由 dual-SSE gate + stop gate 承擔、換機維持手動,原則 3 降級為 backlog 設計選項,見 §3;⚠️ 該 dual-SSE gate 當時是「409 拒新」,現已改為 **takeover 頂替**＋防抖,見 §3 與 spec/sse.md §5.1)。code 與本文不合時 flag owner 定奪。(較小版:member 起停決策**留在 server**,warden 是純執行手 / remote calling tool;非「決策搬 warden」。)
 
 ## WHY — 要解決的根本問題
 
@@ -47,14 +47,29 @@
 
 > **徹底版(之後可走,本次不做)**:連 `desired_state→START/STOP` 決策也搬到 warden(warden 自主 reconcile 生死)、server 完全不主動決策。較小版是它的子集,不擋這條路。
 
-### 3. 唯一性:現況(dual-SSE 409 + stop gate)與未實作的 by-construction 設計
+### 3. 唯一性:現況(dual-SSE takeover + stop gate)與未實作的 by-construction 設計
 
 **現況(code is right,owner 2026-07-12 定案)**:一個 member 只該有一個 live 實例。這由兩道**已實作**的 handshake gate 承擔(`api_infra.go` pre-stream):
 
-- **dual-SSE 409**(`hub.Connect`,spec/sse.md §5.1):同一 member 已有 live listener → 第二條連線 409。同時只有一條 SSE = 同時只有一個算得上線上的實例。
+- **dual-SSE takeover**(`hub.Connect`,spec/sse.md §5.1):同一 member 已有 live listener → **第二條連線被接受,舊的那條被原子換掉**(admit + 踢舊在同一個 critical section)。同時只有一條 SSE = 同時只有一個算得上線上的實例——這個結論不變,變的是誰被留下。
+  - **防抖 throttle**:短窗內頂替次數超過預算,下一次連線才回 409,而且**保留在位的那條**(頂替太頻繁通常代表真的有兩個 client 在搶,這時拒新的比一直換手安全)。窗口與次數見 `spec/sse.md` §5.1,本文不複製數值。
+  - **owner / dashboard 連線豁免**:它不投影成任何 member 的 online,可以並存多條。
+  - ⚠️ **這一條在 2026-07-12 定案時是「第二條連線 409 拒絕、舊的續存」**,後來改成 takeover(spec/sse.md §5.1 已同步,並有專門的單元測試與 conformance 斷言)。原始裁定的**目的**沒有被推翻——目的一直是「同時只有一個 live 實例」;變的是達成手段:409 拒新會讓一個半死的舊連線永遠佔著槽位,新的那個永遠上不來。**這是手段換掉,不是原則被否決。**(T-e04f 對帳時發現本文落後,owner 2026-08-17 於 rc-cfbc6624378f 裁定由 Kyle 更新。)
 - **殭屍 stop gate**(765deb9,`sseStopGateRefusal`):roster 非 active、或 desired_state=offline 且有 stop 錨 → 409 拒連。停用/回收中的 member 連不回來。
+  - ⚠️ 現況已有**三個豁免**,原本「有 stop 錨 → 409」這句已經過強:①`kind=outsource` 一律放行(在 roster 檢查之前,released worker 的 session 要活到結案);②warden 不受 desired-offline 那一臂管;③**收尾進行中放行**(T-a9d6)——只打了「開始收尾」而還沒報「收完了」、且不是被強制切斷的,允許重連,否則一次網路抖動就會把做到一半的交接弄死。真正決定拒不拒的是「收完了」的錨與強制切斷的判定。
 
-**連線的 machine claim 不參與 handshake 判斷**(只用來標出 online 的位置與下架擋門)。推論:**member 換機器(desired_machine_id A→B)沒有自動路徑**——A 上舊實例不會退、還佔著唯一 SSE 槽,server 也不對已 online 的 member 發 START;換機是**手動三步:先 desired_state=offline(舊實例退)→ 改 desired_machine_id → 再 online(B 上拉起)**。
+**連線的 machine claim 不參與 handshake 判斷**。它用來標出 online 的位置、下架擋門,以及(後來新增的)**解析 kill 要送到哪一台 warden**、與 relocation backstop 臂的機器分歧判斷。
+
+🔴 **換機器現在有自動路徑了(T-b6d9),本段原本的「手動三步」推論已被推翻。**
+現況:owner 按一次「改機器」就是**一個動詞的自動換機**——handler 寫下新的 `desired_machine_id` 並開一個 refocus epoch,等 agent 收尾或寬限到期後把**舊機器上的** session robust STOP 掉;`desired_state` 全程維持 online,所以下一輪就在**新機器**上 START。`decideUp` 裡那條 relocation 臂已降級為 backstop,只處理「沒有人蓋 epoch 的 pin 分歧」。
+
+⇒ 原文那三句話今天都不成立:①「沒有自動路徑」— 有,而且是 owner 面向的正式動作;②「A 上舊實例不會自己退」— 會,它會被收掉;③「手動三步」— 不是現行流程。
+
+> ⚠️ **這段的修訂史值得留著,因為它示範了一個很難自覺的漏接。**
+> takeover 之前,這裡的理由是「舊實例還**佔著**唯一 SSE 槽」。改成 takeover 後那個理由失效,於是有人(我)把理由換成「server 不對已 online 的 member 發 START」並寫下「**結論不變**」——**而結論其實早就被 T-b6d9 推翻了**,只是沒有人回頭查它。那個新理由本身為真,但它擋不住自動換機,因為自動換機是**先 STOP、讓它不再 online,再 START**。
+>
+> **換掉一段話的理由,不等於驗證了它的結論——反而會讓結論看起來更可信**(文件上多了一行「查證過」的痕跡,下一個讀者更不會去質疑它)。⇒ **改理由時要把結論一起打回未驗證狀態**,重新問一次「這句話今天還成立嗎」。
+> (owner 2026-08-17 於 `rc-b5da935fda77` 裁定由 Kyle 更新;抓到它的是 T-baf7 的獨立審查,不是作者自己。)
 
 **未實作的 by-construction 設計(backlog 選項,之後真需要自動換機再照此補)**:SSE handshake 當場比對機器,不另開偵測迴圈:
 
@@ -81,7 +96,7 @@
 
 **code 對應(Go 實作,`server/ocserverd/`)**:
 - **online / 位置統一自證**:`hub.go`(SSE 連線註冊 = 判定 online 的依據,member 與 warden 同一套);member 無 `online` DB 欄,讀寫全走 hub 的連線狀態;實際位置從連線 listener 的 machine claim 推導,不落 DB。
-- **唯一性(現況)**:SSE handshake pre-stream 兩道 gate——dual-SSE 409(`hub.go` `Connect`:member 已有 live listener 即拒)+ 殭屍 stop gate(`api_infra.go` `sseStopGateRefusal`);**machine claim 不參與 handshake 判斷**(原則 3 的 by-construction 比對未實作,backlog)。
+- **唯一性(現況)**:SSE handshake pre-stream 兩道 gate——dual-SSE takeover(`hub.go` `Connect`:member 已有 live listener 時**接受新的、原子踢掉舊的**;僅在防抖 throttle 超額時才 409 並保留在位者)+ 殭屍 stop gate(`api_infra.go` `sseStopGateRefusal`);**machine claim 不參與 handshake 判斷**(原則 3 的 by-construction 比對未實作,backlog)。
 - **無自動 relocate**:`reconcile.go` 只有單純 `desired_state→START/STOP` 決策 + producer 決策迴圈,沒有 host-mismatch relocate 決策臂。
 - **下架擋門(owner 定案 2026-07-11:實際線上判準)**:machine uninstall / delete 的 409 擋門只計「**現在真的線上**(hub online)且 live SSE machine claim 指此 warden」的 agent(`hub.AgentsOnMachine`);離線但 `desired_machine_id` 綁定在此的 agent **不擋**——這台上全部 agent 離線 = 可直接移除 / 解除(`api_machines.go`;FE 警示清單同判準)。
 - **uninstall 意圖一次性(owner 定案 2026-07-11)**:`desired_state="uninstall"` 是一次性意圖,絕不永久掛著——server 觀察到該 warden **真的斷線** 即消化歸零(`desired_state→offline`,record 保留可重裝;SSE disconnect edge 事件驅動 + reconcile tick pass 當 restart-amnesia backstop);任何重裝路徑(boot-command 重取 / bootstrap-here)先把殘留意圖歸零再裝。否則殘留意圖 = 常駐殺令,warden 重連即再被解除(2026-07 實際事故:無限 uninstall→重裝迴圈)。

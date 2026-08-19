@@ -456,6 +456,33 @@ MATRIX: dict[str, Route] = {
         requires="admin_agent",
         body={},  # empty patch = validated no-op read (mutating nothing)
     ),
+    # ── custom themes (T-83ef) ───────────────────────────────────────────────
+    # This file answers ONE question — who gets past the gate — so every positive
+    # face here is aimed at a DETERMINISTIC, NON-MUTATING outcome (a 404 for a
+    # theme that does not exist, a 422 for a bundle whose id disagrees with the
+    # path). A non-403 IS the proof the identity passed the floor; what the
+    # endpoints actually DO is pinned by test_rest_happy.py and by the Go tests.
+    # Writing real themes from here would leave rows behind that the list row and
+    # the happy suite would then have to reason about.
+    "GET /api/themes": Route(requires="admin_agent"),
+    "GET /api/themes/{theme_id}": Route(
+        requires="admin_agent",
+        path=lambda ctx, _i: "/api/themes/conf-missing-theme",
+        overrides={"owner": 404, "admin_agent": 404},
+    ),
+    "PUT /api/themes/{theme_id}": Route(
+        requires="admin_agent",
+        path=lambda ctx, _i: "/api/themes/conf-theme-matrix",
+        # id disagrees with the path on purpose: refused for a reason that has
+        # nothing to do with identity, and nothing is stored.
+        body={"id": "conf-theme-other", "name": "conf", "colors": {"--color-bg": "#111"}},
+        overrides={"owner": 422, "admin_agent": 422},
+    ),
+    "DELETE /api/themes/{theme_id}": Route(
+        requires="admin_agent",
+        path=lambda ctx, _i: "/api/themes/conf-missing-theme",
+        overrides={"owner": 404, "admin_agent": 404},
+    ),
     # ── members ──────────────────────────────────────────────────────────────
     "GET /api/members": Route(requires="machine"),
     "POST /api/members": Route(
@@ -1182,6 +1209,17 @@ MATRIX: dict[str, Route] = {
             *_matrix_task_step(ctx)),
         body={"note": "conf matrix note"},
     ),
+    "POST /api/tasks/{task_id}/steps/{step_id}/note/patch": Route(
+        # T-1667. The anchor-patch twin of the note write above, so the matrix
+        # face is identical: at-floor agent passes on its OWN task, another
+        # agent's token is a 403. An empty `old` appends, which needs no
+        # pre-existing note — the scratch step's blank note is fine.
+        requires="agent",
+        overrides={"agent_other": 403},
+        path=lambda ctx, _i: "/api/tasks/{}/steps/{}/note/patch".format(
+            *_matrix_task_step(ctx)),
+        body={"edits": [{"old": "", "new": "conf matrix note patch"}]},
+    ),
     "POST /api/tasks/{task_id}/steps/{step_id}/gate": Route(
         requires="agent",
         overrides={"agent_other": 403},
@@ -1358,6 +1396,13 @@ MATRIX: dict[str, Route] = {
         requires="agent",
         path=lambda ctx, _i: f"/api/task-manuals/{_matrix_manual(ctx)}/learnings/patch",
         body={"edits": [{"old": "", "new": "conf matrix patch"}]},
+    ),
+    "POST /api/task-manuals/{type_key}/sop/patch": Route(
+        # the agent patch face for sop_md — same agent floor as the whole-doc
+        # update_task_manual content fields (per-type, not per-executor).
+        requires="agent",
+        path=lambda ctx, _i: f"/api/task-manuals/{_matrix_manual(ctx)}/sop/patch",
+        body={"edits": [{"old": "", "new": "conf matrix sop patch"}]},
     ),
     # ── product guide (docs/guide embed) ────────────────────────────────────
     "GET /api/docs": Route(requires="machine"),

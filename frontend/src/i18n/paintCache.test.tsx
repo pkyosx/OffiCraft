@@ -151,24 +151,53 @@ describe("D2 paint cache", () => {
 
   it("(v) M3: EDITING an existing theme's colours rewrites the paint cache", async () => {
     localStorage.setItem(TOKEN_KEY, "live-owner-token");
-    await mockApi.patchServerSettings({
-      customThemes: [MIDNIGHT],
-      displayTheme: "midnight",
-    });
+    await mockApi.putTheme(MIDNIGHT);
+    await mockApi.patchServerSettings({ displayTheme: "midnight" });
     render(
       <I18nProvider>
         <Capture />
       </I18nProvider>
     );
     await waitFor(() => expect(ctx.theme).toBe("midnight"));
-    // the editor's save path: same id, new colours, NO nextTheme argument
+    await waitFor(() => expect(ctx.activeThemeBundle?.id).toBe("midnight"));
+    // the editor's save path: same id, new colours — ONE theme, not the set
     await act(async () => {
-      ctx.commitCustomThemes([
-        { ...MIDNIGHT, colors: { "--color-bg": "#aabbcc" } },
-      ]);
+      await ctx.saveTheme({
+        ...MIDNIGHT,
+        colors: { "--color-bg": "#aabbcc" },
+      });
     });
     const rec = JSON.parse(localStorage.getItem("oc.themePaint") ?? "null");
     expect(rec?.bundle?.colors?.["--color-bg"]).toBe("#aabbcc");
+  });
+
+  // [T-83ef] The paint record is written ONLY once the bundle is actually in
+  // hand. The provider used to hold every bundle, so a switch had one; now it
+  // fetches, and a fetch can fail. Writing a record from nothing would CLEAR the
+  // cached picture — and the next pre-auth load would flash. So a failed switch
+  // must leave the record exactly as it was.
+  it("(v-c) a switch whose bundle fetch fails must not overwrite the cached picture", async () => {
+    localStorage.setItem("oc.theme", "midnight");
+    localStorage.setItem(TOKEN_KEY, "live-owner-token");
+    await mockApi.putTheme(MIDNIGHT);
+    await mockApi.patchServerSettings({ displayTheme: "midnight" });
+    render(
+      <I18nProvider>
+        <Capture />
+      </I18nProvider>
+    );
+    await waitFor(() => expect(ctx.activeThemeBundle?.id).toBe("midnight"));
+    const before = localStorage.getItem("oc.themePaint");
+    expect(before).not.toBeNull();
+
+    // The owner picks a theme the server does not have (deleted on another
+    // device): both the settings PATCH and the bundle GET refuse.
+    act(() => ctx.setTheme("sunrise"));
+    await waitFor(() => expect(ctx.theme).toBe("sunrise"));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(localStorage.getItem("oc.themePaint")).toBe(before);
   });
 
   // [T-1500] step-5 ③ CROSS-DEVICE: device A edited this theme's COLOURS — the
@@ -183,10 +212,8 @@ describe("D2 paint cache", () => {
     localStorage.setItem(TOKEN_KEY, "live-owner-token");
     seedPaint(MIDNIGHT); // B's cache: the colours as of B's last visit
     // A's edit already landed on the server: same id, new colours.
-    await mockApi.patchServerSettings({
-      customThemes: [{ ...MIDNIGHT, colors: { "--color-bg": "#ff0000" } }],
-      displayTheme: "midnight",
-    });
+    await mockApi.putTheme({ ...MIDNIGHT, colors: { "--color-bg": "#ff0000" } });
+    await mockApi.patchServerSettings({ displayTheme: "midnight" });
     render(
       <I18nProvider>
         <Probe />

@@ -1,12 +1,24 @@
 // T-8115 — 「永久是空的」不再被當成「還沒寫好、再等等」.
 //
-// MEASURED PREMISE (production install, GET /api/settings): 639,270 bytes
-// uncompressed, 373 kB gzipped, and `onboarding` is null — which the DTO itself
-// declares NORMAL ("Null on the settings read when onboarding never ran (an
-// install that predates it, or a database that already had a password)"). The
-// banner treated null as non-terminal, so every cockpit open polled that
-// payload once every 3 s for the full 180 s ceiling: ~61 downloads, ~22 MB, for
-// a row that no code path on that install will ever write.
+// MEASURED PREMISE — dated, because half of it has since been made false ON
+// PURPOSE. In 2026-07, GET /api/settings on the production install measured
+// 639,270 bytes uncompressed / 373 kB gzipped, and `onboarding` was null —
+// which the DTO itself declares NORMAL ("Null on the settings read when
+// onboarding never ran (an install that predates it, or a database that already
+// had a password)"). The banner treated null as non-terminal, so every cockpit
+// open polled that payload once every 3 s for the full 180 s ceiling: ~61
+// downloads, ~22 MB, for a row that no code path on that install will ever
+// write.
+//
+// 🔴 T-83ef took the themes out of that payload, so the three SIZE figures above
+// describe 2026-07 and nothing else — settings is a few hundred bytes now. They
+// are kept with their date rather than restated, because that pair went stale
+// once already without anyone noticing (see frontend/src/lib/sharedSnapshot.ts,
+// which carries the same history). WHAT SURVIVES INTACT is the reason this file
+// exists: null was being treated as "not written yet", so the poll ran its full
+// ceiling for a row nobody will ever write. That is a bug about a TERMINAL STATE
+// being read as a pending one, and it costs ~61 pointless round trips whether
+// each one weighs 373 kB or 400 bytes.
 //
 // 🔴 THIS FILE IS ONE HALF OF A PAIRED CONTRACT. Treating null as terminal is
 // only honest because the server persists the `running` report BEFORE the

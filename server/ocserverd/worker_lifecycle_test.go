@@ -917,6 +917,13 @@ func TestAutoHandoverWorker_LoopBreak(t *testing.T) {
 
 // stampWorkerRefocus opens a handover epoch directly on the row (the stamp the
 // refocus handler / auto-stamp would have written) without any dispatch.
+// stampWorkerRefocus leaves RefocusOp EMPTY on purpose: empty is not
+// refocusOpRefocus, so every caller of this helper exercises the CLOCKED arm of
+// autoHandoverWorker. That is what these tests mean to cover, and it is why they
+// all stayed green through T-fe5e, which changed only the no-clock arm — the
+// 重新聚焦 arm is pinned separately in worker_refocus_no_clock_tfe5e_test.go.
+// Do not "fix" this by stamping refocusOpRefocus here; it would move a dozen
+// tests onto the other branch silently.
 func stampWorkerRefocus(t *testing.T, api *apiServer, workerID string, since float64) {
 	t.Helper()
 	w, _ := api.dal.GetOutsourceWorker(workerID)

@@ -281,28 +281,28 @@
   },
   {
     "auth": "gated",
-    "mcp_tool": null,
+    "mcp_tool": "list_scheduled_messages",
     "method": "GET",
     "path": "/api/members/{member_id}/scheduled-messages",
     "requires": "admin_agent"
   },
   {
     "auth": "gated",
-    "mcp_tool": null,
+    "mcp_tool": "create_scheduled_message",
     "method": "POST",
     "path": "/api/members/{member_id}/scheduled-messages",
     "requires": "admin_agent"
   },
   {
     "auth": "gated",
-    "mcp_tool": null,
+    "mcp_tool": "update_scheduled_message",
     "method": "PATCH",
     "path": "/api/members/{member_id}/scheduled-messages/{schedule_id}",
     "requires": "admin_agent"
   },
   {
     "auth": "gated",
-    "mcp_tool": null,
+    "mcp_tool": "delete_scheduled_message",
     "method": "DELETE",
     "path": "/api/members/{member_id}/scheduled-messages/{schedule_id}",
     "requires": "admin_agent"
@@ -799,6 +799,13 @@
   },
   {
     "auth": "gated",
+    "mcp_tool": "patch_step_note",
+    "method": "POST",
+    "path": "/api/tasks/{task_id}/steps/{step_id}/note/patch",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
     "mcp_tool": "open_gate",
     "method": "POST",
     "path": "/api/tasks/{task_id}/steps/{step_id}/gate",
@@ -953,6 +960,13 @@
   },
   {
     "auth": "gated",
+    "mcp_tool": "patch_task_sop",
+    "method": "POST",
+    "path": "/api/task-manuals/{type_key}/sop/patch",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
     "mcp_tool": "list_document_history",
     "method": "GET",
     "path": "/api/document-history/{kind}/{key}",
@@ -1061,6 +1075,34 @@
     "mcp_tool": "reset_offboard",
     "method": "POST",
     "path": "/api/offboard/reset",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "list_themes",
+    "method": "GET",
+    "path": "/api/themes",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "get_theme",
+    "method": "GET",
+    "path": "/api/themes/{theme_id}",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "put_theme",
+    "method": "PUT",
+    "path": "/api/themes/{theme_id}",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "delete_theme",
+    "method": "DELETE",
+    "path": "/api/themes/{theme_id}",
     "requires": "admin_agent"
   }
 ]

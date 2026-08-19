@@ -146,9 +146,9 @@ func handoffGateReason(t Task, door string) string {
 		": this report would CLOSE it, and a closed task can never be replanned " +
 		"(submit_plan turns into a permanent 409). Say where the ball goes, in " +
 		"THIS same update_step_status call, with one of: " +
-		"handoff='" + HandoffReturnToCreator + "' (the server opens a durable " +
-		"follow-up task on the creator so the work is on somebody's list, not in " +
-		"a notification); handoff='" + HandoffFollowUp + "' + " +
+		"handoff='" + HandoffReturnToCreator + "' (recorded on this task and " +
+		"nothing else — no task is opened and nobody is notified); handoff='" +
+		HandoffFollowUp + "' + " +
 		"handoff_task_id='<the successor task you already created>' (the server " +
 		"attaches this task to it as a dependency, and closing this one releases " +
 		"it); handoff='" + HandoffNone + "' + handoff_note='<why nothing " +
@@ -236,10 +236,11 @@ func (s *apiServer) handoffGateVerdict(
 		if err != nil {
 			return nil, http.StatusInternalServerError, err.Error()
 		}
-		// Fail-closed and HONEST: we cannot put a durable task on somebody who
-		// is not on the roster any more (a dismissed member, a released ow-
-		// worker, the pre-column blank). Say so and name the other two doors
-		// rather than pretending the ball landed.
+		// Fail-closed and HONEST: "handed back to X" is a false statement when X
+		// is not on the roster any more (a dismissed member, a released
+		// ow-worker, the pre-column blank). Nothing is dispatched either way now,
+		// so this guard is about the RECORD being true, not about delivery. Say
+		// so and name the other two doors rather than pretending the ball landed.
 		if m == nil || m.RosterStatus != RosterStatusActive {
 			return nil, http.StatusUnprocessableEntity,
 				"cannot hand back to creator '" + t.CreatorID +
@@ -257,9 +258,11 @@ func (s *apiServer) handoffGateVerdict(
 // onto t (the caller persists t — closeTask's PutTask carries it). It runs
 // AFTER the step write and BEFORE the derivation/close, so the successor task
 // and its dep edge already exist when releaseDependentsOnClose walks them.
-func (s *apiServer) applyHandoffPlan(
-	t *Task, plan *handoffPlan, now float64, trigger string,
-) error {
+//
+// Since T-f265 only follow_up has a side effect here (the dep edge); the
+// return_to_creator notice moved to the tail of closeTask, which is why this
+// no longer needs a clock or a trigger.
+func (s *apiServer) applyHandoffPlan(t *Task, plan *handoffPlan) error {
 	if plan == nil {
 		return nil
 	}
@@ -271,78 +274,13 @@ func (s *apiServer) applyHandoffPlan(
 		}
 		t.HandoffTaskID = plan.TaskID
 	case HandoffReturnToCreator:
-		followUp, err := s.mintCreatorFollowUpTask(*t, plan.Note, now, trigger)
-		if err != nil {
-			return err
-		}
-		t.HandoffTaskID = followUp.ID
+		// Nothing happens beyond stamping the declaration below — no task is
+		// created and nobody is told. See the note on the constant in
+		// domain.go for why the notice was withdrawn (owner 2026-08-17).
 	}
 	t.Handoff = plan.Kind
 	t.HandoffNote = plan.Note
 	return nil
-}
-
-// mintCreatorFollowUpTask is option ① made durable. The complaint the ticket
-// starts from is that telling the creator over SSE still drops: a delta is a
-// line that scrolls away, and nothing in the system afterwards says "there is
-// a ball on your side". (Since T-0eb5 the creator is not even in the task
-// audience any more — publishTask fans to the executor only — so the durable
-// carrier below is the ONLY thing that puts the ball on their side.) The
-// durable equivalent that already exists is a TASK — it sits on the creator's
-// open list, it is counted in the resume snapshot (resumeTasksFor), it shows on
-// the cockpit, and it only leaves by being worked or terminated. So that is
-// what we mint: an ad-hoc task on the creator, blocked by the task that just
-// finished (so half B fans the release the moment we close).
-//
-// It is deliberately step-LESS (status derives to not_started): the follow-up's
-// first job is to decide what the follow-up work IS, which is the creator's
-// call, not ours to plan for them.
-func (s *apiServer) mintCreatorFollowUpTask(
-	t Task, note string, now float64, trigger string,
-) (Task, error) {
-	no := TaskNo(t.ID)
-	desc := "任務 " + no + "「" + t.Title + "」已由 " + t.ExecutorID +
-		" 完成並關閉,球交回給你(這張任務的建立者)。\n\n" +
-		"請決定後續:有後續工作就在這張任務上規劃步驟並執行(或轉派出去);" +
-		"確認沒有後續就直接終止這張任務。\n\n" +
-		"注意:" + no + " 已經是終態,它的 plan 永久凍結,後續工作只能開在這裡。"
-	if note != "" {
-		desc += "\n\n執行者的交棒說明:" + note
-	}
-	// 🔴 THIS DESCRIPTION MUST STAY TRIMMED, and today it is only by luck of the
-	// caller: the literal above has no surrounding whitespace, so the value is
-	// clean only because handoffPlan.Note was TrimSpace'd where the plan was
-	// built. Nothing here enforces it and no test pins it.
-	//
-	// Why that matters beyond tidiness: create_task does NOT trim a description,
-	// so an INSERT that carried whitespace would be a THIRD way for untrimmed text
-	// to reach that column — and update_task's tool description, the seeds boot
-	// doc and api_tasks_fields.go all state that there are exactly TWO
-	// (create_task and a verbatim restore). Dropping one of those TrimSpace calls
-	// would make all three false at once, and nothing would turn red. Found by the
-	// independent review of T-646a as a near miss, not a live defect.
-	fu := Task{
-		ID:           "t-" + newHexID(12),
-		Title:        "接手 " + no + " 的後續:" + t.Title,
-		Description:  desc,
-		Status:       TaskStatusNotStarted,
-		Priority:     TaskPriorityMid,
-		ExecutorKind: TaskExecutorMember,
-		ExecutorID:   t.CreatorID,
-		// The finished task's executor is the one handing over, so it is the
-		// creator of the follow-up — the ball's provenance stays readable.
-		CreatorID: t.ExecutorID,
-		CreatedTS: now,
-		UpdatedTS: now,
-	}
-	if err := s.dal.PutTask(fu); err != nil {
-		return Task{}, err
-	}
-	if err := s.dal.AddTaskDep(fu.ID, t.ID); err != nil {
-		return Task{}, err
-	}
-	s.publishTask(fu, trigger)
-	return fu, nil
 }
 
 // ── half B: dependency becomes a real handover ───────────────────────────────

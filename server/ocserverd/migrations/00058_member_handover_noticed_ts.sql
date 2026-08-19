@@ -1,0 +1,34 @@
+-- +goose Up
+-- T-6ebc — the record that this session's ONE advance handover notice has
+-- already been sent.
+--
+-- The notice says, verbatim, "this is the ONLY notice you get before it". That
+-- sentence is the whole point of T-c382: an agent that believes it will not be
+-- nudged again takes the one nudge seriously. The claim that made it true lived
+-- in a process-local map, so a station re-exec emptied it while the AGENTS
+-- survived — they just reconnect — and every one of them still in the high band
+-- was told the same "only notice" a second time. Measured 2026-08-16: one
+-- session received it at 23:07 and again at 23:28, verbatim, across a
+-- v0.5.156-beta.1 → v0.5.157-beta.1 swap.
+--
+--   0      no notice claimed for the session currently anchored (the honest
+--          state every pre-column row starts in: nothing was recorded).
+--   >0     the session anchor (member.session_boot_ts) whose one-and-only
+--          notice has gone out.
+--
+-- It stores the ANCHOR, not a boolean, for the same reason the in-memory claim
+-- did: a genuinely new session brings a new anchor and is entitled to its own
+-- notice, while a reconnect restores the old one and must stay quiet. Comparing
+-- values distinguishes those two; a flag cannot.
+--
+-- Cleared at the same session BOUNDARY as session_boot_ts and by the same
+-- function (clearSessionBootTS) — the two describe the same session and drift
+-- between them would either re-nudge a live session or silence a fresh one.
+--
+-- Deliberately NOT on the wire (no DTO field, no spec change), exactly like
+-- session_boot_ts: nothing outside the notice gate reads it, and the SSE
+-- connect edge is the busiest edge the fleet has.
+ALTER TABLE member ADD COLUMN handover_noticed_ts REAL NOT NULL DEFAULT 0;
+
+-- +goose Down
+ALTER TABLE member DROP COLUMN handover_noticed_ts;

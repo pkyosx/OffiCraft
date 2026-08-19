@@ -156,14 +156,29 @@ type Member struct {
 	// read it. Written through SetMemberForcedStopAt only; PutMember's upsert
 	// deliberately does not carry it.
 	ForcedStopAt float64
-	BankedCost   float64
-	LastOp       string
-	LastOpOK     *bool // nil = no op reported yet (three-valued)
-	LastOpLog    string
-	LastOpReason string // structured "<code>: <detail>" cause; "" = none reported
-	LastOpAt     float64
-	RosterStatus string  // "active" | "removed" (dismiss is a SOFT delete)
-	LinkedTaskID *string // task binding (migrations/00024); nil = unbound. Outsource members carry their bound task id here.
+	// HandoverNoticedTS is the durable twin of the in-memory handover-notice
+	// claim (T-6ebc, migrations/00058): the session anchor whose one-and-only
+	// advance notice has already been sent, 0 when none has. It holds the ANCHOR
+	// rather than a flag so a genuinely new session (new anchor) still earns its
+	// own notice while a reconnect (restored anchor) stays quiet.
+	//
+	// WHY IT HAS TO BE DURABLE: the claim used to live only in a process-local
+	// map, and a station re-exec empties that while the AGENTS survive it — so
+	// every agent still in the high band was told "this is the ONLY notice you
+	// get" a second time, which made that sentence false.
+	//
+	// Written through SetMemberHandoverNoticedTS only; PutMember's upsert
+	// deliberately does NOT carry it, so no whole-row snapshot can revive a
+	// claim that a session boundary just cleared. Not on the wire.
+	HandoverNoticedTS float64
+	BankedCost        float64
+	LastOp            string
+	LastOpOK          *bool // nil = no op reported yet (three-valued)
+	LastOpLog         string
+	LastOpReason      string // structured "<code>: <detail>" cause; "" = none reported
+	LastOpAt          float64
+	RosterStatus      string  // "active" | "removed" (dismiss is a SOFT delete)
+	LinkedTaskID      *string // task binding (migrations/00024); nil = unbound. Outsource members carry their bound task id here.
 	// ── A案 P7d (migrations/00025 — the outsource_worker fold) ────────────────
 	// Codename is the outsource display codename (O-7 / S-12 / H-3), globally
 	// unique and never reused (partial UNIQUE index); "" (stored NULL) on every
@@ -194,7 +209,7 @@ const memberColumns = `id, name, kind, role_key, runtime, model, actual_model, e
 	waking_since, stopping_since, stopped_since, refocus_since, refocus_op, banked_cost,
 	last_op, last_op_ok, last_op_log, last_op_reason, last_op_at, roster_status,
 	linked_task_id, codename, created_ts, released_ts, activated_ts,
-	avatar_attachment_id, forced_stop_at`
+	avatar_attachment_id, forced_stop_at, handover_noticed_ts`
 
 func scanMember(row interface{ Scan(...any) error }) (Member, error) {
 	var m Member
@@ -208,7 +223,7 @@ func scanMember(row interface{ Scan(...any) error }) (Member, error) {
 		&m.BankedCost,
 		&m.LastOp, &lastOpOK, &m.LastOpLog, &m.LastOpReason, &m.LastOpAt, &m.RosterStatus,
 		&linkedTaskID, &codename, &m.CreatedTS, &m.ReleasedTS, &m.ActivatedTS,
-		&m.AvatarAttachmentID, &m.ForcedStopAt,
+		&m.AvatarAttachmentID, &m.ForcedStopAt, &m.HandoverNoticedTS,
 	)
 	if err != nil {
 		return Member{}, err
@@ -311,7 +326,7 @@ func (d *DAL) PutMember(m Member) error {
 	}
 	_, err := d.wdb.Exec(`
 		INSERT INTO member (`+memberColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
 			name = excluded.name, kind = excluded.kind,
 			role_key = excluded.role_key, runtime = excluded.runtime,
@@ -344,7 +359,17 @@ func (d *DAL) PutMember(m Member) error {
 			-- what is already stored, so the record that a session was cut off
 			-- survives every other writer — the property the avatar pointer
 			-- and the session anchor each needed their own seam for.
-			forced_stop_at = max(forced_stop_at, excluded.forced_stop_at)`,
+			forced_stop_at = max(forced_stop_at, excluded.forced_stop_at)
+			-- handover_noticed_ts is DELIBERATELY ABSENT from this SET list
+			-- (T-6ebc). It is session-scoped state cleared at a session
+			-- boundary, and the boundary runs next to HTTP faces that write
+			-- member rows from snapshots taken before it; carrying the column
+			-- here would let one of those revive a claim that was just cleared
+			-- — silencing a genuinely new session's one notice. The INSERT
+			-- carries it so a brand-new row starts at its zero value;
+			-- SetMemberHandoverNoticedTS is the only writer that moves it.
+			-- Guarded by TestHandoverNotice_ClaimSurvivesAWholeRowUpsert:
+			-- adding this column to the SET list turns that test red.`,
 		m.ID, m.Name, m.Kind, m.RoleKey, NormalizeRuntime(m.Runtime), m.Model, m.ActualModel, m.Effort,
 		m.ActualRuntime, m.ActualEffort,
 		m.DesiredState, m.DesiredMachineID, m.LastMachineID, m.SessionBootTS,
@@ -352,8 +377,26 @@ func (d *DAL) PutMember(m Member) error {
 		m.BankedCost,
 		m.LastOp, lastOpOK, m.LastOpLog, m.LastOpReason, m.LastOpAt, m.RosterStatus,
 		linkedTaskID, codename, m.CreatedTS, m.ReleasedTS, m.ActivatedTS,
-		m.AvatarAttachmentID, m.ForcedStopAt,
+		m.AvatarAttachmentID, m.ForcedStopAt, m.HandoverNoticedTS,
 	)
+	return err
+}
+
+// SetMemberHandoverNoticedTS writes ONLY member.handover_noticed_ts (T-6ebc):
+// the session anchor whose one advance handover notice has been sent, or 0 to
+// release the claim at a session boundary. It is the SOLE writer that moves the
+// column — PutMember's upsert carries it on INSERT but never in its DO UPDATE
+// SET, so no whole-row snapshot can revive a cleared claim.
+//
+// Single-column for the same two reasons SetMemberSessionBootTS is: the column
+// is not on the wire, so a member delta on the connect edge would be pure
+// churn; and the callers run on the SSE edge and inside the reconcile tick,
+// next to HTTP faces writing member rows without reconcileMu, where a
+// whole-row write would put a stale snapshot back over them.
+//
+// A missing row is a clean no-op (0 rows affected, no error).
+func (d *DAL) SetMemberHandoverNoticedTS(id string, ts float64) error {
+	_, err := d.wdb.Exec(`UPDATE member SET handover_noticed_ts = ? WHERE id = ?`, ts, id)
 	return err
 }
 

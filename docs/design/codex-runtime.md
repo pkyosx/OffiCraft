@@ -107,10 +107,12 @@ The Codex member boot sequence changes only execution ownership:
 Claude's percentage-based handover remains unchanged. Codex App Server keeps a durable
 thread and can compact that thread without ending the session, so a transient context
 percentage is not its useful handover signal. The sidecar counts completed
-`contextCompaction` items and includes the current count in context telemetry. At three
-compactions in one live session, the existing graceful refocus flow runs; a real session
-boundary clears the count before the replacement thread reports again. Monitoring renders
-Codex as `context N% · ↻ compact x/3`; Claude remains percentage-only.
+`contextCompaction` items and includes the current count in context telemetry. Once a live
+session reaches the owner-settable round (`codex_compaction_threshold`, with
+`codex_notice_round` the earlier warning), the existing graceful refocus flow runs; a real
+session boundary clears the count before the replacement thread reports again. Monitoring
+renders the count with no denominator (`context N% (compact: K)`); Claude remains
+percentage-only.
 
 The cockpit's Global Context editor remains a single shared owner-additions block. The
 read-only Claude and Codex Boot Sequence variants are shown together in the preview. A

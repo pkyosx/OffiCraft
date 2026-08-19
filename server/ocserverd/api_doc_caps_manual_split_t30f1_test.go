@@ -11,11 +11,16 @@ package main
 // 🔴 THE FIXTURES ARE MULTI-BYTE, same reason as its neighbour: the cap counts
 // RUNES, and an ASCII fixture cannot tell a rune cap from a byte cap.
 //
-// Three doors carry the manual's caps, and each fails differently if it keeps
+// Four doors carry the manual's caps, and each fails differently if it keeps
 // reading one number:
 //
-//   - update_task_manual — the ONLY write face for sop_md and a SECOND one for
-//     learnings, judging both in a single handler;
+//   - update_task_manual — one of TWO write faces for sop_md (patch_task_sop is
+//     the other) and a SECOND one for learnings, judging both in a single
+//     handler;
+//   - patch_task_sop (T-1667) — the second sop_md door, judging the SAME cap on
+//     the RESULT of its patch. Its cap assertion lives in
+//     api_anchor_patch_t1667_test.go, not below: this file has no subtest for
+//     it, so do not read the bullet as coverage;
 //   - write_task_learnings / patch_task_learnings — learnings only, but their
 //     receipt and their response DTO must quote the learnings cap, not the SOP's;
 //   - document-history restore — an older, larger revision is still a write, so

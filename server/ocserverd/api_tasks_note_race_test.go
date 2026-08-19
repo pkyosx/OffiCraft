@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // ── T-e271 節點 6:步驟備註的並行覆蓋 ─────────────────────────────────────────
@@ -224,5 +225,79 @@ func TestTaskStepNoteRaceGuardHasTeeth(t *testing.T) {
 	if !strings.Contains(body, "status = excluded.status") {
 		t.Fatal("source-reading control failed: PutTaskStep's conflict list " +
 			"should still carry status — the assertion above cannot be trusted")
+	}
+}
+
+// ── T-1667 no-op patch:被並發刪掉的 step 仍須 404 ────────────────────────────
+
+// TestNoOpPatchStepNoteStillCatchesAConcurrentStepDeletion pins the other half
+// of the no-op patch gate: a batch whose edits cancel out publishes nothing, but
+// it must still not answer 200 with a note and a sha256 for a step that a
+// concurrent submit_plan deleted while the request was in flight. That deletion
+// is noticed in exactly one place — SetTaskStepNote affecting zero rows — so the
+// gate has to hold back the ANNOUNCEMENT and not the write; a receipt describing
+// the current contents of a row that no longer exists is a false statement, and
+// the caller has no reason to look again.
+//
+// The interleave is exact, not hoped for. The write pool is one connection with
+// _txlock=immediate: holding it with the deletion UNCOMMITTED means the read
+// pool still serves the pre-delete snapshot (so the handler's guard chain
+// resolves task and step whenever it happens to be scheduled — the 404 measured
+// below cannot be the unknown-step guard's) while the handler's write cannot run
+// until this transaction commits. That split needs the REAL two-pool wiring;
+// NewDAL's single handle would block the reads too.
+func TestNoOpPatchStepNoteStillCatchesAConcurrentStepDeletion(t *testing.T) {
+	api := newAPIServer(newSplitPoolDAL(t), NewHub(), []byte("tasks-test-secret"),
+		3600, assetRoot(t.TempDir()))
+	const seeded = "做到哪：改到一半\n下一步：待補"
+	taskID, stepID := seedStepWithNote(t, api, seeded)
+
+	tx, err := api.dal.wdb.Begin()
+	if err != nil {
+		t.Fatalf("hold the write connection: %v", err)
+	}
+	// The statement submit_plan's ReplaceTaskPlan issues for a non-terminal step
+	// the fresh plan did not re-list.
+	if _, err := tx.Exec(`DELETE FROM task_step WHERE id = ?`, stepID); err != nil {
+		t.Fatalf("delete the step: %v", err)
+	}
+
+	type answer struct {
+		status int
+		data   map[string]any
+	}
+	waits := api.dal.wdb.Stats().WaitCount
+	done := make(chan answer, 1)
+	go func() {
+		status, data := patchStepNote(t, api, taskID, stepID, "m-exec",
+			cancellingBatch("下一步：待補", "下一步：接 auth matrix"))
+		done <- answer{status, data}
+	}()
+
+	// The handler is past its guard chain and inside the window exactly when it is
+	// queued for the write connection this test is holding.
+	blocked := false
+	for i := 0; i < 400 && !blocked; i++ {
+		if blocked = api.dal.wdb.Stats().WaitCount > waits; !blocked {
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit the deletion: %v", err)
+	}
+	got := <-done
+
+	if !blocked {
+		t.Errorf("the no-op patch never asked for the write connection, so the " +
+			"deletion was noticed by NOTHING on this path")
+	}
+	if got.status != http.StatusNotFound {
+		t.Fatalf("a step deleted mid-request must be 404, got %d: %v", got.status, got.data)
+	}
+	// Same 404 as the unknown-step guard and the wholesale face, not a second
+	// shape for the caller to learn.
+	body, _ := got.data["error"].(map[string]any)
+	if msg, _ := body["message"].(string); !strings.Contains(msg, stepID) {
+		t.Errorf("the 404 must name the step, got %v", got.data)
 	}
 }

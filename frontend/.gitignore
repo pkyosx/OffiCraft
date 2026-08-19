@@ -10,3 +10,15 @@ dist-ssr
 playwright/.cache
 test-results/
 dist-paint-guard/
+
+# Screenshots written by the recon specs in visual-guards/ (te4ae-recon writes
+# recon-out/<story>-<width>-<variant>.png on every run). Throwaway measurement
+# output that lands in the working tree UNIGNORED, so a routine `git add -A`
+# sweeps dozens of them into a commit — 48 of them were sitting in one worktree
+# when this was written, caught only by a human manifest review.
+#
+# Scoped to *.png ON PURPOSE, not the whole directory: recon-out/ already holds
+# TRACKED hand-written notes (T-e4ae-*.md), and ignoring the directory wholesale
+# would make every future note there need `git add -f` while its neighbours stay
+# tracked — a trap for the next person. Only the generated images are ignored.
+recon-out/*.png

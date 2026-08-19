@@ -62,6 +62,22 @@ import (
 const (
 	// eventsPath is the officraft SSE downlink (GET /api/events).
 	eventsPath = "/api/events"
+
+	// stationSHAHeader is the response header the station stamps its build sha
+	// onto when the SSE stream opens (T-5b83). Reading it costs no request of
+	// its own, which is the whole point: a station version change restarts the
+	// station and reconnects the entire fleet at once, so a client that asked
+	// for the version separately would ask N times at the worst possible
+	// moment.
+	//
+	// 🔴 THIS STRING IS HALF OF A CROSS-MODULE CONTRACT and the modules cannot
+	// import each other. The other half is sseStationSHAHeader in
+	// server/ocserverd/api_infra.go. A typo does NOT fail loudly — Header.Get
+	// simply returns "" and the connection line silently drops the sha, which
+	// is byte-identical to the honest "this station did not send one". The two
+	// halves drift apart, nothing turns red on its own — see the task note for
+	// the guard this still owes.
+	stationSHAHeader = "X-Officraft-Station-Sha"
 	// chatPath / membersPath are the R7 refetch authorities.
 	membersPath = "/api/members/"
 	// Backoff mirrors agent/oc_agent.py _BACKOFF_START / _BACKOFF_CAP (1s / 15s) — the

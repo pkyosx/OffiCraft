@@ -209,7 +209,7 @@ const (
 	// whole), and the thing it did not mention — whole messages left out — is
 	// the one a reader most needs told. The note now names both, in the two
 	// different words the payload uses for them.
-	resumeNote = "這是一份**開機快照**，不是完整資料。\n聊天：只帶最近的往來，而且是照**字數**（不是則數）收的，收到裝不下為止，由舊到新排。每則都附寄件與收件者的名字、以及帶時區的時間（請跟最上面的 `generated_at` 對照著看）；有回覆卡的會一併附上。\n有兩種「不完整」，意思不一樣，不要混：\n· `body_omitted_chars` > 0 ＝ **這一則就在這裡，只是被摺短了**，數字是被摺掉的字數，這是確定的事實（你自己寫給自己的交接、以及你跟 owner 之間的往來——他說的和你對他說的都算——一律不摺）。要看全文，把那一則的 `id` 放進 `get_chat` 的 `ids`。\n· `chat_earlier_omitted` ＝ **可能整則整則不見了**。這是「可能」不是「一定」：那條線在讀取或字數上限被切斷，而沒有人往切口後面看過，所以就算其實沒有更舊的也會標。它自己會附上怎麼去抓。\n任務：只給精簡列，沒有計畫細節。名冊：工作室裡每個人的狀態、所在機器與職責（過長會截斷，`…` 是切口）。機器：機器清單，以及你在哪一台。\n先看 `overview` 的數量與大小，再決定要拉什麼：單張任務用 `get_task`（`detail_chars` 很大的就交給分身去拉），你的卡片用 `list_reply_cards`（記得給 `limit`），要更多聊天或任務用 `list_chat`／`list_tasks`。"
+	resumeNote = "這是一份**開機快照**，不是完整資料。\n聊天：只帶最近的往來，而且是照**字數**（不是則數）收的，收到裝不下為止，由舊到新排。每則都附寄件與收件者的名字、以及帶時區的時間（請跟最上面的 `generated_at` 對照著看）；有回覆卡的會一併附上。\n有兩種「不完整」，意思不一樣，不要混：\n· `body_omitted_chars` > 0 ＝ **這一則就在這裡，只是被摺短了**，數字是被摺掉的字數，這是確定的事實（你自己寫給自己的交接、以及你跟 owner 之間的往來——他說的和你對他說的都算——一律不摺）。要看全文，把那一則的 `id` 放進 `get_chat` 的 `ids`。\n· `chat_earlier_omitted` ＝ **可能整則整則不見了**。這是「可能」不是「一定」：那條線在讀取或字數上限被切斷，而沒有人往切口後面看過，所以就算其實沒有更舊的也會標。它自己會附上怎麼去抓。\n任務：只給精簡列，沒有計畫細節；其中 `answered_card_steps` ＝ **這一步卡在一張 owner 已經回答、卻還沒有人接手的卡上**（`overview` 的 `steps_on_answered_card` ＝ **這份快照帶的這幾列裡**有幾步這樣卡著，不是你所有任務的總數：任務列只帶最近更新的前幾張，你手上票多的時候，更舊的那些就算卡著也不會出現在這裡，也不會被算進去——所以 0 不等於沒有，要確認請用 `list_tasks`／`list_reply_cards`）——那不表示那一步做完了，他的答覆也可能是不通過、要改做，先用 `get_reply_card` 把答案讀完再決定怎麼走。名冊：工作室裡每個人的狀態、所在機器與職責（過長會截斷，`…` 是切口）。機器：機器清單，以及你在哪一台。\n先看 `overview` 的數量與大小，再決定要拉什麼：單張任務用 `get_task`（`detail_chars` 很大的就交給分身去拉），你的卡片用 `list_reply_cards`（記得給 `limit`），要更多聊天或任務用 `list_chat`／`list_tasks`。"
 	// peekNote guides the two-step boot (T-7974): peek_resume_summary_size is
 	// size-only (no content); the agent reads estimated_total_chars and, when
 	// it is small, calls resume_summary directly in its own context, else has
@@ -223,8 +223,14 @@ const (
 	// of several hundred runes (measured 560 at the time of writing — it is a
 	// constant in this file, so re-measure it there rather than trusting this
 	// number). An itemised list can only go stale against that function; the
-	// four addends are checkable against the code that computes them.
-	peekNote                     = "Size-only preview of resume_summary — counts/sizes ONLY, no chat or task content. estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars, all four reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit and the two studio-floor blocks. So it is what pulling the snapshot actually costs. Use it to decide: if small (rule of thumb < 20000 chars, ≈ 5k tokens) call resume_summary directly in your main session; if large, spawn a cheap sub-agent (e.g. haiku) to call resume_summary and return a compressed digest, so the full payload never burns your own context."
+	// addends are checkable against the code that computes them.
+	//
+	// 🔴 The answered-card sentence used to read "that many of your steps",
+	// which claims a TOTAL. It is not one: the count is taken over the bounded
+	// task rows (resumeTasksN), so an agent holding more tasks than that can
+	// have a step stuck on an answered card and still read 0 here. Both notes
+	// now say which population the number is over, and that 0 is not proof.
+	peekNote                     = "Size-only preview of resume_summary — counts/sizes ONLY, no chat or task content. estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars + steps_on_answered_card_chars, all five reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit, the two studio-floor blocks, and the answered-card pointers its task rows carry. steps_on_answered_card > 0 means that many steps AMONG THE FEW MOST-RECENTLY-UPDATED TASKS the snapshot carries — not across all your tasks — are sitting on a reply card the owner ALREADY answered while the step is still in_progress, and nobody has acted on the answer yet; pull resume_summary (or the cards) and read it before anything else. It is a FLOOR, not a total: the task block is capped at the most recently updated tasks, so when you hold more tasks than that cap, an older task stuck on an answered card is not counted here and 0 does not prove there is none — use list_tasks / list_reply_cards to be sure. So it is what pulling the snapshot actually costs. Use it to decide: if small (rule of thumb < 20000 chars, ≈ 5k tokens) call resume_summary directly in your main session; if large, spawn a cheap sub-agent (e.g. haiku) to call resume_summary and return a compressed digest, so the full payload never burns your own context."
 	attachmentOctetStream        = "application/octet-stream"
 	attachmentDefaultPastedImage = "pasted-image"
 	// chatBodyMaxChars caps a chat message BODY at 4,000 UTF-8 CHARACTERS
@@ -1217,14 +1223,17 @@ func (s *apiServer) resumeSnapshotParts(actor string) (resumeWakeSnapshot, error
 		resumeChatPackBudget(s.chatBudget(), snap.GeneratedAt))
 	snap.Chat, snap.ChatCut = chat, cut
 
-	tasks, tasksOpenTotal, err := s.resumeTasksFor(actor)
+	tasks, tasksOpenTotal, err := s.resumeTasksFor(actor, cardsByID)
 	if err != nil {
 		return resumeWakeSnapshot{}, err
 	}
 	snap.Tasks = tasks
 	detailChars := 0
+	answeredSteps, answeredStepChars := 0, 0
 	for _, t := range tasks {
 		detailChars += t.DetailChars
+		answeredSteps += len(t.AnsweredCardSteps)
+		answeredStepChars += answeredCardStepChars(t.AnsweredCardSteps)
 	}
 	snap.Overview = resumeOverviewDTO{
 		ChatCount: len(chat),
@@ -1246,6 +1255,9 @@ func (s *apiServer) resumeSnapshotParts(actor string) (resumeWakeSnapshot, error
 		CardsAnsweredRecent: cardsAnsweredRecent,
 		RosterChars:         rosterChars,
 		MachinesChars:       machinesChars,
+
+		StepsOnAnsweredCard:      answeredSteps,
+		StepsOnAnsweredCardChars: answeredStepChars,
 	}
 	return snap, nil
 }
@@ -1803,6 +1815,18 @@ func rosterChars(rows []resumeRosterMemberDTO) int {
 	return n
 }
 
+// answeredCardStepChars sizes the answered-card pointers ONE task row carries,
+// the way rosterChars sizes the roster: the text this payload actually carries,
+// ids included.
+func answeredCardStepChars(rows []resumeAnsweredCardStepDTO) int {
+	n := 0
+	for _, r := range rows {
+		n += utf8.RuneCountInString(r.StepID) + utf8.RuneCountInString(r.StepName) +
+			utf8.RuneCountInString(r.CardID)
+	}
+	return n
+}
+
 func machinesChars(m resumeMachinesDTO) int {
 	n := utf8.RuneCountInString(m.YouAreOn)
 	for _, x := range m.List {
@@ -1850,8 +1874,14 @@ func (s *apiServer) HandlePeekResumeSummarySizeApiResumeSummarySizeGet(w http.Re
 		// can tell the two kinds of cost apart; what is deliberately NOT folded
 		// in anywhere is tasks_detail_chars' relationship to them — that one
 		// counts text this payload does NOT carry.
+		//
+		// T-f278: steps_on_answered_card_chars is the FIFTH addend. The
+		// answered-card pointers are text the snapshot CARRIES, so leaving
+		// them out would make the peek understate what it exists to measure —
+		// the same mistake the roster/machine blocks were fixed for above.
 		EstimatedTotalChars: overview.ChatChars + overview.TasksDetailChars +
-			overview.RosterChars + overview.MachinesChars,
+			overview.RosterChars + overview.MachinesChars +
+			overview.StepsOnAnsweredCardChars,
 		Note: peekNote,
 	})
 }

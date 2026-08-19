@@ -114,10 +114,6 @@ type settingsDTO struct {
 	// two prefs above this is a plain bool with no "never set" state — false IS
 	// the shipped narrow look, so an untouched install reads exactly right.
 	DisplayWide bool `json:"display_wide"`
-	// CustomThemes is the owner's saved custom theme bundles (display.custom_themes;
-	// T-16a1 P2) — always an array ([] when none). display_theme may point at any
-	// id in it. Owner-gated (rides GET /api/settings only).
-	CustomThemes []ThemeBundleDTO `json:"custom_themes"`
 	// Onboarding (T-ba62) is the first-run onboarding report, or nil when
 	// onboarding never ran on this database. It rides the OWNER-GATED settings
 	// read on purpose: a failed step's Detail carries the raw `ocwarden install`
@@ -873,6 +869,38 @@ type taskLearningsPatchResultDTO struct {
 	Sha256       string `json:"sha256"`
 }
 
+// taskSopPatchResultDTO is the patch_task_sop receipt (T-1667): the sop_md twin
+// of taskLearningsPatchResultDTO, field-for-field identical because it reports
+// the same three things about a different document — how many edits landed, and
+// the size/sha256 of the result so the caller can confirm the write without
+// re-reading the doc. cap_chars is the sop_md cap, not the learnings one.
+type taskSopPatchResultDTO struct {
+	TypeKey      string `json:"type_key"`
+	AppliedEdits int    `json:"applied_edits"`
+	SizeChars    int    `json:"size_chars"`
+	CapChars     int    `json:"cap_chars"`
+	Sha256       string `json:"sha256"`
+}
+
+// taskStepNotePatchResultDTO is the patch_step_note receipt (T-1667). It is the
+// UNION of the two receipt shapes it sits between, and deliberately so: the
+// patch family's applied_edits/size_chars/cap_chars/sha256, plus the note as
+// STORED, which taskStepNoteReceiptDTO echoes for a reason that does not stop
+// applying here — a step note is bounded and the whole point of the field is
+// that a later session reads it back, so the write stays verifiable at the
+// write. The larger documents' patch receipts omit their text because echoing
+// 30k chars would defeat the purpose of patching; a step note cannot get there.
+type taskStepNotePatchResultDTO struct {
+	TaskID       string `json:"task_id"`
+	StepID       string `json:"step_id"`
+	StepStatus   string `json:"step_status"`
+	Note         string `json:"note"`
+	AppliedEdits int    `json:"applied_edits"`
+	SizeChars    int    `json:"size_chars"`
+	CapChars     int    `json:"cap_chars"`
+	Sha256       string `json:"sha256"`
+}
+
 type replyCardAnswerDTO struct {
 	OptionIdx   *int                `json:"option_idx"` // null = free text only
 	Text        string              `json:"text"`
@@ -1076,6 +1104,15 @@ type resumeOverviewDTO struct {
 	// fetch" is exactly what makes a single size number un-actionable.
 	RosterChars   int `json:"roster_chars"`
 	MachinesChars int `json:"machines_chars"`
+	// StepsOnAnsweredCard counts the answered_card_steps rows this snapshot
+	// carries (T-f278) — the peek's whole point: an agent that has not pulled
+	// resume_summary yet still learns from the size-only payload that N of its
+	// steps are sitting on an answer nobody has picked up.
+	// StepsOnAnsweredCardChars sizes the text those rows carry, and it is a
+	// FIFTH addend of estimated_total_chars — it counts text the snapshot DOES
+	// carry, like roster_chars, not text it omits like tasks_detail_chars.
+	StepsOnAnsweredCard      int `json:"steps_on_answered_card"`
+	StepsOnAnsweredCardChars int `json:"steps_on_answered_card_chars"`
 }
 
 // resumeSummarySizeDTO is the size-only PEEK of the wake snapshot (T-7974
@@ -1111,6 +1148,25 @@ type resumeTaskDTO struct {
 	ProgressTotal   int     `json:"progress_total"`
 	DetailChars     int     `json:"detail_chars"` // runes of the omitted plan text
 	UpdatedTS       float64 `json:"updated_ts"`
+	// AnsweredCardSteps names the steps of THIS task that sit on a reply card
+	// the owner has ALREADY answered while the step itself is still
+	// in_progress — the answer landed and nobody has acted on it yet (T-f278).
+	//
+	// 🔴 This is a POINTER, not a verdict. releaseCardHold deliberately puts a
+	// held step back to in_progress when the card is answered: the server
+	// releases the wait, it does not do the executor's work, and the answer is
+	// just as often 不通過、改做 as it is approval. So the row says "read this
+	// card, then decide"; nothing here marks the step done.
+	AnsweredCardSteps []resumeAnsweredCardStepDTO `json:"answered_card_steps"`
+}
+
+// resumeAnsweredCardStepDTO is one such step: enough to go read the answer
+// (card_id → get_reply_card) and to know which node of the plan it unblocks,
+// without any card body riding the wake snapshot.
+type resumeAnsweredCardStepDTO struct {
+	StepID   string `json:"step_id"`
+	StepName string `json:"step_name"`
+	CardID   string `json:"card_id"`
 }
 
 // taskStepStatusReceiptDTO is the bounded confirmation returned after an agent
@@ -1436,6 +1492,50 @@ type taskManualDeleteResultDTO struct {
 	Deleted bool   `json:"deleted"`
 }
 
+// themeListItemDTO is one row of GET /api/themes (T-83ef).
+//
+// 🔴 IT IS NOT THE BUNDLE, AND THAT IS THE WHOLE POINT OF THE ENDPOINT. A theme
+// carries its images embedded, so listing whole bundles is the several-hundred-
+// kilobyte answer that made GET /api/settings unusable in the first place —
+// serving it again from a new path would have moved the problem, not fixed it.
+// These two fields are what the cockpit's theme list and the profile picker
+// actually render; applying, editing and exporting are all about ONE theme and
+// go to GET /api/themes/{theme_id}.
+type themeListItemDTO struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// themeWriteReceiptDTO answers PUT /api/themes/{theme_id} (T-83ef).
+//
+// 🔴 IT IS A RECEIPT RATHER THAN THE STORED BUNDLE, AND THAT IS THE POINT. A
+// bundle carries its images embedded — one of the themes this ticket moved is
+// 953 KB on its own — so echoing the write back would send that payload a
+// SECOND time, in the direction the split exists to unburden. Everything here
+// is something the caller cannot already know.
+//
+// Created separates "this id had no row" from "an existing theme was replaced";
+// OrderIdx is the theme's place in the owner's list, which a replace KEEPS, so
+// re-colouring a theme does not move it to the bottom.
+type themeWriteReceiptDTO struct {
+	ID        string  `json:"id"`
+	Created   bool    `json:"created"`
+	OrderIdx  int     `json:"order_idx"`
+	UpdatedAt float64 `json:"updated_at"`
+}
+
+// themeDeleteResultDTO answers DELETE /api/themes/{theme_id} (T-83ef).
+//
+// DisplayThemeReset is the field worth having: deleting the ACTIVE theme resets
+// display.theme back to "" in the same request — the coupling the whole-array
+// settings write used to perform — and saying so here is what stops the cockpit
+// having to re-read settings to discover its theme changed underneath it.
+type themeDeleteResultDTO struct {
+	ID                string `json:"id"`
+	Deleted           bool   `json:"deleted"`
+	DisplayThemeReset bool   `json:"display_theme_reset"`
+}
+
 // docSummaryDTO is one row of GET /api/docs — a product-guide doc's addressable
 // slug + its display title (the first "# " heading, or the slug when the doc
 // carries no heading). The full body is fetched per-slug via GET /api/docs/{slug}.
@@ -1573,9 +1673,14 @@ type outsourceWorkerDTO struct {
 // the pre-resolved creator display name. Grouped into one struct so the two
 // callers (list loop + single GET) share the exact same fold.
 type outsourceWorkerProjection struct {
-	unread         int
-	now            float64
-	online         bool
+	unread int
+	now    float64
+	online bool
+	// cfg is the SAME reconcile config the tick collects this worker on, so the
+	// deadline on the wire and the deadline that actually kills come from one
+	// source (T-fe5e). Carried rather than derived: a second copy of the grace
+	// here is exactly how the two drifted apart the first time.
+	cfg            reconcileConfig
 	tele           map[string]any      // telemetry[w.ID]; nil-safe
 	gaugeEntry     map[string]any      // gauge[w.ID]; nil-safe
 	machineDisplay func(string) string // machine id → registry display label
@@ -1971,9 +2076,12 @@ func newOutsourceWorkerDTO(w OutsourceWorker, task *Task, p outsourceWorkerProje
 	// intent ("" from a pre-column/never-set row reads as online client-side).
 	dto.RefocusSince = w.RefocusSince
 	dto.RefocusOp = w.RefocusOp
-	// StoppingTimeoutSecs is the worker collect ceiling openWorkerHandoverGrace
-	// announces — quoted here so the client need not know it.
-	dto.RefocusDeadline = refocusDeadline(w.RefocusSince, StoppingTimeoutSecs)
+	// The grace the tick ACTUALLY collects this epoch on, and 0 when nothing
+	// collects it on a clock at all (owner 2026-08-19: 重新聚焦 runs no clock for
+	// outsource workers either — the cockpit maps 0 → null → renders nothing).
+	// Reading StoppingTimeoutSecs straight reported a ceiling for every op,
+	// including the one arm that is not on a clock.
+	dto.RefocusDeadline = refocusDeadlineOf(w.RefocusSince, p.cfg, w.RefocusOp)
 	dto.DesiredState = w.DesiredState
 	return dto
 }

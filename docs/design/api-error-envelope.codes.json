@@ -1,0 +1,15 @@
+{
+  "_note": "The ONE status -> error-envelope code table. It lives HERE, beside the prose it twins, and deliberately NOT in spec/ — the owner ruled that (card rc-fcbb77b32b64): spec/ is the FROZEN WIRE contract, and adding an asset there is his call even when the wire itself does not move. This table does not move the wire; it stops three components from each re-declaring the same map. Machine-readable twin of the vocabulary docs/design/api-error-envelope.md describes in prose and server/ocserverd/server.go's errorCodeForStatus implements. Three consumers read THIS file, none re-declares the table: (1) frontend/src/api/errorCodes.ts (codeForStatus, the only source of a code on the mock seam), (2) server/ocserverd's TestErrorCodeForStatusMatchesSpec (cell-by-cell against errorCodeForStatus, fallbacks included), (3) conformance/test_error_envelope.py (CODE_BY_STATUS). Changing the server's map without changing this file reddens (2); changing this file without the frontend reddens the frontend guard.",
+  "by_status": {
+    "400": "validation_error",
+    "401": "unauthorized",
+    "403": "forbidden",
+    "404": "not_found",
+    "405": "method_not_allowed",
+    "409": "conflict",
+    "422": "validation_error",
+    "503": "service_unavailable"
+  },
+  "fallback_5xx": "internal_error",
+  "fallback_other": "client_error"
+}

@@ -15,9 +15,12 @@ import { zh } from "../i18n/locales/zh";
 import { makeMessages } from "../i18n/compose";
 import { ThemeSettings } from "./ThemeSettings";
 import { tokenMeta } from "../lib/themeTokenMeta";
-import { MAX_AVATAR_BYTES } from "../lib/themeBundleCore";
+import { MAX_AVATAR_BYTES, MAX_CUSTOM_THEMES } from "../lib/themeBundleCore";
 import { __resetMock } from "../api/mock";
 import { api } from "../api";
+import { ApiError } from "../api/errors";
+import { codeForStatus } from "../api/errorCodes";
+import type { ThemeBundle } from "../lib/themeBundle";
 import { setToken, clearToken } from "../api/auth";
 
 const SENTINEL = "偽造";
@@ -120,11 +123,70 @@ function formActions(utils: ReturnType<typeof render>): HTMLElement {
   return el as HTMLElement;
 }
 
-const clickSave = (utils: ReturnType<typeof render>) =>
+// ── 🔴 CLICK FIRST, THEN await settle() — NEVER fireEvent INSIDE act ────────
+//
+// Every theme action is a real request now (T-83ef), and the provider's
+// handlers re-read `themeRef.current` AFTER their await — that is the check
+// that stops a slow response repainting a theme the owner already left, and
+// the same identity check `bundleFor` makes.
+//
+// Wrapping the click in `await act(async () => { fireEvent.click(x); await
+// tick; })` puts React's re-render in act's queue while the mock's promise
+// resolves on the very next microtask — so the callback reads a ref from BEFORE
+// the click and takes the "you already moved on" branch. The whole action then
+// silently does nothing, and a test written that way asserts against the state
+// the click was supposed to change.
+//
+// `fireEvent` on its own is already act-wrapped by RTL and flushes React
+// synchronously, so clicking first and settling after reproduces the real
+// browser order (render, then response) instead of inverting it.
+
+/** Let every pending request settle and React flush what they produced. */
+async function settle() {
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 0));
+  });
+}
+
+/** 儲存 — AWAITED (T-83ef). The editor's save goes through
+ * `await saveTheme(bundle)`, i.e. one real PUT per theme, so "the click
+ * happened" and "the write landed" are no longer the same instant. */
+async function clickSave(utils: ReturnType<typeof render>) {
   fireEvent.click(within(formActions(utils)).getByRole("button", { name: p.save }));
+  await settle();
+}
 
 const p = zh.profile;
 const s = zh.settings;
+
+// ── reading the server back (T-83ef) ────────────────────────────────────────
+// Themes LEFT settings.custom_themes and became their own resource, so the
+// question "did the theme really land on the server?" is asked of /api/themes
+// now. The two doors are deliberately separate here as well: the LIST answers
+// id + name only (never colours — a helper that returned bundles from the list
+// would let a test read a field the real list row does not carry), and the
+// per-theme read is the only thing that carries a bundle.
+
+/** The ids the server actually holds, in its own order. */
+async function savedIds(): Promise<string[]> {
+  return (await api.listThemes()).map((x) => x.id);
+}
+
+/** ONE saved bundle IN FULL — colours, wording, images. */
+function savedTheme(id: string): Promise<ThemeBundle> {
+  return api.getTheme(id);
+}
+
+/** Open a listed theme's editor. ASYNC on purpose: 編輯 no longer has the
+ * bundle in hand — it fetches it (or takes the active one) before the edit view
+ * can exist at all, so the click and the form are two different ticks. */
+async function openEditor(
+  utils: ReturnType<typeof render>,
+  name: string
+): Promise<void> {
+  fireEvent.click(await utils.findByLabelText(`${p.themeEdit} ${name}`));
+  await settle();
+}
 
 // Let the provider's mount reconcile (getServerSettings) settle BEFORE we touch
 // the custom-theme set — otherwise its late-resolving GET overwrites an import
@@ -145,6 +207,11 @@ async function renderManage() {
 beforeEach(() => {
   __resetMock();
   clearToken();
+  // Several tests below stand a seam up on purpose (a rejecting putTheme, a
+  // getTheme that never resolves). A spy that outlived its test would make the
+  // NEXT one green or red for a reason that is not in it.
+  vi.restoreAllMocks();
+  localStorage.removeItem("oc.theme");
   document.documentElement.removeAttribute("style");
   delete document.documentElement.dataset.theme;
 });
@@ -157,7 +224,10 @@ async function importBundle(
   fireEvent.change(utils.getByLabelText(p.themeImportTitle), {
     target: { value: JSON.stringify(bundle) },
   });
+  // Awaited: the import is a real per-theme PUT now, so the list it lands on
+  // is a tick away from the click.
   fireEvent.click(utils.getByText(p.themeConfirmImport));
+  await settle();
 }
 
 describe("ThemeSettings · import", () => {
@@ -170,8 +240,7 @@ describe("ThemeSettings · import", () => {
       colors: { "--color-accent": "#0b1020" },
     });
     expect(await utils.findByText("午夜藍")).toBeTruthy();
-    const srv = await api.getServerSettings();
-    expect(srv.customThemes.map((b) => b.id)).toContain("midnight");
+    expect(await savedIds()).toContain("midnight");
 
     // WHICH KIND a theme is comes from the group it sits in — the rows
     // themselves carry no 內建/自訂 chip (the heading already says it).
@@ -257,10 +326,8 @@ describe("ThemeSettings · import", () => {
     expect(rowsNamedOffice().length).toBe(2);
 
     // Make the forging pack the ACTIVE theme, so its wording overlay is live.
-    await act(async () => {
-      fireEvent.click(rowsNamedOffice()[1].querySelector("button.ts-pick")!);
-      await new Promise((r) => setTimeout(r, 0));
-    });
+    fireEvent.click(rowsNamedOffice()[1].querySelector("button.ts-pick")!);
+    await settle();
     // The overlay really IS live — without this the assertion below would pass
     // on a page where no wording was applied at all.
     expect(utils.getByTestId("ts-group-builtin").textContent).toBe(SENTINEL);
@@ -320,10 +387,11 @@ describe("ThemeSettings · import", () => {
     });
     // The import SUCCEEDED — the pack is listed and landed on the server.
     expect(await utils.findByText("精靈村")).toBeTruthy();
-    const srv = await api.getServerSettings();
-    expect(srv.customThemes.map((b) => b.id)).toContain("elfvillage");
+    expect(await savedIds()).toContain("elfvillage");
     // …and the recognised override survived while the unknown ones did not.
-    expect(srv.customThemes[0].wording).toEqual({ zh: { "nav.tasks": "任務榜" } });
+    expect((await savedTheme("elfvillage")).wording).toEqual({
+      zh: { "nav.tasks": "任務榜" },
+    });
     // …and the drop is named on screen instead of being silent.
     expect(utils.getByTestId("theme-import-skipped").textContent).toBe(
       makeMessages(zh, "zh").themeImportSkipped(2, [
@@ -363,8 +431,7 @@ describe("ThemeSettings · import", () => {
     });
     expect(utils.getByLabelText(p.themeImportTitle)).toBeTruthy();
     expect(utils.container.querySelector(".set-error")).toBeTruthy();
-    const srv = await api.getServerSettings();
-    expect(srv.customThemes).toHaveLength(0);
+    expect(await savedIds()).toEqual([]);
   });
 });
 
@@ -376,7 +443,7 @@ describe("ThemeSettings · colour editing", () => {
       name: "午夜藍",
       colors: { "--color-accent": "#0b1020", "--color-bg": "#040506" },
     });
-    fireEvent.click(await utils.findByLabelText(`${p.themeEdit} 午夜藍`));
+    await openEditor(utils, "午夜藍");
 
     // The friendly group + label are shown; the raw token is not visible text.
     const colorSection = utils.container.querySelector(".ts-color-group__label");
@@ -393,15 +460,14 @@ describe("ThemeSettings · colour editing", () => {
       name: "午夜藍",
       colors: { "--color-accent": "#0b1020" },
     });
-    fireEvent.click(await utils.findByLabelText(`${p.themeEdit} 午夜藍`));
+    await openEditor(utils, "午夜藍");
     // The value text field carries the friendly label as its accessible name.
     fireEvent.change(within(colourRow(utils, "主色")).getByLabelText("主色"), {
       target: { value: "#ffffff" },
     });
-    clickSave(utils);
+    await clickSave(utils);
 
-    const srv = await api.getServerSettings();
-    const b = srv.customThemes.find((x) => x.id === "midnight");
+    const b = await savedTheme("midnight");
     expect(b?.colors["--color-accent"]).toBe("#ffffff");
   });
 });
@@ -415,7 +481,7 @@ describe("ThemeSettings · wording overlay", () => {
       name: "午夜藍",
       colors: { "--color-accent": "#0b1020" },
     });
-    fireEvent.click(await utils.findByLabelText(`${p.themeEdit} 午夜藍`));
+    await openEditor(utils, "午夜藍");
 
     // Narrow the (large) wording list to exactly one code by searching the code.
     fireEvent.change(wordingSearch(utils), {
@@ -426,10 +492,9 @@ describe("ThemeSettings · wording overlay", () => {
     ) as HTMLElement;
     const input = within(list).getByRole("textbox");
     fireEvent.change(input, { target: { value: "套用替代" } });
-    clickSave(utils);
+    await clickSave(utils);
 
-    const srv = await api.getServerSettings();
-    const b = srv.customThemes.find((x) => x.id === "midnight");
+    const b = await savedTheme("midnight");
     expect(b?.wording?.zh?.["common.apply"]).toBe("套用替代");
   });
 
@@ -447,7 +512,7 @@ describe("ThemeSettings · wording overlay", () => {
       name: "午夜藍",
       colors: { "--color-accent": "#0b1020" },
     });
-    fireEvent.click(await utils.findByLabelText(`${p.themeEdit} 午夜藍`));
+    await openEditor(utils, "午夜藍");
 
     fireEvent.change(wordingSearch(utils), {
       target: { value: "uninstallWarnBody2" },
@@ -458,10 +523,9 @@ describe("ThemeSettings · wording overlay", () => {
     fireEvent.change(within(list).getByRole("textbox"), {
       target: { value: "」上頭還有 " },
     });
-    clickSave(utils);
+    await clickSave(utils);
 
-    const srv = await api.getServerSettings();
-    const b = srv.customThemes.find((x) => x.id === "midnight");
+    const b = await savedTheme("midnight");
     const stored = b?.wording?.zh?.["monitor.machine.uninstallWarnBody2"];
     expect(stored).toBe("」上頭還有 ");
 
@@ -494,7 +558,7 @@ describe("ThemeSettings · wording list is browsable in full", () => {
       name: "午夜藍",
       colors: { "--color-accent": "#0b1020" },
     });
-    fireEvent.click(await utils.findByLabelText(`${p.themeEdit} 午夜藍`));
+    await openEditor(utils, "午夜藍");
     const list = utils.container.querySelector(
       ".ts-wording-list"
     ) as HTMLElement;
@@ -549,9 +613,8 @@ describe("ThemeSettings · wording list is browsable in full", () => {
     fireEvent.change(within(row).getByRole("textbox"), {
       target: { value: "末列也能改" },
     });
-    clickSave(utils);
-    const srv = await api.getServerSettings();
-    const b = srv.customThemes.find((x) => x.id === "midnight");
+    await clickSave(utils);
+    const b = await savedTheme("midnight");
     expect(b?.wording?.zh?.[last]).toBe("末列也能改");
   });
 
@@ -685,7 +748,7 @@ describe("ThemeSettings · alias-default colours", () => {
       name: "午夜藍",
       colors: { "--color-accent": "#0b1020" },
     });
-    fireEvent.click(await utils.findByLabelText(`${p.themeEdit} 午夜藍`));
+    await openEditor(utils, "午夜藍");
 
     // The content-area background follows --color-bg, so no bundle ever exports
     // it — yet it must be reachable here, or only a hand-edited JSON can set it.
@@ -695,11 +758,9 @@ describe("ThemeSettings · alias-default colours", () => {
     );
     expect((mainBg as HTMLInputElement).value).toBe("");
     fireEvent.change(mainBg, { target: { value: "#12345680" } });
-    clickSave(utils);
+    await clickSave(utils);
 
-    const b = (await api.getServerSettings()).customThemes.find(
-      (x) => x.id === "midnight"
-    );
+    const b = await savedTheme("midnight");
     expect(b?.colors["--color-main-bg"]).toBe("#12345680");
     // …and the ones left alone stay ABSENT rather than baked to a literal —
     // that is what keeps them following their parent.
@@ -715,7 +776,7 @@ describe("ThemeSettings · alias-default colours", () => {
       name: "午夜藍",
       colors: { "--color-card": "#242832" },
     });
-    fireEvent.click(await utils.findByLabelText(`${p.themeEdit} 午夜藍`));
+    await openEditor(utils, "午夜藍");
 
     const label = tokenMeta("--color-card", "zh").label;
     const slider = within(colourRow(utils, label)).getByLabelText(
@@ -723,11 +784,9 @@ describe("ThemeSettings · alias-default colours", () => {
     );
     expect((slider as HTMLInputElement).value).toBe("100");
     fireEvent.change(slider, { target: { value: "40" } });
-    clickSave(utils);
+    await clickSave(utils);
 
-    const b = (await api.getServerSettings()).customThemes.find(
-      (x) => x.id === "midnight"
-    );
+    const b = await savedTheme("midnight");
     expect(b?.colors["--color-card"]).toBe("#24283266");
   });
 });
@@ -748,28 +807,24 @@ describe("ThemeSettings · outer-canvas background", () => {
       colors: { "--color-accent": "#0b1020" },
       backgrounds: { canvas: png },
     });
-    fireEvent.click(await utils.findByLabelText(`${p.themeEdit} 午夜藍`));
+    await openEditor(utils, "午夜藍");
 
     const mode = within(canvasBgSlots(utils)).getByLabelText(s.themeCanvasBgMode);
     fireEvent.change(mode, { target: { value: "sides" } });
-    clickSave(utils);
+    await clickSave(utils);
 
-    let b = (await api.getServerSettings()).customThemes.find(
-      (x) => x.id === "midnight"
-    );
+    let b = await savedTheme("midnight");
     expect(b?.backgroundModes).toEqual({ canvas: "sides" });
 
     // Back to the default and the field disappears entirely — a tiling theme
     // stays byte-identical to one authored before the field existed.
-    fireEvent.click(await utils.findByLabelText(`${p.themeEdit} 午夜藍`));
+    await openEditor(utils, "午夜藍");
     fireEvent.change(within(canvasBgSlots(utils)).getByLabelText(s.themeCanvasBgMode), {
       target: { value: "tile" },
     });
-    clickSave(utils);
+    await clickSave(utils);
 
-    b = (await api.getServerSettings()).customThemes.find(
-      (x) => x.id === "midnight"
-    );
+    b = await savedTheme("midnight");
     expect(b?.backgroundModes).toBeUndefined();
     expect(b?.backgrounds).toEqual({ canvas: png });
   });
@@ -782,7 +837,7 @@ describe("ThemeSettings · outer-canvas background", () => {
       name: "純色",
       colors: { "--color-accent": "#0b1020" },
     });
-    fireEvent.click(await utils.findByLabelText(`${p.themeEdit} 純色`));
+    await openEditor(utils, "純色");
 
     expect(within(canvasBgSlots(utils)).queryByLabelText(s.themeCanvasBgMode)).toBeNull();
   });
@@ -805,7 +860,7 @@ describe("ThemeSettings · outer-canvas background", () => {
       name: "午夜藍",
       colors: { "--color-accent": "#0b1020" },
     });
-    fireEvent.click(await utils.findByLabelText(`${p.themeEdit} 午夜藍`));
+    await openEditor(utils, "午夜藍");
 
     // A real PNG signature + padding: past the 64 KiB avatar cap, inside the
     // 512 KiB background cap. Only the SIZE distinguishes these two outcomes —
@@ -826,17 +881,15 @@ describe("ThemeSettings · outer-canvas background", () => {
     expect(
       canvasBgSlots(utils).parentElement?.querySelector(".set-error")
     ).toBeNull();
-    clickSave(utils);
-    const saved = (await api.getServerSettings()).customThemes.find(
-      (x) => x.id === "midnight"
-    );
+    await clickSave(utils);
+    const saved = await savedTheme("midnight");
     expect(saved?.backgrounds?.canvas?.startsWith("data:image/png;base64,")).toBe(
       true
     );
 
     // The SAME file as an avatar is still refused — the relaxation did not leak
     // across, which is the whole point of splitting the caps.
-    fireEvent.click(await utils.findByLabelText(`${p.themeEdit} 午夜藍`));
+    await openEditor(utils, "午夜藍");
     const avatarInput = imageSlots(utils, s.themeAvatarMember).querySelector(
       ".ts-file"
     )!;
@@ -862,10 +915,48 @@ describe("ThemeSettings · delete", () => {
     });
     fireEvent.click(await utils.findByLabelText(`${p.themeDelete} 午夜藍`));
     fireEvent.click(utils.getByTestId("theme-delete-confirm-btn"));
+    await settle();
 
     expect(utils.queryByText("午夜藍")).toBeNull();
-    const srv = await api.getServerSettings();
-    expect(srv.customThemes).toHaveLength(0);
+    expect(await savedIds()).toEqual([]);
+  });
+
+  it("switches the cockpit back to the built-in when the ACTIVE theme is deleted", async () => {
+    // The claim is unchanged — you must never be left looking at a theme that
+    // no longer exists — but the DOOR moved: this screen used to compute the
+    // fallback itself (`theme === id ? "office" : undefined`). It does not any
+    // more; `removeTheme` is told by the server that it reset display_theme and
+    // the provider switches. So the assertion is about the RESULT (the built-in
+    // row is the selected one again), which is true of either implementation
+    // and stays true of the one we actually ship.
+    setToken("owner-token");
+    const utils = await renderManage();
+    await importBundle(utils, {
+      id: "midnight",
+      name: "午夜藍",
+      colors: { "--color-accent": "#0b1020" },
+    });
+    await utils.findByText("午夜藍");
+
+    // Make it the ACTIVE theme — that is the case with something to get wrong.
+    fireEvent.click(utils.getByText("午夜藍"));
+    await settle();
+    const activePicks = () =>
+      Array.from(utils.container.querySelectorAll(".ts-pick--active")).map(
+        (b) => b.textContent
+      );
+    expect(activePicks()).toEqual(["午夜藍"]);
+
+    fireEvent.click(await utils.findByLabelText(`${p.themeDelete} 午夜藍`));
+    fireEvent.click(utils.getByTestId("theme-delete-confirm-btn"));
+    await settle();
+
+    // Gone from the list AND from the server…
+    expect(utils.queryByText("午夜藍")).toBeNull();
+    expect(await savedIds()).toEqual([]);
+    // …and the built-in is what the cockpit is showing, not a dangling id.
+    expect(activePicks()).toEqual([zh.themeIdentity.office]);
+    expect(document.documentElement.dataset.theme).toBe("office");
   });
 });
 
@@ -927,5 +1018,452 @@ describe("ThemeSettings · export", () => {
     expect(payload.name).toBe(zh.themeIdentity.office);
     // (that this name actually re-imports is pinned in themeExport.test.ts —
     // jsdom has no stylesheet, so the payload here carries no colours to import)
+  });
+});
+
+// ── The list is id + name; the bundle is a REQUEST (T-83ef) ─────────────────
+//
+// 匯出 and 編輯 used to read `colors` straight off the set the provider held.
+// The set is one line per theme now, so both actions have to GO AND GET the
+// bundle — and that is a new failure surface with three distinct things to get
+// wrong: fetching the wrong theme, not fetching at all, and failing silently.
+describe("ThemeSettings · fetching a bundle to edit or export", () => {
+  /** Seed a theme straight through the server door, the way one that was
+   * imported in an earlier session exists at login: no UI, no import view. */
+  async function seed(bundle: ThemeBundle) {
+    await api.putTheme(bundle);
+  }
+
+  const AURORA: ThemeBundle = {
+    id: "aurora",
+    name: "極光",
+    colors: { "--color-accent": "#aa0011" },
+  };
+  const MIDNIGHT: ThemeBundle = {
+    id: "midnight",
+    name: "午夜藍",
+    colors: { "--color-accent": "#bb0022" },
+  };
+
+  const accentField = (utils: ReturnType<typeof render>) =>
+    within(colourRow(utils, tokenMeta("--color-accent", "zh").label)).getByLabelText(
+      tokenMeta("--color-accent", "zh").label
+    ) as HTMLInputElement;
+
+  const editNameField = (utils: ReturnType<typeof render>) =>
+    utils.container.querySelector("#ts-edit-name") as HTMLInputElement;
+
+  /** Make `id` the ACTIVE theme through the row's own picker (the seam
+   * production uses), and wait for its bundle to arrive. */
+  async function activate(utils: ReturnType<typeof render>, name: string) {
+    fireEvent.click(await utils.findByText(name));
+    await settle();
+  }
+
+  it("fetches the bundle of a theme that is NOT the active one before editing it", async () => {
+    setToken("owner-token");
+    await seed(AURORA);
+    await seed(MIDNIGHT);
+    const utils = await renderManage();
+    await utils.findByText("極光");
+    await activate(utils, "極光");
+
+    const spy = vi.spyOn(api, "getTheme");
+    await openEditor(utils, "午夜藍");
+
+    // It really went and got THAT theme — not the one already in hand.
+    expect(spy.mock.calls.map((c) => c[0])).toEqual(["midnight"]);
+    expect(editNameField(utils).value).toBe("午夜藍");
+    expect(accentField(utils).value).toBe("#bb0022");
+    spy.mockRestore();
+  });
+
+  it("🔴 never edits one theme's colours under another theme's name", async () => {
+    // THE DANGEROUS FAILURE of the whole design. `bundleFor` short-circuits to
+    // `activeThemeBundle` — a whole request saved on the row most likely to be
+    // edited — and that is sound ONLY under `activeThemeBundle.id === id`. Drop
+    // the id check and every screen still looks right: the editor opens, the
+    // form fills, the save succeeds. What lands on the server is the ACTIVE
+    // theme's colours written under the OTHER theme's name, i.e. silent data
+    // loss on a theme the owner never even opened.
+    //
+    // So: 極光 is active (#aa0011), 午夜藍 is the one being edited (#bb0022).
+    // The two are distinguishable in the form AND on the server, and the test
+    // reads both — the form alone would still pass if the save wrote the wrong
+    // bundle, and the server alone would still pass if the form showed the
+    // wrong colours and the owner overwrote them by hand.
+    setToken("owner-token");
+    await seed(AURORA);
+    await seed(MIDNIGHT);
+    const utils = await renderManage();
+    await utils.findByText("極光");
+    await activate(utils, "極光");
+
+    await openEditor(utils, "午夜藍");
+    expect(editNameField(utils).value).toBe("午夜藍");
+    expect(accentField(utils).value).toBe("#bb0022");
+
+    await clickSave(utils);
+
+    // Neither theme took the other's colour.
+    expect((await savedTheme("midnight")).colors["--color-accent"]).toBe("#bb0022");
+    expect((await savedTheme("aurora")).colors["--color-accent"]).toBe("#aa0011");
+  });
+
+  it("serves the ACTIVE theme from the bundle already in hand, with no second request", async () => {
+    // The other half of the same rule: the short-circuit must actually fire for
+    // the id it IS sound for, or the test above would also pass on a component
+    // that had simply deleted the optimisation.
+    setToken("owner-token");
+    await seed(AURORA);
+    const utils = await renderManage();
+    await utils.findByText("極光");
+    await activate(utils, "極光");
+
+    const spy = vi.spyOn(api, "getTheme");
+    await openEditor(utils, "極光");
+    expect(spy).not.toHaveBeenCalled();
+    // …and it is the real thing, not an empty shell standing in for it.
+    expect(editNameField(utils).value).toBe("極光");
+    expect(accentField(utils).value).toBe("#aa0011");
+    spy.mockRestore();
+  });
+
+  it("exports the bundle it fetched — for the row that was clicked", async () => {
+    setToken("owner-token");
+    await seed(AURORA);
+    await seed(MIDNIGHT);
+    const utils = await renderManage();
+    await utils.findByText("午夜藍");
+    await activate(utils, "極光");
+
+    const createFn = vi.fn().mockReturnValue("blob:x");
+    (URL as { createObjectURL: unknown }).createObjectURL = createFn;
+    (URL as { revokeObjectURL: unknown }).revokeObjectURL = vi.fn();
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+    fireEvent.click(await utils.findByLabelText(`${p.themeExport} 午夜藍`));
+    await settle();
+
+    expect(createFn).toHaveBeenCalledTimes(1);
+    const text = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.readAsText(createFn.mock.calls[0][0] as Blob);
+    });
+    const payload = JSON.parse(text);
+    // The file is 午夜藍's, not the active 極光's — the same id check as above,
+    // through the other door.
+    expect(payload.id).toBe("midnight");
+    expect(payload.colors["--color-accent"]).toBe("#bb0022");
+
+    vi.restoreAllMocks();
+    delete (URL as { createObjectURL?: unknown }).createObjectURL;
+    delete (URL as { revokeObjectURL?: unknown }).revokeObjectURL;
+  });
+
+  it("shows the reason on the list when the bundle cannot be fetched", async () => {
+    // A failure that only reached console.warn is a failure the owner cannot
+    // see: the edit view simply never opens and nothing says why.
+    setToken("owner-token");
+    await seed(MIDNIGHT);
+    const utils = await renderManage();
+    await utils.findByText("午夜藍");
+
+    vi.spyOn(api, "getTheme").mockRejectedValue(
+      new ApiError("http 404", 404, codeForStatus(404), "theme not found")
+    );
+    await openEditor(utils, "午夜藍");
+
+    expect(utils.container.querySelector(".set-error")?.textContent).toBe(
+      "theme not found"
+    );
+    // …and we are still on the LIST — no half-open editor over a bundle that
+    // never arrived.
+    expect(utils.container.querySelector(".ts-form-actions")).toBeNull();
+    expect(utils.getByText("午夜藍")).toBeTruthy();
+    // 🔴 …and the row is LIVE AGAIN. `busyId` is both the in-flight signal and
+    // the one-request-at-a-time lock, so a release that does not happen on the
+    // failure path leaves every row's 匯出/編輯 permanently dead — the owner's
+    // only way out is a reload. This is the ONLY place that claim can be made:
+    // on the success path the list is gone (the editor replaced it) and there
+    // is no button left to measure.
+    //
+    // Dropping `finally { setBusyId(null) }` does redden two OTHER cases —
+    // both outer-canvas background ones, which happen to click again after a
+    // fetch — but neither is about this, and their failure text points at
+    // backgrounds. Being caught in passing by an unrelated case is not the
+    // same as being guarded.
+    expect(
+      (utils.getByLabelText(`${p.themeEdit} 午夜藍`) as HTMLButtonElement)
+        .disabled
+    ).toBe(false);
+    vi.restoreAllMocks();
+  });
+
+  it("falls back to the shared 動作失敗 line when the failure names no reason", async () => {
+    setToken("owner-token");
+    await seed(MIDNIGHT);
+    const utils = await renderManage();
+    await utils.findByText("午夜藍");
+
+    vi.spyOn(api, "getTheme").mockRejectedValue(new Error("boom"));
+    await openEditor(utils, "午夜藍");
+    expect(utils.container.querySelector(".set-error")?.textContent).toBe(
+      s.docActionFailed
+    );
+    vi.restoreAllMocks();
+  });
+
+  // NOTE the title says only what this case actually measures. Releasing the
+  // lock is asserted by the FAILURE case above, because that is the only path
+  // that comes back to a list with buttons on it.
+  it("disables 匯出/編輯 on every row while a bundle is in flight", async () => {
+    // A theme pack is hundreds of KB on the wire. "Nothing has happened yet"
+    // has to be VISIBLE — and a second click must not start a second full
+    // download whose answer could land out of order.
+    setToken("owner-token");
+    await seed(AURORA);
+    await seed(MIDNIGHT);
+    const utils = await renderManage();
+    await utils.findByText("午夜藍");
+
+    let release!: (b: ThemeBundle) => void;
+    vi.spyOn(api, "getTheme").mockReturnValue(
+      new Promise<ThemeBundle>((resolve) => {
+        release = resolve;
+      })
+    );
+
+    const btn = (label: string) =>
+      utils.getByLabelText(label) as HTMLButtonElement;
+    // Before: every custom row's actions are live.
+    expect(btn(`${p.themeEdit} 午夜藍`).disabled).toBe(false);
+    expect(btn(`${p.themeExport} 極光`).disabled).toBe(false);
+
+    fireEvent.click(btn(`${p.themeEdit} 午夜藍`));
+
+    // During: the clicked row AND the other rows are inert — the guard is one
+    // request at a time, not one per row.
+    expect(btn(`${p.themeEdit} 午夜藍`).disabled).toBe(true);
+    expect(btn(`${p.themeExport} 午夜藍`).disabled).toBe(true);
+    expect(btn(`${p.themeEdit} 極光`).disabled).toBe(true);
+    expect(btn(`${p.themeExport} 極光`).disabled).toBe(true);
+
+    release(structuredClone(MIDNIGHT));
+    await settle();
+
+    // After: the editor opened on the theme that was asked for.
+    expect(editNameField(utils).value).toBe("午夜藍");
+    vi.restoreAllMocks();
+  });
+});
+
+// ── Claims that outlived the rewrite ───────────────────────────────────────
+// The cap and the duplicate-id refusal used to be checked against the whole
+// bundle set the provider held. The set is one line per theme now, so both are
+// checked against `themeList` — the rule did not change, only what it counts.
+describe("ThemeSettings · refusals that still stand", () => {
+  async function seedMany(n: number) {
+    for (let i = 0; i < n; i++) {
+      await api.putTheme({
+        id: `pack-${i}`,
+        name: `包 ${i}`,
+        colors: { "--color-accent": "#0b1020" },
+      });
+    }
+  }
+
+  it("refuses 新增 once the saved set is at the cap — and creates nothing", async () => {
+    setToken("owner-token");
+    await seedMany(MAX_CUSTOM_THEMES);
+    const utils = await renderManage();
+    await utils.findByText(`包 ${MAX_CUSTOM_THEMES - 1}`);
+
+    fireEvent.click(utils.getByText(p.themeAdd));
+    await settle();
+
+    expect(utils.container.querySelector(".set-error")?.textContent).toBe(
+      p.themeLimitReached
+    );
+    // No editor was opened over a theme that does not exist…
+    expect(utils.container.querySelector(".ts-form-actions")).toBeNull();
+    // …and nothing was written.
+    expect((await savedIds()).length).toBe(MAX_CUSTOM_THEMES);
+  });
+
+  it("refuses an import whose id is already taken — and keeps the stored one", async () => {
+    setToken("owner-token");
+    await api.putTheme({
+      id: "midnight",
+      name: "午夜藍",
+      colors: { "--color-accent": "#aa0011" },
+    });
+    const utils = await renderManage();
+    await utils.findByText("午夜藍");
+
+    await importBundle(utils, {
+      id: "midnight",
+      name: "冒名的午夜藍",
+      colors: { "--color-accent": "#bb0022" },
+    });
+
+    expect(utils.container.querySelector(".set-error")?.textContent).toBe(
+      p.themeImportDup
+    );
+    // Still in the import view holding the rejected text (nothing landed).
+    expect(utils.getByLabelText(p.themeImportTitle)).toBeTruthy();
+    expect(await savedIds()).toEqual(["midnight"]);
+    // 🔴 and the STORED theme is untouched — a "duplicate" that silently
+    // overwrote would satisfy every assertion above.
+    const stored = await savedTheme("midnight");
+    expect(stored.name).toBe("午夜藍");
+    expect(stored.colors["--color-accent"]).toBe("#aa0011");
+  });
+
+  it("refuses an import once the saved set is at the cap", async () => {
+    setToken("owner-token");
+    await seedMany(MAX_CUSTOM_THEMES);
+    const utils = await renderManage();
+    await utils.findByText(`包 ${MAX_CUSTOM_THEMES - 1}`);
+
+    await importBundle(utils, {
+      id: "one-too-many",
+      name: "多出來的",
+      colors: { "--color-accent": "#0b1020" },
+    });
+
+    expect(utils.container.querySelector(".set-error")?.textContent).toBe(
+      p.themeLimitReached
+    );
+    expect(await savedIds()).not.toContain("one-too-many");
+  });
+});
+
+// ── Writes fail too, and the owner has to be able to tell ───────────────────
+describe("ThemeSettings · a refused write is visible", () => {
+  it("keeps the row out of the list when 新增 is refused, and says why", async () => {
+    // Jumping into the editor for a theme the server never created would let
+    // the owner spend real work on something the next reload does not have.
+    setToken("owner-token");
+    const utils = await renderManage();
+    vi.spyOn(api, "putTheme").mockRejectedValue(
+      new ApiError("http 422", 422, codeForStatus(422), "伺服器不收")
+    );
+
+    fireEvent.click(utils.getByText(p.themeAdd));
+    await settle();
+
+    expect(utils.container.querySelector(".set-error")?.textContent).toBe(
+      "伺服器不收"
+    );
+    expect(utils.container.querySelector(".ts-form-actions")).toBeNull();
+    expect(utils.queryByTestId("ts-group-custom")).toBeNull();
+    vi.restoreAllMocks();
+    expect(await savedIds()).toEqual([]);
+  });
+
+  it("STAYS IN THE EDITOR when the save is refused, holding what was typed", async () => {
+    // Returning to the list would throw away everything typed while showing a
+    // list that still holds the OLD colours — i.e. it would look like the save
+    // worked.
+    setToken("owner-token");
+    await api.putTheme({
+      id: "midnight",
+      name: "午夜藍",
+      colors: { "--color-accent": "#aa0011" },
+    });
+    const utils = await renderManage();
+    await utils.findByText("午夜藍");
+    await openEditor(utils, "午夜藍");
+
+    const label = tokenMeta("--color-accent", "zh").label;
+    fireEvent.change(within(colourRow(utils, label)).getByLabelText(label), {
+      target: { value: "#ffffff" },
+    });
+    vi.spyOn(api, "putTheme").mockRejectedValue(
+      new ApiError("http 422", 422, codeForStatus(422), "伺服器不收")
+    );
+    await clickSave(utils);
+
+    // Still in the editor, still holding the edit, with the reason on screen.
+    expect(utils.container.querySelector(".ts-form-actions")).not.toBeNull();
+    expect(
+      (within(colourRow(utils, label)).getByLabelText(label) as HTMLInputElement)
+        .value
+    ).toBe("#ffffff");
+    expect(utils.container.querySelector(".set-error")?.textContent).toBe(
+      "伺服器不收"
+    );
+    vi.restoreAllMocks();
+    // …and the stored theme still has its old colour.
+    expect((await savedTheme("midnight")).colors["--color-accent"]).toBe("#aa0011");
+  });
+
+  it("KEEPS THE ROW when the delete is refused, closes the dialog and says why", async () => {
+    // Delete is the third write this screen makes and the only one that can be
+    // refused for a reason outside this cockpit: another device deleted the
+    // theme first, so the request 404s. It is also the one where a silent
+    // failure looks most like success — the owner asked for the row to go, and
+    // a screen that removed it optimistically would agree with them until the
+    // next reload brought it back.
+    setToken("owner-token");
+    await api.putTheme({
+      id: "midnight",
+      name: "午夜藍",
+      colors: { "--color-accent": "#aa0011" },
+    });
+    const utils = await renderManage();
+    await utils.findByText("午夜藍");
+
+    vi.spyOn(api, "deleteTheme").mockRejectedValue(
+      new ApiError("http 404", 404, codeForStatus(404), "theme not found")
+    );
+    fireEvent.click(await utils.findByLabelText(`${p.themeDelete} 午夜藍`));
+    fireEvent.click(utils.getByTestId("theme-delete-confirm-btn"));
+    await settle();
+
+    // The reason is on screen, and the dialog is gone — it asked a question
+    // that has now been answered.
+    expect(utils.container.querySelector(".set-error")?.textContent).toBe(
+      "theme not found"
+    );
+    expect(utils.queryByTestId("theme-delete-confirm-btn")).toBeNull();
+    // The row is STILL THERE, ready for a second attempt…
+    expect(utils.getByText("午夜藍")).toBeTruthy();
+    vi.restoreAllMocks();
+    // …and so is the theme itself.
+    expect(await savedIds()).toEqual(["midnight"]);
+  });
+
+  it("releases the lock after a refused delete, so a second attempt is possible", async () => {
+    // `busyId` guards delete too, and the confirm dialog stays up until the
+    // request settles. A release that only happens on success leaves every row
+    // inert after one failed delete — including the 刪除 the owner is about to
+    // press again, which is the whole point of keeping the row.
+    setToken("owner-token");
+    await api.putTheme({
+      id: "midnight",
+      name: "午夜藍",
+      colors: { "--color-accent": "#aa0011" },
+    });
+    const utils = await renderManage();
+    await utils.findByText("午夜藍");
+
+    const spy = vi
+      .spyOn(api, "deleteTheme")
+      .mockRejectedValue(new ApiError("http 500", 500, codeForStatus(500), "伺服器爆了"));
+    fireEvent.click(await utils.findByLabelText(`${p.themeDelete} 午夜藍`));
+    fireEvent.click(utils.getByTestId("theme-delete-confirm-btn"));
+    await settle();
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    // Second attempt: it must actually reach the server, not be swallowed by a
+    // lock that was never released.
+    fireEvent.click(await utils.findByLabelText(`${p.themeDelete} 午夜藍`));
+    fireEvent.click(utils.getByTestId("theme-delete-confirm-btn"));
+    await settle();
+    expect(spy).toHaveBeenCalledTimes(2);
+    vi.restoreAllMocks();
   });
 });

@@ -33,7 +33,7 @@ import { zh } from "../i18n/locales/zh";
 import { SettingsPage } from "./SettingsPage";
 import { api } from "../api";
 import { __resetMock, mockApi } from "../api/mock";
-import { ApiError } from "../api/errors";
+import { mockApiError } from "../api/errorCodes";
 import { DOC_CAP_CHARS_DEFAULTS } from "../api/docCap";
 
 const s = zh.settings;
@@ -190,12 +190,7 @@ describe("DocCard", () => {
     // must never happen again is the previous behaviour — nothing on screen at
     // all.
     vi.spyOn(api, "saveRole").mockRejectedValue(
-      new ApiError(
-        "http 400 for PATCH /api/roles/assistant",
-        400,
-        "doc_too_large",
-        REASON
-      )
+      mockApiError("http 400 for PATCH /api/roles/assistant", 400, REASON)
     );
     const utils = await openRoleDoc();
     fireEvent.click(utils.getAllByTestId("doc-card-edit")[0]);

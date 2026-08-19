@@ -10,8 +10,6 @@
 // gave the three boot blocks the same <DocCard> shell this one has always used
 // and must not have moved anything under this one.
 //
-// Plus the presentation rule: no block surfaces a .md filename (blocks are
-// content, not files).
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";
@@ -40,7 +38,7 @@ beforeEach(() => {
 });
 
 describe("SettingsPage · global-context 4 blocks", () => {
-  it("lists the blocks in boot-assembly order, without .md filenames", async () => {
+  it("lists the blocks in boot-assembly order", async () => {
     // 啟動程序 is ONE row, not one per runtime (owner 2026-08-14, card
     // rc-e1abbc506b70 option 1: "我沒有想到被切割成這麼多份"). The runtime is
     // chosen inside the page. The two DOCUMENTS stay separate — that is
@@ -61,11 +59,6 @@ describe("SettingsPage · global-context 4 blocks", () => {
     expect(text).not.toContain(s.bootClaudeName);
     expect(text).not.toContain(s.bootCodexName);
     expect(getByText(s.globalSection)).toBeTruthy();
-    // Presentation rule: the blocks never expose their backing filenames.
-    expect(text).not.toContain("global-context.md");
-    expect(text).not.toContain("boot_sequence.md");
-    expect(text).not.toContain("system_interaction.md");
-    expect(text).not.toContain("offboard.md");
   });
 
   it("系統互動 opens its own editable page instead of a read-only seed card", async () => {

@@ -9,7 +9,6 @@ package main
 
 import (
 	"crypto/subtle"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -436,28 +435,27 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			}
 		}
 	}
-	// custom_themes (T-16a1 P2): replace the saved bundle set. Validated in full
-	// (shape + token whitelist + concrete-colour grammar) BEFORE anything is
-	// written — a bad bundle 422s and nothing is stored.
-	customProvided := body.CustomThemes != nil
-	var newCustomThemes []ThemeBundleDTO
-	if customProvided {
-		newCustomThemes = *body.CustomThemes
-		if err := validateThemeBundles(newCustomThemes); err != nil {
-			writeError(w, http.StatusUnprocessableEntity, err.Error())
-			return
-		}
-	} else {
-		newCustomThemes = s.displayCustomThemesSnapshot()
-	}
-	// display.theme is now validated against "" | built-in | an id in the
-	// POST-patch custom set (so a theme + its bundle can land in one PATCH).
-	customIDs := themeBundleIDSet(newCustomThemes)
+	// display.theme names WHICH theme is active; the themes themselves left this
+	// endpoint in T-83ef and live behind /api/themes now. So the vocabulary this
+	// value is checked against is read from the TABLE rather than from a bundle
+	// array that used to arrive in the same request.
+	//
+	// ⚠️ THAT COSTS SOMETHING REAL AND IT IS A DELIBERATE TRADE. Before the split
+	// a caller could land a new theme AND select it in ONE patch, because the
+	// bundle was in the body being validated. It cannot any more: the theme has
+	// to exist (PUT /api/themes/{id}) before it can be selected. Two requests
+	// instead of one is the price of "changing one theme does not re-send them
+	// all", and the failure mode is loud (a 422 naming the field), not silent.
 	var displayTheme string
 	themeProvided := body.DisplayTheme != nil
 	if themeProvided {
 		displayTheme = strings.TrimSpace(*body.DisplayTheme)
-		if !isValidDisplayTheme(displayTheme, customIDs) {
+		ok, err := s.displayThemeExists(displayTheme)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		if !ok {
 			writeError(w, http.StatusUnprocessableEntity,
 				`display_theme must be "", office, or an existing custom theme id`)
 			return
@@ -613,32 +611,15 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		}
 		s.pushContactEmail = pushContactEmail
 	}
-	// custom_themes + display.theme are coupled: replacing the bundle set can
-	// orphan the active theme, so write the set first, then resolve the theme
-	// against the POST-patch set (an explicit theme wins; otherwise a now-dangling
-	// active custom theme is reset to "" — §4 simpler branch, server-side reset).
-	if customProvided {
-		marshaled, err := json.Marshal(newCustomThemes)
-		if err != nil {
-			s.settingsMu.Unlock()
-			internalError(w, err)
-			return
-		}
-		if err := s.dal.PutSetting(settingDisplayCustomThemes, string(marshaled)); err != nil {
-			s.settingsMu.Unlock()
-			internalError(w, err)
-			return
-		}
-		s.displayCustomThemes = newCustomThemes
-	}
-	effectiveIDs := themeBundleIDSet(s.displayCustomThemes)
-	finalTheme := s.displayTheme
-	if themeProvided {
-		finalTheme = displayTheme
-	} else if !isValidDisplayTheme(s.displayTheme, effectiveIDs) {
-		finalTheme = "" // the active custom theme was deleted by this patch
-	}
-	if finalTheme != s.displayTheme {
+	// The custom_themes ↔ display.theme coupling that used to live here is GONE
+	// from this endpoint, and deliberately so: this endpoint can no longer delete
+	// a theme, so it can no longer orphan the active one. The one request that
+	// still can — DELETE /api/themes/{id} — performs the reset itself and reports
+	// it in its receipt (api_themes.go). A "is the active theme still there?"
+	// sweep here would be a second opinion about a fact that endpoint already
+	// settled, and the two would drift.
+	if themeProvided && displayTheme != s.displayTheme {
+		finalTheme := displayTheme
 		if err := s.dal.PutSetting(settingDisplayTheme, finalTheme); err != nil {
 			s.settingsMu.Unlock()
 			internalError(w, err)
@@ -680,11 +661,6 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 func (s *apiServer) settingsView() settingsDTO {
 	s.settingsMu.RLock()
 	defer s.settingsMu.RUnlock()
-	// custom_themes always serialises as an array, never null (the wire shape).
-	customThemes := s.displayCustomThemes
-	if customThemes == nil {
-		customThemes = []ThemeBundleDTO{}
-	}
 	return settingsDTO{
 		OwnerTokenTTL:                s.ownerTokenTTL,
 		AgentTokenTTL:                s.agentTokenTTL,
@@ -711,7 +687,6 @@ func (s *apiServer) settingsView() settingsDTO {
 		DisplayTheme:                 s.displayTheme,
 		DisplayLanguage:              s.displayLanguage,
 		DisplayWide:                  s.displayWide,
-		CustomThemes:                 customThemes,
 		// Read from the DAL, NOT from the settings snapshot: onboarding runs in
 		// its own goroutine and finishes after this handler returned, so a
 		// boot-time snapshot would serve a permanently stale "running".

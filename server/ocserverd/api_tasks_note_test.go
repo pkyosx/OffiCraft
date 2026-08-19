@@ -321,7 +321,10 @@ func submitPlanFetch(t *testing.T, api *apiServer, taskID string) []TaskStep {
 
 // TestStepNoteAcceptsAdminCapability — the guard is executor-OR-admin, and only
 // the executor half was covered. An admin助理 fixing a note on someone else's
-// task must not be refused.
+// task must not be refused. Both faces onto the field are asserted here: the
+// patch face calls callerMayDriveTask through the SAME helper, and the route
+// table says so ("the handler shares it verbatim"), so the admin half has to be
+// pinned on both or the claim rests on one face only.
 func TestStepNoteAcceptsAdminCapability(t *testing.T) {
 	api := newTasksTestServer(t)
 	task := createAdHocTask(t, api, "m-exec")
@@ -338,6 +341,19 @@ func TestStepNoteAcceptsAdminCapability(t *testing.T) {
 	}
 	if got := readStepNote(t, api, task.ID, stepID); got != "written by the owner" {
 		t.Fatalf("note = %q, want the admin write to have landed", got)
+	}
+
+	// Same caller, the anchor-patch face: an admin amending one segment of a note
+	// on someone else's task must land too, and land splice-precise.
+	status, data := patchStepNoteAs(t, api, task.ID, stepID, wireOwnerID, "owner",
+		map[string]any{"edits": []any{
+			map[string]any{"old": "the owner", "new": "the admin, by anchor"},
+		}})
+	if status != http.StatusOK {
+		t.Fatalf("admin patch: %d %v, want 200", status, data)
+	}
+	if got := readStepNote(t, api, task.ID, stepID); got != "written by the admin, by anchor" {
+		t.Fatalf("note = %q, want the admin patch to have landed", got)
 	}
 }
 

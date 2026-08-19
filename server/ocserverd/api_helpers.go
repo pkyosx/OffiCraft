@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -296,6 +297,18 @@ func refocusDeadline(refocusSince, grace float64) float64 {
 	return refocusSince + grace
 }
 
+// refocusDeadlineOf takes recycleGraceFor's pair straight through: an epoch
+// nobody collects on a clock has NO deadline, and 0 is how the wire says that
+// (the cockpit maps 0 → null → renders nothing). Anything else here would put a
+// countdown on screen that the reconcile tick has no intention of honouring.
+func refocusDeadlineOf(refocusSince float64, cfg reconcileConfig, refocusOp string) float64 {
+	grace, clocked := recycleGraceFor(refocusOp, cfg)
+	if !clocked {
+		return 0.0
+	}
+	return refocusDeadline(refocusSince, grace)
+}
+
 // observedHost resolves a member's OBSERVED machine (handlers.observed_host):
 // SSE machine claim → self-reported telemetry.machine; a warden attributes to
 // its own id. Honest-empty "" when nothing is observed.
@@ -369,12 +382,12 @@ func (s *apiServer) newMemberDTO(m Member, roleName, observedMachine string, unr
 		Presence:         PresenceState(m, nowSecs(), s.hub.IsOnline(m.ID)),
 		RefocusSince:     m.RefocusSince,
 		RefocusOp:        m.RefocusOp,
-		// The grace this member's epoch is ACTUALLY collected on — an
-		// owner-pressed 重新聚焦 opens soft and gets the soft window on top of
-		// the final 120s, so reading RecycleGrace here reported a ceiling the
-		// server had no intention of honouring, and the cockpit rendered a
-		// time the owner then watched pass with nothing happening.
-		RefocusDeadline: refocusDeadline(m.RefocusSince, recycleGraceFor(m.RefocusOp, s.reconcileCfg)),
+		// The grace this member's epoch is ACTUALLY collected on, and 0 when
+		// nothing collects it on time at all — an owner-pressed 重新聚焦 runs no
+		// clock (owner 2026-08-19), so the cockpit must show NO deadline rather
+		// than a time the owner would watch pass with nothing happening. Reading
+		// RecycleGrace straight would report exactly that kind of ceiling.
+		RefocusDeadline: refocusDeadlineOf(m.RefocusSince, s.reconcileCfg, m.RefocusOp),
 		LastOp:          m.LastOp,
 		LastOpOK:        m.LastOpOK,
 		LastOpLog:       m.LastOpLog,
@@ -482,4 +495,46 @@ func intSliceOrNil(p *[]int) []int {
 		return nil
 	}
 	return *p
+}
+
+// requireNonEmptyEdits refuses an empty edits list: it is not "a patch that
+// changes nothing", it is a caller that built the request wrong.
+//
+// Split from decodePatchEdits because the two checks sit on OPPOSITE sides of
+// the target's resolve/authz chain in patch_lessons and patch_task_learnings,
+// and the newer patch faces mirror that placement rather than invent a second
+// order — otherwise the same malformed batch against a nonexistent target
+// answers 422 on one endpoint and 404 on its neighbour.
+func requireNonEmptyEdits(w http.ResponseWriter, dtos []LessonsEditDTO) bool {
+	if len(dtos) == 0 {
+		writeError(w, http.StatusUnprocessableEntity,
+			"edits requires at least one {old, new} entry")
+		return false
+	}
+	return true
+}
+
+// decodePatchEdits folds a wire []LessonsEditDTO into the engine's
+// []LessonsEdit, writing a 422 and returning ok=false for an edit carrying
+// NEITHER old NOR new — that would fold to the empty-old APPEND branch where
+// appending "" is a perfect no-op, so the batch would answer 200 with an
+// unchanged doc, i.e. report success while doing nothing. The check is the one
+// patch_lessons and patch_task_learnings already spell inline (T-2d99), lifted
+// here so the newer patch faces cannot answer a malformed batch differently.
+//
+// The WHOLE batch is refused before anything is written, matching the
+// anchor-miss posture. Callers run it AFTER resolving the target (see
+// requireNonEmptyEdits).
+func decodePatchEdits(w http.ResponseWriter, dtos []LessonsEditDTO) ([]LessonsEdit, bool) {
+	edits := make([]LessonsEdit, len(dtos))
+	for i, e := range dtos {
+		if e.Old == nil && e.New == nil {
+			writeError(w, http.StatusUnprocessableEntity, fmt.Sprintf(
+				"edits[%d]: neither old nor new was given — an edit needs at least one of them "+
+					"(empty old appends new); nothing was written", i))
+			return nil, false
+		}
+		edits[i] = LessonsEdit{Old: strOrEmpty(e.Old), New: strOrEmpty(e.New)}
+	}
+	return edits, true
 }

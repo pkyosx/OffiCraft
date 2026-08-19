@@ -1224,7 +1224,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Bootstrap on server: install this machine's warden on the host.
+         * Bootstrap on server: runs `ocwarden install --force` on the SERVER's own host. machine_id is NOT a target — this verb has no way to reach another machine, and naming one is refused (409); the server-local machine is the only value it accepts, and the install overwrites the existing one, which is how you repair this host's warden. To install a different machine, fetch that machine's own boot command with GET /api/machines/{machine_id}/boot-command and run it on that host.
          * @description Bootstrap on server: install a machine's warden ON THE SERVER HOST in one
          *     click (``POST /api/machines/{machine_id}/bootstrap-here``).
          *
@@ -1685,24 +1685,33 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Force-stop: robust STOP now, bypassing the graceful-stop grace.
-         * @description Force-stop a member: IMMEDIATELY kill the live session, bypassing BOTH the
-         *     120s graceful-stop grace clock AND the ~30s reconcile cadence.
+         * Force-stop: robust STOP now. On the offboard arm this is the ONLY thing that ever collects the member -- nothing times out.
+         * @description Force-stop a member: IMMEDIATELY kill the live session.
          *
-         *     This is the escalation the cockpit surfaces once a member is already *stopping*
-         *     (inside its graceful-stop grace): instead of waiting for the agent to self-stop
-         *     (up to 120s) or for the reconcile tick to eventually dispatch the robust stop,
-         *     the owner force-kills now. The handler writes the STOP intent
-         *     (``desired_state=offline``
+         *     🔴 This is NOT a shortcut past a countdown — there is no countdown to shortcut.
+         *     On the 下線 arm (``desired_state=offline`` on a still-online member) the reconcile
+         *     machine runs NO clock at all: ``decideDown`` returns decisionNone for as long as
+         *     the member stays online, so a member whose agent never reports stopped is NEVER
+         *     collected by the server. Owner ruling rc-27d1710174dd
+         *     (「不要兜底：只有你按強制下線才收它」) — the escalation is deliberately his, not
+         *     a timer's, because the notice the agent was shown promises no deadline.
+         *
+         *     So there are exactly two things that end a soft offboard: the agent's own
+         *     ``report_stopped`` (that call dispatches the robust STOP itself), or THIS endpoint.
+         *     If neither happens the member stays in *stopping* indefinitely, which is the state
+         *     the cockpit surfaces this button in.
+         *
+         *     ``stop_deadline`` / ``stop_grace`` still exist in the reconcile store and config,
+         *     but the arm that consumes them is guarded by ``SoftOffboardGrace == 0`` and
+         *     ``SoftOffboardGraceSecs`` is a compile-time 600 s — unreachable in production,
+         *     injectable in tests. Do not implement against them.
+         *
+         *     The handler writes the STOP intent (``desired_state=offline``
          *     + stamps ``stopping_since`` if unset, so presence reads coherently) and then
          *     dispatches the SINGLE robust STOP straight to the member's warden via
          *     :func:`_dispatch_robust_stop_now` — the warden's ``stop()`` → ``escalateKill``
          *     ladder performs the SIGKILL (tmux kill-session → force killpg the process group).
-         *
-         *     The grace clock lives in the reconcile machine's desired_state=offline arm (it waits
-         *     ``stop_grace`` before emitting the robust stop); dispatching the stop directly
-         *     here skips that wait entirely. The reconcile tick remains the idempotent backstop
-         *     — a robust stop against an already-dead session is a no-op.
+         *     It also bypasses the ~30s reconcile cadence, which is the only wait it does skip.
          *
          *     RBAC (control-others): route-table ``requires="admin_agent"`` — only an
          *     owner-scoped token OR an admin-role (assistant) member may force-stop a
@@ -1772,13 +1781,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List one member's scheduled messages.
+         * List one member's scheduled messages — 定期訊息, the wall-clock alarm that wakes that member with a chat message on a repeating cadence. admin_agent floor: the owner, or an admin assistant setting these up on the owner's behalf; an ordinary agent gets 403 even for its own member_id. Rows come oldest→newest and each carries the whole schedule — label, body, cadence, the slot fields `hour`/`minute`/`day_of_week`/`day_of_month`, the four `custom` sets, timezone, and the enabled/disabled toggle — plus the delivery cursor `last_fired_slot`/`last_fired_ts`. Read this before update_scheduled_message: that call is a partial edit against these stored values, and it re-aims the cursor only for a slot field whose value actually CHANGES. 404 if the member is absent or soft-removed.
          * @description List a member's scheduled messages (T-f059), oldest→newest. Each row carries the whole schedule — label, body, cadence, the slot fields `day_of_week`/`day_of_month`/`hour`/`minute`, the four `custom` sets `custom_months`/`custom_days`/`custom_hours`/`custom_minutes` (always present as arrays, empty on the cadences that do not read them; a live `custom` schedule always LISTS its months, so "fires every month" is twelve entries on the wire and never an absent field) and timezone, plus the enabled/disabled toggle — and the delivery cursor: `last_fired_slot` (the identifier of the slot already delivered, which is what the fire/skip test compares) alongside `last_fired_ts` (when that delivery actually happened). The cockpit card surfaces the timestamp as a human-readable last-delivered line; the slot identifier is carried for clients that need to reason about the cursor itself. 404 if the member is absent or soft-removed.
          */
         get: operations["handle_list_scheduled_messages_api_members__member_id__scheduled_messages_get"];
         put?: never;
         /**
-         * Create a scheduled message on one member.
+         * Create a scheduled message on one member — 定期訊息, the mechanism for waking a member on a repeating wall-clock slot: at each due slot the server delivers `body` verbatim down the ORDINARY chat path, from the synthetic sender `sched:<schedule_id>`. admin_agent floor: the owner, or an admin assistant setting one up on the owner's behalf; an ordinary agent gets 403 even for its own member_id. The recipient follows chat's rule, so an `ow-` outsource worker is a legal target as well as a staff member. `body`, `cadence` and `timezone` are always required; `hour`/`minute` are required by `daily`/`weekly`/`monthly` and ignored by `custom` FOR SCHEDULING — their range is still checked under every cadence, so `hour: 99` is a 422 even for `custom`, which instead requires `custom_days`/`custom_hours`/`custom_minutes` (`custom_months` may be omitted to mean all twelve; an explicit empty set is a 422). Those conditional rules are NOT expressible in this schema — a wrong combination comes back as a 422 rather than folding into a silent midnight. TWO fields are the exception and they fail SILENTLY: `day_of_week` (used by `weekly`) and `day_of_month` (used by `monthly`) are NOT required — omit either one and the create returns 200 having defaulted it to 0 (Sunday) and 1 (the first of the month). 'Every Friday at 09:00' sent without `day_of_week` is a Sunday alarm and nothing reports it, so send the field explicitly whenever the cadence reads it. `timezone` must NAME A PLACE: `Local` and the empty string are refused with 422 even though they resolve, because they hand "what time is it" to wherever the server happens to run. Missed slots are never backfilled — only the slot most recently elapsed is ever considered — and the cursor starts at creation time, so a `daily` 09:00 schedule created at 10:00 does not fire today. 404 if the member is absent or soft-removed.
          * @description Create a scheduled message on a member (T-f059). When a slot comes due the server delivers `body` down the ORDINARY chat path — live if the member is online, the durable mailbox otherwise — from the synthetic sender `sched:<schedule_id>`, with `meta.scheduled` naming the schedule and the slot. The delivery cursor is initialised to the slot most recently elapsed, so a schedule created at 10:00 for `daily` 09:00 does not fire today. The recipient may be an assistant OR an `ow-` outsource worker. A missing/blank `body`, a cadence outside the set, an out-of-range slot field, a missing `hour` or `minute` on a `daily`/`weekly`/`monthly` schedule, a missing or empty `custom_days`/`custom_hours`/`custom_minutes` on a `custom` schedule, or an explicitly EMPTY `custom_months` (omitting that one field entirely is legal and means all twelve months) is a 422; the member absent is a 404.
          */
         post: operations["handle_create_scheduled_message_api_members__member_id__scheduled_messages_post"];
@@ -1799,14 +1808,14 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Delete one scheduled message.
+         * Delete one scheduled message — 定期訊息, permanent and not undoable. admin_agent floor: the owner, or an admin assistant acting on the owner's behalf; an ordinary agent gets 403 even for its own member_id. When the schedule should merely STOP firing, call update_scheduled_message with `status: disabled` instead — that is the reversible half and this one is not. 404 if the member or the schedule is absent.
          * @description Permanently remove a scheduled message (T-f059) — the row is deleted and can never fire again. Distinct from `status: disabled`, which is the reversible suspend; this is the irreversible one. Returns the row as it stood at deletion. 404 if the member or the schedule is absent.
          */
         delete: operations["handle_delete_scheduled_message_api_members__member_id__scheduled_messages__schedule_id__delete"];
         options?: never;
         head?: never;
         /**
-         * Update one scheduled message (including enable/disable).
+         * Update one scheduled message, including the enabled/disabled toggle (`status`) — 定期訊息, the wall-clock wake-up for one member. admin_agent floor: the owner, or an admin assistant acting on the owner's behalf; an ordinary agent gets 403 even for its own member_id. PATCH semantics: only the fields you send change, and `id`/`member_id` are immutable. The create-side validation applies unchanged — `hour`/`minute` required by `daily`/`weekly`/`monthly` and ignored by `custom` for scheduling though still range-checked under every cadence, the custom sets never empty, `timezone` never `Local` or the empty string — all 422. Editing a timing field to a DIFFERENT value re-aims the delivery cursor to the slot most recently elapsed, so the edit never retroactively fires the slot it crossed; re-sending a value the schedule already holds moves nothing, which is what makes a whole-form save safe. `disabled` suspends firing and is reversible — it is not a lifecycle state; delete_scheduled_message is the permanent removal. 404 if the member or the schedule is absent.
          * @description Edit a scheduled message (T-f059): flip `status` (enable/disable — the reversible suspend, effective from the next tick) and/or edit the label, body, cadence, the wall-clock slot fields `day_of_week`/`day_of_month`/`hour`/`minute`, the four `custom` sets `custom_months`/`custom_days`/`custom_hours`/`custom_minutes`, or timezone. Only supplied fields change; `id` and `member_id` are immutable. Re-aiming the schedule moves the delivery cursor to the slot most recently elapsed, so an edit never fires the slot it crosses — and an edit counts as a re-aim ONLY when it changes a field the resulting cadence actually reads, so sending a field that cadence ignores (`custom_days` on a `daily` schedule, `hour` on a `custom` one) leaves the cursor where it was. 404 if the member or the schedule is absent; a 422 for a bad cadence, a bad status, an out-of-range slot field, an empty `custom_months`/`custom_days`/`custom_hours`/`custom_minutes`, a switch TO `custom` that leaves the row without `custom_days`, `custom_hours` and `custom_minutes` (months are exempt: a switch naming none, on a row carrying none, lands as all twelve), or a switch AWAY from `custom` that does not state `hour` and `minute`.
          */
         patch: operations["handle_update_scheduled_message_api_members__member_id__scheduled_messages__schedule_id__patch"];
@@ -2488,7 +2497,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO chat/task content). estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars, all four reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit and the two studio-floor blocks — what pulling the snapshot actually costs. Step one of the two-step boot: call this FIRST to size resume_summary, then either call resume_summary directly (small) or hand the pull to a cheap sub-agent that returns a digest (large).
+         * Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO chat/task content). estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars + steps_on_answered_card_chars, all five reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit, the two studio-floor blocks, and the named steps sitting on an answered card — what pulling the snapshot actually costs. Step one of the two-step boot: call this FIRST to size resume_summary, then either call resume_summary directly (small) or hand the pull to a cheap sub-agent that returns a digest (large).
          * @description The size-only PEEK of the wake snapshot (``peek_resume_summary_size`` MCP
          *     tool, zero params; ``GET /api/resume-summary-size``) — step ONE of the two-step
          *     boot.
@@ -2499,11 +2508,12 @@ export interface paths {
          *     resume_summary actually carries) plus ``estimated_total_chars`` — a derived
          *     single number to gate the boot decision on — and a fixed guidance ``note``.
          *     ``estimated_total_chars`` is exactly ``chat_chars`` + ``tasks_detail_chars`` +
-         *     ``roster_chars`` + ``machines_chars``, all four reported in ``overview``: the
+         *     ``roster_chars`` + ``machines_chars`` + ``steps_on_answered_card_chars``, all
+         *     five reported in ``overview``: the
          *     WHOLE chat block as the snapshot renders it (``chat_chars`` is the rendered
          *     block's cost, NOT the sum of the message bodies), plus the plan text its task
-         *     rows omit and the two studio-floor blocks — what pulling the snapshot actually
-         *     costs. It carries
+         *     rows omit, the two studio-floor blocks, and the named steps sitting on an
+         *     answered card — what pulling the snapshot actually costs. It carries
          *     NO chat bodies and NO task rows of any kind: peeking it costs a few hundred
          *     bytes, so a waking agent sizes ``resume_summary`` BEFORE deciding whether to
          *     pull it into its own context or hand the pull to a cheap sub-agent (e.g. haiku)
@@ -2664,7 +2674,7 @@ export interface paths {
          *     EFFECT: stamps the CALLER's ``refocus_since`` and fans a ``member`` delta, exactly
          *     like the owner's refocus. Nothing else is dispatched here — the STANDARD recycle
          *     orchestration (§4.5) then carries the handover: the delta reaches the agent's OWN
-         *     listen connection → the RecycleHook prints the server's 下線程序 document (GET /api/offboard) → the agent
+         *     listen connection → the RecycleHook prints the 下線程序 document the SERVER PUSHED in that same delta (`offboard_notice`) → the agent
          *     runs it (report_stopping → baton → lessons → report_stopped) → the server kills →
          *     respawns IN PLACE. Same already-tested machinery as an owner refocus, just
          *     self-triggered; the agent never mints a token or kills its own process.
@@ -2967,6 +2977,30 @@ export interface paths {
          *     Write authz is the agent floor — identical to ``write_task_learnings`` (manual CONTENT is agent-editable). The receipt carries ``size``/``sha256`` verification anchors over the resulting learnings.
          */
         post: operations["handle_patch_task_learnings_api_task_manuals__type_key__learnings_patch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/task-manuals/{type_key}/sop/patch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Patch a type's SOP (sop_md) by unique anchors ({edits:[{old,new}]}) — send only the section that changed, instead of re-typing the whole SOP. USE THIS WHENEVER YOU ARE AMENDING AN SOP THAT ALREADY HAS CONTENT. update_task_manual{sop_md} is a wholesale replace, so if anyone else edited the SOP between your read and your write, your copy is stale and the replace silently deletes their section — and because your stale copy is usually the LONGER one, no guard fires and nothing tells you. A patch cannot do that: a non-empty old must match the current sop_md EXACTLY ONCE (0 or >1 hits reject the WHOLE batch with a 400 that names which edit failed and which tool to re-read with, zero writes), so a concurrent write turns into a refusal you can see. Edits apply in order; an empty old appends. Wiping the doc, or shrinking it below a tenth, needs allow_shrink=true — for an honest rewrite from scratch use update_task_manual. The sop_md cap is judged on the RESULT and allow_shrink is not a bypass. Re-read with get_task_manual after a refusal.
+         * @description Anchor-addressed PATCH of a type's SOP (MCP ``patch_task_sop`` — the sop_md twin of ``patch_task_learnings``). PRIMARY REASON: concurrent overwrite. Until this endpoint existed the only sop_md write face was ``update_task_manual.sop_md``, a whole-doc replace — so a caller working from a stale copy silently deletes whatever a second writer added in between, and since the stale copy is usually the LONGER one not even the shrink guard fires: the loss lands with zero signal. An anchor patch cannot express that write: each non-empty ``old`` must match the current sop_md exactly once, so a concurrent write that moved or duplicated the anchor turns the batch into a visible refusal. Scaling the write cost with the CHANGE rather than the doc is the secondary benefit.
+         *
+         *     Semantics: ``edits`` apply IN ORDER against the manual's current sop_md; each non-empty ``old`` must match the current text exactly once (0 hits or >1 hits → flat 400 naming the failing edit index and the tool to re-read with, WHOLE batch rejected, zero writes); an empty ``old`` appends ``new`` at the end. A patch that empties the doc (or shrinks it below a tenth of its size) is refused unless ``allow_shrink=true`` — the r-76 wipe-guard posture. The ``doc.cap_chars.manual_sop`` cap is judged on the RESULT of the patch and ``allow_shrink`` is not a bypass. Unknown type → 404.
+         *
+         *     Write authz is the agent floor — identical to ``update_task_manual``'s content fields (manual CONTENT is agent-editable). The wholesale ``update_task_manual.sop_md`` face is unchanged and still available. The receipt carries ``size_chars``/``sha256`` verification anchors over the resulting SOP.
+         */
+        post: operations["handle_patch_task_sop_api_task_manuals__type_key__sop_patch_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3301,6 +3335,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tasks/{task_id}/steps/{step_id}/note/patch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Patch this step's working note by unique anchors ({edits:[{old,new}]}) — send only the part that changed, instead of re-typing the whole note. USE THIS WHENEVER YOU ARE AMENDING A NOTE THAT ALREADY HAS CONTENT. update_step_note is a wholesale replace, so if anyone else wrote to the step between your read and your write, your copy is stale and the replace silently deletes their text — and because your stale copy is usually the LONGER one, no guard fires and nothing tells you. A patch cannot do that: a non-empty old must match the current note EXACTLY ONCE (0 or >1 hits reject the WHOLE batch with a 400 that names which edit failed and which tool to re-read with, zero writes), so a concurrent write turns into a refusal you can see. Edits apply in order; an empty old appends. Wiping the note, or shrinking it below a tenth, needs allow_shrink=true — for an honest rewrite from scratch use update_step_note. Same executor/admin gate, same any-step-status generality, same closed-task 409 as update_step_note. Re-read with get_task after a refusal.
+         * @description Anchor-addressed PATCH of one step's working note (MCP ``patch_step_note``). PRIMARY REASON: concurrent overwrite. ``update_step_note`` is a whole-doc replace, so two writers on the same step — the common handover shape, where one session is still writing while its successor starts — silently lose each other's text: the second write is built on a copy read before the first landed. Nothing catches it, because the stale copy is usually the LONGER one and no shrink guard fires. An anchor patch cannot express that write: each non-empty ``old`` must match the current note EXACTLY ONCE, so a moved or duplicated anchor turns the batch into a refusal instead of a silent deletion.
+         *
+         *     Semantics: ``edits`` apply IN ORDER against the step's current note; 0 hits or >1 hits → flat 400 naming the failing edit index and the tool to re-read with, WHOLE batch rejected, zero writes; an empty ``old`` appends ``new`` at the end. A patch that empties the note (or shrinks it below a tenth of its size) is refused unless ``allow_shrink=true``. The resulting note is held to the SAME character limit as the wholesale write (400 when over it) — a patch face that skipped it would be an uncapped door onto the same field.
+         *
+         *     Guards are the wholesale write's, unchanged: executor-or-admin (403 otherwise), 404 for an unknown task, a step that is not its own, or a step a concurrent replan deleted, and 409 once the TASK is terminal. Accepted in ANY step status. The wholesale ``update_step_note`` face is unchanged and still the right tool for an honest rewrite from scratch.
+         */
+        post: operations["handle_patch_task_step_note_api_tasks__task_id__steps__step_id__note_patch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tasks/{task_id}/steps/{step_id}/status": {
         parameters: {
             query?: never;
@@ -3311,7 +3369,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Report a step status (pending/in_progress/waiting_external/done). Entering waiting_external requires a non-blank waiting_reason (422 otherwise); the task status is derived from its steps. T-74f8 交棒閘: if this report would CLOSE the task (every step done) AND the task's creator is not its executor, the call is REFUSED with 422 unless you say where the ball goes IN THIS SAME CALL — handoff='return_to_creator' (the server opens a durable follow-up task on the creator), handoff='follow_up' + handoff_task_id=<a successor task you already created> (the server hangs this task off it as a dependency, and closing this one releases it), or handoff='none' + handoff_note=<why nothing follows>. The gate stands aside by itself when a non-terminal task already depends on this one — you never see it if the handover is already real. It refuses BEFORE writing anything, so a refused report leaves the plan fully editable: create the successor task, then re-send this same report with the declaration. This is your LAST chance — once the task closes it can never be replanned (submit_plan becomes a permanent 409).
+         * Report a step status (pending/in_progress/waiting_external/done). Entering waiting_external requires a non-blank waiting_reason (422 otherwise); the task status is derived from its steps. T-74f8 交棒閘: if this report would CLOSE the task (every step done) AND the task's creator is not its executor, the call is REFUSED with 422 unless you say where the ball goes IN THIS SAME CALL — handoff='return_to_creator' (recorded on the task and nothing else — no task is opened and nobody is notified), handoff='follow_up' + handoff_task_id=<a successor task you already created> (the server hangs this task off it as a dependency, and closing this one releases it), or handoff='none' + handoff_note=<why nothing follows>. The gate stands aside by itself when a non-terminal task already depends on this one — you never see it if the handover is already real. It refuses BEFORE writing anything, so a refused report leaves the plan fully editable: create the successor task, then re-send this same report with the declaration. This is your LAST chance — once the task closes it can never be replanned (submit_plan becomes a permanent 409).
          * @description Agent-reported step status (MCP ``update_step_status``): ``pending`` → ``in_progress`` → ``done`` — ``waiting_owner`` is NOT agent-reportable on either side (a step enters it only by opening a reply card: open_gate / create_reply_card auto-bind, and leaves it only when that card is answered, where the server restores in_progress), so reporting ``waiting_owner`` is a 400 and a move out of it is a 409; other illegal transitions are a 409. ``superseded`` is likewise not the agent's lever: the server freezes a replaced answered-card step itself on submit_plan (T-1aea), so reporting ``superseded`` is a 400 and no report moves a step out of it (409 — terminal).
          */
         post: operations["handle_update_task_step_status_api_tasks__task_id__steps__step_id__status_post"];
@@ -3374,14 +3432,74 @@ export interface paths {
          * Fetch a theme bundle from a link (owner/admin agent).
          * @description Pull a theme bundle from a LINK so the cockpit's import box can take a URL instead of only pasted text / a picked file (T-29c7). It exists because a theme carrying a background image runs to hundreds of thousands of characters while a chat message is hard-capped at 4000 — without this there is no channel at all through which an agent can hand the owner a finished theme.
          *
-         *     The server GETs the url and answers `{content}` — the RAW response text — which the cockpit then feeds through the same parse/validate path a pasted bundle takes. Before answering it proves the body is JSON and passes the shared theme-bundle validator (the same `validateThemeBundles` that guards `PATCH /api/settings`), so a link pointing at something that is not a theme is a 422 naming what is wrong, not a mystery further down the UI.
+         *     The server GETs the url and answers `{content}` — the RAW response text — which the cockpit then feeds through the same parse/validate path a pasted bundle takes. Before answering it proves the body is JSON and passes the shared theme-bundle validator (the same `validateThemeBundles` that guards the theme write itself — `PATCH /api/settings`' custom_themes array until T-83ef, `PUT /api/themes/{theme_id}` since), so a link pointing at something that is not a theme is a 422 naming what is wrong, not a mystery further down the UI.
          *
          *     🔴 The link's ORIGIN is deliberately NOT constrained — no host allowlist, no private/loopback address refusal, no per-hop redirect re-validation. That is an explicit owner ruling (2026-08-03), taken AFTER the timing of the risk was spelled out to him (the fetch happens before any content is seen, so "check the format" cannot cover it). It is recorded here so the next reader knows it is a decision, not an oversight; do not "fix" it without a new ruling.
          *
-         *     What IS bounded, for availability rather than safety, is the CALL: an 8-second timeout and a hard response-size ceiling, so one unresponsive or endless URL cannot pin a request. Transport failure / timeout / non-200 upstream → 502; an oversized, non-JSON or non-theme body → 422. Gated at admin_agent, the same floor as the `PATCH /api/settings` write that stores the imported theme.
+         *     What IS bounded, for availability rather than safety, is the CALL: an 8-second timeout and a hard response-size ceiling, so one unresponsive or endless URL cannot pin a request. Transport failure / timeout / non-200 upstream → 502; an oversized, non-JSON or non-theme body → 422. Gated at admin_agent, the same floor as the write that stores the imported theme (`PUT /api/themes/{theme_id}` since T-83ef; the `PATCH /api/settings` custom_themes array before it). The two floors are kept equal on purpose: a caller that could fetch but not store would only ever reach a dead end.
          */
         post: operations["handle_fetch_theme_api_theme_fetch_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/themes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the saved custom themes — id and name only, in list order (owner/admin agent).
+         * @description List the saved custom themes — ONE LINE EACH, id and name only (T-83ef).
+         *
+         *     🔴 IT DELIBERATELY DOES NOT RETURN THE BUNDLES. A theme carries its images embedded, so a list of whole bundles is hundreds of kilobytes to megabytes — on the install this ticket moved, four themes come to 1.59 MB, one of them 953 KB by itself. That payload is exactly what made `GET /api/settings` unusable and is the reason this resource exists, so serving it again from a new door would have reproduced the problem rather than fixed it (owner ruling 2026-08-18: the list needs the title and the little the UI shows, nothing more).
+         *
+         *     id and name are what the cockpit's theme list and the profile theme picker actually render. Everything else a caller might want a theme FOR — applying it, editing it, exporting it — is about ONE theme, and that one theme is `GET /api/themes/{theme_id}`.
+         */
+        get: operations["handle_list_themes_api_themes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/themes/{theme_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read one saved custom theme (unknown id → 404).
+         * @description Read ONE saved custom theme by id (T-83ef). Unknown id → 404.
+         *
+         *     The per-item read that makes "edit one theme" possible without pulling the whole set: before this split a caller who wanted one bundle had to fetch every bundle, including every embedded image, because they shared one settings value.
+         */
+        get: operations["handle_get_theme_api_themes__theme_id__get"];
+        /**
+         * Create or replace ONE custom theme; the bundle's id must match the path (owner/admin agent).
+         * @description Create or replace ONE saved custom theme (T-83ef). The write this split exists to make expressible: before it, changing a single colour meant re-sending EVERY theme with EVERY embedded image, because all of them lived in one settings value.
+         *
+         *     `theme_id` in the path is the key the bundle is filed under and the bundle's own `id` must equal it — a mismatched pair is a 422 rather than a silently re-keyed theme. The bundle is validated exactly as the old whole-array write validated it (shape, the theme.css token whitelist, the concrete-colour grammar, the image gates); any violation is a 422 and nothing is written. The ONE exception is an unrecognised `wording` code, which is dropped from the bundle instead of failing it (see ThemeBundleDTO.wording).
+         *
+         *     Creating a theme when the saved set is already at its cap is a 422; replacing an existing one is not capped. A replace KEEPS the theme's position in the owner's list — re-colouring a theme does not move it to the bottom. The answer is a small receipt, not the bundle echoed back: echoing it would send the embedded images a second time, which is the payload this ticket exists to remove.
+         */
+        put: operations["handle_put_theme_api_themes__theme_id__put"];
+        post?: never;
+        /**
+         * Delete one custom theme; deleting the active one resets display_theme to "".
+         * @description Delete ONE saved custom theme (T-83ef). Unknown id → 404.
+         *
+         *     Deleting the ACTIVE theme resets `display_theme` back to `""` in the same request — the coupling the whole-array settings write used to perform — and the receipt says whether that happened, so the cockpit does not have to re-read settings to find out its theme changed under it.
+         */
+        delete: operations["handle_delete_theme_api_themes__theme_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -5450,7 +5568,7 @@ export interface components {
             presence: string;
             /**
              * Refocus Deadline
-             * @description Epoch seconds by which the in-flight handover stamped in ``refocus_since`` is force-collected (``refocus_since`` + the reconcile recycle grace), 0 when no handover is in flight. Derived at read time, never stored. It exists so a client can say WHEN a pending launch change takes effect at the latest without hard-coding a server constant; the collection fires the instant the agent answers ``report_stopped``, so this is a CEILING, not a prediction (T-7f28). Additive-optional.
+             * @description Epoch seconds by which the in-flight handover stamped in ``refocus_since`` is force-collected (``refocus_since`` + the reconcile recycle grace). ZERO CARRIES TWO MEANINGS, and a client that reads it as one of them will be wrong about the other: no handover is in flight, OR a handover is in flight that NOTHING collects on a clock at all — an owner-pressed ``refocus`` (owner 2026-08-19), whose deadline would otherwise be a time the cockpit renders and then watches pass. ``refocus_op`` is what tells the two apart. Rendering no deadline is correct for both. Derived at read time, never stored. It exists so a client can say WHEN a pending launch change takes effect at the latest without hard-coding a server constant; the collection fires the instant the agent answers ``report_stopped``, so this is a CEILING, not a prediction (T-7f28). Additive-optional.
              * @default 0
              */
             refocus_deadline: number;
@@ -6384,6 +6502,27 @@ export interface components {
             reason?: string | null;
         };
         /**
+         * ResumeAnsweredCardStepDTO
+         * @description ONE step of a resume-summary task row that is sitting on a reply card the owner has ALREADY answered while the step itself is still ``in_progress`` — the answer landed and nobody has acted on it yet. It carries ``step_id``, ``step_name`` and ``card_id`` and NO card body: read the answer with ``get_reply_card``. This is a POINTER, never a verdict — the server puts a held step back to ``in_progress`` the moment the card is answered (it releases the wait, it does not do the executor's work), and an owner's answer is as often 不通過／改做 as it is approval, so nothing here means the step is finished.
+         */
+        ResumeAnsweredCardStepDTO: {
+            /**
+             * Card Id
+             * @default
+             */
+            card_id: string;
+            /**
+             * Step Id
+             * @default
+             */
+            step_id: string;
+            /**
+             * Step Name
+             * @default
+             */
+            step_name: string;
+        };
+        /**
          * ResumeChatCutDTO
          * @description The CUT POINT of the wake snapshot's chat: whether messages exist that this
          *     payload does NOT carry, and how to go and get them.
@@ -6432,7 +6571,7 @@ export interface components {
         };
         /**
          * ResumeOverviewDTO
-         * @description The size/概要 block of the wake snapshot — the peek-then-decide signals (look at the SIZES first, then decide what to pull and whether to hand the digest to a sub-agent instead of loading it into your own context). ``chat_count`` / ``tasks_returned`` count what THIS snapshot carries; ``tasks_open_total`` is ALL the caller's open tasks (may exceed the bounded rows — page with ``list_tasks``); ``tasks_detail_chars`` sums every returned row's ``detail_chars`` (the plan text a full ``get_task`` pull would load); ``cards_waiting`` / ``cards_answered_recent`` count the CALLER'S reply cards still waiting on the owner / answered within the last 24h (pull with ``list_reply_cards``, cap with its ``limit``). ``roster_chars`` / ``machines_chars`` (T-1b09) size the two studio-floor blocks THIS snapshot carries — reported separately, and deliberately NOT folded into ``tasks_detail_chars``: that one counts text the snapshot does NOT carry (the plan text a later ``get_task`` would load), so mixing the two kinds of number is what made ``estimated_total_chars`` ambiguous in the first place.
+         * @description The size/概要 block of the wake snapshot — the peek-then-decide signals (look at the SIZES first, then decide what to pull and whether to hand the digest to a sub-agent instead of loading it into your own context). ``chat_count`` / ``tasks_returned`` count what THIS snapshot carries; ``tasks_open_total`` is ALL the caller's open tasks (may exceed the bounded rows — page with ``list_tasks``); ``tasks_detail_chars`` sums every returned row's ``detail_chars`` (the plan text a full ``get_task`` pull would load); ``cards_waiting`` / ``cards_answered_recent`` count the CALLER'S reply cards still waiting on the owner / answered within the last 24h (pull with ``list_reply_cards``, cap with its ``limit``). ``roster_chars`` / ``machines_chars`` (T-1b09) size the two studio-floor blocks THIS snapshot carries — reported separately, and deliberately NOT folded into ``tasks_detail_chars``: that one counts text the snapshot does NOT carry (the plan text a later ``get_task`` would load), so mixing the two kinds of number is what made ``estimated_total_chars`` ambiguous in the first place. ``steps_on_answered_card`` counts the ``answered_card_steps`` rows across the returned tasks — steps sitting on a reply card the owner already answered while the step is still ``in_progress``, i.e. an answer nobody has picked up; ``steps_on_answered_card_chars`` sizes the text those rows carry and, like ``roster_chars``/``machines_chars``, IS folded into ``estimated_total_chars`` because the snapshot does carry it.
          */
         ResumeOverviewDTO: {
             /** Cards Answered Recent */
@@ -6447,6 +6586,10 @@ export interface components {
             machines_chars?: number;
             /** Roster Chars */
             roster_chars?: number;
+            /** Steps On Answered Card */
+            steps_on_answered_card?: number;
+            /** Steps On Answered Card Chars */
+            steps_on_answered_card_chars?: number;
             /** Tasks Detail Chars */
             tasks_detail_chars: number;
             /** Tasks Open Total */
@@ -6569,10 +6712,12 @@ export interface components {
          *     through the shared server path, so they cannot drift) plus
          *     ``estimated_total_chars`` — a derived single number the boot threshold gates on:
          *     exactly ``chat_chars`` + ``tasks_detail_chars`` + ``roster_chars`` +
-         *     ``machines_chars``, all four reported in ``overview``. That is the WHOLE chat
+         *     ``machines_chars`` + ``steps_on_answered_card_chars``, all five reported in
+         *     ``overview``. That is the WHOLE chat
          *     block as the snapshot renders it (``chat_chars`` is the rendered block's cost,
-         *     NOT the sum of the message bodies), plus the plan text its task rows omit and
-         *     the two studio-floor blocks it carries — and
+         *     NOT the sum of the message bodies), plus the plan text its task rows omit, the
+         *     two studio-floor blocks it carries and the answered-card pointers on its task
+         *     rows — and
          *     a fixed guidance ``note``. It carries NO chat bodies and NO task rows: peeking
          *     it costs a few hundred bytes, so a waking agent can size ``resume_summary``
          *     BEFORE deciding whether to pull it into its own context or hand the pull to a
@@ -6594,9 +6739,11 @@ export interface components {
         };
         /**
          * ResumeTaskDTO
-         * @description One task the resuming caller EXECUTES, in the resume-summary snapshot (SPEC §6.2) — a LIGHT row (owner ruling: 任務不該包含細節; the wake snapshot carries NO steps and NO DoD text). It names the task (``task_no``/``title``/``type_key``), its ``status``/``priority``/``waiting_reason``, the current node (``current_step_id`` + ``current_step_name`` — the first non-terminal step — ``superseded`` replan history is skipped like ``done``; both ``''`` when the plan is empty or complete), the executed-vs-pending boundary as ``progress_done``/``progress_total``, and ``updated_ts``. ``detail_chars`` is the SIZE (in characters) of the plan text this row omits (every step's name + DoD) — the peek-then-decide signal: check it BEFORE pulling detail, and hand a large ``get_task`` pull to a sub-agent instead of loading it into your own context. Non-terminal tasks only; the list is BOUNDED (most recently updated first) — page the rest with ``list_tasks`` / ``get_task``.
+         * @description One task the resuming caller EXECUTES, in the resume-summary snapshot (SPEC §6.2) — a LIGHT row (owner ruling: 任務不該包含細節; the wake snapshot carries NO steps and NO DoD text). It names the task (``task_no``/``title``/``type_key``), its ``status``/``priority``/``waiting_reason``, the current node (``current_step_id`` + ``current_step_name`` — the first non-terminal step — ``superseded`` replan history is skipped like ``done``; both ``''`` when the plan is empty or complete), the executed-vs-pending boundary as ``progress_done``/``progress_total``, and ``updated_ts``. ``detail_chars`` is the SIZE (in characters) of the plan text this row omits (every step's name + DoD) — the peek-then-decide signal: check it BEFORE pulling detail, and hand a large ``get_task`` pull to a sub-agent instead of loading it into your own context. ``answered_card_steps`` names the steps of THIS task that sit on a reply card the owner has ALREADY ANSWERED while the step is still ``in_progress`` — the answer arrived and nobody picked it up; empty on a normal row. It is the one thing on this row a status field cannot tell you, because an answered card releases its step back to ``in_progress``, which is the SAME value a step being actively worked carries. Read the card (``get_reply_card``) before deciding — the answer may well be 不通過／改做, and nothing about this signal marks the step done. Non-terminal tasks only; the list is BOUNDED (most recently updated first) — page the rest with ``list_tasks`` / ``get_task``.
          */
         ResumeTaskDTO: {
+            /** Answered Card Steps */
+            answered_card_steps?: components["schemas"]["ResumeAnsweredCardStepDTO"][];
             /**
              * Current Step Id
              * @default
@@ -7145,12 +7292,6 @@ export interface components {
              */
             display_wide: boolean;
             /**
-             * Custom Themes
-             * @description The owner's saved custom theme bundles (T-16a1 P2), each a `{id,name,colors}` colour bundle. `[]` = none saved. display_theme may point at any id in this set (or a built-in). Governance-gated (owner/admin agent): rides GET /api/settings only.
-             * @default []
-             */
-            custom_themes: components["schemas"]["ThemeBundleDTO"][];
-            /**
              * Chat Budget Chars
              * @description The wake snapshot's chat block budget, in CHARACTERS (Unicode code points). It bounds EVERYTHING `overview.chat_chars` counts — the messages and their folded cards plus the snapshot header and the cut hint — and it is the same number `peek_resume_summary_size` sizes its `estimated_total_chars` against, because both faces are assembled by one code path. Unlike the `doc_cap_chars_*` knobs this one may be LOWERED as well as raised: the chat block is repacked from scratch on every read, so a smaller budget simply returns fewer messages next time, with `chat_earlier_omitted` reporting the cut. The adjustable range is 1000..13000; the ceiling is tied to how many messages the packer reads before packing, so it is not a number that can be raised on its own.
              * @default 6000
@@ -7357,7 +7498,7 @@ export interface components {
             display_language?: string | null;
             /**
              * Display Theme
-             * @description The owner's cockpit visual theme (T-0b41-p2) — trimmed; "" clears it back to unset. Must be one of office, xian (or ""); anything else is a 422.
+             * @description The owner's cockpit visual theme (T-0b41-p2) — trimmed; "" clears it back to unset. Accepted values are "", the built-in `office`, or the id of a theme that ALREADY EXISTS (T-83ef); anything else is a 422 reading `display_theme must be "", office, or an existing custom theme id`. The existence half is why this can no longer create a theme on the way past: themes are their own resource now, so save it with PUT /api/themes/{theme_id} first and select it here second. (This said "one of office, xian" until T-83ef — wrong twice over: `xian` stopped being built in when it became an importable pack, and the custom ids were never listed.)
              */
             display_theme?: string | null;
             /**
@@ -7365,11 +7506,6 @@ export interface components {
              * @description Turn the WIDE cockpit layout on/off (T-756f) — true lifts the centred ~1040px content column (the side gutters stay), false restores it. A plain boolean with no unset state: omit the field to leave it unchanged.
              */
             display_wide?: boolean | null;
-            /**
-             * Custom Themes
-             * @description Replace the owner's custom theme bundles (T-16a1 P2) with this array (each `{id,name,colors}`). Omit to leave them unchanged; `[]` clears them. Every bundle is validated against the shape, the theme.css token whitelist, and the concrete-colour grammar — any violation is a 422 and nothing is written. The ONE exception is an unrecognised `wording` code, which is dropped from the bundle instead of failing it (see ThemeBundleDTO.wording): that request is a 200 whose echo carries the pruned overlay. When this and display_theme are patched together, display_theme is validated against the POST-patch set; and deleting the active custom theme resets display_theme to "".
-             */
-            custom_themes?: components["schemas"]["ThemeBundleDTO"][] | null;
             /**
              * Handover Pct
              * @description The SECOND offboard point: the FINAL notice, and where the automatic handover fires. 40..90, and strictly greater than notice_pct (the pair is validated together against the POST-patch values, so either one may be sent alone).
@@ -7687,7 +7823,7 @@ export interface components {
             handoff_note: string;
             /**
              * Handoff Task Id
-             * @description The successor task the handover points at ("" for ``handoff='none'``).
+             * @description The successor task the handover points at. Only ``handoff='follow_up'`` ever sets it: it is "" for ``handoff='none'`` and "" for ``handoff='return_to_creator'`` too, which since T-f265 opens no task at all and notifies nobody — it only records where the ball went.
              * @default
              */
             handoff_task_id: string;
@@ -8322,6 +8458,52 @@ export interface components {
             type_key: string;
         };
         /**
+         * TaskSopPatchDTO
+         * @description Anchor-addressed PATCH of a type's SOP (MCP ``patch_task_sop`` — the sop_md twin of ``patch_task_learnings``): ``{edits: [{old, new}], allow_shrink?}``. It exists to stop CONCURRENT OVERWRITE: the only sop_md write face was ``update_task_manual.sop_md``, a whole-doc replace, so a caller holding a stale copy silently deletes whatever landed in between — and because the stale copy is usually the LONGER one, the shrink guard never fires and the loss carries no signal at all. An anchor patch cannot express that write: each non-empty ``old`` must match the current sop_md EXACTLY ONCE, so a concurrent write that moved or duplicated the anchor turns the batch into a visible refusal. ATOMIC — edits apply sequentially to an in-memory copy and any failing anchor (absent or ambiguous ``old``) rejects the ENTIRE batch with a flat 400 and ZERO writes. ``allow_shrink`` (default false) must be set explicitly for a patch that empties the doc or shrinks it to under a tenth of its size — the r-76 wipe-guard posture.
+         */
+        TaskSopPatchDTO: {
+            /**
+             * Allow Shrink
+             * @default false
+             */
+            allow_shrink: boolean;
+            /** Edits */
+            edits: components["schemas"]["LessonsEditDTO"][];
+        };
+        /**
+         * TaskSopPatchResultDTO
+         * @description Receipt of a task-SOP PATCH (MCP ``patch_task_sop``). ``size_chars`` (CHARACTERS — Unicode code points, the SAME unit as the ``doc.cap_chars.manual_sop`` cap the write is judged against) and ``sha256`` (hex) are lightweight verification anchors over the RESULTING sop_md text, so the caller can confirm the write landed without re-reading the full doc. ``applied_edits`` counts the edits that changed the text THEY were handed (a no-op append/replace does not count), so "0 applied" is expressible and a silent no-op cannot masquerade as success. It is not a report on whether the document ended up different from where it started: a batch whose edits undo one another (``anchor → middle`` then ``middle → anchor``) reports the full count over a sop_md that never moved, and nothing is written in that case. To decide whether the doc actually changed, compare ``sha256`` against the value you held before the call.
+         */
+        TaskSopPatchResultDTO: {
+            /**
+             * Applied Edits
+             * @default 0
+             */
+            applied_edits: number;
+            /**
+             * Sha256
+             * @default
+             */
+            sha256: string;
+            /**
+             * Cap Chars
+             * @description The document size cap in force when this write was judged, in CHARACTERS (the doc.cap_chars.manual_sop setting — this face only ever writes sop_md). Returned so a caller can see its remaining budget without a second request — the cap is adjustable and agents cannot read the settings surface.
+             * @default 0
+             */
+            cap_chars: number;
+            /**
+             * Size Chars
+             * @description Size of the RESULTING document in CHARACTERS (Unicode code points) — the same unit as cap_chars.
+             * @default 0
+             */
+            size_chars: number;
+            /**
+             * Type Key
+             * @default
+             */
+            type_key: string;
+        };
+        /**
          * TaskStepDTO
          * @description One workflow node on the task timeline. Every row is one progress leaf (parallel items are separate rows sharing ``parallel_group``). A parallel stage is CONSECUTIVE rows sharing a non-empty ``parallel_group`` — submit_plan refuses (400) split groups, one-lane groups and gates inside a group, so stored plans always fold cleanly. ``status`` is the closed set ``pending`` | ``in_progress`` | ``waiting_owner`` | ``done`` | ``superseded``. ``done`` and ``superseded`` are the step's terminal states: ``superseded`` (T-1aea) is stamped by submit_plan alone — a replan freezes a step whose latest bound reply card was already answered/expired as kept history (original order, ahead of the fresh plan) unless the fresh plan re-lists the node by name; a superseded row counts toward neither ``progress_done`` nor ``progress_total``, is never the current node, is not agent-reportable and cannot be re-armed; its ``finished_ts`` is the freeze moment. Gate projection: ``is_gate`` with an empty ``reply_card_id`` is the ANNOUNCED (dashed) gate; a non-empty ``reply_card_id`` is a step carrying a live reply card — an ARMED gate, or a plain step a ``create_reply_card`` ask auto-bound to. ``reply_card_id`` always points at the LATEST bound card and persists after the step finishes (the permanent approval mark).
          */
@@ -8394,6 +8576,54 @@ export interface components {
         TaskStepNoteReceiptDTO: {
             /** Note */
             note: string;
+            /** Step Id */
+            step_id: string;
+            /** Step Status */
+            step_status: string;
+            /** Task Id */
+            task_id: string;
+        };
+        /**
+         * TaskStepNotePatchDTO
+         * @description Anchor-addressed PATCH of one step's working note (MCP ``patch_step_note``): ``{edits: [{old, new}], allow_shrink?}``. It exists to stop CONCURRENT OVERWRITE: ``update_step_note`` is a whole-doc replace, so a caller that read the note earlier and writes it back silently deletes whatever a second writer added in between — and because the stale copy is usually the LONGER one, no shrink guard fires and the loss carries no signal at all. An anchor patch cannot express that write: each non-empty ``old`` must match the current note EXACTLY ONCE, so a concurrent write that moved or duplicated the anchor turns the batch into a refusal. ATOMIC — edits apply sequentially to an in-memory copy and any failing anchor (absent or ambiguous ``old``) rejects the ENTIRE batch with a flat 400 and ZERO writes; an empty ``old`` appends ``new``. ``allow_shrink`` (default false) must be set explicitly for a patch that empties the note or shrinks it to under a tenth of its size — the r-76 wipe-guard posture; use ``update_step_note`` for an honest wholesale rewrite.
+         */
+        TaskStepNotePatchDTO: {
+            /**
+             * Allow Shrink
+             * @default false
+             */
+            allow_shrink: boolean;
+            /** Edits */
+            edits: components["schemas"]["LessonsEditDTO"][];
+        };
+        /**
+         * TaskStepNotePatchResultDTO
+         * @description Receipt of a step-note PATCH (MCP ``patch_step_note``). Echoes the note as STORED — the same posture as the wholesale receipt, since the whole point of the field is that a later session reads it back — plus ``applied_edits`` (the edits that changed the text THEY were handed, so "0 applied" is expressible and a silent no-op cannot masquerade as success — it is not a report on whether the note ended up different from where it started: a batch whose edits undo one another (``anchor → middle`` then ``middle → anchor``) reports the full count over a note that never moved, and in that case the stored note, the task's ``updated_ts`` and every open cockpit card are left exactly as they stood, so compare ``sha256`` against the value you held before the call to decide that) and ``size_chars``/``cap_chars``/``sha256`` verification anchors over the resulting note. ``size_chars`` and ``cap_chars`` are CHARACTERS (Unicode code points), the unit the note's limit is enforced in.
+         */
+        TaskStepNotePatchResultDTO: {
+            /**
+             * Applied Edits
+             * @default 0
+             */
+            applied_edits: number;
+            /**
+             * Cap Chars
+             * @description The step-note ceiling this write was judged against, in CHARACTERS — the same limit ``update_step_note`` enforces, shared with the task-level handover note. NOT a setting: unlike the ``cap_chars`` on the manual patch receipts (which report the adjustable ``doc.cap_chars.*`` values), this one is a server CONSTANT and no settings key moves it. Same field name, different source — do not read one as evidence about the other.
+             * @default 0
+             */
+            cap_chars: number;
+            /** Note */
+            note: string;
+            /**
+             * Sha256
+             * @default
+             */
+            sha256: string;
+            /**
+             * Size Chars
+             * @default 0
+             */
+            size_chars: number;
             /** Step Id */
             step_id: string;
             /** Step Status */
@@ -8543,6 +8773,42 @@ export interface components {
         ThemeFetchResultDTO: {
             /** Content */
             content: string;
+        };
+        /**
+         * ThemeListItemDTO
+         * @description One row of GET /api/themes (T-83ef): a saved theme's identity and its display name, and nothing else. It is a LIST ITEM rather than the bundle on purpose — see that endpoint's description for why a list of whole bundles is the payload this resource exists to stop serving. `name` is what the cockpit's theme list and the profile picker render; `id` is what selects it, edits it, or fetches it in full.
+         */
+        ThemeListItemDTO: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+        };
+        /**
+         * ThemeWriteReceiptDTO
+         * @description Receipt for a single-theme write (T-83ef). It is a RECEIPT rather than the stored bundle echoed back on purpose: a bundle carries its images embedded, so echoing it would send hundreds of kilobytes a second time — the payload this split exists to remove. ``created`` distinguishes a theme that did not exist before from one that was replaced; ``order_idx`` is its position in the owner's list, which a replace KEEPS (re-colouring a theme does not move it to the bottom); ``updated_at`` is when this write landed.
+         */
+        ThemeWriteReceiptDTO: {
+            /** Created */
+            created: boolean;
+            /** Id */
+            id: string;
+            /** Order Idx */
+            order_idx: number;
+            /** Updated At */
+            updated_at: number;
+        };
+        /**
+         * ThemeDeleteResultDTO
+         * @description Receipt for deleting one custom theme (T-83ef). ``display_theme_reset`` is the part a caller cannot work out on its own: deleting the ACTIVE theme resets ``display_theme`` back to ``""`` in the same request — the coupling the whole-array settings write used to perform — and this field says whether that happened, so the cockpit does not have to re-read settings to discover its theme changed under it.
+         */
+        ThemeDeleteResultDTO: {
+            /** Deleted */
+            deleted: boolean;
+            /** Display Theme Reset */
+            display_theme_reset: boolean;
+            /** Id */
+            id: string;
         };
         /**
          * TokenDTO
@@ -14773,6 +15039,59 @@ export interface operations {
             };
         };
     };
+    handle_patch_task_sop_api_task_manuals__type_key__sop_patch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                type_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskSopPatchDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskSopPatchResultDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
     handle_list_tasks_api_tasks_get: {
         parameters: {
             query?: {
@@ -15707,6 +16026,60 @@ export interface operations {
             };
         };
     };
+    handle_patch_task_step_note_api_tasks__task_id__steps__step_id__note_patch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+                step_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskStepNotePatchDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskStepNotePatchResultDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
     handle_update_task_step_status_api_tasks__task_id__steps__step_id__status_post: {
         parameters: {
             query?: never;
@@ -15883,6 +16256,204 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ThemeFetchResultDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_list_themes_api_themes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThemeListItemDTO"][];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_get_theme_api_themes__theme_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                theme_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThemeBundleDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_put_theme_api_themes__theme_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                theme_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThemeBundleDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThemeWriteReceiptDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_delete_theme_api_themes__theme_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                theme_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThemeDeleteResultDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

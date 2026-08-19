@@ -1,6 +1,9 @@
 // T-3738 req4 guard: 設定 › 主題管理 的「新增」流程。點「新增」必須
-//   * 以辦公室為底建立一份新的自訂主題(customThemes 多一筆),且
+//   * 以辦公室為底建立一份新的自訂主題(主題清單多一筆),且
 //   * 直接進 edit view 讓使用者改。
+// T-83ef 之後「新增」是一次真的寫入(PUT /api/themes/{id}),伺服器收下之後
+// 才會進編輯器 —— 所以清單長出那一列與編輯器打開都不再是同一個 tick 的事。
+// 這裡的 expect 全部走 Playwright 的 auto-retry,不要改成即時快照。
 // 以真實 app CSS 掛載(theme.css 由 playwright/index.ts 載入),故新主題的
 // 顏色是真的辦公室 :root 調色盤 —— 不是空殼。
 import { test, expect } from "@playwright/experimental-ct-react";
@@ -28,8 +31,8 @@ for (const width of [390, 1280]) {
     const colorRows = cmp.locator(".ts-color-row");
     expect(await colorRows.count()).toBeGreaterThan(5);
 
-    // Back to the list: customThemes grew by one, and the new row lands in the
-    // 自訂 group (rows carry no badge of their own).
+    // Back to the list: the theme list grew by one, and the new row lands in
+    // the 自訂 group (rows carry no badge of their own).
     await cmp.getByRole("button", { name: "取消" }).click();
     await expect(cmp.locator(".ts-list > .ts-row")).toHaveCount(2);
     const customGroup = cmp.locator(".ts-list:has(#ts-group-custom)");

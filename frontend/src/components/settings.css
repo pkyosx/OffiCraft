@@ -608,6 +608,39 @@
   font-weight: 700;
   color: var(--color-text-strong);
 }
+/* h4-h6 (T-2bb4). The ladder above has already run out of SIZE by h3 — it sits
+   at the body's own 14px and is told apart by weight and colour — so these three
+   continue on all three axes at once, and EVERY ADJACENT PAIR must differ on at
+   least one of them. That rule is not decoration: review caught a first draft
+   where h4 and h5 were both 13px/700 and differed only by two text colours
+   1.09:1 apart, i.e. `#####` rendered indistinguishably from `####`. That is
+   this very ticket's failure mode re-run one level down — a heading with the
+   right tag and no visible sign it sits lower — and it is the reason the
+   `else → h3` chain was replaced rather than merely widened.
+     h3  14px / 700 / strong
+     h4  13px / 700 / text     (size ↓, colour ↓)
+     h5  12px / 700 / text     (size ↓)
+     h6  12px / 600 / muted    (weight ↓, colour ↓)
+   The margins tighten in step so a deep section still reads as belonging to the
+   one above it. */
+.doc-md h4 {
+  margin: 14px 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+.doc-md h5 {
+  margin: 12px 0 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+.doc-md h6 {
+  margin: 12px 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
 .doc-md p {
   margin: 10px 0;
 }

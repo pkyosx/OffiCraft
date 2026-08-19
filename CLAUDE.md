@@ -24,7 +24,7 @@ This file is read by Claude Code agents working in this repo.
 
 5. **token 權威在 server**：server 決定要起哪個 member、mint 該 member 的 token，並在派工時交給 warden；warden 與 agent 都不 mint、不自 bootstrap、不自行決定 auth。過渡中的 pull bootstrap 程式碼不是設計目標，先讀相關 spec 再改。
 
-6. **context 跟碼共存**：描述設計意圖的文件與程式碼一起更新；刪 legacy code 時同步處理其 context。doc 與 code 不一致時，不得直接假定 doc 過時；先查 authoritative source，必要時請 owner 決定。 <!-- defers-to: rule:conflicting-authorities@6a56076a857f -->
+6. **context 跟碼共存**：描述設計意圖的文件與程式碼一起更新；刪 legacy code 時同步處理其 context。doc 與 code 不一致時，不得直接假定 doc 過時；先查 authoritative source，必要時請 owner 決定。
 
 7. **完整 manifest**：push 前逐一審 `git diff --stat`／`git show --stat` 的新增、刪除、移動檔案；任何說不出必要性的檔案都要停下查清。這道人工檢查防的是預期檔以外的密鑰、暫存物或 scratchpad 跟著一起上遠端；path denylist 與 secrets scan 是硬防線，人眼審 manifest 仍是第一道。
 
@@ -40,7 +40,7 @@ This file is read by Claude Code agents working in this repo.
 - **先查 source of truth**：任何「完成」「能跑」「現況是 X」都回到 git、實際輸出或 CI 讀回驗證；exit code 或工具回應成功本身不等於驗收完成。比較基準用 `origin/main`，不要把本地孤兒 `main` 當現況。
 - **wire spec-first**：HTTP／MCP wire 先改 `spec/openapi.json` 並讓 owner 過目，再依生成流程更新產物；`spec/mcp-catalog.json` 是生成物，不是手改入口。行為面由 conformance 收官。
 - **完整與點名 CI 的判綠不同**：完整 `bash bin/ci.sh` 必須同時是 rc 0 且最後一行精確為 `[ci] all green`；`bash bin/run-checks.sh <target>...` 只看被點名項目的各自完成標記，不要套用完整 CI 的 marker。要跑哪些項目，以 `.github/workflows/ci.yml` 的實際指令與 `Makefile` 的具名 target 為準，不在文件裡另抄清單。
-- **Actions 守衛是可執行權威**：不要在文件裡列 job 名稱、數量或 gate 對應；清單會在 workflow 變更後靜默過期，而不會提醒讀者。以 workflow 內的 `oc-job-role`、workflow 的 trigger／job `if`／`needs`／permissions 與 `bin/tests/auto-beta-guard.sh` 的檢查為準；job 不得用 `continue-on-error` 偽裝成功。expression 分隔符使用雙引號可能讓 workflow 啟動失敗而變成零 jobs；它與 shell／普通 YAML 字串、單引號字面值不是同一格，修改時讓 guard 驗證，不要做寬鬆的全域引號正規化。 <!-- defers-to: rule:conflicting-authorities@6a56076a857f -->
+- **Actions 守衛是可執行權威**：不要在文件裡列 job 名稱、數量或 gate 對應；清單會在 workflow 變更後靜默過期，而不會提醒讀者。以 workflow 內的 `oc-job-role`、workflow 的 trigger／job `if`／`needs`／permissions 與 `bin/tests/auto-beta-guard.sh` 的檢查為準；job 不得用 `continue-on-error` 偽裝成功。expression 分隔符使用雙引號可能讓 workflow 啟動失敗而變成零 jobs；它與 shell／普通 YAML 字串、單引號字面值不是同一格，修改時讓 guard 驗證，不要做寬鬆的全域引號正規化。
 - **PR 才是 land 流程**：從 `origin/main` 開分支，先跑與改動相關的本機檢查，再 push 分支、開 PR，讀回確認分支與 check；受保護的 `main` 不直推。合併判準看 PR 上的雲端整輪 checks，不能用本機綠代替；rebase 後以 `git push --force-with-lease` 更新分支，禁止裸 `--force`，並重新取得雲端結論。main／CI 綠也不等於已部署，部署要走 release 並從版本 source of truth 驗證。
 - **release 先做不可跳過的 CI**：`bin/release publish --beta <tag> --target <sha>` 會在目標 commit 的乾淨 staging worktree 內跑完整 `bin/ci.sh`；必須 rc 0、最後一行精確為 `[ci] all green` 且 tracked tree 沒變，否則不 build、不 package、不 upload、不 tag。這道 preflight **沒有 skip switch**；`--dry-run`／`--no-settle` 不是 CI bypass。
 - **CI 副本隔離**：同一份 clone 一次只跑一輪 `bin/ci.sh`；要並行就另開 clone。不要把 `.ci-lock` 當成可忽略的雜訊。

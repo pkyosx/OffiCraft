@@ -13,7 +13,7 @@ package main
 //
 //	重啟   (refocus_member / restart_self) — stamps, dispatches NOTHING, and the
 //	       reconcile recycle arm waits for report_stopped or the epoch's grace
-//	       (recycleGraceFor: 120s, or the soft window plus 120s for 重新聚焦).
+//	       (recycleGraceFor: 120s — except 重新聚焦, which runs no clock at all).
 //	       FULL wind-down. UNCHANGED by this ticket (the sentinel).
 //	改機器 (relocate)                       — stamped nothing; reconcileMemberNow
 //	       took decideUp's relocate arm and dispatched a robust STOP ON THE
@@ -194,7 +194,12 @@ func (s *apiServer) armMemberOwnerOpHandover(m *Member, op string) bool {
 	m.RefocusOp = op
 	m.StoppingSince = 0.0
 	m.StoppedSince = 0.0
-	reconcileLog("recycle: %s %s — wind-down opened (collect on stopped-report or +%.0fs)",
-		op, m.ID, recycleGraceFor(op, s.reconcileCfg))
+	if grace, clocked := recycleGraceFor(op, s.reconcileCfg); clocked {
+		reconcileLog("recycle: %s %s — wind-down opened (collect on stopped-report or +%.0fs)",
+			op, m.ID, grace)
+	} else {
+		reconcileLog("recycle: %s %s — wind-down opened (collect on stopped-report or force-stop; no clock)",
+			op, m.ID)
+	}
 	return true
 }

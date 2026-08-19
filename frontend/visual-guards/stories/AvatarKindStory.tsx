@@ -6,8 +6,8 @@
 // `kind` at a site (member for an outsource subject, or a hard-coded glyph that
 // bypasses Avatar) shows the WRONG image src and reddens the guard.
 //
-// The theme is driven straight through the REAL i18n context (commitCustomThemes
-// — the same setter ProfileDropdown/ThemeSettings use), so activeAvatars
+// The theme is driven straight through the REAL i18n context (T-83ef: setTheme
+// + saveTheme, the same two setters ThemeSettings uses), so activeAvatars
 // resolves exactly as in production; no test-only backdoor into Avatar.
 import { useEffect } from "react";
 import { I18nProvider, useI18n } from "../../src/i18n";
@@ -32,12 +32,32 @@ const THEME: ThemeBundle = {
   },
 };
 
-// Apply the avatars theme through the real context, synchronously on mount.
+// Apply the avatars theme through the real context, in the TWO steps the
+// provider actually offers now (T-83ef): select the theme, then save its bundle.
+//
+// 🔴 THE ORDER IS THE WHOLE TRICK, and it is the provider's own rule rather than
+// a story convenience. `saveTheme` repaints only the theme you are LOOKING AT —
+// it adopts the bundle as the active one when the active id already equals the
+// bundle's id, and otherwise deliberately leaves the picture alone (editing
+// another theme must not change what is on screen). So the id is selected
+// FIRST, and the save is deferred to the render in which `theme` is already
+// this bundle's id. Doing both in one effect would race: the save's promise
+// settles before React has re-rendered with the new id, the provider sees a
+// different active theme, and the avatars never arrive.
+//
+// (`setTheme` alone cannot fetch the bundle here — there is no token in a CT
+// mount, and pre-auth there is no server to ask. `saveTheme` is what puts a
+// real bundle in the provider's hands, which is also exactly what happens in
+// production the moment the owner saves the theme they are wearing.)
 function ThemeSeeder({ children }: { children: React.ReactNode }) {
-  const { commitCustomThemes } = useI18n();
+  const { theme, setTheme, saveTheme } = useI18n();
   useEffect(() => {
-    commitCustomThemes([THEME], THEME.id);
-  }, [commitCustomThemes]);
+    setTheme(THEME.id);
+  }, [setTheme]);
+  useEffect(() => {
+    if (theme !== THEME.id) return;
+    void saveTheme(THEME);
+  }, [theme, saveTheme]);
   return <>{children}</>;
 }
 

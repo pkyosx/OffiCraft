@@ -1190,8 +1190,13 @@ func (s *apiServer) openOwnerOpHandover(w OutsourceWorker, op string) {
 	}
 	s.publishOutsourceWorker(w, triggerServer)
 	s.openWorkerHandoverGrace(w, triggerServer)
-	outsourceLog("%s %s (%s): wind-down opened — collect on stopped-report or +%.0fs",
-		op, w.ID, w.Codename, StoppingTimeoutSecs)
+	if grace, clocked := recycleGraceFor(op, s.reconcileCfg); clocked {
+		outsourceLog("%s %s (%s): wind-down opened — collect on stopped-report or +%.0fs",
+			op, w.ID, w.Codename, grace)
+	} else {
+		outsourceLog("%s %s (%s): wind-down opened — collect on stopped-report ONLY "+
+			"(this op runs no clock)", op, w.ID, w.Codename)
+	}
 }
 
 // respawnWorkerForOwnerOpNow is the IMMEDIATE arm (nothing to wind down): the
@@ -1375,7 +1380,8 @@ func (s *apiServer) autoHandoverWorker(w OutsourceWorker, now float64) {
 		if w.StoppedSince <= 0.0 {
 			if !s.hub.IsOnline(w.ID) {
 				s.collectWorkerHandover(w, "grace-offline", triggerServer)
-			} else if now >= w.RefocusSince+StoppingTimeoutSecs {
+			} else if grace, clocked := recycleGraceFor(w.RefocusOp, s.reconcileCfg); clocked &&
+				now >= w.RefocusSince+grace {
 				s.collectWorkerHandover(w, "grace-timeout", triggerServer)
 			}
 			return
@@ -1453,8 +1459,9 @@ func (s *apiServer) clearWorkerRefocus(id, reason string) {
 // (its ocagent recycleHook refetches GET /api/members/<self> and prints the
 // 下線程序 handover wake — the member machinery verbatim, zero client change)
 // and RETURN — the kill is owned by the 收口 drivers (the worker's own
-// report_stopped, or the StoppingTimeoutSecs grace deadline in
-// autoHandoverWorker's in-flight arm). An OFFLINE worker skips the window
+// report_stopped, or — on the ops that ARE on a clock — the recycleGraceFor
+// deadline in autoHandoverWorker's in-flight arm; 重新聚焦 has no such deadline,
+// so on that arm report_stopped is the ONLY 收口 driver, T-fe5e). An OFFLINE worker skips the window
 // entirely and takes the legacy immediate kill+respawn: no session can hear the
 // 預告, so a grace would only waste the full deadline (D6). Callers hold
 // s.outsourceMu and have already persisted the refocus stamp.
@@ -1465,8 +1472,16 @@ func (s *apiServer) openWorkerHandoverGrace(w OutsourceWorker, trigger string) {
 	}
 	s.hub.Publish("member", "patch", "member", wireOwnerID+"::"+w.ID,
 		s.offboardDeltaPayload(memberFromWorker(w)), audienceMembers(w.ID), trigger)
-	outsourceLog("handover %s (%s): grace opened — SOP nudge fanned, collect on "+
-		"stopped-report or +%.0fs", w.ID, w.Codename, StoppingTimeoutSecs)
+	// The log quotes the clock this epoch is ACTUALLY collected on. 重新聚焦 runs
+	// none (T-fe5e), and a line that named 120 s anyway would be the same lie the
+	// notice used to tell — read by whoever is debugging why nothing was collected.
+	if grace, clocked := recycleGraceFor(w.RefocusOp, s.reconcileCfg); clocked {
+		outsourceLog("handover %s (%s): grace opened — SOP nudge fanned, collect on "+
+			"stopped-report or +%.0fs", w.ID, w.Codename, grace)
+	} else {
+		outsourceLog("handover %s (%s): grace opened — SOP nudge fanned, collect on "+
+			"stopped-report ONLY (%s runs no clock)", w.ID, w.Codename, w.RefocusOp)
+	}
 }
 
 // collectWorkerHandover is the ONE 收口 funnel of the graceful worker handover:

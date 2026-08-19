@@ -2,10 +2,22 @@
 // and falls back to the built-in glyph when the theme carries none (office
 // never degrades). jsdom is enough: this is DOM-shape logic (which node renders
 // for a given kind), not geometry.
+//
+// T-83ef: the theme a member's avatar comes from is no longer handed to the
+// provider by the test — it lives on the server and the provider FETCHES the
+// active one. So each case saves its bundle through the mock API and then
+// switches to it, exactly as the cockpit does. Two consequences are product
+// behaviour, not test scaffolding: a signed-out cockpit never fetches a bundle
+// at all (`setTheme` is token-gated), and the paint lands one round trip after
+// the switch — hence the token in beforeEach and the waits below.
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, act, fireEvent } from "@testing-library/react";
+import { render, act, waitFor, fireEvent } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { I18nProvider, useI18n } from "../i18n";
+import { mockApi, __resetMock } from "../api/mock";
+import type { ThemeBundle } from "../lib/themeBundle";
+import { TOKEN_KEY } from "../api/auth";
 import { Avatar } from "./Avatar";
 
 // Two tiny-but-valid base64 rasters (magic bytes only — enough to pass the
@@ -30,46 +42,72 @@ function Capture() {
   return null;
 }
 
-describe("Avatar avatars-by-kind (T-16a1 P5)", () => {
-  beforeEach(() => {
-    localStorage.clear();
-  });
-
-  it("renders the built-in glyph (no <img>) under the office theme", () => {
-    const { container } = render(
+/** Mount under a provider whose reconcile is allowed to settle — the provider
+ * talks to the server on mount now, so a bare `render` would flush that work
+ * outside act(). */
+async function mount(children: ReactNode) {
+  let result!: ReturnType<typeof render>;
+  await act(async () => {
+    result = render(
       <I18nProvider>
         <Capture />
-        <Avatar size={40} kind="member" />
+        {children}
       </I18nProvider>
     );
+  });
+  return result;
+}
+
+/** Switch to a SAVED theme and wait for its one-bundle fetch to land. The sync
+ * act is deliberate: in the browser the switch comes from a click, so React has
+ * committed the new active id before the fetch resolves. An async act would let
+ * the fetch land first and the provider's "ignore a fetch that lost a race to a
+ * later switch" guard would (correctly) drop it. */
+async function activate(id: string) {
+  act(() => {
+    ctx.setTheme(id);
+  });
+  await waitFor(() => expect(ctx.activeThemeBundle?.id).toBe(id));
+}
+
+async function seed(bundle: ThemeBundle) {
+  await mockApi.putTheme(bundle);
+}
+
+describe("Avatar avatars-by-kind (T-16a1 P5)", () => {
+  beforeEach(() => {
+    __resetMock();
+    localStorage.clear();
+    // Signed in: a signed-out cockpit never fetches a bundle, so there would be
+    // no theme avatars to assert on.
+    localStorage.setItem(TOKEN_KEY, "live-owner-token");
+  });
+
+  it("renders the built-in glyph (no <img>) under the office theme", async () => {
+    const { container } = await mount(<Avatar size={40} kind="member" />);
     expect(container.querySelector("img.avatar__img")).toBeNull();
     // the fallback UserIcon is an <svg>
     expect(container.querySelector("svg")).not.toBeNull();
   });
 
-  it("selects the member image for kind=member and the outsource image for kind=outsource", () => {
-    const { getByTestId } = render(
-      <I18nProvider>
-        <Capture />
+  it("selects the member image for kind=member and the outsource image for kind=outsource", async () => {
+    await seed({
+      id: "portraits",
+      name: "Portraits",
+      colors: { "--color-bg": "#101018" },
+      avatars: { member: MEMBER_IMG, outsource: OUTSOURCE_IMG },
+    });
+    const { getByTestId } = await mount(
+      <>
         <div data-testid="member">
           <Avatar size={40} kind="member" />
         </div>
         <div data-testid="outsource">
           <Avatar size={40} kind="outsource" />
         </div>
-      </I18nProvider>
+      </>
     );
-    act(() => {
-      ctx.commitCustomThemes([
-        {
-          id: "portraits",
-          name: "Portraits",
-          colors: { "--color-bg": "#101018" },
-          avatars: { member: MEMBER_IMG, outsource: OUTSOURCE_IMG },
-        },
-      ]);
-      ctx.setTheme("portraits");
-    });
+    await activate("portraits");
     expect(
       getByTestId("member").querySelector("img.avatar__img")?.getAttribute("src")
     ).toBe(MEMBER_IMG);
@@ -80,29 +118,24 @@ describe("Avatar avatars-by-kind (T-16a1 P5)", () => {
     ).toBe(OUTSOURCE_IMG);
   });
 
-  it("selects the owner image for kind=owner and the assistant image for kind=assistant", () => {
-    const { getByTestId } = render(
-      <I18nProvider>
-        <Capture />
+  it("selects the owner image for kind=owner and the assistant image for kind=assistant", async () => {
+    await seed({
+      id: "roles",
+      name: "Roles",
+      colors: { "--color-bg": "#101018" },
+      avatars: { owner: OWNER_IMG, assistant: ASSISTANT_IMG },
+    });
+    const { getByTestId } = await mount(
+      <>
         <div data-testid="owner">
           <Avatar size={40} kind="owner" />
         </div>
         <div data-testid="assistant">
           <Avatar size={40} kind="assistant" />
         </div>
-      </I18nProvider>
+      </>
     );
-    act(() => {
-      ctx.commitCustomThemes([
-        {
-          id: "roles",
-          name: "Roles",
-          colors: { "--color-bg": "#101018" },
-          avatars: { owner: OWNER_IMG, assistant: ASSISTANT_IMG },
-        },
-      ]);
-      ctx.setTheme("roles");
-    });
+    await activate("roles");
     expect(
       getByTestId("owner").querySelector("img.avatar__img")?.getAttribute("src")
     ).toBe(OWNER_IMG);
@@ -113,58 +146,48 @@ describe("Avatar avatars-by-kind (T-16a1 P5)", () => {
     ).toBe(ASSISTANT_IMG);
   });
 
-  it("falls back to the glyph for owner / assistant when the theme carries none", () => {
-    const { getByTestId } = render(
-      <I18nProvider>
-        <Capture />
+  it("falls back to the glyph for owner / assistant when the theme carries none", async () => {
+    await seed({
+      id: "memberonly",
+      name: "MemberOnly",
+      colors: { "--color-bg": "#101018" },
+      avatars: { member: MEMBER_IMG },
+    });
+    const { getByTestId } = await mount(
+      <>
         <div data-testid="owner">
           <Avatar size={40} kind="owner" />
         </div>
         <div data-testid="assistant">
           <Avatar size={40} kind="assistant" />
         </div>
-      </I18nProvider>
+      </>
     );
-    act(() => {
-      ctx.commitCustomThemes([
-        {
-          id: "memberonly",
-          name: "MemberOnly",
-          colors: { "--color-bg": "#101018" },
-          avatars: { member: MEMBER_IMG },
-        },
-      ]);
-      ctx.setTheme("memberonly");
-    });
+    await activate("memberonly");
     expect(getByTestId("owner").querySelector("img.avatar__img")).toBeNull();
     expect(getByTestId("owner").querySelector("svg")).not.toBeNull();
     expect(getByTestId("assistant").querySelector("img.avatar__img")).toBeNull();
     expect(getByTestId("assistant").querySelector("svg")).not.toBeNull();
   });
 
-  it("falls back per-kind: a theme with only a member image keeps the glyph for outsource", () => {
-    const { getByTestId } = render(
-      <I18nProvider>
-        <Capture />
+  it("falls back per-kind: a theme with only a member image keeps the glyph for outsource", async () => {
+    await seed({
+      id: "half",
+      name: "Half",
+      colors: { "--color-bg": "#101018" },
+      avatars: { member: MEMBER_IMG },
+    });
+    const { getByTestId } = await mount(
+      <>
         <div data-testid="member">
           <Avatar size={40} kind="member" />
         </div>
         <div data-testid="outsource">
           <Avatar size={40} kind="outsource" />
         </div>
-      </I18nProvider>
+      </>
     );
-    act(() => {
-      ctx.commitCustomThemes([
-        {
-          id: "half",
-          name: "Half",
-          colors: { "--color-bg": "#101018" },
-          avatars: { member: MEMBER_IMG },
-        },
-      ]);
-      ctx.setTheme("half");
-    });
+    await activate("half");
     expect(
       getByTestId("member").querySelector("img.avatar__img")?.getAttribute("src")
     ).toBe(MEMBER_IMG);
@@ -173,24 +196,17 @@ describe("Avatar avatars-by-kind (T-16a1 P5)", () => {
     expect(getByTestId("outsource").querySelector("svg")).not.toBeNull();
   });
 
-  it("prefers the stable member image, then falls back to the role theme image on load failure", () => {
-    const { container } = render(
-      <I18nProvider>
-        <Capture />
-        <Avatar size={40} kind="member" src="blob:personal-avatar" />
-      </I18nProvider>
-    );
-    act(() => {
-      ctx.commitCustomThemes([
-        {
-          id: "fallback",
-          name: "Fallback",
-          colors: { "--color-bg": "#101018" },
-          avatars: { member: MEMBER_IMG },
-        },
-      ]);
-      ctx.setTheme("fallback");
+  it("prefers the stable member image, then falls back to the role theme image on load failure", async () => {
+    await seed({
+      id: "fallback",
+      name: "Fallback",
+      colors: { "--color-bg": "#101018" },
+      avatars: { member: MEMBER_IMG },
     });
+    const { container } = await mount(
+      <Avatar size={40} kind="member" src="blob:personal-avatar" />
+    );
+    await activate("fallback");
     const personal = container.querySelector("img.avatar__img");
     expect(personal?.getAttribute("src")).toBe("blob:personal-avatar");
     fireEvent.error(personal!);

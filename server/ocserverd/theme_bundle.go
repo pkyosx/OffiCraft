@@ -1,8 +1,10 @@
 package main
 
 // theme_bundle.go — T-16a1 P2: server-side validation of owner-authored theme
-// colour bundles (display.custom_themes). The security boundary is the colour
-// VALUE, not the token name.
+// colour bundles. (The parenthetical here named `display.custom_themes` until
+// T-83ef moved themes to their own table and endpoints; the validation is the
+// same, only what it is called from changed.) The security boundary is the
+// colour VALUE, not the token name.
 //
 // A bundle is `{ id, name, colors: { "--color-x": "<value>" } }`. It is stored
 // as JSON and, on the client, applied via element.style.setProperty(name,
@@ -34,8 +36,17 @@ const (
 	// maxThemeColors / minThemeColors bound the colours map in one bundle.
 	minThemeColors = 1
 	maxThemeColors = 200
-	// maxCustomThemes bounds how many bundles the owner may keep — the setting
-	// is one JSON row, so an unbounded array is the only way to bloat it.
+	// maxCustomThemes bounds how many themes the owner may keep.
+	//
+	// ⚠️ ITS ORIGINAL REASON IS GONE AND THE CAP IS NOT. It read "the setting is
+	// one JSON row, so an unbounded array is the only way to bloat it" — true
+	// until T-83ef gave themes their own table, where one more theme is one more
+	// row rather than a longer array. The cap stays because the thing it really
+	// bounds is what the OWNER accumulates: a theme carries its images embedded,
+	// so a hundred of them is already a large database and an unbounded number is
+	// an unbounded one. What changed is how it is asked — CountCustomThemes on
+	// creates only, since a replace keeps the count the same and refusing one
+	// would strand an owner at the limit with no way to edit.
 	maxCustomThemes = 100
 	// maxThemeNameLen caps a bundle's display name (runes), matching the
 	// existing 80-rune name convention (org.name / owner.name).
@@ -192,103 +203,127 @@ func validateThemeBundles(bundles []ThemeBundleDTO) error {
 	seen := make(map[string]bool, len(bundles))
 	for i, b := range bundles {
 		where := fmt.Sprintf("custom_themes[%d]", i)
-		if !themeBundleIDRe.MatchString(b.Id) {
-			return fmt.Errorf(
-				"%s: id must match ^[a-z0-9][a-z0-9-]{1,63}$ (got %q)", where, b.Id)
-		}
-		if reservedThemeIDs[b.Id] {
-			return fmt.Errorf("%s: id %q is reserved for a built-in theme", where, b.Id)
-		}
-		if seen[b.Id] {
-			return fmt.Errorf("%s: duplicate id %q", where, b.Id)
-		}
-		seen[b.Id] = true
-
-		name := trimThemeName(b.Name)
-		if n := utf8.RuneCountInString(name); n < 1 || n > maxThemeNameLen {
-			return fmt.Errorf(
-				"%s: name must be 1..%d characters after trimming", where, maxThemeNameLen)
-		}
-		if hasInvisibleNameRune(b.Name) {
-			return fmt.Errorf(
-				"%s: name must not contain control, formatting, private-use, surrogate or line/paragraph separator characters",
-				where)
-		}
-		if n := len(b.Colors); n < minThemeColors || n > maxThemeColors {
-			return fmt.Errorf(
-				"%s: colors must hold %d..%d entries (got %d)",
-				where, minThemeColors, maxThemeColors, n)
-		}
-		for token, value := range b.Colors {
-			if !themeColorTokens[token] {
-				return fmt.Errorf(
-					"%s: %q is not a theme colour token (see theme.css)", where, token)
-			}
-			if !validColorValue(value) {
-				return fmt.Errorf(
-					"%s: %q has an invalid colour value %q — only concrete "+
-						"hex / rgb() / rgba() / hsl() / hsla() / transparent are accepted",
-					where, token, value)
-			}
-		}
-		// wording (T-16a1 P3) is an OPTIONAL per-language text-override overlay —
-		// validated in full when present (language set + message-key whitelist +
-		// plain-text value rules), a no-op when absent.
-		if err := validateWording(b.Wording, where); err != nil {
-			return err
-		}
-		// fonts (T-16a1 P4) is an OPTIONAL --font-* → safe-family overlay —
-		// validated in full when present (font-token whitelist + closed
-		// safe-family stack allowlist), a no-op when absent.
-		if err := validateFonts(b.Fonts, where); err != nil {
-			return err
-		}
-		// avatars (T-16a1 P5) is an OPTIONAL per-member-type embedded-image
-		// overlay — validated in full when present (kind whitelist + data-URI /
-		// raster-mime / size / magic-byte gate), a no-op when absent.
-		if err := validateAvatars(b.Avatars, where); err != nil {
-			return err
-		}
-		// logo (T-ea81) is an OPTIONAL single studio-logo image and navIcons an
-		// OPTIONAL per-tab icon overlay — both reuse the same avatar image gate,
-		// validated in full when present, a no-op when absent.
-		if err := validateLogo(b.Logo, where); err != nil {
-			return err
-		}
-		if err := validateNavIcons(b.NavIcons, where); err != nil {
-			return err
-		}
-		// backgrounds (T-081b) is an OPTIONAL outer-canvas tiled-image overlay —
-		// same avatar image gate again, validated in full when present, a no-op
-		// when absent.
-		if err := validateBackgrounds(b.Backgrounds, where); err != nil {
-			return err
-		}
-		// backgroundModes (T-081b) says HOW each of those images is laid down
-		// (tile / sides). Absent = every zone tiles, i.e. the behaviour that
-		// predates the field, so an older bundle is unaffected.
-		if err := validateBackgroundModes(
-			b.BackgroundModes, b.Backgrounds, where,
-		); err != nil {
+		if err := validateThemeBundle(b, where, seen); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// themeBundleIDSet returns the id set of a bundle array — the vocabulary
-// display.theme may point at (on top of the built-ins).
-func themeBundleIDSet(bundles []ThemeBundleDTO) map[string]bool {
-	ids := make(map[string]bool, len(bundles))
-	for _, b := range bundles {
-		ids[b.Id] = true
+// validateThemeBundle validates ONE bundle — every rule above except the two
+// that are properties of a SET rather than of a bundle: the cap on how many
+// themes may be kept, and cross-bundle id uniqueness.
+//
+// 🔴 IT EXISTS BECAUSE THE PER-THEME ENDPOINTS CANNOT USE THE ARRAY FORM
+// (T-83ef). `PUT /api/themes/{id}` has exactly one bundle in hand and no array
+// to count or scan, while the two set-level rules still have to hold — they
+// just have to be answered against the TABLE (CountCustomThemes, and the row
+// that already carries this id) rather than against a slice. Splitting them out
+// is what lets both callers share ONE copy of the bundle rules instead of the
+// endpoints growing a second, drifting opinion about what a legal theme is.
+//
+// ⚠️ THE CHECK ORDER IS LOAD-BEARING AND IS PRESERVED EXACTLY. `seen` is
+// consulted between the id checks and the name checks, where the array version
+// consulted it — a bundle that is BOTH a duplicate and badly named must still
+// report the duplicate, because that is the message the existing tests and the
+// mirrored client validator pin. Pass a nil `seen` when there is no set to be
+// duplicate WITHIN (the single-theme write, whose uniqueness question is
+// "does this id already have a row", answered by the caller).
+func validateThemeBundle(b ThemeBundleDTO, where string, seen map[string]bool) error {
+	if !themeBundleIDRe.MatchString(b.Id) {
+		return fmt.Errorf(
+			"%s: id must match ^[a-z0-9][a-z0-9-]{1,63}$ (got %q)", where, b.Id)
 	}
-	return ids
+	if reservedThemeIDs[b.Id] {
+		return fmt.Errorf("%s: id %q is reserved for a built-in theme", where, b.Id)
+	}
+	if seen != nil {
+		if seen[b.Id] {
+			return fmt.Errorf("%s: duplicate id %q", where, b.Id)
+		}
+		seen[b.Id] = true
+	}
+
+	name := trimThemeName(b.Name)
+	if n := utf8.RuneCountInString(name); n < 1 || n > maxThemeNameLen {
+		return fmt.Errorf(
+			"%s: name must be 1..%d characters after trimming", where, maxThemeNameLen)
+	}
+	if hasInvisibleNameRune(b.Name) {
+		return fmt.Errorf(
+			"%s: name must not contain control, formatting, private-use, surrogate or line/paragraph separator characters",
+			where)
+	}
+	if n := len(b.Colors); n < minThemeColors || n > maxThemeColors {
+		return fmt.Errorf(
+			"%s: colors must hold %d..%d entries (got %d)",
+			where, minThemeColors, maxThemeColors, n)
+	}
+	for token, value := range b.Colors {
+		if !themeColorTokens[token] {
+			return fmt.Errorf(
+				"%s: %q is not a theme colour token (see theme.css)", where, token)
+		}
+		if !validColorValue(value) {
+			return fmt.Errorf(
+				"%s: %q has an invalid colour value %q — only concrete "+
+					"hex / rgb() / rgba() / hsl() / hsla() / transparent are accepted",
+				where, token, value)
+		}
+	}
+	// wording (T-16a1 P3) is an OPTIONAL per-language text-override overlay —
+	// validated in full when present (language set + message-key whitelist +
+	// plain-text value rules), a no-op when absent.
+	if err := validateWording(b.Wording, where); err != nil {
+		return err
+	}
+	// fonts (T-16a1 P4) is an OPTIONAL --font-* → safe-family overlay —
+	// validated in full when present (font-token whitelist + closed
+	// safe-family stack allowlist), a no-op when absent.
+	if err := validateFonts(b.Fonts, where); err != nil {
+		return err
+	}
+	// avatars (T-16a1 P5) is an OPTIONAL per-member-type embedded-image
+	// overlay — validated in full when present (kind whitelist + data-URI /
+	// raster-mime / size / magic-byte gate), a no-op when absent.
+	if err := validateAvatars(b.Avatars, where); err != nil {
+		return err
+	}
+	// logo (T-ea81) is an OPTIONAL single studio-logo image and navIcons an
+	// OPTIONAL per-tab icon overlay — both reuse the same avatar image gate,
+	// validated in full when present, a no-op when absent.
+	if err := validateLogo(b.Logo, where); err != nil {
+		return err
+	}
+	if err := validateNavIcons(b.NavIcons, where); err != nil {
+		return err
+	}
+	// backgrounds (T-081b) is an OPTIONAL outer-canvas tiled-image overlay —
+	// same avatar image gate again, validated in full when present, a no-op
+	// when absent.
+	if err := validateBackgrounds(b.Backgrounds, where); err != nil {
+		return err
+	}
+	// backgroundModes (T-081b) says HOW each of those images is laid down
+	// (tile / sides). Absent = every zone tiles, i.e. the behaviour that
+	// predates the field, so an older bundle is unaffected.
+	if err := validateBackgroundModes(
+		b.BackgroundModes, b.Backgrounds, where,
+	); err != nil {
+		return err
+	}
+	return nil
 }
 
-// isValidDisplayTheme reports whether theme is an admissible display.theme
-// value given the effective custom-theme id set: "" (unset) | a built-in |
-// an existing custom id.
-func isValidDisplayTheme(theme string, customIDs map[string]bool) bool {
-	return theme == "" || displayThemeAllowed[theme] || customIDs[theme]
-}
+// [T-83ef] `themeBundleIDSet` and `isValidDisplayTheme` lived here and are gone.
+// They answered "is this a real theme id" by building a set out of the bundle
+// ARRAY that settings used to carry — a question that cannot be asked that way
+// any more, because settings no longer carries the bundles. The replacement is
+// `(*apiServer).displayThemeExists` in api_themes.go, which asks the
+// custom_theme table, and it is pinned by TestDisplayThemeIsValidatedAgainstThe
+// Table using an id that exists ONLY in the table.
+//
+// Worth the note rather than a silent delete: Go does not fail a build over an
+// unused unexported func, so a helper stranded by a refactor sits here looking
+// current. These two survived the whole of this ticket and were found by asking
+// the compiler (delete it and see), not by reading.

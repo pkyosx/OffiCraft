@@ -21,12 +21,19 @@ framework-raised sources) and pins the envelope:
     blocks whose nested shape the spec DECLARES are typed as objects, so a
     non-object there is refused before any handler runs.
 
-The vocabulary table below is re-declared, NOT imported (black-box iron rule).
+The vocabulary is read from ``docs/design/api-error-envelope.codes.json`` — the product's own
+machine-readable table — NOT from any server module (black-box iron rule
+intact: this is a frozen spec asset, the same posture as ``test_sse``'s
+``_closed_topic_set`` reading ``spec/sse.md``). Deliberately not re-typed here:
+a hand-copy would only ever confront one hand-copy with another, which is
+exactly how the frontend's mock came to answer 400 with ``bad_request`` — a
+code no server has ever emitted — while every suite stayed green.
 """
 
 from __future__ import annotations
 
 import json
+import pathlib
 from dataclasses import dataclass
 from typing import Callable
 
@@ -35,17 +42,27 @@ import pytest
 
 from conftest import AgentIdentity
 
-# The closed status→code vocabulary (docs/design/api-error-envelope.md).
-CODE_BY_STATUS = {
-    400: "validation_error",
-    401: "unauthorized",
-    403: "forbidden",
-    404: "not_found",
-    405: "method_not_allowed",
-    409: "conflict",
-    422: "validation_error",
-    503: "service_unavailable",
-}
+HERE = pathlib.Path(__file__).resolve().parent
+
+
+def _code_by_status() -> dict[int, str]:
+    """The closed status→code vocabulary, READ FROM THE PRODUCT'S OWN SPEC ASSET
+    at run time — ``docs/design/api-error-envelope.codes.json``, the same file ocserverd's
+    ``TestErrorCodeForStatusMatchesSpec`` pins ``errorCodeForStatus`` against and
+    the frontend's ``codeForStatus`` derives every mock refusal's code from.
+
+    A missing/unparsable file is a HARD FAIL, never a silently narrower table:
+    a guard that quietly checks nothing is worse than no guard.
+    """
+    path = HERE.parent / "docs" / "design" / "api-error-envelope.codes.json"
+    spec = json.loads(path.read_text(encoding="utf-8"))
+    table = {int(status): code for status, code in spec["by_status"].items()}
+    if not table:
+        raise AssertionError(f"{path}: by_status is empty — the table moved")
+    return table
+
+
+CODE_BY_STATUS = _code_by_status()
 
 
 def _auth(token: str) -> dict[str, str]:

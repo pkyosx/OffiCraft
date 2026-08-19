@@ -46,8 +46,9 @@ import (
 // → warden killpg kills the tmux session, taking this listener with it) → the SSE
 // drop makes ¬online → the next tick's plain START respawns. A dead/unresponsive
 // session that never reports is covered by the server's recycle grace (120 s for
-// every cause except an owner-pressed 重新聚焦, which opens SOFT and gets the
-// soft window first — recycleGraceFor): the reconcile tick dispatches the same
+// every cause except an owner-pressed 重新聚焦, which runs NO clock at all and is
+// collected only by the stopped report or the owner's 強制下線 —
+// recycleGraceFor): the reconcile tick dispatches the same
 // robust STOP once the grace elapses (spec/lifecycle.md §4.5) — so ocagent needs
 // NO local timeout and NO
 // self-kill; a client-side kill on a frozen-wire observable is impossible anyway
@@ -130,7 +131,13 @@ func (h *windDownHook) say(msg string) { fmt.Fprintf(h.out, "[ocagent] %s\n", ms
 //
 // Not one-shot but notice-keyed: the soft notice and the final call are two
 // different sentences on the same wind-down, and the second one — the one that
-// says the 120 seconds have started — has to get through.
+// names the deadline — has to get through.
+//
+// 🔴 This de-dupe is why the server quotes an ABSOLUTE deadline and never a
+// countdown (T-d6a7): the comparison is the WHOLE sentence, verbatim, so a
+// remaining-seconds number would differ on every replay of the same epoch, this
+// branch would stop matching, and a session working its close-out would be
+// re-woken and re-fed the document on every write to its row.
 func (h *windDownHook) maybeWindDown(frame map[string]any) bool {
 	if !shouldWindDown(frame, h.cfg.ID) {
 		return false
@@ -177,10 +184,13 @@ type recycleHook struct {
 	// The refocus epoch already woken for (0 = none). A NEW, larger epoch re-arms the
 	// one-shot (the owner refocused again after a respawn).
 	handledRefocus float64
-	// lastNotice is the sentence already shown for that epoch. An owner-pressed
-	// 重新聚焦 opens SOFT and is promoted to the final call on the same epoch,
-	// so the epoch alone would swallow the sentence that says the 120 seconds
-	// have started.
+	// lastNotice is the sentence already shown for that epoch. It exists because
+	// the SERVER decides what to say and may say something NEW on the same
+	// epoch, which the epoch alone would swallow. 重新聚焦 used to be exactly
+	// that case — it opened SOFT and was promoted to the final call — and it no
+	// longer is (owner 2026-08-19, no clock on that arm). Keyed on the sentence
+	// rather than a flag so this client keeps working whatever the server
+	// decides to say next; it is the de-dup contract api_members.go names.
 	lastNotice string
 
 	fetchMember func() (map[string]any, bool)
@@ -197,10 +207,12 @@ func newRecycleHook(client httpClient, cfg Config, out io.Writer) *recycleHook {
 func (h *recycleHook) say(msg string) { fmt.Fprintf(h.out, "[ocagent] %s\n", msg) }
 
 // offboardFallback is the ONLY hard-coded wake text left in this binary. The wake
-// message itself is the server's 下線程序 document (owner-editable, seed-backed) —
-// it is fetched on the same edge that refetches the member row, so a fetch that
-// faults or answers an EMPTY document must still leave the agent knowing it is
-// being collected. Losing the checklist is survivable; losing the notice is not.
+// message itself is the server's 下線程序 document (owner-editable, seed-backed),
+// PUSHED in the same member delta that says the agent is being collected — this
+// binary never fetches it. It is armed on `offboard_notice` being ABSENT OR BLANK:
+// a server too old to push one looks exactly like a notice that said nothing, and
+// neither case is worth telling apart from here — both mean the checklist did not
+// arrive. Losing the checklist is survivable; losing the notice is not.
 const offboardFallback = "recycle: server 要收你了，但這則通知沒有帶到下線程序 —— " +
 	"請立刻用 MCP get_offboard 拿完整收尾清單並照做，別空手停下。"
 
@@ -249,12 +261,16 @@ func (h *recycleHook) wakeForRecycle(notice string) {
 // and never self-kills — the handover is the SESSION's job and the kill is the
 // SERVER's, per the file header). Returns true iff it woke the session this call.
 // Gated (in order) by the NUDGE match, then a POSITIVE authoritative refetch of
-// desired_state=online ∧ refocus_since>0 ∧ a NEW refocus epoch (one wake per epoch —
+// desired_state=online ∧ refocus_since>0 ∧ a NEW refocus epoch (one wake per epoch
+// PER SENTENCE — the soft→final upgrade rides the same epoch with a new sentence —
 // the follow-up member deltas fanned by the session's own stopping/stopped reports
 // re-enter here and must NOT re-print the wake). The epoch is claimed BEFORE the
-// document is fetched, so a failed fetch spends the epoch on the fallback notice
-// rather than re-waking on every later delta. Mutually exclusive with wind-down
-// (offline vs online intent), so both are safe to call on every member delta.
+// wake is printed, so a delta that arrived WITHOUT the pushed document spends the
+// epoch on the fallback notice rather than re-waking on every later delta. BOTH keys
+// must match to stay quiet; the sentence key is the half that lets the soft→final
+// upgrade through (and a real notice that arrives after a fallback), since the notice
+// rides EVERY write to the row. Mutually exclusive with wind-down (offline vs online
+// intent), so both are safe to call on every member delta.
 func (h *recycleHook) maybeRecycle(frame map[string]any) bool {
 	if !shouldWindDown(frame, h.cfg.ID) { // identical NUDGE gate
 		return false

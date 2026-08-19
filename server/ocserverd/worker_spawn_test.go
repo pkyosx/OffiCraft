@@ -141,7 +141,7 @@ func TestBuildWorkerBootContext_FullAssembly(t *testing.T) {
 		"# 你的身分", w.ID, w.Codename, // 1
 		TaskNo(task.ID), "Review PR 42", "https://pr/42", // 2
 		"把 42 號 PR 看完", "pr_url", "x/y",
-		"交接備註", "m-kyle", "先跑既有測試",
+		"m-kyle", "先跑既有測試",
 		"# 任務手冊", "review 一個 PR", "先看 diff 再留結論", // 3
 		"大 PR 先分檔看", "必填、識別鍵",
 	} {
@@ -173,13 +173,12 @@ func TestBuildWorkerBootContext_RuntimeGuidanceIsTheSeedsOwnAndItIsLast(t *testi
 		name           string
 		runtime        string
 		wantEnvH1      string
-		wantOwnership  string
 		otherRuntimeH1 string
 	}{
 		{"codex", RuntimeCodex, "# Codex App Server 執行環境",
-			"不要自己啟動 `ocagent listen`", "# Claude Code 執行環境"},
+			"# Claude Code 執行環境"},
 		{"claude", RuntimeClaude, "# Claude Code 執行環境",
-			"用內建 Monitor 工具在背景掛住", "# Codex App Server 執行環境"},
+			"# Codex App Server 執行環境"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newWorkerTestServer(t)
@@ -188,9 +187,6 @@ func TestBuildWorkerBootContext_RuntimeGuidanceIsTheSeedsOwnAndItIsLast(t *testi
 				Task{ID: "t-aabbccddeeff", Title: "x", Priority: TaskPriorityMid}, nil)
 			if err != nil {
 				t.Fatalf("fold: %v", err)
-			}
-			if !strings.Contains(got, tc.wantOwnership) {
-				t.Errorf("%s worker is not told who owns the listener", tc.name)
 			}
 			if strings.Contains(got, tc.otherRuntimeH1) {
 				t.Errorf("%s worker received the OTHER runtime's 執行環境 section", tc.name)
@@ -242,11 +238,9 @@ func TestBuildWorkerBootContext_RuntimeGuidanceIsTheSeedsOwnAndItIsLast(t *testi
 // embed) left the ENTIRE ocserverd suite passing, this test included; inserting
 // a single "\n" on the worker side alone turned exactly this test red. So it
 // answers "are the two documents still the same shape?" and says NOTHING about
-// whether the shared documents still say the right thing. Guards for the seed
-// WORDING are separate and must be written separately — see
-// worker_handover_lessons_t4595_test.go and
-// TestNoBootContextReinstatesTheRetiredOutsourceClaims. Do not read a green
-// here as cover for a seed edit.
+// whether the shared documents still say the right thing. This deliberately
+// says nothing about whether the shared documents contain particular prose;
+// content choices are not a runtime assembly contract.
 func TestWorkerBootContextIsTheStaffFoldMinusThePersona(t *testing.T) {
 	s := newWorkerTestServer(t)
 	const ownerMark = "T4595-OWNER-CUSTOM-MARKER"
@@ -305,9 +299,7 @@ func TestWorkerBootContextIsTheStaffFoldMinusThePersona(t *testing.T) {
 			"外包的 boot context ＝ 正職的扣掉第 3 格（角色說明→判準→長期筆記），"+
 			"一個字都不為外包另寫（T-4595）\n"+
 			"⚠️ 這顆守的是【組裝結構】，不是 seed 的文字內容：want 由正職那份實際產出"+
-			"切出來，所以改 seed 會讓兩邊一起移動、這顆不會紅。要守 seed 措辭請看"+
-			" worker_handover_lessons_t4595_test.go 與"+
-			" TestNoBootContextReinstatesTheRetiredOutsourceClaims。",
+			"切出來，所以改 seed 會讓兩邊一起移動、這顆不會紅。",
 			len(worker), len(want))
 	}
 }

@@ -72,8 +72,11 @@ var strictBase64Re = regexp.MustCompile(`^[A-Za-z0-9+/]+={0,2}$`)
 const (
 	// maxAvatarBytes caps the DECODED image size of an avatar / logo / nav
 	// icon. A small roster/chat glyph, not a photo, and the real guard against
-	// bloating the single custom_themes JSON row. The twin of MAX_AVATAR_BYTES
-	// on the client.
+	// bloating a theme. (It said "the single custom_themes JSON row" until
+	// T-83ef gave themes their own table — one row each now, so the cap bounds
+	// what ONE theme weighs rather than what one shared row does. The number
+	// and the reason for it are unchanged.) The twin of MAX_AVATAR_BYTES on the
+	// client.
 	maxAvatarBytes = 64 * 1024
 	// maxAvatarValueLen caps the raw data-URI string length (bytes) for those
 	// same three. base64 inflates ~4/3, so 64 KiB decoded ≈ 87.4 KiB encoded;

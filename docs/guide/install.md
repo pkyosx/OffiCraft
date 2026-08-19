@@ -28,11 +28,11 @@
 
 ### B. 任何要跑成員的機器一定要的
 
-**每一台**要 spawn 成員的機器（包含 server 那台，只要你也要它起成員；還有你之後加的每一台）都要有這兩個——成員底下就是一個跑在 tmux 裡的 Claude Code session：
+**每一台**要 spawn 成員的機器（包含 server 那台，只要你也要它起成員；還有你之後加的每一台）都要有這兩個——成員底下就是一個跑在 tmux 裡的 Claude Code 或 Codex session：
 
 | 需求 | 最低版本 | 為什麼 |
 | --- | --- | --- |
-| **Claude Code CLI**（`claude`，而且已登入） | **2.1.98 以上**（必須新到內建 **Monitor** tool） | 每位成員底下就是一個 Claude Code session。**claude 與 codex 兩種都解析不到時，安裝腳本當場拒絕、warden 也拒絕安裝**（兩層 fail-closed，並在控制台橫幅說明原因），不會裝一個永遠起不了成員的 warden。只裝 codex 不會被擋。裝法：`npm install -g @anthropic-ai/claude-code` |
+| **Claude Code CLI**（`claude`，而且已登入） | **2.1.98 以上**（必須新到內建 **Monitor** tool） | 每位成員底下就是一個 Claude Code 或 Codex session。**claude 與 codex 兩種都解析不到時，安裝腳本當場拒絕、warden 也拒絕安裝**（兩層 fail-closed，並在控制台橫幅說明原因），不會裝一個永遠起不了成員的 warden。只裝 codex 不會被擋。裝法：`npm install -g @anthropic-ai/claude-code` |
 | **`tmux`** | 3.0 以上（任何近代 3.x 都行） | 成員的 session 跑在 tmux 裡（`cli/ocwarden/spawn.go` 的 `tmux new-session`，沒有備援）。**解析不到時安裝腳本直接拒絕**，不會裝出一台成員永遠停在「waking」的機器 |
 
 > [!IMPORTANT]

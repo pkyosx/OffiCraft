@@ -8,7 +8,9 @@
 // text can inject markup. Any syntax it does not understand falls through as
 // plain text (safe by construction).
 //
-// Block-level:  # / ## / ### headings, "- " / "* " unordered lists,
+// Block-level:  # through ###### headings (all six levels, T-2bb4 — a
+//               seventh "#" is not a heading and falls through as text),
+//               "- " / "* " unordered lists,
 //               "1. " ordered lists (source numbering preserved), "> "
 //               blockquotes, ``` fenced code blocks, GFM tables (T-bc3e:
 //               header row + |---| delimiter row + data rows; :--- / :---: /
@@ -195,7 +197,7 @@ function renderInline(text: string, opts?: InlineOpts): ReactNode[] {
 // accident — a line that starts "1. " or "## " renders as markup for the human
 // while the agent reads it as prose. It works by mirroring the openers below,
 // so an opener added here without one added there is a hole nothing reports.
-const HEADING_RE = /^(#{1,3})\s+(.*)$/;
+const HEADING_RE = /^(#{1,6})\s+(.*)$/;
 const ULIST_RE = /^[-*]\s+(.*)$/;
 const OLIST_RE = /^(\d+)\.\s+(.*)$/;
 const QUOTE_RE = /^>\s?(.*)$/;
@@ -472,14 +474,19 @@ function renderBlocks(
       continue;
     }
 
-    // Heading (# / ## / ###).
+    // Heading (# through ######).
     const heading = HEADING_RE.exec(line);
     if (heading) {
       const level = heading[1].length;
       const content = renderInline(heading[2], opts);
-      if (level === 1) blocks.push(<h1 key={key++}>{content}</h1>);
-      else if (level === 2) blocks.push(<h2 key={key++}>{content}</h2>);
-      else blocks.push(<h3 key={key++}>{content}</h3>);
+      // Indexed, NOT an if/else chain ending in `else → h3`. That chain is how
+      // this renderer would silently DOWNGRADE a level it does not know: T-2bb4
+      // widened the regex from #{1,3}, and had the tail stayed an `else`, every
+      // #### would have become an h3 — the same heading as ###, with nothing on
+      // screen saying so. A lookup that is wrong is wrong loudly (undefined
+      // element), which is the failure direction to prefer here.
+      const Tag = (["h1", "h2", "h3", "h4", "h5", "h6"] as const)[level - 1];
+      blocks.push(<Tag key={key++}>{content}</Tag>);
       i++;
       continue;
     }

@@ -237,9 +237,12 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		},
 		{
 			// T-29c7: the cockpit's theme import box takes a LINK. Floor is
-			// admin_agent because that is exactly the floor of the PATCH
-			// /api/settings write that stores the imported theme — a caller who
-			// could fetch but not store would only ever get a dead end.
+			// admin_agent because that is exactly the floor of the write that
+			// stores the imported theme — a caller who could fetch but not store
+			// would only ever get a dead end. (That write was the PATCH
+			// /api/settings custom_themes array until T-83ef; it is PUT
+			// /api/themes/{theme_id} now. Same floor, so the reasoning stands —
+			// but the two must be kept equal deliberately, not by luck.)
 			// MCPExclude: this is the cockpit's paste-a-link seam, not an agent
 			// tool (an agent that HAS a theme bundle already holds the JSON; it
 			// has no reason to ask the server to go read one back).
@@ -389,7 +392,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleForceStopMemberApiMembersMemberIdForceStopPost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Force-stop: robust STOP now, bypassing the graceful-stop grace.",
+			Summary:  "Force-stop: robust STOP now. On the offboard arm this is the ONLY thing that ever collects the member -- nothing times out.",
 			MCPTool:  "force_stop_member",
 		},
 		{
@@ -523,45 +526,63 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// neighbouring config CRUD means the owner and the admin assistant set
 		// these up, which is what the design asks for.
 		//
-		// MCPExclude on all four, following the webhook precedent exactly:
-		// configuration CRUD belongs in the cockpit, not the tool catalogue —
-		// only the debugging read (list_webhook_requests) ever earned a tool.
-		// This batch adds NO MCP tool, so spec/mcp-catalog.json is untouched.
+		// 🔴 ALL FOUR CARRY AN MCP TOOL (T-63bf). They shipped MCPExclude, on
+		// the webhook precedent, with the reason written out as "configuration
+		// CRUD belongs in the cockpit, not the tool catalogue — only the
+		// debugging read (list_webhook_requests) ever earned a tool". That rule
+		// is REVERSED here, and only here, for a reason that is specific to
+		// this feature rather than a general loosening of it:
+		//
+		//   * owner ruling, 2026-08-19, verbatim: 「助理應該能夠代替我設定這些
+		//     東西 在我的授權下進行」 — the admin assistant is meant to be able
+		//     to set these up on his behalf.
+		//   * and the precedent did not actually transfer. A webhook endpoint is
+		//     a door for something OUTSIDE the office to speak in; a scheduled
+		//     message exists to WAKE AN AI MEMBER. Leaving the only way to set
+		//     one up on a surface no AI can reach is a design deadlock: an alarm
+		//     clock whose whole purpose is to wake the agent, that only a human
+		//     can ever set.
+		//
+		// What did NOT change: Requires stays principalAdminAgent on every row.
+		// Opening the entrance is not widening the gate — an ordinary agent
+		// calling any of these four still gets 403, and that is the correct
+		// answer, not a gap. routes_t63bf_scheduled_message_mcp_test.go pins
+		// both halves (the tools exist AND the floor did not move).
 		{
-			Method:     "GET",
-			Path:       "/api/members/{member_id}/scheduled-messages",
-			Handler:    w.HandleListScheduledMessagesApiMembersMemberIdScheduledMessagesGet,
-			Auth:       authGated,
-			Requires:   principalAdminAgent,
-			Summary:    "List one member's scheduled messages.",
-			MCPExclude: true,
+			Method:   "GET",
+			Path:     "/api/members/{member_id}/scheduled-messages",
+			Handler:  w.HandleListScheduledMessagesApiMembersMemberIdScheduledMessagesGet,
+			Auth:     authGated,
+			Requires: principalAdminAgent,
+			Summary:  "List one member's scheduled messages — 定期訊息, the wall-clock alarm that wakes that member with a chat message on a repeating cadence. admin_agent floor: the owner, or an admin assistant setting these up on the owner's behalf; an ordinary agent gets 403 even for its own member_id. Rows come oldest→newest and each carries the whole schedule — label, body, cadence, the slot fields `hour`/`minute`/`day_of_week`/`day_of_month`, the four `custom` sets, timezone, and the enabled/disabled toggle — plus the delivery cursor `last_fired_slot`/`last_fired_ts`. Read this before update_scheduled_message: that call is a partial edit against these stored values, and it re-aims the cursor only for a slot field whose value actually CHANGES. 404 if the member is absent or soft-removed.",
+			MCPTool:  "list_scheduled_messages",
 		},
 		{
-			Method:     "POST",
-			Path:       "/api/members/{member_id}/scheduled-messages",
-			Handler:    w.HandleCreateScheduledMessageApiMembersMemberIdScheduledMessagesPost,
-			Auth:       authGated,
-			Requires:   principalAdminAgent,
-			Summary:    "Create a scheduled message on one member.",
-			MCPExclude: true,
+			Method:   "POST",
+			Path:     "/api/members/{member_id}/scheduled-messages",
+			Handler:  w.HandleCreateScheduledMessageApiMembersMemberIdScheduledMessagesPost,
+			Auth:     authGated,
+			Requires: principalAdminAgent,
+			Summary:  "Create a scheduled message on one member — 定期訊息, the mechanism for waking a member on a repeating wall-clock slot: at each due slot the server delivers `body` verbatim down the ORDINARY chat path, from the synthetic sender `sched:<schedule_id>`. admin_agent floor: the owner, or an admin assistant setting one up on the owner's behalf; an ordinary agent gets 403 even for its own member_id. The recipient follows chat's rule, so an `ow-` outsource worker is a legal target as well as a staff member. `body`, `cadence` and `timezone` are always required; `hour`/`minute` are required by `daily`/`weekly`/`monthly` and ignored by `custom` FOR SCHEDULING — their range is still checked under every cadence, so `hour: 99` is a 422 even for `custom`, which instead requires `custom_days`/`custom_hours`/`custom_minutes` (`custom_months` may be omitted to mean all twelve; an explicit empty set is a 422). Those conditional rules are NOT expressible in this schema — a wrong combination comes back as a 422 rather than folding into a silent midnight. TWO fields are the exception and they fail SILENTLY: `day_of_week` (used by `weekly`) and `day_of_month` (used by `monthly`) are NOT required — omit either one and the create returns 200 having defaulted it to 0 (Sunday) and 1 (the first of the month). 'Every Friday at 09:00' sent without `day_of_week` is a Sunday alarm and nothing reports it, so send the field explicitly whenever the cadence reads it. `timezone` must NAME A PLACE: `Local` and the empty string are refused with 422 even though they resolve, because they hand \"what time is it\" to wherever the server happens to run. Missed slots are never backfilled — only the slot most recently elapsed is ever considered — and the cursor starts at creation time, so a `daily` 09:00 schedule created at 10:00 does not fire today. 404 if the member is absent or soft-removed.",
+			MCPTool:  "create_scheduled_message",
 		},
 		{
-			Method:     "PATCH",
-			Path:       "/api/members/{member_id}/scheduled-messages/{schedule_id}",
-			Handler:    w.HandleUpdateScheduledMessageApiMembersMemberIdScheduledMessagesScheduleIdPatch,
-			Auth:       authGated,
-			Requires:   principalAdminAgent,
-			Summary:    "Update one scheduled message (including enable/disable).",
-			MCPExclude: true,
+			Method:   "PATCH",
+			Path:     "/api/members/{member_id}/scheduled-messages/{schedule_id}",
+			Handler:  w.HandleUpdateScheduledMessageApiMembersMemberIdScheduledMessagesScheduleIdPatch,
+			Auth:     authGated,
+			Requires: principalAdminAgent,
+			Summary:  "Update one scheduled message, including the enabled/disabled toggle (`status`) — 定期訊息, the wall-clock wake-up for one member. admin_agent floor: the owner, or an admin assistant acting on the owner's behalf; an ordinary agent gets 403 even for its own member_id. PATCH semantics: only the fields you send change, and `id`/`member_id` are immutable. The create-side validation applies unchanged — `hour`/`minute` required by `daily`/`weekly`/`monthly` and ignored by `custom` for scheduling though still range-checked under every cadence, the custom sets never empty, `timezone` never `Local` or the empty string — all 422. Editing a timing field to a DIFFERENT value re-aims the delivery cursor to the slot most recently elapsed, so the edit never retroactively fires the slot it crossed; re-sending a value the schedule already holds moves nothing, which is what makes a whole-form save safe. `disabled` suspends firing and is reversible — it is not a lifecycle state; delete_scheduled_message is the permanent removal. 404 if the member or the schedule is absent.",
+			MCPTool:  "update_scheduled_message",
 		},
 		{
-			Method:     "DELETE",
-			Path:       "/api/members/{member_id}/scheduled-messages/{schedule_id}",
-			Handler:    w.HandleDeleteScheduledMessageApiMembersMemberIdScheduledMessagesScheduleIdDelete,
-			Auth:       authGated,
-			Requires:   principalAdminAgent,
-			Summary:    "Delete one scheduled message.",
-			MCPExclude: true,
+			Method:   "DELETE",
+			Path:     "/api/members/{member_id}/scheduled-messages/{schedule_id}",
+			Handler:  w.HandleDeleteScheduledMessageApiMembersMemberIdScheduledMessagesScheduleIdDelete,
+			Auth:     authGated,
+			Requires: principalAdminAgent,
+			Summary:  "Delete one scheduled message — 定期訊息, permanent and not undoable. admin_agent floor: the owner, or an admin assistant acting on the owner's behalf; an ordinary agent gets 403 even for its own member_id. When the schedule should merely STOP firing, call update_scheduled_message with `status: disabled` instead — that is the reversible half and this one is not. 404 if the member or the schedule is absent.",
+			MCPTool:  "delete_scheduled_message",
 		},
 		// T-8b0d (owner 2026-08-02): the SAME bounded wake snapshot as
 		// /api/resume-summary, for a TARGET member instead of the caller
@@ -889,7 +910,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleBootstrapHereApiMachinesMachineIdBootstrapHerePost,
 			Auth:     authGated,
 			Requires: principalAdminAgent,
-			Summary:  "Bootstrap on server: install this machine's warden on the host.",
+			Summary:  "Bootstrap on server: runs `ocwarden install --force` on the SERVER's own host. machine_id is NOT a target — this verb has no way to reach another machine, and naming one is refused (409); the server-local machine is the only value it accepts, and the install overwrites the existing one, which is how you repair this host's warden. To install a different machine, fetch that machine's own boot command with GET /api/machines/{machine_id}/boot-command and run it on that host.",
 			MCPTool:  "install_warden_on_server_host",
 		},
 		{
@@ -1272,7 +1293,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandlePeekResumeSummarySizeApiResumeSummarySizeGet,
 			Auth:     authGated,
 			Requires: principalMachine,
-			Summary:  "Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO chat/task content). estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars, all four reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit and the two studio-floor blocks — what pulling the snapshot actually costs. Step one of the two-step boot: call this FIRST to size resume_summary, then either call resume_summary directly (small) or hand the pull to a cheap sub-agent that returns a digest (large).",
+			Summary:  "Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO chat/task content). estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars + steps_on_answered_card_chars, all five reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit, the two studio-floor blocks, and the named steps sitting on an answered card — what pulling the snapshot actually costs. Step one of the two-step boot: call this FIRST to size resume_summary, then either call resume_summary directly (small) or hand the pull to a cheap sub-agent that returns a digest (large).",
 			MCPTool:  "peek_resume_summary_size",
 		},
 		{
@@ -1446,7 +1467,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Report a step status (pending/in_progress/waiting_external/done). Entering waiting_external requires a non-blank waiting_reason (422 otherwise); the task status is derived from its steps. T-74f8 交棒閘: if this report would CLOSE the task (every step done) AND the task's creator is not its executor, the call is REFUSED with 422 unless you say where the ball goes IN THIS SAME CALL — handoff='return_to_creator' (the server opens a durable follow-up task on the creator), handoff='follow_up' + handoff_task_id=<a successor task you already created> (the server hangs this task off it as a dependency, and closing this one releases it), or handoff='none' + handoff_note=<why nothing follows>. The gate stands aside by itself when a non-terminal task already depends on this one — you never see it if the handover is already real. It refuses BEFORE writing anything, so a refused report leaves the plan fully editable: create the successor task, then re-send this same report with the declaration. This is your LAST chance — once the task closes it can never be replanned (submit_plan becomes a permanent 409).",
+			Summary:  "Report a step status (pending/in_progress/waiting_external/done). Entering waiting_external requires a non-blank waiting_reason (422 otherwise); the task status is derived from its steps. T-74f8 交棒閘: if this report would CLOSE the task (every step done) AND the task's creator is not its executor, the call is REFUSED with 422 unless you say where the ball goes IN THIS SAME CALL — handoff='return_to_creator' (recorded on the task and nothing else — no task is opened and nobody is notified), handoff='follow_up' + handoff_task_id=<a successor task you already created> (the server hangs this task off it as a dependency, and closing this one releases it), or handoff='none' + handoff_note=<why nothing follows>. The gate stands aside by itself when a non-terminal task already depends on this one — you never see it if the handover is already real. It refuses BEFORE writing anything, so a refused report leaves the plan fully editable: create the successor task, then re-send this same report with the declaration. This is your LAST chance — once the task closes it can never be replanned (submit_plan becomes a permanent 409).",
 			MCPTool:  "update_step_status",
 		},
 		{
@@ -1457,6 +1478,18 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Requires: principalAgent,
 			Summary:  "Write this step's working note: where the work stands and what comes next — the field the handover SOP means by 「把還在進行中的工作寫回 task step note」. WHAT TO WRITE — three things, then stop: (1) STATE — one sentence on where this step actually got to; (2) NEXT — one sentence on what whoever takes over does next; (3) EVIDENCE POINTERS — version ids, file and log paths, what you verified YOURSELF versus what you are taking on someone's word, and the limits of what was NOT done. Long narrative does not live here: reasoning and scope belong in the task description, reports and diffs belong on the task as artifacts. The note is the current state — not a report, not an append-only log. Writable in ANY step status (pending, in_progress, waiting_owner, waiting_external, done, superseded), unlike `waiting_reason`, which is locked to waiting_external. Wholesale write: `note` replaces whatever was there and \"\" clears it, so rewrite it as the work moves rather than appending; over 4,000 characters (counted in runes) is refused. Same executor/admin gate as every other task-driving write (403 otherwise). ⚠️ A task auto-closes when its last step is reported done and a closed task 409s — so write the note BEFORE the report that finishes the last step, not after.",
 			MCPTool:  "update_step_note",
+		},
+		{
+			Method:  "POST",
+			Path:    "/api/tasks/{task_id}/steps/{step_id}/note/patch",
+			Handler: w.HandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPost,
+			Auth:    authGated,
+			// T-1667: the anchor-patch twin of the wholesale write above. Same
+			// executor-or-admin gate — the handler shares it verbatim, so the two
+			// faces onto one field can never disagree about who may write.
+			Requires: principalAgent,
+			Summary:  "Patch this step's working note by unique anchors ({edits:[{old,new}]}) — send only the part that changed, instead of re-typing the whole note. USE THIS WHENEVER YOU ARE AMENDING A NOTE THAT ALREADY HAS CONTENT. update_step_note is a wholesale replace, so if anyone else wrote to the step between your read and your write, your copy is stale and the replace silently deletes their text — and because your stale copy is usually the LONGER one, no guard fires and nothing tells you. A patch cannot do that: a non-empty old must match the current note EXACTLY ONCE (0 or >1 hits reject the WHOLE batch with a 400 that names which edit failed and which tool to re-read with, zero writes), so a concurrent write turns into a refusal you can see. Edits apply in order; an empty old appends. Wiping the note, or shrinking it below a tenth, needs allow_shrink=true — for an honest rewrite from scratch use update_step_note. Same executor/admin gate, same any-step-status generality, same closed-task 409 as update_step_note. Re-read with get_task after a refusal.",
+			MCPTool:  "patch_step_note",
 		},
 		{
 			Method:   "POST",
@@ -1702,6 +1735,18 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary:  "Patch a type's learnings by unique anchors ({edits:[{old,new}]}) — the learnings twin of patch_lessons, so the write cost scales with the CHANGE, not the whole (30k-char) doc, and re-typing the whole doc can no longer silently drop content. Edits apply in order; a non-empty old must match the current learnings EXACTLY ONCE (0 or >1 hits reject the WHOLE batch with a 400, zero writes — the unique anchor also acts as an optimistic lock); an empty old appends. Wiping the doc, or shrinking it below a tenth, needs allow_shrink=true.",
 			MCPTool:  "patch_task_learnings",
 		},
+		{
+			Method:  "POST",
+			Path:    "/api/task-manuals/{type_key}/sop/patch",
+			Handler: w.HandlePatchTaskSopApiTaskManualsTypeKeySopPatchPost,
+			Auth:    authGated,
+			// T-1667: the anchor-patch twin of update_task_manual's sop_md field.
+			// Same agent floor as every other manual CONTENT face; assignee (the
+			// one governance field) is not reachable from here at all.
+			Requires: principalAgent,
+			Summary:  "Patch a type's SOP (sop_md) by unique anchors ({edits:[{old,new}]}) — send only the section that changed, instead of re-typing the whole SOP. USE THIS WHENEVER YOU ARE AMENDING AN SOP THAT ALREADY HAS CONTENT. update_task_manual{sop_md} is a wholesale replace, so if anyone else edited the SOP between your read and your write, your copy is stale and the replace silently deletes their section — and because your stale copy is usually the LONGER one, no guard fires and nothing tells you. A patch cannot do that: a non-empty old must match the current sop_md EXACTLY ONCE (0 or >1 hits reject the WHOLE batch with a 400 that names which edit failed and which tool to re-read with, zero writes), so a concurrent write turns into a refusal you can see. Edits apply in order; an empty old appends. Wiping the doc, or shrinking it below a tenth, needs allow_shrink=true — for an honest rewrite from scratch use update_task_manual. The sop_md cap is judged on the RESULT and allow_shrink is not a bypass. Re-read with get_task_manual after a refusal.",
+			MCPTool:  "patch_task_sop",
+		},
 		// ── Retained history of the editable documents above ────────────────
 		// One read + one restore for EVERY overwritable long-form document
 		// (global context, role definition, lessons, task manual), which is why
@@ -1806,6 +1851,76 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Requires:   principalMachine,
 			Summary:    "Serve a product-guide image asset (referenced by a doc's markdown).",
 			MCPExclude: true, // a binary image, not a callable tool
+		},
+		// 🔴 PLACED LAST ON PURPOSE, and not next to /api/theme/fetch where they
+		// read better. The MCP tool surface has ONE order shared by three files:
+		// this table, spec/openapi.json's x-mcp.order, and
+		// conformance/routes_manifest.json — tools/list is served from the frozen
+		// catalog and conformance asserts all three agree element-wise. x-mcp.order
+		// must also be the consecutive range 0..N-1, so inserting a tool in the
+		// middle renumbers every tool after it. Appending costs four numbers;
+		// grouping them by subject would have cost a hundred.
+		// ── Custom themes (T-83ef) — themes used to ride GET/PATCH /api/settings
+		// as one custom_themes array, so "change one theme" meant re-sending every
+		// theme with every embedded image. These four give them their own door and
+		// make the unit of work ONE theme. Floor is admin_agent: the same floor the
+		// settings write they replace carried, so nothing gained or lost authority
+		// in the move.
+		//
+		// 🔴 THEY ARE ON THE MCP SURFACE BY AN OWNER RULING (rc-32ed1bfba080,
+		// 2026-08-18), against the recommendation on that card. The card proposed
+		// MCPExclude for all four — the list read is the several-hundred-kilobyte
+		// payload this ticket exists to take away from agents, and a write with no
+		// read is only a blind overwrite. He chose to keep themes usable by AI
+		// members instead, and that is the decision of record. What was reported to
+		// him alongside it, so it is not rediscovered as a surprise: a bundle
+		// carries its images, so a list of BUNDLES would have been the same order
+		// of magnitude as the `get_settings` payload the tool layer already
+		// refuses today. Splitting themes out of settings fixed SETTINGS; it did
+		// not make themes small.
+		//
+		// 🔴 AND THAT REPORT IS WHY THE LIST BELOW IS `{id, name}` ONLY. He
+		// answered it the same day, in chat: list everything with just the title
+		// and whatever else the UI actually shows. So the metadata-only shape is
+		// not a possible future fix for a payload problem — it is the ruling that
+		// made ruling #1 usable, and the two must be read together. A later reader
+		// who "restores" whole bundles here to make the list richer would be
+		// undoing the half that made agents able to call it at all.
+		{
+			Method:   "GET",
+			Path:     "/api/themes",
+			Handler:  w.HandleListThemesApiThemesGet,
+			Auth:     authGated,
+			Requires: principalAdminAgent,
+			Summary:  "List the saved custom themes — id and name only, in list order (owner/admin agent).",
+			MCPTool:  "list_themes",
+		},
+		{
+			Method:   "GET",
+			Path:     "/api/themes/{theme_id}",
+			Handler:  w.HandleGetThemeApiThemesThemeIdGet,
+			Auth:     authGated,
+			Requires: principalAdminAgent,
+			Summary:  "Read one saved custom theme (unknown id → 404).",
+			MCPTool:  "get_theme",
+		},
+		{
+			Method:   http.MethodPut,
+			Path:     "/api/themes/{theme_id}",
+			Handler:  w.HandlePutThemeApiThemesThemeIdPut,
+			Auth:     authGated,
+			Requires: principalAdminAgent,
+			Summary:  "Create or replace ONE custom theme; the bundle's id must match the path (owner/admin agent).",
+			MCPTool:  "put_theme",
+		},
+		{
+			Method:   "DELETE",
+			Path:     "/api/themes/{theme_id}",
+			Handler:  w.HandleDeleteThemeApiThemesThemeIdDelete,
+			Auth:     authGated,
+			Requires: principalAdminAgent,
+			Summary:  `Delete one custom theme; deleting the active one resets display_theme to "".`,
+			MCPTool:  "delete_theme",
 		},
 	}
 }

@@ -995,12 +995,12 @@
 .chat__msg--me .chat__msg-content {
   align-items: flex-end;
 }
-/* B3: a reply-card message — the card replaces the bubble, so the row must
- * hand its full width down (a bubble hugs its text; a card with option chips
- * must not collapse). The card's own width cap lives in replies.css. */
+/* B3: a reply-card message — the card replaces the bubble, so the row and its
+ * content hand the full message width to the card. The timestamp then takes
+ * the remaining inline space beside it instead of exposing an empty row tail. */
 .chat__msg--card .chat__msg-line,
 .chat__msg--card .chat__msg-content {
-  width: max-content;
+  width: 100%;
   min-width: 0;
 }
 /* B3 跳到原訊息: the located message flashes an accent ring, then settles
@@ -1678,11 +1678,7 @@ button.chat__msg-file {
     max-width: 100%;
   }
   .chat__msg--card .chat__msg-line {
-    width: 100%;
     flex-wrap: wrap;
-  }
-  .chat__msg--card .chat__msg-content {
-    width: 100%;
   }
 }
 

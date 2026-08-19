@@ -36,17 +36,22 @@
 ### 成員狀態機
 presence 是 **server 端算出來的**，不是 agent 自報的心跳狀態。核心錨點只有兩個變數：
 1. **online = 由 SSE 連線判定**（`online == connected`）——server 依 agent 是否「正持著 `ocagent listen` 的 SSE 連線」直接判定：持著＝online、SSE 一斷＝offline。**沒有 agent 要自己維持的 heartbeat**（舊設計的 heartbeat 已移除）。**warden 亦同一套**——warden 自己連上 SSE ＝ online（2026-07-10 起 member 與 warden 一視同仁；權威 spec 見 `docs/design/state-model.md`）。
-2. **喚醒中（waking）** 由 boot 起手一次性的 `ocagent presence --phase waking`（獨立 HTTP、不掛 SSE）錨定，發生在掛 listen **之前**。
+2. **喚醒中（waking）** 由一個時間錨點決定，而**第一個寫它的是 server，不是 agent**：reconcile 把 START 派給 warden、warden 接走的那一刻就 stamp（`stampWakeObservability`），而按下喚醒時 server 會在**同一次請求裡**就重決一次（`reconcileMemberNow`），所以接得走的話錨點當場就蓋上了，不必等下一個 tick。**這樣才分得出「叫過但沒起來」與「根本沒人叫過」**——只有 agent 自報時，兩者在畫面上長得一模一樣。
+   - **正職成員**的錨點是 `waking_since`；agent 開機起手呼叫 `report_waking()` 時會再蓋一次，但那時它已經是 waking 了。
+   - **外包 worker 不帶 `waking_since`**（`workerReportWaking` 明寫這個欄位不在 worker 的詞彙裡）：它的喚醒中是用**這次 spawn 派出的時間**當錨點推導的（`workerPresence`），沒派出過就退回用該 row 的**建立時間**（剛建立、還在等放置的 worker 本來就該顯示喚醒中）。⚠️ 那個 spawn 時間是**純記憶體**的：server 重啟後就沒了，於是一個早就建立的 worker 會改用建立時間當錨、一算就超窗而讀成離線——**除非它其實還連著（那就是線上，或有下線意圖時是停止中）：錨點雖然照算，但推導在前面那幾步就回答完了，根本不會拿它出來問。**
+   - 兩者共用同一個過期窗：錨點放著沒等到連線，**90 秒**（`WakingTTLSecs`）後推導回離線。但**在輪到這個窗之前，有三件事先被問**，照碼上的順序是：① **row 已 released 就整個不畫**（外包獨有，短路在推導核心之前）→ ② **有下線意圖就顯示停止**（兩邊皆然，SSE 還在則是停止中；錨的欄位不同：正職 `stopping_since`、外包 `desired_state`）→ ③ **還連著就是線上**（兩邊皆然）→ 才輪到喚醒窗。⚠️ 注意 ② 在 ③ 之前：連著、但已被標為要下線的，是停止中，不是線上。反過來，正職多一道外包沒有的閘：要 `desired_state` 仍是 online 才算喚醒中。⚠️ 「逾時受理由」是**另一條路**寫的（reconcile 下一次 tick 才寫，且錨的是它自己的 `LastCommandAt`），所以會出現「從沒 stamp 過 `waking_since`、卻留下逾時受理由」的組合。
+   （舊設計的 `ocagent presence --phase waking` 子命令已不存在。）
 
-其餘態由 server 從這兩個錨點 ＋ graceful-shutdown 訊號**衍生**（單一衍生函數 `presence_state()`）：
+其餘態由 server 從這兩個錨點 ＋ graceful-shutdown 訊號**衍生**（單一衍生核心 `deriveLiveness()`；正職走 `PresenceState`、外包走 `workerPresence`，兩個映射都收斂到同一個核心）：
 ```
-離線(offline) ──(你觸發喚醒；UI 不改狀態，仍離線)──►
-   ──(agent 報 waking：presence --phase waking)──► 喚醒中(waking)
+離線(offline) ──(你按喚醒：寫下意圖 desired_state=online；面板先樂觀翻成喚醒中)──►
+   ──(server 同一次請求內重決、START 被 warden 接走：蓋上錨點)──► 喚醒中(waking)
+   ──(90 秒內沒連上 SSE)──► 回到 離線(offline)
    ──(agent 掛上 ocagent listen、server 見 SSE 連上)──► 線上(online == connected)
    ──(收 stopping 訊號、SSE 仍在)──► stopping ──(SSE 斷)──► stopped/offline
 ```
 - **離線 / stopped**：灰點
-- **喚醒中（waking）**：黃點 ＋ `喚醒中` 徽章（已報 waking、SSE 尚未連上）
+- **喚醒中（waking）**：黃點 ＋ `喚醒中` 徽章（**錨點已被蓋上**——正職是 `waking_since`、外包是這次 spawn 的時間或（未曾派出時）row 的建立時間——而 SSE 尚未連上）
 - **線上（online）**：綠點（server 見 agent 正持著 SSE 連線——純看連線，非 heartbeat）
 - **stopping**：winding-down 內部衍生態（graceful-shutdown 訊號已設、SSE 未斷），由 server 算出，agent 不用管。
 
@@ -95,8 +100,8 @@ presence 是 **server 端算出來的**，不是 agent 自報的心跳狀態。�
 ### 1.5 喚醒流程
 面板按「喚醒」→ **直接在本機啟動 agent**（一鍵，無選擇視窗）。
 
-喚醒動作本身**不會改變成員狀態**；狀態由 server 端算出來（見「成員狀態機」）：
-- agent boot 起手報 `presence --phase waking` → 轉 **喚醒中**
+按下喚醒寫的是**意圖**（`desired_state=online`），真正的狀態一律由 server 端算出來（見「成員狀態機」）。**owner 面板上按下去會當場翻成黃色「喚醒中」，那是前端刻意做的樂觀回饋**（唯讀嵌入沒接上喚醒動作：按鈕還在、對話框也開得起來，但按下去**不送喚醒那一發**、也不上這個色——同一個對話框裡改過的啟動設定仍會存出去）（不這樣做，點下去會像什麼都沒發生）；被拒絕時它會退回誠實的離線，不會卡在假的喚醒中：
+- server 在同一次請求內就重決一次，把 START 派給那台機器的 warden、warden 接走 → 轉 **喚醒中**（agent 開機起手的 `report_waking()` 會再蓋一次錨點，但狀態那時已經是喚醒中）
 - agent 掛上 `ocagent listen`、server 見 SSE 連上 → 轉 **線上**（`online == connected`，純由 SSE 連線判定，無 heartbeat）
 
 狀態為「喚醒中」時，喚醒按鈕**照常顯示、不做 disable**。

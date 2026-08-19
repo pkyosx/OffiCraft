@@ -43,7 +43,7 @@
 // apply it, leave the rest alone — and the wire was a whole-document replace
 // underneath it either way. With one editor over the whole text, the thing that
 // was implicit in the section rows has to be stated, because the failure it
-// prevents (pasting one proposed block over a 45,000-character document and
+// prevents (pasting one proposed block over a long document and
 // saving the rest away) is silent and unrecoverable except through history.
 //
 // 🔴 The claude and codex boot sequences are TWO DIFFERENT DOCUMENTS — their

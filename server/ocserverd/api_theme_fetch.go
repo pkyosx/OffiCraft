@@ -134,7 +134,8 @@ func (s *apiServer) HandleFetchThemeApiThemeFetchPost(w http.ResponseWriter, r *
 
 	// 「只要管拿到的 json 符合預期」 — the one thing the owner DID ask for. The
 	// bundle goes through validateThemeBundles, the very same validator that
-	// guards PATCH /api/settings' custom_themes write; a link that points at
+	// guards the theme write itself (PATCH /api/settings' custom_themes array
+	// until T-83ef, PUT /api/themes/{theme_id} since); a link that points at
 	// something which is not a theme is refused HERE, naming what is wrong,
 	// rather than turning into a puzzling failure two layers up the UI.
 	var bundle ThemeBundleDTO

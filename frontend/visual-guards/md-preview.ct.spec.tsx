@@ -21,6 +21,7 @@
 // class attached". A stylesheet that carries the class names and lays out wrong
 // passes a class-name assertion and fails these.
 import { test, expect } from "@playwright/experimental-ct-react";
+import type { Page } from "@playwright/test";
 import {
   MarkdownPreviewStory,
   MarkdownPreviewLongStory,
@@ -30,6 +31,37 @@ import {
 const NARROW = { width: 390, height: 664 };
 /** The control: a desktop viewport whose behaviour must not move at all. */
 const WIDE = { width: 1280, height: 800 };
+
+/** T-6c26 (originally T-415b): wait for the panel's geometry to STOP changing
+ * before measuring it.
+ *
+ * 🔴 MEASURED, not guessed. Sampling the panel every 20 ms straight after mount
+ * gives, on the very first sample:
+ *     {"top":302.375,"bottom":497.625,"h":195.25}   →  {"top":32,"bottom":768,"h":736}
+ * The overlay is `align-items: safe center`, so a panel that has not yet grown
+ * to its `max-height` is CENTRED — which puts `top` at 302 instead of 32. Both
+ * `toBeVisible()` and `document.fonts.status === "loaded"` are already true at
+ * that point, so neither of the waits this file used to do excludes it. On a
+ * loaded runner that window stretches, and the read lands inside it.
+ *
+ * This is a wait, not a tolerance: the settled values are EXACT, and asserting
+ * them exactly is what makes the guard able to catch a one-pixel layout shift.
+ * A tolerance wide enough to swallow the 270 px transient would swallow the
+ * regression too. */
+async function settleLayout(page: Page) {
+  let prev = "";
+  for (let i = 0; i < 60; i++) {
+    const now = await page.evaluate(() => {
+      const el = document.querySelector(".md-preview__panel");
+      if (!el) return "";
+      const r = el.getBoundingClientRect();
+      return `${r.top}|${r.bottom}|${r.height}|${r.left}|${r.right}`;
+    });
+    if (now !== "" && now === prev) return;
+    prev = now;
+    await page.waitForTimeout(25);
+  }
+}
 
 test("desktop 1024: overlay panel lays out with a rendered markdown body", async ({ mount, page }) => {
   await page.setViewportSize({ width: 1024, height: 800 });
@@ -98,6 +130,7 @@ test("narrow 390: the whole preview panel, close button included, is inside the 
   const panel = page.locator(".md-preview__panel");
   await expect(panel).toBeVisible();
   await expect(page.locator(".md-preview__md")).toBeVisible();
+  await settleLayout(page);
 
   const seen = await page.evaluate(() => {
     const r = (s: string) => document.querySelector(s)!.getBoundingClientRect();
@@ -273,12 +306,25 @@ test("desktop 1280: the panel geometry is unchanged by the narrow-width fix", as
   // every reach for it goes through `page` (T-76cd).
   await mount(<MarkdownPreviewLongStory />);
   await expect(page.locator(".md-preview__panel")).toBeVisible();
+  await settleLayout(page);
 
   const seen = await page.evaluate(() => {
     const el = document.querySelector(".md-preview__panel")!;
     const r = el.getBoundingClientRect();
     return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, width: r.width };
   });
+  // T-6c26 — which of these five are INVARIANTS and which are arithmetic, since
+  // "five exact numbers" reads as five independent claims and it is not:
+  //   · width 760      — an invariant: `width: min(760px, 100%)`, the panel's own cap.
+  //   · left 260 / right 1020 — DERIVED from width + `justify-content: center` at
+  //     1280 (260 = (1280-760)/2). They are not extra claims about the panel; what
+  //     they still catch is the CENTRING, so they stay.
+  //   · top 32 / bottom 768  — an invariant with a PRECONDITION: the 32 px desktop
+  //     inset, true only once the panel has grown to its max-height. Until then
+  //     `align-items: safe center` centres a shorter panel and top reads ~302.
+  //     settleLayout above is what makes that precondition hold; do not delete it
+  //     and do not paper over it with a tolerance (mutant: inset 32→33 must stay
+  //     red at ONE pixel — measured).
   expect(seen.width).toBe(760);
   expect(seen.left).toBe(260);
   expect(seen.right).toBe(1020);
@@ -321,6 +367,7 @@ test("landscape 844x390: the short-viewport rule gives the panel the screen, min
   await mount(<MarkdownPreviewLongStory />);
   await expect(page.locator(".md-preview__panel")).toBeVisible();
   await expect(page.locator(".md-preview__md")).toBeVisible();
+  await settleLayout(page);
 
   const seen = await page.evaluate(() => {
     const r = (s: string) => document.querySelector(s)!.getBoundingClientRect();

@@ -287,9 +287,10 @@ func (d *DAL) CountTasksDuplicatingOriginal(originalID string) (int, error) {
 // The fix is an OWNERSHIP BOUNDARY rather than a lock or a retry: each column is
 // written ONLY by its own single-field setter (SetTaskDescriptionOn /
 // SetTaskTitleOn, each of which versions its column in the same transaction) and
-// by the INSERT half of this very statement, which is how create_task and the
-// handoff follow-up set them — both mint a fresh id, so neither ever reaches the
-// conflict clause. Single-writer columns cannot be clobbered by a stale
+// by the INSERT half of this very statement, which is how create_task sets them
+// — it mints a fresh id, so it never reaches the conflict clause. (Until T-f265
+// the handoff follow-up was a second such INSERT; it no longer exists, which
+// removes a writer rather than adding one.) Single-writer columns cannot be clobbered by a stale
 // whole-row copy, because no stale whole-row copy of them exists. Guarded by
 // TestTaskDescriptionRaceGuardHasTeeth and TestTaskTitleRaceGuardHasTeeth.
 //
@@ -302,7 +303,8 @@ func (d *DAL) CountTasksDuplicatingOriginal(originalID string) (int, error) {
 // happened to read a moment earlier and silently destroys a correction the title
 // endpoint has already answered 200 to. Verified at the time of the change that
 // no production path mutates Title on an EXISTING row (the only writers are the
-// create INSERT, the handoff follow-up's INSERT, and the new setter), so
+// create INSERT and the new setter; the handoff follow-up's INSERT was a third
+// until T-f265 removed it), so
 // dropping it from the conflict clause changes nothing for any existing caller —
 // it only removes the clobber.
 //
@@ -993,6 +995,19 @@ type OutsourceWorker struct {
 	// flight) — the worker twin of member.refocus_op. Stamped and cleared in
 	// lockstep with RefocusSince.
 	RefocusOp string
+	// ForcedStopAt mirrors member.forced_stop_at (T-a9d6, migrations/00057) —
+	// the durable record that this session was CUT OFF rather than collected,
+	// and the one field forcedEpochLive reads to decide whether an offboard
+	// delta says anything at all.
+	//
+	// 🔴 It has to be here, not derived, because the projection rebuilds a
+	// Member from scratch: for as long as this field did not exist,
+	// forcedEpochLive was FALSE for every worker that ever ran, and the silence
+	// the owner ruled for a forced stop simply did not apply on this side
+	// (T-c996). Deriving it from desired_state instead would be true only for as
+	// long as 停止 stays the ONLY writer of offline on a worker — a condition
+	// nothing enforces and nothing would report breaking.
+	ForcedStopAt float64
 	// StoppingSince / StoppedSince are the graceful-handover wind-down anchors
 	// (T-ea82), DIRECT mirrors of the member columns (the row has carried them
 	// since the P7d fold): stopping_since marks the SOP started; stopped_since
@@ -1069,6 +1084,7 @@ func workerFromMember(m Member) OutsourceWorker {
 		RefocusOp:          m.RefocusOp,
 		StoppingSince:      m.StoppingSince,
 		StoppedSince:       m.StoppedSince,
+		ForcedStopAt:       m.ForcedStopAt,
 		DesiredState:       m.DesiredState,
 		BankedCost:         m.BankedCost,
 		AvatarAttachmentID: m.AvatarAttachmentID,
@@ -1116,6 +1132,7 @@ func memberFromWorker(w OutsourceWorker) Member {
 		RefocusOp:          w.RefocusOp,
 		StoppingSince:      w.StoppingSince,
 		StoppedSince:       w.StoppedSince,
+		ForcedStopAt:       w.ForcedStopAt,
 		BankedCost:         w.BankedCost,
 		LastOp:             w.LastOp,
 		LastOpOK:           w.LastOpOK,

@@ -28,6 +28,7 @@ import { render, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { TaskReassignDialog } from "./TaskReassignDialog";
 import { ApiError } from "../api/errors";
+import { mockApiError } from "../api/errorCodes";
 import type { TaskView } from "../api/adapter";
 
 function mkTask(): TaskView {
@@ -96,25 +97,25 @@ async function submitAndReadError(rejectWith: unknown): Promise<string> {
 const REFUSALS: Array<{ name: string; err: ApiError; needle: string }> = [
   {
     name: "terminal task (409)",
-    err: new ApiError("http 409 for POST /x", 409, "conflict",
+    err: mockApiError("http 409 for POST /x", 409,
       "task 'task-1' is already closed (terminated)"),
     needle: "already closed (terminated)",
   },
   {
     name: "an outsource worker asking at all (403)",
-    err: new ApiError("http 403 for POST /x", 403, "forbidden",
+    err: mockApiError("http 403 for POST /x", 403,
       "outsource workers may not reassign tasks"),
     needle: "outsource workers may not reassign tasks",
   },
   {
     name: "一般正職 naming another member (403)",
-    err: new ApiError("http 403 for POST /x", 403, "forbidden",
+    err: mockApiError("http 403 for POST /x", 403,
       "only the owner or an admin agent may reassign a task to another member; 發包 to an outsource worker instead"),
     needle: "only the owner or an admin agent may reassign a task to another member",
   },
   {
     name: "an invalid target (400)",
-    err: new ApiError("http 400 for POST /x", 400, "bad_request",
+    err: mockApiError("http 400 for POST /x", 400,
       "target member 'm-nobody' is not an active roster member"),
     needle: "is not an active roster member",
   },
@@ -144,7 +145,7 @@ describe("轉派被拒時,畫面說得出是哪一種", () => {
     expect(await submitAndReadError(new Error("boom"))).toContain("轉派失敗");
     expect(
       await submitAndReadError(
-        new ApiError("http 500 for POST /x", 500, "internal", "")
+        mockApiError("http 500 for POST /x", 500, "")
       )
     ).toContain("轉派失敗");
   });

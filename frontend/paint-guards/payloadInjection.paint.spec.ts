@@ -47,7 +47,10 @@ const TOKEN = "paint-guard-owner-token";
 // "the pre-paint script leaked a rejected value" from "the server sent a real
 // theme and React applied it".
 //
-// With custom_themes: [] the ONLY code that can put a theme custom property on
+// [T-83ef] That server now says so on the theme resource: GET /api/themes is
+// `[]` and display_theme is "", so the reconcile finds the active id in no set,
+// never issues GET /api/themes/{id}, and no bundle ever reaches the page. With
+// no server bundle in play the ONLY code that can put a theme custom property on
 // <html> is the pre-paint script reading the record under test, so every
 // occurrence is attributable. The injection window (8-9 ms) is far earlier than
 // the reconcile that then clears the record, so nothing is lost.

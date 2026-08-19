@@ -22,8 +22,14 @@ package main
 // seam. api_insight_patch_publish_test.go's own header records it: someone
 // deleted patch_insight's single hub.Publish line and ran the full go suite
 // plus all 1061 conformance cases, and everything stayed GREEN. That was the
-// missing-frame direction. This file closes the extra-frame direction, for all
-// three anchor-patch seams rather than only insight.
+// missing-frame direction. This file closes the extra-frame direction, for
+// every anchor-patch seam rather than only insight.
+//
+// patch_task_sop and patch_step_note (T-1667) are the fourth and fifth seams and
+// both shipped announcing unconditionally, so both are pinned here too. The step
+// note is the one that has nothing to do with document history — it keeps no
+// versions, so the SSE frame and the task's updated_ts are the ENTIRE cost of a
+// write nobody needed, and this file is the only place that cost is watched.
 //
 // The positive control in every test is load-bearing and must stay first. A
 // listener that was never wired, a hub that fans nothing at all, and a
@@ -155,5 +161,90 @@ func TestCancellingBatchPatchTaskLearningsFansNoFrame(t *testing.T) {
 	// would be wrong to demand silence.
 	if got := storedLearnings(t, f.api, key); got != "LEARNING: the fixture seeds exactly one manual per test.\n" {
 		t.Fatalf("premise broken — the cancelling batch changed the doc: %q", got)
+	}
+}
+
+func TestCancellingBatchPatchTaskSopFansNoFrame(t *testing.T) {
+	f := newHistoryFixture(t)
+	const edited = "## SOP\n1. 先讀 spec 再改 handler\n"
+	key := seedManualWithSop(t, f.api, "## SOP\n1. 先讀 spec\n")
+	// Connect AFTER seeding: the seed goes through the wholesale face, which fans
+	// a frame of its own and would otherwise be waiting in the listener.
+	listener, err := f.api.hub.Connect("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if status, data := patchSop(t, f.api, key, map[string]any{
+		"edits": []any{edit("先讀 spec", "先讀 spec 再改 handler")},
+	}); status != http.StatusOK {
+		t.Fatalf("control edit must land, got %d: %v", status, data)
+	}
+	if listener.pop() == nil {
+		t.Fatal("control: a real sop patch fanned NO frame — the listener or the publish " +
+			"seam is broken, so a missing frame below would prove nothing")
+	}
+	drainHubFrames(listener)
+
+	if status, data := patchSop(t, f.api, key,
+		cancellingBatch("再改 handler", "再改 routes")); status != http.StatusOK {
+		t.Fatalf("cancelling batch must answer 200, got %d: %v", status, data)
+	}
+	assertNoFrame(t, listener, "a cancelling sop batch")
+
+	if got := storedSop(t, f.api, key); got != edited {
+		t.Fatalf("premise broken — the cancelling batch changed the doc: %q", got)
+	}
+}
+
+// TestCancellingBatchPatchStepNoteFansNoFrame is the one seam with no document
+// history behind it, so the frame and the task's updated_ts are the whole of
+// what a pointless write costs — and both are asserted here rather than split
+// across two files.
+func TestCancellingBatchPatchStepNoteFansNoFrame(t *testing.T) {
+	f := newHistoryFixture(t)
+	const edited = "做到哪：conformance 跑到第三關\n下一步：接 auth matrix"
+	taskID, stepID := seedStepWithNote(t, f.api,
+		"做到哪：conformance 跑到第三關\n下一步：接前端 i18n")
+	listener, err := f.api.hub.Connect("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if status, data := patchStepNote(t, f.api, taskID, stepID, "m-exec", map[string]any{
+		"edits": []any{edit("接前端 i18n", "接 auth matrix")},
+	}); status != http.StatusOK {
+		t.Fatalf("control edit must land, got %d: %v", status, data)
+	}
+	if listener.pop() == nil {
+		t.Fatal("control: a real step-note patch fanned NO frame — the listener or the publish " +
+			"seam is broken, so a missing frame below would prove nothing")
+	}
+	drainHubFrames(listener)
+	// Read updated_ts after the control, which is supposed to have moved it.
+	before, err := f.api.dal.GetTask(taskID)
+	if err != nil || before == nil {
+		t.Fatalf("read task: %+v %v", before, err)
+	}
+
+	if status, data := patchStepNote(t, f.api, taskID, stepID, "m-exec",
+		cancellingBatch("接 auth matrix", "接 auth 矩陣")); status != http.StatusOK {
+		t.Fatalf("cancelling batch must answer 200, got %d: %v", status, data)
+	}
+	assertNoFrame(t, listener, "a cancelling step-note batch")
+
+	if got := readStepNote(t, f.api, taskID, stepID); got != edited {
+		t.Errorf("premise broken — the cancelling batch changed the note: %q", got)
+	}
+	// updated_ts is what makes an already-open cockpit card re-read its steps, so
+	// bumping it for a note that never moved orders the same refetch the missing
+	// frame above would have.
+	after, err := f.api.dal.GetTask(taskID)
+	if err != nil || after == nil {
+		t.Fatalf("re-read task: %+v %v", after, err)
+	}
+	if after.UpdatedTS != before.UpdatedTS {
+		t.Errorf("a cancelling batch moved the task's updated_ts from %v to %v",
+			before.UpdatedTS, after.UpdatedTS)
 	}
 }

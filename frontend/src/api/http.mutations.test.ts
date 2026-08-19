@@ -20,6 +20,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { httpApi } from "./http";
 import { ApiError } from "./errors";
+import { codeForStatus } from "./errorCodes";
 
 const WIRE_MEMBER = {
   id: "m-1",
@@ -304,7 +305,7 @@ describe("httpApi · updateTaskTitle wire shape", () => {
     // unified envelope, which is what the card's editor branches on.
     fetchMock.mockImplementation(async () =>
       jsonResponse(
-        { error: { code: "bad_request", message: "title must not be blank" } },
+        { error: { code: codeForStatus(400), message: "title must not be blank" } },
         400
       )
     );

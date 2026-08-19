@@ -7,6 +7,10 @@
 // owner nickname, the display-pref login reconcile, the 外包 parallel cap, and
 // the onboarding banner — for ~3.2 MB of identical bytes.
 //
+// (T-83ef has since moved `custom_themes` off settings entirely — that 98% is
+// history, not the current body. What it did NOT change is the claim below: the
+// remaining fields still have six consumers, and they still must cost ONE GET.)
+//
 // The subject here is the REQUEST COUNT and the value each consumer ends up
 // showing. "getServerSettings was called" is true in both worlds and would pin
 // nothing.
@@ -19,6 +23,13 @@ const h = vi.hoisted(() => ({
   patchServerSettings: vi.fn(),
   listOutsourceWorkers: vi.fn(),
   subscribeEvents: vi.fn(),
+  // T-83ef: the i18n reconcile now reads BOTH faces — settings still owns WHICH
+  // theme is active, `GET /api/themes` owns what themes there are. This fake
+  // answers the narrow row the real endpoint answers (id + name, never a
+  // bundle); `getTheme` is the only door to a bundle and there is none saved
+  // here, so it rejects the way the server 404s rather than inventing one.
+  listThemes: vi.fn(),
+  getTheme: vi.fn(),
 }));
 
 vi.mock("../api", () => ({
@@ -27,6 +38,8 @@ vi.mock("../api", () => ({
     patchServerSettings: h.patchServerSettings,
     listOutsourceWorkers: h.listOutsourceWorkers,
     subscribeEvents: h.subscribeEvents,
+    listThemes: h.listThemes,
+    getTheme: h.getTheme,
   },
 }));
 
@@ -57,7 +70,6 @@ const SETTINGS = {
   displayTheme: "",
   displayLanguage: "",
   displayWide: false,
-  customThemes: [],
   pushContactEmail: "",
   onboarding: null,
 };
@@ -96,6 +108,8 @@ beforeEach(() => {
   h.patchServerSettings.mockReset();
   h.listOutsourceWorkers.mockReset().mockResolvedValue([]);
   h.subscribeEvents.mockReset().mockReturnValue(() => {});
+  h.listThemes.mockReset().mockResolvedValue([]);
+  h.getTheme.mockReset().mockRejectedValue(new Error("no such theme"));
 });
 
 describe("shared /api/settings snapshot", () => {

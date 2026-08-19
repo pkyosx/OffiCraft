@@ -197,12 +197,12 @@ func TestDecideHandoverNotice(t *testing.T) {
 		if !strings.Contains(sig.Reason, steps) {
 			t.Fatalf("the notice must carry the offboard document: %q", sig.Reason)
 		}
-		// A SOFT notice has no countdown. The 120-second clause belongs to the
-		// final call alone; carrying it here would read as "you are out of time"
-		// a full band early.
-		if strings.Contains(sig.Reason, "120 seconds") {
-			t.Fatalf("the soft notice must not claim a countdown: %q", sig.Reason)
-		}
+		// A SOFT notice has no countdown, and no deadline either. That clause
+		// belongs to the final call alone; carrying it here would read as "you
+		// are out of time" a full band early. Asserted by SHAPE — a digit
+		// attached to a unit of time, or a clock-shaped span — because a
+		// whitelist of literals stops guarding at the next rewording.
+		assertQuotesNoTime(t, "a context-pressure notice", sig.Reason)
 	})
 
 	t.Run("the notice survives a document that cannot be read", func(t *testing.T) {

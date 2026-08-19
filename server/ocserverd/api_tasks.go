@@ -673,7 +673,11 @@ const resumeTasksN = 5
 // peek-then-decide signal: the agent checks it BEFORE a get_task pull and may
 // hand a large digest to a sub-agent. The second return is the caller's TOTAL
 // open-task count (the overview's tasks_open_total — the rows may be fewer).
-func (s *apiServer) resumeTasksFor(actor string) ([]resumeTaskDTO, int, error) {
+// cards is the SAME map resumeSnapshotParts already built from its single
+// ListReplyCards full-table scan (id → card); it is passed IN rather than
+// re-queried here, so answered_card_steps costs this path no extra query. A nil
+// map is legal and simply yields no answered_card_steps rows.
+func (s *apiServer) resumeTasksFor(actor string, cards map[string]ReplyCard) ([]resumeTaskDTO, int, error) {
 	out := []resumeTaskDTO{}
 	if actor == "" {
 		return out, 0, nil
@@ -693,7 +697,23 @@ func (s *apiServer) resumeTasksFor(actor string) ([]resumeTaskDTO, int, error) {
 		}
 		currentID, currentName := "", ""
 		detailChars := 0
+		answered := []resumeAnsweredCardStepDTO{}
 		for _, st := range steps {
+			// The answered-card pointer (T-f278). in_progress is the value
+			// releaseCardHold puts a held step back to the moment the owner
+			// answers, so "answered card + in_progress step" is exactly the
+			// state where the answer has arrived and nobody has acted on it —
+			// and it is indistinguishable, on the step alone, from an executor
+			// actively working. The card status is what tells them apart.
+			if st.Status == StepStatusInProgress && st.ReplyCardID != "" {
+				if c, ok := cards[st.ReplyCardID]; ok && c.Status == replyCardStatusAnswered {
+					answered = append(answered, resumeAnsweredCardStepDTO{
+						StepID:   st.ID,
+						StepName: st.Name,
+						CardID:   st.ReplyCardID,
+					})
+				}
+			}
 			// current = the first non-TERMINAL step: a superseded row is
 			// frozen replan history, never the working node (T-1aea).
 			if currentID == "" && !StepIsTerminal(st.Status) {
@@ -716,6 +736,8 @@ func (s *apiServer) resumeTasksFor(actor string) ([]resumeTaskDTO, int, error) {
 			ProgressTotal:   stepTotal,
 			DetailChars:     detailChars,
 			UpdatedTS:       t.UpdatedTS,
+
+			AnsweredCardSteps: answered,
 		})
 	}
 	return out, total, nil
@@ -2129,7 +2151,7 @@ func (s *apiServer) HandleSubmitTaskPlanApiTasksTaskIdPlanPost(w http.ResponseWr
 	// closeTask walks its dependents, and t's handoff fields ride closeTask's
 	// PutTask). Only ever non-nil when the gate auto-satisfied off a live
 	// dependent, since a replan cannot carry an explicit declaration.
-	if err := s.applyHandoffPlan(t, replanHandoff, nowSecs(), requestTrigger(r)); err != nil {
+	if err := s.applyHandoffPlan(t, replanHandoff); err != nil {
 		internalError(w, err)
 		return
 	}
@@ -2372,7 +2394,7 @@ func (s *apiServer) HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPos
 	// Record the handover BEFORE the derivation closes the task: the successor
 	// task (and its dep edge) must already exist when closeTask walks its
 	// dependents, and t's handoff fields ride the PutTask closeTask performs.
-	if err := s.applyHandoffPlan(t, plan, now, requestTrigger(r)); err != nil {
+	if err := s.applyHandoffPlan(t, plan); err != nil {
 		internalError(w, err)
 		return
 	}

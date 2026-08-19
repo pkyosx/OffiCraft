@@ -732,6 +732,47 @@ export interface TaskReassignInput {
   note?: string;
 }
 
+// ── Themes (T-83ef 主題包自己一個資源) view models ─────────────────────
+
+/** ONE row of `GET /api/themes` (T-83ef): a saved theme's id and its display
+ * name, and NOTHING else. It is a LIST ITEM rather than the bundle on purpose
+ * — a theme carries its images EMBEDDED, so a list of whole bundles runs to
+ * hundreds of kilobytes or megabytes, which is exactly the payload this
+ * resource exists to stop serving. `name` is what the theme list and the
+ * profile picker render; `id` is what selects, reads, writes or deletes it.
+ * Everything a caller might want a theme FOR is about ONE theme — and that one
+ * theme is {@link Api.getTheme}. */
+export interface ThemeListItem {
+  id: string;
+  name: string;
+}
+
+/** The receipt of a single-theme write (`PUT /api/themes/{theme_id}`, T-83ef).
+ * A RECEIPT and NOT the stored bundle echoed back: echoing it would send the
+ * embedded images a second time, i.e. the payload this split exists to remove.
+ * `created` distinguishes a theme that did not exist before from one that was
+ * replaced; `orderIdx` is its position in the owner's list, which a replace
+ * KEEPS (re-colouring a theme does not move it to the bottom); `updatedAt` is
+ * the epoch seconds this write landed. */
+export interface ThemeWriteReceipt {
+  id: string;
+  created: boolean;
+  orderIdx: number;
+  updatedAt: number;
+}
+
+/** The receipt of `DELETE /api/themes/{theme_id}` (T-83ef).
+ * `displayThemeReset` is the part a caller cannot work out on its own:
+ * deleting the ACTIVE theme resets `display_theme` back to `""` in the SAME
+ * request (the coupling the old whole-array settings write performed), and
+ * this field says whether that happened — so the cockpit does not have to
+ * re-read settings to discover its theme changed under it. */
+export interface ThemeDeleteResult {
+  id: string;
+  deleted: boolean;
+  displayThemeReset: boolean;
+}
+
 /** The owner-adjustable server settings in view-model form (`/api/settings`). */
 export interface ServerSettingsView {
   /** Owner-login lifetime in seconds (one of 43200/86400/604800/2592000). */
@@ -806,9 +847,6 @@ export interface ServerSettingsView {
    * centred column, the shipped default. Same dual-layer contract as
    * displayTheme, but a plain bool — there is no "never set" third state. */
   displayWide: boolean;
-  /** The owner's saved custom theme bundles (T-16a1 P2); [] = none saved.
-   * displayTheme may point at any bundle's id (or a built-in). */
-  customThemes: ThemeBundle[];
   /** The automatic first-run onboarding report (T-ba62), or null when
    * onboarding never ran on this server (an install predating it, or a
    * database that already had a password). This is how the cockpit can say
@@ -887,11 +925,6 @@ export interface ServerSettingsPatch {
   /** Turn the WIDE cockpit layout on/off (T-756f). Omit to leave it
    * unchanged — a plain bool, so there is nothing to "clear" it to. */
   displayWide?: boolean;
-  /** Replace the owner's custom theme bundles (T-16a1 P2). Omit to leave them
-   * unchanged; [] clears them. Each bundle is validated (shape + theme.css
-   * token whitelist + concrete-colour grammar); the server 422s any violation.
-   * Deleting the active custom theme resets displayTheme to "". */
-  customThemes?: ThemeBundle[];
 }
 
 /** Fields the owner may edit on a member (PATCH; every field optional).
@@ -1389,8 +1422,9 @@ export interface Api {
   deactivateMember(id: string): Promise<void>;
   /**
    * Force-stop (immediate kill): POST /api/members/{id}/force-stop → the server
-   * dispatches the robust STOP straight to the warden NOW, bypassing the 120s
-   * graceful-stop grace (the warden SIGKILLs the session). Backs the cockpit's
+   * dispatches the robust STOP straight to the warden NOW (the warden SIGKILLs the
+   * session). Not a shortcut past a countdown — the offboard arm runs none, so
+   * apart from the agent's own report_stopped this is the only collection. Backs the cockpit's
    * "Force stop" escalation, surfaced once a member is already *stopping*. Does
    * NOT flip online — the caller refetches; presence surfaces stopped.
    */
@@ -2168,6 +2202,53 @@ export interface Api {
    * link itself cannot be reached or answers non-200.
    */
   fetchThemeFromLink(url: string): Promise<string>;
+  /**
+   * List the owner's saved custom themes (`GET /api/themes`) — T-83ef.
+   *
+   * 🔴 id + name ONLY, never the bundles. A theme embeds its images, so the
+   * whole set is hundreds of KB to MB; serving that from a second door would
+   * reproduce the very problem this resource was split out to fix. Anything
+   * about ONE theme — applying it, editing it, exporting it — goes through
+   * {@link getTheme}.
+   */
+  listThemes(): Promise<ThemeListItem[]>;
+  /**
+   * Read ONE saved custom theme IN FULL (`GET /api/themes/{theme_id}`) — the
+   * per-item read that makes "edit one theme" possible without pulling every
+   * bundle and every embedded image with it.
+   *
+   * Unknown id → 404, thrown as an `ApiError` (the same convention every other
+   * per-id read on this seam follows — e.g. getTaskManual / getTask). It never
+   * answers null: "no such theme" is a rejection, not an empty value.
+   */
+  getTheme(id: string): Promise<ThemeBundle>;
+  /**
+   * Create or replace ONE custom theme (`PUT /api/themes/{theme_id}`) — the
+   * write this split exists to make expressible: before it, changing a single
+   * colour meant re-sending EVERY theme with EVERY embedded image.
+   *
+   * The bundle is filed under its OWN `id`, which is what this method puts in
+   * the path — so the server's "path id must equal the bundle's id" rule
+   * (422 otherwise) cannot be violated from here by construction. A replace
+   * KEEPS the theme's position in the owner's list.
+   *
+   * Answers the small {@link ThemeWriteReceipt}, NOT the bundle echoed back.
+   * Rejects (throw `ApiError`, nothing written): 422 when the bundle fails the
+   * shared validator (shape / theme.css token whitelist / concrete-colour
+   * grammar / image gates), or when CREATING while the saved set is already at
+   * its cap (a replace is not capped). The ONE thing that is not a 422 is an
+   * unrecognised `wording` code — the server DROPS it and the write succeeds.
+   */
+  putTheme(bundle: ThemeBundle): Promise<ThemeWriteReceipt>;
+  /**
+   * Delete ONE custom theme (`DELETE /api/themes/{theme_id}`).
+   *
+   * Unknown id → 404, thrown as an `ApiError` — same convention as
+   * {@link getTheme}. Deleting the ACTIVE theme resets `display_theme` to `""`
+   * in the SAME request; the receipt's `displayThemeReset` reports that, so the
+   * caller learns its theme changed without re-reading settings.
+   */
+  deleteTheme(id: string): Promise<ThemeDeleteResult>;
   /** Read the VAPID public key used by PushManager.subscribe. */
   getPushPublicKey(): Promise<string>;
   /** Save or refresh this browser's Web Push subscription. */

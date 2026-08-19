@@ -111,29 +111,44 @@ func TestThemeLinkImport_LinkInThemeStored(t *testing.T) {
 	if err := json.Unmarshal([]byte(content), &bundle); err != nil {
 		t.Fatalf("fetched content does not parse as a bundle: %v", err)
 	}
-	patch := httptest.NewRecorder()
-	api.HandleUpdateSettingsApiSettingsPatch(patch,
-		taskReq(t, http.MethodPatch, "/api/settings",
-			map[string]any{"custom_themes": []ThemeBundleDTO{bundle}}, "owner", "owner"))
-	if patch.Code != http.StatusOK {
-		t.Fatalf("import write: got %d %s, want 200", patch.Code, patch.Body.String())
+	// T-83ef moved the write: a fetched theme is stored through PUT
+	// /api/themes/{id}, not through a whole-array settings patch. The CLAIM this
+	// test makes is unchanged — a link-imported theme survives the real write and
+	// reads back as the theme the link served — so the assertion follows the
+	// behaviour to its new door rather than being deleted with the old one.
+	put := httptest.NewRecorder()
+	api.HandlePutThemeApiThemesThemeIdPut(put,
+		taskReq(t, http.MethodPut, "/api/themes/"+bundle.Id, bundle, "owner", "owner"),
+		bundle.Id)
+	if put.Code != http.StatusOK {
+		t.Fatalf("import write: got %d %s, want 200", put.Code, put.Body.String())
 	}
 
 	read := httptest.NewRecorder()
-	api.HandleGetSettingsApiSettingsGet(read,
-		taskReq(t, http.MethodGet, "/api/settings", nil, "owner", "owner"))
+	api.HandleGetThemeApiThemesThemeIdGet(read,
+		taskReq(t, http.MethodGet, "/api/themes/"+bundle.Id, nil, "owner", "owner"),
+		bundle.Id)
 	if read.Code != http.StatusOK {
 		t.Fatalf("read back: got %d %s", read.Code, read.Body.String())
 	}
-	stored := decodeBody[map[string]any](t, read)
-	themes, _ := stored["custom_themes"].([]any)
-	if len(themes) != 1 {
-		t.Fatalf("settings hold %d custom themes after the link import, want 1 (%s)",
-			len(themes), read.Body.String())
-	}
-	one, _ := themes[0].(map[string]any)
+	one := decodeBody[map[string]any](t, read)
 	if one["id"] != "custom-7" || one["name"] != "夜行" {
 		t.Fatalf("the stored theme is not the one the link served: %v", one)
+	}
+
+	// And it is the ONLY theme: the import created one row, it did not also leave
+	// the set in some other shape. (The old assertion got this from the array's
+	// length; the list endpoint is where that fact lives now.)
+	list := httptest.NewRecorder()
+	api.HandleListThemesApiThemesGet(list,
+		taskReq(t, http.MethodGet, "/api/themes", nil, "owner", "owner"))
+	if list.Code != http.StatusOK {
+		t.Fatalf("list: got %d %s", list.Code, list.Body.String())
+	}
+	all := decodeBody[[]map[string]any](t, list)
+	if len(all) != 1 {
+		t.Fatalf("%d themes are saved after the link import, want 1 (%s)",
+			len(all), list.Body.String())
 	}
 }
 

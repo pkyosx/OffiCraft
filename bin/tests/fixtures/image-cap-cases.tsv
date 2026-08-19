@@ -46,8 +46,11 @@
 #
 #   avatar   64 KiB — avatars / logo / navIcons are 30-40px glyphs in a roster
 #                     row, the top bar, or a tab. Nothing legitimate needs more,
-#                     and this is the real guard against bloating the single
-#                     custom_themes JSON row.
+#                     and this is the real guard against bloating a theme. (It
+#                     said "the single custom_themes JSON row" until T-83ef gave
+#                     themes their own table — one row each now, so the cap
+#                     bounds what ONE theme weighs rather than what one shared
+#                     row does. The number and the reason for it are unchanged.)
 #   background 512 KiB — backgrounds.canvas is stretched or tiled across the
 #                     WHOLE viewport. At 64 KiB the owner's real background read
 #                     as visibly blurry; he reported it three times. Owner ruling

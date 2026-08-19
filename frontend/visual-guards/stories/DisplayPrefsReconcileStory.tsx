@@ -15,16 +15,24 @@
 //     that is not yet loaded safely paints the office BASE (the dangling-id
 //     fallback). The cache drives the id (data-theme-name); the paint waits.
 //   * login: setToken fires oc-auth-login → the provider's reconcile pulls
-//     /api/settings, adopts the custom bundle set AND the active id, and the
-//     bundle's colours VISUALLY take effect. Same seam production uses; no
-//     test-only backdoor.
+//     /api/settings AND /api/themes, adopts the active id, FETCHES that one
+//     theme in full, and the bundle's colours VISUALLY take effect. Same seam
+//     production uses; no test-only backdoor.
+//
+// T-83ef: a theme is its own resource now, so the seed below is two writes —
+// the theme through PUT /api/themes/{id}, and "which theme is active" through
+// /api/settings. They are separate on purpose: the reconcile has to find the
+// id in the theme LIST before it will adopt it, so a story that only patched
+// display_theme would be adopting a dangling id and would paint the office
+// base for a reason that has nothing to do with the guard.
 import { I18nProvider, useI18n } from "../../src/i18n";
 import { mockApi } from "../../src/api/mock";
 import { setToken } from "../../src/api/auth";
+import type { ThemeBundle } from "../../src/lib/themeBundle";
 
 /** The imported custom theme this guard reconciles in. Its --color-bg is a
  * distinctive value so the visual paint is unmistakable (rgb(1, 2, 3)). */
-const MIDNIGHT = {
+const MIDNIGHT: ThemeBundle = {
   id: "midnight",
   name: "Midnight",
   colors: { "--color-bg": "#010203" },
@@ -50,12 +58,11 @@ export function DisplayPrefsReconcileStory({
 }) {
   const login = async () => {
     if (serverBundle) {
-      // custom_themes + display_theme land in one PATCH (server parity), so the
-      // reconcile can resolve the active id to its freshly-saved bundle.
-      await mockApi.patchServerSettings({
-        customThemes: [MIDNIGHT],
-        displayTheme: "midnight",
-      });
+      // The theme first, THEN the pointer at it: the reconcile adopts a stored
+      // display_theme only when that id is actually in the theme list, so a
+      // pointer written before the theme exists would simply be ignored.
+      await mockApi.putTheme(MIDNIGHT);
+      await mockApi.patchServerSettings({ displayTheme: "midnight" });
     }
     // Minting a token is what a real login does; setToken fires oc-auth-login,
     // the exact trigger I18nProvider reconciles on.

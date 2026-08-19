@@ -156,7 +156,7 @@ jobs:
           # Only server/ocserverd has third-party deps (hence a go.sum); the
           # cli/ modules are stdlib-only. setup-go errors on an unresolved path.
           cache-dependency-path: server/ocserverd/go.sum
-      - run: bash bin/run-checks.sh lint-go-naming lint-go-fmt lint-go-vet build-go test-go
+      - run: bash bin/run-checks.sh lint-go-naming lint-go-fmt lint-go-vet build-go test-go test-system-interaction-examples
 
   # ---------------------------------------------------------------------------
   # frontend — typecheck, the static CSS/token lints, and the jsdom unit suite.
@@ -259,7 +259,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
-      - run: bash bin/run-checks.sh lint-uplink-contract lint-effort-vocab
+      - run: bash bin/run-checks.sh lint-uplink-contract lint-effort-vocab lint-shadow-claim
 
   # ---------------------------------------------------------------------------
   # conformance — the black-box import lint (fast, static) and then the full

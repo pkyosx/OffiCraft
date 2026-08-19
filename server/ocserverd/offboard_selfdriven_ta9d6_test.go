@@ -30,28 +30,47 @@ func TestOffboardNotice_TheApprovedSentence(t *testing.T) {
 	const where = "context 62% (your limits: 60% / 75%)"
 	doc := "1. 報開始收尾\n2. 給自己留交接"
 
-	soft := offboardNotice(where, offboardCloserRestartSelf, false, doc)
+	soft := offboardNotice(where, offboardCloserRestartSelf, false, 0, doc)
 	if !strings.Contains(soft, where+" — offboard now: work the sequence below, "+
 		"then call restart_self yourself.") {
 		t.Fatalf("the soft notice must carry the approved sentence verbatim:\n%s", soft)
 	}
-	if strings.Contains(soft, "120 seconds") {
-		t.Fatalf("the soft notice must NOT start a countdown — that is the whole "+
-			"difference between the two:\n%s", soft)
-	}
+	// Time of ANY shape, not the one literal: the difference between the two
+	// notices is that one is on a clock and one is not, and a whitelist of
+	// yesterday's wordings stops guarding that the moment the wording changes.
+	assertQuotesNoTime(t, "the soft notice", soft)
 	if !strings.Contains(soft, doc) {
 		t.Fatalf("the steps must be the DOCUMENT's, carried verbatim:\n%s", soft)
 	}
 
-	final := offboardNotice(where, offboardCloserRestartSelf, true, doc)
-	if !strings.Contains(final, "then call restart_self yourself. You have 120 seconds left.") {
-		t.Fatalf("the final call must say how long is left, right after the same "+
+	// T-d6a7: the final call now names WHEN the deadline is, not how long is
+	// left. A duration went stale on every replay of the same epoch (and broke
+	// the client's verbatim de-dupe); an absolute instant is constant.
+	//
+	// ⚠️ The expected instant is a LITERAL, deliberately. It used to be computed
+	// with the same `time.Unix(...).Format(time.RFC3339)` the production code
+	// ran, so it agreed with whatever zone that produced — including the
+	// implicit LOCAL one it actually used. The rendering is UTC and is asserted
+	// as such.
+	const deadline = 1_787_000_000.0 // 2026-08-17T20:53:20Z
+	final := offboardNotice(where, offboardCloserRestartSelf, true, deadline, doc)
+	const wantClause = "then call restart_self yourself. " +
+		"Your deadline is 2026-08-17T20:53:20Z."
+	if !strings.Contains(final, wantClause) {
+		t.Fatalf("the final call must name the deadline, right after the same "+
 			"sentence:\n%s", final)
+	}
+
+	// A final call with NO clock is a contradiction (offboardKindOf only answers
+	// "final" for a clocked arm), and if it ever happens the sentence says
+	// nothing about time rather than formatting epoch 0 as 1970.
+	if noClock := offboardNotice(where, offboardCloserRestartSelf, true, 0, doc); strings.Contains(noClock, "deadline") {
+		t.Fatalf("a final call with no clock must quote no time at all:\n%s", noClock)
 	}
 
 	// An empty document degrades to the sentence alone: losing the checklist is
 	// survivable, losing the notice is not.
-	bare := offboardNotice(where, offboardCloserRestartSelf, false, "")
+	bare := offboardNotice(where, offboardCloserRestartSelf, false, 0, "")
 	if !strings.Contains(bare, "offboard now") || strings.Contains(bare, "\n") {
 		t.Fatalf("an empty document must leave the sentence intact and alone:\n%q", bare)
 	}
@@ -82,10 +101,15 @@ func TestOffboardKindOf_WhoGetsWhichSentence(t *testing.T) {
 		{"下線 an hour later", Member{DesiredState: DesiredStateOffline, StoppingSince: t0}, t0 + 3600, soft, true},
 		{"desired offline with no anchor", Member{DesiredState: DesiredStateOffline}, t0, "", false},
 
-		{"重新聚焦 inside its window", Member{DesiredState: DesiredStateOnline, RefocusSince: t0, RefocusOp: refocusOpRefocus}, t0 + SoftOffboardGraceSecs - 1, soft, true},
-		// …this one DOES escalate: the recycle clock really is running once the
-		// window lapses, so the sentence that says so is true.
-		{"重新聚焦 past its window", Member{DesiredState: DesiredStateOnline, RefocusSince: t0, RefocusOp: refocusOpRefocus}, t0 + SoftOffboardGraceSecs, final, true},
+		{"重新聚焦 just pressed", Member{DesiredState: DesiredStateOnline, RefocusSince: t0, RefocusOp: refocusOpRefocus}, t0 + 1, soft, true},
+		// 🔴 …and STILL soft an hour later, for the same reason 下線 is: owner
+		// 2026-08-19 took the clock off this arm too, so a final call here would
+		// start 120 seconds in the agent's head that nothing on the server is
+		// counting. It used to flip at exactly SoftOffboardGraceSecs, which is
+		// why the two rows below straddle that boundary.
+		{"重新聚焦 one second before the old flip", Member{DesiredState: DesiredStateOnline, RefocusSince: t0, RefocusOp: refocusOpRefocus}, t0 + SoftOffboardGraceSecs - 1, soft, true},
+		{"重新聚焦 at the old flip", Member{DesiredState: DesiredStateOnline, RefocusSince: t0, RefocusOp: refocusOpRefocus}, t0 + SoftOffboardGraceSecs, soft, true},
+		{"重新聚焦 an hour later", Member{DesiredState: DesiredStateOnline, RefocusSince: t0, RefocusOp: refocusOpRefocus}, t0 + 3600, soft, true},
 
 		{"context pressure", Member{DesiredState: DesiredStateOnline, RefocusSince: t0, RefocusOp: refocusOpContextHigh}, t0 + 1, final, true},
 		{"改機器", Member{DesiredState: DesiredStateOnline, RefocusSince: t0, RefocusOp: memberOpRelocate}, t0 + 1, final, true},
@@ -117,9 +141,7 @@ func TestOffboardDeltaPayload_下線NeverCarriesACountdown(t *testing.T) {
 	if !ok || notice == "" {
 		t.Fatalf("下線 must carry the offboard notice: %+v", payload)
 	}
-	if strings.Contains(notice, "120 seconds") {
-		t.Fatalf("nothing collects 下線 on a clock, so nothing may claim one:\n%s", notice)
-	}
+	assertQuotesNoTime(t, "下線", notice)
 	// 🔴 …and it must name the tool that actually WORKS here. restart_self
 	// refuses a member the owner has taken down (it is a RE-start), so naming it
 	// on this arm would be an instruction that can only answer 409 — and with no
@@ -220,49 +242,63 @@ func TestOffboardNoticeFor_CodexReportsWhereItActuallyIs(t *testing.T) {
 }
 
 // The deadline the cockpit renders, and the clock that actually collects the
-// session, must be the SAME number. They were not: refocus_deadline was computed
-// from RecycleGrace while an owner-pressed 重新聚焦 is collected at the soft
-// window PLUS that — the owner watched a time pass with nothing happening. The
-// fix was one call; nothing asserted it, so this pins every arm.
+// session, must be the SAME number — including when that number is "there is no
+// clock". They were not: refocus_deadline was computed from RecycleGrace while
+// an owner-pressed 重新聚焦 was collected at the soft window PLUS that, and the
+// owner watched a time pass with nothing happening. Since 2026-08-19 that arm
+// has no clock at all, so the cockpit must render NO deadline (0 → null) rather
+// than any time whatsoever.
 //
 // 🔴 Measured before writing this: collapsing recycleGraceFor to
-// `return cfg.RecycleGrace` — i.e. reintroducing the exact bug — left the whole
-// ocserverd suite green (339s).
+// `return cfg.RecycleGrace, true` — i.e. putting a silent 120s deadline back on
+// the owner's button — left the whole ocserverd suite green (339s).
 func TestRecycleGraceFor_MatchesTheClockThatActuallyCollects(t *testing.T) {
 	cfg := defaultReconcileConfig()
-	soft := cfg.SoftOffboardGrace + cfg.RecycleGrace
 
-	cases := map[string]float64{
-		// The owner's button opens SOFT — it says there is no countdown — so the
-		// countdown may not start until that window is gone.
-		refocusOpRefocus: soft,
+	type want struct {
+		grace   float64
+		clocked bool
+	}
+	cases := map[string]want{
+		// The owner's button says there is no countdown, so there must not be
+		// one — not now, and not after any window.
+		refocusOpRefocus: {0, false},
 		// Everything else arrives already saying 120 seconds.
-		refocusOpContextHigh: cfg.RecycleGrace,
-		refocusOpRestartSelf: cfg.RecycleGrace,
-		memberOpRelocate:     cfg.RecycleGrace,
-		memberOpModel:        cfg.RecycleGrace,
-		"":                   cfg.RecycleGrace,
+		refocusOpContextHigh: {cfg.RecycleGrace, true},
+		refocusOpRestartSelf: {cfg.RecycleGrace, true},
+		memberOpRelocate:     {cfg.RecycleGrace, true},
+		memberOpModel:        {cfg.RecycleGrace, true},
+		"":                   {cfg.RecycleGrace, true},
 	}
-	for op, want := range cases {
-		if got := recycleGraceFor(op, cfg); got != want {
-			t.Errorf("recycleGraceFor(%q) = %v, want %v", op, got, want)
+	for op, w := range cases {
+		grace, clocked := recycleGraceFor(op, cfg)
+		if grace != w.grace || clocked != w.clocked {
+			t.Errorf("recycleGraceFor(%q) = (%v, %v), want (%v, %v)",
+				op, grace, clocked, w.grace, w.clocked)
 		}
-	}
-	if soft == cfg.RecycleGrace {
-		t.Fatal("this test cannot tell the two apart if the windows are equal")
 	}
 
 	// …and the wire field the cockpit reads must agree with it, or the owner is
-	// shown a ceiling the server does not intend to honour.
+	// shown a ceiling the server does not intend to honour. 0 is what the
+	// cockpit maps to "no deadline"; any positive number renders a countdown.
 	s := newReconcileTestServer(t)
 	m := testAgent("m-deadline")
 	m.RefocusSince = 1000
 	m.RefocusOp = refocusOpRefocus
 	putTestMember(t, s, m)
-	dto := s.newMemberDTO(m, "", "", 0)
-	if dto.RefocusDeadline != 1000+soft {
-		t.Fatalf("refocus_deadline = %v, want %v (the grace this epoch is really "+
-			"collected on)", dto.RefocusDeadline, 1000+soft)
+	if dto := s.newMemberDTO(m, "", "", 0); dto.RefocusDeadline != 0 {
+		t.Fatalf("refocus_deadline = %v, want 0 — nothing collects an owner-pressed "+
+			"重新聚焦 on a clock, so the cockpit must show no deadline", dto.RefocusDeadline)
+	}
+
+	// The positive control: an arm that IS clocked still reports its deadline,
+	// so the assertion above is reading the refocus_op and not a field that
+	// simply stopped being populated.
+	m.RefocusOp = refocusOpContextHigh
+	putTestMember(t, s, m)
+	if dto := s.newMemberDTO(m, "", "", 0); dto.RefocusDeadline != 1000+cfg.RecycleGrace {
+		t.Fatalf("refocus_deadline = %v, want %v for a clocked arm",
+			dto.RefocusDeadline, 1000+cfg.RecycleGrace)
 	}
 }
 

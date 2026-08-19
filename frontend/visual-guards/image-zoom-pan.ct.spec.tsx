@@ -112,7 +112,22 @@ async function swipe(page: Page, wrap: Locator, dx: number, dy: number) {
   await touch("touchStart", x, y);
   for (let i = 1; i <= 10; i++) await touch("touchMove", x + (dx * i) / 10, y + (dy * i) / 10);
   await touch("touchEnd", x + dx, y + dy);
-  await page.waitForTimeout(600);
+  await settleScroll(page, wrap);
+}
+
+/** T-6c26: wait for the frame's scroll offsets to STOP changing, instead of
+ * betting a fixed 600 ms that momentum has finished. Two reads that agree end
+ * it; the loop is bounded so a frame that never settles still fails on the
+ * assertion that follows rather than hanging here. This does not weaken any
+ * assertion — everything the callers assert is asserted afterwards, unchanged. */
+async function settleScroll(page: Page, wrap: Locator) {
+  let prev = { x: -1, y: -1 };
+  for (let i = 0; i < 60; i++) {
+    const now = await wrap.evaluate((el) => ({ x: el.scrollLeft, y: el.scrollTop }));
+    if (now.x === prev.x && now.y === prev.y) return;
+    prev = now;
+    await page.waitForTimeout(50);
+  }
 }
 
 async function mountStory(mount: (c: JSX.Element) => Promise<Locator>, page: Page) {
@@ -468,6 +483,11 @@ test.describe("touch", () => {
   // is called out because it is the axis of the original 「上下不會動」 report
   // — a frame that only travels sideways would satisfy every horizontal
   // assertion in this file.
+  // INVARIANT THIS GUARDS (T-6c26 — written out so nobody wakes it up without
+  // knowing what breaks): after a pinch-zoom, a one-finger swipe must move the
+  // frame in BOTH axes. Deleting it does not "remove a flaky test"; it removes
+  // the only check that the travel a zoom creates is reachable by the finger,
+  // which is the original 「上下不會動」 report.
   test("after a pinch-zoom a one-finger swipe reaches the travel in BOTH axes", async ({ mount, page, browserName }) => {
     test.skip(browserName !== "chromium", "CDP touch injection is Chromium-only");
     const { cmp, wrap } = await mountStory(mount, page);
@@ -475,13 +495,26 @@ test.describe("touch", () => {
     await expect(cmp.getByText("400%")).toBeVisible();
     expect((await geometry(wrap)).scrollTop, "the premise: not already scrolled").toBe(0);
 
+    // T-6c26: polled, not sampled once. The offsets are read until they pass or
+    // the poll times out — a frame that genuinely never moves still fails, and
+    // fails on the SAME number. What is gone is the bet that one fixed pause is
+    // always enough on a loaded runner (both axes of this test have lost that
+    // bet on CI, on different rounds).
     await swipe(page, wrap, 0, -220);
-    const vertical = await geometry(wrap);
-    expect(vertical.scrollTop, "a real upward swipe must move the pinch-zoomed frame vertically").toBeGreaterThan(50);
+    await expect
+      .poll(() => wrap.evaluate((el) => el.scrollTop), {
+        message: "a real upward swipe must move the pinch-zoomed frame vertically",
+      })
+      .toBeGreaterThan(50);
 
+    // …and settle before the second gesture: a touchStart that lands while the
+    // first swipe's momentum is still running is consumed as a STOP, which is
+    // one way the sideways half has come back as a flat scrollLeft = 0.
+    await settleScroll(page, wrap);
     await swipe(page, wrap, -220, 0);
-    const horizontal = await geometry(wrap);
-    expect(horizontal.scrollLeft, "and sideways").toBeGreaterThan(50);
+    await expect
+      .poll(() => wrap.evaluate((el) => el.scrollLeft), { message: "and sideways" })
+      .toBeGreaterThan(50);
     expect(await page.evaluate(() => window.scrollY), "the page behind must not travel with it").toBe(0);
   });
 

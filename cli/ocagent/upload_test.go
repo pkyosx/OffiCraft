@@ -117,7 +117,7 @@ func TestUploadErrorExitCodes(t *testing.T) {
 		want   int
 	}{
 		"401 is 3":             {401, `{"error":{"code":"unauthorized","message":"x"}}`, 3},
-		"400 cap is 4":         {400, `{"error":{"code":"bad_request","message":"attachment exceeds the 100 MB size limit"}}`, 4},
+		"400 cap is 4":         {400, `{"error":{"code":"validation_error","message":"attachment exceeds the 100 MB size limit"}}`, 4},
 		"500 is 5":             {500, `{"error":{"code":"internal_error","message":"x"}}`, 5},
 		"unparseable 200 is 5": {200, `not json`, 5},
 		"200 with empty id":    {200, `{"id":""}`, 5},

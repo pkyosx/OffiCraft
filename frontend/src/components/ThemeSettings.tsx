@@ -37,7 +37,7 @@ import {
   type TokenGroup,
 } from "../lib/themeTokenMeta";
 import { api } from "../api";
-import { ApiError } from "../api/errors";
+import { ApiError, serverMessageOf } from "../api/errors";
 import { Breadcrumbs, type Crumb } from "./Breadcrumbs";
 import {
   ChevronLeftIcon,
@@ -131,8 +131,22 @@ const NAV_ICON_SLOTS: { key: NavIconKey; labelKey: NavIconLabelKey }[] = [
  * theme SELECTOR + language.
  */
 export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
-  const { t, msg, theme, setTheme, language, customThemes, commitCustomThemes } =
-    useI18n();
+  // [T-83ef] The set arrives as ONE LINE EACH (id + name) and a bundle is
+  // fetched per theme. That is the whole shape of this screen now: everything
+  // the LIST draws comes from `themeList`, and only the two actions that need
+  // colours/images (匯出, 編輯) pay for a request.
+  const {
+    t,
+    msg,
+    theme,
+    setTheme,
+    language,
+    themeList,
+    activeThemeBundle,
+    loadTheme,
+    saveTheme,
+    removeTheme,
+  } = useI18n();
 
   const [view, setView] = useState<View>("list");
 
@@ -210,7 +224,18 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   const [editError, setEditError] = useState("");
 
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [addError, setAddError] = useState("");
+  // The LIST view's one error line. It is not only "add" any more (T-83ef):
+  // every list action now talks to the server on its own — fetching one bundle
+  // to edit/export, writing one theme, deleting one — and each of them can fail
+  // on its own. They share this line because they share the screen: at most one
+  // list action is in flight at a time (see `busyId`), so two of them can never
+  // be competing to say something different.
+  const [listError, setListError] = useState("");
+  // The theme id whose bundle is being fetched right now, or null. It is BOTH
+  // the "loading…" signal the row buttons disable on AND the re-entrancy guard:
+  // a bundle is hundreds of KB, so a second click during the flight would cost
+  // a second full download and could land its result out of order.
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   function downloadBundle(bundle: ThemeBundle) {
     const blob = new Blob([serializeBundle(bundle)], {
@@ -229,16 +254,68 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   // BASE palette is read via exportOfficeBaseTheme (which neutralises any active
   // custom theme's overrides), so the copy starts from office colours even when
   // the currently applied theme is a custom one. ──
-  function handleAddNew() {
-    if (customThemes.length >= MAX_CUSTOM_THEMES) {
-      setAddError(t.profile.themeLimitReached);
+  async function handleAddNew() {
+    if (themeList.length >= MAX_CUSTOM_THEMES) {
+      setListError(t.profile.themeLimitReached);
       return;
     }
-    const id = nextCustomThemeId(customThemes.map((b) => b.id));
+    const id = nextCustomThemeId(themeList.map((b) => b.id));
     const bundle = exportOfficeBaseTheme(id, t.themeIdentity.newTheme);
-    commitCustomThemes([...customThemes, bundle]);
-    setAddError("");
+    try {
+      await saveTheme(bundle);
+    } catch (e) {
+      // The row must not appear if the server did not take it — jumping into
+      // the editor for a theme that was never created would let the owner spend
+      // real work on something the next reload does not have.
+      setListError(failureText(e));
+      return;
+    }
+    setListError("");
+    // No fetch: this bundle is the one we just wrote, so it IS the server's
+    // content by definition.
     openEdit(bundle);
+  }
+
+  /** Server's own words when it gave any, else the shared "動作失敗" line the
+   * doc editor already uses for exactly this case (settings.docActionFailed).
+   * A failure that only reached console.warn is a failure the owner cannot see,
+   * and every caller below can fail for a reason worth reading. */
+  function failureText(e: unknown): string {
+    return serverMessageOf(e) || t.settings.docActionFailed;
+  }
+
+  /** The full bundle for one listed theme — what 匯出 and 編輯 need and what the
+   * list no longer carries (T-83ef). Returns null when it could not be had, and
+   * has already put the reason on screen in that case.
+   *
+   * The ACTIVE theme is served from the bundle the provider already holds. That
+   * is a whole request saved on the most likely row to be edited, and it is
+   * sound ONLY under the id check: `activeThemeBundle` is the active theme, so
+   * handing it back for any other id would silently edit/export the wrong
+   * theme's colours under the right theme's name. */
+  async function bundleFor(id: string): Promise<ThemeBundle | null> {
+    if (activeThemeBundle && activeThemeBundle.id === id) return activeThemeBundle;
+    if (busyId !== null) return null; // one bundle in flight at a time
+    setBusyId(id);
+    setListError("");
+    try {
+      return await loadTheme(id);
+    } catch (e) {
+      setListError(failureText(e));
+      return null;
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleExportTheme(id: string) {
+    const bundle = await bundleFor(id);
+    if (bundle) downloadBundle(bundle);
+  }
+
+  async function handleEditTheme(id: string) {
+    const bundle = await bundleFor(id);
+    if (bundle) openEdit(bundle);
   }
 
   // ── import ──
@@ -248,16 +325,25 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
     setImportUrlBusy(false);
     setImportError("");
     setImportSkipped([]);
-    setAddError("");
+    setListError("");
     setView("import");
   }
 
-  function addBundle(bundle: ThemeBundle): string | null {
-    if (customThemes.some((b) => b.id === bundle.id))
+  // Returns the message to show, or null on success. The duplicate/limit checks
+  // read `themeList` — id and name is all they ever needed.
+  async function addBundle(bundle: ThemeBundle): Promise<string | null> {
+    if (themeList.some((b) => b.id === bundle.id))
       return t.profile.themeImportDup;
-    if (customThemes.length >= MAX_CUSTOM_THEMES)
+    if (themeList.length >= MAX_CUSTOM_THEMES)
       return t.profile.themeLimitReached;
-    commitCustomThemes([...customThemes, bundle]);
+    try {
+      await saveTheme(bundle);
+    } catch (e) {
+      // The write is the import. A rejected write that reported success would
+      // send the owner back to a list without the theme they just imported and
+      // no reason why.
+      return failureText(e);
+    }
     return null;
   }
 
@@ -265,13 +351,13 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   // up here (T-29c7): a link-imported theme is validated by exactly the same
   // parseImportedBundle as a pasted one, so the two can never start accepting
   // different things.
-  function importBundleText(text: string) {
+  async function importBundleText(text: string) {
     const res = parseImportedBundle(text);
     if ("error" in res) {
       setImportError(res.error);
       return;
     }
-    const err = addBundle(res.bundle);
+    const err = await addBundle(res.bundle);
     if (err) {
       setImportError(err);
       return;
@@ -280,8 +366,8 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
     setView("list");
   }
 
-  function handleConfirmImport() {
-    importBundleText(importText);
+  async function handleConfirmImport() {
+    await importBundleText(importText);
   }
 
   // Paste a link → the server reads it back → the bundle goes through the same
@@ -298,7 +384,9 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
       // (duplicate id, theme limit) the owner can see and edit the thing that
       // was rejected instead of an empty box and a message about nothing.
       setImportText(content);
-      importBundleText(content);
+      // Awaited so the busy flag below still covers the WRITE — the import is
+      // not over when the fetch returns, it is over when the theme is stored.
+      await importBundleText(content);
     } catch (e) {
       setImportError(
         e instanceof ApiError && e.serverMessage
@@ -323,12 +411,28 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   }
 
   // ── delete ──
-  function handleDeleteTheme(id: string) {
-    const next = customThemes.filter((b) => b.id !== id);
-    // Deleting the active theme drops back to the office base; the same PATCH
-    // carries the reset so the server's dangling-guard agrees.
-    commitCustomThemes(next, theme === id ? "office" : undefined);
-    setConfirmDeleteId(null);
+  async function handleDeleteTheme(id: string) {
+    // Re-entrancy: the confirm modal stays up until the delete settles (so a
+    // failure can be reported against the theme it happened to), which means a
+    // second click on 刪除 is possible in that window.
+    if (busyId !== null) return;
+    setBusyId(id);
+    setListError("");
+    try {
+      // Deleting the ACTIVE theme is no longer this screen's arithmetic: the
+      // provider is told by the server that it reset the stored display theme
+      // and switches back to the built-in itself. Recomputing it here would be
+      // a second opinion on the same fact, free to disagree.
+      await removeTheme(id);
+      setConfirmDeleteId(null);
+    } catch (e) {
+      setListError(failureText(e));
+      // The dialog closes on a failure too: it asks a question that has been
+      // answered, and the row is still there for a second attempt.
+      setConfirmDeleteId(null);
+    } finally {
+      setBusyId(null);
+    }
   }
 
   // ── edit ──
@@ -506,7 +610,7 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
     setEditError("");
   }
 
-  function handleSaveEdit() {
+  async function handleSaveEdit() {
     if (editId == null) return;
     const colors: Record<string, string> = {};
     // An empty row is "still following its default" — writing it would bake a
@@ -579,7 +683,16 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
       setEditError(err);
       return;
     }
-    commitCustomThemes(customThemes.map((b) => (b.id === editId ? bundle : b)));
+    // ONE theme is written, not the whole set — that is the point of T-83ef.
+    try {
+      await saveTheme(bundle);
+    } catch (e) {
+      // Stay in the editor on a refusal. Returning to the list would throw away
+      // everything typed here while showing a list that still holds the OLD
+      // colours, i.e. it would look like the save worked.
+      setEditError(failureText(e));
+      return;
+    }
     setView("list");
   }
 
@@ -1229,7 +1342,7 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
           {t.profile.themeImport}
         </button>
       </div>
-      {addError && <div className="set-error">{addError}</div>}
+      {listError && <div className="set-error">{listError}</div>}
       {importSkipped.length > 0 && (
         <div className="set-warn" data-testid="theme-import-skipped">
           {msg.themeImportSkipped(
@@ -1300,12 +1413,18 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
         </div>
       </div>
 
-      {customThemes.length > 0 && (
+      {themeList.length > 0 && (
         <div className="ts-list" role="group" aria-labelledby="ts-group-custom">
           <div className="ts-group-head" id="ts-group-custom" data-testid="ts-group-custom">
             {t.themeMarkers.customGroup}
           </div>
-          {customThemes.map((b) => (
+          {/* A row is one LINE now (id + name) — everything drawn here was
+           * always just the name, so nothing on screen changed; what left is
+           * the megabytes of embedded images the old set dragged in behind it.
+           * 匯出 and 編輯 fetch the bundle on click instead, and are disabled
+           * while one is in flight — this is a whole theme pack on the wire, so
+           * "nothing happened yet" must be visible rather than guessable. */}
+          {themeList.map((b) => (
           <div key={b.id} className="ts-row">
             <button
               type="button"
@@ -1317,18 +1436,20 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
             <button
               type="button"
               className="ts-icon-btn"
+              disabled={busyId !== null}
               aria-label={`${t.profile.themeExport} ${b.name}`}
               title={t.profile.themeExport}
-              onClick={() => downloadBundle(b)}
+              onClick={() => handleExportTheme(b.id)}
             >
               <DownloadIcon size={15} />
             </button>
             <button
               type="button"
               className="ts-icon-btn"
+              disabled={busyId !== null}
               aria-label={`${t.profile.themeEdit} ${b.name}`}
               title={t.profile.themeEdit}
-              onClick={() => openEdit(b)}
+              onClick={() => handleEditTheme(b.id)}
             >
               <PencilIcon size={15} />
             </button>
@@ -1347,7 +1468,8 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
       )}
 
       {(() => {
-        const target = customThemes.find((b) => b.id === confirmDeleteId);
+        // The confirm only ever needed the NAME, which the list line carries.
+        const target = themeList.find((b) => b.id === confirmDeleteId);
         if (!target) return null;
         return (
           <ConfirmModal

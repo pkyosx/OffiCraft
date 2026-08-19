@@ -1363,7 +1363,7 @@ export const en: Dict = {
     bootDocSaveConfirmSystem:
       "Save this system-interaction document? Every agent that boots after the save reads this content.",
     bootDocSaveConfirmOffboard:
-      "Save this offboard sequence? Every session collected after the save reads this content — with about 120 seconds left and nobody online to ask.",
+      "Save this offboard sequence? Every session collected after the save reads this content, with nobody online to ask — a recycle leaves it a few minutes, an offboard waits on you indefinitely. It has to be finishable under both.",
     bootDocSaveConfirmAction: "Save",
     // The click-to-open heading of a stacked document (T-6278). Both boot
     // sequences start closed so the page shows both at once; the label is on

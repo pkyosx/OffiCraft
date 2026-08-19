@@ -213,35 +213,13 @@ func TestLoadAuthSettingsDisplayPrefs(t *testing.T) {
 	}
 }
 
-func TestLoadAuthSettingsCustomThemes(t *testing.T) {
-	// A row written BEFORE the message-key whitelist shrank still carries the
-	// retired codes, and this load is what GET /api/settings echoes — so the
-	// read path prunes them too, not just the write path. Without this a legacy
-	// `profile.themeOffice` is served back on every read until the owner happens
-	// to PATCH themes again.
-	code := aMessageKey(t)
-	d := newTestDAL(t)
-	stored := `[{"id":"smurf-village","name":"精靈村",` +
-		`"colors":{"--color-bg":"#eef0dc"},` +
-		`"wording":{"zh":{"` + code + `":"文字","profile.themeOffice":"精靈村"}}}]`
-	if err := d.PutSetting(settingDisplayCustomThemes, stored); err != nil {
-		t.Fatal(err)
-	}
-	got, _ := loadForTest(t, d, defaultConfig())
-	if len(got.displayCustomThemes) != 1 {
-		t.Fatalf("the stored bundle must load: %#v", got.displayCustomThemes)
-	}
-	zh := (*got.displayCustomThemes[0].Wording)["zh"]
-	if _, ok := zh["profile.themeOffice"]; ok {
-		t.Fatalf("a retired wording code must be pruned on read: %#v", zh)
-	}
-	if zh[code] != "文字" {
-		t.Fatalf("the live wording codes must survive the read prune: %#v", zh)
-	}
-	if got.displayCustomThemes[0].Colors["--color-bg"] != "#eef0dc" {
-		t.Fatalf("the rest of the bundle must load untouched: %#v", got.displayCustomThemes[0])
-	}
-}
+// TestLoadAuthSettingsCustomThemes MOVED, not deleted (T-83ef). The settings
+// loader no longer reads display.custom_themes at all — themes have their own
+// table and their own endpoints — so the boot snapshot is the wrong place to
+// assert the read-path wording prune. The claim it was defending is unchanged
+// and still guarded: see TestStoredThemeReadPrunesRetiredWordingCodes in
+// api_themes_test.go, which seeds the same shape into the custom_theme table and
+// reads it back through the endpoint that serves it now.
 
 func TestLoadAuthSettingsDisplayWide(t *testing.T) {
 	// Absent → false (never set = the shipped narrow centred column).

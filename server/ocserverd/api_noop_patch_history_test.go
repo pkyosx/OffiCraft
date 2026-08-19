@@ -3,8 +3,9 @@ package main
 // api_noop_patch_history_test.go — a patch that changes NOTHING must not
 // consume a document-history version.
 //
-// The shape of the defect these pin. All three anchor-patch seams
-// (patch_lessons, patch_insight, patch_task_learnings) called
+// The shape of the defect these pin. All three anchor-patch seams that existed
+// when this file was written (patch_lessons, patch_insight,
+// patch_task_learnings) called
 // SaveWithDocumentHistory unconditionally, including when ApplyDocEdits
 // reported applied == 0 — every anchor matched, every splice was the identity,
 // the resulting text byte-identical to what was already stored. The write is
@@ -21,8 +22,15 @@ package main
 // then middle → anchor) therefore reports applied == 2 while leaving the stored
 // text byte-identical, sails through `applied > 0`, and lands exactly the write
 // and exactly the retention the gate above exists to prevent. Same harm, same
-// three seams, different branch — and the cheapest batch to reach it by
+// seams, different branch — and the cheapest batch to reach it by
 // accident is an agent that edits a line and then reverts it inside one call.
+//
+// patch_task_sop (T-1667) is the fourth seam and it shipped with neither gate,
+// so it burned an SOP version on a batch that changed nothing exactly as the
+// first three did. It is covered here for the same reason they are: a manual's
+// SOP and its learnings are two INDEPENDENT retention series on one type_key
+// (T-1f39), so a leak on the SOP face is invisible to every learnings case
+// above.
 //
 // The tests below come in those two flavours and the flavour is in the name:
 // NoOpPatch* send a single old == new probe (applied == 0), CancellingBatch*
@@ -266,9 +274,62 @@ func TestNoOpPatchTaskLearningsConsumesNoHistoryVersion(t *testing.T) {
 	}
 }
 
+func TestNoOpPatchTaskSopConsumesNoHistoryVersion(t *testing.T) {
+	f := newHistoryFixture(t)
+	const original = "## SOP\n1. 先讀 spec\n"
+	const edited = "## SOP\n1. 先讀 spec 再改 handler\n"
+	key := seedManualWithSop(t, f.api, original)
+
+	status, data := patchSop(t, f.api, key, map[string]any{
+		"edits": []any{edit("先讀 spec", "先讀 spec 再改 handler")},
+	})
+	if status != http.StatusOK {
+		t.Fatalf("control edit must land, got %d: %v", status, data)
+	}
+	if history := f.list(docKindTaskManualSop, key); len(history) != 1 ||
+		history[0].Content["sop_md"] != original {
+		t.Fatalf("control: a real patch must retain the sop_md it replaced, got %+v", history)
+	}
+	before, err := f.api.dal.GetTaskManual(key)
+	if err != nil || before == nil {
+		t.Fatalf("read manual: %+v %v", before, err)
+	}
+
+	for i := 0; i < 3; i++ {
+		status, data := patchSop(t, f.api, key, noOpProbe("先讀 spec 再改 handler"))
+		if status != http.StatusOK {
+			t.Fatalf("no-op probe %d must answer 200, got %d: %v", i, status, data)
+		}
+		assertNoOpReceipt(t, data, edited)
+	}
+
+	history := f.list(docKindTaskManualSop, key)
+	if len(history) != 1 {
+		t.Errorf("no-op patches consumed %d sop history versions, want 0", len(history)-1)
+	}
+	if len(history) == 0 || history[0].Content["sop_md"] != original {
+		t.Errorf("the retained version is no longer the text a restore would bring back: %+v", history)
+	}
+	if got := storedSop(t, f.api, key); got != edited {
+		t.Errorf("no-op patches must leave the sop alone, got %q", got)
+	}
+	// The learnings series shares this manual's type_key and must not have been
+	// touched at all — a stream named by mistake would show up here.
+	if history := f.list(docKindTaskManualLearnings, key); len(history) != 0 {
+		t.Errorf("the SOP face retained %d learnings versions, want 0: %+v", len(history), history)
+	}
+	after, err := f.api.dal.GetTaskManual(key)
+	if err != nil || after == nil {
+		t.Fatalf("re-read manual: %+v %v", after, err)
+	}
+	if after.UpdatedTS != before.UpdatedTS {
+		t.Errorf("a no-op patch moved updated_ts from %v to %v", before.UpdatedTS, after.UpdatedTS)
+	}
+}
+
 // ── the cancelling-batch branch: applied != 0, document unchanged ────────────
 //
-// None of the three below assert on applied_edits. What a cancelling batch
+// None of the four below assert on applied_edits. What a cancelling batch
 // ought to REPORT is a live question (2, because two splices ran, or 0, because
 // nothing moved) and it is not the question these pin — pinning it here would
 // nail down a receipt shape before anyone chose one. What they pin is the part
@@ -444,6 +505,60 @@ func TestCancellingBatchPatchTaskLearningsConsumesNoHistoryVersion(t *testing.T)
 	}
 	// updated_ts is the manual's "when did this last change" signal — a batch
 	// that changed nothing must not move it either.
+	after, err := f.api.dal.GetTaskManual(key)
+	if err != nil || after == nil {
+		t.Fatalf("re-read manual: %+v %v", after, err)
+	}
+	if after.UpdatedTS != before.UpdatedTS {
+		t.Errorf("a cancelling batch moved updated_ts from %v to %v", before.UpdatedTS, after.UpdatedTS)
+	}
+}
+
+func TestCancellingBatchPatchTaskSopConsumesNoHistoryVersion(t *testing.T) {
+	f := newHistoryFixture(t)
+	const original = "## SOP\n1. 先讀 spec\n"
+	const edited = "## SOP\n1. 先讀 spec 再改 handler\n"
+	key := seedManualWithSop(t, f.api, original)
+
+	status, data := patchSop(t, f.api, key, map[string]any{
+		"edits": []any{edit("先讀 spec", "先讀 spec 再改 handler")},
+	})
+	if status != http.StatusOK {
+		t.Fatalf("control edit must land, got %d: %v", status, data)
+	}
+	if history := f.list(docKindTaskManualSop, key); len(history) != 1 ||
+		history[0].Content["sop_md"] != original {
+		t.Fatalf("control: a real patch must retain the sop_md it replaced, got %+v", history)
+	}
+	// Read updated_ts AFTER the control edit — the control is supposed to move it,
+	// so this is the value a cancelling batch must leave alone.
+	before, err := f.api.dal.GetTaskManual(key)
+	if err != nil || before == nil {
+		t.Fatalf("read manual: %+v %v", before, err)
+	}
+
+	for i := 0; i < 3; i++ {
+		status, data := patchSop(t, f.api, key,
+			cancellingBatch("再改 handler", "再改 routes"))
+		if status != http.StatusOK {
+			t.Fatalf("cancelling batch %d must answer 200, got %d: %v", i, status, data)
+		}
+	}
+
+	if got := storedSop(t, f.api, key); got != edited {
+		t.Fatalf("cancelling batches must leave the sop alone, got %q want %q", got, edited)
+	}
+
+	// Errorf, not Fatalf: retention and updated_ts are independent claims about
+	// this seam, and a Fatalf on the first hides whether the second ever held.
+	history := f.list(docKindTaskManualSop, key)
+	if len(history) != 1 {
+		t.Errorf("cancelling batches consumed %d sop history versions, want 0 — 'some edit changed "+
+			"the text it was handed' is not the same question as 'the document changed'", len(history)-1)
+	}
+	if len(history) == 0 || history[0].Content["sop_md"] != original {
+		t.Errorf("the retained version is no longer the text a restore would bring back: %+v", history)
+	}
 	after, err := f.api.dal.GetTaskManual(key)
 	if err != nil || after == nil {
 		t.Fatalf("re-read manual: %+v %v", after, err)

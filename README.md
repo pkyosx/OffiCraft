@@ -1,6 +1,6 @@
 # OffiCraft
 
-**Craft your own AI office.** OffiCraft 是一間跑在你自己 Mac 上的 AI 工作室：你僱幾位常駐的 AI 成員，把事情**整件**交給他們，在一個網頁控制台裡看他們做到哪、在他們需要你點頭時回一句。跑的就是你機器上那個 Claude Code——你原本串好的 skill / plugin / MCP 原封不動全都在。
+**Craft your own AI office.** OffiCraft 是一間跑在你自己 Mac 上的 AI 工作室：你僱幾位常駐的 AI 成員，把事情**整件**交給他們，在一個網頁控制台裡看他們做到哪、在他們需要你點頭時回一句。跑的就是你機器上那個 Claude Code 或 Codex——你在它上面串好的設定照舊生效（Claude Code 的 skill / plugin / MCP 原封不動全都在）。
 
 [![OffiCraft 介紹影片](https://img.youtube.com/vi/RAZuchCozVE/maxresdefault.jpg)](https://youtu.be/RAZuchCozVE)
 
@@ -25,7 +25,7 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 
 裝完會印出一行一次性設定連結（`http://127.0.0.1:7755/?code=…`），打開它設個 owner 密碼就進控制台了。完整前置需求、升級與移除見 [安裝、升級與移除](docs/guide/install.md)。
 
-> 需要已登入的 `claude`（Claude Code CLI）與 `tmux`——每位成員底下就是一個 Claude Code session。
+> 需要 `tmux`，以及已登入的 `claude`（Claude Code CLI）或 `codex`（Codex CLI）至少一種——每位成員底下就是一個跑在 tmux 裡的 Claude Code 或 Codex session。
 
 ---
 

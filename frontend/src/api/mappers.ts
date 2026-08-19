@@ -5,6 +5,7 @@
 // backend only has to return the frozen wire shape — the UI never changes.
 
 import type { ThemeBundle } from "../lib/themeBundle";
+import type { components } from "./generated/schema";
 import { DOC_CAP_CHARS_DEFAULTS } from "./docCap";
 import { CHAT_BUDGET_CHARS_DEFAULT } from "./chatBudget";
 import type {
@@ -124,6 +125,9 @@ import type {
   ResumeRosterMemberView,
   ResumeMachinesView,
   ChatInlineReplyCardView,
+  ThemeListItem,
+  ThemeWriteReceipt,
+  ThemeDeleteResult,
 } from "./adapter";
 
 /** The five real presence words, as a runtime set — the type union's twin. */
@@ -996,41 +1000,81 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     // emits it). Absent maps to false, which is exactly the honest reading: an
     // older server has no wide layout, so the cockpit stays narrow.
     displayWide: w.display_wide ?? false,
-    // Custom theme bundles (T-16a1 P2; schema-optional for DTO-compat — the Go
-    // wire always emits an array). Absent maps to [] — never a fabricated theme.
-    customThemes: (w.custom_themes ?? []).map((b) => ({
-      id: b.id,
-      name: b.name,
-      colors: { ...b.colors },
-      // Per-language wording overlay (T-16a1 P3) — optional; carried through
-      // verbatim when present (never fabricated to an empty object).
-      ...(b.wording !== undefined ? { wording: b.wording } : {}),
-      // Font overlay (T-16a1 P4) — optional; carried through verbatim when
-      // present (never fabricated to an empty object).
-      ...(b.fonts !== undefined ? { fonts: b.fonts } : {}),
-      // Avatar overlay (bb2e3b4) — optional; carried through verbatim when
-      // present (never fabricated to an empty object).
-      ...(b.avatars !== undefined ? { avatars: b.avatars } : {}),
-      // Logo + nav-icon overlays (T-ea81) — optional; carried through verbatim
-      // when present. Omitting these dropped uploaded logo/nav icons on every
-      // read-back (reload + login), which also emptied them from theme export.
-      ...(b.logo !== undefined ? { logo: b.logo } : {}),
-      ...(b.navIcons !== undefined ? { navIcons: b.navIcons } : {}),
-      // Outer-canvas background image (T-081b) — optional; carried through
-      // verbatim when present, for the same reason logo/navIcons are: an
-      // omitted passthrough silently empties it on every read-back.
-      ...(b.backgrounds !== undefined ? { backgrounds: b.backgrounds } : {}),
-      ...(b.backgroundModes !== undefined
-        ? {
-            backgroundModes: b.backgroundModes as ThemeBundle["backgroundModes"],
-          }
-        : {}),
-    })),
     // The first-run onboarding report (T-ba62). Absent/null is the NORMAL
     // state (onboarding never ran on this database) and maps to null — the
     // mapper never manufactures a report, so "no report" can never be
     // misread as "onboarding succeeded".
     onboarding: w.onboarding ? toOnboardingReport(w.onboarding) : null,
+  };
+}
+
+// ── Themes (T-83ef) ─────────────────────────────────────────────
+
+// The theme wire shapes are read straight off the generated schema here rather
+// than through wire.ts: same single source of truth (generated/schema.ts), one
+// hop shorter. If wire.ts later grows Wire* aliases for these three DTOs, point
+// these at them — the shapes are identical.
+type WireThemeBundle = components["schemas"]["ThemeBundleDTO"];
+type WireThemeListItem = components["schemas"]["ThemeListItemDTO"];
+type WireThemeWriteReceipt = components["schemas"]["ThemeWriteReceiptDTO"];
+type WireThemeDeleteResult = components["schemas"]["ThemeDeleteResultDTO"];
+
+/** ThemeBundleDTO → ThemeBundle. Every optional overlay is carried through
+ * VERBATIM when present and left ABSENT when absent — never fabricated to an
+ * empty object. That distinction is load-bearing: an omitted passthrough here
+ * silently empties an uploaded logo / nav icon / background on every read-back
+ * (reload + login), and the emptied bundle is then what theme export writes. */
+export function toThemeBundle(w: WireThemeBundle): ThemeBundle {
+  return {
+    id: w.id,
+    name: w.name,
+    colors: { ...w.colors },
+    // Per-language wording overlay (T-16a1 P3).
+    ...(w.wording !== undefined ? { wording: w.wording } : {}),
+    // Font overlay (T-16a1 P4).
+    ...(w.fonts !== undefined ? { fonts: w.fonts } : {}),
+    // Per-role avatar overlay (T-16a1 P5 / T-ea81).
+    ...(w.avatars !== undefined ? { avatars: w.avatars } : {}),
+    // Logo + nav-icon overlays (T-ea81).
+    ...(w.logo !== undefined ? { logo: w.logo } : {}),
+    ...(w.navIcons !== undefined ? { navIcons: w.navIcons } : {}),
+    // Outer-canvas background image + its display mode (T-081b).
+    ...(w.backgrounds !== undefined ? { backgrounds: w.backgrounds } : {}),
+    ...(w.backgroundModes !== undefined
+      ? {
+          backgroundModes: w.backgroundModes as ThemeBundle["backgroundModes"],
+        }
+      : {}),
+  };
+}
+
+/** ThemeListItemDTO → ThemeListItem. Pure passthrough — the list carries id +
+ * name and nothing else, and this mapper must not invent the rest of a bundle
+ * from them (an empty `colors` here would render as a theme that erases the
+ * cockpit's palette). */
+export function toThemeListItem(w: WireThemeListItem): ThemeListItem {
+  return { id: w.id, name: w.name };
+}
+
+/** ThemeWriteReceiptDTO → ThemeWriteReceipt (snake→camel passthrough). */
+export function toThemeWriteReceipt(w: WireThemeWriteReceipt): ThemeWriteReceipt {
+  return {
+    id: w.id,
+    created: w.created,
+    orderIdx: w.order_idx,
+    updatedAt: w.updated_at,
+  };
+}
+
+/** ThemeDeleteResultDTO → ThemeDeleteResult (snake→camel passthrough).
+ * `displayThemeReset` is passed through verbatim: it is the server's report
+ * that the ACTIVE theme was the one deleted, and nothing on this side may
+ * re-derive it. */
+export function toThemeDeleteResult(w: WireThemeDeleteResult): ThemeDeleteResult {
+  return {
+    id: w.id,
+    deleted: w.deleted,
+    displayThemeReset: w.display_theme_reset,
   };
 }
 
@@ -1556,6 +1600,16 @@ export function toResumeOverview(w: WireResumeOverview): ResumeOverviewView {
   };
 }
 
+// TODO(T-f278): the cockpit does not carry the answered-card signal. The wire
+// has `answered_card_steps` on this row and `steps_on_answered_card` /
+// `steps_on_answered_card_chars` on the overview above; neither this mapper nor
+// `toResumeOverview` reads them, and `ResumeTaskView` / `ResumeOverviewView` do
+// not declare them. Both wire fields are optional, so TS stays green and the
+// parity roll-call stays green — this is EXACTLY the shape the 🔴 note on
+// `toMemberResumeSummary` below warns about (`roster`/`machines` dropped on the
+// floor with nothing red), reproduced in the same function. The owner's ruling
+// for this ticket was "開機時主動撈" only, so wiring the panel is deliberately
+// NOT done here — it needs its own ask before anyone extends the view model.
 /** Map one wire resume-snapshot LIGHT task row → the view model. */
 export function toResumeTask(w: WireResumeTask): ResumeTaskView {
   return {

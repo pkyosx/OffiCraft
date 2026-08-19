@@ -19,77 +19,6 @@
     {
       "description": "Edit settings (owner-login and agent token TTLs / handover threshold); live immediately.",
       "inputSchema": {
-        "$defs": {
-          "ThemeBundleDTO": {
-            "description": "One owner-authored theme colour bundle (T-16a1 P2). `id` is a client-generated stable slug (`^[a-z0-9][a-z0-9-]{1,63}$`), unique within the owner's set and never a built-in name (`office` / `xian`). `name` is the display label (trimmed, 1..80 runes). `colors` maps `--color-*` token names \u2014 each MUST be a token defined in styles/theme.css \u2014 to CONCRETE colour values (hex / rgb() / rgba() / hsl() / hsla() / transparent only; no var(), no color-mix(), no arbitrary CSS). 1..200 pairs. The server 422s any bundle that violates the shape, the token whitelist, or the colour grammar. `wording` (optional, T-16a1 P3) carries per-language message-key text overrides; see its own description. `fonts` (optional, T-16a1 P4) carries font-family choices; see its own description.",
-            "properties": {
-              "id": {
-                "title": "Id",
-                "type": "string"
-              },
-              "name": {
-                "title": "Name",
-                "type": "string"
-              },
-              "colors": {
-                "additionalProperties": {
-                  "type": "string"
-                },
-                "title": "Colors",
-                "type": "object"
-              },
-              "fonts": {
-                "additionalProperties": {
-                  "type": "string"
-                },
-                "description": "Optional font-family choices (T-16a1 P4). Maps a `--font-*` token name (`--font-sans` / `--font-title` only) to a font-family stack string. The value is NOT an arbitrary string: it must be one of a small CLOSED allowlist of safe, built-in font-family stacks (themeFonts.source.json \u2014 the same set the theme editor's font dropdown offers); no url(), no @font-face, no external font, no CSS structure characters. Absent = the theme keeps the default fonts. The server 422s any fonts that violates the token set or the safe-family allowlist.",
-                "title": "Fonts",
-                "type": "object"
-              },
-              "wording": {
-                "additionalProperties": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Wording Lang",
-                  "type": "object"
-                },
-                "description": "Optional per-language wording overrides (T-16a1 P3). Outer key = UI language (`zh` / `en` only); inner map = an i18n message-key (an internal code path such as `nav.tasks`, drawn from the generated messageKeys whitelist) -> the owner's replacement PLAIN TEXT. Values are plain text only (trimmed, <=200 runes, control chars / newlines rejected, per-language entry count capped); no HTML/CSS. Absent = no overrides. The server 422s any wording that violates the language set, the key whitelist, or the value rules.",
-                "title": "Wording",
-                "type": "object"
-              },
-              "avatars": {
-                "additionalProperties": {
-                  "type": "string"
-                },
-                "description": "Optional per-role avatar images (T-16a1 P5; extended per role in T-ea81). Keys are the closed set `member` (\u4e00\u822c\u6b63\u8077 member) / `outsource` (\u5916\u5305 outsource worker) / `owner` (the human CEO / owner) / `assistant` (a member whose role is `assistant`, e.g. Mira). Each value is an EMBEDDED image encoded as a base64 `data:` URI so the image travels inside the bundle on export/import. The value is NOT arbitrary: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted. SVG (`image/svg+xml`) is REJECTED (it can carry script/onload \u2014 XSS). The base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`) \u2014 a value that declares one mime but carries another is rejected. Absent = that role falls back to the built-in avatar glyph (office never degrades). The server 422s any avatars that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.",
-                "title": "Avatars",
-                "type": "object"
-              },
-              "logo": {
-                "description": "Optional studio logo image (T-ea81). A single EMBEDDED image encoded as a base64 `data:` URI that replaces the built-in logo mark shown in the top bar. Same strict image gate as `avatars`: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted; SVG (`image/svg+xml`) is REJECTED (script/onload XSS); the base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`). Absent = the built-in logo mark is used (office never degrades). The server 422s any logo that violates the mime whitelist, the size caps, the base64, or the magic-byte check.",
-                "title": "Logo",
-                "type": "string"
-              },
-              "navIcons": {
-                "additionalProperties": {
-                  "type": "string"
-                },
-                "description": "Optional per-tab navigation icon images (T-ea81). Keys are the closed set of the five nav tabs `office` (\u8fa6\u516c\u5ba4) / `replies` (\u8acb\u793a) / `tasks` (\u4efb\u52d9) / `monitor` (\u76e3\u63a7) / `guide` (\u4f7f\u7528\u8aaa\u660e); each value is an EMBEDDED image encoded as a base64 `data:` URI that replaces that tab's built-in icon. Same strict image gate as `avatars`: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted; SVG (`image/svg+xml`) is REJECTED (script/onload XSS); the base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`). Absent = that tab falls back to its built-in icon (office never degrades). The server 422s any navIcons that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.",
-                "title": "Nav Icons",
-                "type": "object"
-              }
-            },
-            "required": [
-              "id",
-              "name",
-              "colors"
-            ],
-            "title": "ThemeBundleDTO",
-            "additionalProperties": false,
-            "type": "object"
-          }
-        },
         "properties": {
           "codex_compaction_threshold": {
             "anyOf": [
@@ -210,21 +139,6 @@
             ],
             "description": "The size cap on the 系統互動 block of the boot context, in CHARACTERS (Unicode code points). Must be at least this document's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.",
             "title": "Doc Cap Chars System Interaction"
-          },
-          "custom_themes": {
-            "anyOf": [
-              {
-                "items": {
-                  "$ref": "#/$defs/ThemeBundleDTO"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Replace the owner's custom theme bundles (T-16a1 P2) with this array (each `{id,name,colors}`). Omit to leave them unchanged; `[]` clears them. Every bundle is validated against the shape, the theme.css token whitelist, and the concrete-colour grammar \u2014 any violation is a 422 and nothing is written. When this and display_theme are patched together, display_theme is validated against the POST-patch set; and deleting the active custom theme resets display_theme to \"\".",
-            "title": "Custom Themes"
           },
           "display_language": {
             "anyOf": [
@@ -669,7 +583,7 @@
       "name": "deactivate_member"
     },
     {
-      "description": "Force-stop: robust STOP now, bypassing the graceful-stop grace.",
+      "description": "Force-stop: robust STOP now. On the offboard arm this is the ONLY thing that ever collects the member -- nothing times out.",
       "inputSchema": {
         "properties": {
           "member_id": {
@@ -798,6 +712,386 @@
         "type": "object"
       },
       "name": "list_webhook_requests"
+    },
+    {
+      "description": "List one member's scheduled messages — 定期訊息, the wall-clock alarm that wakes that member with a chat message on a repeating cadence. admin_agent floor: the owner, or an admin assistant setting these up on the owner's behalf; an ordinary agent gets 403 even for its own member_id. Rows come oldest→newest and each carries the whole schedule — label, body, cadence, the slot fields `hour`/`minute`/`day_of_week`/`day_of_month`, the four `custom` sets, timezone, and the enabled/disabled toggle — plus the delivery cursor `last_fired_slot`/`last_fired_ts`. Read this before update_scheduled_message: that call is a partial edit against these stored values, and it re-aims the cursor only for a slot field whose value actually CHANGES. 404 if the member is absent or soft-removed.",
+      "inputSchema": {
+        "properties": {
+          "member_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "member_id"
+        ],
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "name": "list_scheduled_messages"
+    },
+    {
+      "description": "Create a scheduled message on one member — 定期訊息, the mechanism for waking a member on a repeating wall-clock slot: at each due slot the server delivers `body` verbatim down the ORDINARY chat path, from the synthetic sender `sched:<schedule_id>`. admin_agent floor: the owner, or an admin assistant setting one up on the owner's behalf; an ordinary agent gets 403 even for its own member_id. The recipient follows chat's rule, so an `ow-` outsource worker is a legal target as well as a staff member. `body`, `cadence` and `timezone` are always required; `hour`/`minute` are required by `daily`/`weekly`/`monthly` and ignored by `custom` FOR SCHEDULING — their range is still checked under every cadence, so `hour: 99` is a 422 even for `custom`, which instead requires `custom_days`/`custom_hours`/`custom_minutes` (`custom_months` may be omitted to mean all twelve; an explicit empty set is a 422). Those conditional rules are NOT expressible in this schema — a wrong combination comes back as a 422 rather than folding into a silent midnight. TWO fields are the exception and they fail SILENTLY: `day_of_week` (used by `weekly`) and `day_of_month` (used by `monthly`) are NOT required — omit either one and the create returns 200 having defaulted it to 0 (Sunday) and 1 (the first of the month). 'Every Friday at 09:00' sent without `day_of_week` is a Sunday alarm and nothing reports it, so send the field explicitly whenever the cadence reads it. `timezone` must NAME A PLACE: `Local` and the empty string are refused with 422 even though they resolve, because they hand \"what time is it\" to wherever the server happens to run. Missed slots are never backfilled — only the slot most recently elapsed is ever considered — and the cursor starts at creation time, so a `daily` 09:00 schedule created at 10:00 does not fire today. 404 if the member is absent or soft-removed.",
+      "inputSchema": {
+        "properties": {
+          "body": {
+            "description": "The message text delivered to the member when a slot comes due. It is sent verbatim, as an ordinary chat message.",
+            "title": "Body",
+            "type": "string"
+          },
+          "cadence": {
+            "description": "How often the message repeats. `weekly` reads `day_of_week`, `monthly` reads `day_of_month`, `daily` reads neither; those three all fire once a day at the single wall-clock reading `hour`/`minute` names. `custom` (T-49e7) reads none of those four: it reads the FOUR sets `custom_months`, `custom_days`, `custom_hours` and `custom_minutes` and fires at EVERY wall-clock reading where all four hold at once, so it is the only cadence that can fire more than once a day. `custom_months` (T-49e7 round 2) is the only one of the four that may be omitted, and an omitted `custom_months` means all twelve months. DAYLIGHT-SAVING BEHAVIOUR, which `custom` enlarges because it names many readings a day rather than one: a reading the zone SKIPPED (spring forward) is simply not fired for `custom` — it is NOT moved forward to the next existing reading the way a once-a-day cadence's single reading is, because moving it would land on a neighbouring selected reading, produce the same slot identifier and silently merge two deliveries into one; a reading the zone repeats (autumn back) fires ONCE. WHICH of the two instants that single delivery lands on is whatever Go's `time.Date` resolves the ambiguous reading to — deterministic for a given zone and reading, but implementation-defined and NOT guaranteed to be the earlier one (measured: `America/New_York` resolves to the earlier instant, `Europe/London` and `Africa/Cairo` to the later). The invariant this contract states is only that ONE wall-clock reading yields ONE slot, hence one delivery. The `daily`/`weekly`/`monthly` behaviour is unchanged in both directions. Every set's range is enforced server-side (a 422), not by this schema — `custom_minutes: [0,20,40]` with every hour and every day listed is \"every 20 minutes\", and `custom_minutes: [15]` with every hour and every day listed is \"15 minutes past every hour\".",
+            "enum": [
+              "daily",
+              "weekly",
+              "monthly",
+              "custom"
+            ],
+            "title": "Cadence",
+            "type": "string"
+          },
+          "custom_days": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Days of the month `custom` fires on, 1-31, as an EXPLICIT set. \"Every day\" means listing every day; an empty set is a 422 rather than a silent \"all\" or a silent \"never\", because a schedule that always fires and one that never fires must not be one keystroke apart. Duplicates collapse and the set is stored sorted, so two orderings of the same choice compare equal — which is what stops a caller that sends the whole form back on every save from re-aiming the cursor. Membership is decided DAY BY DAY, not month by month: a listed day the month does not contain is dropped for THAT DAY only and the month's other listed days are unaffected, so [1,15,31] in February fires on the 1st and the 15th and simply has no 31st. (`monthly` names a single day, so for it the same rule reads as \"the whole month is skipped\" — that phrasing does NOT carry over to a set and reading it across was the review finding this sentence exists to prevent.) The day is never clamped to the month's last day, the same RFC 5545 rule `monthly` follows. Range is enforced server-side (a 422), not by this schema. REQUIRED when `cadence` is `custom` (a 422 otherwise); ignored by every other cadence.",
+            "title": "Custom Days"
+          },
+          "custom_hours": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Hours of the day `custom` fires on, 0-23, read in `timezone`, as an EXPLICIT set. Same rules as `custom_days`: \"every hour\" means listing every hour, an empty set is a 422, duplicates collapse and the set is stored sorted. REQUIRED when `cadence` is `custom` (a 422 otherwise); ignored by every other cadence.",
+            "title": "Custom Hours"
+          },
+          "custom_minutes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Minutes of the hour `custom` fires on, 0-59, read in `timezone`, as an EXPLICIT set. Same rules as `custom_days`: an empty set is a 422, duplicates collapse and the set is stored sorted. An interval that does not divide an hour can only be approximated by naming wall-clock minutes — [0,7,14,21,28,35,42,49,56] leaves a 4-minute gap across the hour boundary, not 7 — which is a property of naming readings rather than a defect. REQUIRED when `cadence` is `custom` (a 422 otherwise); ignored by every other cadence. The closed set stays 0-59 whatever the cockpit chooses to OFFER: a picker that shows only multiples of five is a presentation decision and does not narrow this contract.",
+            "title": "Custom Minutes"
+          },
+          "custom_months": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Months of the year `custom` fires in, 1-12 (1 = January), as an EXPLICIT set — the fourth dimension of the intersection, added in T-49e7 round 2. A `custom` schedule fires at a reading only when `custom_months`, `custom_days`, `custom_hours` and `custom_minutes` ALL hold at once. It is the ONE set of the four that may be OMITTED: an omitted or null `custom_months` on a `custom` schedule means ALL TWELVE MONTHS, which is what makes every client written before this field kept working unchanged — it never sent the field, and \"every month\" is exactly what those schedules already meant. An EXPLICIT EMPTY ARRAY is still a 422, the same as the other three sets: \"never fires\" and \"fires every month\" must not be one keystroke apart, and the omitted case is answered by the field being ABSENT rather than by it being present and empty. Duplicates collapse and the set is stored sorted. Membership is decided MONTH BY MONTH against the calendar date, so it composes with `custom_days` exactly as the other sets do: months [2] with days [29] fires only in a February that HAS a 29th — a leap year — and is simply absent in the other three years, never clamped to the 28th. Range is enforced server-side (a 422), not by this schema.",
+            "title": "Custom Months"
+          },
+          "day_of_month": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Day of month for `monthly` cadence, 1-31. A month that does not contain the day is skipped entirely rather than clamped — the iCalendar RFC 5545 rule for invalid recurrence dates — so a schedule on day 31 fires seven times a year and never in February. Owner decision 2026-08-10, card rc-aeef15360ab5: match the common standard rather than cap the range. Omitted or null means 1. Ignored by `daily`, `weekly` and `custom`.",
+            "title": "Day Of Month"
+          },
+          "day_of_week": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Day of week for `weekly` cadence: 0=Sunday through 6=Saturday. Omitted or null means 0 (Sunday). Ignored by `daily`, `monthly` and `custom`.",
+            "title": "Day Of Week"
+          },
+          "hour": {
+            "description": "Hour of the wall-clock slot, 0-23, read in `timezone`.",
+            "title": "Hour",
+            "type": "integer"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Human-facing name for this schedule. Also rides the delivered message's `meta.scheduled.label`, so the receiving agent can tell which of its schedules just spoke. Omitted or null means no label.",
+            "title": "Label"
+          },
+          "member_id": {
+            "type": "string"
+          },
+          "minute": {
+            "description": "Minute of the wall-clock slot, 0-59, read in `timezone`.",
+            "title": "Minute",
+            "type": "integer"
+          },
+          "timezone": {
+            "description": "IANA timezone name the wall-clock slot is computed in (e.g. `Asia/Taipei`). Must name a place: `Local` and the empty string are REFUSED with 422 even though they resolve, because they mean `wherever this server runs` and `UTC by accident` rather than a stated zone. `UTC` itself is accepted. The two ways a wall-clock reading can be absent are treated differently. A DATE that is not there — a 31st in a month that has none, or a calendar day the zone deleted outright at a date-line move — is an occurrence that does not happen, per RFC 5545's treatment of an invalid recurrence date. A TIME the date does not have, because the zone skipped it springing forward, is answered DIFFERENTLY BY CADENCE. For `daily`, `weekly` and `monthly` — the three that name one reading a day — it still happens: it moves forward to the next reading the zone does have — a 02:30 slot fires at 03:00, and where the skipped stretch runs to midnight the slot lands at the start of the following date — while the next occurrence returns to the stated time, so the shift never accumulates. That forward search is bounded by the following date: if the zone deleted that date outright too, the occurrence is skipped like an absent date rather than searched for any further. For `custom` the OPPOSITE holds: a skipped reading is NOT moved forward, it is simply not fired, because moving it would land on a neighbouring selected reading and silently merge two deliveries into one. See `cadence` for the full statement of that divergence.",
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "member_id",
+          "body",
+          "cadence",
+          "timezone"
+        ],
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "name": "create_scheduled_message"
+    },
+    {
+      "description": "Update one scheduled message, including the enabled/disabled toggle (`status`) — 定期訊息, the wall-clock wake-up for one member. admin_agent floor: the owner, or an admin assistant acting on the owner's behalf; an ordinary agent gets 403 even for its own member_id. PATCH semantics: only the fields you send change, and `id`/`member_id` are immutable. The create-side validation applies unchanged — `hour`/`minute` required by `daily`/`weekly`/`monthly` and ignored by `custom` for scheduling though still range-checked under every cadence, the custom sets never empty, `timezone` never `Local` or the empty string — all 422. Editing a timing field to a DIFFERENT value re-aims the delivery cursor to the slot most recently elapsed, so the edit never retroactively fires the slot it crossed; re-sending a value the schedule already holds moves nothing, which is what makes a whole-form save safe. `disabled` suspends firing and is reversible — it is not a lifecycle state; delete_scheduled_message is the permanent removal. 404 if the member or the schedule is absent.",
+      "inputSchema": {
+        "properties": {
+          "body": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The message text delivered to the member when a slot comes due. It is sent verbatim, as an ordinary chat message.",
+            "title": "Body"
+          },
+          "cadence": {
+            "anyOf": [
+              {
+                "enum": [
+                  "daily",
+                  "weekly",
+                  "monthly",
+                  "custom"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How often the message repeats. `weekly` reads `day_of_week`, `monthly` reads `day_of_month`, `daily` reads neither; those three all fire once a day at the single wall-clock reading `hour`/`minute` names. `custom` (T-49e7) reads none of those four: it reads `custom_months`, `custom_days`, `custom_hours` and `custom_minutes` and fires at every reading where all four hold at once. Switching a schedule TO `custom` in this PATCH must supply `custom_days`, `custom_hours` and `custom_minutes` in the SAME request unless the stored row already carries them (a 422 otherwise, never a schedule that has a cadence it has no times for); `custom_months` is exempt from that requirement — a switch that names no months, on a row carrying none, lands as all twelve. Switching AWAY from `custom` leaves the stored sets in place, unread, so switching back does not lose the choice.",
+            "title": "Cadence"
+          },
+          "custom_days": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Days of the month `custom` fires on, 1-31, as an explicit set — see the create DTO for why an empty set is a 422 rather than \"all\" or \"never\". Supplying a set whose SORTED, DEDUPLICATED form equals the stored one changes nothing, cursor included, which is the same value-comparison rule every other field here follows: a caller that sends the whole form back on every save must not quietly swallow a delivery just because it re-sent the same choice in a different order.",
+            "title": "Custom Days"
+          },
+          "custom_hours": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Hours of the day `custom` fires on, 0-23, read in `timezone`, as an explicit set. Same empty-set and same-value rules as `custom_days`.",
+            "title": "Custom Hours"
+          },
+          "custom_minutes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Minutes of the hour `custom` fires on, 0-59, read in `timezone`, as an explicit set. Same empty-set and same-value rules as `custom_days`. The closed set stays 0-59 whatever the cockpit chooses to OFFER: a picker that shows only multiples of five is a presentation decision and does not narrow this contract.",
+            "title": "Custom Minutes"
+          },
+          "custom_months": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Months of the year `custom` fires in, 1-12 (1 = January), as an explicit set — the fourth dimension of the intersection (T-49e7 round 2). Same empty-set and same-value rules as `custom_days`: an explicit empty array is a 422, and supplying a set whose sorted, deduplicated form equals the stored one changes nothing, cursor included. OMITTING it here means \"leave the stored months alone\", the ordinary PATCH rule — it does NOT re-assert all twelve. The all-twelve reading of an omitted field belongs to a request that has to produce a WHOLE `custom` row from nothing: a create, or a PATCH that switches the cadence TO `custom` on a row carrying no months. Everywhere else, absent means unchanged.",
+            "title": "Custom Months"
+          },
+          "day_of_month": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Day of month for `monthly` cadence, 1-31. A month that does not contain the day is skipped entirely rather than clamped — the iCalendar RFC 5545 rule for invalid recurrence dates — so a schedule on day 31 fires seven times a year and never in February. Owner decision 2026-08-10, card rc-aeef15360ab5: match the common standard rather than cap the range.",
+            "title": "Day Of Month"
+          },
+          "day_of_week": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Day of week for `weekly` cadence: 0=Sunday through 6=Saturday.",
+            "title": "Day Of Week"
+          },
+          "hour": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Hour of the wall-clock slot, 0-23, read in `timezone`.",
+            "title": "Hour"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Human-facing name for this schedule. Also rides the delivered message's `meta.scheduled.label`, so the receiving agent can tell which of its schedules just spoke.",
+            "title": "Label"
+          },
+          "member_id": {
+            "type": "string"
+          },
+          "minute": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Minute of the wall-clock slot, 0-59, read in `timezone`.",
+            "title": "Minute"
+          },
+          "schedule_id": {
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "enabled",
+                  "disabled"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The enabled/disabled toggle. `disabled` suspends firing and is reversible — it is NOT a lifecycle state; DELETE is the permanent removal.",
+            "title": "Status"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "IANA timezone name the wall-clock slot is computed in (e.g. `Asia/Taipei`). Must name a place: `Local` and the empty string are REFUSED with 422 even though they resolve, because they mean `wherever this server runs` and `UTC by accident` rather than a stated zone. `UTC` itself is accepted. The two ways a wall-clock reading can be absent are treated differently. A DATE that is not there — a 31st in a month that has none, or a calendar day the zone deleted outright at a date-line move — is an occurrence that does not happen, per RFC 5545's treatment of an invalid recurrence date. A TIME the date does not have, because the zone skipped it springing forward, is answered DIFFERENTLY BY CADENCE. For `daily`, `weekly` and `monthly` — the three that name one reading a day — it still happens: it moves forward to the next reading the zone does have — a 02:30 slot fires at 03:00, and where the skipped stretch runs to midnight the slot lands at the start of the following date — while the next occurrence returns to the stated time, so the shift never accumulates. That forward search is bounded by the following date: if the zone deleted that date outright too, the occurrence is skipped like an absent date rather than searched for any further. For `custom` the OPPOSITE holds: a skipped reading is NOT moved forward, it is simply not fired, because moving it would land on a neighbouring selected reading and silently merge two deliveries into one. See `cadence` for the full statement of that divergence.",
+            "title": "Timezone"
+          }
+        },
+        "required": [
+          "member_id",
+          "schedule_id"
+        ],
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "name": "update_scheduled_message"
+    },
+    {
+      "description": "Delete one scheduled message — 定期訊息, permanent and not undoable. admin_agent floor: the owner, or an admin assistant acting on the owner's behalf; an ordinary agent gets 403 even for its own member_id. When the schedule should merely STOP firing, call update_scheduled_message with `status: disabled` instead — that is the reversible half and this one is not. 404 if the member or the schedule is absent.",
+      "inputSchema": {
+        "properties": {
+          "member_id": {
+            "type": "string"
+          },
+          "schedule_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "member_id",
+          "schedule_id"
+        ],
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "name": "delete_scheduled_message"
     },
     {
       "description": "The SAME bounded wake snapshot as resume_summary, for a TARGET member (member_id) instead of the caller — control-others, admin_agent+ only (owner-scope or role=assistant); an ordinary agent gets 403. Same identity/chat/light-task-rows/roster/machines/overview/note shape, assembled by the identical resumeSnapshotParts function (so the roster and machine blocks cannot drift from what that member would get on waking; note that machines.you_are_on resolves for the TARGET member, not for you); resume_summary itself is unchanged and still identity-locked to the caller.",
@@ -1539,11 +1833,11 @@
       "name": "list_machines"
     },
     {
-      "description": "Bootstrap on server: install this machine's warden on the host.",
+      "description": "Bootstrap on server: runs `ocwarden install --force` on the SERVER's own host. machine_id is NOT a target — this verb has no way to reach another machine, and naming one is refused (409); the server-local machine is the only value it accepts, and the install overwrites the existing one, which is how you repair this host's warden. To install a different machine, fetch that machine's own boot command with GET /api/machines/{machine_id}/boot-command and run it on that host.",
       "inputSchema": {
         "properties": {
           "machine_id": {
-            "description": "Which machine's IDENTITY the installed warden runs as. An unknown or retired id is a 404, so the dangerous wrong value is the one that RESOLVES: the install always happens on the server's own host - the child process is addressed by the server's HOME and uid, never by this parameter - while the token it is handed is minted for the machine you named. Naming a valid but wrong machine therefore installs this host's warden under another machine's identity, answers 200 with ok true, and echoes your machine_id back as if it had been honoured. The install runs with --force, so it overwrites an existing one rather than refusing.",
+            "description": "Which machine the caller claims to be talking about — NOT a target selector. The install always happens on the server's own host: the child process is addressed by the server's HOME and uid, never by this parameter. An unknown or retired id is a 404; the server-local machine (its id is 'm-server-self') is the one value that proceeds, and it reinstalls this host's warden with `install --force`, overwriting an existing install rather than refusing. Every OTHER id that resolves is a 409, refused before anything is installed or written, because honouring it would put this host's warden under another machine's identity. There is no flag that widens this verb: to install a different machine, fetch that machine's own one-liner with GET /api/machines/{machine_id}/boot-command and run it on that host.",
             "type": "string"
           }
         },
@@ -2037,7 +2331,7 @@
       "name": "resume_summary"
     },
     {
-      "description": "Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO chat/task content). estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars, all four reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit and the two studio-floor blocks — what pulling the snapshot actually costs. Step one of the two-step boot: call this FIRST to size resume_summary, then either call resume_summary directly (small) or hand the pull to a cheap sub-agent that returns a digest (large).",
+      "description": "Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO chat/task content). estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars + steps_on_answered_card_chars, all five reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit, the two studio-floor blocks, and the named steps sitting on an answered card — what pulling the snapshot actually costs. Step one of the two-step boot: call this FIRST to size resume_summary, then either call resume_summary directly (small) or hand the pull to a cheap sub-agent that returns a digest (large).",
       "inputSchema": {
         "properties": {},
         "type": "object"
@@ -2525,7 +2819,7 @@
       "name": "mark_duplicate"
     },
     {
-      "description": "Report a step status (pending/in_progress/waiting_external/done). Entering waiting_external requires a non-blank waiting_reason (422 otherwise); the task status is derived from its steps. T-74f8 交棒閘: if this report would CLOSE the task (every step done) AND the task's creator is not its executor, the call is REFUSED with 422 unless you say where the ball goes IN THIS SAME CALL — handoff='return_to_creator' (the server opens a durable follow-up task on the creator), handoff='follow_up' + handoff_task_id=<a successor task you already created> (the server hangs this task off it as a dependency, and closing this one releases it), or handoff='none' + handoff_note=<why nothing follows>. The gate stands aside by itself when a non-terminal task already depends on this one — you never see it if the handover is already real. It refuses BEFORE writing anything, so a refused report leaves the plan fully editable: create the successor task, then re-send this same report with the declaration. This is your LAST chance — once the task closes it can never be replanned (submit_plan becomes a permanent 409).",
+      "description": "Report a step status (pending/in_progress/waiting_external/done). Entering waiting_external requires a non-blank waiting_reason (422 otherwise); the task status is derived from its steps. T-74f8 交棒閘: if this report would CLOSE the task (every step done) AND the task's creator is not its executor, the call is REFUSED with 422 unless you say where the ball goes IN THIS SAME CALL — handoff='return_to_creator' (recorded on the task and nothing else — no task is opened and nobody is notified), handoff='follow_up' + handoff_task_id=<a successor task you already created> (the server hangs this task off it as a dependency, and closing this one releases it), or handoff='none' + handoff_note=<why nothing follows>. The gate stands aside by itself when a non-terminal task already depends on this one — you never see it if the handover is already real. It refuses BEFORE writing anything, so a refused report leaves the plan fully editable: create the successor task, then re-send this same report with the declaration. This is your LAST chance — once the task closes it can never be replanned (submit_plan becomes a permanent 409).",
       "inputSchema": {
         "properties": {
           "handoff": {
@@ -2606,6 +2900,53 @@
         "type": "object"
       },
       "name": "update_step_note"
+    },
+    {
+      "description": "Patch this step's working note by unique anchors ({edits:[{old,new}]}) — send only the part that changed, instead of re-typing the whole note. USE THIS WHENEVER YOU ARE AMENDING A NOTE THAT ALREADY HAS CONTENT. update_step_note is a wholesale replace, so if anyone else wrote to the step between your read and your write, your copy is stale and the replace silently deletes their text — and because your stale copy is usually the LONGER one, no guard fires and nothing tells you. A patch cannot do that: a non-empty old must match the current note EXACTLY ONCE (0 or >1 hits reject the WHOLE batch with a 400 that names which edit failed and which tool to re-read with, zero writes), so a concurrent write turns into a refusal you can see. Edits apply in order; an empty old appends. Wiping the note, or shrinking it below a tenth, needs allow_shrink=true — for an honest rewrite from scratch use update_step_note. Same executor/admin gate, same any-step-status generality, same closed-task 409 as update_step_note. Re-read with get_task after a refusal.",
+      "inputSchema": {
+        "properties": {
+          "allow_shrink": {
+            "default": false,
+            "title": "Allow Shrink",
+            "type": "boolean"
+          },
+          "edits": {
+            "items": {
+              "properties": {
+                "new": {
+                  "default": "",
+                  "title": "New",
+                  "type": "string"
+                },
+                "old": {
+                  "default": "",
+                  "title": "Old",
+                  "type": "string"
+                }
+              },
+              "title": "LessonsEditDTO",
+              "type": "object",
+              "additionalProperties": false
+            },
+            "title": "Edits",
+            "type": "array"
+          },
+          "step_id": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "step_id",
+          "edits"
+        ],
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "name": "patch_step_note"
     },
     {
       "description": "Arm a gate step: opens the reply card the owner must answer. Optional attachments ride the question (same shape as post_chat: {id} from `ocagent upload` / POST /api/chat/attachments, or inline data_b64).",
@@ -3351,6 +3692,49 @@
       "name": "patch_task_learnings"
     },
     {
+      "description": "Patch a type's SOP (sop_md) by unique anchors ({edits:[{old,new}]}) — send only the section that changed, instead of re-typing the whole SOP. USE THIS WHENEVER YOU ARE AMENDING AN SOP THAT ALREADY HAS CONTENT. update_task_manual{sop_md} is a wholesale replace, so if anyone else edited the SOP between your read and your write, your copy is stale and the replace silently deletes their section — and because your stale copy is usually the LONGER one, no guard fires and nothing tells you. A patch cannot do that: a non-empty old must match the current sop_md EXACTLY ONCE (0 or >1 hits reject the WHOLE batch with a 400 that names which edit failed and which tool to re-read with, zero writes), so a concurrent write turns into a refusal you can see. Edits apply in order; an empty old appends. Wiping the doc, or shrinking it below a tenth, needs allow_shrink=true — for an honest rewrite from scratch use update_task_manual. The sop_md cap is judged on the RESULT and allow_shrink is not a bypass. Re-read with get_task_manual after a refusal.",
+      "inputSchema": {
+        "properties": {
+          "allow_shrink": {
+            "default": false,
+            "title": "Allow Shrink",
+            "type": "boolean"
+          },
+          "edits": {
+            "items": {
+              "properties": {
+                "new": {
+                  "default": "",
+                  "title": "New",
+                  "type": "string"
+                },
+                "old": {
+                  "default": "",
+                  "title": "Old",
+                  "type": "string"
+                }
+              },
+              "title": "LessonsEditDTO",
+              "type": "object",
+              "additionalProperties": false
+            },
+            "title": "Edits",
+            "type": "array"
+          },
+          "type_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type_key",
+          "edits"
+        ],
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "name": "patch_task_sop"
+    },
+    {
       "description": "READ the CATALOGUE of retained versions of one editable document: which versions exist, when each was replaced and by whom, whether each was a tombstone, and HOW LONG each of its fields was. It does NOT carry the versions themselves — a version list is how you CHOOSE one, and choosing does not need the prose; fetch the one you picked with get_document_version. Read-only, newest first, and only the most recent few are kept — HOW MANY is per-document and is not stated here, because it differs by kind and this sentence would go stale silently; what you get back is the answer. Putting a version BACK is deliberately not an agent tool — the owner does that from the cockpit — so this cannot change anything.\n\nWHICH DOCUMENTS THIS COVERS, AND WHAT `key` LOOKS LIKE FOR EACH, ARE DELIBERATELY NOT LISTED HERE. A list of kinds — or of key shapes — written into a description goes stale the moment a new editable document ships, and NOTHING turns red when it does: this description used to enumerate six kinds and a key shape per kind, and both had already gone stale before the lists were taken out. Two rules you can actually execute replace them.\n\nADDRESSING: `kind` and `key` are validated by the same server-side gate that answers get_document_seed, so whatever that tool can address, this one can too, and the two can never silently disagree. A `kind` this server does not know is refused with 400; a retired kind is refused with 400 naming the series that replaced it. Some kinds also police the shape of `key` before answering — a key this kind does not serve, or one that fails that kind's required shape, is refused with 400 naming the problem. Neither is something to guess at: ask and read the answer.\n\nCOVERAGE: a syntactically valid `key` that simply has no retained versions yet is not an error — it returns an empty list, the honest 'nothing has been saved here', not a gap to work around.",
       "inputSchema": {
         "properties": {
@@ -3532,6 +3916,142 @@
         "type": "object"
       },
       "name": "reset_offboard"
+    },
+    {
+      "description": "List the saved custom themes — id and name only, in list order (owner/admin agent).",
+      "inputSchema": {
+        "properties": {},
+        "required": [],
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "name": "list_themes"
+    },
+    {
+      "description": "Read one saved custom theme (unknown id \u2192 404).",
+      "inputSchema": {
+        "properties": {
+          "theme_id": {
+            "description": "Which theme to act on. It is the KEY the bundle is filed under, and for a write it must equal the bundle's own `id` \u2014 a mismatched pair is refused rather than silently re-keyed.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "theme_id"
+        ],
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "name": "get_theme"
+    },
+    {
+      "description": "Create or replace ONE custom theme; the bundle's id must match the path (owner/admin agent).",
+      "inputSchema": {
+        "properties": {
+          "theme_id": {
+            "description": "Which theme to act on. It is the KEY the bundle is filed under, and for a write it must equal the bundle's own `id` \u2014 a mismatched pair is refused rather than silently re-keyed.",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "colors": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Colors",
+            "type": "object"
+          },
+          "fonts": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Optional font-family choices (T-16a1 P4). Maps a `--font-*` token name (`--font-sans` / `--font-title` only) to a font-family stack string. The value is NOT an arbitrary string: it must be one of a small CLOSED allowlist of safe, built-in font-family stacks (themeFonts.source.json \u2014 the same set the theme editor's font dropdown offers); no url(), no @font-face, no external font, no CSS structure characters. Absent = the theme keeps the default fonts. The server 422s any fonts that violates the token set or the safe-family allowlist.",
+            "title": "Fonts",
+            "type": "object"
+          },
+          "wording": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "title": "Wording Lang",
+              "type": "object"
+            },
+            "description": "Optional per-language wording overrides (T-16a1 P3). Outer key = UI language (`zh` / `en` only); inner map = an i18n message-key (an internal code path such as `nav.tasks`, drawn from the generated messageKeys whitelist) -> the owner's replacement PLAIN TEXT. Values are plain text only (trimmed, <=200 runes, control chars / newlines rejected, per-language entry count capped); no HTML/CSS. Absent = no overrides. The server 422s any wording that violates the language set or the value rules. A code OUTSIDE the messageKeys whitelist is NOT a 422: it is DROPPED from the overlay and the request succeeds, so the response echoes a pruned `wording` and only the surviving codes are stored (an already-imported theme pack stays usable when the whitelist shrinks; the accepted cost is that a typo'd code silently does nothing).",
+            "title": "Wording",
+            "type": "object"
+          },
+          "avatars": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Optional per-role avatar images (T-16a1 P5; extended per role in T-ea81). Keys are the closed set `member` (\u4e00\u822c\u6b63\u8077 member) / `outsource` (\u5916\u5305 outsource worker) / `owner` (the human CEO / owner) / `assistant` (a member whose role is `assistant`, e.g. Mira). Each value is an EMBEDDED image encoded as a base64 `data:` URI so the image travels inside the bundle on export/import. The value is NOT arbitrary: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted. SVG (`image/svg+xml`) is REJECTED (it can carry script/onload \u2014 XSS). The base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`) \u2014 a value that declares one mime but carries another is rejected. Absent = that role falls back to the built-in avatar glyph (office never degrades). The server 422s any avatars that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.",
+            "title": "Avatars",
+            "type": "object"
+          },
+          "logo": {
+            "description": "Optional studio logo image (T-ea81). A single EMBEDDED image encoded as a base64 `data:` URI that replaces the built-in logo mark shown in the top bar. Same strict image gate as `avatars`: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted; SVG (`image/svg+xml`) is REJECTED (script/onload XSS); the base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`). Absent = the built-in logo mark is used (office never degrades). The server 422s any logo that violates the mime whitelist, the size caps, the base64, or the magic-byte check.",
+            "title": "Logo",
+            "type": "string"
+          },
+          "navIcons": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Optional per-tab navigation icon images (T-ea81). Keys are the closed set of the five nav tabs `office` (\u8fa6\u516c\u5ba4) / `replies` (\u8acb\u793a) / `tasks` (\u4efb\u52d9) / `monitor` (\u76e3\u63a7) / `guide` (\u4f7f\u7528\u8aaa\u660e); each value is an EMBEDDED image encoded as a base64 `data:` URI that replaces that tab's built-in icon. Same strict image gate as `avatars`: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted; SVG (`image/svg+xml`) is REJECTED (script/onload XSS); the base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`). Absent = that tab falls back to its built-in icon (office never degrades). The server 422s any navIcons that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.",
+            "title": "Nav Icons",
+            "type": "object"
+          },
+          "backgrounds": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Optional background images for the cockpit's chrome (T-081b). Keys are a CLOSED set holding exactly one zone today: `canvas` \u2014 the OUTERMOST canvas, i.e. the page background behind the centred content column. In `tile` / `sides` mode only the area BESIDE that column shows it, which is nothing on a phone, in a narrow window, or in the wide layout (all of which leave no side gutter); in `cover` mode the image fills the viewport and shows through wherever the theme gives the chrome zone colours translucent values. The zone tokens above it (`--color-topbar-bg` / `--color-nav-bg` / `--color-main-bg`) deliberately take NO image: they sit under text, and text over a busy pattern has no readability guarantee. Each value is an EMBEDDED image encoded as a base64 `data:` URI laid on top of the solid `--color-bg`, which still shows through wherever the image does not cover; HOW it is laid down is `backgroundModes` (default `tile`). Same strict image gate as `avatars`: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted; SVG (`image/svg+xml`) is REJECTED (script/onload XSS); the base64 must decode, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`). The SIZE caps are the one place backgrounds differ from `avatars`: the decoded byte size is capped at <=512 KiB (with the raw data-URI string capped above the base64-inflated form of that), NOT the <=64 KiB that applies to `avatars` / `logo` / `navIcons`. A background is stretched or tiled across the whole viewport, where the glyph-sized 64 KiB cap read as visibly blurry; that cap \u2014 and the T-081b ruling that a background must never exceed it \u2014 was overturned by the owner on 2026-08-03, and the small-glyph fields keep 64 KiB. Absent = the outer canvas is the plain `--color-bg` colour, exactly as before this field existed. The server 422s any backgrounds that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.",
+            "title": "Backgrounds",
+            "type": "object"
+          },
+          "backgroundModes": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Optional per-zone DISPLAY MODE for the images in `backgrounds` (T-081b). Same CLOSED zone-key set as `backgrounds` (today: `canvas`); each value is one of a CLOSED set of three: `tile` \u2014 repeat the image in both axes over the whole canvas (the ONLY behaviour before this field existed, and the default for any zone this map omits, so an older bundle renders identically); `sides` \u2014 do NOT repeat at all: pin ONE copy of the image against the LEFT viewport edge and one against the RIGHT, both at natural size, aligned to the viewport bottom, with `--color-bg` filling whatever the image does not reach; `cover` \u2014 ONE copy scaled (`background-size: cover`) to fill the whole viewport, centred. `sides` exists for art that reads as a pair of standing objects (e.g. a tree either side) rather than a texture; the product does NOT mirror the right-hand copy \u2014 a theme wanting left/right symmetry bakes it into the image (owner 2026-07-27). `sides` and `cover` are pinned to the VIEWPORT (`background-attachment: fixed`) because the canvas background otherwise scrolls with the document, which would bring a second copy into view down a long page. `cover` is only VISIBLE where the theme also gives the chrome zone colours (`--color-topbar-bg` / `--color-nav-bg` / `--color-main-bg`) translucent values \u2014 the colour grammar already admits `#RRGGBBAA` and `rgba()` \u2014 and that is also where its risk lives: those zones sit under text, so the image's contrast against that text is the theme's own responsibility (owner accepted this trade-off on 2026-07-27). A mode for a zone that carries no image is a 422 (a mode alone paints nothing, so it is a mistake worth naming rather than ignoring). Absent = every zone tiles, exactly as before this field existed. NOTE both modes are invisible at viewport widths where the content column leaves no gutter (phones, narrow windows) \u2014 that is a property of the outer canvas, not of the mode.",
+            "title": "Background Modes",
+            "type": "object"
+          }
+        },
+        "required": [
+          "theme_id",
+          "id",
+          "name",
+          "colors"
+        ],
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "name": "put_theme"
+    },
+    {
+      "description": "Delete one custom theme; deleting the active one resets display_theme to \"\".",
+      "inputSchema": {
+        "properties": {
+          "theme_id": {
+            "description": "Which theme to act on. It is the KEY the bundle is filed under, and for a write it must equal the bundle's own `id` \u2014 a mismatched pair is refused rather than silently re-keyed.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "theme_id"
+        ],
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "name": "delete_theme"
     }
   ]
 }

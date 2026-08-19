@@ -102,18 +102,21 @@ func TestHandleMachineBootCommand(t *testing.T) {
 func TestHandleBootstrapHere(t *testing.T) {
 	t.Run("clears a residual uninstall intent before touching the installer", func(t *testing.T) {
 		s := newMachinesTestServer(t)
-		putResidualUninstallWarden(t, s, "m-box")
+		// ServerSelfHost, not m-box: bootstrap-here refuses any other target
+		// outright (T-ce3d), so the intent-zeroing order is only observable on
+		// the one machine this verb may act for.
+		putResidualUninstallWarden(t, s, ServerSelfHost)
 
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest("POST", "/api/machines/m-box/bootstrap-here", nil)
-		s.HandleBootstrapHereApiMachinesMachineIdBootstrapHerePost(rec, req, "m-box")
+		req := httptest.NewRequest("POST", "/api/machines/"+ServerSelfHost+"/bootstrap-here", nil)
+		s.HandleBootstrapHereApiMachinesMachineIdBootstrapHerePost(rec, req, ServerSelfHost)
 		// The empty test root carries no bin/ocwarden → 503; the intent zeroing
 		// precedes the binary (先歸零再裝), so the residue is spent regardless.
 		if rec.Code != http.StatusServiceUnavailable {
 			t.Fatalf("expected 503 (no ocwarden binary in the test root): %d %s",
 				rec.Code, rec.Body.String())
 		}
-		if got := desiredStateOf(t, s, "m-box"); got != DesiredStateOffline {
+		if got := desiredStateOf(t, s, ServerSelfHost); got != DesiredStateOffline {
 			t.Fatalf("install path must zero the residual uninstall intent, got %q", got)
 		}
 	})
@@ -522,9 +525,16 @@ func TestWardenCredentialsNeverExpireAcrossAllMachineMintPaths(t *testing.T) {
 		"ocwarden":  {Data: []byte("test warden")},
 		"officraft": {Data: []byte("test anchor")},
 	}
+	// bootstrap-here can only ever act for the server-local machine (T-ce3d),
+	// so its credential is minted for ServerSelfHost, not for the box just
+	// onboarded above.
+	putTestMember(t, s, Member{
+		ID: ServerSelfHost, Name: "this server", Kind: KindWarden, Effort: "medium",
+		DesiredState: DesiredStateOffline, RosterStatus: RosterStatusActive,
+	})
 	bootstrapRec := httptest.NewRecorder()
-	bootstrapReq := httptest.NewRequest("POST", "/api/machines/"+onboard.MachineID+"/bootstrap-here", nil)
-	s.HandleBootstrapHereApiMachinesMachineIdBootstrapHerePost(bootstrapRec, bootstrapReq, onboard.MachineID)
+	bootstrapReq := httptest.NewRequest("POST", "/api/machines/"+ServerSelfHost+"/bootstrap-here", nil)
+	s.HandleBootstrapHereApiMachinesMachineIdBootstrapHerePost(bootstrapRec, bootstrapReq, ServerSelfHost)
 	if bootstrapRec.Code != http.StatusOK {
 		t.Fatalf("bootstrap-here: %d %s", bootstrapRec.Code, bootstrapRec.Body.String())
 	}
@@ -535,7 +545,7 @@ func TestWardenCredentialsNeverExpireAcrossAllMachineMintPaths(t *testing.T) {
 	if !ok {
 		t.Fatal("bootstrap-here must pass its warden token to ocwarden")
 	}
-	assertPermanentWardenToken(t, s, token, onboard.MachineID)
+	assertPermanentWardenToken(t, s, token, ServerSelfHost)
 }
 
 func TestNonWardenTokensStillExpireAndKeepThe400DayClamp(t *testing.T) {

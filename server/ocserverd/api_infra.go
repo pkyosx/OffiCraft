@@ -35,6 +35,19 @@ import (
 const (
 	sseHeartbeat = 15 * time.Second
 	ssePoll      = 250 * time.Millisecond
+
+	// sseStationSHAHeader carries this station's build sha to the client when
+	// the stream opens (T-5b83), so ocagent's connection line can name the
+	// build it just attached to.
+	//
+	// 🔴 THIS STRING IS HALF OF A CROSS-MODULE CONTRACT and the modules cannot
+	// import each other. The other half is stationSHAHeader in
+	// cli/ocagent/listen.go. A typo does NOT fail loudly — the client's
+	// Header.Get returns "" and its connection line silently omits the sha,
+	// which is byte-identical to the honest "this station sent none". If the
+	// two halves drift apart, nothing turns red on its own — see the task note
+	// for the guard this still owes.
+	sseStationSHAHeader = "X-Officraft-Station-Sha"
 )
 
 // sseWriteTimeout bounds a single SSE write to the client socket (T-7e07,
@@ -165,6 +178,15 @@ func (s *apiServer) HandleEventsApiEventsGet(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no")
+	// T-5b83: hand the client the build it is attaching to, so ocagent's
+	// connection line can name it. A version change restarts the station and
+	// therefore drops every stream — the connection line already marks every
+	// changeover, it just never said which commit. Stamping it here rather
+	// than answering a separate probe is deliberate: a changeover reconnects
+	// the whole fleet within seconds, and that is the worst possible moment to
+	// take N extra requests. This is the same value /api/version reports as
+	// git_sha (both read s.processSHA), so the two can be reconciled.
+	w.Header().Set(sseStationSHAHeader, s.processSHA)
 	w.WriteHeader(http.StatusOK)
 	armWriteDeadline()
 	_, _ = w.Write([]byte(": connected\n\n"))
@@ -605,17 +627,31 @@ func (s *apiServer) clearSessionBootTS(id string) {
 	// here, so it is session-scoped state too — drop it on the same boundary
 	// rather than leaving one record per agent id alive for the process's
 	// lifetime.
-	s.settingsMu.Lock()
+	s.handoverNoticedMu.Lock()
 	delete(s.handoverNoticed, id)
-	s.settingsMu.Unlock()
+	s.handoverNoticedMu.Unlock()
 	// Write-on-change: the clear runs on every session boundary, and an
 	// unconditional UPDATE would cost a row write per boundary for nothing.
 	m, err := s.dal.GetMember(id)
-	if err != nil || m == nil || m.SessionBootTS == 0 {
-		return // no durable anchor to drop — a clean no-op, and zero row writes
+	if err != nil || m == nil {
+		return
 	}
-	if err := s.dal.SetMemberSessionBootTS(id, 0); err != nil {
-		fmt.Fprintf(os.Stderr, "[sse] session-boot anchor clear failed for %q: %v\n", id, err)
+	if m.SessionBootTS != 0 {
+		if err := s.dal.SetMemberSessionBootTS(id, 0); err != nil {
+			fmt.Fprintf(os.Stderr, "[sse] session-boot anchor clear failed for %q: %v\n", id, err)
+		}
+	}
+	// 🔴 The durable half of the notice claim (T-6ebc) is tested SEPARATELY, not
+	// under the anchor's condition. The two columns describe the same session but
+	// they are not written in one transaction, so a boundary that finds the
+	// anchor already at 0 can still find a claim standing — and returning early
+	// on the anchor alone would leave it there for the NEXT session to inherit,
+	// which silences the one notice that session is entitled to. Silence is the
+	// failure mode no one reports.
+	if m.HandoverNoticedTS != 0 {
+		if err := s.dal.SetMemberHandoverNoticedTS(id, 0); err != nil {
+			fmt.Fprintf(os.Stderr, "[sse] handover-notice claim clear failed for %q: %v\n", id, err)
+		}
 	}
 }
 

@@ -139,8 +139,10 @@ OC_ROUND=(
   lint-go-vet
   build-go
   test-go
+  test-system-interaction-examples
   lint-uplink-contract
   lint-effort-vocab
+  lint-shadow-claim
   drift-ocapi
   drift-mcp-catalog
   lint-conformance-blackbox

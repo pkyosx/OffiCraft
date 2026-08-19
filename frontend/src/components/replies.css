@@ -494,11 +494,10 @@
 }
 
 /* ── B3: the card AS a chat bubble (聊天請示卡) ──
- * Same card language, sized for the thread: it replaces the message bubble
- * inside .chat__msg-content, so it needs its own width (a bubble hugs its
- * text; a card with chips must not collapse). */
+ * It replaces the message bubble inside .chat__msg-content, so it fills that
+ * message column and leaves only the timestamp column beside it. */
 .reply-card--chat {
-  width: min(480px, 100%);
+  width: 100%;
   padding: 13px 15px;
   border-color: color-mix(in srgb, var(--color-accent) 30%, transparent);
 }
@@ -516,11 +515,6 @@
    * Basing it on content width lets flex-wrap above kick in for real. */
   .reply-card__who {
     flex: 1 1 auto;
-  }
-  /* On a phone the chat card takes the whole message column (the 480px cap is
-   * a desktop concern; squeezed chips wrap one character per line). */
-  .reply-card--chat {
-    width: 100%;
   }
 }
 

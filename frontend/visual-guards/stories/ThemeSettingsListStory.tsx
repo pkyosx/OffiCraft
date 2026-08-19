@@ -9,13 +9,18 @@
 //     its edit/delete icons are inert placeholders) — a layout fact jsdom's
 //     zero-geometry engine cannot assert.
 //
-// The custom theme is seeded the SAME way production does it: patch the mock
-// server's settings, then mint a token so I18nProvider's reconcile adopts the
-// bundle (no test-only backdoor). The bundle carries a `wording` overlay ON
-// PURPOSE — the wording MECHANISM stays, but the row must render no badge of
-// any kind. `displayTheme` stays "office" so the
-// ACTIVE theme is the built-in and every --color-* token resolves to its office
-// default — the contrast we ship by default.
+// The custom theme is seeded the SAME way production does it (T-83ef): write
+// the theme through its own resource (PUT /api/themes/{id}), leave
+// display_theme naming the built-in, then mint a token so I18nProvider's
+// reconcile lists the themes and the 自訂 group appears (no test-only
+// backdoor). The bundle carries a `wording` overlay ON PURPOSE — the wording
+// MECHANISM stays, but the row must render no badge of any kind.
+//
+// ⚠️ What the LIST renders is one line per theme — id and name — and that is
+// all this guard needs; the colours below never reach the screen here (the row
+// would have to be exported or edited to fetch them). `displayTheme` stays
+// "office" so the ACTIVE theme is the built-in and every --color-* token
+// resolves to its office default — the contrast we ship by default.
 //
 // Wrapped in `.app__main` to reproduce the real ancestor chain (the 22px
 // gutters that a bare mount would omit — see frontend/CLAUDE.md).
@@ -34,10 +39,8 @@ const AURORA: ThemeBundle = {
 
 export function ThemeSettingsListStory() {
   const seed = async () => {
-    await mockApi.patchServerSettings({
-      customThemes: [AURORA],
-      displayTheme: "office",
-    });
+    await mockApi.putTheme(AURORA);
+    await mockApi.patchServerSettings({ displayTheme: "office" });
     setToken("ct-owner-token");
   };
   return (

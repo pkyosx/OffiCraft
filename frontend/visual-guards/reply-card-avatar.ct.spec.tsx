@@ -89,14 +89,43 @@ test("the avatar carries aria-label (Avatar's inner glyphs are aria-hidden, so t
   ).toBeVisible();
 });
 
+// T-6c26: this one used to open with `page.keyboard.press("Tab")` and then read
+// the computed style ONCE, and it flaked on CI. The obvious hardening — assert
+// toBeFocused() first — is the exact line that killed the two skipped tests
+// above, so it is not that.
+//
+// MEASURED before rewriting (Chromium, this CT runner), because the alternative
+// hinges on a browser heuristic no document settles:
+//   - btn.focus() DOES apply :focus-visible here (matches(":focus-visible") ===
+//     true, boxShadow = "rgba(111, 214, 176, 0.12) 0px 0px 0px 2px"), so
+//     programmatic focus does not weaken what is being asserted.
+//   - the story has exactly ONE tabbable node, so "the first Tab lands here" was
+//     never the fragile part — what raced was whether the Tab reached the page.
+//
+// So the property is unchanged (a keyboard-focused avatar paints a ring, and it
+// is :focus-visible that paints it — both are asserted). What changed is that
+// focus is taken directly instead of bet on, and the read polls instead of
+// sampling once. This test no longer covers "the button is reachable by Tab" —
+// that was already stopped by the owner on 2026-08-06 (see the skip above), not
+// given up here.
+// INVARIANT THIS GUARDS: a keyboard-focused avatar button paints a VISIBLE
+// focus ring. Without it a keyboard user cannot see where they are in the card
+// header — and the ring is the only affordance that says so.
 test("focus-visible paints a non-transparent ring on the avatar button", async ({
   mount,
-  page,
 }) => {
   const cmp = await mount(<ReplyCardAvatarStory />);
-  await page.keyboard.press("Tab");
-  const shadow = await cmp
-    .locator(".reply-card__avatar")
-    .evaluate((el) => getComputedStyle(el).boxShadow);
-  expect(shadow, "focused avatar paints a box-shadow ring").not.toBe("none");
+  const btn = cmp.locator(".reply-card__avatar");
+  await btn.focus();
+  // Asserted separately so a future Chromium that stops applying
+  // :focus-visible to programmatic focus fails HERE, naming itself, instead of
+  // looking like the ring CSS was deleted.
+  await expect
+    .poll(() => btn.evaluate((el) => el.matches(":focus-visible")))
+    .toBe(true);
+  await expect
+    .poll(() => btn.evaluate((el) => getComputedStyle(el).boxShadow), {
+      message: "focused avatar paints a box-shadow ring",
+    })
+    .not.toBe("none");
 });

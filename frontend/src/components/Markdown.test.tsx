@@ -77,6 +77,79 @@ describe("Markdown", () => {
     expect(c.querySelector("code")?.textContent).toBe("code");
   });
 
+  // T-2bb4 — owner wrote a `####` and got four literal hash marks on screen.
+  // The renderer only ever knew #{1,3}, and "syntax I do not understand falls
+  // through as plain text" is its safety rule, so the failure was SILENT: no
+  // warning, no console line, nothing anywhere saying the fourth level does not
+  // exist — and no page of the manual said so either.
+  //
+  // The boundary case is the one with teeth. `#######` (seven) must STILL fall
+  // through as text: it is what proves the fix widened the ladder rather than
+  // making "any run of hashes" a heading.
+  it("renders all six heading levels, and a seventh hash is not a heading", () => {
+    const c = renderMd(
+      "# one\n## two\n### three\n#### four\n##### five\n###### six",
+    );
+    expect(c.querySelector("h1")?.textContent).toBe("one");
+    expect(c.querySelector("h2")?.textContent).toBe("two");
+    expect(c.querySelector("h3")?.textContent).toBe("three");
+    expect(c.querySelector("h4")?.textContent).toBe("four");
+    expect(c.querySelector("h5")?.textContent).toBe("five");
+    expect(c.querySelector("h6")?.textContent).toBe("six");
+    const seven = renderMd("####### seven");
+    expect(seven.querySelector("h6")).toBeNull();
+    expect(seven.textContent).toContain("####### seven");
+  });
+
+  // A #### that renders as an <h3> would look like a working heading while
+  // quietly collapsing two levels into one — the option this ticket rejected.
+  // Asserting the TAG (not just "some heading appeared") is what catches it.
+  it("does not collapse #### onto ###", () => {
+    const c = renderMd("### three\n\n#### four");
+    expect(c.querySelectorAll("h3").length).toBe(1);
+    expect(c.querySelectorAll("h4").length).toBe(1);
+    expect(c.querySelector("h4")?.textContent).toBe("four");
+  });
+
+  // These three are what the change actually ALTERED, and the first draft of
+  // this file tested only the places that stayed the same — the control group
+  // was pinned to the untouched side. `###` already behaved this way in all
+  // three positions (a list item's indented continuation is re-rendered, a
+  // blockquote is re-rendered after its "> " is stripped, and a block opener
+  // ends the paragraph above it), so widening the ladder extends that same
+  // existing rule to levels 4-6. It is still an output change, and the manual's
+  // own prose uses "> 🔴 …" quote blocks heavily, so somebody WILL write a
+  // #### inside one.
+  it("treats #### as a heading in the same places ### already was", () => {
+    const quoted = renderMd("> #### in a quote");
+    expect(quoted.querySelector("blockquote h4")?.textContent).toBe("in a quote");
+
+    const nested = renderMd("- item\n    #### in a list item");
+    expect(nested.querySelector("li h4")?.textContent).toBe("in a list item");
+
+    const afterProse = renderMd("hello\n#### right after prose");
+    expect(afterProse.querySelector("p")?.textContent).toBe("hello");
+    expect(afterProse.querySelector("h4")?.textContent).toBe("right after prose");
+  });
+
+  // The regex reads the RAW line, so an indented "####" is not a heading. That
+  // was true before this ticket and is unchanged by it — but nothing asserted
+  // it, and a mutation that trimmed the line first left the whole file green.
+  it("does not treat an indented #### as a heading", () => {
+    const c = renderMd("  #### indented");
+    expect(c.querySelector("h4")).toBeNull();
+    expect(c.textContent).toContain("#### indented");
+  });
+
+  // The hashes must still be inert wherever they are not a block opener.
+  it("leaves #### alone inside a code fence and mid-paragraph", () => {
+    const fenced = renderMd("```\n#### not a heading\n```");
+    expect(fenced.querySelector("h4")).toBeNull();
+    expect(fenced.querySelector("code")?.textContent).toContain("#### not a heading");
+    const inline = renderMd("see #### in this sentence");
+    expect(inline.querySelector("h4")).toBeNull();
+  });
+
   // Both found by the first real-page render of the embedded docs.
   //
   // `---` printed as three literal dashes: install.md alone has 5 of them and

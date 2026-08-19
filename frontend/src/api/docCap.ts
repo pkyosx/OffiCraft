@@ -58,9 +58,9 @@ export interface DocCaps {
 /**
  * The SHIPPED DEFAULT cap of each boot-context block, in the same rune unit
  * (T-791e). Sized off the seeds actually in the tree, measured rather than
- * guessed: `seeds/system_interaction.md` is 45,045 chars, and the two boot
- * sequences 1,198 / 1,632 — so 60000 leaves the system block real room to grow
- * while 15000 is roughly ten times what a boot SOP has ever needed.
+ * guessed: the system-interaction seed is the largest block, while the two
+ * boot sequences are much smaller — so 60000 leaves the system block real room
+ * to grow while 15000 is roughly ten times what a boot SOP has ever needed.
  *
  * 🔴 A DEFAULT, not the cap: the number in force arrives on the document's own
  * read (`BootDocView.capChars`), and every enforcement point reads THAT. This
@@ -75,8 +75,9 @@ export const BOOT_DOC_CAP_CHARS_DEFAULTS: Record<BootDocKind, number> = {
   system_interaction: 60000,
   boot_sequence: 15000,
   // T-c9c0. Sized with the boot sequences rather than the handbook: the
-  // 下線程序 seed is a short ordered checklist an agent has to finish inside a
-  // ~120s grace window, not a reference text.
+  // 下線程序 seed is a short ordered checklist an agent works under time
+  // pressure (a recycle gives it a bounded window; an offboard gives it none
+  // but the owner is waiting), not a reference text.
   offboard: 15000,
 };
 

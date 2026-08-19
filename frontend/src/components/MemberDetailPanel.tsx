@@ -871,7 +871,8 @@ export function MemberDetailPanel({
                 : undefined
             }
             // In `stopping`, the Stop button IS force-stop → open the confirm first
-            // (an immediate kill that bypasses the graceful grace).
+            // (an immediate kill; the offboard arm runs no clock, so this is the
+            // only escalation there is — see MemberActionButtons).
             onForceStop={
               onForceStop ? () => setForceStopConfirm(true) : undefined
             }

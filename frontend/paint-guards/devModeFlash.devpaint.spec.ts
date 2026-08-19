@@ -12,19 +12,30 @@
 //      whole point: dev serves index.html through transformIndexHtml and ships
 //      unbundled ES modules, so the first-paint waterfall is a different shape
 //      from dist/.
-//   2. /api/settings is answered by page.route() instead of a second process —
-//      same JSON shape as settingsStub.mjs's settingsDTO() in mode=ok, same
-//      400 ms delay. The delay is NOT padding: the flash this ticket fixes IS
-//      the wait for that response, and a 0 ms answer deletes the window under
-//      test.
+//   2. The reconcile's endpoints are answered by page.route() instead of a
+//      second process — same JSON shapes as settingsStub.mjs in mode=ok, same
+//      400 ms delay on each. The delay is NOT padding: the flash this ticket
+//      fixes IS the wait for those responses, and a 0 ms answer deletes the
+//      window under test.
+//
+// [T-83ef] "the reconcile" is THREE requests now, not one: themes left settings
+// (`custom_themes` is gone from both faces), so the provider does
+// Promise.all([GET /api/settings, GET /api/themes]) and then fetches the ACTIVE
+// bundle from GET /api/themes/{id}. All three are routed here and ALL THREE are
+// delayed — delaying only settings would leave the other legs answering
+// instantly and shrink the very window being measured.
 //
 // THE PRECONDITION IS ASSERTED, NOT ASSUMED — same discipline as the production
 // guard, for the same reason: reconcileFromServer() is gated on hasToken(), so a
 // tokenless session never reconciles and reads BAD_FRAMES=0 on a build whose
 // reconcile handoff is completely untested. Every run here proves in-band that
-// (a) /api/settings really answered 200, (b) its body really carried this theme,
+// (a) the reconcile's requests really answered 200, (b) the server really
+// reported this theme as existing and really handed back its bundle,
 // and (c) the app really adopted the SERVER's copy — the seeded record carries a
 // different `name`, and the record on disk afterwards must carry the server's.
+// (b) is now read off GET /api/themes — the server reported the theme as
+// existing — plus GET /api/themes/{id}, which is the only place the picture can
+// come from; that is the same claim `custom_themes` used to carry.
 //
 // THE ASSERTION SHAPE IS "no frame is anything but the cached colour", never
 // "no frame is office-coloured". A white/unpainted frame (`NOBODY`,
@@ -71,7 +82,9 @@ const isOffice = (f: FrameSample) => f.bg === OFFICE_BG_RGB;
 
 /** GET /api/settings in mode=ok — the SAME shape settingsStub.mjs sends, built
  * from the SAME fixture object, so the two cannot drift into disagreeing about
- * what the server said. */
+ * what the server said. [T-83ef] `custom_themes` is NOT here: it is not on the
+ * real SettingsDTO any more. `display_theme` stays — settings still owns WHICH
+ * theme is active. */
 function settingsDTO() {
   return {
     owner_token_ttl: 86400,
@@ -93,22 +106,41 @@ function settingsDTO() {
     display_theme: PAINT_THEME_ID,
     display_language: "zh",
     display_wide: false,
-    custom_themes: [VALID_RICH_BUNDLE],
     onboarding: null,
   };
 }
 
-interface Wiring {
-  /** How many times /api/settings was answered 200. */
-  settingsHits: () => number;
+/** GET /api/themes in mode=ok — ThemeListItemDTO rows: id + name ONLY, never the
+ * bundle. Handing back whole bundles here would let a regression that reads
+ * `colors` off a list row stay green in this guard and paint nothing in
+ * production. */
+function themeListDTO() {
+  return [{ id: VALID_RICH_BUNDLE.id, name: VALID_RICH_BUNDLE.name }];
 }
 
-/** Stand in for settingsStub.mjs with page.route(): a delayed 200 on
- * /api/settings, and the stub's 404 error envelope on every other /api/ path.
+interface Wiring {
+  /** How many times GET /api/settings was answered 200. */
+  settingsHits: () => number;
+  /** How many times GET /api/themes was answered 200. */
+  themeListHits: () => number;
+  /** How many times GET /api/themes/{id} was answered 200 — i.e. how many times
+   * the reconcile got as far as fetching the ACTIVE theme's picture. */
+  themeBundleHits: () => number;
+}
+
+/** Stand in for settingsStub.mjs with page.route(): a delayed 200 on each of the
+ * reconcile's three endpoints (/api/settings, /api/themes, /api/themes/{id}),
+ * and the stub's 404 error envelope on every other /api/ path.
  * NEVER 401 — a 401 clears the token and bounces to the login wall, unmounting
  * the very page being sampled. */
 async function wireApi(page: import("@playwright/test").Page): Promise<Wiring> {
-  let hits = 0;
+  let settingsHits = 0;
+  let themeListHits = 0;
+  let themeBundleHits = 0;
+  // The flash under measurement IS the wait for the reconcile, so every leg of it
+  // pays the same 400 ms. NOT padding on any of them.
+  const RECONCILE_DELAY_MS = 400;
+  const delay = () => new Promise((r) => setTimeout(r, RECONCILE_DELAY_MS));
   // MATCH ON THE PATHNAME, NOT ON A GLOB. Measured trap: the glob `**/api/**`
   // ALSO matches the dev server's own module URLs `/src/api/index.ts`,
   // `/src/api/http.ts`, … — in dev those are real HTTP requests, so the catch-all
@@ -119,7 +151,7 @@ async function wireApi(page: import("@playwright/test").Page): Promise<Wiring> {
   // match `/src/api/settings.ts` if such a module were ever added.
   //
   // Playwright matches routes LAST-registered-first, so the catch-all goes on
-  // first and the specific /api/settings handler wins.
+  // first and the specific handlers registered after it win.
   await page.route(
     (url) => url.pathname.startsWith("/api/"),
     async (route) => {
@@ -136,9 +168,8 @@ async function wireApi(page: import("@playwright/test").Page): Promise<Wiring> {
     (url) => url.pathname === "/api/settings",
     async (route) => {
       if (route.request().method() !== "GET") return route.fallback();
-      // NOT padding: the flash this ticket fixes IS the wait for this response.
-      await new Promise((r) => setTimeout(r, 400));
-      hits += 1;
+      await delay();
+      settingsHits += 1;
       await route.fulfill({
         status: 200,
         contentType: "application/json; charset=utf-8",
@@ -147,7 +178,44 @@ async function wireApi(page: import("@playwright/test").Page): Promise<Wiring> {
       });
     }
   );
-  return { settingsHits: () => hits };
+  // Pathname EQUALITY again, for the same measured reason as above: a glob would
+  // also match the dev server's own module URLs, and `/api/themes` must not
+  // swallow `/api/themes/{id}` — they carry different shapes and the guard reads
+  // both.
+  await page.route(
+    (url) => url.pathname === "/api/themes",
+    async (route) => {
+      if (route.request().method() !== "GET") return route.fallback();
+      await delay();
+      themeListHits += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json; charset=utf-8",
+        headers: { "cache-control": "no-store" },
+        body: JSON.stringify(themeListDTO()),
+      });
+    }
+  );
+  await page.route(
+    (url) => url.pathname === `/api/themes/${VALID_RICH_BUNDLE.id}`,
+    async (route) => {
+      if (route.request().method() !== "GET") return route.fallback();
+      await delay();
+      themeBundleHits += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json; charset=utf-8",
+        headers: { "cache-control": "no-store" },
+        // The FULL bundle — the only place the server's picture can come from.
+        body: JSON.stringify(VALID_RICH_BUNDLE),
+      });
+    }
+  );
+  return {
+    settingsHits: () => settingsHits,
+    themeListHits: () => themeListHits,
+    themeBundleHits: () => themeBundleHits,
+  };
 }
 
 interface Numbers {
@@ -170,6 +238,8 @@ interface Numbers {
   /** How long the poll waited for mount + reconcile, ms. */
   settleMs: number;
   settingsHits: number;
+  themeListHits: number;
+  themeBundleHits: number;
   mounted: boolean;
   /** The `name` on the paint record AFTER the load: the seeded STALE name means
    * reconcile never ran, null means the record was dropped. */
@@ -177,14 +247,25 @@ interface Numbers {
   pageErrors: number;
 }
 
-/** The scenario is fully set up once React has mounted AND /api/settings has
- * answered — i.e. once reconcileFromServer() has had its input. */
+/** The scenario is fully set up once React has mounted AND the whole reconcile
+ * has answered — i.e. once reconcileFromServer() has had ALL of its input.
+ *
+ * [T-83ef] Waiting on /api/settings alone is no longer enough: settings answering
+ * only means the FIRST leg landed, and the paint record is not rewritten until
+ * the ACTIVE bundle arrives from /api/themes/{id}. Polling on the old condition
+ * would let the run reach its assertions while the record still carried the
+ * seeded STALE name, failing as a setup error on a perfectly healthy build. */
 async function isSettled(
   page: import("@playwright/test").Page,
   wiring: Wiring
 ): Promise<boolean> {
   const mounted = await page.evaluate(() => !!document.getElementById("root")?.firstChild);
-  return mounted && wiring.settingsHits() > 0;
+  return (
+    mounted &&
+    wiring.settingsHits() > 0 &&
+    wiring.themeListHits() > 0 &&
+    wiring.themeBundleHits() > 0
+  );
 }
 
 /** Read the record's name without throwing when there is no record. */
@@ -300,6 +381,8 @@ for (const profile of ["fourg", "loopback"] as NetProfile[]) {
       capped: samples.length >= 400,
       settleMs,
       settingsHits: wiring.settingsHits(),
+      themeListHits: wiring.themeListHits(),
+      themeBundleHits: wiring.themeBundleHits(),
       mounted: samples.some((f) => f.mounted),
       storedName: storedNameOf(storedPaint),
       pageErrors: pageErrors.length,
@@ -308,6 +391,16 @@ for (const profile of ["fourg", "loopback"] as NetProfile[]) {
     // ---- preconditions: this really is the authenticated, server-confirmed
     // scenario. A failure here is a SETUP error, not a paint verdict. ----
     expect(wiring.settingsHits(), "GET /api/settings never answered 200").toBeGreaterThan(0);
+    // The server reported the theme as EXISTING — the claim `custom_themes` used
+    // to carry, read off the resource that carries it now…
+    expect(wiring.themeListHits(), "GET /api/themes never answered 200").toBeGreaterThan(0);
+    // …and it really handed back the picture. Without this the run cannot tell a
+    // confirmed reconcile from an app that kept its own cache and never asked.
+    expect(
+      wiring.themeBundleHits(),
+      `GET /api/themes/${VALID_RICH_BUNDLE.id} never answered 200 — the reconcile ` +
+        "never fetched the active bundle, so no server copy was ever adopted"
+    ).toBeGreaterThan(0);
     expect(storedPaint, "the paint record was removed — reconcile did not confirm it").not.toBeNull();
     const stored = JSON.parse(storedPaint as string) as { bundle: { name: string } };
     expect(

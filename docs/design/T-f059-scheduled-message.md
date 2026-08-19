@@ -425,20 +425,29 @@ tick 就送」。倒推法看得到那個舊槽 ⇒ 升級後第一個 tick 會�
 
 ## 對外介面
 
-四條 REST，全部 `MCPExclude`（**不新增 MCP 工具**）：
+四條 REST，**每一條都有對應的 MCP 工具**（T-63bf）：
 
-| Method | Path | 說明 |
-|---|---|---|
-| GET | `/api/members/{member_id}/scheduled-messages` | 列出這位成員的排程 |
-| POST | `/api/members/{member_id}/scheduled-messages` | 新增一條 |
-| PATCH | `/api/members/{member_id}/scheduled-messages/{schedule_id}` | 修改（含啟用／停用） |
-| DELETE | `/api/members/{member_id}/scheduled-messages/{schedule_id}` | 永久移除 |
+| Method | Path | MCP 工具 | 說明 |
+|---|---|---|---|
+| GET | `/api/members/{member_id}/scheduled-messages` | `list_scheduled_messages` | 列出這位成員的排程 |
+| POST | `/api/members/{member_id}/scheduled-messages` | `create_scheduled_message` | 新增一條 |
+| PATCH | `/api/members/{member_id}/scheduled-messages/{schedule_id}` | `update_scheduled_message` | 修改（含啟用／停用） |
+| DELETE | `/api/members/{member_id}/scheduled-messages/{schedule_id}` | `delete_scheduled_message` | 永久移除 |
 
 `Auth: gated`、`Requires: admin_agent` —— 與隔壁 webhook CRUD 同級，
 也就是 owner 與 admin 助理設得動。
 
-**為什麼不上 MCP 工具面**：既有先例就是這樣——webhook 的四個 CRUD 全是 `MCPExclude`，
-只有除錯用的 `list_webhook_requests` 上了工具面。**設定類 CRUD 走座艙，不走工具目錄。**
+**為什麼後來上了 MCP 工具面（T-63bf，owner 2026-08-19）**：本票初版四條全是 `MCPExclude`，
+理由逐字是「設定類 CRUD 走座艙，不走工具目錄」，照抄 webhook 的先例
+（webhook 四條 CRUD 全 `MCPExclude`，只有除錯用的 `list_webhook_requests` 上了工具面）。
+那條先例**沒有轉移過來**：webhook endpoint 是給*外面*的東西講話用的門，
+而定期訊息存在的目的**就是叫醒一個 AI 成員**——把設定它的唯一入口放在 AI 碰不到的面上，
+是一個設計上的死結：一個專門用來叫醒 agent 的鬧鐘，只有人類按得到。
+owner 的裁定逐字：「助理應該能夠代替我設定這些東西 在我的授權下進行」。
+
+🔴 **開的是入口，不是閘門。** 四條的 `Requires` 一格都沒動，仍是 `admin_agent`；
+一般正職 agent 呼叫這四條（REST 或 MCP loopback）照樣 403，那是正確答案、不是缺口。
+兩半都由 `server/ocserverd/routes_t63bf_scheduled_message_mcp_test.go` 釘住。
 （webhook CRUD 升到 `admin_agent` 的理由是它的 DTO 帶明文 token；
 定期訊息的 DTO **不帶任何祕密**，門檻同級是為了與鄰居一致，不是因為有祕密。）
 

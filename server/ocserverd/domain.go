@@ -109,21 +109,17 @@ const WakingTTLSecs = 90.0
 // this long to wind down before a stuck collect is force-killed.
 const StoppingTimeoutSecs = 120.0
 
-// SoftOffboardGraceSecs: how long a soft offboard runs before anything else
-// happens. The soft notice says "work the sequence, then call restart_self
-// yourself" and carries no countdown, so there must not be one running behind
-// it.
+// SoftOffboardGraceSecs: how long a close-out is treated as still in flight.
+// The soft notice says "work the sequence, then call restart_self yourself" and
+// carries no countdown, and since 2026-08-19 NEITHER soft arm has one running
+// behind it: 下線 (rc-27d1710174dd 「不要兜底：只有你按強制下線才收它」) and
+// 重新聚焦 (rc-c540367065ad 「連時鐘一起拿掉」) are both collected by the agent's
+// own stopped report or by the owner pressing force-stop, and by nothing else.
 //
-// What happens AFTER the window differs by path, and the difference is the
-// owner's ruling, not an oversight:
-//
-//   - 重新聚焦 escalates: the final call goes out and StoppingTimeoutSecs
-//     starts, because that handover has to complete for his change to land.
-//   - 下線 never escalates. He chose to be the only escalation there
-//     (rc-27d1710174dd 「不要兜底：只有你按強制下線才收它」), so the window is
-//     only the period during which a close-out is treated as in-flight — see
-//     clearStaleStoppingOnOnline, which is what keeps the force-stop button
-//     on screen for him to press.
+// 🔴 So this is NOT a deadline any more, and nothing may re-read it as one.
+// What still uses it is clearStaleStoppingOnOnline — the window during which a
+// stopping member keeps its stopping state, which is what keeps the force-stop
+// button on screen for the owner to press. Escalation is his, not a timer's.
 //
 // Setting it to 0 restores the pre-T-a9d6 timed wind-down wholesale.
 const SoftOffboardGraceSecs = 600.0
@@ -1052,7 +1048,8 @@ const dutyCapCharsDefault = 1000
 //
 // The 下線程序 cap (T-c9c0) is sized with the boot sequences rather than the
 // handbook, and for the same reason: it is a short ordered checklist an agent
-// has to be able to finish inside a ~120s grace window, not a reference text.
+// has to work under time pressure (a recycle bounds it; an offboard does not,
+// but the owner is waiting), not a reference text.
 const (
 	systemInteractionCapCharsDefault = 60000
 	bootSequenceCapCharsDefault      = 15000
@@ -1213,9 +1210,15 @@ func ValidTaskLock(l string) bool {
 // step lands done the task derives to done, closed_ts stamps, and submit_plan
 // is a permanent 409 — there is no "after" in which to arrange a handover.
 //
-//   - HandoffReturnToCreator — hand it back: the server mints a DURABLE
-//     follow-up task on the creator (an open task row on their list, not an
-//     SSE line that washes away) carrying a dep on this one;
+//   - HandoffReturnToCreator — hand it back: the declaration is RECORDED on the
+//     task and nothing else happens. It has been narrowed twice, both by the
+//     owner on 2026-08-17 (T-f265): it used to MINT a task on the creator —
+//     withdrawn because that task's own first line told an ordinary member to
+//     terminate it, and terminate_task is admin-only — and the durable chat
+//     notice that replaced it was withdrawn too (card rc-e04adbc42574, option
+//     ①), on the ruling that once work is handed over it belongs to whoever
+//     holds it and the system should not report back. So this value now differs
+//     from HandoffNone only in what it SAYS about where the ball went;
 //   - HandoffFollowUp        — a successor task already exists; the server
 //     attaches this task to it as a dep, so half B (closeTask →
 //     releaseDependentsOnClose) wakes/schedules it the moment we close;

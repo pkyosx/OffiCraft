@@ -150,7 +150,10 @@ func TestStampWriter_KeepsTheOcagentPrefixIntactForOcwarden(t *testing.T) {
 	w.Write([]byte("[ocagent] listen: connected — streaming http://x/api/events\n")) //nolint:errcheck
 
 	line := strings.TrimRight(raw.String(), "\n")
-	// The two literals cli/ocwarden/codex_session.go matches on.
+	// The two literals cli/ocwarden/codex_session.go matches on, and what each
+	// one costs if the prefix moves: the short one (:695) keeps this line out
+	// of the model transcript, the long one (:687) fires the single post-boot
+	// wake. The long prefix implies the short one, so both are asserted here.
 	if !strings.HasPrefix(strings.TrimSpace(line), "[ocagent] listen:") {
 		t.Fatalf("ocwarden's transport-diagnostic prefix no longer matches: %q", line)
 	}

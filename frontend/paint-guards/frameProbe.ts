@@ -143,17 +143,44 @@ export function collectPageErrors(page: Page): string[] {
   return errs;
 }
 
-/** Capture the GET /api/settings response so the guard can PROVE the reconcile
- * round trip happened and what the server actually said — rather than assuming
- * the scenario it meant to set up. */
-export function captureSettingsResponses(page: Page): Promise<unknown>[] {
+/** Capture the 200 bodies of every response whose PATHNAME matches, so a guard
+ * can PROVE what the server actually said rather than assuming the scenario it
+ * meant to set up.
+ *
+ * Matched on the pathname, never on a substring of the URL: `/api/themes` must
+ * not also collect `/assets/api-themes-abc123.js`, and the single-bundle read
+ * must not collect the list. */
+function captureJSONResponses(
+  page: Page,
+  matches: (pathname: string) => boolean
+): Promise<unknown>[] {
   const bodies: Promise<unknown>[] = [];
   page.on("response", (res: Response) => {
-    if (new URL(res.url()).pathname === "/api/settings" && res.status() === 200) {
+    if (matches(new URL(res.url()).pathname) && res.status() === 200) {
       bodies.push(res.json().catch(() => null));
     }
   });
   return bodies;
+}
+
+/** GET /api/settings — still the face that says WHICH theme is active
+ * (`display_theme`). It no longer carries the themes themselves. */
+export function captureSettingsResponses(page: Page): Promise<unknown>[] {
+  return captureJSONResponses(page, (p) => p === "/api/settings");
+}
+
+/** GET /api/themes — the face that says WHICH THEMES EXIST (id + name rows).
+ * [T-83ef] This is where `custom_themes` went; a guard proving "the server knows
+ * this theme" has to read it here now. */
+export function captureThemeListResponses(page: Page): Promise<unknown>[] {
+  return captureJSONResponses(page, (p) => p === "/api/themes");
+}
+
+/** GET /api/themes/{id} — the face that carries the actual PICTURE (the full
+ * bundle). Only the ACTIVE theme is ever fetched, and only when the list says it
+ * exists, so a hit here is proof the reconcile got as far as adopting a bundle. */
+export function captureThemeBundleResponses(page: Page): Promise<unknown>[] {
+  return captureJSONResponses(page, (p) => p.startsWith("/api/themes/"));
 }
 
 /** The frames whose background is not the expected cached colour. "NOBODY" and

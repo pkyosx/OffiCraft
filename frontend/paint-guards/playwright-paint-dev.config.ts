@@ -9,9 +9,12 @@
 // runner can silently sweep in the other's tests.
 //
 // VITE_USE_MOCK=false is not optional: the shipped default mock adapter answers
-// getServerSettings() from memory in ~0 ms with custom_themes: [], which both
-// removes the network wait under measurement AND makes reconcile delete the
-// cached record. Same flag bin/build ships with.
+// the whole reconcile from memory in ~0 ms — getServerSettings() AND listThemes(),
+// whose set does not contain the guard's theme — which both removes the network
+// wait under measurement AND makes reconcile drop the cached record. Same flag
+// bin/build ships with. (The theme endpoints the spec routes with page.route()
+// only exist on the real adapter; under the mock nothing goes over the wire at
+// all, so there is nothing for the route handlers to delay.)
 import { defineConfig, devices } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 

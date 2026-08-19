@@ -2,15 +2,22 @@
 //
 // WHY THIS EXISTS instead of `vite preview`:
 //
-// The flash this ticket fixes is the gap between first paint and the moment
-// /api/settings answers. Reproducing it needs a server that (a) actually knows
+// The flash this ticket fixes is the gap between first paint and the moment the
+// login reconcile answers. Reproducing it needs a server that (a) actually knows
 // the owner's custom theme so the reconcile CONFIRMS the cached picture instead
 // of deleting it, and (b) answers over the network so CDP throttling delays it.
 //
+// [T-83ef] "the reconcile" is no longer ONE request. Themes left settings: the
+// provider now does Promise.all([GET /api/settings, GET /api/themes]) and then
+// fetches the ACTIVE theme's bundle from GET /api/themes/{id}. `custom_themes`
+// does not exist on either face of /api/settings any more. So this stub serves
+// the theme resource as well, and the two modes below are expressed in terms of
+// it.
+//
 // `vite preview` + the default build gives neither: the shipped-by-default mock
-// adapter answers getServerSettings() from memory in ~0 ms with
-// custom_themes: [], so reconcile finds the cached theme unknown and calls
-// writePaint(active, []) — which REMOVES the record. Measured on the real build:
+// adapter answers the reconcile from memory in ~0 ms and its theme set does not
+// contain the guard's theme, so reconcile finds the cached theme unknown and
+// calls writePaint(null) — which REMOVES the record. Measured on the real build:
 // with no auth token the frame probe reads BAD_FRAMES=0 (reconcile never runs,
 // because it is gated on hasToken()); add a token and the SAME build reads
 // BAD_FRAMES=231/233/249. A guard that green/reds on whether a token happens to
@@ -23,11 +30,20 @@
 // Usage:
 //   node settingsStub.mjs --port 4318 --dist dist --mode ok [--delay 400]
 //
-// Modes:
-//   ok            — the server KNOWS the theme (the happy path this ticket is about)
-//   unknown-theme — the server's custom_themes is empty and display_theme is "":
-//                   the cached picture is legitimately stale and MUST be dropped.
+// Modes (the semantics are UNCHANGED; only the wire that carries them moved):
+//   ok            — the server KNOWS the theme (the happy path this ticket is
+//                   about): GET /api/themes LISTS it, GET /api/themes/{id}
+//                   returns the full bundle, and settings' display_theme points
+//                   at it.
+//   unknown-theme — the server knows NO themes: GET /api/themes is `[]`,
+//                   display_theme is "", and GET /api/themes/{id} is a 404. The
+//                   cached picture is legitimately stale and MUST be dropped.
 //                   Not a failure mode — documented behaviour, asserted separately.
+//
+// --delay applies to EVERY endpoint the reconcile touches (settings, the theme
+// list AND the single-bundle read), not just settings. Delaying only settings
+// would leave the other legs of the same reconcile answering instantly, and the
+// guard would measure a flash window shorter than the real one.
 
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
@@ -54,12 +70,21 @@ const SERVER_THEME = JSON.parse(
   readFileSync(resolve(HERE, "..", "src/lib/paintFixtures.theme.json"), "utf8")
 );
 
+/** Whether this server KNOWS the owner's theme. The ONE switch both faces read,
+ * so `/api/themes` and `display_theme` can never disagree about which mode this
+ * process is in. */
+const KNOWS_THEME = MODE !== "unknown-theme";
+
 /** GET /api/settings → SettingsDTO. Only the fields the cockpit reads are set to
  * anything interesting; the rest are the shipped defaults so no other panel
  * renders an error state that could add a page error the guard would blame on
- * the paint path. */
+ * the paint path.
+ *
+ * [T-83ef] `custom_themes` is NOT here, because it is not on the real SettingsDTO
+ * any more — themes are their own resource. `display_theme` stays: settings still
+ * owns WHICH theme is active. */
 function settingsDTO() {
-  const known = MODE !== "unknown-theme";
+  const known = KNOWS_THEME;
   return {
     owner_token_ttl: 86400,
     agent_token_ttl: 604800,
@@ -80,7 +105,6 @@ function settingsDTO() {
     display_theme: known ? SERVER_THEME.id : "",
     display_language: "zh",
     display_wide: false,
-    custom_themes: known ? [SERVER_THEME] : [],
     // The real settingsDTO carries no `omitempty`, so this key is ALWAYS on the
     // wire — null once onboarding has finished, which is every installation the
     // owner reloads. Absent and null map to the same `null` in the FE mapper, so
@@ -89,6 +113,22 @@ function settingsDTO() {
     // every time this guard goes red.
     onboarding: null,
   };
+}
+
+/** GET /api/themes → ThemeListItemDTO[] — id + name ONLY, never the bundle.
+ * A stub that returned whole bundles here would let a regression that reads
+ * `colors` off a list row keep the guard green while production paints nothing.
+ *
+ * This is where the two modes now live: `ok` lists the theme, `unknown-theme`
+ * lists nothing (which is what makes the cached picture legitimately stale). */
+function themeListDTO() {
+  return KNOWS_THEME ? [{ id: SERVER_THEME.id, name: SERVER_THEME.name }] : [];
+}
+
+/** The unified 404 envelope. NEVER 401 — a 401 clears the token and bounces the
+ * app to the login wall, which would unmount the very page the guard samples. */
+function notFound(res, message) {
+  sendJSON(res, 404, { error: { code: "not_found", message } });
 }
 
 const MIME = {
@@ -132,10 +172,70 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   const path = url.pathname;
 
+  // ── the reconcile's three legs. EVERY one of them sleeps for --delay ────────
+  // The provider fires GET /api/settings and GET /api/themes together and then
+  // GET /api/themes/{active}. The flash under measurement is the whole of that
+  // wait, so a leg that answers instantly shortens the window the guard can see.
+
   if (path === "/api/settings" && req.method === "GET") {
     if (DELAY > 0) await sleep(DELAY);
     sendJSON(res, 200, settingsDTO());
     return;
+  }
+
+  if (path === "/api/themes" && req.method === "GET") {
+    if (DELAY > 0) await sleep(DELAY);
+    sendJSON(res, 200, themeListDTO());
+    return;
+  }
+
+  // /api/themes/{theme_id} — the single-bundle read, plus the write face so the
+  // cockpit's own editor calls do not land on the catch-all 404 and surface as a
+  // page error the guard would blame on the paint path.
+  const themeId = path.startsWith("/api/themes/")
+    ? decodeURIComponent(path.slice("/api/themes/".length))
+    : null;
+  if (themeId !== null && !themeId.includes("/")) {
+    const isKnown = KNOWS_THEME && themeId === SERVER_THEME.id;
+    if (DELAY > 0) await sleep(DELAY);
+    if (req.method === "GET") {
+      if (!isKnown) {
+        notFound(res, `paint-guard stub: theme ${themeId} not found`);
+        return;
+      }
+      // The FULL bundle — colours, fonts, canvas image and canvas mode. This is
+      // the ONLY place the guard can get the server's copy of the picture now,
+      // and it is the same JSON the jsdom suite deep-compares against
+      // paintFixtures.VALID_RICH_BUNDLE, so the layers cannot drift.
+      sendJSON(res, 200, SERVER_THEME);
+      return;
+    }
+    if (req.method === "PUT") {
+      // A RECEIPT, never the bundle echoed back (server parity: echoing would
+      // resend the embedded images, which is what the theme resource exists to
+      // stop doing).
+      sendJSON(res, 200, {
+        id: themeId,
+        created: !isKnown,
+        order_idx: 0,
+        updated_at: Math.floor(Date.now() / 1000),
+      });
+      return;
+    }
+    if (req.method === "DELETE") {
+      if (!isKnown) {
+        notFound(res, `paint-guard stub: theme ${themeId} not found`);
+        return;
+      }
+      // Deleting the ACTIVE theme resets display_theme in the same request; this
+      // stub's active id IS the server theme, so the reset flag is that identity.
+      sendJSON(res, 200, {
+        id: themeId,
+        deleted: true,
+        display_theme_reset: themeId === SERVER_THEME.id,
+      });
+      return;
+    }
   }
 
   if (path.startsWith("/api/")) {
@@ -171,6 +271,7 @@ const server = createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(
-    `[paint-guard stub] :${PORT} dist=${DIST} mode=${MODE} settingsDelay=${DELAY}ms theme=${SERVER_THEME.id}`
+    `[paint-guard stub] :${PORT} dist=${DIST} mode=${MODE} reconcileDelay=${DELAY}ms ` +
+      `(settings + themes + themes/{id}) knowsTheme=${KNOWS_THEME} theme=${SERVER_THEME.id}`
   );
 });
