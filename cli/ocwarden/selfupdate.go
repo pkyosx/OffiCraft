@@ -263,6 +263,22 @@ type updater struct {
 	agentID string
 	now     func() time.Time
 
+	// --- self-renewal of THIS machine's credential (see renewapply.go) ----------
+	// renew asks the server for a fresh credential (nil = renewal not wired, e.g.
+	// every existing self-update test). writeTok puts it on disk atomically; it is
+	// the SAME write `ocwarden install` uses (install.go's tokfileWriter), not a
+	// second implementation. tokfilePath is the file readTokfile will read on the
+	// next boot — resolved through main.go's tokfilePath so the two cannot drift.
+	// token is the credential this process is running on, i.e. the thing whose
+	// expiry is being judged. envToken is OC_TOKEN as read from the RAW
+	// environment, never the tokfile-folded view: a non-empty value means the
+	// token survives the exec and renewing is pointless (renewapply.go says why).
+	renew       credentialRenewer
+	writeTok    func(path, token string) error
+	tokfilePath string
+	token       string
+	envToken    string
+
 	// lastSwap holds the ocwarden self-update event captured during the most recent
 	// swapping cycle, consumed by run() to announce it just before exit.
 	lastSwap *selfUpdateEvent
@@ -286,6 +302,18 @@ func (u *updater) run(ctx context.Context) {
 	for {
 		if !u.waitNext(ctx, wait) {
 			return // ctx cancelled during the wait → clean exit
+		}
+		// CREDENTIAL RENEWAL runs EVERY turn, and deliberately BEFORE checkOnce:
+		// checkOnce opens with the server-sha gate and returns early whenever the
+		// station has not shipped a new commit, so a renewal placed inside it would
+		// only ever be considered on release days — and credentials expire on their
+		// own calendar. The check is local arithmetic on a token already in hand;
+		// only a genuinely due credential sends anything. On success the new
+		// credential is ALREADY on disk, so the exec is the last step, never a step
+		// that could leave the machine without one (renewapply.go).
+		if u.maybeRenewCredential() {
+			u.execInPlace("renew: the new credential is on disk")
+			return
 		}
 		wardenSwapped, err := u.checkOnce()
 		if err != nil {
@@ -312,15 +340,28 @@ func (u *updater) run(ctx context.Context) {
 			// demonstrably does NOT relaunch an exited warden). execSelf returns only on
 			// failure; then, and only then, fall back to the old exit(0) — no worse than
 			// the pre-fix behaviour, and the failure is on record in the log.
-			u.logf("[ocwarden] self-update: ocwarden replaced — exec'ing the new binary in place (same PID)")
-			if u.execSelf != nil {
-				err := u.execSelf()
-				u.logf("[ocwarden] self-update: in-place exec failed (%v) — falling back to exit(0)", err)
-			}
-			u.exit(0)
+			u.execInPlace("self-update: ocwarden replaced")
 			return
 		}
 	}
+}
+
+// execInPlace replaces this process image with the binary at selfPath — same PID,
+// same argv, same env — so whatever changed on disk (a swapped binary, a renewed
+// credential) takes effect without launchd being asked to relaunch anything, which
+// it demonstrably does not do (see the file header). execSelf returns ONLY on
+// failure; then, and only then, fall back to exit(0), which is no worse than the
+// pre-fix behaviour and is on record in the log.
+//
+// EVERY CALLER MUST HAVE ALREADY COMMITTED ITS CHANGE TO DISK. There is no undo
+// past this point: the process that would have retried is gone.
+func (u *updater) execInPlace(reason string) {
+	u.logf("[ocwarden] %s — exec'ing the new binary in place (same PID)", reason)
+	if u.execSelf != nil {
+		err := u.execSelf()
+		u.logf("[ocwarden] in-place exec failed (%v) — falling back to exit(0)", err)
+	}
+	u.exit(0)
 }
 
 // waitNext blocks until the poll interval elapses, a kick arrives, or ctx is
@@ -590,7 +631,7 @@ func selfUpdateAgentPath(executable func() (string, error)) string {
 // via selfUpdateAgentPath — unconditional, unlike the spawn path's resolveOcAgentBin),
 // builds the Bearer-authed GET seam and the real filesystem/exec ops, and returns a
 // ready updater. Mirrors newCommandTransport's construction shape.
-func newSelfUpdater(cfg Config, logf func(string, ...any)) *updater {
+func newSelfUpdater(cfg Config, env func(string) string, logf func(string, ...any)) *updater {
 	// The execSelf closure built below calls syscall.Exec, which REPLACES THE
 	// CALLING PROCESS IMAGE. Under `go test` that process is the test binary, so
 	// invoking it would not "start a subprocess" — it would silently become
@@ -634,5 +675,14 @@ func newSelfUpdater(cfg Config, logf func(string, ...any)) *updater {
 		post:    httpPoster(reportClient, cfg.Base, cfg.Token),
 		agentID: cfg.ID,
 		now:     time.Now,
+		// Self-renewal. `env` here is the RAW environment, NOT the tokfile-folded
+		// view loadConfig was given: envToken must say whether OC_TOKEN was set by
+		// whoever started this process, and the folded view would report the token
+		// file's contents as if someone had exported them.
+		renew:       httpCredentialRenewer(reportClient, cfg.Base, cfg.Token),
+		writeTok:    osTokfileWriter().write,
+		tokfilePath: tokfilePath(env),
+		token:       cfg.Token,
+		envToken:    env("OC_TOKEN"),
 	}
 }

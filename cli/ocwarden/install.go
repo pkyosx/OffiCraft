@@ -881,39 +881,96 @@ func (i *installer) downloadOcAgent(p wardenPaths) ([]byte, error) {
 	return body, nil
 }
 
-// writeTokfile writes the exec-warden token 0600 via a fresh temp + atomic rename
-// (bash installer step 3): the temp is written 0600 and chmod-confirmed, so the
-// token is NEVER exposed at loose perms even if $tokfile pre-exists 0644; rename
-// replaces atomically (no write-then-chmod window on the live path). No trailing
-// newline — the binary's readTokfile trims, but wire-parity with the bash `printf
-// '%s'` keeps the file byte-identical.
-func (i *installer) writeTokfile(p wardenPaths) error {
-	dir := filepath.Dir(p.tokfile)
-	if i.dryRun {
-		i.logf("DRYRUN would: mkdir -p %s; write <token> to a 0600 temp then atomic rename -> %s", dir, p.tokfile)
-		return nil
+// tokfileWriter is the narrow filesystem seam the atomic 0600 token write needs.
+// It exists because TWO callers now write that exact file: `ocwarden install`
+// (from its sysOps seam) and the self-renewal loop (from the real OS). A second
+// implementation of "write a credential safely" is the kind of duplicate that
+// stays correct only until one copy is fixed, and the copy that is not fixed is
+// the one holding the credential a machine needs to come back.
+type tokfileWriter struct {
+	mkdirAll  func(path string, perm os.FileMode) error
+	writeFile func(path string, data []byte, perm os.FileMode) error
+	chmod     func(path string, mode os.FileMode) error
+	rename    func(oldpath, newpath string) error
+	statMode  func(path string) (os.FileMode, error)
+}
+
+// tokfileWriter projects the install seam onto the narrow write. Not a `sysOps{`
+// literal: the real OS is still wired in exactly one place (realSysOps).
+func (s sysOps) tokfileWriter() tokfileWriter {
+	return tokfileWriter{
+		mkdirAll:  s.mkdirAll,
+		writeFile: s.writeFile,
+		chmod:     s.chmod,
+		rename:    s.rename,
+		statMode:  s.statMode,
 	}
-	if err := i.sys.mkdirAll(dir, 0o700); err != nil {
+}
+
+// osTokfileWriter wires the narrow write to the real filesystem for callers that
+// have no sysOps of their own (the self-renewal loop). It starts no process and
+// touches nothing but the token file, so it is not part of the host seam.
+func osTokfileWriter() tokfileWriter {
+	return tokfileWriter{
+		mkdirAll:  os.MkdirAll,
+		writeFile: os.WriteFile,
+		chmod:     os.Chmod,
+		rename:    os.Rename,
+		statMode: func(p string) (os.FileMode, error) {
+			fi, err := os.Stat(p)
+			if err != nil {
+				return 0, err
+			}
+			return fi.Mode(), nil
+		},
+	}
+}
+
+// write puts token at path 0600 via a fresh temp + atomic rename (bash installer
+// step 3): the temp is written 0600 and chmod-confirmed, so the token is NEVER
+// exposed at loose perms even if the destination pre-exists 0644; rename replaces
+// atomically (no write-then-chmod window on the live path). No trailing newline —
+// readTokfile trims, but wire-parity with the bash `printf '%s'` keeps the file
+// byte-identical. A failure at ANY step leaves the destination untouched, which is
+// what lets the renewal caller treat "write failed" as "keep the old credential".
+func (w tokfileWriter) write(path, token string) error {
+	dir := filepath.Dir(path)
+	if err := w.mkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("mkdir tokfile dir %s: %w", dir, err)
 	}
 	tmp := filepath.Join(dir, fmt.Sprintf(".exec-warden.tok.%d", os.Getpid()))
-	if err := i.sys.writeFile(tmp, []byte(p.ocToken), 0o600); err != nil {
+	if err := w.writeFile(tmp, []byte(token), 0o600); err != nil {
 		return fmt.Errorf("write temp tokfile %s: %w", tmp, err)
 	}
 	// Explicit chmod: os.WriteFile's mode is masked by umask, so re-assert 0600 to
 	// guarantee the perms regardless of the caller's umask.
-	if err := i.sys.chmod(tmp, 0o600); err != nil {
+	if err := w.chmod(tmp, 0o600); err != nil {
 		return fmt.Errorf("chmod temp tokfile %s: %w", tmp, err)
 	}
-	if err := i.sys.rename(tmp, p.tokfile); err != nil {
-		return fmt.Errorf("atomic rename tokfile -> %s: %w", p.tokfile, err)
+	if err := w.rename(tmp, path); err != nil {
+		return fmt.Errorf("atomic rename tokfile -> %s: %w", path, err)
 	}
-	mode, err := i.sys.statMode(p.tokfile)
+	mode, err := w.statMode(path)
 	if err != nil {
-		return fmt.Errorf("stat tokfile %s: %w", p.tokfile, err)
+		return fmt.Errorf("stat tokfile %s: %w", path, err)
 	}
 	if mode.Perm() != 0o600 {
-		return fmt.Errorf("tokfile perms are not 0600: %s (got %o)", p.tokfile, mode.Perm())
+		return fmt.Errorf("tokfile perms are not 0600: %s (got %o)", path, mode.Perm())
+	}
+	return nil
+}
+
+// writeTokfile writes the exec-warden token 0600. The write itself is
+// tokfileWriter.write, shared with the self-renewal loop; what stays here is the
+// install-only shell: the dry-run narration and the log line.
+func (i *installer) writeTokfile(p wardenPaths) error {
+	if i.dryRun {
+		i.logf("DRYRUN would: mkdir -p %s; write <token> to a 0600 temp then atomic rename -> %s",
+			filepath.Dir(p.tokfile), p.tokfile)
+		return nil
+	}
+	if err := i.sys.tokfileWriter().write(p.tokfile, p.ocToken); err != nil {
+		return err
 	}
 	i.logf("wrote tokfile (0600): %s", p.tokfile)
 	return nil

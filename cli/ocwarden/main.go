@@ -96,26 +96,39 @@ const defaultTokfileRel = "/.officraft/warden/exec-warden.tok"
 // substitution strips trailing newlines). A missing/unreadable file yields "" —
 // the binary then fail-safes exactly as an unset OC_TOKEN (run() logs + exits 0).
 func readTokfile(env func(string) string, readFile func(string) ([]byte, error)) string {
-	path := env("OC_WARDEN_TOKFILE")
+	path := tokfilePath(env)
 	if path == "" {
-		home := env("HOME")
-		if home == "" {
-			return ""
-		}
-		// The default follows the OC_NAMESPACE instance root (byte-identical to
-		// $HOME + defaultTokfileRel for the empty namespace); an invalid namespace
-		// fail-safes to "no token" like every other mis-wire.
-		ns, err := namespaceFromEnv(env)
-		if err != nil {
-			return ""
-		}
-		path = tokfileFor(home, ns)
+		return ""
 	}
 	raw, err := readFile(path)
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(string(raw))
+}
+
+// tokfilePath resolves WHICH file holds the exec-warden token, and is the single
+// owner of that derivation: readTokfile reads it, and the self-renewal loop writes
+// it. Those two must name the same file or a renewal writes a credential nothing
+// will ever read — so they share this function rather than each parsing the env.
+// Empty means the path could not be derived (no HOME, malformed namespace), which
+// every caller reads as "do nothing" rather than as a licence to guess a path.
+func tokfilePath(env func(string) string) string {
+	if path := env("OC_WARDEN_TOKFILE"); path != "" {
+		return path
+	}
+	home := env("HOME")
+	if home == "" {
+		return ""
+	}
+	// The default follows the OC_NAMESPACE instance root (byte-identical to
+	// $HOME + defaultTokfileRel for the empty namespace); an invalid namespace
+	// fail-safes to "no token" like every other mis-wire.
+	ns, err := namespaceFromEnv(env)
+	if err != nil {
+		return ""
+	}
+	return tokfileFor(home, ns)
 }
 
 // tokfileEnv wraps env so an unset OC_TOKEN falls back to the token file
@@ -886,7 +899,7 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 		// same ctx-aware graceful-shutdown contract (registered with wg). A separate
 		// goroutine from the 30s telemetry loop: binary reconcile runs at a much slower
 		// cadence and must not be entangled with the well-tested telemetry cycle.
-		up := newSelfUpdater(cfg, logf)
+		up := newSelfUpdater(cfg, env, logf)
 
 		// 方案A (T-c93d): wire the SSE transport's connect hook to the updater's Kick
 		// so every successful (re)connect triggers an immediate self-update check —
