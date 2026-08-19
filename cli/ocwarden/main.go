@@ -905,7 +905,15 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 		// Delete these three lines, or just the `go up.run(ctx)` below, and the whole
 		// package stays green: self-update and credential renewal stop fleet-wide,
 		// silently, and with credentials carrying a 30-day life the machines start
-		// falling off the roster a month later. What newSelfUpdater BUILDS is now
+		// falling off the roster a month later. The third and cheapest-looking edit
+		// is `rawEnv{lookup: renv}` — one identifier, reads like a typo, compiles
+		// (the struct only stops the bare `renv`, which is deliberate: it makes the
+		// substitution a visible decision instead of an accident) — and it hands the
+		// renewal path the tokfile-folded view, whose envToken reports the token FILE
+		// as if somebody had exported OC_TOKEN, tripping the infinite-exec guard on
+		// every launchd warden and stopping the fleet renewing with one log line per
+		// machine. renewwiring_reached_test.go catches that substitution inside
+		// newSelfUpdater; nothing catches it here. What newSelfUpdater BUILDS is now
 		// asserted by using it (renewwiring_reached_test.go); whether realMain calls
 		// it is not asserted by anything.
 		//

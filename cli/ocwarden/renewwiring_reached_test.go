@@ -310,6 +310,10 @@ const execSeamEnv = "OC_TFC53_EXEC_SEAM_ROLE"
 // The exit-3 arm is why the child stamps its env before calling: syscall.Exec here
 // would re-run this same test binary with this same argv, so without a generation
 // marker a missing refusal would be an endless self-exec instead of one red test.
+// If the marker itself is ever broken the worst case is bounded and local — one
+// orphaned test process on a developer machine, not anything touching launchd —
+// and a shell that already exports OC_TFC53_EXEC_SEAM_ROLE makes the parent noisy,
+// never green.
 func TestNewSelfUpdater_HandsOverTheExecSeamThatRefusesInATestBinary(t *testing.T) {
 	switch os.Getenv(execSeamEnv) {
 	case "replaced":

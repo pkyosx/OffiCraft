@@ -309,6 +309,18 @@ type updater struct {
 	// memory, find it still due, and renew again every poll — forever, on every
 	// machine in the fleet at once. See maybeRenewCredential (renewapply.go).
 	renewedAwaitingRestart bool
+	// execPendingAfterRenewal is the SEPARATE question of whether the exec is still
+	// owed. It is not the same bit as the latch above and must not be merged with
+	// it: the "the credential just minted is already due" path deliberately latches
+	// WITHOUT wanting an exec (exec'ing on it is the once-per-poll runaway that
+	// branch exists to prevent), so one flag would either re-open the runaway or
+	// give up on a retry that costs nothing. Set only when a renewal reported that
+	// an exec is warranted; never cleared, because the exec that succeeds does not
+	// return.
+	execPendingAfterRenewal bool
+	// execAttempts counts post-renewal exec attempts, so the retries above narrate
+	// themselves in one line instead of repeating the whole explanation per poll.
+	execAttempts int
 
 	// lastSwap holds the ocwarden self-update event captured during the most recent
 	// swapping cycle, consumed by run() to announce it just before exit.
@@ -347,6 +359,18 @@ func (u *updater) run(ctx context.Context) {
 		// deliberately does NOT go through execInPlace, whose exec-failed fallback
 		// is exit(0). See the file header and execAfterRenewal (renewapply.go).
 		if u.maybeRenewCredential() {
+			u.execPendingAfterRenewal = true
+		}
+		// AND IT IS RETRIED EVERY TURN. An exec can fail for a reason that passes:
+		// ETXTBSY while the self-update loop is mid-swap of this very binary, a
+		// transient EAGAIN under memory pressure. Retrying is free — a successful
+		// exec never returns, so this call is a no-op on every turn after the one
+		// that works — whereas giving up after one attempt leaves the machine on a
+		// credential it has already replaced until something else restarts it. Not
+		// folded into the branch above: maybeRenewCredential answers false forever
+		// once the credential is on disk (renewedAwaitingRestart), so a retry that
+		// depended on it would never happen.
+		if u.execPendingAfterRenewal {
 			u.execAfterRenewal()
 		}
 		wardenSwapped, err := u.checkOnce()

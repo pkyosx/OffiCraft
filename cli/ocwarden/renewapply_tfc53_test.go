@@ -229,6 +229,28 @@ func TestMaybeRenewCredential_WriteFailureNeverExecs(t *testing.T) {
 	if !h.logged("previous credential is untouched") {
 		t.Errorf("the log does not say the old credential survived; got %v", h.logs)
 	}
+	// 🔴 THE OTHER DIRECTION OF THE SAME FAILURE, and the one that is silent.
+	// Keeping the old credential is only half of "harmless": the machine must also
+	// still be TRYING. Set the renewed-awaiting-restart latch here — one statement
+	// earlier than it belongs — and this test still passed: nothing had been
+	// written, nothing exec'd, the old credential was intact, and the machine had
+	// permanently stopped renewing for the rest of this process's life. A write
+	// failure is exactly the kind that hits the whole fleet at once (a full disk, a
+	// read-only volume, a bad mode), so every machine would then sit on a credential
+	// that expires in at most a third of its life and drop off the roster together.
+	if h.u.renewedAwaitingRestart {
+		t.Error("the write FAILED and the renewed-awaiting-restart latch was set anyway. " +
+			"That latch means 'a fresh credential IS on disk, stop asking for another'; " +
+			"after a failed write nothing is on disk, so this machine has quietly retired " +
+			"itself — it will not attempt a renewal again until somebody restarts it, and " +
+			"the credential it is holding expires")
+	}
+	if h.renewCalls < 2 {
+		t.Errorf("renewal was attempted %d time(s) over the whole loop. A failed write "+
+			"must cost nothing but the attempt: the next poll has to try again, because "+
+			"the thing that failed (disk full, read-only mount) is usually the thing that "+
+			"gets fixed", h.renewCalls)
+	}
 }
 
 // TestMaybeRenewCredential_NotDueDoesNothing is the control for the whole file:
@@ -343,6 +365,10 @@ func TestRun_RenewsAndExecsInPlace(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { time.Sleep(2 * time.Second); cancel() }()
+	// A real syscall.Exec never returns — the loop is gone with the process image.
+	// The fake has to end the loop too, or "exec'd once" cannot be told apart from
+	// "exec'd on every turn because the first one silently did nothing".
+	h.u.execSelf = func() error { h.execs++; cancel(); return nil }
 	h.u.run(ctx)
 
 	if h.written[tokfile] != freshToken(t, now) {
@@ -577,6 +603,28 @@ func TestMaybeRenewCredential_ReplacementAlreadyDueIsWrittenButNotExecd(t *testi
 	}
 	if !h.logged("ALREADY due") {
 		t.Errorf("nothing in the log explains why the exec was withheld; got %v", h.logs)
+	}
+
+	// 🔴 AND THE SAME THING THROUGH run(), which is where the exec actually lives.
+	// The predicate above says "do not exec"; run() holds a separate pending-exec
+	// bit so a failed exec can be retried on later turns, and the moment those two
+	// are collapsed into one flag this path starts exec'ing once per poll — the
+	// runaway the withheld exec exists to prevent, now driven by the retry instead
+	// of by the predicate. Neither this test nor any other saw that until it drove
+	// the loop.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { time.Sleep(120 * time.Millisecond); cancel() }()
+	h.u.run(ctx)
+	if h.execs != 0 {
+		t.Errorf("run() exec'd %d time(s) into a credential that is already due. Each "+
+			"exec starts a process that finds the same credential due, renews, writes "+
+			"and execs again: one process replacement per poll, on every machine, until "+
+			"somebody notices", h.execs)
+	}
+	if h.renewCalls != 1 {
+		t.Errorf("renewal ran %d times — the replacement is on disk, so further attempts "+
+			"just mint credentials nothing reads", h.renewCalls)
 	}
 }
 
@@ -1159,8 +1207,16 @@ func TestRun_AFailedExecAfterRenewalKeepsTheWardenAlive(t *testing.T) {
 		t.Fatalf("the renewal did not complete, so this test is not measuring what it "+
 			"claims; wrote %v", h.written)
 	}
-	if h.execs != 1 {
-		t.Fatalf("the exec seam was called %d times, want exactly 1", h.execs)
+	// RETRIED, not attempted once. An exec can fail for a reason that passes —
+	// ETXTBSY while the self-update loop is mid-swap of this same binary is the
+	// obvious one — and a retry is free because a successful exec never returns.
+	// Giving up after one attempt leaves the machine running on a credential it
+	// has already replaced until something else restarts it.
+	if h.execs < 2 {
+		t.Errorf("the exec was attempted %d time(s) across the whole loop. The credential "+
+			"is on disk and the exec is what makes it take effect now; retrying costs "+
+			"nothing (a successful exec does not return), and not retrying turns a "+
+			"transient failure into a wait for the next restart", h.execs)
 	}
 	if len(exitCodes) != 0 {
 		t.Errorf("the warden EXITED (%v) because the post-renewal exec failed. Nothing "+

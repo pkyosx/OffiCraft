@@ -350,6 +350,32 @@ func (u *updater) maybeRenewCredential() bool {
 	return true
 }
 
+// 🔴 THIS STATE IS NOT ANNOUNCED, AND THAT IS A MEASUREMENT, NOT AN OVERSIGHT.
+// "Renewed, waiting for a restart" is the one condition this path can leave behind
+// that nothing outside the machine can see: the logs below land in that host's own
+// file (the plist's StandardOutPath), so somebody has to already suspect the
+// machine to find them. u.post is right there on the updater, unused here, which
+// makes an announce look like four lines. It is not, and the reason is the server
+// contract, not this file:
+//
+//   - The ingest endpoint declares a closed set of top-level fields (api_monitoring
+//     .go rejects a body carrying none of them); a new `credential_renewal` is a
+//     spec + regenerated-client + handler + echo change, i.e. the shape warden_shape
+//     and cutover_effect already have, not a warden-side edit.
+//   - Reusing self_update is worse than silence: the server merges it onto the
+//     entry, so it would OVERWRITE that machine's real last-swap record, and prints
+//     "warden self-update: binary=? ?->?" to its own stderr — a renewal reported as
+//     a binary swap with unknown hashes.
+//   - self_update never reaches the cockpit at all (no mapper reads it): it is one
+//     line on the server's stderr plus an in-memory entry that dies with the next
+//     server re-exec. So even the existing announce is a server-log record, which
+//     is worth knowing before treating "announce it" as the fix.
+//
+// What shrinks the exposure instead, and is done: the exec is retried on every poll
+// (run()), so the state persists only while the exec keeps failing rather than
+// until the next restart. A durable, readable signal wants the warden_shape
+// treatment and its own ticket.
+//
 // execAfterRenewal replaces this process image so the credential just written
 // takes effect now instead of at the next restart.
 //
@@ -368,19 +394,32 @@ func (u *updater) maybeRenewCredential() bool {
 // The right move is to log loudly and keep running; maybeRenewCredential will not
 // try again (renewedAwaitingRestart), so this costs nothing but a delay.
 func (u *updater) execAfterRenewal() {
+	u.execAttempts++
 	if u.execSelf == nil {
-		u.logf("[ocwarden] renew: no exec seam is wired, so the new credential at %s "+
-			"takes effect on the next restart", u.tokfilePath)
+		if u.execAttempts == 1 {
+			u.logf("[ocwarden] renew: no exec seam is wired, so the new credential at %s "+
+				"takes effect on the next restart", u.tokfilePath)
+		}
 		return
 	}
-	u.logf("[ocwarden] renew: the new credential is on disk — exec'ing this binary in " +
-		"place (same PID) so it takes effect now")
 	err := u.execSelf()
 	// execSelf returns ONLY when the process image was not replaced (syscall.Exec
 	// does not return on success), so reaching this line at all is the failure.
+	//
+	// The first failure gets the full explanation; the retries get one line. run()
+	// calls this on EVERY turn while the exec is owed, and a turn is not only the
+	// 15-minute timer — the SSE transport kicks the loop on every reconnect, so a
+	// flapping network would otherwise write the paragraph below once per reconnect
+	// into a file nobody is tailing.
+	if u.execAttempts > 1 {
+		u.logf("[ocwarden] renew: in-place exec still failing (attempt %d: %v) — still "+
+			"running, still holding the previous credential", u.execAttempts, err)
+		return
+	}
 	u.logf("[ocwarden] renew: the in-place exec did NOT happen (%v) — staying alive on "+
 		"the credential this process already holds, which still works for days. The new "+
-		"credential is on disk at %s and takes effect on the next restart. NOT exiting: "+
-		"launchd does not relaunch an exited warden, and losing the machine to save one "+
-		"restart's delay is the wrong trade.", err, u.tokfilePath)
+		"credential is on disk at %s and takes effect on the next restart, and the exec "+
+		"is retried on every poll. NOT exiting: launchd does not relaunch an exited "+
+		"warden, and losing the machine to save one restart's delay is the wrong trade.",
+		err, u.tokfilePath)
 }
