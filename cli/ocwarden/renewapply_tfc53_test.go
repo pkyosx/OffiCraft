@@ -25,12 +25,15 @@ import (
 // renewHarness is one wired updater plus everything the test needs to say what it
 // did: which paths it wrote, whether it exec'd, how many renewal requests it sent.
 type renewHarness struct {
-	u          *updater
-	renewCalls int
-	written    map[string]string
-	writeErr   error
-	execs      int
-	logs       []string
+	u            *updater
+	renewCalls   int
+	verified     []string
+	verifyStatus int
+	verifyErr    error
+	written      map[string]string
+	writeErr     error
+	execs        int
+	logs         []string
 }
 
 // thisMachine is the `sub` both the running credential and its replacement must
@@ -67,7 +70,7 @@ func freshToken(t *testing.T, now time.Time) string {
 func newRenewHarness(t *testing.T, token, tokfile string, now time.Time,
 	status int, body map[string]any, transportErr error) *renewHarness {
 	t.Helper()
-	h := &renewHarness{written: map[string]string{}}
+	h := &renewHarness{written: map[string]string{}, verifyStatus: http.StatusOK}
 	h.u = &updater{
 		interval:     time.Millisecond,
 		backoffStart: time.Millisecond,
@@ -86,6 +89,10 @@ func newRenewHarness(t *testing.T, token, tokfile string, now time.Time,
 		renew: func() (int, map[string]any, error) {
 			h.renewCalls++
 			return status, body, transportErr
+		},
+		verify: func(candidate string) (int, error) {
+			h.verified = append(h.verified, candidate)
+			return h.verifyStatus, h.verifyErr
 		},
 		writeTok: func(path, tok string) error {
 			if h.writeErr != nil {
@@ -643,7 +650,7 @@ func TestNewRenewalWiring_ReadsTheRawEnvironmentAndTheRunningCredential(t *testi
 	cfg := Config{Base: "https://station.example", Token: "the-running-credential", ID: "m-box"}
 
 	raw := map[string]string{"HOME": home}
-	w := newRenewalWiring(cfg, func(k string) string { return raw[k] }, &http.Client{})
+	w := newRenewalWiring(cfg, func(k string) string { return raw[k] })
 
 	if w.token != cfg.Token {
 		t.Errorf("token = %q, want the credential this process runs on (%q)", w.token, cfg.Token)
@@ -653,6 +660,18 @@ func TestNewRenewalWiring_ReadsTheRawEnvironmentAndTheRunningCredential(t *testi
 	}
 	if w.renew == nil {
 		t.Error("renew is nil — renewal is wired off in production and no other test would notice")
+	}
+	if w.verify == nil {
+		t.Error("verify is nil — the credential probe is skipped in production, and an " +
+			"unusable credential would be written over the working one and exec'd into")
+	}
+	// WHICH client the renewal got. The 10s announce budget beside it exists for
+	// the swap→exit critical path; giving up on a renewal that early throws away a
+	// credential the station has already minted and leaves the machine one poll
+	// closer to an expiry it cannot come back from.
+	if w.client == nil || w.client.Timeout != selfUpdateHTTPTimeout {
+		t.Errorf("renewal client timeout = %v, want the generous %v — not the short "+
+			"announce budget", w.client, selfUpdateHTTPTimeout)
 	}
 	if w.writeTok == nil {
 		t.Error("writeTok is nil — a due credential could never be written")
@@ -678,14 +697,160 @@ func TestNewRenewalWiring_ReadsTheRawEnvironmentAndTheRunningCredential(t *testi
 		t.Fatalf("control: the folded view should report the token file (%q) — without "+
 			"that the assertion below cannot tell the two views apart", got)
 	}
-	if w2 := newRenewalWiring(cfg, func(k string) string { return raw[k] }, &http.Client{}); w2.envToken != "" {
+	if w2 := newRenewalWiring(cfg, func(k string) string { return raw[k] }); w2.envToken != "" {
 		t.Errorf("envToken = %q with a token file present: the wiring is reading the "+
 			"folded view, not the raw environment", w2.envToken)
 	}
 
 	explicit := map[string]string{"HOME": home, "OC_TOKEN": "exported-by-hand"}
-	if w3 := newRenewalWiring(cfg, func(k string) string { return explicit[k] }, &http.Client{}); w3.envToken != "exported-by-hand" {
+	if w3 := newRenewalWiring(cfg, func(k string) string { return explicit[k] }); w3.envToken != "exported-by-hand" {
 		t.Errorf("envToken = %q, want the value actually exported — the guard cannot "+
 			"fire if this does not reach it", w3.envToken)
+	}
+}
+
+// TestMaybeRenewCredential_AStationThatRefusesTheNewCredentialCostsNothing is
+// the second half of "confirmed usable before the old one is retired". The
+// subject check reads the replacement; this asks the only party that can settle
+// it whether the replacement WORKS. A credential minted with the wrong secret, or
+// with a scope the station refuses, parses fine and carries the right subject —
+// and bricks the host exactly like a non-JWT would, because the station answers
+// 401 to a warden with no code path for 401 and no way back to a credential it
+// has already overwritten.
+//
+// The assertion that matters is the ORDER: nothing is written when the probe says
+// no. Confirming after the write would satisfy the words and not the intent.
+func TestMaybeRenewCredential_AStationThatRefusesTheNewCredentialCostsNothing(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	old := dueToken(t, now)
+	tokfile := filepath.Join(t.TempDir(), "exec-warden.tok")
+
+	for _, tc := range []struct {
+		name   string
+		status int
+		err    error
+		expect string
+	}{
+		{"the station refuses it", http.StatusUnauthorized, nil, "REFUSED the credential it just issued"},
+		{"the station cannot be reached to ask", 0, fmt.Errorf("dial tcp: connection refused"),
+			"could not present the new credential"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newRenewHarness(t, old, tokfile, now, http.StatusOK,
+				map[string]any{"token": freshToken(t, now)}, nil)
+			h.verifyStatus, h.verifyErr = tc.status, tc.err
+
+			if h.u.maybeRenewCredential() {
+				t.Fatal("reported success on a credential the station would not take")
+			}
+			if len(h.written) != 0 {
+				t.Errorf("the token file was replaced before the credential was confirmed "+
+					"usable: %v", h.written)
+			}
+			if !h.logged(tc.expect) {
+				t.Errorf("nothing in the log names the reason (want %q); got %v", tc.expect, h.logs)
+			}
+		})
+	}
+
+	// Control + order. A station that accepts it renews, and what was presented is
+	// the CANDIDATE — presenting the credential already in hand would pass against
+	// any station and prove nothing.
+	fresh := freshToken(t, now)
+	ok := newRenewHarness(t, old, tokfile, now, http.StatusOK, map[string]any{"token": fresh}, nil)
+	if !ok.u.maybeRenewCredential() {
+		t.Fatal("control: a station that accepts the new credential did not renew")
+	}
+	if len(ok.verified) != 1 || ok.verified[0] != fresh {
+		t.Errorf("the probe presented %v; it must present the CANDIDATE (%q), not the "+
+			"credential this process already runs on", ok.verified, fresh[:12]+"…")
+	}
+}
+
+// TestApply_CarriesEveryFieldOntoTheUpdater closes the gap the previous round
+// left open and mis-described. That round said the uncovered line lived inside
+// newSelfUpdater and would need a static check to reach — but the same commit had
+// already moved it OUT, into this plain method, which any test can call. The
+// excuse outlived the thing it excused. Measured: dropping envToken from apply
+// left the whole suite green, i.e. the infinite-exec guard could be switched off
+// in production without one red test.
+func TestApply_CarriesEveryFieldOntoTheUpdater(t *testing.T) {
+	w := renewalWiring{
+		renew:       func() (int, map[string]any, error) { return 0, nil, nil },
+		verify:      func(string) (int, error) { return 0, nil },
+		writeTok:    func(string, string) error { return nil },
+		tokfilePath: "/somewhere/exec-warden.tok",
+		token:       "the-running-credential",
+		envToken:    "exported-by-hand",
+	}
+	u := &updater{}
+	u.apply(w)
+
+	if u.renew == nil {
+		t.Error("renew was not carried over — renewal is off and nothing else would notice")
+	}
+	if u.verify == nil {
+		t.Error("verify was not carried over — the credential probe is skipped, and an " +
+			"unusable credential would be written and exec'd into")
+	}
+	if u.writeTok == nil {
+		t.Error("writeTok was not carried over — a due credential could never be written")
+	}
+	if u.tokfilePath != w.tokfilePath {
+		t.Errorf("tokfilePath = %q, want %q", u.tokfilePath, w.tokfilePath)
+	}
+	if u.token != w.token {
+		t.Errorf("token = %q, want %q", u.token, w.token)
+	}
+	if u.envToken != w.envToken {
+		t.Errorf("envToken = %q, want %q — this is the infinite-exec guard's only input",
+			u.envToken, w.envToken)
+	}
+}
+
+// TestTokfileWriter_ARenameFailureAlsoCleansUpTheTemp covers the failure that is
+// likeliest to actually happen — a cross-device rename, EPERM — and the one the
+// previous round left uncovered: its cleanup could be deleted and the suite
+// stayed green, while the branch's own comment explained why it mattered.
+func TestTokfileWriter_ARenameFailureAlsoCleansUpTheTemp(t *testing.T) {
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "exec-warden.tok")
+
+	removed := []string{}
+	w := osTokfileWriter()
+	w.rename = func(string, string) error { return fmt.Errorf("simulated cross-device rename") }
+	realRemove := w.remove
+	w.remove = func(p string) error { removed = append(removed, p); return realRemove(p) }
+
+	if err := w.write(dest, "the-replacement"); err == nil {
+		t.Fatal("a failed rename reported success")
+	}
+	if _, err := os.Stat(dest); !os.IsNotExist(err) {
+		t.Errorf("the destination exists after a failed rename: %v", err)
+	}
+	if len(removed) != 1 {
+		t.Errorf("the temp was not cleaned up: %v", removed)
+	}
+	entries, _ := os.ReadDir(dir)
+	if len(entries) != 0 {
+		var names []string
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Errorf("a live credential at 0600 was left behind: %v — one per failed "+
+			"attempt, in a directory nobody sweeps", names)
+	}
+}
+
+// TestSysOpsTokfileWriter_CarriesTheRemoveSeam pins the projection. Without it
+// the install path silently loses its cleanup: the seam is optional by design, so
+// dropping it compiles, and the only symptom is temps accumulating on a machine
+// nobody is looking at.
+func TestSysOpsTokfileWriter_CarriesTheRemoveSeam(t *testing.T) {
+	called := ""
+	s := sysOps{remove: func(p string) error { called = p; return nil }}
+	s.tokfileWriter().cleanup("/tmp/some-temp")
+	if called != "/tmp/some-temp" {
+		t.Errorf("the install seam's remove was not projected onto the writer (got %q)", called)
 	}
 }

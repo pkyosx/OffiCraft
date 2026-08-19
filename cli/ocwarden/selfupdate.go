@@ -273,7 +273,10 @@ type updater struct {
 	// expiry is being judged. envToken is OC_TOKEN as read from the RAW
 	// environment, never the tokfile-folded view: a non-empty value means the
 	// token survives the exec and renewing is pointless (renewapply.go says why).
-	renew       credentialRenewer
+	renew credentialRenewer
+	// verify presents a CANDIDATE credential to the station before anything on
+	// disk is replaced. nil (tests / unwired) skips the probe.
+	verify      credentialVerifier
 	writeTok    func(path, token string) error
 	tokfilePath string
 	token       string
@@ -680,11 +683,9 @@ func newSelfUpdater(cfg Config, env func(string) string, logf func(string, ...an
 	// constructor is unreachable from any test (refuseInTestBinary above), so
 	// anything filled in HERE is filled in unobserved. See renewapply.go.
 	//
-	// It gets the GENEROUS client, not the short-budget reportClient beside it.
-	// That budget exists for the best-effort announce on the swap→exit critical
-	// path, where a hung server must not delay a relaunch. A renewal is neither:
-	// giving up on it early throws away a credential the server has already minted
-	// and leaves the machine one poll closer to an expiry it cannot come back from.
-	u.apply(newRenewalWiring(cfg, env, client))
+	// It builds its own HTTP client rather than being handed one of the two here:
+	// the short announce budget beside the generous download client is one
+	// character away, and nothing could have told the two apart from a test.
+	u.apply(newRenewalWiring(cfg, env))
 	return u
 }

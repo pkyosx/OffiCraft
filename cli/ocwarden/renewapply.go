@@ -31,6 +31,13 @@ import (
 // names NO target: the machine acted on is the caller's own verified `sub`.
 const renewCredentialPath = "/api/machines/renew-credential"
 
+// credentialProbePath is the endpoint a REPLACEMENT credential is tried against
+// before anything on disk is touched. It is read-only, it is the cheapest thing a
+// warden is entitled to call (authGated + principalMachine, the lowest rank), and
+// it leaves nothing behind — the telemetry endpoint would have done too, but it
+// writes a sample, and a probe should not be able to be mistaken for a heartbeat.
+const credentialProbePath = "/api/machines"
+
 // credentialRenewer POSTs the renewal request and returns (status, decoded body,
 // transport error) — the same three-way split as selfupdate.go's `getter`, so the
 // caller classifies "server said no" and "never reached the server" itself instead
@@ -85,10 +92,15 @@ func httpCredentialRenewer(client *http.Client, base, token string) credentialRe
 // this ticket carries.
 type renewalWiring struct {
 	renew       credentialRenewer
+	verify      credentialVerifier
 	writeTok    func(path, token string) error
 	tokfilePath string
 	token       string
 	envToken    string
+	// client is carried so a test can assert WHICH budget the renewal runs under.
+	// The 10s announce budget exists for the swap→exit critical path; a renewal
+	// that gives up early throws away a credential the station already minted.
+	client *http.Client
 }
 
 // newRenewalWiring resolves the renewal inputs from config and the RAW
@@ -97,21 +109,42 @@ type renewalWiring struct {
 // STARTED this process, and the folded view answers with the token file's
 // contents as if someone had exported them — which would silently disable the
 // infinite-exec guard on exactly the machines it protects.
-func newRenewalWiring(cfg Config, env func(string) string, client *http.Client) renewalWiring {
+func newRenewalWiring(cfg Config, env func(string) string) renewalWiring {
+	// The client is built HERE rather than taken from the caller, so that WHICH
+	// budget a renewal runs under is a decision inside a function tests can call.
+	// Handed in from newSelfUpdater it sat beside a 10s announce client, one
+	// character away, with nothing able to tell the two apart.
+	client := &http.Client{Timeout: selfUpdateHTTPTimeout}
 	return renewalWiring{
 		renew:       httpCredentialRenewer(client, cfg.Base, cfg.Token),
+		verify:      httpCredentialVerifier(client, cfg.Base),
 		writeTok:    osTokfileWriter().write,
 		tokfilePath: tokfilePath(env),
 		token:       cfg.Token,
 		envToken:    env("OC_TOKEN"),
+		client:      client,
 	}
 }
 
 // apply copies the wiring onto the updater. One line, so the copy itself is easy
 // to read against the struct above.
 func (u *updater) apply(w renewalWiring) {
-	u.renew, u.writeTok = w.renew, w.writeTok
+	u.renew, u.verify, u.writeTok = w.renew, w.verify, w.writeTok
 	u.tokfilePath, u.token, u.envToken = w.tokfilePath, w.token, w.envToken
+}
+
+// credentialVerifier answers whether a credential is ACCEPTED by the station —
+// the difference between "the server sent us something" and "the server will take
+// it back". Injected so the renewal path is testable without a live station.
+type credentialVerifier func(token string) (int, error)
+
+// httpCredentialVerifier presents the candidate credential — not the one this
+// process is running on — at a read-only endpoint and reports the status.
+func httpCredentialVerifier(client *http.Client, base string) credentialVerifier {
+	return func(candidate string) (int, error) {
+		status, _, err := httpGetter(client, base, candidate)(credentialProbePath)
+		return status, err
+	}
 }
 
 // maybeRenewCredential runs ONE renewal attempt and reports whether the process
@@ -206,6 +239,42 @@ func (u *updater) maybeRenewCredential() bool {
 			"current credential and NOT exec'ing; retrying on the next poll",
 			renewCredentialPath, freshSub, jwtSub(u.token))
 		return false
+	}
+
+	// 🔴 PRESENT IT BEFORE REPLACING ANYTHING. The subject check above reads the
+	// credential; this asks the only party that can settle it whether the credential
+	// WORKS. They catch different things: a token minted with the wrong secret, or
+	// with a scope or machine_id the station refuses, parses fine and carries the
+	// right subject — and every one of those bricks the host exactly like a
+	// non-JWT would, because the station answers 401 to a warden that has no code
+	// path for 401 and no way back to a credential it has already overwritten.
+	//
+	// The order is the point: this runs BEFORE the write, so a replacement that is
+	// not accepted costs one read-only GET and nothing else. The ticket's wording is
+	// "the old credential must not be retired before the new one is written AND
+	// CONFIRMED USABLE"; confirming it after the write would satisfy the sentence
+	// and not the intent.
+	//
+	// A TRANSPORT failure is deliberately NOT treated as a refusal — it says nothing
+	// about the credential, and treating "the network blinked" as "this credential is
+	// bad" would strand a machine that is holding a perfectly good replacement.
+	// Either way nothing has been written yet, so both paths simply wait for the
+	// next poll.
+	if u.verify != nil {
+		status, err := u.verify(fresh)
+		switch {
+		case err != nil:
+			u.logf("[ocwarden] renew: could not present the new credential to %s (%v) — "+
+				"nothing has been written; retrying on the next poll", credentialProbePath, err)
+			return false
+		case status != http.StatusOK:
+			u.logf("[ocwarden] renew: the station REFUSED the credential it just issued "+
+				"(%s answered %d) — keeping the current credential, which still works. "+
+				"Writing it would have replaced a working credential with one this "+
+				"machine cannot authenticate with, and there is no way back from that.",
+				credentialProbePath, status)
+			return false
+		}
 	}
 
 	if err := u.writeTok(u.tokfilePath, fresh); err != nil {
