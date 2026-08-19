@@ -1,135 +1,112 @@
 package main
 
-// renewwiring_reached_test.go — the two lines that switch self-renewal on, and
-// why they need a syntax check rather than a behavioural one.
+// renewwiring_reached_test.go — what the constructor production uses actually
+// hands the renewal path.
 //
-// 🔴 THE FEATURE IS ONE CALL AWAY FROM OFF, AND NO TEST CAN REACH THAT CALL.
-// newSelfUpdater opens with refuseInTestBinary, so nothing in this package can
-// construct it — which means `u.apply(newRenewalWiring(cfg, env))` inside it, and
-// the `newSelfUpdater(cfg, env, logf)` that calls it, are both unobservable from
-// any test that runs. Review measured what that buys an attacker, or a careless
-// edit:
+// 🔴 THIS FILE USED TO BE A go/ast CHECK, AND THAT WAS THE WRONG INSTRUMENT.
+// It asserted that `u.apply(newRenewalWiring(cfg, env))` appeared in selfupdate.go
+// and that main.go passed an identifier spelled `env`. Review walked through it
+// four times without renaming anything:
 //
-//	drop the u.apply(...)          ⇒ go test ./... rc=0. maybeRenewCredential's
-//	                                 `u.renew == nil` guard swallows everything,
-//	                                 fleet-wide, with not one log line — it is not
-//	                                 an error path, it is "renewal is not in play".
-//	newSelfUpdater(cfg, renv, ...) ⇒ go test ./... rc=0. renv is the tokfile-folded
-//	                                 view, one identifier away in the same scope;
-//	                                 it reports the token FILE as if someone had
-//	                                 exported OC_TOKEN, which trips the
-//	                                 infinite-exec guard on every launchd warden —
-//	                                 none of which sets OC_TOKEN — so the whole
-//	                                 fleet stops renewing. The doc comment on
-//	                                 newRenewalWiring warns about exactly this and
-//	                                 nothing enforced it.
+//	newRenewalWiring(cfg, tokfileEnv(env, os.ReadFile))  // folded at the call site
+//	if cfg.Token == "" { u.apply(…) }                    // a branch production never takes
+//	u.apply(…); u.verify = nil                           // one line after it
+//	env := tokfileEnv(env, os.ReadFile)                  // shadowed in main.go's block
 //
-// ⚠️ THIS IS A SYNTAX CHECK AND IT IS THE WEAKER KIND. It cannot tell you the
-// wiring WORKS — TestNewRenewalWiring_* and TestApply_* do that, and they are the
-// load-bearing ones. What it tells you is that production still reaches them. It
-// is here because the alternative is not a better test, it is no test: the seam
-// this would need to be behavioural does not exist, and inventing one to make an
-// assertion possible would be changing production shape to suit a test. Stated
-// rather than dressed up.
+// Each ends in a fleet that never renews, or one that writes an unconfirmed
+// credential and execs into it — and a syntax check cannot see any of them,
+// because none of them changes a name. Reading names is all it ever did; the
+// commit that added it claimed it said "production still reaches them", which was
+// never what it measured.
+//
+// So the checks below call buildSelfUpdater and look at the updater that comes
+// out. A field that is nil, or an envToken that came from the token FILE, is the
+// same defect however it was written.
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
-// callArgIdents returns the identifier names passed to the first call of fnName
-// found anywhere in file, or nil if there is no such call.
-func callArgIdents(t *testing.T, file, fnName string) []string {
+// builtUpdater constructs through the same path production does, with only the
+// executable seam injected — the one thing refuseInTestBinary is really about.
+func builtUpdater(t *testing.T, home string, cfg Config) *updater {
 	t.Helper()
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, file, nil, 0)
-	if err != nil {
-		t.Fatalf("parse %s: %v", file, err)
+	exe := filepath.Join(home, "bin", "ocwarden")
+	if err := os.MkdirAll(filepath.Dir(exe), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
 	}
-	var args []string
-	var found bool
-	ast.Inspect(f, func(n ast.Node) bool {
-		if found {
-			return false
-		}
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		id, ok := call.Fun.(*ast.Ident)
-		if !ok || id.Name != fnName {
-			return true
-		}
-		found = true
-		for _, a := range call.Args {
-			if ai, isIdent := a.(*ast.Ident); isIdent {
-				args = append(args, ai.Name)
-			} else {
-				args = append(args, "<not-an-identifier>")
-			}
-		}
-		return false
-	})
-	if !found {
-		return nil
+	if err := os.WriteFile(exe, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("seed exe: %v", err)
 	}
-	if args == nil {
-		args = []string{}
-	}
-	return args
+	raw := map[string]string{"HOME": home}
+	return buildSelfUpdater(cfg, rawEnv{lookup: func(k string) string { return raw[k] }},
+		func(string, ...any) {}, func() (string, error) { return exe, nil },
+		func(string, []string, []string) error { return nil })
 }
 
-func TestSelfUpdater_StillWiresRenewalAndFromTheRawEnvironment(t *testing.T) {
-	// ① the wiring is still applied onto the updater.
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, "selfupdate.go", nil, 0)
-	if err != nil {
-		t.Fatalf("parse selfupdate.go: %v", err)
+func TestBuildSelfUpdater_HandsRenewalEverythingItNeeds(t *testing.T) {
+	home := t.TempDir()
+	cfg := Config{Base: "https://station.example", Token: "the-running-credential", ID: "m-box"}
+	u := builtUpdater(t, home, cfg)
+
+	// Each of these is a way the fleet stops renewing, or renews unsafely, with
+	// nothing else in the package going red. maybeRenewCredential opens with
+	// `u.renew == nil || u.writeTok == nil` and returns false — not an error path,
+	// "renewal is not in play" — so a miss here is silent on every machine.
+	if u.renew == nil {
+		t.Error("renew is nil on the updater production builds — self-renewal is off " +
+			"fleet-wide and not one log line says so")
 	}
-	applied := false
-	ast.Inspect(f, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || sel.Sel.Name != "apply" || len(call.Args) != 1 {
-			return true
-		}
-		inner, ok := call.Args[0].(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		if id, isIdent := inner.Fun.(*ast.Ident); isIdent && id.Name == "newRenewalWiring" {
-			applied = true
-			return false
-		}
-		return true
-	})
-	if !applied {
-		t.Error("selfupdate.go no longer contains `.apply(newRenewalWiring(...))`. " +
-			"Without it every renewal field stays nil and maybeRenewCredential " +
-			"returns false on its first line — self-renewal is off on every machine " +
-			"in the fleet, silently, and no other test in this package goes red")
+	if u.verify == nil {
+		t.Error("verify is nil on the updater production builds — confirm-before-write " +
+			"is skipped, so an unusable credential replaces the working one and this " +
+			"process execs into it, and nothing reaches that host again")
+	}
+	if u.writeTok == nil {
+		t.Error("writeTok is nil on the updater production builds — a due credential " +
+			"could never be written")
+	}
+	if u.token != cfg.Token {
+		t.Errorf("token = %q, want the credential this process runs on (%q)", u.token, cfg.Token)
+	}
+	if want := tokfileFor(home, ""); u.tokfilePath != want {
+		t.Errorf("tokfilePath = %q, want the file readTokfile reads (%q)", u.tokfilePath, want)
+	}
+}
+
+// TestBuildSelfUpdater_ReadsTheRawEnvironmentNotTheTokfileView is the one that
+// matters most, and it is checked on the CONSTRUCTED updater rather than on
+// newRenewalWiring in isolation, because every way review defeated the old check
+// happened between those two points: folded at the call site, shadowed in the
+// caller's block, or reassigned before the call.
+//
+// Given the folded view, envToken reports the token FILE's contents as if somebody
+// had exported OC_TOKEN. That trips the infinite-exec guard on precisely the
+// machines it protects — every launchd warden, none of which sets OC_TOKEN — and
+// the whole fleet quietly stops renewing.
+func TestBuildSelfUpdater_ReadsTheRawEnvironmentNotTheTokfileView(t *testing.T) {
+	home := t.TempDir()
+	tokfile := tokfileFor(home, "")
+	if err := os.MkdirAll(filepath.Dir(tokfile), 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(tokfile, []byte("what-the-token-file-holds"), 0o600); err != nil {
+		t.Fatalf("seed tokfile: %v", err)
+	}
+	// Control: the folded view really does report the file, so a green assertion
+	// below means the raw view was used — not that both views happen to be empty.
+	folded := tokfileEnv(func(k string) string { return map[string]string{"HOME": home}[k] }, os.ReadFile)
+	if got := folded("OC_TOKEN"); got != "what-the-token-file-holds" {
+		t.Fatalf("control: the folded view should report the token file, got %q", got)
 	}
 
-	// ② and it is handed the RAW environment.
-	args := callArgIdents(t, "main.go", "newSelfUpdater")
-	if args == nil {
-		t.Fatal("main.go no longer calls newSelfUpdater — nothing starts the " +
-			"self-update loop, and with it self-renewal")
-	}
-	if len(args) < 2 {
-		t.Fatalf("newSelfUpdater called with %d args: %v", len(args), args)
-	}
-	if args[1] != "env" {
-		t.Errorf("newSelfUpdater is handed %q as its environment, want the RAW `env`. "+
-			"`renv` is the tokfile-folded view and sits one identifier away in the "+
-			"same scope: it answers OC_TOKEN with the token FILE's contents, which "+
-			"trips the infinite-exec guard on precisely the machines that guard "+
-			"protects — every launchd warden, none of which sets OC_TOKEN — and the "+
-			"whole fleet stops renewing", args[1])
+	u := builtUpdater(t, home, Config{Base: "https://station.example", Token: "tok", ID: "m-box"})
+	if u.envToken != "" {
+		t.Errorf("envToken = %q with a token file on disk and nothing exporting "+
+			"OC_TOKEN. The constructor is reading the tokfile-folded view somewhere "+
+			"between here and newRenewalWiring, which disables the infinite-exec "+
+			"guard on every launchd warden and stops the fleet renewing", u.envToken)
 	}
 }

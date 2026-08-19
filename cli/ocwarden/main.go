@@ -899,7 +899,8 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 		// same ctx-aware graceful-shutdown contract (registered with wg). A separate
 		// goroutine from the 30s telemetry loop: binary reconcile runs at a much slower
 		// cadence and must not be entangled with the well-tested telemetry cycle.
-		up := newSelfUpdater(cfg, env, logf)
+		// rawEnv{} names which of the two views this is; renv would not compile here.
+		up := newSelfUpdater(cfg, rawEnv{lookup: env}, logf)
 
 		// 方案A (T-c93d): wire the SSE transport's connect hook to the updater's Kick
 		// so every successful (re)connect triggers an immediate self-update check —

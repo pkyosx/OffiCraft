@@ -629,12 +629,44 @@ func selfUpdateAgentPath(executable func() (string, error)) string {
 	return filepath.Join(filepath.Dir(exe), "ocagent")
 }
 
+// syscallExecImage is the production exec seam: it replaces THIS process image, so
+// it is the one function in this file a test binary must never be able to reach.
+// Kept as a named function rather than a closure so the host-seam inventory can
+// name it, and so buildSelfUpdater carries no syscall of its own.
+func syscallExecImage(path string, argv, envv []string) error {
+	refuseInTestBinary("syscallExecImage")
+	_ = os.Stdout.Sync()
+	_ = os.Stderr.Sync()
+	return syscall.Exec(path, argv, envv)
+}
+
+// rawEnv carries the UNFOLDED environment — the one whoever started this process
+// actually set — and it is a struct for exactly one reason: to make handing over
+// the wrong one a COMPILE ERROR rather than a one-character edit.
+//
+// 🔴 THE TWO VIEWS ARE ONE IDENTIFIER APART AND MEAN OPPOSITE THINGS. realMain
+// holds `env` (raw) and `renv` (env with OC_TOKEN folded in from the tokfile, which
+// loadConfig needs). The renewal path needs the RAW one: envToken has to say
+// whether OC_TOKEN was set by whoever STARTED this warden, because a non-empty one
+// disables the infinite-exec guard. Given the folded view it reports the token
+// FILE's contents as if somebody had exported it — so the guard trips on precisely
+// the machines it protects (every launchd warden, none of which sets OC_TOKEN) and
+// the whole fleet silently stops renewing.
+//
+// Both were plain `func(string) string`, so `newSelfUpdater(cfg, renv, logf)`
+// compiled, ran, and passed the entire suite — review measured it. A named func
+// type would not have helped: an unnamed func value converts to it implicitly.
+// A struct does not. Writing `rawEnv{lookup: renv}` still defeats it, and that is
+// the point: it is a visible decision in a diff instead of a typo, the same
+// standard sanctionedProcessStarters holds process-starting sites to.
+type rawEnv struct{ lookup func(string) string }
+
 // newSelfUpdater wires the real self-update engine: it resolves the LIVE binary
 // paths it will replace (ocwarden = our own executable; ocagent = the home sibling
 // via selfUpdateAgentPath — unconditional, unlike the spawn path's resolveOcAgentBin),
 // builds the Bearer-authed GET seam and the real filesystem/exec ops, and returns a
 // ready updater. Mirrors newCommandTransport's construction shape.
-func newSelfUpdater(cfg Config, env func(string) string, logf func(string, ...any)) *updater {
+func newSelfUpdater(cfg Config, env rawEnv, logf func(string, ...any)) *updater {
 	// The execSelf closure built below calls syscall.Exec, which REPLACES THE
 	// CALLING PROCESS IMAGE. Under `go test` that process is the test binary, so
 	// invoking it would not "start a subprocess" — it would silently become
@@ -643,8 +675,43 @@ func newSelfUpdater(cfg Config, env func(string) string, logf func(string, ...an
 	// construction rather than by the next author noticing. Production is
 	// unaffected: realMain only reaches here on the real forever-loop path.
 	refuseInTestBinary("newSelfUpdater")
-	selfPath := resolveSelfExe(os.Executable)
-	agentPath := selfUpdateAgentPath(os.Executable)
+	return buildSelfUpdater(cfg, env, logf, os.Executable, syscallExecImage)
+}
+
+// buildSelfUpdater is newSelfUpdater with the one host effect injected, and it
+// exists so that what this constructor WIRES can be observed.
+//
+// 🔴 WHY THIS SPLIT, AFTER ARGUING AGAINST IT. The previous round guarded the two
+// renewal lines below with a go/ast check and I wrote that the alternative was
+// "not a better test but no test", because changing production shape to suit an
+// assertion is backwards. Review then walked through the syntax check four times
+// without renaming anything: fold env at the call site
+// (`newRenewalWiring(cfg, tokfileEnv(env, os.ReadFile))`), put the call in a
+// branch production never takes (`if cfg.Token == ""`), or add ONE line after it
+// (`u.verify = nil`). Each ends with a fleet that never renews, or one that writes
+// an unconfirmed credential and execs into it, with the package green. A syntax
+// check reads names; none of those change a name.
+//
+// So the thing to fix was the UNOBSERVABILITY, not the check. And the shape was
+// already here: resolveSelfExe and selfUpdateAgentPath have taken an injected
+// `executable` since before this ticket — newSelfUpdater was the only caller
+// hard-coding os.Executable. refuseInTestBinary stays where the danger is (the
+// execSelf closure replaces the running process image, which under `go test`
+// means becoming ocwarden mid-suite), and everything it was incidentally hiding
+// becomes testable.
+// 🔴 execImage IS INJECTED, and the host-seam guard is why. The first version of
+// this split built the syscall.Exec closure inline here, and TestMain refused to
+// run the suite at all: buildSelfUpdater had become a process-starting site that
+// was not a sanctioned choke point. That refusal is correct — a test binary able
+// to CONSTRUCT the real exec seam can replace its own process image, and
+// "constructing is harmless as long as nobody calls it" is exactly the reasoning
+// that guard exists to reject. So the effect is a parameter, production passes the
+// real one, and the only thing a test can build is an updater whose execSelf goes
+// nowhere. newSelfUpdater keeps refuseInTestBinary because it is the site that
+// still hands over the real syscall.
+func buildSelfUpdater(cfg Config, env rawEnv, logf func(string, ...any), executable func() (string, error), execImage func(string, []string, []string) error) *updater {
+	selfPath := resolveSelfExe(executable)
+	agentPath := selfUpdateAgentPath(executable)
 
 	client := &http.Client{Timeout: selfUpdateHTTPTimeout}
 	// Separate, short-timeout client for the best-effort announce so a slow announce
@@ -668,16 +735,12 @@ func newSelfUpdater(cfg Config, env func(string) string, logf func(string, ...an
 		// tmux-bound already, there is no non-unix build of this module. stdout/
 		// stderr writes are unbuffered fd writes, but Sync best-effort anyway so
 		// nothing the kernel has pending is lost across the image replacement.
-		execSelf: func() error {
-			_ = os.Stdout.Sync()
-			_ = os.Stderr.Sync()
-			return syscall.Exec(selfPath, os.Args, os.Environ())
-		},
-		exit:    os.Exit,
-		logf:    logf,
-		post:    httpPoster(reportClient, cfg.Base, cfg.Token),
-		agentID: cfg.ID,
-		now:     time.Now,
+		execSelf: func() error { return execImage(selfPath, os.Args, os.Environ()) },
+		exit:     os.Exit,
+		logf:     logf,
+		post:     httpPoster(reportClient, cfg.Base, cfg.Token),
+		agentID:  cfg.ID,
+		now:      time.Now,
 	}
 	// Self-renewal, assembled by newRenewalWiring so the values are testable — this
 	// constructor is unreachable from any test (refuseInTestBinary above), so
@@ -686,6 +749,6 @@ func newSelfUpdater(cfg Config, env func(string) string, logf func(string, ...an
 	// It builds its own HTTP client rather than being handed one of the two here:
 	// the short announce budget beside the generous download client is one
 	// character away, and nothing could have told the two apart from a test.
-	u.apply(newRenewalWiring(cfg, env))
+	u.apply(newRenewalWiring(cfg, env.lookup))
 	return u
 }
