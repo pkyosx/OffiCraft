@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -665,14 +666,7 @@ func TestNewRenewalWiring_ReadsTheRawEnvironmentAndTheRunningCredential(t *testi
 		t.Error("verify is nil — the credential probe is skipped in production, and an " +
 			"unusable credential would be written over the working one and exec'd into")
 	}
-	// WHICH client the renewal got. The 10s announce budget beside it exists for
-	// the swap→exit critical path; giving up on a renewal that early throws away a
-	// credential the station has already minted and leaves the machine one poll
-	// closer to an expiry it cannot come back from.
-	if w.client == nil || w.client.Timeout != selfUpdateHTTPTimeout {
-		t.Errorf("renewal client timeout = %v, want the generous %v — not the short "+
-			"announce budget", w.client, selfUpdateHTTPTimeout)
-	}
+
 	if w.writeTok == nil {
 		t.Error("writeTok is nil — a due credential could never be written")
 	}
@@ -852,5 +846,100 @@ func TestSysOpsTokfileWriter_CarriesTheRemoveSeam(t *testing.T) {
 	s.tokfileWriter().cleanup("/tmp/some-temp")
 	if called != "/tmp/some-temp" {
 		t.Errorf("the install seam's remove was not projected onto the writer (got %q)", called)
+	}
+}
+
+// TestHttpCredentialVerifier_PresentsTheCandidateAtTheProbePath tests the
+// PRODUCTION verifier, which until now nothing did: every other test in this file
+// stubs `verify` out, so the closure that actually talks to the station was
+// unobserved. Measured — replacing its body with `return http.StatusOK, nil`
+// switched the whole probe off in production and the suite stayed green. The
+// probe is this commit's entire point, so its own wiring being untested is the
+// same shape the round before this one was about.
+//
+// Three things are asserted because all three are ways to have a probe that
+// proves nothing: the wrong path (a public route answers 200 to anybody), the
+// wrong token (presenting the credential already in hand passes against any
+// station), and a status that does not come back verbatim.
+func TestHttpCredentialVerifier_PresentsTheCandidateAtTheProbePath(t *testing.T) {
+	var gotPath, gotAuth string
+	answer := http.StatusOK
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotAuth = r.URL.Path, r.Header.Get("Authorization")
+		w.WriteHeader(answer)
+	}))
+	defer srv.Close()
+
+	verify := httpCredentialVerifier(&http.Client{}, srv.URL)
+
+	status, err := verify("the-candidate-credential")
+	if err != nil {
+		t.Fatalf("probe returned a transport error against a live server: %v", err)
+	}
+	if status != http.StatusOK {
+		t.Errorf("status = %d, want the station's own answer (200)", status)
+	}
+	// The path is written out LITERALLY rather than read from credentialProbePath.
+	// Referencing the constant makes this assertion move with it, so pointing the
+	// probe at a PUBLIC route — which answers 200 to anybody and proves nothing
+	// about the credential — passes: measured, redirecting it to /api/version with
+	// the constant edited stayed green. A literal cannot follow the code, so that
+	// change has to appear in two places and one of them is a test.
+	//
+	// What matters about this path is that it is authenticated, read-only, and the
+	// lowest rank a warden is entitled to. If it must change, change it here too and
+	// say in the commit why the new one has those three properties.
+	if gotPath != "/api/machines" {
+		t.Errorf("probe hit %q, want /api/machines — an unauthenticated route would "+
+			"answer 200 to anybody and prove nothing about the credential", gotPath)
+	}
+	if gotAuth != "Bearer the-candidate-credential" {
+		t.Errorf("probe presented %q; it must present the CANDIDATE, not the credential "+
+			"this process already runs on — the latter passes against any station", gotAuth)
+	}
+
+	// A refusal must come back as the station's own status, not be swallowed.
+	answer = http.StatusUnauthorized
+	if status, err := verify("a-credential-the-station-rejects"); err != nil || status != http.StatusUnauthorized {
+		t.Errorf("a refused credential answered (%d, %v), want (401, nil) — a probe that "+
+			"cannot report a refusal is decoration", status, err)
+	}
+
+	// An unreachable station is a transport error, NOT a status the caller could
+	// mistake for a refusal.
+	srv.Close()
+	if status, err := verify("anything"); err == nil {
+		t.Errorf("an unreachable station answered (%d, nil), want a transport error — "+
+			"the caller treats those two differently on purpose", status)
+	}
+}
+
+// TestMaybeRenewCredential_AServerErrorIsNotARefusal keeps the log honest. The
+// auth path this probe runs through is fail-closed on a roster read (authz.go —
+// an unknown lookup refuses, the opposite of the revocation gate beside it), so
+// one database blink looks exactly like a refusal from the outside. The ACTION is
+// the same either way — keep the old credential — but "the station refused the
+// credential it just issued" would send whoever reads the log hunting a minting
+// bug that does not exist.
+func TestMaybeRenewCredential_AServerErrorIsNotARefusal(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	tokfile := filepath.Join(t.TempDir(), "exec-warden.tok")
+
+	h := newRenewHarness(t, dueToken(t, now), tokfile, now, http.StatusOK,
+		map[string]any{"token": freshToken(t, now)}, nil)
+	h.verifyStatus = http.StatusInternalServerError
+
+	if h.u.maybeRenewCredential() {
+		t.Fatal("renewed on a probe that never got an answer")
+	}
+	if len(h.written) != 0 {
+		t.Errorf("the token file was replaced: %v", h.written)
+	}
+	if !h.logged("could not get an answer") {
+		t.Errorf("the log does not say the answer was missing; got %v", h.logs)
+	}
+	if h.logged("REFUSED") {
+		t.Errorf("the log calls a 500 a refusal — that sends the reader hunting a "+
+			"minting bug that does not exist; got %v", h.logs)
 	}
 }

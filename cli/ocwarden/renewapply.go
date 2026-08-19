@@ -85,11 +85,9 @@ func httpCredentialRenewer(client *http.Client, base, token string) credentialRe
 // well covered; whether production handed it the right values was not covered at
 // all.
 //
-// ⚠️ RESIDUAL GAP, stated rather than papered over: this makes the VALUES
-// testable, not the one line in newSelfUpdater that copies them onto the updater.
-// Dropping a field there still compiles and still goes green. Closing that needs
-// a static check of the shape hostseam_test.go uses, which is more machinery than
-// this ticket carries.
+// The copy onto the updater lives in apply() below rather than inside that
+// constructor, precisely so a test can call it — TestApply_CarriesEveryFieldOntoTheUpdater
+// is what stops a field being dropped there.
 type renewalWiring struct {
 	renew       credentialRenewer
 	verify      credentialVerifier
@@ -97,10 +95,6 @@ type renewalWiring struct {
 	tokfilePath string
 	token       string
 	envToken    string
-	// client is carried so a test can assert WHICH budget the renewal runs under.
-	// The 10s announce budget exists for the swap→exit critical path; a renewal
-	// that gives up early throws away a credential the station already minted.
-	client *http.Client
 }
 
 // newRenewalWiring resolves the renewal inputs from config and the RAW
@@ -122,7 +116,6 @@ func newRenewalWiring(cfg Config, env func(string) string) renewalWiring {
 		tokfilePath: tokfilePath(env),
 		token:       cfg.Token,
 		envToken:    env("OC_TOKEN"),
-		client:      client,
 	}
 }
 
@@ -266,6 +259,21 @@ func (u *updater) maybeRenewCredential() bool {
 		case err != nil:
 			u.logf("[ocwarden] renew: could not present the new credential to %s (%v) — "+
 				"nothing has been written; retrying on the next poll", credentialProbePath, err)
+			return false
+		case status >= 500:
+			// A server error is the station failing to ANSWER, not the station saying
+			// no — and the difference is load-bearing here, because the auth path this
+			// probe runs through is fail-closed on a roster read (authz.go: an unknown
+			// lookup refuses rather than admits, the opposite of the revocation gate
+			// beside it). One database blink therefore looks exactly like a refusal
+			// from the outside. Both keep the old credential, so the ACTION is the
+			// same; what differs is what the log tells whoever reads it next, and
+			// "the station refused the credential it just issued" would send them
+			// hunting a minting bug that does not exist.
+			u.logf("[ocwarden] renew: could not get an answer about the new credential "+
+				"(%s answered %d) — keeping the current credential; retrying on the next "+
+				"poll. This says nothing about the credential itself.",
+				credentialProbePath, status)
 			return false
 		case status != http.StatusOK:
 			u.logf("[ocwarden] renew: the station REFUSED the credential it just issued "+
