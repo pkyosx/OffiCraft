@@ -1158,6 +1158,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/machines/renew-credential": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Renew the CALLER's own machine credential. Takes no body and names no target — the machine acted on is the caller's verified sub, so one machine cannot renew another's.
+         * @description Renew the CALLER's own machine credential (``POST /api/machines/renew-credential``).
+         *
+         *     A warden trades the credential it is already holding for a freshly minted one for the SAME machine, so a credential approaching its expiry does not require anyone to go and reinstall that host. The response carries a newly minted exec-token (``scope="agent"``, ``sub=machine_id`` — the same mint every warden install path performs), ``expires_in``, and the ``machine_id`` the token is bound to.
+         *
+         *     IT TAKES NO BODY, AND THAT IS THE SECURITY PROPERTY. The machine acted on is the caller's own verified ``sub``, so "one machine cannot renew another's credential" holds BY CONSTRUCTION — there is no field on this request that could name a different machine, rather than a target field plus a comparison somebody has to remember to write.
+         *
+         *     Auth: the caller's existing machine credential. The route sits on the ``machine`` principal class, which is the LOWEST rank and which an ordinary agent also clears — the route choke is therefore NOT what keeps this warden-only; the handler is (it refuses any caller whose member row is not an ACTIVE machine, with a 403). A machine deleted from the roster never reaches the handler at all: the auth gate's revocation refusal turns its credential away first.
+         *
+         *     The OLD credential is not invalidated by this call: verification is stateless, so both remain valid until they expire. Renewal is additive, and the caller is expected to write the new one over its own token file.
+         */
+        post: operations["handle_renew_machine_credential_api_machines_renew_credential_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/machines/{machine_id}": {
         parameters: {
             query?: never;
@@ -11111,6 +11139,35 @@ export interface operations {
             };
             /** @description Server error (unified error envelope). */
             "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_renew_machine_credential_api_machines_renew_credential_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MachineClaimResultDTO"];
+                };
+            };
+            /** @description Error (unified error envelope). */
+            "4XX": {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -684,6 +684,50 @@ func (s *apiServer) HandleClaimMachineTokenApiMachinesClaimPost(w http.ResponseW
 	})
 }
 
+// renewNotAWardenMsg answers a caller that is authenticated but is not a
+// machine. It is deliberately NOT the undisclosed 404 the claim seam uses:
+// there is nothing to keep secret here, because the only machine this endpoint
+// can ever act on is the caller itself.
+const renewNotAWardenMsg = "only a machine credential can be renewed here; " +
+	"this endpoint acts on the caller and takes no target"
+
+// POST /api/machines/renew-credential — a warden trades the credential it is
+// already holding for a freshly minted one for the SAME machine.
+//
+// IT TAKES NO BODY, AND THAT IS THE SECURITY PROPERTY. The machine acted on is
+// the caller's own verified `sub`, so "you cannot renew someone else's
+// credential" holds by construction rather than by a comparison somebody has to
+// remember to write — there is no field on this request that could name another
+// machine. Do not add one for the sake of looking like the rest of the machine
+// routes: a target parameter plus a check is strictly weaker than no target.
+//
+// The route sits on principalMachine, which is the LOWEST rank — an ordinary
+// agent clears it too. The route choke is therefore NOT what keeps this
+// warden-only; resolveMachine is (it refuses anything whose Kind is not
+// machineKind, and anything not RosterStatusActive).
+//
+// A machine deleted from the roster never reaches this handler at all: the auth
+// gate's revocation refusal turns its credential away first. That is a
+// different gate's guarantee, so the test suite pins it here rather than
+// assuming it — a guard you inherit is a guard you have to keep measuring.
+func (s *apiServer) HandleRenewMachineCredentialApiMachinesRenewCredentialPost(w http.ResponseWriter, r *http.Request) {
+	machine, err := s.resolveMachine(currentActor(r))
+	if err != nil {
+		writeError(w, http.StatusForbidden, renewNotAWardenMsg)
+		return
+	}
+	token, err := s.mintWardenToken(*machine)
+	if err != nil {
+		writeError(w, http.StatusForbidden, renewNotAWardenMsg)
+		return
+	}
+	writeJSON(w, http.StatusOK, machineClaimResultDTO{
+		Token:     token,
+		ExpiresIn: 0,
+		MachineID: machine.ID,
+	})
+}
+
 // ---------------------------------------------------------------------------
 // child env — ALLOWLIST (fail-closed), not a denylist
 // ---------------------------------------------------------------------------

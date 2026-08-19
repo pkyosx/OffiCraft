@@ -901,6 +901,20 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary:    "Exchange a one-time claim code for the machine's exec-token.",
 			MCPExclude: true, // a credential-exchange seam (like /api/login), not an agent tool
 		},
+		// The renew seam a warden drives itself, so a credential that is about
+		// to expire does not need anybody to go and reinstall that machine.
+		// principalMachine is the LOWEST rank and an ordinary agent clears it —
+		// but principalAgent would lock the WARDEN out (machine ranks BELOW
+		// agent), so the warden-only property lives in the handler, not here.
+		{
+			Method:     "POST",
+			Path:       "/api/machines/renew-credential",
+			Handler:    w.HandleRenewMachineCredentialApiMachinesRenewCredentialPost,
+			Auth:       authGated,
+			Requires:   principalMachine,
+			Summary:    "Renew the CALLER's own machine credential. Takes no body and names no target — the machine acted on is the caller's verified sub, so one machine cannot renew another's.",
+			MCPExclude: true, // a credential-mint seam (like claim/onboard), not an agent tool
+		},
 		// T-6020 (owner 2026-07-26): the two on-server host lifecycle faces open
 		// to admin_agent — installing/tearing down the server host's own warden
 		// is office operations. A plain agent is still 403 (rank<2).

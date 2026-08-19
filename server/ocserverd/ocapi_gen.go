@@ -3604,6 +3604,9 @@ type ServerInterface interface {
 	// Exchange a one-time claim code for the machine's exec-token.
 	// (POST /api/machines/claim)
 	HandleClaimMachineTokenApiMachinesClaimPost(w http.ResponseWriter, r *http.Request)
+	// Renew the CALLER's own machine credential. Takes no body and names no target — the machine acted on is the caller's verified sub, so one machine cannot renew another's.
+	// (POST /api/machines/renew-credential)
+	HandleRenewMachineCredentialApiMachinesRenewCredentialPost(w http.ResponseWriter, r *http.Request)
 	// Set a machine's display name (id = stable host). Blank name → 422.
 	// (PATCH /api/machines/{machine_id})
 	HandleUpdateMachineApiMachinesMachineIdPatch(w http.ResponseWriter, r *http.Request, machineId string)
@@ -5040,6 +5043,20 @@ func (siw *ServerInterfaceWrapper) HandleClaimMachineTokenApiMachinesClaimPost(w
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleClaimMachineTokenApiMachinesClaimPost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleRenewMachineCredentialApiMachinesRenewCredentialPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleRenewMachineCredentialApiMachinesRenewCredentialPost(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleRenewMachineCredentialApiMachinesRenewCredentialPost(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7954,6 +7971,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/machines", wrapper.HandleListMachinesApiMachinesGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/machines", wrapper.HandleOnboardMachineApiMachinesPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/machines/claim", wrapper.HandleClaimMachineTokenApiMachinesClaimPost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/machines/renew-credential", wrapper.HandleRenewMachineCredentialApiMachinesRenewCredentialPost)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/machines/{machine_id}", wrapper.HandleUpdateMachineApiMachinesMachineIdPatch)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/machines/{machine_id}/boot-command", wrapper.HandleMachineBootCommandApiMachinesMachineIdBootCommandGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/machines/{machine_id}/bootstrap-here", wrapper.HandleBootstrapHereApiMachinesMachineIdBootstrapHerePost)

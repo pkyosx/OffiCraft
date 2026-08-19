@@ -652,6 +652,20 @@ var machineFloorWriteRulings = map[string]machineFloorRuling{
 			"otherwise an agent hires itself an 'assistant' and walks up the ladder. The " +
 			"floor here is half of a two-part decision, not an unguarded route.",
 	},
+	"POST /api/machines/renew-credential": {
+		Ruling: "T-fc53 · owner 2026-08-19 提案「到期前自動換發」",
+		Why: "the floor is FORCED here, not chosen: principalMachine ranks BELOW " +
+			"principalAgent, so principalAgent would lock the WARDEN — the only " +
+			"intended caller — out of its own renewal. The floor therefore admits " +
+			"any authenticated principal, and the guard is inside the handler: " +
+			"resolveMachine refuses every caller whose row is not an ACTIVE machine. " +
+			"What an ordinary agent could reach if that handler check were dropped " +
+			"is a PERMANENT credential for itself, which is exactly what " +
+			"mintWardenToken's kind check exists to prevent — so the handler guard " +
+			"carries a mutant of its own in api_machines_renew_tfc53_test.go. " +
+			"The route also names NO target: the machine acted on is the caller's " +
+			"verified sub, so the floor grants 'renew yourself', never 'renew anyone'.",
+	},
 	"POST /api/self/waking":   selfOpRuling,
 	"POST /api/self/stopping": selfOpRuling,
 	"POST /api/self/stopped":  selfOpRuling,

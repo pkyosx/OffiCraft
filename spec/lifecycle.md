@@ -132,6 +132,31 @@ ceiling for non-warden agent-token mints.
 
   For every other agent token, expiry stays the only invalidation.
 
+### 1.4 Credential renewal (`POST /api/machines/renew-credential`)
+
+A machine MUST be able to replace its own credential without anyone reinstalling that
+host. Reinstalling is the only way to change a machine's credential today, and it stops
+the running daemon to do it — a cost that buys nothing when the credential is the only
+thing that needed replacing.
+
+- The endpoint MUST take **no request body and no target parameter**. The machine acted
+  on is the caller's verified `sub`. "One machine cannot renew another's credential" is
+  therefore a property of the request SHAPE, and an implementation MUST NOT satisfy it
+  instead with a target field plus a comparison.
+- It MUST refuse any caller whose member row is not an ACTIVE machine (`kind` = warden,
+  roster status active). The route's principal class MUST NOT be relied on for this:
+  the machine class ranks BELOW the ordinary agent class, so the choke that would admit
+  a warden admits an ordinary agent too.
+- On success it MUST mint through the same warden mint every install path uses, and
+  answer the token, its `expires_in`, and the `machine_id` it is bound to.
+- The previous credential MUST NOT be invalidated by the renewal. Verification is
+  stateless, so both remain valid until they expire; renewal is additive. A caller that
+  cannot persist the new credential MUST therefore still be running on the old one.
+- A machine removed from the roster MUST NOT be able to renew. This follows from §1.2
+  rather than from this endpoint, and an implementation MUST pin WHICH refusal answers:
+  while warden credentials carry no `exp`, the permanent-credential refusal answers
+  first and the roster-revocation arm is never reached on this route.
+
 ## 2. Boot context — the three-block assembly
 
 The single shared fold both boot paths use (`POST /api/bootstrap` and the reconcile START

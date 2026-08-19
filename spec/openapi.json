@@ -10800,6 +10800,38 @@
         }
       }
     },
+    "/api/machines/renew-credential": {
+      "post": {
+        "description": "Renew the CALLER's own machine credential (``POST /api/machines/renew-credential``).\n\nA warden trades the credential it is already holding for a freshly minted one for the SAME machine, so a credential approaching its expiry does not require anyone to go and reinstall that host. The response carries a newly minted exec-token (``scope=\"agent\"``, ``sub=machine_id`` — the same mint every warden install path performs), ``expires_in``, and the ``machine_id`` the token is bound to.\n\nIT TAKES NO BODY, AND THAT IS THE SECURITY PROPERTY. The machine acted on is the caller's own verified ``sub``, so \"one machine cannot renew another's credential\" holds BY CONSTRUCTION — there is no field on this request that could name a different machine, rather than a target field plus a comparison somebody has to remember to write.\n\nAuth: the caller's existing machine credential. The route sits on the ``machine`` principal class, which is the LOWEST rank and which an ordinary agent also clears — the route choke is therefore NOT what keeps this warden-only; the handler is (it refuses any caller whose member row is not an ACTIVE machine, with a 403). A machine deleted from the roster never reaches the handler at all: the auth gate's revocation refusal turns its credential away first.\n\nThe OLD credential is not invalidated by this call: verification is stateless, so both remain valid until they expire. Renewal is additive, and the caller is expected to write the new one over its own token file.",
+        "operationId": "handle_renew_machine_credential_api_machines_renew_credential_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineClaimResultDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Error (unified error envelope)."
+          }
+        },
+        "summary": "Renew the CALLER's own machine credential. Takes no body and names no target \u2014 the machine acted on is the caller's verified sub, so one machine cannot renew another's.",
+        "x-mcp": {
+          "include": false
+        }
+      }
+    },
     "/api/machines/{machine_id}": {
       "patch": {
         "description": "Set a machine's display name (AMD step1). PATCH semantics — upserts the\ndisplay-name overlay keyed by the STABLE host string (``machine_id``); the id\nitself never changes, so the roster host-grouping the monitoring fold keys on\nis untouched. A blank ``display_name`` is a 422. A host is a free roster string\nwith no standalone row, so ANY non-empty id is aliasable.",
