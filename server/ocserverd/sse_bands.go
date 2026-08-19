@@ -248,9 +248,20 @@ type contextHighSignal struct {
 // notice carries — an agent told at step 4 that its task manual has 167
 // characters left has no time left to do anything but delete words until the
 // write fits. Told at the SOFT notice, it still has the whole close-out ahead
-// of it. `docCapacity` is a closure for the same reason `offboard` is: it costs
-// a handful of reads and must not run on the idle path of every connection to
-// serve a frame that fires once per session.
+// of it.
+//
+// ⚠️ `offboard` and `docCapacity` are closures so a tick that decides to stay
+// QUIET never pays for them — and that is ALL the closure buys. It does NOT
+// make them once-per-session: this function keeps no state, so once an agent is
+// past its notice point it returns non-nil on EVERY tick and runs both closures
+// on every one of them, until the session ends. Two comments here used to claim
+// the opposite ("must not run on the idle path of every connection to serve a
+// frame that fires once per session"); the independent review measured the tick
+// at 21.3µs → 574.2µs (26.9×, empty station) precisely because the claim was
+// false. What actually bounds the cost is the CALLER refusing to
+// call this once the session's one notice is spent — api_infra.go's
+// handoverNoticeTick asks handoverNoticeSettled first, and
+// TestHandoverNoticeTick_ClosuresAreNotRunAfterTheClaim counts the calls.
 func decideHandoverNotice(
 	agentID, runtime string, record map[string]any,
 	cfg SseContextHighConfig, codexNoticeRound, codexThreshold int,
@@ -279,9 +290,10 @@ func decideHandoverNotice(
 		where = fmt.Sprintf("context %v%% (your limits: %d%% / %d%%)",
 			formatPct(*pct), cfg.NoticePct, cfg.HandoverPct)
 	}
-	// The document is read ONLY once the notice is going out. Reading it on
-	// every quiet tick would put a DB fold on the idle path of every connection
-	// to serve a frame that fires once per session.
+	// Read only once THIS tick has decided to speak — a quiet tick (below the
+	// notice point / wrong compaction round) pays nothing. It is NOT read once
+	// per session: every tick from here to the end of the session reaches this
+	// line, which is why the caller short-circuits before entering at all.
 	var text string
 	if offboard != nil {
 		text = offboard()

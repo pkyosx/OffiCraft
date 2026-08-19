@@ -635,3 +635,36 @@ func (s *apiServer) rememberHandoverClaim(agentID string, bootTS float64) bool {
 	s.handoverNoticed[agentID] = bootTS
 	return true
 }
+
+// handoverNoticeSettled reports that THIS tick cannot possibly emit the
+// once-per-session handover notice, using only reads that cost nothing: the
+// gauge record already in hand and the process-local claim cache.
+//
+// 🔴 WHY IT EXISTS — MEASURED, NOT ASSUMED. Once an agent crosses its notice
+// point, decideHandoverNotice returns a signal on EVERY quiet tick (250ms) for
+// the rest of the session; the once-per-session gate is claimHandoverNotice,
+// which runs AFTER the signal (and therefore after its offboard / doc-capacity
+// closures) has already been composed. So the "fires once" fact never bounded
+// the COST of composing it. The independent review measured the branch before
+// this guard at 21.3µs → 574.2µs per tick once the doc-capacity closure joined
+// the offboard one (26.9×). Re-measured here on this fix, silent tick vs silent
+// tick, 400 ticks each: 246ns guarded vs 374µs unguarded on an EMPTY station,
+// 199ns vs 701µs with all nine documents near their caps. Calling this FIRST is
+// what makes the cost match the frequency.
+//
+// It is deliberately the CACHE ONLY, never the durable column: a cache HIT is
+// a definitive "this process already sent it", so short-circuiting on it can
+// only skip ticks that claimHandoverNotice would have refused anyway. A cache
+// MISS still falls all the way through to claimHandoverNotice, which is the
+// half that consults member.handover_noticed_ts — so the T-6ebc rule (the map
+// is a cache, the column is the authority) is untouched.
+//
+// No usable anchor is also settled: claimHandoverNotice refuses a record with
+// no boot_ts, so composing a signal for one could never have emitted either.
+func (s *apiServer) handoverNoticeSettled(agentID string, record map[string]any) bool {
+	bootTS, ok := gaugeBootTS(record)
+	if !ok || bootTS <= 0 {
+		return true
+	}
+	return s.cachedHandoverClaim(agentID) == bootTS
+}

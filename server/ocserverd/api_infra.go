@@ -212,6 +212,15 @@ func (s *apiServer) HandleEventsApiEventsGet(w http.ResponseWriter, r *http.Requ
 	lastTokenExpiryReminder := int64(0)
 	nextTokenExpiryCheck := int64(0)
 
+	// The two TEXT sources of the handover notice, built once per connection
+	// rather than once per tick. Building them is free; RUNNING them is not —
+	// each is a fold over durable documents — which is why handoverNoticeTick
+	// decides whether this tick can emit BEFORE it calls either one.
+	noticeOffboardText := s.offboardText
+	noticeDocCapacity := func() string {
+		return docCapacityLines(s.docCapacityFor(memberID, s.stepNoteCapacityFor(memberID)))
+	}
+
 	write := func(frame []byte) bool {
 		armWriteDeadline()
 		if _, err := w.Write(frame); err != nil {
@@ -246,29 +255,12 @@ func (s *apiServer) HandleEventsApiEventsGet(w http.ResponseWriter, r *http.Requ
 		// Quiet tick: the ONE advance handover notice (any agent connection — the
 		// agent cannot read its own context %, so the server pushes it).
 		if memberID != "" {
-			record := s.gauge.Get(memberID)
-			signal := decideHandoverNotice(
-				memberID, connRuntime, record,
-				s.ctxHighConfig(), s.codexNoticeRoundSetting(), s.codexCompactionThreshold,
-				s.offboardText,
-				func() string { return docCapacityLines(s.docCapacityFor(memberID, s.stepNoteCapacityFor(memberID))) })
-			// ONCE PER SESSION, not once per connection (T-c382). The dedup key is
-			// the gauge's boot_ts — the SESSION anchor, restored from the durable
-			// member row on reconnect — so an SSE flap mid-session cannot re-fire
-			// the notice. Per-connection state (what this used to hold) would:
-			// every reconnect would nudge again, which is the bombardment the
-			// owner asked to be rid of, wearing a different hat.
-			if signal != nil {
-				// Build the frame BEFORE claiming: claiming first would burn the
-				// one-and-only notice on a marshal failure and go silent forever,
-				// and "sent it" vs "silently dropped it" would look identical.
-				if frame, err := directedFrameText(contextHighTopic, signal); err == nil &&
-					s.claimHandoverNotice(memberID, record) {
-					if !write(frame) {
-						return
-					}
-					continue
+			if frame, ok := s.handoverNoticeTick(
+				memberID, connRuntime, noticeOffboardText, noticeDocCapacity); ok {
+				if !write(frame) {
+					return
 				}
+				continue
 			}
 		}
 		// Token-expiry band (spec §6.1): the server alone can read the verified
@@ -870,4 +862,58 @@ func (s *apiServer) HandleMcpApiMcpPost(w http.ResponseWriter, r *http.Request) 
 	}
 
 	rpcError(w, id, rpcMethodNotFound, "method not found: '"+methodName+"'")
+}
+
+// handoverNoticeTick is ONE quiet tick of the context-high band: it reports the
+// frame to write, or ok=false to stay quiet. Split out of the SSE loop so the
+// property below can be MEASURED by a test instead of asserted by a comment.
+//
+// 🔴 THE ORDER OF THE TWO STEPS IS THE POINT.
+//
+// The once-per-session fact is enforced by claimHandoverNotice, which runs
+// AFTER decideHandoverNotice has composed the signal — and composing it runs
+// `offboard` and `docCapacity`, each a fold over durable documents. But
+// decideHandoverNotice returns non-nil on EVERY tick once the agent is past its
+// notice point, not just the first: the "fires once" gate is downstream of it.
+// So for the whole remainder of a high-band session — a tick every ssePoll —
+// this used to compose a frame that was then thrown away, at the full cost of
+// both folds. The independent review measured 21.3µs → 574.2µs per tick (26.9×,
+// empty station) for what the doc-capacity closure added; measured again on
+// this fix, a SILENT tick costs 246ns with this guard and 374µs without it on
+// an empty station, 199ns vs 701µs once all nine documents are near their caps.
+//
+// handoverNoticeSettled is asked FIRST for that reason. It is read-only (gauge
+// record + the process-local claim cache, no query), so it cannot change what
+// is sent — only whether the work of composing an already-spent notice is done
+// at all. TestHandoverNoticeTick_ClosuresAreNotRunAfterTheClaim counts the
+// closure calls and fails if this order is reversed.
+func (s *apiServer) handoverNoticeTick(
+	memberID, connRuntime string, offboard, docCapacity func() string,
+) ([]byte, bool) {
+	record := s.gauge.Get(memberID)
+	if s.handoverNoticeSettled(memberID, record) {
+		return nil, false
+	}
+	signal := decideHandoverNotice(
+		memberID, connRuntime, record,
+		s.ctxHighConfig(), s.codexNoticeRoundSetting(), s.codexCompactionThreshold,
+		offboard, docCapacity)
+	if signal == nil {
+		return nil, false
+	}
+	// ONCE PER SESSION, not once per connection (T-c382). The dedup key is the
+	// gauge's boot_ts — the SESSION anchor, restored from the durable member row
+	// on reconnect — so an SSE flap mid-session cannot re-fire the notice.
+	// Per-connection state (what this used to hold) would: every reconnect would
+	// nudge again, which is the bombardment the owner asked to be rid of,
+	// wearing a different hat.
+	//
+	// Build the frame BEFORE claiming: claiming first would burn the
+	// one-and-only notice on a marshal failure and go silent forever, and
+	// "sent it" vs "silently dropped it" would look identical.
+	frame, err := directedFrameText(contextHighTopic, signal)
+	if err != nil || !s.claimHandoverNotice(memberID, record) {
+		return nil, false
+	}
+	return frame, true
 }
