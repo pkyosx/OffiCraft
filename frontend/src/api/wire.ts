@@ -321,13 +321,20 @@ export type WireBackupHealth = components["schemas"]["BackupHealthDTO"];
 /** Mirrors `ResumeOverviewDTO`: the size/概要 block of a resume snapshot — the
  * peek-then-decide counts/sizes (chat_count/chat_chars/tasks_returned/
  * tasks_open_total/tasks_detail_chars/cards_waiting/cards_answered_recent, plus
- * roster_chars/machines_chars for the studio-floor blocks — T-1b09). */
+ * roster_chars/machines_chars and the answered-card pointer count/size. */
 export type WireResumeOverview = components["schemas"]["ResumeOverviewDTO"];
 
 /** Mirrors `ResumeTaskDTO`: one LIGHT open-task row inside a resume snapshot
  * (task_no/title/type_key/status/priority/current node/progress; NO steps,
- * NO DoD text — `get_task` pulls the detail). */
+ * NO DoD text — `get_task` pulls the detail). The optional
+ * `answered_card_steps` list is a pointer to cards already answered by the
+ * owner, not a completion verdict. */
 export type WireResumeTask = components["schemas"]["ResumeTaskDTO"];
+
+/** Mirrors `ResumeAnsweredCardStepDTO`: one in-progress step whose latest
+ * reply card is answered. The card body is intentionally not carried here. */
+export type WireResumeAnsweredCardStep =
+  components["schemas"]["ResumeAnsweredCardStepDTO"];
 
 /** Mirrors `ResumeSummaryDTO` (`GET /api/members/{member_id}/resume-summary`):
  * the SAME bounded wake snapshot `GET /api/resume-summary` returns for the

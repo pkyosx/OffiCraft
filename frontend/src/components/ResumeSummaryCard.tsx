@@ -447,6 +447,16 @@ export function ResumeSummaryCard({ agentId }: { agentId: string }) {
           t.mp.resumeSummary.cardsAnsweredRecent,
           state.data.overview.cardsAnsweredRecent,
         ],
+        [
+          "stepsOnAnsweredCard",
+          t.mp.resumeSummary.stepsOnAnsweredCard,
+          state.data.overview.stepsOnAnsweredCard,
+        ],
+        [
+          "stepsOnAnsweredCardChars",
+          t.mp.resumeSummary.answeredCardStepChars,
+          state.data.overview.stepsOnAnsweredCardChars,
+        ],
         // The two studio-floor block sizes. They belong next to the other
         // figures for the same reason the blocks themselves belong on screen:
         // the agent's copy reports them, so hiding them here would be one more
@@ -650,10 +660,36 @@ export function ResumeSummaryCard({ agentId }: { agentId: string }) {
                   </div>
                 ) : (
                   state.data.tasks.map((rt) => (
-                    <div className="mp-resume__taskrow" key={rt.id}>
-                      <code className="mp-resume__taskno">{rt.taskNo}</code>
-                      <span className="mp-resume__tasktitle">{rt.title}</span>
-                      <span className="mp-resume__taskstatus">{rt.status}</span>
+                    <div className="mp-resume__task" key={rt.id}>
+                      <div className="mp-resume__taskrow">
+                        <code className="mp-resume__taskno">{rt.taskNo}</code>
+                        <span className="mp-resume__tasktitle">{rt.title}</span>
+                        <span className="mp-resume__taskstatus">{rt.status}</span>
+                      </div>
+                      {rt.answeredCardSteps.length > 0 && (
+                        <div
+                          className="mp-resume__answeredcard"
+                          data-testid="mp-resume-task-answered-card"
+                        >
+                          <div className="mp-resume__answeredcardlabel">
+                            {t.mp.resumeSummary.answeredCardSteps}
+                          </div>
+                          {rt.answeredCardSteps.map((step) => (
+                            <div
+                              className="mp-resume__answeredcardstep"
+                              data-testid="mp-resume-answered-card-step"
+                              key={step.stepId}
+                            >
+                              <span className="mp-resume__answeredcardstepname">
+                                {step.stepName}
+                              </span>
+                              <code className="mp-resume__answeredcardid">
+                                {step.cardId}
+                              </code>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))
                 )}

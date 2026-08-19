@@ -1008,10 +1008,14 @@ export const zh = {
       tasksDetailChars: "任務細節字數",
       cardsWaiting: "等待回覆卡",
       cardsAnsweredRecent: "近期已回覆卡",
+      stepsOnAnsweredCard: "已回答卡上的步驟",
+      answeredCardStepChars: "已回答卡步驟字數",
       chatSection: "近期聊天",
       chatEmpty: "尚無聊天訊息",
       tasksSection: "進行中任務",
       tasksEmpty: "尚無進行中任務",
+      // 這是 server 給的指標，不是完成標記；owner 的回覆可能要求改做。
+      answeredCardSteps: "卡在已回答卡上的步驟（請先讀卡，不代表已完成）",
       // 抬頭:這份快照是什麼時候拍的。它是把底下每一個 ts_display 讀成
       // 「多久以前」的唯一錨點——讀的人(不論是 agent 還是 owner)沒有
       // 一個可信的時鐘可以拿來對。

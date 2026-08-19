@@ -75,6 +75,7 @@ import type {
   MemberResumeSummaryView,
   ResumeRosterMemberView,
   ResumeMachinesView,
+  ResumeAnsweredCardStepView,
   ResumeTaskView,
   ThemeListItem,
   ThemeWriteReceipt,
@@ -2547,6 +2548,18 @@ export const mockApi: Api = {
           (sum, s) => sum + s.name.length + s.dod.length,
           0
         );
+        const answeredCardSteps: ResumeAnsweredCardStepView[] = t.steps
+          .filter(
+            (s) =>
+              s.status === "in_progress" &&
+              s.replyCardId !== "" &&
+              mockReplyCardStatusOf(s.replyCardId) === "answered"
+          )
+          .map((s) => ({
+            stepId: s.id,
+            stepName: s.name,
+            cardId: s.replyCardId,
+          }));
         return {
           id: t.id,
           taskNo: t.taskNo,
@@ -2561,8 +2574,11 @@ export const mockApi: Api = {
           progressTotal: t.progressTotal,
           updatedTs: t.updatedTs,
           detailChars,
+          answeredCardSteps,
         };
       });
+
+    const answeredCardSteps = tasksOut.flatMap((t) => t.answeredCardSteps);
 
     const cardsForMember = replyCards.filter((c) => c.from === memberId);
     const dayAgoTs = Date.now() / 1000 - 86400;
@@ -2655,6 +2671,15 @@ export const mockApi: Api = {
         ),
         machinesChars: machines.list.reduce(
           (sum: number, m) => sum + m.machineId.length + m.displayName.length,
+          0
+        ),
+        stepsOnAnsweredCard: answeredCardSteps.length,
+        stepsOnAnsweredCardChars: answeredCardSteps.reduce(
+          (sum, s) =>
+            sum +
+            [...s.stepId].length +
+            [...s.stepName].length +
+            [...s.cardId].length,
           0
         ),
       },

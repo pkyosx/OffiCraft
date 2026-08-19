@@ -90,6 +90,7 @@ function mkSnapshot(): MemberResumeSummaryView {
         progressTotal: 3,
         updatedTs: 2000,
         detailChars: 42,
+        answeredCardSteps: [],
       },
     ],
     // 🔴 Deliberately distinct, mutually non-substring 3-4 digit numbers —
@@ -109,6 +110,8 @@ function mkSnapshot(): MemberResumeSummaryView {
       cardsAnsweredRecent: 718,
       rosterChars: 4196,
       machinesChars: 1583,
+      stepsOnAnsweredCard: 0,
+      stepsOnAnsweredCardChars: 0,
     },
     note: "BOUNDED snapshot",
     generatedAt: "2026-08-13 09:47:11 +08:00",

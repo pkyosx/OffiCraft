@@ -93,6 +93,7 @@ import type {
   WireTaskReassign,
   WireResumeOverview,
   WireResumeTask,
+  WireResumeAnsweredCardStep,
   WireResumeSummary,
   WireResumeRosterMember,
   WireResumeMachines,
@@ -120,6 +121,7 @@ import type {
   WebhookRequestLog,
   ScheduledMessage,
   ResumeOverviewView,
+  ResumeAnsweredCardStepView,
   ResumeTaskView,
   MemberResumeSummaryView,
   ResumeRosterMemberView,
@@ -1579,6 +1581,8 @@ const EMPTY_RESUME_OVERVIEW: ResumeOverviewView = {
   cardsAnsweredRecent: 0,
   rosterChars: 0,
   machinesChars: 0,
+  stepsOnAnsweredCard: 0,
+  stepsOnAnsweredCardChars: 0,
 };
 
 /** Map one wire resume-snapshot overview block → the view model (pure
@@ -1597,19 +1601,26 @@ export function toResumeOverview(w: WireResumeOverview): ResumeOverviewView {
     // which is exactly what a 0-length block means.
     rosterChars: w.roster_chars ?? 0,
     machinesChars: w.machines_chars ?? 0,
+    // These are optional for older servers. Zero means this snapshot carries
+    // no answered-card pointers; it never means every task is clear.
+    stepsOnAnsweredCard: w.steps_on_answered_card ?? 0,
+    stepsOnAnsweredCardChars: w.steps_on_answered_card_chars ?? 0,
   };
 }
 
-// TODO(T-f278): the cockpit does not carry the answered-card signal. The wire
-// has `answered_card_steps` on this row and `steps_on_answered_card` /
-// `steps_on_answered_card_chars` on the overview above; neither this mapper nor
-// `toResumeOverview` reads them, and `ResumeTaskView` / `ResumeOverviewView` do
-// not declare them. Both wire fields are optional, so TS stays green and the
-// parity roll-call stays green — this is EXACTLY the shape the 🔴 note on
-// `toMemberResumeSummary` below warns about (`roster`/`machines` dropped on the
-// floor with nothing red), reproduced in the same function. The owner's ruling
-// for this ticket was "開機時主動撈" only, so wiring the panel is deliberately
-// NOT done here — it needs its own ask before anyone extends the view model.
+/** Map one answered-card pointer. It carries only a step/card address; the
+ * answer itself remains behind `get_reply_card`, and this pointer never means
+ * the step is complete. */
+export function toResumeAnsweredCardStep(
+  w: WireResumeAnsweredCardStep,
+): ResumeAnsweredCardStepView {
+  return {
+    stepId: w.step_id,
+    stepName: w.step_name,
+    cardId: w.card_id,
+  };
+}
+
 /** Map one wire resume-snapshot LIGHT task row → the view model. */
 export function toResumeTask(w: WireResumeTask): ResumeTaskView {
   return {
@@ -1626,6 +1637,10 @@ export function toResumeTask(w: WireResumeTask): ResumeTaskView {
     progressTotal: w.progress_total,
     updatedTs: w.updated_ts ?? 0,
     detailChars: w.detail_chars,
+    // An absent optional list is the normal, honest no-pointer case.
+    answeredCardSteps: (w.answered_card_steps ?? []).map(
+      toResumeAnsweredCardStep,
+    ),
   };
 }
 

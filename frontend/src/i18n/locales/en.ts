@@ -941,10 +941,15 @@ export const en: Dict = {
       tasksDetailChars: "Task detail chars",
       cardsWaiting: "Waiting reply cards",
       cardsAnsweredRecent: "Recently answered cards",
+      stepsOnAnsweredCard: "Steps on answered cards",
+      answeredCardStepChars: "Answered-card step chars",
       chatSection: "Recent chat",
       chatEmpty: "No chat messages",
       tasksSection: "Open tasks",
       tasksEmpty: "No open tasks",
+      // This is a pointer from the server, not a completion marker; the
+      // owner's answer may require a change.
+      answeredCardSteps: "Steps on answered cards (read the card; not done)",
       generatedAtLabel: "This snapshot was taken at",
       // 🔴 THE PER-MESSAGE MARK IS A MARK, NOT A SENTENCE. It used to be
       // "This message is folded — 46 characters kept on the server (re-read it

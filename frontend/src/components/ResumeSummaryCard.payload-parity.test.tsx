@@ -55,6 +55,8 @@ const WIRE: WireResumeSummary = {
     cards_answered_recent: 718,
     roster_chars: 4196,
     machines_chars: 1583,
+    steps_on_answered_card: 2,
+    steps_on_answered_card_chars: 154,
   },
   chat: [
     {
@@ -124,6 +126,18 @@ const WIRE: WireResumeSummary = {
       progress_total: 3,
       updated_ts: 1786000900,
       detail_chars: 375,
+      answered_card_steps: [
+        {
+          step_id: "step-answered-1",
+          step_name: "先讀 owner 回覆",
+          card_id: "rc-answered-1",
+        },
+        {
+          step_id: "step-answered-2",
+          step_name: "依回覆調整方案",
+          card_id: "rc-answered-2",
+        },
+      ],
     },
   ],
   roster: [
@@ -164,6 +178,71 @@ const WIRE: WireResumeSummary = {
     ],
   },
 };
+
+// These maps are the seam's explicit wire-to-view roll-call. Comparing only
+// Object.keys(MAPPED()) cannot see a wire field that the mapper ignores: the
+// ignored field never reaches the view model. Keeping both directions here
+// means a new wire key must be mapped AND declared, while a new view key must
+// still have a wire source. This is deliberately a fixture-level contract,
+// not a test of the generated TypeScript type (optional fields are where the
+// original defect hid).
+const RESUME_WIRE_TO_VIEW = {
+  identity: "identity",
+  generated_at: "generatedAt",
+  note: "note",
+  overview: "overview",
+  chat: "chat",
+  chat_earlier_omitted: "chatEarlierOmitted",
+  tasks: "tasks",
+  roster: "roster",
+  machines: "machines",
+} as const;
+
+const RESUME_OVERVIEW_WIRE_TO_VIEW = {
+  chat_count: "chatCount",
+  chat_chars: "chatChars",
+  tasks_returned: "tasksReturned",
+  tasks_open_total: "tasksOpenTotal",
+  tasks_detail_chars: "tasksDetailChars",
+  cards_waiting: "cardsWaiting",
+  cards_answered_recent: "cardsAnsweredRecent",
+  roster_chars: "rosterChars",
+  machines_chars: "machinesChars",
+  steps_on_answered_card: "stepsOnAnsweredCard",
+  steps_on_answered_card_chars: "stepsOnAnsweredCardChars",
+} as const;
+
+const RESUME_TASK_WIRE_TO_VIEW = {
+  id: "id",
+  task_no: "taskNo",
+  title: "title",
+  type_key: "typeKey",
+  status: "status",
+  priority: "priority",
+  waiting_reason: "waitingReason",
+  current_step_id: "currentStepId",
+  current_step_name: "currentStepName",
+  progress_done: "progressDone",
+  progress_total: "progressTotal",
+  updated_ts: "updatedTs",
+  detail_chars: "detailChars",
+  answered_card_steps: "answeredCardSteps",
+} as const;
+
+const ANSWERED_CARD_STEP_WIRE_TO_VIEW = {
+  step_id: "stepId",
+  step_name: "stepName",
+  card_id: "cardId",
+} as const;
+
+function assertWireKeysAreMapped(
+  wire: object,
+  wireToView: Record<string, string>,
+  view: object,
+) {
+  expect(Object.keys(wire).sort()).toEqual(Object.keys(wireToView).sort());
+  expect(Object.values(wireToView).sort()).toEqual(Object.keys(view).sort());
+}
 
 const MAPPED = () => toMemberResumeSummary(WIRE);
 
@@ -515,10 +594,29 @@ describe("ResumeSummaryCard renders the SAME snapshot the agent receives", () =>
       ["cardsAnsweredRecent", o.cards_answered_recent],
       ["rosterChars", o.roster_chars!],
       ["machinesChars", o.machines_chars!],
+      ["stepsOnAnsweredCard", o.steps_on_answered_card!],
+      ["stepsOnAnsweredCardChars", o.steps_on_answered_card_chars!],
     ];
     for (const [key, value] of pairs) {
       expect(txt(u.getByTestId(`mp-resume-stat-${key}`))).toBe(String(value));
     }
+  });
+
+  it("shows answered-card pointers as attention, not completed work", async () => {
+    const u = await open();
+    const hold = u.getByTestId("mp-resume-task-answered-card");
+    expect(txt(hold)).toContain(R.answeredCardSteps);
+    const rows = u.getAllByTestId("mp-resume-answered-card-step").map(txt);
+    expect(rows).toHaveLength(WIRE.tasks![0].answered_card_steps!.length);
+    for (const [i, step] of WIRE.tasks![0].answered_card_steps!.entries()) {
+      expect(rows[i]).toContain(step.step_name);
+      expect(rows[i]).toContain(step.card_id);
+    }
+    // The task remains in its server-reported working state. The pointer is
+    // not a verdict that the answer approved the step or that work is done.
+    expect(txt(u.getByTestId("mp-resume-task-answered-card").parentElement)).toContain(
+      WIRE.tasks![0].status,
+    );
   });
 
   it("keeps every section NAMED even while its body is folded away", async () => {
@@ -562,6 +660,26 @@ describe("ResumeSummaryCard renders the SAME snapshot the agent receives", () =>
 });
 
 describe("the roll-call: a field the seam gains cannot stay undrawn", () => {
+  it("sees wire-only fields before the mapper can drop them", () => {
+    const mapped = MAPPED();
+    assertWireKeysAreMapped(WIRE, RESUME_WIRE_TO_VIEW, mapped);
+    assertWireKeysAreMapped(
+      WIRE.overview!,
+      RESUME_OVERVIEW_WIRE_TO_VIEW,
+      mapped.overview,
+    );
+    assertWireKeysAreMapped(
+      WIRE.tasks![0],
+      RESUME_TASK_WIRE_TO_VIEW,
+      mapped.tasks[0],
+    );
+    assertWireKeysAreMapped(
+      WIRE.tasks![0].answered_card_steps![0],
+      ANSWERED_CARD_STEP_WIRE_TO_VIEW,
+      mapped.tasks[0].answeredCardSteps[0],
+    );
+  });
+
   // 🔴 Per-field assertions only ever cover the fields somebody remembered.
   // These pin the SHAPE, so the next field added to the view model announces
   // itself here instead of quietly joining roster/machines on the floor.

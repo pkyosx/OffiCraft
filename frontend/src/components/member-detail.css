@@ -1803,6 +1803,9 @@
   padding: 6px 0;
   font-size: 12.5px;
 }
+.mp-resume__task + .mp-resume__task {
+  margin-top: 6px;
+}
 .mp-resume__taskno {
   flex: none;
   padding: 1px 6px;
@@ -1817,6 +1820,34 @@
 .mp-resume__taskstatus {
   flex: none;
   color: var(--color-text-muted);
+}
+.mp-resume__answeredcard {
+  margin: 0 0 6px;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
+  color: var(--color-text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.mp-resume__answeredcardlabel {
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+.mp-resume__answeredcardstep {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+}
+.mp-resume__answeredcardstepname {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.mp-resume__answeredcardid {
+  flex: none;
+  color: var(--color-text-strong);
 }
 
 /* ---- resume summary: the sections that line up with the agent's copy ----

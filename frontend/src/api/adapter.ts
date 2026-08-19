@@ -1175,7 +1175,9 @@ export interface ScheduledMessageUpdate {
  * `chatChars` describe what THIS snapshot carries, `tasksOpenTotal` is ALL the
  * target's open tasks (may exceed the bounded `tasks` rows), `tasksDetailChars`
  * sums every returned row's `detailChars` (the plan text a full task pull would
- * load), `cardsWaiting`/`cardsAnsweredRecent` count the target's reply cards. */
+ * load), `cardsWaiting`/`cardsAnsweredRecent` count the target's reply cards.
+ * `stepsOnAnsweredCard` counts only the bounded task rows carried here; it is
+ * a pointer count, not proof that a step is done. */
 export interface ResumeOverviewView {
   chatCount: number;
   chatChars: number;
@@ -1190,6 +1192,12 @@ export interface ResumeOverviewView {
   rosterChars: number;
   /** Size of the machine block THIS snapshot carries (T-1b09). */
   machinesChars: number;
+  /** Number of carried task steps whose latest card is answered while the step
+   * is still in_progress. This is a pointer to work needing attention, not a
+   * completion signal. */
+  stepsOnAnsweredCard: number;
+  /** Character cost of the answered-card pointers carried in this snapshot. */
+  stepsOnAnsweredCardChars: number;
 }
 
 /** The CUT POINT of the snapshot's chat (view model of `ResumeChatCutDTO`):
@@ -1258,6 +1266,16 @@ export interface ResumeMachinesView {
   youAreOn: string;
 }
 
+/** One pointer from a LIGHT task row to a reply card the owner has already
+ * answered while the step remains in_progress. The card body is deliberately
+ * absent; read it with `get_reply_card`. This never means the step is done —
+ * the answer may require a change rather than approval. */
+export interface ResumeAnsweredCardStepView {
+  stepId: string;
+  stepName: string;
+  cardId: string;
+}
+
 /** One LIGHT open-task row inside a resume snapshot (view model of
  * `ResumeTaskDTO`) — NO steps/DoD text; `currentStepId`/`currentStepName` are
  * the first non-terminal step (both "" when the plan is empty or complete),
@@ -1276,6 +1294,9 @@ export interface ResumeTaskView {
   progressTotal: number;
   updatedTs: number;
   detailChars: number;
+  /** Steps whose answered reply card has not yet been acted on. Empty is the
+   * honest normal case; non-empty is a pointer, never a done state. */
+  answeredCardSteps: ResumeAnsweredCardStepView[];
 }
 
 /** The RESUME SUMMARY panel section's snapshot for a TARGET member — the SAME
