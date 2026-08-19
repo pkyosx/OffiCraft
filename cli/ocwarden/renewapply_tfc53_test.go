@@ -1113,3 +1113,81 @@ func TestNewRenewalWiring_TheClosuresItBuildsReachTheRealEndpoints(t *testing.T)
 			"without the real one's mode is not the real one", perm)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// ⑤ the exec after a renewal is an optimisation, not a correctness condition.
+// ---------------------------------------------------------------------------
+
+// TestRun_AFailedExecAfterRenewalKeepsTheWardenAlive is the counterpart to
+// selfupdate_test.go's TestRun_ExecFailureFallsBackToExit, and the pair is the
+// point: the SAME failure means different things to the two callers.
+//
+// After a self-update the binary on disk has already been replaced, so exit(0) is
+// arguable. After a renewal nothing has been retired — the credential this process
+// runs on is good for days and the replacement is already on disk — so exiting
+// would turn the one recoverable failure on this path into the one that is not:
+// launchd does not relaunch an exited warden, so somebody walks to the machine, and
+// every machine in the fleet reaches this line within the same 15 minutes.
+//
+// The second assertion is the trap that comes with staying alive: the token this
+// process judges is the one it read at startup, so it is STILL due on the next
+// poll. Without the renewed-awaiting-restart state that is one renewal per poll,
+// forever, fleet-wide.
+func TestRun_AFailedExecAfterRenewalKeepsTheWardenAlive(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	tokfile := filepath.Join(t.TempDir(), "exec-warden.tok")
+	h := newRenewHarness(t, dueToken(t, now), tokfile, now, http.StatusOK,
+		map[string]any{"token": freshToken(t, now)}, nil)
+
+	var exitCodes []int
+	h.u.exit = func(code int) { exitCodes = append(exitCodes, code) }
+	h.u.execSelf = func() error { h.execs++; return errors.New("execve: permission denied") }
+
+	// The station is standing still, so every cycle after the renewal is a cheap
+	// sha-gated turn — and each one is evidence this process is still running.
+	var fetched []string
+	h.u.get = recordingGetter(map[string]getResult{
+		versionPath: {status: 200, body: versionBody("sha-standing-still")},
+	}, &fetched)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { time.Sleep(300 * time.Millisecond); cancel() }()
+	h.u.run(ctx)
+
+	if h.written[tokfile] != freshToken(t, now) {
+		t.Fatalf("the renewal did not complete, so this test is not measuring what it "+
+			"claims; wrote %v", h.written)
+	}
+	if h.execs != 1 {
+		t.Fatalf("the exec seam was called %d times, want exactly 1", h.execs)
+	}
+	if len(exitCodes) != 0 {
+		t.Errorf("the warden EXITED (%v) because the post-renewal exec failed. Nothing "+
+			"had been given up: the credential in use is still valid and the new one is "+
+			"on disk at %s, so any later restart picks it up. Exiting kills a process "+
+			"launchd will not relaunch — an unrecoverable state traded for one restart's "+
+			"delay, on every machine at once", exitCodes, tokfile)
+	}
+	cycles := 0
+	for _, p := range fetched {
+		if p == "/api/version" {
+			cycles++
+		}
+	}
+	if cycles < 2 {
+		t.Errorf("the poll loop turned %d times after the failed exec — the warden must "+
+			"keep doing its job (self-update, telemetry, commands) on the credential it "+
+			"still holds", cycles)
+	}
+	if h.renewCalls != 1 {
+		t.Errorf("renewal ran %d times. The credential this process judges is the one it "+
+			"read at startup, so it stays due for as long as this process lives: without "+
+			"a 'renewed, waiting for a restart' state every poll mints another credential, "+
+			"forever, on every machine in the fleet at the same cadence", h.renewCalls)
+	}
+	if !h.logged("takes effect on the next restart") {
+		t.Error("nothing in the log says this machine is running on a credential it has " +
+			"already replaced — the state is invisible to whoever reads the log next")
+	}
+}

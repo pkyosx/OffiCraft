@@ -76,14 +76,20 @@ func httpCredentialRenewer(client *http.Client, base, token string) credentialRe
 // renewalWiring is everything the renewal path needs from the outside world,
 // built in ONE place so it can be asserted.
 //
-// WHY IT IS NOT ASSEMBLED INLINE IN newSelfUpdater. That constructor opens with
-// refuseInTestBinary, so NOTHING in this package can construct it — which means
-// every field it fills is outside the reach of every test. Measured: with the
-// wiring inline, `envToken: ""` and `renew: nil` both compiled and the whole
-// suite stayed green, i.e. the OC_TOKEN guard and the entire feature could be
-// switched off in production without a single red test. maybeRenewCredential was
-// well covered; whether production handed it the right values was not covered at
-// all.
+// WHY IT IS NOT ASSEMBLED INLINE IN THE PRODUCTION CONSTRUCTOR. When this was
+// written newSelfUpdater opened with refuseInTestBinary, so nothing in this
+// package could construct it and every field it filled was outside the reach of
+// every test. Measured then: with the wiring inline, `envToken: ""` and
+// `renew: nil` both compiled and the whole suite stayed green, i.e. the OC_TOKEN
+// guard and the entire feature could be switched off in production without a
+// single red test. maybeRenewCredential was well covered; whether production
+// handed it the right values was not covered at all.
+//
+// That refusal has since been removed (it guarded a body that starts no process
+// — see newSelfUpdater), so the constructors ARE reachable now and
+// renewwiring_reached_test.go asserts the built updater by USING what it was
+// handed. Keeping the assembly here is still worth it: one named value to copy,
+// assert and reason about beats six fields set in a constructor's middle.
 //
 // The copy onto the updater lives in apply() below rather than inside that
 // constructor, precisely so a test can call it — TestApply_CarriesEveryFieldOntoTheUpdater
@@ -105,9 +111,8 @@ type renewalWiring struct {
 // infinite-exec guard on exactly the machines it protects.
 func newRenewalWiring(cfg Config, env func(string) string) renewalWiring {
 	// The client is built HERE rather than taken from the caller: handed in from
-	// newSelfUpdater it sat beside a 10s announce client, one character away, with
-	// nothing able to tell the two apart, and newSelfUpdater opens with
-	// refuseInTestBinary so no test could reach either.
+	// the self-update constructor it sat beside a 10s announce client, one
+	// character away, with nothing able to tell the two apart.
 	//
 	// ⚠️ NO TEST WATCHES WHICH BUDGET THIS IS. Swapping selfUpdateHTTPTimeout for
 	// selfUpdateReportBudget here leaves the whole package green — measured. An
@@ -167,6 +172,23 @@ func httpCredentialVerifier(client *http.Client, base string) credentialVerifier
 func (u *updater) maybeRenewCredential() bool {
 	if u.renew == nil || u.writeTok == nil {
 		return false // unwired (tests, --once) — renewal is simply not in play
+	}
+	// 🔴 ALREADY RENEWED, WAITING FOR A RESTART. Once a fresh credential has been
+	// written, this process is the only thing still holding the old one: the token
+	// is read once at startup (main.go) and lives in memory, so credentialDueForRenewal
+	// below judges the retired credential and answers "due" every single time. Left
+	// alone that is a renewal every poll, forever, on every machine in the fleet
+	// simultaneously — the exact shape of load this whole path is written to avoid.
+	// Nothing more is needed here: the replacement is on disk and the next start of
+	// any kind picks it up. Said out loud every time rather than silently, because
+	// "this machine is running on a credential it has already replaced" is a state
+	// somebody reading the log should be able to see.
+	if u.renewedAwaitingRestart {
+		u.logf("[ocwarden] renew: a fresh credential is ALREADY on disk at %s and this "+
+			"process is still running on the previous one (the in-place exec did not "+
+			"take) — not renewing again; the new credential takes effect on the next "+
+			"restart of this warden.", u.tokfilePath)
+		return false
 	}
 	if !credentialDueForRenewal(u.token, u.clock()) {
 		return false
@@ -302,6 +324,10 @@ func (u *updater) maybeRenewCredential() bool {
 			u.tokfilePath, err)
 		return false
 	}
+	// From here on the machine's credential HAS been replaced; this process just
+	// has not picked it up yet. Set before any of the return paths below so every
+	// one of them leaves the same state behind (see the field on updater).
+	u.renewedAwaitingRestart = true
 	u.logf("[ocwarden] renew: wrote a fresh credential to %s", u.tokfilePath)
 
 	// A replacement that is ALREADY due is not worth an exec, and exec'ing on it is
@@ -310,8 +336,9 @@ func (u *updater) maybeRenewCredential() bool {
 	// come from the server minting a lifetime shorter than the renewal threshold or
 	// from a clock far enough out to look like it; both are somebody else's bug, and
 	// the harmless response to both is to leave the fresh credential on disk for the
-	// next real restart and say so. The renewal itself still repeats each poll, but
-	// a repeated mint is wasted work, not a machine that keeps replacing itself.
+	// next real restart and say so. It does not repeat either: the write above set
+	// renewedAwaitingRestart, so the next poll skips the whole attempt rather than
+	// minting a credential per poll fleet-wide.
 	if credentialDueForRenewal(fresh, u.clock()) {
 		u.logf("[ocwarden] renew: the credential just issued is ALREADY due for renewal "+
 			"— not exec'ing, because doing so would replace this process once per poll. "+
@@ -321,4 +348,39 @@ func (u *updater) maybeRenewCredential() bool {
 		return false
 	}
 	return true
+}
+
+// execAfterRenewal replaces this process image so the credential just written
+// takes effect now instead of at the next restart.
+//
+// 🔴 IT DOES NOT SHARE execInPlace's exit(0) FALLBACK, AND THAT IS THE POINT. For
+// the self-update caller the exec is the last step of a swap that has already
+// replaced the binary on disk, so continuing is running a retired image. Here
+// NOTHING has been retired: the credential this process is running on is still
+// valid for days (renewal fires at a third of the lifetime remaining), the new one
+// is atomically on disk, and every future start of this warden reads it. The exec
+// only makes that sooner.
+//
+// So exiting on a failed exec would convert the one recoverable failure on this
+// path into the one unrecoverable one: launchd does NOT relaunch an exited warden
+// (observed twice on real hosts — see selfupdate.go's header), so the machine would
+// go silent, fleet-wide and at the same moment, to save a single restart's delay.
+// The right move is to log loudly and keep running; maybeRenewCredential will not
+// try again (renewedAwaitingRestart), so this costs nothing but a delay.
+func (u *updater) execAfterRenewal() {
+	if u.execSelf == nil {
+		u.logf("[ocwarden] renew: no exec seam is wired, so the new credential at %s "+
+			"takes effect on the next restart", u.tokfilePath)
+		return
+	}
+	u.logf("[ocwarden] renew: the new credential is on disk — exec'ing this binary in " +
+		"place (same PID) so it takes effect now")
+	err := u.execSelf()
+	// execSelf returns ONLY when the process image was not replaced (syscall.Exec
+	// does not return on success), so reaching this line at all is the failure.
+	u.logf("[ocwarden] renew: the in-place exec did NOT happen (%v) — staying alive on "+
+		"the credential this process already holds, which still works for days. The new "+
+		"credential is on disk at %s and takes effect on the next restart. NOT exiting: "+
+		"launchd does not relaunch an exited warden, and losing the machine to save one "+
+		"restart's delay is the wrong trade.", err, u.tokfilePath)
 }

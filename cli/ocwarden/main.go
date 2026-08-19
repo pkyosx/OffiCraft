@@ -900,6 +900,25 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 		// goroutine from the 30s telemetry loop: binary reconcile runs at a much slower
 		// cadence and must not be entangled with the well-tested telemetry cycle.
 		// rawEnv{} names which of the two views this is; renv would not compile here.
+		//
+		// 🔴 NOTHING GUARDS THIS CALL SITE, AND THAT IS A STATEMENT, NOT AN OVERSIGHT.
+		// Delete these three lines, or just the `go up.run(ctx)` below, and the whole
+		// package stays green: self-update and credential renewal stop fleet-wide,
+		// silently, and with credentials carrying a 30-day life the machines start
+		// falling off the roster a month later. What newSelfUpdater BUILDS is now
+		// asserted by using it (renewwiring_reached_test.go); whether realMain calls
+		// it is not asserted by anything.
+		//
+		// Why there is no check here: the only kind available is a syntax check over
+		// this file, and this repo has now written that check twice and had review
+		// walk through it four times in one round without renaming anything — it
+		// reads identifiers, and every way to disable the feature leaves the
+		// identifiers alone. Adding a fifth version would be pretending. The real
+		// instrument is an integration test that runs realMain against a fake station
+		// and observes a renewal happen, and it does not exist because this block is
+		// gated on `iters == 0` — the forever-loop path, the one no test enters (the
+		// tests that call realMain all pass `run --once`). That test is worth writing;
+		// it is not a comment's worth of work, so it is named here rather than faked.
 		up := newSelfUpdater(cfg, rawEnv{lookup: env}, logf)
 
 		// 方案A (T-c93d): wire the SSE transport's connect hook to the updater's Kick
