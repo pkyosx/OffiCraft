@@ -55,6 +55,12 @@ var planeASubcommands = []struct{ name, help string }{
 	{"download", "fetch a chat attachment blob to a local file (streaming; --out <dir>)"},
 	{"upload", "stream a local file into the attachment store (prints the att id; --mime <type>)"},
 	{"clean", "get rid of a file or folder I made: quarantines it under my workdir (never rm)"},
+	// Listed because --help is where a person or an agent goes to ask "can this
+	// CLI tell me which build it is?". Kept out of the synopsis, `version` was
+	// answerable but undiscoverable: the only two zero-argument surfaces (--help
+	// and the bare invocation, which print the same bytes) both said no such
+	// capability exists, so the honest reading of the help text was wrong.
+	{"version", "print this build's identity: build.sha, VCS stamp when present, self-hash"},
 }
 
 func usage(out io.Writer) {
@@ -191,10 +197,9 @@ func realMain(argv []string, env func(string) string, in io.Reader, out io.Write
 		return cmdClean(cfg, fs.Args(), out)
 
 	case "version", "--version", "-v":
-		// Print WHICH build this is (git sha/time/dirty when stamped + always a
-		// content self-hash) so a human can tell an eva self-updated binary apart from
-		// the committed bin/ artifact. Deliberately NOT part of usage()/--help because
-		// build identity is reported through the dedicated version command.
+		// Print WHICH build this is (build.sha stamp + VCS metadata when the build
+		// shape carries it + always a content self-hash) so a human can tell an eva
+		// self-updated binary apart from the committed bin/ artifact.
 		return cmdVersion(out)
 
 	case "-h", "--help", "help":

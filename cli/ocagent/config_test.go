@@ -71,6 +71,41 @@ func TestUsageListsAllPlaneA(t *testing.T) {
 	}
 }
 
+// The help text must SAY the binary can name its own build. A reader — person or
+// agent — asking "does this CLI know which version it is?" reads --help, and the
+// only honest answer there is the `version` line; without it the correct reading
+// of the help text is "no such capability", while the capability exists.
+//
+// 🔴 THE LITERAL IS THE POINT. TestUsageListsAllPlaneA above walks
+// planeASubcommands, so deleting the entry deletes the expectation with it and
+// that test stays green. This one spells "version" out, so the only way to make
+// it pass is for the help text to really carry the word.
+//
+// Both zero-argument paths are checked because they are the two surfaces someone
+// lands on by accident (`--help`, and running the binary bare), they print the
+// same bytes today, and a fix that reached only one of them would leave the more
+// common accident still saying no.
+func TestUsageAnnouncesVersionOnEveryZeroArgumentPath(t *testing.T) {
+	render := func(argv []string) string {
+		var b strings.Builder
+		realMain(argv, func(string) string { return "" }, strings.NewReader(""), &b)
+		return b.String()
+	}
+	bare, help := render(nil), render([]string{"--help"})
+
+	for name, got := range map[string]string{"no args": bare, "--help": help} {
+		if !strings.Contains(got, "version") {
+			t.Errorf("%s: help text never mentions `version`, so a reader concludes this "+
+				"CLI cannot name its own build; got:\n%s", name, got)
+		}
+	}
+	if bare != help {
+		t.Errorf("the bare invocation and --help print different help text; they are the "+
+			"same accident and must not disagree about what this CLI can do:\n"+
+			"bare:\n%s\n--help:\n%s", bare, help)
+	}
+}
+
 func TestRealMainListenMisWireExitsZero(t *testing.T) {
 	// listen is now implemented (Phase 4). With no OC_ID/OC_TOKEN it degrades to one
 	// quiet line + exit 0 (the mis-wire guard, mirroring cmd_listen) — never the old

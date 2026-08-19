@@ -144,3 +144,88 @@ func TestBuildSHAOrUnstamped_NeverGuessesFromVCSMetadata(t *testing.T) {
 			"whether bin/build-bindist ran at all", got)
 	}
 }
+
+// ── The VCS block: present when real, absent when there is nothing to say ────
+//
+// These two are a PAIR and neither proves anything alone. The present-case test
+// alone stays green if the lines are printed unconditionally; the absent-case
+// test alone stays green if they are never printed at all. Together they pin the
+// only rendering that is honest in both.
+//
+// 🔴 The absent case is the one that shipped. Measured on ~/.officraft/warden/ocagent
+// — the binary the warden hands every agent — the three vcs lines all read
+// "unknown" under one real build.sha, so what the fleet saw was four lines of
+// which one was true. `unknown` and an empty field are both placeholders that
+// look like answers; the connection line already settled this argument for
+// [station …] / [agent …] by printing nothing (listen_run.go), and this block
+// follows it.
+
+func TestPrintVersion_ReportsTheVCSStampWhenTheBuildCarriesOne(t *testing.T) {
+	var out bytes.Buffer
+	printVersion(&out, func() (*debug.BuildInfo, bool) {
+		return &debug.BuildInfo{Settings: []debug.BuildSetting{
+			{Key: "vcs.revision", Value: "0123456789abcdef0123456789abcdef01234567"},
+			{Key: "vcs.time", Value: "2026-08-19T18:31:01Z"},
+			{Key: "vcs.modified", Value: "false"},
+		}}, true
+	},
+		func() (string, error) { return "", errors.New("no exe") },
+		func(string) ([]byte, error) { return nil, errors.New("no read") })
+
+	for _, want := range []string{
+		"  vcs.revision: 0123456789abcdef0123456789abcdef01234567",
+		"  vcs.time:     2026-08-19T18:31:01Z",
+		"  vcs.modified: false",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("a stamped build must report %q verbatim; got:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestPrintVersion_SaysNothingAboutVCSWhenTheBuildCarriesNoStamp(t *testing.T) {
+	// The three shapes of "no stamp" Go actually produces: no BuildInfo at all,
+	// BuildInfo with no vcs keys (a worktree build), and a key present but blank.
+	for _, tc := range []struct {
+		name string
+		bi   func() (*debug.BuildInfo, bool)
+	}{
+		{"no build info", func() (*debug.BuildInfo, bool) { return nil, false }},
+		{"no vcs settings", func() (*debug.BuildInfo, bool) {
+			return &debug.BuildInfo{Settings: []debug.BuildSetting{{Key: "-compiler", Value: "gc"}}}, true
+		}},
+		{"blank vcs values", func() (*debug.BuildInfo, bool) {
+			return &debug.BuildInfo{Settings: []debug.BuildSetting{
+				{Key: "vcs.revision", Value: "  \t "},
+				{Key: "vcs.time", Value: ""},
+				{Key: "vcs.modified", Value: " "},
+			}}, true
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
+			printVersion(&out, tc.bi,
+				func() (string, error) { return "", errors.New("no exe") },
+				func(string) ([]byte, error) { return nil, errors.New("no read") })
+			got := out.String()
+
+			for _, forbidden := range []string{"vcs.revision", "vcs.time", "vcs.modified"} {
+				if strings.Contains(got, forbidden) {
+					t.Errorf("an unstamped build printed a %s line. Absent must be said by "+
+						"SILENCE — not by \"unknown\", not by an empty field; both look like "+
+						"answers and that is what the shipped binary showed the fleet. Got:\n%s",
+						forbidden, got)
+				}
+			}
+			if strings.Contains(got, "unknown") {
+				t.Errorf("the word \"unknown\" is back in the version block:\n%s", got)
+			}
+			// The block must not collapse to nothing: the two lines that are always
+			// knowable have to survive, or this test would also pass on a version
+			// command that printed no facts at all.
+			if !strings.Contains(got, "build.sha:") || !strings.Contains(got, "self-hash:") {
+				t.Errorf("the always-available lines went missing with the vcs block:\n%s", got)
+			}
+		})
+	}
+}

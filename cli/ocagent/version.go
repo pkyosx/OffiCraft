@@ -8,9 +8,20 @@ package main
 //   - VCS stamp (vcs.revision / vcs.time / vcs.modified) from debug.ReadBuildInfo().
 //     Go 1.18+ `go build` auto-embeds this and it SURVIVES `-ldflags "-s -w"` (strip
 //     drops the symbol table / DWARF, not the buildinfo blob — verified empirically).
-//     Human-readable "which commit", but it is only present when the build ran with
-//     the repo's `.git` as a DIRECTORY; a git WORKTREE (.git is a file) or a tarball
-//     build yields no VCS settings, in which case these lines read "unknown".
+//     Human-readable "which commit" — WHEN IT IS THERE, WHICH ON THE SHIPPING PATH
+//     IT IS NOT. Measured on the binary the warden actually hands every agent
+//     (~/.officraft/warden/ocagent, the bindist copy bin/build-bindist produced on
+//     the deploy path): build.sha d45b94bc, and no vcs settings at all. That is the
+//     population — nobody runs a binary built anywhere else. Two other shapes were
+//     measured only to bound when a stamp CAN appear: a `git clone --no-local` build
+//     carries a real revision/time/modified, a git WORKTREE build (.git is a file)
+//     carries none. The shipped one behaves like the second.
+//
+//     So when there are none the three lines are NOT PRINTED — same rule the
+//     connection line's [station …] / [agent …] segments follow. Printing three
+//     "unknown"s beside one real fact, which is what every agent saw, reads as a
+//     malfunction; a reader forced to decide which of four lines to believe is
+//     worse off than one shown only the facts this build actually has.
 //
 //   - self-hash: sha256(os.Executable())[:12]. This is the SAME content-hash oracle
 //     the self-updater uses (selfupdate.go hashPrefix) to decide "the live binary
@@ -18,8 +29,8 @@ package main
 //     own bytes) and is the exact value to eyeball-compare a self-updated binary
 //     against the committed bin/ artifact: identical self-hash ⇒ byte-identical build.
 //
-// Kept OUT of `usage()`/--help on purpose: build identity belongs in the dedicated
-// version command rather than the stable command synopsis.
+// The subcommand IS listed in `usage()`/--help: a build-identity command nobody
+// can discover answers nobody's question.
 
 import (
 	"crypto/sha256"
@@ -66,19 +77,6 @@ func printVersion(
 	exe func() (string, error),
 	read func(string) ([]byte, error),
 ) {
-	rev, when, modified := "unknown", "unknown", "unknown"
-	if info, ok := buildInfo(); ok {
-		for _, s := range info.Settings {
-			switch s.Key {
-			case "vcs.revision":
-				rev = s.Value
-			case "vcs.time":
-				when = s.Value
-			case "vcs.modified":
-				modified = s.Value
-			}
-		}
-	}
 	fmt.Fprintln(out, "ocagent")
 	// build.sha is the link-time stamp bin/build-bindist applies, and it is the
 	// line the connection line quotes. It is here because vcs.revision above goes
@@ -87,10 +85,51 @@ func printVersion(
 	// so without it `ocagent version` would know LESS about the running build than
 	// its own log line does, and this is the first place a person looks.
 	fmt.Fprintf(out, "  build.sha:    %s\n", buildSHAOrUnstamped(buildInfo))
-	fmt.Fprintf(out, "  vcs.revision: %s\n", rev)
-	fmt.Fprintf(out, "  vcs.time:     %s\n", when)
-	fmt.Fprintf(out, "  vcs.modified: %s\n", modified)
+	for _, line := range vcsLines(buildInfo) {
+		fmt.Fprintln(out, line)
+	}
 	fmt.Fprintf(out, "  self-hash:    %s\n", selfHash(exe, read))
+}
+
+// vcsLines renders the VCS stamp Go auto-embeds, or NOTHING when this build shape
+// carries none.
+//
+// 🔴 THE ABSENT CASE IS THE SHIPPED CASE, AND IT USED TO LIE. The measurement that
+// decides this is not "does some tree shape produce a stamp" — a `git clone` build
+// does, a worktree build does not, and neither is what anyone runs. It is what
+// ~/.officraft/warden/ocagent, the copy the warden hands every agent, reports: one
+// real build.sha under three lines of "unknown". Four lines, one true. The reader's
+// most likely conclusion is "this binary is broken" — the opposite of what the block
+// exists to say — and that is what was in front of the whole fleet, not an edge case.
+//
+// So: no value ⇒ the segment is not printed at all. That is the SAME rule the
+// connection line applies to its [station …] and [agent …] segments (listen_run.go)
+// — absent is said by silence, never by a placeholder that looks like an answer.
+// Per-key rather than all-or-nothing, and TrimSpace like the other two, so a
+// partially stamped build shows exactly the keys it really has.
+func vcsLines(buildInfo func() (*debug.BuildInfo, bool)) []string {
+	info, ok := buildInfo()
+	if !ok || info == nil {
+		return nil
+	}
+	labels := []struct{ key, label string }{
+		{"vcs.revision", "  vcs.revision: "},
+		{"vcs.time", "  vcs.time:     "},
+		{"vcs.modified", "  vcs.modified: "},
+	}
+	var lines []string
+	for _, l := range labels {
+		for _, s := range info.Settings {
+			if s.Key != l.key {
+				continue
+			}
+			if v := strings.TrimSpace(s.Value); v != "" {
+				lines = append(lines, l.label+v)
+			}
+			break
+		}
+	}
+	return lines
 }
 
 // buildSHAOrUnstamped names the absent case rather than printing an empty field.
