@@ -1673,7 +1673,7 @@ func TestSubmitPlanFreezesAnsweredCardStepsAsSuperseded(t *testing.T) {
 	}
 	// The resume snapshot's current step skips the frozen row: first
 	// non-terminal = "build".
-	rows, _, err := api.resumeTasksFor("m-exec", nil)
+	rows, _, _, err := api.resumeTasksFor("m-exec", nil)
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("resume rows: %+v %v", rows, err)
 	}

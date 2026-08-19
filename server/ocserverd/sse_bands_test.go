@@ -139,7 +139,7 @@ func TestDecideHandoverNotice(t *testing.T) {
 		return r
 	}
 	notice := func(runtime string, record map[string]any, c SseContextHighConfig) *contextHighSignal {
-		return decideHandoverNotice("m-1", runtime, record, c, 5, 6, doc)
+		return decideHandoverNotice("m-1", runtime, record, c, 5, 6, doc, nil)
 	}
 
 	t.Run("claude fires at the owner's first number, not before", func(t *testing.T) {
@@ -207,7 +207,7 @@ func TestDecideHandoverNotice(t *testing.T) {
 
 	t.Run("the notice survives a document that cannot be read", func(t *testing.T) {
 		sig := decideHandoverNotice("m-1", RuntimeClaude, rec(65, nil), cfg, 5, 6,
-			func() string { return "" })
+			func() string { return "" }, nil)
 		if sig == nil {
 			t.Fatal("losing the checklist must not lose the notice")
 		}

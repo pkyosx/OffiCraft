@@ -56,6 +56,7 @@ func (s *apiServer) HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost(w 
 	}
 	writeJSON(w, http.StatusOK, taskStepNoteReceiptDTO{
 		TaskID: t.ID, StepID: step.ID, StepStatus: step.Status, Note: step.Note,
+		SizeChars: utf8.RuneCountInString(step.Note), CapChars: chatBodyMaxChars,
 	})
 }
 

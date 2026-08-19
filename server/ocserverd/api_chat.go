@@ -1126,6 +1126,7 @@ func (s *apiServer) HandleResumeSummaryApiResumeSummaryGet(w http.ResponseWriter
 		Roster:             snap.Roster,
 		Machines:           &snap.Machines,
 		Overview:           snap.Overview,
+		DocCapacity:        snap.DocCapacity,
 		Note:               resumeNote,
 	})
 }
@@ -1144,6 +1145,9 @@ type resumeWakeSnapshot struct {
 	Roster      []resumeRosterMemberDTO
 	Machines    resumeMachinesDTO
 	Overview    resumeOverviewDTO
+	// DocCapacity is the near-cap document block (T-6bd2), empty on a station
+	// whose long-lived documents all still have room.
+	DocCapacity []docCapacityRow
 }
 
 // resumeSnapshotParts assembles the caller's wake snapshot: the recent chat
@@ -1223,11 +1227,16 @@ func (s *apiServer) resumeSnapshotParts(actor string) (resumeWakeSnapshot, error
 		resumeChatPackBudget(s.chatBudget(), snap.GeneratedAt))
 	snap.Chat, snap.ChatCut = chat, cut
 
-	tasks, tasksOpenTotal, err := s.resumeTasksFor(actor, cardsByID)
+	tasks, tasksOpenTotal, stepNotes, err := s.resumeTasksFor(actor, cardsByID)
 	if err != nil {
 		return resumeWakeSnapshot{}, err
 	}
 	snap.Tasks = tasks
+	// T-6bd2 — the near-cap block. It is assembled LAST and cannot fail: see the
+	// no-error note on docCapacityFor. On a station whose documents all have
+	// room it is empty, and an empty slice is omitted from the payload entirely
+	// rather than carried as [], so a wake that has nothing to say says nothing.
+	snap.DocCapacity = s.docCapacityFor(actor, stepNotes)
 	detailChars := 0
 	answeredSteps, answeredStepChars := 0, 0
 	for _, t := range tasks {
@@ -1924,9 +1933,10 @@ func (s *apiServer) HandleGetMemberResumeSummaryApiMembersMemberIdResumeSummaryG
 		// machines.you_are_on resolves for the TARGET member, not for the
 		// admin doing the lookup — this route answers "what does THAT agent
 		// wake up to", so every field must be from that agent's vantage.
-		Machines: &snap.Machines,
-		Overview: snap.Overview,
-		Note:     resumeNote,
+		Machines:    &snap.Machines,
+		Overview:    snap.Overview,
+		DocCapacity: snap.DocCapacity,
+		Note:        resumeNote,
 	})
 }
 

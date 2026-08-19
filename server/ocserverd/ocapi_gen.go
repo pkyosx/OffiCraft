@@ -689,6 +689,40 @@ type ChatUnreadCountDTO struct {
 	Unread int `json:"unread"`
 }
 
+// DocCapacityRowDTO ONE long-lived document that is CLOSE to its character cap, as it appears in
+// “resume_summary“'s “doc_capacity“ block (T-6bd2).
+//
+// Every capped document on this station refuses a write with 400 once it is full
+// and says nothing at all before that, so the number arrives at the one instant the
+// writer has no slack — and the cheapest way out of a refusal is to delete text
+// until the write fits. What gets deleted is the hand-off and the "what I did not
+// verify" paragraph, and the response to that shortened write is 200. This row
+// moves the same two numbers to a moment BEFORE any of that.
+//
+// “writable“ is what makes the row actionable rather than merely alarming: an
+// agent may rewrite its own step note and its task manual, but a role definition,
+// an insight, role lessons and the three boot documents all answer 403 to it.
+// “action“ says which of those two situations this row is, in words.
+//
+// Rows appear ONLY while a document is near its cap.
+type DocCapacityRowDTO struct {
+	// Action What this reader is expected to do about it, derived from ``writable``: a writable document is one to rewrite to its CURRENT state now, while a non-writable one names the person to ask.
+	Action string `json:"action"`
+
+	// CapChars The cap in force for THIS document's own segment. The segments do not share a number.
+	CapChars int `json:"cap_chars"`
+
+	// Doc The document, named the way its own write face names it — including the role key, type_key or task_no that says WHICH one.
+	Doc string `json:"doc"`
+
+	// RemainingChars ``cap_chars - size_chars``, floored at 0.
+	RemainingChars int `json:"remaining_chars"`
+	SizeChars      int `json:"size_chars"`
+
+	// Writable True when the READING agent may write this document itself; false when it cannot, in which case ``action`` names who can instead of asking the reader to attempt a write that could only be refused.
+	Writable bool `json:"writable"`
+}
+
 // DocDTO One product-guide doc in full (GET /api/docs/{slug}). markdown_md carries the embedded markdown with relative image paths rewritten to the served /api/docs/assets/ endpoint.
 type DocDTO struct {
 	MarkdownMd string `json:"markdown_md"`
@@ -1811,6 +1845,16 @@ type ResumeRosterMemberDTO struct {
 //     server-recorded machine binding (owner ruling rc-09476f535b59, 2026-08-03).
 //     Never derive "which machine am I on" from a hostname — our hosts report the
 //     same name as each other.
+//   - “doc_capacity“: PRESENT ONLY when one of the caller's long-lived capped
+//     documents is close to full (T-6bd2) — its own role documents, the three boot
+//     documents, the task manuals of its open tasks, and its open steps' notes.
+//     It is here rather than on the write path because the write path's 400 arrives
+//     at the instant the agent is recording something and has no time to compact
+//     anything; a wake is when it has the most. Each row says whether THIS reader
+//     can rewrite the document or has to ask someone who can. ABSENT — not an
+//     empty array — when nothing is near, because a block that appeared on every
+//     wake would be a block every agent learns to skip, and then the one wake that
+//     mattered would look like all the others.
 //   - “note“: a fixed reminder that this is a BOUNDED snapshot.
 //
 // DETERMINISTIC (same server state → same output; no LLM) and read-only.
@@ -1826,6 +1870,9 @@ type ResumeSummaryDTO struct {
 	// whole messages that are NOT here at all. Reading one as the other is how an
 	// agent concludes it has seen a conversation it has not seen.
 	ChatEarlierOmitted *ResumeChatCutDTO `json:"chat_earlier_omitted,omitempty"`
+
+	// DocCapacity The long-lived documents in the caller's reach that are CLOSE to their character cap (T-6bd2). Absent when nothing is near — see the schema description above for why absence rather than an empty array. Additive-optional.
+	DocCapacity *[]DocCapacityRowDTO `json:"doc_capacity,omitempty"`
 
 	// GeneratedAt When this snapshot was assembled, as ``YYYY-MM-DD HH:MM:SS ±HH:MM`` in the server's local zone. It is the ONLY anchor for turning any ``ts_display`` in this payload into 「多久以前」: a waking agent has no reliable clock of its own and must not assume its own wall clock matches the server's.
 	GeneratedAt *string            `json:"generated_at,omitempty"`
@@ -2856,7 +2903,13 @@ type TaskStepDTO struct {
 	Name       *string  `json:"name,omitempty"`
 
 	// Note T-cc3e — the step's free-text working note: what this step got to and what comes next. The GENERAL-PURPOSE note the handover SOP has always told agents to write ("把還在進行中的工作寫回 task step note") and which, until this field existed, had nowhere to land. Writable in ANY step status via POST /api/tasks/{task_id}/steps/{step_id}/note (MCP ``update_step_note``) — unlike ``waiting_reason``, which is bound to waiting_external and cleared on leaving it, and unlike the handoff fields, which are read only on the report that closes the task. Division of labour with the task-level ``description``: the description says WHAT THIS TASK IS (scope, origin, acceptance — stable); the step note says WHERE THIS STEP IS RIGHT NOW (volatile, rewritten as work moves, read by the next session after a handover). Last write wins, wholesale — it is a current-state note, not an append-only log.
-	Note          *string `json:"note,omitempty"`
+	Note *string `json:"note,omitempty"`
+
+	// NoteCapChars The ceiling the step-note write faces enforce, REPORTED here so the room left can be computed from a read. Until T-6bd2 the step note was the one capped document whose remaining room appeared on no read at all — neither this view nor the wholesale write receipt carried it — so an agent only ever learned the number from the 400 that refused its write, which is both the latest possible moment and the cell that is hit most often. T-6bd2 reports the ceiling and does not move it. Additive-optional.
+	NoteCapChars *int `json:"note_cap_chars,omitempty"`
+
+	// NoteSizeChars The step note's current size in CHARACTERS. Additive-optional (T-6bd2).
+	NoteSizeChars *int    `json:"note_size_chars,omitempty"`
 	OrderIdx      int     `json:"order_idx"`
 	ParallelGroup *string `json:"parallel_group,omitempty"`
 	ReplyCardId   *string `json:"reply_card_id,omitempty"`
@@ -2891,7 +2944,12 @@ type TaskStepNotePatchResultDTO struct {
 
 // TaskStepNoteReceiptDTO Bounded receipt returned after writing one step's working note (T-cc3e). Echoes the note as STORED, so the caller can confirm what actually landed without a follow-up GET — the point of the field is that the next session reads it back, so the write must be verifiable at the write. Fetch GET /api/tasks/{task_id} when full task detail is needed.
 type TaskStepNoteReceiptDTO struct {
-	Note       string `json:"note"`
+	// CapChars The step-note ceiling in force; same value and same meaning as on the patch receipt. Additive-optional (T-6bd2).
+	CapChars *int   `json:"cap_chars,omitempty"`
+	Note     string `json:"note"`
+
+	// SizeChars The stored note's size in CHARACTERS. Additive-optional (T-6bd2): the PATCH receipt has carried this pair since T-1667 and this wholesale one did not, so the writer that replaces a note outright — the common case, and the one that has just deleted the previous session's hand-off to make room — was the one writer told nothing about the room left.
+	SizeChars  *int   `json:"size_chars,omitempty"`
 	StepId     string `json:"step_id"`
 	StepStatus string `json:"step_status"`
 	TaskId     string `json:"task_id"`
@@ -3772,7 +3830,7 @@ type ServerInterface interface {
 	// Mark a waiting card expired (its author, the owner, or an admin agent; not an answer; terminal).
 	// (POST /api/reply-cards/{card_id}/expire)
 	HandleExpireReplyCardApiReplyCardsCardIdExpirePost(w http.ResponseWriter, r *http.Request, cardId string)
-	// Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task). CHAT is packed newest-first under a CHARACTER BUDGET, not a fixed message count, and stopping at the last message that still fits; each message carries from_name/to_name beside the ids and ts_display (full date + time + zone offset) beside the epoch ts, and folds in its reply card as `card` when it has one — read every ts_display against the top-level `generated_at`. TWO DIFFERENT things can be missing and they are marked DIFFERENTLY: `body_omitted_chars` > 0 means THAT message is here with that many characters COLLAPSED away (another agent's line — the owner's line and your own hand-off notes to yourself are carried in full), re-read it with get_chat; `chat_earlier_omitted` is the other kind and it is a MAYBE, not a fact: that line was cut at a read or budget limit and nothing looked past the cut, so whole messages may be missing from this payload entirely — it is raised even when there is in fact nothing older. Its hint tells you how to CHECK and fetch them. The two are asymmetric ON PURPOSE: the collapse marker is CERTAIN (that message IS here, shortened, exact count); this one is not, and only the fetch settles it. Also carries the STUDIO FLOOR you wake up onto: roster (every member and contractor, each with online/offline status, the machine it runs on, and its duty capped at 1000 chars with `…` marking a cut, the cap applied after the doc's own leading title line is removed — who to ask for help; no insight/learning by owner ruling. Contractors additionally carry their bound task's status, waiting_reason, and step progress (progress_done/progress_total) — members leave these at their zero value; a contractor's 0/0 is ambiguous (a task with no steps yet, or no task at all) and task_status is what tells them apart, non-empty vs empty) and machines (the machine list plus you_are_on, your server-recorded machine binding — never derive it from a hostname).
+	// Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task). CHAT is packed newest-first under a CHARACTER BUDGET, not a fixed message count, and stopping at the last message that still fits; each message carries from_name/to_name beside the ids and ts_display (full date + time + zone offset) beside the epoch ts, and folds in its reply card as `card` when it has one — read every ts_display against the top-level `generated_at`. TWO DIFFERENT things can be missing and they are marked DIFFERENTLY: `body_omitted_chars` > 0 means THAT message is here with that many characters COLLAPSED away (another agent's line — the owner's line and your own hand-off notes to yourself are carried in full), re-read it with get_chat; `chat_earlier_omitted` is the other kind and it is a MAYBE, not a fact: that line was cut at a read or budget limit and nothing looked past the cut, so whole messages may be missing from this payload entirely — it is raised even when there is in fact nothing older. Its hint tells you how to CHECK and fetch them. The two are asymmetric ON PURPOSE: the collapse marker is CERTAIN (that message IS here, shortened, exact count); this one is not, and only the fetch settles it. Also carries the STUDIO FLOOR you wake up onto: roster (every member and contractor, each with online/offline status, the machine it runs on, and its duty capped at 1000 chars with `…` marking a cut, the cap applied after the doc's own leading title line is removed — who to ask for help; no insight/learning by owner ruling. Contractors additionally carry their bound task's status, waiting_reason, and step progress (progress_done/progress_total) — members leave these at their zero value; a contractor's 0/0 is ambiguous (a task with no steps yet, or no task at all) and task_status is what tells them apart, non-empty vs empty) and machines (the machine list plus you_are_on, your server-recorded machine binding — never derive it from a hostname). It also carries `doc_capacity` — the long-lived capped documents in your reach that are CLOSE to full (your role documents, the boot documents, your open tasks' manuals, your open steps' notes), each with size/cap, what is left, and whether YOU can rewrite it or have to ask the person who can. The key is ABSENT when nothing is near, so its presence is the whole signal — act on it now, not when a write is refused.
 	// (GET /api/resume-summary)
 	HandleResumeSummaryApiResumeSummaryGet(w http.ResponseWriter, r *http.Request)
 	// Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO chat/task content). estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars + steps_on_answered_card_chars, all five reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit, the two studio-floor blocks, and the named steps sitting on an answered card — what pulling the snapshot actually costs. Step one of the two-step boot: call this FIRST to size resume_summary, then either call resume_summary directly (small) or hand the pull to a cheap sub-agent that returns a digest (large).
@@ -3898,7 +3956,7 @@ type ServerInterface interface {
 	// Arm a gate step: opens the reply card the owner must answer. Optional attachments ride the question (same shape as post_chat: {id} from `ocagent upload` / POST /api/chat/attachments, or inline data_b64).
 	// (POST /api/tasks/{task_id}/steps/{step_id}/gate)
 	HandleOpenTaskGateApiTasksTaskIdStepsStepIdGatePost(w http.ResponseWriter, r *http.Request, taskId string, stepId string)
-	// Write this step's working note: where the work stands and what comes next — the field the handover SOP means by 「把還在進行中的工作寫回 task step note」. WHAT TO WRITE — three things, then stop: (1) STATE — one sentence on where this step actually got to; (2) NEXT — one sentence on what whoever takes over does next; (3) EVIDENCE POINTERS — version ids, file and log paths, what you verified YOURSELF versus what you are taking on someone's word, and the limits of what was NOT done. Long narrative does not live here: reasoning and scope belong in the task description, reports and diffs belong on the task as artifacts. The note is the current state — not a report, not an append-only log. Writable in ANY step status (pending, in_progress, waiting_owner, waiting_external, done, superseded), unlike `waiting_reason`, which is locked to waiting_external. Wholesale write: `note` replaces whatever was there and "" clears it, so rewrite it as the work moves rather than appending; over 4,000 characters (counted in runes) is refused. Same executor/admin gate as every other task-driving write (403 otherwise). ⚠️ A task auto-closes when its last step is reported done and a closed task 409s — so write the note BEFORE the report that finishes the last step, not after.
+	// Write this step's working note: where the work stands and what comes next — the field the handover SOP means by 「把還在進行中的工作寫回 task step note」. WHAT TO WRITE — three things, then stop: (1) STATE — one sentence on where this step actually got to; (2) NEXT — one sentence on what whoever takes over does next; (3) EVIDENCE POINTERS — version ids, file and log paths, what you verified YOURSELF versus what you are taking on someone's word, and the limits of what was NOT done. Long narrative does not live here: reasoning and scope belong in the task description, reports and diffs belong on the task as artifacts. The note is the current state — not a report, not an append-only log. Writable in ANY step status (pending, in_progress, waiting_owner, waiting_external, done, superseded), unlike `waiting_reason`, which is locked to waiting_external. Wholesale write: `note` replaces whatever was there and "" clears it, so rewrite it as the work moves rather than appending; over 4,000 characters (counted in runes) is refused. Same executor/admin gate as every other task-driving write (403 otherwise). ⚠️ A task auto-closes when its last step is reported done and a closed task 409s — so write the note BEFORE the report that finishes the last step, not after. The receipt carries `size_chars` / `cap_chars`, so the room left is on every write instead of only on the 400 that refuses one; `get_task` reports the same pair per step as `note_size_chars` / `note_cap_chars`.
 	// (POST /api/tasks/{task_id}/steps/{step_id}/note)
 	HandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost(w http.ResponseWriter, r *http.Request, taskId string, stepId string)
 	// Patch this step's working note by unique anchors ({edits:[{old,new}]}) — send only the part that changed, instead of re-typing the whole note. USE THIS WHENEVER YOU ARE AMENDING A NOTE THAT ALREADY HAS CONTENT. update_step_note is a wholesale replace, so if anyone else wrote to the step between your read and your write, your copy is stale and the replace silently deletes their text — and because your stale copy is usually the LONGER one, no guard fires and nothing tells you. A patch cannot do that: a non-empty old must match the current note EXACTLY ONCE (0 or >1 hits reject the WHOLE batch with a 400 that names which edit failed and which tool to re-read with, zero writes), so a concurrent write turns into a refusal you can see. Edits apply in order; an empty old appends. Wiping the note, or shrinking it below a tenth, needs allow_shrink=true — for an honest rewrite from scratch use update_step_note. Same executor/admin gate, same any-step-status generality, same closed-task 409 as update_step_note. Re-read with get_task after a refusal.

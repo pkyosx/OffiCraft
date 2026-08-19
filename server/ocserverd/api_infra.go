@@ -250,7 +250,8 @@ func (s *apiServer) HandleEventsApiEventsGet(w http.ResponseWriter, r *http.Requ
 			signal := decideHandoverNotice(
 				memberID, connRuntime, record,
 				s.ctxHighConfig(), s.codexNoticeRoundSetting(), s.codexCompactionThreshold,
-				s.offboardText)
+				s.offboardText,
+				func() string { return docCapacityLines(s.docCapacityFor(memberID, s.stepNoteCapacityFor(memberID))) })
 			// ONCE PER SESSION, not once per connection (T-c382). The dedup key is
 			// the gauge's boot_ts — the SESSION anchor, restored from the durable
 			// member row on reconnect — so an SSE flap mid-session cannot re-fire

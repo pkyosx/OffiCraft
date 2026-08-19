@@ -241,10 +241,20 @@ type contextHighSignal struct {
 // 「1. 把交接事項放進 chat 留給自己 2. 更新 task 把狀態或備注寫進去 3. 把
 // learning / lesson 寫回去」. A notice that only says "you are running out"
 // tells the agent nothing it can act on.
+//
+// T-6bd2 adds ONE more thing to the same frame: the caller's long-lived
+// documents that are close to their character cap. It rides HERE, and nowhere
+// on the write path, because writing memory back is step 4 of the sequence this
+// notice carries — an agent told at step 4 that its task manual has 167
+// characters left has no time left to do anything but delete words until the
+// write fits. Told at the SOFT notice, it still has the whole close-out ahead
+// of it. `docCapacity` is a closure for the same reason `offboard` is: it costs
+// a handful of reads and must not run on the idle path of every connection to
+// serve a frame that fires once per session.
 func decideHandoverNotice(
 	agentID, runtime string, record map[string]any,
 	cfg SseContextHighConfig, codexNoticeRound, codexThreshold int,
-	offboard func() string,
+	offboard func() string, docCapacity func() string,
 ) *contextHighSignal {
 	pct := actionableContextPct(record, cfg.StaleGuard)
 	var where string
@@ -275,6 +285,13 @@ func decideHandoverNotice(
 	var text string
 	if offboard != nil {
 		text = offboard()
+	}
+	// Appended AFTER the document, never woven into the owner's sentence or the
+	// document's steps — both are carried verbatim by ruling (see
+	// offboardNotice). "" when nothing is near its cap, which is the ordinary
+	// case and leaves the notice byte-identical to what it was before T-6bd2.
+	if docCapacity != nil {
+		text += docCapacity()
 	}
 	return &contextHighSignal{
 		Topic: contextHighTopic,
