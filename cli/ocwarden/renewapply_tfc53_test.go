@@ -771,10 +771,17 @@ func TestMaybeRenewCredential_AStationThatRefusesTheNewCredentialCostsNothing(t 
 // left the whole suite green, i.e. the infinite-exec guard could be switched off
 // in production without one red test.
 func TestApply_CarriesEveryFieldOntoTheUpdater(t *testing.T) {
+	// 🔴 EACH CLOSURE IS IDENTIFIABLE, because `!= nil` is not an assertion about
+	// WHICH closure arrived. Review replaced verify with a constant-200 stub and
+	// writeTok with a no-op INSIDE apply and the whole package stayed green: the
+	// probe deleted and the write faked, on every machine in the fleet at once,
+	// with three assertions still passing. This test opened by naming that exact
+	// defect in the wiring constructor and then committed it here.
+	var called []string
 	w := renewalWiring{
-		renew:       func() (int, map[string]any, error) { return 0, nil, nil },
-		verify:      func(string) (int, error) { return 0, nil },
-		writeTok:    func(string, string) error { return nil },
+		renew:       func() (int, map[string]any, error) { called = append(called, "renew"); return 0, nil, nil },
+		verify:      func(string) (int, error) { called = append(called, "verify"); return 0, nil },
+		writeTok:    func(string, string) error { called = append(called, "writeTok"); return nil },
 		tokfilePath: "/somewhere/exec-warden.tok",
 		token:       "the-running-credential",
 		envToken:    "exported-by-hand",
@@ -783,14 +790,25 @@ func TestApply_CarriesEveryFieldOntoTheUpdater(t *testing.T) {
 	u.apply(w)
 
 	if u.renew == nil {
-		t.Error("renew was not carried over — renewal is off and nothing else would notice")
+		t.Fatal("renew was not carried over — renewal is off and nothing else would notice")
 	}
 	if u.verify == nil {
-		t.Error("verify was not carried over — the credential probe is skipped, and an " +
+		t.Fatal("verify was not carried over — the credential probe is skipped, and an " +
 			"unusable credential would be written and exec'd into")
 	}
 	if u.writeTok == nil {
-		t.Error("writeTok was not carried over — a due credential could never be written")
+		t.Fatal("writeTok was not carried over — a due credential could never be written")
+	}
+	_, _, _ = u.renew()
+	_, _ = u.verify("candidate")
+	_ = u.writeTok("/tmp/whatever", "candidate")
+	if got := strings.Join(called, ","); got != "renew,verify,writeTok" {
+		t.Errorf("the updater is not calling the closures it was given (saw %q). A "+
+			"field that merely holds SOME non-nil function is satisfied by one that "+
+			"does the wrong thing or nothing at all — a constant-200 verify deletes "+
+			"confirm-before-write, and a no-op writeTok reports success without "+
+			"touching disk, which re-execs this process onto the same expired token "+
+			"every 15 minutes, fleet-wide", got)
 	}
 	if u.tokfilePath != w.tokfilePath {
 		t.Errorf("tokfilePath = %q, want %q", u.tokfilePath, w.tokfilePath)
@@ -934,15 +952,32 @@ func TestHttpCredentialVerifier_PresentsTheCandidateAtTheProbePath(t *testing.T)
 // argued from is the one case it cannot see. It is kept because a genuine 5xx is
 // still worth telling apart; it is NOT evidence that the blink case is handled.
 //
-// The subtests cover the whole 5xx range, not just 500. 502 and 503 are what a
-// proxy or load balancer in front of the station emits, i.e. the most likely 5xx
-// in production, and `status == 500` compiles, passes a 500-only test, and puts
-// them back in the refusal arm.
+// The subtests sample the range at its ENDS and at the proxy codes, because
+// picking a few points is not covering a range — review made that concrete by
+// narrowing the arm to `status >= 500 && status <= 503`, which passed a
+// 500/502/503 test while putting 504 and everything above back in the refusal
+// arm. 504 is the one that stings: Gateway Timeout is what a proxy in front of a
+// SLOW station emits, and "the station did not answer in time" is the exact case
+// this arm exists to name correctly.
+//
+// ⚠️ An earlier version of this comment claimed these subtests "cover the whole
+// 5xx range". They did not then and they do not now — 501, 505 and the rest are
+// still unasserted. What is asserted is the boundary (500 in, 499 out) and the
+// codes a proxy actually produces.
+//
+// 429 belongs to the same family and is deliberately NOT here: it lands in the
+// REFUSED arm and logs "the station REFUSED the credential it just issued". Every
+// warden probes on the same 15-minute beat, so a rate limit is a plausible
+// fleet-wide answer, and that log line would send its reader after a minting bug.
+// Left alone rather than fixed quietly, because widening the arm changes which
+// answers count as "no" and that deserves its own decision.
 func TestMaybeRenewCredential_AServerErrorIsNotARefusal(t *testing.T) {
 	for _, status := range []int{
-		http.StatusInternalServerError,
-		http.StatusBadGateway,
-		http.StatusServiceUnavailable,
+		http.StatusInternalServerError, // 500 — the low boundary of the arm
+		http.StatusBadGateway,          // 502 — a proxy with no healthy upstream
+		http.StatusServiceUnavailable,  // 503 — a station that is up but refusing work
+		http.StatusGatewayTimeout,      // 504 — a proxy in front of a SLOW station
+		599,                            // above every named code, still not a refusal
 	} {
 		t.Run(fmt.Sprintf("station answers %d", status), func(t *testing.T) {
 			now := time.Unix(1_800_000_000, 0)
