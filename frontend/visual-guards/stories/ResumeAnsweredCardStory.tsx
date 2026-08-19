@@ -10,6 +10,7 @@ import { useEffect } from "react";
 import { I18nProvider } from "../../src/i18n";
 import { ResumeSummaryCard } from "../../src/components/ResumeSummaryCard";
 import { api } from "../../src/api";
+import { runeLength } from "../../src/api/docCap";
 import type { MemberResumeSummaryView } from "../../src/api/adapter";
 
 export const RESUME_LIGHT_PACK: Record<string, string> = {
@@ -25,6 +26,31 @@ export const RESUME_LIGHT_PACK: Record<string, string> = {
   "--color-accent": "#2b450b",
   "--color-overlay": "#241f0d",
 };
+
+const RESUME_ANSWERED_CARD_STEPS = [
+  {
+    stepId: "step-answered",
+    stepName: "先讀 owner 回覆，再決定下一步並保留可調整方案",
+    cardId: "rc-answered-card-with-a-long-stable-id",
+  },
+];
+
+function answeredCardStepChars(
+  steps: typeof RESUME_ANSWERED_CARD_STEPS,
+): number {
+  return steps.reduce(
+    (sum, step) =>
+      sum +
+      runeLength(step.stepId) +
+      runeLength(step.stepName) +
+      runeLength(step.cardId),
+    0,
+  );
+}
+
+const RESUME_ANSWERED_CARD_STEP_CHARS = answeredCardStepChars(
+  RESUME_ANSWERED_CARD_STEPS,
+);
 
 const RESUME: MemberResumeSummaryView = {
   identity: null,
@@ -44,13 +70,7 @@ const RESUME: MemberResumeSummaryView = {
       progressTotal: 4,
       updatedTs: 1787200000,
       detailChars: 0,
-      answeredCardSteps: [
-        {
-          stepId: "step-answered",
-          stepName: "先讀 owner 回覆，再決定下一步並保留可調整方案",
-          cardId: "rc-answered-card-with-a-long-stable-id",
-        },
-      ],
+      answeredCardSteps: RESUME_ANSWERED_CARD_STEPS,
     },
   ],
   overview: {
@@ -63,8 +83,8 @@ const RESUME: MemberResumeSummaryView = {
     cardsAnsweredRecent: 1,
     rosterChars: 0,
     machinesChars: 0,
-    stepsOnAnsweredCard: 1,
-    stepsOnAnsweredCardChars: 84,
+    stepsOnAnsweredCard: RESUME_ANSWERED_CARD_STEPS.length,
+    stepsOnAnsweredCardChars: RESUME_ANSWERED_CARD_STEP_CHARS,
   },
   note: "",
   generatedAt: "",

@@ -32,10 +32,37 @@ import { render, fireEvent, screen, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { en } from "../i18n/locales/en";
+import { runeLength } from "../api/docCap";
 import { toMemberResumeSummary } from "../api/mappers";
 import type { MemberResumeSummaryView } from "../api/adapter";
-import type { WireResumeSummary } from "../api/wire";
+import type { WireResumeSummary, WireResumeTask } from "../api/wire";
 import { ResumeSummaryCard } from "./ResumeSummaryCard";
+
+const ANSWERED_CARD_STEPS: NonNullable<WireResumeTask["answered_card_steps"]> = [
+  {
+    step_id: "step-answered-1",
+    step_name: "先讀 owner 回覆",
+    card_id: "rc-answered-1",
+  },
+  {
+    step_id: "step-answered-2",
+    step_name: "依回覆調整方案",
+    card_id: "rc-answered-2",
+  },
+];
+
+function answeredCardStepChars(
+  steps: NonNullable<WireResumeTask["answered_card_steps"]>,
+): number {
+  return steps.reduce(
+    (sum, step) =>
+      sum +
+      runeLength(step.step_id) +
+      runeLength(step.step_name) +
+      runeLength(step.card_id),
+    0,
+  );
+}
 
 // The snapshot as it comes off the wire. Values are deliberately DISTINCT and
 // mutually non-substring, so an assertion cannot be satisfied by a neighbour's
@@ -55,8 +82,8 @@ const WIRE: WireResumeSummary = {
     cards_answered_recent: 718,
     roster_chars: 4196,
     machines_chars: 1583,
-    steps_on_answered_card: 2,
-    steps_on_answered_card_chars: 154,
+    steps_on_answered_card: ANSWERED_CARD_STEPS.length,
+    steps_on_answered_card_chars: answeredCardStepChars(ANSWERED_CARD_STEPS),
   },
   chat: [
     {
@@ -126,18 +153,7 @@ const WIRE: WireResumeSummary = {
       progress_total: 3,
       updated_ts: 1786000900,
       detail_chars: 375,
-      answered_card_steps: [
-        {
-          step_id: "step-answered-1",
-          step_name: "先讀 owner 回覆",
-          card_id: "rc-answered-1",
-        },
-        {
-          step_id: "step-answered-2",
-          step_name: "依回覆調整方案",
-          card_id: "rc-answered-2",
-        },
-      ],
+      answered_card_steps: ANSWERED_CARD_STEPS,
     },
   ],
   roster: [
@@ -600,6 +616,14 @@ describe("ResumeSummaryCard renders the SAME snapshot the agent receives", () =>
     for (const [key, value] of pairs) {
       expect(txt(u.getByTestId(`mp-resume-stat-${key}`))).toBe(String(value));
     }
+  });
+
+  it("keeps answered-card size figures tied to the pointers it carries", () => {
+    const steps = WIRE.tasks!.flatMap((task) => task.answered_card_steps ?? []);
+    expect(WIRE.overview!.steps_on_answered_card).toBe(steps.length);
+    expect(WIRE.overview!.steps_on_answered_card_chars).toBe(
+      answeredCardStepChars(steps),
+    );
   });
 
   it("shows answered-card pointers as attention, not completed work", async () => {
