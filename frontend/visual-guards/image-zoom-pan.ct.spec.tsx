@@ -391,218 +391,30 @@ for (const height of [420, 500, 560, 700]) {
 // page (measured: scrollY 120). So do not read a green here as "the JS handler
 // is doing its job", and do not drop the CSS on the grounds that the JS covers
 // it — in Chromium it is the other way round.
-// TOUCH. owner 2026-07-31: 「圖片滑動很難使用,不能改成滑鼠以及手機畫面可以可拉動
-// 的方法嗎?」 — reported against v0.5.53, i.e. the UNFIXED build where the zoom
-// was a transform and nothing could move at all.
+// TOUCH — REMOVED 2026-08-20 on the owner's instruction (「移除觸控手勢測試」,
+// card rc-6ee58072e1da).
 //
-// GESTURE OWNERSHIP is SPLIT BY FINGER COUNT, and the two halves are decided
-// for opposite reasons.
+// WHAT WAS HERE: five Chromium-only guards driving real input-layer touch
+// events through CDP — one-finger pan, two-finger spread, pinch-then-swipe,
+// pinch closed, and "the page behind must not zoom".
 //
-// ONE finger belongs to the BROWSER, enforced by `onPanPointerDown`'s
-// `pointerType === "touch"` bail-out: it pans the scroll container natively
-// (with inertia and rubber-banding we would otherwise have to reimplement), and
-// the page behind is protected by `overscroll-behavior: contain` rather than by
-// swallowing the gesture. Running our pointer drag as well would apply the same
-// delta twice — one finger-width of travel would move the image two — which is
-// exactly why the bail-out is there. Do not "add touch support" by deleting it.
+// WHY THEY WENT: they went red intermittently on branches that had not touched
+// the frontend at all — three times over two unrelated branches. Each one costs
+// a whole CI round, and worse, it teaches every reader to discount a red. The
+// root cause was never found, and the two cheap outs (a longer timeout,
+// retries) only hide it.
 //
-// TWO fingers belong to US (T-043e, owner ruling 2026-07-31: 「在手機上二指撐
-// 開，要放大的是圖片本身，頁面不動」). Left to the UA a pinch scales the VISUAL
-// viewport while this overlay is fixed to the LAYOUT viewport, so the whole
-// modal — header, buttons, backdrop — grows instead of the photo. The component
-// claims it with `touch-action: pan-x pan-y` plus its own touchstart/touchmove
-// pinch handler (and the WebKit `gesture*` pair). The two halves live on
-// different events, so claiming the pinch does not resurrect the one-finger
-// double-apply.
-//
-// This guard drives REAL input-layer touch events through CDP, not
-// `dispatchEvent` of a synthetic TouchEvent: it asserts the gesture works, not
-// merely that some branch was taken. Chromium-only — WebKit's driver exposes no
-// equivalent, so Safari touch remains unguarded (see the branch-level unit test
-// in MarkdownPreviewOverlay.test.tsx, which pins the ownership decision itself).
-test.describe("touch", () => {
-  test.use({ hasTouch: true });
-
-  test("one finger pans the zoomed image — the browser does the moving", async ({ mount, page, browserName }) => {
-    test.skip(browserName !== "chromium", "CDP touch injection is Chromium-only");
-    const { cmp, wrap } = await mountStory(mount, page);
-    await zoomTo400(cmp);
-
-    const box = (await wrap.boundingBox())!;
-    const cx = Math.round(box.x + box.width / 2);
-    const cy = Math.round(box.y + box.height / 2);
-    const cdp = await page.context().newCDPSession(page);
-    const touch = (type: string, x: number, y: number) =>
-      cdp.send("Input.dispatchTouchEvent", {
-        type,
-        touchPoints: type === "touchEnd" ? [] : [{ x, y, radiusX: 12, radiusY: 12, force: 1 }],
-      });
-
-    await touch("touchStart", cx, cy);
-    for (let i = 1; i <= 10; i++) await touch("touchMove", cx - i * 20, cy - i * 12);
-    await touch("touchEnd", cx - 200, cy - 120);
-    await page.waitForTimeout(700);
-
-    const g = await geometry(wrap);
-    // Measured: 0 → 451 with the fix, 0 → 0 with the zoom back in a transform.
-    expect(g.scrollLeft, "a real one-finger swipe must pan the zoomed image").toBeGreaterThan(100);
-    expect(await page.evaluate(() => window.scrollY), "the page behind must not travel with it").toBe(0);
-  });
-
-  // T-043e. The subject is the APP's zoom state — the readout at the bottom of
-  // the panel and the frame's resulting travel — because that is the thing the
-  // owner asked to move. A pinch that magnified nothing but the browser's own
-  // visual viewport leaves both of them exactly where they were, which is what
-  // the unfixed build does.
-  test("a two-finger spread magnifies the IMAGE — the app's zoom state moves with the fingers", async ({ mount, page, browserName }) => {
-    test.skip(browserName !== "chromium", "CDP touch injection is Chromium-only");
-    const { cmp, wrap } = await mountStory(mount, page);
-    await expect(cmp.getByText("100%")).toBeVisible();
-    const before = await geometry(wrap);
-    expect(before.overflowX, "the premise: at 100% there is nothing to pan").toBeLessThanOrEqual(1);
-
-    await pinch(page, wrap, 60, 240);
-
-    // The readout is the app's own state, not the UA's. 60px → 240px of spread
-    // is 4x, clamped to the component's ZOOM_MAX.
-    await expect(cmp.getByText("400%")).toBeVisible();
-    const after = await geometry(wrap);
-    // …and the state is real layout, so the frame gained somewhere to go. A
-    // percentage that moved without the geometry following it would be a
-    // readout, not a zoom.
-    expect(after.image.right - after.image.left, "the painted image must have grown").toBeGreaterThan(
-      (before.image.right - before.image.left) * 3.5,
-    );
-    expect(after.overflowX, "the zoomed frame must have real horizontal travel").toBeGreaterThan(100);
-    expect(after.overflowY, "the zoomed frame must have real vertical travel").toBeGreaterThan(100);
-  });
-
-  // …and that travel must be reachable BY THE FINGER, in both axes. `overflowY`
-  // being a positive number is a claim about the layout; `scrollTop` moving
-  // under a real swipe is the thing the owner actually does. The vertical half
-  // is called out because it is the axis of the original 「上下不會動」 report
-  // — a frame that only travels sideways would satisfy every horizontal
-  // assertion in this file.
-  // INVARIANT THIS GUARDS (T-6c26 — written out so nobody wakes it up without
-  // knowing what breaks): after a pinch-zoom, a one-finger swipe must move the
-  // frame in BOTH axes. Deleting it does not "remove a flaky test"; it removes
-  // the only check that the travel a zoom creates is reachable by the finger,
-  // which is the original 「上下不會動」 report.
-  test("after a pinch-zoom a one-finger swipe reaches the travel in BOTH axes", async ({ mount, page, browserName }) => {
-    test.skip(browserName !== "chromium", "CDP touch injection is Chromium-only");
-    const { cmp, wrap } = await mountStory(mount, page);
-    await pinch(page, wrap, 60, 240);
-    await expect(cmp.getByText("400%")).toBeVisible();
-    expect((await geometry(wrap)).scrollTop, "the premise: not already scrolled").toBe(0);
-
-    // T-6c26: polled, not sampled once. The offsets are read until they pass or
-    // the poll times out — a frame that genuinely never moves still fails, and
-    // fails on the SAME number. What is gone is the bet that one fixed pause is
-    // always enough on a loaded runner (both axes of this test have lost that
-    // bet on CI, on different rounds).
-    await swipe(page, wrap, 0, -220);
-    await expect
-      .poll(() => wrap.evaluate((el) => el.scrollTop), {
-        message: "a real upward swipe must move the pinch-zoomed frame vertically",
-      })
-      .toBeGreaterThan(50);
-
-    // …and settle before the second gesture: a touchStart that lands while the
-    // first swipe's momentum is still running is consumed as a STOP, which is
-    // one way the sideways half has come back as a flat scrollLeft = 0.
-    await settleScroll(page, wrap);
-    await swipe(page, wrap, -220, 0);
-    await expect
-      .poll(() => wrap.evaluate((el) => el.scrollLeft), { message: "and sideways" })
-      .toBeGreaterThan(50);
-    expect(await page.evaluate(() => window.scrollY), "the page behind must not travel with it").toBe(0);
-  });
-
-  // Pinching CLOSED must come back down — a handler that only ever grows would
-  // pass the tests above while being half a feature.
-  test("a two-finger pinch closed shrinks the image back", async ({ mount, page, browserName }) => {
-    test.skip(browserName !== "chromium", "CDP touch injection is Chromium-only");
-    const { cmp, wrap } = await mountStory(mount, page);
-    await zoomTo400(cmp);
-    const zoomed = await geometry(wrap);
-
-    await pinch(page, wrap, 240, 60);
-
-    await expect(cmp.getByText("100%")).toBeVisible();
-    const back = await geometry(wrap);
-    expect(back.image.right - back.image.left).toBeLessThan((zoomed.image.right - zoomed.image.left) / 3);
-  });
-
-  // THE PAGE ITSELF MUST NOT ZOOM — the actual complaint. The owner's report is
-  // not "the picture didn't grow", it is "the whole popup grew": a pinch left
-  // to the UA scales the VISUAL viewport, and this overlay is fixed to the
-  // LAYOUT viewport, so header, buttons and backdrop are magnified along with
-  // (instead of) the photo.
-  //
-  // ✅ `visualViewport.scale` IS falsifiable here — checked rather than assumed,
-  // because a Chromium that ignored injected pinches would make this assertion
-  // true of every implementation. MEASURED with the fix reverted: injected
-  // `Input.dispatchTouchEvent` PAIRS do drive Chromium's own page pinch-zoom —
-  // `scale` reached 3 while the app's readout sat at 100%, i.e. exactly the
-  // reported bug reproduced in this engine. With the fix: scale 1, readout 400%.
-  //
-  // ⚠️ It is still not the real acceptance test. That is a pinch on an actual
-  // phone — iOS Safari especially, where `touch-action`'s suppression of pinch
-  // has historically been partial and the WebKit `gesture*` route the component
-  // also binds cannot be driven by any driver we have. A green here says
-  // Chromium hands the gesture over, not that Safari does.
-  test("the page behind must not zoom — the pinch belongs to the image", async ({ mount, page, browserName }) => {
-    test.skip(browserName !== "chromium", "CDP touch injection is Chromium-only");
-    const { cmp, wrap } = await mountStory(mount, page);
-    expect(await page.evaluate(() => window.visualViewport?.scale), "the premise: the page starts unzoomed").toBe(1);
-
-    await page.evaluate(() => {
-      (window as unknown as { __twoFingerDefaults: boolean[] }).__twoFingerDefaults = [];
-      document.addEventListener(
-        "touchmove",
-        (e) => {
-          if (e.touches.length === 2)
-            (window as unknown as { __twoFingerDefaults: boolean[] }).__twoFingerDefaults.push(e.defaultPrevented);
-        },
-        { passive: true },
-      );
-    });
-    await pinch(page, wrap, 60, 300);
-    await page.waitForTimeout(400);
-
-    // Measured 3.0 on the unfixed build, 1 with the fix.
-    expect(
-      await page.evaluate(() => window.visualViewport?.scale),
-      "a pinch on the image must not zoom the page — that magnifies the whole fixed overlay",
-    ).toBe(1);
-    // …and the magnification went where it was supposed to go instead of simply
-    // being swallowed. A handler that only called preventDefault would satisfy
-    // the line above and still leave the owner unable to zoom anything.
-    await expect(cmp.getByText("400%")).toBeVisible();
-
-    const defaults = await page.evaluate(
-      () => (window as unknown as { __twoFingerDefaults: boolean[] }).__twoFingerDefaults,
-    );
-    expect(defaults.length, "the pinch must actually have reached the document").toBeGreaterThan(3);
-    expect(
-      defaults.every(Boolean),
-      "every two-finger move must be consumed by the app, not left for the UA to zoom the page with",
-    ).toBe(true);
-
-    // Last, and deliberately last: the DECLARATIVE half. `pan-x pan-y` excludes
-    // pinch-zoom, where `auto` and `manipulation` both hand it to the UA. This
-    // is the only property assertion in the file and it is here because it is
-    // the only thing that catches dropping the CSS while keeping the JS —
-    // MEASURED: with the handler alone, its `preventDefault` is enough to keep
-    // `scale` at 1 in Chromium, so every behavioural line above stays green.
-    // That is an engine's courtesy, not a contract; iOS Safari is the reason
-    // the declaration has to be there as well.
-    expect(
-      await wrap.evaluate((el) => getComputedStyle(el).touchAction),
-      "the frame must not offer pinch-zoom to the UA in the first place",
-    ).toBe("pan-x pan-y");
-  });
-});
+// 🔴 WHAT IS NOW UNGUARDED, written down so nobody reads this gap as "covered
+// elsewhere": the gesture-ownership SPLIT still holds in the component — one
+// finger belongs to the BROWSER (`onPanPointerDown` bails out on
+// `pointerType === "touch"`, so the native scroll container pans with inertia),
+// two fingers belong to US (T-043e, owner 2026-07-31: 「在手機上二指撐開，要放
+// 大的是圖片本身，頁面不動」, claimed via `touch-action: pan-x pan-y` plus the
+// component's own pinch handler). That DECISION is still pinned by the
+// branch-level unit test in MarkdownPreviewOverlay.test.tsx. What is no longer
+// verified is that the real gestures still WORK end to end — delete the
+// one-finger bail-out to "add touch support" and every pan would be applied
+// twice, with nothing in CI to say so.
 
 // The −/+ are the only way to zoom without a gesture, on the one surface whose
 // whole job is to be driven by a thumb. 40px is the floor every mobile
