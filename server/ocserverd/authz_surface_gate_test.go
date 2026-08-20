@@ -353,7 +353,8 @@ var authzOutsideRouteTable = map[string]string{
 	"doc_capacity.go :: docCapacityFor :: principalAtLeast(classifyMember(m), principalAdminAgent)": "" +
 		"role definitions and the three boot documents are gated at admin_agent, so " +
 		"`writable` — documented as a FACT about THIS reader — has to be read off this " +
-		"reader. Telling 銀月 (kind=assistant → admin_agent) 'this one is not yours to " +
+		"reader. Telling 銀月 (ROLE_KEY \"assistant\" → admin_agent; the discriminator is " +
+		"role_key, not Member.Kind) 'this one is not yours to " +
 		"write, go find 銀月' was a false permission claim AND an instruction to go find " +
 		"herself. Cannot be a route floor: one response carries rows for documents with " +
 		"DIFFERENT gates, so there is no single Requires value to put on the row.",

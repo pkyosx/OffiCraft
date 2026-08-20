@@ -36,23 +36,26 @@ func TestOffboardNotice_TheApprovedSentence(t *testing.T) {
 	// the document below it said a soft arm may let its sub-agents finish —
 	// the first line being the one read first. Everything AFTER the opener is
 	// still identical on both arms and still asserted verbatim below.
+	// WHOLE STRING (owner ruling 2026-08-20, c-2502de439aaa: 「你如果要比對
+	// context 就是比對一整份要一模一樣」). offboardNotice is deterministic and
+	// every input here is a literal, so the complete expected value exists —
+	// and comparing it pins ALL of what three separate keyword assertions used
+	// to pin, plus everything they never looked at: the opener, the second
+	// half, the absence of "offboard now", the absence of any deadline clause,
+	// the newline, and the document carried verbatim.
 	soft := offboardNotice(where, offboardCloserRestartSelf, false, 0, doc)
-	if !strings.Contains(soft, where+" — start your close-out: work the sequence "+
-		"below, then call restart_self yourself.") {
-		t.Fatalf("the soft notice must open WITHOUT urging, and carry the rest "+
-			"of the approved sentence verbatim:\n%s", soft)
+	wantSoft := where + " — start your close-out: work the sequence below, " +
+		"then call restart_self yourself.\n" + doc
+	if soft != wantSoft {
+		t.Fatalf("the soft notice must open WITHOUT urging and carry the rest of "+
+			"the approved sentence verbatim:\n got %q\nwant %q", soft, wantSoft)
 	}
-	if strings.Contains(soft, "offboard now") {
-		t.Fatalf("a soft notice must not tell the reader to offboard NOW — that "+
-			"is the second force that collected a working agent early:\n%s", soft)
-	}
-	// Time of ANY shape, not the one literal: the difference between the two
-	// notices is that one is on a clock and one is not, and a whitelist of
-	// yesterday's wordings stops guarding that the moment the wording changes.
+	// Kept as a SHAPE assertion on top of the equality above, because it is not
+	// a keyword test: it refuses a time of ANY spelling, which is the property
+	// the two arms actually differ on. An equality assertion pins today's
+	// string; this one still fires if a future edit adds a clock in a wording
+	// nobody has written yet.
 	assertQuotesNoTime(t, "the soft notice", soft)
-	if !strings.Contains(soft, doc) {
-		t.Fatalf("the steps must be the DOCUMENT's, carried verbatim:\n%s", soft)
-	}
 
 	// T-d6a7: the final call now names WHEN the deadline is, not how long is
 	// left. A duration went stale on every replay of the same epoch (and broke
@@ -65,11 +68,11 @@ func TestOffboardNotice_TheApprovedSentence(t *testing.T) {
 	// as such.
 	const deadline = 1_787_000_000.0 // 2026-08-17T20:53:20Z
 	final := offboardNotice(where, offboardCloserRestartSelf, true, deadline, doc)
-	const wantClause = "then call restart_self yourself. " +
-		"Your deadline is 2026-08-17T20:53:20Z."
-	if !strings.Contains(final, wantClause) {
+	wantFinal := where + " — offboard now: work the sequence below, " +
+		"then call restart_self yourself. Your deadline is 2026-08-17T20:53:20Z.\n" + doc
+	if final != wantFinal {
 		t.Fatalf("the final call must name the deadline, right after the same "+
-			"sentence:\n%s", final)
+			"sentence:\n got %q\nwant %q", final, wantFinal)
 	}
 
 	// A final call with NO clock is a contradiction (offboardKindOf only answers
@@ -82,8 +85,11 @@ func TestOffboardNotice_TheApprovedSentence(t *testing.T) {
 	// An empty document degrades to the sentence alone: losing the checklist is
 	// survivable, losing the notice is not.
 	bare := offboardNotice(where, offboardCloserRestartSelf, false, 0, "")
-	if !strings.Contains(bare, "start your close-out") || strings.Contains(bare, "\n") {
-		t.Fatalf("an empty document must leave the sentence intact and alone:\n%q", bare)
+	wantBare := where + " — start your close-out: work the sequence below, " +
+		"then call restart_self yourself."
+	if bare != wantBare {
+		t.Fatalf("an empty document must leave the sentence intact and alone "+
+			"(no trailing newline):\n got %q\nwant %q", bare, wantBare)
 	}
 }
 
@@ -159,15 +165,22 @@ func TestOffboardDeltaPayload_下線NeverCarriesACountdown(t *testing.T) {
 	// clock collecting 下線, the session would sit refused until someone pressed
 	// force-stop. Its sequence ends at report_stopped, which is also step 6 of
 	// the document it is being shown.
-	if !strings.Contains(notice, "then call report_stopped yourself") {
-		t.Fatalf("the approved sentence must survive, naming the tool that works "+
-			"on this arm:\n%s", notice)
-	}
-	// …in the SENTENCE. The document carried below it is the owner's and
-	// mentions restart_self in its own right (it covers every offboard path),
-	// so the assertion is on the first line only.
-	if sentence, _, _ := strings.Cut(notice, "\n"); strings.Contains(sentence, "restart_self") {
-		t.Fatalf("下線 must not be told to re-start itself:\n%s", sentence)
+	// WHOLE SENTENCE, compared as one string (owner ruling 2026-08-20,
+	// c-2502de439aaa). The document carried below it is the owner's and is not
+	// what this test guards — it mentions restart_self in its own right,
+	// because it covers every offboard path — so the comparison is on the FIRST
+	// LINE, which is the whole of what this server composes here.
+	//
+	// It pins in one assertion what two keyword checks used to: the closer is
+	// report_stopped, restart_self appears nowhere in the sentence, and the
+	// rest of the approved wording is intact.
+	sentence, _, _ := strings.Cut(notice, "\n")
+	wantSentence := "close-out (your limits: 40% / 50%) — start your close-out: " +
+		"work the sequence below, then call report_stopped yourself."
+	if sentence != wantSentence {
+		t.Fatalf("下線 must be named the tool that works on this arm, and must "+
+			"not be told to re-start itself:\n got %q\nwant %q",
+			sentence, wantSentence)
 	}
 }
 

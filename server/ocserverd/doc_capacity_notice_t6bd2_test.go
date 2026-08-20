@@ -77,6 +77,20 @@ func t6bd2NoticeLine(t *testing.T, wire, substr string) string {
 	return ""
 }
 
+// t6bd2NoticeAction pulls the ACTION half off a rendered capacity line. The
+// renderer's shape is `- {doc}: {size}/{cap} chars, {left} left → {action}`
+// (docCapacityLines), so the action is everything after the arrow — which is
+// what lets this file compare it whole against the constant instead of hunting
+// for keywords inside it.
+func t6bd2NoticeAction(t *testing.T, line string) string {
+	t.Helper()
+	_, action, found := strings.Cut(line, " → ")
+	if !found {
+		t.Fatalf("a capacity line must carry its action after an arrow: %q", line)
+	}
+	return action
+}
+
 // TestHandoverNoticeTick_ClosuresAreNotRunAfterTheClaim — BLOCKER 1.
 //
 // 🔴 WHAT WAS ACTUALLY WRONG. decideHandoverNotice has no memory: once an agent
@@ -194,24 +208,16 @@ func TestSoftNoticeNamesWhoCanCompactWhatTheReaderCannot(t *testing.T) {
 
 	line := t6bd2NoticeLine(t, t6bd2NoticeWire(t, s, reader), "insight (")
 
-	// The row must still hand the reader an addressee — the original mutant
-	// (numbers with nobody to go to) must stay dead.
-	if !strings.Contains(line, "銀月") {
-		t.Fatalf("a long-term-memory row must name WHO can compact it; this "+
-			"line only states the numbers: %s", line)
-	}
-	// And it must NOT claim a permission the reader actually has. This is the
-	// half the old shape got backwards.
-	for _, lie := range []string{"403", "cannot write", "not yours to write"} {
-		if strings.Contains(line, lie) {
-			t.Fatalf("the reader CAN write its own insight — saying %q is a "+
-				"claim it falsifies in one call, and a reminder caught lying "+
-				"is one nobody reads again: %s", lie, line)
-		}
-	}
-	if !strings.Contains(line, "yourself") {
-		t.Fatalf("the row must say the document IS the reader's to write, "+
-			"even while pointing at the compactor: %s", line)
+	// WHOLE STRING against the CONSTANT (owner ruling 2026-08-20,
+	// c-2502de439aaa). The three keyword checks this replaces asked "does it
+	// name 銀月", "does it avoid 403/cannot write/not yours to write" and "does
+	// it say yourself" — a rewrite could satisfy all three and still be the
+	// wrong sentence. What this test is about is WHICH of the three sentences
+	// the long-term-memory row got, and equality asks exactly that.
+	if action := t6bd2NoticeAction(t, line); action != docCapacityActionSelfMemory {
+		t.Fatalf("a long-term-memory row must carry the memory sentence — it "+
+			"names who can compact it WITHOUT claiming a permission the reader "+
+			"has:\n got %q\nwant %q", action, docCapacityActionSelfMemory)
 	}
 
 	// And the CONTRAST is half the property: a row the reader CAN write must

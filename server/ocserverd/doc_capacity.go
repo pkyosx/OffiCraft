@@ -212,9 +212,11 @@ func (s *apiServer) docCapacityFor(actor string, stepNotes []docCapacityRow) []d
 	}
 
 	// 🔴 WHO IS READING DECIDES WHAT `writable` SAYS, for the rows whose write
-	// face is gated at principalAdminAgent. The admin assistant (kind=assistant
-	// → classifyMember → admin_agent) may write role definitions and the boot
-	// documents, so telling HER "this one is not yours to write, go find 銀月"
+	// face is gated at principalAdminAgent. The admin assistant (ROLE_KEY
+	// "assistant" — classifyMember reads role_key, NOT Member.Kind, which is
+	// also "assistant" on every ordinary 正職) may write role definitions and
+	// the boot documents, so telling HER "this one is not yours to write, go
+	// find 銀月"
 	// is two falsehoods in one sentence: a permission claim that is wrong, and
 	// an instruction to go find herself. `writable` is documented as a FACT
 	// about THIS READER's permissions, so it has to be read off this reader.
@@ -256,7 +258,9 @@ func (s *apiServer) docCapacityFor(actor string, stepNotes []docCapacityRow) []d
 	}
 
 	// ── the three boot documents ─────────────────────────────────────────────
-	// Station-wide rather than per-reader, and owner-only to write. They are in
+	// Station-wide rather than per-reader, and gated at principalAdminAgent to
+	// write (NOT owner-only — that is why the pair above is read per reader).
+	// They are in
 	// scope because they fail in the identical way (recon measured the refusal:
 	// same docCapRefusal sentence, same moment) — the only difference is that
 	// the person who hits it is usually the owner, which is precisely why no

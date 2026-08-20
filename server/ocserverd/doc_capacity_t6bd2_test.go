@@ -272,7 +272,9 @@ func TestResumeSummaryDocCapacityQuietWhenNothingIsNear(t *testing.T) {
 func TestResumeSummaryDocCapacitySplitsWhatTheReaderCanActOn(t *testing.T) {
 	// 🔴 TWO READERS, because `writable` is a fact about THE READER and four of
 	// the nine rows are gated at principalAdminAgent. Running this with only
-	// 銀月 (kind=assistant → admin_agent) is how the file previously asserted
+	// 銀月 (ROLE_KEY "assistant" → admin_agent; classifyMember reads role_key,
+	// not Member.Kind, which every ordinary 正職 also carries as "assistant")
+	// is how the file previously asserted
 	// "role definition: not writable" about a reader who CAN write it — the
 	// exact class of lie property 2 exists to forbid, wearing the other hat.
 	// The ordinary member is the control; she is the case the ladder cannot
@@ -334,53 +336,30 @@ func t6bd2SplitCases(t *testing.T, actor, adminGated string) {
 				"changing this line", name, wantWritable, gotWritable)
 		}
 
-		action := row["action"].(string)
-		namesTheCompactor := strings.Contains(action, docCapacityCompactor)
-
-		// 🔴 THE GUARD THE OLD SHAPE COULD NOT EXPRESS: a row the reader CAN
-		// write must not claim it cannot. Permission words belong only on rows
-		// where they are true.
-		if gotWritable {
-			for _, lie := range []string{"403", "cannot write", "not yours to write"} {
-				if strings.Contains(action, lie) {
-					t.Fatalf("%q IS writable by this reader, so the row must not "+
-						"say %q — that is a claim the reader falsifies in one "+
-						"call: %q", name, lie, action)
-				}
-			}
+		// WHOLE STRING against the CONSTANT (owner ruling 2026-08-20,
+		// c-2502de439aaa: 「你如果要比對 context 就是比對一整份要一模一樣」).
+		//
+		// 🔴 AND IT IS STRICTLY STRONGER THAN THE KEYWORD CHECKS IT REPLACED.
+		// Those asked three separate questions — does it name the compactor,
+		// does it avoid "403"/"cannot write"/"not yours to write", does it say
+		// "yourself" — each of which a rewritten sentence could satisfy while
+		// meaning something else. Equality against the constant asks the only
+		// question this test is really about: DID THIS ROW GET THE RIGHT ONE OF
+		// THE THREE SENTENCES? The wording of each sentence is pinned where it
+		// is defined; the mapping is pinned here.
+		wantAction := map[string]string{
+			classSelf:   docCapacityActionSelf,
+			classMemory: docCapacityActionSelfMemory,
+			classAsk:    docCapacityActionAsk,
+		}[want]
+		if action := row["action"].(string); action != wantAction {
+			t.Fatalf("%q got the wrong sentence for this reader:\n got %q\nwant %q",
+				name, action, wantAction)
 		}
-
-		switch want {
-		case classSelf:
-			if namesTheCompactor {
-				t.Fatalf("%q is the reader's OWN working document — sending it to "+
-					"someone else buys a round trip for a rewrite it could have "+
-					"done: %q", name, action)
-			}
-		case classMemory:
-			// It must offer the route without pretending the reader is barred
-			// from it, and it must say why not now — compacting long-term memory
-			// under close-out pressure is the very failure this feature answers.
-			if !namesTheCompactor {
-				t.Fatalf("%q should still offer the compactor as a route: %q", name, action)
-			}
-			if !strings.Contains(action, "yourself") {
-				t.Fatalf("%q IS the reader's to write and the row must say so: %q",
-					name, action)
-			}
-		case classAsk:
-			if !namesTheCompactor {
-				t.Fatalf("%q is not this reader's to write, so the row MUST name "+
-					"who can, instead of asking for a write that cannot land: %q",
-					name, action)
-			}
-			// And the compactor must never be sent to herself. This is the
-			// assertion the single-reader version could not make, because it
-			// only ever ran AS her.
-			if actor == seedMiraID {
-				t.Fatalf("%q told the compactor to go and find herself: %q",
-					name, action)
-			}
+		// The compactor must never be sent to herself. This is the assertion the
+		// single-reader version could not make, because it only ever ran AS her.
+		if want == classAsk && actor == seedMiraID {
+			t.Fatalf("%q told the compactor to go and find herself", name)
 		}
 	}
 }

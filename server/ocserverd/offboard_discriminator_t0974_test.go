@@ -164,25 +164,62 @@ func TestOffboardDiscriminator_AppliedToTheNoticesThemselves(t *testing.T) {
 // than printing a placeholder everywhere else, and two spellings of "no value"
 // in one output is the next reader's trap.
 func TestOffboardNotice_NoQuestionMarkForAMissingPercentage(t *testing.T) {
-	s := newReconcileTestServer(t)
-	m := testAgent("m-nopct")
-	m.Runtime = RuntimeClaude
-	m.RefocusSince = nowSecs()
-	m.RefocusOp = refocusOpRefocus
-	putTestMember(t, s, m)
-	// NO gauge entry at all — which is the refocus arm's NORMAL state, not an
-	// edge case: that arm is not triggered by a percentage, so there has never
-	// been one to report.
-	notice := s.offboardNoticeFor(m, offboardKindSoft)
-
-	if strings.Contains(notice, "?%") || strings.Contains(notice, "context ?") {
-		t.Errorf("a missing percentage must not print a literal question mark; "+
-			"omit the field instead:\n%s", notice)
-	}
-	// It must still say which band the reader is in — that is the part of the
-	// clause carrying information, and dropping it too would be over-correcting.
-	if !strings.Contains(notice, "your limits:") {
-		t.Errorf("the limits must survive a missing percentage:\n%s", notice)
+	// BOTH RUNTIMES, because they read DIFFERENT gauge keys and therefore need
+	// two separate fallbacks in the source. Running this on claude alone is how
+	// the codex arm went on printing "compaction round ?" through a whole
+	// ticket that was ABOUT the question mark — an independent review measured
+	// it: restoring the literal "?" on the codex arm left the entire package
+	// green.
+	//
+	// ⚠️ WHOLE-STRING comparison (owner ruling 2026-08-20, c-2502de439aaa:
+	// 「你如果要比對 context 就是比對一整份要一模一樣」). offboardNoticeFor is
+	// deterministic and the document is empty on this server, so the complete
+	// expected value is computable — and it pins the ABSENCE of the placeholder
+	// together with everything else the sentence must carry, which two keyword
+	// assertions could not.
+	for _, c := range []struct {
+		name    string
+		runtime string
+		want    string
+	}{
+		{
+			name:    "claude omits the percentage it does not have",
+			runtime: RuntimeClaude,
+			want: "close-out (your limits: 40% / 50%) — start your close-out: " +
+				"work the sequence below, then call restart_self yourself.",
+		},
+		{
+			name:    "codex omits the round it does not have",
+			runtime: RuntimeCodex,
+			want: "close-out (your limits: round 3 / round 4) — start your close-out: " +
+				"work the sequence below, then call restart_self yourself.",
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s := newReconcileTestServer(t)
+			// The two runtimes' limits are set HERE rather than taken from the
+			// test server's zero values, because codex's zero values render as
+			// "round -1 / round 0" — pinning that would make the expected value
+			// a bug report. The claude pair is the shipped default.
+			s.codexNoticeRound, s.codexCompactionThreshold = 3, 4
+			m := testAgent("m-nopct")
+			m.Runtime = c.runtime
+			m.RefocusSince = nowSecs()
+			m.RefocusOp = refocusOpRefocus
+			putTestMember(t, s, m)
+			// NO gauge entry at all — which is the refocus arm's NORMAL state,
+			// not an edge case: that arm is not triggered by a percentage or a
+			// round count, so there has never been one to report.
+			//
+			// The offboard document is appended verbatim by offboardNotice and
+			// is not what this test guards, so it is taken from the server
+			// rather than restated — the assertion is about the SENTENCE.
+			want := c.want + "\n" + s.offboardText()
+			if got := s.offboardNoticeFor(m, offboardKindSoft); got != want {
+				t.Fatalf("a missing position must be OMITTED, not printed as a "+
+					"placeholder:\n got %q\nwant %q", got, want)
+			}
+		})
 	}
 }
 
