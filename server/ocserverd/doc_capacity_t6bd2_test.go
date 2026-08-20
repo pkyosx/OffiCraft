@@ -326,6 +326,20 @@ func t6bd2SplitCases(t *testing.T, actor, adminGated string) {
 		"system interaction": adminGated, "offboard sequence": adminGated,
 		"boot sequence": adminGated,
 	}
+	// 🔴 THE TWO HAND-WRITTEN LISTS MUST BE THE SAME SET, and nothing else makes
+	// them so. The carrier names live twice — here, and in t6bd2FillAll's return
+	// slice, which is what the exactly-N count in FiresForEveryCarrier compares
+	// against. Without this reconciliation the loop below simply never looks at
+	// a carrier missing from `class`: someone adding a tenth document fixes the
+	// count by appending one string to that other list, goes green, and ships a
+	// row whose sentence and `writable` no assertion has ever read. (Measured:
+	// that exact edit passed the whole package.)
+	if fixture := t6bd2FillAll(t, s, "mira"); len(fixture) != len(class) {
+		t.Fatalf("the two carrier lists have drifted: t6bd2FillAll names %d (%v), "+
+			"this test classifies %d — a carrier was added to one and not the "+
+			"other, so its sentence would go unpinned. Add it to `class` too.",
+			len(fixture), fixture, len(class))
+	}
 	for name, want := range class {
 		row := t6bd2Row(t, rows, name)
 		gotWritable := row["writable"].(bool)
@@ -533,11 +547,16 @@ func TestStepNoteWritesReportTheirOwnRoom(t *testing.T) {
 // test pins the CONTENT of the three sentences. Which row gets which one is
 // pinned by TestResumeSummaryDocCapacitySplitsWhatTheReaderCanActOn, and the
 // NUMBER of rows by TestResumeSummaryDocCapacityFiresForEveryCarrier's "exactly
-// 9 rows" — that last one is what stops someone adding a tenth carrier with a
-// fourth, unpinned sentence, because a new carrier fails the count until it is
-// listed in the split test's class map, which then pins its sentence too. Do
-// not read "this test does not pin the count" as a gap; read it as a division
-// of labour, and check all three are still standing before removing any.
+// 9 rows".
+//
+// ⚠️ THOSE TWO ARE NOT AUTOMATICALLY LINKED, and an earlier version of this
+// comment claimed they were. The count compares against t6bd2FillAll's return
+// slice; the mapping walks a SEPARATE hand-written map. Adding a tenth carrier
+// and appending one string to the first list passed the whole package —
+// measured, with a fourth sentence nobody had ever pinned. What ties them now
+// is the explicit reconciliation at the top of the split test's loop; it is
+// load-bearing, not tidiness. Check all three layers are still standing before
+// removing any of them.
 //
 // 🔴 WHAT TO DO WHEN THIS FAILS. Do not edit the literal to match the code
 // until you have read the new sentence and answered, for the reader that

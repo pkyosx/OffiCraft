@@ -53,7 +53,6 @@ package main
 //     "yours to do under close-out pressure" are NOT the same question.
 
 import (
-	"fmt"
 	"sort"
 	"strconv"
 	"unicode/utf8"
@@ -185,11 +184,20 @@ func newDocCapacityRow(doc string, sizeChars, capChars int, writable bool, actio
 	// needs a human (the literals in doc_capacity_t6bd2_test.go force one to
 	// read them), but this pairing does not: it survives someone rewriting the
 	// sentence AND updating the test literal in the same commit, which is the
-	// one move the literal test cannot catch. Programmer error, same treatment
-	// as authz.go's unknown-principal panic.
+	// one move the literal test cannot catch.
+	//
+	// 🔴 IT OMITS THE ROW, IT DOES NOT PANIC, AND THAT IS NOT TIMIDITY. A panic
+	// here was measured on the real path: mispair one row, and /api/resume-summary
+	// answers a bare EOF — no status, no body — DETERMINISTICALLY, so the agent
+	// reading it can never boot; the same function runs inside the SSE handler,
+	// so that agent could never be told to close out either. Dropping the row
+	// instead loses one reminder and keeps both payloads, which is the trade
+	// docCapacityFor's own header already made (see below). In development the
+	// signal is if anything louder: the same mispair fails
+	// TestResumeSummaryDocCapacityFiresForEveryCarrier AND both halves of
+	// ...SplitsWhatTheReaderCanActOn, rather than blowing the test process up.
 	if action == docCapacityActionAsk && writable {
-		panic(fmt.Sprintf("doc capacity row %q says the reader cannot write it "+
-			"while writable=true — one of the two is wrong", doc))
+		return nil
 	}
 	return &docCapacityRow{
 		Doc:       doc,
