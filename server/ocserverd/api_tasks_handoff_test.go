@@ -158,7 +158,7 @@ func TestHandoffGateRefusesTheClosingReportAndLeavesTheTaskAnswerable(t *testing
 // T-f265, narrowed TWICE by the owner on the same day:
 //   - it used to MINT a task on the creator (rc-dc3305f590a7 「轉派都不需要另外開
 //     票」) — that task's own first line told an ordinary member to terminate it,
-//     and terminate_task requires admin_agent;
+//     and terminate_task required admin_agent when this was written; T-b56e opened it to the task's own executor on 2026-08-20, and this paragraph is history, not current authz;
 //   - the durable chat notice that replaced it was withdrawn as well
 //     (rc-e04adbc42574, option ①): once work is handed over it belongs to
 //     whoever holds it, and the system should not report back.

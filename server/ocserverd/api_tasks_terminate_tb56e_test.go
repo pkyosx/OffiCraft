@@ -154,8 +154,9 @@ func TestTerminateDeniesBeforeItProbesTerminalState(t *testing.T) {
 // the pre-fix behaviour: a worker whose roster row had been deleted terminated
 // its own task, 200.
 //
-// ⚠️ The fixture uses the same route the cascade uses, not a hand-poked table:
-// what makes a member row disappear in production is a hard delete.
+// ⚠️ The fixture calls the same DAL delete the custom-role cascade calls
+// (api_roles.go), not a hand-poked table: what makes a member row disappear in
+// production is a hard delete. It is the DAL seam, not the route.
 func TestTerminateRefusesACallerWhoseRosterRowIsGone(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true

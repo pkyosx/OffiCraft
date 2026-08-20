@@ -1219,7 +1219,7 @@ func ValidTaskLock(l string) bool {
 //     task and nothing else happens. It has been narrowed twice, both by the
 //     owner on 2026-08-17 (T-f265): it used to MINT a task on the creator —
 //     withdrawn because that task's own first line told an ordinary member to
-//     terminate it, and terminate_task is admin-only — and the durable chat
+//     terminate it, and terminate_task was admin-only at the time (T-b56e opened it to the executor on 2026-08-20 — the ruling below stands on its own reasoning, not on that gate) — and the durable chat
 //     notice that replaced it was withdrawn too (card rc-e04adbc42574, option
 //     ①), on the ruling that once work is handed over it belongs to whoever
 //     holds it and the system should not report back. So this value now differs
