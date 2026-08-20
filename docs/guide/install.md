@@ -32,7 +32,7 @@
 
 | 需求 | 最低版本 | 為什麼 |
 | --- | --- | --- |
-| **一種 agent runtime**：`claude`（Claude Code CLI）或 `codex`（Codex CLI），**至少一種，而且已登入** | 用 `claude` 的話：**2.1.98 以上**（必須新到內建 **Monitor** tool）。這個版本要求是 `claude` 專屬的 | 每位成員底下就是一個 Claude Code 或 Codex session。**claude 與 codex 兩種都解析不到時，安裝腳本當場拒絕、warden 也拒絕安裝**（兩層 fail-closed，並在控制台橫幅說明原因），不會裝一個永遠起不了成員的 warden；**只裝其中一種是合法配置，不會被擋**。`claude` 的裝法：`npm install -g @anthropic-ai/claude-code` |
+| **一種 agent runtime**：`claude`（Claude Code CLI）或 `codex`（Codex CLI），**至少一種，而且已登入** | 用 `claude` 的話：**2.1.98 以上**（必須新到內建 **Monitor** tool）。這個版本要求是 `claude` 專屬的 | 每位成員底下就是一個 Claude Code 或 Codex session。**claude 與 codex 兩種都解析不到時，安裝腳本當場拒絕、warden 也拒絕安裝**（兩層 fail-closed，並在控制台橫幅說明原因），不會裝一個永遠起不了成員的 warden；**只裝其中一種是合法配置，不會被擋**（但若你只裝 `codex`，出廠的 Mira 仍然起不來——見下面步驟 8）。`claude` 的裝法：`npm install -g @anthropic-ai/claude-code` |
 | **`tmux`** | 3.0 以上（任何近代 3.x 都行） | 成員的 session 跑在 tmux 裡（`cli/ocwarden/spawn.go` 的 `tmux new-session`，沒有備援）。**解析不到時安裝腳本直接拒絕**，不會裝出一台成員永遠停在「waking」的機器 |
 
 > [!IMPORTANT]
