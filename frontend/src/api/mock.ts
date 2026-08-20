@@ -3745,15 +3745,21 @@ export const mockApi: Api = {
     // 404s are the contract that tells the panel the row is stale — but the
     // assembled text does not depend on either of them.
     const userText = foldGlobalContext().text;
-    const parts = [SEED_SYSTEM_INTERACTION_MD.trim()];
+    // FOLDED, like the staff preview and like the server (T-30e4). This path
+    // and getBootstrap were the SAME defect written twice — worth saying out
+    // loud, because fixing only the one the ticket named would have left an
+    // identical preview lying next door. Unlike the staff preview, the runtime
+    // here is real: a spawn names its worker, so buildWorkerBootContext really
+    // does branch, and so does this.
+    const parts = [foldBootDoc("system_interaction", "global").text.trim()];
     if (userText.trim()) {
       parts.push(`# 使用者自訂（Owner Additions）\n\n${userText.trim()}`);
     }
     parts.push(
-      (w.runtime === "codex"
-        ? SEED_BOOT_SEQUENCE_CODEX_MD
-        : SEED_BOOT_SEQUENCE_MD
-      ).trim(),
+      foldBootDoc(
+        "boot_sequence",
+        w.runtime === "codex" ? "codex" : "claude",
+      ).text.trim(),
     );
     return parts.join("\n\n") + "\n";
   },
@@ -4876,12 +4882,12 @@ export const mockApi: Api = {
   async getBootstrap(role: string): Promise<BootstrapView> {
     // Honest preview mirroring the backend buildBootContext slot order
     // (spec/lifecycle.md §2.2, as re-ordered by T-4595):
-    //   1. 系統互動 — the SEED text, FIRST. ⚠️ The real server folds the
-    //      owner's edit over it (T-791e, buildBootContext →
-    //      systemInteractionText); THIS PREVIEW DOES NOT — it reads the seed
-    //      straight, so an edited block shows as the factory text here. The
-    //      fold exists in this file (foldBootDoc) and getBootstrap simply does
-    //      not call it;
+    //   1. 系統互動 — FOLDED, FIRST (T-30e4). The owner's edit wins and the
+    //      seed is what an installation that never edited it folds to, exactly
+    //      as the server does it (T-791e, buildBootContext →
+    //      systemInteractionText → foldBootDocDTO). Until T-30e4 this slot read
+    //      the seed constant straight, so the one screen built to show what an
+    //      agent will read was the one place the owner's edit was invisible;
     //   2. 使用者自訂 — the owner's ADDITIVE block, SKIPPED entirely when empty;
     //   3. `# Role:` + `# Insight (role)` + `# Lessons (role / task_type)` —
     //      the persona (Duty → Insight → Learning, the order the three blocks
@@ -4890,10 +4896,15 @@ export const mockApi: Api = {
     //      ENTIRELY when the folded text is blank, exactly like the owner block
     //      — the gate is the TEXT, never is_default/has_seed (those answer
     //      different questions and would emit an orphan header);
-    //   4. 啟動程序 — the Claude seed, LAST (recency-authoritative tail). Same
-    //      two gaps as slot 1: no fold, and no runtime either — getBootstrap
-    //      takes none, so it is always SEED_BOOT_SEQUENCE_MD. The worker path
-    //      (getWorkerBootContext) does branch on runtime.
+    //   4. 啟動程序 — FOLDED, LAST (recency-authoritative tail), and always the
+    //      CLAUDE document. 🔴 The missing runtime parameter is DELIBERATE, not
+    //      the other half of the T-30e4 gap: the real request carries `{role}`
+    //      and no member_id ON PURPOSE (http.ts getBootstrap — a UI preview must
+    //      never be handed an agent JWT), so server-side `member == nil` →
+    //      memberRuntime "" → bootSequenceDocKey("") → the claude key. Teaching
+    //      this mock about runtime would make it disagree with the endpoint it
+    //      stands in for. The worker path (getWorkerBootContext) DOES branch on
+    //      runtime because a spawn really does name its worker.
     // The owner block moved from below the persona to above it so the two
     // assemblies line up: a
     // worker's boot context is this list minus slot 3, and with the owner block
@@ -4904,7 +4915,7 @@ export const mockApi: Api = {
     const lessons =
       lessonsOverlays.get(lessonsKey(role, taskType))?.text ?? SEED_LESSONS_MD;
     const userText = foldGlobalContext().text;
-    const parts = [SEED_SYSTEM_INTERACTION_MD.trim()];
+    const parts = [foldBootDoc("system_interaction", "global").text.trim()];
     if (userText.trim()) {
       parts.push(`# 使用者自訂（Owner Additions）\n\n${userText.trim()}`);
     }
@@ -4916,9 +4927,24 @@ export const mockApi: Api = {
     if (insightText.trim()) {
       parts.push(`# Insight (${role})\n\n${insightText.trim()}`);
     }
+    // The title is injected IDEMPOTENTLY, mirroring buildBootContext (T-8327):
+    // a generation that treats its boot segment as the document base and writes
+    // it back turns the title into document content, and a naive re-prepend
+    // would then stack one title per generation. Strip any leading copies of
+    // the EXACT title line first, so an already-poisoned document self-heals in
+    // the assembled preview instead of showing the drift the server does not.
+    const lessonsTitle = `# Lessons (${role} / ${taskType})`;
+    let lessonsBody = lessons.trim();
+    while (lessonsBody.startsWith(lessonsTitle)) {
+      const rest = lessonsBody.slice(lessonsTitle.length);
+      // A title that is merely the PREFIX of a longer line is not a duplicate
+      // title line — stop, or the next heading gets eaten.
+      if (rest !== "" && !rest.startsWith("\n")) break;
+      lessonsBody = rest.trim();
+    }
     parts.push(
-      `# Lessons (${role} / ${taskType})\n\n${lessons.trim()}`,
-      SEED_BOOT_SEQUENCE_MD.trim(),
+      `${lessonsTitle}\n\n${lessonsBody}`,
+      foldBootDoc("boot_sequence", "claude").text.trim(),
     );
     const wire: WireBootstrap = {
       role,

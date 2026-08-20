@@ -12,7 +12,12 @@
 //     different documents that share no storage.
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { mockApi, __resetMock } from "./mock";
+import {
+  mockApi,
+  __resetMock,
+  __injectMockTask,
+  __injectMockOutsourceWorker,
+} from "./mock";
 import { ApiError } from "./errors";
 import { BOOT_DOC_HISTORY_KEPT, BOOT_DOC_CAP_CHARS_DEFAULTS } from "./docCap";
 import {
@@ -205,5 +210,126 @@ describe("mockApi · boot-context blocks", () => {
       "claude"
     );
     expect(afterReset[0].content.tombstoned).toBe("false");
+  });
+});
+
+// ── 開機脈絡預覽（T-30e4） ──────────────────────────────────────────────
+//
+// The preview is the ONLY consumer of these documents that a person reads with
+// their own eyes, and until T-30e4 it was the one place that did not fold: it
+// read the seed constants straight, so the owner's edit was invisible in the
+// very screen built to show what an agent will read.
+//
+// The two rules pinned here are asymmetric on purpose:
+//
+//   * 系統互動 and 啟動程序 must FOLD (overlay wins) — that is the fix;
+//   * the preview must take the CLAUDE boot sequence and must NOT grow a
+//     runtime parameter — the real request carries no member (http.ts sends
+//     `{role}` only, deliberately, so the server mints no token), so the real
+//     server also resolves an empty runtime and hands back the claude document.
+//     A runtime-aware mock would be a mock that disagrees with production.
+describe("mockApi · 開機脈絡預覽", () => {
+  it("shows the owner's edit rather than the factory text", async () => {
+    const before = (await mockApi.getBootstrap("assistant")).context;
+    expect(before).toContain(SEED_SYSTEM_INTERACTION_MD.trim());
+    expect(before).toContain(SEED_BOOT_SEQUENCE_MD.trim());
+
+    await mockApi.saveBootDoc(
+      "system_interaction",
+      "global",
+      "系統互動：owner 改過的版本\n"
+    );
+    await mockApi.saveBootDoc(
+      "boot_sequence",
+      "claude",
+      "啟動程序：owner 改過的版本\n"
+    );
+
+    const after = (await mockApi.getBootstrap("assistant")).context;
+    expect(after).toContain("系統互動：owner 改過的版本");
+    expect(after).toContain("啟動程序：owner 改過的版本");
+    // Whole-document comparison, not a keyword probe: an overlay REPLACES the
+    // document, so not one byte of the seed may survive.
+    expect(after).not.toContain(SEED_SYSTEM_INTERACTION_MD.trim());
+    expect(after).not.toContain(SEED_BOOT_SEQUENCE_MD.trim());
+  });
+
+  it("takes the claude boot sequence, never codex — matching a request that names no member", async () => {
+    await mockApi.saveBootDoc("boot_sequence", "codex", "codex 版\n");
+    await mockApi.saveBootDoc("boot_sequence", "claude", "claude 版\n");
+    const ctx = (await mockApi.getBootstrap("assistant")).context;
+    expect(ctx).toContain("claude 版");
+    expect(ctx).not.toContain("codex 版");
+  });
+  it("folds the OUTSOURCE preview too — the same defect was written twice", async () => {
+    // getBootstrap and getWorkerBootContext assembled the same blocks from the
+    // same constants side by side. Fixing only the one the ticket named would
+    // have left an identical un-folded preview one panel over, so this pins the
+    // twin. It also pins the ONE real difference: a spawn names its worker, so
+    // this path does resolve runtime — codex gets the codex document.
+    __injectMockTask({
+      id: "t-30e4",
+      taskNo: "T-30e4",
+      title: "外包任務",
+      typeKey: "",
+      description: "",
+      status: "in_progress",
+      priority: "mid",
+      executorKind: "outsource",
+      executorId: "ow-30e4",
+      creatorId: "",
+      dedupeKey: "",
+      deps: [],
+      waitingReason: "",
+      duplicateOf: "",
+      createdTs: 0,
+      updatedTs: 0,
+      closedTs: null,
+      progressDone: 0,
+      progressTotal: 0,
+      steps: [],
+    });
+    __injectMockOutsourceWorker({
+      id: "ow-30e4",
+      codename: "O-1",
+      model: "Opus",
+      effort: "high",
+      runtime: "codex",
+      taskId: "t-30e4",
+    });
+
+    await mockApi.saveBootDoc(
+      "system_interaction",
+      "global",
+      "系統互動：owner 改過的版本\n"
+    );
+    await mockApi.saveBootDoc("boot_sequence", "codex", "codex 版\n");
+    await mockApi.saveBootDoc("boot_sequence", "claude", "claude 版\n");
+
+    const ctx = await mockApi.getWorkerBootContext("ow-30e4");
+    expect(ctx).toContain("系統互動：owner 改過的版本");
+    expect(ctx).not.toContain(SEED_SYSTEM_INTERACTION_MD.trim());
+    // Runtime-resolved, and folded — both halves, or the assertion passes on a
+    // mock that folds the WRONG document.
+    expect(ctx).toContain("codex 版");
+    expect(ctx).not.toContain("claude 版");
+    expect(ctx).not.toContain(SEED_BOOT_SEQUENCE_CODEX_MD.trim());
+  });
+
+  it("carries exactly ONE lessons title, even when the document already starts with it", async () => {
+    // A generation that treats its boot segment as the document base and writes
+    // it back turns the injected title into document content. Without the
+    // idempotent strip the preview then shows one more title per generation —
+    // drift the server does not have, in the screen built to show what the
+    // server sends.
+    const title = "# Lessons (assistant / general)";
+    await mockApi.saveLessons(
+      "assistant",
+      "general",
+      `${title}\n\n${title}\n\n學到的東西\n`
+    );
+    const ctx = (await mockApi.getBootstrap("assistant")).context;
+    expect(ctx).toContain("學到的東西");
+    expect(ctx.split(title).length - 1).toBe(1);
   });
 });
