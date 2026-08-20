@@ -33,6 +33,30 @@ import "./components/chrome.css";
 
 type Tab = "office" | "replies" | "tasks" | "monitor" | "guide";
 
+// Which peer the office was last left on. Browser-local by nature (it is this
+// browser's last position, not studio state), so it stays out of the server and
+// out of the hash. Every access is guarded: Safari's private mode and 3rd-party
+// storage blocking make localStorage throw, and losing the memory must degrade
+// to "open the roster", never to a blank console.
+const LAST_OFFICE_CHAT_KEY = "oc_last_office_chat";
+
+function readLastOfficeChat(): string | undefined {
+  try {
+    return window.localStorage.getItem(LAST_OFFICE_CHAT_KEY) || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeLastOfficeChat(id: string | undefined): void {
+  try {
+    if (id) window.localStorage.setItem(LAST_OFFICE_CHAT_KEY, id);
+    else window.localStorage.removeItem(LAST_OFFICE_CHAT_KEY);
+  } catch {
+    /* storage unavailable — the in-memory ref still covers this session */
+  }
+}
+
 export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   const { t } = useI18n();
   // The studio name is server-backed (T-d693); the localized dict string is the
@@ -88,7 +112,61 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   // home, even when already inside a Settings sub-page.
   const [settingsNonce, setSettingsNonce] = useState(0);
 
+  // 辦公室 remembers the chat you were last in, so leaving for another tab and
+  // coming back does not drop you on the roster (owner 2026-08-20:「切換分頁的
+  // 時候可以固定住最後的對話視窗」). Only the peer id is remembered — NOT msgId
+  // / composeSeed / the member-detail overlay, which are one-shot intents
+  // (locate this message, seed the composer with a task no) and would re-fire
+  // on every return.
+  //
+  // It is kept in localStorage, not just in memory, because the console is also
+  // embedded as a conductor tab whose <iframe src> is the bare console URL and
+  // is UNMOUNTED on every conductor tab switch (owner 2026-08-20:「在 Conductor
+  // 切換 iframe 的時候能夠記住嗎?」). A remount is a cold page load, so an
+  // in-memory ref would already be gone by the time the office renders.
+  //
+  // Two refs, deliberately: `bootOfficeChatRef` is the value as it stood at
+  // mount and is never written again, because the recorder effect below fires
+  // BEFORE the boot effect on a bare load (effects run in declaration order)
+  // and would blank the live ref with this load's empty chatId — the restore
+  // would then have nothing left to restore.
+  const bootOfficeChatRef = useRef<string | undefined>(readLastOfficeChat());
+  const lastOfficeChatRef = useRef<string | undefined>(
+    bootOfficeChatRef.current,
+  );
+  useEffect(() => {
+    if (route.page !== "office") return;
+    lastOfficeChatRef.current = route.chatId;
+    writeLastOfficeChat(route.chatId);
+  }, [route.page, route.chatId]);
+
+  // Cold load straight onto the bare console URL (the conductor iframe, or a
+  // bookmark of the root) → reopen the remembered chat. Scoped to an EMPTY hash
+  // on the FIRST render only: an explicit "#office" is the owner asking for the
+  // roster, and every other deep link owns its own destination.
+  const bootRestoredRef = useRef(false);
+  useEffect(() => {
+    if (bootRestoredRef.current) return;
+    bootRestoredRef.current = true;
+    if (window.location.hash === "" && bootOfficeChatRef.current) {
+      lastOfficeChatRef.current = bootOfficeChatRef.current;
+      setRoute({ page: "office", chatId: bootOfficeChatRef.current });
+    }
+    // Boot-only by design — deliberately not re-run when the route changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function selectTab(next: Tab) {
+    // Restoring is for a tab SWITCH. Clicking 辦公室 while already inside it
+    // keeps its existing meaning — reset to the roster, the only way to close
+    // a chat on mobile — instead of re-opening what you just closed. The test
+    // is on route.page, not `tab`: the Settings overlay (#settings) resolves to
+    // tab "office" via that chain's fallback, and returning from Settings is a
+    // switch like any other.
+    if (next === "office" && route.page !== "office" && lastOfficeChatRef.current) {
+      setRoute({ page: "office", chatId: lastOfficeChatRef.current });
+      return;
+    }
     setRoute({ page: next });
   }
 
