@@ -2067,10 +2067,14 @@ export interface Api {
   deleteRole(key: string): Promise<void>;
 
   /**
-   * Preview a member's initial boot prompt — the assembled persona (role
-   * definition ⊕ global context ⊕ lessons) from /api/bootstrap. Pass the ROLE
-   * key (NOT a member_id) so the server mints NO token: a UI preview must never
-   * receive an agent credential (§3.4 #29 — member_id is the warden-spawn path).
+   * Preview a member's initial boot prompt from /api/bootstrap — 系統互動 ⊕
+   * global context ⊕ role definition ⊕ insight ⊕ lessons ⊕ 啟動程序, every
+   * document FOLDED (the owner's edit wins, the seed is what an unedited
+   * installation folds to). Pass the ROLE key (NOT a member_id) so the server
+   * mints NO token: a UI preview must never receive an agent credential
+   * (§3.4 #29 — member_id is the warden-spawn path). ⚠️ That same omission is
+   * why the reply carries the CLAUDE 啟動程序 whatever runtime the member on
+   * screen runs: with no member the server has no runtime to resolve (T-30e4).
    */
   getBootstrap(role: string): Promise<BootstrapView>;
   /**
