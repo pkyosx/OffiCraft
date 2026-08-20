@@ -87,6 +87,7 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 7. **印出一次性設定連結** — `http://127.0.0.1:7755/?code=…`，打開它設定 owner 密碼。
 8. **設完密碼後 server 自己接手最後兩步** — 把這台機器的 warden 裝好、把預設助理 **Mira** 叫醒。你不用自己去機器頁按安裝，也不用自己把助理設成上線。
    `claude` 與 `codex` **兩種都沒有**、或是缺 `tmux` 時，這一步會失敗並在控制台上方的橫幅說出原因，而不是裝一個永遠起不了 agent 的 warden。
+   ⚠️ **只裝 `codex`（沒有 `claude`）的機器不會被擋下來，但 Mira 出廠設的是 Claude Code，所以它仍然起不來**——那不是安裝失敗，橫幅也不會出現。要怎麼做見 [常見問題與排解](troubleshooting.md) 的〈出廠的 Mira 起不來，而這台機器只裝了 `codex`〉。
 
 ### 常用選項
 
