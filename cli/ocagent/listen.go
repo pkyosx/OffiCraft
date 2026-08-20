@@ -604,7 +604,7 @@ func handleDirectedBand(frame map[string]any, out io.Writer) {
 				get("expires_in"))
 		case taskCloseTopic:
 			line = fmt.Sprintf("task %s (type=%s) closed (%s) — fold this run's "+
-				"learnings back into the manual (write_task_learnings)",
+				"learnings into the current manual as an anchor-addressed patch (patch_task_learnings)",
 				get("task_no"), get("type"), get("status"))
 		}
 	}

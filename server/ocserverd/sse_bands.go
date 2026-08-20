@@ -540,7 +540,7 @@ type taskCloseSignal struct {
 // decideTaskCloseNudge is the pure band decision, evaluated when a task lands
 // in a terminal status (closeTask — done AND terminated both count: a
 // terminated task's executor has lessons worth folding back too). The
-// reminder walks the WHOLE §6.3 close-out: learnings write-back, scratch
+// reminder walks the WHOLE §6.3 close-out: an anchor-addressed learnings patch, scratch
 // cleanup, then report_task_closeout. nil = stay quiet:
 //   - a DUPLICATED task carries no lessons (T-02c9 point 6): it is a duplicate
 //     of another ticket, so there is nothing to fold back into the manual;
@@ -550,12 +550,12 @@ type taskCloseSignal struct {
 // `manualLabel` is the type's human-facing label (manualDisplayLabel — the
 // display name with the key in parentheses, or the bare key): the SENTENCE
 // shows the human face, but the MCP ADDRESSING string stays the raw type_key
-// (T-fa76 — the agent must call write_task_learnings/get_task_manual by key,
+// (T-fa76 — the agent must call patch_task_learnings/get_task_manual by key,
 // never by display name).
 //
 // Delivery is best-effort at-most-once down the executor's own live SSE
 // connection (hub.PushDirected) — an offline executor simply misses the
-// reminder; the learnings write-back stays reachable through the seed SOP.
+// reminder; the learnings patch stays reachable through the seed SOP.
 func decideTaskCloseNudge(t Task, manualLabel string) *taskCloseSignal {
 	if !TaskIsTerminal(t.Status) || t.Status == TaskStatusDuplicated ||
 		t.TypeKey == "" || t.ExecutorID == "" {
@@ -572,11 +572,11 @@ func decideTaskCloseNudge(t Task, manualLabel string) *taskCloseSignal {
 		TaskNo: no,
 		Type:   t.TypeKey,
 		Status: t.Status,
-		Reason: "任務 " + no + " 已結束（" + t.Status + "）。請處理收尾事項：" +
-			"若這一趟有值得留下的經驗（踩坑、更好做法），用 write_task_learnings" +
-			"（type_key=`" + t.TypeKey + "`）整併回「" + manualLabel +
-			"」的任務手冊（先 get_task_manual 讀現況、同主題合併後整份寫回）；" +
-			"用 `ocagent clean <path>` 移除這個任務的暫存檔/資料夾、" +
+        Reason: "任務 " + no + " 已結束（" + t.Status + "）。請處理收尾事項：" +
+            "若這一趟有值得留下的經驗（踩坑、更好做法），先用 get_task_manual 讀現況，再用 patch_task_learnings" +
+            "（type_key=`" + t.TypeKey + "`）以唯一錨點只修改「" + manualLabel +
+            "」的任務手冊中這次新增或修正的學習經驗；不要用 write_task_learnings 做整份取代，因為讀取後到寫入間別人新增的內容會被無聲蓋掉，錨點若已移動則 patch 會回錯；" +
+            "用 `ocagent clean <path>` 移除這個任務的暫存檔/資料夾、" +
 			"收掉臨時 branch/worktree 與跑著的臨時程序；" +
 			"最後用 report_task_closeout 回報後續已處理完。",
 	}

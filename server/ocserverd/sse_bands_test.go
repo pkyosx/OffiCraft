@@ -361,15 +361,14 @@ func TestDecideTaskCloseNudge(t *testing.T) {
 			sig.Type != "review-pr" || sig.Status != status {
 			t.Fatalf("%s signal fields: %+v", status, sig)
 		}
-		if !strings.Contains(sig.Reason, "T-7d40") ||
-			!strings.Contains(sig.Reason, "write_task_learnings") {
-			t.Fatalf("reason must name the task and the tool: %q", sig.Reason)
-		}
-		// T-fa76: the sentence shows the display label, but the MCP
-		// ADDRESSING string stays the raw type_key.
-		if !strings.Contains(sig.Reason, "「審查 PR（review-pr）」") ||
-			!strings.Contains(sig.Reason, "type_key=`review-pr`") {
-			t.Fatalf("reason must carry display label AND raw key: %q", sig.Reason)
+		wantReason := "任務 T-7d40 已結束（" + status + "）。請處理結束後續：" +
+			"若這一趟有值得留下的經驗（踩坑、更好做法），先用 get_task_manual 讀現況，再用 patch_task_learnings" +
+			"（type_key=`review-pr`）以唯一錨點只修改「審查 PR（review-pr）」的任務手冊中這次新增或修正的學習經驗；不要用整份取代，因為讀取後到寫入間別人新增的內容會被無聲蓋掉，錨點若已移動則 patch 會回錯；" +
+			"把這個任務的暫存資料 mv 進 <你的工作目錄>/trash/（別自己 rm，warden 會清）、" +
+			"收掉臨時 branch/worktree 與跑著的臨時程序；" +
+			"最後用 report_task_closeout 回報後續已處理完。"
+		if sig.Reason != wantReason {
+			t.Fatalf("reason changed: got %q, want %q", sig.Reason, wantReason)
 		}
 	}
 

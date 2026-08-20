@@ -526,7 +526,7 @@ data: {"topic":"warden-command","data":{"rpc":"start","args":{"member_id":"m-1a2
 
 A directed reminder pushed down the **task executor's own** connection when its task lands
 in a terminal status (M3 Phase 6C): walk the §6.3 close-out — fold this run's learnings
-back into the type's manual (`write_task_learnings`), clean the task's scratch, then
+back into the type's manual with an anchor-addressed partial update (`patch_task_learnings`) after refetching current contents, clean the task's scratch, then
 report the follow-ups done (`report_task_closeout`). Owner/dashboard connections MUST
 never receive it.
 
@@ -534,7 +534,7 @@ never receive it.
   stream; same family as §6/§7):
 
 ```
-data: {"topic":"task-close","data":{"topic":"task-close","to":"m-1a2b3c","task_id":"t-7d40aabbccdd","task_no":"T-7d40","type":"review-pr","status":"done","reason":"任務 T-7d40 已結束（done）。…write_task_learnings…report_task_closeout…"}}
+data: {"topic":"task-close","data":{"topic":"task-close","to":"m-1a2b3c","task_id":"t-7d40aabbccdd","task_no":"T-7d40","type":"review-pr","status":"done","reason":"任務 T-7d40 已結束（done）。…patch_task_learnings…report_task_closeout…"}}
 ```
 
   The inner payload duplicates `topic` and carries `{topic, to, task_id, task_no, type,

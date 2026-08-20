@@ -253,10 +253,10 @@ func TestHandleDirectedBandPrintsTheServerMessage(t *testing.T) {
 		"data": map[string]any{
 			"topic": "task-close", "to": "m-1", "task_id": "t-7d40aabbccdd",
 			"task_no": "T-7d40", "type": "review-pr", "status": "done",
-			"reason": "任務 T-7d40 已結束（done）。請用 write_task_learnings 整併回手冊。",
+			"reason": "任務 T-7d40 已結束（done）。請用 patch_task_learnings 以錨點局部修改學習經驗。",
 		},
 	}, &out)
-	if got := out.String(); got != "[ocagent] signal task-close: 任務 T-7d40 已結束（done）。請用 write_task_learnings 整併回手冊。\n" {
+	if got := out.String(); got != "[ocagent] signal task-close: 任務 T-7d40 已結束（done）。請用 patch_task_learnings 以錨點局部修改學習經驗。\n" {
 		t.Fatalf("task-close out = %q", got)
 	}
 
@@ -269,10 +269,10 @@ func TestHandleDirectedBandPrintsTheServerMessage(t *testing.T) {
 			"task_no": "T-7d40", "type": "review-pr", "status": "terminated",
 		},
 	}, &out)
-	if got := out.String(); !strings.Contains(got, "T-7d40") ||
-		!strings.Contains(got, "terminated") ||
-		!strings.Contains(got, "write_task_learnings") {
-		t.Fatalf("reason-less task-close fallback = %q", got)
+	want := "[ocagent] signal task-close: task T-7d40 (type=review-pr) closed (terminated) — " +
+		"fold this run's learnings into the current manual as an anchor-addressed patch (patch_task_learnings)\n"
+	if got := out.String(); got != want {
+		t.Fatalf("reason-less task-close fallback = %q, want %q", got, want)
 	}
 	out.Reset()
 	handleDirectedBand(map[string]any{"topic": "context-high"}, &out)

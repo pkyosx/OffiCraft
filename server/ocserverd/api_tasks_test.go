@@ -1994,11 +1994,17 @@ func TestTaskCloseNudgeRidesTheExecutorsConnectionOnly(t *testing.T) {
 				t.Fatalf("executor must get exactly one nudge, got %d: %v",
 					len(frames), frames)
 			}
-			if !strings.Contains(frames[0], created.Task.ID) ||
-				!strings.Contains(frames[0], "write_task_learnings") ||
-				!strings.Contains(frames[0], "report_task_closeout") {
-				t.Fatalf("nudge must name the task and both close-out tools: %q",
-					frames[0])
+			var envelope struct {
+				Topic string          `json:"topic"`
+				Data  taskCloseSignal `json:"data"`
+			}
+			payload := strings.TrimSpace(strings.TrimPrefix(frames[0], "data: "))
+			if err := json.Unmarshal([]byte(payload), &envelope); err != nil {
+				t.Fatalf("decode task-close nudge: %v; frame=%q", err, frames[0])
+			}
+			if envelope.Topic != taskCloseTopic || envelope.Data.To != "m-exec" ||
+				envelope.Data.TaskID != created.Task.ID || envelope.Data.Status != tc.name {
+				t.Fatalf("nudge envelope changed: %+v", envelope)
 			}
 			if got := popTaskCloseFrames(t, owner); len(got) != 0 {
 				t.Fatalf("the owner fan-out must never carry the nudge: %v", got)
