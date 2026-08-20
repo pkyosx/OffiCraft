@@ -64,72 +64,6 @@ async function drag(page: Page, wrap: Locator, dx: number, dy: number) {
   await page.mouse.up();
 }
 
-/** Two touch points centred on the frame, moving apart (or together) from
- * `fromSpread` to `toSpread` px — a real pinch through the input layer, the
- * same channel as the one-finger guard below (`Input.dispatchTouchEvent`, not a
- * synthetic `TouchEvent`), so a handler the browser's touch pipeline never
- * actually reaches cannot pass. */
-async function pinch(page: Page, wrap: Locator, fromSpread: number, toSpread: number) {
-  const box = (await wrap.boundingBox())!;
-  const cx = Math.round(box.x + box.width / 2);
-  const cy = Math.round(box.y + box.height / 2);
-  const cdp = await page.context().newCDPSession(page);
-  const points = (spread: number) =>
-    [-1, 1].map((side, i) => ({
-      x: cx + (side * spread) / 2,
-      y: cy,
-      radiusX: 12,
-      radiusY: 12,
-      force: 1,
-      id: i,
-    }));
-  const send = (type: string, spread: number) =>
-    cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : points(spread) });
-
-  const STEPS = 10;
-  await send("touchStart", fromSpread);
-  for (let i = 1; i <= STEPS; i++) {
-    await send("touchMove", fromSpread + ((toSpread - fromSpread) * i) / STEPS);
-  }
-  await send("touchEnd", toSpread);
-  await page.waitForTimeout(200);
-}
-
-/** A one-finger swipe through the same input layer, for asserting that the
- * travel a zoom created is actually reachable BY TOUCH rather than only by the
- * mouse the rest of this file uses. Started off-centre so it does not land on
- * the floating zoom cluster. */
-async function swipe(page: Page, wrap: Locator, dx: number, dy: number) {
-  const box = (await wrap.boundingBox())!;
-  const x = Math.round(box.x + box.width * 0.15);
-  const y = Math.round(box.y + box.height * 0.5);
-  const cdp = await page.context().newCDPSession(page);
-  const touch = (type: string, px: number, py: number) =>
-    cdp.send("Input.dispatchTouchEvent", {
-      type,
-      touchPoints: type === "touchEnd" ? [] : [{ x: px, y: py, radiusX: 12, radiusY: 12, force: 1 }],
-    });
-  await touch("touchStart", x, y);
-  for (let i = 1; i <= 10; i++) await touch("touchMove", x + (dx * i) / 10, y + (dy * i) / 10);
-  await touch("touchEnd", x + dx, y + dy);
-  await settleScroll(page, wrap);
-}
-
-/** T-6c26: wait for the frame's scroll offsets to STOP changing, instead of
- * betting a fixed 600 ms that momentum has finished. Two reads that agree end
- * it; the loop is bounded so a frame that never settles still fails on the
- * assertion that follows rather than hanging here. This does not weaken any
- * assertion — everything the callers assert is asserted afterwards, unchanged. */
-async function settleScroll(page: Page, wrap: Locator) {
-  let prev = { x: -1, y: -1 };
-  for (let i = 0; i < 60; i++) {
-    const now = await wrap.evaluate((el) => ({ x: el.scrollLeft, y: el.scrollTop }));
-    if (now.x === prev.x && now.y === prev.y) return;
-    prev = now;
-    await page.waitForTimeout(50);
-  }
-}
-
 async function mountStory(mount: (c: JSX.Element) => Promise<Locator>, page: Page) {
   await page.setViewportSize({ width: 900, height: 700 });
   await mount(<ImageZoomPanStory />);
@@ -404,17 +338,31 @@ for (const height of [420, 500, 560, 700]) {
 // root cause was never found, and the two cheap outs (a longer timeout,
 // retries) only hide it.
 //
-// 🔴 WHAT IS NOW UNGUARDED, written down so nobody reads this gap as "covered
-// elsewhere": the gesture-ownership SPLIT still holds in the component — one
-// finger belongs to the BROWSER (`onPanPointerDown` bails out on
-// `pointerType === "touch"`, so the native scroll container pans with inertia),
-// two fingers belong to US (T-043e, owner 2026-07-31: 「在手機上二指撐開，要放
-// 大的是圖片本身，頁面不動」, claimed via `touch-action: pan-x pan-y` plus the
-// component's own pinch handler). That DECISION is still pinned by the
-// branch-level unit test in MarkdownPreviewOverlay.test.tsx. What is no longer
-// verified is that the real gestures still WORK end to end — delete the
-// one-finger bail-out to "add touch support" and every pan would be applied
-// twice, with nothing in CI to say so.
+// 🔴 WHAT IS NOW UNGUARDED. Written down because the gap is real and NOTHING
+// covers it elsewhere — at the time of writing, `hasTouch`,
+// `Input.dispatchTouchEvent`, `pointerType` and `pinch` appear in NO test file
+// anywhere under frontend/ (only in the component itself and in this comment).
+// MarkdownPreviewOverlay.test.tsx in particular has zero touch assertions: its
+// zoom test drives the −/+ buttons, not a gesture.
+//
+// The gesture-ownership SPLIT still holds in the component — one finger belongs
+// to the BROWSER (`onPanPointerDown` bails out on `pointerType === "touch"` at
+// MarkdownPreviewOverlay.tsx:392, so the native scroll container pans with
+// inertia), two fingers belong to US (T-043e, owner 2026-07-31: 「在手機上二指撐
+// 開，要放大的是圖片本身，頁面不動」, claimed via `touch-action: pan-x pan-y` in
+// md-preview.css plus the component's own pinch handler). That split is now
+// held ONLY by the code and this comment. Specifically, no test asserts any of:
+//   - one-finger touch pans the zoomed image (delete the bail-out to "add touch
+//     support" and every pan is applied twice — nothing in CI would say so);
+//   - a pinch reaches the component's own touchstart/touchmove handler at all,
+//     in either direction (the button path is covered, the gesture path is not);
+//   - the page behind must not zoom (`visualViewport.scale === 1`);
+//   - two-finger `touchmove` is `preventDefault`ed on EVERY move, not just the
+//     first;
+//   - the `touch-action: pan-x pan-y` declaration itself is still there. That
+//     property assertion was the only thing that could catch "CSS deleted, JS
+//     kept" — and per the measurement recorded in the removed block, a
+//     behavioural test could not have caught it under Chromium anyway.
 
 // The −/+ are the only way to zoom without a gesture, on the one surface whose
 // whole job is to be driven by a thumb. 40px is the floor every mobile
