@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -71,38 +72,123 @@ func TestUsageListsAllPlaneA(t *testing.T) {
 	}
 }
 
-// The help text must SAY the binary can name its own build. A reader — person or
-// agent — asking "does this CLI know which version it is?" reads --help, and the
-// only honest answer there is the `version` line; without it the correct reading
-// of the help text is "no such capability", while the capability exists.
+// goldenUsage is the ENTIRE text `usage()` writes, spelled out here as a literal.
 //
-// 🔴 THE LITERAL IS THE POINT. TestUsageListsAllPlaneA above walks
-// planeASubcommands, so deleting the entry deletes the expectation with it and
-// that test stays green. This one spells "version" out, so the only way to make
-// it pass is for the help text to really carry the word.
+// 🔴 IT IS A LITERAL ON PURPOSE, AND IT MUST NOT BE BUILT FROM planeASubcommands.
+// The expectation has to be able to disagree with the code. An expectation
+// assembled by walking the same slice the renderer walks moves whenever the slice
+// moves, so it can never report that the slice moved — which is the one regression
+// this package exists to catch (a `version` entry that quietly goes away again).
 //
-// Both zero-argument paths are checked because they are the two surfaces someone
-// lands on by accident (`--help`, and running the binary bare), they print the
-// same bytes today, and a fix that reached only one of them would leave the more
-// common accident still saying no.
-func TestUsageAnnouncesVersionOnEveryZeroArgumentPath(t *testing.T) {
-	render := func(argv []string) string {
-		var b strings.Builder
-		realMain(argv, func(string) string { return "" }, strings.NewReader(""), &b)
-		return b.String()
-	}
-	bare, help := render(nil), render([]string{"--help"})
+// The previous version of this test asked only `strings.Contains(got, "version")`.
+// A partial keyword match is not a test of a fixed output, and two mutants proved
+// it did not even hold the line it claimed to hold:
+//
+//   - rename the help entry to `version-info` and leave dispatch alone: the
+//     substring "version" is still there, so it passed — while --help advertised a
+//     name realMain does not accept.
+//   - delete the `version` entry AND word `upload`'s help as "prints the att id and
+//     version": the substring is still there, so it passed — with no `version` in
+//     the subcommand list at all, i.e. exactly the regression it was added for.
+//
+// Comparing the whole output verbatim closes both of those, and any wording drift
+// with them. When this fails because the help text legitimately changed, update the
+// literal by hand — that edit is the review moment.
+const goldenUsage = `usage: ocagent <subcommand> [flags]
+  officraft agent-runtime (Plane A) thin shell.
 
-	for name, got := range map[string]string{"no args": bare, "--help": help} {
-		if !strings.Contains(got, "version") {
-			t.Errorf("%s: help text never mentions `version`, so a reader concludes this "+
-				"CLI cannot name its own build; got:\n%s", name, got)
-		}
+subcommands:
+  listen          hold the SSE downlink: chat (refetch) + work wakes
+  context-report  statusLine reporter: stdin statusLine JSON → POST /api/agent/context
+  suicide         self-terminate: kill my own tmux session (OC_SESSION) → SSE drops → offline
+  download        fetch a chat attachment blob to a local file (streaming; --out <dir>)
+  upload          stream a local file into the attachment store (prints the att id; --mime <type>)
+  clean           get rid of a file or folder I made: quarantines it under my workdir (never rm)
+  version         print this build's identity: build.sha, VCS stamp when present, self-hash
+`
+
+// TestUsagePrintsExactlyTheAdvertisedText pins the full help text, byte for byte,
+// on every path that reaches it without being asked to do anything else.
+//
+// Those paths are checked together because they are the surfaces a person or an
+// agent lands on when they are asking "what can this thing do?" — the bare
+// invocation and the three help spellings — and a change that reached only some of
+// them would leave the rest answering a different question. Their exit codes are
+// pinned too: bare is a usage ERROR (2), an explicit help request is not (0).
+func TestUsagePrintsExactlyTheAdvertisedText(t *testing.T) {
+	var direct strings.Builder
+	usage(&direct)
+	if direct.String() != goldenUsage {
+		t.Errorf("usage() output changed.\n--- got ---\n%s\n--- want ---\n%s", direct.String(), goldenUsage)
 	}
-	if bare != help {
-		t.Errorf("the bare invocation and --help print different help text; they are the "+
-			"same accident and must not disagree about what this CLI can do:\n"+
-			"bare:\n%s\n--help:\n%s", bare, help)
+
+	render := func(argv []string) (int, string) {
+		var b strings.Builder
+		rc := realMain(argv, func(string) string { return "" }, strings.NewReader(""), &b)
+		return rc, b.String()
+	}
+	for _, tc := range []struct {
+		name   string
+		argv   []string
+		wantRC int
+	}{
+		{"bare invocation", nil, 2},
+		{"--help", []string{"--help"}, 0},
+		{"-h", []string{"-h"}, 0},
+		{"help", []string{"help"}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rc, got := render(tc.argv)
+			if got != goldenUsage {
+				t.Errorf("help text differs from the golden.\n--- got ---\n%s\n--- want ---\n%s", got, goldenUsage)
+			}
+			if rc != tc.wantRC {
+				t.Errorf("exit code = %d, want %d", rc, tc.wantRC)
+			}
+		})
+	}
+}
+
+// TestEveryAdvertisedSubcommandActuallyDispatches is the other half, and it is a
+// LOGIC assertion rather than a text one: every name the help text advertises must
+// be a name realMain really accepts.
+//
+// 🔴 THE GOLDEN ABOVE CANNOT COVER THIS. A mutant that renames the help entry to
+// `version-info` without touching the switch leaves --help advertising a
+// subcommand the binary answers "unknown subcommand" to; and a mutant that renames
+// only the switch case leaves the golden perfectly happy while the advertised name
+// stops working. The list and the dispatch are two things and they have to be
+// checked against each other, not each against itself.
+//
+// probeArg is a flag no subcommand defines. Every dispatched arm builds its own
+// flag.FlagSet(ContinueOnError) and parses the remaining args BEFORE doing any
+// work, so this makes each arm fail fast — no SSE connect, no tmux kill, no
+// network, no file moved. The default (unknown-subcommand) arm never looks at
+// flags at all, so it still prints its full block, and that block — the whole of
+// it, verbatim — is the thing being ruled out.
+func TestEveryAdvertisedSubcommandActuallyDispatches(t *testing.T) {
+	const probeArg = "--ocagent-no-such-flag"
+
+	for _, s := range planeASubcommands {
+		t.Run(s.name, func(t *testing.T) {
+			var b strings.Builder
+			realMain([]string{s.name, probeArg}, func(string) string { return "" }, strings.NewReader(""), &b)
+
+			// The control is the unknown arm's REAL rendering, not goldenUsage:
+			// this test is about dispatch, and it must keep working while the help
+			// text is what is broken. (Built from goldenUsage it went blind exactly
+			// when a renamed entry changed usage() — the M3 case — because the stale
+			// literal then no longer matched the block the default arm printed.)
+			var u strings.Builder
+			usage(&u)
+			unknown := fmt.Sprintf("[ocagent] unknown subcommand %q\n\n", s.name) + u.String()
+			if b.String() == unknown {
+				t.Errorf("--help advertises %q, but realMain(%q) falls through to the "+
+					"unknown-subcommand arm. The help text is a promise about what this "+
+					"binary accepts; an entry the switch does not handle makes it a lie.",
+					s.name, s.name)
+			}
+		})
 	}
 }
 

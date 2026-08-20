@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -225,6 +226,89 @@ func TestPrintVersion_SaysNothingAboutVCSWhenTheBuildCarriesNoStamp(t *testing.T
 			// command that printed no facts at all.
 			if !strings.Contains(got, "build.sha:") || !strings.Contains(got, "self-hash:") {
 				t.Errorf("the always-available lines went missing with the vcs block:\n%s", got)
+			}
+		})
+	}
+}
+
+// TestVCSLines_AreDecidedPerKeyNotAllOrNothing pins the sentence vcsLines' own
+// doc comment makes and nothing tested: "Per-key rather than all-or-nothing […]
+// so a partially stamped build shows exactly the keys it really has."
+//
+// 🔴 THIS CONTRACT HAD ZERO COVERAGE. The pair above only ever supplies all three
+// keys or none of them, so rewriting the loop to bail out unless every key is
+// present — return nothing whenever any one of them is missing — left the whole
+// package green. A partially stamped build would then have gone silent about the
+// revision it really does carry, which is the same "absent said by a placeholder"
+// failure this block was rewritten to end, just wearing the other mask: the fix
+// for printing facts that are not true must not turn into hiding facts that are.
+//
+// Each case compares the WHOLE returned slice, so it also pins that the output is
+// ordered by the label table (revision, time, modified) and not by whatever order
+// the build happened to record its settings in.
+func TestVCSLines_AreDecidedPerKeyNotAllOrNothing(t *testing.T) {
+	bi := func(kv ...[2]string) func() (*debug.BuildInfo, bool) {
+		var settings []debug.BuildSetting
+		for _, p := range kv {
+			settings = append(settings, debug.BuildSetting{Key: p[0], Value: p[1]})
+		}
+		return func() (*debug.BuildInfo, bool) { return &debug.BuildInfo{Settings: settings}, true }
+	}
+
+	for _, tc := range []struct {
+		name string
+		bi   func() (*debug.BuildInfo, bool)
+		want []string
+	}{
+		{
+			// The case the mutant kills: one real key, the other two never recorded.
+			name: "only vcs.revision was recorded",
+			bi:   bi([2]string{"-compiler", "gc"}, [2]string{"vcs.revision", "0123456789abcdef"}),
+			want: []string{"  vcs.revision: 0123456789abcdef"},
+		},
+		{
+			name: "only vcs.modified was recorded",
+			bi:   bi([2]string{"vcs.modified", "true"}),
+			want: []string{"  vcs.modified: true"},
+		},
+		{
+			// Recorded out of order, and the absent key is the MIDDLE one — the
+			// output must still be label-ordered and must simply skip the gap.
+			name: "revision and modified, no time, recorded out of order",
+			bi:   bi([2]string{"vcs.modified", "false"}, [2]string{"vcs.revision", "cafebabe"}),
+			want: []string{"  vcs.revision: cafebabe", "  vcs.modified: false"},
+		},
+		{
+			// A key that IS present but blank is not a fact, and must drop out on its
+			// own without taking its neighbours with it.
+			name: "blank time between two real keys",
+			bi: bi([2]string{"vcs.revision", "cafebabe"}, [2]string{"vcs.time", "  \t "},
+				[2]string{"vcs.modified", "false"}),
+			want: []string{"  vcs.revision: cafebabe", "  vcs.modified: false"},
+		},
+		{
+			name: "all three recorded",
+			bi: bi([2]string{"vcs.revision", "cafebabe"}, [2]string{"vcs.time", "2026-08-19T18:31:01Z"},
+				[2]string{"vcs.modified", "false"}),
+			want: []string{
+				"  vcs.revision: cafebabe",
+				"  vcs.time:     2026-08-19T18:31:01Z",
+				"  vcs.modified: false",
+			},
+		},
+		{
+			name: "nothing recorded at all",
+			bi:   bi([2]string{"-compiler", "gc"}),
+			want: nil,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := vcsLines(tc.bi)
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("vcsLines rendered the wrong set of keys.\n got: %q\nwant: %q\n"+
+					"Each key stands or falls on its own: a build that recorded one real "+
+					"key must show that key, and a missing or blank neighbour must not "+
+					"silence it.", got, tc.want)
 			}
 		})
 	}
