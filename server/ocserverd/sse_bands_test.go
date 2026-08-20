@@ -375,9 +375,14 @@ func TestDecideTaskCloseNudge(t *testing.T) {
 	// A blank label (manual deleted / lookup failed) falls back to the key.
 	fallback := base
 	fallback.Status = TaskStatusDone
-	if sig := decideTaskCloseNudge(fallback, ""); sig == nil ||
-		!strings.Contains(sig.Reason, "「review-pr」") {
-		t.Fatalf("blank label must fall back to the raw key: %+v", sig)
+	wantFallbackReason := "任務 T-7d40 已結束（done）。請處理結束後續：" +
+		"若這一趟有值得留下的經驗（踩坑、更好做法），先用 get_task_manual 讀現況，再用 patch_task_learnings" +
+		"（type_key=`review-pr`）以唯一錨點只修改「review-pr」的任務手冊中這次新增或修正的學習經驗；不要用整份取代，因為讀取後到寫入間別人新增的內容會被無聲蓋掉，錨點若已移動則 patch 會回錯；" +
+		"把這個任務的暫存資料 mv 進 <你的工作目錄>/trash/（別自己 rm，warden 會清）、" +
+		"收掉臨時 branch/worktree 與跑著的臨時程序；" +
+		"最後用 report_task_closeout 回報後續已處理完。"
+	if sig := decideTaskCloseNudge(fallback, ""); sig == nil || sig.Reason != wantFallbackReason {
+		t.Fatalf("blank label reason changed: got %+v, want %q", sig, wantFallbackReason)
 	}
 
 	// An ad-hoc task (no type) has no manual to write into — never nudges.
