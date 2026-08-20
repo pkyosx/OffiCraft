@@ -15,15 +15,15 @@ flowchart TB
 
     subgraph M1 ["機器 A"]
         wardenA["warden（執行手）"]
-        agentA1["成員：Mira<br/>tmux · claude + ocagent"]
-        agentA2["成員：其他角色<br/>tmux · claude + ocagent"]
+        agentA1["成員：Mira<br/>tmux · claude/codex + ocagent"]
+        agentA2["成員：其他角色<br/>tmux · claude/codex + ocagent"]
         wardenA -->|依 server 令起停| agentA1
         wardenA -->|依 server 令起停| agentA2
     end
 
     subgraph M2 ["機器 B（選配）"]
         wardenB["warden（執行手）"]
-        agentB1["成員 / 外包<br/>tmux · claude + ocagent"]
+        agentB1["成員 / 外包<br/>tmux · claude/codex + ocagent"]
         wardenB -->|依 server 令起停| agentB1
     end
 
