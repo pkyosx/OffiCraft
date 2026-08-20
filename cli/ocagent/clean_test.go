@@ -332,6 +332,18 @@ func TestCleanIsDispatchedAndAdvertised(t *testing.T) {
 	if rc != 2 || !strings.Contains(out.String(), "ocagent clean <path>") {
 		t.Fatalf("clean must be dispatched; rc = %d out = %q", rc, out.String())
 	}
+	// Kept as-is, deliberately. This line reads like it pins the phrase 「unknown
+	// subcommand」 that seeds/system_interaction.md 附錄 A promises, and it does not:
+	// rename the phrase in main.go's default arm and this Contains goes vacuously
+	// true. That is not fixable by rewriting it — EVERY "output must not look like
+	// X" check goes vacuous when X moves, so spelling X as a literal here would buy
+	// nothing and would only pull goldenUsage across files.
+	//
+	// The phrase is pinned POSITIVELY instead, in
+	// TestUnknownSubcommandPrintsExactlyTheUnknownBlock (config_test.go), which is
+	// where a rename now reddens. What this line still earns its place for is the
+	// thing directly above it: `clean` really reached cmdClean. The rc/usage check
+	// above is the load-bearing half of that; this is the cheap corroboration.
 	if strings.Contains(out.String(), "unknown subcommand") {
 		t.Fatalf("clean fell through to the default branch: %q", out.String())
 	}

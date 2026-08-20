@@ -149,6 +149,61 @@ func TestUsagePrintsExactlyTheAdvertisedText(t *testing.T) {
 	}
 }
 
+// TestUnknownSubcommandPrintsExactlyTheUnknownBlock pins the OTHER fixed output
+// realMain owns: the default arm. Its first line is not decoration —
+// seeds/system_interaction.md 附錄 A tells the reader that an ocagent too old to
+// know `clean` 「會回 `unknown subcommand`」 and that the right move is to skip
+// the item, so the exact phrase is a promise the seed makes on this binary's
+// behalf. Until now nothing asserted it POSITIVELY: the only mention of it
+// anywhere in the tests was a NEGATIVE `strings.Contains(out, "unknown
+// subcommand")` in clean_test.go, which a rename turns vacuously true.
+//
+// 🔴 THE EXPECTATION IS A LITERAL, AND IT MUST STAY ONE. Not
+// fmt.Sprintf(...%q..., name), and not anything derived from planeASubcommands —
+// an expectation assembled from the format string the production code uses moves
+// with the production code, which is precisely how the phrase slipped out of
+// coverage. goldenUsage is fine to concatenate: it is a literal in this file too.
+//
+// Two mutants this closes, both of which were fully GREEN before it existed:
+//
+//   - default arm alone: `unknown subcommand` → `unrecognised subcommand`. The
+//     whole package passed while the seed's instruction became wrong. Worse, the
+//     same one-word edit silently DISARMED
+//     TestEveryAdvertisedSubcommandActuallyDispatches below — that test builds its
+//     control with the same format string, so the control stopped matching real
+//     output and its equality check became false for every subcommand.
+//   - that rename PLUS deleting `case "suicide":` from the switch, leaving --help
+//     still advertising it. Also green: the dispatch test was already disarmed by
+//     the first half, and `suicide` is the one advertised subcommand with no
+//     realMain-level test of its own to catch it (the other six each have one).
+//
+// So this is not only a pin on the phrase — it is what makes the dispatch test's
+// silence trustworthy. If its control ever stops describing real output, this
+// test reddens first and says why.
+func TestUnknownSubcommandPrintsExactlyTheUnknownBlock(t *testing.T) {
+	for _, tc := range []struct {
+		argv string
+		// want is spelled out here; see the 🔴 above before "simplifying" it.
+		want string
+	}{
+		{"nope", "[ocagent] unknown subcommand \"nope\"\n\n" + goldenUsage},
+		// A flag-shaped token is not special either: --version/-v are real cases,
+		// so an unrecognised one has to land in the same arm and say the same thing.
+		{"--nope", "[ocagent] unknown subcommand \"--nope\"\n\n" + goldenUsage},
+	} {
+		t.Run(tc.argv, func(t *testing.T) {
+			var b strings.Builder
+			rc := realMain([]string{tc.argv}, func(string) string { return "" }, strings.NewReader(""), &b)
+			if got := b.String(); got != tc.want {
+				t.Errorf("unknown-subcommand output changed.\n--- got ---\n%s\n--- want ---\n%s", got, tc.want)
+			}
+			if rc != 2 {
+				t.Errorf("exit code = %d, want 2 (an unknown subcommand is a usage error)", rc)
+			}
+		})
+	}
+}
+
 // TestEveryAdvertisedSubcommandActuallyDispatches is the other half, and it is a
 // LOGIC assertion rather than a text one: every name the help text advertises must
 // be a name realMain really accepts.
@@ -160,12 +215,23 @@ func TestUsagePrintsExactlyTheAdvertisedText(t *testing.T) {
 // stops working. The list and the dispatch are two things and they have to be
 // checked against each other, not each against itself.
 //
-// probeArg is a flag no subcommand defines. Every dispatched arm builds its own
-// flag.FlagSet(ContinueOnError) and parses the remaining args BEFORE doing any
-// work, so this makes each arm fail fast — no SSE connect, no tmux kill, no
-// network, no file moved. The default (unknown-subcommand) arm never looks at
-// flags at all, so it still prints its full block, and that block — the whole of
-// it, verbatim — is the thing being ruled out.
+// probeArg is a flag no subcommand defines, and what it buys differs by arm:
+//
+//   - listen / context-report / suicide / download / upload / clean each build a
+//     flag.FlagSet(ContinueOnError) and parse the remaining args BEFORE doing any
+//     work, so the probe makes them fail fast — no SSE connect, no tmux kill, no
+//     network, no file moved.
+//   - `version` / `--version` / `-v` is NOT such an arm: it has no FlagSet and
+//     ignores the rest of argv entirely, so this test really does run cmdVersion.
+//     That is acceptable rather than accidental — cmdVersion only reads build
+//     metadata and self-hashes the running binary, so it touches nothing outside
+//     the process — but it means the probe is not what protects that arm.
+//
+// The default (unknown-subcommand) arm never looks at flags at all, so it still
+// prints its full block, and that block — the whole of it, verbatim — is the
+// thing being ruled out. Note the control below is the arm's LIVE rendering, so
+// this test alone cannot notice the block changing; that is
+// TestUnknownSubcommandPrintsExactlyTheUnknownBlock's job, above.
 func TestEveryAdvertisedSubcommandActuallyDispatches(t *testing.T) {
 	const probeArg = "--ocagent-no-such-flag"
 
