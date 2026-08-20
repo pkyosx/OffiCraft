@@ -3107,10 +3107,16 @@ export const mockApi: Api = {
   },
 
   async terminateTask(id: string): Promise<TaskView> {
-    // Mirrors handle_terminate_task: the ONLY owner-side status change;
-    // non-terminal only (done/terminated → 409). Stamps closedTs and releases
-    // any bound outsource worker (the live list drops it — the card's 外包
-    // display honestly falls back to the bare label).
+    // Mirrors handle_terminate_task: the only status change that does not go
+    // through the task's own step reports; non-terminal only (done/terminated →
+    // 409). Stamps closedTs and releases any bound outsource worker (the live
+    // list drops it — the card's 外包 display honestly falls back to the bare
+    // label).
+    //
+    // ⚠️ NOT owner-only since T-b56e (owner 2026-08-20, card rc-b896e3f641e7):
+    // the task's own executor may terminate it too, unless that executor is an
+    // outsource worker. This mock has no caller identity, so it cannot model
+    // the gate — it answers as the cockpit's owner token always did.
     const t = findTask(id);
     if (TERMINAL_TASK_STATUSES.has(t.status)) {
       throw mockApiError(

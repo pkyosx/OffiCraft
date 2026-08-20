@@ -3421,8 +3421,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Terminate a task (owner/admin agent; the only non-executor status change).
-         * @description Terminate a task — the ONLY non-executor status change (SPEC §3.7); floor admin_agent since T-6020, so a plain agent cannot terminate its way out of a task. Non-terminal only (done/terminated → 409); stamps closed_ts and releases any bound outsource worker. The FE owns the double-confirm.
+         * Terminate a task — close it as terminated, the only status change that does not go through the task's own step reports. WHO: the owner, an admin agent, or the task's OWN executor when that executor is a 正職 member (T-b56e, owner 2026-08-20 card rc-b896e3f641e7). A member terminating SOMEONE ELSE's task is a flat 403. An OUTSOURCE worker is a flat 403 even on its own task: the task is the reason that worker exists, so self-termination would end it with nobody watching — ask the owner or an admin agent instead. Non-terminal only (already closed → 409).
+         * @description Terminate a task — the only status change that does not go through the task's own step reports (SPEC §3.7). Floor admin_agent since T-6020; T-b56e (owner 2026-08-20, card rc-b896e3f641e7 option 0) opened it further to the task's OWN executor when that executor is a 正職 member, so the route floor is now principalAgent and the real gate is callerMayTerminateTask. An OUTSOURCE worker is still refused on its own task: the task is the reason that worker exists, so self-termination would end it with nobody watching. Non-terminal only (done/terminated → 409); stamps closed_ts and releases any bound outsource worker. The FE owns the double-confirm.
          */
         post: operations["handle_terminate_task_api_tasks__task_id__terminate_post"];
         delete?: never;

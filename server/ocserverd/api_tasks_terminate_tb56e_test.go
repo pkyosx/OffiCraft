@@ -147,3 +147,44 @@ func TestTerminateDeniesBeforeItProbesTerminalState(t *testing.T) {
 	}
 	assertErrorEnvelope(t, rec, "forbidden", "caller is not the task's executor")
 }
+
+// The row is GONE — and that is not the same as the lookup failing. DAL
+// .GetMember answers (nil, nil) for "no such member", so this caller reaches
+// the gate with err == nil and Kind unreadable. An independent review measured
+// the pre-fix behaviour: a worker whose roster row had been deleted terminated
+// its own task, 200.
+//
+// ⚠️ The fixture uses the same route the cascade uses, not a hand-poked table:
+// what makes a member row disappear in production is a hard delete.
+func TestTerminateRefusesACallerWhoseRosterRowIsGone(t *testing.T) {
+	api := newTasksTestServer(t)
+	api.noOutsource = true
+	putMemberRow(t, api, "ow-1", KindOutsource, "")
+
+	rec := httptest.NewRecorder()
+	api.HandleCreateTaskApiTasksPost(rec, taskReq(t, "POST", "/api/tasks",
+		map[string]any{"title": "contractor task", "executor_member_id": "ow-1"},
+		"owner", "owner"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("owner create for worker: %d %s", rec.Code, rec.Body.String())
+	}
+	task := decodeBody[taskCreateResultDTO](t, rec).Task
+
+	if ok, err := api.dal.HardDeleteMember("ow-1"); err != nil || !ok {
+		t.Fatalf("hard delete: ok=%v err=%v", ok, err)
+	}
+	// The premise: the row really is unreadable, and NOT as an error.
+	m, err := api.dal.GetMember("ow-1")
+	if err != nil || m != nil {
+		t.Fatalf("fixture broken: GetMember = (%v, %v), want (nil, nil)", m, err)
+	}
+
+	got := terminateAs(t, api, task.ID, "ow-1", "agent")
+	if got.Code != http.StatusForbidden {
+		t.Fatalf("caller with no roster row = %d, want 403: %s", got.Code, got.Body.String())
+	}
+	assertErrorEnvelope(t, got, "forbidden", "caller is not the task's executor")
+	if after := readTask(t, api, task.ID); after.Status == TaskStatusTerminated {
+		t.Fatal("a caller with no roster row still closed the task")
+	}
+}

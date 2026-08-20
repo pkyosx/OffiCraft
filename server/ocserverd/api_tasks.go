@@ -977,14 +977,21 @@ func (s *apiServer) HandleGetTaskApiTasksTaskIdGet(w http.ResponseWriter, r *htt
 func (s *apiServer) callerMayTerminateTask(r *http.Request, t Task) (bool, string) {
 	c, err := s.taskCallerOf(r)
 	if err != nil {
-		// Owner scope never reaches here (it needs no roster lookup), so an
-		// error means an AGENT whose row could not be read: kind is unknown,
-		// and an unknown kind must not fall through to the permissive branch —
-		// that is exactly how an outsource worker would slip past.
 		return false, "caller is not the task's executor"
 	}
+	// Owner and admin scope decide FIRST, because owner scope carries no roster
+	// row at all — the nil check below is about an agent, not about it.
 	if c.isAdminCapable() {
 		return true, ""
+	}
+	// 🔴 NO ROW, NO PASS — and this is NOT the err branch above. DAL.GetMember
+	// answers (nil, nil) for "no such member": a missing row is not an error.
+	// So without this line an agent-scope caller whose row is gone reaches
+	// isOutsource() with member == nil, which answers false, and a worker whose
+	// roster row was deleted terminates its own task. An independent review
+	// measured exactly that: 200 terminated. Kind unknown must deny.
+	if c.member == nil {
+		return false, "caller is not the task's executor"
 	}
 	if c.actorID != t.ExecutorID {
 		return false, "caller is not the task's executor"
