@@ -1,5 +1,5 @@
 // HOTSPOT — T-ba6b detail-panel convergence: the shared AgentDetailPanel info
-// card is a two-column grid (LEFT 模型/投入度 · RIGHT 機器/Claude Account) for
+// card is a two-column grid (LEFT 模型/思考強度 · RIGHT 機器/Claude Account) for
 // BOTH the member and the outsource worker, since both now render through the
 // SAME component.
 //
@@ -21,7 +21,7 @@ const stories = {
 };
 
 for (const [kind, story] of Object.entries(stories)) {
-  test(`${kind}: the shared info card renders 模型/投入度 and 機器/Claude Account side-by-side (two-column grid)`, async ({
+  test(`${kind}: the shared info card renders 模型/思考強度 and 機器/Claude Account side-by-side (two-column grid)`, async ({
     mount,
     page,
   }) => {

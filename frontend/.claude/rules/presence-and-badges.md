@@ -34,6 +34,6 @@ badge 的三個色槽要分清 danger badge、on-danger 文字與 ring；ring �
 
 ## 自報值與設定值
 
-監控頁的 model、effort、runtime 是 MonitoringSessionDTO 的自報事實，不是 member 設定，也不以設定值 fallback。顯示 model.id，不猜 display_name；worker 以 ow- id join，沒有 session 就留空，不冒充 worker 設定。回報值也要落 durable actual 欄位，因為只留在 in-memory telemetry 會在 re-exec 後清空；fallback 到設定值又會把「已改但尚未生效」和「已生效」畫成同一件事。詳情面板的模型／投入度維持唯讀，設定只在設定／更改 dialog，別把已移除的面板內編輯器復活。缺 effort 但仍有其他 telemetry 時顯示 stale。
+監控頁的 model、effort、runtime 是 MonitoringSessionDTO 的自報事實，不是 member 設定，也不以設定值 fallback。顯示 model.id，不猜 display_name；worker 以 ow- id join，沒有 session 就留空，不冒充 worker 設定。回報值也要落 durable actual 欄位，因為只留在 in-memory telemetry 會在 re-exec 後清空；fallback 到設定值又會把「已改但尚未生效」和「已生效」畫成同一件事。詳情面板的模型／思考強度維持唯讀，設定只在設定／更改 dialog，別把已移除的面板內編輯器復活。缺 effort 但仍有其他 telemetry 時顯示 stale。
 
 機器表使用 server 的 hardware_stale 與 runtime_capabilities_stale，不由 client clock 重算；`true` 才代表過期，`false` 是活樣本中的誠實缺值，`null` 是從未量過。hardware stale 的值改畫 dash 加 stale 標記；runtime 版本遵循共享 capability map 與 installed/logged-in 狀態，Claude 才可使用 registry claudeVersion fallback，Codex 不可。stale runtime 值保留但標示 stale；machine 與 member id 要同時顯示。桌面 machine 欄 nowrap 的斷點與手機換行要維持現有版面契約。

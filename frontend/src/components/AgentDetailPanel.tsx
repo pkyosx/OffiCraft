@@ -261,7 +261,7 @@ interface AgentDetailPanelProps {
 /**
  * The ONE detail panel both the member page and the outsource-worker page
  * render through (card order = the member panel's, the convergence baseline):
- * back → identity (slot) → 模型/投入度 | 機器/Claude Account → runtime
+ * back → identity (slot) → 模型/思考強度 | 機器/Claude Account → runtime
  * (context% + est.$ + 換手) → 最近操作 → terminal → expand cards (slot +
  * initial prompt). Kind-specific content plugs in through the slots; the
  * shared cards read only the unified view model.
@@ -490,7 +490,7 @@ export function AgentDetailPanel({
       {rendered.overlays}
       {rendered.afterIdentityCards}
 
-      {/* info card: LEFT 執行環境 + 模型 + 投入度 (editable launch intents), RIGHT 機器 +
+      {/* info card: LEFT 執行環境 + 模型 + 思考強度 (editable launch intents), RIGHT 機器 +
        * runtime account — the member page's mp-info2 layout, now the ONE layout. */}
       <div className="mp-card mp-info2">
         <div className="mp-field" data-testid={`${p}-model-effort-cell`}>
@@ -506,7 +506,7 @@ export function AgentDetailPanel({
           </div>
           <div className="mp-field__value" data-testid={`${p}-model-value`}>
             {shownModel || dash}
-            {/* Deliberately NOT the parenthesised form the 投入度 row uses
+            {/* Deliberately NOT the parenthesised form the 思考強度 row uses
                 below: that one restates the raw value, this one states the
                 value's PROVENANCE. Same styling with the same punctuation
                 would put two different kinds of thing in the same shape. */}

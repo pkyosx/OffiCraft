@@ -102,7 +102,7 @@ function queryTestId(root: ParentNode, testId: string): HTMLElement | null {
 
 /** Land a telemetry row for `id` reporting `model` (+ optional effort).
  *
- * T-e12c: the 模型/投入度 cells read the SELF-REPORTED pair, so a fixture that
+ * T-e12c: the 模型/思考強度 cells read the SELF-REPORTED pair, so a fixture that
  * only configures a worker leaves those cells at the honest dash. Tests whose
  * subject is something else (the runtime cells, the absence of an in-place
  * editor, the dialog lifecycle) say "and it is running <model>" with this,
@@ -1180,7 +1180,7 @@ describe("WorkerDetailPanel — initial-prompt preview (T-ba6b)", () => {
   });
 });
 
-// ── T-e12c: the 模型/投入度 cell states what is RUNNING; the 更改／喚醒 dialog
+// ── T-e12c: the 模型/思考強度 cell states what is RUNNING; the 更改／喚醒 dialog
 // owns the SETTING. Owner ruling 2026-07-31:「成員面板以及監控台，一定要顯示
 // 回報回來的狀態，不能顯示設定值」. The two halves are pinned together on
 // purpose — the readout must never fall back to the configured pair, and the

@@ -192,7 +192,7 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
     );
     // 🔴 Scoped by POSITION, not by "somewhere in this cell": the cell holds
     // runtime, model and effort, so a whole-cell assertion would still pass if
-    // the tag moved onto the 投入度 row — which is exactly the confusion the tag
+    // the tag moved onto the 思考強度 row — which is exactly the confusion the tag
     // exists to remove.
     const cellText = async () => {
       await waitFor(() =>

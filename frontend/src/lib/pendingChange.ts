@@ -1,7 +1,7 @@
 // pendingChange — the ONE rule behind every "changed, not applied yet" hint on
 // the member and outsource detail panels (T-7f28).
 //
-// The panels show four configurable cells (執行環境 / 模型 / 投入度 / 機器).
+// The panels show four configurable cells (執行環境 / 模型 / 思考強度 / 機器).
 // Each has an owner-CONFIGURED value and a REPORTED one, and almost no launch
 // change takes effect immediately: a live agent gets a wind-down window first,
 // an offline one applies it at the next wake. So "the configured value differs

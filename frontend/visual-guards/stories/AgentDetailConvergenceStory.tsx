@@ -1,6 +1,6 @@
 // CT stories for the T-ba6b detail-panel convergence: BOTH the member and the
 // outsource worker now render through the ONE AgentDetailPanel, so the shared
-// info card (LEFT 模型/投入度 · RIGHT 機器/Claude Account) is a `.mp-info2`
+// info card (LEFT 模型/思考強度 · RIGHT 機器/Claude Account) is a `.mp-info2`
 // `grid-template-columns: 1fr 1fr` two-column layout for both identities. jsdom
 // resolves no grid (it reports the two `.mp-field`s stacked), so the "are they
 // really side by side, for both kinds?" question can only be answered in a real

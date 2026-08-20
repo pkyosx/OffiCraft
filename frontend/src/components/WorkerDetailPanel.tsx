@@ -30,7 +30,7 @@ interface WorkerDetailPanelProps {
   worker: OutsourceWorkerView;
   /** This worker's live telemetry row from `GET /api/monitoring` (workers ride
    * the SAME `sessions` array as members, keyed by their `ow-` id). It — not
-   * the worker DTO — is the source for the 模型 / 投入度 STATE readout;
+   * the worker DTO — is the source for the 模型 / 思考強度 STATE readout;
    * `undefined` (nothing reported) renders the honest dash. */
   session?: MonSessionView;
   onBack: () => void;
@@ -71,12 +71,12 @@ interface WorkerDetailPanelProps {
 /**
  * The outsource-worker detail view. Since T-ba6b it renders through the SAME
  * AgentDetailPanel the member detail page uses (owner constitution:「外包只是
- * 一個系統會幫我產生跟刪除的正職員工」) — the shared cards (模型/投入度、機器/
+ * 一個系統會幫我產生跟刪除的正職員工」) — the shared cards (模型/思考強度、機器/
  * Claude Account、運行狀況、最近操作、終端、初始 PROMPT) read the ONE unified
  * view model, and the worker-specific bits (外包角色頭像身分 + 任務 chip、
  * 委託人、委託任務) plug in through the panel's slots. Since T-7526 the shared
  * cards are READ-ONLY here too (the member panel's shape since T-927a): 模型/
- * 投入度 and 機器 carry no in-place editor, and every edit goes through the ONE
+ * 思考強度 and 機器 carry no in-place editor, and every edit goes through the ONE
  * dialog the identity card's action row opens — 更改 while it is running, 喚醒
  * while it is not (owner 2026-07-31). Everything the
  * worker has not really reported renders an honest dash / 「尚未分配」 — never a
@@ -226,7 +226,7 @@ export function WorkerDetailPanel({
   }
 
   // ── 設定區 (更改 / 喚醒 — 與正職同一套形狀, T-7526) ─────────────────────────
-  // ONE dialog holds 執行環境 + 模型 + 投入度 + 機器, opened from the identity
+  // ONE dialog holds 執行環境 + 模型 + 思考強度 + 機器, opened from the identity
   // action row by BOTH 更改 (live worker) and 喚醒 (no live session). The panel
   // itself is READ-ONLY: the cells state what is currently true, every edit goes
   // through here — the member panel's shape since T-927a, now the outsource

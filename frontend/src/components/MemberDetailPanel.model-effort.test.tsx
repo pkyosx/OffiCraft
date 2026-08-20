@@ -194,7 +194,7 @@ describe("MemberDetailPanel · model/effort quick-pick editor", () => {
 // 狀態，不能顯示設定值」. The info card states what the member is RUNNING; the
 // settings dialog above stays the one place the launch intent is shown and
 // written. Both halves are pinned here so neither can quietly absorb the other.
-describe("MemberDetailPanel · 投入度 readout vs configured launch intent", () => {
+describe("MemberDetailPanel · 思考強度 readout vs configured launch intent", () => {
   it("reads out the REPORTED effort, not the configured one", () => {
     const utils = renderPanel({
       status: "online",
