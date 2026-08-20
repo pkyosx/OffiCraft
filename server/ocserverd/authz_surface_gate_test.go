@@ -344,6 +344,26 @@ const (
 // `Requires` value on the route instead? If yes, put it there — the table is
 // enumerable, a handler body is not.
 var authzOutsideRouteTable = map[string]string{
+	// ── the near-cap block's per-reader permission FACT (T-6bd2 / T-0974) ─────
+	// These three decide what a row SAYS about permission, never whether a call
+	// is allowed — the wake snapshot and the offboard notice are already past
+	// their own route floors when this runs. They are here because the sentence
+	// they choose makes a permission CLAIM, and a claim that drifts from the
+	// gate it describes is the defect this whole file's sibling exists to stop.
+	"doc_capacity.go :: docCapacityFor :: principalAtLeast(classifyMember(m), principalAdminAgent)": "" +
+		"role definitions and the three boot documents are gated at admin_agent, so " +
+		"`writable` — documented as a FACT about THIS reader — has to be read off this " +
+		"reader. Telling 銀月 (kind=assistant → admin_agent) 'this one is not yours to " +
+		"write, go find 銀月' was a false permission claim AND an instruction to go find " +
+		"herself. Cannot be a route floor: one response carries rows for documents with " +
+		"DIFFERENT gates, so there is no single Requires value to put on the row.",
+	"doc_capacity.go :: docCapacityFor :: classifyMember(m)": "" +
+		"the classify call feeding the line above; same reason, same scope.",
+	"doc_capacity.go :: docCapacityFor :: m.RoleKey != \"\"": "" +
+		"not a principal branch at all: a contractor has no role, so it has no role " +
+		"documents to report. Listed because the scanner sees it inside the same " +
+		"function and 'delete it from the scan' is not an option.",
+
 	// ── owner-only presentation folds (not access control, but they DO branch
 	// on the principal, so a re-grade must see them) ──────────────────────────
 	"account_display.go :: accountDisplayFold :: s.principalOfRequest(r) == principalOwner": "" +

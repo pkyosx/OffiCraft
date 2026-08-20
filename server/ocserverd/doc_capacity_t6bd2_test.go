@@ -270,9 +270,41 @@ func TestResumeSummaryDocCapacityQuietWhenNothingIsNear(t *testing.T) {
 // Only ASK makes a permission claim, and it is the only class measured to
 // deserve one.
 func TestResumeSummaryDocCapacitySplitsWhatTheReaderCanActOn(t *testing.T) {
+	// 🔴 TWO READERS, because `writable` is a fact about THE READER and four of
+	// the nine rows are gated at principalAdminAgent. Running this with only
+	// 銀月 (kind=assistant → admin_agent) is how the file previously asserted
+	// "role definition: not writable" about a reader who CAN write it — the
+	// exact class of lie property 2 exists to forbid, wearing the other hat.
+	// The ordinary member is the control; she is the case the ladder cannot
+	// express, since both callers rank principalAgent on the route floor.
+	for _, reader := range []struct {
+		name       string
+		actor      string
+		adminGated string // the class the admin-gated rows must land in
+	}{
+		{"an ordinary member cannot write them", "m-t6bd2", "ask"},
+		{"the admin assistant can", "mira", "self"},
+	} {
+		t.Run(reader.name, func(t *testing.T) {
+			t6bd2SplitCases(t, reader.actor, reader.adminGated)
+		})
+	}
+}
+
+func t6bd2SplitCases(t *testing.T, actor, adminGated string) {
+	t.Helper()
 	s := t6bd2Server(t)
-	t6bd2FillAll(t, s, "mira")
-	rows := t6bd2Capacity(t, s, "mira")
+	if actor != "mira" {
+		// A 正職 with a role of its own: same principalAgent floor as 銀月 on
+		// every route, but NOT admin-capable, which is the whole difference.
+		if err := s.dal.PutMember(Member{ID: actor, Name: actor,
+			Kind: KindAssistant, RoleKey: "r-t6bd2", Effort: "medium",
+			RosterStatus: RosterStatusActive}); err != nil {
+			t.Fatalf("put member: %v", err)
+		}
+	}
+	t6bd2FillAll(t, s, actor)
+	rows := t6bd2Capacity(t, s, actor)
 
 	const (
 		classSelf   = "self"
@@ -282,14 +314,15 @@ func TestResumeSummaryDocCapacitySplitsWhatTheReaderCanActOn(t *testing.T) {
 	class := map[string]string{
 		"task manual SOP": classSelf, "task manual learnings": classSelf,
 		"step note": classSelf,
-		// Writable — measured, see the header.
+		// Writable by any reader with a role — measured, see the header.
 		"insight": classMemory, "role lessons": classMemory,
-		// Not writable — also measured, and for two DIFFERENT reasons: the role
-		// definition is refused by a principal gate (not even the reader's own),
-		// the boot documents are owner-only.
-		"role definition":    classAsk,
-		"system interaction": classAsk, "offboard sequence": classAsk,
-		"boot sequence": classAsk,
+		// Gated at principalAdminAgent, so the class DEPENDS ON THE READER:
+		// classAsk for an ordinary member (update_role / the boot-doc routes
+		// answer it 403), classSelf for the admin assistant (who passes the
+		// same gate, and must not be told to go and find herself).
+		"role definition":    adminGated,
+		"system interaction": adminGated, "offboard sequence": adminGated,
+		"boot sequence": adminGated,
 	}
 	for name, want := range class {
 		row := t6bd2Row(t, rows, name)
@@ -339,6 +372,13 @@ func TestResumeSummaryDocCapacitySplitsWhatTheReaderCanActOn(t *testing.T) {
 			if !namesTheCompactor {
 				t.Fatalf("%q is not this reader's to write, so the row MUST name "+
 					"who can, instead of asking for a write that cannot land: %q",
+					name, action)
+			}
+			// And the compactor must never be sent to herself. This is the
+			// assertion the single-reader version could not make, because it
+			// only ever ran AS her.
+			if actor == seedMiraID {
+				t.Fatalf("%q told the compactor to go and find herself: %q",
 					name, action)
 			}
 		}

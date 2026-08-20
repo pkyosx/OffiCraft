@@ -41,11 +41,30 @@ package main
 //
 // Four mutants were run against it. Three go red:
 //
-//	an example instant pasted into §1's prose        → RED
+//	an example instant pasted into §1's prose         → RED
 //	the "?" placeholder restored in the notice        → RED
-//	the deadline clause attached to soft notices too  → RED
+//	the deadline clause appended UNCONDITIONALLY      → RED
 //
-// The fourth one STAYS GREEN, and it is the original defect itself:
+// ⚠️ THE THIRD ONE IS NARROWER THAN IT FIRST READ, and the narrower statement
+// is the honest one: an independent review measured the mutant that actually
+// resembles a mistake — dropping the `finalCall` half of `finalCall && deadline
+// > 0`, keeping `deadline > 0` — and the whole package stayed GREEN, because
+// nothing in the tree called offboardNotice with `finalCall=false` alongside a
+// deadline. The production caller CAN: offboardNoticeFor passes
+// refocusDeadlineOf(...) on both arms and lets the kind decide. That call is
+// the one TestOffboardNotice_ASoftNoticeIgnoresADeadlineItWasHanded now makes,
+// so the guard covers the mutation instead of only its cruder cousin.
+//
+// 🔴 AND ONE MORE THING THIS FILE DOES NOT GUARD, found by independent review:
+// it reads §1 from the SEED (assetRoot("").readSeedFile), while what actually
+// gets stapled to a notice is s.offboardText() — the boot DOCUMENT in the
+// database, which the owner can rewrite through replace_offboard. The two agree
+// only while nobody has overridden it, and this station's override has been
+// cleared and reinstated more than once. So a green here is evidence about the
+// factory text, NOT about the sentence a live agent receives; checking the live
+// document needs a running station and is not attempted here.
+//
+// The fourth mutant STAYS GREEN, and it is the original defect itself:
 //
 //	§1 reverted word-for-word to "通知帶有 `Your deadline is ...`：硬性"  → GREEN
 //
@@ -69,6 +88,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 // discriminator is the rule from 下線程序 §1 expressed as something executable:
@@ -163,5 +183,48 @@ func TestOffboardNotice_NoQuestionMarkForAMissingPercentage(t *testing.T) {
 	// clause carrying information, and dropping it too would be over-correcting.
 	if !strings.Contains(notice, "your limits:") {
 		t.Errorf("the limits must survive a missing percentage:\n%s", notice)
+	}
+}
+
+// TestOffboardNotice_ASoftNoticeIgnoresADeadlineItWasHanded closes the gap the
+// mutant table above names: the soft arm must drop a deadline it is GIVEN, not
+// merely go without one because no caller supplies it.
+//
+// 🔴 WHY THIS CANNOT BE LEFT TO THE CALLER. offboardNoticeFor hands
+// refocusDeadlineOf(...) to BOTH arms and lets `kind` decide, so a soft arm
+// whose member happens to carry a live refocus epoch reaches this function with
+// a positive deadline. If the guard degraded to `deadline > 0`, that member —
+// the one the owner ruled has NO clock on it — would be told an instant it is
+// not being collected at.
+//
+// ⚠️ IT COMPARES THE WHOLE STRING, NOT A KEYWORD. Owner ruling 2026-08-20
+// (c-cdcaabeaf159 / c-2502de439aaa): 「你如果要比對 context 就是比對一整份要
+// 一模一樣，比對部分的關鍵詞增加測試時間卻沒有得到我們想要的測試效果」. A
+// substring assertion passes when the wording around it changed meaning and
+// fails when a harmless rewording moved the same meaning; a whole-string
+// comparison against a value built from the SAME inputs is a real assertion
+// about what the function computes.
+func TestOffboardNotice_ASoftNoticeIgnoresADeadlineItWasHanded(t *testing.T) {
+	const (
+		deadline = 1787000000.0
+		where    = "context 30% (your limits: 55% / 65%)"
+		doc      = "§1 …"
+	)
+	got := offboardNotice(where, offboardCloserRestartSelf, false, deadline, doc)
+	want := where + " — start your close-out: work the sequence below, " +
+		"then call " + offboardCloserRestartSelf + " yourself.\n" + doc
+	if got != want {
+		t.Fatalf("soft notice handed a deadline:\n got %q\nwant %q", got, want)
+	}
+	// Positive control on the same arguments: the clause is not simply
+	// unreachable — flip `finalCall` and the whole sentence becomes the other
+	// one, deadline and all.
+	gotFinal := offboardNotice(where, offboardCloserRestartSelf, true, deadline, doc)
+	wantFinal := where + " — offboard now: work the sequence below, " +
+		"then call " + offboardCloserRestartSelf + " yourself." +
+		" Your deadline is " + time.Unix(int64(deadline), 0).UTC().Format(time.RFC3339) +
+		".\n" + doc
+	if gotFinal != wantFinal {
+		t.Fatalf("final call:\n got %q\nwant %q", gotFinal, wantFinal)
 	}
 }

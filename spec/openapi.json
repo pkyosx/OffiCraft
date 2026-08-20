@@ -1479,7 +1479,7 @@
         "type": "object"
       },
       "DocCapacityRowDTO": {
-        "description": "ONE long-lived document that is CLOSE to its character cap, as it appears in\n``resume_summary``'s ``doc_capacity`` block (T-6bd2).\n\nEvery capped document on this station refuses a write with 400 once it is full\nand says nothing at all before that, so the number arrives at the one instant the\nwriter has no slack — and the cheapest way out of a refusal is to delete text\nuntil the write fits. What gets deleted is the hand-off and the \"what I did not\nverify\" paragraph, and the response to that shortened write is 200. This row\nmoves the same two numbers to a moment BEFORE any of that.\n\n``writable`` is what makes the row actionable rather than merely alarming: an\nagent may rewrite its own step note and its task manual, but a role definition,\nan insight, role lessons and the three boot documents all answer 403 to it.\n``action`` says which of those two situations this row is, in words.\n\nRows appear ONLY while a document is near its cap.",
+        "description": "ONE long-lived document that is CLOSE to its character cap, as it appears in\n``resume_summary``'s ``doc_capacity`` block (T-6bd2).\n\nEvery capped document on this station refuses a write with 400 once it is full\nand says nothing at all before that, so the number arrives at the one instant the\nwriter has no slack — and the cheapest way out of a refusal is to delete text\nuntil the write fits. What gets deleted is the hand-off and the \"what I did not\nverify\" paragraph, and the response to that shortened write is 200. This row\nmoves the same two numbers to a moment BEFORE any of that.\n\n``writable`` is what makes the row actionable rather than merely alarming, and it\nis a fact about THE READER rather than about the document class: an agent may\nrewrite its own step note, its task manual, and its own role's insight and\nlessons; a role definition and the three boot documents are gated at admin_agent,\nso those four rows are writable for the admin assistant and not for an ordinary\nmember. ``action`` is a separate DECISION and is NOT derived from it — long-term\nmemory is writable, but compacting it under close-out pressure is the wrong\nmoment, so that row offers the route without claiming the reader is barred.\n\nRows appear ONLY while a document is near its cap.",
         "properties": {
           "doc": {
             "description": "The document, named the way its own write face names it — including the role key, type_key or task_no that says WHICH one.",
@@ -1487,7 +1487,7 @@
             "type": "string"
           },
           "writable": {
-            "description": "True when the READING agent may write this document itself; false when it cannot, in which case ``action`` names who can instead of asking the reader to attempt a write that could only be refused.",
+            "description": "True when the READING agent may write this document itself; false when it cannot, in which case ``action`` names who can instead of asking the reader to attempt a write that could only be refused. Read off THIS reader's own permissions: the rows gated at admin_agent (the role definition and the three boot documents) are true for the admin assistant and false for everyone else.",
             "title": "Writable",
             "type": "boolean"
           },
@@ -1506,7 +1506,7 @@
             "type": "integer"
           },
           "action": {
-            "description": "What this reader is expected to do about it, derived from ``writable``: a writable document is one to rewrite to its CURRENT state now, while a non-writable one names the person to ask.",
+            "description": "What this reader is expected to do about it. NOT derived from ``writable``: a document can be the reader's own to write and still be the wrong thing to compact right now (long-term memory), so this names which of three situations the row is — rewrite it yourself, yours but schedule it, or who to ask.",
             "title": "Action",
             "type": "string"
           }

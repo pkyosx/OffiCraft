@@ -4769,10 +4769,14 @@ export interface components {
          *     verify" paragraph, and the response to that shortened write is 200. This row
          *     moves the same two numbers to a moment BEFORE any of that.
          *
-         *     ``writable`` is what makes the row actionable rather than merely alarming: an
-         *     agent may rewrite its own step note and its task manual, but a role definition,
-         *     an insight, role lessons and the three boot documents all answer 403 to it.
-         *     ``action`` says which of those two situations this row is, in words.
+         *     ``writable`` is what makes the row actionable rather than merely alarming, and it
+         *     is a fact about THE READER rather than about the document class: an agent may
+         *     rewrite its own step note, its task manual, and its own role's insight and
+         *     lessons; a role definition and the three boot documents are gated at admin_agent,
+         *     so those four rows are writable for the admin assistant and not for an ordinary
+         *     member. ``action`` is a separate DECISION and is NOT derived from it — long-term
+         *     memory is writable, but compacting it under close-out pressure is the wrong
+         *     moment, so that row offers the route without claiming the reader is barred.
          *
          *     Rows appear ONLY while a document is near its cap.
          */
@@ -4784,7 +4788,7 @@ export interface components {
             doc: string;
             /**
              * Writable
-             * @description True when the READING agent may write this document itself; false when it cannot, in which case ``action`` names who can instead of asking the reader to attempt a write that could only be refused.
+             * @description True when the READING agent may write this document itself; false when it cannot, in which case ``action`` names who can instead of asking the reader to attempt a write that could only be refused. Read off THIS reader's own permissions: the rows gated at admin_agent (the role definition and the three boot documents) are true for the admin assistant and false for everyone else.
              */
             writable: boolean;
             /** Size Chars */
@@ -4801,7 +4805,7 @@ export interface components {
             remaining_chars: number;
             /**
              * Action
-             * @description What this reader is expected to do about it, derived from ``writable``: a writable document is one to rewrite to its CURRENT state now, while a non-writable one names the person to ask.
+             * @description What this reader is expected to do about it. NOT derived from ``writable``: a document can be the reader's own to write and still be the wrong thing to compact right now (long-term memory), so this names which of three situations the row is — rewrite it yourself, yours but schedule it, or who to ask.
              */
             action: string;
         };

@@ -321,15 +321,24 @@ func decideHandoverNotice(
 // offboardNotice composes EVERY offboard notice this server sends, in the one
 // sentence the owner approved (2026-08-16, card rc-ec5859a4c384):
 //
-//	<where> — offboard now: work the sequence below, then call <closer> yourself.[ Your deadline is <RFC3339 UTC>.]
+//	<where> — <opener>: work the sequence below, then call <closer> yourself.[ Your deadline is <RFC3339 UTC>.]
 //	<the 下線程序 document, verbatim>
+//
+// <opener> is "offboard now" on the final call and "start your close-out" on
+// the soft arm — see offboardOpener for the ruling that split them.
 //
 // Three things about it are deliberate and must survive edits:
 //
-//   - ONE sentence for every situation. The owner cut four differently-worded
-//     notices down to this: 「不需要太多不同描述吧, 就請他按照步驟做好下線, 頂多
-//     告訴他剩下 120 秒」. What tells the situations apart is the FIELDS — the
-//     numbers in `where`, and whether the deadline clause is there — not tone.
+//   - ONE SECOND HALF for every situation, and the owner's original design was
+//     one sentence for every situation: he cut four differently-worded notices
+//     down to this: 「不需要太多不同描述吧, 就請他按照步驟做好下線, 頂多告訴他
+//     剩下 120 秒」. What tells the situations apart is still mostly the FIELDS
+//     — the numbers in `where`, and whether the deadline clause is there.
+//     ⚠️ The OPENER is the one exception, and it is his own later narrowing
+//     (card rc-e9b655cd8e1a): the soft arm stopped saying "now" because the
+//     document stapled below it says a soft close-out may let its sub-agents
+//     finish. Two clauses, one sentence, one ruling each — do not read this
+//     bullet as licence to differentiate anything else by tone.
 //     ⚠️ That clause names an INSTANT, never a span. It was "You have 120
 //     seconds left." until T-d6a7; the deadline runs from the first stamp and
 //     this notice is REPLAYED on every write to the row, so a duration told a
@@ -380,6 +389,15 @@ const (
 // and neither the ruling nor this change touches it: without the second clause
 // an agent idles until the server cuts it off; without the first, it stops
 // mid-work.
+//
+// ⚠️ KNOWN RISK IN THE SOFT WORDING, raised by independent review and left in
+// deliberately: the document stapled below numbers its sections 「2. 開始下線」…
+// 「4. 收尾」, and "close-out" reads closest to §4 — the LAST section — while
+// the sentence means "start at the top". The second half ("work the sequence
+// below") is what pulls the reader back, and the alternative openers all either
+// re-catch the "now" the owner removed or restate §1's rule in a second place.
+// Recorded rather than silently accepted: if a reader is ever seen starting at
+// §4, this is the first thing to change.
 func offboardOpener(finalCall bool) string {
 	if finalCall {
 		return " — offboard now: work the sequence below, then call "

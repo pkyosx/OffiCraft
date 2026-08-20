@@ -86,9 +86,12 @@ const (
 	docCapacityActionSelfMemory = "you can write this one yourself, but " +
 		"compacting long-term memory is not a close-out job: schedule it, or ask " +
 		docCapacityCompactor + " (" + seedMiraID + ") to do it"
-	// Documents the reader genuinely cannot write. This sentence DOES make a
-	// permission claim, and it is measured true for exactly the rows that carry
-	// it (role definitions and the boot documents — see the header's probes).
+	// Documents THIS reader genuinely cannot write. This sentence DOES make a
+	// permission claim, which is why it is no longer attached by document TYPE:
+	// role definitions and the boot documents are gated at principalAdminAgent,
+	// so the claim is true for an ordinary member and FALSE for the admin
+	// assistant — who would also be told to go find herself. docCapacityFor
+	// picks between this and docCapacityActionSelf per reader.
 	docCapacityActionAsk = "去找" + docCapacityCompactor + " (" + seedMiraID + ")" +
 		": this one is not yours to write, so compacting it is hers to do"
 )
@@ -146,8 +149,9 @@ type docCapacityRow struct {
 	// can go straight to the tool that writes it rather than guessing.
 	Doc string `json:"doc"`
 	// Writable: true when the READING agent may write this document itself.
-	// It is the field Action is derived from, carried separately so a client
-	// can group without parsing prose.
+	// It is a FACT about permission and nothing else — Action is decided
+	// separately (see newDocCapacityRow) — and it is carried as its own field
+	// so a client can group by it without parsing prose.
 	Writable  bool   `json:"writable"`
 	SizeChars int    `json:"size_chars"`
 	CapChars  int    `json:"cap_chars"`
@@ -207,15 +211,36 @@ func (s *apiServer) docCapacityFor(actor string, stepNotes []docCapacityRow) []d
 		}
 	}
 
+	// 🔴 WHO IS READING DECIDES WHAT `writable` SAYS, for the rows whose write
+	// face is gated at principalAdminAgent. The admin assistant (kind=assistant
+	// → classifyMember → admin_agent) may write role definitions and the boot
+	// documents, so telling HER "this one is not yours to write, go find 銀月"
+	// is two falsehoods in one sentence: a permission claim that is wrong, and
+	// an instruction to go find herself. `writable` is documented as a FACT
+	// about THIS READER's permissions, so it has to be read off this reader.
+	//
+	// ⚠️ The insight / role-lessons / task-manual / step-note rows are NOT
+	// affected: their gate is "your own", which an ordinary member already
+	// passes, so admin capability changes nothing there.
+	adminCapable := false
+	if m, err := s.dal.GetMember(actor); err == nil && m != nil {
+		adminCapable = principalAtLeast(classifyMember(m), principalAdminAgent)
+	}
+	adminGatedAction := docCapacityActionAsk
+	if adminCapable {
+		adminGatedAction = docCapacityActionSelf
+	}
+
 	// ── the reader's own role documents ──────────────────────────────────────
 	// A contractor has no role and an unknown sub resolves to nothing; both mean
 	// "no role documents", not an error.
 	if m, err := s.dal.GetMember(actor); err == nil && m != nil && m.RoleKey != "" {
 		if duty, err := s.foldRoleDefDTO(m.RoleKey); err == nil && duty != nil {
 			// update_role answers 403 "principal not permitted" to an ordinary
-			// member — for its OWN role too. Not writable, and the claim is true.
+			// member — for its OWN role too. An admin-capable reader passes the
+			// same gate, hence the pair above rather than a constant false.
 			add(newDocCapacityRow("role definition ("+m.RoleKey+")",
-				duty.SizeChars, duty.CapChars, false, docCapacityActionAsk))
+				duty.SizeChars, duty.CapChars, adminCapable, adminGatedAction))
 		}
 		if ins, err := s.foldInsightDTO(m.RoleKey); err == nil && ins != nil {
 			// 🔴 The reader's OWN insight — patch_insight lets it through
@@ -238,8 +263,8 @@ func (s *apiServer) docCapacityFor(actor string, stepNotes []docCapacityRow) []d
 	// agent has ever been in a position to notice.
 	for _, spec := range s.docCapacityBootSpecs(actor) {
 		if dto, err := s.foldBootDocDTO(spec); err == nil && dto != nil {
-			add(newDocCapacityRow(spec.DocName, dto.SizeChars, dto.CapChars, false,
-				docCapacityActionAsk))
+			add(newDocCapacityRow(spec.DocName, dto.SizeChars, dto.CapChars,
+				adminCapable, adminGatedAction))
 		}
 	}
 

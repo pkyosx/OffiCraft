@@ -234,9 +234,10 @@ func offboardCloserFor(m Member) string {
 func (s *apiServer) offboardNoticeFor(m Member, kind string) string {
 	cfg := s.ctxHighConfig()
 	// The gauge is absent on a server assembled without one (and a session that
-	// never reported has no entry either). Degrade to "?" for the position
-	// rather than dropping the notice: WHERE the session is is useful, being
-	// told it is being collected is essential.
+	// never reported has no entry either). Both arms below then OMIT the
+	// position rather than dropping the notice or printing a placeholder:
+	// WHERE the session is is useful, being told it is being collected is
+	// essential, and a literal "?" is neither.
 	var record map[string]any
 	if s.gauge != nil {
 		record = s.gauge.Get(m.ID)
@@ -248,7 +249,15 @@ func (s *apiServer) offboardNoticeFor(m Member, kind string) string {
 		if notice < 1 {
 			notice = final - 1
 		}
-		round := "?"
+		// SAME RULE AS THE CLAUDE ARM BELOW, and it has to be stated twice
+		// because the two arms read different keys. This used to print a
+		// literal "?" ("compaction round ? (your limits: round 3 / round 4)")
+		// whenever the gauge held no compaction_count — which is every
+		// refocus-triggered close-out, because that arm is not fired by a
+		// round count at all. Two spellings of "no value" in one output is
+		// the next reader's trap; this one omits the position too, and the
+		// limits still name the band.
+		round := ""
 		if record != nil {
 			if v, ok := asNumber(record["compaction_count"]); ok {
 				round = fmt.Sprintf("%d", int(v))
@@ -257,8 +266,13 @@ func (s *apiServer) offboardNoticeFor(m Member, kind string) string {
 		if kind == offboardKindFinal {
 			round = fmt.Sprintf("%d", final)
 		}
-		where = fmt.Sprintf("compaction round %s (your limits: round %d / round %d)",
-			round, notice, final)
+		if round == "" {
+			where = fmt.Sprintf("close-out (your limits: round %d / round %d)",
+				notice, final)
+		} else {
+			where = fmt.Sprintf("compaction round %s (your limits: round %d / round %d)",
+				round, notice, final)
+		}
 	} else {
 		// NO VALUE -> SAY THE LIMITS, NOT A QUESTION MARK (T-0974 shipping
 		// verification, 2026-08-20). This used to print a LITERAL "?" into the
@@ -266,8 +280,9 @@ func (s *apiServer) offboardNoticeFor(m Member, kind string) string {
 		// held no context_pct - which is EVERY refocus-triggered close-out,
 		// because that arm is not fired by a pct at all. What the reader sees
 		// is a broken field, and it disagrees with how this same file treats a
-		// missing value everywhere else (the "[station ...]" clause omits
-		// itself rather than printing a placeholder). Two spellings of "no
+		// missing value elsewhere (the "[station ...]" clause omits itself
+		// rather than printing a placeholder; the codex arm above now omits
+		// too — it did NOT until this same ticket). Two spellings of "no
 		// value" in one output is the next reader's trap, so this one omits
 		// too: the limits are still named, because they are what tells the
 		// reader which band it is in.

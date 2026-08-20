@@ -1055,8 +1055,12 @@ func TestWindDown_OfflineWakesTheSessionAndDoesNotStopIt(t *testing.T) {
 			"payload": map[string]any{"offboard_notice": notice},
 		}}
 	}
-	soft := "context 31% (your limits: 60% / 75%) — offboard now: work the " +
-		"sequence below, then call restart_self yourself."
+	// The soft arm's opener since rc-e9b655cd8e1a; the final call keeps
+	// "offboard now". This fixture is a hand copy of what the server sends, so
+	// it goes stale silently — what it is actually testing is the de-dupe, and
+	// that only needs the two strings to DIFFER.
+	soft := "context 31% (your limits: 60% / 75%) — start your close-out: work " +
+		"the sequence below, then call restart_self yourself."
 	if !h.maybeWindDown(frame(soft)) {
 		t.Fatal("a confirmed offline must wake the session")
 	}

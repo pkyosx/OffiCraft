@@ -211,15 +211,17 @@ func TestDecideHandoverNotice(t *testing.T) {
 		if sig == nil {
 			t.Fatal("losing the checklist must not lose the notice")
 		}
-		// This arm is SOFT, so the opener is the owner's narrowed one
-		// (rc-e9b655cd8e1a) — "offboard now" belongs to the final call alone.
-		if !strings.Contains(sig.Reason, "start your close-out") {
-			t.Fatalf("the sentence must still be there: %q", sig.Reason)
-		}
-		// And the half that is identical on both arms must survive too:
-		// without it the reader idles until the server cuts it off.
-		if !strings.Contains(sig.Reason, "then call restart_self yourself") {
-			t.Fatalf("losing the checklist must not lose the instruction: %q", sig.Reason)
+		// WHOLE STRING, not a keyword (owner ruling 2026-08-20, c-2502de439aaa:
+		// 「你如果要比對 context 就是比對一整份要一模一樣」). With the document
+		// unreadable the notice IS exactly this sentence and nothing else, so
+		// there is a complete expected value to compare against — and it pins
+		// both halves of the instruction plus the absence of the deadline
+		// clause in one assertion, which three separate Contains could not.
+		want := "context 65% (your limits: 65% / 75%) — start your close-out: " +
+			"work the sequence below, then call restart_self yourself."
+		if sig.Reason != want {
+			t.Fatalf("the sentence must still be there:\n got %q\nwant %q",
+				sig.Reason, want)
 		}
 	})
 
