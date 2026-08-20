@@ -60,6 +60,14 @@ import (
 	"unicode/utf8"
 )
 
+// docCapLog emits one doc-capacity observability line to stderr. It exists for
+// the branch that DROPS a row rather than serving a self-contradicting one:
+// after the fail-soft the drop shares its exit with "nothing was near the cap",
+// so without this line the two are indistinguishable from outside.
+func docCapLog(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "[doc-capacity] "+format+"\n", args...)
+}
+
 // docCapacityCompactor is who to go to for a document the reading agent cannot
 // write. The owner ruled the compaction work itself belongs to 銀月 (T-6bd2's
 // 界線: 不動整併本身該由誰做), so the signal names her rather than telling the
@@ -171,10 +179,6 @@ type docCapacityRow struct {
 // that is exactly how this file came to tell agents "it answers 403 to you"
 // about their own insight, which they can write. Keeping them apart means a row
 // can say "yours to write, but not now" without lying about permission.
-func docCapLog(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, "[doc-capacity] "+format+"\n", args...)
-}
-
 func newDocCapacityRow(doc string, sizeChars, capChars int, writable bool, action string) *docCapacityRow {
 	if !docCapacityNear(sizeChars, capChars) {
 		return nil
@@ -193,14 +197,14 @@ func newDocCapacityRow(doc string, sizeChars, capChars int, writable bool, actio
 	// one move the literal test cannot catch.
 	//
 	// 🔴 IT OMITS THE ROW, IT DOES NOT PANIC, AND THAT IS NOT TIMIDITY. An
-	// independent review measured a panic here on the real path: mispair one row,
-	// and /api/resume-summary
-	// answers a bare EOF — no status, no body — DETERMINISTICALLY, so the agent
-	// reading it can never boot; the same function runs inside the SSE handler,
-	// so that agent could never be told to close out either. Dropping the row
-	// instead loses one reminder and keeps both payloads, which is the trade
-	// docCapacityFor's own header already made (see below). In development the
-	// signal is if anything louder: the same mispair fails
+	// independent review measured a panic here on the real path: mispair one
+	// row, and /api/resume-summary answers a bare EOF — no status, no body —
+	// DETERMINISTICALLY, so the agent reading it can never boot; the same
+	// function runs inside the SSE handler, so that agent could never be told
+	// to close out either. Dropping the row instead loses one reminder and
+	// keeps both payloads, which is the trade docCapacityFor's own header
+	// already made (see below). In development the signal is if anything
+	// louder: the same mispair fails
 	// TestResumeSummaryDocCapacityFiresForEveryCarrier AND both halves of
 	// ...SplitsWhatTheReaderCanActOn, rather than blowing the test process up.
 	if action == docCapacityActionAsk && writable {
