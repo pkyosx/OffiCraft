@@ -53,6 +53,8 @@ package main
 //     "yours to do under close-out pressure" are NOT the same question.
 
 import (
+	"fmt"
+	"os"
 	"sort"
 	"strconv"
 	"unicode/utf8"
@@ -169,6 +171,10 @@ type docCapacityRow struct {
 // that is exactly how this file came to tell agents "it answers 403 to you"
 // about their own insight, which they can write. Keeping them apart means a row
 // can say "yours to write, but not now" without lying about permission.
+func docCapLog(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "[doc-capacity] "+format+"\n", args...)
+}
+
 func newDocCapacityRow(doc string, sizeChars, capChars int, writable bool, action string) *docCapacityRow {
 	if !docCapacityNear(sizeChars, capChars) {
 		return nil
@@ -186,8 +192,9 @@ func newDocCapacityRow(doc string, sizeChars, capChars int, writable bool, actio
 	// sentence AND updating the test literal in the same commit, which is the
 	// one move the literal test cannot catch.
 	//
-	// 🔴 IT OMITS THE ROW, IT DOES NOT PANIC, AND THAT IS NOT TIMIDITY. A panic
-	// here was measured on the real path: mispair one row, and /api/resume-summary
+	// 🔴 IT OMITS THE ROW, IT DOES NOT PANIC, AND THAT IS NOT TIMIDITY. An
+	// independent review measured a panic here on the real path: mispair one row,
+	// and /api/resume-summary
 	// answers a bare EOF — no status, no body — DETERMINISTICALLY, so the agent
 	// reading it can never boot; the same function runs inside the SSE handler,
 	// so that agent could never be told to close out either. Dropping the row
@@ -197,6 +204,16 @@ func newDocCapacityRow(doc string, sizeChars, capChars int, writable bool, actio
 	// TestResumeSummaryDocCapacityFiresForEveryCarrier AND both halves of
 	// ...SplitsWhatTheReaderCanActOn, rather than blowing the test process up.
 	if action == docCapacityActionAsk && writable {
+		// Dropped, but NOT silently. An omitted row is indistinguishable from a
+		// document that is simply not near its cap — docCapacityLines answers ""
+		// for an empty set, so this row's absence reads exactly like a healthy
+		// station (an independent review measured that: mispair the only near-cap
+		// document and the whole ⚠️ block disappears from the offboard notice).
+		// The header's best-effort omission covers a FAILED READ, which is
+		// temporary and self-healing; this is a PROGRAMMER ERROR, which is
+		// permanent and never heals, so it must not share that exit unannounced.
+		docCapLog("row %q pairs the ask sentence with writable=true — one of the "+
+			"two is wrong; the row was dropped", doc)
 		return nil
 	}
 	return &docCapacityRow{

@@ -125,6 +125,17 @@ func t6bd2FillAll(t *testing.T, s *apiServer, actor string) []string {
 	must(s.dal.PutTaskStep(TaskStep{ID: "ts-t6bd2000001", TaskID: "t-t6bd2000001",
 		OrderIdx: 0, Name: "probe step", Status: StepStatusInProgress,
 		Note: t6bd2Text(3200)}))
+	return t6bd2CarrierNames()
+}
+
+// t6bd2CarrierNames is the carrier list on its own, with NO fixture side effects.
+// It exists so the reconciliation in TestResumeSummaryDocCapacitySplits... can
+// compare the two hand-written lists without re-running t6bd2FillAll — which
+// re-seeds documents AND reassigns the probe task, so calling it a second time
+// mid-test is order-dependent in a way nothing declares (an independent review
+// measured it: moving that call above the capacity read drops three of the nine
+// rows, and the failure then points at the product rather than at the call).
+func t6bd2CarrierNames() []string {
 	return []string{
 		"role definition", "insight", "role lessons",
 		"system interaction", "offboard sequence", "boot sequence",
@@ -326,16 +337,21 @@ func t6bd2SplitCases(t *testing.T, actor, adminGated string) {
 		"system interaction": adminGated, "offboard sequence": adminGated,
 		"boot sequence": adminGated,
 	}
-	// 🔴 THE TWO HAND-WRITTEN LISTS MUST BE THE SAME SET, and nothing else makes
-	// them so. The carrier names live twice — here, and in t6bd2FillAll's return
-	// slice, which is what the exactly-N count in FiresForEveryCarrier compares
-	// against. Without this reconciliation the loop below simply never looks at
-	// a carrier missing from `class`: someone adding a tenth document fixes the
-	// count by appending one string to that other list, goes green, and ships a
-	// row whose sentence and `writable` no assertion has ever read. (Measured:
-	// that exact edit passed the whole package.)
-	if fixture := t6bd2FillAll(t, s, "mira"); len(fixture) != len(class) {
-		t.Fatalf("the two carrier lists have drifted: t6bd2FillAll names %d (%v), "+
+	// 🔴 THE TWO HAND-WRITTEN LISTS HAVE TO STAY THE SAME SET, and nothing else
+	// makes them so. The carrier names live twice — here, and in the list the
+	// exactly-N count in FiresForEveryCarrier compares against. Without this
+	// reconciliation the loop below simply never looks at a carrier missing from
+	// `class`: someone adding a tenth document fixes the count by appending one
+	// string to that other list, goes green, and ships a row whose sentence and
+	// `writable` no assertion has ever read. (An independent review measured
+	// exactly that edit passing the whole package.)
+	//
+	// This line alone only compares LENGTHS. What turns it into set equality is
+	// the t6bd2Row lookup inside the loop below, which fails with "no row naming
+	// X" the moment a name in `class` is not among the carriers. Neither half is
+	// sufficient on its own.
+	if fixture := t6bd2CarrierNames(); len(fixture) != len(class) {
+		t.Fatalf("the two carrier lists have drifted: t6bd2CarrierNames lists %d (%v), "+
 			"this test classifies %d — a carrier was added to one and not the "+
 			"other, so its sentence would go unpinned. Add it to `class` too.",
 			len(fixture), fixture, len(class))
