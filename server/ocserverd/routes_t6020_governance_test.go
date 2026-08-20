@@ -63,7 +63,7 @@ var t6020Opened = map[[2]string]string{
 // 🔴 ADDING A ROW HERE REQUIRES ITS OWN OWNER RULING, AND YOU MUST EDIT
 // THE `len(t6020Revised) == 2` GUARD BELOW IN THE SAME COMMIT. That guard is a
 // hard-coded count on purpose, exactly like the release-exemption roster in root
-// CLAUDE.md「驗證、CI 與出貨／PR 與驗證紀律」: without it this table is a back door — moving any row into it
+// root CLAUDE.md「驗證、CI 與出貨」: without it this table is a back door — moving any row into it
 // would exempt that row from the admin-floor assertion, and the diff would look
 // like housekeeping. A count that can only be changed by editing itself forces
 // the deliberate act.

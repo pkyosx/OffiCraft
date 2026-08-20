@@ -29,7 +29,7 @@ package main
 // `?ids=` request, and the message that comes back must be the same one, whole.
 //
 // ② is covered as a PAYLOAD CONTRACT, not as an execution. `cli/ocagent` is a
-// separate Go module (root CLAUDE.md「驗證、CI 與出貨／PR 與驗證紀律」: the four modules cannot import each
+// separate Go module (root CLAUDE.md「驗證、CI 與出貨」: the four modules cannot import each
 // other), so drainChat cannot be run from here. What is checked instead is the
 // only thing that can drift between them: the FIELD NAME. The key is derived
 // from the CLI source itself — parsed, not transcribed — by asking "which map
