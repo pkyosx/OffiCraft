@@ -48,7 +48,7 @@ interface WorkerDetailPanelProps {
   /** Stop (停止 — T-f190): kill + hold down (owner-explicit; no auto-revival). */
   onStop?: () => Promise<void>;
   /** Wake (喚醒 — T-7526): clear the stop + re-dispatch. ⚠️ The WIRE is still
-   * `POST /api/outsource-workers/{id}/restart` — a frozen contract (§13). Only
+   * `POST /api/outsource-workers/{id}/restart` — a frozen contract (root CLAUDE.md「驗證、CI 與出貨／wire spec-first」). Only
    * the owner-facing WORD changed (owner 2026-07-31 「應該要統一」: 重啟 retired,
    * 喚醒 is the one verb on both panels). Do NOT rename the endpoint to match. */
   onWake?: () => Promise<void>;
@@ -239,7 +239,7 @@ export function WorkerDetailPanel({
   // re-dispatches unless desired_state is already offline — so a worker button
   // promising "saved, not started" would be a lie for exactly the workers whose
   // session merely died (desired_state still online). Offering it would need a
-  // pin-only worker endpoint, i.e. a frozen-wire change (§13).
+  // pin-only worker endpoint, i.e. a frozen-wire change (root CLAUDE.md「驗證、CI 與出貨／wire spec-first」).
   const onlineMachines = machines.filter((m) => m.online);
   // The pinned machine stays in the list even when it is not online — labelled
   // 離線 and disabled, MachinePicker's rule. Dropping it would silently move a

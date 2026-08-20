@@ -97,7 +97,7 @@ package main
 // 換手中 for that window (refocus_since > 0 — the same projection 重新聚焦
 // already uses). That is the trade the owner asked for.
 //
-// Agent-facing surface is unchanged (root CLAUDE.md §9c): same member-topic
+// Agent-facing surface is unchanged (手冊「獨立審查」的五點 code-hygiene 清單): same member-topic
 // delta, same refetch, same 下線程序 wake out of the same recycleHook. No new
 // tool, no new step ⇒ seeds/ needs no companion change.
 
@@ -139,7 +139,7 @@ func (s *apiServer) memberHasStateToFlush(m Member) bool {
 }
 
 // aRefocusStampWouldReachTheAgent is the server half of a CROSS-LAYER contract
-// (root CLAUDE.md §9c; T-ccc7). The agent prints the 下線程序 wake
+// (手冊「獨立審查」的五點 code-hygiene 清單; T-ccc7). The agent prints the 下線程序 wake
 // from cli/ocagent/listen_hooks.go maybeRecycle, whose FIRST condition is
 // `desired_state == online`. So stamping refocus_since on a member the server
 // has already decided should be offline is not a weaker signal — it is NO

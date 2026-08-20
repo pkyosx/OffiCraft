@@ -353,7 +353,7 @@ var authzOutsideRouteTable = map[string]string{
 	"api_monitoring.go :: HandleGetMonitoringApiMonitoringGet :: s.principalOfRequest(r) == principalOwner": "" +
 		"same owner-only account-label overlay, at the monitoring handler's call site.",
 
-	// ── self-ops: identity from the token, never a parameter (CLAUDE.md §14) ──
+	// ── self-ops: identity from the token, never a parameter (root CLAUDE.md「核心不變量／授權單一化」) ──
 	"api_members.go :: HandleGetMemberApiMembersMemberIdGet :: memberId == currentActor(r)": "" +
 		"self-read fold: an outsource worker's recycle/wind-down hook refetches ITS OWN " +
 		"row and must see desired_state/refocus_since. Strictly self-scoped — any OTHER " +
@@ -368,7 +368,7 @@ var authzOutsideRouteTable = map[string]string{
 	"api_members.go :: HandleRestartSelfApiSelfRefocusPost :: m.Kind == KindOutsource": "" +
 		"same outsource refusal on the self-refocus face.",
 
-	// ── the hire self-promotion seam (root CLAUDE.md §4, owner ruling) ────────
+	// ── the hire self-promotion seam (root CLAUDE.md「核心不變量／授權單一化」, owner ruling) ────────
 	"api_members.go :: HandleHireMemberApiMembersPost :: principalAtLeast(s.principalOfRequest(r), principalAdminAgent)": "" +
 		"§4 閉環: hiring is at the machine floor, but hiring WITH kind/role_key is " +
 		"privilege-bearing (an agent could otherwise hire itself an 'assistant' and " +
@@ -414,7 +414,7 @@ var authzOutsideRouteTable = map[string]string{
 
 	// ── chat ─────────────────────────────────────────────────────────────────
 	"api_chat.go :: HandlePostChatApiChatPost :: currentActor(r) != wireOwnerID": "" +
-		"the sender is taken from the verified token, never from the body (§14); this " +
+		"the sender is taken from the verified token, never from the body (root CLAUDE.md「核心不變量／授權單一化」); this " +
 		"compares the resolved actor to the owner's wire id to pick the sender label.",
 
 	// ── lessons write authz — T-5336's OTHER half (owner rc-46599297a1c4) ─────
@@ -437,7 +437,7 @@ var authzOutsideRouteTable = map[string]string{
 		"write check; this caller-plus-document-kind decision cannot be expressed by one route floor.",
 	"api_roles.go :: fillLessonsIdentityArgs :: currentScope(r) == \"agent\"": "" +
 		"MCP-side default: an agent omitting role_key means ITS OWN role, resolved from " +
-		"the verified sub — the §14 'identity from auth, never a parameter' rule.",
+		"the verified sub — the root CLAUDE.md「核心不變量／授權單一化」'identity from auth, never a parameter' rule.",
 	"api_roles.go :: HandleDeleteRoleApiRolesRoleDelete :: m.RoleKey != role": "" +
 		"NOT authz — an in-use scan (which members still reference this role). It reads " +
 		"RoleKey so the scanner catches it; kept on the list rather than special-cased, " +
@@ -646,7 +646,7 @@ var machineFloorWriteRulings = map[string]machineFloorRuling{
 			"covered by the same declined proposal.",
 	},
 	"POST /api/members": {
-		Ruling: "root CLAUDE.md §4 閉環",
+		Ruling: "root CLAUDE.md「核心不變量／授權單一化」閉環",
 		Why: "hiring is floor-level, but hiring WITH kind/role_key is admin-gated INSIDE " +
 			"the handler (see the HandleHireMember entries in authzOutsideRouteTable) — " +
 			"otherwise an agent hires itself an 'assistant' and walks up the ladder. The " +
@@ -671,13 +671,13 @@ var machineFloorWriteRulings = map[string]machineFloorRuling{
 	"POST /api/self/stopped":  selfOpRuling,
 	"POST /api/self/refocus":  selfOpRuling,
 	"POST /api/chat": {
-		Ruling: "M1 wire freeze · root CLAUDE.md §14",
+		Ruling: "M1 wire freeze · root CLAUDE.md「核心不變量／授權單一化」",
 		Why: "talking is what every principal in the office does; the SENDER is taken " +
 			"from the verified token and can never be forged via the body, so the floor " +
 			"grants 'speak as yourself', not 'speak as anyone'.",
 	},
 	"POST /api/chat/mark-read": {
-		Ruling: "M1 wire freeze · root CLAUDE.md §14",
+		Ruling: "M1 wire freeze · root CLAUDE.md「核心不變量／授權單一化」",
 		Why: "a read receipt for the CALLER's own reader id (from the token). Floor-level " +
 			"by the same argument as POST /api/chat.",
 	},
@@ -687,7 +687,7 @@ var machineFloorWriteRulings = map[string]machineFloorRuling{
 			"referenced by a chat/reply-card the caller is entitled to post.",
 	},
 	"POST /api/reply-cards": {
-		Ruling: "M1 wire freeze · root CLAUDE.md §14",
+		Ruling: "M1 wire freeze · root CLAUDE.md「核心不變量／授權單一化」",
 		Why: "agents OPEN cards, the owner answers them (the answer faces are " +
 			"admin_agent since T-6020). Opening is the low-privilege half by design.",
 	},
@@ -710,7 +710,7 @@ var machineFloorWriteRulings = map[string]machineFloorRuling{
 }
 
 var selfOpRuling = machineFloorRuling{
-	Ruling: "root CLAUDE.md §14 · owner 2026-07-10",
+	Ruling: "root CLAUDE.md「核心不變量／授權單一化」 · owner 2026-07-10",
 	Why: "self-ops carry NO identity parameter — the server reads the caller from the " +
 		"token, so the route can only ever affect the caller itself. Wardens rank at " +
 		"the machine floor and must be able to report their own presence.",

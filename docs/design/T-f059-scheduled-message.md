@@ -498,7 +498,7 @@ jq '.components.schemas.ScheduledMessageCreateDTO             | {properties: (.p
 `label` 省略＝沒有標籤；`day_of_week` 省略＝0（週日），只有 `weekly` 會讀它；
 `day_of_month` 省略＝1，只有 `monthly` 會讀它。
 
-`ScheduledMessageUpdateDTO`（PATCH body）：以上每一欄都是 **optional**（照憲章 §12「對外 DTO 加欄一律 optional」），
+`ScheduledMessageUpdateDTO`（PATCH body）：以上每一欄都是 **optional**（照根 CLAUDE.md「Repo-wide 約定／DTO 向後相容」），
 只送要改的那幾欄；`status` 也在這裡，用來啟用／停用。
 
 ## 座艙：一張卡，長在兩個面板上

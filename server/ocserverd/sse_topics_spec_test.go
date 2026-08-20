@@ -17,7 +17,7 @@ import (
 // proper fix is a MACHINE-READABLE spec asset (a spec/sse-topics.json emitted
 // or frozen alongside spec/openapi.json, consumed by both sides and by the
 // frontend's SSE_RESYNC_TOPICS) — that adds a frozen wire asset, which is the
-// owner's call under the wire freeze (root CLAUDE.md §13), not a tidy-up to do
+// owner's call under the wire freeze (root CLAUDE.md「驗證、CI 與出貨／wire spec-first」), not a tidy-up to do
 // in passing. Until then: keep the two parsers in step, and do NOT "solve" the
 // duplication by deleting one of the two guards — they bind different edges
 // (this one code↔spec, the Python one spec↔conformance coverage).

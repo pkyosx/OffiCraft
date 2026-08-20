@@ -39,7 +39,7 @@ func currentScope(r *http.Request) string {
 // "owner" for owner scope (the owner token's sub IS the wireOwnerID literal),
 // otherwise the agent/worker/warden member id. A blank sub (no auth context —
 // should not happen past the gate) folds to the server attribution rather
-// than an empty trigger. NEVER a client-supplied field (root CLAUDE.md §14).
+// than an empty trigger. NEVER a client-supplied field (root CLAUDE.md「核心不變量／授權單一化」).
 func requestTrigger(r *http.Request) string {
 	if sub := currentActor(r); sub != "" {
 		return sub

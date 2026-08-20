@@ -223,7 +223,7 @@ const wakeTimeoutReasonCode = "wake_timeout"
 // nothing worth preserving — a receipt superseding a receipt is ordinary.
 //
 // Deliberately in-place inside the existing five last_op* fields: a separate
-// durable slot would grow MemberDTO, and the wire is frozen (CLAUDE.md §13).
+// durable slot would grow MemberDTO, and the wire is frozen (root CLAUDE.md「驗證、CI 與出貨／wire spec-first」).
 // This follows the isStopNoopReceipt precedent — the fold already knows that not
 // every receipt deserves the slot on its own terms.
 func supersededDispatchClue(m Member) string {

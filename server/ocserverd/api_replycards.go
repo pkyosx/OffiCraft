@@ -996,7 +996,7 @@ const expireNotYourCardMsg = "only the card's own author (or the owner / an admi
 // per-card (ReplyCard.FromMember, stamped at create time and never rewritten),
 // so the route table — which can only name a principal class — cannot express
 // it; the floor there is principalAgent and this is what keeps a stranger out.
-// Identity comes from the verified token sub (root CLAUDE.md §14: never a
+// Identity comes from the verified token sub (root CLAUDE.md「核心不變量／授權單一化」: never a
 // request field), so an agent cannot claim someone else's authorship.
 func (s *apiServer) callerMayExpireCard(r *http.Request, card ReplyCard) bool {
 	if principalAtLeast(s.principalOfRequest(r), principalAdminAgent) {

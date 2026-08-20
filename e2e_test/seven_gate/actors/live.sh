@@ -147,7 +147,7 @@ OWNED_PIDS="$RUN_DIR/owned-pids"
 say "isolation: namespace=$OC_SG_NAMESPACE socket=$TMUX_SOCKET (the fleet's '$SG_FLEET_SOCKET' is unreachable from here)"
 
 # ── teardown: EXACT names, EXACT pids, nothing pattern-matched ──────────────
-# root CLAUDE.md §13 bans killing by program NAME (`pkill -f` and friends),
+# root CLAUDE.md「驗證、CI 與出貨／程序安全」bans killing by program NAME (`pkill -f` and friends),
 # because the live fleet runs the same binaries with the same argv — name is not
 # identity. Cleanup here kills ONLY what the ledgers say THIS run created, on
 # this run's OWN socket: no pattern, no glob, no "list the sessions and pick the

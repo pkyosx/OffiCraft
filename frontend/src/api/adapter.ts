@@ -1347,7 +1347,7 @@ export interface WebhookUpdate {
  * the seam and cannot reach a hook, which makes "never merge a payload" a
  * property of the types rather than a rule to remember. Reading the wire's
  * existing fields is NOT a wire change: no frame shape, topic, or endpoint
- * moves (the freeze in root CLAUDE.md §13 stands).
+ * moves (the freeze in root CLAUDE.md「驗證、CI 與出貨／wire spec-first」stands).
  */
 export interface SseDeltaNames {
   /** `member` / `task` / `reply_card` / `outsource_worker` / `chat` (message id). */

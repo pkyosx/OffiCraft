@@ -160,7 +160,7 @@ build-frontend-deps:
 # lint
 # ===========================================================================
 
-# Naming invariant (root CLAUDE.md §10 folder = module = binary). THREE names,
+# Naming invariant (root CLAUDE.md「Repo-wide 約定／folder、Go module、binary 同名」). THREE names,
 # so this needs THREE INDEPENDENT SOURCES or it proves nothing. Folder basename
 # and go.mod's `module` line are two of them. The third — the name the shipped
 # executable actually gets — lives ONLY in the build scripts' `-o` flags

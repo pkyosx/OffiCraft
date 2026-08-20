@@ -194,7 +194,7 @@ func TestGetMemberResumeSummary_SameAssemblyAsSelfScoped(t *testing.T) {
 }
 
 // TestGetMemberResumeSummary_RouteSpecPinnedAdminAgent — table-level: the new
-// row sits at requires=admin_agent (control-others floor per §14), exposes
+// row sits at requires=admin_agent (control-others floor per root CLAUDE.md「核心不變量／授權單一化」), exposes
 // the MCPTool get_member_resume_summary, and — critically — the pre-existing
 // /api/resume-summary row is untouched by this addition (still the
 // identity-locked floor row, still no MCPTool name change).

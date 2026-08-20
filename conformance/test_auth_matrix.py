@@ -1174,7 +1174,7 @@ MATRIX: dict[str, Route] = {
     ),
     "POST /api/tasks/{task_id}/plan": Route(
         # executor guard: agent B pushing agent A's task is a flat 403;
-        # admin capability (owner/admin_agent) passes (§14 convention).
+        # admin capability (owner/admin_agent) passes (root CLAUDE.md「核心不變量／授權單一化」).
         requires="agent",
         overrides={"agent_other": 403},
         path=lambda ctx, _i: f"/api/tasks/{_matrix_task(ctx)}/plan",

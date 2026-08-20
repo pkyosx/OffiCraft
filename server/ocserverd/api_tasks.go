@@ -392,7 +392,7 @@ func (s *apiServer) writeTaskStepStatusReceipt(w http.ResponseWriter, t Task, st
 
 // callerMayDriveTask enforces the executor guard on the agent report routes
 // (plan / status / step status / gate / deps): the caller must BE the task's
-// executor — the caller-identity convention (root CLAUDE.md §14: a non-admin
+// executor — the caller-identity convention (root CLAUDE.md「核心不變量／授權單一化」: a non-admin
 // agent only ever operates itself; admin capability — owner or admin agent —
 // may act on any task). False → the caller writes the 403.
 func (s *apiServer) callerMayDriveTask(r *http.Request, t Task) bool {
@@ -1229,7 +1229,7 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	}
 	// ② the route now admits any agent (was admin-only); the handover itself is
 	// executor-guarded — an agent may only reassign a task it EXECUTES (owner /
-	// admin capability may drive any task, callerMayDriveTask §14).
+	// admin capability may drive any task, callerMayDriveTask (root CLAUDE.md「核心不變量／授權單一化」).
 	if !s.callerMayDriveTask(r, *t) {
 		writeError(w, http.StatusForbidden, "caller is not the task's executor")
 		return
@@ -1919,7 +1919,7 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 	//     fields it declines to decide are no longer left permanently blank.
 	//
 	// The caller is what makes this resolvable here: the creator is the verified
-	// token sub (§14 caller-identity), never a request field. caller.member is nil
+	// token sub (root CLAUDE.md「核心不變量／授權單一化」caller-identity), never a request field. caller.member is nil
 	// for the owner and for an outsource worker — both then snapshot nothing, so
 	// the machine must come from the target or the manual.
 	if executorKind == TaskExecutorOutsource {
@@ -1969,7 +1969,7 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 		OutsourceEffort:     dispatch.Effort,
 		OutsourceMachine:    dispatch.Machine,
 		OutsourceDispatched: dispatchTarget != nil,
-		// §14 caller-identity: the creator is the verified token sub, never a
+		// root CLAUDE.md「核心不變量／授權單一化」caller-identity: the creator is the verified token sub, never a
 		// request parameter — a member agent, an outsource worker, or "owner".
 		CreatorID: currentActor(r),
 		CreatedTS: now,
@@ -2691,7 +2691,7 @@ func (s *apiServer) HandleReportTaskCloseoutApiTasksTaskIdCloseoutPost(w http.Re
 // repeatable. file/image reference a chat_attachment blob (attachment_id from a
 // prior POST /api/chat/attachments — one blob mechanism, not two); link carries
 // a bare url (no upload). Guard order: 400 closed-set kind → 404 task → 403 not
-// the executor (admin excepted, §14) → 409 terminal → 400 missing/dangling ref.
+// the executor (admin excepted, root CLAUDE.md「核心不變量／授權單一化」) → 409 terminal → 400 missing/dangling ref.
 func (s *apiServer) HandleAddTaskArtifactApiTasksTaskIdArtifactPost(w http.ResponseWriter, r *http.Request, taskId string) {
 	var body TaskArtifactInputDTO
 	if !decodeJSONBodyRequired(w, r, &body, "kind") {
@@ -2723,7 +2723,7 @@ func (s *apiServer) HandleAddTaskArtifactApiTasksTaskIdArtifactPost(w http.Respo
 		Kind:      kind,
 		Label:     trimmedOrEmpty(body.Label),
 		CreatedTS: nowSecs(),
-		// §14 caller-identity: the registrar is the verified token sub.
+		// root CLAUDE.md「核心不變量／授權單一化」caller-identity: the registrar is the verified token sub.
 		CreatedBy: currentActor(r),
 	}
 	if kind == ArtifactKindLink {
@@ -2773,7 +2773,7 @@ func (s *apiServer) HandleAddTaskArtifactApiTasksTaskIdArtifactPost(w http.Respo
 // DELETE /api/tasks/{task_id}/artifact/{artifact_id} — un-pin one artifact (MCP
 // remove_task_artifact). SAME permission model as add (owner ruling 2026-07-18):
 // the task's executor may remove its own deliverables, admin/owner may remove on
-// any task (§14). Guard order: 404 task → 403 not the executor → 409 the task is
+// any task (root CLAUDE.md「核心不變量／授權單一化」). Guard order: 404 task → 403 not the executor → 409 the task is
 // closed → 404 artifact → 400 the artifact belongs to a different task. The
 // referenced blob is left intact (it may be shared with a chat message; the blob
 // store has no delete path).

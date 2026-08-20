@@ -165,7 +165,7 @@ def _closed_topic_set() -> set[str]:
     """The closed topic vocabulary, READ FROM THE PRODUCT'S OWN WIRE CONTRACT at
     run time — ``spec/sse.md`` §3.1, the very table ``hub.go``'s ``sseTopics``
     cites as its source and that a topic addition MUST go through (spec-first,
-    root CLAUDE.md §13).
+    root CLAUDE.md「驗證、CI 與出貨／wire spec-first」).
 
     Deliberately NOT a list restated in this file: a hand-copied set would make
     the confrontation below vacuous (it would only ever confront one hand-copy

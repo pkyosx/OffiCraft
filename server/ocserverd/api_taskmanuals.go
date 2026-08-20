@@ -164,7 +164,7 @@ func (s *apiServer) resolveManualAssigneeMachine(w http.ResponseWriter, assignee
 // 2026-07-13, floor lowered by T-6020 owner ruling 2026-07-26): the assignee
 // face — who/what executes a type (member binding / outsource headcount /
 // machine placement) — is GOVERNANCE, so it admits the governance classes
-// {owner, admin_agent} (root CLAUDE.md §4) and nothing below, even though the
+// {owner, admin_agent} (root CLAUDE.md「核心不變量／授權單一化」) and nothing below, even though the
 // manual CONTENT fields are agent-editable. False → the caller writes the 403.
 func (s *apiServer) callerMaySetAssignee(r *http.Request) bool {
 	return principalAtLeast(s.principalOfRequest(r), principalAdminAgent)

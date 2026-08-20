@@ -1,6 +1,6 @@
 # T-40f0 —「初始版本」也能先比較，且差異改成 GitHub Files-changed 樣式
 
-狀態：**已實作**（owner 2026-07-31 兩張卡上逐項拍板；本檔是碼的 context doc，憲章 §8）
+狀態：**已實作**（owner 2026-07-31 兩張卡上逐項拍板；本檔是碼的 context doc，根 CLAUDE.md「核心不變量／context 跟碼共存」）
 前身：`docs/design/T-1f39-document-history-ux.md`（版本歷史本體的設計定案，v0.5.60 上線）
 
 owner 用完 T-1f39 提了兩件事，各在一張卡上拍板：
@@ -27,7 +27,7 @@ owner 用完 T-1f39 提了兩件事，各在一張卡上拍板：
 | 404 的位置 | **恰好等於「重置也會 404」的那一組**：自訂角色、任務手冊（兩條序列）、per-role lessons。座艙的 初始版本 那一列本來就只在有 `onReset` 時渲染，所以「比得了」與「還原得了」永遠同進同退 |
 | 有 seed 的兩個文件 | `global_context` → `{text: "", tombstoned: "true"}`（**空文件就是它的預設**，不是「沒有答案」——對 diff 而言缺鍵與空字串是兩份不同的文件）；`role_definition` 的 seed 角色 → 檔案 seed 的 `definition_md` |
 
-**wire-freeze 流程照走**（憲章 §13）：先改 `spec/openapi.json` → `bash bin/gen-ocapi` 重生 `ocapi_gen.go`
+**wire-freeze 流程照走**（根 CLAUDE.md「驗證、CI 與出貨／wire spec-first」）：先改 `spec/openapi.json` → `bash bin/gen-ocapi` 重生 `ocapi_gen.go`
 → `npx openapi-typescript` 重生 `frontend/src/api/generated/schema.ts`；`conformance/routes_manifest.json`
 （127 列）、`test_auth_matrix.py`、`test_rest_happy.py` 同批。**`spec/mcp-catalog.json` 也同批**（手維護；
 新工具 `get_document_seed` 的描述子插在 `list_document_history` 之後，89 → 90 個工具），
@@ -126,7 +126,7 @@ owner 逐項拍板，實作對應如下（碼在 `frontend/src/components/DiffVi
 
 - `lib/lineDiff.ts` 與 `lib/lineDiff.test.ts`：**一個字未改**，18 條全綠。
 - 還原／重置的授權門檻、確認框的破壞性、over-cap 版本的「看得到按不下去」。
-- `seeds/`：**有新工具，但沒有新的 agent 流程**，所以 §9c 這一次落在「不需要同批改」那邊 —— 判準不是
+- `seeds/`：**有新工具，但沒有新的 agent 流程**，所以這次不涉及手冊「獨立審查」的五點 code-hygiene 清單 —— 判準不是
   「有沒有加工具」而是「agent 要不要學新做法」。附錄 A 明文叫 agent **別背固定清單、一律以 `tools/list`
   為權威**，而 seeds 從來沒有列舉過 `list_document_history`（`get_document_seed` 與它同形、同地板、
   同一種用法），所以沒有任何一句 seed 因為這次改動變成假話。對照組是 `get_chat_attachment_share_link`：

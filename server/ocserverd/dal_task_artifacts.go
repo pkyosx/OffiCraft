@@ -22,7 +22,7 @@ type TaskArtifact struct {
 	URL          string // the link url; '' for file/image
 	Label        string // display label / link title; blob filename is the fallback
 	CreatedTS    float64
-	CreatedBy    string // verified sub of the registrar (§14); '' on none
+	CreatedBy    string // verified sub of the registrar (root CLAUDE.md「核心不變量／授權單一化」); '' on none
 }
 
 const taskArtifactColumns = `id, task_id, kind, attachment_id, url, label,

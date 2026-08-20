@@ -1,7 +1,7 @@
 package main
 
 // authz.go — the principal ladder + table-driven route RBAC, the Go twin of
-// the retired Python service/authz.py (Plan B semantics; see root CLAUDE.md §5/§14).
+// the retired Python service/authz.py (Plan B semantics; see root CLAUDE.md「核心不變量／授權單一化」).
 //
 // The four principal classes form a LINEAR capability ladder; a RouteSpec's
 // Requires names the MINIMUM class; enforcement is rank(principal) >=

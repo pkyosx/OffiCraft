@@ -1323,7 +1323,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// The agent write rows are the FIRST requires=agent uses: the RBAC
 		// ladder places agent(1) above machine/warden(0), so a warden can
 		// never write tasks; the executor guard on the report rows is the
-		// handlers' (caller == executor, admin capability excepted — §14).
+		// handlers' (caller == executor, admin capability excepted — root CLAUDE.md「核心不變量／授權單一化」).
 		{
 			Method:   "GET",
 			Path:     "/api/tasks",
@@ -1432,7 +1432,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// task's description — create_task takes one only at birth, submit_plan
 		// writes steps, update_task_manual writes the TYPE's manual — so a
 		// ruling to reword a card had nowhere to land. Executor-guarded like
-		// every other task-driving write (callerMayDriveTask §14); the CREATOR
+			// every other task-driving write (callerMayDriveTask (root CLAUDE.md「核心不變量／授權單一化」)); the CREATOR
 		// gets no standing from having created it (owner ruling).
 		{
 			Method:   "POST",
@@ -1535,7 +1535,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		},
 		{
 			// ② opened to agent (was admin_agent): an agent reassigns/hands over a
-			// task it EXECUTES (handler executor-guard, callerMayDriveTask §14);
+			// task it EXECUTES (handler executor-guard, callerMayDriveTask (root CLAUDE.md「核心不變量／授權單一化」));
 			// owner/admin still drive any task. An outsource target still funnels
 			// through the single 發包 gate (create+spawn atomicity / owner approval).
 			Method:   "POST",
@@ -1551,7 +1551,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			// reassigning LOCK and fires the predecessor worker (the takeover the
 			// retired task-status report used to perform on the successor's
 			// reassigning→in_progress before reassigning became a lock).
-			// Executor-guarded (callerMayDriveTask §14); status stays derived,
+			// Executor-guarded (callerMayDriveTask (root CLAUDE.md「核心不變量／授權單一化」)); status stays derived,
 			// never set here.
 			Method:   "POST",
 			Path:     "/api/tasks/{task_id}/claim",
@@ -1564,7 +1564,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		{
 			// The executing agent pins deliverables onto its own task card
 			// (requires=agent; the handler's executor guard — caller == executor,
-			// admin capability excepted — §14, same as the other agent write rows).
+			// admin capability excepted — root CLAUDE.md「核心不變量／授權單一化」, same as the other agent write rows).
 			Method:   "POST",
 			Path:     "/api/tasks/{task_id}/artifact",
 			Handler:  w.HandleAddTaskArtifactApiTasksTaskIdArtifactPost,
@@ -1576,7 +1576,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		{
 			// Un-pin — SAME permission model as add (owner ruling 2026-07-18
 			// "Agent 自己應該也要可以刪除"): requires=agent + the handler's executor
-			// guard (caller == executor, admin/owner excepted — §14). The agent
+			// guard (caller == executor, admin/owner excepted — root CLAUDE.md「核心不變量／授權單一化」). The agent
 			// drives it through the remove_task_artifact tool; the owner through
 			// the cockpit popover.
 			Method:   "DELETE",
