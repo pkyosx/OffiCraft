@@ -169,6 +169,24 @@ func TestHandoverNoticeTick_ANewSessionStillPaysAndStillSends(t *testing.T) {
 //
 // The reader here is NOT the compactor, so a green cannot come from the
 // sentence accidentally naming its own reader.
+//
+// 🔴 CORRECTED 2026-08-20. This test used to assert, in its own words, that
+// "an insight answers 403 to an ordinary agent" — and it does not. Measured
+// with a zero-damage probe (patch_insight with an anchor that cannot exist, so
+// the permission gate answers before anything is written):
+//
+//	patch_insight role_key=<OWN role>     → 400 validation_error  ⇒ WRITABLE
+//	patch_insight role_key=<ANOTHER role> → 403 (role-scoped refusal)
+//
+// The signal was telling readers "you cannot write this one (it answers 403 to
+// you)", an agent falsified it in one call within seconds of receiving the
+// notice, and this test was pinning the falsehood in place.
+//
+// ⇒ The property being guarded was always the RIGHT one — a row must hand the
+// reader an addressee, not just numbers — but its stated reason was wrong. The
+// addressee is there because compacting long-term memory under close-out
+// pressure is the failure this whole feature answers, NOT because the reader is
+// barred from the document.
 func TestSoftNoticeNamesWhoCanCompactWhatTheReaderCannot(t *testing.T) {
 	s := t6bd2Server(t)
 	reader := t6bd2NoticeReader(t, s)
@@ -176,18 +194,24 @@ func TestSoftNoticeNamesWhoCanCompactWhatTheReaderCannot(t *testing.T) {
 
 	line := t6bd2NoticeLine(t, t6bd2NoticeWire(t, s, reader), "insight (")
 
-	// An insight answers 403 to an ordinary agent, so the line must hand the
-	// reader an addressee rather than an instruction it cannot carry out.
-	if !strings.Contains(line, "去找") {
-		t.Fatalf("a row the reader cannot write must name WHO can compact it; "+
-			"this line only states the numbers: %s", line)
-	}
+	// The row must still hand the reader an addressee — the original mutant
+	// (numbers with nobody to go to) must stay dead.
 	if !strings.Contains(line, "銀月") {
-		t.Fatalf("the referral must name the compactor: %s", line)
+		t.Fatalf("a long-term-memory row must name WHO can compact it; this "+
+			"line only states the numbers: %s", line)
 	}
-	if strings.Contains(line, "you can rewrite this one yourself") {
-		t.Fatalf("an insight is not writable by an ordinary agent; telling it to "+
-			"rewrite it sends it into a 403: %s", line)
+	// And it must NOT claim a permission the reader actually has. This is the
+	// half the old shape got backwards.
+	for _, lie := range []string{"403", "cannot write", "not yours to write"} {
+		if strings.Contains(line, lie) {
+			t.Fatalf("the reader CAN write its own insight — saying %q is a "+
+				"claim it falsifies in one call, and a reminder caught lying "+
+				"is one nobody reads again: %s", lie, line)
+		}
+	}
+	if !strings.Contains(line, "yourself") {
+		t.Fatalf("the row must say the document IS the reader's to write, "+
+			"even while pointing at the compactor: %s", line)
 	}
 
 	// And the CONTRAST is half the property: a row the reader CAN write must

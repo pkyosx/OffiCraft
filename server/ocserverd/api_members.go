@@ -260,14 +260,27 @@ func (s *apiServer) offboardNoticeFor(m Member, kind string) string {
 		where = fmt.Sprintf("compaction round %s (your limits: round %d / round %d)",
 			round, notice, final)
 	} else {
-		pct := "?"
+		// NO VALUE -> SAY THE LIMITS, NOT A QUESTION MARK (T-0974 shipping
+		// verification, 2026-08-20). This used to print a LITERAL "?" into the
+		// sentence ("context ?% (your limits: 55% / 65%)") whenever the gauge
+		// held no context_pct - which is EVERY refocus-triggered close-out,
+		// because that arm is not fired by a pct at all. What the reader sees
+		// is a broken field, and it disagrees with how this same file treats a
+		// missing value everywhere else (the "[station ...]" clause omits
+		// itself rather than printing a placeholder). Two spellings of "no
+		// value" in one output is the next reader's trap, so this one omits
+		// too: the limits are still named, because they are what tells the
+		// reader which band it is in.
 		if record != nil {
 			if v, ok := asNumber(record["context_pct"]); ok {
-				pct = fmt.Sprintf("%v", formatPct(v))
+				where = fmt.Sprintf("context %v%% (your limits: %d%% / %d%%)",
+					formatPct(v), cfg.NoticePct, cfg.HandoverPct)
 			}
 		}
-		where = fmt.Sprintf("context %s%% (your limits: %d%% / %d%%)",
-			pct, cfg.NoticePct, cfg.HandoverPct)
+		if where == "" {
+			where = fmt.Sprintf("close-out (your limits: %d%% / %d%%)",
+				cfg.NoticePct, cfg.HandoverPct)
+		}
 	}
 	// The deadline quoted in the sentence and the deadline the cockpit shows come
 	// from ONE expression (T-d6a7). offboardKindOf only answers "final" for a

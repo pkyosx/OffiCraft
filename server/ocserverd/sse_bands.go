@@ -363,9 +363,32 @@ const (
 	offboardCloserReportStopped = "report_stopped"
 )
 
+// offboardOpener is the ONE clause that now differs between the two arms, and
+// it is the owner's ruling of 2026-08-20 (card rc-e9b655cd8e1a, option 0:
+// 「軟性那則的第一行改成不催」) narrowing his own 2026-08-16 one-sentence-for-
+// everything design.
+//
+// 🔴 WHY HE NARROWED IT. The soft arm said "offboard now" while the document
+// stapled below it says a soft close-out may let its sub-agents finish. Two
+// forces pushed the reader the same way — the (then broken) soft/hard rule said
+// "hard", and the first line said "now" — and the first line is the one read
+// first. A generation of this developer was collected under exactly that pair
+// with four unanswered cards and two unreported delegations still open.
+//
+// ⚠️ The SECOND half is deliberately identical on both arms. "work the sequence
+// below, then call <closer> yourself" blocks both failure directions at once,
+// and neither the ruling nor this change touches it: without the second clause
+// an agent idles until the server cuts it off; without the first, it stops
+// mid-work.
+func offboardOpener(finalCall bool) string {
+	if finalCall {
+		return " — offboard now: work the sequence below, then call "
+	}
+	return " — start your close-out: work the sequence below, then call "
+}
+
 func offboardNotice(where, closer string, finalCall bool, deadline float64, offboardText string) string {
-	reason := where + " — offboard now: work the sequence below, then call " +
-		closer + " yourself."
+	reason := where + offboardOpener(finalCall) + closer + " yourself."
 	// T-d6a7 — the final call quotes an ABSOLUTE deadline, not a duration.
 	//
 	// It used to say a hardcoded "You have 120 seconds left." while the deadline

@@ -30,10 +30,21 @@ func TestOffboardNotice_TheApprovedSentence(t *testing.T) {
 	const where = "context 62% (your limits: 60% / 75%)"
 	doc := "1. 報開始收尾\n2. 給自己留交接"
 
+	// 🔴 THE OPENER NOW DIFFERS BY ARM (owner 2026-08-20, card rc-e9b655cd8e1a,
+	// option 0: 「軟性那則的第一行改成不催」). He narrowed his own 2026-08-16
+	// one-sentence design after a soft close-out that said "offboard now" while
+	// the document below it said a soft arm may let its sub-agents finish —
+	// the first line being the one read first. Everything AFTER the opener is
+	// still identical on both arms and still asserted verbatim below.
 	soft := offboardNotice(where, offboardCloserRestartSelf, false, 0, doc)
-	if !strings.Contains(soft, where+" — offboard now: work the sequence below, "+
-		"then call restart_self yourself.") {
-		t.Fatalf("the soft notice must carry the approved sentence verbatim:\n%s", soft)
+	if !strings.Contains(soft, where+" — start your close-out: work the sequence "+
+		"below, then call restart_self yourself.") {
+		t.Fatalf("the soft notice must open WITHOUT urging, and carry the rest "+
+			"of the approved sentence verbatim:\n%s", soft)
+	}
+	if strings.Contains(soft, "offboard now") {
+		t.Fatalf("a soft notice must not tell the reader to offboard NOW — that "+
+			"is the second force that collected a working agent early:\n%s", soft)
 	}
 	// Time of ANY shape, not the one literal: the difference between the two
 	// notices is that one is on a clock and one is not, and a whitelist of
@@ -71,7 +82,7 @@ func TestOffboardNotice_TheApprovedSentence(t *testing.T) {
 	// An empty document degrades to the sentence alone: losing the checklist is
 	// survivable, losing the notice is not.
 	bare := offboardNotice(where, offboardCloserRestartSelf, false, 0, "")
-	if !strings.Contains(bare, "offboard now") || strings.Contains(bare, "\n") {
+	if !strings.Contains(bare, "start your close-out") || strings.Contains(bare, "\n") {
 		t.Fatalf("an empty document must leave the sentence intact and alone:\n%q", bare)
 	}
 }

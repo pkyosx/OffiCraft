@@ -239,34 +239,108 @@ func TestResumeSummaryDocCapacityQuietWhenNothingIsNear(t *testing.T) {
 	}
 }
 
-// TestResumeSummaryDocCapacitySplitsWhatTheReaderCanAct on — the SECOND half of
-// the AC: the block must not tell a reader to do something that could only
-// answer 403.
+// TestResumeSummaryDocCapacitySplitsWhatTheReaderCanActOn — the SECOND half of
+// the AC. It used to say "the block must not tell a reader to do something that
+// could only answer 403", and it enforced that by asserting insight and role
+// lessons are NOT writable.
+//
+// 🔴 THAT WAS FALSE, AND THE TEST WAS PINNING THE FALSEHOOD. Measured
+// 2026-08-20 with zero-damage probes (patch_* with an anchor that cannot exist,
+// so the permission gate answers before anything is written):
+//
+//	patch_insight  role_key=<OWN role>     → 400 validation_error  ⇒ WRITABLE
+//	patch_lessons  role_key=<OWN role>     → 400 validation_error  ⇒ WRITABLE
+//	patch_insight  role_key=<ANOTHER role> → 403 (role-scoped refusal)
+//	update_role    role=<any>              → 403 "principal not permitted"
+//
+// An agent CAN write its own role's insight and lessons. The signal was telling
+// it "you cannot write this one (it answers 403 to you)" — a claim the reader
+// falsifies in one call, and a reminder caught lying is a reminder nobody reads
+// again. It was found by an agent that did exactly that, within seconds of
+// receiving the notice.
+//
+// ⇒ The rows split THREE ways, not two, because "technically writable" and
+// "yours to do right now" are different questions:
+//
+//	SELF    the reader's own working documents → rewrite it yourself
+//	MEMORY  the reader's own long-term memory  → yours to write, but compacting
+//	        it is not a close-out job; schedule it or ask the compactor
+//	ASK     documents the reader genuinely cannot write → name who can
+//
+// Only ASK makes a permission claim, and it is the only class measured to
+// deserve one.
 func TestResumeSummaryDocCapacitySplitsWhatTheReaderCanActOn(t *testing.T) {
 	s := t6bd2Server(t)
 	t6bd2FillAll(t, s, "mira")
 	rows := t6bd2Capacity(t, s, "mira")
 
-	writable := map[string]bool{
-		"task manual SOP": true, "task manual learnings": true, "step note": true,
-		"role definition": false, "insight": false, "role lessons": false,
-		"system interaction": false, "offboard sequence": false, "boot sequence": false,
+	const (
+		classSelf   = "self"
+		classMemory = "memory"
+		classAsk    = "ask"
+	)
+	class := map[string]string{
+		"task manual SOP": classSelf, "task manual learnings": classSelf,
+		"step note": classSelf,
+		// Writable — measured, see the header.
+		"insight": classMemory, "role lessons": classMemory,
+		// Not writable — also measured, and for two DIFFERENT reasons: the role
+		// definition is refused by a principal gate (not even the reader's own),
+		// the boot documents are owner-only.
+		"role definition": classAsk,
+		"system interaction": classAsk, "offboard sequence": classAsk,
+		"boot sequence": classAsk,
 	}
-	for name, canWrite := range writable {
+	for name, want := range class {
 		row := t6bd2Row(t, rows, name)
-		if row["writable"].(bool) != canWrite {
-			t.Fatalf("%q: writable must be %v for a reading agent, got %v",
-				name, canWrite, row["writable"])
+		gotWritable := row["writable"].(bool)
+		wantWritable := want != classAsk
+		if gotWritable != wantWritable {
+			t.Fatalf("%q: writable is a FACT about this reader's permissions and "+
+				"must be %v, got %v — re-measure with a zero-damage probe before "+
+				"changing this line", name, wantWritable, gotWritable)
 		}
+
 		action := row["action"].(string)
 		namesTheCompactor := strings.Contains(action, docCapacityCompactor)
-		if canWrite && namesTheCompactor {
-			t.Fatalf("%q is the reader's OWN document — sending it to someone else "+
-				"buys a round trip for a rewrite it could have done: %q", name, action)
+
+		// 🔴 THE GUARD THE OLD SHAPE COULD NOT EXPRESS: a row the reader CAN
+		// write must not claim it cannot. Permission words belong only on rows
+		// where they are true.
+		if gotWritable {
+			for _, lie := range []string{"403", "cannot write", "not yours to write"} {
+				if strings.Contains(action, lie) {
+					t.Fatalf("%q IS writable by this reader, so the row must not "+
+						"say %q — that is a claim the reader falsifies in one "+
+						"call: %q", name, lie, action)
+				}
+			}
 		}
-		if !canWrite && !namesTheCompactor {
-			t.Fatalf("%q answers 403 to this reader, so the row MUST name who can "+
-				"write it instead of asking for a write that cannot land: %q", name, action)
+
+		switch want {
+		case classSelf:
+			if namesTheCompactor {
+				t.Fatalf("%q is the reader's OWN working document — sending it to "+
+					"someone else buys a round trip for a rewrite it could have "+
+					"done: %q", name, action)
+			}
+		case classMemory:
+			// It must offer the route without pretending the reader is barred
+			// from it, and it must say why not now — compacting long-term memory
+			// under close-out pressure is the very failure this feature answers.
+			if !namesTheCompactor {
+				t.Fatalf("%q should still offer the compactor as a route: %q", name, action)
+			}
+			if !strings.Contains(action, "yourself") {
+				t.Fatalf("%q IS the reader's to write and the row must say so: %q",
+					name, action)
+			}
+		case classAsk:
+			if !namesTheCompactor {
+				t.Fatalf("%q is not this reader's to write, so the row MUST name "+
+					"who can, instead of asking for a write that cannot land: %q",
+					name, action)
+			}
 		}
 	}
 }

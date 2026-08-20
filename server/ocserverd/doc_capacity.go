@@ -28,13 +28,29 @@ package main
 //     mattered looks like all the others. Nothing near the cap → no rows → the
 //     field is absent from the payload entirely.
 //
-//  2. IT SAYS SOMETHING DIFFERENT TO THE TWO CLASSES OF DOCUMENT. An agent can
-//     rewrite its own step note and its task manual; it CANNOT write a role
-//     definition, an insight, role lessons, or any of the three boot documents
-//     — those answer 403 to it. Telling every reader to "compact it now" would
-//     be telling most of them to go and do something that can only be refused,
-//     which is worse than silence because it burns the reader's trust in the
-//     whole block. The rows an agent cannot act on name the person who can.
+//  2. IT SAYS SOMETHING DIFFERENT TO THE DIFFERENT CLASSES OF DOCUMENT, AND
+//     WHAT IT SAYS ABOUT PERMISSION MUST BE TRUE. Telling every reader to
+//     "compact it now" would be telling some of them to go and do something
+//     that can only be refused. But the opposite error is worse, and this file
+//     shipped it: a row that tells a reader "you cannot write this one (it
+//     answers 403 to you)" about a document it CAN write is a claim the reader
+//     can falsify in one call — and a reminder caught lying is a reminder
+//     nobody reads again.
+//
+//     🔴 MEASURED 2026-08-20 (zero-damage probes: patch_* with an anchor that
+//     cannot exist, so the permission gate answers before anything is written):
+//
+//       patch_insight  role_key=<OWN role>     → 400 validation_error  ⇒ WRITABLE
+//       patch_lessons  role_key=<OWN role>     → 400 validation_error  ⇒ WRITABLE
+//       patch_insight  role_key=<ANOTHER role> → 403 "an agent may only
+//                                                 write its own role's insight"
+//       update_role    role=<any>              → 403 "principal not permitted"
+//
+//     ⇒ An agent CAN write its OWN role's insight and lessons. It cannot write
+//     a role definition (a different gate, and not role-scoped), any other
+//     role's documents, or the boot documents. The rows split three ways, not
+//     two — and the third one exists because "technically writable" and
+//     "yours to do under close-out pressure" are NOT the same question.
 
 import (
 	"sort"
@@ -61,8 +77,20 @@ const docCapacityCompactor = "銀月"
 const (
 	docCapacityActionSelf = "you can rewrite this one yourself: do it NOW, " +
 		"while there is still room, and rewrite it to its CURRENT state instead of appending"
+	// Long-term memory the reader CAN write, but should not compact while it is
+	// being collected. The permission claim is dropped because it was false
+	// (see the header): what is true here is not "you may not", it is "not now,
+	// and not alone". Compacting an insight is a judgement about which lessons
+	// still earn their space — the exact judgement that goes worst under time
+	// pressure, which is the defect this whole file answers.
+	docCapacityActionSelfMemory = "you can write this one yourself, but " +
+		"compacting long-term memory is not a close-out job: schedule it, or ask " +
+		docCapacityCompactor + " (" + seedMiraID + ") to do it"
+	// Documents the reader genuinely cannot write. This sentence DOES make a
+	// permission claim, and it is measured true for exactly the rows that carry
+	// it (role definitions and the boot documents — see the header's probes).
 	docCapacityActionAsk = "去找" + docCapacityCompactor + " (" + seedMiraID + ")" +
-		": you cannot write this one (it answers 403 to you), so compacting it is hers to do"
+		": this one is not yours to write, so compacting it is hers to do"
 )
 
 // docCapacityNear is the whole threshold rule, in one place.
@@ -130,17 +158,20 @@ type docCapacityRow struct {
 // newDocCapacityRow builds a row, or nil when the document is not near its cap.
 // Every collector below funnels through here, which is what stops one cell from
 // acquiring its own private idea of "near".
-func newDocCapacityRow(doc string, sizeChars, capChars int, writable bool) *docCapacityRow {
+//
+// 🔴 `writable` IS A FACT AND `action` IS A DECISION, AND THEY ARE PASSED
+// SEPARATELY ON PURPOSE. They used to be one: action was derived from writable,
+// so the only way to route a row to 銀月 was to declare it unwritable — and
+// that is exactly how this file came to tell agents "it answers 403 to you"
+// about their own insight, which they can write. Keeping them apart means a row
+// can say "yours to write, but not now" without lying about permission.
+func newDocCapacityRow(doc string, sizeChars, capChars int, writable bool, action string) *docCapacityRow {
 	if !docCapacityNear(sizeChars, capChars) {
 		return nil
 	}
 	remaining := capChars - sizeChars
 	if remaining < 0 {
 		remaining = 0
-	}
-	action := docCapacityActionAsk
-	if writable {
-		action = docCapacityActionSelf
 	}
 	return &docCapacityRow{
 		Doc:       doc,
@@ -181,16 +212,21 @@ func (s *apiServer) docCapacityFor(actor string, stepNotes []docCapacityRow) []d
 	// "no role documents", not an error.
 	if m, err := s.dal.GetMember(actor); err == nil && m != nil && m.RoleKey != "" {
 		if duty, err := s.foldRoleDefDTO(m.RoleKey); err == nil && duty != nil {
+			// update_role answers 403 "principal not permitted" to an ordinary
+			// member — for its OWN role too. Not writable, and the claim is true.
 			add(newDocCapacityRow("role definition ("+m.RoleKey+")",
-				duty.SizeChars, duty.CapChars, false))
+				duty.SizeChars, duty.CapChars, false, docCapacityActionAsk))
 		}
 		if ins, err := s.foldInsightDTO(m.RoleKey); err == nil && ins != nil {
+			// 🔴 The reader's OWN insight — patch_insight lets it through
+			// (measured: 400, not 403). Writable, and the sentence says so.
 			add(newDocCapacityRow("insight ("+m.RoleKey+")",
-				ins.SizeChars, ins.CapChars, false))
+				ins.SizeChars, ins.CapChars, true, docCapacityActionSelfMemory))
 		}
 		if les, err := s.foldLessonsDTO(m.RoleKey, seedLessonsTaskType); err == nil && les != nil {
+			// Same gate as insight, same measurement (400, not 403).
 			add(newDocCapacityRow("role lessons ("+m.RoleKey+"/"+seedLessonsTaskType+")",
-				les.SizeChars, les.CapChars, false))
+				les.SizeChars, les.CapChars, true, docCapacityActionSelfMemory))
 		}
 	}
 
@@ -202,7 +238,8 @@ func (s *apiServer) docCapacityFor(actor string, stepNotes []docCapacityRow) []d
 	// agent has ever been in a position to notice.
 	for _, spec := range s.docCapacityBootSpecs(actor) {
 		if dto, err := s.foldBootDocDTO(spec); err == nil && dto != nil {
-			add(newDocCapacityRow(spec.DocName, dto.SizeChars, dto.CapChars, false))
+			add(newDocCapacityRow(spec.DocName, dto.SizeChars, dto.CapChars, false,
+				docCapacityActionAsk))
 		}
 	}
 
@@ -217,9 +254,11 @@ func (s *apiServer) docCapacityFor(actor string, stepNotes []docCapacityRow) []d
 			continue
 		}
 		add(newDocCapacityRow("task manual SOP ("+typeKey+")",
-			utf8.RuneCountInString(manual.SopMD), sopCap, true))
+			utf8.RuneCountInString(manual.SopMD), sopCap, true,
+			docCapacityActionSelf))
 		add(newDocCapacityRow("task manual learnings ("+typeKey+")",
-			utf8.RuneCountInString(manual.Learnings), learningsCap, true))
+			utf8.RuneCountInString(manual.Learnings), learningsCap, true,
+			docCapacityActionSelf))
 	}
 
 	// ── the reader's open steps' notes ───────────────────────────────────────
@@ -281,7 +320,8 @@ func stepNoteCapacityRow(taskNo, stepName, note string) *docCapacityRow {
 		label += ": " + stepName
 	}
 	label += ")"
-	return newDocCapacityRow(label, utf8.RuneCountInString(note), chatBodyMaxChars, true)
+	return newDocCapacityRow(label, utf8.RuneCountInString(note), chatBodyMaxChars, true,
+		docCapacityActionSelf)
 }
 
 // stepNoteCapacityFor is the step-note collector for callers that do NOT
