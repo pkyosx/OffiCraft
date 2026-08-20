@@ -341,7 +341,8 @@ for (const height of [420, 500, 560, 700]) {
 // 🔴 WHAT IS NOW UNGUARDED. Written down because the gap is real and NOTHING
 // covers it elsewhere — at the time of writing, `hasTouch`,
 // `Input.dispatchTouchEvent`, `pointerType` and `pinch` appear in NO test file
-// anywhere under frontend/ (only in the component itself and in this comment).
+// anywhere under frontend/ — outside tests they survive only in the component
+// itself, in md-preview.css's own comment, and here.
 // MarkdownPreviewOverlay.test.tsx in particular has zero touch assertions: its
 // zoom test drives the −/+ buttons, not a gesture.
 //
@@ -351,7 +352,10 @@ for (const height of [420, 500, 560, 700]) {
 // inertia), two fingers belong to US (T-043e, owner 2026-07-31: 「在手機上二指撐
 // 開，要放大的是圖片本身，頁面不動」, claimed via `touch-action: pan-x pan-y` in
 // md-preview.css plus the component's own pinch handler). That split is now
-// held ONLY by the code and this comment. Specifically, no test asserts any of:
+// held only by the code, by this comment, and by the prose in
+// frontend/.claude/rules/overlays-and-modals.md:33 (which names this very file
+// in its `paths:`) — none of which is executable. Specifically, no test asserts
+// any of:
 //   - one-finger touch pans the zoomed image (delete the bail-out to "add touch
 //     support" and every pan is applied twice — nothing in CI would say so);
 //   - a pinch reaches the component's own touchstart/touchmove handler at all,
