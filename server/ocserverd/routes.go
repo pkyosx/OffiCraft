@@ -1432,7 +1432,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// task's description — create_task takes one only at birth, submit_plan
 		// writes steps, update_task_manual writes the TYPE's manual — so a
 		// ruling to reword a card had nowhere to land. Executor-guarded like
-			// every other task-driving write (callerMayDriveTask (root CLAUDE.md「核心不變量／授權單一化」)); the CREATOR
+		// every other task-driving write (callerMayDriveTask (root CLAUDE.md「核心不變量／授權單一化」)); the CREATOR
 		// gets no standing from having created it (owner ruling).
 		{
 			Method:   "POST",
