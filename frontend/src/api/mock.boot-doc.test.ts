@@ -254,6 +254,14 @@ describe("mockApi · 開機脈絡預覽", () => {
     expect(after).not.toContain(SEED_BOOT_SEQUENCE_MD.trim());
   });
 
+  // 🔴 READ THIS BEFORE "FIXING" THE ASSERTION BELOW. It pins a limitation, not
+  // a desirable behaviour: a codex member's panel shows the CLAUDE 啟動程序,
+  // whose step 3 says the opposite of what that member is really booted with.
+  // The mock is right to copy it — /api/bootstrap genuinely cannot resolve a
+  // runtime, because the request names no member. The day that endpoint learns
+  // who the preview is for, THIS ASSERTION IS THE ONE THAT MUST CHANGE FIRST;
+  // it is not a guard you are breaking, it is the guard telling you the server
+  // contract moved.
   it("takes the claude boot sequence, never codex — matching a request that names no member", async () => {
     await mockApi.saveBootDoc("boot_sequence", "codex", "codex 版\n");
     await mockApi.saveBootDoc("boot_sequence", "claude", "claude 版\n");
