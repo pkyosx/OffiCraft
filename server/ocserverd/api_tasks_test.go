@@ -2085,7 +2085,7 @@ func TestReportTaskCloseoutEnforcesTheExecutorGuard(t *testing.T) {
 	if rec := reportCloseout(t, api, task.ID, "m-other", "agent"); rec.Code != http.StatusForbidden {
 		t.Fatalf("foreign agent must 403, got %d %s", rec.Code, rec.Body.String())
 	}
-	// Admin capability (owner scope) passes — the §14 convention.
+	// Admin capability (owner scope) passes — root CLAUDE.md「核心不變量／授權單一化」convention.
 	if rec := reportCloseout(t, api, task.ID, "owner", "owner"); rec.Code != http.StatusOK {
 		t.Fatalf("owner-scope close-out must pass, got %d %s",
 			rec.Code, rec.Body.String())

@@ -29,7 +29,7 @@ import (
 // TestStepNoteWritableInEveryStepStatus pins it.
 //
 // Its own endpoint and its own MCP tool, not another parameter on
-// update_step_status: charter §14 is intent-per-tool, and writing a note is a
+// update_step_status: root CLAUDE.md「核心不變量／授權單一化」is intent-per-tool, and writing a note is a
 // different intent from reporting a transition. One field with two write paths
 // would reintroduce exactly the "which one do I write?" ambiguity this ticket
 // exists to remove.

@@ -2833,7 +2833,7 @@ sg24_alive "$_sg24_orphan" \
 kill "$_sg24_orphan" 2>/dev/null; wait "$_sg24_orphan" 2>/dev/null
 
 # 24f) MUTANT ②a — RELAX THE PID KILL TO PATTERN MATCHING. This is the exact
-# shape root CLAUDE.md §13 bans and the exact shape that took the cockpit and
+# shape root CLAUDE.md「驗證、CI 與出貨／程序安全」bans and the exact shape that took the cockpit and
 # every agent offline for two minutes: `pkill -f` / `pgrep -f` on a name, when
 # the fleet runs the same binaries with the same argv. Name is not identity.
 SG24_PIDMUT="$SG24/ownedkill-pgrep.sh"

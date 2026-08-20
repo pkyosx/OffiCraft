@@ -57,7 +57,7 @@ COLLECTOR_PID=""
 RESPONDER_PID=""
 # EXACT PIDs only, never a name pattern: this harness's serve is the same binary
 # with the same argv as the live one, so `pkill -f` here would take the fleet
-# down with it (root CLAUDE.md §13).
+# down with it (root CLAUDE.md「驗證、CI 與出貨／程序安全」).
 cleanup() {
   local rc=$?
   [[ -n "$RESPONDER_PID" ]] && kill "$RESPONDER_PID" 2>/dev/null

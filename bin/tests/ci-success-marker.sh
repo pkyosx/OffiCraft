@@ -5,7 +5,7 @@
 # The previous version of this file listed exactly one residual (fragment
 # assembly) while a whole vector — dispatched lane scripts — was wide open. A
 # comment that is more optimistic than the protection it describes is the same
-# §8 violation this ticket exists to punish, so the list below is meant to be
+# 「核心不變量／context 跟碼共存」violation this ticket exists to punish, so the list below is meant to be
 # exhaustive as of T-d3e3's rework. Add to it when you narrow it.
 #
 #  1. FRAGMENT ASSEMBLY. `A='[ci]'; B='all green'; echo "$A $B"` never puts the

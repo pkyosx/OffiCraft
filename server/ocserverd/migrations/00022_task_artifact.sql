@@ -32,7 +32,7 @@ CREATE TABLE task_artifact (
     -- blob's own filename is the fallback for file/image (resolved read-time).
     label         TEXT NOT NULL DEFAULT '',
     created_ts    REAL NOT NULL DEFAULT 0.0,
-    -- the verified sub of the registrar (§14 caller identity); '' on none.
+    -- the verified sub of the registrar (root CLAUDE.md「核心不變量／授權單一化」caller identity); '' on none.
     created_by    TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX idx_task_artifact_task ON task_artifact (task_id);

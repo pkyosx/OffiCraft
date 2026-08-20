@@ -27,7 +27,7 @@ the golang binary is a single process with two loops — a command reader (hands
 spawn/stop/kill over the warden's authenticated SSE downstream) and a telemetry
 reporter (eyes: POST telemetry + presence). The warden mints nothing and
 self-bootstraps nothing: the server pushes each `member_token` down inside a
-`warden-command` frame (Seth's model — see `CLAUDE.md §6`).
+`warden-command` frame (Seth's model — see root `CLAUDE.md`「核心不變量／token 權威在 server」).
 
 Direction is Seth-greenlit (push replaces pull, both python daemons retire). Execution
 is still gated on: build-ready + CI green + independent reviewer clean + avo readiness

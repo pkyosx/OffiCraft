@@ -321,7 +321,7 @@ def test_list_is_light_detail_is_full(client, owner_token, executor):
 
 def test_creator_id_is_caller_sub_and_rides_list_and_get(
         client, owner_token, executor):
-    """creator_id is stamped from the verified token sub (§14 — never a request
+    """creator_id is stamped from the verified token sub (root CLAUDE.md「核心不變量／授權單一化」— never a request
     parameter) and rides both the light list (list_tasks) and the full DTO
     (get_task)."""
     task = _create_task(client, executor, title="who made me")["task"]
@@ -1458,7 +1458,7 @@ def test_closeout_enforces_the_executor_guard(client, owner_token, executor):
     stranger = mint_member_token(client, owner_token, stranger_id, ttl_days=1)
     r = _closeout(client, stranger, task["id"])
     assert r.status_code == 403, f"{r.status_code} {r.text}"
-    # Admin capability (owner) passes — the §14 caller-identity convention.
+    # Admin capability (owner) passes — root CLAUDE.md「核心不變量／授權單一化」caller-identity convention.
     r = _closeout(client, owner_token, task["id"])
     assert r.status_code == 200, f"{r.status_code} {r.text}"
 

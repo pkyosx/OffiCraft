@@ -718,7 +718,7 @@ func requestedChatIDs(ids *[]string) []string {
 // expression on purpose: a caller may read a message back only when it is one
 // of the two ends of it.
 //
-// The comparison is against the VERIFIED JWT sub (§14 — identity comes from
+// The comparison is against the VERIFIED JWT sub (root CLAUDE.md「核心不變量／授權單一化」— identity comes from
 // auth, never from a parameter) and against the STORED sender/recipient, so
 // nothing in the request can move this line. It is written against
 // currentActor(r) rather than a hoisted local so that it is VISIBLE to

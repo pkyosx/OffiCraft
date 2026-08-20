@@ -69,7 +69,7 @@
 | A6 | 任務 chip（`T-xxxx`）+ 任務類型 | 無 | 有，可點 → `#tasks/<id>` | 外包獨有 | **保留**。外包的「角色」就是它綁的任務類型，這是 rail 列形的同一條裁定（`frontend/CLAUDE.md` 外包面板節），移除等於拔掉外包唯一的身分線索 |
 | A7 | 動作鍵列（喚醒／取消／停止／強制停止） | `MemberActionButtons`，依 `visual` 五態切換按鈕集合 | ~~無此列~~ **已補（owner 2026-07-31）**：身分卡右上角有 `worker-detail-change` ＋ `worker-detail-stop`／`worker-detail-wake` | ~~差~~ **已對齊** | ✅ 見下方「owner 2026-07-31 四項裁定」 |
 | A8 | 「更改」鍵 | `mp-change`，`online` 時出現，開啟動設定 dialog | **無** | 差 🔴 | **外包要有等價入口**：開一份同形狀的設定 dialog（執行環境／模型／投入度／機器）。這是步驟 2 的主改動 |
-| A9 | 未派送警示 | `DispatchAlert`（`mp-wake-undispatched` / `mp-relocate-undispatched`） | **無** | 差 | **待裁定**：外包的 `relocateWorker` wire 回傳 `OutsourceWorkerView`，**沒有** member 那個 `relocation_pending` 欄位，所以外包端根本沒有訊號可顯示。要對齊得改 `spec/openapi.json`（wire 已凍結，§13）。本票不動 |
+| A9 | 未派送警示 | `DispatchAlert`（`mp-wake-undispatched` / `mp-relocate-undispatched`） | **無** | 差 | **待裁定**：外包的 `relocateWorker` wire 回傳 `OutsourceWorkerView`，**沒有** member 那個 `relocation_pending` 欄位，所以外包端根本沒有訊號可顯示。要對齊得改 `spec/openapi.json`（wire 已凍結，根 CLAUDE.md「驗證、CI 與出貨／wire spec-first」）。本票不動 |
 
 ## B. 模型／機器 資訊卡（共用面板 `mp-info2`）
 
@@ -97,7 +97,7 @@
 |---|------|-----------|-----------|--------|---------|
 | D1 | 喚醒（`spawn`／`t.lifecycle.action.spawn`） | 有：離線／已停止／waking／stopping 皆提供，開設定 dialog 後 `activateMember` | `restartWorker` | ~~差~~ **已修（T-7526 追加範圍，owner 核可）** | ✅ **已完成，不再是開放問題**。原本 `restart` 的守衛是 `desired_state != offline → 409`（問「有沒有人按過停止」），所以 session 自己死掉的外包（`desired_state` 仍是 online）叫不起來。守衛改成 `desired_state != offline && hub.IsOnline(id)`（問「還活著嗎」），座艙的 `noLiveSession = stopped \|\| offline` 讓那顆鍵在死掉的 worker 上顯示「重新啟動」。護欄：`TestRestartWorker_RevivesAWorkerWhoseSessionDiedOnItsOwn` |
 | D2 | 取消喚醒（`cancel`） | `waking` 時提供 → `deactivateMember` | 無 | 差 | **待裁定**，同 D1：外包的 `stop` 端點是否吃 `waking` 態，wire 沒明說 |
-| D3 | 強制停止 + 二次確認 | `stopping` 時 Stop 升級為 force-stop，`mp-force-stop-confirm` modal | **無此端點**（`spec/openapi.json` 只有 `/api/members/{id}/force-stop`） | 差 | **待裁定**。要對齊得新增 `/api/outsource-workers/{id}/force-stop`，屬 wire 變更（§13 先改 spec + owner 過目） |
+| D3 | 強制停止 + 二次確認 | `stopping` 時 Stop 升級為 force-stop，`mp-force-stop-confirm` modal | **無此端點**（`spec/openapi.json` 只有 `/api/members/{id}/force-stop`） | 差 | **待裁定**。要對齊得新增 `/api/outsource-workers/{id}/force-stop`，屬 wire 變更（根 CLAUDE.md「驗證、CI 與出貨／wire spec-first」先改 spec + owner 過目） |
 | D4 | 「只儲存，不喚醒」 | `mp-settings-save-only`，未喚醒時出現 | 無 | 差 | **不需要**（可自裁定）：外包 dialog 本來就**不啟動任何東西**（只打 `model` 與 `relocate` 兩個端點），所以整份 dialog 就是「只儲存」，多一顆同義鍵反而製造「另一顆會啟動」的錯覺 |
 | D5 | 設定意圖註記 | `mp-settings-intent-note`（＋回報值對照的第二句） | 無 | 差 | 外包 dialog 改用 `t.workerDetail.modelNextSpawnNote`（「工作中立即生效；已指派則下次啟動生效」）——那才是外包端點的真語意；照抄正職的「下次啟動要用哪一個」會是假話 |
 | D6 | 回呼端點 · WEBHOOK 卡 | `extraExpandCards` 整張卡（列表／啟停／建立／刪除／簽章輪替／事件統計） | 無 | 差 | **保留現狀**。webhook 綁的是常駐 member id；外包是任務結束即 release 的短命身分，掛外部長期入口沒有可對應的生命週期 |
@@ -148,7 +148,7 @@
   CT 跑，因為 `member-machine-transition.ct.spec.tsx` 還在用同檔的 `MemberMachineTransitionStory`。
 - `useRelocateMachine.tsx`（連同 `MachinePicker.tsx`）在本次改動後**已無任何 production
   importer**（僅剩自己的測試與 `MemberDetailPanel` 註解裡的 twin-implementation 交叉引用）。
-  依 §9(a) 這是該清的 legacy，但刪掉一個 hook ＋ 它整份測試 ＋ 一個元件，範圍遠大於本票，
+  依手冊「獨立審查」的五點 code-hygiene 清單，這是該清的 legacy，但刪掉一個 hook ＋ 它整份測試 ＋ 一個元件，範圍遠大於本票，
   **列為 follow-up 交 owner 裁定，本票不刪**。
 
 **沒有任何一格因為我判斷「該移除」而被移除。** B1 / B3 兩項就地編輯鍵的移除，是派工單步驟 2
@@ -212,7 +212,7 @@ owner 凌晨連續下了四條，逐條落地如下。四條共同的方向是�
 `t.lifecycle.action.spawn`＝「喚醒」。**兩個面板同一個葉子**，主題包換詞只換一次。
 
 🔴 **REST 路徑一個字都沒動**：仍是 `POST /api/outsource-workers/{id}/restart`
-（凍結 wire，§13），`api.restartWorker` 也維持原名。只有 panel 的 prop 從
+（凍結 wire，根 CLAUDE.md「驗證、CI 與出貨／wire spec-first」），`api.restartWorker` 也維持原名。只有 panel 的 prop 從
 `onRestart` 改成 `onWake`——那是顯示層的名字，不是契約。
 
 ### ④ 「喚醒時四格應該先預設跟原本一樣」＋「將外包統一跟正職一樣，不是釘死」
@@ -242,7 +242,7 @@ server 的 `respawnWorkerForOwnerOp` 在 `desired_state=offline` 時只記錄、
 PATCH ＋ placement-only relocate，兩者都不啟動任何東西；外包的 relocate **不是** placement-only
 （`desired_state` 不是 offline 時它會 kill + re-dispatch），所以對「session 自己死掉、
 `desired_state` 仍是 online」的 worker，一顆說「存了但沒啟動」的鍵會是假話。
-要提供它得新增一條 pin-only 的外包端點＝動凍結 wire（§13）——**未做，列為 follow-up**。
+要提供它得新增一條 pin-only 的外包端點＝動凍結 wire（根 CLAUDE.md「驗證、CI 與出貨／wire spec-first」）——**未做，列為 follow-up**。
 
 ### ④ 的已知代價（誠實記錄，不是待裁定）
 

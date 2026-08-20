@@ -1384,7 +1384,7 @@ type taskDTO struct {
 	// follow-ups done (report_task_closeout; §6.3 — terminal tasks only).
 	CloseoutReported bool `json:"closeout_reported"`
 	// Artifacts is the task's curated deliverable set (T-3dc5), oldest→newest;
-	// always present ([] when none). Optional in the spec (§12) but always
+	// always present ([] when none). Optional in the spec (root CLAUDE.md「Repo-wide 約定／DTO 向後相容」) but always
 	// serialised — the FE popover reads it, the light list reads only the count.
 	Artifacts []taskArtifactDTO `json:"artifacts"`
 	// Handoff / HandoffNote / HandoffTaskID: the DECLARED destination of the
@@ -1467,7 +1467,7 @@ type taskCreateResultDTO struct {
 	Deduped bool    `json:"deduped"`
 	// Warnings: non-blocking advisories on a typed create — input field names
 	// the manual does not define, or ambiguous keys that fold onto another.
-	// Omitted when none (optional, back-compatible — §12 DTO convention).
+	// Omitted when none (optional, back-compatible — root CLAUDE.md「Repo-wide 約定／DTO 向後相容」).
 	Warnings []string `json:"warnings,omitempty"`
 }
 

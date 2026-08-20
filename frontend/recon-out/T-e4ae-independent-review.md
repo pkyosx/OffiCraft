@@ -21,6 +21,6 @@ The change adds no theme colors, typography tokens, or new visual palette. The `
 
 The commit stat contains the implementation report, recon fixture, real TaskCard story, and the production mobile-table guard alongside the three production source files. No route, API schema, MCP catalog, asset manifest, or generated manifest is touched because this is a client-only rendering/CSS behavior change. The guard and fixture coverage are present in the same change set.
 
-## 4. §9 code-hygiene
+## 4. 手冊「獨立審查」的五點 code-hygiene 清單
 
 No hygiene finding in the reviewed diff. The implementation is opt-in, measures rendered cells, cleans up its custom properties, preserves the ordinary table fallback, and keeps the existing outer no-horizontal-overflow constraint. The guard comments identify load-bearing mutants for opt-in, `th` wrapping, per-column floor behavior, ancestor constraints, and table scrolling. No owner identity is claimed by this review.

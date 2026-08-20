@@ -5,7 +5,7 @@
 // assertions, the REST/SSE/MCP surfaces, the reconcile producer, and the
 // goose migration base over modernc.org/sqlite (cgo-free).
 //
-// Naming (root CLAUDE.md §10): folder server/ocserverd/ = module ocserverd =
+// Naming (root CLAUDE.md「Repo-wide 約定／folder、Go module、binary 同名」): folder server/ocserverd/ = module ocserverd =
 // binary ocserverd. Distinct from bin/ocserver, the bash
 // server INSTALLER — the "d" is the daemon itself.
 package main
