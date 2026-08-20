@@ -242,6 +242,13 @@ export function useChat(withId: string): UseChat {
           );
         })
         .catch((e) => {
+          // Same guard as the .then arm, and for a sharper reason: this ref
+          // OUTLIVES the effect instance. A load belonging to a torn-down
+          // instance can reject AFTER the next setup body has already cleared
+          // the mark, and without this line it would write its debt onto its
+          // SUCCESSOR — making the setup-body comment above ("any debt the
+          // PREVIOUS peer left behind is not this conversation's to pay") false.
+          if (!alive) return;
           // Do NOT retry here (T-929f). Record the debt only; the SSE sink
           // below pays it on the next relevant burst.
           loadStaleRef.current = true;

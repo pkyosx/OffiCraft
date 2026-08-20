@@ -20,6 +20,7 @@
 // never repaints.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { StrictMode, createElement } from "react";
 import { renderHook, waitFor, act } from "@testing-library/react";
 import type { SseDelta } from "../api/adapter";
 
@@ -148,5 +149,42 @@ describe("useChatUnread: a failed count fetch is marked and paid on the next eve
     // debt or no debt.
     await emit({ topic: "monitoring", names: {}, ids: [] });
     expect(h.getChatUnreadCount).toHaveBeenCalledTimes(2);
+  });
+
+  it("a fetch rejecting AFTER its effect instance was torn down writes no debt onto the successor", async () => {
+    // The mark is a ref, so it OUTLIVES the effect instance that wrote it while
+    // staying SHARED with that instance's successor. StrictMode (which is how
+    // main.tsx mounts the app) is the ordinary way to get two instances out of
+    // one component: setup → cleanup → setup. If the first setup's fetch
+    // rejects after the second setup body has already cleared the mark, an
+    // unguarded catch hands the live instance a debt it never incurred — and it
+    // then pays for it with a full `ListChat()` scan on the very agent↔agent
+    // traffic the T-b17f gate exists to skip.
+    let rejectDead!: (e: unknown) => void;
+    const stuck = new Promise<number>((_, reject) => {
+      rejectDead = reject;
+    });
+
+    h.getChatUnreadCount
+      .mockImplementationOnce(() => stuck) // the torn-down instance's fetch
+      .mockResolvedValue(3); // the surviving instance's fetch
+
+    const { result } = renderHook(() => useChatUnread(), {
+      wrapper: ({ children }) => createElement(StrictMode, null, children),
+    });
+    await waitFor(() => expect(result.current).toBe(3));
+    const afterMount = h.getChatUnreadCount.mock.calls.length;
+
+    // NOW the dead instance's fetch fails.
+    await act(async () => {
+      rejectDead(new Error("late network"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // The live instance owes nothing, so the gate still skips agent↔agent.
+    await emit(agentToAgent);
+    expect(h.getChatUnreadCount).toHaveBeenCalledTimes(afterMount);
+    expect(result.current).toBe(3);
   });
 });

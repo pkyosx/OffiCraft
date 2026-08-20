@@ -78,6 +78,13 @@ export function useChatUnread(): number {
           setCount(n);
         })
         .catch((e) => {
+          // Same guard as the .then arm, and for a sharper reason: this ref
+          // OUTLIVES the effect instance. A fetch belonging to a torn-down
+          // instance can reject AFTER the next setup body has already cleared
+          // the mark, and without this line it would write its debt onto its
+          // SUCCESSOR — which under StrictMode's setup→cleanup→setup is the
+          // ordinary case, not an exotic one.
+          if (!alive) return;
           // Do NOT retry here. Just record the debt; the sink below pays it on
           // the next relevant burst.
           staleRef.current = true;

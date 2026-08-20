@@ -90,6 +90,16 @@ const elsewhere: SseDelta = {
   ids: ["m2", "x", "y"],
 };
 
+// A read receipt naming a THIRD party as its reader, in a burst that carries NO
+// `chat` topic at all. This is what the owner opening any OTHER conversation
+// fans at this client (GET /api/chat?with= advances a watermark and echoes a
+// `chat_read`), so it is an ordinary — and common — recovery channel.
+const foreignRead: SseDelta = {
+  topic: "chat_read",
+  names: { reader: "x", peer: "y" },
+  ids: ["x", "y"],
+};
+
 let hasFocusSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
@@ -187,6 +197,32 @@ describe("useChat: a failed load is marked and paid on the next relevant event",
     expect(h.peekChat).not.toHaveBeenCalled();
   });
 
+  it("a burst carrying ONLY chat_read pays the debt — the mark is not narrowed to chat lines", async () => {
+    const { result } = renderHook(() => useChat("b"));
+    await waitFor(() => expect(h.listChat).toHaveBeenCalledTimes(1));
+
+    // 1. the load for our own delta is lost.
+    h.listChat.mockRejectedValueOnce(new Error("network"));
+    await emit(inThisThread);
+    expect(h.listChat).toHaveBeenCalledTimes(2);
+    expect(result.current.messages).toEqual([]);
+
+    // 2. the next burst is a read receipt for SOMEBODY ELSE's conversation and
+    //    carries no `chat` topic. The relevance gate at the top of the sink
+    //    (CHAT_TOPICS) already admitted it; the mark must then force the missing
+    //    page through, because a debt is a debt whichever relevant topic wakes
+    //    us. Pinning this because the alternative reading — "only a `chat` burst
+    //    may pay" — is a live mutation of the same expression that no other case
+    //    in this suite can tell apart.
+    h.listChat.mockResolvedValueOnce([mkMsg("c9", "b", "owner", 2000)]);
+    await emit(foreignRead);
+
+    await waitFor(() => expect(h.listChat).toHaveBeenCalledTimes(3));
+    await waitFor(() =>
+      expect(result.current.messages.map((m) => m.id)).toEqual(["c9"]),
+    );
+  });
+
   it("a peer switch does not inherit the previous conversation's debt", async () => {
     h.listChat.mockImplementation(async (withId: string) =>
       withId === "b" ? [mkMsg("c1", "b", "owner", 1000)] : [],
@@ -210,5 +246,47 @@ describe("useChat: a failed load is marked and paid on the next relevant event",
     // "z" owes nothing, so a foreign delta must be skipped, not loaded.
     await emit(elsewhere);
     expect(h.listChat).toHaveBeenCalledTimes(afterSwitch);
+  });
+
+  it("the PREVIOUS peer's load rejecting AFTER the switch writes no debt onto the new conversation", async () => {
+    // The case above rejects BEFORE the switch, so the successor's setup body
+    // clears the mark afterwards and the leak cannot show. Here the rejection
+    // lands AFTER that setup body has already run: without an `alive` guard on
+    // the catch arm, a dead effect instance's failure marks its SUCCESSOR as
+    // owing a page it never lost — and "z" then pays a debt that was "b"'s,
+    // firing a load for traffic that is none of its business (exactly the
+    // T-8115 self-drive the per-conversation filter exists to prevent).
+    let rejectB!: (e: unknown) => void;
+    const stuck = new Promise<unknown[]>((_, reject) => {
+      rejectB = reject;
+    });
+
+    const { result, rerender } = renderHook(
+      ({ id }: { id: string }) => useChat(id),
+      { initialProps: { id: "b" } },
+    );
+    await waitFor(() => expect(h.listChat).toHaveBeenCalledTimes(1));
+
+    // "b" fires a load that neither resolves nor rejects yet.
+    h.listChat.mockImplementationOnce(() => stuck);
+    await emit(inThisThread);
+    expect(h.listChat).toHaveBeenCalledTimes(2);
+
+    // Switch peers while that load is still in flight. "z" loads once, cleanly.
+    rerender({ id: "z" });
+    await waitFor(() => expect(result.current.messagesPeer).toBe("z"));
+    const afterSwitch = h.listChat.mock.calls.length;
+
+    // NOW the dead instance's load fails.
+    await act(async () => {
+      rejectB(new Error("late network"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // "z" never lost a page, so a foreign delta is still none of its business.
+    await emit(elsewhere);
+    expect(h.listChat).toHaveBeenCalledTimes(afterSwitch);
+    expect(result.current.messagesPeer).toBe("z");
   });
 });
