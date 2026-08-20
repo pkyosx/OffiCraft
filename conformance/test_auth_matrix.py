@@ -1144,14 +1144,15 @@ MATRIX: dict[str, Route] = {
         path=lambda ctx, _i: f"/api/tasks/{_matrix_task(ctx)}",
     ),
     "POST /api/tasks/{task_id}/terminate": Route(
-        # requires=admin_agent since T-6020: below-floor identities choke 403
-        # BEFORE target resolution (missing-id probe, the reply-card posture),
-        # so a plain agent cannot terminate its way out of its own task.
-        requires="admin_agent",
-        path=lambda ctx, i: (
-            f"/api/tasks/{_matrix_task(ctx) if i in _ADMIN_FACES else 't-conf-missing'}"
-            "/terminate"
-        ),
+        # T-6020 put the floor at admin_agent; T-b56e (owner 2026-08-20, card
+        # rc-b896e3f641e7) opened it to the task's OWN executor, so the floor
+        # is now `agent` and the executor guard carries the refusal: agent A
+        # executes this task and passes, agent B is the guard's 403. The
+        # outsource-worker subtraction has no face on this matrix (it needs a
+        # worker row) and is pinned in api_tasks_terminate_tb56e_test.go.
+        requires="agent",
+        overrides={"agent_other": 403},
+        path=lambda ctx, _i: f"/api/tasks/{_matrix_task(ctx)}/terminate",
     ),
     "POST /api/tasks/{task_id}/priority": Route(
         # T-0786: the executor may retune their OWN task; a foreign agent is

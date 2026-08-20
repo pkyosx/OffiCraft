@@ -38,7 +38,6 @@ var t6020Opened = map[[2]string]string{
 	{"POST", "/api/machines/{machine_id}/bootstrap-here"}:               "install_warden_on_server_host",
 	{"POST", "/api/machines/{machine_id}/teardown-here"}:                "uninstall_warden_on_server_host",
 	{"POST", "/api/machines/{member_id}/upgrade"}:                       "upgrade_warden",
-	{"POST", "/api/tasks/{task_id}/terminate"}:                          "terminate_task",
 	{"POST", "/api/tasks/{task_id}/message"}:                            "post_task_message",
 	{"GET", "/api/outsource-workers/{id}/boot-context"}:                 "get_outsource_worker_boot_context",
 	{"POST", "/api/outsource-workers/{id}/refocus"}:                     "refocus_outsource_worker",
@@ -61,8 +60,8 @@ var t6020Opened = map[[2]string]string{
 // the diff. (The frozen manifest and the conformance auth matrix may or may not
 // catch it as well; that has NOT been verified, so it is not claimed here.)
 //
-// 🔴 ADDING A SECOND ROW HERE REQUIRES ITS OWN OWNER RULING, AND YOU MUST EDIT
-// THE `len(t6020Revised) == 1` GUARD BELOW IN THE SAME COMMIT. That guard is a
+// 🔴 ADDING A ROW HERE REQUIRES ITS OWN OWNER RULING, AND YOU MUST EDIT
+// THE `len(t6020Revised) == 2` GUARD BELOW IN THE SAME COMMIT. That guard is a
 // hard-coded count on purpose, exactly like the release-exemption roster in root
 // CLAUDE.md §13: without it this table is a back door — moving any row into it
 // would exempt that row from the admin-floor assertion, and the diff would look
@@ -76,6 +75,13 @@ var t6020Revised = map[[2]string]string{
 	// principal class can express. The two ANSWER rows were not revised: closing
 	// someone else's ask with an answer is still governance.
 	{"POST", "/api/reply-cards/{card_id}/expire"}: "expire_reply_card",
+	// owner 2026-08-20, card rc-b896e3f641e7 (T-b56e), option 0:「開給執行者（可
+	// 終止自己名下的票）」 — same verb, and again a per-task fact no principal
+	// class can express ("is this MY task"). The floor dropped to agent and the
+	// decision moved in-handler (callerMayTerminateTask), which also carries the
+	// one subtraction the ladder cannot state: an OUTSOURCE worker is refused on
+	// its own task, because a 正職 and a contractor both rank principalAgent.
+	{"POST", "/api/tasks/{task_id}/terminate"}: "terminate_task",
 }
 
 // t6020RevisedFloor is the floor each revised row must now declare. Pinned as a
@@ -83,6 +89,7 @@ var t6020Revised = map[[2]string]string{
 // one's answer.
 var t6020RevisedFloor = map[[2]string]string{
 	{"POST", "/api/reply-cards/{card_id}/expire"}: principalAgent,
+	{"POST", "/api/tasks/{task_id}/terminate"}:    principalAgent,
 }
 
 // t6020AllOpenedRows is every row the 2026-07-26 ruling opened — those still at
@@ -172,12 +179,13 @@ func TestT6020OpenedRoutesSitAtTheAdminAgentFloor(t *testing.T) {
 }
 
 func TestT6020RevisedRoutesSitAtTheirRevisedFloor(t *testing.T) {
-	// 🔴 THE COUNT LOCK. One row has been revised. A second one needs its own
+	// 🔴 THE COUNT LOCK. Two rows have been revised (expire_reply_card, owner
+	// 2026-08-07; terminate_task, owner 2026-08-20). A third one needs its own
 	// owner ruling, and whoever adds it must edit this line in the same commit —
 	// that is the point: this table exempts a row from the admin-floor assertion
 	// above, so growing it must be a deliberate, visible act, never a side effect.
-	if len(t6020Revised) != 1 {
-		t.Fatalf("t6020Revised lists %d rows, expected 1 — a second revision needs its "+
+	if len(t6020Revised) != 2 {
+		t.Fatalf("t6020Revised lists %d rows, expected 2 — a further revision needs its "+
 			"OWN owner ruling, and this guard must be edited in the same commit",
 			len(t6020Revised))
 	}

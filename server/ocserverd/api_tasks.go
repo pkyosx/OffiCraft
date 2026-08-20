@@ -957,12 +957,58 @@ func (s *apiServer) HandleGetTaskApiTasksTaskIdGet(w http.ResponseWriter, r *htt
 
 // ── C.2 owner actions ────────────────────────────────────────────────────────
 
-// POST /api/tasks/{task_id}/terminate — the ONLY owner-side status change
-// (SPEC §3.7). Non-terminal only; the FE owns the double-confirm.
+// callerMayTerminateTask is the terminate gate. It is callerMayDriveTask plus
+// ONE subtraction, and the subtraction is the whole reason it is a separate
+// function: an OUTSOURCE worker may not terminate its own task.
+//
+// 🔴 WHY THE SUBTRACTION. Everywhere else "the task's own executor" is a safe
+// set to admit, because the executor is the one answering for the work. An
+// outsource worker is different in kind: the task IS the reason that worker
+// exists, and it leaves when the task closes. Letting it terminate that task is
+// letting it end itself, with no second person in the loop — and unlike a 正職,
+// there is no next session of it to notice. The owner's ruling (2026-08-20,
+// card rc-b896e3f641e7 option 0) says "執行者", and it was asked about a member
+// running its own tickets; it does not reach the contractor lifecycle. Narrowed
+// deliberately, not by oversight — widening it later needs its own ruling.
+//
+// ⚠️ It is NOT "outsource is a lower principal": an outsource worker and a 正職
+// both rank principalAgent, which is exactly why the ladder cannot express this
+// and Member.Kind has to be read (the same discriminator taskCaller uses).
+func (s *apiServer) callerMayTerminateTask(r *http.Request, t Task) (bool, string) {
+	c, err := s.taskCallerOf(r)
+	if err != nil {
+		// Owner scope never reaches here (it needs no roster lookup), so an
+		// error means an AGENT whose row could not be read: kind is unknown,
+		// and an unknown kind must not fall through to the permissive branch —
+		// that is exactly how an outsource worker would slip past.
+		return false, "caller is not the task's executor"
+	}
+	if c.isAdminCapable() {
+		return true, ""
+	}
+	if c.actorID != t.ExecutorID {
+		return false, "caller is not the task's executor"
+	}
+	if c.isOutsource() {
+		return false, "an outsource worker may not terminate its own task; ask the owner or an admin agent"
+	}
+	return true, ""
+}
+
+// POST /api/tasks/{task_id}/terminate — the only status change that does not go
+// through the task's own step reports (SPEC §3.7). Non-terminal only; the FE
+// owns the double-confirm.
+//
+// Guard order: 404 → 403 authz → 409 terminal (deny before state probing), the
+// same order HandleSetTaskPriority uses.
 func (s *apiServer) HandleTerminateTaskApiTasksTaskIdTerminatePost(w http.ResponseWriter, r *http.Request, taskId string) {
 	t, err := s.resolveTask(taskId)
 	if err != nil {
 		writeResolveError(w, err, "task", taskId)
+		return
+	}
+	if ok, reason := s.callerMayTerminateTask(r, *t); !ok {
+		writeError(w, http.StatusForbidden, reason)
 		return
 	}
 	if TaskIsTerminal(t.Status) {

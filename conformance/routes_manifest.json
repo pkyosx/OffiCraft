@@ -739,7 +739,7 @@
     "mcp_tool": "terminate_task",
     "method": "POST",
     "path": "/api/tasks/{task_id}/terminate",
-    "requires": "admin_agent"
+    "requires": "agent"
   },
   {
     "auth": "gated",

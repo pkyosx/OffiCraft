@@ -1361,15 +1361,16 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			MCPTool:  "get_task",
 		},
 		{
-			// T-6020: opened to admin_agent (owner 2026-07-26). Still the only
-			// non-executor status change, and still closed to plain agents —
-			// an agent cannot terminate its own way out of a task.
+			// T-6020: opened to admin_agent (owner 2026-07-26). T-b56e (owner
+			// 2026-08-20, card rc-b896e3f641e7 option 0) opened it further, to
+			// a 正職 member acting on ITS OWN task — so the floor here is
+			// principalAgent and the real gate is callerMayTerminateTask.
 			Method:   "POST",
 			Path:     "/api/tasks/{task_id}/terminate",
 			Handler:  w.HandleTerminateTaskApiTasksTaskIdTerminatePost,
 			Auth:     authGated,
-			Requires: principalAdminAgent,
-			Summary:  "Terminate a task (owner/admin agent; the only non-executor status change).",
+			Requires: principalAgent,
+			Summary:  "Terminate a task — close it as terminated, the only status change that does not go through the task's own step reports. WHO: the owner, an admin agent, or the task's OWN executor when that executor is a 正職 member (T-b56e, owner 2026-08-20 card rc-b896e3f641e7). A member terminating SOMEONE ELSE's task is a flat 403. An OUTSOURCE worker is a flat 403 even on its own task: the task is the reason that worker exists, so self-termination would end it with nobody watching — ask the owner or an admin agent instead. Non-terminal only (already closed → 409).",
 			MCPTool:  "terminate_task",
 		},
 		{
