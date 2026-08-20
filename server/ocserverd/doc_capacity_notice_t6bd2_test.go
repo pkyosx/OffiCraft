@@ -225,9 +225,9 @@ func TestSoftNoticeNamesWhoCanCompactWhatTheReaderCannot(t *testing.T) {
 	// assertion above would pass for a notice that says one thing to everyone —
 	// which is the noise the block is designed not to be.
 	own := t6bd2NoticeLine(t, t6bd2NoticeWire(t, s, reader), "task manual SOP (")
-	if !strings.Contains(own, "you can rewrite this one yourself") {
+	if action := t6bd2NoticeAction(t, own); action != docCapacityActionSelf {
 		t.Fatalf("a manual the reader CAN write must tell it to do it itself, "+
-			"not send it to somebody else: %s", own)
+			"not send it to somebody else:\n got %q\nwant %q", action, docCapacityActionSelf)
 	}
 }
 

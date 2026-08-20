@@ -272,8 +272,8 @@ func TestResumeSummaryDocCapacityQuietWhenNothingIsNear(t *testing.T) {
 func TestResumeSummaryDocCapacitySplitsWhatTheReaderCanActOn(t *testing.T) {
 	// 🔴 TWO READERS, because `writable` is a fact about THE READER and four of
 	// the nine rows are gated at principalAdminAgent. Running this with only
-	// 銀月 (ROLE_KEY "assistant" → admin_agent; classifyMember reads role_key,
-	// not Member.Kind, which every ordinary 正職 also carries as "assistant")
+	// 銀月 (ROLE_KEY "assistant" → admin_agent; the discriminator is role_key,
+	// not Member.Kind — which every ordinary 正職 also carries as "assistant")
 	// is how the file previously asserted
 	// "role definition: not writable" about a reader who CAN write it — the
 	// exact class of lie property 2 exists to forbid, wearing the other hat.
@@ -356,11 +356,12 @@ func t6bd2SplitCases(t *testing.T, actor, adminGated string) {
 			t.Fatalf("%q got the wrong sentence for this reader:\n got %q\nwant %q",
 				name, action, wantAction)
 		}
-		// The compactor must never be sent to herself. This is the assertion the
-		// single-reader version could not make, because it only ever ran AS her.
-		if want == classAsk && actor == seedMiraID {
-			t.Fatalf("%q told the compactor to go and find herself", name)
-		}
+		// "The compactor is never sent to herself" is held by the equality above,
+		// not by a line of its own: every row that is classAsk for an ordinary
+		// member is called with classSelf for 銀月, so a build that referred her
+		// to herself fails that comparison. An extra `if want == classAsk &&
+		// actor == seedMiraID` would READ like a second guard while being
+		// unreachable — the classAsk cases only ever run as the ordinary member.
 	}
 }
 
@@ -506,5 +507,55 @@ func TestStepNoteWritesReportTheirOwnRoom(t *testing.T) {
 	}
 	if st.NoteCapChars == nil || *st.NoteCapChars != 4000 {
 		t.Fatalf("the step view must report the note's ceiling (4000), got %v", st.NoteCapChars)
+	}
+}
+
+// TestDocCapacitySentencesDoNotClaimAPermissionTheReaderHas pins the SENTENCES
+// THEMSELVES, not which row gets which one.
+//
+// 🔴 WHY THIS EXISTS SEPARATELY FROM THE EQUALITY CHECK ABOVE. That one compares
+// a row against the constant, so both sides move together: rewrite a constant
+// into a lie and the equality still passes. It answers "did this row get the
+// right one of the three sentences?" — a mapping question. This one answers a
+// different question the mapping cannot: "is the sentence itself telling the
+// truth?" The bug this whole file exists to kill was exactly that — a reader
+// being told its own insight answers 403 when one patch_insight disproves it.
+//
+// It is NOT a wording check and it does NOT conflict with the ruling that a test
+// comparing text compares a WHOLE document (owner 2026-08-20, c-2502de439aaa).
+// The opposite: it lets these sentences be rewritten into anything at all, and
+// forbids exactly one thing — claiming a permission the reader in fact has.
+// Rephrase freely; just do not lie.
+func TestDocCapacitySentencesDoNotClaimAPermissionTheReaderHas(t *testing.T) {
+	// Claims of the form "you cannot write this". They are FALSE for the two
+	// sentences below, because both go to readers who CAN write the document.
+	lies := []string{"403", "cannot write", "not yours to write"}
+
+	for _, tc := range []struct {
+		name     string
+		sentence string
+	}{
+		{"docCapacityActionSelf", docCapacityActionSelf},
+		{"docCapacityActionSelfMemory", docCapacityActionSelfMemory},
+	} {
+		for _, lie := range lies {
+			if strings.Contains(tc.sentence, lie) {
+				t.Fatalf("%s goes to a reader who CAN write that document, so it must "+
+					"not say %q. Rewrite the sentence however you like — it just cannot "+
+					"claim a permission the reader has. Sentence was:\n%s",
+					tc.name, lie, tc.sentence)
+			}
+		}
+	}
+
+	// The NEGATIVE CONTROL, and it is not decoration: without it this test would
+	// still pass if someone deleted every permission claim from the codebase,
+	// including the one that is TRUE. docCapacityActionAsk goes to a reader who
+	// genuinely cannot write the document, so it MUST carry the claim — that is
+	// what makes the check above a limit on lying rather than a ban on the words.
+	if !strings.Contains(docCapacityActionAsk, "not yours to write") {
+		t.Fatalf("docCapacityActionAsk goes to a reader who genuinely CANNOT write "+
+			"the document; dropping the permission claim leaves the reader with no "+
+			"reason not to try. Sentence was:\n%s", docCapacityActionAsk)
 	}
 }

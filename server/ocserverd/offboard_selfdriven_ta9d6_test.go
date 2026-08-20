@@ -51,8 +51,12 @@ func TestOffboardNotice_TheApprovedSentence(t *testing.T) {
 			"the approved sentence verbatim:\n got %q\nwant %q", soft, wantSoft)
 	}
 	// Kept as a SHAPE assertion on top of the equality above, because it is not
-	// a keyword test: it refuses a time of ANY spelling, which is the property
-	// the two arms actually differ on. An equality assertion pins today's
+	// a keyword test: it refuses a time written in any of the four NUMERIC
+	// shapes it knows (ASCII, CJK, clock, Go duration) plus the deadline words,
+	// which is the property the two arms actually differ on. Note the bound —
+	// every one of those shapes starts at a digit, so a duration spelled out in
+	// words ("two minutes left") walks straight past it; offboard_absolute_
+	// deadline_td6a7_test.go says the same thing about its own copy. An equality assertion pins today's
 	// string; this one still fires if a future edit adds a clock in a wording
 	// nobody has written yet.
 	assertQuotesNoTime(t, "the soft notice", soft)

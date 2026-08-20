@@ -213,8 +213,9 @@ func (s *apiServer) docCapacityFor(actor string, stepNotes []docCapacityRow) []d
 
 	// 🔴 WHO IS READING DECIDES WHAT `writable` SAYS, for the rows whose write
 	// face is gated at principalAdminAgent. The admin assistant (ROLE_KEY
-	// "assistant" — classifyMember reads role_key, NOT Member.Kind, which is
-	// also "assistant" on every ordinary 正職) may write role definitions and
+	// "assistant" — the admin_agent discriminator is role_key; classifyMember
+	// checks Member.Kind first, but only to take wardens out, and Kind is
+	// "assistant" on every ordinary 正職 too) may write role definitions and
 	// the boot documents, so telling HER "this one is not yours to write, go
 	// find 銀月"
 	// is two falsehoods in one sentence: a permission claim that is wrong, and

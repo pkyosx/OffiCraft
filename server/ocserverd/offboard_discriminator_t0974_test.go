@@ -201,7 +201,11 @@ func TestOffboardNotice_NoQuestionMarkForAMissingPercentage(t *testing.T) {
 			// test server's zero values, because codex's zero values render as
 			// "round -1 / round 0" — pinning that would make the expected value
 			// a bug report. The claude pair is the shipped default.
+			// Under settingsMu because the getters read it under RLock; CI does not
+			// run -race today, so an unlocked write here would simply never be caught.
+			s.settingsMu.Lock()
 			s.codexNoticeRound, s.codexCompactionThreshold = 3, 4
+			s.settingsMu.Unlock()
 			m := testAgent("m-nopct")
 			m.Runtime = c.runtime
 			m.RefocusSince = nowSecs()
