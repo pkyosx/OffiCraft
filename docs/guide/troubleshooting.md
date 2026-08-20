@@ -33,7 +33,13 @@ server 的標準埠是 **7755**。被別的程式占用時，安裝會**當場�
 - **一種已登入的 agent runtime：`claude`（Claude Code CLI）或 `codex`（Codex CLI），至少要有一種** — `claude` 的裝法：`npm install -g @anthropic-ai/claude-code`，然後登入。
 - **`tmux`** — 裝法：`brew install tmux`。
 
-補上缺的那個，再回控制台重試即可。
+**先看這台機器上實際裝了哪一種 runtime，再決定要做什麼：**
+
+- **只有 `codex`（沒有 `claude`）** — 不用再去裝一個 Claude Code。Mira 出廠時的執行環境是 **Claude Code**，把它改成 **Codex** 就對得上這台機器了：開 Mira 的詳情面板，按**喚醒／更改**，在那份啟動設定裡把「AI 執行環境」選成 **Codex**，確認送出（見 [成員與外包](members.md)）。
+- **只有 `claude`（沒有 `codex`）** — 補上 `tmux`，Mira 照原樣就起得來。
+- **兩種 runtime 一個都沒有** — 這時才是去補裝：挑一種裝上並登入，再回控制台重試。
+
+`tmux` 沒有這個分岔——缺了就一定要補。
 
 ---
 

@@ -32,7 +32,7 @@
 
 | 需求 | 最低版本 | 為什麼 |
 | --- | --- | --- |
-| **Claude Code CLI**（`claude`，而且已登入） | **2.1.98 以上**（必須新到內建 **Monitor** tool） | 每位成員底下就是一個 Claude Code 或 Codex session。**claude 與 codex 兩種都解析不到時，安裝腳本當場拒絕、warden 也拒絕安裝**（兩層 fail-closed，並在控制台橫幅說明原因），不會裝一個永遠起不了成員的 warden。只裝 codex 不會被擋。裝法：`npm install -g @anthropic-ai/claude-code` |
+| **一種 agent runtime**：`claude`（Claude Code CLI）或 `codex`（Codex CLI），**至少一種，而且已登入** | 用 `claude` 的話：**2.1.98 以上**（必須新到內建 **Monitor** tool）。這個版本要求是 `claude` 專屬的 | 每位成員底下就是一個 Claude Code 或 Codex session。**claude 與 codex 兩種都解析不到時，安裝腳本當場拒絕、warden 也拒絕安裝**（兩層 fail-closed，並在控制台橫幅說明原因），不會裝一個永遠起不了成員的 warden；**只裝其中一種是合法配置，不會被擋**。`claude` 的裝法：`npm install -g @anthropic-ai/claude-code` |
 | **`tmux`** | 3.0 以上（任何近代 3.x 都行） | 成員的 session 跑在 tmux 裡（`cli/ocwarden/spawn.go` 的 `tmux new-session`，沒有備援）。**解析不到時安裝腳本直接拒絕**，不會裝出一台成員永遠停在「waking」的機器 |
 
 > [!IMPORTANT]
@@ -86,7 +86,7 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 6. **註冊背景服務** — launchd job `com.officraft.serve`（`RunAtLoad` / `KeepAlive`，log 落在 `~/.officraft/server/log/serve.log`）。**不佔用你的終端機，關掉也不會停。**
 7. **印出一次性設定連結** — `http://127.0.0.1:7755/?code=…`，打開它設定 owner 密碼。
 8. **設完密碼後 server 自己接手最後兩步** — 把這台機器的 warden 裝好、把預設助理 **Mira** 叫醒。你不用自己去機器頁按安裝，也不用自己把助理設成上線。
-   缺 `claude` 或 `tmux` 時它會**明確失敗並說出原因**（顯示在控制台上方的橫幅），而不是裝一個永遠起不了 agent 的 warden。
+   `claude` 與 `codex` **兩種都沒有**、或是缺 `tmux` 時，這一步會失敗並在控制台上方的橫幅說出原因，而不是裝一個永遠起不了 agent 的 warden。
 
 ### 常用選項
 
@@ -295,7 +295,7 @@ bin/ocserver uninstall --dry-run   # 只印出會做什麼，什麼都不動
 
 ---
 
-裝好之後想立刻走一遍，看 [你的第一個辦公室](quickstart.md)。安裝或起不來時，先翻 [常見問題與排解](troubleshooting.md)——埠被占用、缺 `claude`/`tmux`、成員亮不起來、移除的怪紅字都在那裡。
+裝好之後想立刻走一遍，看 [你的第一個辦公室](quickstart.md)。安裝或起不來時，先翻 [常見問題與排解](troubleshooting.md)——埠被占用、缺 `claude`/`codex`/`tmux`、成員亮不起來、移除的怪紅字都在那裡。
 
 ---
 
