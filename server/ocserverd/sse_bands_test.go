@@ -211,8 +211,15 @@ func TestDecideHandoverNotice(t *testing.T) {
 		if sig == nil {
 			t.Fatal("losing the checklist must not lose the notice")
 		}
-		if !strings.Contains(sig.Reason, "offboard now") {
+		// This arm is SOFT, so the opener is the owner's narrowed one
+		// (rc-e9b655cd8e1a) — "offboard now" belongs to the final call alone.
+		if !strings.Contains(sig.Reason, "start your close-out") {
 			t.Fatalf("the sentence must still be there: %q", sig.Reason)
+		}
+		// And the half that is identical on both arms must survive too:
+		// without it the reader idles until the server cuts it off.
+		if !strings.Contains(sig.Reason, "then call restart_self yourself") {
+			t.Fatalf("losing the checklist must not lose the instruction: %q", sig.Reason)
 		}
 	})
 
