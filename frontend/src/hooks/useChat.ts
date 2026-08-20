@@ -123,6 +123,44 @@ export function useChat(withId: string): UseChat {
   const threadRef = useRef(thread);
   threadRef.current = thread;
   const loadingOlderRef = useRef(false);
+  // 🔴 "THE LAST LOAD NEVER LANDED" (T-929f). `load()` below used to end a
+  // rejection at `console.warn` and nothing else. Two failure worlds, and only
+  // one of them was already covered:
+  //  - the CONNECTION really drops ⇒ `es.onopen` fires again ⇒ api/http.ts
+  //    `resyncAll()` ⇒ the screen catches up within ~2s. That half works and is
+  //    untouched here.
+  //  - the connection is still open in the client's eyes (esOpen=1, esError=0)
+  //    and just THAT ONE load fails ⇒ the delta was received, the load was lost,
+  //    and NOTHING ever tried again. Measured: 90s idle with the thread frozen;
+  //    a synthesised `focus` filled it in 0.0s — i.e. the data was one request
+  //    away the whole time and no code path was going to make it.
+  //
+  // The fix is the smallest one that closes it: MARK, DON'T RETRY. No timer, no
+  // backoff, no retry loop, and emphatically not "re-pull the whole history on
+  // every reconnect" — what gets re-fetched is the same newest page `load()`
+  // would have fetched anyway. The flag only widens WHEN we are allowed to
+  // fetch: the next relevant burst gets through even when the per-conversation
+  // filter (`touchesThisThread`) would have skipped it, because that filter
+  // reasons about "is this delta about us", which cannot tell us anything about
+  // a page we already know we are missing.
+  //
+  // ⚠️ THE GAP THIS LEAVES OPEN, VERBATIM AND ON PURPOSE:
+  // 「下一個事件來就補」意味著:如果那條線之後再也沒有任何事件,就還是不會補。
+  // If no further chat/chat_read delta ever arrives on this connection, the
+  // thread stays behind until a focus/visibilitychange, a peer switch, or a
+  // reconnect happens to re-run `load()`. That residual is a KNOWN, ACCEPTED
+  // trade made by the owner in exchange for a smaller change (2026-08-20). This
+  // is not "the stale-thread bug is fixed"; it is "the thread now self-heals on
+  // the next event instead of never".
+  //
+  // ⚠️ Scope, honestly: only `load()` sets this. `refetchReads()` /
+  // `loadOlder()` / `markRead()` still swallow their rejections the old way, so
+  // a lost read-receipt pull is still silent (tracked separately, not widened
+  // here).
+  //
+  // ⚠️ StrictMode: written in the effect's SETUP body, never only in cleanup —
+  // a cleanup-only ref write gets stuck off forever under setup→cleanup→setup.
+  const loadStaleRef = useRef(false);
 
   // The PEER's watermark for this conversation: their receipt is the one whose
   // reader is the peer (readerId === withId). That is how far the peer has read
@@ -160,6 +198,11 @@ export function useChat(withId: string): UseChat {
 
   useEffect(() => {
     let alive = true;
+    // Setup-body write (see loadStaleRef's StrictMode note): a fresh
+    // subscription — including a peer switch — starts by loading
+    // unconditionally, so it owes nothing yet, and any debt the PREVIOUS peer
+    // left behind is not this conversation's to pay.
+    loadStaleRef.current = false;
 
     // Switching conversations: drop the PREVIOUS peer's thread/receipt state
     // immediately instead of letting it linger under the new peer's header
@@ -184,6 +227,8 @@ export function useChat(withId: string): UseChat {
       fetching
         .then((next) => {
           if (!alive) return;
+          // Landed ⇒ whatever we owed is paid off.
+          loadStaleRef.current = false;
           // MERGE the newest page into whatever is already loaded for this
           // peer (see mergeLatestPage) — replacing would eat the scrollback.
           setThread((prev) =>
@@ -196,7 +241,12 @@ export function useChat(withId: string): UseChat {
                 },
           );
         })
-        .catch((e) => console.warn("useChat: load failed", e));
+        .catch((e) => {
+          // Do NOT retry here (T-929f). Record the debt only; the SSE sink
+          // below pays it on the next relevant burst.
+          loadStaleRef.current = true;
+          console.warn("useChat: load failed", e);
+        });
     };
 
     load();
@@ -227,9 +277,20 @@ export function useChat(withId: string): UseChat {
         const reads = batch.deltas.filter((d) => d.topic === "chat_read");
         // A resync (unnamed: no delta, or a delta naming nobody) reloads
         // unconditionally — see above.
+        //
+        // 🔴 T-929f: `touchesThisThread` answers "is this delta about us", and
+        // that is the right question ONLY while the thread we are holding is
+        // the truth. Once a load has failed we are knowingly holding a stale
+        // page, and no amount of reasoning about a DIFFERENT conversation's
+        // participants can fill it in — so a relevant burst (any chat /
+        // chat_read topic, already established above) forces the load through
+        // exactly when we owe one. It re-fetches the SAME newest page the lost
+        // load wanted; it is not a history re-pull.
         const ourChat =
-          batch.topics.has("chat") &&
-          (chats.length === 0 || chats.some((d) => touchesThisThread(d.names)));
+          loadStaleRef.current ||
+          (batch.topics.has("chat") &&
+            (chats.length === 0 ||
+              chats.some((d) => touchesThisThread(d.names))));
         if (ourChat) load();
         // `peerLastReadTs` is the PEER's watermark and nothing else, so only a
         // read whose READER is the peer can move it. Our own read echo names US

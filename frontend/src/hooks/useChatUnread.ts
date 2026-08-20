@@ -6,7 +6,7 @@
 // a badge when it is > 0 (>99 → "99+"), nothing at 0. This is a different signal
 // from the 等我回覆 waiting-card badge — they never merge.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { createDeltaSink } from "../lib/deltaSink";
 import { burstMovesNoOwnerUnread } from "../lib/ownerUnread";
@@ -33,17 +33,56 @@ export const OFFICE_TOTAL_TOPICS = new Set([
 
 export function useChatUnread(): number {
   const [count, setCount] = useState(0);
+  // 🔴 "THE LAST REFETCH NEVER LANDED" (T-929f). Same defect, same shape as
+  // useChat's load(): a count fetch that REJECTS used to be a lone console.warn
+  // and nothing else, so the badge kept rendering the number from before the
+  // failure with no path back to the truth. It is NOT covered by the reconnect
+  // resync: that only runs when the transport itself drops (es.onopen fires
+  // again). Measured: with the EventSource still open (esOpen=1, esError=0) the
+  // delta arrives, this fetch fails, and the badge sits frozen for 90s+ —
+  // synthesising one `focus` fixes it in 0.0s, which is the proof that nothing
+  // in the hook was ever going to retry.
+  //
+  // The fix is deliberately the SMALLEST one that closes it: mark, don't retry.
+  // No timer, no backoff, no retry loop — just a flag saying "this consumer is
+  // holding a number it knows is stale", which forces the NEXT relevant burst
+  // through to a fetch even when the ordinary filter would have skipped it.
+  //
+  // ⚠️ THE GAP THIS LEAVES OPEN, VERBATIM AND ON PURPOSE:
+  // 「下一個事件來就補」意味著:如果那條線之後再也沒有任何事件,就還是不會補。
+  // If no further chat / chat_read / member / outsource_worker delta ever
+  // arrives on this connection, the stale count STAYS stale until something
+  // else remounts or reconnects. That residual is a KNOWN, ACCEPTED trade made
+  // by the owner in exchange for a smaller change (2026-08-20). Do not read the
+  // flag below as "the stale-badge bug is fixed"; read it as "the badge now
+  // self-heals on the next event instead of never".
+  //
+  // ⚠️ StrictMode: this ref is (re)initialised in the effect's SETUP body, not
+  // only in cleanup. A ref that is only ever written on the way out gets stuck
+  // off forever under StrictMode's setup→cleanup→setup double-invoke.
+  const staleRef = useRef(false);
 
   useEffect(() => {
     let alive = true;
+    // Setup-body write (see the StrictMode note above): a fresh subscription
+    // starts by fetching unconditionally, so it owes nothing yet.
+    staleRef.current = false;
 
     const refetch = () => {
       api
         .getChatUnreadCount()
         .then((n) => {
-          if (alive) setCount(n);
+          if (!alive) return;
+          // Landed ⇒ whatever we owed is paid off.
+          staleRef.current = false;
+          setCount(n);
         })
-        .catch((e) => console.warn("useChatUnread: fetch failed", e));
+        .catch((e) => {
+          // Do NOT retry here. Just record the debt; the sink below pays it on
+          // the next relevant burst.
+          staleRef.current = true;
+          console.warn("useChatUnread: fetch failed", e);
+        });
     };
 
     refetch();
@@ -74,7 +113,15 @@ export function useChatUnread(): number {
           OFFICE_TOTAL_TOPICS.has(t)
         );
         if (mine.length === 0) return;
-        if (burstMovesNoOwnerUnread(batch, mine)) return;
+        // 🔴 T-929f: the ordinary "this burst cannot move the answer" gate is
+        // sound ONLY while the number we hold IS the answer. Once a fetch has
+        // failed, the number we hold is not the server's — so the reasoning
+        // "the server would hand back the number we already hold" no longer
+        // applies, and skipping would strand the stale value. A relevant burst
+        // therefore forces a fetch through the gate exactly when we owe one.
+        // (`mine.length === 0` above still stands: a topic this badge does not
+        // reconcile on is not a relevant event, debt or no debt.)
+        if (!staleRef.current && burstMovesNoOwnerUnread(batch, mine)) return;
         refetch();
       })
     );
