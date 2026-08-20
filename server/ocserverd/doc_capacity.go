@@ -53,6 +53,7 @@ package main
 //     "yours to do under close-out pressure" are NOT the same question.
 
 import (
+	"fmt"
 	"sort"
 	"strconv"
 	"unicode/utf8"
@@ -176,6 +177,19 @@ func newDocCapacityRow(doc string, sizeChars, capChars int, writable bool, actio
 	remaining := capChars - sizeChars
 	if remaining < 0 {
 		remaining = 0
+	}
+	// The ONE part of "does this sentence lie?" a machine can decide. The ask
+	// sentence makes a permission CLAIM, and `writable` states the same fact as
+	// a boolean two keys away — so a row carrying both is self-contradicting on
+	// its face, whatever the prose says. Everything else about these sentences
+	// needs a human (the literals in doc_capacity_t6bd2_test.go force one to
+	// read them), but this pairing does not: it survives someone rewriting the
+	// sentence AND updating the test literal in the same commit, which is the
+	// one move the literal test cannot catch. Programmer error, same treatment
+	// as authz.go's unknown-principal panic.
+	if action == docCapacityActionAsk && writable {
+		panic(fmt.Sprintf("doc capacity row %q says the reader cannot write it "+
+			"while writable=true — one of the two is wrong", doc))
 	}
 	return &docCapacityRow{
 		Doc:       doc,

@@ -529,6 +529,16 @@ func TestStepNoteWritesReportTheirOwnRoom(t *testing.T) {
 // it is also what the ruling on comparing text asks for (owner 2026-08-20,
 // c-2502de439aaa: 「你如果要比對 context 就是比對一整份要一模一樣」).
 //
+// 🔴 IT IS ONE OF THREE LAYERS, AND ON ITS OWN IT WOULD LEAVE A HOLE. This
+// test pins the CONTENT of the three sentences. Which row gets which one is
+// pinned by TestResumeSummaryDocCapacitySplitsWhatTheReaderCanActOn, and the
+// NUMBER of rows by TestResumeSummaryDocCapacityFiresForEveryCarrier's "exactly
+// 9 rows" — that last one is what stops someone adding a tenth carrier with a
+// fourth, unpinned sentence, because a new carrier fails the count until it is
+// listed in the split test's class map, which then pins its sentence too. Do
+// not read "this test does not pin the count" as a gap; read it as a division
+// of labour, and check all three are still standing before removing any.
+//
 // 🔴 WHAT TO DO WHEN THIS FAILS. Do not edit the literal to match the code
 // until you have read the new sentence and answered, for the reader that
 // actually receives it: does it claim a permission that reader HAS? does it
