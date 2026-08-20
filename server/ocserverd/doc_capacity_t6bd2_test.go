@@ -510,52 +510,61 @@ func TestStepNoteWritesReportTheirOwnRoom(t *testing.T) {
 	}
 }
 
-// TestDocCapacitySentencesDoNotClaimAPermissionTheReaderHas pins the SENTENCES
-// THEMSELVES, not which row gets which one.
+// TestDocCapacitySentencesAreWhatWeApproved pins the SENTENCES THEMSELVES,
+// as whole literal strings, not which row gets which one.
 //
-// 🔴 WHY THIS EXISTS SEPARATELY FROM THE EQUALITY CHECK ABOVE. That one compares
-// a row against the constant, so both sides move together: rewrite a constant
-// into a lie and the equality still passes. It answers "did this row get the
-// right one of the three sentences?" — a mapping question. This one answers a
-// different question the mapping cannot: "is the sentence itself telling the
-// truth?" The bug this whole file exists to kill was exactly that — a reader
-// being told its own insight answers 403 when one patch_insight disproves it.
+// 🔴 WHY A LITERAL AND NOT A KEYWORD LIST. The first version of this test
+// forbade three phrasings of the lie ("403", "cannot write", "not yours to
+// write"). A reviewer broke it in one try: rewrite the sentence as "you do NOT
+// have permission to write this one (the server refuses it)" and it goes green
+// while the row's own `writable` field, two keys away, still says true. A
+// whitelist of ways to lie only ever buys back the ways someone already thought
+// of; the liar picks the fourth phrasing.
 //
-// It is NOT a wording check and it does NOT conflict with the ruling that a test
-// comparing text compares a WHOLE document (owner 2026-08-20, c-2502de439aaa).
-// The opposite: it lets these sentences be rewritten into anything at all, and
-// forbids exactly one thing — claiming a permission the reader in fact has.
-// Rephrase freely; just do not lie.
-func TestDocCapacitySentencesDoNotClaimAPermissionTheReaderHas(t *testing.T) {
-	// Claims of the form "you cannot write this". They are FALSE for the two
-	// sentences below, because both go to readers who CAN write the document.
-	lies := []string{"403", "cannot write", "not yours to write"}
+// 🔴 WHY IT IS NOT IN TENSION WITH THE EQUALITY IN THE TEST ABOVE. That one
+// compares a row against the constant, so both sides move together — rewrite a
+// constant into a lie and it still passes. It answers "did this row get the
+// right one of the three sentences?" This one answers the question the mapping
+// cannot: "is the sentence still the one we approved?" Only a literal can, and
+// it is also what the ruling on comparing text asks for (owner 2026-08-20,
+// c-2502de439aaa: 「你如果要比對 context 就是比對一整份要一模一樣」).
+//
+// 🔴 WHAT TO DO WHEN THIS FAILS. Do not edit the literal to match the code
+// until you have read the new sentence and answered, for the reader that
+// actually receives it: does it claim a permission that reader HAS? does it
+// still tell a reader who CAN write the document that it can? Then update the
+// literal in the same commit. Turning this red is the point — it is the one
+// place that forces the sentence to be read by a human before it ships.
+func TestDocCapacitySentencesAreWhatWeApproved(t *testing.T) {
+	// Goes to a reader who CAN write the document, and must say so.
+	const wantSelf = "you can rewrite this one yourself: do it NOW, " +
+		"while there is still room, and rewrite it to its CURRENT state instead of appending"
 
-	for _, tc := range []struct {
-		name     string
-		sentence string
-	}{
-		{"docCapacityActionSelf", docCapacityActionSelf},
-		{"docCapacityActionSelfMemory", docCapacityActionSelfMemory},
+	// Long-term memory the reader CAN write but should not compact under time
+	// pressure. It must keep the "you can" half: dropping it (leaving only
+	// "compacting is not a close-out job, ask 銀月") tells no lie, but loses the
+	// one fact that stops the reader queueing behind her for a document that is
+	// its own. That regression shipped once and went green.
+	const wantSelfMemory = "you can write this one yourself, but " +
+		"compacting long-term memory is not a close-out job: schedule it, or ask " +
+		"銀月 (mira) to do it"
+
+	// The one sentence that DOES make a permission claim, because for the reader
+	// it is assigned to the claim is TRUE. It is here as the negative control:
+	// without it this test would still pass if every permission claim were
+	// stripped from the file, including the honest one.
+	const wantAsk = "去找銀月 (mira)" +
+		": this one is not yours to write, so compacting it is hers to do"
+
+	for _, tc := range []struct{ name, got, want string }{
+		{"docCapacityActionSelf", docCapacityActionSelf, wantSelf},
+		{"docCapacityActionSelfMemory", docCapacityActionSelfMemory, wantSelfMemory},
+		{"docCapacityActionAsk", docCapacityActionAsk, wantAsk},
 	} {
-		for _, lie := range lies {
-			if strings.Contains(tc.sentence, lie) {
-				t.Fatalf("%s goes to a reader who CAN write that document, so it must "+
-					"not say %q. Rewrite the sentence however you like — it just cannot "+
-					"claim a permission the reader has. Sentence was:\n%s",
-					tc.name, lie, tc.sentence)
-			}
+		if tc.got != tc.want {
+			t.Fatalf("%s changed. Read the new sentence against the reader it goes to "+
+				"BEFORE updating this literal (see the comment above):\n got %q\nwant %q",
+				tc.name, tc.got, tc.want)
 		}
-	}
-
-	// The NEGATIVE CONTROL, and it is not decoration: without it this test would
-	// still pass if someone deleted every permission claim from the codebase,
-	// including the one that is TRUE. docCapacityActionAsk goes to a reader who
-	// genuinely cannot write the document, so it MUST carry the claim — that is
-	// what makes the check above a limit on lying rather than a ban on the words.
-	if !strings.Contains(docCapacityActionAsk, "not yours to write") {
-		t.Fatalf("docCapacityActionAsk goes to a reader who genuinely CANNOT write "+
-			"the document; dropping the permission claim leaves the reader with no "+
-			"reason not to try. Sentence was:\n%s", docCapacityActionAsk)
 	}
 }

@@ -51,12 +51,15 @@ func TestOffboardNotice_TheApprovedSentence(t *testing.T) {
 			"the approved sentence verbatim:\n got %q\nwant %q", soft, wantSoft)
 	}
 	// Kept as a SHAPE assertion on top of the equality above, because it is not
-	// a keyword test: it refuses a time written in any of the four NUMERIC
-	// shapes it knows (ASCII, CJK, clock, Go duration) plus the deadline words,
-	// which is the property the two arms actually differ on. Note the bound —
-	// every one of those shapes starts at a digit, so a duration spelled out in
-	// words ("two minutes left") walks straight past it; offboard_absolute_
-	// deadline_td6a7_test.go says the same thing about its own copy. An equality assertion pins today's
+	// a keyword test: it refuses a time in any of the shapes it knows, which is
+	// the property the two arms actually differ on. What it turns on is the
+	// UNIT, never the digit (offboard_absolute_deadline_td6a7_test.go is where
+	// that is argued at length) — the quantity may be a digit, a CJK numeral,
+	// or the quantity words 半/幾/几, so "剩半分鐘" and "還有兩分鐘" are both
+	// caught. The bound is narrower than "any spelling": an English quantity
+	// spelled in words ("two minutes left", "half an hour") is NOT caught, and
+	// td6a7 argues that is a deliberate limit rather than an oversight — units
+	// are a closed list, English quantity phrasing is not. An equality assertion pins today's
 	// string; this one still fires if a future edit adds a clock in a wording
 	// nobody has written yet.
 	assertQuotesNoTime(t, "the soft notice", soft)
