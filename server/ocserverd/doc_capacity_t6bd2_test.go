@@ -287,7 +287,7 @@ func TestResumeSummaryDocCapacitySplitsWhatTheReaderCanActOn(t *testing.T) {
 		// Not writable — also measured, and for two DIFFERENT reasons: the role
 		// definition is refused by a principal gate (not even the reader's own),
 		// the boot documents are owner-only.
-		"role definition": classAsk,
+		"role definition":    classAsk,
 		"system interaction": classAsk, "offboard sequence": classAsk,
 		"boot sequence": classAsk,
 	}
