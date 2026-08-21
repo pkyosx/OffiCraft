@@ -835,6 +835,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "settings.reset",
   "settings.roleDefsSection",
   "settings.roles",
+  "settings.rounds",
   "settings.seconds",
   "settings.sessionTtl",
   "settings.sessionTtlSub",

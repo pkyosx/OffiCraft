@@ -836,6 +836,7 @@ var messageKeys = map[string]bool{
 	"settings.reset":                           true,
 	"settings.roleDefsSection":                 true,
 	"settings.roles":                           true,
+	"settings.rounds":                          true,
 	"settings.seconds":                         true,
 	"settings.sessionTtl":                      true,
 	"settings.sessionTtlSub":                   true,

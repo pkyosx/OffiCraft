@@ -1095,6 +1095,7 @@ function ServerParams({
                 onBlur={commitCodexNotice}
                 onKeyDown={(e) => { if (e.key === "Enter") commitCodexNotice(); }}
               />
+              <span className="param-pct__sign">{t.settings.rounds}</span>
             </div>
           </div>
 
@@ -1116,7 +1117,7 @@ function ServerParams({
                 onBlur={commitCodexHandover}
                 onKeyDown={(e) => { if (e.key === "Enter") commitCodexHandover(); }}
               />
-              <span className="param-pct__sign">次</span>
+              <span className="param-pct__sign">{t.settings.rounds}</span>
             </div>
           </div>
 

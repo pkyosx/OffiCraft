@@ -1601,6 +1601,7 @@ export const zh = {
     monitoringRefresh: "監控刷新間隔",
     monitoringRefreshSub: "收到連續事件時，最多每隔幾秒刷新一次（1–60）",
     seconds: "秒",
+    rounds: "次",
     // T-ae38 起(T-30f1 又拆過一次):上限不再是一個。這些文件被刪掉的成本差很多
     // ——角色定義是常設說明、學習經驗是逐次累積的環境問答——所以不再共用同一把尺。
     docCapDuty: "角色定義字數上限",
