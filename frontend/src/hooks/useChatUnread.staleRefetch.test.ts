@@ -187,4 +187,51 @@ describe("useChatUnread: a failed count fetch is marked and paid on the next eve
     expect(h.getChatUnreadCount).toHaveBeenCalledTimes(afterMount);
     expect(result.current).toBe(3);
   });
+  it("a fetch resolving AFTER its effect instance was torn down writes neither its number nor its paid-off mark onto the successor", async () => {
+    // The mirror of the case above: the dead instance's fetch SUCCEEDS. Without
+    // the `.then` arm's `if (!alive) return;` it does two things it has no
+    // right to do — `setCount` renders a number nobody asked for, and
+    // `staleRef.current = false` cancels a debt the LIVE instance really owes,
+    // stranding the stale badge exactly as before the fix. StrictMode
+    // (setup→cleanup→setup, how main.tsx mounts) is what makes the ref shared
+    // between the two instances; two renderHook calls would be two refs.
+    let resolveDead!: (n: number) => void;
+    const stuck = new Promise<number>((res) => {
+      resolveDead = res;
+    });
+
+    h.getChatUnreadCount
+      .mockImplementationOnce(() => stuck) // the torn-down instance's fetch
+      .mockResolvedValue(3); // the surviving instance's fetch
+
+    const { result } = renderHook(() => useChatUnread(), {
+      wrapper: ({ children }) => createElement(StrictMode, null, children),
+    });
+    await waitFor(() => expect(result.current).toBe(3));
+
+    // The live instance then loses a fetch of its own ⇒ it is owed one.
+    h.getChatUnreadCount.mockRejectedValueOnce(new Error("network"));
+    await emit(toOwner);
+    expect(result.current).toBe(3);
+    const afterDebt = h.getChatUnreadCount.mock.calls.length;
+
+    // NOW the dead instance's fetch lands, carrying a DIFFERENT number.
+    await act(async () => {
+      resolveDead(99);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // (a) the late number is dropped — the badge still renders the live value.
+    expect(result.current).toBe(3);
+
+    // (b) the debt survives: the next agent↔agent delta, which the T-b17f gate
+    //     would skip, still forces the fetch through and the badge catches up.
+    h.getChatUnreadCount.mockResolvedValue(7);
+    await emit(agentToAgent);
+    await waitFor(() =>
+      expect(h.getChatUnreadCount).toHaveBeenCalledTimes(afterDebt + 1),
+    );
+    await waitFor(() => expect(result.current).toBe(7));
+  });
 });

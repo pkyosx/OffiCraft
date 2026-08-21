@@ -33,6 +33,7 @@
 //     below doubles as that forced commit.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { StrictMode, createElement } from "react";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import type { ChatMessage, SseDelta } from "../api/adapter";
 
@@ -287,6 +288,76 @@ describe("useChat: a failed load is marked and paid on the next relevant event",
     // "z" never lost a page, so a foreign delta is still none of its business.
     await emit(elsewhere);
     expect(h.listChat).toHaveBeenCalledTimes(afterSwitch);
+    expect(result.current.messagesPeer).toBe("z");
+  });
+  it("a torn-down instance's load RESOLVING late writes neither its page nor its paid-off mark onto the live conversation", async () => {
+    // The mirror image of the case above, and the one nothing in this package
+    // covered: the dead instance's load SUCCEEDS. Without the `.then` arm's
+    // `if (!alive) return;` its landed page runs the else-arm of setThread
+    // (`prev.peer` is the LIVE peer, `withId` is the dead closure's) and
+    // re-registers the OLD peer as the thread's owner while showing the OLD
+    // peer's messages under the new conversation — plus it clears
+    // `loadStaleRef`, cancelling a debt the live instance really owes.
+    // StrictMode is how main.tsx mounts the app and is what keeps the ref
+    // SHARED between the torn-down instance and its successor; two renderHook
+    // calls would be two components with two refs and could not show this.
+    let resolveB!: (v: ChatMessage[]) => void;
+    const stuck = new Promise<ChatMessage[]>((res) => {
+      resolveB = res;
+    });
+    h.listChat.mockImplementation((withId: string) =>
+      withId === "b" ? stuck : Promise.resolve([]),
+    );
+
+    const { result, rerender } = renderHook(
+      ({ id }: { id: string }) => useChat(id),
+      {
+        initialProps: { id: "b" },
+        wrapper: ({ children }) => createElement(StrictMode, null, children),
+      },
+    );
+    await waitFor(() => expect(h.listChat).toHaveBeenCalled());
+
+    // Switch peers while "b"'s load is still in flight; "z" loads cleanly.
+    rerender({ id: "z" });
+    await waitFor(() => expect(result.current.messagesPeer).toBe("z"));
+
+    // "z" then loses a load of its own, so it is genuinely owed a page.
+    h.listChat.mockImplementationOnce(() =>
+      Promise.reject(new Error("network")),
+    );
+    await emit({
+      topic: "chat",
+      names: { id: "m3", from: "z", to: "owner" },
+      ids: ["m3", "z", "owner"],
+    });
+    const afterDebt = h.listChat.mock.calls.length;
+
+    // NOW the dead "b" instance's load lands.
+    await act(async () => {
+      resolveB([mkMsg("cB", "b", "owner", 1000)]);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // (a) the late page is dropped: the live thread keeps ITS peer and ITS
+    //     (empty) messages — no cross-conversation write.
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.messagesPeer).toBe("z");
+
+    // (b) the live instance's debt survives: the next foreign delta — which the
+    //     per-conversation filter would skip — still forces the missing page
+    //     through, and it lands as "z"'s.
+    h.listChat.mockImplementationOnce(() =>
+      Promise.resolve([mkMsg("c9", "z", "owner", 2000)]),
+    );
+    await emit(elsewhere);
+    await waitFor(() =>
+      expect(h.listChat).toHaveBeenCalledTimes(afterDebt + 1),
+    );
+    await waitFor(() =>
+      expect(result.current.messages.map((m) => m.id)).toEqual(["c9"]),
+    );
     expect(result.current.messagesPeer).toBe("z");
   });
 });
