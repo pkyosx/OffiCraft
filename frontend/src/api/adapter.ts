@@ -472,8 +472,11 @@ export interface TaskArtifactView {
  * worker drops off (closed tasks honestly fall back to the bare 外包 label). */
 export interface OutsourceWorkerView {
   id: string;
-  /** Personal image URL bound to this stable worker id. */
-  avatarUrl?: string;
+  /** The icon this actor explicitly chose in the ACTIVE theme, or null when it
+   * has no choice recorded there. A stable ThemeIcon id, never a position: the
+   * renderer looks the id up in the matching pool, and falls back to the
+   * pool's FIRST image when the id is null or its image was removed. */
+  avatarIconId?: string | null;
   /** Model-flavoured anonymous codename (O-7 / S-3 / H-1 …). */
   codename: string;
   /** The owner-CONFIGURED launch trio — what the settings dialog round-trips. */
@@ -1441,10 +1444,9 @@ export interface Api {
    */
   listMembers(opts?: { light?: boolean }): Promise<Member[]>;
   getMember(id: string): Promise<Member>;
-  /** Owner-only personal avatar mutation; raw PNG/JPEG/WEBP, max 64 KiB. */
-  updateMemberAvatar(id: string, file: File): Promise<string>;
-  /** Owner-only removal; returns the member to the theme/glyph fallback. */
-  removeMemberAvatar(id: string): Promise<void>;
+  /** Owner-only: record this member's avatar choice inside ONE theme. The
+   * theme id is explicit so a write can never leak into another theme's row. */
+  setMemberThemeAvatar(id: string, themeId: string, iconId: string): Promise<void>;
   /**
    * Write desired_state=online INTENT — and, when `machineId` is given, BIND the agent
    * to that machine (sent as `{machine_id}` in the activate body; the field was

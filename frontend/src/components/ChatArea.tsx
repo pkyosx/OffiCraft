@@ -1070,7 +1070,11 @@ export function ChatArea({
          * role — an outsource peer (ow- id) shows the theme's 外包 image, an
          * assistant the 助理 image, a 正職 peer the member image. Rendering
          * member for an outsource peer fabricated a 正職 identity. */}
-        <Avatar size={38} kind={avatarKindForMember(member)} src={member.avatarUrl} />
+        <Avatar
+          size={38}
+          kind={avatarKindForMember(member)}
+          avatarIconId={member.avatarIconId}
+        />
         <div className="chat__header-text">
           {/* Name only — no chevron/caret glyph (owner feedback: the "Mira ›"
            * arrow was noise). The header itself stays the clickable detail

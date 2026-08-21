@@ -9,7 +9,7 @@ import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { joinSessionRuntime, findSessionFor } from "../lib/runtime";
 import { useHashRoute } from "../lib/hashRoute";
-import { updateCachedWorkerAvatar } from "../hooks/useWorkerCodenames";
+import { updateCachedWorkerThemeAvatar } from "../hooks/useWorkerCodenames";
 import { MemberCard } from "./MemberCard";
 import { ChatArea } from "./ChatArea";
 import { MemberDetailPanel } from "./MemberDetailPanel";
@@ -53,7 +53,7 @@ function blankChatPeer(id: string, name: string, kind: Member["kind"]): Member {
 }
 
 export function OfficePage() {
-  const { t, msg } = useI18n();
+  const { t, msg, theme } = useI18n();
   // T-66a8: the sidebar switches 正職/外包 by a top text tab (owner mockup
   // 2026-07-18), replacing the old two-stacked-groups rail. Plain component
   // state (not persisted) — the tab is a view toggle, not a route.
@@ -223,7 +223,7 @@ export function OfficePage() {
         status: "online",
         lifecycle: "online",
         model: workerPeer.model,
-        avatarUrl: workerPeer.avatarUrl,
+        avatarIconId: workerPeer.avatarIconId,
         // ChatArea snapshots this before listChat marks the room read.  The
         // live worker's server-computed badge is therefore part of the same
         // entry contract as a regular member's unreadCount.
@@ -358,13 +358,9 @@ export function OfficePage() {
             effort,
           });
         }}
-        onUpdateAvatar={async (file) => {
-          const avatarUrl = await api.updateMemberAvatar(workerDetail.id, file);
-          updateCachedWorkerAvatar(workerDetail.id, avatarUrl);
-        }}
-        onRemoveAvatar={async () => {
-          await api.removeMemberAvatar(workerDetail.id);
-          updateCachedWorkerAvatar(workerDetail.id, "");
+        onSetThemeAvatar={async (iconId) => {
+          await api.setMemberThemeAvatar(workerDetail.id, theme, iconId);
+          updateCachedWorkerThemeAvatar(workerDetail.id, iconId);
         }}
         // Initial-prompt PREVIEW (T-ba6b): the server re-runs the spawn fold
         // over the CURRENT task/manual rows (no token minted) — the worker twin
@@ -453,12 +449,8 @@ export function OfficePage() {
           await api.patchMember(detail.id, { name });
           await refetch();
         }}
-        onUpdateAvatar={async (file) => {
-          await api.updateMemberAvatar(detail.id, file);
-          await refetch();
-        }}
-        onRemoveAvatar={async () => {
-          await api.removeMemberAvatar(detail.id);
+        onSetThemeAvatar={async (iconId) => {
+          await api.setMemberThemeAvatar(detail.id, theme, iconId);
           await refetch();
         }}
       />

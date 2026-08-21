@@ -24,13 +24,12 @@ export interface ThemeBundle {
   colors: Record<string, string>;
   wording?: Record<string, Record<string, string>>;
   fonts?: Record<string, string>;
-  /** Optional per-role avatar images (T-16a1 P5; extended per role in T-ea81).
-   * Each value is an EMBEDDED image as a base64 `data:` URI so the picture
-   * travels inside the bundle on export/import. `member` = 一般正職, `outsource`
-   * = 外包, `owner` = the human CEO/owner, `assistant` = a member whose role is
-   * assistant (e.g. Mira). Absent → the built-in avatar glyph is used (office
-   * never degrades). */
-  avatars?: Partial<Record<AvatarKind, string>>;
+  /** Single-image identities kept for owner and assistant. */
+  avatars?: Partial<Record<SingletonAvatarKind, string>>;
+  /** Ordered staff/outsource pools. Each item carries the STABLE id a member's
+   * selection points at, so removing one image never rebinds a member to
+   * another. Order is presentation only; reorder is not supported. */
+  avatarPools?: Partial<Record<PoolAvatarKind, ThemeIcon[]>>;
   /** Optional studio logo image (T-ea81). A single EMBEDDED base64 `data:` URI
    * that replaces the built-in top-bar logo mark. Absent → the built-in mark. */
   logo?: string;
@@ -54,10 +53,23 @@ export interface ThemeBundle {
   backgroundModes?: Partial<Record<BackgroundKey, BackgroundMode>>;
 }
 
-/** The roles an avatars overlay may key on (正職 / 外包 / owner / assistant) —
- * the character-for-character twin of the Go avatarKinds set (T-ea81). */
+/** Every role an avatar can stand for (正職 / 外包 / owner / assistant). This is
+ * the Avatar component's `kind`, NOT the key set of any one overlay — the two
+ * overlays split those roles between them, and reading this constant as "the
+ * avatars keys" is how the singleton validator's comment went stale once.
+ *
+ *   - POOL_AVATAR_KINDS (member, outsource) key `avatarPools`, an ordered pool
+ *     whose items carry stable ids;
+ *   - SINGLETON_AVATAR_KINDS (owner, assistant) key `avatars`, one image each.
+ *
+ * Both halves are the character-for-character twin of the Go sets. */
 export const AVATAR_KINDS = ["member", "outsource", "owner", "assistant"] as const;
 export type AvatarKind = (typeof AVATAR_KINDS)[number];
+export const POOL_AVATAR_KINDS = ["member", "outsource"] as const;
+export type PoolAvatarKind = (typeof POOL_AVATAR_KINDS)[number];
+export const SINGLETON_AVATAR_KINDS = ["owner", "assistant"] as const;
+export type SingletonAvatarKind = (typeof SINGLETON_AVATAR_KINDS)[number];
+export const MAX_AVATAR_POOL_ITEMS = 12;
 
 /** The nav tabs a navIcons overlay may key on — the closed set of the five main
  * nav tabs, identical to App.tsx's `Tab` type (T-ea81). */
@@ -243,7 +255,6 @@ export function validateFonts(fonts: unknown, where = "theme"): string | null {
   return null;
 }
 
-const AVATAR_KIND_SET = new Set<string>(AVATAR_KINDS);
 const NAV_ICON_KEY_SET = new Set<string>(NAV_ICON_KEYS);
 const BACKGROUND_KEY_SET = new Set<string>(BACKGROUND_KEYS);
 const BACKGROUND_MODE_SET = new Set<string>(BACKGROUND_MODES);
@@ -329,21 +340,121 @@ export function isValidBackgroundValue(v: string): boolean {
   return isValidImageValue(v, MAX_BACKGROUND_BYTES, MAX_BACKGROUND_VALUE_LEN);
 }
 
-/** Validate a bundle's optional `avatars` overlay (T-16a1 P5; T-ea81) — the
- * twin of the Go validateAvatars. Key ∈ {member, outsource, owner, assistant},
- * value ∈ {whitelisted-raster base64 data URI}. Returns an error message, or
- * null when admissible (an absent overlay is admissible). */
+/** Validate a bundle's optional SINGLETON `avatars` overlay (T-16a1 P5; T-ea81)
+ * — the twin of the Go validateAvatars.
+ *
+ * Key ∈ {owner, assistant} ONLY. `member` and `outsource` are NOT valid keys
+ * here: each of those carries an ORDERED POOL under `avatarPools`, and a
+ * legacy singleton for either is normalized into a one-image pool BEFORE this
+ * runs (normalizeThemeAvatarPools). Value ∈ {whitelisted-raster base64 data
+ * URI}. Returns an error message, or null when admissible (an absent overlay
+ * is admissible). */
 export function validateAvatars(avatars: unknown, where = "theme"): string | null {
   if (avatars === undefined || avatars === null) return null;
   if (typeof avatars !== "object" || Array.isArray(avatars)) {
     return `${where}: avatars must be an object`;
   }
   for (const [kind, value] of Object.entries(avatars as Record<string, unknown>)) {
-    if (!AVATAR_KIND_SET.has(kind)) {
-      return `${where}: avatar kind "${kind}" is not allowed (only member, outsource, owner, assistant)`;
+    if (!(SINGLETON_AVATAR_KINDS as readonly string[]).includes(kind)) {
+      return `${where}: avatar kind "${kind}" is not allowed (only owner, assistant)`;
     }
     if (typeof value !== "string" || !isValidAvatarValue(value)) {
       return `${where}: avatars[${kind}] is not a valid image — only a base64 data: URI of a PNG / JPEG / WEBP (≤ 64 KiB) is accepted`;
+    }
+  }
+  return null;
+}
+
+/** One image in a theme's avatar pool.
+ *
+ * `id` is the durable identity a member's selection points at (see
+ * lib/themeIconId). It is optional on the way IN — a bundle written before ids
+ * existed, or a pool the cockpit has just edited, may omit it and the server
+ * stamps the canonical value — and always present on what the server echoes. */
+export interface ThemeIcon {
+  id?: string;
+  image: string;
+}
+
+/** Read one pool entry in either shape: the canonical `{id, image}` object, or
+ * the legacy bare data-URI string that older bundles and older exports carry.
+ * Returns undefined for anything else, which the validator turns into a 422. */
+export function readThemeIcon(value: unknown): ThemeIcon | undefined {
+  if (typeof value === "string") return { image: value };
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const item = value as { id?: unknown; image?: unknown };
+    if (typeof item.image === "string") {
+      return typeof item.id === "string" ? { id: item.id, image: item.image } : { image: item.image };
+    }
+  }
+  return undefined;
+}
+
+export function normalizeThemeAvatarPools(
+  bundle: Record<string, unknown>,
+  where = "theme"
+): string | null {
+  if (
+    bundle.avatars === undefined ||
+    bundle.avatars === null ||
+    typeof bundle.avatars !== "object" ||
+    Array.isArray(bundle.avatars)
+  ) {
+    return null;
+  }
+  const avatars = bundle.avatars as Record<string, unknown>;
+  let pools =
+    bundle.avatarPools &&
+    typeof bundle.avatarPools === "object" &&
+    !Array.isArray(bundle.avatarPools)
+      ? (bundle.avatarPools as Record<string, unknown>)
+      : undefined;
+  for (const kind of POOL_AVATAR_KINDS) {
+    if (!(kind in avatars)) continue;
+    if (pools && kind in pools) {
+      return `${where}: cannot define both avatars[${kind}] and avatarPools[${kind}]`;
+    }
+    pools ??= {};
+    pools[kind] = [{ image: avatars[kind] }];
+    delete avatars[kind];
+  }
+  // A pool written in the legacy bare-string shape is lifted to the canonical
+  // object shape here, so everything downstream reads one shape only.
+  if (pools) {
+    for (const kind of POOL_AVATAR_KINDS) {
+      const items = pools[kind];
+      if (!Array.isArray(items)) continue;
+      const lifted = items.map(readThemeIcon);
+      if (lifted.every((item) => item !== undefined)) {
+        pools[kind] = lifted as ThemeIcon[];
+      }
+    }
+    bundle.avatarPools = pools;
+  }
+  if (Object.keys(avatars).length === 0) delete bundle.avatars;
+  return null;
+}
+
+export function validateAvatarPools(
+  pools: unknown,
+  where = "theme"
+): string | null {
+  if (pools === undefined || pools === null) return null;
+  if (typeof pools !== "object" || Array.isArray(pools)) {
+    return `${where}: avatarPools must be an object`;
+  }
+  for (const [kind, values] of Object.entries(pools as Record<string, unknown>)) {
+    if (!(POOL_AVATAR_KINDS as readonly string[]).includes(kind)) {
+      return `${where}: avatar pool kind "${kind}" is not allowed (only member, outsource)`;
+    }
+    if (!Array.isArray(values) || values.length > MAX_AVATAR_POOL_ITEMS) {
+      return `${where}: avatarPools[${kind}] must be an array with at most ${MAX_AVATAR_POOL_ITEMS} images`;
+    }
+    for (let i = 0; i < values.length; i++) {
+      const item = readThemeIcon(values[i]);
+      if (!item || !isValidAvatarValue(item.image)) {
+        return `${where}: avatarPools[${kind}][${i}] is not a valid image — only a base64 data: URI of a PNG / JPEG / WEBP (≤ 64 KiB) is accepted`;
+      }
     }
   }
   return null;
@@ -557,6 +668,8 @@ export function validateThemeBundleWith(
     return `${where}: must be an object`;
   }
   const bundle = b as Record<string, unknown>;
+  const normalizeErr = normalizeThemeAvatarPools(bundle, where);
+  if (normalizeErr) return normalizeErr;
   if (typeof bundle.id !== "string" || !THEME_ID_RE.test(bundle.id)) {
     return `${where}: id must match ^[a-z0-9][a-z0-9-]{1,63}$`;
   }
@@ -617,6 +730,11 @@ export function validateThemeBundleWith(
   // avatars (T-16a1 P5; T-ea81) is an optional per-role embedded-image overlay.
   const aErr = validateAvatars((bundle as { avatars?: unknown }).avatars, where);
   if (aErr) return aErr;
+  const apErr = validateAvatarPools(
+    (bundle as { avatarPools?: unknown }).avatarPools,
+    where
+  );
+  if (apErr) return apErr;
   // logo (T-ea81) is an optional single embedded studio-logo image.
   const lErr = validateLogo((bundle as { logo?: unknown }).logo, where);
   if (lErr) return lErr;

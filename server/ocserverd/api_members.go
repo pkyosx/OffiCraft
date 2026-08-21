@@ -16,9 +16,7 @@ package main
 import (
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"strings"
 )
 
 // minSelfRestartSecs is the restart_self minimum-liveness floor (T-4c71): a
@@ -53,7 +51,9 @@ func (s *apiServer) putMember(m Member, trigger string) error {
 }
 
 // memberDeltaPayload is the member delta's partial convenience payload
-// (repository._member_payload — the client reconciles by refetch).
+// (repository._member_payload — the client reconciles by refetch). The avatar
+// choice is deliberately NOT here: it is per theme, so a payload field would
+// have to name a theme, and the client already refetches to reconcile.
 func memberDeltaPayload(m Member) map[string]any {
 	return map[string]any{
 		"id":            m.ID,
@@ -394,105 +394,65 @@ func (s *apiServer) publishMemberAvatarChanged(m Member, trigger string) {
 		s.offboardDeltaPayload(m), audienceMembers(m.ID), trigger)
 }
 
-func memberAvatarResult(m Member, mime string, filename *string) MemberAvatarDTO {
-	url := memberAvatarURL(m.AvatarAttachmentID)
-	result := MemberAvatarDTO{MemberId: m.ID, AvatarUrl: &url}
-	if mime != "" {
-		result.Mime = &mime
-	}
-	result.Filename = filename
-	return result
-}
-
-// PUT /api/members/{member_id}/avatar — raw raster bytes, owner-only at the
-// route table. A fresh ava- id makes every replacement cache-safe.
-func (s *apiServer) HandlePutMemberAvatarApiMembersMemberIdAvatarPut(
+// PUT /api/members/{member_id}/theme-avatar — owner-only visual identity.
+//
+// 🔴 OWNER-ONLY, AND THAT IS A RULING, NOT AN OVERSIGHT (owner 2026-07-27,
+// carried forward from the retired personal-avatar route). A member's face is
+// how the owner tells the fleet apart at a glance, so it is governance: an
+// agent or a machine token must not be able to change how it appears to the
+// human watching. The route therefore sits behind the owner gate AND stays out
+// of MCP — it is a cockpit control, not an agent tool. routes.go pins both
+// properties and routes_t6020_governance_test.go tells maintainers to read this
+// note before widening either one.
+//
+// The write is scoped to ONE (member, theme) pair. A choice the same member
+// made in another theme is never touched, which is the whole point of the
+// association: switching themes and switching back restores each theme's own
+// image rather than re-resolving one index against a different pool.
+func (s *apiServer) HandleSetMemberThemeAvatarApiMembersMemberIdThemeAvatarPut(
 	w http.ResponseWriter,
 	r *http.Request,
 	memberID string,
-	params HandlePutMemberAvatarApiMembersMemberIdAvatarPutParams,
 ) {
+	var body MemberThemeAvatarUpdateDTO
+	if !decodeJSONBodyRequired(w, r, &body, "theme_id", "icon_id") {
+		return
+	}
+	if body.ThemeId == "" || body.IconId == "" {
+		writeError(w, http.StatusUnprocessableEntity, "theme_id and icon_id must not be empty")
+		return
+	}
 	m, err := s.resolveAvatarMember(memberID)
 	if err != nil {
 		writeResolveError(w, err, "member", memberID)
 		return
 	}
 	if m.Kind == KindWarden {
-		writeError(w, http.StatusUnprocessableEntity, "a machine cannot have a personal avatar")
+		writeError(w, http.StatusUnprocessableEntity, "a machine cannot have a theme avatar")
 		return
 	}
-	raw, err := io.ReadAll(io.LimitReader(r.Body, maxAvatarBytes+1))
-	if err != nil {
-		writeError(w, http.StatusUnprocessableEntity, "could not read avatar image")
-		return
-	}
-	if len(raw) > maxAvatarBytes {
-		writeError(w, http.StatusRequestEntityTooLarge,
-			fmt.Sprintf("avatar image is too large (max %d bytes)", maxAvatarBytes))
-		return
-	}
-	if len(raw) == 0 {
-		writeError(w, http.StatusUnprocessableEntity, "avatar image is empty")
-		return
-	}
-	actualMime := sniffAttachmentMime(raw)
-	if _, ok := avatarMimeMagic[actualMime]; !ok {
+	// Resolve the icon against the NAMED theme's matching pool, not the active
+	// one: the cockpit may write a choice for a theme it is not showing, and an
+	// id the pool can not resolve is exactly how a member silently ends up
+	// wearing another member's face.
+	if !s.themeIconIDsFor(body.ThemeId)[body.IconId] {
 		writeError(w, http.StatusUnprocessableEntity,
-			"avatar must be PNG, JPEG, or WEBP raster bytes")
+			"icon_id is not an image in that theme's pool")
 		return
 	}
-	if params.Mime != nil {
-		declared := strings.TrimSpace(*params.Mime)
-		if declared != "" && declared != actualMime {
-			writeError(w, http.StatusUnprocessableEntity,
-				fmt.Sprintf("avatar mime %q does not match image bytes %q", declared, actualMime))
-			return
-		}
+	if avatarPoolKindFor(m.Kind) == "" {
+		writeError(w, http.StatusUnprocessableEntity, "this member kind has no avatar pool")
+		return
 	}
-	var filename *string
-	if params.Filename != nil {
-		trimmed := strings.TrimSpace(*params.Filename)
-		if trimmed != "" {
-			filename = &trimmed
-		}
-	}
-	avatar := ChatAttachment{
-		ID:       "ava-" + newHexID(12),
-		Mime:     actualMime,
-		Data:     raw,
-		Filename: filename,
-	}
-	if err := s.dal.ReplaceMemberAvatar(m.ID, avatar); err != nil {
+	if err := s.dal.SetMemberThemeAvatar(m.ID, body.ThemeId, body.IconId); err != nil {
 		internalError(w, err)
 		return
 	}
-	m.AvatarAttachmentID = avatar.ID
+	s.invalidateAvatarSelections()
 	s.publishMemberAvatarChanged(*m, requestTrigger(r))
-	writeJSON(w, http.StatusOK, memberAvatarResult(*m, actualMime, filename))
-}
-
-// DELETE /api/members/{member_id}/avatar — idempotent fallback restoration.
-func (s *apiServer) HandleDeleteMemberAvatarApiMembersMemberIdAvatarDelete(
-	w http.ResponseWriter,
-	r *http.Request,
-	memberID string,
-) {
-	m, err := s.resolveAvatarMember(memberID)
-	if err != nil {
-		writeResolveError(w, err, "member", memberID)
-		return
-	}
-	if m.Kind == KindWarden {
-		writeError(w, http.StatusUnprocessableEntity, "a machine cannot have a personal avatar")
-		return
-	}
-	if err := s.dal.DeleteMemberAvatar(m.ID); err != nil {
-		internalError(w, err)
-		return
-	}
-	m.AvatarAttachmentID = ""
-	s.publishMemberAvatarChanged(*m, requestTrigger(r))
-	writeJSON(w, http.StatusOK, memberAvatarResult(*m, "", nil))
+	writeJSON(w, http.StatusOK, MemberThemeAvatarDTO{
+		MemberId: m.ID, ThemeId: body.ThemeId, IconId: body.IconId,
+	})
 }
 
 // GET /api/members — the roster (soft-removed rows omitted). online is the
@@ -1272,6 +1232,20 @@ func (s *apiServer) HandleDismissMemberApiMembersMemberIdDelete(w http.ResponseW
 		internalError(w, err)
 		return
 	}
+	// A dismissed member leaves the roster for good, so its per-theme avatar
+	// choices are dead rows. Drop them here rather than at render time: a
+	// dangling selection must never affect another theme, and a member id that
+	// somehow returned would otherwise inherit the old face.
+	//
+	// BEST-EFFORT for the same reason the card sweep below is: putMember has
+	// already persisted the dismissal and there is no transaction to roll it
+	// back, so a 500 here would report "dismiss failed" for a member that IS
+	// dismissed. A leftover row is invisible (the member never renders again)
+	// and the settings write path prunes it on the next theme edit.
+	if err := s.dal.DeleteMemberThemeAvatars(m.ID); err != nil {
+		taskLog("dismiss %s: avatar selection sweep failed: %v", m.ID, err)
+	}
+	s.invalidateAvatarSelections()
 	// T-4166: the asker is gone, so no answer can ever be delivered to its
 	// waiting cards — retire them instead of leaving them in the owner's
 	// 等我回覆 pane forever (each one pins the cockpit red dot on a member that

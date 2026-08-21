@@ -134,6 +134,18 @@ func (s *apiServer) HandlePutThemeApiThemesThemeIdPut(w http.ResponseWriter, r *
 	// number of entries as long as they were unrecognised, and the cap — whose
 	// entire job is to bound what an untrusted caller can submit — passed a map
 	// that had already been emptied for it.
+	// Normalize BEFORE validating and storing. A legacy singleton
+	// avatars.member becomes a one-image pool, a pool written as bare data-URI
+	// strings is lifted to items, and every item is stamped with the identity
+	// DERIVED from its bytes. Doing it here means the STORED bytes already
+	// carry the ids a member's selection points at — the read path never has
+	// to invent one, and an id the caller sent is overwritten rather than
+	// trusted.
+	if err := normalizeThemeAvatarPools(&body, "theme "+strconv.Quote(themeID)); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	assignThemeIconIDs(body.AvatarPools)
 	if err := validateThemeBundle(body, "theme "+strconv.Quote(themeID), nil); err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return
@@ -203,6 +215,20 @@ func (s *apiServer) HandlePutThemeApiThemesThemeIdPut(w http.ResponseWriter, r *
 		internalError(w, fmt.Errorf("theme %s vanished between the write and the read-back", strconv.Quote(themeID)))
 		return
 	}
+	// A theme write can remove a pool image, which leaves every member that
+	// chose it pointing at nothing. Prune here rather than at render time: a
+	// theme id that is later reused would otherwise resurrect the old
+	// selections. This endpoint is the ONLY path that edits a theme, so it is
+	// the only place that can see the change.
+	//
+	// BEST-EFFORT: the theme is already stored and there is no transaction to
+	// roll back, so a 500 here would report "the write failed" for a write that
+	// succeeded. A leftover row is invisible — memberAvatarIconID resolves
+	// against the live pool and sends null for an id it cannot find.
+	if err := s.dal.PruneMemberThemeAvatars(s.themeIconIDs()); err != nil {
+		taskLog("theme %s: avatar selection prune failed: %v", themeID, err)
+	}
+	s.invalidateAvatarSelections()
 	writeJSON(w, http.StatusOK, themeWriteReceiptDTO{
 		ID:        themeID,
 		Created:   existing == nil,
@@ -246,6 +272,19 @@ func (s *apiServer) HandleDeleteThemeApiThemesThemeIdDelete(w http.ResponseWrite
 	}
 	s.settingsMu.Unlock()
 
+	// Deleting a theme leaves every selection made inside it dangling. Prune
+	// here rather than at render time: a theme id that is later reused would
+	// otherwise resurrect the old selections. This endpoint is the ONLY path
+	// that deletes a theme.
+	//
+	// BEST-EFFORT: the row is already gone and there is no transaction to roll
+	// back, so a 500 here would report "the delete failed" for a delete that
+	// succeeded. A leftover association is invisible — memberAvatarIconID
+	// resolves against the live pool and sends null for an id it cannot find.
+	if err := s.dal.PruneMemberThemeAvatars(s.themeIconIDs()); err != nil {
+		taskLog("theme %s: avatar selection prune failed: %v", themeID, err)
+	}
+	s.invalidateAvatarSelections()
 	writeJSON(w, http.StatusOK, themeDeleteResultDTO{
 		ID: themeID, Deleted: true, DisplayThemeReset: reset,
 	})

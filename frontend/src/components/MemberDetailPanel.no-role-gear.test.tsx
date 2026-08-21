@@ -20,14 +20,34 @@
 // arrive under some NEW name, and the structural form still catches it.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render } from "@testing-library/react";
-import { I18nProvider } from "../i18n";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
+import { TOKEN_KEY } from "../api/auth";
+import { I18nProvider, useI18n } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { MemberDetailPanel } from "./MemberDetailPanel";
 import type { Member } from "../types";
 
+// One store shared by the theme faces of the api mock above.
+const themeStore = new Map<string, any>();
+
 vi.mock("../api", () => ({
   api: {
+    // Themes are a RESOURCE (T-83ef): the provider saves through putTheme and
+    // fetches the active bundle back, so both faces have to exist here or the
+    // chooser never sees a pool.
+    putTheme: (bundle: { id: string }) => {
+      themeStore.set(bundle.id, bundle);
+      return Promise.resolve({
+        id: bundle.id, created: true, orderIdx: 0, updatedAt: 0,
+      });
+    },
+    getTheme: (id: string) => Promise.resolve(themeStore.get(id)),
+    listThemes: () =>
+      Promise.resolve([...themeStore.values()].map((b) => ({ id: b.id, name: b.id }))),
+    getServerSettings: () =>
+      Promise.resolve({ displayTheme: "", displayLanguage: "", displayWide: false }),
+    patchServerSettings: () =>
+      Promise.resolve({ displayTheme: "", displayLanguage: "", displayWide: false }),
     listMachines: () => Promise.resolve([]),
     getBootstrap: () =>
       Promise.resolve({
@@ -94,6 +114,54 @@ function renderPanel(over: Partial<Member> = {}) {
   );
 }
 
+let themeContext!: ReturnType<typeof useI18n>;
+function CaptureThemeContext() {
+  themeContext = useI18n();
+  return null;
+}
+
+async function renderPanelWithPool(over: Partial<Member> = {}) {
+  let result!: ReturnType<typeof render>;
+  // Signed in: switching themes is token-gated, and a signed-out cockpit never
+  // fetches a bundle — so without this the chooser would have no pool to show.
+  localStorage.setItem(TOKEN_KEY, "live-owner-token");
+  await act(async () => {
+    result = render(
+      <I18nProvider>
+        <CaptureThemeContext />
+        <MemberDetailPanel
+          member={mkMember(over)}
+          onBack={() => {}}
+          onSetThemeAvatar={vi.fn().mockResolvedValue(undefined)}
+        />
+      </I18nProvider>,
+    );
+  });
+  // Themes are a RESOURCE now (T-83ef): saving one and switching to it are two
+  // round trips, and the pool only reaches the chooser once the active
+  // bundle's fetch lands.
+  await act(async () => {
+    await themeContext.saveTheme({
+      id: "member-pool",
+      name: "Member pool",
+      colors: { "--color-bg": "#101018" },
+      avatarPools: {
+        member: [
+          { id: "icn-a", image: "data:image/png;base64,iVBORw0KGgo=" },
+          { id: "icn-b", image: "data:image/png;base64,iVBORw0KGgp=" },
+        ],
+      },
+    });
+  });
+  act(() => {
+    themeContext.setTheme("member-pool");
+  });
+  await waitFor(() =>
+    expect(themeContext.activeThemeBundle?.id).toBe("member-pool"),
+  );
+  return result;
+}
+
 describe("MemberDetailPanel identity card — no role gear (T-dfae)", () => {
   beforeEach(() => {
     window.location.hash = "";
@@ -138,5 +206,32 @@ describe("MemberDetailPanel identity card — no role gear (T-dfae)", () => {
     const statusLine = container.querySelector(".mp-identity__status")!;
     expect(statusLine.textContent).toContain("reviewer");
     expect(statusLine.querySelector("button")).toBeNull();
+  });
+});
+
+describe("MemberDetailPanel avatar pool eligibility", () => {
+  it("keeps the singleton assistant role out of the member pool chooser", async () => {
+    const { queryByRole } = await renderPanelWithPool({ role: "assistant" });
+    expect(
+      queryByRole("button", { name: zh.mp.avatarPickChange }),
+    ).toBeNull();
+  });
+
+  // 🔴 COMPACT BY DEFAULT. The row shows the current image and a control; it
+  // must NOT lay the whole pool out inline. The owner ran that shape in a
+  // trial and any sizeable pool stretched every roster row until the member
+  // list was unreadable (owner 2026-08-12).
+  it("shows only the current image until the owner asks for the pool", async () => {
+    const { getByRole, queryByRole, queryAllByRole } = await renderPanelWithPool({
+      role: "reviewer",
+    });
+    expect(queryByRole("radiogroup")).toBeNull();
+    expect(queryAllByRole("radio")).toHaveLength(0);
+
+    fireEvent.click(getByRole("button", { name: zh.mp.avatarPickChange }));
+    expect(
+      getByRole("radiogroup", { name: zh.mp.avatarPickTitle }),
+    ).toBeTruthy();
+    expect(queryAllByRole("radio")).toHaveLength(2);
   });
 });

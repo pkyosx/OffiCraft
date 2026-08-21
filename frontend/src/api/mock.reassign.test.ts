@@ -11,7 +11,7 @@
 // successor, member OR outsource — get a SYSTEM-authored (from="system", not
 // the owner) pairing message wiring them into the handover dialogue.
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { afterEach, describe, it, expect, beforeEach, vi } from "vitest";
 import {
   mockApi,
   __resetMock,
@@ -107,6 +107,10 @@ function mkCard(over: Partial<ReplyCard>): ReplyCard {
 beforeEach(() => {
   __resetMock();
   seq = 0;
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe("mock reassign — member target", () => {
@@ -215,6 +219,31 @@ describe("mock reassign — member target", () => {
 
 describe("mock reassign — outsource target", () => {
   it("keeps the old worker live (deferred handover dismiss), stamps the predecessor, mints a fresh one, and pairs both", async () => {
+    const png = (tail: number) =>
+      "data:image/png;base64," +
+      btoa(
+        String.fromCharCode(
+          0x89,
+          0x50,
+          0x4e,
+          0x47,
+          0x0d,
+          0x0a,
+          0x1a,
+          0x0a,
+          tail,
+        ),
+      );
+    await mockApi.putTheme({
+        id: "portraits",
+        name: "Portraits",
+        colors: { "--color-bg": "#000000" },
+        avatarPools: {
+          outsource: [{ image: png(1) }, { image: png(2) }, { image: png(3) }],
+        },
+      });
+    await mockApi.patchServerSettings({ displayTheme: "portraits" });
+    vi.spyOn(Math, "random").mockReturnValue(0.75);
     const task = mkTask({ title: "轉外包" });
     __injectMockTask(task);
     __injectMockOutsourceWorker(mkWorker({ taskId: task.id }));
@@ -239,6 +268,9 @@ describe("mock reassign — outsource target", () => {
     expect(minted.model).toBe("opus");
     expect(minted.effort).toBe("high");
     expect(minted.status).toBe("assigned");
+    // A minted worker has chosen nothing yet: the cockpit renders the pool's
+    // first image and the server stores no row until the owner picks.
+    expect(minted.avatarIconId).toBeNull();
     // Codename: the O family's MAX+1 over every codename ISSUED, the still-live
     // O-3 included — a codename is never reused.
     expect(minted.codename).toBe("O-4");

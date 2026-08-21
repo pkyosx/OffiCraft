@@ -19,6 +19,7 @@ import { mockApi, __resetMock } from "../api/mock";
 import type { ThemeBundle } from "../lib/themeBundle";
 import { TOKEN_KEY } from "../api/auth";
 import { Avatar } from "./Avatar";
+import { themeIconId } from "../lib/themeIconId";
 
 // Two tiny-but-valid base64 rasters (magic bytes only — enough to pass the
 // shared validator, which the ThemeSettings upload path enforces before these
@@ -95,7 +96,10 @@ describe("Avatar avatars-by-kind (T-16a1 P5)", () => {
       id: "portraits",
       name: "Portraits",
       colors: { "--color-bg": "#101018" },
-      avatars: { member: MEMBER_IMG, outsource: OUTSOURCE_IMG },
+      avatarPools: {
+        member: [{ image: MEMBER_IMG }],
+        outsource: [{ image: OUTSOURCE_IMG }],
+      },
     });
     const { getByTestId } = await mount(
       <>
@@ -151,7 +155,7 @@ describe("Avatar avatars-by-kind (T-16a1 P5)", () => {
       id: "memberonly",
       name: "MemberOnly",
       colors: { "--color-bg": "#101018" },
-      avatars: { member: MEMBER_IMG },
+      avatarPools: { member: [{ image: MEMBER_IMG }] },
     });
     const { getByTestId } = await mount(
       <>
@@ -175,7 +179,7 @@ describe("Avatar avatars-by-kind (T-16a1 P5)", () => {
       id: "half",
       name: "Half",
       colors: { "--color-bg": "#101018" },
-      avatars: { member: MEMBER_IMG },
+      avatarPools: { member: [{ image: MEMBER_IMG }] },
     });
     const { getByTestId } = await mount(
       <>
@@ -196,22 +200,63 @@ describe("Avatar avatars-by-kind (T-16a1 P5)", () => {
     expect(getByTestId("outsource").querySelector("svg")).not.toBeNull();
   });
 
-  it("prefers the stable member image, then falls back to the role theme image on load failure", async () => {
+  // T-cd6f: the member's face is a CHOICE inside the active theme, addressed by
+  // a stable icon id. These three cases are the whole resolution order.
+  it("renders the image the chosen id names, wherever it sits in the pool", async () => {
     await seed({
-      id: "fallback",
-      name: "Fallback",
+      id: "byid",
+      name: "ById",
       colors: { "--color-bg": "#101018" },
-      avatars: { member: MEMBER_IMG },
+      avatarPools: { member: [{ image: OWNER_IMG }, { image: MEMBER_IMG }] },
+    });
+    const chosen = await themeIconId(MEMBER_IMG);
+    const { container } = await mount(
+      <Avatar size={40} kind="member" avatarIconId={chosen} />
+    );
+    await activate("byid");
+    await waitFor(() =>
+      expect(
+        container.querySelector("img.avatar__img")?.getAttribute("src")
+      ).toBe(MEMBER_IMG)
+    );
+  });
+
+  // 🔴 An id the pool can no longer resolve — the image was removed — falls back
+  // to the pool's FIRST image, the same thing a member who never chose sees. It
+  // must NOT fall back to "whatever sits at that position now": that is how the
+  // retired index model handed a member another member's face.
+  it("falls back to the first image when the chosen id is gone, never to a neighbour", async () => {
+    await seed({
+      id: "removed",
+      name: "Removed",
+      colors: { "--color-bg": "#101018" },
+      avatarPools: { member: [{ image: MEMBER_IMG }, { image: OWNER_IMG }] },
     });
     const { container } = await mount(
-      <Avatar size={40} kind="member" src="blob:personal-avatar" />
+      <Avatar size={40} kind="member" avatarIconId="icn-removed" />
     );
-    await activate("fallback");
-    const personal = container.querySelector("img.avatar__img");
-    expect(personal?.getAttribute("src")).toBe("blob:personal-avatar");
-    fireEvent.error(personal!);
-    expect(
-      container.querySelector("img.avatar__img")?.getAttribute("src")
-    ).toBe(MEMBER_IMG);
+    await activate("removed");
+    await waitFor(() =>
+      expect(
+        container.querySelector("img.avatar__img")?.getAttribute("src")
+      ).toBe(MEMBER_IMG)
+    );
+  });
+
+  it("falls back to the built-in glyph when the image fails to load", async () => {
+    await seed({
+      id: "broken",
+      name: "Broken",
+      colors: { "--color-bg": "#101018" },
+      avatarPools: { member: [{ image: MEMBER_IMG }] },
+    });
+    const { container } = await mount(<Avatar size={40} kind="member" />);
+    await activate("broken");
+    await waitFor(() =>
+      expect(container.querySelector("img.avatar__img")).not.toBeNull()
+    );
+    fireEvent.error(container.querySelector("img.avatar__img")!);
+    expect(container.querySelector("img.avatar__img")).toBeNull();
+    expect(container.querySelector("svg")).not.toBeNull();
   });
 });

@@ -20,6 +20,8 @@ import {
 import {
   isValidDisplayTheme,
   type ThemeBundle,
+  readThemeIcon,
+  type ThemeIcon,
   type AvatarKind,
   type NavIconKey,
 } from "../lib/themeBundle";
@@ -137,6 +139,7 @@ interface I18nContextValue {
    * render a member/outsource/owner/assistant avatar image, falling back to the
    * built-in glyph when absent. */
   activeAvatars?: Partial<Record<AvatarKind, string>>;
+  activeAvatarPools?: Partial<Record<"member" | "outsource", ThemeIcon[]>>;
   /** The active custom theme's studio logo image (T-ea81), or undefined when the
    * active theme carries none — the top bar then renders its built-in mark. */
   activeLogo?: string;
@@ -243,6 +246,27 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     () => bundleForTheme?.avatars,
     [bundleForTheme]
   );
+  // A stored or imported bundle may still carry the legacy bare-string pool,
+  // so it is lifted to the canonical {id, image} shape ONCE here. Every
+  // consumer below — the Avatar, the chooser — then reads one shape only, and
+  // an item with no id simply never matches a selection.
+  const activeAvatarPools = useMemo(() => {
+    // Same ONE authority as every other image on this theme (T-83ef): the
+    // fetched bundle, and only while it is the ACTIVE theme's. Reading a
+    // different source here is exactly how a theme switch rendered the next
+    // theme's colours over the previous theme's images for one round trip.
+    const pools = bundleForTheme?.avatarPools;
+    if (!pools) return pools;
+    const out: Partial<Record<"member" | "outsource", ThemeIcon[]>> = {};
+    for (const kind of ["member", "outsource"] as const) {
+      const items = pools[kind];
+      if (!items) continue;
+      out[kind] = items
+        .map((item) => readThemeIcon(item))
+        .filter((item): item is ThemeIcon => !!item);
+    }
+    return out;
+  }, [bundleForTheme]);
 
   // The active custom theme's studio logo image + per-nav-tab icons (T-ea81).
   // Like avatars, these are IMAGES rendered as <img> (top-bar logo / nav-tab
@@ -625,6 +649,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       wide,
       setWide,
       activeAvatars,
+      activeAvatarPools,
       activeLogo,
       activeNavIcons,
       themeList,
@@ -645,6 +670,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       wide,
       setWide,
       activeAvatars,
+      activeAvatarPools,
       activeLogo,
       activeNavIcons,
       themeList,
@@ -674,6 +700,12 @@ export function useI18n(): I18nContextValue {
  * glyph rather than crashing). */
 export function useActiveAvatars(): Partial<Record<AvatarKind, string>> | undefined {
   return useContext(I18nContext)?.activeAvatars;
+}
+
+export function useActiveAvatarPools():
+  | Partial<Record<"member" | "outsource", ThemeIcon[]>>
+  | undefined {
+  return useContext(I18nContext)?.activeAvatarPools;
 }
 
 /** The active theme's studio logo image (T-ea81), or undefined. DEFENSIVE like
