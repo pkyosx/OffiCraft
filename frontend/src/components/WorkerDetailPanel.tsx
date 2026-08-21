@@ -12,9 +12,9 @@ import {
 import { pendingChangeHint, reportedMachine } from "../lib/pendingChange";
 import { ModelEffortEditor } from "./ModelEffortEditor";
 import { ChevronLeftIcon, ChevronRightIcon } from "./icons";
-import { AvatarEditor } from "./AvatarEditor";
 import { Avatar } from "./Avatar";
 import { ResumeSummaryCard } from "./ResumeSummaryCard";
+import { AvatarChooser } from "./AvatarChooser";
 import { LifecycleDot, presenceVisual } from "./LifecycleDot";
 import { MemberActionButtons, stopLadderStageOf } from "./MemberActionButtons";
 import { ScheduledMessagesCard } from "./ScheduledMessagesCard";
@@ -74,8 +74,7 @@ interface WorkerDetailPanelProps {
    * returns the text (no token). Undefined ⇒ the initial-prompt card is hidden
    * (a caller below the admin_agent floor omits it — T-6020). */
   onFetchBootContext?: () => Promise<string>;
-  onUpdateAvatar?: (file: File) => Promise<void>;
-  onRemoveAvatar?: () => Promise<void>;
+  onSetThemeAvatar?: (iconId: string) => Promise<void>;
 }
 
 /**
@@ -105,8 +104,7 @@ export function WorkerDetailPanel({
   onWake,
   onSetModel,
   onFetchBootContext,
-  onUpdateAvatar,
-  onRemoveAvatar,
+  onSetThemeAvatar,
 }: WorkerDetailPanelProps) {
   const { t, msg } = useI18n();
   const dash = t.workerDetail.dash;
@@ -450,20 +448,25 @@ export function WorkerDetailPanel({
     .join(" · ");
   const hasTask = Boolean(worker.taskId && taskLabel);
 
-  // ── identity slot: stable worker id's personal image, then the outsource
-  // theme image and glyph fallbacks, plus codename + real presence. ──────────
+  // ── identity slot: active-theme outsource pool + persistent index, then
+  // glyph fallback, plus codename + real presence. ───────────────────────────
   const identity = (
     <div className="mp-card mp-identity">
-      {onUpdateAvatar && onRemoveAvatar ? (
-        <AvatarEditor
-          size={52}
+      <Avatar size={52} kind="outsource" avatarIconId={worker.avatarIconId} />
+      {onSetThemeAvatar && (
+        <AvatarChooser
+          value={worker.avatarIconId}
           kind="outsource"
-          src={worker.avatarUrl}
-          onUpload={onUpdateAvatar}
-          onRemove={onRemoveAvatar}
+          onSave={onSetThemeAvatar}
+          label={t.workerDetail.avatarPickLabel}
+          changeLabel={t.workerDetail.avatarPickChange}
+          dialogTitle={t.workerDetail.avatarPickTitle}
+          closeLabel={t.workerDetail.avatarPickClose}
+          emptyLabel={t.workerDetail.avatarPickEmpty}
+          brokenLabel={t.workerDetail.avatarPickBroken}
+          savingLabel={t.workerDetail.avatarPickSaving}
+          errorLabel={t.workerDetail.avatarPickError}
         />
-      ) : (
-        <Avatar size={52} kind="outsource" src={worker.avatarUrl} />
       )}
       <div className="mp-identity__body">
         <div className="mp-identity__line">
@@ -793,7 +796,7 @@ export function WorkerDetailPanel({
           <span>{t.mp.back}</span>
         </button>
         <div className="mp-card mp-identity">
-          <Avatar size={52} kind="outsource" src={worker.avatarUrl} />
+          <Avatar size={52} kind="outsource" avatarIconId={worker.avatarIconId} />
           <div className="mp-identity__body">
             <div className="mp-identity__line">
               {/* The codename when we still have it (the worker was in view when

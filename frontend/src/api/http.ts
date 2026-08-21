@@ -442,39 +442,19 @@ export const httpApi: Api = {
     return toMember(wire);
   },
 
-  async updateMemberAvatar(id: string, file: File): Promise<string> {
-    // Materialize the bytes before crossing openapi-fetch's schema boundary.
-    // Passing a File object through a generated `string` body type is
-    // cross-realm fragile (and can stringify to "[object File]"); ArrayBuffer
-    // is an unambiguous BodyInit in browsers and tests alike.
-    const bytes = await new Promise<ArrayBuffer>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onerror = () =>
-        reject(reader.error ?? new Error("failed to read avatar file"));
-      reader.onload = () => resolve(reader.result as ArrayBuffer);
-      reader.readAsArrayBuffer(file);
-    });
-    const wire = unwrap(
-      await client.PUT("/api/members/{member_id}/avatar", {
-        params: {
-          path: { member_id: id },
-          query: { filename: file.name || undefined, mime: file.type || undefined },
-        },
-        headers: { "Content-Type": "application/octet-stream" },
-        // openapi-fetch defaults to JSON serialization. The spec types binary
-        // bodies as string, while browsers correctly expose them as Blob/File;
-        // this serializer preserves the raw bytes on the wire.
-        body: bytes as unknown as string,
-        bodySerializer: (body) => body as unknown as BodyInit,
-      }),
-    );
-    return wire.avatar_url ?? "";
-  },
-
-  async removeMemberAvatar(id: string): Promise<void> {
+  /** Record ONE member's avatar choice inside ONE theme. The write replaces
+   * only that (member, theme) pair, so a choice made in another theme is
+   * untouched — which is why the theme id travels in the body rather than
+   * being implied by whatever theme the cockpit happens to be showing. */
+  async setMemberThemeAvatar(
+    id: string,
+    themeId: string,
+    iconId: string,
+  ): Promise<void> {
     unwrap(
-      await client.DELETE("/api/members/{member_id}/avatar", {
+      await client.PUT("/api/members/{member_id}/theme-avatar", {
         params: { path: { member_id: id } },
+        body: { theme_id: themeId, icon_id: iconId },
       }),
     );
   },

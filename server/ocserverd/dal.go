@@ -199,9 +199,6 @@ type Member struct {
 	CreatedTS   float64
 	ReleasedTS  float64
 	ActivatedTS float64
-	// AvatarAttachmentID points at this stable member id's one personal image
-	// in the shared byte store. Empty means no personal image.
-	AvatarAttachmentID string
 }
 
 // RosterStatusRemoved is the soft-delete lifecycle value (the Python
@@ -217,7 +214,7 @@ const memberColumns = `id, name, kind, role_key, runtime, model, actual_model, e
 	waking_since, stopping_since, stopped_since, refocus_since, refocus_op, banked_cost,
 	last_op, last_op_ok, last_op_log, last_op_reason, last_op_at, roster_status,
 	linked_task_id, codename, created_ts, released_ts, activated_ts,
-	avatar_attachment_id, forced_stop_at, handover_noticed_ts`
+	forced_stop_at, handover_noticed_ts`
 
 func scanMember(row interface{ Scan(...any) error }) (Member, error) {
 	var m Member
@@ -231,7 +228,7 @@ func scanMember(row interface{ Scan(...any) error }) (Member, error) {
 		&m.BankedCost,
 		&m.LastOp, &lastOpOK, &m.LastOpLog, &m.LastOpReason, &m.LastOpAt, &m.RosterStatus,
 		&linkedTaskID, &codename, &m.CreatedTS, &m.ReleasedTS, &m.ActivatedTS,
-		&m.AvatarAttachmentID, &m.ForcedStopAt, &m.HandoverNoticedTS,
+		&m.ForcedStopAt, &m.HandoverNoticedTS,
 	)
 	if err != nil {
 		return Member{}, err
@@ -320,11 +317,9 @@ func (d *DAL) GetMember(id string) (*Member, error) {
 // resolveEmptyRuntimeForPlacement needs at placement time.
 //
 // PutMember upserts a member row (the repository.put_member twin; the SSE
-// delta is the service layer's job). On conflict it deliberately leaves
-// avatar_attachment_id untouched: ReplaceMemberAvatar/DeleteMemberAvatar are
-// the only update seams for that independently-owned pointer. This prevents a
-// stale lifecycle/model snapshot from erasing a newer avatar and orphaning its
-// blob. The INSERT still accepts the field for migrations/tests/new rows.
+// delta is the service layer's job). The member's avatar choice is NOT here:
+// it lives per theme in member_theme_avatar behind its own owner edit seam, so
+// a stale lifecycle snapshot can not overwrite it.
 func (d *DAL) PutMember(m Member) error {
 	var lastOpOK any
 	if m.LastOpOK != nil {
@@ -342,7 +337,7 @@ func (d *DAL) PutMember(m Member) error {
 	}
 	_, err := d.wdb.Exec(`
 		INSERT INTO member (`+memberColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
 			name = excluded.name, kind = excluded.kind,
 			role_key = excluded.role_key, runtime = excluded.runtime,
@@ -393,7 +388,7 @@ func (d *DAL) PutMember(m Member) error {
 		m.BankedCost,
 		m.LastOp, lastOpOK, m.LastOpLog, m.LastOpReason, m.LastOpAt, m.RosterStatus,
 		linkedTaskID, codename, m.CreatedTS, m.ReleasedTS, m.ActivatedTS,
-		m.AvatarAttachmentID, m.ForcedStopAt, m.HandoverNoticedTS,
+		m.ForcedStopAt, m.HandoverNoticedTS,
 	)
 	return err
 }
@@ -433,6 +428,97 @@ func (d *DAL) SetMemberForcedStopAt(id string, ts float64) error {
 	return err
 }
 
+// SetMemberThemeAvatar records ONE member's explicit avatar choice inside ONE
+// theme. The primary key is (member_id, theme_id), so the write replaces only
+// that pair and a choice the same member made in another theme survives.
+//
+// The table is written ONLY from here. Nothing writes a default: a member with
+// no row has made no choice, and the client renders the first pool image for
+// that visit without persisting it. That is what keeps "never chose" and "chose
+// the first image" apart.
+func (d *DAL) SetMemberThemeAvatar(memberID, themeID, iconID string) error {
+	_, err := d.wdb.Exec(
+		`INSERT INTO member_theme_avatar (member_id, theme_id, icon_id)
+		 VALUES (?, ?, ?)
+		 ON CONFLICT (member_id, theme_id) DO UPDATE SET icon_id = excluded.icon_id`,
+		memberID, themeID, iconID,
+	)
+	return err
+}
+
+// MemberThemeAvatars reads every member's choice for ONE theme as member id →
+// icon id. A member with no row is absent from the map, which is the signal the
+// caller needs to send `null` on the wire rather than a manufactured default.
+func (d *DAL) MemberThemeAvatars(themeID string) (map[string]string, error) {
+	rows, err := d.rdb.Query(
+		`SELECT member_id, icon_id FROM member_theme_avatar WHERE theme_id = ?`, themeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var memberID, iconID string
+		if err := rows.Scan(&memberID, &iconID); err != nil {
+			return nil, err
+		}
+		out[memberID] = iconID
+	}
+	return out, rows.Err()
+}
+
+// DeleteMemberThemeAvatars removes every choice a member holds, in every theme.
+// A removed member must leave no association behind: the ids are reused by
+// nothing, but a dangling row would resurface if an id ever came back.
+func (d *DAL) DeleteMemberThemeAvatars(memberID string) error {
+	_, err := d.wdb.Exec(`DELETE FROM member_theme_avatar WHERE member_id = ?`, memberID)
+	return err
+}
+
+// PruneMemberThemeAvatars drops every association row that the given themes can
+// no longer resolve. `live` maps a stored theme id to the set of icon ids in
+// that theme's pools; a theme absent from the map was deleted, and an icon id
+// absent from its set was removed from the pool.
+//
+// This runs on the settings write path, which is the only place themes and
+// pools change. Deleting the row (rather than leaving it to fail resolution at
+// render time) is what stops a deleted theme's selection from reappearing if a
+// later theme is created with the same id.
+func (d *DAL) PruneMemberThemeAvatars(live map[string]map[string]bool) error {
+	rows, err := d.rdb.Query(`SELECT member_id, theme_id, icon_id FROM member_theme_avatar`)
+	if err != nil {
+		return err
+	}
+	type key struct{ member, theme string }
+	var stale []key
+	for rows.Next() {
+		var k key
+		var iconID string
+		if err := rows.Scan(&k.member, &k.theme, &iconID); err != nil {
+			rows.Close()
+			return err
+		}
+		icons, themeLives := live[k.theme]
+		if !themeLives || !icons[iconID] {
+			stale = append(stale, k)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, k := range stale {
+		if _, err := d.wdb.Exec(
+			`DELETE FROM member_theme_avatar WHERE member_id = ? AND theme_id = ?`,
+			k.member, k.theme,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // SetMemberSessionBootTS writes ONLY member.session_boot_ts (T-4235). It is a
 // targeted column UPDATE rather than a PutMember round-trip for two reasons,
 // both load-bearing:
@@ -464,32 +550,23 @@ func (d *DAL) HardDeleteMember(id string) (bool, error) {
 		return false, err
 	}
 	defer tx.Rollback()
-	var avatarID string
-	err = tx.QueryRow(`SELECT avatar_attachment_id FROM member WHERE id = ?`, id).Scan(&avatarID)
+	var exists int
+	err = tx.QueryRow(`SELECT 1 FROM member WHERE id = ?`, id).Scan(&exists)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
+	// The member's per-theme avatar choices go with the row. Nothing else is
+	// owned by a member: the retired personal-image pointer is gone, so there
+	// is no dedicated blob left to collect here.
+	if _, err := tx.Exec(`DELETE FROM member_theme_avatar WHERE member_id = ?`, id); err != nil {
+		return false, err
+	}
 	res, err := tx.Exec(`DELETE FROM member WHERE id = ?`, id)
 	if err != nil {
 		return false, err
-	}
-	if avatarID != "" {
-		// The avatar id is dedicated by contract, but deletion must remain safe
-		// even if a future writer drops that guard or old/corrupt data contains
-		// another reference. The member row is already gone inside this tx, so
-		// only a genuinely surviving record can veto collection here.
-		surviving := map[string]bool{}
-		if err := collectSurvivingBlobRefs(tx, surviving); err != nil {
-			return false, err
-		}
-		if !surviving[avatarID] {
-			if _, err := tx.Exec(`DELETE FROM chat_attachment WHERE id = ?`, avatarID); err != nil {
-				return false, err
-			}
-		}
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
@@ -910,13 +987,12 @@ func refIDsFromJSON(blob string, into map[string]bool) {
 // same survivor scan so corrupt/legacy cross-references still fail safe. As of
 // T-c826
 // the blob-referencing columns in the schema are exactly these five, and
-// `collectSurvivingBlobRefs` reads all five:
+// `collectSurvivingBlobRefs` reads all four:
 //
 //	chat_message.meta $.attachments[].id
 //	reply_card.answer_attachments[].id
 //	reply_card.attachments[].id          (T-5e8a question side)
 //	task_artifact.attachment_id          (T-62a8 — file/image kinds; '' on link)
-//	member.avatar_attachment_id           (T-c826 — dedicated personal image)
 //
 // ⚠️ Add another referencing column anywhere and it MUST be added here in the
 // same commit; a blob whose only referrer is unknown to this scan is deleted
@@ -1064,25 +1140,10 @@ func collectSurvivingBlobRefs(tx *sql.Tx, into map[string]bool) error {
 	}
 	artRows.Close()
 
-	// 5. personal member avatars (T-c826). Avatar ids are isolated behind an
-	//    ava- prefix and general attachment writers reject that prefix, but the
-	//    liveness verdict must not rely on a distant string guard: if a blob is
-	//    referenced by a surviving member row, deleting it is data loss.
-	memberRows, err := tx.Query(
-		`SELECT avatar_attachment_id FROM member
-		 WHERE COALESCE(avatar_attachment_id, '') <> ''`)
-	if err != nil {
-		return err
-	}
-	defer memberRows.Close()
-	for memberRows.Next() {
-		var id string
-		if err := memberRows.Scan(&id); err != nil {
-			return err
-		}
-		into[id] = true
-	}
-	return memberRows.Err()
+	// Member rows reference NO blob any more: the personal-avatar pointer was
+	// retired with T-cd6f, and a member's face is now a theme image chosen by
+	// id. Nothing to collect from the member table.
+	return nil
 }
 
 // collectChatMetaRefs folds every attachment id referenced by the
@@ -1165,69 +1226,6 @@ func (d *DAL) GetChatAttachment(id string) (*ChatAttachment, error) {
 		a.Filename = &filename.String
 	}
 	return &a, nil
-}
-
-// ReplaceMemberAvatar atomically stores a freshly minted dedicated avatar,
-// switches the stable member pointer, and deletes the prior dedicated blob.
-// The member must already exist; a vanished row is errNotFound.
-func (d *DAL) ReplaceMemberAvatar(memberID string, avatar ChatAttachment) error {
-	tx, err := d.wdb.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	var previous string
-	if err := tx.QueryRow(
-		`SELECT avatar_attachment_id FROM member WHERE id = ?`, memberID,
-	).Scan(&previous); errors.Is(err, sql.ErrNoRows) {
-		return errNotFound
-	} else if err != nil {
-		return err
-	}
-	if err := putChatAttachmentOn(tx, avatar); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(
-		`UPDATE member SET avatar_attachment_id = ? WHERE id = ?`,
-		avatar.ID, memberID,
-	); err != nil {
-		return err
-	}
-	if previous != "" && previous != avatar.ID {
-		if _, err := tx.Exec(`DELETE FROM chat_attachment WHERE id = ?`, previous); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
-}
-
-// DeleteMemberAvatar atomically clears the pointer and deletes the owned blob.
-// It is idempotent when the member already has no personal avatar.
-func (d *DAL) DeleteMemberAvatar(memberID string) error {
-	tx, err := d.wdb.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	var previous string
-	if err := tx.QueryRow(
-		`SELECT avatar_attachment_id FROM member WHERE id = ?`, memberID,
-	).Scan(&previous); errors.Is(err, sql.ErrNoRows) {
-		return errNotFound
-	} else if err != nil {
-		return err
-	}
-	if _, err := tx.Exec(
-		`UPDATE member SET avatar_attachment_id = '' WHERE id = ?`, memberID,
-	); err != nil {
-		return err
-	}
-	if previous != "" {
-		if _, err := tx.Exec(`DELETE FROM chat_attachment WHERE id = ?`, previous); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
 }
 
 // ── chat read receipts (per-conversation last-read watermark) ────────────────

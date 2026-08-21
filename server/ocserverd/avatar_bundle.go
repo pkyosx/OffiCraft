@@ -4,9 +4,11 @@ package main
 // optional `avatars` overlay (per-member-type avatar images). The overlay is
 // `{ <kind>: "<data-URI>" }`:
 //
-//   - the KIND key is `member` (正職), `outsource` (外包), `owner` (the human
-//     CEO) or `assistant` (a member whose role is assistant, e.g. Mira) — a
-//     closed set (owner/assistant added in T-ea81);
+//   - the KIND key is `owner` (the human CEO) or `assistant` (a member whose
+//     role is assistant, e.g. Mira) — a closed set of exactly two. `member`
+//     (正職) and `outsource` (外包) are NOT keys of this overlay: each of those
+//     carries an ORDERED POOL under `avatarPools`, and a legacy singleton for
+//     either is normalized into a one-image pool;
 //   - the VALUE is an EMBEDDED image: a base64 `data:` URI so the picture
 //     travels INSIDE the bundle on export/import (owner ruling: the image
 //     follows the theme). It is NOT an arbitrary string. This is a NEW attack
@@ -38,11 +40,31 @@ package main
 // prefix compare (no heavy dependency, no pixel decode).
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"regexp"
 	"strings"
 )
+
+// themeIconID derives a pool item's STABLE identity from its image bytes.
+//
+// Deriving it (rather than minting a random id) is what makes the identity
+// survive the two paths that would otherwise break a member's selection:
+// exporting a theme and importing it somewhere else, and re-saving a theme
+// whose pool was edited. The same image therefore keeps the same id, and
+// removing a DIFFERENT pool item can never rebind a member to it.
+//
+// The digest is over the whole data URI, so the declared mime is part of the
+// identity. 12 hex characters (48 bits) is ample for a pool of at most 12
+// images per kind; a collision would need two different images inside one
+// theme, and the server would then treat them as one identity rather than
+// mis-resolve a selection.
+func themeIconID(image string) string {
+	sum := sha256.Sum256([]byte(image))
+	return "icn-" + hex.EncodeToString(sum[:6])
+}
 
 // strictBase64Re is the exact standard-base64 alphabet + padding the client
 // regex admits (^[A-Za-z0-9+/]+={0,2}$). It is applied to the data-URI payload
@@ -95,14 +117,22 @@ const (
 	// and the 512 KiB decoded cap below would never be reached. 512 KiB decoded
 	// ≈ 682.7 KiB encoded (×4/3); 704 KiB sits above that with margin.
 	maxBackgroundValueLen = 704 * 1024
+	// maxAvatarPoolItems bounds one theme's ordered identity choices per kind.
+	maxAvatarPoolItems = 12
 )
 
-// avatarKindAllowed is the closed set of member-type keys an avatars overlay
-// may carry. Any other key is a 422. Extended in T-ea81: owner (the human CEO)
-// and assistant (a member whose role is assistant, e.g. Mira) join the original
-// member / outsource kinds.
+// avatarKindAllowed is the closed set of keys the SINGLETON avatars overlay may
+// carry: owner (the human CEO) and assistant (a member whose role is assistant,
+// e.g. Mira). Those two keep one image each. `member` and `outsource` are NOT
+// valid keys here — they moved to the ordered avatarPools (see
+// avatarPoolKindAllowed), and a legacy singleton for either is normalized into
+// a one-image pool before validation. Any other key is a 422.
 var avatarKindAllowed = map[string]bool{
-	"member": true, "outsource": true, "owner": true, "assistant": true,
+	"owner": true, "assistant": true,
+}
+
+var avatarPoolKindAllowed = map[string]bool{
+	"member": true, "outsource": true,
 }
 
 // avatarMimeMagic maps each whitelisted RASTER mime to a predicate over the
@@ -218,13 +248,103 @@ func validateAvatars(avatars *map[string]string, where string) error {
 	for kind, value := range *avatars {
 		if !avatarKindAllowed[kind] {
 			return fmt.Errorf(
-				"%s: avatar kind %q is not allowed (only member, outsource, owner, assistant)", where, kind)
+				"%s: avatar kind %q is not allowed (only owner, assistant)", where, kind)
 		}
 		if err := validAvatarValue(value); err != nil {
 			return fmt.Errorf("%s: avatars[%s] %v", where, kind, err)
 		}
 	}
 	return nil
+}
+
+// normalizeThemeAvatarPools upgrades legacy singleton avatars.member /
+// avatars.outsource into the canonical ordered pool. Defining both forms for
+// one kind is rejected instead of silently choosing one.
+func normalizeThemeAvatarPools(bundle *ThemeBundleDTO, where string) error {
+	if bundle.Avatars == nil {
+		return nil
+	}
+	avatars := *bundle.Avatars
+	for _, kind := range []string{"member", "outsource"} {
+		value, legacy := avatars[kind]
+		if !legacy {
+			continue
+		}
+		if bundle.AvatarPools != nil {
+			if _, exists := (*bundle.AvatarPools)[kind]; exists {
+				return fmt.Errorf(
+					"%s: cannot define both avatars[%s] and avatarPools[%s]",
+					where, kind, kind)
+			}
+		} else {
+			pools := map[string][]ThemeIconDTO{}
+			bundle.AvatarPools = &pools
+		}
+		id := themeIconID(value)
+		(*bundle.AvatarPools)[kind] = []ThemeIconDTO{{Id: &id, Image: value}}
+		delete(avatars, kind)
+	}
+	if len(avatars) == 0 {
+		bundle.Avatars = nil
+	}
+	return nil
+}
+
+func normalizeThemeBundles(bundles []ThemeBundleDTO) error {
+	for i := range bundles {
+		if err := normalizeThemeAvatarPools(
+			&bundles[i], fmt.Sprintf("custom_themes[%d]", i),
+		); err != nil {
+			return err
+		}
+		assignThemeIconIDs(bundles[i].AvatarPools)
+	}
+	return nil
+}
+
+func validateAvatarPools(pools *map[string][]ThemeIconDTO, where string) error {
+	if pools == nil {
+		return nil
+	}
+	for kind, items := range *pools {
+		if !avatarPoolKindAllowed[kind] {
+			return fmt.Errorf(
+				"%s: avatar pool kind %q is not allowed (only member, outsource)",
+				where, kind)
+		}
+		if len(items) > maxAvatarPoolItems {
+			return fmt.Errorf(
+				"%s: avatarPools[%s] must hold at most %d images",
+				where, kind, maxAvatarPoolItems)
+		}
+		for i, item := range items {
+			if err := validAvatarValue(item.Image); err != nil {
+				return fmt.Errorf("%s: avatarPools[%s][%d] %v", where, kind, i, err)
+			}
+		}
+	}
+	return nil
+}
+
+// assignThemeIconIDs stamps every pool item with its derived identity.
+//
+// It runs on the way IN — on the settings write path and when a stored bundle
+// is loaded — so a client may add an image without knowing about ids, and a
+// bundle written before ids existed gains them without a data migration. An id
+// the caller sent is OVERWRITTEN rather than trusted: the identity is a
+// function of the bytes, so accepting a caller's id would let one image claim
+// another image's selections.
+func assignThemeIconIDs(pools *map[string][]ThemeIconDTO) {
+	if pools == nil {
+		return
+	}
+	for kind, items := range *pools {
+		for i := range items {
+			id := themeIconID(items[i].Image)
+			items[i].Id = &id
+		}
+		(*pools)[kind] = items
+	}
 }
 
 // navIconKeyAllowed is the closed set of nav-tab keys a navIcons overlay may

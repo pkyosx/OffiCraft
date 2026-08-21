@@ -36,7 +36,7 @@ import { CopyIcon, CheckIcon, CloseIcon } from "./icons";
 import "./monitor.css";
 
 export function MonitorPage() {
-  const { t, msg } = useI18n();
+  const { t, msg, theme } = useI18n();
   const { settings } = useServerSettings();
   const refreshSeconds = settings?.monitoringRefreshSeconds ?? 5;
   const { monitoring, refetch } = useMonitoring({ refreshSeconds });
@@ -215,13 +215,13 @@ export function MonitorPage() {
           await api.patchMember(detail.id, { name });
           await refetchMembers();
         }}
-        onUpdateAvatar={async (file) => {
-          await api.updateMemberAvatar(detail.id, file);
-          await refetchMembers();
-        }}
-        onRemoveAvatar={async () => {
-          await api.removeMemberAvatar(detail.id);
-          await refetchMembers();
+        onSetThemeAvatar={async (iconId) => {
+          await api.setMemberThemeAvatar(detail.id, theme, iconId);
+          try {
+            await refetchMembers();
+          } catch {
+            /* the acknowledged mutation outlives a failed refresh */
+          }
         }}
       />
     );
@@ -1559,7 +1559,7 @@ function SessionRow({
           <Avatar
             size={34}
             kind={roster ? avatarKindForMember(roster) : "member"}
-            src={roster?.avatarUrl}
+            avatarIconId={roster?.avatarIconId}
           />
           <div className="mon-member__body">
             <div className="mon-member__name">{name}</div>
@@ -1669,7 +1669,7 @@ function OutsourceSessionRow({
     >
       <td className="mon-table__left" data-label={t.monitor.sessionCol.member}>
         <div className="mon-member">
-          <Avatar size={34} kind="outsource" src={worker.avatarUrl} />
+          <Avatar size={34} kind="outsource" avatarIconId={worker.avatarIconId} />
           <div className="mon-member__body">
             <div className="mon-member__name">
               {worker.codename ? msg.outsourceLabel(worker.codename) : dash}

@@ -177,8 +177,12 @@ type tokenDTO struct {
 }
 
 type memberDTO struct {
-	ID               string  `json:"id"`
-	AvatarURL        string  `json:"avatar_url"`
+	ID string `json:"id"`
+	// AvatarIconID is the icon this actor chose in the ACTIVE theme, or nil
+	// when no choice is recorded there. A stable ThemeIcon id, never a
+	// position: the renderer looks the id up in the matching pool and falls
+	// back to the pool's FIRST image when it cannot resolve it.
+	AvatarIconID     *string `json:"avatar_icon_id"`
 	Name             string  `json:"name"`
 	Kind             string  `json:"kind"`
 	RoleKey          string  `json:"role_key"`
@@ -1621,12 +1625,16 @@ type docDTO struct {
 }
 
 type outsourceWorkerDTO struct {
-	ID        string `json:"id"`
-	AvatarURL string `json:"avatar_url"`
-	Codename  string `json:"codename"`
-	Runtime   string `json:"runtime"`
-	Model     string `json:"model"`
-	Effort    string `json:"effort"`
+	ID string `json:"id"`
+	// AvatarIconID is the icon this actor chose in the ACTIVE theme, or nil
+	// when no choice is recorded there. A stable ThemeIcon id, never a
+	// position: the renderer looks the id up in the matching pool and falls
+	// back to the pool's FIRST image when it cannot resolve it.
+	AvatarIconID *string `json:"avatar_icon_id"`
+	Codename     string  `json:"codename"`
+	Runtime      string  `json:"runtime"`
+	Model        string  `json:"model"`
+	Effort       string  `json:"effort"`
 	// Actual* are the REPORTED twins of the three configured launch fields
 	// above, read off the same roster row the member DTO serves. "" = nothing
 	// has ever reported one; they never fall back to the configured value, so
@@ -1751,9 +1759,13 @@ type outsourceWorkerDTO struct {
 // the pre-resolved creator display name. Grouped into one struct so the two
 // callers (list loop + single GET) share the exact same fold.
 type outsourceWorkerProjection struct {
-	unread int
-	now    float64
-	online bool
+	// avatarIconID is the icon the worker's owner chose in the ACTIVE theme,
+	// or nil when no choice is recorded for that theme (the client then
+	// renders the pool's first image, and the glyph when the pool is empty).
+	avatarIconID *string
+	unread       int
+	now          float64
+	online       bool
 	// cfg is the SAME reconcile config the tick collects this worker on, so the
 	// deadline on the wire and the deadline that actually kills come from one
 	// source (T-fe5e). Carried rather than derived: a second copy of the grace
@@ -2086,7 +2098,7 @@ func foldActorRuntime(tele, gauge map[string]any, banked float64, actorRuntime s
 func newOutsourceWorkerDTO(w OutsourceWorker, task *Task, p outsourceWorkerProjection) outsourceWorkerDTO {
 	dto := outsourceWorkerDTO{
 		ID:            w.ID,
-		AvatarURL:     memberAvatarURL(w.AvatarAttachmentID),
+		AvatarIconID:  p.avatarIconID,
 		Codename:      w.Codename,
 		Runtime:       NormalizeRuntime(w.Runtime),
 		Model:         w.Model,

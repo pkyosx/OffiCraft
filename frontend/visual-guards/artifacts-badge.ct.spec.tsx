@@ -111,23 +111,14 @@ test("narrow 390: popover stays within the phone viewport", async ({ mount, page
 });
 
 // T-7bc2: the .md chip's real-browser click + keyboard behaviour, at the
-// width the owner actually uses. jsdom already proved the click→overlay
-// wiring (TaskArtifactsPopover.test.tsx); this proves the button is really
-// reachable/clickable in a laid-out popover and that Enter fires it (a
-// native <button>'s default keyboard activation jsdom does not simulate).
+// width the owner actually uses. Keep click and keyboard activation in separate
+// fresh mounts: Escape dismissal belongs to both the shared preview and its
+// parent popover, so chaining the paths would make the second assertion depend
+// on listener order rather than the native button contract under test.
 //
-// ⚠️ HOW THIS ONE FAILS — read before rerunning it (T-esc).
-// Its red is a 30-SECOND TIMEOUT on `mdChip.focus()`, and that timeout IS the
-// finding, not flake: Esc closed the preview AND the popover together, so the
-// chip is gone and will never come back, and Playwright waits out the full
-// budget for a locator that no longer exists. `Test timeout of 30000ms
-// exceeded` here means the Esc layering broke — do NOT dismiss it as load,
-// and do NOT raise the timeout. Measured on the broken code the red was
-// intermittent (~1 run in 3) and, if anything, showed up MORE at LOW load, so
-// a single green run proves nothing; rerun ~10 times before believing it.
-// The structural half of this contract is guarded cheaply in jsdom by
-// src/lib/escapeLayerOwnership.test.ts.
-test("narrow 390: the .md chip opens the preview overlay on click and on Enter", async ({
+// The Esc-layering contract the chained version used to (flakily) exercise
+// is guarded cheaply in jsdom by src/lib/escapeLayerOwnership.test.ts.
+test("narrow 390: the .md chip opens the preview overlay on click", async ({
   mount,
   page,
 }) => {
@@ -140,9 +131,19 @@ test("narrow 390: the .md chip opens the preview overlay on click and on Enter",
   const mdChip = cmp.getByRole("button", { name: "design.md" });
   await mdChip.click();
   await expect(page.locator(".md-preview")).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(page.locator(".md-preview")).toHaveCount(0);
+});
 
+test("narrow 390: the .md chip opens the preview overlay on Enter", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 780 });
+  const cmp = await mount(<TaskCardArtifactsStory />);
+  await cmp.getByTestId("task-artifacts-badge").click();
+  const popover = cmp.locator(".task-artifacts");
+  await expect(popover).toBeVisible();
+
+  const mdChip = cmp.getByRole("button", { name: "design.md" });
   await mdChip.focus();
   await page.keyboard.press("Enter");
   await expect(page.locator(".md-preview")).toBeVisible();

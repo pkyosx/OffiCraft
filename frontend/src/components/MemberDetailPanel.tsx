@@ -23,8 +23,8 @@ import {
   slot,
 } from "./AgentDetailPanel";
 import { pendingChangeHint, reportedMachine } from "../lib/pendingChange";
-import { AvatarEditor } from "./AvatarEditor";
 import { Avatar } from "./Avatar";
+import { AvatarChooser } from "./AvatarChooser";
 import { avatarKindForMember } from "../lib/avatarKind";
 import { ConfirmModal } from "./ConfirmModal";
 import { ScheduledMessagesCard } from "./ScheduledMessagesCard";
@@ -98,8 +98,9 @@ interface MemberDetailPanelProps {
   onRefocus?: () => void | Promise<void>;
   /** Commit a rename → patchMember({ name }). */
   onRename?: (name: string) => void;
-  onUpdateAvatar?: (file: File) => Promise<void>;
-  onRemoveAvatar?: () => Promise<void>;
+  /** Record this member's avatar choice for the ACTIVE theme. The caller owns
+   * the theme id, so a write can never leak into another theme's row. */
+  onSetThemeAvatar?: (iconId: string) => Promise<void>;
 }
 
 export function MemberDetailPanel({
@@ -112,8 +113,7 @@ export function MemberDetailPanel({
   onForceStop,
   onRefocus,
   onRename,
-  onUpdateAvatar,
-  onRemoveAvatar,
+  onSetThemeAvatar,
 }: MemberDetailPanelProps) {
   const { t, msg } = useI18n();
   const online = member.status === "online";
@@ -809,6 +809,7 @@ export function MemberDetailPanel({
       ? null
       : (member.estimatedCost ?? 0) + (member.bankedCost ?? 0);
 
+  const memberAvatarKind = avatarKindForMember(member);
   const identityCard = (
     <>
       {/* identity card */}
@@ -816,16 +817,25 @@ export function MemberDetailPanel({
         {/* Avatar dot dropped here: the 7-state LifecycleDot on the status line
             below is now the single source of presence colour (replaces the old
             3-state Avatar dot in this panel). */}
-        {onUpdateAvatar && onRemoveAvatar ? (
-          <AvatarEditor
-            size={52}
-            kind={avatarKindForMember(member)}
-            src={member.avatarUrl}
-            onUpload={onUpdateAvatar}
-            onRemove={onRemoveAvatar}
+        <Avatar
+          size={52}
+          kind={memberAvatarKind}
+          avatarIconId={member.avatarIconId}
+        />
+        {onSetThemeAvatar && memberAvatarKind === "member" && (
+          <AvatarChooser
+            value={member.avatarIconId}
+            kind="member"
+            onSave={onSetThemeAvatar}
+            label={t.mp.avatarPickLabel}
+            changeLabel={t.mp.avatarPickChange}
+            dialogTitle={t.mp.avatarPickTitle}
+            closeLabel={t.mp.avatarPickClose}
+            emptyLabel={t.mp.avatarPickEmpty}
+            brokenLabel={t.mp.avatarPickBroken}
+            savingLabel={t.mp.avatarPickSaving}
+            errorLabel={t.mp.avatarPickError}
           />
-        ) : (
-          <Avatar size={52} kind={avatarKindForMember(member)} src={member.avatarUrl} />
         )}
         <div className="mp-identity__body">
           <div className="mp-identity__line">

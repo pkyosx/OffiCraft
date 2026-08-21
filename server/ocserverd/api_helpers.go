@@ -394,7 +394,7 @@ func (s *apiServer) unreadCountsForRequest(r *http.Request) (map[string]int, err
 func (s *apiServer) newMemberDTO(m Member, roleName, observedMachine string, unreadCount int) memberDTO {
 	return memberDTO{
 		ID:               m.ID,
-		AvatarURL:        memberAvatarURL(m.AvatarAttachmentID),
+		AvatarIconID:     s.memberAvatarIconID(m.ID, m.Kind),
 		Name:             m.Name,
 		Kind:             m.Kind,
 		RoleKey:          m.RoleKey,
@@ -445,7 +445,7 @@ func (s *apiServer) newMemberDTO(m Member, roleName, observedMachine string, unr
 func (s *apiServer) newMemberLightDTO(m Member, roleName string) memberDTO {
 	return memberDTO{
 		ID:            m.ID,
-		AvatarURL:     memberAvatarURL(m.AvatarAttachmentID),
+		AvatarIconID:  s.memberAvatarIconID(m.ID, m.Kind),
 		Name:          m.Name,
 		Kind:          m.Kind,
 		RoleKey:       m.RoleKey,

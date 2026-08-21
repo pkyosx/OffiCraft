@@ -33,7 +33,7 @@
 ## 4. attachment、文件與 context
 
 - chat、task message、create/answer reply card 的四個 attachment 寫入面，都要先驗證全部 attachment（至少 `id` 與 `data_b64`）再寫任何 row；使用帶 attachments 的原子 DAL seam，不把 blob、message、card 拆成可留下半筆的多次呼叫。
-- 一般 blob reference、avatar reference、artifact reference 不可混用。avatar 是 stable member id 綁 `member.avatar_attachment_id` 的單一 owner blob；replacement、remove、hard delete 與 rollback 同 transaction 維護 pointer/blob。SSE 只發 delta，不攜帶圖片 bytes。
+- 一般 blob reference、theme icon reference、artifact reference 不可混用。member 與 outsource 的頭像是「成員 × 主題」的選擇，存在 `member_theme_avatar(member_id, theme_id, icon_id)`，PK 是前兩者；member row 沒有頭像欄位。icon id 由圖片 bytes 導出（`icn-` + sha256 前 6 bytes），不是陣列位置，所以刪掉別張圖不會讓成員換臉。沒有紀錄的成員顯示該主題 pool 第一張，且**不寫回**。owner／assistant 仍是單圖 overlay。每個 pool 最多 12 張，沿用既有圖片守衛；不支援排序。SSE 只發 delta，不攜帶圖片 bytes。
 - `GET /api/chat/attachments/{attachment_id}/share-link` 的授權在 mint seam（`principalMachine`），回傳 server-relative、永久且不可撤銷的 path；blob GET 仍是 streaming／MCPExclude。不要把 share link 當成登入後的短期 URL。
 - 文件 history list 只回 metadata；body 用指定 kind + key 的 `get_document_version` 逐筆取，seed 用 `get_document_seed`。role definition、task manual SOP、task manual learnings 的 restore 需要文件仍存在；lessons 才能在 deleted role 上以 overlay + seed 恢復。SOP 與 learnings 是兩條各自有 cap/history 的序列，purpose、display、assignee 不在 version body 裡。
 - context cap 的五個 key 是 duty、insight、learning、manual SOP、manual learnings，各自 accessor、預設值到上限 100000；`global_context` 與 `task.description` 不套這組 cap。長度單位是 Unicode rune，不是 byte。
@@ -46,7 +46,7 @@
 - hardware stale 會收回數值但保留 timestamp；runtimes stale 保留 map 並標 `runtime_capabilities_stale`，因為 placement 仍需要最後能力資訊。machines 的列集合由 active warden roster 決定，不由 telemetry keys 決定；離線仍在冊要列，removed 不列，telemetry 不會復活 removed machine。
 - `warden_shape` 是 warden 自報的 closed enum；`bin_status` 才是 server 以回報指紋和 embedded binary 比對出的結果。不要從另一個欄位推導缺席值。hardware 錯型別保留後由 read side 以 `hardware_invalid` 指名 fresh sample 的宣告鍵；runtimes 錯型別在 ingest 400，未宣告 hardware key 不算 invalid。
 - `GET /api/monitoring` 的 sessions = active staff + live outsource workers；每個 model、runtime、effort、machine 等 telemetry 欄都只讀該 actor 的自報值，沒有 roster/config fallback。reported launch facts 落 durable 欄位，re-exec 後仍在；outsource DTO 的 model/effort 仍是 owner intent，不能拿 monitoring 值回寫編輯設定。released worker 不在 sessions，但仍在 actors/cost。
-- avatar endpoint 的 owner gate、`MCPExclude`、warden/machine target 422、raw PNG/JPEG/WEBP magic bytes 與 64 KiB 上限是現行 wire；一般 `PutMember` 不得改 avatar pointer，專用 mutator 才能改，每次 replacement 產生新的 `ava-` id。
+- `PUT /api/members/{member_id}/theme-avatar` 的 owner gate、`MCPExclude` 與 warden/machine target 422 是現行 wire；`theme_id` 認不得或 `icon_id` 不在該主題對應 pool 內一律 422。pool 圖片沿用 raw PNG/JPEG/WEBP magic bytes 與 decoded 64 KiB 上限。一般 `PutMember` 不得改 avatar 選擇，專用 mutator 才能改。render 順序固定：選中的 icon → 該 pool 第一張 → 內建 glyph；刪主題／刪圖的關聯列在 `PUT`／`DELETE /api/themes/{theme_id}` 上清掉（T-83ef 後主題不在 settings，prune 跟著搬過去），退場成員在 dismiss／release 路徑上清掉；都不留 dangling。theme export 只帶 asset，不帶關聯列。
 
 ## 6. command receipt 與操作可見性
 
