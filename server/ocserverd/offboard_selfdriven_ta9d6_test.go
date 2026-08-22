@@ -740,3 +740,80 @@ func TestPutMemberCarriesForcedStopAtForwardOnly(t *testing.T) {
 		t.Fatalf("forced_stop_at must only move forward: %v", got.ForcedStopAt)
 	}
 }
+
+// 🔴 THE ARM T-3201 CHANGES, AND THE ONLY ONE THAT HAD NO TEST.
+//
+// The offboard document now names ONE close-out verb, report_stopped, on both
+// arms — owner, verbatim (c-5b3d8f192a0b): 「我預期是 report_stopped，因為是
+// server 控制他上下線，他只是要回報執行狀態。restart_self 真正的用途應該是我在
+// 對話中跟他說你做完這件事情自己重啟」. Today's code still interpolates
+// offboardCloserFor, which says restart_self whenever a member is still wanted
+// online — so the arm the document changes is exactly this one: an agent that
+// asked for its own restart, was given the wind-down, and then ends the
+// sequence with report_stopped instead.
+//
+// Everything in the tree that says this is safe is READ from the code. The two
+// arms above cover no-epoch-online (respawns) and no-epoch-offline (stays
+// down); NEITHER has a refocus epoch in flight, and a refocus epoch is what
+// restart_self stamps. This test is that missing third arm: with the stamp on,
+// report_stopped must still collect AND respawn — not park the member down for
+// good, which is what "the document tells them the wrong verb" would cost.
+//
+// End-to-end (a real agent, a real warden) is the shipping check; this is the
+// handler-level half.
+func TestSelfDrivenOffboard_StoppedReportAfterARestartSelfStampRespawns(t *testing.T) {
+	s := newReconcileTestServer(t)
+	putWarden(t, s, "mach-a")
+
+	m := testAgent("m-restart")
+	m.DesiredMachineID = "mach-a"
+	putTestMember(t, s, m)
+	connectOnline(t, s, "mach-a")
+	session := connectOnlineMachine(t, s, "m-restart", "mach-a")
+	// Past the respawn-storm floor: that guard is asserted elsewhere and must
+	// not be what this test measures.
+	s.gauge.Set("m-restart", map[string]any{"boot_ts": nowSecs() - 10*minSelfRestartSecs})
+
+	// t1 — the agent was told 「做完某事自己重啟」 and asks for its own restart.
+	rec := httptest.NewRecorder()
+	s.HandleRestartSelfApiSelfRefocusPost(rec,
+		taskReq(t, "POST", "/api/self/refocus", map[string]any{}, "m-restart", "agent"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("restart_self: %d %s", rec.Code, rec.Body.String())
+	}
+	stamped, _ := s.dal.GetMember("m-restart")
+	if stamped == nil || stamped.RefocusSince <= 0 || stamped.RefocusOp != refocusOpRestartSelf {
+		t.Fatalf("premise: restart_self must leave a refocus stamp, or this test is "+
+			"the no-epoch arm again: %+v", stamped)
+	}
+	if f := drainFrames(t, s, "mach-a"); len(f) != 0 {
+		t.Fatalf("restart_self must collect nobody by itself: %+v", f)
+	}
+
+	// t4 — the agent works the document and ends it the way the document says.
+	rec = httptest.NewRecorder()
+	s.HandleReportStoppedApiSelfStoppedPost(rec,
+		taskReq(t, "POST", "/api/self/stopped", map[string]any{}, "m-restart", "agent"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("report_stopped: %d %s", rec.Code, rec.Body.String())
+	}
+	stops := drainFrames(t, s, "mach-a")
+	if len(stops) != 1 || stops[0].RPC != "stop" {
+		t.Fatalf("the close-out must be collected on the stopped report: %+v", stops)
+	}
+
+	// t5 — and a new generation takes its place. This is the assertion the
+	// whole verb change rests on: RESPAWN, not a member parked down holding a
+	// stamp nobody will act on.
+	s.hub.Disconnect(session)
+	s.reconcileMemberNow("m-restart")
+	starts := drainFrames(t, s, "mach-a")
+	if len(starts) != 1 || starts[0].RPC != "start" {
+		t.Fatalf("report_stopped under a restart_self stamp must RESPAWN, not stop "+
+			"for good: %+v", starts)
+	}
+	back, _ := s.dal.GetMember("m-restart")
+	if back == nil || back.DesiredState != DesiredStateOnline {
+		t.Fatalf("the member must still be wanted online after the recycle: %+v", back)
+	}
+}

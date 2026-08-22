@@ -110,6 +110,11 @@ export interface DocCardProps {
    * only the pages whose editor used to be per-section owe the sentence, and
    * adding it under a page that never offered anything else would be noise. */
   replaceNote?: string;
+  /** One line under the card head that is about THIS document rather than about
+   * saving — today, why a read-only document has no editor (T-3201). Separate
+   * from `replaceNote` because the two are never both true: a document nobody
+   * may write cannot be warned that saving replaces it. */
+  note?: ReactNode;
   /** Ask before saving. The body is the caller's, because the consequence is:
    * a mangled boot sequence means agents never come online and nobody is left
    * to fix it, and that sentence is FALSE of the system-interaction block. */
@@ -184,6 +189,7 @@ export function DocCard({
   isDefault: isDefaultOverride,
   usage,
   replaceNote,
+  note,
   confirmSave,
   requireDirty = false,
   renderBody,
@@ -515,6 +521,11 @@ export function DocCard({
         {replaceNote && (
           <div className="doc-card__note" data-testid="doc-card-replace-note">
             {replaceNote}
+          </div>
+        )}
+        {note && (
+          <div className="doc-card__note" data-testid="doc-card-note">
+            {note}
           </div>
         )}
 

@@ -677,31 +677,23 @@ const resumeTasksN = 5
 // ListReplyCards full-table scan (id → card); it is passed IN rather than
 // re-queried here, so answered_card_steps costs this path no extra query. A nil
 // map is legal and simply yields no answered_card_steps rows.
-//
-// The THIRD return is the near-cap step-note rows (T-6bd2). It rides this
-// function for the same reason the answered-card pointer does: the step rows
-// are ALREADY loaded here to compute the current node and detail_chars, so a
-// separate collector would re-run ListTaskSteps once per open task on every
-// wake to re-read bytes this loop is already holding. Only steps close to the
-// ceiling produce a row; see docCapacityNear.
-func (s *apiServer) resumeTasksFor(actor string, cards map[string]ReplyCard) ([]resumeTaskDTO, int, []docCapacityRow, error) {
+func (s *apiServer) resumeTasksFor(actor string, cards map[string]ReplyCard) ([]resumeTaskDTO, int, error) {
 	out := []resumeTaskDTO{}
-	stepNotes := []docCapacityRow{}
 	if actor == "" {
-		return out, 0, stepNotes, nil
+		return out, 0, nil
 	}
 	tasks, err := s.dal.ListOpenTasksByExecutor(actor, resumeTasksN)
 	if err != nil {
-		return nil, 0, nil, err
+		return nil, 0, err
 	}
 	total, err := s.dal.CountOpenTasksByExecutor(actor)
 	if err != nil {
-		return nil, 0, nil, err
+		return nil, 0, err
 	}
 	for _, t := range tasks {
 		steps, err := s.dal.ListTaskSteps(t.ID)
 		if err != nil {
-			return nil, 0, nil, err
+			return nil, 0, err
 		}
 		currentID, currentName := "", ""
 		detailChars := 0
@@ -728,14 +720,6 @@ func (s *apiServer) resumeTasksFor(actor string, cards map[string]ReplyCard) ([]
 				currentID, currentName = st.ID, st.Name
 			}
 			detailChars += len([]rune(st.Name)) + len([]rune(st.DoD))
-			// A TERMINAL step's note is finished writing: warning about the room
-			// left in a note nobody will add to again is the noise property 1 of
-			// doc_capacity.go forbids.
-			if !StepIsTerminal(st.Status) {
-				if row := stepNoteCapacityRow(TaskNo(t.ID), st.Name, st.Note); row != nil {
-					stepNotes = append(stepNotes, *row)
-				}
-			}
 		}
 		done, stepTotal := TaskProgress(steps)
 		out = append(out, resumeTaskDTO{
@@ -756,7 +740,7 @@ func (s *apiServer) resumeTasksFor(actor string, cards map[string]ReplyCard) ([]
 			AnsweredCardSteps: answered,
 		})
 	}
-	return out, total, stepNotes, nil
+	return out, total, nil
 }
 
 // ── C.1 the read face ────────────────────────────────────────────────────────
@@ -1554,25 +1538,13 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	} else {
 		newExecutorLabel = "外包（待排程指派）"
 	}
-	// 🔴 A FROZEN task is reassignable (owner ruling 2026-08-11, T-b9f6) — but
-	// the successor notice below is an INSTRUCTION TO TAKE OVER, and frozen
-	// means "do not advance this". Without this line the server itself would be
-	// the thing telling someone to start work on a task the owner just paused:
-	// the outsource arm is safe (the scheduler skips frozen wholesale, so no
-	// worker is ever minted), while a MEMBER successor is not gated anywhere —
-	// `grep -rn TaskPriorityFrozen --include=*.go server/ocserverd | grep -v _test`
-	// shows the scheduler and the priority setter are the only enforcement in
-	// the whole server; claim / step reports / replan carry no frozen check.
-	// owner picked "say so in the notice" over "add a refusal" (card
-	// rc-4a166be12a29, option ①): arranging a handover while paused stays legal,
-	// starting work does not. ONE constant, used by both successor branches —
-	// two copies of a caveat drift into two different caveats.
-	frozenNotice := ""
-	if t.Priority == TaskPriorityFrozen {
-		frozenNotice = "\n\n⚠️ 這張任務現在是「凍結」（優先權 frozen ＝ 暫停推進）。" +
-			"**認領之後不要開始推進**：先問清楚為什麼被凍結，等能解凍的人解開再動。" +
-			"凍結期間安排接手是刻意允許的（owner 2026-08-11 裁定），被安排的是「之後由誰做」，不是「現在開始做」。"
-	}
+	// 🔴 THE FROZEN CAVEAT USED TO BE APPENDED HERE, AND THE OWNER REMOVED IT
+	// (2026-08-22, T-3201). It said 「這張任務現在是「凍結」…認領之後不要開始推進」
+	// on every successor notice for a frozen task — and 全域脈絡 §3.6 already
+	// says 「凍結期間不要推進任務。若要繼續執行，先開核可卡…」 to every agent on
+	// every boot. One rule, two texts, and the one in code was the one nobody
+	// could edit. A frozen task is still reassignable (owner 2026-08-11, T-b9f6);
+	// what changed is where the agent is told what frozen means.
 	no := TaskNo(t.ID)
 	if oldExecutor != "" {
 		s.postTaskChat(*t, wireSystemSender, oldExecutor,
@@ -1590,7 +1562,6 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 		if note := trimmedOrEmpty(body.Note); note != "" {
 			msg += "\n\n交接備註：" + note
 		}
-		msg += frozenNotice
 		s.postTaskChat(*t, wireSystemSender, newExecutorID, msg, trigger)
 	} else if newMember != nil {
 		// A not_started task with no prior executor (no predecessor to hand over
@@ -1601,7 +1572,6 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 		if note := trimmedOrEmpty(body.Note); note != "" {
 			msg += "\n\n交接備註：" + note
 		}
-		msg += frozenNotice
 		s.postTaskChat(*t, wireSystemSender, newMember.ID, msg, trigger)
 	}
 

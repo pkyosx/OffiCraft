@@ -1,3 +1,7 @@
+{where} — start your close-out: work the sequence below, then call report_stopped yourself.
+
+<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->
+
 # 下線程序
 
 下線過程中，所有重要資料都不可以只留在本機 —— 重啟之後你可能在另一台機器上。

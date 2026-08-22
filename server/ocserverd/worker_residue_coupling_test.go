@@ -20,7 +20,12 @@ func TestWorkerSharedCoreStartsWithTheUnfilteredSystemSeed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read system_interaction.md: %v", err)
 	}
-	want := strings.TrimSpace(sys)
+	// DocRendered, not the raw file: since T-3201 these seeds carry a
+	// read-only head above docBodyMarker, and what a READER gets is the two
+	// halves joined — the marker line never reaches an agent. The join is
+	// spelled here rather than read from the registry, so changing it there
+	// comes back red.
+	want := strings.TrimSpace(DocRendered(sys, "\n\n"))
 	if got := crossrefWorkerCtx(t); !strings.HasPrefix(got, want+"\n\n") {
 		t.Fatal("worker boot context no longer starts with the unfiltered system-interaction seed")
 	}

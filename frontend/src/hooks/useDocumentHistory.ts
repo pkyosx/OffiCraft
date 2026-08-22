@@ -64,6 +64,15 @@ const TOPIC_OF: Record<DocumentKind, string> = {
   system_interaction: "global_context",
   boot_sequence: "global_context",
   offboard: "global_context",
+  // T-3201: the six lifecycle documents ride the same existing topic, for the
+  // same reason — the SSE vocabulary is closed, so a topic named after one of
+  // them would fan NOTHING and the failure would be perfectly silent.
+  accelerated_stop: "global_context",
+  task_closeout: "global_context",
+  task_reassign_predecessor: "global_context",
+  task_takeover_with_predecessor: "global_context",
+  task_takeover_fresh: "global_context",
+  task_unblocked: "global_context",
 };
 
 interface UseDocumentHistory {

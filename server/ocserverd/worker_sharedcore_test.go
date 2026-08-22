@@ -70,7 +70,9 @@ func unfilteredWorkerSharedHeadWant(t *testing.T, s *apiServer, ownerText string
 	if err != nil {
 		t.Fatalf("read system_interaction.md: %v", err)
 	}
-	parts := []string{strings.TrimSpace(sys)}
+	// DocRendered: the seed carries a read-only head above docBodyMarker since
+	// T-3201, and the marker line never reaches a reader.
+	parts := []string{strings.TrimSpace(DocRendered(sys, "\n\n"))}
 	if strings.TrimSpace(ownerText) != "" {
 		parts = append(parts, ownerAdditionsH1+"\n\n"+strings.TrimSpace(ownerText))
 	}
@@ -205,7 +207,12 @@ func TestMemberBootContextByteIdenticalToSpecAssembly(t *testing.T) {
 	// §2.2 order: 系統互動 → 使用者自訂 → Role → Insight → Lessons → 啟動程序.
 	// Insight, like the owner block, is skipped ENTIRELY when its folded text
 	// is blank — the gate is the text, not is_default/has_seed.
-	parts := []string{strings.TrimSpace(sysSeed)}
+	// DocRendered, not the raw file: since T-3201 these seeds carry a
+	// read-only head above docBodyMarker, and what a READER gets is the two
+	// halves joined — the marker line never reaches an agent. The join is
+	// spelled here rather than read from the registry, so changing it there
+	// comes back red.
+	parts := []string{strings.TrimSpace(DocRendered(sysSeed, "\n\n"))}
 	if strings.TrimSpace(userCtx.Text) != "" {
 		parts = append(parts, ownerAdditionsH1+"\n\n"+strings.TrimSpace(userCtx.Text))
 	}
@@ -216,7 +223,7 @@ func TestMemberBootContextByteIdenticalToSpecAssembly(t *testing.T) {
 	}
 	parts = append(parts,
 		"# Lessons ("+bc.RoleKey+" / "+bc.TaskType+")\n\n"+strings.TrimSpace(lessons.Text),
-		strings.TrimSpace(bootSeed))
+		strings.TrimSpace(DocRendered(bootSeed, "\n\n")))
 	want := strings.Join(parts, "\n\n") + "\n"
 	if bc.Context != want {
 		t.Fatalf("member boot context drifted from the §2.2 assembly (got %d bytes, want %d)", len(bc.Context), len(want))
@@ -280,7 +287,9 @@ func TestWorkerBootSequenceFollowsTheWorkersRuntime(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read %s: %v", tc.bootSeed, err)
 			}
-			if want := strings.TrimSpace(seed); got != want {
+			// DocRendered — the seed's read-only head is joined to its body and
+			// the marker line is dropped (T-3201).
+			if want := strings.TrimSpace(DocRendered(seed, "\n\n")); got != want {
 				t.Fatalf("runtime %q must be assembled from %s (got %d bytes, want %d)",
 					tc.runtime, tc.bootSeed, len(got), len(want))
 			}

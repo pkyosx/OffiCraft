@@ -20,6 +20,7 @@ import type {
   GlobalContextView,
   BootDocKind,
   BootDocView,
+  BootDocSummaryView,
   DocumentKind,
   DocumentHistoryEntryView,
   DocumentHistoryView,
@@ -2166,24 +2167,39 @@ export interface Api {
   /** Reset the global context to seed (idempotent tombstone → `isDefault` true). */
   resetGlobalContext(): Promise<GlobalContextView>;
   /**
-   * The folded boot-context block (T-791e) — one of THREE independent document
-   * streams, addressed by (kind, key):
+   * WHICH boot/lifecycle documents this server serves (T-3201) — the text-free
+   * listing behind `GET /api/boot-docs`, in the order the server declares them.
    *
-   *   system_interaction / global   — the studio's how-the-system-works block
-   *   boot_sequence      / claude   — the Claude Code boot SOP
-   *   boot_sequence      / codex    — the Codex CLI boot SOP
+   * 🔴 IT IS THE ONLY HONEST ANSWER TO "WHICH DOCUMENTS EXIST". Every prose
+   * list of these kinds that has ever been written went stale the day one
+   * shipped, and nothing turned red. The cockpit does not RENDER from it — the
+   * settings list is a `Record<BootDocKind, …>` so a missing row is a compile
+   * error — it reads this listing to prove that record and the server agree
+   * (api/mock.boot-doc-registry.test.ts). A document that ships without a row
+   * would otherwise be invisible in the cockpit, silently.
+   */
+  listBootDocs(): Promise<BootDocSummaryView[]>;
+  /**
+   * The folded boot-context / lifecycle document (T-791e, widened by T-3201),
+   * addressed by (kind, key). Every kind serves exactly one key, "global",
+   * except `boot_sequence`, which serves "claude" and "codex".
    *
    * 🔴 The two boot_sequence keys are DIFFERENT DOCUMENTS whose third step
    * means opposite things. `key` is required rather than defaulted for exactly
    * that reason: there is no "the boot sequence", so there is nothing sensible
    * for a default to pick, and an omitted key would silently address one
    * runtime while the caller meant the other.
+   *
+   * `readOnly` on the answer says the server SHOWS this document but refuses
+   * every write to it (405). It is a property of the document, read here — the
+   * cockpit keeps no list of which ones those are.
    */
   getBootDoc(kind: BootDocKind, key: string): Promise<BootDocView>;
   /** Whole-document replace of ONE boot-context block → the folded doc
    * (`isDefault` flips false). Rejects with a 400 ApiError when `text` is over
    * that kind's `cap_chars` and not getting shorter — the cockpit blocks first,
-   * this is the server's own floor. Requires admin or above. */
+   * this is the server's own floor — and with a 405 for a read-only document.
+   * Requires admin or above. */
   saveBootDoc(
     kind: BootDocKind,
     key: string,

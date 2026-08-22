@@ -190,18 +190,24 @@ describe("httpApi path strings", () => {
     expect(unknown).toEqual([]);
   });
 
-  it("spells each boot-context route the way the backend serves it", () => {
-    // The six routes this ticket added, asserted one by one rather than folded
-    // into the sweep above: the sweep proves each string is SOME declared
-    // path, and `/api/system-interaction/global` failing that is the whole
-    // point — but only naming them individually says which six must be there,
-    // so deleting a call site cannot quietly shrink the coverage.
+  it("spells each boot-document route the way the backend serves it", () => {
+    // Asserted one by one rather than folded into the sweep above: the sweep
+    // proves each string is SOME declared path — and a composed
+    // `/api/system-interaction/global` failing that is the whole point — but
+    // only naming them individually says WHICH routes must be there, so
+    // deleting a call site cannot quietly shrink the coverage.
+    //
+    // T-3201 replaced the per-kind families with ONE generic family. The named
+    // routes still exist on the server for MCP callers; the cockpit no longer
+    // spells them, so they are no longer required here — what IS required is
+    // that all three faces of the generic family are spelled, because a
+    // frontend that reached only two of them would leave one document
+    // unreachable with nothing red to say so.
     const used = new Set(pathLiterals(httpSource));
     for (const route of [
-      "/api/system-interaction",
-      "/api/system-interaction/reset",
-      "/api/boot-sequence/{runtime_key}",
-      "/api/boot-sequence/{runtime_key}/reset",
+      "/api/boot-docs",
+      "/api/boot-docs/{kind}/{key}",
+      "/api/boot-docs/{kind}/{key}/reset",
       "/api/document-history/{kind}/{key}",
       "/api/document-history/{kind}/{key}/{id}/restore",
     ]) {

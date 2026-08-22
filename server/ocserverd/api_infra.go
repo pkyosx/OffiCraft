@@ -212,14 +212,11 @@ func (s *apiServer) HandleEventsApiEventsGet(w http.ResponseWriter, r *http.Requ
 	lastTokenExpiryReminder := int64(0)
 	nextTokenExpiryCheck := int64(0)
 
-	// The two TEXT sources of the handover notice, built once per connection
-	// rather than once per tick. Building them is free; RUNNING them is not —
-	// each is a fold over durable documents — which is why handoverNoticeTick
-	// decides whether this tick can emit BEFORE it calls either one.
+	// The TEXT source of the handover notice, built once per connection rather
+	// than once per tick. Building it is free; RUNNING it is not — it is a fold
+	// over a durable document — which is why handoverNoticeTick decides whether
+	// this tick can emit BEFORE it calls it.
 	noticeOffboardText := s.offboardText
-	noticeDocCapacity := func() string {
-		return docCapacityLines(s.docCapacityFor(memberID, s.stepNoteCapacityFor(memberID)))
-	}
 
 	write := func(frame []byte) bool {
 		armWriteDeadline()
@@ -256,7 +253,7 @@ func (s *apiServer) HandleEventsApiEventsGet(w http.ResponseWriter, r *http.Requ
 		// agent cannot read its own context %, so the server pushes it).
 		if memberID != "" {
 			if frame, ok := s.handoverNoticeTick(
-				memberID, connRuntime, noticeOffboardText, noticeDocCapacity); ok {
+				memberID, connRuntime, noticeOffboardText); ok {
 				if !write(frame) {
 					return
 				}
@@ -888,23 +885,20 @@ func (s *apiServer) HandleMcpApiMcpPost(w http.ResponseWriter, r *http.Request) 
 //
 // The once-per-session fact is enforced by claimHandoverNotice, which runs
 // AFTER decideHandoverNotice has composed the signal — and composing it runs
-// `offboard` and `docCapacity`, each a fold over durable documents. But
-// decideHandoverNotice returns non-nil on EVERY tick once the agent is past its
-// notice point, not just the first: the "fires once" gate is downstream of it.
-// So for the whole remainder of a high-band session — a tick every ssePoll —
-// this used to compose a frame that was then thrown away, at the full cost of
-// both folds. The independent review measured 21.3µs → 574.2µs per tick (26.9×,
-// empty station) for what the doc-capacity closure added; measured again on
-// this fix, a SILENT tick costs 246ns with this guard and 374µs without it on
-// an empty station, 199ns vs 701µs once all nine documents are near their caps.
+// `offboard`, a fold over a durable document. But decideHandoverNotice returns
+// non-nil on EVERY tick once the agent is past its notice point, not just the
+// first: the "fires once" gate is downstream of it. So for the whole remainder
+// of a high-band session — a tick every ssePoll — this used to compose a frame
+// that was then thrown away, at the full cost of the fold. Measured on an empty
+// station, a SILENT tick costs 246ns with this guard and 374µs without it.
 //
 // handoverNoticeSettled is asked FIRST for that reason. It is read-only (gauge
 // record + the process-local claim cache, no query), so it cannot change what
 // is sent — only whether the work of composing an already-spent notice is done
-// at all. TestHandoverNoticeTick_ClosuresAreNotRunAfterTheClaim counts the
+// at all. TestHandoverNoticeTick_ClosureIsNotRunAfterTheClaim counts the
 // closure calls and fails if this order is reversed.
 func (s *apiServer) handoverNoticeTick(
-	memberID, connRuntime string, offboard, docCapacity func() string,
+	memberID, connRuntime string, offboard func() string,
 ) ([]byte, bool) {
 	record := s.gauge.Get(memberID)
 	if s.handoverNoticeSettled(memberID, record) {
@@ -913,7 +907,7 @@ func (s *apiServer) handoverNoticeTick(
 	signal := decideHandoverNotice(
 		memberID, connRuntime, record,
 		s.ctxHighConfig(), s.codexNoticeRoundSetting(), s.codexCompactionThreshold,
-		offboard, docCapacity)
+		offboard)
 	if signal == nil {
 		return nil, false
 	}

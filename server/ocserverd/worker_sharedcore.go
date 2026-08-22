@@ -60,7 +60,7 @@ func (s *apiServer) workerSharedHead() (string, error) {
 	}
 	if strings.TrimSpace(userCtx.Text) != "" {
 		parts = append(parts,
-			"# 使用者自訂（Owner Additions）\n\n"+strings.TrimSpace(userCtx.Text))
+			userAdditionsTitle+"\n\n"+strings.TrimSpace(userCtx.Text))
 	}
 
 	return strings.Join(parts, "\n\n"), nil

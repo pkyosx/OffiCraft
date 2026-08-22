@@ -513,6 +513,16 @@ func (s *apiServer) offboardCap() int {
 	return s.docCapCharsOffboard
 }
 
+// taskEventCap is the ceiling on each of the four task-event procedures
+// (T-3201). No lock and no settings read: it is a constant until the owner has
+// seen the interface change that turning it into a `doc.cap_chars.*` setting
+// would be (see taskEventCapCharsDefault). The accessor exists anyway so the
+// registry reads caps through ONE shape and the day it does become a setting
+// costs one function body, not nine call sites.
+func (s *apiServer) taskEventCap() int {
+	return taskEventCapCharsDefault
+}
+
 // chatBudget is the live wake-snapshot chat budget (chat.budget_chars;
 // T-c9b4). Read at request time like every cap above, so a PATCH takes effect
 // on the next snapshot with no restart.

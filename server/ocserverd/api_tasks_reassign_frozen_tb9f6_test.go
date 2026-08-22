@@ -157,17 +157,27 @@ func TestReassignFrozenTaskToOutsourceWakesNobody(t *testing.T) {
 // owner chose to fix it in the notice rather than with a new refusal (card
 // rc-4a166be12a29, option ①): arranging a handover while paused stays legal.
 //
-// Both directions are asserted. Without the negative half, a mutant that pastes
-// the caveat onto EVERY handover would pass — and a caveat that appears on
-// tasks that are not paused is how people learn to skip reading it.
-func TestReassignFrozenTaskTellsTheSuccessorNotToAdvance(t *testing.T) {
+// 🔴 THE CAVEAT WAS REMOVED, AND THIS TEST NOW PINS ITS ABSENCE (T-3201, owner
+// 2026-08-22). It used to be appended to every successor notice on a frozen
+// task; 全域脈絡 §3.6 already tells every agent 「凍結期間不要推進任務。若要繼續
+// 執行，先開核可卡…」 on every boot, so the notice was a second copy of one rule
+// — and it was the copy nobody could edit.
+//
+// The invariant this file exists for is UNCHANGED and is asserted by the tests
+// below: reassigning a frozen task must not WAKE anybody. What changed is only
+// where the successor is told what frozen means.
+//
+// Both arms are still run, and both now expect the same answer, because the
+// discriminator moved: a mutant that puts the sentence back on the frozen arm
+// goes red here, and one that pastes it on every handover goes red twice.
+func TestReassignFrozenTask_SuccessorNoticeCarriesNoFrozenCaveat(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		freeze     bool
 		wantCaveat bool
 	}{
-		{"frozen task warns the successor", true, true},
-		{"an ordinary task carries no such warning", false, false},
+		{"frozen task", true, false},
+		{"an ordinary task", false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			api := newTasksTestServer(t)
@@ -214,8 +224,9 @@ func TestReassignFrozenTaskTellsTheSuccessorNotToAdvance(t *testing.T) {
 			}
 			got := strings.Contains(toNew.Body, "認領之後不要開始推進")
 			if got != tc.wantCaveat {
-				t.Fatalf("frozen caveat present=%v, want %v — body: %s",
-					got, tc.wantCaveat, toNew.Body)
+				t.Fatalf("frozen caveat present=%v, want %v — the owner removed it "+
+					"on 2026-08-22 because 全域脈絡 §3.6 already carries the rule; "+
+					"body: %s", got, tc.wantCaveat, toNew.Body)
 			}
 		})
 	}

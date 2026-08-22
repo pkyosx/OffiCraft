@@ -269,6 +269,7 @@ describe("T-ae38 — capForKind routes each document kind to its own cap", () =>
       systemInteraction: 6,
       bootSequence: 7,
       offboard: 8,
+      taskEvent: 9,
     };
     expect(capForKind("role_definition", caps)).toBe(1);
     expect(capForKind("insight", caps)).toBe(2);
@@ -283,6 +284,15 @@ describe("T-ae38 — capForKind routes each document kind to its own cap", () =>
     expect(capForKind("boot_sequence", caps)).toBe(7);
     // T-c9c0: the 下線程序 document has its own knob too.
     expect(capForKind("offboard", caps)).toBe(8);
+    // T-3201: 加速停止 shares 下線程序's knob — the server's registry row calls
+    // `offboardCap()` for both — while the four task-event procedures answer to
+    // the one task-event ceiling.
+    expect(capForKind("accelerated_stop", caps)).toBe(8);
+    expect(capForKind("task_closeout", caps)).toBe(9);
+    expect(capForKind("task_reassign_predecessor", caps)).toBe(9);
+    expect(capForKind("task_takeover_with_predecessor", caps)).toBe(9);
+    expect(capForKind("task_takeover_fresh", caps)).toBe(9);
+    expect(capForKind("task_unblocked", caps)).toBe(9);
     // The retired bundle kind covers both documents and has no restore path
     // left; it takes the learnings cap, as the deprecated wire field does.
     expect(capForKind("task_manual", caps)).toBe(5);

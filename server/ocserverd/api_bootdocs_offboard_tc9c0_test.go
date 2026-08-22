@@ -20,8 +20,20 @@ import (
 func TestRestoringTheOffboardDocFansAGlobalContextDelta(t *testing.T) {
 	f := newHistoryFixture(t)
 
-	writeOffboard := func(text string) {
+	// The offboard document carries a read-only head (T-3201) that every write
+	// must return verbatim; this test is about the RESTORE fanning a delta, so
+	// the head rides along rather than being spelled at each call.
+	offboardSeed, _, err := f.api.root.seedBlockMD(offboardSeedMD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	offboardHead, _, split := DocSplitHeadBody(offboardSeed)
+	if !split {
+		t.Fatal("the offboard seed lost its read-only head")
+	}
+	writeOffboard := func(body string) {
 		t.Helper()
+		text := DocJoinHeadBody(offboardHead, body)
 		rec := httptest.NewRecorder()
 		f.api.HandleReplaceOffboardApiOffboardPost(rec,
 			f.req(http.MethodPost, "/api/offboard", map[string]any{"text": text}))

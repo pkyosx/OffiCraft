@@ -1,0 +1,46 @@
+# boot-doc-registry.tsv — WHICH boot/lifecycle documents exist, and the only copy.
+#
+# WHY THIS FILE EXISTS
+# --------------------
+# The set of these documents is written down TWICE, in two languages, with no
+# compiler between them: `bootDocRegistry` (server/ocserverd/api_bootdocs.go)
+# decides what the server serves, and the cockpit carries its own list so it can
+# give each one a row, a name and an icon in the settings page.
+#
+# A divergence produces NO error anywhere. It produces a document that ships,
+# that the server serves, and that the owner simply cannot see — no blank page,
+# no 404, nothing to notice. That is the exact failure this whole ticket was
+# opened for, and every prose list of these kinds ever written in this tree went
+# stale in that direction.
+#
+# Both sides are checked against THIS table, so a drift names the side that
+# drifted instead of merely reporting that two things differ. Deliberately NOT a
+# mock of one side inside the other's test — that would only prove the mock
+# agrees with itself.
+#
+# WHAT A CHANGE HERE COSTS
+# ------------------------
+# Shipping a document means editing this file in the SAME commit as the registry
+# row. That is the point: the edit is one line, and skipping it is a red test
+# rather than an invisible hole.
+#
+# COLUMNS
+# -------
+# kind          the document-history kind — the first half of its address
+# key           the second half; a kind serving more than one has one row each
+# read_only     true when no caller may edit it (every write face answers 405)
+#
+# What is NOT here: caps, seed filenames, variables, whether it carries a
+# read-only head. Those are per-side implementation and adding them would make
+# this a second registry rather than a list of what exists.
+kind	key	read_only
+system_interaction	global	false
+boot_sequence	claude	false
+boot_sequence	codex	false
+offboard	global	false
+accelerated_stop	global	false
+task_closeout	global	false
+task_reassign_predecessor	global	false
+task_takeover_with_predecessor	global	false
+task_takeover_fresh	global	true
+task_unblocked	global	true

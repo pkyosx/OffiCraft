@@ -689,12 +689,39 @@ export type DocumentKind =
   // T-c9c0: the 下線程序 document. A SINGLETON keyed "global" like
   // system_interaction — being collected is the same procedure whatever
   // runtime an agent runs, so there is deliberately no runtime axis here.
-  | "offboard";
+  | "offboard"
+  // T-3201: the six lifecycle procedures that used to be Go string literals.
+  // All singletons keyed "global"; the last two are READ-ONLY on the wire (the
+  // write faces answer 405), which is a property of the DOCUMENT and arrives on
+  // its own read — never a list the cockpit keeps.
+  | "accelerated_stop"
+  | "task_closeout"
+  | "task_reassign_predecessor"
+  | "task_takeover_with_predecessor"
+  | "task_takeover_fresh"
+  | "task_unblocked";
 
-/** The DocumentKinds that carry a seeded, owner-editable boot-context block
- * (T-791e). Narrower than DocumentKind on purpose: the adapter's three boot-doc
- * methods take THIS, so no caller can address `lessons` through them. */
-export type BootDocKind = "system_interaction" | "boot_sequence" | "offboard";
+/** The DocumentKinds that carry a seeded boot-context / lifecycle document
+ * (T-791e, widened by T-3201). Narrower than DocumentKind on purpose: the
+ * adapter's boot-doc methods take THIS, so no caller can address `lessons`
+ * through them.
+ *
+ * 🔴 THIS UNION IS ONE HALF OF A PAIR. The other half is the settings list's
+ * `BOOT_DOC_ROWS` (components/SettingsPage.tsx), a `Record<BootDocKind, …>`:
+ * adding a kind here without a row there is a compile error, and a kind the
+ * SERVER serves that is missing from BOTH is caught by the registry-parity test
+ * (api/mock.boot-doc-registry.test.ts). A document that ships but that the
+ * cockpit never shows is the failure that pair exists to make loud. */
+export type BootDocKind =
+  | "system_interaction"
+  | "boot_sequence"
+  | "offboard"
+  | "accelerated_stop"
+  | "task_closeout"
+  | "task_reassign_predecessor"
+  | "task_takeover_with_predecessor"
+  | "task_takeover_fresh"
+  | "task_unblocked";
 
 /**
  * One seeded boot-context block as the cockpit reads it (T-791e) — the folded
@@ -716,6 +743,29 @@ export interface BootDocView {
   /** The cap the SERVER enforces for this kind, in the same unit. The cockpit
    * blocks over-cap saves against this number rather than a local constant, so
    * a raised cap does not need a frontend release to take effect. */
+  capChars: number;
+  isDefault: boolean;
+  hasSeed: boolean;
+  /** True when the server SHOWS this document but refuses every write to it
+   * (405). Read off the document itself (T-3201) — the cockpit never carries
+   * its own list of which documents are read-only, because that list would go
+   * stale silently the day one changes. */
+  readOnly: boolean;
+}
+
+/**
+ * ONE ROW of the boot-document listing (`GET /api/boot-docs`, T-3201) — how to
+ * address a document, what the server calls it, and how big it is, with NO
+ * text. It is the server's own answer to "which of these documents exist", and
+ * the only thing the cockpit is allowed to check its own settings list against.
+ */
+export interface BootDocSummaryView {
+  kind: BootDocKind;
+  key: string;
+  /** The server's own name for the document — the same words its refusals use. */
+  docName: string;
+  readOnly: boolean;
+  sizeChars: number;
   capChars: number;
   isDefault: boolean;
   hasSeed: boolean;

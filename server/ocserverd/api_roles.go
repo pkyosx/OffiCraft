@@ -50,8 +50,7 @@ func (s *apiServer) HandleReplaceGlobalContextApiGlobalContextPost(w http.Respon
 		}
 		if WholeDocWipeBlocked(current.Text, text) {
 			writeError(w, http.StatusBadRequest,
-				"this would replace the existing global context with an empty one — pass allow_shrink=true "+
-					"if that is intended, or use reset_global_context; nothing was written")
+				docWipeRefusal("global context", ", or use reset_global_context"))
 			return
 		}
 	}
@@ -588,9 +587,7 @@ func (s *apiServer) HandleReplaceLessonsApiLessonsRoleKeyTaskTypePost(w http.Res
 	// since r-76. Emptying a doc that had content now needs allow_shrink.
 	if !(body.AllowShrink != nil && *body.AllowShrink) {
 		if WholeDocWipeBlocked(current.Text, text) {
-			writeError(w, http.StatusBadRequest,
-				"this would replace the existing lessons doc with an empty one — pass allow_shrink=true "+
-					"if that is intended; nothing was written")
+			writeError(w, http.StatusBadRequest, docWipeRefusal("lessons doc", ""))
 			return
 		}
 	}

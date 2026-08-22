@@ -1488,10 +1488,11 @@ export const zh = {
     upgrade: "升級到最新版",
     catalogHash: "MCP 目錄雜湊",
     // ── 角色誌 ──
-    // 全域情境 = boot context 的區塊，依組裝順序：系統互動 → 使用者自訂 →
-    // 啟動程序。T-791e 起**四列**、而且**全部可編輯**——啟動程序是 claude 與
-    // codex 兩份不同的文件，各佔一列。UI 不露檔名。
-    globalSection: "全域情境（GLOBAL CONTEXT）",
+    // 十份文件依 owner 的讀法分四組（2026-08-22）：上線 → 下線 → 任務事件 →
+    // 只顯示不給改。上線這組依 boot context 的組裝順序排：系統互動 → 使用者自訂
+    // → 啟動程序（啟動程序那一列開的是 claude / codex 兩份文件的索引）。
+    // UI 不露檔名。
+    globalSection: "上線（BOOT）",
     systemName: "系統互動",
     systemSub: "系統運作說明，注入給每個 agent · 可編輯",
     customName: "使用者自訂",
@@ -1514,6 +1515,31 @@ export const zh = {
     // 夾帶給 agent 的收尾指示，所以在清單上自成一列，排在啟動程序之後。
     offboardName: "下線程序",
     offboardSub: "server 要收掉這個 session 時夾帶給 agent 的收尾指示 · 可編輯",
+    // ── T-3201：其餘六份生命週期文件 ──
+    // 分組標題。上線那組沿用既有的 globalSection；下線、任務、唯讀是新的三組。
+    stopSection: "下線（STOP）",
+    taskEventSection: "任務事件（TASK）",
+    readOnlySection: "只顯示、不給改（READ-ONLY）",
+    acceleratedStopName: "加速停止",
+    acceleratedStopSub: "被要求提前收工時給 agent 的指示 · 有截止時間 · 可編輯",
+    taskCloseoutName: "任務結案",
+    taskCloseoutSub: "任務被判定結束時給 agent 的收尾指示 · 可編輯",
+    taskReassignPredecessorName: "轉派給前任",
+    taskReassignPredecessorSub: "手上的任務被轉給別人時給 agent 的交接指示 · 可編輯",
+    taskTakeoverWithPredecessorName: "接手·有前任",
+    taskTakeoverWithPredecessorSub: "接手別人做過的任務時給 agent 的指示 · 可編輯",
+    taskTakeoverFreshName: "接手·新指派",
+    taskTakeoverFreshSub: "第一次被指派這個任務時給 agent 的指示 · 只顯示、不給改",
+    taskUnblockedName: "擋著你的票解開了",
+    taskUnblockedSub: "依賴的任務放行時給 agent 的通知 · 只顯示、不給改",
+    // 唯讀文件的說明：說「這份是什麼」，不說「你沒有權限」——沒有任何人可以改，
+    // 講權限會讓人去找一個根本不存在的角色來授權。
+    bootDocReadOnlyNote:
+      "這份文件顯示在這裡，是為了讓你看得到 agent 到底被告知了什麼；它不給任何人編輯，也沒有出廠版以外的版本。",
+    bootDocSaveConfirmAcceleratedStop:
+      "要儲存這份加速停止程序嗎？之後每一個被要求提前收工的 agent 都會讀到這份內容，而且是在只剩下一小段時間的情況下讀——寫得完才算數。",
+    bootDocSaveConfirmTaskEvent:
+      "要儲存這份任務事件程序嗎？之後每一次這個事件發生，被通知的 agent 都會讀到這份內容。",
     // ── 開機情境區塊：可編輯面（T-791e）──
     bootDocNoteHistoryLead: "版本紀錄只保留最近 ",
     bootDocNoteHistoryTail:
@@ -1533,6 +1559,14 @@ export const zh = {
     historyBootClaudeTitle: "啟動程序（Claude Code）的版本紀錄",
     historyBootCodexTitle: "啟動程序（Codex CLI）的版本紀錄",
     historyBootOffboardTitle: "下線程序的版本紀錄",
+    historyAcceleratedStopTitle: "加速停止的版本紀錄",
+    historyTaskCloseoutTitle: "任務結案的版本紀錄",
+    historyTaskReassignPredecessorTitle: "轉派給前任的版本紀錄",
+    historyTaskTakeoverWithPredecessorTitle: "接手·有前任的版本紀錄",
+    // 這兩份是唯讀的，永遠不會有第二個版本；標題留著是因為那張表對每一列都要
+    // 一個，而不是因為畫面上會出現版本紀錄入口。
+    historyTaskTakeoverFreshTitle: "接手·新指派的版本紀錄",
+    historyTaskUnblockedTitle: "擋著你的票解開了的版本紀錄",
     // seed vs owner-edited
     defaultBadge: "預設",
     // ── detail: view / edit ──

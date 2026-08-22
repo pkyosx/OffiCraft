@@ -53,6 +53,12 @@ export interface DocCaps {
   systemInteraction: number;
   bootSequence: number;
   offboard: number;
+  /** The ceiling on each of the four task-event procedures (T-3201). NOT a
+   * `doc.cap_chars.*` setting: the server reads it straight off
+   * `taskEventCapCharsDefault` (api_stub.go), so there is no knob to move and
+   * callers pass the constant below. Kept as a field all the same, so the one
+   * predicate that judges a restore keeps taking every cap the same way. */
+  taskEvent: number;
 }
 
 /**
@@ -71,6 +77,12 @@ export interface DocCaps {
  * because the page and the mock address these by WIRE kind, not by the
  * view-model field name.
  */
+/** `taskEventCapCharsDefault` (server/ocserverd/domain.go), transcribed. It is
+ * the ceiling on EACH of the four task-event procedures, and unlike the four
+ * `doc.cap_chars.*` blocks it is a constant on the server too — there is no
+ * setting for it, so this is the live value rather than a fallback. */
+export const TASK_EVENT_CAP_CHARS_DEFAULT = 15000;
+
 export const BOOT_DOC_CAP_CHARS_DEFAULTS: Record<BootDocKind, number> = {
   system_interaction: 60000,
   boot_sequence: 15000,
@@ -79,6 +91,19 @@ export const BOOT_DOC_CAP_CHARS_DEFAULTS: Record<BootDocKind, number> = {
   // pressure (a recycle gives it a bounded window; an offboard gives it none
   // but the owner is waiting), not a reference text.
   offboard: 15000,
+  // T-3201. 加速停止 SHARES the offboard cap on purpose (the server's registry
+  // row calls `offboardCap()` for it): it is the same procedure under a shorter
+  // clock, and a second ceiling would be a second number to keep in step
+  // without a second thing to say about it.
+  accelerated_stop: 15000,
+  // The four task-event procedures answer to `taskEventCapCharsDefault`
+  // (server/ocserverd/domain.go), one number for all four. Read from the server
+  // rather than chosen here.
+  task_closeout: TASK_EVENT_CAP_CHARS_DEFAULT,
+  task_reassign_predecessor: TASK_EVENT_CAP_CHARS_DEFAULT,
+  task_takeover_with_predecessor: TASK_EVENT_CAP_CHARS_DEFAULT,
+  task_takeover_fresh: TASK_EVENT_CAP_CHARS_DEFAULT,
+  task_unblocked: TASK_EVENT_CAP_CHARS_DEFAULT,
 };
 
 export const DOC_CAP_CHARS_DEFAULTS: DocCaps = {
@@ -91,6 +116,7 @@ export const DOC_CAP_CHARS_DEFAULTS: DocCaps = {
   systemInteraction: BOOT_DOC_CAP_CHARS_DEFAULTS.system_interaction,
   bootSequence: BOOT_DOC_CAP_CHARS_DEFAULTS.boot_sequence,
   offboard: BOOT_DOC_CAP_CHARS_DEFAULTS.offboard,
+  taskEvent: TASK_EVENT_CAP_CHARS_DEFAULT,
 };
 
 /**
@@ -121,6 +147,22 @@ export const DOC_CAP_CHARS_DEFAULT = DOC_CAP_CHARS_DEFAULTS.learning;
  * catch. */
 export function runeLength(s: string): number {
   return [...s].length;
+}
+
+/**
+ * Mirrors WholeDocWipeBlocked: emptying a document that had content is refused.
+ * A whole-doc replace legitimately shrinks a lot, so only the WIPE is guarded;
+ * the server bypasses it on an explicit allow_shrink=true, which no cockpit
+ * gesture sends.
+ *
+ * 🔴 IT EXISTS BECAUSE THE MOCK ADAPTER DID NOT HAVE IT. The real server has
+ * refused this since T-2d99; `mock.saveBootDoc` mirrored the cap and not the
+ * wipe, so demo mode would happily blank a boot document that the server would
+ * have refused — the two faces disagreeing about the one gesture nobody reaches
+ * by accident.
+ */
+export function wholeDocWipeBlocked(before: string, after: string): boolean {
+  return before.trim() !== "" && after.trim() === "";
 }
 
 /**
@@ -196,6 +238,17 @@ export const CAPPED_FIELDS: Record<DocumentKind, readonly string[]> = {
   // T-c9c0, same rule: capped on restore, on `text`, against
   // `doc.cap_chars.offboard`.
   offboard: ["text"],
+  // T-3201. The six lifecycle documents are the same overlay shape as the
+  // blocks above — one `text` field, capped on restore. The two READ-ONLY ones
+  // are listed too and that is not a contradiction: the table is total over
+  // DocumentKind, and a restore of a document nobody may write never gets far
+  // enough to be judged on size.
+  accelerated_stop: ["text"],
+  task_closeout: ["text"],
+  task_reassign_predecessor: ["text"],
+  task_takeover_with_predecessor: ["text"],
+  task_takeover_fresh: ["text"],
+  task_unblocked: ["text"],
 };
 
 /**
@@ -301,7 +354,18 @@ export function capForKind(
     // codex are two documents of the same block, each measured on its own text.
     case "boot_sequence":
       return caps.bootSequence;
+    // T-3201: 加速停止 answers to the SAME setting as 下線程序. Two documents,
+    // one number — mirrored from the server's registry row, which calls
+    // `offboardCap()` for both.
     case "offboard":
+    case "accelerated_stop":
       return caps.offboard;
+    // The four task-event procedures share `taskEventCapCharsDefault`.
+    case "task_closeout":
+    case "task_reassign_predecessor":
+    case "task_takeover_with_predecessor":
+    case "task_takeover_fresh":
+    case "task_unblocked":
+      return caps.taskEvent;
   }
 }

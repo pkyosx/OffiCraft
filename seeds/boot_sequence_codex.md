@@ -1,5 +1,7 @@
 # Codex App Server 執行環境
 
+<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->
+
 - 你是 App Server sidecar 以 headless 方式起起來的 codex session：沒有終端機，也沒有人在鍵盤前等你。sidecar 持有你的生命週期與 SSE 連線，需要時會再叫你一次 —— 這就是 SSE 不由你自己掛的原因。
 - 權限模式是 `danger-full-access`，approval policy 是 `never`。
 - 互動式 `request_user_input` 已禁用；不要等待 terminal 鍵盤。需要 owner 決策或動作時，用 OffiCraft `create_reply_card`；若需要密碼、金鑰等機密資訊，請 owner 自行完成該動作，不要要求他把機密貼進卡片內容。

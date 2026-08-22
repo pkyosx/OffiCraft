@@ -287,8 +287,8 @@ func TestResumeProseNamesTheAnsweredCardSignal(t *testing.T) {
 
 // TestEveryFaceOfThePeekSumMatchesWhatTheServerActuallyAdds: the arithmetic
 // behind estimated_total_chars is written out in prose on seven hand-written
-// faces, and it has now been extended four separate times, each time missing
-// one of them.
+// faces, and it has been revised several separate times, each time missing one
+// of them.
 //
 // WHAT THIS COMPARES, and why the obvious two designs both failed here.
 //
@@ -312,11 +312,10 @@ func TestResumeProseNamesTheAnsweredCardSignal(t *testing.T) {
 //
 // KNOWN GAPS — measured green, do not read this guard as covering them:
 //
-//   - The NUMERAL is not checked. Every face also says "all six reported in
-//     overview" (five until T-6bd2 added doc_capacity_chars); editing that word
-//     to "five" while leaving the six names in place is exactly the original lie
-//     in a shorter form, and this guard is blind to it. Nothing else in the
-//     package reads that word either.
+//   - The NUMERAL is not checked. Every face also says "all five reported in
+//     overview"; editing that word while leaving the five names in place is
+//     exactly the original lie in a shorter form, and this guard is blind to it.
+//     Nothing else in the package reads that word either.
 //   - A decoy chain naming NO real addend is dropped, not compared. Writing
 //     "…all four reported in overview (chat_count + task_count + roster_count +
 //     machine_count)" beside a correct chain stays green. The filter is what

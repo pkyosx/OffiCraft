@@ -39,6 +39,16 @@ export const DOC_FIELD_ORDER: Record<DocumentKind, readonly string[]> = {
   boot_sequence: ["text"],
   // T-c9c0. Same overlay shape, same single field.
   offboard: ["text"],
+  // T-3201. The six lifecycle procedures are the same overlay shape again —
+  // a document IS its text. The two read-only ones keep no versions at all
+  // (nothing may write them), and their entry costs nothing: this table is
+  // total over DocumentKind, so a kind with no rows is simply never asked.
+  accelerated_stop: ["text"],
+  task_closeout: ["text"],
+  task_reassign_predecessor: ["text"],
+  task_takeover_with_predecessor: ["text"],
+  task_takeover_fresh: ["text"],
+  task_unblocked: ["text"],
 };
 
 /** Keys a revision may CARRY but that are not content of the document.

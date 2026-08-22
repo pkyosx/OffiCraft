@@ -25,6 +25,12 @@ import SEED_INSIGHT_ASSISTANT_RAW from "../../../seeds/insight_assistant.md?raw"
 import SEED_BOOT_SEQUENCE_RAW from "../../../seeds/boot_sequence.md?raw";
 import SEED_BOOT_SEQUENCE_CODEX_RAW from "../../../seeds/boot_sequence_codex.md?raw";
 import SEED_OFFBOARD_RAW from "../../../seeds/offboard.md?raw";
+import SEED_ACCELERATED_STOP_RAW from "../../../seeds/accelerated_stop.md?raw";
+import SEED_TASK_CLOSEOUT_RAW from "../../../seeds/task_closeout.md?raw";
+import SEED_TASK_REASSIGN_PREDECESSOR_RAW from "../../../seeds/task_reassign_predecessor.md?raw";
+import SEED_TASK_TAKEOVER_WITH_PREDECESSOR_RAW from "../../../seeds/task_takeover_with_predecessor.md?raw";
+import SEED_TASK_TAKEOVER_FRESH_RAW from "../../../seeds/task_takeover_fresh.md?raw";
+import SEED_TASK_UNBLOCKED_RAW from "../../../seeds/task_unblocked.md?raw";
 
 /** The out-of-box owner id (mirrors the server seed). */
 export const MOCK_OWNER_ID = "owner";
@@ -62,6 +68,27 @@ export const SEED_BOOT_SEQUENCE_CODEX_MD = foldOwnerId(SEED_BOOT_SEQUENCE_CODEX_
  * moment it is about to collect that session (T-c9c0). One document for every
  * agent and every runtime; it is NOT part of the boot fold. */
 export const SEED_OFFBOARD_MD = foldOwnerId(SEED_OFFBOARD_RAW);
+
+/** The six lifecycle procedures T-3201 turned from Go string literals into
+ * documents. They are NOT part of the boot fold either: each is the text the
+ * server hands an agent at the moment the event it names happens.
+ *
+ * The last two ship as READ-ONLY documents — they exist so the owner can SEE
+ * what an agent is told, and every write face refuses them. The mock carries
+ * that refusal too (see BOOT_DOC_READ_ONLY in mock.ts); a mock that let the
+ * cockpit edit them would validate a screen the server answers 405 to. */
+export const SEED_ACCELERATED_STOP_MD = foldOwnerId(SEED_ACCELERATED_STOP_RAW);
+export const SEED_TASK_CLOSEOUT_MD = foldOwnerId(SEED_TASK_CLOSEOUT_RAW);
+export const SEED_TASK_REASSIGN_PREDECESSOR_MD = foldOwnerId(
+  SEED_TASK_REASSIGN_PREDECESSOR_RAW
+);
+export const SEED_TASK_TAKEOVER_WITH_PREDECESSOR_MD = foldOwnerId(
+  SEED_TASK_TAKEOVER_WITH_PREDECESSOR_RAW
+);
+export const SEED_TASK_TAKEOVER_FRESH_MD = foldOwnerId(
+  SEED_TASK_TAKEOVER_FRESH_RAW
+);
+export const SEED_TASK_UNBLOCKED_MD = foldOwnerId(SEED_TASK_UNBLOCKED_RAW);
 
 /** seeds/insight_assistant.md — the assistant's FACTORY judgement calls (T-e1e3).
  * 🔴 PER-ROLE, and there is deliberately no `SEED_INSIGHT_MD`: lessons folds one

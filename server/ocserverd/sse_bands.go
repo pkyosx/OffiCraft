@@ -242,30 +242,21 @@ type contextHighSignal struct {
 // learning / lesson 寫回去」. A notice that only says "you are running out"
 // tells the agent nothing it can act on.
 //
-// T-6bd2 adds ONE more thing to the same frame: the caller's long-lived
-// documents that are close to their character cap. It rides HERE, and nowhere
-// on the write path, because writing memory back is step 4 of the sequence this
-// notice carries — an agent told at step 4 that its task manual has 167
-// characters left has no time left to do anything but delete words until the
-// write fits. Told at the SOFT notice, it still has the whole close-out ahead
-// of it.
-//
-// ⚠️ `offboard` and `docCapacity` are closures so a tick that decides to stay
-// QUIET never pays for them — and that is ALL the closure buys. It does NOT
-// make them once-per-session: this function keeps no state, so once an agent is
-// past its notice point it returns non-nil on EVERY tick and runs both closures
-// on every one of them, until the session ends. Two comments here used to claim
-// the opposite ("must not run on the idle path of every connection to serve a
-// frame that fires once per session"); the independent review measured the tick
-// at 21.3µs → 574.2µs (26.9×, empty station) precisely because the claim was
-// false. What actually bounds the cost is the CALLER refusing to
-// call this once the session's one notice is spent — api_infra.go's
+// ⚠️ `offboard` is a closure so a tick that decides to stay QUIET never pays
+// for it — and that is ALL the closure buys. It does NOT make it
+// once-per-session: this function keeps no state, so once an agent is past its
+// notice point it returns non-nil on EVERY tick and runs the closure on every
+// one of them, until the session ends. Two comments here used to claim the
+// opposite ("must not run on the idle path of every connection to serve a frame
+// that fires once per session"); an independent review measured the tick and
+// found the claim false. What actually bounds the cost is the CALLER refusing
+// to call this once the session's one notice is spent — api_infra.go's
 // handoverNoticeTick asks handoverNoticeSettled first, and
-// TestHandoverNoticeTick_ClosuresAreNotRunAfterTheClaim counts the calls.
+// TestHandoverNoticeTick_ClosureIsNotRunAfterTheClaim counts the calls.
 func decideHandoverNotice(
 	agentID, runtime string, record map[string]any,
 	cfg SseContextHighConfig, codexNoticeRound, codexThreshold int,
-	offboard func() string, docCapacity func() string,
+	offboard func() string,
 ) *contextHighSignal {
 	pct := actionableContextPct(record, cfg.StaleGuard)
 	var where string
@@ -297,13 +288,6 @@ func decideHandoverNotice(
 	var text string
 	if offboard != nil {
 		text = offboard()
-	}
-	// Appended AFTER the document, never woven into the owner's sentence or the
-	// document's steps — both are carried verbatim by ruling (see
-	// offboardNotice). "" when nothing is near its cap, which is the ordinary
-	// case and leaves the notice byte-identical to what it was before T-6bd2.
-	if docCapacity != nil {
-		text += docCapacity()
 	}
 	return &contextHighSignal{
 		Topic: contextHighTopic,

@@ -43,6 +43,7 @@ import { useOwnerDisplayName } from "../hooks/useOwnerName";
 import { OWNER_ACTOR_ID, actorDisplayName } from "../lib/actorLabel";
 import { capForKind, contentSizes, docCapBlockedFields } from "../api/docCap";
 import type { DocCaps } from "../api/docCap";
+import { TASK_EVENT_CAP_CHARS_DEFAULT } from "../api/docCap";
 import { documentHasContent } from "../lib/docHistoryFields";
 import { formatAbsolute } from "../lib/dateFormat";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
@@ -144,6 +145,10 @@ export function DocumentHistoryEntry({
     systemInteraction: settings.docCapCharsSystemInteraction,
     bootSequence: settings.docCapCharsBootSequence,
     offboard: settings.docCapCharsOffboard,
+    // T-3201: not a setting on either side — the server reads
+    // `taskEventCapCharsDefault` straight off a constant, so the constant IS
+    // the live value and there is no knob for this one to lag behind.
+    taskEvent: TASK_EVENT_CAP_CHARS_DEFAULT,
   } : undefined;
   // The shipped default, so the 初始版本 row can be READ and COMPARED like every
   // other row (T-40f0). Fetched only where that row exists (`onReset`) and only

@@ -747,11 +747,38 @@ def _check_reset_insight(ctx: HCtx, r: httpx.Response) -> None:
 
 _BOOT_DOC_EDIT = "# conformance edit — 系統互動 / 啟動程序\n\nnot the factory text\n"
 
+# T-3201 — a boot document stores a read-only head, one marker line, then the
+# owner-editable body. A write must return the head verbatim; only the body may
+# change. Spelled here rather than imported: this suite is black-box and states
+# the wire in its own words.
+_DOC_BODY_MARKER = "<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->"
+_DOC_BODY_SEP = "\n\n" + _DOC_BODY_MARKER + "\n\n"
+
+
+def _boot_doc_body(path: str):
+    """Body factory: read the document, keep its head, replace its body."""
+
+    def build(ctx: HCtx) -> dict:
+        g = ctx.client.get(path, headers={"Authorization": f"Bearer {ctx.owner_token}"})
+        assert g.status_code == 200, f"{g.status_code} {g.text}"
+        head, sep, _ = g.json()["text"].partition(_DOC_BODY_SEP)
+        if not sep:
+            return {"text": _BOOT_DOC_EDIT}
+        return {"text": head + _DOC_BODY_SEP + _BOOT_DOC_EDIT}
+
+    return build
+
+
 
 def _boot_doc_written(ctx: HCtx, r: httpx.Response) -> None:
-    """The edit came back verbatim and the block stopped reading as default."""
+    """The edit came back verbatim and the block stopped reading as default.
+
+    The EDITABLE half is compared, not the whole document: the read-only head
+    rides along on every write and is not what this row is exercising.
+    """
     d = r.json()
-    assert d["text"] == _BOOT_DOC_EDIT, d
+    _, sep, body = d["text"].partition(_DOC_BODY_SEP)
+    assert (body if sep else d["text"]) == _BOOT_DOC_EDIT, d
     assert d["is_default"] is False, d
     assert d["size_chars"] == len(d["text"]), d
     assert d["cap_chars"] >= d["size_chars"], d
@@ -779,6 +806,36 @@ def _boot_doc_reset(path: str):
         assert g.json()["text"] == d["text"], "GET after reset disagrees with the reset response"
 
     return check
+
+
+def _boot_doc_listing(_ctx: HCtx, r: httpx.Response) -> None:
+    """The listing names every editable block and carries NO text.
+
+    Black-box, so it cannot assert HOW MANY blocks exist — a number here would
+    be a second copy of the registry, and one that ages silently. What it can
+    state is the shape every row must have, that the two documents the rest of
+    this file addresses by name are both in it, and that read_only is answered
+    for every row (a cockpit renders an editor off that field, so an absent one
+    would offer an editor whose save is a 405).
+    """
+    rows = r.json()["documents"]
+    assert rows, "the listing is empty — no editable boot-context document exists"
+    seen = set()
+    for row in rows:
+        assert row["kind"] and row["key"], row
+        assert row["doc_name"], row
+        assert isinstance(row["read_only"], bool), row
+        assert isinstance(row["is_default"], bool), row
+        assert row["has_seed"] is True, row
+        assert row["cap_chars"] >= row["size_chars"] > 0, row
+        assert "text" not in row, ("the listing carries document text", row)
+        seen.add((row["kind"], row["key"]))
+    for addr in (("system_interaction", "global"), ("boot_sequence", "claude"),
+                 ("boot_sequence", "codex"), ("offboard", "global")):
+        assert addr in seen, (addr, sorted(seen))
+    assert any(row["read_only"] for row in rows), (
+        "no row reports read_only — the refusal the cockpit reads this for is unreachable"
+    )
 
 
 def _boot_doc_read(kind: str, key: str):
@@ -1302,7 +1359,7 @@ HAPPY: dict[str, Happy] = {
         check=lambda _c, r: _boot_doc_read("system_interaction", "global")(_c, r)
     ),
     "POST /api/system-interaction": Happy(
-        body={"text": _BOOT_DOC_EDIT}, check=_boot_doc_written
+        body=_boot_doc_body("/api/system-interaction"), check=_boot_doc_written
     ),
     "POST /api/system-interaction/reset": Happy(
         check=_boot_doc_reset("/api/system-interaction")
@@ -1313,7 +1370,7 @@ HAPPY: dict[str, Happy] = {
     ),
     "POST /api/boot-sequence/{runtime_key}": Happy(
         path="/api/boot-sequence/codex",
-        body={"text": _BOOT_DOC_EDIT},
+        body=_boot_doc_body("/api/boot-sequence/codex"),
         check=_boot_doc_written,
     ),
     "POST /api/boot-sequence/{runtime_key}/reset": Happy(
@@ -1326,8 +1383,29 @@ HAPPY: dict[str, Happy] = {
     "GET /api/offboard": Happy(
         check=lambda _c, r: _boot_doc_read("offboard", "global")(_c, r)
     ),
-    "POST /api/offboard": Happy(body={"text": _BOOT_DOC_EDIT}, check=_boot_doc_written),
+    "POST /api/offboard": Happy(
+        body=_boot_doc_body("/api/offboard"), check=_boot_doc_written
+    ),
     "POST /api/offboard/reset": Happy(check=_boot_doc_reset("/api/offboard")),
+    # ── the GENERIC face of all of the above, plus the six event procedures
+    # that never got named routes (T-3201) ───────────────────────────────────
+    # The write rows aim at accelerated_stop because it is EDITABLE: two of the
+    # ten documents refuse every caller with 405, and a happy row is the wrong
+    # place to assert a refusal.
+    "GET /api/boot-docs": Happy(check=_boot_doc_listing),
+    "GET /api/boot-docs/{kind}/{key}": Happy(
+        path="/api/boot-docs/task_closeout/global",
+        check=lambda _c, r: _boot_doc_read("task_closeout", "global")(_c, r),
+    ),
+    "POST /api/boot-docs/{kind}/{key}": Happy(
+        path="/api/boot-docs/accelerated_stop/global",
+        body=_boot_doc_body("/api/boot-docs/accelerated_stop/global"),
+        check=_boot_doc_written,
+    ),
+    "POST /api/boot-docs/{kind}/{key}/reset": Happy(
+        path="/api/boot-docs/accelerated_stop/global/reset",
+        check=_boot_doc_reset("/api/boot-docs/accelerated_stop/global"),
+    ),
     "GET /api/roles": Happy(check=_nonempty_list),
     "GET /api/doc-sizes": Happy(
         # Size-only overview: every capped document reports its own size and

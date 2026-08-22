@@ -253,3 +253,80 @@ func TestEventsHandlerStampsTheBuildApiVersionReportsAsGitSHA(t *testing.T) {
 			"SSE %s=%q", version.GitSHA, sseStationSHAHeader, stamped)
 	}
 }
+
+// TestHandoverNoticeTick_ClosureIsNotRunAfterTheClaim
+//
+// 🔴 WHAT WAS ACTUALLY WRONG. decideHandoverNotice has no memory: once an agent
+// is past its notice point it returns a signal on EVERY quiet tick, and the
+// once-per-session gate (claimHandoverNotice) is asked AFTER that signal has
+// been composed. So the offboard-text closure — a fold over a durable document
+// — ran every 250ms for the rest of the session, and every run after the first
+// was thrown away. Two comments in sse_bands.go asserted the exact opposite; a
+// comment cannot be run, so this counts instead.
+//
+// It fails if handoverNoticeTick stops asking handoverNoticeSettled first.
+func TestHandoverNoticeTick_ClosureIsNotRunAfterTheClaim(t *testing.T) {
+	s, dal := newGateTestAPI(t)
+	if err := seedOutOfBox(dal); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	s.ctxhigh = SseContextHighConfig{HandoverPct: 65, NoticePct: 55}
+	s.gauge.Set(seedMiraID, map[string]any{"context_pct": 56.0, "boot_ts": 1000.0})
+
+	runs := 0
+	offboard := func() string { runs++; return s.offboardText() }
+
+	frame, ok := s.handoverNoticeTick(seedMiraID, RuntimeClaude, offboard)
+	if !ok || len(frame) == 0 {
+		t.Fatal("the first tick past the notice point must send the session's one notice")
+	}
+	if runs != 1 {
+		t.Fatalf("the sending tick must compose the text exactly once: %d", runs)
+	}
+
+	// The rest of the session. Every one of these ticks is above the notice
+	// point, so decideHandoverNotice would still say "send" — the claim is what
+	// makes them silent, and the point of this test is that they must be silent
+	// WITHOUT paying for the text first.
+	for i := 0; i < 200; i++ {
+		if _, ok := s.handoverNoticeTick(seedMiraID, RuntimeClaude, offboard); ok {
+			t.Fatalf("tick %d re-sent the once-per-session notice", i)
+		}
+	}
+	if runs != 1 {
+		t.Fatalf("200 silent ticks composed text they threw away: %d (want 1) — the "+
+			"notice fires once per session, so its cost must too", runs)
+	}
+}
+
+// TestHandoverNoticeTick_ANewSessionStillPaysAndStillSends is the OTHER
+// direction of the same guard, and it is not optional: "never runs the closure
+// again" and "went permanently mute for this agent" are the same green
+// otherwise. A new boot_ts is a new session and is entitled to its own notice.
+func TestHandoverNoticeTick_ANewSessionStillPaysAndStillSends(t *testing.T) {
+	s, dal := newGateTestAPI(t)
+	if err := seedOutOfBox(dal); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	s.ctxhigh = SseContextHighConfig{HandoverPct: 65, NoticePct: 55}
+	s.gauge.Set(seedMiraID, map[string]any{"context_pct": 56.0, "boot_ts": 1000.0})
+
+	runs := 0
+	offboard := func() string { runs++; return "" }
+	if _, ok := s.handoverNoticeTick(seedMiraID, RuntimeClaude, offboard); !ok {
+		t.Fatal("first session must be told")
+	}
+	if _, ok := s.handoverNoticeTick(seedMiraID, RuntimeClaude, offboard); ok {
+		t.Fatal("second tick of the SAME session must stay quiet")
+	}
+
+	// New session: the agent restarted, its gauge carries a new anchor.
+	s.gauge.Set(seedMiraID, map[string]any{"context_pct": 56.0, "boot_ts": 2000.0})
+	if _, ok := s.handoverNoticeTick(seedMiraID, RuntimeClaude, offboard); !ok {
+		t.Fatal("a NEW session must still get its own notice — a cost guard that " +
+			"silences the feature has removed the feature")
+	}
+	if runs != 2 {
+		t.Fatalf("the closure must run exactly once per SENDING tick: got %d, want 2", runs)
+	}
+}

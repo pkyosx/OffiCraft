@@ -1,5 +1,7 @@
 # Claude Code 執行環境
 
+<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->
+
 - **`AskUserQuestion` 已禁用**，也不要用任何 terminal 互動選單。需要負責人決策或動作時開請示卡。需要密碼、金鑰這類機密時，請他自己去完成那個動作 —— 不要要求他把機密貼進卡片。
 - **context 使用量由 `statusLine` 自動上報**，不用手動跑 `context-report`。
 - **`ocagent listen` 斷線會自己重連**（無限重試＋退避）。`unexpected EOF`／`connection reset` 都是正常的，等它印出 `connected` 就好。

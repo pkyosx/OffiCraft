@@ -521,7 +521,7 @@ func (s *apiServer) buildBootContext(role string, member *Member, taskType strin
 	parts := []string{strings.TrimSpace(sysSeed)}
 	if strings.TrimSpace(userCtx.Text) != "" {
 		parts = append(parts,
-			"# 使用者自訂（Owner Additions）\n\n"+strings.TrimSpace(userCtx.Text))
+			userAdditionsTitle+"\n\n"+strings.TrimSpace(userCtx.Text))
 	}
 	parts = append(parts,
 		"# Role: "+roleTitle+"\n\n"+strings.TrimSpace(roleDTO.DefinitionMD))
@@ -660,3 +660,58 @@ func materializeBinary(dir, name string, data []byte) (string, error) {
 	}
 	return dst, nil
 }
+
+// The six event-procedure documents T-3201 adds. Same shape as the offboard
+// singleton above — one document per event, key "global" — because what an
+// agent should do when a task closes does not depend on which runtime it is.
+//
+// 🔴 THE SEEDS ARE TODAY'S PROGRAM TEXT, MOVED WITHOUT A WORD CHANGED. Every
+// sentence in these six files is currently a Go string literal (sse_bands.go's
+// offboardOpener/offboardNotice and decideTaskCloseNudge, api_tasks.go's
+// reassign notices, api_tasks_handoff.go's dependency-released notice); the
+// interpolation points are the ONLY thing that changed shape, becoming the
+// {name} variables this kind declares. Splitting each one into a read-only head
+// and an owner-editable body is the NEXT change — keeping it out of this one is
+// what lets the diff prove no wording moved.
+// bootDocSingletonKey is the document key every non-boot_sequence boot document
+// uses. Named rather than repeated so a caller addressing "the one document of
+// this kind" says so, instead of spelling a magic "global" that reads like the
+// 全域脈絡 document it is not.
+// userAdditionsTitle is the ONE title the 使用者自訂 block is served under.
+//
+// 🔴 IT WAS TWO COPIES, AND THAT IS THE WHOLE REASON IT IS A CONSTANT (T-3201).
+// The same literal sat in buildBootContext (staff) and workerSharedHead
+// (outsource), so the day someone corrected one of them, staff and contractors
+// would have booted under two different headings and nothing would have said
+// so. It is also the only line the program ADDS to any of the three boot
+// documents — the read-only head of 使用者自訂, in the vocabulary T-3201 gives
+// the other nine — which is why it is named here rather than inlined twice.
+const userAdditionsTitle = "# 使用者自訂（Owner Additions）"
+
+const bootDocSingletonKey = "global"
+
+const (
+	acceleratedStopSeedMD  = "accelerated_stop.md"
+	acceleratedStopDocKey  = "global"
+	docKindAcceleratedStop = "accelerated_stop"
+
+	taskCloseoutSeedMD  = "task_closeout.md"
+	taskCloseoutDocKey  = "global"
+	docKindTaskCloseout = "task_closeout"
+
+	taskReassignPredecessorSeedMD  = "task_reassign_predecessor.md"
+	taskReassignPredecessorDocKey  = "global"
+	docKindTaskReassignPredecessor = "task_reassign_predecessor"
+
+	taskTakeoverWithPredecessorSeedMD  = "task_takeover_with_predecessor.md"
+	taskTakeoverWithPredecessorDocKey  = "global"
+	docKindTaskTakeoverWithPredecessor = "task_takeover_with_predecessor"
+
+	taskTakeoverFreshSeedMD  = "task_takeover_fresh.md"
+	taskTakeoverFreshDocKey  = "global"
+	docKindTaskTakeoverFresh = "task_takeover_fresh"
+
+	taskUnblockedSeedMD  = "task_unblocked.md"
+	taskUnblockedDocKey  = "global"
+	docKindTaskUnblocked = "task_unblocked"
+)

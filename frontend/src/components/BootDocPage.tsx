@@ -1,5 +1,12 @@
-// components/BootDocPage.tsx — the editable surface for ONE boot-context block
-// (T-791e): 系統互動, 啟動程序（Claude Code）, 啟動程序（Codex CLI）.
+// components/BootDocPage.tsx — the surface for ONE boot-context / lifecycle
+// document (T-791e, widened by T-3201): 系統互動, the two 啟動程序, 下線程序,
+// 加速停止 and the four task-event procedures.
+//
+// 🔴 IT DOES NOT KNOW WHICH DOCUMENT IT IS HOLDING, and that is deliberate.
+// The words come from the caller (title / historyTitle / confirmSaveBody) and
+// the ONE behavioural difference — whether the document may be edited at all —
+// comes from the document itself (`readOnly`, which the server serves). There
+// is no per-kind branch left here, so the tenth document costs no code.
 //
 // 🔴 THIS FILE HOLDS NO EDITOR. It is the three blocks' wiring — which document,
 // which words, which slots — and nothing else: no draft state, no textarea, no
@@ -66,14 +73,20 @@ export function BootDocPage({
   docKey,
   title,
   historyTitle,
+  confirmSaveBody,
   crumbs,
   collapsible,
 }: {
   kind: BootDocKind;
-  /** "global" for system_interaction; the RUNTIME ("claude" / "codex") for
-   * boot_sequence. Required, never defaulted — see the header. */
+  /** "global" for every kind but boot_sequence, whose key is the RUNTIME
+   * ("claude" / "codex"). Required, never defaulted — see the header. */
   docKey: string;
   title: string;
+  /** The sentence the save confirmation asks. It is the CALLER's because the
+   * consequence differs per document and a warning that is false for the
+   * document on screen is worse than none — it teaches the reader to dismiss
+   * the real one. Ignored for a read-only document, which never saves. */
+  confirmSaveBody: string;
   /** Names the document inside its own history list. This page carries exactly
    * one versioned document, but the list is the same component every editable
    * document shares, and 「版本紀錄」 alone cannot say which runtime it holds. */
@@ -88,6 +101,14 @@ export function BootDocPage({
 }) {
   const { t, msg } = useI18n();
   const { doc, error, refetch, save, reset } = useBootDoc(kind, docKey);
+  // 🔴 READ OFF THE DOCUMENT, never off a list of kinds kept here. Which
+  // documents may not be edited is the server's answer (the write faces answer
+  // 405 for them), and a copy of that answer in the cockpit would go stale
+  // silently the day one changes — showing an editor that every save bounces
+  // off, or hiding one from a document the owner is now allowed to fix.
+  // `false` until the read lands: DocCard's edit button is disabled while
+  // `doc` is null anyway, so nothing editable is ever reachable in that gap.
+  const readOnly = doc?.readOnly ?? false;
 
   return (
     <DocCard
@@ -95,29 +116,26 @@ export function BootDocPage({
       crumbs={crumbs}
       collapsible={collapsible}
       doc={doc}
-      onSave={save}
-      onReset={reset}
+      readOnly={readOnly}
+      // A read-only document has no editor, no factory restore and no versions
+      // — passing the handlers anyway would leave DocCard holding gestures it
+      // must never offer for it.
+      onSave={readOnly ? undefined : save}
+      onReset={readOnly ? undefined : reset}
       // The STORED size; DocCard follows the draft once the editor is open.
       // `doc === null` passes none rather than "0 / 0", which would read as a
       // real budget of zero.
       usage={doc ? { size: runeLength(doc.text), cap: doc.capChars } : undefined}
-      replaceNote={t.settings.docReplaceNote}
+      // 「儲存＝整份取代」 is a fact about SAVING, so a document nobody may save
+      // does not owe it; what it owes instead is why it has no editor.
+      replaceNote={readOnly ? undefined : t.settings.docReplaceNote}
+      note={readOnly ? t.settings.bootDocReadOnlyNote : undefined}
       // A no-op save would flip the document out of 預設 for ever, and these
-      // three are the documents where "is this still the factory version" is
-      // the question people ask about them.
+      // are the documents where "is this still the factory version" is the
+      // question people ask about them.
       requireDirty
       confirmSave={{
-        // The boot sequences get the sentence about the silent failure; the
-        // system-interaction block does not, because it is not true of it — an
-        // agent with a mangled system block still boots. A warning that is
-        // false for the document on screen is worse than none: it teaches the
-        // reader to dismiss the real one.
-        body:
-          kind === "boot_sequence"
-            ? t.settings.bootDocSaveConfirmBoot
-            : kind === "offboard"
-              ? t.settings.bootDocSaveConfirmOffboard
-              : t.settings.bootDocSaveConfirmSystem,
+        body: confirmSaveBody,
         confirmLabel: t.settings.bootDocSaveConfirmAction,
       }}
       // No explanatory notes block above the card. There used to be three
@@ -127,21 +145,26 @@ export function BootDocPage({
       // editable context block would need it — and none of the others carry
       // one. So it was not this document being special, it was noise.
       errorNote={error ? <div className="set-error">{t.settings.loadError}</div> : null}
-      history={{
-        kind,
-        docKey,
-        title: historyTitle,
-        // The list's default note says the cockpit keeps the last THREE — true
-        // everywhere else, false here. Overriding it is not decoration: an
-        // owner who reads "3" under a list of ten will assume something is
-        // broken, and one who reads "10" without "counted in saves" will assume
-        // a run of small edits lost nothing.
-        note: msg.bootDocNoteHistory(BOOT_DOC_HISTORY_KEPT),
-        // The live document under its WIRE field name: the modal diffs a
-        // revision against what the server currently stores.
-        currentContent: doc ? { text: doc.text } : undefined,
-        onRestored: refetch,
-      }}
+      history={
+        readOnly
+          ? undefined
+          : {
+              kind,
+              docKey,
+              title: historyTitle,
+              // The list's default note says the cockpit keeps the last THREE —
+              // true everywhere else, false here. Overriding it is not
+              // decoration: an owner who reads "3" under a list of ten will
+              // assume something is broken, and one who reads "10" without
+              // "counted in saves" will assume a run of small edits lost
+              // nothing.
+              note: msg.bootDocNoteHistory(BOOT_DOC_HISTORY_KEPT),
+              // The live document under its WIRE field name: the modal diffs a
+              // revision against what the server currently stores.
+              currentContent: doc ? { text: doc.text } : undefined,
+              onRestored: refetch,
+            }
+      }
     />
   );
 }

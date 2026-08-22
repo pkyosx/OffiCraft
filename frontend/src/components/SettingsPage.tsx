@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { useI18n } from "../i18n";
+import type { Dict } from "../i18n/locales/zh";
 import type {
+  BootDocKind,
   RoleSummaryView,
   VersionView,
   ReleaseCheckView,
@@ -94,7 +96,221 @@ import {
   TrashIcon,
   RefreshIcon,
   MoonIcon,
+  ClockIcon,
+  SwapIcon,
+  PersonPlusIcon,
+  CheckIcon,
+  BellIcon,
 } from "./icons";
+
+/** WHICH GROUP a boot document's list row sits in — the owner's own reading of
+ * these ten documents (2026-08-22): an agent's life from the top (上線 → 下線),
+ * then the four things that happen to a TASK, then the two the cockpit shows
+ * but nobody may edit.
+ *
+ * ⚠️ 唯讀 is a GROUPING, not the source of truth for whether a document may be
+ * edited. That answer is the server's, arrives on the document's own read
+ * (`readOnly`), and is what BootDocPage acts on. Putting a row in this group
+ * only decides where it is printed. */
+type BootDocGroup = "launch" | "stop" | "task" | "readOnly";
+
+const BOOT_DOC_GROUP_ORDER: BootDocGroup[] = [
+  "launch",
+  "stop",
+  "task",
+  "readOnly",
+];
+
+const BOOT_DOC_GROUP_LABEL: Record<BootDocGroup, SettingsTextKey> = {
+  launch: "globalSection",
+  stop: "stopSection",
+  task: "taskEventSection",
+  readOnly: "readOnlySection",
+};
+
+/** The keys of the settings dictionary this table addresses. Typed rather than
+ * `string` so a row cannot name wording that does not exist. */
+type SettingsTextKey = {
+  [K in keyof Dict["settings"]]: Dict["settings"][K] extends string ? K : never;
+}[keyof Dict["settings"]];
+
+interface BootDocRowIcon {
+  Icon: (props: { size?: number; className?: string }) => ReactNode;
+  tone: "violet" | "blue" | "purple" | "neutral";
+}
+
+/**
+ * 🔴 THE ONE LIST OF THESE DOCUMENTS IN THE COCKPIT, and it is a
+ * `Record<BootDocKind, …>` on purpose: a kind added to the union without a row
+ * here does not compile. The other half of the guard runs the other way —
+ * `api/mock.boot-doc-registry.test.ts` reads `GET /api/boot-docs` and fails if
+ * the SERVER serves a document this table has no row for, or if this table
+ * names one the server does not serve.
+ *
+ * Between them, "a document shipped and the cockpit never showed it" — the
+ * silent failure every prose list of these kinds has produced at least once —
+ * is a red test rather than something an owner discovers by not finding a page.
+ *
+ * Declaration order IS display order within a group; the groups themselves are
+ * ordered by BOOT_DOC_GROUP_ORDER.
+ */
+export const BOOT_DOC_ROWS: Record<
+  BootDocKind,
+  BootDocRowIcon & {
+    group: BootDocGroup;
+    nameKey: SettingsTextKey;
+    subKey: SettingsTextKey;
+  } & (
+      | {
+          /** 啟動程序 is TWO documents (claude / codex), so its row opens an
+           * INDEX rather than a document. Their third step means opposite
+           * things, so nothing may address "the" boot sequence. */
+          index: true;
+        }
+      | {
+          index?: false;
+          docKey: string;
+          historyKey: SettingsTextKey;
+          confirmKey: SettingsTextKey;
+        }
+    )
+> = {
+  system_interaction: {
+    group: "launch",
+    nameKey: "systemName",
+    subKey: "systemSub",
+    Icon: GlobeIcon,
+    tone: "violet",
+    docKey: "global",
+    historyKey: "historyBootSystemTitle",
+    confirmKey: "bootDocSaveConfirmSystem",
+  },
+  boot_sequence: {
+    group: "launch",
+    nameKey: "bootName",
+    subKey: "bootSub",
+    Icon: BoltIcon,
+    tone: "violet",
+    index: true,
+  },
+  offboard: {
+    group: "stop",
+    nameKey: "offboardName",
+    subKey: "offboardSub",
+    Icon: LogOutIcon,
+    tone: "blue",
+    docKey: "global",
+    historyKey: "historyBootOffboardTitle",
+    confirmKey: "bootDocSaveConfirmOffboard",
+  },
+  accelerated_stop: {
+    group: "stop",
+    nameKey: "acceleratedStopName",
+    subKey: "acceleratedStopSub",
+    Icon: ClockIcon,
+    tone: "blue",
+    docKey: "global",
+    historyKey: "historyAcceleratedStopTitle",
+    confirmKey: "bootDocSaveConfirmAcceleratedStop",
+  },
+  task_closeout: {
+    group: "task",
+    nameKey: "taskCloseoutName",
+    subKey: "taskCloseoutSub",
+    Icon: CheckIcon,
+    tone: "purple",
+    docKey: "global",
+    historyKey: "historyTaskCloseoutTitle",
+    confirmKey: "bootDocSaveConfirmTaskEvent",
+  },
+  task_reassign_predecessor: {
+    group: "task",
+    nameKey: "taskReassignPredecessorName",
+    subKey: "taskReassignPredecessorSub",
+    Icon: SwapIcon,
+    tone: "purple",
+    docKey: "global",
+    historyKey: "historyTaskReassignPredecessorTitle",
+    confirmKey: "bootDocSaveConfirmTaskEvent",
+  },
+  task_takeover_with_predecessor: {
+    group: "task",
+    nameKey: "taskTakeoverWithPredecessorName",
+    subKey: "taskTakeoverWithPredecessorSub",
+    Icon: PersonPlusIcon,
+    tone: "purple",
+    docKey: "global",
+    historyKey: "historyTaskTakeoverWithPredecessorTitle",
+    confirmKey: "bootDocSaveConfirmTaskEvent",
+  },
+  task_takeover_fresh: {
+    group: "readOnly",
+    nameKey: "taskTakeoverFreshName",
+    subKey: "taskTakeoverFreshSub",
+    Icon: UserIcon,
+    tone: "neutral",
+    docKey: "global",
+    historyKey: "historyTaskTakeoverFreshTitle",
+    confirmKey: "bootDocSaveConfirmTaskEvent",
+  },
+  task_unblocked: {
+    group: "readOnly",
+    nameKey: "taskUnblockedName",
+    subKey: "taskUnblockedSub",
+    Icon: BellIcon,
+    tone: "neutral",
+    docKey: "global",
+    historyKey: "historyTaskUnblockedTitle",
+    confirmKey: "bootDocSaveConfirmTaskEvent",
+  },
+};
+
+/** ONE settings-list row for a boot/lifecycle document. The row takes its
+ * accessible name from its own visible title — do NOT give it a shared
+ * aria-label: T-6278's review sent a build back precisely for that, because two
+ * rows announcing the same name is "two documents you cannot tell apart"
+ * rebuilt in the accessibility tree. */
+function BootDocEntry({
+  kind,
+  row,
+  onOpen,
+}: {
+  kind: BootDocKind;
+  row: (typeof BOOT_DOC_ROWS)[BootDocKind];
+  onOpen: () => void;
+}) {
+  const { t } = useI18n();
+  const { Icon } = row;
+  return (
+    <button
+      type="button"
+      className="set-entry"
+      data-testid={`boot-doc-entry-${kind}`}
+      onClick={onOpen}
+    >
+      <span className={`set-entry__icon set-entry__icon--${row.tone}`}>
+        <Icon size={18} />
+      </span>
+      <span className="set-entry__body">
+        <span className="set-entry__name">{t.settings[row.nameKey]}</span>
+        <span className="set-entry__sub">{t.settings[row.subKey]}</span>
+      </span>
+      <ChevronRightIcon size={18} className="set-entry__chev" />
+    </button>
+  );
+}
+
+/** The rows of one group, in declaration order. */
+function bootDocRowsIn(
+  group: BootDocGroup
+): [BootDocKind, (typeof BOOT_DOC_ROWS)[BootDocKind]][] {
+  return (
+    Object.entries(BOOT_DOC_ROWS) as [
+      BootDocKind,
+      (typeof BOOT_DOC_ROWS)[BootDocKind],
+    ][]
+  ).filter(([, row]) => row.group === group);
+}
 import { ThemeSettings } from "./ThemeSettings";
 import { ConfirmModal } from "./ConfirmModal";
 import "./settings.css";
@@ -113,17 +329,17 @@ type View =
   | { kind: "roles" }
   | { kind: "params" }
   | { kind: "theme" }
-  | { kind: "system" }
   | { kind: "custom" }
   // 啟動程序 is TWO documents. `boot` is the INDEX — two nav rows, one per
-  // runtime — and `bootDoc` is one runtime's own page (T-bac4, owner:「可以改成
-  // 像任務手冊那樣嗎」). The index carries no document of its own, which is why
-  // it may be keyless; every document still has its own page.
+  // runtime — and `bootRuntime` is one runtime's own page (T-bac4, owner:「可以
+  // 改成像任務手冊那樣嗎」). The index carries no document of its own, which is
+  // why it may be keyless; every document still has its own page.
   | { kind: "boot" }
-  | { kind: "bootDoc"; runtime: "claude" | "codex" }
-  // 下線程序 (T-c9c0) — ONE document, so no index/detail split: the nav row
-  // opens the page directly, the shape 系統互動 already has.
-  | { kind: "offboard" }
+  | { kind: "bootRuntime"; runtime: "claude" | "codex" }
+  // Every OTHER boot/lifecycle document opens through ONE view (T-3201). It
+  // carries the address rather than a name per document, so the tenth document
+  // adds a row to BOOT_DOC_ROWS and nothing here.
+  | { kind: "bootDoc"; docKind: BootDocKind; docKey: string }
   | { kind: "role"; key: string }
   | { kind: "manuals" }
   // 任務手冊詳情 = hub (摘要卡 + 任務規劃入口卡): the two 任務規劃 cards
@@ -250,10 +466,11 @@ export function SettingsPage({
         // Honest: a failed role/global-context load must not read as "no roles".
         error={rolesH.error || gc.error}
         crumbs={[crumbRoot, { label: t.settings.roles }]}
-        onOpenSystem={() => setView({ kind: "system" })}
         onOpenCustom={() => setView({ kind: "custom" })}
-        onOpenBoot={() => setView({ kind: "boot" })}
-        onOpenOffboard={() => setView({ kind: "offboard" })}
+        onOpenBootIndex={() => setView({ kind: "boot" })}
+        onOpenBootDoc={(docKind, docKey) =>
+          setView({ kind: "bootDoc", docKind, docKey })
+        }
         onOpenRole={(key) => setView({ kind: "role", key })}
         onCreate={rolesH.create}
         onDelete={rolesH.remove}
@@ -409,36 +626,32 @@ export function SettingsPage({
     );
   }
 
-  if (view.kind === "system") {
-    // 系統互動 — the FIRST block of every agent's boot context, and editable
-    // since T-791e. It used to be a read-only render of SEED_SYSTEM_INTERACTION_MD
-    // ("the backend has NO write endpoint BY CONSTRUCTION"); it now has one, so
-    // the page reads the LIVE document through the api seam. The seed still
-    // exists — as the FACTORY version behind 還原出廠版 and the history list's
-    // 初始版本 row — but it is no longer what the page body renders.
+  if (view.kind === "bootDoc") {
+    // ONE branch for every boot/lifecycle document but the two boot sequences
+    // (which are reached through their index below). Its words come from
+    // BOOT_DOC_ROWS and its behaviour comes from the document — whether it may
+    // be edited at all is the server's `read_only`, which BootDocPage reads.
+    // Nothing here knows or asks which document it is opening.
+    const row = BOOT_DOC_ROWS[view.docKind];
+    if (row.index) {
+      // Unreachable by construction — only a non-index row opens this view, and
+      // an index row opens `boot` instead. Narrowing rather than asserting: the
+      // alternative is a cast, and a cast here would render a document page
+      // with no document the day a second kind grows a second key.
+      return null;
+    }
     return (
       <BootDocPage
-        kind="system_interaction"
-        docKey="global"
-        title={t.settings.systemName}
-        historyTitle={t.settings.historyBootSystemTitle}
-        crumbs={[crumbRoot, crumbRoles, { label: t.settings.systemName }]}
-      />
-    );
-  }
-
-  if (view.kind === "offboard") {
-    // 下線程序 — what an agent is handed at the moment the server collects its
-    // session (T-c9c0). Same editable-document shape as 系統互動, and a
-    // SINGLETON for the same reason: being collected is one procedure whatever
-    // runtime an agent runs, so there is no runtime to choose here.
-    return (
-      <BootDocPage
-        kind="offboard"
-        docKey="global"
-        title={t.settings.offboardName}
-        historyTitle={t.settings.historyBootOffboardTitle}
-        crumbs={[crumbRoot, crumbRoles, { label: t.settings.offboardName }]}
+        kind={view.docKind}
+        docKey={view.docKey}
+        title={t.settings[row.nameKey]}
+        historyTitle={t.settings[row.historyKey]}
+        confirmSaveBody={t.settings[row.confirmKey]}
+        crumbs={[
+          crumbRoot,
+          crumbRoles,
+          { label: t.settings[row.nameKey] },
+        ]}
       />
     );
   }
@@ -514,7 +727,7 @@ export function SettingsPage({
             type="button"
             className="set-entry"
             data-testid="boot-entry-claude"
-            onClick={() => setView({ kind: "bootDoc", runtime: "claude" })}
+            onClick={() => setView({ kind: "bootRuntime", runtime: "claude" })}
           >
             <span className="set-entry__icon set-entry__icon--violet">
               <BoltIcon size={18} />
@@ -529,7 +742,7 @@ export function SettingsPage({
             type="button"
             className="set-entry"
             data-testid="boot-entry-codex"
-            onClick={() => setView({ kind: "bootDoc", runtime: "codex" })}
+            onClick={() => setView({ kind: "bootRuntime", runtime: "codex" })}
           >
             <span className="set-entry__icon set-entry__icon--blue">
               <MonitorIcon size={18} />
@@ -545,7 +758,7 @@ export function SettingsPage({
     );
   }
 
-  if (view.kind === "bootDoc") {
+  if (view.kind === "bootRuntime") {
     // One runtime, one page, its own editor / save / version history / restore
     // — all of it BootDocPage's, untouched by T-bac4. `collapsible` is
     // deliberately NOT passed: a page that holds one document has nothing to
@@ -561,6 +774,10 @@ export function SettingsPage({
             ? t.settings.historyBootClaudeTitle
             : t.settings.historyBootCodexTitle
         }
+        // Both runtimes get the sentence about the SILENT failure: a mangled
+        // boot sequence stops that runtime's agents attaching to SSE, so they
+        // never come online and nobody is left to fix it.
+        confirmSaveBody={t.settings.bootDocSaveConfirmBoot}
         // The runtime's own name is the TERMINAL crumb, so 啟動程序 sits one
         // step up and stays clickable — Breadcrumbs renders the last segment as
         // plain text on purpose, so a trail ending at 啟動程序 would leave the
@@ -1769,10 +1986,9 @@ function RolesLog({
   roles,
   error,
   crumbs,
-  onOpenSystem,
   onOpenCustom,
-  onOpenBoot,
-  onOpenOffboard,
+  onOpenBootIndex,
+  onOpenBootDoc,
   onOpenRole,
   onCreate,
   onDelete,
@@ -1781,14 +1997,16 @@ function RolesLog({
   roles: RoleSummaryView[];
   error: boolean;
   crumbs: Crumb[];
-  onOpenSystem: () => void;
+  /** 使用者自訂 is NOT a boot document: it is the additive block behind
+   * /api/global-context, with no cap and an allow_shrink of its own. It has its
+   * own opener for that reason and is deliberately absent from BOOT_DOC_ROWS. */
   onOpenCustom: () => void;
-  /** 🔴 Takes the RUNTIME. A no-argument opener would have to pick one, and
-   * whichever it picked would be the wrong document half the time — with no
-   * way for the reader to tell, because the two pages look identical. */
-  onOpenBoot: (runtime: "claude" | "codex") => void;
-  /** 下線程序 (T-c9c0) — one document, so no runtime to pass. */
-  onOpenOffboard: () => void;
+  /** 啟動程序's index. 🔴 The index, not a document: a no-argument opener that
+   * picked one runtime would be the wrong document half the time, with no way
+   * for the reader to tell, because the two pages look identical. */
+  onOpenBootIndex: () => void;
+  /** Every other boot/lifecycle document, addressed rather than named. */
+  onOpenBootDoc: (kind: BootDocKind, docKey: string) => void;
   onOpenRole: (key: string) => void;
   onCreate: (input: { name: string }) => Promise<unknown>;
   onDelete: (key: string) => Promise<void>;
@@ -1884,75 +2102,58 @@ function RolesLog({
        * bounced to login) never masquerades as an empty role journal. */}
       {error && <div className="set-error">{t.settings.loadError}</div>}
 
-      {/* zone 1: the global-context blocks, in boot-assembly order:
-       * 系統互動 (heads the boot context) → 使用者自訂 (the additive block) →
-       * 啟動程序, ONE row that opens a page holding both runtimes' documents.
-       * All of them are editable since T-791e. No filenames — the blocks are
-       * content, not files. */}
-      <div className="set-group-label">{t.settings.globalSection}</div>
-      <div className="set-entries">
-        <button type="button" className="set-entry" onClick={onOpenSystem}>
-          <span className="set-entry__icon set-entry__icon--violet">
-            <GlobeIcon size={18} />
-          </span>
-          <span className="set-entry__body">
-            <span className="set-entry__name">{t.settings.systemName}</span>
-            <span className="set-entry__sub">{t.settings.systemSub}</span>
-          </span>
-          <ChevronRightIcon size={18} className="set-entry__chev" />
-        </button>
-        <button type="button" className="set-entry" onClick={onOpenCustom}>
-          <span className="set-entry__icon set-entry__icon--violet">
-            <PencilIcon size={18} />
-          </span>
-          <span className="set-entry__body">
-            <span className="set-entry__name">{t.settings.customName}</span>
-            <span className="set-entry__sub">{t.settings.customSub}</span>
-          </span>
-          <ChevronRightIcon size={18} className="set-entry__chev" />
-        </button>
-        {/* ONE row, not one per runtime (owner 2026-08-14, card rc-e1abbc506b70
-          * option 1). He asked why this had been "split into so many", and he
-          * was right about the half that matters: the two seed FILES predate
-          * this work, but the settings list carried a single 啟動程序 row until
-          * T-791e made both editable and gave each its own. The runtime is
-          * chosen INSIDE the page now.
-          *
-          * What did NOT change, and must not: the two documents stay separate.
-          * Their third step means opposite things (claude attaches `ocagent
-          * listen` itself; codex must NOT and hands that to the sidecar), so
-          * merging the TEXT would silently stop one runtime's agents ever
-          * coming online. One entry, two documents. */}
-        <button
-          type="button"
-          className="set-entry"
-          onClick={() => onOpenBoot("claude")}
-        >
-          <span className="set-entry__icon set-entry__icon--violet">
-            <BoltIcon size={18} />
-          </span>
-          <span className="set-entry__body">
-            <span className="set-entry__name">{t.settings.bootName}</span>
-            <span className="set-entry__sub">{t.settings.bootSub}</span>
-          </span>
-          <ChevronRightIcon size={18} className="set-entry__chev" />
-        </button>
-        {/* 下線程序 sits FOURTH, right after 啟動程序: the two are the same
-          * agent's life read end to end, so the list runs 開機 → 下線. This
-          * document is NOT part of the boot fold — the server hands it over at
-          * the moment it collects a session — which is exactly why it needs a
-          * row of its own here rather than a paragraph inside another block. */}
-        <button type="button" className="set-entry" onClick={onOpenOffboard}>
-          <span className="set-entry__icon set-entry__icon--violet">
-            <LogOutIcon size={18} />
-          </span>
-          <span className="set-entry__body">
-            <span className="set-entry__name">{t.settings.offboardName}</span>
-            <span className="set-entry__sub">{t.settings.offboardSub}</span>
-          </span>
-          <ChevronRightIcon size={18} className="set-entry__chev" />
-        </button>
-      </div>
+      {/* zone 1: the boot / lifecycle documents, printed from BOOT_DOC_ROWS —
+       * the one table that says which of them the cockpit shows. Groups run in
+       * the owner's own reading order (2026-08-22): 上線 → 下線 → 任務 → 唯讀.
+       * No filenames — these are content, not files. */}
+      {BOOT_DOC_GROUP_ORDER.map((group) => (
+        <div key={group}>
+          <div className="set-group-label">
+            {t.settings[BOOT_DOC_GROUP_LABEL[group]]}
+          </div>
+          <div className="set-entries">
+            {bootDocRowsIn(group).map(([kind, row]) => (
+              <Fragment key={kind}>
+                <BootDocEntry
+                  kind={kind}
+                  row={row}
+                  onOpen={() =>
+                    row.index
+                      ? onOpenBootIndex()
+                      : onOpenBootDoc(kind, row.docKey)
+                  }
+                />
+                {/* 使用者自訂 sits between 系統互動 and 啟動程序, where the boot
+                  * context assembles it. It is NOT a boot document — no cap, its
+                  * own allow_shrink, its own route — so it is deliberately absent
+                  * from BOOT_DOC_ROWS, and this is the one row the list prints
+                  * that the table does not own. */}
+                {kind === "system_interaction" && (
+                  <button
+                    type="button"
+                    className="set-entry"
+                    data-testid="boot-doc-entry-custom"
+                    onClick={onOpenCustom}
+                  >
+                    <span className="set-entry__icon set-entry__icon--violet">
+                      <PencilIcon size={18} />
+                    </span>
+                    <span className="set-entry__body">
+                      <span className="set-entry__name">
+                        {t.settings.customName}
+                      </span>
+                      <span className="set-entry__sub">
+                        {t.settings.customSub}
+                      </span>
+                    </span>
+                    <ChevronRightIcon size={18} className="set-entry__chev" />
+                  </button>
+                )}
+              </Fragment>
+            ))}
+          </div>
+        </div>
+      ))}
 
       {/* zone 2: role definitions */}
       <div className="set-group-label">{t.settings.roleDefsSection}</div>

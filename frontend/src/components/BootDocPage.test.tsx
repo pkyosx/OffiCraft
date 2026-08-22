@@ -59,6 +59,7 @@ function renderClaude() {
         docKey="claude"
         title={s.bootClaudeName}
         historyTitle={s.historyBootClaudeTitle}
+        confirmSaveBody={s.bootDocSaveConfirmBoot}
         crumbs={[{ label: s.title }]}
       />
     </I18nProvider>
@@ -73,6 +74,7 @@ function renderCodex() {
         docKey="codex"
         title={s.bootCodexName}
         historyTitle={s.historyBootCodexTitle}
+        confirmSaveBody={s.bootDocSaveConfirmBoot}
         crumbs={[{ label: s.title }]}
       />
     </I18nProvider>
@@ -87,6 +89,7 @@ function renderSystem() {
         docKey="global"
         title={s.systemName}
         historyTitle={s.historyBootSystemTitle}
+        confirmSaveBody={s.bootDocSaveConfirmSystem}
         crumbs={[{ label: s.title }]}
       />
     </I18nProvider>

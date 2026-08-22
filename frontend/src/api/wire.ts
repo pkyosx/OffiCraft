@@ -250,6 +250,13 @@ export type WireGlobalContext = components["schemas"]["GlobalContextDTO"];
  */
 export type WireBootDoc = components["schemas"]["BootDocumentDTO"];
 
+/** Mirrors `BootDocSummaryDTO` / `BootDocListDTO` (`GET /api/boot-docs`,
+ * T-3201) — the TEXT-FREE listing of every boot/lifecycle document this server
+ * serves. It is the wire's own answer to "which documents exist"; the cockpit
+ * reads it to prove its settings list has a row for each one. */
+export type WireBootDocSummary = components["schemas"]["BootDocSummaryDTO"];
+export type WireBootDocList = components["schemas"]["BootDocListDTO"];
+
 /** Mirrors `DocumentHistoryDTO` — ONE retained revision of an editable
  * long-form document as a CATALOGUE ROW (`GET /api/document-history/{kind}/{key}`).
  * Since T-1170 it carries NO text: identity, actor, time, the `tombstoned`

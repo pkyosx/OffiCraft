@@ -243,6 +243,22 @@ def _seed(name: str) -> str:
     return (SEEDS / name).read_text(encoding="utf-8").replace("{OWNER_ID}", "owner")
 
 
+DOC_BODY_MARKER = "<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->"
+DOC_BODY_SEP = "\n\n" + DOC_BODY_MARKER + "\n\n"
+
+
+def _rendered(text: str, join: str = "\n\n") -> str:
+    """Drop the read-only/editable boundary line (T-3201).
+
+    A boot document stores a read-only head, one marker line, then the
+    owner-editable body. The marker is for the person editing it; what a READER
+    is served is the two halves joined. Stated here rather than imported so the
+    suite stays an independent reimplementation of the wire.
+    """
+    head, sep, body = text.partition(DOC_BODY_SEP)
+    return head + join + body if sep else text
+
+
 def _expected_context(client, owner_token, role_key: str, task_type: str, user_text: str) -> str:
     role = client.get(f"/api/roles/{role_key}", headers=_auth(owner_token)).json()
     lessons = client.get(
@@ -267,7 +283,7 @@ def _expected_context(client, owner_token, role_key: str, task_type: str, user_t
     # gate is the FOLDED TEXT — deliberately not is_default and not has_seed,
     # which answer different questions and would each drop or emit the section
     # for the wrong roles.
-    parts = [_seed("system_interaction.md").strip()]
+    parts = [_rendered(_seed("system_interaction.md")).strip()]
     if user_text.strip():
         parts.append(f"# 使用者自訂（Owner Additions）\n\n{user_text.strip()}")
     parts.append(
@@ -277,7 +293,7 @@ def _expected_context(client, owner_token, role_key: str, task_type: str, user_t
         parts.append(f"# Insight ({role_key})\n\n{insight['text'].strip()}")
     parts += [
         f"# Lessons ({role_key} / {task_type})\n\n{lessons['text'].strip()}",
-        _seed("boot_sequence.md").strip(),
+        _rendered(_seed("boot_sequence.md")).strip(),
     ]
     return "\n\n".join(parts) + "\n"
 
@@ -305,7 +321,7 @@ def test_boot_fold_bytes_with_owner_additions(client, owner_token) -> None:
         f"(len served={len(context)} vs expected={len(expected)})"
     )
     # The recency-authoritative tail: the boot-sequence seed is LAST.
-    assert context.rstrip("\n").endswith(_seed("boot_sequence.md").strip())
+    assert context.rstrip("\n").endswith(_rendered(_seed("boot_sequence.md")).strip())
     assert context.endswith("\n") and not context.endswith("\n\n")
 
 

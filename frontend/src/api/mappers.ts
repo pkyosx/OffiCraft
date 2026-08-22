@@ -26,6 +26,7 @@ import type {
   GlobalContextView,
   BootDocView,
   BootDocKind,
+  BootDocSummaryView,
   DocumentHistoryEntryView,
   DocumentHistoryView,
   DocumentRevisionView,
@@ -60,6 +61,7 @@ import type {
   WireBackupHealth,
   WireGlobalContext,
   WireBootDoc,
+  WireBootDocSummary,
   WireDocumentHistory,
   WireDocumentHistoryVersion,
   WireDocumentHistoryRestore,
@@ -1229,18 +1231,52 @@ export function toGlobalContext(w: WireGlobalContext): GlobalContextView {
  * "narrow at the mapper, never downstream" rule toPresence follows.
  */
 export function toBootDoc(w: WireBootDoc): BootDocView {
-  if (
-    w.kind !== "system_interaction" &&
-    w.kind !== "boot_sequence" &&
-    w.kind !== "offboard"
-  ) {
-    throw new Error(`toBootDoc: unknown boot document kind ${JSON.stringify(w.kind)}`);
-  }
-  const kind: BootDocKind = w.kind;
   return {
-    kind,
+    kind: narrowBootDocKind(w.kind),
     key: w.key,
     text: w.text,
+    sizeChars: w.size_chars,
+    capChars: w.cap_chars,
+    isDefault: w.is_default,
+    hasSeed: w.has_seed,
+    readOnly: w.read_only,
+  };
+}
+
+/** The closed set `BootDocKind` spells, as a value — the ONE place the wire's
+ * bare string is checked. Kept beside the mapper rather than in types.ts
+ * because it is a seam concern: nothing downstream of here ever sees a kind
+ * that is not in this set. */
+const BOOT_DOC_KINDS: readonly BootDocKind[] = [
+  "system_interaction",
+  "boot_sequence",
+  "offboard",
+  "accelerated_stop",
+  "task_closeout",
+  "task_reassign_predecessor",
+  "task_takeover_with_predecessor",
+  "task_takeover_fresh",
+  "task_unblocked",
+];
+
+function narrowBootDocKind(kind: string): BootDocKind {
+  const known = BOOT_DOC_KINDS.find((k) => k === kind);
+  if (known === undefined) {
+    throw new Error(
+      `toBootDoc: unknown boot document kind ${JSON.stringify(kind)}`
+    );
+  }
+  return known;
+}
+
+/** Map ONE row of the boot-document listing → the view model (T-3201). Narrows
+ * `kind` at the same seam and for the same reason `toBootDoc` does. */
+export function toBootDocSummary(w: WireBootDocSummary): BootDocSummaryView {
+  return {
+    kind: narrowBootDocKind(w.kind),
+    key: w.key,
+    docName: w.doc_name,
+    readOnly: w.read_only,
     sizeChars: w.size_chars,
     capChars: w.cap_chars,
     isDefault: w.is_default,

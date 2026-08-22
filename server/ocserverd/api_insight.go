@@ -229,9 +229,7 @@ func (s *apiServer) HandleReplaceInsightApiInsightRoleKeyPost(w http.ResponseWri
 	// the guard works.
 	if !(body.AllowShrink != nil && *body.AllowShrink) {
 		if WholeDocWipeBlocked(current.Text, text) {
-			writeError(w, http.StatusBadRequest,
-				"this would replace the existing insight doc with an empty one — pass allow_shrink=true "+
-					"if that is intended; nothing was written")
+			writeError(w, http.StatusBadRequest, docWipeRefusal("insight doc", ""))
 			return
 		}
 	}

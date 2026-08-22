@@ -1086,6 +1086,34 @@
   },
   {
     "auth": "gated",
+    "mcp_tool": "list_boot_docs",
+    "method": "GET",
+    "path": "/api/boot-docs",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "get_boot_doc",
+    "method": "GET",
+    "path": "/api/boot-docs/{kind}/{key}",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "replace_boot_doc",
+    "method": "POST",
+    "path": "/api/boot-docs/{kind}/{key}",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "reset_boot_doc",
+    "method": "POST",
+    "path": "/api/boot-docs/{kind}/{key}/reset",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
     "mcp_tool": "list_themes",
     "method": "GET",
     "path": "/api/themes",

@@ -1112,6 +1112,62 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary:  "Restore the 下線程序 block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length cap is applied on this path — the factory text is part of the product, so no setting can block the way back to it. The overlay being discarded is retained in the document history, so the reset is itself recoverable. Owner or admin assistant only.",
 			MCPTool:  "reset_offboard",
 		},
+		// ── The GENERIC face of the same documents (T-3201) ─────────────────
+		// Six more of these documents shipped with the task-event procedures,
+		// and three named routes each would have been eighteen more rows here
+		// and eighteen more tools in EVERY agent's tool list — a permanent 15%
+		// growth of a surface most agents never touch. The owner chose the
+		// generic route (rc-88e4ab40fe1d) once the argument against it turned
+		// out to rest on a premise nobody had checked: the floors were said to
+		// be per-document, and they are the same sentence copied for each one.
+		//
+		// FLOORS, therefore, are the named routes' floors verbatim: read at the
+		// machine floor (an agent already reads these documents — the boot fold
+		// hands them over), WRITE at admin_agent because this text lands in
+		// every agent's boot context or in the notice an agent is collected
+		// with, and a broken one is read by everybody and reported by nobody.
+		//
+		// 🔴 WHAT IS NOT EXPRESSED HERE: read-only documents. Two of the ten may
+		// never be edited by anyone, and that refusal is NOT an authz floor — no
+		// principal can pass it, so declaring it here would name a rank nobody
+		// holds. It lives on the write path (bootDocReadOnlyRefusal, 405) where
+		// it can say what the document IS rather than what the caller lacks.
+		{
+			Method:   "GET",
+			Path:     "/api/boot-docs",
+			Handler:  w.HandleListBootDocsApiBootDocsGet,
+			Auth:     authGated,
+			Requires: principalMachine,
+			Summary:  "List every editable block of the boot context: address (kind/key), the name a refusal calls it, whether it is read-only, and its size against its own cap. No document text — fetch that with get_boot_doc. This is the non-stale answer to \"which boot-context documents exist\": it is rendered from the registry that serves them, so it cannot be wrong about a block that exists.",
+			MCPTool:  "list_boot_docs",
+		},
+		{
+			Method:   "GET",
+			Path:     "/api/boot-docs/{kind}/{key}",
+			Handler:  w.HandleGetBootDocApiBootDocsKindKeyGet,
+			Auth:     authGated,
+			Requires: principalMachine,
+			Summary:  "Read one block of the boot context by kind/key, folded (the owner's edit ⊕ the shipped seed). Carries size_chars/cap_chars so an edit can be sized before it is made, is_default/has_seed to tell an edited block from the shipped one, and read_only for the blocks that are shown but may never be edited. An unknown kind or key is a 404 that names the keys that exist.",
+			MCPTool:  "get_boot_doc",
+		},
+		{
+			Method:   "POST",
+			Path:     "/api/boot-docs/{kind}/{key}",
+			Handler:  w.HandleReplaceBootDocApiBootDocsKindKeyPost,
+			Auth:     authGated,
+			Requires: principalAdminAgent,
+			Summary:  "Replace the WHOLE text of one boot-context block ({kind, key, text}) — text every agent reads at boot, or is sent when a lifecycle event happens to it. text is REQUIRED and unknown keys are rejected; emptying a block that had content needs allow_shrink=true. Judged against that block's own cap. A read-only block refuses with 405 for every caller, and a block that carries a read-only head requires that head back unchanged. Owner or admin assistant only.",
+			MCPTool:  "replace_boot_doc",
+		},
+		{
+			Method:   "POST",
+			Path:     "/api/boot-docs/{kind}/{key}/reset",
+			Handler:  w.HandleResetBootDocApiBootDocsKindKeyResetPost,
+			Auth:     authGated,
+			Requires: principalAdminAgent,
+			Summary:  "Restore one boot-context block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length cap applies on this path — the way back to factory text is never blocked by a setting, which is what makes it the recovery route after an edit that stopped agents from booting. The discarded overlay is retained in the document history. Owner or admin assistant only.",
+			MCPTool:  "reset_boot_doc",
+		},
 		{
 			Method:   "GET",
 			Path:     "/api/roles",
@@ -1298,7 +1354,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleResumeSummaryApiResumeSummaryGet,
 			Auth:     authGated,
 			Requires: principalMachine,
-			Summary:  "Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task). CHAT is packed newest-first under a CHARACTER BUDGET, not a fixed message count, and stopping at the last message that still fits; each message carries from_name/to_name beside the ids and ts_display (full date + time + zone offset) beside the epoch ts, and folds in its reply card as `card` when it has one — read every ts_display against the top-level `generated_at`. TWO DIFFERENT things can be missing and they are marked DIFFERENTLY: `body_omitted_chars` > 0 means THAT message is here with that many characters COLLAPSED away (another agent's line — the owner's line and your own hand-off notes to yourself are carried in full), re-read it with get_chat; `chat_earlier_omitted` is the other kind and it is a MAYBE, not a fact: that line was cut at a read or budget limit and nothing looked past the cut, so whole messages may be missing from this payload entirely — it is raised even when there is in fact nothing older. Its hint tells you how to CHECK and fetch them. The two are asymmetric ON PURPOSE: the collapse marker is CERTAIN (that message IS here, shortened, exact count); this one is not, and only the fetch settles it. Also carries the STUDIO FLOOR you wake up onto: roster (every member and contractor, each with online/offline status, the machine it runs on, and its duty capped at 1000 chars with `…` marking a cut, the cap applied after the doc's own leading title line is removed — who to ask for help; no insight/learning by owner ruling. Contractors additionally carry their bound task's status, waiting_reason, and step progress (progress_done/progress_total) — members leave these at their zero value; a contractor's 0/0 is ambiguous (a task with no steps yet, or no task at all) and task_status is what tells them apart, non-empty vs empty) and machines (the machine list plus you_are_on, your server-recorded machine binding — never derive it from a hostname). It also carries `doc_capacity` — the long-lived capped documents in your reach that are CLOSE to full (your role documents, the boot documents, your open tasks' manuals, your open steps' notes), each with size/cap, what is left, and whether YOU can rewrite it or have to ask the person who can. The key is ABSENT when nothing is near, so its presence is the whole signal — act on it now, not when a write is refused.",
+			Summary:  "Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task). CHAT is packed newest-first under a CHARACTER BUDGET, not a fixed message count, and stopping at the last message that still fits; each message carries from_name/to_name beside the ids and ts_display (full date + time + zone offset) beside the epoch ts, and folds in its reply card as `card` when it has one — read every ts_display against the top-level `generated_at`. TWO DIFFERENT things can be missing and they are marked DIFFERENTLY: `body_omitted_chars` > 0 means THAT message is here with that many characters COLLAPSED away (another agent's line — the owner's line and your own hand-off notes to yourself are carried in full), re-read it with get_chat; `chat_earlier_omitted` is the other kind and it is a MAYBE, not a fact: that line was cut at a read or budget limit and nothing looked past the cut, so whole messages may be missing from this payload entirely — it is raised even when there is in fact nothing older. Its hint tells you how to CHECK and fetch them. The two are asymmetric ON PURPOSE: the collapse marker is CERTAIN (that message IS here, shortened, exact count); this one is not, and only the fetch settles it. Also carries the STUDIO FLOOR you wake up onto: roster (every member and contractor, each with online/offline status, the machine it runs on, and its duty capped at 1000 chars with `…` marking a cut, the cap applied after the doc's own leading title line is removed — who to ask for help; no insight/learning by owner ruling. Contractors additionally carry their bound task's status, waiting_reason, and step progress (progress_done/progress_total) — members leave these at their zero value; a contractor's 0/0 is ambiguous (a task with no steps yet, or no task at all) and task_status is what tells them apart, non-empty vs empty) and machines (the machine list plus you_are_on, your server-recorded machine binding — never derive it from a hostname).",
 			MCPTool:  "resume_summary",
 		},
 		{
@@ -1307,7 +1363,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandlePeekResumeSummarySizeApiResumeSummarySizeGet,
 			Auth:     authGated,
 			Requires: principalMachine,
-			Summary:  "Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO chat/task content). estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars + steps_on_answered_card_chars + doc_capacity_chars, all six reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit, the two studio-floor blocks, the named steps sitting on an answered card, and the near-cap document rows (0 unless something is close to its cap) — what pulling the snapshot actually costs. Step one of the two-step boot: call this FIRST to size resume_summary, then either call resume_summary directly (small) or hand the pull to a cheap sub-agent that returns a digest (large).",
+			Summary:  "Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO chat/task content). estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars + steps_on_answered_card_chars, all five reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit, the two studio-floor blocks, and the named steps sitting on an answered card — what pulling the snapshot actually costs. Step one of the two-step boot: call this FIRST to size resume_summary, then either call resume_summary directly (small) or hand the pull to a cheap sub-agent that returns a digest (large).",
 			MCPTool:  "peek_resume_summary_size",
 		},
 		{

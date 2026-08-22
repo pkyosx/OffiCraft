@@ -757,14 +757,86 @@
         "additionalProperties": false,
         "type": "object"
       },
-      "BootDocumentDTO": {
-        "description": "ONE editable block of the boot context (T-791e): the 系統互動 handbook (``kind=\"system_interaction\"``, ``key=\"global\"``) or one runtime's 啟動程序 checklist (``kind=\"boot_sequence\"``, ``key=\"claude\"``/``\"codex\"``).\n\nThe served text is FOLDED: the owner's overlay when one exists, otherwise the seed compiled into this binary. Editing writes only the overlay — the seed is never modified, which is what lets the reset route reach factory text without depending on anything the editor could have corrupted.\n\n``is_default`` and ``has_seed`` answer DIFFERENT questions: the first is \"has anybody edited this block\", the second is \"does a factory version exist to go back TO\" (the reset's precondition — that route 404s when it is false).",
+      "BootDocListDTO": {
+        "description": "Every editable block of the boot context this server serves, in the order the cockpit shows them. This is the answer to \"which documents are there\" — the question no description is allowed to answer in prose, because a written list goes stale the moment a block ships and nothing turns red when it does.",
+        "properties": {
+          "documents": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/BootDocSummaryDTO"
+            },
+            "title": "Documents",
+            "type": "array"
+          }
+        },
+        "title": "BootDocListDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BootDocSummaryDTO": {
+        "description": "ONE row of the editable-boot-context listing: how to address the block, what to call it, whether it can be edited, and how big it is against its own cap. It carries NO text, and that is the property rather than an omission — the size of the listing depends on how many blocks exist and on nothing else, so a station whose documents grow does not make it more expensive. Fetch the one you mean with ``get_boot_doc``.",
         "properties": {
           "cap_chars": {
             "default": 0,
             "type": "integer",
             "title": "Cap Chars",
-            "description": "The size cap now in force on THIS document, in CHARACTERS (the doc.cap_chars.system_interaction or doc.cap_chars.boot_sequence setting). Served on the read face so an edit can be sized BEFORE it is written — the settings surface holding the cap is admin-only, so otherwise being refused is the only way to learn it."
+            "description": "The size cap now in force on THIS block, in CHARACTERS — the same number get_boot_doc reports for it."
+          },
+          "doc_name": {
+            "default": "",
+            "type": "string",
+            "title": "Doc Name",
+            "description": "What a refusal calls this block. It is the server's own name for the document, so a caller reading a rejection and a caller reading this listing are looking at the same words."
+          },
+          "has_seed": {
+            "default": false,
+            "type": "boolean",
+            "title": "Has Seed",
+            "description": "True when a FACTORY version of this block ships in this binary, i.e. there is something for the reset route to restore."
+          },
+          "is_default": {
+            "default": true,
+            "type": "boolean",
+            "title": "Is Default",
+            "description": "True while nobody has edited this block. False means somebody's edit is what agents are reading."
+          },
+          "key": {
+            "default": "",
+            "type": "string",
+            "title": "Key",
+            "description": "The second half of the address — pass it back verbatim."
+          },
+          "kind": {
+            "default": "",
+            "type": "string",
+            "title": "Kind",
+            "description": "The first half of the address, and the document-history kind of this block's retained versions."
+          },
+          "read_only": {
+            "default": false,
+            "type": "boolean",
+            "title": "Read Only",
+            "description": "True when this block is shown but no caller may edit it — the write faces answer 405 for it. Render it; do not offer an editor for it."
+          },
+          "size_chars": {
+            "default": 0,
+            "type": "integer",
+            "title": "Size Chars",
+            "description": "Size of the folded text in CHARACTERS (Unicode code points) — the same unit as cap_chars."
+          }
+        },
+        "title": "BootDocSummaryDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BootDocumentDTO": {
+        "description": "ONE editable block of the boot context, addressed by ``kind``/``key``.\n\nWHICH BLOCKS EXIST IS DELIBERATELY NOT LISTED HERE. This description named two kinds, and had already gone stale on a third before T-3201 added six more — nothing turns red when a list like that ages. ``list_boot_docs`` answers the question, from the same registry that serves and validates every one of them.\n\nThe served text is FOLDED: the owner's overlay when one exists, otherwise the seed compiled into this binary. Editing writes only the overlay — the seed is never modified, which is what lets the reset route reach factory text without depending on anything the editor could have corrupted.\n\n``is_default`` and ``has_seed`` answer DIFFERENT questions: the first is \"has anybody edited this block\", the second is \"does a factory version exist to go back TO\" (the reset's precondition — that route 404s when it is false).",
+        "properties": {
+          "cap_chars": {
+            "default": 0,
+            "type": "integer",
+            "title": "Cap Chars",
+            "description": "The size cap now in force on THIS document, in CHARACTERS. Blocks may share a cap with a sibling; this is the number that will judge THIS write. Served on the read face so an edit can be sized BEFORE it is written — the settings surface holding the cap is admin-only, so otherwise being refused is the only way to learn it."
           },
           "has_seed": {
             "default": false,
@@ -782,18 +854,24 @@
             "default": "",
             "type": "string",
             "title": "Key",
-            "description": "Which document within the kind: \"global\" for system_interaction; the RUNTIME (\"claude\" or \"codex\") for boot_sequence. The two boot sequences are separate documents because step 3 of each says the opposite of the other."
+            "description": "The second half of the address, as ``list_boot_docs`` spells it. Most kinds serve exactly one key; a kind that serves more does so because the documents genuinely differ, so the key is never a formality — an unknown one is a 404 that names the keys that exist."
           },
           "kind": {
             "default": "",
             "type": "string",
             "title": "Kind",
-            "description": "\"system_interaction\" or \"boot_sequence\" — also the document-history kind of this document's retained versions."
+            "description": "The first half of the address, as ``list_boot_docs`` spells it — also the document-history kind this block's retained versions are filed under. Copy it from that listing rather than typing it: which blocks exist changes when one ships, and no description here is allowed to carry the list."
           },
           "owner_id": {
             "default": "",
             "type": "string",
             "title": "Owner Id"
+          },
+          "read_only": {
+            "default": false,
+            "type": "boolean",
+            "title": "Read Only",
+            "description": "True when this block is SHOWN but may never be edited — it exists as a document so the owner can see the words an agent is sent, and every write face refuses it with 405 no matter who is asking. It is NOT an authz signal: no principal can edit it, so there is no role to grant."
           },
           "schema_version": {
             "default": 0,
@@ -1541,51 +1619,6 @@
           "task_manuals"
         ],
         "title": "DocSizesDTO",
-        "additionalProperties": false,
-        "type": "object"
-      },
-      "DocCapacityRowDTO": {
-        "description": "ONE long-lived document that is CLOSE to its character cap, as it appears in\n``resume_summary``'s ``doc_capacity`` block (T-6bd2).\n\nEvery capped document on this station refuses a write with 400 once it is full\nand says nothing at all before that, so the number arrives at the one instant the\nwriter has no slack — and the cheapest way out of a refusal is to delete text\nuntil the write fits. What gets deleted is the hand-off and the \"what I did not\nverify\" paragraph, and the response to that shortened write is 200. This row\nmoves the same two numbers to a moment BEFORE any of that.\n\n``writable`` is what makes the row actionable rather than merely alarming, and it\nis a fact about THE READER rather than about the document class: an agent may\nrewrite its own step note, its task manual, and its own role's insight and\nlessons; a role definition and the three boot documents are gated at admin_agent,\nso those four rows are writable for the admin assistant and not for an ordinary\nmember. ``action`` is a separate DECISION and is NOT derived from it — long-term\nmemory is writable, but compacting it under close-out pressure is the wrong\nmoment, so that row offers the route without claiming the reader is barred.\n\nRows appear ONLY while a document is near its cap.",
-        "properties": {
-          "doc": {
-            "description": "The document, named the way its own write face names it — including the role key, type_key or task_no that says WHICH one.",
-            "title": "Doc",
-            "type": "string"
-          },
-          "writable": {
-            "description": "True when the READING agent may write this document itself; false when it cannot, in which case ``action`` names who can instead of asking the reader to attempt a write that could only be refused. Read off THIS reader's own permissions: the rows gated at admin_agent (the role definition and the three boot documents) are true for the admin assistant and false for everyone else.",
-            "title": "Writable",
-            "type": "boolean"
-          },
-          "size_chars": {
-            "title": "Size Chars",
-            "type": "integer"
-          },
-          "cap_chars": {
-            "description": "The cap in force for THIS document's own segment. The segments do not share a number.",
-            "title": "Cap Chars",
-            "type": "integer"
-          },
-          "remaining_chars": {
-            "description": "``cap_chars - size_chars``, floored at 0.",
-            "title": "Remaining Chars",
-            "type": "integer"
-          },
-          "action": {
-            "description": "What this reader is expected to do about it. NOT derived from ``writable``: a document can be the reader's own to write and still be the wrong thing to compact right now (long-term memory), so this names which of three situations the row is — rewrite it yourself, yours but schedule it, or who to ask.",
-            "title": "Action",
-            "type": "string"
-          }
-        },
-        "required": [
-          "doc",
-          "writable",
-          "size_chars",
-          "cap_chars",
-          "remaining_chars",
-          "action"
-        ],
-        "title": "DocCapacityRowDTO",
         "additionalProperties": false,
         "type": "object"
       },
@@ -4310,7 +4343,7 @@
         "type": "object"
       },
       "ResumeOverviewDTO": {
-        "description": "The size/概要 block of the wake snapshot — the peek-then-decide signals (look at the SIZES first, then decide what to pull and whether to hand the digest to a sub-agent instead of loading it into your own context). ``chat_count`` / ``tasks_returned`` count what THIS snapshot carries; ``tasks_open_total`` is ALL the caller's open tasks (may exceed the bounded rows — page with ``list_tasks``); ``tasks_detail_chars`` sums every returned row's ``detail_chars`` (the plan text a full ``get_task`` pull would load); ``cards_waiting`` / ``cards_answered_recent`` count the CALLER'S reply cards still waiting on the owner / answered within the last 24h (pull with ``list_reply_cards``, cap with its ``limit``). ``roster_chars`` / ``machines_chars`` (T-1b09) size the two studio-floor blocks THIS snapshot carries — reported separately, and deliberately NOT folded into ``tasks_detail_chars``: that one counts text the snapshot does NOT carry (the plan text a later ``get_task`` would load), so mixing the two kinds of number is what made ``estimated_total_chars`` ambiguous in the first place. ``steps_on_answered_card`` counts the ``answered_card_steps`` rows across the returned tasks — steps sitting on a reply card the owner already answered while the step is still ``in_progress``, i.e. an answer nobody has picked up; ``steps_on_answered_card_chars`` sizes the text those rows carry and, like ``roster_chars``/``machines_chars``, IS folded into ``estimated_total_chars`` because the snapshot does carry it. ``doc_capacity_chars`` (T-6bd2) sizes the ``doc_capacity`` block the same way, and is folded in for the same reason: the snapshot CARRIES those rows. Leaving it out understated the peek by the whole block — measured on a station with nine near-cap documents, the peek reported 890 against a block of 1341 characters — which is the third time this same omission has had to be fixed (roster/machines, then the answered-card pointers). It is 0 whenever nothing is near its cap, which is the ordinary case.",
+        "description": "The size/概要 block of the wake snapshot — the peek-then-decide signals (look at the SIZES first, then decide what to pull and whether to hand the digest to a sub-agent instead of loading it into your own context). ``chat_count`` / ``tasks_returned`` count what THIS snapshot carries; ``tasks_open_total`` is ALL the caller's open tasks (may exceed the bounded rows — page with ``list_tasks``); ``tasks_detail_chars`` sums every returned row's ``detail_chars`` (the plan text a full ``get_task`` pull would load); ``cards_waiting`` / ``cards_answered_recent`` count the CALLER'S reply cards still waiting on the owner / answered within the last 24h (pull with ``list_reply_cards``, cap with its ``limit``). ``roster_chars`` / ``machines_chars`` (T-1b09) size the two studio-floor blocks THIS snapshot carries — reported separately, and deliberately NOT folded into ``tasks_detail_chars``: that one counts text the snapshot does NOT carry (the plan text a later ``get_task`` would load), so mixing the two kinds of number is what made ``estimated_total_chars`` ambiguous in the first place. ``steps_on_answered_card`` counts the ``answered_card_steps`` rows across the returned tasks — steps sitting on a reply card the owner already answered while the step is still ``in_progress``, i.e. an answer nobody has picked up; ``steps_on_answered_card_chars`` sizes the text those rows carry and, like ``roster_chars``/``machines_chars``, IS folded into ``estimated_total_chars`` because the snapshot does carry it.",
         "properties": {
           "cards_answered_recent": {
             "title": "Cards Answered Recent",
@@ -4326,10 +4359,6 @@
           },
           "chat_count": {
             "title": "Chat Count",
-            "type": "integer"
-          },
-          "doc_capacity_chars": {
-            "title": "Doc Capacity Chars",
             "type": "integer"
           },
           "machines_chars": {
@@ -4445,21 +4474,13 @@
         "type": "object"
       },
       "ResumeSummaryDTO": {
-        "description": "A BOUNDED, deterministic wake snapshot for the CALLER (the ``resume_summary``\nMCP tool, zero params).\n\nIdentity-locked to the caller's VERIFIED JWT ``sub``: a waking / handed-over\nagent pulls ONE bounded block instead of paging every plane by hand. Fields:\n\n  - ``identity``: the caller id (the verified ``sub``). ``None`` for a bare /\n    unauthenticated request (degrades to an empty snapshot, never an error).\n  - ``chat``: the recent messages INVOLVING the caller (sender == caller OR\n    recipient == caller), oldest→newest, packed newest-first under a CHARACTER\n    BUDGET rather than a fixed message count, stopping at the last message that\n    still fits. Each message carries ``from_name`` / ``to_name`` beside the\n    ids and ``ts_display`` beside the epoch ``ts``, and folds in its reply card\n    (``card``) when it has one. Bodies from OTHER AGENTS are COLLAPSED to a short\n    lead with ``body_omitted_chars`` saying how much was folded; the owner's line\n    and the caller's own hand-off notes to itself are carried IN FULL, because\n    those are the two lines a wake actually resumes from. Empty when the caller\n    has no chat — never an error.\n  - ``chat_earlier_omitted``: the CUT POINT — whether messages exist that this\n    payload does not carry at all, and how to fetch them. Distinct from\n    ``body_omitted_chars``, which is a shortened message that IS here.\n  - ``generated_at``: when the snapshot was taken, with date, time and zone\n    offset — the anchor for reading every ``ts_display`` as an elapsed time.\n  - ``tasks``: the NON-TERMINAL tasks the caller EXECUTES (SPEC §6.2 — a handover\n    resumes in-flight tasks, not just chat), most recently updated first, capped to\n    a small N — LIGHT rows only (owner ruling: 任務不該包含細節): task_no / title /\n    status / priority / current node NAME + progress, NO steps and NO DoD text.\n    Each row carries ``detail_chars``, the size of the plan text it omits — pull\n    detail per task with ``get_task`` (hand a large pull to a sub-agent), page the\n    rest with ``list_tasks``.\n  - ``overview``: the size/概要 block (counts + character sizes; the caller's\n    waiting / recently-answered reply-card counts included) — peek it FIRST to\n    decide what to pull and whether to digest via a sub-agent.\n  - ``roster``: WHO ELSE is in the studio — every member AND every contractor,\n    each with its online/offline status, the machine it runs on, and its duty\n    capped at 1000 chars — the cap applied AFTER the role doc's own leading\n    title line is removed (owner ruling rc-4e98c0481852, 2026-08-03). The\n    point is knowing who to ask for help on waking, so it carries NO insight and\n    NO learning — see ``ResumeRosterMemberDTO``, whose absence of those two is a\n    deliberate ruling, not a missing feature.\n  - ``machines``: the machine LIST plus ``you_are_on``, the caller's\n    server-recorded machine binding (owner ruling rc-09476f535b59, 2026-08-03).\n    Never derive \"which machine am I on\" from a hostname — our hosts report the\n    same name as each other.\n  - ``doc_capacity``: PRESENT ONLY when one of the caller's long-lived capped\n    documents is close to full (T-6bd2) — its own role documents, the three boot\n    documents, the task manuals of its open tasks, and its open steps' notes.\n    It is here rather than on the write path because the write path's 400 arrives\n    at the instant the agent is recording something and has no time to compact\n    anything; a wake is when it has the most. Each row says whether THIS reader\n    can rewrite the document or has to ask someone who can. ABSENT — not an\n    empty array — when nothing is near, because a block that appeared on every\n    wake would be a block every agent learns to skip, and then the one wake that\n    mattered would look like all the others.\n  - ``note``: a fixed reminder that this is a BOUNDED snapshot.\n\nDETERMINISTIC (same server state → same output; no LLM) and read-only.",
+        "description": "A BOUNDED, deterministic wake snapshot for the CALLER (the ``resume_summary``\nMCP tool, zero params).\n\nIdentity-locked to the caller's VERIFIED JWT ``sub``: a waking / handed-over\nagent pulls ONE bounded block instead of paging every plane by hand. Fields:\n\n  - ``identity``: the caller id (the verified ``sub``). ``None`` for a bare /\n    unauthenticated request (degrades to an empty snapshot, never an error).\n  - ``chat``: the recent messages INVOLVING the caller (sender == caller OR\n    recipient == caller), oldest→newest, packed newest-first under a CHARACTER\n    BUDGET rather than a fixed message count, stopping at the last message that\n    still fits. Each message carries ``from_name`` / ``to_name`` beside the\n    ids and ``ts_display`` beside the epoch ``ts``, and folds in its reply card\n    (``card``) when it has one. Bodies from OTHER AGENTS are COLLAPSED to a short\n    lead with ``body_omitted_chars`` saying how much was folded; the owner's line\n    and the caller's own hand-off notes to itself are carried IN FULL, because\n    those are the two lines a wake actually resumes from. Empty when the caller\n    has no chat — never an error.\n  - ``chat_earlier_omitted``: the CUT POINT — whether messages exist that this\n    payload does not carry at all, and how to fetch them. Distinct from\n    ``body_omitted_chars``, which is a shortened message that IS here.\n  - ``generated_at``: when the snapshot was taken, with date, time and zone\n    offset — the anchor for reading every ``ts_display`` as an elapsed time.\n  - ``tasks``: the NON-TERMINAL tasks the caller EXECUTES (SPEC §6.2 — a handover\n    resumes in-flight tasks, not just chat), most recently updated first, capped to\n    a small N — LIGHT rows only (owner ruling: 任務不該包含細節): task_no / title /\n    status / priority / current node NAME + progress, NO steps and NO DoD text.\n    Each row carries ``detail_chars``, the size of the plan text it omits — pull\n    detail per task with ``get_task`` (hand a large pull to a sub-agent), page the\n    rest with ``list_tasks``.\n  - ``overview``: the size/概要 block (counts + character sizes; the caller's\n    waiting / recently-answered reply-card counts included) — peek it FIRST to\n    decide what to pull and whether to digest via a sub-agent.\n  - ``roster``: WHO ELSE is in the studio — every member AND every contractor,\n    each with its online/offline status, the machine it runs on, and its duty\n    capped at 1000 chars — the cap applied AFTER the role doc's own leading\n    title line is removed (owner ruling rc-4e98c0481852, 2026-08-03). The\n    point is knowing who to ask for help on waking, so it carries NO insight and\n    NO learning — see ``ResumeRosterMemberDTO``, whose absence of those two is a\n    deliberate ruling, not a missing feature.\n  - ``machines``: the machine LIST plus ``you_are_on``, the caller's\n    server-recorded machine binding (owner ruling rc-09476f535b59, 2026-08-03).\n    Never derive \"which machine am I on\" from a hostname — our hosts report the\n    same name as each other.\n  - ``note``: a fixed reminder that this is a BOUNDED snapshot.\n\nDETERMINISTIC (same server state → same output; no LLM) and read-only.",
         "properties": {
           "chat": {
             "items": {
               "$ref": "#/components/schemas/ChatMessageDTO"
             },
             "title": "Chat",
-            "type": "array"
-          },
-          "doc_capacity": {
-            "description": "The long-lived documents in the caller's reach that are CLOSE to their character cap (T-6bd2). Absent when nothing is near — see the schema description above for why absence rather than an empty array. Additive-optional.",
-            "items": {
-              "$ref": "#/components/schemas/DocCapacityRowDTO"
-            },
-            "title": "Doc Capacity",
             "type": "array"
           },
           "chat_earlier_omitted": {
@@ -4520,7 +4541,7 @@
         "type": "object"
       },
       "ResumeSummarySizeDTO": {
-        "description": "The size-only PEEK of the wake snapshot (``peek_resume_summary_size`` MCP\ntool, zero params; ``GET /api/resume-summary-size``) — the FIRST step of the\ntwo-step boot.\n\nIdentity-locked to the caller's VERIFIED JWT ``sub``, it returns the SAME\n``overview`` counts/sizes a full ``resume_summary`` would report (assembled\nthrough the shared server path, so they cannot drift) plus\n``estimated_total_chars`` — a derived single number the boot threshold gates on:\nexactly ``chat_chars`` + ``tasks_detail_chars`` + ``roster_chars`` +\n``machines_chars`` + ``steps_on_answered_card_chars`` + ``doc_capacity_chars``,\nall six reported in ``overview``. That is the WHOLE chat\nblock as the snapshot renders it (``chat_chars`` is the rendered block's cost,\nNOT the sum of the message bodies), plus the plan text its task rows omit, the\ntwo studio-floor blocks it carries, the answered-card pointers on its task\nrows, and the near-cap document rows it carries (``doc_capacity_chars`` — 0\nunless one of the caller's long-lived documents is close to its cap) — and\na fixed guidance ``note``. It carries NO chat bodies and NO task rows: peeking\nit costs a few hundred bytes, so a waking agent can size ``resume_summary``\nBEFORE deciding whether to pull it into its own context or hand the pull to a\ncheap sub-agent. DETERMINISTIC and read-only; a caller with no chat and no\ntasks gets an EMPTY snapshot's sizes, never an error — every COUNT is zero, and\nthe only non-zero size is the header that rides every payload.",
+        "description": "The size-only PEEK of the wake snapshot (``peek_resume_summary_size`` MCP\ntool, zero params; ``GET /api/resume-summary-size``) — the FIRST step of the\ntwo-step boot.\n\nIdentity-locked to the caller's VERIFIED JWT ``sub``, it returns the SAME\n``overview`` counts/sizes a full ``resume_summary`` would report (assembled\nthrough the shared server path, so they cannot drift) plus\n``estimated_total_chars`` — a derived single number the boot threshold gates on:\nexactly ``chat_chars`` + ``tasks_detail_chars`` + ``roster_chars`` +\n``machines_chars`` + ``steps_on_answered_card_chars``,\nall five reported in ``overview``. That is the WHOLE chat\nblock as the snapshot renders it (``chat_chars`` is the rendered block's cost,\nNOT the sum of the message bodies), plus the plan text its task rows omit, the\ntwo studio-floor blocks it carries, and the answered-card pointers on its task\nrows — and a fixed guidance ``note``. It carries NO chat bodies and NO task rows: peeking\nit costs a few hundred bytes, so a waking agent can size ``resume_summary``\nBEFORE deciding whether to pull it into its own context or hand the pull to a\ncheap sub-agent. DETERMINISTIC and read-only; a caller with no chat and no\ntasks gets an EMPTY snapshot's sizes, never an error — every COUNT is zero, and\nthe only non-zero size is the header that rides every payload.",
         "properties": {
           "estimated_total_chars": {
             "title": "Estimated Total Chars",
@@ -8619,6 +8640,306 @@
         }
       }
     },
+    "/api/boot-docs": {
+      "get": {
+        "description": "List EVERY editable block of the boot context this server serves — the documents the owner (or the admin assistant) edits to change what every agent reads at boot, and what an agent is told when a lifecycle event happens to it.\n\nTHIS ROUTE EXISTS SO NO DESCRIPTION HAS TO CARRY THE LIST. Which blocks exist changes when one ships, and a list written into prose goes stale silently; this one is rendered from the registry that also serves and validates every one of them.\n\nNO TEXT COMES BACK. Each row is address + name + read_only + size against its own cap, so the reply's size depends on how many blocks exist and on nothing else. Read the one you mean with ``get_boot_doc``.",
+        "operationId": "handle_list_boot_docs_api_boot_docs_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BootDocListDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "List every editable block of the boot context: address (kind/key), the name a refusal calls it, whether it is read-only, and its size against its own cap. No document text — fetch that with get_boot_doc. This is the non-stale answer to \"which boot-context documents exist\": it is rendered from the registry that serves them, so it cannot be wrong about a block that exists.",
+        "x-mcp": {
+          "include": true,
+          "order": 114,
+          "name": "list_boot_docs",
+          "description": "List every editable block of the boot context: address (kind/key), the name a refusal calls it, whether it is read-only, and its size against its own cap. No document text — fetch that with get_boot_doc. This is the non-stale answer to \"which boot-context documents exist\": it is rendered from the registry that serves them, so it cannot be wrong about a block that exists.",
+          "legacy": {
+            "descriptor": "{\n      \"description\": \"List every editable block of the boot context: address (kind/key), the name a refusal calls it, whether it is read-only, and its size against its own cap. No document text — fetch that with get_boot_doc. This is the non-stale answer to \\\"which boot-context documents exist\\\": it is rendered from the registry that serves them, so it cannot be wrong about a block that exists.\",\n      \"inputSchema\": {\n        \"properties\": {},\n        \"type\": \"object\"\n      },\n      \"name\": \"list_boot_docs\"\n    }"
+          }
+        }
+      }
+    },
+    "/api/boot-docs/{kind}/{key}": {
+      "get": {
+        "description": "Read ONE block of the boot context, folded: the owner's edit when one exists, otherwise the factory seed compiled into this build. ``is_default`` says which of the two you are holding, ``has_seed`` whether a factory version exists to reset to, and ``read_only`` whether the write faces will refuse it at all.\n\nWHAT COMES BACK IS THE WHOLE STORED DOCUMENT, including the read-only head some blocks carry above the body marker — the head is what the owner edits around, so the editing face has to show it. It is NOT what an agent is sent: the boot fold and the notice senders render the document first, and the marker never reaches an agent's eyes.\n\nADDRESSING: ``kind`` and ``key`` are the pair ``list_boot_docs`` hands you, and the same pair the document-history routes file this block's retained versions under — one address, three faces, so they cannot silently disagree. A ``kind`` this server does not serve, or a ``key`` that kind does not serve, is refused with 404 naming the keys that DO exist for it; neither is something to guess at.",
+        "operationId": "handle_get_boot_doc_api_boot_docs__kind___key__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BootDocumentDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Read one block of the boot context by kind/key, folded (the owner's edit ⊕ the shipped seed). Carries size_chars/cap_chars so an edit can be sized before it is made, is_default/has_seed to tell an edited block from the shipped one, and read_only for the blocks that are shown but may never be edited. An unknown kind or key is a 404 that names the keys that exist.",
+        "x-mcp": {
+          "include": true,
+          "order": 115,
+          "name": "get_boot_doc",
+          "description": "Read one block of the boot context by kind/key, folded (the owner's edit ⊕ the shipped seed). Carries size_chars/cap_chars so an edit can be sized before it is made, is_default/has_seed to tell an edited block from the shipped one, and read_only for the blocks that are shown but may never be edited. An unknown kind or key is a 404 that names the keys that exist.",
+          "legacy": {
+            "descriptor": "{\n      \"description\": \"Read one block of the boot context by kind/key, folded (the owner's edit ⊕ the shipped seed). Carries size_chars/cap_chars so an edit can be sized before it is made, is_default/has_seed to tell an edited block from the shipped one, and read_only for the blocks that are shown but may never be edited. An unknown kind or key is a 404 that names the keys that exist.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"key\": {\n            \"description\": \"The second half of the address, as ``list_boot_docs`` spells it. Most kinds serve exactly one key; a kind that serves more does so because the documents genuinely differ, so the key is never a formality — an unknown one is a 404 that names the keys that exist.\",\n            \"type\": \"string\"\n          },\n          \"kind\": {\n            \"description\": \"The first half of the address, as ``list_boot_docs`` spells it — also the document-history kind this block's retained versions are filed under. Copy it from that listing rather than typing it: which blocks exist changes when one ships, and no description here is allowed to carry the list.\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"kind\",\n          \"key\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_boot_doc\"\n    }"
+          }
+        }
+      },
+      "post": {
+        "description": "Replace the WHOLE text of one boot-context block ``{text}``. ``text`` is REQUIRED and unknown keys are rejected; emptying a block that had content needs ``allow_shrink=true``.\n\nTHIS TEXT LANDS IN AGENTS. Some of these blocks are read at every boot and others are what an agent is told when it is being collected, reassigned or handed a ticket — a broken one is read by everybody and reported by nobody, which is why the floor is owner-or-admin-assistant and why the reset route exists with no cap on it.\n\nTHREE REFUSALS HERE ARE NOT AUTHZ, AND SAY SO. A read-only block is refused with 405 no matter who asks. A block that carries a read-only head must be sent back with that head byte for byte, and its body must declare no variables. A write over this block's own cap is refused with what you wrote, the cap, and what is already stored.\n\nThe shipped seed is never overwritten, so ``reset_boot_doc`` always reaches factory text; the version this write replaces is retained in the document history (a save that changes nothing retains nothing).\n\nADDRESSING: ``kind`` and ``key`` are the pair ``list_boot_docs`` hands you, and the same pair the document-history routes file this block's retained versions under — one address, three faces, so they cannot silently disagree. A ``kind`` this server does not serve, or a ``key`` that kind does not serve, is refused with 404 naming the keys that DO exist for it; neither is something to guess at.",
+        "operationId": "handle_replace_boot_doc_api_boot_docs__kind___key__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BootDocumentReplaceDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BootDocumentDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Replace the WHOLE text of one boot-context block ({kind, key, text}) — text every agent reads at boot, or is sent when a lifecycle event happens to it. text is REQUIRED and unknown keys are rejected; emptying a block that had content needs allow_shrink=true. Judged against that block's own cap. A read-only block refuses with 405 for every caller, and a block that carries a read-only head requires that head back unchanged. Owner or admin assistant only.",
+        "x-mcp": {
+          "include": true,
+          "order": 116,
+          "name": "replace_boot_doc",
+          "description": "Replace the WHOLE text of one boot-context block ({kind, key, text}) — text every agent reads at boot, or is sent when a lifecycle event happens to it. text is REQUIRED and unknown keys are rejected; emptying a block that had content needs allow_shrink=true. Judged against that block's own cap. A read-only block refuses with 405 for every caller, and a block that carries a read-only head requires that head back unchanged. Owner or admin assistant only.",
+          "legacy": {
+            "descriptor": "{\n      \"description\": \"Replace the WHOLE text of one boot-context block ({kind, key, text}) — text every agent reads at boot, or is sent when a lifecycle event happens to it. text is REQUIRED and unknown keys are rejected; emptying a block that had content needs allow_shrink=true. Judged against that block's own cap. A read-only block refuses with 405 for every caller, and a block that carries a read-only head requires that head back unchanged. Owner or admin assistant only.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"allow_shrink\": {\n            \"type\": \"boolean\"\n          },\n          \"key\": {\n            \"description\": \"The second half of the address, as ``list_boot_docs`` spells it. Most kinds serve exactly one key; a kind that serves more does so because the documents genuinely differ, so the key is never a formality — an unknown one is a 404 that names the keys that exist.\",\n            \"type\": \"string\"\n          },\n          \"kind\": {\n            \"description\": \"The first half of the address, as ``list_boot_docs`` spells it — also the document-history kind this block's retained versions are filed under. Copy it from that listing rather than typing it: which blocks exist changes when one ships, and no description here is allowed to carry the list.\",\n            \"type\": \"string\"\n          },\n          \"text\": {\n            \"description\": \"The ENTIRE document, not an addition to it. Sending a fragment answers 200 and permanently replaces the rest, so read the current text first and fold your change into it. What you send back must include the read-only head byte for byte on the blocks that carry one, and its body must declare no variables. The guards catch only the extremes — emptying a document that had content needs allow_shrink, the character cap is enforced, a read-only block refuses outright — and losing most of the text is none of those: it passes without comment, and every agent that reads this block afterwards reads the shortened text as though it were the whole thing.\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"kind\",\n          \"key\",\n          \"text\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"replace_boot_doc\"\n    }"
+          }
+        }
+      }
+    },
+    "/api/boot-docs/{kind}/{key}/reset": {
+      "post": {
+        "description": "Restore ONE boot-context block to the FACTORY text shipped with this build (idempotent tombstone of the overlay).\n\nNO LENGTH CAP IS APPLIED ON THIS PATH. The factory text is part of the product, so no setting can block the way back to it — that is what makes this the recovery route when a bad edit has stopped agents from booting, and why it has to work from the cockpit alone with no live agent anywhere in the path.\n\nA block with no shipped default (``has_seed=false``) is a 404: there is nothing to go back to. A read-only block is a 405, like on every other write face. The overlay being discarded is retained in the document history, so the reset is itself recoverable.\n\nADDRESSING: ``kind`` and ``key`` are the pair ``list_boot_docs`` hands you, and the same pair the document-history routes file this block's retained versions under — one address, three faces, so they cannot silently disagree. A ``kind`` this server does not serve, or a ``key`` that kind does not serve, is refused with 404 naming the keys that DO exist for it; neither is something to guess at.",
+        "operationId": "handle_reset_boot_doc_api_boot_docs__kind___key__reset_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BootDocumentDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Restore one boot-context block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length cap applies on this path — the way back to factory text is never blocked by a setting, which is what makes it the recovery route after an edit that stopped agents from booting. The discarded overlay is retained in the document history. Owner or admin assistant only.",
+        "x-mcp": {
+          "include": true,
+          "order": 117,
+          "name": "reset_boot_doc",
+          "description": "Restore one boot-context block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length cap applies on this path — the way back to factory text is never blocked by a setting, which is what makes it the recovery route after an edit that stopped agents from booting. The discarded overlay is retained in the document history. Owner or admin assistant only.",
+          "legacy": {
+            "descriptor": "{\n      \"description\": \"Restore one boot-context block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length cap applies on this path — the way back to factory text is never blocked by a setting, which is what makes it the recovery route after an edit that stopped agents from booting. The discarded overlay is retained in the document history. Owner or admin assistant only.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"key\": {\n            \"description\": \"The second half of the address, as ``list_boot_docs`` spells it. Most kinds serve exactly one key; a kind that serves more does so because the documents genuinely differ, so the key is never a formality — an unknown one is a 404 that names the keys that exist.\",\n            \"type\": \"string\"\n          },\n          \"kind\": {\n            \"description\": \"The first half of the address, as ``list_boot_docs`` spells it — also the document-history kind this block's retained versions are filed under. Copy it from that listing rather than typing it: which blocks exist changes when one ships, and no description here is allowed to carry the list.\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"kind\",\n          \"key\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"reset_boot_doc\"\n    }"
+          }
+        }
+      }
+    },
     "/api/boot-sequence/{runtime_key}": {
       "get": {
         "description": "Read ONE runtime's 啟動程序 block — the boot checklist appended last to that runtime's boot context (T-791e).\n\nruntime_key is 'claude' or 'codex' and they are SEPARATE documents on purpose: step 3 of the two sequences says opposite things (claude mounts its own `ocagent listen`; codex must NOT, because the App Server sidecar owns it), so serving one where the other belongs leaves the agent unable to come online. Any other value is a 404 rather than a silent fallback.\n\nFolded overlay ⊕ the shipped seed (`seeds/boot_sequence.md` / `seeds/boot_sequence_codex.md`): ``is_default=true`` means nobody has edited it, ``has_seed`` that a factory version exists to reset to.",
@@ -12414,7 +12735,7 @@
         "summary": "加速停止: put an ALREADY-OPEN wind-down on the stop.accelerated_grace_secs clock and tell the member. 409 if nothing is winding down -- press 停止 first. Middle rung of 停止 -> 加速停止 -> 強制停止.",
         "x-mcp": {
           "include": true,
-          "order": 118,
+          "order": 122,
           "name": "accelerated_stop_member",
           "description": "加速停止: put an ALREADY-OPEN wind-down on the stop.accelerated_grace_secs clock and tell the member. 409 if nothing is winding down -- press 停止 first. Middle rung of 停止 -> 加速停止 -> 強制停止.",
           "legacy": {
@@ -13950,7 +14271,7 @@
         "summary": "強制停止 an outsource worker: kill the session NOW and hold it down; says nothing to it. Third rung of 停止 -> 加速停止 -> 強制停止.",
         "x-mcp": {
           "include": true,
-          "order": 120,
+          "order": 124,
           "name": "force_stop_outsource_worker",
           "description": "強制停止 an outsource worker: kill the session NOW and hold it down; says nothing to it. Third rung of 停止 -> 加速停止 -> 強制停止.",
           "legacy": {
@@ -14167,7 +14488,7 @@
         "summary": "加速停止 an outsource worker: put its ALREADY-OPEN wind-down (a 停止 or a 換手) on the stop.accelerated_grace_secs clock and tell it. 409 if none is open.",
         "x-mcp": {
           "include": true,
-          "order": 119,
+          "order": 123,
           "name": "accelerated_stop_outsource_worker",
           "description": "加速停止 an outsource worker: put its ALREADY-OPEN wind-down (a 停止 or a 換手) on the stop.accelerated_grace_secs clock and tell it. 409 if none is open.",
           "legacy": {
@@ -15070,21 +15391,21 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task). CHAT is packed newest-first under a CHARACTER BUDGET, not a fixed message count, and stopping at the last message that still fits; each message carries from_name/to_name beside the ids and ts_display (full date + time + zone offset) beside the epoch ts, and folds in its reply card as `card` when it has one — read every ts_display against the top-level `generated_at`. TWO DIFFERENT things can be missing and they are marked DIFFERENTLY: `body_omitted_chars` > 0 means THAT message is here with that many characters COLLAPSED away (another agent's line — the owner's line and your own hand-off notes to yourself are carried in full), re-read it with get_chat; `chat_earlier_omitted` is the other kind and it is a MAYBE, not a fact: that line was cut at a read or budget limit and nothing looked past the cut, so whole messages may be missing from this payload entirely — it is raised even when there is in fact nothing older. Its hint tells you how to CHECK and fetch them. The two are asymmetric ON PURPOSE: the collapse marker is CERTAIN (that message IS here, shortened, exact count); this one is not, and only the fetch settles it. Also carries the STUDIO FLOOR you wake up onto: roster (every member and contractor, each with online/offline status, the machine it runs on, and its duty capped at 1000 chars with `…` marking a cut, the cap applied after the doc's own leading title line is removed — who to ask for help; no insight/learning by owner ruling. Contractors additionally carry their bound task's status, waiting_reason, and step progress (progress_done/progress_total) — members leave these at their zero value; a contractor's 0/0 is ambiguous (a task with no steps yet, or no task at all) and task_status is what tells them apart, non-empty vs empty) and machines (the machine list plus you_are_on, your server-recorded machine binding — never derive it from a hostname). It also carries `doc_capacity` — the long-lived capped documents in your reach that are CLOSE to full (your role documents, the boot documents, your open tasks' manuals, your open steps' notes), each with size/cap, what is left, and whether YOU can rewrite it or have to ask the person who can. The key is ABSENT when nothing is near, so its presence is the whole signal — act on it now, not when a write is refused.",
+        "summary": "Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task). CHAT is packed newest-first under a CHARACTER BUDGET, not a fixed message count, and stopping at the last message that still fits; each message carries from_name/to_name beside the ids and ts_display (full date + time + zone offset) beside the epoch ts, and folds in its reply card as `card` when it has one — read every ts_display against the top-level `generated_at`. TWO DIFFERENT things can be missing and they are marked DIFFERENTLY: `body_omitted_chars` > 0 means THAT message is here with that many characters COLLAPSED away (another agent's line — the owner's line and your own hand-off notes to yourself are carried in full), re-read it with get_chat; `chat_earlier_omitted` is the other kind and it is a MAYBE, not a fact: that line was cut at a read or budget limit and nothing looked past the cut, so whole messages may be missing from this payload entirely — it is raised even when there is in fact nothing older. Its hint tells you how to CHECK and fetch them. The two are asymmetric ON PURPOSE: the collapse marker is CERTAIN (that message IS here, shortened, exact count); this one is not, and only the fetch settles it. Also carries the STUDIO FLOOR you wake up onto: roster (every member and contractor, each with online/offline status, the machine it runs on, and its duty capped at 1000 chars with `…` marking a cut, the cap applied after the doc's own leading title line is removed — who to ask for help; no insight/learning by owner ruling. Contractors additionally carry their bound task's status, waiting_reason, and step progress (progress_done/progress_total) — members leave these at their zero value; a contractor's 0/0 is ambiguous (a task with no steps yet, or no task at all) and task_status is what tells them apart, non-empty vs empty) and machines (the machine list plus you_are_on, your server-recorded machine binding — never derive it from a hostname).",
         "x-mcp": {
           "include": true,
           "order": 65,
           "name": "resume_summary",
-          "description": "Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task). CHAT is packed newest-first under a CHARACTER BUDGET, not a fixed message count, and stopping at the last message that still fits; each message carries from_name/to_name beside the ids and ts_display (full date + time + zone offset) beside the epoch ts, and folds in its reply card as `card` when it has one — read every ts_display against the top-level `generated_at`. TWO DIFFERENT things can be missing and they are marked DIFFERENTLY: `body_omitted_chars` > 0 means THAT message is here with that many characters COLLAPSED away (another agent's line — the owner's line and your own hand-off notes to yourself are carried in full), re-read it with get_chat; `chat_earlier_omitted` is the other kind and it is a MAYBE, not a fact: that line was cut at a read or budget limit and nothing looked past the cut, so whole messages may be missing from this payload entirely — it is raised even when there is in fact nothing older. Its hint tells you how to CHECK and fetch them. The two are asymmetric ON PURPOSE: the collapse marker is CERTAIN (that message IS here, shortened, exact count); this one is not, and only the fetch settles it. Also carries the STUDIO FLOOR you wake up onto: roster (every member and contractor, each with online/offline status, the machine it runs on, and its duty capped at 1000 chars with `…` marking a cut, the cap applied after the doc's own leading title line is removed — who to ask for help; no insight/learning by owner ruling. Contractors additionally carry their bound task's status, waiting_reason, and step progress (progress_done/progress_total) — members leave these at their zero value; a contractor's 0/0 is ambiguous (a task with no steps yet, or no task at all) and task_status is what tells them apart, non-empty vs empty) and machines (the machine list plus you_are_on, your server-recorded machine binding — never derive it from a hostname). It also carries `doc_capacity` — the long-lived capped documents in your reach that are CLOSE to full (your role documents, the boot documents, your open tasks' manuals, your open steps' notes), each with size/cap, what is left, and whether YOU can rewrite it or have to ask the person who can. The key is ABSENT when nothing is near, so its presence is the whole signal — act on it now, not when a write is refused.",
+          "description": "Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task). CHAT is packed newest-first under a CHARACTER BUDGET, not a fixed message count, and stopping at the last message that still fits; each message carries from_name/to_name beside the ids and ts_display (full date + time + zone offset) beside the epoch ts, and folds in its reply card as `card` when it has one — read every ts_display against the top-level `generated_at`. TWO DIFFERENT things can be missing and they are marked DIFFERENTLY: `body_omitted_chars` > 0 means THAT message is here with that many characters COLLAPSED away (another agent's line — the owner's line and your own hand-off notes to yourself are carried in full), re-read it with get_chat; `chat_earlier_omitted` is the other kind and it is a MAYBE, not a fact: that line was cut at a read or budget limit and nothing looked past the cut, so whole messages may be missing from this payload entirely — it is raised even when there is in fact nothing older. Its hint tells you how to CHECK and fetch them. The two are asymmetric ON PURPOSE: the collapse marker is CERTAIN (that message IS here, shortened, exact count); this one is not, and only the fetch settles it. Also carries the STUDIO FLOOR you wake up onto: roster (every member and contractor, each with online/offline status, the machine it runs on, and its duty capped at 1000 chars with `…` marking a cut, the cap applied after the doc's own leading title line is removed — who to ask for help; no insight/learning by owner ruling. Contractors additionally carry their bound task's status, waiting_reason, and step progress (progress_done/progress_total) — members leave these at their zero value; a contractor's 0/0 is ambiguous (a task with no steps yet, or no task at all) and task_status is what tells them apart, non-empty vs empty) and machines (the machine list plus you_are_on, your server-recorded machine binding — never derive it from a hostname).",
           "legacy": {
-            "descriptor": "{\n      \"description\": \"Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task). CHAT is packed newest-first under a CHARACTER BUDGET, not a fixed message count, and stopping at the last message that still fits; each message carries from_name/to_name beside the ids and ts_display (full date + time + zone offset) beside the epoch ts, and folds in its reply card as `card` when it has one — read every ts_display against the top-level `generated_at`. TWO DIFFERENT things can be missing and they are marked DIFFERENTLY: `body_omitted_chars` > 0 means THAT message is here with that many characters COLLAPSED away (another agent's line — the owner's line and your own hand-off notes to yourself are carried in full), re-read it with get_chat; `chat_earlier_omitted` is the other kind and it is a MAYBE, not a fact: that line was cut at a read or budget limit and nothing looked past the cut, so whole messages may be missing from this payload entirely — it is raised even when there is in fact nothing older. Its hint tells you how to CHECK and fetch them. The two are asymmetric ON PURPOSE: the collapse marker is CERTAIN (that message IS here, shortened, exact count); this one is not, and only the fetch settles it. Also carries the STUDIO FLOOR you wake up onto: roster (every member and contractor, each with online/offline status, the machine it runs on, and its duty capped at 1000 chars with `…` marking a cut, the cap applied after the doc's own leading title line is removed — who to ask for help; no insight/learning by owner ruling. Contractors additionally carry their bound task's status, waiting_reason, and step progress (progress_done/progress_total) — members leave these at their zero value; a contractor's 0/0 is ambiguous (a task with no steps yet, or no task at all) and task_status is what tells them apart, non-empty vs empty) and machines (the machine list plus you_are_on, your server-recorded machine binding — never derive it from a hostname). It also carries `doc_capacity` — the long-lived capped documents in your reach that are CLOSE to full (your role documents, the boot documents, your open tasks' manuals, your open steps' notes), each with size/cap, what is left, and whether YOU can rewrite it or have to ask the person who can. The key is ABSENT when nothing is near, so its presence is the whole signal — act on it now, not when a write is refused.\",\n      \"inputSchema\": {\n        \"properties\": {},\n        \"type\": \"object\"\n      },\n      \"name\": \"resume_summary\"\n    }"
+            "descriptor": "{\n      \"description\": \"Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task). CHAT is packed newest-first under a CHARACTER BUDGET, not a fixed message count, and stopping at the last message that still fits; each message carries from_name/to_name beside the ids and ts_display (full date + time + zone offset) beside the epoch ts, and folds in its reply card as `card` when it has one — read every ts_display against the top-level `generated_at`. TWO DIFFERENT things can be missing and they are marked DIFFERENTLY: `body_omitted_chars` > 0 means THAT message is here with that many characters COLLAPSED away (another agent's line — the owner's line and your own hand-off notes to yourself are carried in full), re-read it with get_chat; `chat_earlier_omitted` is the other kind and it is a MAYBE, not a fact: that line was cut at a read or budget limit and nothing looked past the cut, so whole messages may be missing from this payload entirely — it is raised even when there is in fact nothing older. Its hint tells you how to CHECK and fetch them. The two are asymmetric ON PURPOSE: the collapse marker is CERTAIN (that message IS here, shortened, exact count); this one is not, and only the fetch settles it. Also carries the STUDIO FLOOR you wake up onto: roster (every member and contractor, each with online/offline status, the machine it runs on, and its duty capped at 1000 chars with `…` marking a cut, the cap applied after the doc's own leading title line is removed — who to ask for help; no insight/learning by owner ruling. Contractors additionally carry their bound task's status, waiting_reason, and step progress (progress_done/progress_total) — members leave these at their zero value; a contractor's 0/0 is ambiguous (a task with no steps yet, or no task at all) and task_status is what tells them apart, non-empty vs empty) and machines (the machine list plus you_are_on, your server-recorded machine binding — never derive it from a hostname).\",\n      \"inputSchema\": {\n        \"properties\": {},\n        \"type\": \"object\"\n      },\n      \"name\": \"resume_summary\"\n    }"
           }
         }
       }
     },
     "/api/resume-summary-size": {
       "get": {
-        "description": "The size-only PEEK of the wake snapshot (``peek_resume_summary_size`` MCP\ntool, zero params; ``GET /api/resume-summary-size``) — step ONE of the two-step\nboot.\n\nIdentity-locked to the caller's VERIFIED JWT ``sub`` (``actor``): returns the\nSAME ``overview`` counts/sizes a full ``resume_summary`` would report (both go\nthrough one shared server assembly, so the reported sizes cannot drift from what\nresume_summary actually carries) plus ``estimated_total_chars`` — a derived\nsingle number to gate the boot decision on — and a fixed guidance ``note``.\n``estimated_total_chars`` is exactly ``chat_chars`` + ``tasks_detail_chars`` +\n``roster_chars`` + ``machines_chars`` + ``steps_on_answered_card_chars`` +\n``doc_capacity_chars``, all six reported in ``overview``: the\nWHOLE chat block as the snapshot renders it (``chat_chars`` is the rendered\nblock's cost, NOT the sum of the message bodies), plus the plan text its task\nrows omit, the two studio-floor blocks, the named steps sitting on an\nanswered card, and the near-cap document rows (0 unless one of the caller's\nlong-lived documents is close to its cap) — what pulling the snapshot actually costs. It carries\nNO chat bodies and NO task rows of any kind: peeking it costs a few hundred\nbytes, so a waking agent sizes ``resume_summary`` BEFORE deciding whether to\npull it into its own context or hand the pull to a cheap sub-agent (e.g. haiku)\nthat returns a compressed digest. DETERMINISTIC and read-only; a caller with no\nchat and no tasks gets an EMPTY snapshot's sizes, never an error.",
+        "description": "The size-only PEEK of the wake snapshot (``peek_resume_summary_size`` MCP\ntool, zero params; ``GET /api/resume-summary-size``) — step ONE of the two-step\nboot.\n\nIdentity-locked to the caller's VERIFIED JWT ``sub`` (``actor``): returns the\nSAME ``overview`` counts/sizes a full ``resume_summary`` would report (both go\nthrough one shared server assembly, so the reported sizes cannot drift from what\nresume_summary actually carries) plus ``estimated_total_chars`` — a derived\nsingle number to gate the boot decision on — and a fixed guidance ``note``.\n``estimated_total_chars`` is exactly ``chat_chars`` + ``tasks_detail_chars`` +\n``roster_chars`` + ``machines_chars`` + ``steps_on_answered_card_chars``,\nall five reported in ``overview``: the\nWHOLE chat block as the snapshot renders it (``chat_chars`` is the rendered\nblock's cost, NOT the sum of the message bodies), plus the plan text its task\nrows omit, the two studio-floor blocks, and the named steps sitting on an\nanswered card — what pulling the snapshot actually costs. It carries\nNO chat bodies and NO task rows of any kind: peeking it costs a few hundred\nbytes, so a waking agent sizes ``resume_summary`` BEFORE deciding whether to\npull it into its own context or hand the pull to a cheap sub-agent (e.g. haiku)\nthat returns a compressed digest. DETERMINISTIC and read-only; a caller with no\nchat and no tasks gets an EMPTY snapshot's sizes, never an error.",
         "operationId": "handle_peek_resume_summary_size_api_resume_summary_size_get",
         "responses": {
           "200": {
@@ -15128,14 +15449,14 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO chat/task content). estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars + steps_on_answered_card_chars + doc_capacity_chars, all six reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit, the two studio-floor blocks, the named steps sitting on an answered card, and the near-cap document rows (0 unless something is close to its cap) — what pulling the snapshot actually costs. Step one of the two-step boot: call this FIRST to size resume_summary, then either call resume_summary directly (small) or hand the pull to a cheap sub-agent that returns a digest (large).",
+        "summary": "Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO chat/task content). estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars + steps_on_answered_card_chars, all five reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit, the two studio-floor blocks, and the named steps sitting on an answered card — what pulling the snapshot actually costs. Step one of the two-step boot: call this FIRST to size resume_summary, then either call resume_summary directly (small) or hand the pull to a cheap sub-agent that returns a digest (large).",
         "x-mcp": {
           "include": true,
           "order": 66,
           "name": "peek_resume_summary_size",
-          "description": "Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO chat/task content). estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars + steps_on_answered_card_chars + doc_capacity_chars, all six reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit, the two studio-floor blocks, the named steps sitting on an answered card, and the near-cap document rows (0 unless something is close to its cap) — what pulling the snapshot actually costs. Step one of the two-step boot: call this FIRST to size resume_summary, then either call resume_summary directly (small) or hand the pull to a cheap sub-agent that returns a digest (large).",
+          "description": "Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO chat/task content). estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars + steps_on_answered_card_chars, all five reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit, the two studio-floor blocks, and the named steps sitting on an answered card — what pulling the snapshot actually costs. Step one of the two-step boot: call this FIRST to size resume_summary, then either call resume_summary directly (small) or hand the pull to a cheap sub-agent that returns a digest (large).",
           "legacy": {
-            "descriptor": "{\n      \"description\": \"Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO chat/task content). estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars + steps_on_answered_card_chars + doc_capacity_chars, all six reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit, the two studio-floor blocks, the named steps sitting on an answered card, and the near-cap document rows (0 unless something is close to its cap) — what pulling the snapshot actually costs. Step one of the two-step boot: call this FIRST to size resume_summary, then either call resume_summary directly (small) or hand the pull to a cheap sub-agent that returns a digest (large).\",\n      \"inputSchema\": {\n        \"properties\": {},\n        \"type\": \"object\"\n      },\n      \"name\": \"peek_resume_summary_size\"\n    }"
+            "descriptor": "{\n      \"description\": \"Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO chat/task content). estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars + steps_on_answered_card_chars, all five reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit, the two studio-floor blocks, and the named steps sitting on an answered card — what pulling the snapshot actually costs. Step one of the two-step boot: call this FIRST to size resume_summary, then either call resume_summary directly (small) or hand the pull to a cheap sub-agent that returns a digest (large).\",\n      \"inputSchema\": {\n        \"properties\": {},\n        \"type\": \"object\"\n      },\n      \"name\": \"peek_resume_summary_size\"\n    }"
           }
         }
       }
@@ -18542,7 +18863,7 @@
         "summary": "List the saved custom themes — id and name only, in list order (owner/admin agent).",
         "x-mcp": {
           "include": true,
-          "order": 114,
+          "order": 118,
           "name": "list_themes",
           "description": "List the saved custom themes — id and name only, in list order (owner/admin agent).",
           "legacy": {
@@ -18611,7 +18932,7 @@
         "summary": "Delete one custom theme; deleting the active one resets display_theme to \"\".",
         "x-mcp": {
           "include": true,
-          "order": 117,
+          "order": 121,
           "name": "delete_theme",
           "description": "Delete one custom theme; deleting the active one resets display_theme to \"\".",
           "legacy": {
@@ -18678,7 +18999,7 @@
         "summary": "Read one saved custom theme (unknown id \u2192 404).",
         "x-mcp": {
           "include": true,
-          "order": 115,
+          "order": 119,
           "name": "get_theme",
           "description": "Read one saved custom theme (unknown id \u2192 404).",
           "legacy": {
@@ -18755,7 +19076,7 @@
         "summary": "Create or replace ONE custom theme; the bundle's id must match the path (owner/admin agent).",
         "x-mcp": {
           "include": true,
-          "order": 116,
+          "order": 120,
           "name": "put_theme",
           "description": "Create or replace ONE custom theme; the bundle's id must match the path (owner/admin agent).",
           "legacy": {

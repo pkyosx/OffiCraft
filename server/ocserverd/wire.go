@@ -786,6 +786,34 @@ type bootDocDTO struct {
 	SchemaVersion int    `json:"schema_version"`
 	IsDefault     bool   `json:"is_default"`
 	HasSeed       bool   `json:"has_seed"`
+	// ReadOnly is what a cockpit needs BEFORE it renders an editor: this
+	// document is shown so the owner can read what an agent is sent, and every
+	// write face refuses it. Without it the only way to learn that is to type
+	// an edit and be told 405 on save, which is where the effort has already
+	// been spent. Not omitempty — false is the answer for every editable
+	// document, and a reader that cannot tell "editable" from "this build is
+	// too old to know" would offer the editor either way.
+	ReadOnly bool `json:"read_only"`
+}
+
+// bootDocSummaryDTO / bootDocListDTO are the text-free listing behind
+// GET /api/boot-docs. The rows carry the same field names their per-document
+// sibling above carries, so a reader that has one shape does not need a second
+// one — plus doc_name, which is the server's own name for the document and the
+// word a refusal will use when it names it.
+type bootDocSummaryDTO struct {
+	Kind      string `json:"kind"`
+	Key       string `json:"key"`
+	DocName   string `json:"doc_name"`
+	ReadOnly  bool   `json:"read_only"`
+	SizeChars int    `json:"size_chars"`
+	CapChars  int    `json:"cap_chars"`
+	IsDefault bool   `json:"is_default"`
+	HasSeed   bool   `json:"has_seed"`
+}
+
+type bootDocListDTO struct {
+	Documents []bootDocSummaryDTO `json:"documents"`
 }
 
 type roleDefDTO struct {
@@ -1141,13 +1169,7 @@ type resumeSummaryDTO struct {
 	Roster             []resumeRosterMemberDTO `json:"roster"`
 	Machines           *resumeMachinesDTO      `json:"machines"`
 	Overview           resumeOverviewDTO       `json:"overview"`
-	// DocCapacity lists the long-lived documents in the caller's reach that are
-	// CLOSE to their character cap (T-6bd2), each with the two numbers and what
-	// THIS reader can do about it. `omitempty` is the whole point of the field:
-	// nothing near its cap → the key is absent, so the block never becomes
-	// something an agent learns to skip past on every wake. See doc_capacity.go.
-	DocCapacity []docCapacityRow `json:"doc_capacity,omitempty"`
-	Note        string           `json:"note"`
+	Note               string                  `json:"note"`
 }
 
 // resumeRosterMemberDTO is one entry of the studio floor a waking agent lands
@@ -1261,24 +1283,19 @@ type resumeOverviewDTO struct {
 	// carries (T-f278) — the peek's whole point: an agent that has not pulled
 	// resume_summary yet still learns from the size-only payload that N of its
 	// steps are sitting on an answer nobody has picked up.
-	// StepsOnAnsweredCardChars sizes the text those rows carry, and it is a
-	// FIFTH addend of estimated_total_chars — it counts text the snapshot DOES
+	// StepsOnAnsweredCardChars sizes the text those rows carry, and it is the
+	// LAST addend of estimated_total_chars — it counts text the snapshot DOES
 	// carry, like roster_chars, not text it omits like tasks_detail_chars.
+	//
+	// 🔴 THE SAME OMISSION HAS HAD TO BE FIXED TWICE. T-1b09 added
+	// roster/machines after the peek understated the payload by the whole studio
+	// floor; T-f278 added the answered-card pointers and said in this very file
+	// that it was "the same mistake". The rule the two share is one line long
+	// and is the only test worth writing: if the payload CARRIES the text, it is
+	// an addend; if the caller would have to go and FETCH it
+	// (tasks_detail_chars), it is not.
 	StepsOnAnsweredCard      int `json:"steps_on_answered_card"`
 	StepsOnAnsweredCardChars int `json:"steps_on_answered_card_chars"`
-	// DocCapacityChars sizes the doc_capacity block (T-6bd2) and is the SIXTH
-	// addend of estimated_total_chars.
-	//
-	// 🔴 THIS IS THE THIRD TIME THE SAME OMISSION HAS HAD TO BE FIXED. T-1b09
-	// added roster/machines after the peek understated the payload by the whole
-	// studio floor; T-f278 added the answered-card pointers and said in this
-	// very file that it was "the same mistake"; T-6bd2 then shipped a block the
-	// payload CARRIES and did not count it — measured, the peek reported 872
-	// while that block was 1350 bytes on the wire. The rule the three share is
-	// one line long and is the only test worth writing: if the payload CARRIES
-	// the text, it is an addend; if the caller would have to go and FETCH it
-	// (tasks_detail_chars), it is not.
-	DocCapacityChars int `json:"doc_capacity_chars"`
 }
 
 // resumeSummarySizeDTO is the size-only PEEK of the wake snapshot (T-7974

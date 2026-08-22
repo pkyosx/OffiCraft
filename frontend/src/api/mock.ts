@@ -14,6 +14,7 @@ import type {
   GlobalContextView,
   BootDocKind,
   BootDocView,
+  BootDocSummaryView,
   DocumentKind,
   InsightView,
   DocumentHistoryEntryView,
@@ -110,6 +111,7 @@ import {
   toBackupHealth,
   toGlobalContext,
   toBootDoc,
+  toBootDocSummary,
   toDocumentHistory,
   toDocumentHistoryEntry,
   toDocumentSeed,
@@ -128,8 +130,10 @@ import {
   DOC_CAP_CHARS_DEFAULTS,
   BOOT_DOC_CAP_CHARS_DEFAULTS,
   BOOT_DOC_HISTORY_KEPT,
+  TASK_EVENT_CAP_CHARS_DEFAULT,
   contentSizes,
   docCapBlocked,
+  wholeDocWipeBlocked,
 } from "./docCap";
 import {
   CHAT_BUDGET_CHARS_DEFAULT,
@@ -145,6 +149,12 @@ import {
   SEED_BOOT_SEQUENCE_MD,
   SEED_BOOT_SEQUENCE_CODEX_MD,
   SEED_OFFBOARD_MD,
+  SEED_ACCELERATED_STOP_MD,
+  SEED_TASK_CLOSEOUT_MD,
+  SEED_TASK_REASSIGN_PREDECESSOR_MD,
+  SEED_TASK_TAKEOVER_WITH_PREDECESSOR_MD,
+  SEED_TASK_TAKEOVER_FRESH_MD,
+  SEED_TASK_UNBLOCKED_MD,
 } from "./seeds";
 import { mockApiError } from "./errorCodes";
 import {
@@ -505,6 +515,45 @@ const BOOT_DOC_SEEDS: Record<string, string> = {
   "boot_sequence/codex": SEED_BOOT_SEQUENCE_CODEX_MD.trim(),
   // T-c9c0 — a singleton keyed "global", like system_interaction.
   "offboard/global": SEED_OFFBOARD_MD.trim(),
+  // T-3201 — the six lifecycle procedures, every one a singleton keyed
+  // "global". The ORDER of this map is the order GET /api/boot-docs answers in,
+  // and it mirrors bootDocRegistry (server/ocserverd/api_bootdocs.go): the
+  // listing is what the cockpit's own row table is checked against, so a mock
+  // that invented an order of its own would be checking nothing.
+  "accelerated_stop/global": SEED_ACCELERATED_STOP_MD.trim(),
+  "task_closeout/global": SEED_TASK_CLOSEOUT_MD.trim(),
+  "task_reassign_predecessor/global": SEED_TASK_REASSIGN_PREDECESSOR_MD.trim(),
+  "task_takeover_with_predecessor/global":
+    SEED_TASK_TAKEOVER_WITH_PREDECESSOR_MD.trim(),
+  "task_takeover_fresh/global": SEED_TASK_TAKEOVER_FRESH_MD.trim(),
+  "task_unblocked/global": SEED_TASK_UNBLOCKED_MD.trim(),
+};
+
+/** The documents the server SHOWS but refuses every write to (T-3201). Owner's
+ * ruling, verbatim: 「以前 global context 是固定內容 我們也是會顯示 只是不給改」.
+ * Mirrored here because a mock that let the cockpit edit them would validate a
+ * screen the real server answers 405 to — the demo mode agreeing with a server
+ * that does not exist. */
+const BOOT_DOC_READ_ONLY: ReadonlySet<string> = new Set([
+  "task_takeover_fresh/global",
+  "task_unblocked/global",
+]);
+
+/** The server's own name for a document, as its refusals spell it
+ * (bootDocRegistry's DocName). The listing carries it, so a caller reading a
+ * rejection and a caller reading the listing see the same words. */
+const BOOT_DOC_NAMES: Record<string, string> = {
+  "system_interaction/global": "system interaction block",
+  "boot_sequence/claude": "boot sequence (claude)",
+  "boot_sequence/codex": "boot sequence (codex)",
+  "offboard/global": "offboard sequence",
+  "accelerated_stop/global": "accelerated stop sequence",
+  "task_closeout/global": "task close-out procedure",
+  "task_reassign_predecessor/global": "task reassign procedure (predecessor)",
+  "task_takeover_with_predecessor/global":
+    "task takeover procedure (with predecessor)",
+  "task_takeover_fresh/global": "task takeover procedure (new assignment)",
+  "task_unblocked/global": "dependency-released notice",
 };
 const bootDocOverlays = new Map<string, string>();
 
@@ -527,7 +576,7 @@ function foldBootDoc(kind: BootDocKind, key: string): WireBootDoc {
   const seed = bootDocSeed(kind, key);
   if (seed === null) {
     throw mockApiError(
-      `http 404 for GET /api/${kind.replace(/_/g, "-")}/${key}`,
+      `http 404 for GET /api/boot-docs/${kind}/${key}`,
       404,
       `boot document '${kind}/${key}' does not exist`
     );
@@ -545,18 +594,67 @@ function foldBootDoc(kind: BootDocKind, key: string): WireBootDoc {
     // read's `cap_chars` against `doc.cap_chars.<kind>`, so a mock pinned to
     // the default would keep answering 60000/15000 after the owner moved the
     // knob — and the page sizes its edits against exactly this number.
-    cap_chars: {
-      system_interaction: mockServerSettings.doc_cap_chars_system_interaction,
-      boot_sequence: mockServerSettings.doc_cap_chars_boot_sequence,
-      offboard: mockServerSettings.doc_cap_chars_offboard,
-    }[kind],
+    cap_chars: bootDocCap(kind),
     is_default: overlay === undefined,
-    // Every one of the three ships a seed, so the 還原出廠版 path is always
+    // Every one of the ten ships a seed, so the 還原出廠版 path is always
     // real here. The field is still reported rather than hardcoded true at the
     // call site: it is the flag the cockpit gates that affordance on, and a
     // block added later without a seed must be able to say so.
     has_seed: true,
+    read_only: BOOT_DOC_READ_ONLY.has(`${kind}/${key}`),
   };
+}
+
+/** Which cap judges this document — the LIVE setting where the server reads
+ * one, and `taskEventCapCharsDefault` for the four task events, which is a
+ * constant on the server too. 加速停止 shares 下線程序's setting, mirroring the
+ * registry row that calls `offboardCap()` for both. */
+function bootDocCap(kind: BootDocKind): number {
+  switch (kind) {
+    case "system_interaction":
+      return mockServerSettings.doc_cap_chars_system_interaction;
+    case "boot_sequence":
+      return mockServerSettings.doc_cap_chars_boot_sequence;
+    case "offboard":
+    case "accelerated_stop":
+      return mockServerSettings.doc_cap_chars_offboard;
+    case "task_closeout":
+    case "task_reassign_predecessor":
+    case "task_takeover_with_predecessor":
+    case "task_takeover_fresh":
+    case "task_unblocked":
+      return TASK_EVENT_CAP_CHARS_DEFAULT;
+  }
+}
+
+/** The (kind, key) pairs this mock serves, in the listing's own order — parsed
+ * back out of BOOT_DOC_SEEDS rather than restated, so the mock cannot answer a
+ * listing that disagrees with the documents it will actually serve. */
+/** The 405 both write faces answer for a read-only document. `suffix` is the
+ * route tail so the thrown message names the call that was refused. */
+function refuseReadOnlyBootDoc(
+  kind: BootDocKind,
+  key: string,
+  suffix: string
+): void {
+  if (!BOOT_DOC_READ_ONLY.has(`${kind}/${key}`)) return;
+  throw mockApiError(
+    `http 405 for POST /api/boot-docs/${kind}/${key}${suffix}`,
+    405,
+    `the ${BOOT_DOC_NAMES[`${kind}/${key}`] ?? kind} is a read-only document — ` +
+      "it is shown so you can see what agents are told, but no caller may edit " +
+      "it and there is no version of it other than the shipped one; nothing was written"
+  );
+}
+
+function bootDocAddresses(): { kind: BootDocKind; key: string }[] {
+  return Object.keys(BOOT_DOC_SEEDS).map((slot) => {
+    const cut = slot.lastIndexOf("/");
+    return {
+      kind: slot.slice(0, cut) as BootDocKind,
+      key: slot.slice(cut + 1),
+    };
+  });
 }
 const roleOverlays = new Map<string, WireRoleDef>();
 // Owner-created CUSTOM roles (M2-2): a wire doc per minted key (is_seed=false).
@@ -1311,7 +1409,19 @@ function snapshotDocument(
     // changes under a restore).
     case "system_interaction":
     case "boot_sequence":
-    case "offboard": {
+    case "offboard":
+    // T-3201: the six lifecycle documents are the SAME overlay shape. The two
+    // read-only ones never reach here in practice (nothing writes them, so no
+    // version is ever recorded), and they are listed rather than special-cased
+    // because this switch is total over DocumentKind and an arm that refuses
+    // them would be a second answer to "may this be edited" living where the
+    // wire's own `read_only` already answers.
+    case "accelerated_stop":
+    case "task_closeout":
+    case "task_reassign_predecessor":
+    case "task_takeover_with_predecessor":
+    case "task_takeover_fresh":
+    case "task_unblocked": {
       if (bootDocSeed(kind, key) === null) return null;
       const overlay = bootDocOverlays.get(`${kind}/${key}`);
       return {
@@ -4905,6 +5015,25 @@ export const mockApi: Api = {
     return toGlobalContext(foldGlobalContext());
   },
 
+  async listBootDocs(): Promise<BootDocSummaryView[]> {
+    // Rendered from the SAME map the reads are served from, so this listing can
+    // never name a document the mock would then 404 — the property the server's
+    // own bootDocSummaries has by being rendered from bootDocRegistry.
+    return bootDocAddresses().map(({ kind, key }) => {
+      const doc = foldBootDoc(kind, key);
+      return toBootDocSummary({
+        kind: doc.kind,
+        key: doc.key,
+        doc_name: BOOT_DOC_NAMES[`${kind}/${key}`] ?? `${kind}/${key}`,
+        read_only: doc.read_only,
+        size_chars: doc.size_chars,
+        cap_chars: doc.cap_chars,
+        is_default: doc.is_default,
+        has_seed: doc.has_seed,
+      });
+    });
+  },
+
   async getBootDoc(kind: BootDocKind, key: string): Promise<BootDocView> {
     return toBootDoc(foldBootDoc(kind, key));
   },
@@ -4919,12 +5048,27 @@ export const mockApi: Api = {
     // stream out of a typo'd runtime key would be the mock inventing a
     // document the server has no route for.
     const before = foldBootDoc(kind, key);
+    // 405, not 403: no principal may edit a read-only document, so pointing at
+    // authz would send an owner looking for a role to grant. The message is the
+    // server's own bootDocReadOnlyRefusal, shortened to the same claim.
+    refuseReadOnlyBootDoc(kind, key, "");
+    // The wipe guard the server has carried since T-2d99. An empty boot
+    // document is not a small document, it is an agent with no instructions,
+    // and the cockpit sends no allow_shrink, so there is no legal way to reach
+    // it from here at all.
+    if (wholeDocWipeBlocked(before.text, text)) {
+      throw mockApiError(
+        `http 400 for POST /api/boot-docs/${kind}/${key}`,
+        400,
+        "this would replace the existing document with an empty one"
+      );
+    }
     // The server's floor, mirrored: over cap AND not getting shorter is
     // refused. The cockpit blocks first (it has the number on screen), so
     // reaching this is either a stale page or a non-cockpit caller.
     if (docCapBlocked(before.cap_chars, before.text, text)) {
       throw mockApiError(
-        `http 400 for POST /api/${kind.replace(/_/g, "-")}/${key}`,
+        `http 400 for POST /api/boot-docs/${kind}/${key}`,
         400,
         `document is ${[...text].length} characters, over the ${before.cap_chars} character limit`
       );
@@ -4948,6 +5092,7 @@ export const mockApi: Api = {
     // length would take away the recovery path exactly when the document is at
     // its worst.
     foldBootDoc(kind, key);
+    refuseReadOnlyBootDoc(kind, key, "/reset");
     recordDocumentHistory(kind, key);
     bootDocOverlays.delete(`${kind}/${key}`);
     emitTopic(BOOT_DOC_TOPIC);
