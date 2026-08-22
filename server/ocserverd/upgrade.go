@@ -462,7 +462,17 @@ func (s *apiServer) scheduleUpgradeRestart(exePath string) {
 	if restart == nil {
 		restart = restartIntoUpgradedBinary
 	}
-	go restart(exePath)
+	// Mark before the re-exec delay begins. Existing SSE handlers then leave
+	// through their normal defer and can say station-shutdown instead of
+	// looking like peer disconnects. If the restart seam returns (including a
+	// failed syscall.Exec), clear the marker so the old process keeps serving
+	// honestly rather than leaving every future stream labelled as shutting
+	// down.
+	s.markStationShutdown()
+	go func() {
+		restart(exePath)
+		s.clearStationShutdown()
+	}()
 }
 
 // POST /api/update/upgrade — owner-gated EXPLICIT upgrade trigger (the

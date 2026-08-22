@@ -19,6 +19,7 @@ import (
 	"net"
 	"net/http"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -447,6 +448,8 @@ func (l keepAliveListener) Accept() (net.Conn, error) {
 	return c, nil
 }
 
+const stationShutdownTimeout = 5 * time.Second
+
 // cmdServe is the zero-argument canonical start (service.app.serve): read
 // oc.toml, open + migrate + seed the store, load the DB settings snapshot
 // (running the one-shot oc.toml → DB auth migration — settings.go), assemble
@@ -658,11 +661,40 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 			fmt.Fprintf(out, "[ocserverd]   %s\n", setupURL)
 		}
 	}
+	// Root every request in a station context. A signal shutdown cancels that
+	// context after marking the cause, so active SSE handlers run their defer and
+	// record station-shutdown instead of looking like peer disconnects. An
+	// upgrade marks the same cause before re-exec but deliberately leaves the
+	// listener alive until syscall.Exec (or its failure) so the existing
+	// restart contract is preserved.
+	stationCtx, stationCancel := context.WithCancel(context.Background())
+	api.stationCancel = stationCancel
+	httpServer := &http.Server{
+		Handler: handler,
+		BaseContext: func(net.Listener) context.Context {
+			return stationCtx
+		},
+	}
+	signalCtx, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stopSignals()
+	shutdownDone := make(chan struct{})
+	go func() {
+		<-signalCtx.Done()
+		api.markStationShutdown()
+		api.cancelStationContext()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), stationShutdownTimeout)
+		defer cancel()
+		_ = httpServer.Shutdown(shutdownCtx)
+		close(shutdownDone)
+	}()
 	// Wrap the listener so every accepted connection carries the keep-alive
 	// half-open reaper (T-7e07; sseKeepAlive above).
-	if err := http.Serve(keepAliveListener{ln}, handler); err != nil {
+	if err := httpServer.Serve(keepAliveListener{ln}); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		fmt.Fprintf(out, "[ocserverd] FATAL: %v\n", err)
 		return 1
+	}
+	if signalCtx.Err() != nil {
+		<-shutdownDone
 	}
 	return 0
 }

@@ -13,6 +13,7 @@ import (
 	"io/fs"
 	"net/http"
 	"sync"
+	"sync/atomic"
 
 	"github.com/SherClockHolmes/webpush-go"
 )
@@ -300,6 +301,14 @@ type apiServer struct {
 	// capture the restart instead of exec'ing the test process away.
 	upgradeExeOverride string
 	upgradeRestart     func(exePath string)
+	// stationShuttingDown is the process-lifecycle marker used by the SSE
+	// detach log. A peer cancellation and a station shutdown both surface as
+	// request-context cancellation, so the marker must be set at the server
+	// boundary before that context is cancelled. stationCancel is wired by
+	// cmdServe for signal shutdown; tests without a live server still get the
+	// marker-only seam.
+	stationShuttingDown atomic.Bool
+	stationCancel       func()
 }
 
 // ── the four public build-identity probes ────────────────────────────────────
