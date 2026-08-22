@@ -2429,6 +2429,18 @@
       "MemberDTO": {
         "description": "API representation of one ``domain.Member`` (a roster member; §3.4 #8/#10).\n\nCarries the durable roster fields PLUS one projection the domain computes at\nread time: ``presence`` (the DERIVED five-state\noffline/waking/online/stopping/stopped, §3.6 — never stored; the SINGLE\npresence word on this wire). The raw ``online`` / ``waking_since`` /\n``stopping_timed_out`` projections were removed from the wire (2026-07-11\naudit): the FE mapper never mapped them and no agent read them — every\nconsumer reads ``presence``. ``roster_status`` is the\nactive/removed LIFECYCLE (the durable ``member.status``), orthogonal to\npresence — named ``roster_status`` on the wire because the FE view model\nalready uses ``status`` for its presence tint (three layers, one word was a\ncollision). The member's TOKEN is NEVER on this DTO.\n\n``role_name`` is the role's display title, resolved by the handler from the\nrole roster (empty until role definitions land in build order B2).",
         "properties": {
+          "activation_pending": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set true ONLY on the activate response when the decided START could not be delivered to the target warden (no live SSE downstream) — the wake intent is persisted and the reconcile cadence retries, but nothing has been dispatched yet. Absent/null on every other member read. The activate twin of ``relocation_pending``: without it an activate against an unreachable warden returns a clean 200 with zero signal, which is indistinguishable from a wake that actually started (T-ba62 additive-optional).",
+            "title": "Activation Pending"
+          },
           "actual_effort": {
             "default": "",
             "description": "The effort level the member's session is REPORTED to be running at, from its own live telemetry (``AgentTelemetryIngestDTO.effort``) — durably persisted alongside ``actual_model``, so it survives a server restart and outlives the session that reported it. Empty means nothing has ever reported an effort for this member; it is separate from, and NEVER falls back to, the owner-configured ``effort`` launch setting. WAS: reported effort lived ONLY in the in-memory telemetry store, so a server restart blanked it fleet-wide and no detail panel could tell a configured effort from a running one (T-7f28).",
@@ -2453,22 +2465,17 @@
             "title": "Actual Runtime",
             "type": "string"
           },
-          "avatar_url": {
-            "description": "Authenticated URL of this stable member id's personal raster avatar. Empty means no personal image; clients fall back to the active theme's role avatar, then the built-in glyph. Additive-optional for older clients.",
-            "title": "Avatar Url",
-            "type": "string"
-          },
-          "activation_pending": {
+          "avatar_icon_id": {
             "anyOf": [
               {
-                "type": "boolean"
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Set true ONLY on the activate response when the decided START could not be delivered to the target warden (no live SSE downstream) — the wake intent is persisted and the reconcile cadence retries, but nothing has been dispatched yet. Absent/null on every other member read. The activate twin of ``relocation_pending``: without it an activate against an unreachable warden returns a clean 200 with zero signal, which is indistinguishable from a wake that actually started (T-ba62 additive-optional).",
-            "title": "Activation Pending"
+            "description": "The icon this member explicitly chose in the ACTIVE theme, or ``null`` when the member has no choice recorded for that theme. The value is a stable ``ThemeIconDTO.id``, not an array position. The client renders the pool item with that id; when the id is ``null``, or the chosen image was removed from the pool, it renders the FIRST image of the matching pool, and the built-in glyph when the pool is empty. A first visit is not persisted: the server records a row only when the owner picks an image, so the field stays ``null`` until then.",
+            "title": "Avatar Icon Id"
           },
           "desired_machine_id": {
             "default": "m-server-self",
@@ -2558,13 +2565,13 @@
           },
           "refocus_deadline": {
             "default": 0.0,
-            "description": "Epoch seconds by which the in-flight handover stamped in ``refocus_since`` is force-collected (``refocus_since`` + the reconcile recycle grace). ZERO CARRIES TWO MEANINGS, and a client that reads it as one of them will be wrong about the other: no handover is in flight, OR a handover is in flight that NOTHING collects on a clock at all \u2014 which is now the NORMAL case rather than a carve-out: every cause except ``context_high`` and ``accelerated_stop`` is collected only by the agent's own ``report_stopped`` or by the owner pressing force-stop, and carries no deadline (owner 2026-08-21). ``refocus_op`` is what tells the two apart. Rendering no deadline is correct for both, and the sentence a client shows for an in-flight no-clock handover must not quote a time at all. Derived at read time, never stored. It exists so a client can say WHEN a pending launch change takes effect at the latest without hard-coding a server constant; the collection fires the instant the agent answers ``report_stopped``, so this is a CEILING, not a prediction (T-7f28). Additive-optional.",
+            "description": "Epoch seconds by which the in-flight handover stamped in ``refocus_since`` is force-collected (``refocus_since`` + the reconcile recycle grace). ZERO CARRIES TWO MEANINGS, and a client that reads it as one of them will be wrong about the other: no handover is in flight, OR a handover is in flight that NOTHING collects on a clock at all — which is now the NORMAL case rather than a carve-out: every cause except ``context_high`` and ``accelerated_stop`` is collected only by the agent's own ``report_stopped`` or by the owner pressing force-stop, and carries no deadline (owner 2026-08-21). ``refocus_op`` is what tells the two apart. Rendering no deadline is correct for both, and the sentence a client shows for an in-flight no-clock handover must not quote a time at all. Derived at read time, never stored. It exists so a client can say WHEN a pending launch change takes effect at the latest without hard-coding a server constant; the collection fires the instant the agent answers ``report_stopped``, so this is a CEILING, not a prediction (T-7f28). Additive-optional.",
             "title": "Refocus Deadline",
             "type": "number"
           },
           "refocus_op": {
             "default": "",
-            "description": "Which owner operation opened the in-flight handover stamped in ``refocus_since``, empty when none is in flight. One of ``relocate`` (machine change), ``runtime/model`` (runtime / model / effort change), ``context_notice`` (FIRST context-pressure threshold), ``context_high`` (SECOND context-pressure threshold), ``refocus`` (owner-pressed refocus), ``restart_self`` (agent-requested), ``token_expiry`` (the session's agent token is inside its last hour \u2014 the close-out is opened while the calls that file it still work) or ``accelerated_stop`` (the owner pressed 加速停止 on a wind-down that was already open). Stamped and cleared in lockstep with ``refocus_since``. THE CAUSE ALSO SAYS WHETHER ANYTHING IS ON A CLOCK: ``context_high`` and ``accelerated_stop`` are the TWO causes force-collected on a deadline, and they share one grace (``stop.accelerated_grace_secs``); every other cause is collected by the agent's own ``report_stopped`` or by the owner pressing force-stop and carries none (owner 2026-08-21). A row can be promoted ``context_notice`` → ``context_high`` in place when context keeps climbing, which restamps ``refocus_since``. WAS: the cause lived only in a server log line, so a client could only say 'last refocus' — which reads as history — where it meant 'winding down right now so your change can take effect' (T-7f28). Additive-optional.",
+            "description": "Which owner operation opened the in-flight handover stamped in ``refocus_since``, empty when none is in flight. One of ``relocate`` (machine change), ``runtime/model`` (runtime / model / effort change), ``context_notice`` (FIRST context-pressure threshold), ``context_high`` (SECOND context-pressure threshold), ``refocus`` (owner-pressed refocus), ``restart_self`` (agent-requested), ``token_expiry`` (the session's agent token is inside its last hour — the close-out is opened while the calls that file it still work) or ``accelerated_stop`` (the owner pressed 加速停止 on a wind-down that was already open). Stamped and cleared in lockstep with ``refocus_since``. THE CAUSE ALSO SAYS WHETHER ANYTHING IS ON A CLOCK: ``context_high`` and ``accelerated_stop`` are the TWO causes force-collected on a deadline, and they share one grace (``stop.accelerated_grace_secs``); every other cause is collected by the agent's own ``report_stopped`` or by the owner pressing force-stop and carries none (owner 2026-08-21). A row can be promoted ``context_notice`` → ``context_high`` in place when context keeps climbing, which restamps ``refocus_since``. WAS: the cause lived only in a server log line, so a client could only say 'last refocus' — which reads as history — where it meant 'winding down right now so your change can take effect' (T-7f28). Additive-optional.",
             "title": "Refocus Op",
             "type": "string"
           },
@@ -2607,6 +2614,11 @@
             "title": "Role Name",
             "type": "string"
           },
+          "roster_status": {
+            "default": "active",
+            "title": "Roster Status",
+            "type": "string"
+          },
           "runtime": {
             "allOf": [
               {
@@ -2616,11 +2628,6 @@
             "default": "claude",
             "description": "The member's selected AI CLI runtime. Existing rows default to ``claude``.",
             "title": "Runtime Key"
-          },
-          "roster_status": {
-            "default": "active",
-            "title": "Roster Status",
-            "type": "string"
           },
           "schema_version": {
             "default": 3,
@@ -2634,6 +2641,7 @@
           }
         },
         "required": [
+          "avatar_icon_id",
           "id",
           "name"
         ],
@@ -2641,39 +2649,48 @@
         "additionalProperties": false,
         "type": "object"
       },
-      "MemberAvatarDTO": {
-        "description": "Narrow result of an owner-only personal-avatar mutation. ``avatar_url`` is a newly minted authenticated blob path after upload and empty after removal; the changing blob id naturally cache-busts replacements.",
+      "MemberThemeAvatarDTO": {
+        "description": "One member's avatar choice inside one theme. The row is the association ``member_theme_avatar(member_id, theme_id, icon_id)`` with the primary key ``(member_id, theme_id)``, so a member holds at most one choice per theme and the themes never overwrite each other.",
         "properties": {
-          "avatar_url": {
-            "default": "",
-            "title": "Avatar Url",
+          "icon_id": {
+            "title": "Icon Id",
             "type": "string"
-          },
-          "filename": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Filename"
           },
           "member_id": {
             "title": "Member Id",
             "type": "string"
           },
-          "mime": {
-            "default": "",
-            "title": "Mime",
+          "theme_id": {
+            "title": "Theme Id",
             "type": "string"
           }
         },
         "required": [
-          "member_id"
+          "icon_id",
+          "member_id",
+          "theme_id"
         ],
-        "title": "MemberAvatarDTO",
+        "title": "MemberThemeAvatarDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "MemberThemeAvatarUpdateDTO": {
+        "description": "Record one member's explicit avatar choice in one theme. Both fields are required. ``theme_id`` must name a stored custom theme and ``icon_id`` must name an image in that theme's matching pool; anything else is a 422. The write replaces only the row for this ``(member_id, theme_id)`` pair, so a choice made in another theme survives unchanged.",
+        "properties": {
+          "icon_id": {
+            "title": "Icon Id",
+            "type": "string"
+          },
+          "theme_id": {
+            "title": "Theme Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "icon_id",
+          "theme_id"
+        ],
+        "title": "MemberThemeAvatarUpdateDTO",
         "additionalProperties": false,
         "type": "object"
       },
@@ -3345,6 +3362,30 @@
       "OutsourceWorkerDTO": {
         "description": "One outsource worker row of the panel (SPEC §4.1): the anonymous codename (model prefix + sequence), runtime/model/effort, lifecycle status (assigned → active → released), and its ONE bound task's id / title / status.",
         "properties": {
+          "account": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The Claude account this worker's session runs under (telemetry entry keyed by the worker's actor id — the SAME per-actor telemetry the member roster reads). null when the worker has not reported one (never fabricated). T-f190 additive-optional.",
+            "title": "Account"
+          },
+          "activation_pending": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set true ONLY on the worker restart response when nothing was actually dispatched — the worker twin of ``MemberDTO.activation_pending`` (T-ed79 parity #12). The restart intent is persisted and the cadence retries, but no worker_start went out (no kill target for the session it must replace, an unreachable warden, an unbuildable frame). Without it a 重啟 against a machine that cannot take the worker answers a clean 200 with zero signal, which is indistinguishable from one that started — the exact bug T-ba62 named on the staff side. Read ``last_op_reason`` for WHICH cause. Absent/null on every other worker read.",
+            "title": "Activation Pending"
+          },
           "actual_effort": {
             "default": "",
             "description": "The effort level this worker's session is REPORTED to be running at — the same durably-persisted roster field ``MemberDTO.actual_effort`` serves (an ``ow-`` row IS a member row with ``kind=outsource``). Empty means nothing has ever reported one. Separate from, and NEVER a fallback to, the owner-configured ``effort`` launch setting this DTO round-trips (T-7f28).",
@@ -3369,7 +3410,7 @@
             "title": "Actual Runtime",
             "type": "string"
           },
-          "account": {
+          "avatar_icon_id": {
             "anyOf": [
               {
                 "type": "string"
@@ -3378,13 +3419,8 @@
                 "type": "null"
               }
             ],
-            "description": "The Claude account this worker's session runs under (telemetry entry keyed by the worker's actor id — the SAME per-actor telemetry the member roster reads). null when the worker has not reported one (never fabricated). T-f190 additive-optional.",
-            "title": "Account"
-          },
-          "avatar_url": {
-            "description": "Authenticated URL of this stable outsource-worker id's personal raster avatar. Empty means the client uses the outsource theme avatar or built-in glyph. Additive-optional.",
-            "title": "Avatar Url",
-            "type": "string"
+            "description": "The icon this worker explicitly chose in the ACTIVE theme, or ``null`` when the member has no choice recorded for that theme. The value is a stable ``ThemeIconDTO.id``, not an array position. The client renders the pool item with that id; when the id is ``null``, or the chosen image was removed from the pool, it renders the FIRST image of the matching pool, and the built-in glyph when the pool is empty. A first visit is not persisted: the server records a row only when the owner picks an image, so the field stays ``null`` until then.",
+            "title": "Avatar Icon Id"
           },
           "banked_cost": {
             "anyOf": [
@@ -3402,6 +3438,18 @@
             "title": "Codename",
             "type": "string"
           },
+          "compaction_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Codex App Server compactions in this worker's live session; null when unavailable.",
+            "title": "Compaction Count"
+          },
           "context_pct": {
             "anyOf": [
               {
@@ -3413,14 +3461,6 @@
             ],
             "description": "The worker's live context-window fill %, read from the SAME gauge the member roster reads (POST /api/agent/context, keyed by actor id). null when unreported. T-f190 additive-optional.",
             "title": "Context Pct"
-          },
-          "compaction_count": {
-            "anyOf": [
-              {"type": "integer"},
-              {"type": "null"}
-            ],
-            "description": "Codex App Server compactions in this worker's live session; null when unavailable.",
-            "title": "Compaction Count"
           },
           "cost": {
             "anyOf": [
@@ -3526,51 +3566,15 @@
             "title": "Presence",
             "type": "string"
           },
-          "activation_pending": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Set true ONLY on the worker restart response when nothing was actually dispatched \u2014 the worker twin of ``MemberDTO.activation_pending`` (T-ed79 parity #12). The restart intent is persisted and the cadence retries, but no worker_start went out (no kill target for the session it must replace, an unreachable warden, an unbuildable frame). Without it a \u91cd\u555f against a machine that cannot take the worker answers a clean 200 with zero signal, which is indistinguishable from one that started \u2014 the exact bug T-ba62 named on the staff side. Read ``last_op_reason`` for WHICH cause. Absent/null on every other worker read.",
-          "title": "Activation Pending"
-        },
-        "relocation_deferred": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Set true on the worker relocate response when the move was DELIBERATELY deferred: the worker is live with uncollected state, so the server opened a graceful wind-down instead of dispatching now. The move lands when the worker answers report_stopped. This is the companion that disambiguates ``relocation_pending``, which is true for BOTH this case and a genuinely undispatched move: a consumer must NOT raise a \"nothing was dispatched\" alert while this field is true. Absent/null on every other worker read (T-ed79 parity #5).",
-          "title": "Relocation Deferred"
-        },
-        "relocation_pending": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Set true ONLY on the worker relocate response when the owner-pinned move is scheduled but has not landed yet \u2014 the worker twin of ``MemberDTO.relocation_pending`` (T-ed79 parity #5). TWO causes, which this field does not distinguish: (a) the kill+respawn that moves a worker with nothing to flush could not be dispatched (no kill target, or the warden would not take the start) \u2014 the cadence retries; (b) a graceful wind-down window was opened, so nothing has been dispatched yet BY DESIGN. Read ``relocation_deferred`` to tell (b) apart from (a) \u2014 only (a) is a failure worth alerting on. Absent/null on every other worker read.",
-          "title": "Relocation Pending"
-        },
-        "refocus_deadline": {
+          "refocus_deadline": {
             "default": 0.0,
-            "description": "Epoch seconds by which the in-flight handover stamped in ``refocus_since`` is force-collected (``refocus_since`` + the reconcile recycle grace). ZERO CARRIES TWO MEANINGS, and a client that reads it as one of them will be wrong about the other: no handover is in flight, OR a handover is in flight that NOTHING collects on a clock at all \u2014 which is now the NORMAL case rather than a carve-out: every cause except ``context_high`` and ``accelerated_stop`` is collected only by the agent's own ``report_stopped`` or by the owner pressing force-stop, and carries no deadline (owner 2026-08-21). ``refocus_op`` is what tells the two apart. Rendering no deadline is correct for both, and the sentence a client shows for an in-flight no-clock handover must not quote a time at all. Workers read the SAME judgement as members \u2014 there is no separate worker rule. Derived at read time, never stored. A CEILING, not a prediction: the collection fires the instant the worker answers ``report_stopped`` (T-7f28). Additive-optional.",
+            "description": "Epoch seconds by which the in-flight handover stamped in ``refocus_since`` is force-collected (``refocus_since`` + the reconcile recycle grace). ZERO CARRIES TWO MEANINGS, and a client that reads it as one of them will be wrong about the other: no handover is in flight, OR a handover is in flight that NOTHING collects on a clock at all — which is now the NORMAL case rather than a carve-out: every cause except ``context_high`` and ``accelerated_stop`` is collected only by the agent's own ``report_stopped`` or by the owner pressing force-stop, and carries no deadline (owner 2026-08-21). ``refocus_op`` is what tells the two apart. Rendering no deadline is correct for both, and the sentence a client shows for an in-flight no-clock handover must not quote a time at all. Workers read the SAME judgement as members — there is no separate worker rule. Derived at read time, never stored. A CEILING, not a prediction: the collection fires the instant the worker answers ``report_stopped`` (T-7f28). Additive-optional.",
             "title": "Refocus Deadline",
             "type": "number"
           },
           "refocus_op": {
             "default": "",
-            "description": "Which owner operation opened the in-flight handover stamped in ``refocus_since``, empty when none is in flight. A SUBSET of ``MemberDTO.refocus_op``: ``relocate``, ``runtime/model``, ``refocus``, ``restart_self``, ``context_high`` and ``accelerated_stop``. ``context_notice`` and ``token_expiry`` do NOT appear on this DTO \u2014 an outsource worker has only the second context threshold, and the token-expiry pass is staff-only. Stamped and cleared in lockstep with ``refocus_since`` (T-7f28). Additive-optional.",
+            "description": "Which owner operation opened the in-flight handover stamped in ``refocus_since``, empty when none is in flight. A SUBSET of ``MemberDTO.refocus_op``: ``relocate``, ``runtime/model``, ``refocus``, ``restart_self``, ``context_high`` and ``accelerated_stop``. ``context_notice`` and ``token_expiry`` do NOT appear on this DTO — an outsource worker has only the second context threshold, and the token-expiry pass is staff-only. Stamped and cleared in lockstep with ``refocus_since`` (T-7f28). Additive-optional.",
             "title": "Refocus Op",
             "type": "string"
           },
@@ -3579,6 +3583,30 @@
             "description": "Epoch seconds of the in-flight context-handover stamp (T-32e1), 0 when none. >0 = a refocus (owner 換手 OR context-high auto-handover) is mid-flight; the FE maps 0→null. Additive-optional.",
             "title": "Refocus Since",
             "type": "number"
+          },
+          "relocation_deferred": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set true on the worker relocate response when the move was DELIBERATELY deferred: the worker is live with uncollected state, so the server opened a graceful wind-down instead of dispatching now. The move lands when the worker answers report_stopped. This is the companion that disambiguates ``relocation_pending``, which is true for BOTH this case and a genuinely undispatched move: a consumer must NOT raise a \"nothing was dispatched\" alert while this field is true. Absent/null on every other worker read (T-ed79 parity #5).",
+            "title": "Relocation Deferred"
+          },
+          "relocation_pending": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set true ONLY on the worker relocate response when the owner-pinned move is scheduled but has not landed yet — the worker twin of ``MemberDTO.relocation_pending`` (T-ed79 parity #5). TWO causes, which this field does not distinguish: (a) the kill+respawn that moves a worker with nothing to flush could not be dispatched (no kill target, or the warden would not take the start) — the cadence retries; (b) a graceful wind-down window was opened, so nothing has been dispatched yet BY DESIGN. Read ``relocation_deferred`` to tell (b) apart from (a) — only (a) is a failure worth alerting on. Absent/null on every other worker read.",
+            "title": "Relocation Pending"
           },
           "runtime": {
             "allOf": [
@@ -3640,8 +3668,9 @@
           }
         },
         "required": [
-          "id",
+          "avatar_icon_id",
           "codename",
+          "id",
           "status",
           "task_id"
         ],
@@ -7696,8 +7725,19 @@
             "additionalProperties": {
               "type": "string"
             },
-            "description": "Optional per-role avatar images (T-16a1 P5; extended per role in T-ea81). Keys are the closed set `member` (一般正職 member) / `outsource` (外包 outsource worker) / `owner` (the human CEO / owner) / `assistant` (a member whose role is `assistant`, e.g. Mira). Each value is an EMBEDDED image encoded as a base64 `data:` URI so the image travels inside the bundle on export/import. The value is NOT arbitrary: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted. SVG (`image/svg+xml`) is REJECTED (it can carry script/onload — XSS). The base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`) — a value that declares one mime but carries another is rejected. Absent = that role falls back to the built-in avatar glyph (office never degrades). The server 422s any avatars that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.",
+            "description": "Optional SINGLE-image identities. The canonical key set is only `owner` (the human CEO) and `assistant` (an assistant-role member such as Mira); their existing single-image semantics are unchanged. For backward compatibility, input/stored bundles may also carry legacy `member` or `outsource` singleton strings: the server/client normalize each into a one-image `avatarPools` entry and omit that legacy key on the canonical echo/export. Every value is an embedded base64 raster data URI and passes the same PNG/JPEG/WEBP, strict-base64, <=64 KiB decoded-size, and matching-magic-byte gate. SVG is rejected. Absent owner/assistant values use the built-in glyph.",
             "title": "Avatars",
+            "type": "object"
+          },
+          "avatarPools": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/ThemeIconDTO"
+              },
+              "type": "array"
+            },
+            "description": "Optional ordered theme-level pools for `member` (一般正職) and `outsource` workers. Those are the only allowed keys. Each pool holds at most 12 items. Every item is a ThemeIconDTO: a stable ``id`` plus an embedded raster data URI that independently passes the same PNG/JPEG/WEBP, strict-base64, <=64 KiB decoded-size and matching-magic-byte gate as other theme images. A member points at an item's ``id``, so order is presentation only and removing one item never rebinds a member to another image. An empty or absent pool renders the built-in glyph. Import and export preserve both the item order and the ids. Reorder is NOT supported in this version. For backward compatibility a stored or imported pool may still be a plain array of data-URI strings; the server assigns each item an id and echoes the canonical form.",
+            "title": "Avatarpools",
             "type": "object"
           },
           "logo": {
@@ -7841,6 +7881,25 @@
           "display_theme_reset"
         ],
         "title": "ThemeDeleteResultDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "ThemeIconDTO": {
+        "description": "One image in a theme's ordered avatar pool, with the stable identity a member's selection points at. ``id`` is the durable icon identity. The server assigns it when it stores the theme, and it never changes for that image. A client that adds an image may omit ``id``; the server then assigns one and echoes it. The identity is derived from the image bytes, so the same image keeps the same ``id`` across export and import. ``image`` is an embedded base64 raster data URI. It passes the same PNG/JPEG/WEBP, strict-base64, <=64 KiB decoded-size and matching-magic-byte gate as every other theme image. Selections point at ``id``, never at the array position, so removing one pool item can not silently rebind a member to a different image.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "image": {
+            "title": "Image",
+            "type": "string"
+          }
+        },
+        "required": [
+          "image"
+        ],
+        "title": "ThemeIconDTO",
         "additionalProperties": false,
         "type": "object"
       },
@@ -11959,71 +12018,10 @@
         }
       }
     },
-    "/api/members/{member_id}/avatar": {
-      "delete": {
-        "description": "Remove one staff or outsource member's personal avatar and return it to the client fallback chain (active theme role avatar, then built-in glyph). Owner-only: a personal avatar is visual identity, so admin agents, ordinary agents, and machine tokens cannot alter another actor's appearance. Idempotent when no personal avatar exists. The member pointer is cleared and the old dedicated blob is deleted in one transaction; staff publishes the existing ``member`` delta and outsource publishes ``outsource_worker``. Excluded from MCP because this is an owner UI binary-control seam.",
-        "operationId": "handle_delete_member_avatar_api_members__member_id__avatar_delete",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "member_id",
-            "required": true,
-            "schema": {
-              "title": "Member Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MemberAvatarDTO"
-                }
-              }
-            },
-            "description": "Avatar removed, or already absent."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Member is a machine/warden and cannot have a personal avatar."
-          },
-          "4XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Authentication, authorization, or not-found error."
-          },
-          "5XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Server error (unified error envelope)."
-          }
-        },
-        "summary": "Remove a member's personal avatar (owner only).",
-        "x-mcp": {
-          "include": false
-        }
-      },
+    "/api/members/{member_id}/theme-avatar": {
       "put": {
-        "description": "Upload or replace one staff or outsource member's personal avatar. The raw request body is the image bytes (not base64 and not multipart). Only PNG, JPEG, or WEBP is accepted; the optional ``mime`` declaration must match the bytes' magic signature, SVG is rejected, and the decoded body is capped at 64 KiB. ``filename`` is optional metadata. Owner-only: personal avatars are visual identity and cannot be changed by agents or machine tokens. Replacement atomically inserts a newly minted ``ava-...`` blob, switches the stable member id's pointer, and deletes the prior dedicated blob; the new URL naturally cache-busts. Staff publishes the existing ``member`` delta and outsource publishes ``outsource_worker``. Excluded from MCP because this is an owner UI binary-control seam.",
-        "operationId": "handle_put_member_avatar_api_members__member_id__avatar_put",
+        "description": "Record one active staff or outsource member's avatar choice for ONE theme. Owner-only: visual identity is governance, so an agent or a machine token can not change it. This is why the route sits behind the owner gate and stays out of MCP — it is a cockpit visual-identity control, not an agent tool. Do not relax either property without an owner ruling.\n\nThe write targets the association row ``(member_id, theme_id)`` and replaces only that row. A choice the same member made in ANOTHER theme is untouched, so switching themes and switching back restores each theme's own choice.\n\n``theme_id`` must name a stored custom theme. ``icon_id`` must name an image in that theme's ``member`` or ``outsource`` pool, whichever matches the member kind. Either one missing gives a 422, because a selection the pool can not resolve is how a member silently gets another member's face.\n\nThe server never writes a default. A member with no row renders the first image of the matching pool, and that first visit stays unpersisted until the owner picks an image here.\n\nA staff write publishes the existing ``member`` SSE topic; an outsource write publishes ``outsource_worker``.",
+        "operationId": "handle_set_member_theme_avatar_api_members__member_id__theme_avatar_put",
         "parameters": [
           {
             "in": "path",
@@ -12032,48 +12030,14 @@
             "schema": {
               "title": "Member Id",
               "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "filename",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Filename"
-            }
-          },
-          {
-            "in": "query",
-            "name": "mime",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Mime"
             }
           }
         ],
         "requestBody": {
           "content": {
-            "application/octet-stream": {
+            "application/json": {
               "schema": {
-                "format": "binary",
-                "title": "Body",
-                "type": "string"
+                "$ref": "#/components/schemas/MemberThemeAvatarUpdateDTO"
               }
             }
           },
@@ -12084,21 +12048,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MemberAvatarDTO"
+                  "$ref": "#/components/schemas/MemberThemeAvatarDTO"
                 }
               }
             },
-            "description": "Avatar stored and pointer replaced atomically."
-          },
-          "413": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Image exceeds the 64 KiB cap."
+            "description": "Choice stored and the actor's canonical SSE topic published."
           },
           "422": {
             "content": {
@@ -12108,7 +12062,7 @@
                 }
               }
             },
-            "description": "Empty, unsupported, mismatched, or machine-target image."
+            "description": "Missing theme_id or icon_id, unknown theme, an icon that is not in the matching pool, or a machine/warden target."
           },
           "4XX": {
             "content": {
@@ -12131,7 +12085,7 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Upload or replace a member's personal avatar (owner only).",
+        "summary": "Record a staff or outsource member's avatar choice for one theme (owner only).",
         "x-mcp": {
           "include": false
         }
@@ -18759,7 +18713,7 @@
           "name": "put_theme",
           "description": "Create or replace ONE custom theme; the bundle's id must match the path (owner/admin agent).",
           "legacy": {
-            "descriptor": "{\n      \"description\": \"Create or replace ONE custom theme; the bundle's id must match the path (owner/admin agent).\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"theme_id\": {\n            \"description\": \"Which theme to act on. It is the KEY the bundle is filed under, and for a write it must equal the bundle's own `id` \\u2014 a mismatched pair is refused rather than silently re-keyed.\",\n            \"type\": \"string\"\n          },\n          \"id\": {\n            \"title\": \"Id\",\n            \"type\": \"string\"\n          },\n          \"name\": {\n            \"title\": \"Name\",\n            \"type\": \"string\"\n          },\n          \"colors\": {\n            \"additionalProperties\": {\n              \"type\": \"string\"\n            },\n            \"title\": \"Colors\",\n            \"type\": \"object\"\n          },\n          \"fonts\": {\n            \"additionalProperties\": {\n              \"type\": \"string\"\n            },\n            \"description\": \"Optional font-family choices (T-16a1 P4). Maps a `--font-*` token name (`--font-sans` / `--font-title` only) to a font-family stack string. The value is NOT an arbitrary string: it must be one of a small CLOSED allowlist of safe, built-in font-family stacks (themeFonts.source.json \\u2014 the same set the theme editor's font dropdown offers); no url(), no @font-face, no external font, no CSS structure characters. Absent = the theme keeps the default fonts. The server 422s any fonts that violates the token set or the safe-family allowlist.\",\n            \"title\": \"Fonts\",\n            \"type\": \"object\"\n          },\n          \"wording\": {\n            \"additionalProperties\": {\n              \"additionalProperties\": {\n                \"type\": \"string\"\n              },\n              \"title\": \"Wording Lang\",\n              \"type\": \"object\"\n            },\n            \"description\": \"Optional per-language wording overrides (T-16a1 P3). Outer key = UI language (`zh` / `en` only); inner map = an i18n message-key (an internal code path such as `nav.tasks`, drawn from the generated messageKeys whitelist) -> the owner's replacement PLAIN TEXT. Values are plain text only (trimmed, <=200 runes, control chars / newlines rejected, per-language entry count capped); no HTML/CSS. Absent = no overrides. The server 422s any wording that violates the language set or the value rules. A code OUTSIDE the messageKeys whitelist is NOT a 422: it is DROPPED from the overlay and the request succeeds, so the response echoes a pruned `wording` and only the surviving codes are stored (an already-imported theme pack stays usable when the whitelist shrinks; the accepted cost is that a typo'd code silently does nothing).\",\n            \"title\": \"Wording\",\n            \"type\": \"object\"\n          },\n          \"avatars\": {\n            \"additionalProperties\": {\n              \"type\": \"string\"\n            },\n            \"description\": \"Optional per-role avatar images (T-16a1 P5; extended per role in T-ea81). Keys are the closed set `member` (\\u4e00\\u822c\\u6b63\\u8077 member) / `outsource` (\\u5916\\u5305 outsource worker) / `owner` (the human CEO / owner) / `assistant` (a member whose role is `assistant`, e.g. Mira). Each value is an EMBEDDED image encoded as a base64 `data:` URI so the image travels inside the bundle on export/import. The value is NOT arbitrary: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted. SVG (`image/svg+xml`) is REJECTED (it can carry script/onload \\u2014 XSS). The base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`) \\u2014 a value that declares one mime but carries another is rejected. Absent = that role falls back to the built-in avatar glyph (office never degrades). The server 422s any avatars that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.\",\n            \"title\": \"Avatars\",\n            \"type\": \"object\"\n          },\n          \"logo\": {\n            \"description\": \"Optional studio logo image (T-ea81). A single EMBEDDED image encoded as a base64 `data:` URI that replaces the built-in logo mark shown in the top bar. Same strict image gate as `avatars`: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted; SVG (`image/svg+xml`) is REJECTED (script/onload XSS); the base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`). Absent = the built-in logo mark is used (office never degrades). The server 422s any logo that violates the mime whitelist, the size caps, the base64, or the magic-byte check.\",\n            \"title\": \"Logo\",\n            \"type\": \"string\"\n          },\n          \"navIcons\": {\n            \"additionalProperties\": {\n              \"type\": \"string\"\n            },\n            \"description\": \"Optional per-tab navigation icon images (T-ea81). Keys are the closed set of the five nav tabs `office` (\\u8fa6\\u516c\\u5ba4) / `replies` (\\u8acb\\u793a) / `tasks` (\\u4efb\\u52d9) / `monitor` (\\u76e3\\u63a7) / `guide` (\\u4f7f\\u7528\\u8aaa\\u660e); each value is an EMBEDDED image encoded as a base64 `data:` URI that replaces that tab's built-in icon. Same strict image gate as `avatars`: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted; SVG (`image/svg+xml`) is REJECTED (script/onload XSS); the base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`). Absent = that tab falls back to its built-in icon (office never degrades). The server 422s any navIcons that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.\",\n            \"title\": \"Nav Icons\",\n            \"type\": \"object\"\n          },\n          \"backgrounds\": {\n            \"additionalProperties\": {\n              \"type\": \"string\"\n            },\n            \"description\": \"Optional background images for the cockpit's chrome (T-081b). Keys are a CLOSED set holding exactly one zone today: `canvas` \\u2014 the OUTERMOST canvas, i.e. the page background behind the centred content column. In `tile` / `sides` mode only the area BESIDE that column shows it, which is nothing on a phone, in a narrow window, or in the wide layout (all of which leave no side gutter); in `cover` mode the image fills the viewport and shows through wherever the theme gives the chrome zone colours translucent values. The zone tokens above it (`--color-topbar-bg` / `--color-nav-bg` / `--color-main-bg`) deliberately take NO image: they sit under text, and text over a busy pattern has no readability guarantee. Each value is an EMBEDDED image encoded as a base64 `data:` URI laid on top of the solid `--color-bg`, which still shows through wherever the image does not cover; HOW it is laid down is `backgroundModes` (default `tile`). Same strict image gate as `avatars`: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted; SVG (`image/svg+xml`) is REJECTED (script/onload XSS); the base64 must decode, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`). The SIZE caps are the one place backgrounds differ from `avatars`: the decoded byte size is capped at <=512 KiB (with the raw data-URI string capped above the base64-inflated form of that), NOT the <=64 KiB that applies to `avatars` / `logo` / `navIcons`. A background is stretched or tiled across the whole viewport, where the glyph-sized 64 KiB cap read as visibly blurry; that cap \\u2014 and the T-081b ruling that a background must never exceed it \\u2014 was overturned by the owner on 2026-08-03, and the small-glyph fields keep 64 KiB. Absent = the outer canvas is the plain `--color-bg` colour, exactly as before this field existed. The server 422s any backgrounds that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.\",\n            \"title\": \"Backgrounds\",\n            \"type\": \"object\"\n          },\n          \"backgroundModes\": {\n            \"additionalProperties\": {\n              \"type\": \"string\"\n            },\n            \"description\": \"Optional per-zone DISPLAY MODE for the images in `backgrounds` (T-081b). Same CLOSED zone-key set as `backgrounds` (today: `canvas`); each value is one of a CLOSED set of three: `tile` \\u2014 repeat the image in both axes over the whole canvas (the ONLY behaviour before this field existed, and the default for any zone this map omits, so an older bundle renders identically); `sides` \\u2014 do NOT repeat at all: pin ONE copy of the image against the LEFT viewport edge and one against the RIGHT, both at natural size, aligned to the viewport bottom, with `--color-bg` filling whatever the image does not reach; `cover` \\u2014 ONE copy scaled (`background-size: cover`) to fill the whole viewport, centred. `sides` exists for art that reads as a pair of standing objects (e.g. a tree either side) rather than a texture; the product does NOT mirror the right-hand copy \\u2014 a theme wanting left/right symmetry bakes it into the image (owner 2026-07-27). `sides` and `cover` are pinned to the VIEWPORT (`background-attachment: fixed`) because the canvas background otherwise scrolls with the document, which would bring a second copy into view down a long page. `cover` is only VISIBLE where the theme also gives the chrome zone colours (`--color-topbar-bg` / `--color-nav-bg` / `--color-main-bg`) translucent values \\u2014 the colour grammar already admits `#RRGGBBAA` and `rgba()` \\u2014 and that is also where its risk lives: those zones sit under text, so the image's contrast against that text is the theme's own responsibility (owner accepted this trade-off on 2026-07-27). A mode for a zone that carries no image is a 422 (a mode alone paints nothing, so it is a mistake worth naming rather than ignoring). Absent = every zone tiles, exactly as before this field existed. NOTE both modes are invisible at viewport widths where the content column leaves no gutter (phones, narrow windows) \\u2014 that is a property of the outer canvas, not of the mode.\",\n            \"title\": \"Background Modes\",\n            \"type\": \"object\"\n          }\n        },\n        \"required\": [\n          \"theme_id\",\n          \"id\",\n          \"name\",\n          \"colors\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"put_theme\"\n    }"
+            "descriptor": "{\"description\": \"Create or replace ONE custom theme; the bundle's id must match the path (owner/admin agent).\", \"inputSchema\": {\"properties\": {\"theme_id\": {\"description\": \"Which theme to act on. It is the KEY the bundle is filed under, and for a write it must equal the bundle's own `id` — a mismatched pair is refused rather than silently re-keyed.\", \"type\": \"string\"}, \"id\": {\"title\": \"Id\", \"type\": \"string\"}, \"name\": {\"title\": \"Name\", \"type\": \"string\"}, \"colors\": {\"additionalProperties\": {\"type\": \"string\"}, \"title\": \"Colors\", \"type\": \"object\"}, \"fonts\": {\"additionalProperties\": {\"type\": \"string\"}, \"description\": \"Optional font-family choices (T-16a1 P4). Maps a `--font-*` token name (`--font-sans` / `--font-title` only) to a font-family stack string. The value is NOT an arbitrary string: it must be one of a small CLOSED allowlist of safe, built-in font-family stacks (themeFonts.source.json — the same set the theme editor's font dropdown offers); no url(), no @font-face, no external font, no CSS structure characters. Absent = the theme keeps the default fonts. The server 422s any fonts that violates the token set or the safe-family allowlist.\", \"title\": \"Fonts\", \"type\": \"object\"}, \"wording\": {\"additionalProperties\": {\"additionalProperties\": {\"type\": \"string\"}, \"title\": \"Wording Lang\", \"type\": \"object\"}, \"description\": \"Optional per-language wording overrides (T-16a1 P3). Outer key = UI language (`zh` / `en` only); inner map = an i18n message-key (an internal code path such as `nav.tasks`, drawn from the generated messageKeys whitelist) -> the owner's replacement PLAIN TEXT. Values are plain text only (trimmed, <=200 runes, control chars / newlines rejected, per-language entry count capped); no HTML/CSS. Absent = no overrides. The server 422s any wording that violates the language set or the value rules. A code OUTSIDE the messageKeys whitelist is NOT a 422: it is DROPPED from the overlay and the request succeeds, so the response echoes a pruned `wording` and only the surviving codes are stored (an already-imported theme pack stays usable when the whitelist shrinks; the accepted cost is that a typo'd code silently does nothing).\", \"title\": \"Wording\", \"type\": \"object\"}, \"avatars\": {\"additionalProperties\": {\"type\": \"string\"}, \"description\": \"Optional SINGLE-image identities. The canonical key set is only `owner` (the human CEO) and `assistant` (an assistant-role member such as Mira); their existing single-image semantics are unchanged. For backward compatibility, input/stored bundles may also carry legacy `member` or `outsource` singleton strings: the server/client normalize each into a one-image `avatarPools` entry and omit that legacy key on the canonical echo/export. Every value is an embedded base64 raster data URI and passes the same PNG/JPEG/WEBP, strict-base64, <=64 KiB decoded-size, and matching-magic-byte gate. SVG is rejected. Absent owner/assistant values use the built-in glyph.\", \"type\": \"object\"}, \"logo\": {\"description\": \"Optional studio logo image (T-ea81). A single EMBEDDED image encoded as a base64 `data:` URI that replaces the built-in logo mark shown in the top bar. Same strict image gate as `avatars`: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted; SVG (`image/svg+xml`) is REJECTED (script/onload XSS); the base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`). Absent = the built-in logo mark is used (office never degrades). The server 422s any logo that violates the mime whitelist, the size caps, the base64, or the magic-byte check.\", \"title\": \"Logo\", \"type\": \"string\"}, \"navIcons\": {\"additionalProperties\": {\"type\": \"string\"}, \"description\": \"Optional per-tab navigation icon images (T-ea81). Keys are the closed set of the five nav tabs `office` (辦公室) / `replies` (請示) / `tasks` (任務) / `monitor` (監控) / `guide` (使用說明); each value is an EMBEDDED image encoded as a base64 `data:` URI that replaces that tab's built-in icon. Same strict image gate as `avatars`: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted; SVG (`image/svg+xml`) is REJECTED (script/onload XSS); the base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`). Absent = that tab falls back to its built-in icon (office never degrades). The server 422s any navIcons that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.\", \"title\": \"Nav Icons\", \"type\": \"object\"}, \"backgrounds\": {\"additionalProperties\": {\"type\": \"string\"}, \"description\": \"Optional background images for the cockpit's chrome (T-081b). Keys are a CLOSED set holding exactly one zone today: `canvas` — the OUTERMOST canvas, i.e. the page background behind the centred content column. In `tile` / `sides` mode only the area BESIDE that column shows it, which is nothing on a phone, in a narrow window, or in the wide layout (all of which leave no side gutter); in `cover` mode the image fills the viewport and shows through wherever the theme gives the chrome zone colours translucent values. The zone tokens above it (`--color-topbar-bg` / `--color-nav-bg` / `--color-main-bg`) deliberately take NO image: they sit under text, and text over a busy pattern has no readability guarantee. Each value is an EMBEDDED image encoded as a base64 `data:` URI laid on top of the solid `--color-bg`, which still shows through wherever the image does not cover; HOW it is laid down is `backgroundModes` (default `tile`). Same strict image gate as `avatars`: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted; SVG (`image/svg+xml`) is REJECTED (script/onload XSS); the base64 must decode, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`). The SIZE caps are the one place backgrounds differ from `avatars`: the decoded byte size is capped at <=512 KiB (with the raw data-URI string capped above the base64-inflated form of that), NOT the <=64 KiB that applies to `avatars` / `logo` / `navIcons`. A background is stretched or tiled across the whole viewport, where the glyph-sized 64 KiB cap read as visibly blurry; that cap — and the T-081b ruling that a background must never exceed it — was overturned by the owner on 2026-08-03, and the small-glyph fields keep 64 KiB. Absent = the outer canvas is the plain `--color-bg` colour, exactly as before this field existed. The server 422s any backgrounds that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.\", \"title\": \"Backgrounds\", \"type\": \"object\"}, \"backgroundModes\": {\"additionalProperties\": {\"type\": \"string\"}, \"description\": \"Optional per-zone DISPLAY MODE for the images in `backgrounds` (T-081b). Same CLOSED zone-key set as `backgrounds` (today: `canvas`); each value is one of a CLOSED set of three: `tile` — repeat the image in both axes over the whole canvas (the ONLY behaviour before this field existed, and the default for any zone this map omits, so an older bundle renders identically); `sides` — do NOT repeat at all: pin ONE copy of the image against the LEFT viewport edge and one against the RIGHT, both at natural size, aligned to the viewport bottom, with `--color-bg` filling whatever the image does not reach; `cover` — ONE copy scaled (`background-size: cover`) to fill the whole viewport, centred. `sides` exists for art that reads as a pair of standing objects (e.g. a tree either side) rather than a texture; the product does NOT mirror the right-hand copy — a theme wanting left/right symmetry bakes it into the image (owner 2026-07-27). `sides` and `cover` are pinned to the VIEWPORT (`background-attachment: fixed`) because the canvas background otherwise scrolls with the document, which would bring a second copy into view down a long page. `cover` is only VISIBLE where the theme also gives the chrome zone colours (`--color-topbar-bg` / `--color-nav-bg` / `--color-main-bg`) translucent values — the colour grammar already admits `#RRGGBBAA` and `rgba()` — and that is also where its risk lives: those zones sit under text, so the image's contrast against that text is the theme's own responsibility (owner accepted this trade-off on 2026-07-27). A mode for a zone that carries no image is a 422 (a mode alone paints nothing, so it is a mistake worth naming rather than ignoring). Absent = every zone tiles, exactly as before this field existed. NOTE both modes are invisible at viewport widths where the content column leaves no gutter (phones, narrow windows) — that is a property of the outer canvas, not of the mode.\", \"title\": \"Background Modes\", \"type\": \"object\"}, \"avatarPools\": {\"additionalProperties\": {\"items\": {\"description\": \"One image in a theme's ordered avatar pool, with the stable identity a member's selection points at. ``id`` is the durable icon identity. The server assigns it when it stores the theme, and it never changes for that image. A client that adds an image may omit ``id``; the server then assigns one and echoes it. The identity is derived from the image bytes, so the same image keeps the same ``id`` across export and import. ``image`` is an embedded base64 raster data URI. It passes the same PNG/JPEG/WEBP, strict-base64, <=64 KiB decoded-size and matching-magic-byte gate as every other theme image. Selections point at ``id``, never at the array position, so removing one pool item can not silently rebind a member to a different image.\", \"properties\": {\"id\": {\"title\": \"Id\", \"type\": \"string\"}, \"image\": {\"title\": \"Image\", \"type\": \"string\"}}, \"required\": [\"image\"], \"additionalProperties\": false, \"type\": \"object\"}, \"type\": \"array\"}, \"description\": \"Optional ordered theme-level pools for `member` (一般正職) and `outsource` workers. Those are the only allowed keys. Each pool holds at most 12 items. Every item is a ThemeIconDTO: a stable ``id`` plus an embedded raster data URI that independently passes the same PNG/JPEG/WEBP, strict-base64, <=64 KiB decoded-size and matching-magic-byte gate as other theme images. A member points at an item's ``id``, so order is presentation only and removing one item never rebinds a member to another image. An empty or absent pool renders the built-in glyph. Import and export preserve both the item order and the ids. Reorder is NOT supported in this version. For backward compatibility a stored or imported pool may still be a plain array of data-URI strings; the server assigns each item an id and echoes the canonical form.\", \"type\": \"object\"}}, \"required\": [\"theme_id\", \"id\", \"name\", \"colors\"], \"additionalProperties\": false, \"type\": \"object\"}, \"name\": \"put_theme\"}"
           }
         }
       }

@@ -10,6 +10,7 @@ package main
 // (ocapi_gen.go, derived from spec/openapi.json — the frozen wire SSOT).
 
 import (
+	"encoding/json"
 	"io/fs"
 	"net/http"
 	"sync"
@@ -110,7 +111,24 @@ type apiServer struct {
 	// BEFORE login the frontend keeps a localStorage cache and reconciles this
 	// server value in at login (server = cross-device truth). "" = never set —
 	// the frontend keeps its cached/default value. NOT an agent read path.
-	displayTheme    string
+	displayTheme string
+	// avatarSelMu guards the avatar caches below. They are read on every member
+	// DTO, so the roster must not issue one query — and one bundle parse — per
+	// row. Both are keyed on avatarSelTheme and reload together.
+	avatarSelMu sync.RWMutex
+	// avatarSelTheme is the theme id the two caches were loaded for. It is
+	// compared against the live display.theme, so switching themes reloads
+	// rather than serving another theme's choices.
+	avatarSelTheme string
+	// avatarSelLoaded separates "loaded and empty" from "never loaded". Without
+	// it a fleet where nobody has chosen an image reloads on every single row.
+	avatarSelLoaded bool
+	// avatarSel maps member id -> chosen icon id for avatarSelTheme. A member
+	// ABSENT from this map has made no choice, which is what the wire sends as
+	// null and what the client renders as the pool's first image.
+	avatarSel map[string]string
+	// avatarPools holds avatarSelTheme's ordered pools by kind, parsed once.
+	avatarPools     map[string][]ThemeIconDTO
 	displayLanguage string
 	// displayWide is the owner's cockpit layout width (DB display.wide; T-756f)
 	// under the SAME dual-layer contract as the two prefs above. false (the
@@ -568,6 +586,156 @@ func (s *apiServer) displayWideSnapshot() bool {
 	s.settingsMu.RLock()
 	defer s.settingsMu.RUnlock()
 	return s.displayWide
+}
+
+// avatarPoolKindFor maps a member kind onto the theme pool that serves it.
+// Anything else (warden, owner) has no pool and renders its built-in glyph.
+func avatarPoolKindFor(kind string) string {
+	switch kind {
+	case KindAssistant:
+		return "member"
+	case KindOutsource:
+		return "outsource"
+	}
+	return ""
+}
+
+// themeAvatarPools parses one stored bundle into its ordered pools by kind.
+// A bundle that no longer parses yields no pools rather than an error: the
+// caller's answer for "no pool" is already the built-in glyph, and a theme the
+// owner can still see must not make the roster 500.
+func themeAvatarPools(bundle string) map[string][]ThemeIconDTO {
+	var parsed ThemeBundleDTO
+	if err := json.Unmarshal([]byte(bundle), &parsed); err != nil {
+		return nil
+	}
+	if err := normalizeThemeAvatarPools(&parsed, "stored theme"); err != nil {
+		return nil
+	}
+	assignThemeIconIDs(parsed.AvatarPools)
+	if parsed.AvatarPools == nil {
+		return nil
+	}
+	return *parsed.AvatarPools
+}
+
+// themeIconIDs returns the set of icon ids each stored theme can resolve, as
+// theme id -> icon id -> true. The theme write and delete paths prune
+// associations against exactly this, so a deleted theme or a removed pool
+// image can not leave a selection behind.
+//
+// ⚠️ IT RETURNS AN ERROR ON PURPOSE. The prune reads this set as the WHOLE
+// truth about what is still live, so a theme missing from it is a theme that no
+// longer exists and every association row pointing at it is deleted. An empty
+// set does not mean "nothing to clean up" — it means "keep nothing", which is
+// the entire table. "The read failed" and "there are no themes" must therefore
+// never share one value: this used to answer nil for a failed read, which
+// turned a single unlucky ListCustomThemes error into a total, silent wipe of
+// every member's chosen face — reported as success, because the prune really
+// did succeed at deleting everything. A caller that cannot get this set must
+// SKIP the prune, never run it against a guess (see PruneMemberThemeAvatars,
+// which refuses a nil set outright).
+func (s *apiServer) themeIconIDs() (map[string]map[string]bool, error) {
+	themes, err := s.dal.ListCustomThemes()
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]map[string]bool{}
+	for _, theme := range themes {
+		icons := map[string]bool{}
+		for _, pool := range themeAvatarPools(theme.Bundle) {
+			for _, icon := range pool {
+				if icon.Id != nil {
+					icons[*icon.Id] = true
+				}
+			}
+		}
+		out[theme.ID] = icons
+	}
+	return out, nil
+}
+
+// themeIconIDsFor returns one theme's resolvable icon ids. Used by the write
+// face, which must resolve against the NAMED theme rather than the active one.
+func (s *apiServer) themeIconIDsFor(themeID string) map[string]bool {
+	theme, err := s.dal.GetCustomTheme(themeID)
+	if err != nil || theme == nil {
+		return nil
+	}
+	icons := map[string]bool{}
+	for _, pool := range themeAvatarPools(theme.Bundle) {
+		for _, icon := range pool {
+			if icon.Id != nil {
+				icons[*icon.Id] = true
+			}
+		}
+	}
+	return icons
+}
+
+// invalidateAvatarSelections drops the cached selections and pools. Call it
+// after ANY write that can change them: an owner pick, a member removal, or a
+// theme write or delete.
+func (s *apiServer) invalidateAvatarSelections() {
+	s.avatarSelMu.Lock()
+	s.avatarSelLoaded = false
+	s.avatarSel = nil
+	s.avatarPools = nil
+	s.avatarSelTheme = ""
+	s.avatarSelMu.Unlock()
+}
+
+// loadAvatarCaches fills both caches for the ACTIVE theme, once per theme. A
+// read error yields empty caches: a missing selection renders the pool's first
+// image, which is what a member with no choice already sees, so a transient
+// failure degrades to the documented default instead of a 500 on the roster.
+func (s *apiServer) loadAvatarCaches() (map[string]string, map[string][]ThemeIconDTO) {
+	theme := s.displayThemeSnapshot()
+	s.avatarSelMu.RLock()
+	if s.avatarSelLoaded && s.avatarSelTheme == theme {
+		sel, pools := s.avatarSel, s.avatarPools
+		s.avatarSelMu.RUnlock()
+		return sel, pools
+	}
+	s.avatarSelMu.RUnlock()
+
+	sel, err := s.dal.MemberThemeAvatars(theme)
+	if err != nil {
+		sel = map[string]string{}
+	}
+	var pools map[string][]ThemeIconDTO
+	if stored, err := s.dal.GetCustomTheme(theme); err == nil && stored != nil {
+		pools = themeAvatarPools(stored.Bundle)
+	}
+	s.avatarSelMu.Lock()
+	s.avatarSel, s.avatarPools, s.avatarSelTheme, s.avatarSelLoaded = sel, pools, theme, true
+	s.avatarSelMu.Unlock()
+	return sel, pools
+}
+
+// memberAvatarIconID resolves what one member's DTO puts on the wire. It is
+// nil in three cases that the client renders identically (the pool's first
+// image, or the built-in glyph when the pool is empty): the member never chose
+// in this theme, the theme has no pool for its kind, or the image it chose was
+// removed from the pool. Only the first case is expected to persist — a pruned
+// association is deleted on the theme write path — but resolving against the
+// live pool here means a race can not put a dangling id on the wire.
+func (s *apiServer) memberAvatarIconID(memberID, kind string) *string {
+	poolKind := avatarPoolKindFor(kind)
+	if poolKind == "" {
+		return nil
+	}
+	sel, pools := s.loadAvatarCaches()
+	iconID, chose := sel[memberID]
+	if !chose {
+		return nil
+	}
+	for _, icon := range pools[poolKind] {
+		if icon.Id != nil && *icon.Id == iconID {
+			return &iconID
+		}
+	}
+	return nil
 }
 
 // ctxHighConfig returns the live context-high band config (by value — one

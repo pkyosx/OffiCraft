@@ -58,7 +58,6 @@ import pytest
 from conftest import AgentIdentity
 
 IDENTITIES = ("none", "owner", "admin_agent", "warden", "agent_self", "agent_other")
-_AVATAR_PNG_BYTES = b"\x89PNG\r\n\x1a\n\x00"
 
 # The linear capability ladder — the conformance-side mirror of the server's
 # PRINCIPAL_RANK (re-declared, NOT imported: black-box iron rule).
@@ -177,47 +176,6 @@ def _member_path(template: str):
         return template.format(member_id=target)
 
     return build
-
-
-def _matrix_member_avatar_delete_path(ctx: Ctx, identity: str) -> str:
-    """Seed the owner-positive DELETE face without relying on row order.
-
-    Denied identities must remain side-effect free; only the owner cell creates
-    the precondition that makes a no-op DELETE distinguishable from a working
-    one. The semantic blob cleanup is pinned more deeply in test_rest_happy.
-    """
-    path = f"/api/members/{ctx.agent_a.member_id}/avatar"
-    if identity == "owner":
-        seeded = ctx.client.put(
-            path + "?mime=image/png",
-            content=_AVATAR_PNG_BYTES,
-            headers={"Authorization": f"Bearer {ctx.owner_token}"},
-        )
-        assert seeded.status_code == 200, (
-            f"avatar DELETE matrix seed failed: {seeded.status_code} {seeded.text}"
-        )
-        url = seeded.json()["avatar_url"]
-        assert url.startswith("/api/chat/attachment/ava-")
-        ctx._avatar_delete_urls[identity] = url
-    return path
-
-
-def _check_matrix_member_avatar_delete(
-    ctx: Ctx, identity: str, response: httpx.Response
-) -> None:
-    if identity != "owner":
-        return
-    data = response.json()
-    assert data["member_id"] == ctx.agent_a.member_id and data["avatar_url"] == "", data
-    old_url = ctx._avatar_delete_urls.pop(identity)
-    old = ctx.client.get(
-        old_url,
-        headers={"Authorization": f"Bearer {ctx.owner_token}"},
-    )
-    assert old.status_code == 404, (
-        f"avatar DELETE matrix row left its seeded blob reachable: "
-        f"{old.status_code} {old.text[:200]}"
-    )
 
 
 def _check_renewed_credential(
@@ -408,6 +366,40 @@ def _matrix_reassigning_task(ctx: Ctx) -> str:
     return task_id
 
 
+# A theme-avatar write needs a theme that EXISTS and an icon that is IN its
+# matching pool; anything else is a 422, which would hide the authorization
+# answer this matrix is asking for. Seed one theme per session and read the icon
+# id back from the echo — the server derives it from the image bytes, so
+# inventing one here would reproduce the very 422 we are avoiding.
+_THEME_AVATAR_FIXTURE: dict[str, tuple[str, str]] = {}
+
+
+def _theme_avatar_body(ctx: Ctx, _identity: str) -> dict[str, str]:
+    if "seeded" not in _THEME_AVATAR_FIXTURE:
+        image = (
+            "data:image/png;base64,"
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGO4Y2MDAANMAVV5GmOeAAAAAElFTkSuQmCC"
+        )
+        head = {"Authorization": f"Bearer {ctx.owner_token}"}
+        r = ctx.client.put(
+            "/api/themes/conf-authz-theme",
+            json={
+                "id": "conf-authz-theme",
+                "name": "conformance authz",
+                "colors": {"--color-bg": "#000000"},
+                "avatarPools": {"member": [{"image": image}]},
+            },
+            headers=head,
+        )
+        r.raise_for_status()
+        stored = ctx.client.get("/api/themes/conf-authz-theme", headers=head)
+        stored.raise_for_status()
+        pool = stored.json()["avatarPools"]["member"]
+        _THEME_AVATAR_FIXTURE["seeded"] = ("conf-authz-theme", pool[0]["id"])
+    theme_id, icon_id = _THEME_AVATAR_FIXTURE["seeded"]
+    return {"theme_id": theme_id, "icon_id": icon_id}
+
+
 MATRIX: dict[str, Route] = {
     # ── infra seams ──────────────────────────────────────────────────────────
     "GET /api/events": Route(
@@ -530,17 +522,11 @@ MATRIX: dict[str, Route] = {
         body={"name": "conf-agent-a"},
         notes="member PATCH (name/model/effort) carries no admin choke",
     ),
-    "PUT /api/members/{member_id}/avatar": Route(
+    "PUT /api/members/{member_id}/theme-avatar": Route(
         requires="owner",
-        path=lambda ctx, _i: f"/api/members/{ctx.agent_a.member_id}/avatar",
-        body=_AVATAR_PNG_BYTES,
-        notes="personal visual identity stays owner-only (T-c826)",
-    ),
-    "DELETE /api/members/{member_id}/avatar": Route(
-        requires="owner",
-        path=_matrix_member_avatar_delete_path,
-        notes="personal visual identity stays owner-only (T-c826)",
-        check=_check_matrix_member_avatar_delete,
+        path=lambda ctx, _i: f"/api/members/{ctx.agent_a.member_id}/theme-avatar",
+        body=_theme_avatar_body,
+        notes="theme-linked visual identity stays owner-only (T-cd6f)",
     ),
     "POST /api/members/{member_id}/activate": Route(
         requires="admin_agent",

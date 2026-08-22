@@ -506,7 +506,7 @@ describe("I18nProvider · the switch window", () => {
     id: "aurora",
     name: "Aurora",
     colors: { "--color-accent": "#00ffcc" },
-    avatars: { member: PNG },
+    avatarPools: { member: [{ image: PNG }] },
     logo: PNG,
     navIcons: { office: PNG },
     wording: { zh: { "nav.tasks": "極光榜" } },
@@ -532,7 +532,7 @@ describe("I18nProvider · the switch window", () => {
     await mountCapture(2);
     await activate("aurora");
     // Everything the bundle carries is live…
-    expect(ctx.activeAvatars?.member).toBe(PNG);
+    expect(ctx.activeAvatarPools?.member?.[0].image).toBe(PNG);
     expect(ctx.activeLogo).toBe(PNG);
     expect(ctx.activeNavIcons?.office).toBe(PNG);
     expect(ctx.t.nav.tasks).toBe("極光榜");
@@ -629,7 +629,7 @@ describe("I18nProvider · the switch window", () => {
     expect(ctx.theme).toBe("aurora");
     expect(ctx.activeThemeBundle?.id).toBe("aurora");
     // …and everything the bundle carries actually arrived.
-    expect(ctx.activeAvatars?.member).toBe(PNG);
+    expect(ctx.activeAvatarPools?.member?.[0].image).toBe(PNG);
     expect(ctx.t.nav.tasks).toBe("極光榜");
   });
 

@@ -20,6 +20,8 @@ import {
 import {
   isValidDisplayTheme,
   type ThemeBundle,
+  readThemeIcon,
+  type ThemeIcon,
   type AvatarKind,
   type NavIconKey,
 } from "../lib/themeBundle";
@@ -30,6 +32,7 @@ import {
   applyThemeToRoot,
   readValidatedPaint,
 } from "../lib/themePaint";
+import { notifyThemeAvatarsChanged } from "../lib/themeAvatarsChanged";
 import { applyWording } from "./wording";
 import { makeMessages, type Messages } from "./compose";
 
@@ -137,6 +140,7 @@ interface I18nContextValue {
    * render a member/outsource/owner/assistant avatar image, falling back to the
    * built-in glyph when absent. */
   activeAvatars?: Partial<Record<AvatarKind, string>>;
+  activeAvatarPools?: Partial<Record<"member" | "outsource", ThemeIcon[]>>;
   /** The active custom theme's studio logo image (T-ea81), or undefined when the
    * active theme carries none — the top bar then renders its built-in mark. */
   activeLogo?: string;
@@ -243,6 +247,27 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     () => bundleForTheme?.avatars,
     [bundleForTheme]
   );
+  // A stored or imported bundle may still carry the legacy bare-string pool,
+  // so it is lifted to the canonical {id, image} shape ONCE here. Every
+  // consumer below — the Avatar, the chooser — then reads one shape only, and
+  // an item with no id simply never matches a selection.
+  const activeAvatarPools = useMemo(() => {
+    // Same ONE authority as every other image on this theme (T-83ef): the
+    // fetched bundle, and only while it is the ACTIVE theme's. Reading a
+    // different source here is exactly how a theme switch rendered the next
+    // theme's colours over the previous theme's images for one round trip.
+    const pools = bundleForTheme?.avatarPools;
+    if (!pools) return pools;
+    const out: Partial<Record<"member" | "outsource", ThemeIcon[]>> = {};
+    for (const kind of ["member", "outsource"] as const) {
+      const items = pools[kind];
+      if (!items) continue;
+      out[kind] = items
+        .map((item) => readThemeIcon(item))
+        .filter((item): item is ThemeIcon => !!item);
+    }
+    return out;
+  }, [bundleForTheme]);
 
   // The active custom theme's studio logo image + per-nav-tab icons (T-ea81).
   // Like avatars, these are IMAGES rendered as <img> (top-bar logo / nav-tab
@@ -422,6 +447,16 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const setTheme = useCallback(
     (next: string) => {
       cacheTheme(next);
+      // The roster is holding faces resolved for the theme we are LEAVING; every
+      // card has to be re-read against the new one or it silently shows that
+      // pool's first image instead of this member's own choice there.
+      //
+      // ANNOUNCED HERE, before the server round-trip, because the switch has
+      // ALREADY happened for this client the moment the cache moves — the paint
+      // below does not wait either, and the pre-auth path never reaches the
+      // server at all. Announcing from a .then() would leave the roster stale
+      // in exactly the cases where the request is slow or absent.
+      notifyThemeAvatarsChanged();
       if (next === "office") {
         setActiveThemeBundle(null);
         writePaint(null);
@@ -488,6 +523,10 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         setActiveThemeBundle(bundle);
         writePaint(bundle);
       }
+      // A pool edit can remove the very image a member had chosen; the server
+      // prunes that association on this write, so the roster's copy is stale
+      // even though no member row was touched.
+      notifyThemeAvatarsChanged();
     },
     [writePaint]
   );
@@ -508,6 +547,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         setActiveThemeBundle(null);
         writePaint(null);
       }
+      // Deleting a theme drops every selection recorded against it, and may
+      // reset the active theme as well — both change what the roster resolves.
+      notifyThemeAvatarsChanged();
     },
     [cacheTheme, writePaint]
   );
@@ -625,6 +667,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       wide,
       setWide,
       activeAvatars,
+      activeAvatarPools,
       activeLogo,
       activeNavIcons,
       themeList,
@@ -645,6 +688,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       wide,
       setWide,
       activeAvatars,
+      activeAvatarPools,
       activeLogo,
       activeNavIcons,
       themeList,
@@ -674,6 +718,12 @@ export function useI18n(): I18nContextValue {
  * glyph rather than crashing). */
 export function useActiveAvatars(): Partial<Record<AvatarKind, string>> | undefined {
   return useContext(I18nContext)?.activeAvatars;
+}
+
+export function useActiveAvatarPools():
+  | Partial<Record<"member" | "outsource", ThemeIcon[]>>
+  | undefined {
+  return useContext(I18nContext)?.activeAvatarPools;
 }
 
 /** The active theme's studio logo image (T-ea81), or undefined. DEFENSIVE like

@@ -36,7 +36,7 @@ import { isHttpStatus } from "../api/errors";
 import { useMembers } from "../hooks/useMembers";
 import { useReplyCards } from "../hooks/useReplyCards";
 import {
-  useWorkerAvatarUrls,
+  useWorkerAvatarIconIds,
   useWorkerCodenames,
 } from "../hooks/useWorkerCodenames";
 import { useHashRoute } from "../lib/hashRoute";
@@ -166,7 +166,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // the identity row shows the same 代號 the office rail does, not the raw id.
   const workerIds = [...waiting, ...handled].map((c) => c.from);
   const codenames = useWorkerCodenames(workerIds);
-  const workerAvatarUrls = useWorkerAvatarUrls(workerIds);
+  const workerAvatarIconIds = useWorkerAvatarIconIds(workerIds);
 
   // Resolve the initiating member for a card's identity row. A card can
   // outlive its member (removed roster row) — fall back to the outsource
@@ -309,10 +309,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
       <header className="reply-card__head">
         <ReplyCardAvatarButton
           onClick={() => openProfile(card)}
-          src={
-            (asker?.kind === "outsource" ? undefined : asker?.avatarUrl) ??
-            workerAvatarUrls.get(card.from)
-          }
+          avatarIconId={asker?.avatarIconId ?? workerAvatarIconIds.get(card.from)}
           kind={avatarKindForMember(
             asker ?? { id: card.from }
           )}

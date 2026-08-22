@@ -180,7 +180,7 @@ export function toMember(w: WireMember): Member {
   const presence = toPresence(w.presence) ?? "offline";
   return {
     id: w.id, // wire id (attribution key)
-    avatarUrl: w.avatar_url ?? "",
+    avatarIconId: w.avatar_icon_id ?? null,
     name: w.name, // direct
     // role_key is the wire role; view model narrows to the RoleKey union. Fall
     // back to "assistant" (the only M1 role) when the wire leaves it blank.
@@ -606,7 +606,7 @@ export function toTaskListItem(w: WireTaskListItem): TaskView {
 export function toOutsourceWorker(w: WireOutsourceWorker): OutsourceWorkerView {
   return {
     id: w.id,
-    avatarUrl: w.avatar_url ?? "",
+    avatarIconId: w.avatar_icon_id ?? null,
     codename: w.codename,
     runtime: (w.runtime || "claude") as "claude" | "codex",
     model: w.model ?? "",

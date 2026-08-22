@@ -62,7 +62,11 @@ export function MemberCard({
         {/* Roster cards are 正職 members; an assistant-role member shows the
             theme's 助理 image (T-ea81). Outsource workers live in the
             OutsourcePanel, not this roster. */}
-        <Avatar size={40} kind={avatarKindForMember(member)} src={member.avatarUrl} />
+        <Avatar
+          size={40}
+          kind={avatarKindForMember(member)}
+          avatarIconId={member.avatarIconId}
+        />
       </button>
 
       <div className="member-card__body">

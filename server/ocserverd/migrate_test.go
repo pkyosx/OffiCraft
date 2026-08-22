@@ -976,13 +976,16 @@ func TestMigration00035NormalizesAutoMachinePlacement(t *testing.T) {
 // avatar blob is owned only by member.avatar_attachment_id, so Down must remove
 // that blob before dropping its sole pointer. Unrelated chat blobs survive.
 func TestMemberAvatarMigrationRollback(t *testing.T) {
+	if err := goose.SetDialect("sqlite3"); err != nil {
+		t.Fatalf("set goose dialect: %v", err)
+	}
 	db, err := openSQLite(filepath.Join(t.TempDir(), "member-avatar-mig.db"))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
 	defer db.Close()
-	if err := runMigrations(db); err != nil {
-		t.Fatalf("goose up: %v", err)
+	if err := goose.UpTo(db, "migrations", 40); err != nil {
+		t.Fatalf("goose up to 40: %v", err)
 	}
 
 	if _, err := db.Exec(`INSERT INTO chat_attachment (id, mime, data, filename) VALUES
@@ -1122,5 +1125,86 @@ func TestMigration00045DeletesOnlyTheRetiredTaskManualHistory(t *testing.T) {
 	if after != len(want) {
 		t.Errorf("rollback changed the table to %d rows, want the same %d — the Down is a no-op "+
 			"and the deletion is irreversible by design", after, len(want))
+	}
+}
+
+func TestMemberThemeAvatarMigrationCleansPersonalBlobsAndRoundTrips(t *testing.T) {
+	if err := goose.SetDialect("sqlite3"); err != nil {
+		t.Fatalf("set goose dialect: %v", err)
+	}
+	db, err := openSQLite(filepath.Join(t.TempDir(), "member-theme-avatar-mig.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+	if err := goose.UpTo(db, "migrations", 59); err != nil {
+		t.Fatalf("goose up to 59: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO chat_attachment (id, mime, data, filename) VALUES
+		('ava-retired', 'image/png', X'89504E47', 'retired.png'),
+		('att-survives', 'image/png', X'89504E47', 'chat.png')`); err != nil {
+		t.Fatalf("seed blobs: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO member
+		(id, name, kind, avatar_attachment_id)
+		VALUES
+		('m-index-mig', 'Index', 'assistant', 'ava-retired'),
+		('m-index-corrupt', 'Corrupt legacy pointer', 'assistant', 'att-survives')`); err != nil {
+		t.Fatalf("seed member: %v", err)
+	}
+	if err := goose.UpTo(db, "migrations", 60); err != nil {
+		t.Fatalf("goose up to 60: %v", err)
+	}
+
+	var count int
+	// The association starts EMPTY. Nothing back-fills a default, because a
+	// member with no row is exactly what "has not chosen yet" means.
+	if err := db.QueryRow(`SELECT COUNT(*) FROM member_theme_avatar`).Scan(&count); err != nil ||
+		count != 0 {
+		t.Fatalf("migration must not back-fill selections, count=%d err=%v", count, err)
+	}
+	if _, err := db.Exec(`INSERT INTO member_theme_avatar (member_id, theme_id, icon_id)
+		VALUES ('m-index-mig', 'alpha', 'icn-a')`); err != nil {
+		t.Fatalf("insert selection: %v", err)
+	}
+	// One choice per (member, theme) is a database-level fact, not a handler
+	// convention: without it a member could hold two faces in one theme.
+	if _, err := db.Exec(`INSERT INTO member_theme_avatar (member_id, theme_id, icon_id)
+		VALUES ('m-index-mig', 'alpha', 'icn-b')`); err == nil {
+		t.Fatal("a second row for the same (member, theme) must violate the primary key")
+	}
+	if _, err := db.Exec(`INSERT INTO member_theme_avatar (member_id, theme_id, icon_id)
+		VALUES ('m-index-mig', 'beta', 'icn-b')`); err != nil {
+		t.Fatalf("the same member must be able to choose in another theme: %v", err)
+	}
+
+	if err := db.QueryRow(
+		`SELECT COUNT(*) FROM chat_attachment WHERE id = 'ava-retired'`,
+	).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("retired personal blob must be deleted, count=%d err=%v", count, err)
+	}
+	if err := db.QueryRow(
+		`SELECT COUNT(*) FROM chat_attachment WHERE id = 'att-survives'`,
+	).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("non-ava blob must survive even when a legacy pointer names it, count=%d err=%v", count, err)
+	}
+	if _, err := db.Exec(`SELECT avatar_attachment_id FROM member LIMIT 1`); err == nil {
+		t.Fatal("up migration must drop avatar_attachment_id")
+	}
+
+	if err := goose.DownTo(db, "migrations", 59); err != nil {
+		t.Fatalf("goose down to 59: %v", err)
+	}
+	var pointer string
+	if err := db.QueryRow(
+		`SELECT avatar_attachment_id FROM member WHERE id = 'm-index-mig'`,
+	).Scan(&pointer); err != nil || pointer != "" {
+		t.Fatalf("rollback pointer must be empty: got %q err=%v", pointer, err)
+	}
+	if _, err := db.Exec(`SELECT 1 FROM member_theme_avatar LIMIT 1`); err == nil {
+		t.Fatal("rollback must drop member_theme_avatar")
+	}
+	if err := goose.UpTo(db, "migrations", 60); err != nil {
+		t.Fatalf("second goose up to 60: %v", err)
 	}
 }

@@ -12,6 +12,7 @@
 // generous cannot make a component pass against a wire that does not exist.
 
 import { describe, it, expect, beforeEach } from "vitest";
+import type { ThemeBundle } from "../lib/themeBundle";
 import { mockApi, __resetMock } from "./mock";
 import { ApiError } from "./errors";
 import { MAX_WORDING_ENTRIES_PER_LANG } from "../lib/themeBundleCore";
@@ -116,12 +117,23 @@ describe("mock themes — the theme resource (T-83ef)", () => {
       id: "faced",
       name: "Faced",
       colors: { "--color-bg": "#101018" },
+      // A LEGACY bundle. `outsource` stopped being a valid SINGLETON key when
+      // T-cd6f moved member/outsource images into an ordered pool, but stored
+      // and imported bundles can still carry it — normalizing that is exactly
+      // what this asserts, so the cast is the point rather than a workaround.
       avatars: { outsource: pngAvatar },
-    });
-    // The regression: a fresh read must still carry avatars — the read-back
+    } as unknown as ThemeBundle);
+    // The regression: a fresh read must still carry the image — the read-back
     // mapper dropping this field was the "avatar lost after refresh" defect.
+    // T-cd6f moved member/outsource images into an ordered POOL, so a legacy
+    // singleton is normalized on the way in and comes back as a one-image pool
+    // carrying the stable id a member's selection points at.
     const again = await mockApi.getTheme("faced");
-    expect(again.avatars?.outsource).toBe(pngAvatar);
+    const pool = again.avatarPools?.outsource ?? [];
+    expect(pool).toHaveLength(1);
+    expect(pool[0].image).toBe(pngAvatar);
+    expect(pool[0].id).toMatch(/^icn-[0-9a-f]{12}$/);
+    expect((again.avatars as Record<string, string> | undefined)?.outsource).toBeUndefined();
   });
 
   it("saves logo + nav-icon overlays and reads them back durably", async () => {
