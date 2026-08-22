@@ -225,7 +225,16 @@ func (s *apiServer) HandlePutThemeApiThemesThemeIdPut(w http.ResponseWriter, r *
 	// roll back, so a 500 here would report "the write failed" for a write that
 	// succeeded. A leftover row is invisible — memberAvatarIconID resolves
 	// against the live pool and sends null for an id it cannot find.
-	if err := s.dal.PruneMemberThemeAvatars(s.themeIconIDs()); err != nil {
+	//
+	// BEST-EFFORT CUTS BOTH WAYS, and only one way was reasoned about here at
+	// first. Skipping a prune leaves a stale row, which the sentence above shows
+	// is harmless. Running a prune against a set we failed to read is NOT: an
+	// unreadable theme list is indistinguishable from an empty one once it is a
+	// bare map, and an empty one tells the prune to delete every association in
+	// the table. So read the set FIRST and skip the prune when that read fails.
+	if live, err := s.themeIconIDs(); err != nil {
+		taskLog("theme %s: avatar selection prune skipped, theme read failed: %v", themeID, err)
+	} else if err := s.dal.PruneMemberThemeAvatars(live); err != nil {
 		taskLog("theme %s: avatar selection prune failed: %v", themeID, err)
 	}
 	s.invalidateAvatarSelections()
@@ -281,7 +290,13 @@ func (s *apiServer) HandleDeleteThemeApiThemesThemeIdDelete(w http.ResponseWrite
 	// back, so a 500 here would report "the delete failed" for a delete that
 	// succeeded. A leftover association is invisible — memberAvatarIconID
 	// resolves against the live pool and sends null for an id it cannot find.
-	if err := s.dal.PruneMemberThemeAvatars(s.themeIconIDs()); err != nil {
+	//
+	// Same asymmetry as the write path: a SKIPPED prune is harmless, a prune run
+	// against a set we failed to read deletes the whole table. Read first, skip
+	// on error.
+	if live, err := s.themeIconIDs(); err != nil {
+		taskLog("theme %s: avatar selection prune skipped, theme read failed: %v", themeID, err)
+	} else if err := s.dal.PruneMemberThemeAvatars(live); err != nil {
 		taskLog("theme %s: avatar selection prune failed: %v", themeID, err)
 	}
 	s.invalidateAvatarSelections()

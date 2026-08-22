@@ -32,6 +32,7 @@ import {
   applyThemeToRoot,
   readValidatedPaint,
 } from "../lib/themePaint";
+import { notifyThemeAvatarsChanged } from "../lib/themeAvatarsChanged";
 import { applyWording } from "./wording";
 import { makeMessages, type Messages } from "./compose";
 
@@ -446,6 +447,16 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const setTheme = useCallback(
     (next: string) => {
       cacheTheme(next);
+      // The roster is holding faces resolved for the theme we are LEAVING; every
+      // card has to be re-read against the new one or it silently shows that
+      // pool's first image instead of this member's own choice there.
+      //
+      // ANNOUNCED HERE, before the server round-trip, because the switch has
+      // ALREADY happened for this client the moment the cache moves — the paint
+      // below does not wait either, and the pre-auth path never reaches the
+      // server at all. Announcing from a .then() would leave the roster stale
+      // in exactly the cases where the request is slow or absent.
+      notifyThemeAvatarsChanged();
       if (next === "office") {
         setActiveThemeBundle(null);
         writePaint(null);
@@ -512,6 +523,10 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         setActiveThemeBundle(bundle);
         writePaint(bundle);
       }
+      // A pool edit can remove the very image a member had chosen; the server
+      // prunes that association on this write, so the roster's copy is stale
+      // even though no member row was touched.
+      notifyThemeAvatarsChanged();
     },
     [writePaint]
   );
@@ -532,6 +547,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         setActiveThemeBundle(null);
         writePaint(null);
       }
+      // Deleting a theme drops every selection recorded against it, and may
+      // reset the active theme as well — both change what the roster resolves.
+      notifyThemeAvatarsChanged();
     },
     [cacheTheme, writePaint]
   );

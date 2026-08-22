@@ -480,11 +480,27 @@ func (d *DAL) DeleteMemberThemeAvatars(memberID string) error {
 // that theme's pools; a theme absent from the map was deleted, and an icon id
 // absent from its set was removed from the pool.
 //
-// This runs on the settings write path, which is the only place themes and
-// pools change. Deleting the row (rather than leaving it to fail resolution at
-// render time) is what stops a deleted theme's selection from reappearing if a
-// later theme is created with the same id.
+// This runs on the theme write and theme delete paths (PUT and DELETE
+// /api/themes/{theme_id}), which are the only places themes and pools change.
+// Deleting the row (rather than leaving it to fail resolution at render time)
+// is what stops a deleted theme's selection from reappearing if a later theme
+// is created with the same id.
+//
+// ⚠️ A NIL `live` IS REFUSED, and that guard is load-bearing rather than
+// defensive tidiness. Reading a Go map that is nil is legal and silent: every
+// lookup answers "absent". So a nil set does not prune nothing — it marks EVERY
+// row stale and deletes the whole table, and then returns success. The only
+// caller that can produce one is a caller whose own read of the themes failed,
+// which is exactly when it must not be trusted to say what is live. The callers
+// already skip the prune in that case (api_themes.go); this refusal is the
+// second line, the one that still holds when a future caller gets that wrong.
+// An EMPTY BUT NON-NIL set stays legal on purpose: that is the true and
+// reachable state "the owner deleted every custom theme", and pruning every
+// association is then the correct answer.
 func (d *DAL) PruneMemberThemeAvatars(live map[string]map[string]bool) error {
+	if live == nil {
+		return errors.New("prune member_theme_avatar: refusing a nil live-theme set (an unread theme list is not an empty one)")
+	}
 	rows, err := d.rdb.Query(`SELECT member_id, theme_id, icon_id FROM member_theme_avatar`)
 	if err != nil {
 		return err

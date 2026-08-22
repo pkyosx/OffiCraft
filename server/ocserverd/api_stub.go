@@ -623,10 +623,22 @@ func themeAvatarPools(bundle string) map[string][]ThemeIconDTO {
 // theme id -> icon id -> true. The theme write and delete paths prune
 // associations against exactly this, so a deleted theme or a removed pool
 // image can not leave a selection behind.
-func (s *apiServer) themeIconIDs() map[string]map[string]bool {
+//
+// ⚠️ IT RETURNS AN ERROR ON PURPOSE. The prune reads this set as the WHOLE
+// truth about what is still live, so a theme missing from it is a theme that no
+// longer exists and every association row pointing at it is deleted. An empty
+// set does not mean "nothing to clean up" — it means "keep nothing", which is
+// the entire table. "The read failed" and "there are no themes" must therefore
+// never share one value: this used to answer nil for a failed read, which
+// turned a single unlucky ListCustomThemes error into a total, silent wipe of
+// every member's chosen face — reported as success, because the prune really
+// did succeed at deleting everything. A caller that cannot get this set must
+// SKIP the prune, never run it against a guess (see PruneMemberThemeAvatars,
+// which refuses a nil set outright).
+func (s *apiServer) themeIconIDs() (map[string]map[string]bool, error) {
 	themes, err := s.dal.ListCustomThemes()
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	out := map[string]map[string]bool{}
 	for _, theme := range themes {
@@ -640,7 +652,7 @@ func (s *apiServer) themeIconIDs() map[string]map[string]bool {
 		}
 		out[theme.ID] = icons
 	}
-	return out
+	return out, nil
 }
 
 // themeIconIDsFor returns one theme's resolvable icon ids. Used by the write

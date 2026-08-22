@@ -385,3 +385,79 @@ func TestLegacySingletonNormalizesIntoAPoolWithAnID(t *testing.T) {
 		t.Fatalf("legacy singleton did not normalize with an id: %+v", got)
 	}
 }
+
+// ── The nil-vs-empty distinction (T-698b) ───────────────────────────────────
+//
+// These two tests are a pair and only mean something together. Reading a nil Go
+// map is legal and silent — every lookup answers "absent" — so a prune handed a
+// nil set marks EVERY row stale and empties the table, then reports success.
+// That is what "the theme list could not be read" used to turn into: one
+// unlucky ListCustomThemes error plus any theme edit wiped every member's face,
+// with no error and no log line, because the deletion itself worked perfectly.
+//
+// The fix is a distinction, not a length check, and that is why the second test
+// exists: "the owner deleted every custom theme" is a REAL state that reaches
+// this function as an empty-but-non-nil set, and pruning everything is then the
+// right answer. A guard written as len(live) == 0 would pass the first test and
+// silently break that state instead.
+
+func TestPruningAgainstANilThemeSetIsRefusedAndDeletesNothing(t *testing.T) {
+	s := newTasksTestServer(t)
+	img := icon("keep")
+	installThemes(t, s, "alpha", themeWithPools("alpha", pool(img), nil))
+	member := staffMember(t, s, "m-keeper")
+	putThemeAvatar(t, s, member.ID, "alpha", themeIconID(img))
+
+	// A nil set is what a caller produces when its own read of the themes
+	// failed. It is not an answer, so it must not be treated as one.
+	if err := s.dal.PruneMemberThemeAvatars(nil); err == nil {
+		t.Fatal("prune accepted a nil live-theme set; an unread theme list must not read as an empty one")
+	}
+
+	rows, err := s.dal.MemberThemeAvatars("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := rows[member.ID]; !ok {
+		t.Fatalf("a refused prune still deleted the association: %+v", rows)
+	}
+}
+
+func TestPruningAgainstAnEmptyThemeSetStillClearsEverything(t *testing.T) {
+	s := newTasksTestServer(t)
+	img := icon("keep")
+	installThemes(t, s, "alpha", themeWithPools("alpha", pool(img), nil))
+	member := staffMember(t, s, "m-keeper")
+	putThemeAvatar(t, s, member.ID, "alpha", themeIconID(img))
+
+	// Empty BUT NOT nil: the owner really did delete every custom theme. Every
+	// association is genuinely unresolvable, so clearing them is correct.
+	if err := s.dal.PruneMemberThemeAvatars(map[string]map[string]bool{}); err != nil {
+		t.Fatalf("prune refused a real empty theme set: %v", err)
+	}
+
+	rows, err := s.dal.MemberThemeAvatars("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := rows[member.ID]; ok {
+		t.Fatalf("association survived a theme set that can no longer resolve it: %+v", rows)
+	}
+}
+
+func TestThemeIconIDsReportsAReadFailureInsteadOfAnEmptySet(t *testing.T) {
+	s := newTasksTestServer(t)
+	img := icon("keep")
+	installThemes(t, s, "alpha", themeWithPools("alpha", pool(img), nil))
+
+	live, err := s.themeIconIDs()
+	if err != nil {
+		t.Fatalf("themeIconIDs on a healthy store: %v", err)
+	}
+	if live == nil {
+		t.Fatal("themeIconIDs returned a nil set with no error; nil is reserved for 'no answer'")
+	}
+	if !live["alpha"][themeIconID(img)] {
+		t.Fatalf("themeIconIDs lost the stored icon: %+v", live)
+	}
+}
