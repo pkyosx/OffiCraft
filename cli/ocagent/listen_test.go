@@ -591,7 +591,7 @@ func TestDrainChat_SelfEchoBacklogNeverCrowdsOutRealMessages(t *testing.T) {
 	if n := drainChat(srv.Client(), cfg, seen, &out, false); n != 1 {
 		t.Fatalf("unread-for-me count = %d want 1 (only the hook message)", n)
 	}
-	if got, want := out.String(), "[ocagent] chat from hook:slack-hook (id): 加到 todo\n"; got != want {
+	if got, want := out.String(), "[ocagent] chat from hook:slack-hook (#m-new): 加到 todo\n"; got != want {
 		t.Fatalf("drain must print ONLY the real message:\n got %q\nwant %q", got, want)
 	}
 	for _, id := range []string{"m-old1", "m-old2", "m-new"} {
@@ -636,7 +636,7 @@ func TestDrainChat_BlankFromIsNeverAnEcho(t *testing.T) {
 	if n := drainChat(srv.Client(), cfg, map[string]bool{}, &out, false); n != 1 {
 		t.Fatalf("blank sender must fail OPEN (print), n=%d", n)
 	}
-	if got := out.String(); got != "[ocagent] chat from  (id): who sent this\n" {
+	if got := out.String(); got != "[ocagent] chat from  (#m1): who sent this\n" {
 		t.Fatalf("blank-sender line = %q", got)
 	}
 }
