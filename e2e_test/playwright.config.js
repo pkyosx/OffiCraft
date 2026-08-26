@@ -54,5 +54,13 @@ module.exports = defineConfig({
   use: {
     baseURL: process.env.OC_E2E_BASE || 'http://127.0.0.1:8791',
     extraHTTPHeaders: {},
+    // Until now a red run produced ONE line of text and nothing else: no DOM,
+    // no network, no scroll state. That is why the intermittent reds in
+    // 12_in_conversation_divider could not be told apart — two different causes
+    // (the product scrolling on its own vs. a scroll event that had not
+    // dispatched yet) print the same sentence. `retain-on-failure` keeps a full
+    // trace ONLY for tests that actually fail, so a green run still writes
+    // nothing and the steady-state artifact cost stays zero.
+    trace: 'retain-on-failure',
   },
 });

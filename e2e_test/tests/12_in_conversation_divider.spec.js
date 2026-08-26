@@ -81,16 +81,27 @@ test.describe('B12 · in-conversation arrivals — chip and divider share ONE ne
     const new1 = await postChatAs(request, tokM, 'owner', `sudden new message 1 ${PAD}`);
     await postChatAs(request, tokM, 'owner', `sudden new message 2 ${PAD}`);
 
+    // …and the viewport was NOT yanked (the owner keeps reading history; the
+    // divider anchoring must never scroll on its own).
+    //
+    // 🔴 DIAGNOSTIC ORDERING, ON PURPOSE. This read used to sit AFTER the chip
+    // assertion below, so whenever the chip went red we never reached it and the
+    // failure log carried no scroll position at all. Two hypotheses produce a
+    // byte-identical log without it: (product) `nearBottom` misjudges under an
+    // SSE burst, the view is pulled back to the bottom, and neither chip nor
+    // divider arms; (test) the `el.scrollTop = 0` above has not dispatched its
+    // scroll event yet when the SSE frames land. The ONLY thing that separates
+    // them is the `scrollTop` at the moment of failure, so it must be sampled
+    // before anything that can abort the test. Nothing about the assertion
+    // itself changed — same expression, same message, same threshold.
+    const scrollTop = await thread.evaluate((el) => el.scrollTop);
+    expect(scrollTop, 'the arrival must not yank the scrolled-up owner').toBeLessThan(40);
+
     // The floating chip appears…
     const chip = page.locator('.chat__new-msg-chip');
     await expect(chip, 'the "有新訊息" chip must appear').toBeVisible({
       timeout: 15_000,
     });
-
-    // …and the viewport was NOT yanked (the owner keeps reading history; the
-    // divider anchoring must never scroll on its own).
-    const scrollTop = await thread.evaluate((el) => el.scrollTop);
-    expect(scrollTop, 'the arrival must not yank the scrolled-up owner').toBeLessThan(40);
 
     // THE BUG: the divider must exist ALREADY, anchored at the FIRST of the
     // two new messages — the exact anchor the chip jumps to.

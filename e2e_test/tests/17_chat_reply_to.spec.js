@@ -152,11 +152,30 @@ test.describe('T-4e95 · reply-to — banner, wire, quote row, jump', () => {
     // ── THE WIRE ACTUALLY CARRIED THE LINK. Read it back from the SERVER, not
     // from the DOM: this is the assertion that dies when `replyTo` is dropped
     // anywhere between the composer and the POST body.
-    const res = await request.get(`${BASE}/api/chat?with=${M.id}&limit=100`, {
-      headers: authHeaders(token),
-    });
-    const payload = await res.json();
-    const rows = Array.isArray(payload) ? payload : payload.messages;
+    //
+    // 🔴 THIS READ MUST POLL — it used to be a single zero-retry GET, and that
+    // was a textbook write-then-read race. The only gate between the composer
+    // and this line is `await expect(banner).toHaveCount(0)`, and the banner
+    // going away proves NOTHING about the POST: ChatArea's `submit()` runs
+    // `setReplyToId(null)` BEFORE it awaits `send(...)` — a deliberate
+    // optimistic reset whose own comment says so. So when the banner hits 0 the
+    // POST is still in flight. CI went red here twice (latest 2026-08-25). The
+    // product is fine; the test was reading too early. Poll until the write has
+    // landed, then assert on the settled rows.
+    let rows = [];
+    await expect
+      .poll(
+        async () => {
+          const res = await request.get(`${BASE}/api/chat?with=${M.id}&limit=100`, {
+            headers: authHeaders(token),
+          });
+          const payload = await res.json();
+          rows = Array.isArray(payload) ? payload : payload.messages;
+          return rows.some((m) => m.body === ANSWER);
+        },
+        { message: 'the reply must have been stored', timeout: 15_000 },
+      )
+      .toBe(true);
     const original = rows.find((m) => m.body === TARGET);
     const reply = rows.find((m) => m.body === ANSWER);
     expect(original, 'the quoted message must exist').toBeTruthy();
