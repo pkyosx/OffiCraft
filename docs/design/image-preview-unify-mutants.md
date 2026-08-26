@@ -60,16 +60,35 @@ M8 釘的是另一半：所有權只有在 block **只有一個家**時才成立
 |---|---|---|---|
 | M10 | 把 `<Lightbox … />` 種回 `ChatArea.tsx` | 1 | `<Lightbox is back in production source — use frontend/src/components/MarkdownPreviewOverlay.tsx instead:` + 命中的 `path:line` |
 | M11 | 把 `.chat__lightbox { … }` 種回 office.css | 1 | `.chat__lightbox styling is back — that block was deleted with the component:` + 命中的 `path:line` |
-| M12 | 把 `FE` 指到不存在的 `frontendz`（vacuous-green 哨兵） | 1 | `frontend/src/components is missing — every scan below would be a vacuous pass` + `scan corpus is only 0 files` |
+| M12 | 把 `FE` 指到不存在的 `frontendz`（vacuous-green 哨兵） | 1 | `frontend/src/components is missing — every scan below would be a vacuous pass` + `scan corpus is only 0 tracked file(s)` |
+| M13 | 語料改回 `find` ＋ 目錄名 deny-list（T-1a7d 之前的樣子） | 1 | `the corpus reached into build output …` ＋ `the component scan reported a violation from build output — this is the false red T-1a7d fixed, come back` |
 
 M12 是本守衛最重要的一支：grep 打錯路徑會回 0 行，而 0 行正是「通過」的長相。
-守衛自己的 corpus 檢查（目錄存在 + 檔數 ≥ 100 + 倖存的彈窗檔還在）讓那種綠變紅。
+守衛自己的 corpus 檢查（目錄存在 + 受版控檔數 ≥ 100 + 倖存的彈窗檔還在）讓那種綠變紅。
 
 守衛內建的正負對照（每次執行都跑，不需人工施加 mutant）：
-在 `mktemp` 出來的假樹裡種一個 `<Lightbox>` 與一條 `.chat__lightbox` 規則，
+在 `mktemp` 出來的**假 git 倉庫**裡種一個 `<Lightbox>` 與一條 `.chat__lightbox` 規則並 `git add`，
 斷言掃描回報的是**那個 path:line**（不是「有東西失敗」）；
 再把兩個違規刪掉，斷言乾淨的樹**什麼都不報**。
 少了負向那半，一個「見檔就報」的壞掃描也能滿足兩條正向對照。
+
+### T-1a7d（2026-08-27）：語料從 `find` 換成 `git ls-files`
+
+原本的掃法用 `find` 走整棵樹，再用**目錄名**排除 `node_modules`／`dist`／`.git`。
+那是 deny-list，而 deny-list 對「這是不是人寫的檔」是錯的形狀：
+🔴 `-name dist` **不匹配 `dist-paint-guard`**，`playwright/.cache` 從頭就不在清單上。
+量過（2026-08-27，一個已建置的工作副本的 `frontend/`）：舊掃法讀 497 檔，`git ls-files` 讀 480，
+多出來的 17 個全是 Vite 產出的 bundle。bundle 裡有 source 當時的內容，
+所以一條幾個月前就從 `office.css` 退休的規則，仍會活在某人筆電上的舊 bundle 裡 —— 守衛就報「它回來了」。
+**這是結構上只發生在本機的假紅**：CI 每個 job 都是全新 checkout，`bin-guards` 那格從不跑 Vite。
+正因為只在有人站在機器前的時候浪費時間，它特別能訓練大家「紅了就重跑」。
+
+改法不是再往 deny-list 加名字，而是把語料換成**受版控的檔**（`git ls-files`）。
+另外加了三條斷言：
+1. 對**真實**樹斷言語料裡不含 `dist*/`、`node_modules/`、`.cache/`、`build/`、`coverage/`、`out/`；
+2. 對照樹裡放兩顆**未受版控的誘餌**（與受版控的植入位元組相同，一個在 `dist-paint-guard/`、
+   一個在 `playwright/.cache/assets/`）—— **必須抓不到**，而 `src/` 那兩個**必須抓到**；
+3. 前置檢查「誘餌真的存在、而且真的含有違規」—— 否則「沒抓到」可能只是檔案不在，是空對空。
 
 ## 這份紀錄涵蓋不到的
 

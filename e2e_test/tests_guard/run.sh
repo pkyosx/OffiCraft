@@ -2801,27 +2801,91 @@ SG24_MARK="sg24-$$-${RANDOM}"
 SG24_SLEEPER="$SG24/$SG24_MARK"
 # `exec -a` keeps the marker in the sleeper's OWN argv (so a pattern matcher can
 # find it) while leaving exactly ONE process to kill and reap.
-printf '#!/usr/bin/env bash\nexec -a "$0" sleep 20\n' > "$SG24_SLEEPER"
+#
+# 🔴 THE SLEEPER MUST OUTLIVE EVERY WATCH BELOW, and by a wide margin. If a decoy
+# can reach the end of its own `sleep` while we are still watching it, "dead"
+# stops meaning "somebody killed it" and starts meaning "time passed" — and the
+# assertion that a mutant reached an un-recorded process would pass on a mutant
+# that did nothing. That is not hypothetical: it was MEASURED here on 2026-08-27
+# while fixing this very function. Every sleeper is killed and reaped explicitly,
+# so the only cost of a long one is what happens if the suite is itself killed.
+SG24_SLEEP_SECS=300
+SG24_WATCH_SURVIVES=1   # seconds; the window that IS the detector for 24e
+SG24_WATCH_DIES=15      # seconds; the ceiling on an event that must happen (24f)
+printf '#!/usr/bin/env bash\nexec -a "$0" sleep %s\n' "$SG24_SLEEP_SECS" > "$SG24_SLEEPER"
 chmod +x "$SG24_SLEEPER"
+# Asserted, not assumed: this is the invariant that keeps "dead" honest, and the
+# next person to tune a number here is the one it is written for.
+[[ "$SG24_SLEEP_SECS" -gt $(( SG24_WATCH_DIES * 4 )) && "$SG24_SLEEP_SECS" -gt $(( SG24_WATCH_SURVIVES * 4 )) ]] \
+  && ok "ownedkill: the sleeper lives ${SG24_SLEEP_SECS}s, far longer than the longest watch (${SG24_WATCH_DIES}s) — a decoy cannot reach its own end while we are looking at it, so 'dead' can only mean 'killed'" \
+  || bad "ownedkill: the sleeper (${SG24_SLEEP_SECS}s) is not comfortably longer than the ${SG24_WATCH_DIES}s watch — a decoy that simply finishes would be read as KILLED, and 24f would pass on a mutant that touched nothing"
 SG24_PLEDGER="$SG24/pid-ledger"
 sg24_alive() { local s; s="$(ps -p "$1" -o state= 2>/dev/null | tr -d ' ')"; [[ -n "$s" && "$s" != Z* ]]; }
-sg24_pids() { # sg24_pids LIB -> "<owned alive|dead>|<decoy alive|dead>"
-  local lib="$1" owned decoy i o=dead d=alive
+sg24_pids() { # sg24_pids LIB EXPECT_DECOY(survives|dies) -> "<owned alive|dead>|<decoy alive|dead>"
+  local lib="$1" expect="$2" owned decoy o=dead d=alive watch t0
+  # 🔴 THE DEADLINE IS NOT THE SAME QUESTION IN BOTH DIRECTIONS (T-1a7d, 2026-08-27).
+  # This helper feeds two OPPOSITE assertions and used to give both the same
+  # ten-round window. For one of them that window IS the detector; for the other
+  # it silently rewrote the claim, and that is where the false red came from:
+  #
+  #  survives (24e, the shipped lib) — the claim is "nothing ever signals it".
+  #    A bounded window is the only honest way to read that: watch for a while,
+  #    report what you saw. The watch always runs to the end here (the decoy
+  #    never dies), so it is a FIXED COST, never a race. Keep it.
+  #
+  #  dies (24f, the pgrep mutant) — the claim is "the pattern matcher reaches a
+  #    process the ledger never named". That is a LIVENESS property: it says the
+  #    kill HAPPENS, not that it happens within half a second. Bounding it the
+  #    same way re-reads it as "…and the kernel reaps it within the window", a
+  #    sentence nobody wrote and this machine breaks. MEASURED, with the loop
+  #    reproduced in isolation and the decoy's death deliberately delayed by a
+  #    `sleep` (no load applied — the lateness is manufactured, not borrowed):
+  #    0 s / 0.3 s / 0.7 s late → both windows read `dead`; 1.5 s late → the old
+  #    window reads `alive` and case 24f goes RED with nothing wrong. On a box
+  #    carrying a dozen agents that lateness is ordinary. A guard that reddens
+  #    for no reason is a guard somebody switches off — and switching THIS one
+  #    off costs the live fleet (see 24f's header: 2026-08-11, `pkill -f
+  #    "ocserverd serve"` planted in lib/carrier.sh, live ocserverd down 27 s).
+  #    So this side waits up to ${SG24_WATCH_DIES}s and stops the instant the
+  #    decoy dies: FREE when the mutant works, still red — just later — when it
+  #    does not. A deadline on an event that must happen is not a loosened
+  #    threshold on one that must not.
+  #
+  # ⚠️ WALL CLOCK, NOT A ROUND COUNT. The first draft of this fix said "200
+  # rounds ≈ 10 s" and was WRONG BY 3×: the loop body forks `ps`, so a nominally
+  # 50 ms round costs ~145 ms here — MEASURED 2026-08-27: 10 rounds = 1 s, 200
+  # rounds = 29 s, on a box at load ~3.4. A count of rounds is a duration only if
+  # you already know what the machine costs, which is precisely the thing that
+  # varies. `date +%s` is portable back to the stock /bin/bash this suite is
+  # careful to keep working.
+  case "$expect" in
+    survives) watch="$SG24_WATCH_SURVIVES" ;;
+    dies)     watch="$SG24_WATCH_DIES" ;;
+    # Not `bad` here: this runs inside a command substitution, where `bad`'s line
+    # would be swallowed into the caller's variable and its FAIL++ lost with the
+    # subshell. Emit a value no assertion can accept, so the caller's own checks
+    # go red and print it.
+    *) printf 'sg24_pids: unknown decoy expectation %s\n' "$expect" >&2
+       printf 'UNKNOWN-EXPECTATION|UNKNOWN-EXPECTATION\n'; return 1 ;;
+  esac
   "$SG24_SLEEPER" & owned=$!
   "$SG24_SLEEPER" & decoy=$!
   printf '%s\n' "$owned" > "$SG24_PLEDGER"
   SG24_MARK="$SG24_MARK" bash -c '. "$1" || exit 9; sg_own_kill_pids "$2"' _ "$lib" "$SG24_PLEDGER" >/dev/null 2>&1
   # `wait` is the synchronisation point: it returns only once the signal has
-  # actually landed on the pid we expected to die. The decoy then gets a bounded
-  # grace window of its own, so "the decoy survived" can never be a race — the
-  # shipped lib never signals it, so it sits out all ten rounds.
+  # actually landed on the pid we expected to die.
   wait "$owned" 2>/dev/null
   sg24_alive "$owned" && o=alive
-  for i in 1 2 3 4 5 6 7 8 9 10; do sg24_alive "$decoy" || { d=dead; break; }; sleep 0.05; done
+  t0="$(date +%s)"
+  while :; do
+    sg24_alive "$decoy" || { d=dead; break; }
+    [[ $(( $(date +%s) - t0 )) -ge "$watch" ]] && break
+    sleep 0.05
+  done
   kill "$decoy" 2>/dev/null; wait "$decoy" 2>/dev/null
   printf '%s|%s\n' "$o" "$d"
 }
-_sg24_p="$(sg24_pids "$SG_OWNED")"
+_sg24_p="$(sg24_pids "$SG_OWNED" survives)"
 check "ownedkill: POSITIVE CONTROL — the pid written to the ledger is really killed" "dead" "${_sg24_p%%|*}"
 check "ownedkill: OWNERSHIP — an IDENTICAL process that was never recorded survives" "alive" "${_sg24_p#*|}"
 # fail-closed on this side too: no ledger ⇒ the recorded-nowhere process lives.
@@ -2841,7 +2905,7 @@ sed 's|kill "$pid" 2>/dev/null|kill $(pgrep -f "$SG24_MARK") 2>/dev/null|' "$SG_
 if ! grep -q 'pgrep -f' "$SG24_PIDMUT"; then
   bad "seven_gate: MUT-pgrep did not apply to lib/ownedkill.sh — the exact-kill line moved, so case 24f is testing nothing (fix the sed)"
 else
-  _sg24_pm="$(sg24_pids "$SG24_PIDMUT")"
+  _sg24_pm="$(sg24_pids "$SG24_PIDMUT" dies)"
   check "MUT-pgrep: the mutant still kills the process it owns (so the difference below is the PATTERN, not a broken mutant)" "dead" "${_sg24_pm%%|*}"
   check "MUT-pgrep: …and it ALSO kills the un-recorded look-alike — 24e is pinned to the ledger, not to luck" "dead" "${_sg24_pm#*|}"
 fi
@@ -3296,7 +3360,13 @@ echo "[tests_guard] PASS=$PASS FAIL=$FAIL"
 # printed the marker with no floor evaluated at all: MEASURED, floor block
 # deleted and the trailing echo kept → PASS=153 FAIL=0 rc=0, last line
 # `[tests_guard] all green`, `bin/ci.sh` all green. Keep it in the branch.
-PASS_FLOOR=320
+#
+# 2026-08-27 (T-1a7d): 323 → 324. Case 24e gained ONE assertion — the one that
+# pins the decoy sleeper's lifetime above the longest watch, without which a
+# decoy that simply finished would read as "killed" and 24f would pass on a
+# mutant that touched nothing. Floor moved 320 → 321 in the same commit, keeping
+# the same three assertions of slack, as this block asks.
+PASS_FLOOR=321
 if [[ "$PASS" -lt "$PASS_FLOOR" ]]; then
   echo "[tests_guard] FATAL: only $PASS assertion(s) ran, floor is $PASS_FLOOR." >&2
   echo "[tests_guard] FAIL=0 with a collapsed PASS count means cases went missing, not that they passed." >&2
