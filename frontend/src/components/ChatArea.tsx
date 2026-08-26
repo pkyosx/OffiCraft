@@ -740,6 +740,11 @@ export function ChatArea({
   function onMessagesScroll() {
     const el = messagesRef.current;
     if (!el) return;
+    // MUTANT (temporary, t-2bee9d8610e8): the thread refuses to stay scrolled
+    // up — any scroll snaps the viewport back to the bottom. This is the
+    // product regression that assertion ① in
+    // e2e_test/tests/12_in_conversation_divider.spec.js is supposed to catch.
+    el.scrollTop = el.scrollHeight;
     // Near the TOP → pull one older page (no-op while one is in flight or
     // when the history is exhausted — hasMore=false renders the
     // "已到最早訊息" marker instead).
