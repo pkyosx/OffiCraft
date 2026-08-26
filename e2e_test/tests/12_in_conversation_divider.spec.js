@@ -81,27 +81,58 @@ test.describe('B12 · in-conversation arrivals — chip and divider share ONE ne
     const new1 = await postChatAs(request, tokM, 'owner', `sudden new message 1 ${PAD}`);
     await postChatAs(request, tokM, 'owner', `sudden new message 2 ${PAD}`);
 
-    // …and the viewport was NOT yanked (the owner keeps reading history; the
-    // divider anchoring must never scroll on its own).
+    // ── THE SCROLL POSITION IS SAMPLED TWICE, ON PURPOSE ───────────────────
     //
-    // 🔴 DIAGNOSTIC ORDERING, ON PURPOSE. This read used to sit AFTER the chip
-    // assertion below, so whenever the chip went red we never reached it and the
-    // failure log carried no scroll position at all. Two hypotheses produce a
-    // byte-identical log without it: (product) `nearBottom` misjudges under an
-    // SSE burst, the view is pulled back to the bottom, and neither chip nor
-    // divider arms; (test) the `el.scrollTop = 0` above has not dispatched its
-    // scroll event yet when the SSE frames land. The ONLY thing that separates
-    // them is the `scrollTop` at the moment of failure, so it must be sampled
-    // before anything that can abort the test. Nothing about the assertion
-    // itself changed — same expression, same message, same threshold.
-    const scrollTop = await thread.evaluate((el) => el.scrollTop);
-    expect(scrollTop, 'the arrival must not yank the scrolled-up owner').toBeLessThan(40);
+    // These are NOT the same assertion written down twice. They sit on
+    // opposite sides of the chip wait because they answer different questions,
+    // and the pair is what makes this spec's intermittent red self-diagnosing.
+    //
+    // The chip assertion below can abort the test. When it did, we never
+    // reached ANY scroll reading, and two completely different causes printed a
+    // byte-identical failure log:
+    //   (product) `nearBottom` misjudges under an SSE burst, the view is pulled
+    //             back to the bottom, and neither chip nor divider arms;
+    //   (test)    the `el.scrollTop = 0` above has not dispatched its scroll
+    //             event yet when the SSE frames land, so the component never
+    //             saw the owner as scrolled-up in the first place.
+    //
+    // ① below runs BEFORE anything that can abort, so it is always in the log,
+    // and it falsifies exactly one of those two:
+    //   * reads ~0  ⇒ the scroll-to-top DID take effect. Hypothesis (test) is
+    //                 dead, and any red that follows can only be product-side.
+    //   * reads big ⇒ the scroll-to-top never landed. Hypothesis (test) is
+    //                 confirmed and the product is exonerated.
+    // ② after the chip is the ORIGINAL guarantee and it is unchanged: the SSE
+    // arrival must not yank a scrolled-up reader back to the bottom. ① cannot
+    // stand in for it — ① samples before the frames are necessarily processed,
+    // so it says nothing about what the arrival did. Moving ② up here instead
+    // of adding ① would have silently deleted that guarantee.
+    //
+    // ① DIAGNOSTIC — did the precondition (scrolled to the top) actually hold?
+    const scrolledUp = await thread.evaluate((el) => el.scrollTop);
+    expect(
+      scrolledUp,
+      'scrolling to the top must have actually taken effect before the arrivals ' +
+        '(this line exists to separate "the product misjudged nearBottom" from ' +
+        '"the test never waited for its own scroll to land")',
+    ).toBeLessThan(40);
 
     // The floating chip appears…
     const chip = page.locator('.chat__new-msg-chip');
     await expect(chip, 'the "有新訊息" chip must appear').toBeVisible({
       timeout: 15_000,
     });
+
+    // ② THE ORIGINAL GUARANTEE, in its original place. It has to stay AFTER the
+    // chip: only once the chip is up do we know the SSE frames were received
+    // and rendered, which is the one moment at which "the arrival did not yank
+    // the viewport" is a claim about the arrival rather than about nothing.
+    // Same expression, same message, same threshold as before this change.
+    //
+    // …and the viewport was NOT yanked (the owner keeps reading history; the
+    // divider anchoring must never scroll on its own).
+    const scrollTop = await thread.evaluate((el) => el.scrollTop);
+    expect(scrollTop, 'the arrival must not yank the scrolled-up owner').toBeLessThan(40);
 
     // THE BUG: the divider must exist ALREADY, anchored at the FIRST of the
     // two new messages — the exact anchor the chip jumps to.
