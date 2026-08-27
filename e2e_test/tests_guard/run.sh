@@ -2828,6 +2828,7 @@ chmod +x "$SG24_SLEEPER"
   || bad "ownedkill: the sleeper (${SG24_SLEEP_SECS}s) is not comfortably longer than the ${SG24_WATCH_DIES}s watch — a process that simply finished would be read as KILLED, and 24f would pass on a mutant that touched nothing"
 SG24_PLEDGER="$SG24/pid-ledger"
 SG24_KLOG="$SG24/kill-log"
+SG24_SHELLV="$SG24/inner-bash-version"
 # The signals whose DEFAULT DISPOSITION ends the process — an ERE alternation of
 # canonical bare names, matched against the canonicalised ledger (see the long
 # comment in sg24_pids for why the ledger canonicalises rather than compares
@@ -2846,12 +2847,38 @@ SG24_KLOG="$SG24/kill-log"
 # genuinely disagrees between the two (terminate on Linux, discard on macOS) —
 # nothing tears a process down with SIGIO, and a signal that is lethal on only
 # one of the two hosts cannot be the definition of "this teardown worked".
-# The bare numbers at the end are a FALLBACK, reachable only if `builtin kill -l`
-# could not resolve a numeric spec on this box: 1-15 are the POSIX signal
-# numbers, identical everywhere, and all fifteen terminate. Numbers above 15 are
-# NOT listed on purpose — they are not the same signals on the two hosts, so
-# there is no portable answer to give without asking the interpreter.
-SG24_LETHAL='TERM|KILL|HUP|INT|QUIT|ILL|TRAP|ABRT|IOT|EMT|BUS|FPE|SEGV|SYS|PIPE|ALRM|USR1|USR2|XCPU|XFSZ|VTALRM|PROF|STKFLT|PWR|LOST|RTMIN[0-9+-]*|RTMAX[0-9+-]*|[1-9]|1[0-5]'
+#
+# 🔴 SOME OF THESE NAMES DO NOT EXIST ON THIS HOST, AND THAT ONCE MADE THIS LINE
+# THE FALSE-GREEN CHANNEL ITSELF (found in the SIXTH review, 2026-08-27).
+# STKFLT, PWR, LOST and the RTMIN*/RTMAX* range are Linux signals: macOS has no
+# such names, so `builtin kill -l STKFLT` FAILS here. The canonicaliser's
+# fall-through used to hand back the spec unchanged on exactly that failure —
+# and the unchanged spec is `STKFLT`, which is written right here, INSIDE the
+# lethal set. So an unresolvable name landed INSIDE the set instead of outside
+# it, and the paragraph in sg24_pids promising that "an unrecognised signal must
+# never be given the benefit of the doubt" was false for precisely the names
+# this line had just added.
+# MEASURED on the whole suite, not inferred: the shipped teardown made
+# `kill -STKFLT "$pid"` (which terminates nothing on macOS) plus `/bin/kill
+# "$pid"` as the real cause of death — a path this ledger says in writing that it
+# cannot see — scored rc=0, PASS=336 FAIL=0, `all green` on BOTH interpreters,
+# with the assertion that states in words "the SHIPPED LIB ITSELF sent a
+# TERMINATING signal" reporting ok. That sentence was false as it was printed.
+# The CI lane for this suite is macos-15, so this was live, not theoretical.
+# The fix is in sg24_canon, which now marks an unresolvable spec `UNRESOLVED-…`
+# so it cannot collide with any name in this set; these names stay listed
+# because on a Linux host they DO resolve and they ARE lethal there. Case 24k is
+# the mutant that keeps that honest.
+# ⚠️ ALIASES ARE NOT FOLDED TO A PRIMARY NAME. `kill -IOT` records IOT, not
+# ABRT, because the canonicaliser resolves numbers to names and not names to
+# other names — which is why both spellings are listed.
+# NO BARE NUMBERS ARE LISTED, and that is now a property rather than a choice:
+# a numeric spec either resolves through `builtin kill -l` and is stored as a
+# NAME, or it does not resolve and is stored as `UNRESOLVED-<n>`. There is no
+# third outcome, so a numeric alternative here would be unreachable code. An
+# earlier version of this line carried `[1-9]|1[0-5]` as a "fallback"; it was
+# dead the moment the canonicaliser stopped passing specs through untouched.
+SG24_LETHAL='TERM|KILL|HUP|INT|QUIT|ILL|TRAP|ABRT|IOT|EMT|BUS|FPE|SEGV|SYS|PIPE|ALRM|USR1|USR2|XCPU|XFSZ|VTALRM|PROF|STKFLT|PWR|LOST|RTMIN[0-9+-]*|RTMAX[0-9+-]*'
 sg24_alive() { local s; s="$(ps -p "$1" -o state= 2>/dev/null | tr -d ' ')"; [[ -n "$s" && "$s" != Z* ]]; }
 # sg24_watch_pid PID SECONDS -> "dead" as soon as the pid is gone, else "alive"
 # once SECONDS of wall clock have really elapsed. Every wait on a process in this
@@ -2884,7 +2911,7 @@ sg24_watch_pid() {
     sleep 0.05
   done
 }
-sg24_pids() { # sg24_pids LIB EXPECT(survives|dies|neither-dies) -> "<fx>|<owned>|<decoy>|<kd>|<ko>"
+sg24_pids() { # sg24_pids LIB EXPECT(survives|dies|short-both) -> "<fx>|<owned>|<decoy>|<kd>|<ko>"
   local lib="$1" expect="$2" owned decoy o d watch owatch fx kd ko
   # 🔴 THE DEADLINE IS NOT THE SAME QUESTION IN BOTH DIRECTIONS (T-1a7d, 2026-08-27).
   # This helper feeds two OPPOSITE assertions and used to give both the same
@@ -2930,16 +2957,21 @@ sg24_pids() { # sg24_pids LIB EXPECT(survives|dies|neither-dies) -> "<fx>|<owned
   # careful to keep working — but read sg24_watch_pid before touching it, because
   # naive integer seconds are a duration only if you already know where in the
   # second you started, which is the same mistake wearing a different hat.
-  #  neither-dies (24h, the -CONT mutant) — BOTH sides are now not-happens
-  #    claims ("this signal does not tear anything down"), so both get the
-  #    bounded `survives` window, by the same argument as the first bullet. This
-  #    is why the owned watch is a variable and not the 15 s literal it used to
-  #    be: reading a not-happens claim with a liveness deadline would spend the
-  #    whole ${SG24_WATCH_DIES}s ceiling on every run to learn nothing extra.
+  #  short-both (24h/24i/24k) — the third value names a WATCH, not an outcome,
+  #    and it is deliberately not called anything like "neither dies": its users
+  #    include one case whose owned side is asserted alive (the -CONT mutant) and
+  #    others where the owned side's liveness is INTERPRETER-DEPENDENT and is
+  #    therefore not asserted at all (`-sTERM` kills under bash 5 and is refused
+  #    by bash 3.2). Both sides get the bounded ${SG24_WATCH_SURVIVES}s window,
+  #    which is the honest read for a not-happens claim by the same argument as
+  #    the first bullet, and is simply the cheap read when nothing about
+  #    liveness is being claimed. This is why the owned watch is a variable and
+  #    not the 15 s literal it used to be: spending the ${SG24_WATCH_DIES}s
+  #    liveness ceiling to learn nothing is a cost with no assertion behind it.
   case "$expect" in
-    survives)     watch="$SG24_WATCH_SURVIVES"; owatch="$SG24_WATCH_DIES" ;;
-    dies)         watch="$SG24_WATCH_DIES";     owatch="$SG24_WATCH_DIES" ;;
-    neither-dies) watch="$SG24_WATCH_SURVIVES"; owatch="$SG24_WATCH_SURVIVES" ;;
+    survives)   watch="$SG24_WATCH_SURVIVES"; owatch="$SG24_WATCH_DIES" ;;
+    dies)       watch="$SG24_WATCH_DIES";     owatch="$SG24_WATCH_DIES" ;;
+    short-both) watch="$SG24_WATCH_SURVIVES"; owatch="$SG24_WATCH_SURVIVES" ;;
     # Not `bad` here: this runs inside a command substitution, where `bad`'s line
     # would be swallowed into the caller's variable and its FAIL++ lost with the
     # subshell. Emit a value no assertion can accept, so the caller's own checks
@@ -3000,13 +3032,26 @@ sg24_pids() { # sg24_pids LIB EXPECT(survives|dies|neither-dies) -> "<fx>|<owned
   # seen by `pkill`, `killall`, `/bin/kill`, `env kill`, `xargs kill`,
   # `command kill`, `builtin kill`, or any `bash -c` / `sh -c` layer (the
   # function is not exported).
-  # MEASURED 2026-08-27, one live sleeper per form, on BOTH interpreters this
-  # suite supports (/bin/bash 3.2.57 and bash 5.3.9): every form named above was
-  # run and the ledger read back. `\kill` was on the INVISIBLE list until that
-  # run and it does not belong there — and the sentence that used to close this
-  # paragraph, "all of those are enumerated because they were tried, not
-  # guessed", was itself carrying an entry that had only been guessed. Do not
-  # move a form between these two lists without running it.
+  # MEASURED 2026-08-27, one live sleeper per form, under /bin/bash 3.2.57 and
+  # under bash 5.3.9: every form named above was run and the ledger read back.
+  # `\kill` was on the INVISIBLE list until that run and it does not belong
+  # there — and the sentence that used to close this paragraph, "all of those are
+  # enumerated because they were tried, not guessed", was itself carrying an
+  # entry that had only been guessed. Do not move a form between these two lists
+  # without running it.
+  # ⚠️ AND SAY WHERE THAT MEASUREMENT CAME FROM, because the previous version of
+  # this paragraph said "on BOTH interpreters this suite supports" and the suite
+  # COULD NOT HAVE PRODUCED THAT (found in the sixth review, 2026-08-27). The
+  # ledger below used to be started as a bare `bash -c`, which resolves through
+  # PATH — and $SHIMDIR does not shim `bash`. MEASURED: running this whole file
+  # under /bin/bash 3.2.57 still executed the ledger under bash 5.3.9, so
+  # `/bin/bash run.sh` was NOT covering this layer at all, and a green from it
+  # said nothing about 3.2. The two-shell numbers above are from a standalone
+  # harness that ran this same wrapper text under each interpreter directly.
+  # That gap is now closed at the source: the ledger is started with "$BASH", the
+  # interpreter already running this file, and the assertion in 24e reads back
+  # the version the inner shell actually reported. So from here on `/bin/bash
+  # run.sh` really does exercise this layer under 3.2.
   # 🔴 WHAT THAT COSTS, AND WHICH DIRECTION IT COSTS IT IN. Against a FALSE GREEN
   # it costs nothing: if the shipped lib swept the decoy with `pkill`, the decoy
   # would die and OWNERSHIP would go red on liveness alone. Against a FALSE RED
@@ -3066,16 +3111,41 @@ sg24_pids() { # sg24_pids LIB EXPECT(survives|dies|neither-dies) -> "<fx>|<owned
   #     `-n9`/`-sTERM` and rejects `-sigterm`; /bin/bash 3.2.57 does the exact
   #     opposite. Both dialects are recorded correctly here; whether the kill
   #     LANDS is then the positive control's business, not this ledger's.
-  # A spec this box does not know is written down as-is, so it lands OUTSIDE the
-  # lethal set and reads as "not a teardown" — an unrecognised signal must never
-  # be given the benefit of the doubt.
+  # ⚠️ KNOWN BLIND SPOT, MEASURED AND LEFT ALONE DELIBERATELY: a teardown that
+  # signals a PROCESS GROUP — `kill -TERM -"$pgid"` — books nothing at all here,
+  # because `-12345` is indistinguishable from a signal spec in that position and
+  # this wrapper resolves it as one. That would be a false RED (the ledger says
+  # "never signalled" about a lib that did), not a false green, and the shipped
+  # lib kills one recorded pid at a time, so it is tomorrow's hole and not
+  # today's. It is written down rather than left as folklore because the fix is
+  # genuinely ambiguous: `-9` is both a valid signal and a valid pgid, and bash
+  # itself resolves it as the signal.
+  # MEASURED against the previous, verbatim ledger, so the direction is known:
+  # `kill -TERM -$pgid` books nothing in BOTH — unchanged; `kill -- -$pgid` books
+  # nothing before and `TERM -$pgid` now — strictly more visible; and
+  # `kill -TERM -$pgid $pid` booked the signal as the digit string `99999` before
+  # and `UNRESOLVED-99999` now — strictly safer, since a bare digit string could
+  # in principle collide with a set that lists numbers and the marker cannot.
+  # 🔴 A SPEC THIS BOX CANNOT RESOLVE IS MARKED `UNRESOLVED-<spec>`, NOT PASSED
+  # THROUGH — and the marker is the whole point (sixth review, 2026-08-27). The
+  # rule has always been that an unrecognised signal must never be given the
+  # benefit of the doubt; passing the spec through UNCHANGED broke that rule for
+  # exactly the specs it mattered for, because $SG24_LETHAL legitimately lists
+  # Linux-only names (STKFLT, PWR, LOST, RTMIN*) that macOS cannot resolve — so
+  # the untouched spec matched the lethal set by NAME COLLISION and a signal that
+  # terminates nothing here was credited as a teardown. MEASURED as a complete
+  # false green on the whole suite; see the note over $SG24_LETHAL. Prefixing
+  # makes the rule true instead of merely stated: `UNRESOLVED-STKFLT` cannot
+  # collide with anything, on any host, whatever gets added to that set later.
   : > "$SG24_KLOG"
-  SG24_MARK="$SG24_MARK" SG24_KLOG="$SG24_KLOG" bash -c '
+  : > "$SG24_SHELLV"
+  SG24_MARK="$SG24_MARK" SG24_KLOG="$SG24_KLOG" SG24_SHELLV="$SG24_SHELLV" "$BASH" -c '
+      printf "%s" "$BASH_VERSION" > "$SG24_SHELLV"
       sg24_canon() {   # sg24_canon SPEC -> canonical bare signal NAME (or the
                        # folded spec unchanged, if this box knows no such signal)
         local _s _n
         _s=$(printf "%s" "$1" | tr "[:lower:]" "[:upper:]"); _s="${_s#SIG}"
-        _n=$(builtin kill -l "$_s" 2>/dev/null) || { printf "%s" "$_s"; return 0; }
+        _n=$(builtin kill -l "$_s" 2>/dev/null) || { printf "UNRESOLVED-%s" "$_s"; return 0; }
         case "$_s" in
           [0-9]*) _s=$(printf "%s" "$_n" | tr -d "[:space:]" | tr "[:lower:]" "[:upper:]")
                   _s="${_s#SIG}" ;;
@@ -3165,6 +3235,21 @@ IFS='|' read -r _sg24_fx _sg24_o _sg24_d _sg24_kd _sg24_ko <<<"$_sg24_p"
 check "ownedkill: FIXTURE — both sleepers really were running before the lib acted (so 'dead' below means the kill landed, not that the fixture never started)" "both-alive" "$_sg24_fx"
 check "ownedkill: POSITIVE CONTROL — the pid written to the ledger is really killed" "dead" "$_sg24_o"
 check "ownedkill: POSITIVE CONTROL, ATTRIBUTED — the SHIPPED LIB ITSELF sent a TERMINATING signal to the ledger's pid, so the death above is this teardown and not somebody else's sweep of this machine (TWO ways to get here and NEITHER is a reason to delete this line: (a) the lib now kills through a path this ledger cannot see — pkill/killall/xargs kill/command kill/builtin kill//bin/kill/bash -c — so EXTEND the kill ledger in sg24_pids; (b) the lib still kills with the builtin but SPELLS THE SIGNAL DIFFERENTLY, or uses a signal that is not in \$SG24_LETHAL — check the kill-log, then EXTEND \$SG24_LETHAL. Look at what the lib actually calls before you believe this sentence)" "yes" "$_sg24_ko"
+# 🔴 THE LEDGER MUST RUN UNDER THE INTERPRETER THIS SUITE IS BEING RUN WITH
+# (sixth review, 2026-08-27). This file is deliberately run twice — once under
+# the stock /bin/bash 3.2.57 the CI lane and the fleet still have, once under a
+# modern bash — and the whole value of the first run is that it exercises the
+# code under 3.2. The ledger above used to be launched as a bare `bash -c`,
+# resolved through PATH, which $SHIMDIR does not shim: MEASURED, outer 3.2.57 →
+# inner 5.3.9, so the 3.2 run was silently NOT testing this layer and a green
+# from it was evidence about the wrong binary.
+# This reads back the version the inner shell REPORTED ABOUT ITSELF, so it is a
+# behavioural check and not a grep for the string "$BASH": on a box where the two
+# happen to be the same binary it passes because there is genuinely no
+# divergence, and it goes red exactly where a divergence exists.
+[[ "$(cat "$SG24_SHELLV" 2>/dev/null)" == "$BASH_VERSION" ]] \
+  && ok "ownedkill: the kill ledger ran under THIS suite's own interpreter ($BASH_VERSION) — so running this file under /bin/bash really does test the ledger under 3.2" \
+  || bad "ownedkill: the kill ledger ran under bash '$(cat "$SG24_SHELLV" 2>/dev/null)' while this suite is bash '$BASH_VERSION' — the inner shell is resolved through PATH again, so running this file under /bin/bash is NOT testing the ledger under /bin/bash (use \"\$BASH\" -c, not bare \`bash -c\`)"
 check "ownedkill: OWNERSHIP — an IDENTICAL process that was never recorded survives" "alive" "$_sg24_d"
 check "ownedkill: ATTRIBUTION — the shipped lib never even SIGNALLED the un-recorded pid (recorded from its own kills, so this is not 'it happened to survive')" "no" "$_sg24_kd"
 # fail-closed on this side too: no ledger ⇒ the recorded-nowhere process lives.
@@ -3177,7 +3262,7 @@ sleep 0.5
 if ! sg24_alive "$_sg24_orphan"; then
   bad "ownedkill: the no-ledger probe's sleeper was already gone before anything ran — the fixture did not start, so nothing below can be said about fail-closedness (check SG24_SLEEPER)"
 else
-  bash -c '. "$1" || exit 9; sg_own_kill_pids "$2"' _ "$SG_OWNED" "$SG24/no-such-ledger" >/dev/null 2>&1
+  "$BASH" -c '. "$1" || exit 9; sg_own_kill_pids "$2"' _ "$SG_OWNED" "$SG24/no-such-ledger" >/dev/null 2>&1
   sg24_alive "$_sg24_orphan" \
     && ok "ownedkill: with NO pid ledger, nothing is killed (a leaked process is recoverable; a wrong kill is not)" \
     || bad "ownedkill: with no pid ledger something still died — the missing-record case is not fail-closed"
@@ -3301,7 +3386,7 @@ sed 's|kill "$pid" 2>/dev/null|kill -CONT "$pid" 2>/dev/null|' "$SG_OWNED" > "$S
 if ! _sg_code_only "$SG24_CONTMUT" | grep -q 'kill -CONT'; then
   bad "seven_gate: MUT-contkill did not apply to lib/ownedkill.sh — the exact-kill line moved, so case 24h is testing nothing (fix the sed)"
 else
-  _sg24_cp="$(sg24_pids "$SG24_CONTMUT" neither-dies)"
+  _sg24_cp="$(sg24_pids "$SG24_CONTMUT" short-both)"
   IFS='|' read -r _sg24_cfx _sg24_co _sg24_cd _sg24_ckd _sg24_cko <<<"$_sg24_cp"
   check "MUT-contkill: FIXTURE — both sleepers really were running before the mutant acted (so 'alive' below is a signal that did not kill, not an empty stage)" "both-alive" "$_sg24_cfx"
   # 🔴 ANTI-VACUITY, and it is the load-bearing line of this case. Without it,
@@ -3318,6 +3403,156 @@ else
   check "MUT-contkill: …and the pid it named is still ALIVE, which is the whole point — 'the lib addressed this pid' is not 'the lib killed this pid'" "alive" "$_sg24_co"
   check "MUT-contkill: the un-recorded look-alike is untouched (so the red this case produces can only be about the signal, never about the ledger's aim)" "alive" "$_sg24_cd"
   check "MUT-contkill: …and was never even signalled" "no" "$_sg24_ckd"
+fi
+
+# 24i) MUTANT ②d — THE NORMALISER, FOUR SEPARATE TOKENS OF IT.
+#
+# 🔴 WHY THIS FAMILY EXISTS: the round that introduced the canonicaliser shipped
+# it with NOTHING UNDER IT, which is the sixth time in this ticket that a fix
+# arrived unguarded. MEASURED (sixth review): deleting the `sg24_canon` call from
+# the ledger — one token — left the suite at rc=0 / PASS=336 / all green on both
+# interpreters, while restoring the entire class of false red the canonicaliser
+# had just been written to delete (`kill -term "$pid"` — the SAME SIGTERM the
+# shipped lib sends, spelled in lower case — went red with "the lib sent no
+# TERMINATING signal", in a run where "really killed" was green).
+#
+# So each normalisation step gets its own mutant, and each mutant is a SHIPPING
+# SPELLING that a person might plausibly write:
+#   lowerkill  `-term`   pins the case fold
+#   dashdash   `--`      pins the end-of-options branch
+#   numsig     `-6`      pins numbers resolving to names through `kill -l`
+#   attachedsig `-sTERM` pins the attached-option form
+# ⚠️ EACH ONE IS A LIB THAT REALLY WORKS. Every assertion here says a CORRECT
+# teardown is CREDITED. That is the opposite direction from 24f/24h, and it is
+# the direction this ticket exists for: a guard that reddens on a working lib is
+# a guard somebody switches off.
+sg24_spellmut() { # sg24_spellmut TAG SIGNAL-ARGS -> sets $SG24_SPELLMUT; rc=1 if the anchor moved
+  local tag="$1" sig="$2"
+  SG24_SPELLMUT="$SG24/ownedkill-$tag.sh"
+  sed 's|kill "$pid" 2>/dev/null|kill '"$sig"' "$pid" 2>/dev/null|' "$SG_OWNED" > "$SG24_SPELLMUT"
+  # `cmp`, not a grep for the new text: a sed that silently matched nothing is
+  # the failure mode these anchors keep hitting, and "the file changed" is the
+  # only question that answers it. (Deliberately NOT run inside a command
+  # substitution — `bad` increments a counter, and a subshell would swallow it.)
+  if cmp -s "$SG24_SPELLMUT" "$SG_OWNED"; then
+    bad "seven_gate: MUT-$tag did not change lib/ownedkill.sh — the exact-kill line moved, so this case is testing nothing (fix the sed in sg24_spellmut)"
+    return 1
+  fi
+  return 0
+}
+# `-term` is not another way of killing. It is SIGTERM with the shift key up.
+if sg24_spellmut lowerkill '-term'; then
+  _sg24_lp="$(sg24_pids "$SG24_SPELLMUT" survives)"
+  IFS='|' read -r _sg24_lfx _sg24_lo _sg24_ld _sg24_lkd _sg24_lko <<<"$_sg24_lp"
+  check "MUT-lowerkill: FIXTURE — both sleepers really were running before the mutant acted" "both-alive" "$_sg24_lfx"
+  check "MUT-lowerkill: a teardown spelled 'kill -term' really does kill (so what follows is about CREDIT, not about a broken mutant)" "dead" "$_sg24_lo"
+  if grep -Eq '^TERM [0-9]+$' "$SG24_KLOG" 2>/dev/null; then
+    ok "MUT-lowerkill: the ledger canonicalised '-term' to TERM, so this pin is on the NORMALISER and not on the contents of \$SG24_LETHAL"
+  else
+    bad "MUT-lowerkill: the ledger booked '-term' as something other than TERM — restore the case fold in sg24_canon (recorded: $(tr '\n' '|' < "$SG24_KLOG"))"
+  fi
+  # 🔴 PIN THE NORMALISER, NOT THE SET. The `ko` verdict below is a verdict of
+  # two things at once — how the ledger read the spec, and what $SG24_LETHAL says
+  # about the result — so on its own it would stop detecting a broken normaliser
+  # the moment somebody widened the set to cover the raw spelling. The line above
+  # reads the ledger DIRECTLY, so 24i pins the canonicaliser and 24h/24k pin the
+  # set, and neither can quietly stand in for the other.
+  check "MUT-lowerkill: ATTRIBUTED — and it IS credited as a terminating signal (delete the case fold in sg24_canon and THIS is the line that goes red; the shipped spelling would still pass without it)" "yes" "$_sg24_lko"
+fi
+# `kill -- "$pid"` is the standard hardening against a pid that starts with `-`.
+if sg24_spellmut dashdash '--'; then
+  _sg24_dp="$(sg24_pids "$SG24_SPELLMUT" survives)"
+  IFS='|' read -r _sg24_dfx _sg24_do _sg24_dd _sg24_dkd _sg24_dko <<<"$_sg24_dp"
+  check "MUT-dashdash: FIXTURE — both sleepers really were running before the mutant acted" "both-alive" "$_sg24_dfx"
+  check "MUT-dashdash: 'kill -- \$pid' really does kill (default TERM, exactly as the shipped call)" "dead" "$_sg24_do"
+  if grep -Eq '^TERM [0-9]+$' "$SG24_KLOG" 2>/dev/null; then
+    ok "MUT-dashdash: the ledger booked the pid after '--' under the default TERM, not under a signal named '-'"
+  else
+    bad "MUT-dashdash: the ledger did not book the pid after '--' as TERM — restore the '--' end-of-options branch in the ledger's kill(); without it the pid after '--' is either never booked at all or booked under a signal named '-' (recorded: $(tr '\n' '|' < "$SG24_KLOG"))"
+  fi
+  check "MUT-dashdash: ATTRIBUTED — and it IS credited (delete the '--' branch and the ledger books a signal literally named '-'; THIS is the line that goes red)" "yes" "$_sg24_dko"
+fi
+# A number the ledger must resolve THROUGH the interpreter. 6 is ABRT on every
+# host this runs on; it is chosen over a number above 15 precisely because the
+# assertion must mean the same thing on macOS and on Linux.
+if sg24_spellmut numsig '-6'; then
+  _sg24_np="$(sg24_pids "$SG24_SPELLMUT" survives)"
+  IFS='|' read -r _sg24_nfx _sg24_no _sg24_nd _sg24_nkd _sg24_nko <<<"$_sg24_np"
+  check "MUT-numsig: FIXTURE — both sleepers really were running before the mutant acted" "both-alive" "$_sg24_nfx"
+  check "MUT-numsig: 'kill -6' really does kill" "dead" "$_sg24_no"
+  if grep -Eq '^ABRT [0-9]+$' "$SG24_KLOG" 2>/dev/null; then
+    ok "MUT-numsig: the ledger resolved the NUMBER 6 to the name ABRT — and this line, unlike the ko verdict below, keeps working even if somebody re-adds bare numbers to \$SG24_LETHAL, which is exactly how this pin would otherwise be lost"
+  else
+    bad "MUT-numsig: the ledger did not resolve the number 6 to a name — restore the 'builtin kill -l' number resolution in sg24_canon (recorded: $(tr '\n' '|' < "$SG24_KLOG"))"
+  fi
+  check "MUT-numsig: ATTRIBUTED — a NUMERIC signal spec is resolved to its name and credited (delete the kill -l resolution in sg24_canon and THIS is the line that goes red — there is no numeric alternative left in \$SG24_LETHAL to catch it)" "yes" "$_sg24_nko"
+fi
+# The attached option form. 🔴 THIS ONE ASSERTS THE LEDGER AND NOT THE KILL, ON
+# PURPOSE AND WITH A REASON: MEASURED, bash 5.3.9 accepts `-sTERM` and kills,
+# /bin/bash 3.2.57 REFUSES it and the sleeper lives. Asserting `dead` here would
+# be asserting a bash-5 dialect and would go red under the very interpreter this
+# suite runs twice to protect. What both dialects agree on is what the LEDGER
+# read out of the argument, and that is the token this mutant is here to pin.
+# `ko` cannot be `yes` unless a line was really written, so this is not vacuous.
+if sg24_spellmut attachedsig '-sTERM'; then
+  _sg24_ap="$(sg24_pids "$SG24_SPELLMUT" short-both)"
+  IFS='|' read -r _sg24_afx _sg24_ao _sg24_ad _sg24_akd _sg24_ako <<<"$_sg24_ap"
+  check "MUT-attachedsig: FIXTURE — both sleepers really were running before the mutant acted" "both-alive" "$_sg24_afx"
+  if grep -Eq '^TERM [0-9]+$' "$SG24_KLOG" 2>/dev/null; then
+    ok "MUT-attachedsig: the ledger read the attached form '-sTERM' as TERM"
+  else
+    bad "MUT-attachedsig: the ledger did not read '-sTERM' as TERM — restore the [SsNn] attached-form branch; without it the spec is booked as STERM (recorded: $(tr '\n' '|' < "$SG24_KLOG"))"
+  fi
+  check "MUT-attachedsig: ATTRIBUTED — the attached form '-sTERM' is read as TERM and credited (delete the [SsNn] branch and it books a signal named STERM; THIS is the line that goes red). Liveness is deliberately NOT asserted here: bash 3.2 refuses this spelling and that is the lib's problem, not the ledger's" "yes" "$_sg24_ako"
+fi
+
+# 24k) MUTANT ②e — A SIGNAL THIS HOST CANNOT RESOLVE MUST NOT BE CREDITED.
+#
+# 🔴 THIS IS A REGRESSION WITNESS FOR A FALSE GREEN THAT SHIPPED (sixth review,
+# 2026-08-27). $SG24_LETHAL legitimately lists Linux-only names; on macOS
+# `builtin kill -l STKFLT` fails, and the canonicaliser used to hand the spec
+# back UNCHANGED on failure — straight into a NAME COLLISION with the set it was
+# about to be compared against. Full false green MEASURED on the suite, both
+# interpreters, with the ATTRIBUTED assertion printing a sentence that was false
+# as it was printed. The marker `UNRESOLVED-…` is what makes the collision
+# impossible; these two mutants are what stop it being removed.
+SG24_UNRESMUT="$SG24/ownedkill-nosuchsig.sh"
+if sg24_spellmut nosuchsig '-NOSUCHSIG'; then
+  cp "$SG24_SPELLMUT" "$SG24_UNRESMUT"
+  _sg24_up="$(sg24_pids "$SG24_UNRESMUT" short-both)"
+  IFS='|' read -r _sg24_ufx _sg24_uo _sg24_ud _sg24_ukd _sg24_uko <<<"$_sg24_up"
+  check "MUT-nosuchsig: FIXTURE — both sleepers really were running before the mutant acted" "both-alive" "$_sg24_ufx"
+  # ANTI-VACUITY, and here it is doing double duty: it is what makes the `no`
+  # below a classification rather than a silence, AND it is the portable half of
+  # this case — the marker must be present on EVERY host, whereas which real
+  # names are unresolvable depends on the host.
+  if grep -Eq '^UNRESOLVED-NOSUCHSIG [0-9]+$' "$SG24_KLOG" 2>/dev/null; then
+    ok "MUT-nosuchsig: an unresolvable signal spec is booked as 'UNRESOLVED-NOSUCHSIG', not as itself — the marker is what makes a name collision with \$SG24_LETHAL impossible"
+  else
+    bad "MUT-nosuchsig: the ledger did not mark the unresolvable spec (recorded: $(tr '\n' '|' < "$SG24_KLOG")) — restore the UNRESOLVED- prefix in sg24_canon; without it any Linux-only name listed in \$SG24_LETHAL is credited on a host that cannot resolve it, which is exactly the false green this case witnesses"
+  fi
+  check "MUT-nosuchsig: …and it is therefore NOT credited as a teardown" "no" "$_sg24_uko"
+fi
+# The real thing, and the reason the marker matters: a name that IS in
+# $SG24_LETHAL and that THIS host may or may not know.
+# ⚠️ SAY WHICH HOST THIS PINS THE FIX ON. On a host that cannot resolve STKFLT
+# (macOS — and the CI lane for this suite is macos-15) this is the exact shipped
+# false green, and it pins the UNRESOLVED- marker. On a host that CAN resolve it
+# (Linux) SIGSTKFLT is a real, genuinely lethal signal, so the honest assertion
+# there is the opposite one — and this case does NOT pin the marker on such a
+# host. Both branches run the same number of assertions so the PASS floor does
+# not move with the platform.
+if sg24_spellmut stkflt '-STKFLT'; then
+  _sg24_sp="$(sg24_pids "$SG24_SPELLMUT" short-both)"
+  IFS='|' read -r _sg24_sfx _sg24_so _sg24_sd _sg24_skd _sg24_sko <<<"$_sg24_sp"
+  check "MUT-stkflt: FIXTURE — both sleepers really were running before the mutant acted" "both-alive" "$_sg24_sfx"
+  if builtin kill -l STKFLT >/dev/null 2>&1; then
+    ok "MUT-stkflt: this host RESOLVES STKFLT, so it is a real lethal signal here and this case is asserting the credit direction, not the fail-closed one (on a host that does not resolve it — macOS, incl. the macos-15 CI lane — the branch below is what pins the UNRESOLVED- marker)"
+    check "MUT-stkflt: …and a signal this host knows to be lethal IS credited" "yes" "$_sg24_sko"
+  else
+    ok "MUT-stkflt: this host CANNOT resolve STKFLT — which is the exact condition under which the shipped whitelist leaked, since 'STKFLT' is written in \$SG24_LETHAL itself"
+    check "MUT-stkflt: …and a signal this host cannot resolve is NOT credited, even though its name is listed in \$SG24_LETHAL (delete the UNRESOLVED- prefix in sg24_canon and THIS is the line that goes red — it is the whole false-green channel in one assertion)" "no" "$_sg24_sko"
+  fi
 fi
 
 # ── 25) T-42bb: the carrier must outlive its caller, and never die silently ──
@@ -3756,9 +3991,15 @@ echo "[tests_guard] PASS=$PASS FAIL=$FAIL"
 # signal). Do not read a green floor as "the attribution checks are still there".
 # Floor 327 → 333, slack unchanged at 3: case 24h (MUT-contkill) adds six, and
 # it is what actually pins the lethal-signal set — the half of the ATTRIBUTION
-# story the floor above says it cannot see. PASS is 336 under BOTH interpreters
-# (MEASURED, /bin/bash 3.2.57 and bash 5.3.9).
-PASS_FLOOR=333
+# story the floor above says it cannot see.
+# Floor 333 → 355, slack unchanged at 3: 24i (MUT-lowerkill / -dashdash /
+# -numsig / -attachedsig, one per normalisation step), 24k (MUT-nosuchsig /
+# -stkflt, the fail-closed marker), and the assertion that the ledger ran under
+# this suite's own interpreter. PASS is 358 under BOTH interpreters (MEASURED,
+# /bin/bash 3.2.57 and bash 5.3.9). ⚠️ 24k's second case branches on whether
+# this host resolves STKFLT; both branches run the same number of assertions, so
+# this floor does not move between macOS and Linux.
+PASS_FLOOR=355
 if [[ "$PASS" -lt "$PASS_FLOOR" ]]; then
   echo "[tests_guard] FATAL: only $PASS assertion(s) ran, floor is $PASS_FLOOR." >&2
   echo "[tests_guard] FAIL=0 with a collapsed PASS count means cases went missing, not that they passed." >&2

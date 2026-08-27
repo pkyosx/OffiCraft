@@ -34,6 +34,15 @@
 #                     nothing down. It is here because that shape ONCE SCORED
 #                     ALL GREEN on this suite (2026-08-27), so the case that
 #                     detects it is itself kept honest by a mutant.
+#   * MUT-lowerkill / MUT-dashdash / MUT-numsig / MUT-attachedsig — the SAME
+#                     teardown, spelled `-term` / `-- "$pid"` / `-6` / `-sTERM`.
+#                     These are libs that WORK; each one asserts that a correct
+#                     teardown is CREDITED, because the guard reddening on a
+#                     working lib is how the guard gets switched off.
+#   * MUT-nosuchsig / MUT-stkflt — a signal name this host cannot resolve must
+#                     not be credited. `STKFLT` is a Linux signal that macOS
+#                     cannot resolve, and it was once credited HERE purely
+#                     because its name appeared in the harness's own lethal set.
 # Verified by applying each to the REAL file and running the suite: rc=1 with
 # 4 / 2 / 2 named FAILs respectively (2026-08-10).
 # And a POSITIVE CONTROL, because every assertion here is an assertion of
