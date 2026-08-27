@@ -160,8 +160,16 @@ source_files() {
   while [[ $# -gt 0 && "$1" == .* ]]; do exts+=("$1"); shift; done
   extra=("$@")
   local specs=()
-  while IFS= read -r sp; do specs+=("$sp"); done < <(scan_specs "${exts[@]}")
-  ( cd "$dir" && git ls-files -z --cached --others --exclude-standard -- "${specs[@]}" "${extra[@]}" 2>/dev/null )
+  while IFS= read -r sp; do specs+=("$sp"); done < <(scan_specs ${exts[@]+"${exts[@]}"})
+  # ⚠️ `${a[@]+"${a[@]}"}`, not `"${a[@]}"`. Under `set -u` bash 3.2 — which IS
+  # the /bin/bash on the macOS CI runner, while a developer box with Homebrew
+  # bash 5 on PATH silently does the right thing — expanding an EMPTY array is
+  # an "unbound variable" error, not an empty list. MEASURED the hard way: this
+  # guard went green locally on bash 5.3 and failed `bin-guards` in CI with
+  # `extra[@]: unbound variable` six times over. The `+` form is the portable
+  # spelling and works on both.
+  ( cd "$dir" && git ls-files -z --cached --others --exclude-standard -- \
+      ${specs[@]+"${specs[@]}"} ${extra[@]+"${extra[@]}"} 2>/dev/null )
 }
 
 # all_tracked_sources DIR — every TRACKED source file under DIR, roots ignored.
