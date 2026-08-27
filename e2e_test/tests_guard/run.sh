@@ -2874,17 +2874,26 @@ SG24_SHELLV="$SG24/inner-bash-version"
 # (seventh review, 2026-08-27) rather than re-argued. What IS measured, on this
 # branch and on the host this suite's CI lane runs (macOS, arm64), under BOTH
 # /bin/bash 3.2.57 and bash 5.3.9: `builtin kill -l` FAILS for STKFLT, PWR, LOST
-# — and for IOT too. No Linux host or container was available to this branch, so
-# NOTHING is claimed here about what resolves there; `LOST` in particular is not
-# a name glibc defines, so it is doubtful it resolves anywhere this suite runs.
-# 🔴 WHY THAT DOES NOT MATTER, which is the reason they are LEFT rather than
-# deleted: because an unresolvable spec is booked `UNRESOLVED-<spec>`, a name
-# that resolves on NO host is an alternation branch nothing can ever reach —
-# dead weight, not a hazard, and removing it would change no verdict anywhere.
-# Deleting a name that DOES resolve somewhere, on the other hand, turns a real
-# kill into a false red. The asymmetry is the whole argument. Do not re-add a
-# "Linux resolves these" justification to this line without measuring it ON a
-# Linux host first, and do not delete a name on the strength of one host's
+# — and for IOT too.
+# 🔴 AND NOW THE LINUX HALF IS MEASURED TOO (eighth review, 2026-08-27), because
+# an earlier version of this line asserted "No Linux host or container was
+# available to this branch" and THAT WAS FALSE — OrbStack is installed on this
+# machine and a running Ubuntu noble arm64 VM was two seconds away. MEASURED
+# THERE, read-only, under bash 5.2.21: `kill -l` resolves STKFLT to 16 and PWR
+# to 30, while LOST and IOT are INVALID on Linux as well (control: TERM is 15 on
+# both hosts). So of these four names, two DO resolve on Linux and two resolve
+# on NEITHER host. Still unmeasured, and therefore still not claimed: whether
+# STKFLT and PWR are LETHAL there — the seventh review's retraction of that
+# sentence stands.
+# 🔴 WHY THAT DOES NOT CHANGE THE LINE, which is the reason all four are LEFT
+# rather than deleted: because an unresolvable spec is booked `UNRESOLVED-<spec>`,
+# LOST and IOT are alternation branches nothing can ever reach — dead weight, not
+# a hazard, and removing them would change no verdict anywhere. STKFLT and PWR
+# are the other case: they DO resolve somewhere, so deleting them would turn a
+# real kill on a Linux host into a false red. The asymmetry is the whole
+# argument, and it points the same way for both halves. Do not widen a
+# "Linux resolves these" claim beyond what is measured above without measuring it
+# ON a Linux host first, and do not delete a name on the strength of one host's
 # `kill -l` either.
 # ⚠️ ALIASES ARE NOT FOLDED TO A PRIMARY NAME. The canonicaliser resolves
 # numbers to names, never names to other names, which is why alias spellings are
@@ -3427,7 +3436,12 @@ else
   check "MUT-contkill: …and was never even signalled" "no" "$_sg24_ckd"
 fi
 
-# 24i) MUTANT ②d — THE NORMALISER, FOUR SEPARATE TOKENS OF IT.
+# 24i) MUTANT ②d — THE NORMALISER, ONE MUTANT PER TOKEN OF IT. The ①…⑥ list
+# below IS the enumeration; NO COUNT IS WRITTEN HERE, because a count written
+# twice goes stale on one side in silence. That is not hypothetical: this very
+# line read "FOUR SEPARATE TOKENS OF IT" while the list under it had six entries
+# (found in the EIGHTH review, 2026-08-27) — three lines above the paragraph
+# that forbids exactly this.
 #
 # 🔴 WHY THIS FAMILY EXISTS: the round that introduced the canonicaliser shipped
 # it with NOTHING UNDER IT, which is the sixth time in this ticket that a fix

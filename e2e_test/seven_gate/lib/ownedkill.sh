@@ -34,8 +34,14 @@
 #                     nothing down. It is here because that shape ONCE SCORED
 #                     ALL GREEN on this suite (2026-08-27), so the case that
 #                     detects it is itself kept honest by a mutant.
-#   * MUT-lowerkill / MUT-dashdash / MUT-numsig / MUT-attachedsig — the SAME
-#                     teardown, spelled `-term` / `-- "$pid"` / `-6` / `-sTERM`.
+#   * MUT-lowerkill / MUT-sigprefix / MUT-numsig / MUT-dashdash / MUT-sepsig /
+#     MUT-attachedsig — the SAME teardown, spelled `-term` / `-SIGTERM` / `-6` /
+#                     `-- "$pid"` / `-s TERM` / `-sTERM`. One per normalisation
+#                     token; case 24i carries the ①…⑥ list this mirrors, and
+#                     NEITHER side writes a count — this line named only four of
+#                     them for a round after the other two shipped (found in the
+#                     EIGHTH review, 2026-08-27), which is what a hand-count
+#                     beside a growing list does.
 #                     These are libs that WORK; each one asserts that a correct
 #                     teardown is CREDITED, because the guard reddening on a
 #                     working lib is how the guard gets switched off.
@@ -43,8 +49,13 @@
 #                     not be credited. `STKFLT` is a Linux signal that macOS
 #                     cannot resolve, and it was once credited HERE purely
 #                     because its name appeared in the harness's own lethal set.
-# Verified by applying each to the REAL file and running the suite: rc=1 with
-# 4 / 2 / 2 named FAILs respectively (2026-08-10).
+# Every mutant above is applied to a COPY and re-run by case 24 on EVERY run of
+# tests_guard, so its detection is re-measured by the suite itself and no
+# date-stamped hand-count is kept here. (An earlier note claimed "rc=1 with
+# 4 / 2 / 2 named FAILs respectively (2026-08-10)" — a count beside a list that
+# has since gained MUT-contkill, MUT-sigprefix, MUT-sepsig and MUT-nosuchsig /
+# MUT-stkflt, and it went stale in silence because losing a pin costs no red. It
+# is retracted in the EIGHTH review, 2026-08-27, rather than re-counted.)
 # And a POSITIVE CONTROL, because every assertion here is an assertion of
 # absence and "safe" is trivially achieved by killing nothing — that green looks
 # exactly like the real one. So case 24 spawns a REAL process, records it, and
