@@ -2861,7 +2861,7 @@ sg24_watch_pid() {
   done
 }
 sg24_pids() { # sg24_pids LIB EXPECT_DECOY(survives|dies) -> "<owned alive|dead>|<decoy alive|dead>"
-  local lib="$1" expect="$2" owned decoy o d watch fx kd
+  local lib="$1" expect="$2" owned decoy o d watch fx kd ko
   # 🔴 THE DEADLINE IS NOT THE SAME QUESTION IN BOTH DIRECTIONS (T-1a7d, 2026-08-27).
   # This helper feeds two OPPOSITE assertions and used to give both the same
   # ten-round window. For one of them that window IS the detector; for the other
@@ -2914,7 +2914,7 @@ sg24_pids() { # sg24_pids LIB EXPECT_DECOY(survives|dies) -> "<owned alive|dead>
     # subshell. Emit a value no assertion can accept, so the caller's own checks
     # go red and print it.
     *) printf 'sg24_pids: unknown decoy expectation %s\n' "$expect" >&2
-       printf 'UNKNOWN-EXPECTATION|UNKNOWN-EXPECTATION|UNKNOWN-EXPECTATION|UNKNOWN-EXPECTATION\n'; return 1 ;;
+       printf 'UNKNOWN-EXPECTATION|UNKNOWN-EXPECTATION|UNKNOWN-EXPECTATION|UNKNOWN-EXPECTATION|UNKNOWN-EXPECTATION\n'; return 1 ;;
   esac
   "$SG24_SLEEPER" & owned=$!
   "$SG24_SLEEPER" & decoy=$!
@@ -2962,12 +2962,51 @@ sg24_pids() { # sg24_pids LIB EXPECT_DECOY(survives|dies) -> "<owned alive|dead>
   # So the kill is now ATTRIBUTED rather than inferred from an absence. `kill` is
   # a bash builtin, so a PATH shim cannot see it; a function defined in the same
   # shell before the lib is sourced can, and it still performs the real signal.
-  # ⚠️ Narrow reading: this records what the LIB ITSELF signals. A lib that
-  # shelled out to some other program to do its killing would not be recorded
-  # here — the liveness reads remain the backstop for that.
+  # ⚠️ Narrow reading: this records what the LIB ITSELF signals, THROUGH THE
+  # BUILTIN. It is a shell function, so it is seen by `kill` in this shell and in
+  # its subshells/pipelines, and it is NOT seen by `pkill`, `killall`,
+  # `/bin/kill`, `xargs kill`, `command kill`, `builtin kill`, `\kill`, or any
+  # `bash -c` / `sh -c` layer (the function is not exported). All of those are
+  # enumerated because they were tried, not guessed.
+  # 🔴 WHAT THAT COSTS, AND WHICH DIRECTION IT COSTS IT IN. Against a FALSE GREEN
+  # it costs nothing: if the shipped lib swept the decoy with `pkill`, the decoy
+  # would die and OWNERSHIP would go red on liveness alone. Against a FALSE RED
+  # it is brittle: the day somebody rewrites the ledger loop as `xargs kill`, the
+  # lib is still correct and the two ATTRIBUTION lines go red for no reason —
+  # which is precisely the thing this whole ticket exists to kill, because a
+  # guard that reddens for no reason is a guard somebody switches off, and
+  # switching THIS one off costs the live fleet.
+  # ⇒ IF YOU ARE READING THIS BECAUSE ONE OF THOSE LINES WENT RED AFTER YOU
+  # CHANGED HOW THE LIB KILLS: the fix is to EXTEND THE LEDGER to see the new
+  # kill path, never to delete the assertion. Same for `kill -0`: it is a probe,
+  # not a signal, but this function records it as one, so adding a liveness probe
+  # to the lib would also redden these lines — extend, do not delete.
+  # 🔴 THE LEDGER RECORDS THE SIGNAL, NOT JUST THE PID — and the reason is that
+  # the first draft of this fix (same day, same review round) recorded only pids,
+  # and I broke it myself within the hour. "The lib named this pid" is NOT "the
+  # lib killed this pid": `kill -CONT` names it and leaves it running.
+  # MEASURED, on the pid-only version of this very ledger: the shipped path
+  # changed to `kill -CONT "$pid"` (so attribution succeeds) plus the same third
+  # party actually killing the ledger pid ⇒ rc=0, PASS=330 FAIL=0, `all green`,
+  # on an ownedkill.sh that terminated NOTHING. That is the fourth-review false
+  # green wearing the fourth review's own fix as a disguise, which is this
+  # ticket's whole pattern, so it is written down rather than quietly patched.
+  # Each pid is stored as "<SIGNAL> <pid>", defaulting to TERM exactly as `kill`
+  # does, and `-s`/`-n` are followed to their argument.
   : > "$SG24_KLOG"
   SG24_MARK="$SG24_MARK" SG24_KLOG="$SG24_KLOG" bash -c '
-      kill() { printf "%s\n" "$@" | tr " " "\n" >> "$SG24_KLOG"; builtin kill "$@"; }
+      kill() {
+        local _sig=TERM _arg _next=no
+        for _arg in "$@"; do
+          if [ "$_next" = yes ]; then _sig="${_arg#SIG}"; _next=no; continue; fi
+          case "$_arg" in
+            -s|-n) _next=yes ;;
+            -*)    _sig="${_arg#-}"; _sig="${_sig#SIG}" ;;
+            *)     printf "%s %s\n" "$_sig" "$_arg" >> "$SG24_KLOG" ;;
+          esac
+        done
+        builtin kill "$@"
+      }
       . "$1" || exit 9; sg_own_kill_pids "$2"' _ "$lib" "$SG24_PLEDGER" >/dev/null 2>&1
   # 🔴 BOTH SIDES ARE WATCHED, AND BOTH WATCHES ARE BOUNDED (2026-08-27, found in
   # review). This used to read the owned side with a bare `wait "$owned"`. That
@@ -2987,17 +3026,44 @@ sg24_pids() { # sg24_pids LIB EXPECT_DECOY(survives|dies) -> "<owned alive|dead>
   # saying `dead` here would be the third false green in this one function. Emit
   # a value no assertion accepts instead, so a broken fixture cannot be mistaken
   # for a successful kill.
-  # Did the lib's OWN kill name the decoy? grep -Fx: whole line, exact pid, so
-  # 4242 never matches 42.
-  local kd=no
-  grep -Fxq "$decoy" "$SG24_KLOG" 2>/dev/null && kd=yes
-  [[ "$fx" == both-alive ]] || { o=n/a; d=n/a; kd=n/a; }
-  printf '%s|%s|%s|%s\n' "$fx" "$o" "$d" "$kd"
+  # Did the lib's OWN kill name the decoy?
+  #
+  # 🔴 AND THE SAME QUESTION ABOUT THE OWNED PID — because the fourth lie has two
+  # sides and the third review only closed one of them (found in the FOURTH
+  # review, 2026-08-27). The ledger side is the POSITIVE CONTROL, the assertion
+  # this whole case exists for ("a teardown that kills NOTHING looks exactly like
+  # the real one"), and it was still reading `dead` and concluding "the lib did
+  # it" — the identical inference the paragraph above rejects, with `decoy`
+  # swapped for `owned` and not one other word changed.
+  # MEASURED, and this is not a thought experiment either: the shipped path made
+  # to kill nothing (`[[ $(basename ${BASH_SOURCE[0]}) == *-* ]] && kill "$pid"`,
+  # so the MUT-pgrep COPY still works and the sed still applies) plus a third
+  # party that kills only the pid the ledger names, over `/bin/kill` so the
+  # function below cannot see it ⇒ rc=0, PASS=328 FAIL=0, `all green`, all four
+  # of this case's assertions ok — on an ownedkill.sh that signalled NOTHING.
+  # Same mutant with no third party ⇒ rc=1 and this positive control is the one
+  # and only red, so the green above came from the sweep and nothing else.
+  # THE TWO SIDES ASK DIFFERENT QUESTIONS OF THE SAME LEDGER, deliberately:
+  #  decoy — "did the lib TOUCH it at all". ANY signal counts, including a
+  #    harmless one, because the claim is that an un-recorded process is never
+  #    addressed. Stricter than "did it die", and that is the point.
+  #  owned — "did the lib send a signal that TERMINATES". A `-CONT` is not a
+  #    teardown. ⚠️ If you legitimately change the lib to tear down with some
+  #    other lethal signal, EXTEND this alternation; do not delete the assertion
+  #    that reads it.
+  # Anchored `^<sig> <pid>$` rather than `-Fx` on a bare pid, so 4242 never
+  # matches 42 and a signal name can never be read as a pid.
+  local kd=no ko=no
+  grep -Eq "^[A-Za-z0-9]+ $decoy\$" "$SG24_KLOG" 2>/dev/null && kd=yes
+  grep -Eq "^(TERM|KILL|9|15) $owned\$" "$SG24_KLOG" 2>/dev/null && ko=yes
+  [[ "$fx" == both-alive ]] || { o=n/a; d=n/a; kd=n/a; ko=n/a; }
+  printf '%s|%s|%s|%s|%s\n' "$fx" "$o" "$d" "$kd" "$ko"
 }
 _sg24_p="$(sg24_pids "$SG_OWNED" survives)"
-IFS='|' read -r _sg24_fx _sg24_o _sg24_d _sg24_kd <<<"$_sg24_p"
+IFS='|' read -r _sg24_fx _sg24_o _sg24_d _sg24_kd _sg24_ko <<<"$_sg24_p"
 check "ownedkill: FIXTURE — both sleepers really were running before the lib acted (so 'dead' below means the kill landed, not that the fixture never started)" "both-alive" "$_sg24_fx"
 check "ownedkill: POSITIVE CONTROL — the pid written to the ledger is really killed" "dead" "$_sg24_o"
+check "ownedkill: POSITIVE CONTROL, ATTRIBUTED — the SHIPPED LIB ITSELF sent a TERMINATING signal to the ledger's pid, so the death above is this teardown and not somebody else's sweep of this machine (if this went red because the lib now kills through pkill/xargs/\$(command kill)/bash -c, EXTEND the kill ledger / signal set in sg24_pids — do not delete this line)" "yes" "$_sg24_ko"
 check "ownedkill: OWNERSHIP — an IDENTICAL process that was never recorded survives" "alive" "$_sg24_d"
 check "ownedkill: ATTRIBUTION — the shipped lib never even SIGNALLED the un-recorded pid (recorded from its own kills, so this is not 'it happened to survive')" "no" "$_sg24_kd"
 # fail-closed on this side too: no ledger ⇒ the recorded-nowhere process lives.
@@ -3036,9 +3102,10 @@ if ! _sg_code_only "$SG24_PIDMUT" | grep -q 'pgrep -f'; then
   bad "seven_gate: MUT-pgrep did not apply to lib/ownedkill.sh — the exact-kill line moved, so case 24f is testing nothing (fix the sed)"
 else
   _sg24_pm="$(sg24_pids "$SG24_PIDMUT" dies)"
-  IFS='|' read -r _sg24_mfx _sg24_mo _sg24_md _sg24_mkd <<<"$_sg24_pm"
+  IFS='|' read -r _sg24_mfx _sg24_mo _sg24_md _sg24_mkd _sg24_mko <<<"$_sg24_pm"
   check "MUT-pgrep: FIXTURE — both sleepers really were running before the mutant acted (so 'dead' below is a kill, not an empty stage)" "both-alive" "$_sg24_mfx"
   check "MUT-pgrep: the mutant still kills the process it owns (so the difference below is the PATTERN, not a broken mutant)" "dead" "$_sg24_mo"
+  check "MUT-pgrep: ATTRIBUTED — the MUTANT ITSELF sent a TERMINATING signal to the pid it owns, so the death above is the mutant working and not somebody else's sweep of this machine (if this went red because the lib now kills through pkill/xargs/\$(command kill)/bash -c, EXTEND the kill ledger / signal set in sg24_pids — do not delete this line)" "yes" "$_sg24_mko"
   check "MUT-pgrep: …and it ALSO kills the un-recorded look-alike — 24e is pinned to the ledger, not to luck" "dead" "$_sg24_md"
   check "MUT-pgrep: ATTRIBUTION — the MUTANT ITSELF signalled the decoy's pid, so the death above is the pattern matcher and not somebody else's sweep of this machine" "yes" "$_sg24_mkd"
 fi
@@ -3369,9 +3436,23 @@ printf "%s|%s|%s\n" "$a" "$h" "$n"' _ "$1"
       # suite's assertion COUNT and RESULT must not depend on the host: run this
       # file under 3.2 and the unpinned interpreter IS the stock one, so it
       # agrees with the pinned cell instead of disagreeing with it.
+      # 🔴 PREDICT THE INTERPRETER THAT WILL ACTUALLY RUN, NOT THE ONE YOU ARE
+      # RUNNING IN (T-1a7d, fourth review, 2026-08-27). This used to read
+      # `${BASH_VERSINFO[0]}` — the version of the shell executing tests_guard —
+      # to predict what the UNPINNED cell would report. But that cell is
+      # `env -i PATH="$PATH" … bash`, so it resolves `bash` off PATH and has
+      # nothing to do with who launched this file. On any box where PATH's bash
+      # is 5.x, running this suite under /bin/bash 3.2 predicted '' and measured
+      # '0|0|0' ⇒ RED, with the product and the mutant both perfectly fine.
+      # MEASURED: this cell was the ONLY red on `/bin/bash e2e_test/tests_guard/
+      # run.sh`, on this PR's head AND on its base, i.e. it predates this branch.
+      # It is fixed here rather than filed because THIS PR's own docs tell the
+      # next reader to re-verify under /bin/bash, and this was the red waiting
+      # for them when they did.
+      _sg26_unpinned_maj="$(bash -c 'echo "${BASH_VERSINFO[0]}"' 2>/dev/null)"
       _sg26_unpinned_exp="0|0|0"
-      [[ "${BASH_VERSINFO[0]}" -lt 4 ]] && _sg26_unpinned_exp=""
-      check "MUT-inlinecase: …and the UNPINNED interpreter (this shell's bash $BASH_VERSION) reports what its major version predicts on the identical file — on 4+ that is a spotless '0|0|0', which is exactly the blindness the pinned cell was added to remove" \
+      [[ "${_sg26_unpinned_maj:-0}" -lt 4 ]] && _sg26_unpinned_exp=""
+      check "MUT-inlinecase: …and the UNPINNED interpreter (whatever \`bash\` PATH resolves to — major ${_sg26_unpinned_maj:-<unknown>} here, NOT necessarily the bash $BASH_VERSION running this suite) reports what ITS major version predicts on the identical file — on 4+ that is a spotless '0|0|0', which is exactly the blindness the pinned cell was added to remove" \
         "$_sg26_unpinned_exp" "$(_sg26 "$SG26/scrub-inline.sh")"
       "$SG_STOCK_BASH" -n "$SG26/scrub-inline.sh" 2>/dev/null
       check "MUT-inlinecase: …and even the stock binary's own \`-n\` passes it (a command substitution is parsed when it is EXPANDED) — which is why 23e's static parse is not enough on its own" \
@@ -3508,7 +3589,24 @@ echo "[tests_guard] PASS=$PASS FAIL=$FAIL"
 # signalled, not inferred from a pid being absent — without which a third party
 # sweeping the decoy makes 24f pass on a mutant that matches nothing. Floor
 # 323 → 325, slack unchanged at 3.
-PASS_FLOOR=325
+# 2026-08-27, same ticket, FOURTH review: 328 → 330. The third review's fix only
+# attributed the DECOY's death; both call sites' POSITIVE CONTROL still inferred
+# the OWNED kill from the pid being absent, so a third party sweeping the ledger
+# pid made a lib that signalled NOTHING score rc=0 / PASS=328 / all green
+# (MEASURED, reproduced twice). Both sides are now read from the kill ledger.
+# Floor 325 → 327, slack unchanged at 3.
+# ⚠️ SLACK USED TO BE 3 ON bash 5 AND ONLY 2 ON /bin/bash 3.2, because
+# MUT-inlinecase was a FAIL there for a reason that predates this branch. That
+# is fixed in this same commit (see _sg26_unpinned_maj), so PASS is now 330 and
+# slack is 3 under BOTH interpreters — MEASURED, both.
+# 🔴 AND SAY THE HONEST THING ABOUT WHAT A FLOOR IS: 3 of slack means DELETING
+# UP TO THREE ASSERTIONS IS INVISIBLE HERE, including either of the two
+# ATTRIBUTION lines this round added. The floor catches a block vanishing, not a
+# line. It is not the guard for those assertions — the only thing that is, is
+# re-running case 24's mutants (the shipped path made not to kill, plus a third
+# party sweeping the ledger pid; and the same path made to send a NON-lethal
+# signal). Do not read a green floor as "the attribution checks are still there".
+PASS_FLOOR=327
 if [[ "$PASS" -lt "$PASS_FLOOR" ]]; then
   echo "[tests_guard] FATAL: only $PASS assertion(s) ran, floor is $PASS_FLOOR." >&2
   echo "[tests_guard] FAIL=0 with a collapsed PASS count means cases went missing, not that they passed." >&2
