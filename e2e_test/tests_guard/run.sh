@@ -2866,12 +2866,34 @@ SG24_SHELLV="$SG24/inner-bash-version"
 # TERMINATING signal" reporting ok. That sentence was false as it was printed.
 # The CI lane for this suite is macos-15, so this was live, not theoretical.
 # The fix is in sg24_canon, which now marks an unresolvable spec `UNRESOLVED-…`
-# so it cannot collide with any name in this set; these names stay listed
-# because on a Linux host they DO resolve and they ARE lethal there. Case 24k is
-# the mutant that keeps that honest.
-# ⚠️ ALIASES ARE NOT FOLDED TO A PRIMARY NAME. `kill -IOT` records IOT, not
-# ABRT, because the canonicaliser resolves numbers to names and not names to
-# other names — which is why both spellings are listed.
+# so it cannot collide with any name in this set. Case 24k is the mutant that
+# keeps that honest.
+# 🔴 AND SAY A TRUE THING ABOUT WHY THEY STAY LISTED. An earlier version of this
+# comment justified keeping them with "on a Linux host they DO resolve and they
+# ARE lethal there". THAT SENTENCE WAS NEVER MEASURED, and it is retracted here
+# (seventh review, 2026-08-27) rather than re-argued. What IS measured, on this
+# branch and on the host this suite's CI lane runs (macOS, arm64), under BOTH
+# /bin/bash 3.2.57 and bash 5.3.9: `builtin kill -l` FAILS for STKFLT, PWR, LOST
+# — and for IOT too. No Linux host or container was available to this branch, so
+# NOTHING is claimed here about what resolves there; `LOST` in particular is not
+# a name glibc defines, so it is doubtful it resolves anywhere this suite runs.
+# 🔴 WHY THAT DOES NOT MATTER, which is the reason they are LEFT rather than
+# deleted: because an unresolvable spec is booked `UNRESOLVED-<spec>`, a name
+# that resolves on NO host is an alternation branch nothing can ever reach —
+# dead weight, not a hazard, and removing it would change no verdict anywhere.
+# Deleting a name that DOES resolve somewhere, on the other hand, turns a real
+# kill into a false red. The asymmetry is the whole argument. Do not re-add a
+# "Linux resolves these" justification to this line without measuring it ON a
+# Linux host first, and do not delete a name on the strength of one host's
+# `kill -l` either.
+# ⚠️ ALIASES ARE NOT FOLDED TO A PRIMARY NAME. The canonicaliser resolves
+# numbers to names, never names to other names, which is why alias spellings are
+# listed alongside their primaries rather than rewritten to them. ⚠️ Listing an
+# alias is not the same as this host knowing it: MEASURED here, `kill -IOT` does
+# NOT record IOT on macOS — bash cannot resolve the name, so it records
+# `UNRESOLVED-IOT` and is correctly NOT credited. An earlier version of this
+# line used IOT as its worked example of an alias that IS recorded; it is kept
+# as the example of the alternation branch described above instead.
 # NO BARE NUMBERS ARE LISTED, and that is now a property rather than a choice:
 # a numeric spec either resolves through `builtin kill -l` and is stored as a
 # NAME, or it does not resolve and is stored as `UNRESOLVED-<n>`. There is no
@@ -3416,12 +3438,32 @@ fi
 # shipped lib sends, spelled in lower case — went red with "the lib sent no
 # TERMINATING signal", in a run where "really killed" was green).
 #
-# So each normalisation step gets its own mutant, and each mutant is a SHIPPING
-# SPELLING that a person might plausibly write:
-#   lowerkill  `-term`   pins the case fold
-#   dashdash   `--`      pins the end-of-options branch
-#   numsig     `-6`      pins numbers resolving to names through `kill -l`
-#   attachedsig `-sTERM` pins the attached-option form
+# 🔴 NAME EVERY STEP AND NAME THE MUTANT THAT PINS IT. DO NOT WRITE "each
+# normalisation step gets its own mutant" — that universal sentence stood right
+# here for a round WHILE IT WAS FALSE (found in the SEVENTH review, 2026-08-27):
+# six steps, four mutants. A universal claim about a set nothing enumerates goes
+# stale in silence, because losing a pin costs no red. So it is a LIST, and a
+# reader can walk it line by line against sg24_canon and the ledger's kill()
+# shim above. Each mutant is a SHIPPING SPELLING a person might plausibly write:
+#   ① case fold — `tr` to upper in sg24_canon        → MUT-lowerkill   `-term`
+#   ② `SIG` prefix strip — `_s="${_s#SIG}"`          → MUT-sigprefix   `-SIGTERM`
+#   ③ number → name through `builtin kill -l`        → MUT-numsig      `-6`
+#   ④ `--` end-of-options branch in kill()           → MUT-dashdash    `--`
+#   ⑤ separated option — `-s|-n) _next=yes` in kill()→ MUT-sepsig      `-s TERM`
+#   ⑥ attached option — `[SsNn]?*` branch in kill()  → MUT-attachedsig `-sTERM`
+# The remaining step — the `UNRESOLVED-` marker on a spec this box cannot
+# resolve — is pinned NEXT DOOR by 24k (MUT-nosuchsig / MUT-stkflt), not here.
+# ⚠️ ② AND ⑤ WERE THE TWO THAT WERE MISSING, and each was a live false red on a
+# CORRECT lib. MEASURED on this branch, /bin/bash 3.2.57, before they existed:
+# deleting `_s="${_s#SIG}"` left the whole suite at rc=0 / PASS=358 / all green,
+# while `kill -SIGTERM "$pid"` — the same SIGTERM the shipped lib sends, spelled
+# with the prefix — booked as `SIGTERM`, outside $SG24_LETHAL, and was reported
+# as sending no terminating signal. Deleting `-s|-n) _next=yes; continue ;;`:
+# likewise rc=0 / PASS=358 / all green, while `kill -s TERM "$pid"` — the ONLY
+# spelling POSIX guarantees — booked as `UNRESOLVED-S TERM`.
+# ⚠️ AND ⑥ DOES NOT STAND IN FOR ⑤: `-sTERM` matches `-?*` and is repaired by
+# the `[SsNn]?*` branch, so it never reaches the `-s|-n` case at all. Two
+# spellings one letter apart, two different branches, two mutants.
 # ⚠️ EACH ONE IS A LIB THAT REALLY WORKS. Every assertion here says a CORRECT
 # teardown is CREDITED. That is the opposite direction from 24f/24h, and it is
 # the direction this ticket exists for: a guard that reddens on a working lib is
@@ -3504,6 +3546,43 @@ if sg24_spellmut attachedsig '-sTERM'; then
     bad "MUT-attachedsig: the ledger did not read '-sTERM' as TERM — restore the [SsNn] attached-form branch; without it the spec is booked as STERM (recorded: $(tr '\n' '|' < "$SG24_KLOG"))"
   fi
   check "MUT-attachedsig: ATTRIBUTED — the attached form '-sTERM' is read as TERM and credited (delete the [SsNn] branch and it books a signal named STERM; THIS is the line that goes red). Liveness is deliberately NOT asserted here: bash 3.2 refuses this spelling and that is the lib's problem, not the ledger's" "yes" "$_sg24_ako"
+fi
+# ② The `SIG` PREFIX. `kill -SIGTERM "$pid"` is the same signal the shipped lib
+# sends, written the way `kill -l` prints it and the way most people say it out
+# loud. MEASURED on BOTH interpreters here: `-SIGTERM` is accepted and really
+# kills (unlike `-sTERM`, which bash 3.2 refuses), so this one asserts liveness
+# as well as the ledger and uses the `survives` watch like ①③④.
+if sg24_spellmut sigprefix '-SIGTERM'; then
+  _sg24_gp="$(sg24_pids "$SG24_SPELLMUT" survives)"
+  IFS='|' read -r _sg24_gfx _sg24_go _sg24_gd _sg24_gkd _sg24_gko <<<"$_sg24_gp"
+  check "MUT-sigprefix: FIXTURE — both sleepers really were running before the mutant acted" "both-alive" "$_sg24_gfx"
+  check "MUT-sigprefix: a teardown spelled 'kill -SIGTERM' really does kill on this interpreter (so what follows is about CREDIT, not about a broken mutant)" "dead" "$_sg24_go"
+  # ANTI-VACUITY AND THE PIN IN ONE LINE, for the reason ① states: without a
+  # DIRECT read of the ledger, "not credited" and "the ledger never saw this
+  # mutant at all" are the same observation, and only one of them is a finding.
+  if grep -Eq '^TERM [0-9]+$' "$SG24_KLOG" 2>/dev/null; then
+    ok "MUT-sigprefix: the ledger stripped the SIG prefix and booked '-SIGTERM' as TERM — this line reads the ledger DIRECTLY, so it stays a pin on the NORMALISER even if somebody widens \$SG24_LETHAL to list SIGTERM itself"
+  else
+    bad "MUT-sigprefix: the ledger booked '-SIGTERM' as something other than TERM — restore the '_s=\"\${_s#SIG}\"' prefix strip in sg24_canon; without it the spec is booked as SIGTERM, which is outside \$SG24_LETHAL (recorded: $(tr '\n' '|' < "$SG24_KLOG"))"
+  fi
+  check "MUT-sigprefix: ATTRIBUTED — the prefixed spelling is credited as a terminating signal (delete the '\${_s#SIG}' strip in sg24_canon and THIS is the line that goes red, on a lib that killed the process perfectly well)" "yes" "$_sg24_gko"
+fi
+# ⑤ The SEPARATED option form. `kill -s TERM "$pid"` is the only spelling POSIX
+# guarantees, so a lib written for portability is likely to use exactly this.
+# It is a DIFFERENT branch from ⑥ `-sTERM`, which never reaches `-s|-n`; and
+# MEASURED on both interpreters here, unlike `-sTERM`, this form really kills on
+# both, so liveness IS asserted and the `survives` watch is the honest one.
+if sg24_spellmut sepsig '-s TERM'; then
+  _sg24_ep="$(sg24_pids "$SG24_SPELLMUT" survives)"
+  IFS='|' read -r _sg24_efx _sg24_eo _sg24_ed _sg24_ekd _sg24_eko <<<"$_sg24_ep"
+  check "MUT-sepsig: FIXTURE — both sleepers really were running before the mutant acted" "both-alive" "$_sg24_efx"
+  check "MUT-sepsig: 'kill -s TERM \$pid' really does kill on this interpreter (POSIX's only portable spelling — so what follows is about CREDIT, not about a broken mutant)" "dead" "$_sg24_eo"
+  if grep -Eq '^TERM [0-9]+$' "$SG24_KLOG" 2>/dev/null; then
+    ok "MUT-sepsig: the ledger consumed the '-s' and booked the FOLLOWING word as the signal, so the pid is booked under TERM and the word TERM is not itself booked as a pid"
+  else
+    bad "MUT-sepsig: the ledger did not book '-s TERM \$pid' as TERM — restore the '-s|-n) _next=yes' branch in the ledger's kill(); without it '-s' falls into the '-?*' branch, resolves to nothing, and both the word TERM and the pid are booked under 'UNRESOLVED-S' (recorded: $(tr '\n' '|' < "$SG24_KLOG"))"
+  fi
+  check "MUT-sepsig: ATTRIBUTED — the separated form is credited as a terminating signal (delete the '-s|-n' branch and the ledger books UNRESOLVED-S; THIS is the line that goes red, on a lib that killed the process perfectly well)" "yes" "$_sg24_eko"
 fi
 
 # 24k) MUTANT ②e — A SIGNAL THIS HOST CANNOT RESOLVE MUST NOT BE CREDITED.
@@ -3999,7 +4078,13 @@ echo "[tests_guard] PASS=$PASS FAIL=$FAIL"
 # /bin/bash 3.2.57 and bash 5.3.9). ⚠️ 24k's second case branches on whether
 # this host resolves STKFLT; both branches run the same number of assertions, so
 # this floor does not move between macOS and Linux.
-PASS_FLOOR=355
+# Floor 355 → 363, slack unchanged at 3: 24i gained MUT-sigprefix (`-SIGTERM`,
+# the SIG prefix strip) and MUT-sepsig (`-s TERM`, the separated-option branch),
+# four assertions each, closing the two normalisation steps that had no mutant.
+# PASS is 366 under BOTH interpreters (MEASURED, /bin/bash 3.2.57 and bash
+# 5.3.9). Both new mutants really kill on both interpreters, so neither branches
+# on the platform and this floor does not move with it either.
+PASS_FLOOR=363
 if [[ "$PASS" -lt "$PASS_FLOOR" ]]; then
   echo "[tests_guard] FATAL: only $PASS assertion(s) ran, floor is $PASS_FLOOR." >&2
   echo "[tests_guard] FAIL=0 with a collapsed PASS count means cases went missing, not that they passed." >&2
