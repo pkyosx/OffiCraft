@@ -63,7 +63,9 @@ M8 釘的是另一半：所有權只有在 block **只有一個家**時才成立
 | M12 | 把 `FE` 指到不存在的 `frontendz`（vacuous-green 哨兵） | 1 | `frontend/src/components is missing — every scan below would be a vacuous pass` + `scan corpus is only 0 tracked file(s)` |
 | M13 | 語料改回 `find` ＋ 目錄名 deny-list（T-1a7d 之前的樣子） | 1 | `the corpus reached into build output …` ＋ `the component scan reported a violation from build output — this is the false red T-1a7d fixed, come back` |
 | M14 | 語料縮回 `git ls-files --cached`（拿掉 `--others --exclude-standard`） | 1 | `reach: the untracked src/components/SneakyPreview.tsx was NOT reported — the corpus has shrunk to staged work only` |
-| M15 | 把整棵樹從 git 倉庫剝離（`tar` 掉 `.git`，模擬 tarball 部署） | 1 | `scan corpus is only 0 source file(s) …` ＋ 兩條掃描斷言改報 `this is a vacuous pass, not a clean tree`（不再印 `ok`） |
+| M15 | 把整棵樹從 git 倉庫剝離（`tar` 掉 `.git`，模擬 tarball 部署） | 1 | `scan corpus is only 0 source file(s) …` ＋ 下游掃描斷言改報 `this is a vacuous pass, not a clean tree`（不再印 `ok`） |
+| M16 | 在 `frontend/recon-out/` 放一顆**未 tracked 且未被 ignore** 的過期 bundle | 1 | `source roots are the filter: … in recon-out/ … was NOT reported`（修正前：假紅原地復活） |
+| M17 | 從 `SCAN_ROOTS` 拿掉 `visual-guards` | 1 | `these TRACKED source files are outside every scanned root …` 並逐一列出 |
 
 M12 是本守衛最重要的一支：grep 打錯路徑會回 0 行，而 0 行正是「通過」的長相。
 守衛自己的 corpus 檢查（目錄存在 + 受版控檔數 ≥ 100 + 倖存的彈窗檔還在）讓那種綠變紅。
@@ -73,6 +75,28 @@ M12 是本守衛最重要的一支：grep 打錯路徑會回 0 行，而 0 行�
 斷言掃描回報的是**那個 path:line**（不是「有東西失敗」）；
 再把兩個違規刪掉，斷言乾淨的樹**什麼都不報**。
 少了負向那半，一個「見檔就報」的壞掃描也能滿足兩條正向對照。
+
+### T-1a7d 第三輪（2026-08-27，第二次審查後）：🔴 語料改成「**正向的來源根**」
+
+前兩版都是**指名要排除什麼**，而兩次都被繞過：
+
+| 版本 | 排除方式 | 被什麼繞過 |
+|---|---|---|
+| base | `find … -name dist -prune` | `dist-paint-guard/`（`-name dist` 不匹配） |
+| 第二版 | `--others --exclude-standard` | `frontend/recon-out/`（`.gitignore` **刻意**只蓋 `recon-out/*.png`） |
+
+🔴 **第二版把 T-1a7d 要修的那個假紅一字不差帶回了宣稱修好它的那顆 commit 上**：
+在 `frontend/recon-out/` 放一顆過期 bundle ⇒ `.chat__lightbox styling is back … recon-out/index-STALE.css:1`。
+**「未被 ignore」本身就是一個 deny-list，只是寫在另一個檔案裡。**
+（而同一次執行裡，「語料不含建置產物」那條還印 `ok` —— 因為它的 regex 用 `out` 當完整路徑元件，`recon-out/` 不匹配。**`-name dist` 蓋不到 `dist-paint-guard`，換成 `out` 蓋不到 `recon-out`；同一個形狀換了件衣服。**）
+
+**第三版反過來講**：`SCAN_ROOTS=(src visual-guards paint-guards scripts playwright)` 加上頂層設定檔，語料仍是 `--cached --others --exclude-standard`。
+`recon-out/`、`vite-out/`、以及**未來任何還沒被發明的產物目錄**，都因為**從來沒被包含**而被排除 —— 這是唯一一種不需要維護的排除。
+
+⚠️ **allow-list 會不會悄悄過期？** 會，所以配一條 **coverage 斷言**：
+**每一個 tracked 的來源檔都必須落在某個 root 底下**。tracked ＝ 有人 commit 過 ⇒ 落在外面的只可能是「新的來源目錄沒加進來」（紅會把它逐一列名）或「不該被 commit 的東西」。
+**產物永遠不會是 tracked，所以永遠踩不到這條。** ⇒ **這份清單由「紅」維護，不是由記性維護。**
+🔴 **下次再有產物漏進來，正解仍然不是往 regex 補名字 —— 那會是第三次犯同一個錯。**
 
 ### T-1a7d（2026-08-27）：語料從 `find` 換成 `git ls-files`
 

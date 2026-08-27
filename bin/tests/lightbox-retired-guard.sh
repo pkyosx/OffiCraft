@@ -101,30 +101,73 @@ bad() { FAIL=$((FAIL+1)); printf '  FAIL — %s\n' "$1"; }
 # The one overlay that survived — named so a failure can say where to go instead.
 SURVIVOR="frontend/src/components/MarkdownPreviewOverlay.tsx"
 
-# source_files DIR [PATHSPECS…] — NUL-separated paths under DIR, relative to DIR,
-# of every file git does not consider disposable: tracked files PLUS untracked
-# ones that are not ignored, MINUS everything .gitignore covers.
+# ── THE CORPUS: A POSITIVE SHAPE, NOT A LIST OF THINGS TO SKIP ───────────────
+# 🔴 THIRD TIME ON THE SAME BUG, so it is spelled out. Twice now this guard has
+# defined its corpus by naming things to EXCLUDE, and twice a generated file
+# walked straight past the names:
+#   • `find … -name dist -prune`  did not cover `dist-paint-guard/`.
+#   • `--exclude-standard` alone   did not cover `frontend/recon-out/`, because
+#     .gitignore there is scoped to `recon-out/*.png` ON PURPOSE (the directory
+#     also holds tracked notes — read frontend/.gitignore, it says so), so the
+#     generated CSS beside them is untracked AND un-ignored. MEASURED on the
+#     commit that claimed to have fixed this: a stale bundle dropped in
+#     `frontend/recon-out/` brought the original false red back word for word —
+#     `.chat__lightbox styling is back … recon-out/index-STALE.css:1`.
+# "Not ignored" is still a deny-list; it is just written in another file. A
+# deny-list of names cannot answer "did a human write this", and every time one
+# is patched with one more name, the next generated directory walks past it.
 #
-# 🔴 `--others --exclude-standard` IS LOAD-BEARING, not tidiness (added in review,
-# 2026-08-27). Restricting the corpus to `--cached` alone is a real loss of reach
-# and the wrong one: it blinds the guard to a file that exists on disk, is about
-# to be committed, and has not been `git add`-ed yet — which is the state a
-# working copy is in for most of the time anyone is editing it, and precisely
-# when this guard is supposed to speak. MEASURED: a new untracked
-# `src/components/SneakyPreview.tsx` containing `<Lightbox …/>` was caught by the
-# old `find` walk, and was NOT caught by the cached-only version.
+# So the corpus is now stated the other way round: THESE ARE THE PLACES SOURCE
+# LIVES. Anything outside them is out, without anyone having to have predicted
+# it. `recon-out/`, `vite-out/`, and whatever the next tool invents are excluded
+# because they were never included, which is the only form of exclusion that
+# does not need maintaining.
 #
-# Nothing is given up by widening it, because build output is not merely
-# untracked, it is IGNORED — `frontend/.gitignore` names `playwright/.cache` and
-# `dist-paint-guard/`, so `--exclude-standard` drops it. MEASURED on a built
-# working copy: `--cached` and `--cached --others --exclude-standard` both return
-# 480 files, and neither contains any of the 17 generated assets.
+# The obvious objection to an allow-list is that it goes stale silently — a new
+# source directory appears, nobody adds it here, and the guard quietly scans
+# less while still reporting green. That is a real risk and it is why the
+# COVERAGE assertion below exists: every TRACKED source file under frontend/
+# must fall inside one of these roots. A tracked file is by definition one a
+# human committed, so anything tracked and outside the roots is either a new
+# source directory (add it here — the failure names it) or something that should
+# not have been committed. Generated output is never tracked, so it can never
+# trip that check. The list is therefore maintained BY A RED, not by memory.
+SCAN_ROOTS=(src visual-guards paint-guards scripts playwright)
+
+# scan_specs EXT… -> git pathspecs covering every source root × every extension,
+# plus top-level config files (vite.config.ts and friends are source too).
+scan_specs() {
+  local r e
+  for e in "$@"; do
+    for r in "${SCAN_ROOTS[@]}"; do printf '%s\n' "$r/*$e"; done
+    printf '%s\n' ":(glob)*$e"   # (glob) so * stops at /, i.e. top level only
+  done
+}
+
+# source_files DIR EXT… [EXTRA PATHSPECS…] — NUL-separated paths under DIR,
+# relative to DIR, of files inside the source roots that git does not consider
+# disposable: tracked, PLUS untracked-and-not-ignored.
 #
-# So the filter is not "committed" — it is "git thinks a human is responsible for
-# this file", and the two assertions below pin both halves of that.
+# The `--others` half is load-bearing and separate from the roots question: it is
+# what lets the guard see a file that has been written but not yet `git add`-ed,
+# which is the state a working copy spends most of its editing life in. MEASURED:
+# a new untracked `src/components/SneakyPreview.tsx` containing `<Lightbox …/>`
+# is invisible to a `--cached`-only corpus. Ignoring still excludes build output
+# that lands INSIDE a source root; the roots exclude the rest.
 source_files() {
   local dir="$1"; shift
-  ( cd "$dir" && git ls-files -z --cached --others --exclude-standard -- "$@" 2>/dev/null )
+  local exts=() extra=() sp
+  while [[ $# -gt 0 && "$1" == .* ]]; do exts+=("$1"); shift; done
+  extra=("$@")
+  local specs=()
+  while IFS= read -r sp; do specs+=("$sp"); done < <(scan_specs "${exts[@]}")
+  ( cd "$dir" && git ls-files -z --cached --others --exclude-standard -- "${specs[@]}" "${extra[@]}" 2>/dev/null )
+}
+
+# all_tracked_sources DIR — every TRACKED source file under DIR, roots ignored.
+# Only used by the coverage assertion, to catch the roots list going stale.
+all_tracked_sources() {
+  ( cd "$1" && git ls-files --cached -- '*.ts' '*.tsx' '*.css' 2>/dev/null )
 }
 
 # scan_component DIR — every `<Lightbox` occurrence in DIR's production sources,
@@ -135,8 +178,7 @@ source_files() {
 # load-bearing too: it guarantees grep always has at least one FILE argument, so
 # an empty corpus can never turn into a grep that sits reading stdin.
 scan_component() {
-  source_files "$1" \
-      '*.ts' '*.tsx' \
+  source_files "$1" .ts .tsx \
       ':(exclude)*.test.ts' ':(exclude)*.test.tsx' \
       ':(exclude)*.spec.ts' ':(exclude)*.spec.tsx' \
     | ( cd "$1" && xargs -0 grep -H -n -F '<Lightbox' /dev/null 2>/dev/null )
@@ -145,13 +187,13 @@ scan_component() {
 # scan_class DIR — every `.chat__lightbox*` RULE DECLARATION in DIR's tracked
 # stylesheets.
 scan_class() {
-  source_files "$1" '*.css' \
+  source_files "$1" .css \
     | ( cd "$1" && xargs -0 grep -H -n -E '^[[:space:]]*\.chat__lightbox' /dev/null 2>/dev/null )
 }
 
 # count_files DIR — how many files the scans above actually looked at.
 count_files() {
-  source_files "$1" '*.ts' '*.tsx' '*.css' | tr -cd '\0' | wc -c | tr -d ' '
+  source_files "$1" .ts .tsx .css | tr -cd '\0' | wc -c | tr -d ' '
 }
 
 echo "[lightbox-retired-guard] frontend tree: $FE"
@@ -176,17 +218,37 @@ else
   bad "$SURVIVOR is missing — retiring Lightbox with no replacement leaves NO image preview"
 fi
 
-# ── (0b) 🔴 the corpus is SOURCE, not build output ───────────────────────────
-# The assertion that this guard reads what humans wrote. It is stated over the
-# REAL tree (not just the scratch control) because the polluting directories only
-# exist on a machine that has actually built the frontend — which is where the
-# false red happened. On a never-built checkout this is trivially true; on a
-# built one it is the whole ballgame.
-BUILT="$(source_files "$FE" '*.ts' '*.tsx' '*.css' \
+# ── (0c) 🔴 THE ROOTS LIST HAS NOT GONE STALE ────────────────────────────────
+# The price of an allow-list, paid here rather than in silence. Every TRACKED
+# source file must be inside a scanned root; a tracked file is one a human
+# committed, so anything outside is a source directory nobody added to
+# SCAN_ROOTS. Generated output is never tracked and so can never reach this.
+UNCOVERED="$(comm -23 \
+  <(all_tracked_sources "$FE" | sort) \
+  <(source_files "$FE" .ts .tsx .css | tr '\0' '\n' | sort) )"
+if [[ "$CORPUS_OK" != "1" ]]; then
+  bad "coverage check skipped — the corpus is already broken, so 'nothing uncovered' would mean nothing"
+elif [[ -z "$UNCOVERED" ]]; then
+  ok "the roots list covers every tracked source file under frontend/ (SCAN_ROOTS is not stale)"
+else
+  bad "these TRACKED source files are outside every scanned root — either add the directory to SCAN_ROOTS or they should not be committed; until then this guard is silently not looking at them:"
+  printf '%s\n' "$UNCOVERED" | sed 's/^/         /'
+fi
+
+# ── (0b) the corpus is SOURCE, not build output ──────────────────────────────
+# ⚠️ BELT AND BRACES, NOT THE DEFENCE. Since the corpus became a positive list
+# of source roots, build output is excluded by never having been included, and
+# this name-matching check is the second line, not the first. It is kept because
+# it catches output that lands INSIDE a source root — but read it knowing that
+# it is exactly the shape that failed twice (`dist` missing `dist-paint-guard`,
+# `out` missing `recon-out`), and DO NOT respond to a leak by adding a name here.
+BUILT="$(source_files "$FE" .ts .tsx .css \
   | tr '\0' '\n' \
   | grep -E '(^|/)(dist[^/]*|node_modules|\.cache|build|coverage|out)/' || true)"
-if [[ -z "$BUILT" ]]; then
-  ok "the corpus contains no build output (nothing under dist*/, node_modules/, .cache/, build/, coverage/, out/)"
+if [[ "$CORPUS_OK" != "1" ]]; then
+  bad "build-output check found nothing, but the corpus check above already failed — an empty corpus contains no build output either, which proves nothing"
+elif [[ -z "$BUILT" ]]; then
+  ok "the corpus contains no build output by name either (second line of defence; the roots are the first)"
 else
   bad "the corpus reached into build output — a stale bundle can carry a retired rule and redden this guard with no commit behind it:"
   printf '%s\n' "$BUILT" | sed 's/^/         /'
@@ -259,8 +321,15 @@ EOF
 mkdir -p "$WORK/dist-paint-guard/assets" "$WORK/playwright/.cache/assets"
 cp "$WORK/src/components/Planted.tsx" "$WORK/dist-paint-guard/assets/bundle.tsx"
 cp "$WORK/src/components/planted.css" "$WORK/playwright/.cache/assets/index-DEADBEEF.css"
-# …and the work-in-progress file: real, un-added, NOT ignored.
+# …and the work-in-progress file: real, un-added, NOT ignored, INSIDE a root.
 cp "$WORK/src/components/Planted.tsx" "$WORK/src/components/SneakyPreview.tsx"
+# 🔴 THE K5 DECOY — the one that brought the false red back. Untracked AND
+# un-ignored, exactly like frontend/recon-out/'s generated CSS, and therefore
+# invisible to both "is it committed" and "is it ignored". The ONLY thing that
+# excludes it is that it does not live in a source root, which is what this
+# control exists to pin.
+mkdir -p "$WORK/recon-out"
+cp "$WORK/src/components/planted.css" "$WORK/recon-out/index-STALE.css"
 
 git -C "$WORK" init -q --template= 2>/dev/null
 git -C "$WORK" add -f .gitignore src/components/Planted.tsx src/components/planted.css >/dev/null 2>&1
@@ -276,6 +345,14 @@ if [[ -s "$WORK/dist-paint-guard/assets/bundle.tsx" && -s "$WORK/playwright/.cac
   ok "control setup: both build-output decoys exist, contain the violation, and are really git-ignored (so 'not reported' below is a filter working, not a file missing)"
 else
   bad "control setup: the build-output decoys are missing, do not contain the violation, or are not actually ignored — the version-control assertions below would be vacuous"
+fi
+if [[ -s "$WORK/recon-out/index-STALE.css" ]] \
+   && grep -qE '^[[:space:]]*\.chat__lightbox' "$WORK/recon-out/index-STALE.css" \
+   && [[ -z "$(git -C "$WORK" check-ignore recon-out/index-STALE.css 2>/dev/null)" ]] \
+   && [[ -z "$(git -C "$WORK" ls-files -- recon-out/index-STALE.css)" ]]; then
+  ok "control setup: the out-of-root decoy exists, contains the rule, and is NEITHER tracked NOR ignored (so only the source roots can be excluding it)"
+else
+  bad "control setup: the out-of-root decoy is missing, clean, ignored, or tracked — the assertion below would be passing for the wrong reason"
 fi
 if [[ -s "$WORK/src/components/SneakyPreview.tsx" ]] \
    && grep -qF '<Lightbox' "$WORK/src/components/SneakyPreview.tsx" \
@@ -320,11 +397,21 @@ else
   bad "the class scan reported a rule from a compiled bundle — this is the false red T-1a7d fixed, come back (got: $CTRLCLASS)"
 fi
 
+# 🔴 K5: THE ASSERTION THIS GUARD LOST AND GOT BACK. A generated file that is
+# neither committed nor ignored must not be scanned. Before the source roots,
+# this exact shape reproduced the original false red on the commit that claimed
+# to have fixed it.
+if [[ "$CTRLCLASS" != *recon-out* ]]; then
+  ok "source roots are the filter: an identical .chat__lightbox rule in recon-out/ — untracked AND un-ignored — was NOT reported"
+else
+  bad "the class scan reported a rule from recon-out/, which is neither committed nor ignored — this is the T-1a7d false red for the THIRD time, in the same shape wearing different clothes (got: $CTRLCLASS)"
+fi
+
 # NEGATIVE control: the same scratch tree with the violations removed must come
 # back clean. Without this, a scan that reports every file would satisfy every
 # positive control above and still be worthless.
 git -C "$WORK" rm -q --cached "src/components/Planted.tsx" "src/components/planted.css" >/dev/null 2>&1
-rm "$WORK/src/components/Planted.tsx" "$WORK/src/components/planted.css" "$WORK/src/components/SneakyPreview.tsx"
+rm "$WORK/src/components/Planted.tsx" "$WORK/src/components/planted.css" "$WORK/src/components/SneakyPreview.tsx" "$WORK/recon-out/index-STALE.css"
 if [[ -z "$(scan_component "$WORK")" && -z "$(scan_class "$WORK")" ]]; then
   ok "negative control: a clean tree reports nothing"
 else
