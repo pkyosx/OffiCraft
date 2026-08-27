@@ -2828,6 +2828,30 @@ chmod +x "$SG24_SLEEPER"
   || bad "ownedkill: the sleeper (${SG24_SLEEP_SECS}s) is not comfortably longer than the ${SG24_WATCH_DIES}s watch — a process that simply finished would be read as KILLED, and 24f would pass on a mutant that touched nothing"
 SG24_PLEDGER="$SG24/pid-ledger"
 SG24_KLOG="$SG24/kill-log"
+# The signals whose DEFAULT DISPOSITION ends the process — an ERE alternation of
+# canonical bare names, matched against the canonicalised ledger (see the long
+# comment in sg24_pids for why the ledger canonicalises rather than compares
+# spellings). This is the line that says what "the lib tore it down" MEANS, so
+# both directions of getting it wrong are named here:
+#   TOO NARROW is a FALSE RED on a correct lib — the fifth review measured eight
+#     spellings that really kill (`-term`, `-kill`, `-HUP`, `-1`, `-ABRT`, `-6`,
+#     `-USR1`, `kill -- "$pid"`) being reported as "sent no terminating signal".
+#   TOO WIDE is a FALSE GREEN — the whole reason the ledger records a signal at
+#     all is that `kill -CONT "$pid"` names a pid and leaves it running, and a
+#     pid-only ledger let a teardown that terminated NOTHING go `all green`.
+# So the set is the union of the terminate/core defaults on BOTH hosts this
+# suite runs on (macOS and Linux), and it deliberately EXCLUDES every signal
+# whose default is stop, continue or ignore: CONT, STOP, TSTP, TTIN, TTOU, CHLD,
+# URG, WINCH, and INFO. It also excludes IO/POLL, which is the one signal that
+# genuinely disagrees between the two (terminate on Linux, discard on macOS) —
+# nothing tears a process down with SIGIO, and a signal that is lethal on only
+# one of the two hosts cannot be the definition of "this teardown worked".
+# The bare numbers at the end are a FALLBACK, reachable only if `builtin kill -l`
+# could not resolve a numeric spec on this box: 1-15 are the POSIX signal
+# numbers, identical everywhere, and all fifteen terminate. Numbers above 15 are
+# NOT listed on purpose — they are not the same signals on the two hosts, so
+# there is no portable answer to give without asking the interpreter.
+SG24_LETHAL='TERM|KILL|HUP|INT|QUIT|ILL|TRAP|ABRT|IOT|EMT|BUS|FPE|SEGV|SYS|PIPE|ALRM|USR1|USR2|XCPU|XFSZ|VTALRM|PROF|STKFLT|PWR|LOST|RTMIN[0-9+-]*|RTMAX[0-9+-]*|[1-9]|1[0-5]'
 sg24_alive() { local s; s="$(ps -p "$1" -o state= 2>/dev/null | tr -d ' ')"; [[ -n "$s" && "$s" != Z* ]]; }
 # sg24_watch_pid PID SECONDS -> "dead" as soon as the pid is gone, else "alive"
 # once SECONDS of wall clock have really elapsed. Every wait on a process in this
@@ -2860,8 +2884,8 @@ sg24_watch_pid() {
     sleep 0.05
   done
 }
-sg24_pids() { # sg24_pids LIB EXPECT_DECOY(survives|dies) -> "<owned alive|dead>|<decoy alive|dead>"
-  local lib="$1" expect="$2" owned decoy o d watch fx kd ko
+sg24_pids() { # sg24_pids LIB EXPECT(survives|dies|neither-dies) -> "<fx>|<owned>|<decoy>|<kd>|<ko>"
+  local lib="$1" expect="$2" owned decoy o d watch owatch fx kd ko
   # 🔴 THE DEADLINE IS NOT THE SAME QUESTION IN BOTH DIRECTIONS (T-1a7d, 2026-08-27).
   # This helper feeds two OPPOSITE assertions and used to give both the same
   # ten-round window. For one of them that window IS the detector; for the other
@@ -2906,9 +2930,16 @@ sg24_pids() { # sg24_pids LIB EXPECT_DECOY(survives|dies) -> "<owned alive|dead>
   # careful to keep working — but read sg24_watch_pid before touching it, because
   # naive integer seconds are a duration only if you already know where in the
   # second you started, which is the same mistake wearing a different hat.
+  #  neither-dies (24h, the -CONT mutant) — BOTH sides are now not-happens
+  #    claims ("this signal does not tear anything down"), so both get the
+  #    bounded `survives` window, by the same argument as the first bullet. This
+  #    is why the owned watch is a variable and not the 15 s literal it used to
+  #    be: reading a not-happens claim with a liveness deadline would spend the
+  #    whole ${SG24_WATCH_DIES}s ceiling on every run to learn nothing extra.
   case "$expect" in
-    survives) watch="$SG24_WATCH_SURVIVES" ;;
-    dies)     watch="$SG24_WATCH_DIES" ;;
+    survives)     watch="$SG24_WATCH_SURVIVES"; owatch="$SG24_WATCH_DIES" ;;
+    dies)         watch="$SG24_WATCH_DIES";     owatch="$SG24_WATCH_DIES" ;;
+    neither-dies) watch="$SG24_WATCH_SURVIVES"; owatch="$SG24_WATCH_SURVIVES" ;;
     # Not `bad` here: this runs inside a command substitution, where `bad`'s line
     # would be swallowed into the caller's variable and its FAIL++ lost with the
     # subshell. Emit a value no assertion can accept, so the caller's own checks
@@ -2963,11 +2994,19 @@ sg24_pids() { # sg24_pids LIB EXPECT_DECOY(survives|dies) -> "<owned alive|dead>
   # a bash builtin, so a PATH shim cannot see it; a function defined in the same
   # shell before the lib is sourced can, and it still performs the real signal.
   # ⚠️ Narrow reading: this records what the LIB ITSELF signals, THROUGH THE
-  # BUILTIN. It is a shell function, so it is seen by `kill` in this shell and in
-  # its subshells/pipelines, and it is NOT seen by `pkill`, `killall`,
-  # `/bin/kill`, `xargs kill`, `command kill`, `builtin kill`, `\kill`, or any
-  # `bash -c` / `sh -c` layer (the function is not exported). All of those are
-  # enumerated because they were tried, not guessed.
+  # BUILTIN. It is a shell function, so it IS seen by a plain `kill`, by `\kill`
+  # — a backslash suppresses ALIAS expansion only, it does not reach past a
+  # function — and inside this shell's subshells and pipeline segments. It is NOT
+  # seen by `pkill`, `killall`, `/bin/kill`, `env kill`, `xargs kill`,
+  # `command kill`, `builtin kill`, or any `bash -c` / `sh -c` layer (the
+  # function is not exported).
+  # MEASURED 2026-08-27, one live sleeper per form, on BOTH interpreters this
+  # suite supports (/bin/bash 3.2.57 and bash 5.3.9): every form named above was
+  # run and the ledger read back. `\kill` was on the INVISIBLE list until that
+  # run and it does not belong there — and the sentence that used to close this
+  # paragraph, "all of those are enumerated because they were tried, not
+  # guessed", was itself carrying an entry that had only been guessed. Do not
+  # move a form between these two lists without running it.
   # 🔴 WHAT THAT COSTS, AND WHICH DIRECTION IT COSTS IT IN. Against a FALSE GREEN
   # it costs nothing: if the shipped lib swept the decoy with `pkill`, the decoy
   # would die and OWNERSHIP would go red on liveness alone. Against a FALSE RED
@@ -2993,17 +3032,75 @@ sg24_pids() { # sg24_pids LIB EXPECT_DECOY(survives|dies) -> "<owned alive|dead>
   # ticket's whole pattern, so it is written down rather than quietly patched.
   # Each pid is stored as "<SIGNAL> <pid>", defaulting to TERM exactly as `kill`
   # does, and `-s`/`-n` are followed to their argument.
+  #
+  # 🔴 THE SIGNAL IS CANONICALISED BEFORE IT IS WRITTEN DOWN, AND THAT IS NOT A
+  # TIDY-UP — it is the difference between a guard and a spelling checker (found
+  # in the FIFTH review, 2026-08-27). The first version of this ledger stored the
+  # argument VERBATIM (minus the `-` and a `SIG` prefix) and compared it
+  # literally against `TERM|KILL|9|15`. MEASURED, one live sleeper per form, on
+  # both interpreters: `kill -term`, `kill -kill`, `kill -HUP`, `kill -1`,
+  # `kill -ABRT`, `kill -6`, `kill -USR1` and `kill -- "$pid"` ALL REALLY KILL
+  # THE SLEEPER, and every one of them was recorded as something outside that
+  # alternation — so a lib that was working perfectly scored a red whose text
+  # said, word for word, that it had sent no terminating signal. `-term` is not
+  # even a different way of killing: it is SIGTERM, the shipped signal, spelled
+  # in lower case. This ticket exists to delete false reds; that version minted a
+  # whole new class of them.
+  # So the spec that goes into the ledger is resolved the way `kill` itself
+  # resolves it, and only then compared:
+  #   * case-folded and `SIG`-stripped  — `-term` / `-sigterm` / `-SIGTERM` → TERM;
+  #   * NUMBERS RESOLVED TO NAMES through `builtin kill -l`, which is what makes
+  #     this portable: signal NUMBERS above 15 are not the same signals on macOS
+  #     and on Linux (29 is INFO here and IO there; 30 is USR1 here and PWR
+  #     there), so a numeric allow-list would be wrong on one of the two hosts
+  #     this suite runs on. Asking the interpreter is right on both. ⚠️ `kill -l`
+  #     answers in different dialects too — MEASURED: `kill -l 15` prints
+  #     `SIGTERM` on /bin/bash 3.2.57 and `TERM` on bash 5.3.9 — hence the
+  #     `SIG` strip on the way back as well;
+  #   * `--` ends the options, so `kill -- "$pid"` (the hardening against a pid
+  #     that starts with `-`) records a TERM against that pid instead of a
+  #     signal named `-`;
+  #   * the ATTACHED option forms `-n9` / `-sTERM` are followed to their
+  #     argument, but ONLY when the whole token is not itself a signal name —
+  #     otherwise `-STOP` would be read as `-s TOP`. MEASURED: bash 5.3.9 accepts
+  #     `-n9`/`-sTERM` and rejects `-sigterm`; /bin/bash 3.2.57 does the exact
+  #     opposite. Both dialects are recorded correctly here; whether the kill
+  #     LANDS is then the positive control's business, not this ledger's.
+  # A spec this box does not know is written down as-is, so it lands OUTSIDE the
+  # lethal set and reads as "not a teardown" — an unrecognised signal must never
+  # be given the benefit of the doubt.
   : > "$SG24_KLOG"
   SG24_MARK="$SG24_MARK" SG24_KLOG="$SG24_KLOG" bash -c '
+      sg24_canon() {   # sg24_canon SPEC -> canonical bare signal NAME (or the
+                       # folded spec unchanged, if this box knows no such signal)
+        local _s _n
+        _s=$(printf "%s" "$1" | tr "[:lower:]" "[:upper:]"); _s="${_s#SIG}"
+        _n=$(builtin kill -l "$_s" 2>/dev/null) || { printf "%s" "$_s"; return 0; }
+        case "$_s" in
+          [0-9]*) _s=$(printf "%s" "$_n" | tr -d "[:space:]" | tr "[:lower:]" "[:upper:]")
+                  _s="${_s#SIG}" ;;
+        esac
+        printf "%s" "$_s"
+      }
       kill() {
-        local _sig=TERM _arg _next=no
+        local _sig=TERM _arg _next=no _end=no _rest
         for _arg in "$@"; do
-          if [ "$_next" = yes ]; then _sig="${_arg#SIG}"; _next=no; continue; fi
-          case "$_arg" in
-            -s|-n) _next=yes ;;
-            -*)    _sig="${_arg#-}"; _sig="${_sig#SIG}" ;;
-            *)     printf "%s %s\n" "$_sig" "$_arg" >> "$SG24_KLOG" ;;
-          esac
+          if [ "$_next" = yes ]; then _sig="$_arg"; _next=no; continue; fi
+          if [ "$_end" = no ]; then
+            case "$_arg" in
+              --)    _end=yes; continue ;;
+              -s|-n) _next=yes; continue ;;
+              -?*)   _sig="${_arg#-}"
+                     if ! builtin kill -l "$_sig" >/dev/null 2>&1; then
+                       _rest="${_sig#?}"
+                       case "$_sig" in
+                         [SsNn]?*) if builtin kill -l "$_rest" >/dev/null 2>&1; then _sig="$_rest"; fi ;;
+                       esac
+                     fi
+                     continue ;;
+            esac
+          fi
+          printf "%s %s\n" "$(sg24_canon "$_sig")" "$_arg" >> "$SG24_KLOG"
         done
         builtin kill "$@"
       }
@@ -3019,7 +3116,7 @@ sg24_pids() { # sg24_pids LIB EXPECT_DECOY(survives|dies) -> "<owned alive|dead>
   # exited 0. Making the sleeper longer did not fix that — it made it slower,
   # which is worse, because the false green survives and only the bill changes.
   # The fix is that there is no unbounded wait left in this function.
-  o="$(sg24_watch_pid "$owned" "$SG24_WATCH_DIES")"
+  o="$(sg24_watch_pid "$owned" "$owatch")"
   d="$(sg24_watch_pid "$decoy" "$watch")"
   kill "$owned" "$decoy" 2>/dev/null; wait "$owned" "$decoy" 2>/dev/null
   # If the fixture never produced processes, neither reading means anything, and
@@ -3049,13 +3146,17 @@ sg24_pids() { # sg24_pids LIB EXPECT_DECOY(survives|dies) -> "<owned alive|dead>
   #    addressed. Stricter than "did it die", and that is the point.
   #  owned — "did the lib send a signal that TERMINATES". A `-CONT` is not a
   #    teardown. ⚠️ If you legitimately change the lib to tear down with some
-  #    other lethal signal, EXTEND this alternation; do not delete the assertion
-  #    that reads it.
+  #    other lethal signal, EXTEND $SG24_LETHAL; do not delete the assertion
+  #    that reads it. (Case 24h is the mutant that keeps that set honest in the
+  #    OTHER direction: widen it far enough to swallow `-CONT` and 24h goes red
+  #    by name.)
   # Anchored `^<sig> <pid>$` rather than `-Fx` on a bare pid, so 4242 never
-  # matches 42 and a signal name can never be read as a pid.
+  # matches 42 and a signal name can never be read as a pid. The signal half is
+  # already canonicalised by the ledger above, so this comparison is over NAMES
+  # and never has to know how the caller spelled it.
   local kd=no ko=no
   grep -Eq "^[A-Za-z0-9]+ $decoy\$" "$SG24_KLOG" 2>/dev/null && kd=yes
-  grep -Eq "^(TERM|KILL|9|15) $owned\$" "$SG24_KLOG" 2>/dev/null && ko=yes
+  grep -Eq "^($SG24_LETHAL) $owned\$" "$SG24_KLOG" 2>/dev/null && ko=yes
   [[ "$fx" == both-alive ]] || { o=n/a; d=n/a; kd=n/a; ko=n/a; }
   printf '%s|%s|%s|%s|%s\n' "$fx" "$o" "$d" "$kd" "$ko"
 }
@@ -3063,7 +3164,7 @@ _sg24_p="$(sg24_pids "$SG_OWNED" survives)"
 IFS='|' read -r _sg24_fx _sg24_o _sg24_d _sg24_kd _sg24_ko <<<"$_sg24_p"
 check "ownedkill: FIXTURE — both sleepers really were running before the lib acted (so 'dead' below means the kill landed, not that the fixture never started)" "both-alive" "$_sg24_fx"
 check "ownedkill: POSITIVE CONTROL — the pid written to the ledger is really killed" "dead" "$_sg24_o"
-check "ownedkill: POSITIVE CONTROL, ATTRIBUTED — the SHIPPED LIB ITSELF sent a TERMINATING signal to the ledger's pid, so the death above is this teardown and not somebody else's sweep of this machine (if this went red because the lib now kills through pkill/xargs/\$(command kill)/bash -c, EXTEND the kill ledger / signal set in sg24_pids — do not delete this line)" "yes" "$_sg24_ko"
+check "ownedkill: POSITIVE CONTROL, ATTRIBUTED — the SHIPPED LIB ITSELF sent a TERMINATING signal to the ledger's pid, so the death above is this teardown and not somebody else's sweep of this machine (TWO ways to get here and NEITHER is a reason to delete this line: (a) the lib now kills through a path this ledger cannot see — pkill/killall/xargs kill/command kill/builtin kill//bin/kill/bash -c — so EXTEND the kill ledger in sg24_pids; (b) the lib still kills with the builtin but SPELLS THE SIGNAL DIFFERENTLY, or uses a signal that is not in \$SG24_LETHAL — check the kill-log, then EXTEND \$SG24_LETHAL. Look at what the lib actually calls before you believe this sentence)" "yes" "$_sg24_ko"
 check "ownedkill: OWNERSHIP — an IDENTICAL process that was never recorded survives" "alive" "$_sg24_d"
 check "ownedkill: ATTRIBUTION — the shipped lib never even SIGNALLED the un-recorded pid (recorded from its own kills, so this is not 'it happened to survive')" "no" "$_sg24_kd"
 # fail-closed on this side too: no ledger ⇒ the recorded-nowhere process lives.
@@ -3105,7 +3206,7 @@ else
   IFS='|' read -r _sg24_mfx _sg24_mo _sg24_md _sg24_mkd _sg24_mko <<<"$_sg24_pm"
   check "MUT-pgrep: FIXTURE — both sleepers really were running before the mutant acted (so 'dead' below is a kill, not an empty stage)" "both-alive" "$_sg24_mfx"
   check "MUT-pgrep: the mutant still kills the process it owns (so the difference below is the PATTERN, not a broken mutant)" "dead" "$_sg24_mo"
-  check "MUT-pgrep: ATTRIBUTED — the MUTANT ITSELF sent a TERMINATING signal to the pid it owns, so the death above is the mutant working and not somebody else's sweep of this machine (if this went red because the lib now kills through pkill/xargs/\$(command kill)/bash -c, EXTEND the kill ledger / signal set in sg24_pids — do not delete this line)" "yes" "$_sg24_mko"
+  check "MUT-pgrep: ATTRIBUTED — the MUTANT ITSELF sent a TERMINATING signal to the pid it owns, so the death above is the mutant working and not somebody else's sweep of this machine (TWO ways to get here and NEITHER is a reason to delete this line: (a) the lib now kills through a path this ledger cannot see — pkill/killall/xargs kill/command kill/builtin kill//bin/kill/bash -c — so EXTEND the kill ledger in sg24_pids; (b) the lib still kills with the builtin but SPELLS THE SIGNAL DIFFERENTLY, or uses a signal that is not in \$SG24_LETHAL — check the kill-log, then EXTEND \$SG24_LETHAL. Look at what the lib actually calls before you believe this sentence)" "yes" "$_sg24_mko"
   check "MUT-pgrep: …and it ALSO kills the un-recorded look-alike — 24e is pinned to the ledger, not to luck" "dead" "$_sg24_md"
   check "MUT-pgrep: ATTRIBUTION — the MUTANT ITSELF signalled the decoy's pid, so the death above is the pattern matcher and not somebody else's sweep of this machine" "yes" "$_sg24_mkd"
 fi
@@ -3171,6 +3272,53 @@ else
     || bad "MUT-listpick: the list-and-pick mutant killed nobody else's session (recorded: $(tr '\n' '|' < "$SG24_TMUX_LOG")) — 24d would pass without the ledger and this case proves nothing"
 fi
 : > "$SG24_TMUX_LOG"
+
+# 24h) MUTANT ②c — "NAME THE PID, BUT DO NOT TERMINATE IT". The teardown still
+# reads the ledger, still calls `kill`, still names exactly the pid it owns —
+# and sends SIGCONT, which is one line of code that looks precisely like a
+# working teardown and tears down nothing.
+#
+# 🔴 WHY THIS CASE EXISTS AT ALL: it is the mutant that guards the OTHER
+# mutants' verdict. The pid-only version of the kill ledger — this ticket's own
+# third-round fix — was broken by exactly this shape within the hour it shipped:
+# `kill -CONT "$pid"` plus a third party doing the real killing scored rc=0,
+# PASS=330, `all green`, on a teardown that terminated NOTHING. The fourth round
+# fixed that by recording the SIGNAL and not just the pid, and then shipped that
+# fix WITH NO MUTANT UNDER IT: the fifth review measured that relaxing the lethal
+# set back to `[A-Za-z0-9]+` — one token, the shape of a tidy-up — restored the
+# whole false-green channel and the suite stayed rc=0 / PASS=330 / all green.
+# Every other hole in case 24 has a mutant pinning it (MUT-nosocket, MUT-pgrep,
+# MUT-listpick); this one had none, and a defence with nothing under it is a
+# defence that leaves silently. So: widen $SG24_LETHAL far enough to swallow a
+# non-lethal signal and the ATTRIBUTION line below goes red BY NAME.
+#
+# ⚠️ The decoy side is asserted too, and it is asserted the other way round from
+# 24f on purpose: this mutant must be seen NOT to reach the un-recorded pid, so
+# that the red this case produces when it fails can only be about the SIGNAL and
+# never about the ledger's aim.
+SG24_CONTMUT="$SG24/ownedkill-cont.sh"
+sed 's|kill "$pid" 2>/dev/null|kill -CONT "$pid" 2>/dev/null|' "$SG_OWNED" > "$SG24_CONTMUT"
+if ! _sg_code_only "$SG24_CONTMUT" | grep -q 'kill -CONT'; then
+  bad "seven_gate: MUT-contkill did not apply to lib/ownedkill.sh — the exact-kill line moved, so case 24h is testing nothing (fix the sed)"
+else
+  _sg24_cp="$(sg24_pids "$SG24_CONTMUT" neither-dies)"
+  IFS='|' read -r _sg24_cfx _sg24_co _sg24_cd _sg24_ckd _sg24_cko <<<"$_sg24_cp"
+  check "MUT-contkill: FIXTURE — both sleepers really were running before the mutant acted (so 'alive' below is a signal that did not kill, not an empty stage)" "both-alive" "$_sg24_cfx"
+  # 🔴 ANTI-VACUITY, and it is the load-bearing line of this case. Without it,
+  # `ko=no` is also what you get from a mutant the ledger never saw at all — and
+  # a case that passes because nothing happened is exactly the failure mode this
+  # whole file keeps re-discovering. This says the ledger DID see the signal and
+  # then CLASSIFIED it as not-a-teardown.
+  if grep -Eq '^CONT [0-9]+$' "$SG24_KLOG" 2>/dev/null; then
+    ok "MUT-contkill: the kill ledger SAW the mutant's signal and recorded it as CONT — so the 'no' below is a classification, not a blind spot"
+  else
+    bad "MUT-contkill: the kill ledger recorded no CONT at all (recorded: $(tr '\n' '|' < "$SG24_KLOG")) — the ledger never saw this mutant, so the ATTRIBUTION 'no' below would be true of a mutant that did nothing and this case proves nothing"
+  fi
+  check "MUT-contkill: ATTRIBUTION — a teardown that only SIGNALS its pid without terminating it is NOT credited as a kill (widen \$SG24_LETHAL until it swallows CONT and this line is the one that goes red)" "no" "$_sg24_cko"
+  check "MUT-contkill: …and the pid it named is still ALIVE, which is the whole point — 'the lib addressed this pid' is not 'the lib killed this pid'" "alive" "$_sg24_co"
+  check "MUT-contkill: the un-recorded look-alike is untouched (so the red this case produces can only be about the signal, never about the ledger's aim)" "alive" "$_sg24_cd"
+  check "MUT-contkill: …and was never even signalled" "no" "$_sg24_ckd"
+fi
 
 # ── 25) T-42bb: the carrier must outlive its caller, and never die silently ──
 #
@@ -3606,7 +3754,11 @@ echo "[tests_guard] PASS=$PASS FAIL=$FAIL"
 # re-running case 24's mutants (the shipped path made not to kill, plus a third
 # party sweeping the ledger pid; and the same path made to send a NON-lethal
 # signal). Do not read a green floor as "the attribution checks are still there".
-PASS_FLOOR=327
+# Floor 327 → 333, slack unchanged at 3: case 24h (MUT-contkill) adds six, and
+# it is what actually pins the lethal-signal set — the half of the ATTRIBUTION
+# story the floor above says it cannot see. PASS is 336 under BOTH interpreters
+# (MEASURED, /bin/bash 3.2.57 and bash 5.3.9).
+PASS_FLOOR=333
 if [[ "$PASS" -lt "$PASS_FLOOR" ]]; then
   echo "[tests_guard] FATAL: only $PASS assertion(s) ran, floor is $PASS_FLOOR." >&2
   echo "[tests_guard] FAIL=0 with a collapsed PASS count means cases went missing, not that they passed." >&2

@@ -29,6 +29,11 @@
 #   * MUT-nosocket  — live.sh's TMUX_SOCKET put back to `${OC_SG_TMUX_SOCKET:-officraft}`.
 #   * MUT-pgrep     — the exact-pid kill relaxed to `kill $(pgrep -f …)`.
 #   * MUT-listpick  — the exact-name kill relaxed to list-the-sessions-and-pick.
+#   * MUT-contkill  — the exact-pid kill left aimed at exactly the right pid but
+#                     sent SIGCONT: a teardown that names its target and tears
+#                     nothing down. It is here because that shape ONCE SCORED
+#                     ALL GREEN on this suite (2026-08-27), so the case that
+#                     detects it is itself kept honest by a mutant.
 # Verified by applying each to the REAL file and running the suite: rc=1 with
 # 4 / 2 / 2 named FAILs respectively (2026-08-10).
 # And a POSITIVE CONTROL, because every assertion here is an assertion of
