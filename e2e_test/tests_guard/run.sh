@@ -2810,19 +2810,49 @@ SG24_SLEEPER="$SG24/$SG24_MARK"
 # while fixing this very function. Every sleeper is killed and reaped explicitly,
 # so the only cost of a long one is what happens if the suite is itself killed.
 SG24_SLEEP_SECS=300
-SG24_WATCH_SURVIVES=1   # seconds; the window that IS the detector for 24e
+SG24_WATCH_SURVIVES=2   # seconds; the window that IS the detector for 24e
 SG24_WATCH_DIES=15      # seconds; the ceiling on an event that must happen (24f)
 printf '#!/usr/bin/env bash\nexec -a "$0" sleep %s\n' "$SG24_SLEEP_SECS" > "$SG24_SLEEPER"
 chmod +x "$SG24_SLEEPER"
 # Asserted, not assumed: this is the invariant that keeps "dead" honest, and the
 # next person to tune a number here is the one it is written for.
+#
+# ⚠️ READ THE SCOPE OF THIS ASSERTION NARROWLY. It says the sleeper outlives every
+# BOUNDED WATCH. It says nothing about a code path that waits on a sleeper with no
+# bound at all — and until 2026-08-27 there was one, `wait "$owned"`, which is how
+# a mutant that touched no process at all still scored two greens. The fix for
+# that is that there is now no unbounded wait here; this line is not what catches
+# it, and an earlier version of this comment implied it was.
 [[ "$SG24_SLEEP_SECS" -gt $(( SG24_WATCH_DIES * 4 )) && "$SG24_SLEEP_SECS" -gt $(( SG24_WATCH_SURVIVES * 4 )) ]] \
-  && ok "ownedkill: the sleeper lives ${SG24_SLEEP_SECS}s, far longer than the longest watch (${SG24_WATCH_DIES}s) — a decoy cannot reach its own end while we are looking at it, so 'dead' can only mean 'killed'" \
-  || bad "ownedkill: the sleeper (${SG24_SLEEP_SECS}s) is not comfortably longer than the ${SG24_WATCH_DIES}s watch — a decoy that simply finishes would be read as KILLED, and 24f would pass on a mutant that touched nothing"
+  && ok "ownedkill: the sleeper lives ${SG24_SLEEP_SECS}s, far longer than the longest BOUNDED watch (${SG24_WATCH_DIES}s) — so within those watches 'dead' cannot mean 'it simply finished'" \
+  || bad "ownedkill: the sleeper (${SG24_SLEEP_SECS}s) is not comfortably longer than the ${SG24_WATCH_DIES}s watch — a process that simply finished would be read as KILLED, and 24f would pass on a mutant that touched nothing"
 SG24_PLEDGER="$SG24/pid-ledger"
 sg24_alive() { local s; s="$(ps -p "$1" -o state= 2>/dev/null | tr -d ' ')"; [[ -n "$s" && "$s" != Z* ]]; }
+# sg24_watch_pid PID SECONDS -> "dead" as soon as the pid is gone, else "alive"
+# once SECONDS of wall clock have really elapsed. Every wait on a process in this
+# case goes through here, so none of them can be unbounded by accident.
+#
+# ⚠️ `-gt`, NOT `-ge`, and the reason is the same class of mistake this whole
+# function is about. `date +%s` truncates: if t0 lands at 10.98 s then one tick
+# later the integer difference is already 1, and `-ge 1` returns after 20 ms of a
+# window that reads like a second. MEASURED as shipped in the first pass of this
+# fix: ten samples of a nominal 1 s window came back 160-1033 ms, against the
+# 1259-1560 ms the old fixed round count actually spent — the detector for 24e
+# had been quietly cut to a third of its old size, and made non-deterministic
+# into the bargain, by the commit whose whole point was that non-determinism.
+# With `-gt N` the integer difference must reach N+1, so the real elapsed time is
+# always MORE than N seconds and always less than N+1.
+sg24_watch_pid() {
+  local pid="$1" secs="$2" t0
+  t0="$(date +%s)"
+  while :; do
+    sg24_alive "$pid" || { printf 'dead\n'; return 0; }
+    [[ $(( $(date +%s) - t0 )) -gt "$secs" ]] && { printf 'alive\n'; return 0; }
+    sleep 0.05
+  done
+}
 sg24_pids() { # sg24_pids LIB EXPECT_DECOY(survives|dies) -> "<owned alive|dead>|<decoy alive|dead>"
-  local lib="$1" expect="$2" owned decoy o=dead d=alive watch t0
+  local lib="$1" expect="$2" owned decoy o d watch
   # 🔴 THE DEADLINE IS NOT THE SAME QUESTION IN BOTH DIRECTIONS (T-1a7d, 2026-08-27).
   # This helper feeds two OPPOSITE assertions and used to give both the same
   # ten-round window. For one of them that window IS the detector; for the other
@@ -2831,7 +2861,14 @@ sg24_pids() { # sg24_pids LIB EXPECT_DECOY(survives|dies) -> "<owned alive|dead>
   #  survives (24e, the shipped lib) — the claim is "nothing ever signals it".
   #    A bounded window is the only honest way to read that: watch for a while,
   #    report what you saw. The watch always runs to the end here (the decoy
-  #    never dies), so it is a FIXED COST, never a race. Keep it.
+  #    never dies), so it is a FIXED COST, never a race.
+  #    ⚠️ THIS SIDE DID CHANGE, and an earlier version of this comment said it
+  #    did not. It went from a fixed ten rounds (MEASURED 1259-1560 ms) to a
+  #    wall-clock bound. That first wall-clock version was a REGRESSION — see
+  #    sg24_watch_pid on `-ge` vs `-gt` — and the window is now sized at
+  #    ${SG24_WATCH_SURVIVES}s, i.e. really 2-3 s, deliberately LONGER than the
+  #    round count it replaced, because for this side a longer watch is a
+  #    strictly more sensitive detector and the cost is paid once.
   #
   #  dies (24f, the pgrep mutant) — the claim is "the pattern matcher reaches a
   #    process the ledger never named". That is a LIVENESS property: it says the
@@ -2857,7 +2894,9 @@ sg24_pids() { # sg24_pids LIB EXPECT_DECOY(survives|dies) -> "<owned alive|dead>
   # rounds = 29 s, on a box at load ~3.4. A count of rounds is a duration only if
   # you already know what the machine costs, which is precisely the thing that
   # varies. `date +%s` is portable back to the stock /bin/bash this suite is
-  # careful to keep working.
+  # careful to keep working — but read sg24_watch_pid before touching it, because
+  # naive integer seconds are a duration only if you already know where in the
+  # second you started, which is the same mistake wearing a different hat.
   case "$expect" in
     survives) watch="$SG24_WATCH_SURVIVES" ;;
     dies)     watch="$SG24_WATCH_DIES" ;;
@@ -2872,17 +2911,20 @@ sg24_pids() { # sg24_pids LIB EXPECT_DECOY(survives|dies) -> "<owned alive|dead>
   "$SG24_SLEEPER" & decoy=$!
   printf '%s\n' "$owned" > "$SG24_PLEDGER"
   SG24_MARK="$SG24_MARK" bash -c '. "$1" || exit 9; sg_own_kill_pids "$2"' _ "$lib" "$SG24_PLEDGER" >/dev/null 2>&1
-  # `wait` is the synchronisation point: it returns only once the signal has
-  # actually landed on the pid we expected to die.
-  wait "$owned" 2>/dev/null
-  sg24_alive "$owned" && o=alive
-  t0="$(date +%s)"
-  while :; do
-    sg24_alive "$decoy" || { d=dead; break; }
-    [[ $(( $(date +%s) - t0 )) -ge "$watch" ]] && break
-    sleep 0.05
-  done
-  kill "$decoy" 2>/dev/null; wait "$decoy" 2>/dev/null
+  # 🔴 BOTH SIDES ARE WATCHED, AND BOTH WATCHES ARE BOUNDED (2026-08-27, found in
+  # review). This used to read the owned side with a bare `wait "$owned"`. That
+  # is not a synchronisation point, it is an UNBOUNDED one: if the mutant never
+  # signals anything, `wait` simply blocks until the sleeper reaches the end of
+  # its own `sleep` — and a sleeper that finished is a pid that is gone, which
+  # `sg24_alive` reports as `dead`, which the assertion above reads as "the
+  # mutant killed the process it owns". MEASURED with a mutant lib that touches
+  # NO process at all: both of 24f's assertions went green, on a suite that
+  # exited 0. Making the sleeper longer did not fix that — it made it slower,
+  # which is worse, because the false green survives and only the bill changes.
+  # The fix is that there is no unbounded wait left in this function.
+  o="$(sg24_watch_pid "$owned" "$SG24_WATCH_DIES")"
+  d="$(sg24_watch_pid "$decoy" "$watch")"
+  kill "$owned" "$decoy" 2>/dev/null; wait "$owned" "$decoy" 2>/dev/null
   printf '%s|%s\n' "$o" "$d"
 }
 _sg24_p="$(sg24_pids "$SG_OWNED" survives)"
@@ -2902,7 +2944,16 @@ kill "$_sg24_orphan" 2>/dev/null; wait "$_sg24_orphan" 2>/dev/null
 # the fleet runs the same binaries with the same argv. Name is not identity.
 SG24_PIDMUT="$SG24/ownedkill-pgrep.sh"
 sed 's|kill "$pid" 2>/dev/null|kill $(pgrep -f "$SG24_MARK") 2>/dev/null|' "$SG_OWNED" > "$SG24_PIDMUT"
-if ! grep -q 'pgrep -f' "$SG24_PIDMUT"; then
+# `_sg_code_only` rather than a raw grep, matching what the banned-shape scan
+# below already does: a `pgrep -f` sitting in a comment is not a mutant, and a
+# sanity check satisfied by prose is a sanity check that can be satisfied on
+# purpose. ⚠️ SAID PLAINLY, because the narrow reading matters: this strips
+# WHOLE-LINE comments only. A `pgrep -f` in a TRAILING comment still counts, and
+# MEASURED — a mutant written as `: "$pid" # pgrep -f` passes this check either
+# way. It has to: no static reading of the mutant's text can tell "kills by
+# pattern" from "kills nothing", because that is a behavioural property. What
+# catches that one is the bounded watch in sg24_pids, not this line.
+if ! _sg_code_only "$SG24_PIDMUT" | grep -q 'pgrep -f'; then
   bad "seven_gate: MUT-pgrep did not apply to lib/ownedkill.sh — the exact-kill line moved, so case 24f is testing nothing (fix the sed)"
 else
   _sg24_pm="$(sg24_pids "$SG24_PIDMUT" dies)"

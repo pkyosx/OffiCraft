@@ -62,6 +62,8 @@ M8 釘的是另一半：所有權只有在 block **只有一個家**時才成立
 | M11 | 把 `.chat__lightbox { … }` 種回 office.css | 1 | `.chat__lightbox styling is back — that block was deleted with the component:` + 命中的 `path:line` |
 | M12 | 把 `FE` 指到不存在的 `frontendz`（vacuous-green 哨兵） | 1 | `frontend/src/components is missing — every scan below would be a vacuous pass` + `scan corpus is only 0 tracked file(s)` |
 | M13 | 語料改回 `find` ＋ 目錄名 deny-list（T-1a7d 之前的樣子） | 1 | `the corpus reached into build output …` ＋ `the component scan reported a violation from build output — this is the false red T-1a7d fixed, come back` |
+| M14 | 語料縮回 `git ls-files --cached`（拿掉 `--others --exclude-standard`） | 1 | `reach: the untracked src/components/SneakyPreview.tsx was NOT reported — the corpus has shrunk to staged work only` |
+| M15 | 把整棵樹從 git 倉庫剝離（`tar` 掉 `.git`，模擬 tarball 部署） | 1 | `scan corpus is only 0 source file(s) …` ＋ 兩條掃描斷言改報 `this is a vacuous pass, not a clean tree`（不再印 `ok`） |
 
 M12 是本守衛最重要的一支：grep 打錯路徑會回 0 行，而 0 行正是「通過」的長相。
 守衛自己的 corpus 檢查（目錄存在 + 受版控檔數 ≥ 100 + 倖存的彈窗檔還在）讓那種綠變紅。
@@ -83,12 +85,28 @@ M12 是本守衛最重要的一支：grep 打錯路徑會回 0 行，而 0 行�
 **這是結構上只發生在本機的假紅**：CI 每個 job 都是全新 checkout，`bin-guards` 那格從不跑 Vite。
 正因為只在有人站在機器前的時候浪費時間，它特別能訓練大家「紅了就重跑」。
 
-改法不是再往 deny-list 加名字，而是把語料換成**受版控的檔**（`git ls-files`）。
-另外加了三條斷言：
+改法不是再往 deny-list 加名字，而是把語料換成 **git 認為有人要負責的檔**
+（`git ls-files --cached --others --exclude-standard`）。
+
+⚠️ **`--others --exclude-standard` 那半是審查時補的，不是裝飾。** 第一版只用 `--cached`，
+量過的後果是：一個**已經寫在磁碟上、還沒 `git add`** 的新檔案會完全看不見 ——
+而那正是任何人在編輯時，工作副本絕大多數時間所處的狀態。
+實測：新建一個未 tracked 的 `src/components/SneakyPreview.tsx`（內含 `<Lightbox>`），
+舊的 `find` 掃法抓得到、只用 `--cached` 的版本**抓不到**、補上旗標後又抓得到。
+把產物排除掉的是 **gitignore**（`frontend/.gitignore` 已經蓋住 `playwright/.cache` 與
+`dist-paint-guard/`），不是「有沒有被 commit」—— 兩者在已建置的工作副本上都回 480 檔。
+
+另外加了四條斷言：
 1. 對**真實**樹斷言語料裡不含 `dist*/`、`node_modules/`、`.cache/`、`build/`、`coverage/`、`out/`；
 2. 對照樹裡放兩顆**未受版控的誘餌**（與受版控的植入位元組相同，一個在 `dist-paint-guard/`、
    一個在 `playwright/.cache/assets/`）—— **必須抓不到**，而 `src/` 那兩個**必須抓到**；
-3. 前置檢查「誘餌真的存在、而且真的含有違規」—— 否則「沒抓到」可能只是檔案不在，是空對空。
+3. 前置檢查「誘餌真的存在、真的含有違規、而且真的被 gitignore 蓋住」——
+   否則「沒抓到」可能只是檔案不在，是空對空；
+4. **反向的 reach 斷言**：對照樹裡再放一個**未 tracked 且未被 ignore** 的 `SneakyPreview.tsx`，
+   **必須抓得到**。少了這一條，第 2 條可以被一個「悄悄縮到只看 staged 檔」的語料滿足。
+
+另外，語料下限一旦失守，**下游那兩條掃描斷言不再印 `ok`** —— 它們在空語料上「什麼都沒找到」
+本來就是空洞通過的字面定義。rc 早就是 1，但那兩行輸出在說謊，而說謊的 `ok` 正是下一個人學會信錯東西的方式。
 
 ## 這份紀錄涵蓋不到的
 

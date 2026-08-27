@@ -27,7 +27,9 @@
 #   3. The corpus it searched is NON-EMPTY and really is the frontend tree. A
 #      grep over a mistyped path returns zero matches and would otherwise be
 #      reported as a pass — the classic "green because nothing was checked".
-#   4. The corpus is VERSION-CONTROLLED SOURCE, not build output — see below.
+#   4. The corpus is SOURCE — what git holds a human responsible for — and not
+#      build output. Both halves are asserted: an ignored file with the violation
+#      in it is NOT reported, and an untracked, un-ignored one IS.
 #   5. POSITIVE CONTROL: a planted `<Lightbox .../>` in a scratch copy of the
 #      tree is found, AT THE PLANTED PATH AND LINE. Asserting only "the scan
 #      failed" is not enough — a scan that failed for an unrelated reason (bad
@@ -36,6 +38,9 @@
 #      `path:line` it planted, not merely a non-zero exit.
 #   6. NEGATIVE CONTROL, both kinds: a clean tree reports nothing, AND an
 #      identical violation sitting in build output is NOT reported.
+#   7. REACH: an identical violation in an untracked, un-ignored file IS
+#      reported. Without this one, (4) is satisfiable by a corpus that has
+#      quietly shrunk to "whatever is staged right now".
 #
 # ── HOW IT SEARCHES: 🔴 VERSION CONTROL IS THE FILTER ────────────────────────
 # T-1a7d, 2026-08-27. This guard used to walk the tree with `find`, pruning
@@ -58,8 +63,14 @@
 # cloud has never seen it and never will. That is precisely what makes it
 # corrosive — it only ever wastes the time of whoever is standing at the machine.
 #
-# The corpus is therefore `git ls-files`: an allow-list of things a human
-# committed, which needs no maintenance when the next output directory appears.
+# The corpus is therefore `git ls-files --cached --others --exclude-standard`: an
+# allow-list of the files git holds a human responsible for — committed OR merely
+# written and not ignored — which needs no maintenance when the next output
+# directory appears. ⚠️ The `--others` half is not decoration: a first draft of
+# this used `--cached` alone, and MEASURED, that silently stopped seeing a new
+# file that had been written but not yet `git add`-ed, which is the state a
+# working copy spends most of its editing life in. Ignoring is what excludes
+# build output, and .gitignore already covers it.
 # It is still a QUERY over the tree and deliberately NOT an enumerated list of
 # files — a list is a promise that it is complete, it silently stops covering
 # files added after it was written, and the next reader trusts it and skips
@@ -90,12 +101,30 @@ bad() { FAIL=$((FAIL+1)); printf '  FAIL — %s\n' "$1"; }
 # The one overlay that survived — named so a failure can say where to go instead.
 SURVIVOR="frontend/src/components/MarkdownPreviewOverlay.tsx"
 
-# tracked_sources DIR [EXTRA PATHSPECS…] — NUL-separated tracked paths under DIR,
-# relative to DIR. Nothing untracked and nothing ignored can appear here, which
-# is the whole point (see "VERSION CONTROL IS THE FILTER" above).
-tracked_sources() {
+# source_files DIR [PATHSPECS…] — NUL-separated paths under DIR, relative to DIR,
+# of every file git does not consider disposable: tracked files PLUS untracked
+# ones that are not ignored, MINUS everything .gitignore covers.
+#
+# 🔴 `--others --exclude-standard` IS LOAD-BEARING, not tidiness (added in review,
+# 2026-08-27). Restricting the corpus to `--cached` alone is a real loss of reach
+# and the wrong one: it blinds the guard to a file that exists on disk, is about
+# to be committed, and has not been `git add`-ed yet — which is the state a
+# working copy is in for most of the time anyone is editing it, and precisely
+# when this guard is supposed to speak. MEASURED: a new untracked
+# `src/components/SneakyPreview.tsx` containing `<Lightbox …/>` was caught by the
+# old `find` walk, and was NOT caught by the cached-only version.
+#
+# Nothing is given up by widening it, because build output is not merely
+# untracked, it is IGNORED — `frontend/.gitignore` names `playwright/.cache` and
+# `dist-paint-guard/`, so `--exclude-standard` drops it. MEASURED on a built
+# working copy: `--cached` and `--cached --others --exclude-standard` both return
+# 480 files, and neither contains any of the 17 generated assets.
+#
+# So the filter is not "committed" — it is "git thinks a human is responsible for
+# this file", and the two assertions below pin both halves of that.
+source_files() {
   local dir="$1"; shift
-  ( cd "$dir" && git ls-files -z -- "$@" 2>/dev/null )
+  ( cd "$dir" && git ls-files -z --cached --others --exclude-standard -- "$@" 2>/dev/null )
 }
 
 # scan_component DIR — every `<Lightbox` occurrence in DIR's production sources,
@@ -106,7 +135,7 @@ tracked_sources() {
 # load-bearing too: it guarantees grep always has at least one FILE argument, so
 # an empty corpus can never turn into a grep that sits reading stdin.
 scan_component() {
-  tracked_sources "$1" \
+  source_files "$1" \
       '*.ts' '*.tsx' \
       ':(exclude)*.test.ts' ':(exclude)*.test.tsx' \
       ':(exclude)*.spec.ts' ':(exclude)*.spec.tsx' \
@@ -116,13 +145,13 @@ scan_component() {
 # scan_class DIR — every `.chat__lightbox*` RULE DECLARATION in DIR's tracked
 # stylesheets.
 scan_class() {
-  tracked_sources "$1" '*.css' \
+  source_files "$1" '*.css' \
     | ( cd "$1" && xargs -0 grep -H -n -E '^[[:space:]]*\.chat__lightbox' /dev/null 2>/dev/null )
 }
 
 # count_files DIR — how many files the scans above actually looked at.
 count_files() {
-  tracked_sources "$1" '*.ts' '*.tsx' '*.css' | tr -cd '\0' | wc -c | tr -d ' '
+  source_files "$1" '*.ts' '*.tsx' '*.css' | tr -cd '\0' | wc -c | tr -d ' '
 }
 
 echo "[lightbox-retired-guard] frontend tree: $FE"
@@ -134,10 +163,12 @@ else
   bad "frontend/src/components is missing — every scan below would be a vacuous pass"
 fi
 FILES="$(count_files "$FE")"
+CORPUS_OK=1
 if [[ "${FILES:-0}" -ge 100 ]]; then
-  ok "scan corpus is $FILES tracked files (non-empty)"
+  ok "scan corpus is $FILES source files (non-empty)"
 else
-  bad "scan corpus is only ${FILES:-0} tracked file(s) — either this is not a git checkout or the pathspec is not reaching the tree; refusing to report a vacuous pass"
+  CORPUS_OK=0
+  bad "scan corpus is only ${FILES:-0} source file(s) — either this is not a git checkout or the pathspec is not reaching the tree; refusing to report a vacuous pass"
 fi
 if [[ -f "$ROOT/$SURVIVOR" ]]; then
   ok "the surviving overlay is present at $SURVIVOR"
@@ -151,7 +182,7 @@ fi
 # exist on a machine that has actually built the frontend — which is where the
 # false red happened. On a never-built checkout this is trivially true; on a
 # built one it is the whole ballgame.
-BUILT="$(tracked_sources "$FE" '*.ts' '*.tsx' '*.css' \
+BUILT="$(source_files "$FE" '*.ts' '*.tsx' '*.css' \
   | tr '\0' '\n' \
   | grep -E '(^|/)(dist[^/]*|node_modules|\.cache|build|coverage|out)/' || true)"
 if [[ -z "$BUILT" ]]; then
@@ -162,8 +193,16 @@ else
 fi
 
 # ── (1) zero <Lightbox in production source ──────────────────────────────────
+# 🔴 A VERDICT IS ONLY WORTH WHAT ITS CORPUS IS WORTH (added in review,
+# 2026-08-27). If the floor above failed, these two scans looked at nothing, and
+# "nothing was found" is then the literal definition of a vacuous pass. The run
+# already exits 1 in that case, so nothing was unsafe — but these two LINES said
+# `ok` while resting on an empty corpus, and a line that says `ok` for a bad
+# reason is how the next reader learns to trust the wrong thing.
 HITS="$(scan_component "$FE")"
-if [[ -z "$HITS" ]]; then
+if [[ "$CORPUS_OK" != "1" ]]; then
+  bad "<Lightbox scan found nothing, but the corpus check above already failed — this is a vacuous pass, not a clean tree"
+elif [[ -z "$HITS" ]]; then
   ok "no <Lightbox in production frontend source"
 else
   bad "<Lightbox is back in production source — use $SURVIVOR instead:"
@@ -172,7 +211,9 @@ fi
 
 # ── (2) zero chat__lightbox anywhere under frontend/ ─────────────────────────
 CLASSHITS="$(scan_class "$FE")"
-if [[ -z "$CLASSHITS" ]]; then
+if [[ "$CORPUS_OK" != "1" ]]; then
+  bad ".chat__lightbox scan found nothing, but the corpus check above already failed — this is a vacuous pass, not a clean tree"
+elif [[ -z "$CLASSHITS" ]]; then
   ok "no .chat__lightbox rule declared in any frontend stylesheet"
 else
   bad ".chat__lightbox styling is back — that block was deleted with the component:"
@@ -184,6 +225,14 @@ fi
 # a control that ran against a plain directory would exercise a code path this
 # guard no longer has, and would go on passing after the real scan broke.
 # `--template=` keeps any user's init templates and hooks out of it.
+#
+# It carries FOUR planted violations, and the point of the case is that they are
+# byte-identical to each other and land in three different git states:
+#   tracked            src/components/Planted.tsx, planted.css   → MUST be found
+#   untracked, live    src/components/SneakyPreview.tsx          → MUST be found
+#   ignored (built)    dist-paint-guard/, playwright/.cache/     → MUST NOT be
+# The middle row is the one added in review: a cached-only corpus dropped it, and
+# an editor's working copy sits in exactly that state most of the time.
 WORK="$(mktemp -d -t oc-lightbox-guard.XXXXXX)"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/src/components"
@@ -200,25 +249,44 @@ for i in $(seq 1 4); do : > "$WORK/src/components/filler$i.ts"; done
 cat >"$WORK/src/components/planted.css" <<'EOF'
 .chat__lightbox { position: fixed; }
 EOF
-# The DECOYS: byte-identical violations, in the two shapes that actually caused
-# the false red. Neither is committed, so neither may ever be reported.
+# The scratch tree models the real one: build output is IGNORED, not merely
+# untracked. That is what makes "version control is the filter" true without
+# costing the guard its reach over work in progress.
+cat >"$WORK/.gitignore" <<'EOF'
+dist-paint-guard/
+playwright/.cache
+EOF
 mkdir -p "$WORK/dist-paint-guard/assets" "$WORK/playwright/.cache/assets"
 cp "$WORK/src/components/Planted.tsx" "$WORK/dist-paint-guard/assets/bundle.tsx"
 cp "$WORK/src/components/planted.css" "$WORK/playwright/.cache/assets/index-DEADBEEF.css"
+# …and the work-in-progress file: real, un-added, NOT ignored.
+cp "$WORK/src/components/Planted.tsx" "$WORK/src/components/SneakyPreview.tsx"
 
 git -C "$WORK" init -q --template= 2>/dev/null
-git -C "$WORK" add -f src >/dev/null 2>&1
+git -C "$WORK" add -f .gitignore src/components/Planted.tsx src/components/planted.css >/dev/null 2>&1
+for i in $(seq 1 4); do git -C "$WORK" add -f "src/components/filler$i.ts" >/dev/null 2>&1; done
 
+# The controls below are all of the form "X was not reported". Each one is only
+# worth anything if X exists and really does contain the violation — otherwise
+# the guard is being congratulated for a missing file.
 if [[ -s "$WORK/dist-paint-guard/assets/bundle.tsx" && -s "$WORK/playwright/.cache/assets/index-DEADBEEF.css" ]] \
    && grep -qF '<Lightbox' "$WORK/dist-paint-guard/assets/bundle.tsx" \
-   && grep -qE '^[[:space:]]*\.chat__lightbox' "$WORK/playwright/.cache/assets/index-DEADBEEF.css"; then
-  ok "control setup: both build-output decoys exist on disk and really do contain the violation (so 'not reported' below is a filter working, not a file missing)"
+   && grep -qE '^[[:space:]]*\.chat__lightbox' "$WORK/playwright/.cache/assets/index-DEADBEEF.css" \
+   && [[ -n "$(git -C "$WORK" check-ignore dist-paint-guard/assets/bundle.tsx playwright/.cache/assets/index-DEADBEEF.css 2>/dev/null)" ]]; then
+  ok "control setup: both build-output decoys exist, contain the violation, and are really git-ignored (so 'not reported' below is a filter working, not a file missing)"
 else
-  bad "control setup: the build-output decoys are missing or do not contain the violation — the version-control assertions below would be vacuous"
+  bad "control setup: the build-output decoys are missing, do not contain the violation, or are not actually ignored — the version-control assertions below would be vacuous"
+fi
+if [[ -s "$WORK/src/components/SneakyPreview.tsx" ]] \
+   && grep -qF '<Lightbox' "$WORK/src/components/SneakyPreview.tsx" \
+   && [[ -z "$(git -C "$WORK" ls-files -- src/components/SneakyPreview.tsx)" ]]; then
+  ok "control setup: the work-in-progress violation exists, contains <Lightbox, and is genuinely UN-tracked (so finding it below means reach, not luck)"
+else
+  bad "control setup: the work-in-progress decoy is missing, empty, or was accidentally staged — the reach assertion below would prove nothing"
 fi
 
 CTRL="$(scan_component "$WORK")"
-if [[ "$CTRL" == "src/components/Planted.tsx:4:"* ]]; then
+if [[ "$CTRL" == *"src/components/Planted.tsx:4:"* ]]; then
   ok "positive control: the planted <Lightbox is reported at src/components/Planted.tsx:4"
 else
   bad "positive control did not name the planted path:line — the component scan is not matching what it claims (got: ${CTRL:-<nothing>})"
@@ -231,9 +299,16 @@ else
   bad "positive control did not name the planted stylesheet path:line — the class scan is not matching what it claims (got: ${CTRLCLASS:-<nothing>})"
 fi
 
+# 🔴 REACH: the corpus must not shrink to "what somebody remembered to `git add`".
+if [[ "$CTRL" == *"src/components/SneakyPreview.tsx:4:"* ]]; then
+  ok "reach: an UNTRACKED, un-ignored source file is still scanned — the guard speaks before the file is staged, not after"
+else
+  bad "reach: the untracked src/components/SneakyPreview.tsx was NOT reported — the corpus has shrunk to staged work only, and the guard is now silent for most of the time anyone is editing (got: ${CTRL:-<nothing>})"
+fi
+
 # 🔴 THE ASSERTION THIS GUARD WAS MISSING. Everything above proves the scan
 # WORKS; this proves it works on the right corpus. Both decoys are inside the
-# scanned tree, both contain the exact violation, neither is tracked.
+# scanned tree, both contain the exact violation, both are ignored.
 if [[ "$CTRL" != *dist-paint-guard* && "$CTRL" != *".cache"* ]]; then
   ok "version control is the filter: the identical <Lightbox in dist-paint-guard/ was NOT reported"
 else
@@ -246,10 +321,10 @@ else
 fi
 
 # NEGATIVE control: the same scratch tree with the violations removed must come
-# back clean. Without this, a scan that reports every file would satisfy both
-# positive controls above and still be worthless.
+# back clean. Without this, a scan that reports every file would satisfy every
+# positive control above and still be worthless.
 git -C "$WORK" rm -q --cached "src/components/Planted.tsx" "src/components/planted.css" >/dev/null 2>&1
-rm "$WORK/src/components/Planted.tsx" "$WORK/src/components/planted.css"
+rm "$WORK/src/components/Planted.tsx" "$WORK/src/components/planted.css" "$WORK/src/components/SneakyPreview.tsx"
 if [[ -z "$(scan_component "$WORK")" && -z "$(scan_class "$WORK")" ]]; then
   ok "negative control: a clean tree reports nothing"
 else
