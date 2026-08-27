@@ -22,3 +22,11 @@ dist-paint-guard/
 # would make every future note there need `git add -f` while its neighbours stay
 # tracked — a trap for the next person. Only the generated images are ignored.
 recon-out/*.png
+
+# Playwright-CT reference screenshots (playwright-ct.config.ts: snapshotDir).
+# Generated, and they land INSIDE visual-guards/, which is a source root that
+# bin/tests/lightbox-retired-guard.sh scans — so unlike recon-out/ they are not
+# excluded by being outside the roots. Today only *.png is written there and the
+# guard filters by extension, so this is a latent hole rather than an open one;
+# ignoring the directory closes it before the first generated .ts or .css lands.
+visual-guards/__snapshots__/

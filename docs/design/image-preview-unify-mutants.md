@@ -60,15 +60,18 @@ M8 釘的是另一半：所有權只有在 block **只有一個家**時才成立
 |---|---|---|---|
 | M10 | 把 `<Lightbox … />` 種回 `ChatArea.tsx` | 1 | `<Lightbox is back in production source — use frontend/src/components/MarkdownPreviewOverlay.tsx instead:` + 命中的 `path:line` |
 | M11 | 把 `.chat__lightbox { … }` 種回 office.css | 1 | `.chat__lightbox styling is back — that block was deleted with the component:` + 命中的 `path:line` |
-| M12 | 把 `FE` 指到不存在的 `frontendz`（vacuous-green 哨兵） | 1 | `frontend/src/components is missing — every scan below would be a vacuous pass` + `scan corpus is only 0 tracked file(s)` |
+| M12 | 把 `FE` 指到不存在的 `frontendz`（vacuous-green 哨兵） | 1 | `frontend/src/components is missing — every scan below would be a vacuous pass` + `scan corpus is only 0 source file(s)` |
 | M13 | 語料改回 `find` ＋ 目錄名 deny-list（T-1a7d 之前的樣子） | 1 | `the corpus reached into build output …` ＋ `the component scan reported a violation from build output — this is the false red T-1a7d fixed, come back` |
 | M14 | 語料縮回 `git ls-files --cached`（拿掉 `--others --exclude-standard`） | 1 | `reach: the untracked src/components/SneakyPreview.tsx was NOT reported — the corpus has shrunk to staged work only` |
 | M15 | 把整棵樹從 git 倉庫剝離（`tar` 掉 `.git`，模擬 tarball 部署） | 1 | `scan corpus is only 0 source file(s) …` ＋ 下游掃描斷言改報 `this is a vacuous pass, not a clean tree`（不再印 `ok`） |
-| M16 | 在 `frontend/recon-out/` 放一顆**未 tracked 且未被 ignore** 的過期 bundle | 1 | `source roots are the filter: … in recon-out/ … was NOT reported`（修正前：假紅原地復活） |
-| M17 | 從 `SCAN_ROOTS` 拿掉 `visual-guards` | 1 | `these TRACKED source files are outside every scanned root …` 並逐一列出 |
+| M16 | 把語料範圍改回整個 `frontend/`（拿掉 `SCAN_ROOTS` 收斂），對照樹裡的 `recon-out/` 誘餌就會進語料 | 1 | `the class scan reported a rule from recon-out/, which is neither committed nor ignored — this is the T-1a7d false red for the THIRD time, in the same shape wearing different clothes` |
+| M17 | 從 `SCAN_ROOTS` 拿掉 `visual-guards` | 1 | `these TRACKED source files are outside every scanned root …` 並逐一列名 |
+| M18 | 只改 coverage 檢查**自己的基準**一個 token（`all_tracked_sources` 的 `'*.ts' …` → `'*.tsz'`） | 1 | `the coverage check's own baseline is only 0 tracked file(s) — it is comparing against nothing …` ＋ `positive control: the coverage check did NOT name the tracked out-of-root lib/helper.ts` |
 
 M12 是本守衛最重要的一支：grep 打錯路徑會回 0 行，而 0 行正是「通過」的長相。
-守衛自己的 corpus 檢查（目錄存在 + 受版控檔數 ≥ 100 + 倖存的彈窗檔還在）讓那種綠變紅。
+守衛自己的 corpus 檢查（目錄存在 + **來源檔數** ≥ 100 + 倖存的彈窗檔還在）讓那種綠變紅。
+⚠️ 是「**來源檔**」不是「受版控檔」：語料是 tracked **加上** untracked-未被 ignore 的檔（見下面 `--others` 那段），
+這份文件在別處就是這樣論證的，寫成「受版控」會和它自己打架。
 
 守衛內建的正負對照（每次執行都跑，不需人工施加 mutant）：
 在 `mktemp` 出來的**假 git 倉庫**裡種一個 `<Lightbox>` 與一條 `.chat__lightbox` 規則並 `git add`，
@@ -97,6 +100,13 @@ M12 是本守衛最重要的一支：grep 打錯路徑會回 0 行，而 0 行�
 **每一個 tracked 的來源檔都必須落在某個 root 底下**。tracked ＝ 有人 commit 過 ⇒ 落在外面的只可能是「新的來源目錄沒加進來」（紅會把它逐一列名）或「不該被 commit 的東西」。
 **產物永遠不會是 tracked，所以永遠踩不到這條。** ⇒ **這份清單由「紅」維護，不是由記性維護。**
 🔴 **下次再有產物漏進來，正解仍然不是往 regex 補名字 —— 那會是第三次犯同一個錯。**
+
+### ⚠️ 跑這支守衛要用 `/bin/bash`，不是 PATH 上的 `bash`
+
+`bin-guards` 在 CI 是用 macOS 內建的 **`/bin/bash` 3.2.57** 跑的；開發機 PATH 上通常是 Homebrew bash 5。
+兩者在 `set -u` 下對**空陣列展開**的行為不同 —— **3.2 會報 `unbound variable`，4+ 給空清單**。
+本守衛因此在本機 17 ok / CI `bin-guards` 同一支 `extra[@]: unbound variable` 炸六次。
+可攜寫法是 `${a[@]+"${a[@]}"}`。**改完這個檔案，請用 `/bin/bash bin/tests/lightbox-retired-guard.sh` 再驗一次。**
 
 ### T-1a7d（2026-08-27）：語料從 `find` 換成 `git ls-files`
 

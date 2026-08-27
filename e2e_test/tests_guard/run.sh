@@ -2827,6 +2827,7 @@ chmod +x "$SG24_SLEEPER"
   && ok "ownedkill: the sleeper lives ${SG24_SLEEP_SECS}s, far longer than the longest BOUNDED watch (${SG24_WATCH_DIES}s) — so within those watches 'dead' cannot mean 'it simply finished'" \
   || bad "ownedkill: the sleeper (${SG24_SLEEP_SECS}s) is not comfortably longer than the ${SG24_WATCH_DIES}s watch — a process that simply finished would be read as KILLED, and 24f would pass on a mutant that touched nothing"
 SG24_PLEDGER="$SG24/pid-ledger"
+SG24_KLOG="$SG24/kill-log"
 sg24_alive() { local s; s="$(ps -p "$1" -o state= 2>/dev/null | tr -d ' ')"; [[ -n "$s" && "$s" != Z* ]]; }
 # sg24_watch_pid PID SECONDS -> "dead" as soon as the pid is gone, else "alive"
 # once SECONDS of wall clock have really elapsed. Every wait on a process in this
@@ -2860,7 +2861,7 @@ sg24_watch_pid() {
   done
 }
 sg24_pids() { # sg24_pids LIB EXPECT_DECOY(survives|dies) -> "<owned alive|dead>|<decoy alive|dead>"
-  local lib="$1" expect="$2" owned decoy o d watch fx
+  local lib="$1" expect="$2" owned decoy o d watch fx kd
   # 🔴 THE DEADLINE IS NOT THE SAME QUESTION IN BOTH DIRECTIONS (T-1a7d, 2026-08-27).
   # This helper feeds two OPPOSITE assertions and used to give both the same
   # ten-round window. For one of them that window IS the detector; for the other
@@ -2913,7 +2914,7 @@ sg24_pids() { # sg24_pids LIB EXPECT_DECOY(survives|dies) -> "<owned alive|dead>
     # subshell. Emit a value no assertion can accept, so the caller's own checks
     # go red and print it.
     *) printf 'sg24_pids: unknown decoy expectation %s\n' "$expect" >&2
-       printf 'UNKNOWN-EXPECTATION|UNKNOWN-EXPECTATION|UNKNOWN-EXPECTATION\n'; return 1 ;;
+       printf 'UNKNOWN-EXPECTATION|UNKNOWN-EXPECTATION|UNKNOWN-EXPECTATION|UNKNOWN-EXPECTATION\n'; return 1 ;;
   esac
   "$SG24_SLEEPER" & owned=$!
   "$SG24_SLEEPER" & decoy=$!
@@ -2945,7 +2946,29 @@ sg24_pids() { # sg24_pids LIB EXPECT_DECOY(survives|dies) -> "<owned alive|dead>
   sg24_alive "$decoy" || fx=decoy-never-started
   if ! sg24_alive "$owned" && ! sg24_alive "$decoy"; then fx=neither-started; fi
   printf '%s\n' "$owned" > "$SG24_PLEDGER"
-  SG24_MARK="$SG24_MARK" bash -c '. "$1" || exit 9; sg_own_kill_pids "$2"' _ "$lib" "$SG24_PLEDGER" >/dev/null 2>&1
+  # 🔴 "dead" HAS A FOURTH WAY OF LYING: SOMEBODY ELSE KILLED IT (found in the
+  # third review, 2026-08-27). Every reading in this function is of the form "is
+  # the pid gone", and that question cannot say WHO. On a box the header of this
+  # very case describes as "carrying a dozen agents", and in a repo whose case 24
+  # exists because somebody ran `pkill -f "ocserverd serve"` across it, a decoy
+  # being swept by an unrelated process is not a thought experiment. And the
+  # window is 15 s wide, which this ticket widened from ~1.3 s while closing a
+  # different hole — so the fix for one lie enlarged this one about elevenfold.
+  # MEASURED: a mutant whose pattern matches NOTHING (`pgrep -f "NOSUCH$MARK"`,
+  # so it kills only what the ledger names) plus a third party killing the decoy
+  # a second later ⇒ the whole suite went GREEN, PASS=326 FAIL=0, and 24f's
+  # load-bearing assertion — the one the case exists for — passed on luck.
+  #
+  # So the kill is now ATTRIBUTED rather than inferred from an absence. `kill` is
+  # a bash builtin, so a PATH shim cannot see it; a function defined in the same
+  # shell before the lib is sourced can, and it still performs the real signal.
+  # ⚠️ Narrow reading: this records what the LIB ITSELF signals. A lib that
+  # shelled out to some other program to do its killing would not be recorded
+  # here — the liveness reads remain the backstop for that.
+  : > "$SG24_KLOG"
+  SG24_MARK="$SG24_MARK" SG24_KLOG="$SG24_KLOG" bash -c '
+      kill() { printf "%s\n" "$@" | tr " " "\n" >> "$SG24_KLOG"; builtin kill "$@"; }
+      . "$1" || exit 9; sg_own_kill_pids "$2"' _ "$lib" "$SG24_PLEDGER" >/dev/null 2>&1
   # 🔴 BOTH SIDES ARE WATCHED, AND BOTH WATCHES ARE BOUNDED (2026-08-27, found in
   # review). This used to read the owned side with a bare `wait "$owned"`. That
   # is not a synchronisation point, it is an UNBOUNDED one: if the mutant never
@@ -2964,14 +2987,19 @@ sg24_pids() { # sg24_pids LIB EXPECT_DECOY(survives|dies) -> "<owned alive|dead>
   # saying `dead` here would be the third false green in this one function. Emit
   # a value no assertion accepts instead, so a broken fixture cannot be mistaken
   # for a successful kill.
-  [[ "$fx" == both-alive ]] || { o=n/a; d=n/a; }
-  printf '%s|%s|%s\n' "$fx" "$o" "$d"
+  # Did the lib's OWN kill name the decoy? grep -Fx: whole line, exact pid, so
+  # 4242 never matches 42.
+  local kd=no
+  grep -Fxq "$decoy" "$SG24_KLOG" 2>/dev/null && kd=yes
+  [[ "$fx" == both-alive ]] || { o=n/a; d=n/a; kd=n/a; }
+  printf '%s|%s|%s|%s\n' "$fx" "$o" "$d" "$kd"
 }
 _sg24_p="$(sg24_pids "$SG_OWNED" survives)"
-IFS='|' read -r _sg24_fx _sg24_o _sg24_d <<<"$_sg24_p"
+IFS='|' read -r _sg24_fx _sg24_o _sg24_d _sg24_kd <<<"$_sg24_p"
 check "ownedkill: FIXTURE — both sleepers really were running before the lib acted (so 'dead' below means the kill landed, not that the fixture never started)" "both-alive" "$_sg24_fx"
 check "ownedkill: POSITIVE CONTROL — the pid written to the ledger is really killed" "dead" "$_sg24_o"
 check "ownedkill: OWNERSHIP — an IDENTICAL process that was never recorded survives" "alive" "$_sg24_d"
+check "ownedkill: ATTRIBUTION — the shipped lib never even SIGNALLED the un-recorded pid (recorded from its own kills, so this is not 'it happened to survive')" "no" "$_sg24_kd"
 # fail-closed on this side too: no ledger ⇒ the recorded-nowhere process lives.
 # Same precondition as sg24_pids, for the same reason: "it is still alive" and
 # "it never started" are indistinguishable at the end, and only one of them is
@@ -3008,10 +3036,11 @@ if ! _sg_code_only "$SG24_PIDMUT" | grep -q 'pgrep -f'; then
   bad "seven_gate: MUT-pgrep did not apply to lib/ownedkill.sh — the exact-kill line moved, so case 24f is testing nothing (fix the sed)"
 else
   _sg24_pm="$(sg24_pids "$SG24_PIDMUT" dies)"
-  IFS='|' read -r _sg24_mfx _sg24_mo _sg24_md <<<"$_sg24_pm"
+  IFS='|' read -r _sg24_mfx _sg24_mo _sg24_md _sg24_mkd <<<"$_sg24_pm"
   check "MUT-pgrep: FIXTURE — both sleepers really were running before the mutant acted (so 'dead' below is a kill, not an empty stage)" "both-alive" "$_sg24_mfx"
   check "MUT-pgrep: the mutant still kills the process it owns (so the difference below is the PATTERN, not a broken mutant)" "dead" "$_sg24_mo"
   check "MUT-pgrep: …and it ALSO kills the un-recorded look-alike — 24e is pinned to the ledger, not to luck" "dead" "$_sg24_md"
+  check "MUT-pgrep: ATTRIBUTION — the MUTANT ITSELF signalled the decoy's pid, so the death above is the pattern matcher and not somebody else's sweep of this machine" "yes" "$_sg24_mkd"
 fi
 # The text scan that would have caught this one before it ran.
 #
@@ -3474,7 +3503,12 @@ echo "[tests_guard] PASS=$PASS FAIL=$FAIL"
 # gained a FIXTURE precondition — "both sleepers really were running before the
 # lib acted" — without which a fixture that never starts reads as a successful
 # kill. Floor 321 → 323, slack unchanged at 3.
-PASS_FLOOR=323
+# 2026-08-27, same ticket, third review: 326 → 328. Both call sites gained an
+# ATTRIBUTION assertion — the kill is now read from what the lib itself
+# signalled, not inferred from a pid being absent — without which a third party
+# sweeping the decoy makes 24f pass on a mutant that matches nothing. Floor
+# 323 → 325, slack unchanged at 3.
+PASS_FLOOR=325
 if [[ "$PASS" -lt "$PASS_FLOOR" ]]; then
   echo "[tests_guard] FATAL: only $PASS assertion(s) ran, floor is $PASS_FLOOR." >&2
   echo "[tests_guard] FAIL=0 with a collapsed PASS count means cases went missing, not that they passed." >&2

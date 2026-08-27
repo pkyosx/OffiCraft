@@ -178,6 +178,15 @@ all_tracked_sources() {
   ( cd "$1" && git ls-files --cached -- '*.ts' '*.tsx' '*.css' 2>/dev/null )
 }
 
+# uncovered_sources DIR — tracked source files that no scanned root reaches.
+# Empty is the passing answer, which is exactly why the caller must first prove
+# the LEFT-HAND side of this comparison is not empty (see below).
+uncovered_sources() {
+  comm -23 \
+    <(all_tracked_sources "$1" | sort) \
+    <(source_files "$1" .ts .tsx .css | tr '\0' '\n' | sort)
+}
+
 # scan_component DIR — every `<Lightbox` occurrence in DIR's production sources,
 # as `relative/path:line:text`. Production = tracked .ts/.tsx that is not a test.
 # `grep -H` is load-bearing in both scans: grep omits the filename when xargs
@@ -231,13 +240,28 @@ fi
 # source file must be inside a scanned root; a tracked file is one a human
 # committed, so anything outside is a source directory nobody added to
 # SCAN_ROOTS. Generated output is never tracked and so can never reach this.
-UNCOVERED="$(comm -23 \
-  <(all_tracked_sources "$FE" | sort) \
-  <(source_files "$FE" .ts .tsx .css | tr '\0' '\n' | sort) )"
+# 🔴 BOTH SIDES OF A DIFFERENCE HAVE TO BE REAL (added in the third review).
+# `comm -23 A B` returns nothing when A is empty just as readily as when B covers
+# A, and only one of those means "the roots list is complete". CORPUS_OK already
+# guarded B. A was guarded by nothing: MEASURED, changing ONE token in
+# all_tracked_sources ('*.ts' '*.tsx' '*.css' → '*.tsz') made this line report
+# `ok` — and with SCAN_ROOTS also cut to (src), the corpus silently dropped from
+# 590 files to 445 and a REAL planted `<Lightbox>` in visual-guards/ went
+# unreported while the guard printed `17 ok, 0 failed`.
+# That is, word for word, the failure this file's own header lectures about:
+# "a grep over a mistyped path returns zero matches and would otherwise be
+# reported as a pass". It got written into the check added to prevent the
+# previous round's version of the same mistake. Hence a floor here, and a
+# positive control further down — the two things every other assertion in this
+# file already had.
+TRACKED_N="$(all_tracked_sources "$FE" | command grep -c . || true)"
+UNCOVERED="$(uncovered_sources "$FE")"
 if [[ "$CORPUS_OK" != "1" ]]; then
   bad "coverage check skipped — the corpus is already broken, so 'nothing uncovered' would mean nothing"
+elif [[ "${TRACKED_N:-0}" -lt 100 ]]; then
+  bad "the coverage check's own baseline is only ${TRACKED_N:-0} tracked file(s) — it is comparing against nothing, so 'everything is covered' would be vacuous (check all_tracked_sources' pathspec)"
 elif [[ -z "$UNCOVERED" ]]; then
-  ok "the roots list covers every tracked source file under frontend/ (SCAN_ROOTS is not stale)"
+  ok "the roots list covers all $TRACKED_N tracked source files under frontend/ (SCAN_ROOTS is not stale)"
 else
   bad "these TRACKED source files are outside every scanned root — either add the directory to SCAN_ROOTS or they should not be committed; until then this guard is silently not looking at them:"
   printf '%s\n' "$UNCOVERED" | sed 's/^/         /'
@@ -414,6 +438,28 @@ if [[ "$CTRLCLASS" != *recon-out* ]]; then
 else
   bad "the class scan reported a rule from recon-out/, which is neither committed nor ignored — this is the T-1a7d false red for the THIRD time, in the same shape wearing different clothes (got: $CTRLCLASS)"
 fi
+
+# 🔴 POSITIVE CONTROL FOR THE COVERAGE CHECK. Everything above proves the SCANS
+# work; this proves the thing that watches the scans' reach works. A tracked file
+# in a directory no root covers is the exact shape of "somebody added a source
+# directory and forgot SCAN_ROOTS", and the check must name it rather than shrug.
+# Without this, the coverage check was the one assertion in this file with no
+# positive control — and a single mistyped extension in its own baseline made it
+# report `ok` forever.
+mkdir -p "$WORK/lib"
+printf 'export const helper = 1;\n' > "$WORK/lib/helper.ts"
+git -C "$WORK" add -f lib/helper.ts >/dev/null 2>&1
+CTRLCOV="$(uncovered_sources "$WORK")"
+if [[ -n "$(git -C "$WORK" ls-files -- lib/helper.ts)" ]]; then
+  if [[ "$CTRLCOV" == *"lib/helper.ts"* ]]; then
+    ok "positive control: a TRACKED source file outside every root is named by the coverage check (so its silence elsewhere means covered, not blind)"
+  else
+    bad "positive control: the coverage check did NOT name the tracked out-of-root lib/helper.ts — it cannot detect a stale SCAN_ROOTS, which is the only job it has (got: ${CTRLCOV:-<nothing>})"
+  fi
+else
+  bad "control setup: lib/helper.ts was not staged, so the coverage positive control proves nothing"
+fi
+git -C "$WORK" rm -q --cached lib/helper.ts >/dev/null 2>&1; rm -f "$WORK/lib/helper.ts"
 
 # NEGATIVE control: the same scratch tree with the violations removed must come
 # back clean. Without this, a scan that reports every file would satisfy every
