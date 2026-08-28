@@ -73,9 +73,33 @@ test.describe('B12 · in-conversation arrivals — chip and divider share ONE ne
       (el) => el.scrollHeight > el.clientHeight + 1,
     );
     expect(overflow, 'the thread must overflow one screen (real scroll state)').toBe(true);
-    await thread.evaluate((el) => {
-      el.scrollTop = 0;
-    });
+    // 🔴 THE SCROLL HAS TO BE WAITED FOR, NOT MERELY ISSUED.
+    // `el.scrollTop = 0` updates the property synchronously, but ChatArea keeps
+    // its "is the owner near the bottom?" answer in `nearBottomRef`, and the ONLY
+    // writer of that ref is its onScroll handler. A programmatic assignment
+    // dispatches the scroll event on a later task, so code that assigns and walks
+    // straight on leaves the component still holding the previous answer: the
+    // next arrival is auto-followed to the bottom and no chip is ever armed.
+    // Resolving on the element's own scroll event puts us after that dispatch —
+    // scroll does not bubble, so React's root listener for it runs in the capture
+    // phase of the same dispatch, ahead of the target-phase listener below.
+    await thread.evaluate(
+      (el) =>
+        new Promise((resolve) => {
+          if (el.scrollTop === 0) {
+            resolve(null);
+            return;
+          }
+          el.addEventListener('scroll', () => resolve(null), { once: true });
+          el.scrollTop = 0;
+        }),
+    );
+    await expect
+      .poll(() => thread.evaluate((el) => el.scrollTop), {
+        message:
+          'the scroll to the top must have landed before any new message is posted',
+      })
+      .toBeLessThan(40);
 
     // ── TWO new messages land while the owner is in the room (SSE-pushed) ──
     const new1 = await postChatAs(request, tokM, 'owner', `sudden new message 1 ${PAD}`);
@@ -84,37 +108,30 @@ test.describe('B12 · in-conversation arrivals — chip and divider share ONE ne
     // ── THE SCROLL POSITION IS SAMPLED TWICE, ON PURPOSE ───────────────────
     //
     // These are NOT the same assertion written down twice. They sit on
-    // opposite sides of the chip wait because they answer different questions,
-    // and the pair is what makes this spec's intermittent red self-diagnosing.
+    // opposite sides of the chip wait and are read at different moments.
     //
-    // The chip assertion below can abort the test. When it did, we never
-    // reached ANY scroll reading, and two completely different causes printed a
-    // byte-identical failure log:
-    //   (product) `nearBottom` misjudges under an SSE burst, the view is pulled
-    //             back to the bottom, and neither chip nor divider arms;
-    //   (test)    the `el.scrollTop = 0` above has not dispatched its scroll
-    //             event yet when the SSE frames land, so the component never
-    //             saw the owner as scrolled-up in the first place.
-    //
-    // ① below runs BEFORE anything that can abort, so it is always in the log,
-    // and it falsifies exactly one of those two:
-    //   * reads ~0  ⇒ the scroll-to-top DID take effect. Hypothesis (test) is
-    //                 dead, and any red that follows can only be product-side.
-    //   * reads big ⇒ the scroll-to-top never landed. Hypothesis (test) is
-    //                 confirmed and the product is exonerated.
+    // ① below runs BEFORE anything that can abort, so a red chip still leaves a
+    // scroll position in the log. What that number can settle is narrow, and the
+    // narrowness is the point: a big reading is what BOTH candidate mechanisms
+    // produce — the scroll never landing, and the arrival pulling a scrolled-up
+    // viewport back down — because both end with the viewport at the bottom. It
+    // therefore rules nothing in and nothing out by itself. What makes the
+    // reading attributable is the gate above: the scroll is now waited for and
+    // asserted by name before a single new message is posted, so if that
+    // mechanism is the live one the run reddens there, on its own message,
+    // rather than here.
     // ② after the chip is the ORIGINAL guarantee and it is unchanged: the SSE
     // arrival must not yank a scrolled-up reader back to the bottom. ① cannot
     // stand in for it — ① samples before the frames are necessarily processed,
     // so it says nothing about what the arrival did. Moving ② up here instead
     // of adding ① would have silently deleted that guarantee.
     //
-    // ① DIAGNOSTIC — did the precondition (scrolled to the top) actually hold?
+    // ① DIAGNOSTIC — where was the viewport when the arrivals were posted?
     const scrolledUp = await thread.evaluate((el) => el.scrollTop);
     expect(
       scrolledUp,
-      'scrolling to the top must have actually taken effect before the arrivals ' +
-        '(this line exists to separate "the product misjudged nearBottom" from ' +
-        '"the test never waited for its own scroll to land")',
+      'the owner must still be scrolled up when the arrivals land (sampled here, ' +
+        'before the chip wait, so that a red chip still records a scroll position)',
     ).toBeLessThan(40);
 
     // The floating chip appears…
