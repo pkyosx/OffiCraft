@@ -220,3 +220,21 @@ export function summarize(samples: FrameSample[]): string {
   }
   return seen.slice(0, 25).join("\n");
 }
+
+/** The base URL of one of the two stub servers, from the environment.
+ *
+ * There is deliberately NO default. A default would be a pinned port, which is
+ * exactly what used to make two working copies running these guards at the same
+ * time fight over 4318/4319; playwright-paint.config.ts allocates a free pair
+ * per run and puts them here. */
+export function stubURL(name: "PAINT_GUARD_OK_URL" | "PAINT_GUARD_UNKNOWN_URL"): string {
+  const url = process.env[name];
+  if (!url) {
+    throw new Error(
+      `${name} is not set, so this guard does not know where its stub server is. ` +
+        `playwright-paint.config.ts sets it — run the guards through it ` +
+        `(\`npm run test:paint\`), or set ${name} to a stub you started yourself.`
+    );
+  }
+  return url;
+}

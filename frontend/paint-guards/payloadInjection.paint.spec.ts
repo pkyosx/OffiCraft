@@ -32,6 +32,7 @@ import {
   frameCarryingBeforeMount,
   installFrameSampler,
   seedSession,
+  stubURL,
   summarize,
 } from "./frameProbe";
 
@@ -54,7 +55,7 @@ const TOKEN = "paint-guard-owner-token";
 // <html> is the pre-paint script reading the record under test, so every
 // occurrence is attributable. The injection window (8-9 ms) is far earlier than
 // the reconcile that then clears the record, so nothing is lost.
-const INJECTION_SERVER = process.env.PAINT_GUARD_UNKNOWN_URL ?? "http://localhost:4319";
+const INJECTION_SERVER = stubURL("PAINT_GUARD_UNKNOWN_URL");
 
 async function loadWith(page: import("@playwright/test").Page, record: string) {
   await page.goto(INJECTION_SERVER);

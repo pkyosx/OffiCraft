@@ -73,7 +73,10 @@ export default defineConfig({
       // the real dist/ in a real Chromium (see playwright-paint.config.ts).
       // Vitest's default glob would otherwise sweep *.paint.spec.ts in and throw
       // at collect time on `import "@playwright/test"`.
-      "paint-guards/**",
+      // Narrower than `paint-guards/**`: the browser specs in there must stay
+      // out, but the plain-node helpers beside them (freePort.ts) have jsdom
+      // tests that belong in this suite.
+      "paint-guards/**/*.spec.ts",
       "**/*.paint.spec.ts",
     ],
   },

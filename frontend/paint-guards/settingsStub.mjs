@@ -28,7 +28,13 @@
 // authenticated path, against a server that agrees the theme exists.
 //
 // Usage:
-//   node settingsStub.mjs --port 4318 --dist dist --mode ok [--delay 400]
+//   node settingsStub.mjs --dist dist --mode ok [--port N] [--delay 400]
+//
+// --port is OPTIONAL and normally absent: without it the OS picks a port nobody
+// is using and this process prints the one it got. playwright-paint.config.ts
+// does pass --port, with a port it allocated the same way — it has to, because
+// Playwright needs the URL before the server exists. Pinning a literal port
+// here is what used to make two working copies of this repo collide.
 //
 // Modes (the semantics are UNCHANGED; only the wire that carries them moved):
 //   ok            — the server KNOWS the theme (the happy path this ticket is
@@ -58,7 +64,8 @@ function arg(name, fallback) {
   return i === -1 ? fallback : process.argv[i + 1];
 }
 
-const PORT = Number(arg("port", "4318"));
+// 0 = let the OS choose. See the --port note above; never default to a literal.
+const PORT = Number(arg("port", "0"));
 const DIST = resolve(HERE, "..", arg("dist", "dist"));
 const MODE = arg("mode", "ok");
 const DELAY = Number(arg("delay", "0"));
@@ -169,7 +176,7 @@ async function serveFile(res, absPath) {
 }
 
 const server = createServer(async (req, res) => {
-  const url = new URL(req.url, `http://localhost:${PORT}`);
+  const url = new URL(req.url, `http://localhost:${boundPort}`);
   const path = url.pathname;
 
   // ── the reconcile's three legs. EVERY one of them sleeps for --delay ────────
@@ -269,9 +276,35 @@ const server = createServer(async (req, res) => {
   }
 });
 
+/** The port actually bound, which is only the same as PORT when one was pinned;
+ * with --port absent the OS chooses and this is where the answer lands. */
+let boundPort = PORT;
+
+// A failed listen must SAY WHAT FAILED. Without this handler node re-throws the
+// 'error' event as an unhandled exception whose stack points into this file, and
+// Playwright reports it as "Process from config.webServer was not able to start"
+// — which reads exactly like the stub itself being broken, and sends whoever hit
+// it off to debug code that is fine. The message below names the actual fault
+// and what to do about it.
+server.on("error", (err) => {
+  const detail =
+    err.code === "EADDRINUSE"
+      ? `port ${PORT} is ALREADY IN USE by another process — most often a second ` +
+        `copy of this stub, i.e. another working copy of this repo running the ` +
+        `paint guards at the same time. This stub is NOT broken. Drop --port to ` +
+        `let the OS pick a free one, which is what playwright-paint.config.ts does.`
+      : err.code === "EACCES"
+        ? `this user may not bind port ${PORT} (ports below 1024 need root). Drop ` +
+          `--port to let the OS pick a high one.`
+        : `${err.code ?? "unknown error"} — ${err.message}`;
+  console.error(`[paint-guard stub] FAILED TO LISTEN: ${detail}`);
+  process.exit(1);
+});
+
 server.listen(PORT, () => {
+  boundPort = server.address().port;
   console.log(
-    `[paint-guard stub] :${PORT} dist=${DIST} mode=${MODE} reconcileDelay=${DELAY}ms ` +
+    `[paint-guard stub] :${boundPort} dist=${DIST} mode=${MODE} reconcileDelay=${DELAY}ms ` +
       `(settings + themes + themes/{id}) knowsTheme=${KNOWS_THEME} theme=${SERVER_THEME.id}`
   );
 });

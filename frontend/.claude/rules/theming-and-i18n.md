@@ -57,4 +57,6 @@ pre-React 上色的三道守衛分工固定：記錄驗證、build artifact 形�
 
 逐幀守衛必須在登入態、server 認得的主題與 VITE_USE_MOCK=false 下執行，並斷言 settings 真的回 200、主題真的套上；沒有前提就 setup error，不可空跑變綠。正向案例要同時驗顏色、字體、canvas 圖與 canvas mode 在 React mount 前出現；探針必須讓 runner 以非零 exit code 失敗，取樣數要達最低門檻，不可只判 >0。stub server 要同時服務 settings 與 themes 兩面，且延遲要一起套用：只延遲其中一面，量到的閃爍視窗會比真實短。
 
+stub server 的埠不可寫死：playwright-paint.config.ts 用 allocateFreePorts() 向 OS 要沒人用的埠，spec 端一律由 PAINT_GUARD_OK_URL／PAINT_GUARD_UNKNOWN_URL 讀回來，沒有預設值——預設值就是釘死的埠，兩份工作副本同時跑就會搶同一個。settingsStub.mjs 的 listen 失敗一定要自己講出失敗原因（埠被佔用就說埠被佔用、說它自己沒壞），否則 runner 只會印「web server 起不來」，跟 stub 本身壞掉長得一模一樣。
+
 注入案例要用 server 不認得任何主題的 stub，否則合法的 server theme 會偽裝成 pre-paint 洩漏。paint 記錄只在真的拿到 bundle 之後才寫；拿不到就不動它——用空值覆蓋等於自己清掉快取的畫面，下一次 pre-auth 載入就會閃。pre-paint 與 i18n 只能透過 api/auth 的 TOKEN_KEY 與 themePaint 的 LS_THEME、LS_THEME_PAINT 取儲存鍵，不可在 source 或探針硬寫 key。

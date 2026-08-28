@@ -50,6 +50,7 @@ import {
   installFrameSampler,
   readStoredPaint,
   seedSession,
+  stubURL,
   summarize,
   type NetProfile,
 } from "./frameProbe";
@@ -60,8 +61,8 @@ const TOKEN = "paint-guard-owner-token";
 const STALE_NAME = "STALE-CACHE-NAME";
 const STALE_RECORD = paintRecordJSON({ ...VALID_RICH_BUNDLE, name: STALE_NAME });
 
-const OK_SERVER = process.env.PAINT_GUARD_OK_URL ?? "http://localhost:4318";
-const UNKNOWN_SERVER = process.env.PAINT_GUARD_UNKNOWN_URL ?? "http://localhost:4319";
+const OK_SERVER = stubURL("PAINT_GUARD_OK_URL");
+const UNKNOWN_SERVER = stubURL("PAINT_GUARD_UNKNOWN_URL");
 
 for (const profile of ["fourg", "loopback"] as NetProfile[]) {
   test(`no frame is anything but the cached colour — authenticated, server knows the theme (${profile})`, async ({
