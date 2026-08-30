@@ -149,9 +149,12 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
   bug above, not a partial fix:
   - a message whose `from` equals the listener's own id MUST NOT be printed, and MUST NOT
     count toward the unread total the drain reports;
-  - it MUST still **advance the seen cursor** (`seen[mid] = true`). This half is the entire
-    point: skipping without marking leaves the message permanently unread and merely changes
-    the bug's shape;
+  - it MUST still **be recorded in the listener's persisted seen cursor**. This half is the
+    entire point: skipping without recording leaves the message permanently unread and merely
+    changes the bug's shape. The rule is stated as an outcome, not a mechanism — a listener
+    that rebuilds its seen set from the refetched authority satisfies it without a separate
+    assignment, provided the rebuild is keyed on the recipient and does NOT itself exclude
+    self-sent messages;
   - the **silent boot baseline** obeys both halves — nothing prints, the cursor still
     advances;
   - **fail-open, exactly as at the frame layer**: a blank or missing sender is NEVER an echo.

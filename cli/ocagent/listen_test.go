@@ -558,7 +558,7 @@ func TestDrainChat_NoReplyToOmitsTheMarkerEntirely(t *testing.T) {
 func TestDrainChat_SelfSentToSelfIsSuppressedAndMarkedSeen(t *testing.T) {
 	srv, _ := chatServer(t, `[{"id":"m-self","from":"kyle","to":"kyle","body":"baton for the next me"}]`)
 	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	seen := map[string]bool{}
+	seen := loadChatSeen("")
 	var out bytes.Buffer
 
 	if n := drainChat(srv.Client(), cfg, seen, &out, false); n != 0 {
@@ -567,7 +567,7 @@ func TestDrainChat_SelfSentToSelfIsSuppressedAndMarkedSeen(t *testing.T) {
 	if out.Len() != 0 {
 		t.Fatalf("self-sent message must NOT print, got %q", out.String())
 	}
-	if !seen["m-self"] {
+	if !seen.m["m-self"] {
 		t.Fatal("self-sent message must still advance the seen cursor — " +
 			"leaving it unread is what lets it pile up and ride out on someone else's delta")
 	}
@@ -585,7 +585,7 @@ func TestDrainChat_SelfEchoBacklogNeverCrowdsOutRealMessages(t *testing.T) {
 	  {"id":"m-new","from":"hook:slack-hook","to":"kyle","body":"加到 todo"}
 	]`)
 	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	seen := map[string]bool{}
+	seen := loadChatSeen("")
 	var out bytes.Buffer
 
 	if n := drainChat(srv.Client(), cfg, seen, &out, false); n != 1 {
@@ -595,7 +595,7 @@ func TestDrainChat_SelfEchoBacklogNeverCrowdsOutRealMessages(t *testing.T) {
 		t.Fatalf("drain must print ONLY the real message:\n got %q\nwant %q", got, want)
 	}
 	for _, id := range []string{"m-old1", "m-old2", "m-new"} {
-		if !seen[id] {
+		if !seen.m[id] {
 			t.Fatalf("%s must be marked seen after the drain", id)
 		}
 	}
@@ -607,7 +607,7 @@ func TestDrainChat_SelfEchoIsCaseInsensitive(t *testing.T) {
 	srv, _ := chatServer(t, `[{"id":"m1","from":"KYLE","to":"kyle","body":"mine"}]`)
 	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
 	var out bytes.Buffer
-	if n := drainChat(srv.Client(), cfg, map[string]bool{}, &out, false); n != 0 || out.Len() != 0 {
+	if n := drainChat(srv.Client(), cfg, loadChatSeen(""), &out, false); n != 0 || out.Len() != 0 {
 		t.Fatalf("case-different self id must still suppress: n=%d out=%q", n, out.String())
 	}
 }
@@ -617,12 +617,12 @@ func TestDrainChat_SelfEchoIsCaseInsensitive(t *testing.T) {
 func TestDrainChat_SelfEchoIgnoresSurroundingWhitespace(t *testing.T) {
 	srv, _ := chatServer(t, `[{"id":"m1","from":"  kyle  ","to":"kyle","body":"mine"}]`)
 	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	seen := map[string]bool{}
+	seen := loadChatSeen("")
 	var out bytes.Buffer
 	if n := drainChat(srv.Client(), cfg, seen, &out, false); n != 0 || out.Len() != 0 {
 		t.Fatalf("padded self id must still suppress: n=%d out=%q", n, out.String())
 	}
-	if !seen["m1"] {
+	if !seen.m["m1"] {
 		t.Fatal("a padded self-sent message must still advance the seen cursor")
 	}
 }
@@ -633,7 +633,7 @@ func TestDrainChat_BlankFromIsNeverAnEcho(t *testing.T) {
 	srv, _ := chatServer(t, `[{"id":"m1","from":"","to":"kyle","body":"who sent this"}]`)
 	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
 	var out bytes.Buffer
-	if n := drainChat(srv.Client(), cfg, map[string]bool{}, &out, false); n != 1 {
+	if n := drainChat(srv.Client(), cfg, loadChatSeen(""), &out, false); n != 1 {
 		t.Fatalf("blank sender must fail OPEN (print), n=%d", n)
 	}
 	if got := out.String(); got != "[ocagent] chat from  (#m1): who sent this\n" {
@@ -646,13 +646,13 @@ func TestDrainChat_BlankFromIsNeverAnEcho(t *testing.T) {
 func TestDrainChat_SilentBaselineAlsoConsumesSelfSent(t *testing.T) {
 	srv, _ := chatServer(t, `[{"id":"m-self","from":"kyle","to":"kyle","body":"baton"}]`)
 	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	seen := map[string]bool{}
+	seen := loadChatSeen("")
 	var out bytes.Buffer
 	drainChat(srv.Client(), cfg, seen, &out, true)
 	if out.Len() != 0 {
 		t.Fatalf("silent baseline must print nothing, got %q", out.String())
 	}
-	if !seen["m-self"] {
+	if !seen.m["m-self"] {
 		t.Fatal("silent baseline must advance the cursor past a self-sent message")
 	}
 }
