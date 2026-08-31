@@ -1,20 +1,20 @@
 -- +goose Up
--- T-33 — world state memory 的地基. Eleven tables: the three memory layers, the
+-- T-33 — 傳承（lore）的地基. Eleven tables: the three memory layers, the
 -- two join tables that keep the retrieval axes apart, the ontology (entity /
 -- entity_alias / entity_type), and the three journals (recall / feedback /
 -- governance).
 --
--- 🔴 THE NAME IS `world_state_memory_*`, NOT `memory_*`. The detail design used
+-- 🔴 THE NAME IS `lore_*`, NOT `memory_*`. The detail design used
 -- `memory_*` as an explicit PLACEHOLDER pending a naming ruling ("暫且叫做");
--- the owner ruled on 2026-08-31 that the thing is called `world state memory`,
+-- the owner ruled on 2026-08-31 that the thing is called 「傳承」 / `lore`,
 -- so the tables carry that name from their first version. Renaming a table
 -- after a station has data in it costs a rebuild migration; naming it right
 -- once costs nothing.
 --
 -- 🔴 THE THREE LAYERS ARE THREE TABLES, AND THAT IS THE WHOLE POINT of the
--- split. Only `world_state_memory_entry` (L1) is ever folded into a boot
--- context. `world_state_memory_revision` (L0) holds the full prose nobody reads
--- at boot, and `world_state_memory_meta` (L2) holds the governance counters that
+-- split. Only `lore_entry` (L1) is ever folded into a boot
+-- context. `lore_revision` (L0) holds the full prose nobody reads
+-- at boot, and `lore_meta` (L2) holds the governance counters that
 -- MUST NEVER reach a context. Being a separate table is what makes "the
 -- assembler cannot see L2" a fact about the SELECT list rather than a promise
 -- in a comment.
@@ -51,8 +51,8 @@ CREATE TABLE entity_type (
 --
 -- 🔴 THIS TABLE IS THE ONE AND ONLY COPY OF THE TYPE-PREFIX LIST. Subjects and
 -- `origin` are the same shape — `type:name` — so they are validated against the
--- same rows, read at run time (worldStateMemoryOriginError in
--- dal_world_state_memory.go). A second list hard-coded in Go would be a copy that
+-- same rows, read at run time (loreOriginError in
+-- dal_lore.go). A second list hard-coded in Go would be a copy that
 -- drifts the first time a type is approved, and the two would then disagree about
 -- what is writable, silently, in whichever direction the reader happened to use.
 --
@@ -98,7 +98,7 @@ CREATE TABLE entity_alias (
 -- that goes stale the moment a new alias lands.
 CREATE INDEX idx_entity_alias_alias ON entity_alias (alias);
 
-CREATE TABLE world_state_memory_entry (
+CREATE TABLE lore_entry (
     id            TEXT PRIMARY KEY,
     -- 🔴 THE SIX BODY FIELDS ARE FIXED, AND THERE IS DELIBERATELY NO FREE-FORM
     -- COLUMN AMONG THEM. The owner looked at a sample of entries and said it
@@ -112,7 +112,7 @@ CREATE TABLE world_state_memory_entry (
     -- form cannot do that — a missing section and a section the author never
     -- wrote look identical, which is precisely the disease this ticket treats:
     -- something disappeared and nothing reported it. See IsDegraded() in
-    -- dal_world_state_memory.go, which is that check made cheap.
+    -- dal_lore.go, which is that check made cheap.
     -- 🔴 `label` IS A NAME, NOT A SENTENCE, AND THAT IS WHY IT IS CAPPED. It is
     -- what a reader scans a list by, and what a merge or a supersede POINTS AT.
     -- A sentence invites the next author to tidy the wording — and when the name
@@ -121,7 +121,7 @@ CREATE TABLE world_state_memory_entry (
     -- shortening a name is the same silent loss this ticket exists to kill.
     -- ⚠️ 40 是佔位數字，不是算出來的 — it is a placeholder, not a measured value,
     -- and it has to be calibrated after the trial.
-    label         TEXT NOT NULL DEFAULT '',  -- one-line NAME, max 40 runes (see worldStateMemoryLabelMaxRunes)
+    label         TEXT NOT NULL DEFAULT '',  -- one-line NAME, max 40 runes (see loreLabelMaxRunes)
     symptoms      TEXT NOT NULL DEFAULT '',  -- what I would be SEEING; the situation, not a category name
     short         TEXT NOT NULL DEFAULT '',  -- the compressed body: the mechanism and why
     falsify       TEXT NOT NULL DEFAULT '',  -- how to show this entry does NOT hold
@@ -150,11 +150,11 @@ CREATE TABLE world_state_memory_entry (
 -- author who has nothing to put there leaves it empty. That is the difference
 -- that matters — an empty column is a countable, queryable absence, whereas a
 -- section that was never written leaves nothing behind to count.
-CREATE INDEX idx_world_state_memory_entry_status ON world_state_memory_entry (status, visibility);
+CREATE INDEX idx_lore_entry_status ON lore_entry (status, visibility);
 
-CREATE TABLE world_state_memory_revision (
+CREATE TABLE lore_revision (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    entry_id     TEXT NOT NULL REFERENCES world_state_memory_entry(id),
+    entry_id     TEXT NOT NULL REFERENCES lore_entry(id),
     body         TEXT NOT NULL,
     sha256       TEXT NOT NULL,
     actor_id     TEXT NOT NULL DEFAULT '',
@@ -170,10 +170,10 @@ CREATE TABLE world_state_memory_revision (
 -- `shrink_chars` is where "every action that makes content smaller must leave a
 -- record of what was lost" becomes a column. Compression today leaves no trace
 -- at all: the entry count is unchanged, so the loss is invisible.
-CREATE INDEX idx_world_state_memory_revision_entry ON world_state_memory_revision (entry_id, id DESC);
+CREATE INDEX idx_lore_revision_entry ON lore_revision (entry_id, id DESC);
 
-CREATE TABLE world_state_memory_meta (
-    entry_id           TEXT PRIMARY KEY REFERENCES world_state_memory_entry(id),
+CREATE TABLE lore_meta (
+    entry_id           TEXT PRIMARY KEY REFERENCES lore_entry(id),
     created_ts         REAL NOT NULL DEFAULT 0.0,
     last_recalled_ts   REAL NOT NULL DEFAULT 0.0,
     recall_count       INTEGER NOT NULL DEFAULT 0,
@@ -197,19 +197,19 @@ CREATE TABLE world_state_memory_meta (
 -- constraint cannot express this; it is a rule for whatever writes the
 -- retirement path, and it is owed a mutant test when that path is written.
 
-CREATE TABLE world_state_memory_subject (
-    entry_id  TEXT NOT NULL REFERENCES world_state_memory_entry(id),
+CREATE TABLE lore_subject (
+    entry_id  TEXT NOT NULL REFERENCES lore_entry(id),
     entity_id TEXT NOT NULL REFERENCES entity(id),
     PRIMARY KEY (entry_id, entity_id)
 );
-CREATE INDEX idx_world_state_memory_subject_entity ON world_state_memory_subject (entity_id, entry_id);
+CREATE INDEX idx_lore_subject_entity ON lore_subject (entity_id, entry_id);
 
-CREATE TABLE world_state_memory_action (
-    entry_id TEXT NOT NULL REFERENCES world_state_memory_entry(id),
+CREATE TABLE lore_action (
+    entry_id TEXT NOT NULL REFERENCES lore_entry(id),
     action   TEXT NOT NULL,
     PRIMARY KEY (entry_id, action)
 );
-CREATE INDEX idx_world_state_memory_action_action ON world_state_memory_action (action, entry_id);
+CREATE INDEX idx_lore_action_action ON lore_action (action, entry_id);
 -- 🔴 TWO TABLES, NOT ONE TAG BAG. Ranking has to tell "same subject, different
 -- action" apart from "same action, different subject" — that is the T1/T2
 -- distinction. Flattened into one tag set, the two are indistinguishable and the
@@ -221,7 +221,7 @@ CREATE INDEX idx_world_state_memory_action_action ON world_state_memory_action (
 -- action set is closed — a build-time exhaustiveness guard, most of all — is
 -- blind to exactly the names that appear after it was written.
 
-CREATE TABLE world_state_memory_recall_log (
+CREATE TABLE lore_recall_log (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     actor_id   TEXT NOT NULL DEFAULT '',
     query      TEXT NOT NULL DEFAULT '',
@@ -230,11 +230,11 @@ CREATE TABLE world_state_memory_recall_log (
     returned   TEXT NOT NULL DEFAULT '',
     created_ts REAL NOT NULL DEFAULT 0.0
 );
-CREATE INDEX idx_world_state_memory_recall_log_ts ON world_state_memory_recall_log (created_ts DESC);
+CREATE INDEX idx_lore_recall_log_ts ON lore_recall_log (created_ts DESC);
 
-CREATE TABLE world_state_memory_feedback (
+CREATE TABLE lore_feedback (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    entry_id   TEXT NOT NULL REFERENCES world_state_memory_entry(id),
+    entry_id   TEXT NOT NULL REFERENCES lore_entry(id),
     verdict    TEXT NOT NULL CHECK (verdict IN ('helpful','harmful')),
     shape      TEXT NOT NULL DEFAULT ''
                CHECK (shape IN ('','restated','stale','mis-subject')),
@@ -247,7 +247,7 @@ CREATE TABLE world_state_memory_feedback (
 -- a stale one wants retiring, a mis-subject one wants its subject fixed. An
 -- undifferentiated "this was bad" count tells nobody which to do.
 
-CREATE TABLE world_state_memory_governance_event (
+CREATE TABLE lore_governance_event (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     kind        TEXT NOT NULL,
     target      TEXT NOT NULL,
@@ -266,14 +266,14 @@ CREATE TABLE world_state_memory_governance_event (
 -- existed before it is touched. It is not a rollback path for a live station
 -- with data (that path is a retreat of the code, not of the schema); it exists
 -- so the reversibility check has something true to run.
-DROP TABLE world_state_memory_governance_event;
-DROP TABLE world_state_memory_feedback;
-DROP TABLE world_state_memory_recall_log;
-DROP TABLE world_state_memory_action;
-DROP TABLE world_state_memory_subject;
-DROP TABLE world_state_memory_meta;
-DROP TABLE world_state_memory_revision;
-DROP TABLE world_state_memory_entry;
+DROP TABLE lore_governance_event;
+DROP TABLE lore_feedback;
+DROP TABLE lore_recall_log;
+DROP TABLE lore_action;
+DROP TABLE lore_subject;
+DROP TABLE lore_meta;
+DROP TABLE lore_revision;
+DROP TABLE lore_entry;
 DROP TABLE entity_alias;
 DROP TABLE entity;
 DROP TABLE entity_type;

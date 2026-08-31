@@ -4,7 +4,7 @@ package main
 // class of knowledge is this entry", derived from the entry's action names.
 //
 // 🔴 IT IS DERIVED, NEVER STORED. An earlier draft made trust_scope a column on
-// world_state_memory_entry and reconciled it afterwards. That was rejected: a
+// lore_entry and reconciled it afterwards. That was rejected: a
 // stored class and the actions it came from are two statements about the same
 // fact, and the moment an entry's actions are edited the column is a lie that
 // nothing reports. The retrieval rule that hangs off this — "trust-class entries
@@ -195,6 +195,6 @@ func memoryTrustScope(actions []string) TrustScopeVerdict {
 // counter lands it should be incremented HERE, so there is still exactly one
 // place that knows a fall-through happened.
 func logUnmappedMemoryActions(unmapped []string, scope TrustScope) {
-	log.Printf("[world-state-memory] unmapped_actions=%q fell_back_to=%s count=%d",
+	log.Printf("[lore] unmapped_actions=%q fell_back_to=%s count=%d",
 		strings.Join(unmapped, ","), scope, len(unmapped))
 }

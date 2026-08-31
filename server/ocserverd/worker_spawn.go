@@ -115,8 +115,8 @@ const (
 //  3. the persona — staff read 角色說明 → 判準 → 長期筆記 here (the 判準 block is
 //     itself skipped when that role's insight folds blank). A worker has no role,
 //     so it reads none of those three. That is the entire difference.
-//     🔴 SINCE T-33 THIS SLOT IS NO LONGER EMPTY FOR A WORKER: the world state
-//     memory 對象目錄 sits at the tail of slot 3 on BOTH sides. It is not
+//     🔴 SINCE T-33 THIS SLOT IS NO LONGER EMPTY FOR A WORKER: the lore
+//     對象目錄 sits at the tail of slot 3 on BOTH sides. It is not
 //     role-specific — it is the station's subject directory — so subtracting it
 //     from the worker would be writing (by omission) a document for outsource
 //     readers, which is the one thing T-4595 forbids. The invariant is therefore
@@ -169,7 +169,7 @@ func (s *apiServer) buildWorkerBootContext(w OutsourceWorker, t Task, manual *Ta
 		return "", err
 	}
 
-	// World state memory 對象目錄 (T-33) — the tail of slot 3, at the SAME
+	// 傳承（lore）對象目錄 (T-33) — the tail of slot 3, at the SAME
 	// relative position the staff fold puts it (assets.go, after 長期筆記 and
 	// before 啟動步驟). So slot 3 is no longer empty for a worker: it holds
 	// nothing ROLE-specific, and the directory is not role-specific — it is the
@@ -184,7 +184,7 @@ func (s *apiServer) buildWorkerBootContext(w OutsourceWorker, t Task, manual *Ta
 	// ⚠️ Measured: TestWorkerSharedHeadMatchesUnfilteredSeedAssembly does NOT
 	// catch that move — its fixture has an empty ontology, so the section folds
 	// to "" and the equality never sees the difference.
-	memorySection, err := s.foldWorldStateMemorySection(w.ID)
+	memorySection, err := s.foldLoreSection(w.ID)
 	if err != nil {
 		return "", err
 	}
