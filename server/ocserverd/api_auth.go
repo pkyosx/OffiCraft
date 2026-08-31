@@ -227,4 +227,14 @@ func (s *apiServer) HandleBootstrapApiBootstrapPost(w http.ResponseWriter, r *ht
 		Context: boot.Context,
 		Token:   token,
 	})
+	// 🔴 ONLY A WARDEN SPAWN IS A SURFACING (T-33). member == nil is the UI
+	// preview this handler documents above: the owner looking at what a boot
+	// document would say, with no agent behind it and no token minted. Filing a
+	// recall row for that would put reads into the journal that nobody ever did,
+	// and a journal padded with non-events cannot be used to argue that anything
+	// is unused. Recorded after the response is written, because everything
+	// before it can still answer 404 or 500 and hand over nothing.
+	if member != nil {
+		s.recordLoreSurfacing(boot.Lore)
+	}
 }
