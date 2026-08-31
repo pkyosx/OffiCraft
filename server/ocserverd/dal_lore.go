@@ -429,3 +429,31 @@ func (d *DAL) ListLoreSubjectRoster(actorID string) ([]LoreSubjectRosterRow, err
 	}
 	return out, rows.Err()
 }
+
+// ── the recall journal (T-33, 設計 v29 §3.12.x) ──────────────────────────────
+
+// LoreRecall is ONE row of lore_recall_log: a record that lore was put in front
+// of somebody. It is the raw shape of the table, not a view of it — `query` is
+// whatever the writing path calls itself, `returned` is whatever that path
+// decided is worth being able to count later.
+type LoreRecall struct {
+	ActorID   string
+	Query     string
+	SubjectID string
+	Hop       int
+	Returned  string
+	CreatedTS float64
+}
+
+// InsertLoreRecall appends one row. It is APPEND-ONLY on purpose: the journal's
+// value is that it says what actually happened at a moment in time, so nothing
+// here updates or de-duplicates. Two boots of the same member are two events,
+// not one event seen twice.
+func (d *DAL) InsertLoreRecall(r LoreRecall) error {
+	_, err := d.wdb.Exec(`
+		INSERT INTO lore_recall_log
+			(actor_id, query, subject_id, hop, returned, created_ts)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		r.ActorID, r.Query, r.SubjectID, r.Hop, r.Returned, r.CreatedTS)
+	return err
+}

@@ -1029,24 +1029,26 @@ func (s *apiServer) enqueueToWarden(memberID, warden string, frame []byte) bool 
 // BootstrapStartPayload): fold the persona via the shared boot core + mint the
 // member JWT. FAIL-CLOSED (nil, false) on an inactive member, an unknown
 // role, or a missing secret — never boot a ghost or a deaf member.
-func (s *apiServer) buildStartFrame(m Member) ([]byte, bool) {
+func (s *apiServer) buildStartFrame(m Member) ([]byte, loreSurfacing, bool) {
+	var lore loreSurfacing
 	if m.RosterStatus != RosterStatusActive {
-		return nil, false
+		return nil, lore, false
 	}
 	if len(s.secret) == 0 {
-		return nil, false
+		return nil, lore, false
 	}
 	boot, err := s.buildBootContext("", &m)
 	if err != nil || boot == nil {
 		if err != nil {
 			reconcileLog("START fold failed for %q: %v", m.ID, err)
 		}
-		return nil, false
+		return nil, lore, false
 	}
+	lore = boot.Lore
 	token, err := s.mintMemberToken(m, s.agentTokenTTLValue())
 	if err != nil {
 		reconcileLog("START mint failed for %q: %v", m.ID, err)
-		return nil, false
+		return nil, lore, false
 	}
 	frame, err := directedFrameText(wardenCommandTopic, wardenCommandFrame{
 		RPC: reconcileCmdStart,
@@ -1063,9 +1065,14 @@ func (s *apiServer) buildStartFrame(m Member) ([]byte, bool) {
 	})
 	if err != nil {
 		reconcileLog("START frame build failed for %q: %v", m.ID, err)
-		return nil, false
+		return nil, lore, false
 	}
-	return frame, true
+	// 🔴 THE 對象目錄 RECEIPT RIDES OUT WITH THE FRAME AND IS FILED BY THE
+	// DISPATCHER, NOT HERE (T-33). A built frame is not a delivered document:
+	// the enqueue below this can still fail closed on an unreachable warden, and
+	// the next tick simply folds again. Journalling at build time would count
+	// one boot as many.
+	return frame, lore, true
 }
 
 // buildTargetFrame builds the member_id-only command frame (STOP / UNINSTALL —
@@ -1330,7 +1337,7 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 			decision.DispatchUnlanded = true
 			return decision
 		}
-		frame, ok := s.buildStartFrame(m)
+		frame, lore, ok := s.buildStartFrame(m)
 		if !ok {
 			reconcileLog("%s: no START payload (persona/token) — fail-closed, not dispatching",
 				m.ID)
@@ -1347,6 +1354,10 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 			decision.DispatchUnlanded = true
 			return decision
 		}
+		// The frame is on the warden's queue, so the member is really going to
+		// read the directory that was folded into it: that is the moment the
+		// surfacing becomes true, and the moment it is journalled (T-33).
+		s.recordLoreSurfacing(lore)
 		// A landed START begins a NEW session: drop any prior session's boot_ts
 		// anchor so the fresh agent's first connect re-stamps (T-8fb2 boot_ts fix).
 		s.clearSessionBootTS(m.ID)

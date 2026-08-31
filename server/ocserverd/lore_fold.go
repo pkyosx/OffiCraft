@@ -48,7 +48,9 @@ package main
 // not make.
 
 import (
+	"encoding/json"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -112,18 +114,118 @@ const loreSubjectIndexMaxChars = 3000
 // a reader id through, and a per-actor axis is what this directory is expected to
 // grow again — dropping it would churn both call sites twice.
 func (s *apiServer) foldLoreSection(actorID string) (string, error) {
+	text, _, err := s.foldLoreSectionWithSurfacing(actorID)
+	return text, err
+}
+
+// loreSurfacing is the receipt for ONE assembly of the directory: who it was
+// assembled for, which subjects actually got printed, and how many were left
+// out by the caps.
+//
+// 🔴 OMITTED IS THE WHOLE REASON THIS TYPE EXISTS. loreSubjectsWithinCaps has
+// always computed it, and until now it was spent on one notice line and then
+// dropped. That number is the only place the station can ever learn that its
+// directory does not fit — a truncation nobody counted is a truncation nobody
+// can decide about, and the caps above are admitted placeholders waiting for
+// exactly this measurement.
+type loreSurfacing struct {
+	ActorID string
+	// Subjects are the canonical names of the kept rows, in the order the
+	// roster produced them. It is the canonical and not the entity id because
+	// canonical is the string the reader saw on the line.
+	Subjects []string
+	Omitted  int
+}
+
+// surfaced answers whether this assembly put anything in front of anybody. An
+// empty directory folds to "" and never reaches a boot document, so there is
+// nothing to record about it.
+func (sur loreSurfacing) surfaced() bool { return len(sur.Subjects) > 0 }
+
+// foldLoreSectionWithSurfacing is the assembly, and the ONLY one. It returns
+// the block plus the receipt for it; foldLoreSection is the thin wrapper for
+// the callers that only want the text (the cockpit previews).
+//
+// 🔴 IT DOES NOT WRITE THE JOURNAL ROW, AND THAT IS THE POINT. Four upstream
+// paths reach this fold through the two boot assemblers, and two of them are
+// PREVIEWS — the worker boot-context endpoint (api_outsource.go) and
+// /api/bootstrap without a member_id (api_auth.go, whose own comment says so in
+// as many words). Recording here would file "this was put in front of
+// a member" for a document the cockpit rendered for the owner and nobody ever
+// booted with. A journal that logs things that did not happen cannot be used to
+// decide anything, which makes it decoration. The three paths that really hand
+// the document to somebody call recordLoreSurfacing themselves, after the
+// handover is certain.
+func (s *apiServer) foldLoreSectionWithSurfacing(actorID string) (string, loreSurfacing, error) {
+	sur := loreSurfacing{ActorID: actorID}
 	rows, err := s.dal.ListLoreSubjectRoster(actorID)
 	if err != nil {
-		return "", err
+		return "", sur, err
 	}
 	if len(rows) == 0 {
-		return "", nil
+		return "", sur, nil
 	}
 	kept, omitted := loreSubjectsWithinCaps(rows)
 	if len(kept) == 0 {
-		return "", nil
+		return "", sur, nil
 	}
-	return renderLoreSubjectIndex(kept, omitted), nil
+	sur.Omitted = omitted
+	for _, r := range kept {
+		sur.Subjects = append(sur.Subjects, r.Canonical)
+	}
+	return renderLoreSubjectIndex(kept, omitted), sur, nil
+}
+
+// loreRecallQueryBoot is the `query` cell every boot-assembled directory is
+// filed under. It is a MARKER, not a search string: there is no query behind a
+// boot fold. Its only job is to keep this path separable from the retrieval
+// path that will write into the same table later — two very different events
+// (a whole directory nobody asked for, versus one deliberate lookup) that are
+// indistinguishable once they are mixed without a label.
+const loreRecallQueryBoot = "boot-fold"
+
+// recordLoreSurfacing files the journal row for ONE directory that really was
+// handed to somebody.
+//
+// 🔴 IT DOES NOT TOUCH lore_meta.surfaced_count OR recall_count, AND MUST NOT.
+// What went out is the SUBJECT DIRECTORY: names and counts, not one line of any
+// entry's body (see the scope block at the top of this file). Bumping a
+// per-entry counter for every entry hanging off a listed subject would assert
+// that each of them was put in front of the reader, which is false — and the
+// consequence is the failure the design warns about by name: every entry looks
+// used, so no entry can ever be argued down. Those counters belong to a path
+// that actually shows an entry.
+//
+// 🔴 FAIL-OPEN. A failed journal write is logged and swallowed: booting a
+// member matters and recording that we did is bookkeeping. The inverse — a
+// station that cannot start an agent because a log table is unhappy — trades
+// the thing for the record of the thing.
+func (s *apiServer) recordLoreSurfacing(sur loreSurfacing) {
+	if !sur.surfaced() {
+		return
+	}
+	returned, err := json.Marshal(struct {
+		Subjects []string `json:"subjects"`
+		Omitted  int      `json:"omitted"`
+	}{Subjects: sur.Subjects, Omitted: sur.Omitted})
+	if err != nil {
+		log.Printf("[lore] recall journal: encoding the surfaced set for %q failed: %v",
+			sur.ActorID, err)
+		return
+	}
+	// subject_id stays EMPTY and hop stays 0 on purpose. This row is one
+	// directory covering many subjects, so there is no single subject to name,
+	// and nothing was walked to reach it — a hop count would be inventing a
+	// traversal that did not happen.
+	if err := s.dal.InsertLoreRecall(LoreRecall{
+		ActorID:   sur.ActorID,
+		Query:     loreRecallQueryBoot,
+		Returned:  string(returned),
+		CreatedTS: nowSecs(),
+	}); err != nil {
+		log.Printf("[lore] recall journal: recording the boot fold for %q failed: %v — "+
+			"booting anyway", sur.ActorID, err)
+	}
 }
 
 // loreSubjectsWithinCaps applies both ceilings and reports how many
