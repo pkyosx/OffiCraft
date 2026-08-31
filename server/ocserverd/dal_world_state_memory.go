@@ -343,3 +343,83 @@ func (d *DAL) worldStateMemoryStrings(query string, args ...any) ([]string, erro
 	}
 	return out, rows.Err()
 }
+
+// ── the subject roster (T-33, the boot-context directory) ───────────────────
+
+// WorldStateMemorySubjectRosterRow is ONE line of the wake-time 對象目錄: an
+// entity that has at least one retrievable entry filed against it, plus how many.
+//
+// 🔴 THERE IS NO BODY FIELD ON THIS STRUCT, AND THAT IS THE POINT. The boot
+// context gets a DIRECTORY — "these subjects exist, this many entries each" —
+// and never a `short` / `symptoms` / `falsify` cell. Carrying a body field here
+// would put the entries themselves one careless `+=` away from every boot
+// document in the fleet, which is a size decision nobody has made. An agent that
+// wants an entry reads it deliberately.
+type WorldStateMemorySubjectRosterRow struct {
+	EntityID  string
+	Type      string
+	Canonical string
+	Display   string
+	Entries   int
+	// HumanOrigin is true when at least one of this subject's entries came from
+	// a `human:` origin. It rides on the SAME grouped query rather than a second
+	// pass, because the assembler needs it for every row it truncates against —
+	// a per-subject follow-up query would turn one boot query into N.
+	HumanOrigin bool
+}
+
+// ListWorldStateMemorySubjectRoster returns the whole directory in ONE grouped
+// query.
+//
+// 🔴 COST: THIS IS A BOOT-PATH QUERY — every agent, every wake, forever. It is
+// therefore ONE statement with no per-subject follow-up: the count and the
+// human-origin flag are both aggregates of the same GROUP BY, never a loop over
+// CountWorldStateMemoryEntriesBySubject. Approved as an addition to the per-wake
+// query set by the owner on reply card rc-e5a9efbed9da (2026-08-31, option [0]);
+// see the COST DISCIPLINE block above resumeFloorParts in api_chat.go, where the
+// tree keeps that list.
+//
+// 🔴 `retired` IS EXCLUDED WITH THE SAME PREDICATE THE LIST AND THE COUNT USE.
+// Three readers of one rule is already one too many; they are kept word for word
+// identical so a directory that disagrees with the list it indexes is impossible
+// rather than merely unlikely.
+//
+// 🔴 PRIVATE ENTRIES FAIL CLOSED. A `private` entry is counted only when its
+// owner_scope equals the reading actor; anything else is left out entirely —
+// including its CONTRIBUTION TO A COUNT, because a count is a disclosure too
+// ("something exists about you that you cannot see" is information).
+//
+// ⚠️ owner_scope's VOCABULARY IS NOT RULED YET — the column holds an opaque
+// string, and whether it names a member id, a role key or something else is an
+// open question. This compares it to actorID verbatim, which means a scope
+// written in a different vocabulary matches nothing and the entry stays hidden.
+// That is the safe direction to be wrong in, and it is a REFUSAL TO GUESS, not a
+// design: when the vocabulary is decided this predicate has to be revisited.
+func (d *DAL) ListWorldStateMemorySubjectRoster(actorID string) ([]WorldStateMemorySubjectRosterRow, error) {
+	rows, err := d.rdb.Query(`
+		SELECT n.id, n.type, n.canonical, n.display,
+		       COUNT(*),
+		       MAX(CASE WHEN e.origin LIKE 'human:%' THEN 1 ELSE 0 END)
+		FROM world_state_memory_entry e
+		JOIN world_state_memory_subject s ON s.entry_id = e.id
+		JOIN entity n ON n.id = s.entity_id
+		WHERE e.status <> 'retired'
+		  AND (e.visibility <> 'private' OR e.owner_scope = ?)
+		GROUP BY n.id, n.type, n.canonical, n.display
+		ORDER BY n.type, n.canonical, n.id`, actorID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []WorldStateMemorySubjectRosterRow
+	for rows.Next() {
+		var r WorldStateMemorySubjectRosterRow
+		var human int
+		if err := rows.Scan(&r.EntityID, &r.Type, &r.Canonical, &r.Display, &r.Entries, &human); err != nil {
+			return nil, err
+		}
+		r.HumanOrigin = human == 1
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}

@@ -549,9 +549,29 @@ func (s *apiServer) buildBootContext(role string, member *Member) (*bootContext,
 	if insightBody := strings.TrimSpace(insight.Text); insightBody != "" {
 		parts = append(parts, "# Insight ("+roleKey+")\n\n"+insightBody)
 	}
-	parts = append(parts,
-		lessonsTitle+"\n\n"+lessonsBody,
-		strings.TrimSpace(bootSeed))
+	parts = append(parts, lessonsTitle+"\n\n"+lessonsBody)
+	// World state memory 對象目錄 (T-33) — the TAIL of slot 3, after 長期筆記 and
+	// before 啟動步驟. buildWorkerBootContext calls the same function at the same
+	// relative position; that symmetry is what keeps the two documents one
+	// assembly rather than two that drift.
+	//
+	// 🔴 Unlike the rest of slot 3 this block is NOT role-specific — it is the
+	// station's subject directory, so both audiences read it. What is filtered
+	// per reader is only the `private` wall inside the query.
+	//
+	// Blank ⇒ the whole section is absent, the 使用者自訂 rule.
+	var memberID string
+	if member != nil {
+		memberID = member.ID
+	}
+	memorySection, err := s.foldWorldStateMemorySection(memberID)
+	if err != nil {
+		return nil, err
+	}
+	if memorySection != "" {
+		parts = append(parts, memorySection)
+	}
+	parts = append(parts, strings.TrimSpace(bootSeed))
 	name := roleDTO.Name
 	if member != nil {
 		name = member.Name
