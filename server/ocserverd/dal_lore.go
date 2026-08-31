@@ -378,6 +378,22 @@ type LoreSubjectRosterRow struct {
 // identical so a directory that disagrees with the list it indexes is impossible
 // rather than merely unlikely.
 //
+// 🔴 THE ENTITY SIDE IS FILTERED TOO — `pending = 0` AND `merged_into = ''` —
+// AND BOTH ARE CORRECTNESS, NOT TIDINESS. `entity` is written by agents without
+// a gate (that is deliberate: gating the write is what pushes an agent into
+// forcing a near-miss key), so `pending = 1` is the whole review queue. Without
+// this predicate every unreviewed name an agent invented is published into EVERY
+// agent's boot document the moment one entry is filed against it — the directory
+// would be asserting, to the whole fleet, that a name nobody has approved is part
+// of the ontology.
+//
+// `merged_into` is the other half of the same story: a merged-away entity keeps
+// existing (nothing in this schema deletes), so it and its merge target would
+// each take a line. That is a subject counted twice under two names — and
+// because the boot directory is TRUNCATED, the duplicate also eats a slot that a
+// real subject needed. A wrong number is worse than no number; a wrong number
+// that silently drops a real subject is worse again.
+//
 // 🔴 THERE IS NO PER-READER FILTER LEFT IN THIS QUERY, AND THAT IS THE RULING,
 // NOT AN OVERSIGHT. The private/shared wall is gone (rc-26c1fd0c6b3c, option
 // [3]: 「不要私密條目了，全部共享」), so every reader sees the same directory.
@@ -393,6 +409,8 @@ func (d *DAL) ListLoreSubjectRoster(actorID string) ([]LoreSubjectRosterRow, err
 		JOIN lore_subject s ON s.entry_id = e.id
 		JOIN entity n ON n.id = s.entity_id
 		WHERE e.status <> 'retired'
+		  AND n.pending = 0
+		  AND n.merged_into = ''
 		GROUP BY n.id, n.type, n.canonical, n.display
 		ORDER BY n.type, n.canonical, n.id`)
 	if err != nil {

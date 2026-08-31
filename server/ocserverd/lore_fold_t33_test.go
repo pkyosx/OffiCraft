@@ -235,6 +235,90 @@ func TestDirectoryIsGroupedByTypeAndDeterministic(t *testing.T) {
 	}
 }
 
+// t33EntityFlag sets one of `entity`'s two lifecycle columns after the fact.
+// The seeding helper writes an entity in its normal state (approved, unmerged);
+// these two states are what the roster query has to filter, so a test needs a
+// way to put a row into them without a second, near-identical seeder.
+func t33EntityFlag(t *testing.T, d *DAL, id, column, value string) {
+	t.Helper()
+	if _, err := d.wdb.Exec(
+		`UPDATE entity SET `+column+` = ? WHERE id = ?`, value, id); err != nil {
+		t.Fatalf("set %s=%s on %s: %v", column, value, id, err)
+	}
+}
+
+// TestPendingSubjectsDoNotReachTheDirectory — `entity` takes agent writes with
+// NO gate, so `pending = 1` is the whole review queue. A pending subject in the
+// directory is an unreviewed name being published, as fact, into every agent's
+// boot document on the station — the ontology asserting something no human has
+// looked at.
+//
+// The approved subject is the positive control: it proves the filter is a filter
+// and not a query that returns nothing.
+func TestPendingSubjectsDoNotReachTheDirectory(t *testing.T) {
+	s := newWorkerTestServer(t)
+	t33Entity(t, s.dal, "en-reviewed", "repo", "repo:reviewed")
+	t33Entity(t, s.dal, "en-unreviewed", "repo", "repo:unreviewed")
+	t33EntityFlag(t, s.dal, "en-unreviewed", "pending", "1")
+
+	for id, subject := range map[string]string{
+		"me-reviewed": "en-reviewed", "me-unreviewed": "en-unreviewed",
+	} {
+		e := t33Entry(id)
+		e.Origin = "agent:Kyle"
+		t33Put(t, s.dal, e)
+		if err := s.dal.PutLoreSubject(id, subject); err != nil {
+			t.Fatalf("file %s against %s: %v", id, subject, err)
+		}
+	}
+
+	got, err := s.foldLoreSection("m-reader")
+	if err != nil {
+		t.Fatalf("fold: %v", err)
+	}
+	if strings.Contains(got, "repo:unreviewed") {
+		t.Errorf("a pending entity reached the boot directory\n--- got ---\n%s", got)
+	}
+	if !strings.Contains(got, "repo:reviewed") {
+		t.Fatalf("the approved subject is missing too — the assertion above proves "+
+			"nothing, the directory is simply empty\n--- got ---\n%s", got)
+	}
+}
+
+// TestMergedAwaySubjectsAreNotCountedTwice — nothing in this schema deletes, so
+// a merged-away entity keeps existing. If the directory does not filter it, the
+// same subject occupies TWO lines under two names: the count is wrong, and
+// because the block is truncated, the duplicate also spends a slot a real
+// subject needed.
+func TestMergedAwaySubjectsAreNotCountedTwice(t *testing.T) {
+	s := newWorkerTestServer(t)
+	t33Entity(t, s.dal, "en-canonical", "repo", "repo:officraft")
+	t33Entity(t, s.dal, "en-dupe", "repo", "repo:offi-craft")
+	t33EntityFlag(t, s.dal, "en-dupe", "merged_into", "en-canonical")
+
+	for id, subject := range map[string]string{
+		"me-canonical": "en-canonical", "me-dupe": "en-dupe",
+	} {
+		e := t33Entry(id)
+		e.Origin = "agent:Kyle"
+		t33Put(t, s.dal, e)
+		if err := s.dal.PutLoreSubject(id, subject); err != nil {
+			t.Fatalf("file %s against %s: %v", id, subject, err)
+		}
+	}
+
+	got, err := s.foldLoreSection("m-reader")
+	if err != nil {
+		t.Fatalf("fold: %v", err)
+	}
+	if strings.Contains(got, "repo:offi-craft") {
+		t.Errorf("a merged-away entity has its own line in the directory\n--- got ---\n%s", got)
+	}
+	if n := strings.Count(got, "- repo:officraft"); n != 1 {
+		t.Errorf("the merge target appears %d times, want exactly 1\n--- got ---\n%s", n, got)
+	}
+}
+
 // TestDirectoryIsNotInTheSharedHead — the placement rule, asserted from the
 // other side. workerSharedHead returns the SHARED SEED; this directory is
 // per-actor, so it belongs in buildWorkerBootContext and nowhere else.
