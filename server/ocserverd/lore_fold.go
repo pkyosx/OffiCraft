@@ -59,17 +59,25 @@ import (
 // loreSectionH1 is the section's heading — the one string in this file that a
 // member actually READS on every boot.
 //
-// 🔴 NOTHING GUARDS ITS VALUE, and this comment used to claim the opposite. It
-// said the tests pin the literal rather than importing it. They do not: all
-// seven references (lore_fold_t33_test.go and worker_spawn_test.go) import this
-// constant, so every want moves in lockstep with it — the very failure the old
-// comment named as the thing to avoid. Measured, not read: mutating this
-// literal to "# ZZZ" and running the whole suite leaves it GREEN (1909 pass, 0
-// fail). Rewriting the heading in any language, or back to a retired name,
-// changes what every member sees and no test says a word.
+// 🔴 THE OTHER REFERENCES DO NOT GUARD IT, AND IT WOULD BE EASY TO THINK THEY
+// DO. All seven of them (lore_fold_t33_test.go and worker_spawn_test.go) import
+// this constant, so every want moves in lockstep with it. Measured, not read:
+// mutating this literal to "# ZZZ" and running the whole suite used to leave it
+// GREEN (1909 pass, 0 fail) — a rename in any language, or back to a retired
+// name, changed what every member reads on boot and no test said a word.
 //
-// A guard belongs here (T-33 named debt). Until it exists, do not cite any test
-// as covering this line.
+// 🔴 THE GUARD IS TestLoreHeadingEveryMemberReadsOnBoot
+// (lore_heading_guard_t33_test.go), and it is the ONLY test that covers this
+// line. It spells the heading out by hand instead of importing this constant —
+// that is the whole point — and it reads it back out of the documents
+// buildBootContext and buildWorkerBootContext actually assemble, so dropping
+// the fold from either boot path is as red as rewriting the string. Both
+// mutants above now fail it; nothing else in the suite notices either.
+//
+// ⚠️ RED THERE IS NOT AN EXPECTATION THAT DRIFTED. It says the first line of a
+// section in every member's boot document is about to change, so the fix is
+// never to sync the want: it is to have the rename ruled on, then move this
+// constant and that test's loreHeadingAsShipped together.
 const loreSectionH1 = "# 傳承：對象目錄（Lore — Subject Index）"
 
 // loreSubjectIndexMaxSubjects caps how many subject LINES the
