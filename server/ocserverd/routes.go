@@ -681,7 +681,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:  w.HandleListChatApiChatGet,
 			Auth:     authGated,
 			Requires: principalMachine,
-			Summary:  "List the chat stream (?with=<id>&limit=<n>; oldest→newest). History paging: before_ts + before_id (both together) return the limit messages strictly OLDER than that keyset cursor — a history page NEVER advances the read watermark. Re-read specific messages by id: ids=<id>&ids=<id> returns those messages in full without a peer and without a cursor; the ids schema states who may read what, the per-call limit, and what an unknown id does.",
+			Summary:  "List the chat stream (?with=<id>&limit=<n>; oldest→newest). History paging: before_ts + before_id (both together) return the limit messages strictly OLDER than that keyset cursor — a history page NEVER advances the read watermark. A cursorless ?with= list advances it only when the page CONTINUES you: if any message that peer addressed to you falls between your stored watermark and the page's oldest row, the window has a HOLE in it and the watermark stays put, so your unread does NOT drop to zero and keeps pointing at the hole. That is the honest report, not a failure — page backwards with before_ts+before_id until what you hold is contiguous, and the next plain list marks normally. Re-read specific messages by id: ids=<id>&ids=<id> returns those messages in full without a peer and without a cursor; the ids schema states who may read what, the per-call limit, and what an unknown id does.",
 		},
 		{
 			Method:     "GET",

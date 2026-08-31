@@ -486,7 +486,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List the chat stream (?with=<id>&limit=<n>; oldest→newest). History paging: before_ts + before_id (both together) return the limit messages strictly OLDER than that keyset cursor — a history page NEVER advances the read watermark. Re-read specific messages by id: ids=<id>&ids=<id> returns those messages in full without a peer and without a cursor; the ids schema states who may read what, the per-call limit, and what an unknown id does.
+         * List the chat stream (?with=<id>&limit=<n>; oldest→newest). History paging: before_ts + before_id (both together) return the limit messages strictly OLDER than that keyset cursor — a history page NEVER advances the read watermark. A cursorless ?with= list advances it only when the page CONTINUES you: if any message that peer addressed to you falls between your stored watermark and the page's oldest row, the window has a HOLE in it and the watermark stays put, so your unread does NOT drop to zero and keeps pointing at the hole. That is the honest report, not a failure — page backwards with before_ts+before_id until what you hold is contiguous, and the next plain list marks normally. Re-read specific messages by id: ids=<id>&ids=<id> returns those messages in full without a peer and without a cursor; the ids schema states who may read what, the per-call limit, and what an unknown id does.
          * @description List the owner's chat stream oldest→newest, capped to the most recent
          *     ``limit`` (default 30; §3.4 #17). ``?with=<id>`` filters to messages a
          *     participant is in (``sender == id`` OR ``recipient == id``); the limit is
@@ -512,6 +512,21 @@ export interface paths {
          *     the conversation is empty or nothing newer landed). This is the agent-side
          *     automatic already-read core: an agent that lists a conversation is marked as
          *     having read it, with no extra call.
+         *
+         *     CONTINUITY RULE — the auto-receipt only crosses a page that CONTINUES the
+         *     caller. The cursorless window is the NEWEST ``limit`` messages, so a caller
+         *     that has been away long enough gets a page STARTING ABOVE its stored
+         *     watermark. Advancing to that page's newest ts would mark the messages in the
+         *     hole read — messages this caller was never sent, in any response — and a
+         *     MISSED window would become indistinguishable from a READ one (unread 0, no
+         *     unread divider, no error). So the receipt fires only when NO message addressed
+         *     to the caller by that peer sits strictly between the caller's stored watermark
+         *     and the page's OLDEST row. When one does, the watermark STAYS PUT: unread does
+         *     NOT drop to zero and it keeps pointing at the hole. That is the honest report,
+         *     not a bug. Close the hole by paging BACKWARDS on the cursor door (which never
+         *     marks) until what you hold is contiguous again; the next cursorless list then
+         *     advances normally. ``POST /api/chat/mark-read`` is unchanged — it is an
+         *     explicit assertion by the caller and is not subject to this rule.
          */
         get: operations["handle_list_chat_api_chat_get"];
         put?: never;

@@ -955,6 +955,20 @@ func (s *apiServer) serveChatByIDs(w http.ResponseWriter, r *http.Request, ids [
 // participant, and listing a specific conversation ADVANCES the caller's read
 // watermark to the newest returned ts (auto read-receipt).
 //
+// 🔴 THE AUTO-RECEIPT ONLY CROSSES A CONTIGUOUS PAGE (T-91). The window is the
+// NEWEST `limit` rows, so a caller who was away long enough gets a page that
+// starts ABOVE where it left off. Advancing to that page's newest ts would mark
+// the rows in between read — messages this caller was never sent, in any
+// response. Missed and read then look identical: unread 0, no unread divider,
+// no error. So chatPageContinuesReader decides first, and a page that does not
+// continue the reader leaves the watermark where it is.
+//
+// The visible price is deliberate: unread does NOT drop to zero and the unread
+// divider points at the hole rather than at the page. That is the honest
+// report, and the caller closes the hole by paging backwards on the cursor
+// door (which never marks) until the page it holds is contiguous again — at
+// which point the next plain list advances normally.
+//
 // SCROLLBACK (T-bf82): ?before_ts=&before_id= (both together, else 422) is a
 // composite keyset cursor — the page is the `limit` messages strictly OLDER
 // than (before_ts, before_id) in the stream's total (ts, id) order, still
@@ -978,6 +992,44 @@ func (s *apiServer) serveChatByIDs(w http.ResponseWriter, r *http.Request, ids [
 // consulted at all, so nothing about the paths above changes for a caller that
 // does not send it. A request whose ids are all blank is not a by-id read and
 // falls through here unchanged.
+// chatPageContinuesReader answers the question the auto read-receipt has to ask
+// before it fires: does this page CONTINUE from where the reader already was?
+//
+// It does not if any message ADDRESSED TO the reader BY this peer — the exact
+// scope UnreadCounts counts — sits strictly between the reader's stored
+// watermark and `oldest`, the page's first row. Such a message would be swept
+// under the receipt (the watermark is a single ts: advancing to the page's
+// newest marks EVERYTHING at or below it read) while never having been sent to
+// this caller in any response. `conv` is the caller's whole conversation before
+// the window was cut, so the answer needs no extra query.
+//
+// Scope is deliberately the unread scope and not "every row in the window":
+// the reader's own sends and third-party rows can never become false unread, so
+// a hole made only of those is not a hole the reader can be lied to about.
+func (s *apiServer) chatPageContinuesReader(reader, peer string, conv []ChatMessage, oldest ChatMessage) (bool, error) {
+	reads, err := s.dal.ListChatReads(reader, peer)
+	if err != nil {
+		return false, err
+	}
+	var watermark float64
+	for _, rec := range reads {
+		if rec.LastReadTS > watermark {
+			watermark = rec.LastReadTS
+		}
+	}
+	for _, m := range conv {
+		if m.Recipient != reader || m.Sender != peer || m.TS <= watermark {
+			continue
+		}
+		// Strictly older than the page's first row in the stream's total
+		// (ts, id) order — the same ordering the keyset cursor pages on.
+		if m.TS < oldest.TS || (m.TS == oldest.TS && m.ID < oldest.ID) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 func (s *apiServer) HandleListChatApiChatGet(w http.ResponseWriter, r *http.Request, params HandleListChatApiChatGetParams) {
 	if ids := requestedChatIDs(params.Ids); len(ids) > 0 {
 		s.serveChatByIDs(w, r, ids)
@@ -1043,6 +1095,10 @@ func (s *apiServer) HandleListChatApiChatGet(w http.ResponseWriter, r *http.Requ
 		}
 		msgs = filtered
 	}
+	// The WHOLE conversation as this caller may see it, before the window is
+	// cut — the continuity check below needs what fell OUTSIDE the page, and
+	// re-slicing never mutates the backing array, so this stays valid.
+	conv := msgs
 	if limit >= 0 {
 		if limit == 0 {
 			msgs = nil
@@ -1057,15 +1113,22 @@ func (s *apiServer) HandleListChatApiChatGet(w http.ResponseWriter, r *http.Requ
 				newest = m.TS
 			}
 		}
-		effective, advanced, err := s.dal.PutChatRead(ChatRead{
-			ReaderID: currentActor(r), PeerID: with, LastReadTS: newest,
-		})
+		contiguous, err := s.chatPageContinuesReader(actor, with, conv, msgs[0])
 		if err != nil {
 			internalError(w, err)
 			return
 		}
-		if advanced {
-			s.publishChatRead(effective, requestTrigger(r))
+		if contiguous {
+			effective, advanced, err := s.dal.PutChatRead(ChatRead{
+				ReaderID: currentActor(r), PeerID: with, LastReadTS: newest,
+			})
+			if err != nil {
+				internalError(w, err)
+				return
+			}
+			if advanced {
+				s.publishChatRead(effective, requestTrigger(r))
+			}
 		}
 	}
 	out := []chatMessageDTO{}

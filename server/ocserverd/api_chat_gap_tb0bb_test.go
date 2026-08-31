@@ -54,12 +54,19 @@ func seedChatN(t *testing.T, s *apiServer, peer, prefix string, n int, tsFrom fl
 func TestChatBeforeCursorPageDoesNotAdvanceWatermark(t *testing.T) {
 	// Positive control on its own server: the marking door really does mark,
 	// so a green result below cannot come from a dead endpoint or a bad helper.
+	//
+	// The control seeds FEWER than chatListDefaultLimit rows on purpose. Since
+	// T-91 the marking door only advances across a page that CONTINUES the
+	// reader, and a first read of 40 rows would be served as the newest 30 —
+	// a page with a hole under it, which correctly does not mark. A short
+	// conversation keeps the control testing what it is for (the door marks)
+	// instead of the continuity rule.
 	sCtl := &apiServer{dal: newTestDAL(t), hub: NewHub()}
-	seedChatN(t, sCtl, "m-1", "a", 40, 1)
+	seedChatN(t, sCtl, "m-1", "a", 25, 1)
 	withCtl := "m-1"
 	chatGetRec(sCtl, "owner", HandleListChatApiChatGetParams{With: &withCtl})
-	if wm := ownerWatermark(t, sCtl, "m-1"); wm != 40 {
-		t.Fatalf("control: cursorless list must advance the watermark to 40, got %v", wm)
+	if wm := ownerWatermark(t, sCtl, "m-1"); wm != 25 {
+		t.Fatalf("control: cursorless list must advance the watermark to 25, got %v", wm)
 	}
 
 	s := &apiServer{dal: newTestDAL(t), hub: NewHub()}
@@ -151,20 +158,19 @@ func TestChatWindowShapesTheClientSimulatorAssumes(t *testing.T) {
 	}
 }
 
-// ── CHARACTERIZATION, NOT A GUARD ────────────────────────────────────────────
+// GUARD 4. THE SERVER HALF, WAS A CHARACTERIZATION (T-91).
 //
-// 🔴 THIS DOCUMENTS A PROBLEM THAT IS STILL THERE. The client fix stops the
-// thread from losing messages; it does NOT stop the server from marking them
-// read on the way past. The watermark advances to the newest ts of the page it
-// served, regardless of what the caller has actually been shown, so a caller
-// that misses a window has those messages counted as read.
+// This used to record the problem rather than forbid it: the watermark advanced
+// to the newest ts of the page it served, regardless of what the caller had
+// actually been shown, so a caller that missed a window had those messages
+// counted as read — unread 0, and no way for the client to notice the hole from
+// unread state. That is why gapSuspected exists on the client at all.
 //
-// It is here because that is precisely why the client CANNOT rely on unread
-// state to notice a hole — the justification for gapSuspected existing at all.
-// Changing it means changing the read endpoint's contract, which was explicitly
-// out of scope for T-b0bb. If someone fixes it later, this test goes red and
-// should be rewritten, not deleted.
-func TestChatWatermarkAdvancesPastMessagesTheCallerNeverReceived(t *testing.T) {
+// The owner ruled the server half in with the client half, so the same scenario
+// is now asserted from the other side: the messages that were never delivered
+// stay UNREAD. gapSuspected on the client is still the mechanism that closes
+// the hole; this only stops the server lying about it in the meantime.
+func TestChatWatermarkDoesNotCoverMessagesTheCallerNeverReceived(t *testing.T) {
 	s := &apiServer{dal: newTestDAL(t), hub: NewHub()}
 	peer := "m-1"
 	with := peer
@@ -197,10 +203,11 @@ func TestChatWatermarkAdvancesPastMessagesTheCallerNeverReceived(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reads: %v", err)
 	}
-	if n := UnreadCounts(all, reads, "owner")[peer]; n != 0 {
-		t.Fatalf("characterization drifted: unread is %d, was 0 — the server no "+
-			"longer marks undelivered messages read. Re-read the T-b0bb notes in "+
-			"frontend/src/hooks/useChat.ts before changing the client.", n)
+	// 10 rows were never delivered; the 40-row burst that contains them is what
+	// must still be reported unread. Zero here means the watermark swept the
+	// undelivered rows — the exact lie T-91 removed.
+	if n := UnreadCounts(all, reads, "owner")[peer]; n != 40 {
+		t.Fatalf("unread must still cover the %d messages that were never delivered "+
+			"in any response: want 40, got %d", len(never), n)
 	}
-	t.Logf("characterized: %d messages never delivered, unread reported as 0", len(never))
 }
