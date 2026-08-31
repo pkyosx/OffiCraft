@@ -356,3 +356,59 @@ func TestDirectoryIsNotInTheSharedHead(t *testing.T) {
 			"(目錄=%d 啟動步驟=%d)", mem, boot)
 	}
 }
+
+// TestRetiringTakesTheSubjectOutOfTheBootDirectoryAndRevivingPutsItBack is the
+// test that connects the governance seam to the thing it is FOR.
+//
+// 🔴 THE DAL-LEVEL TESTS DO NOT COVER THIS AND IT WOULD BE EASY TO THINK THEY
+// DO. They prove `status` moves and that the by-subject reads exclude retired
+// rows. What a boot context actually reads is a THIRD query
+// (ListLoreSubjectRoster, via foldLoreSection) with its own WHERE clause — so
+// "retiring stops it reaching anyone" was, until this test, a claim about a
+// query nothing asserted. Retirement whose only effect is a column change is
+// exactly the "looks done, changes nothing" failure this ticket exists to kill.
+func TestRetiringTakesTheSubjectOutOfTheBootDirectoryAndRevivingPutsItBack(t *testing.T) {
+	s := newWorkerTestServer(t)
+	seedLoreDirectoryFixture(t, s)
+
+	before, err := s.foldLoreSection("m-anyone")
+	if err != nil {
+		t.Fatalf("fold before: %v", err)
+	}
+	if !strings.Contains(before, "agent:Kyle") {
+		t.Fatalf("fixture did not put agent:Kyle in the directory:\n%s", before)
+	}
+
+	// agent:Kyle carries exactly the two entries the fixture filed against it, so
+	// retiring both is what empties the subject out of the directory. Retiring
+	// only one would leave the subject present with a smaller count — a weaker
+	// assertion that a broken WHERE clause could still pass.
+	for _, id := range []string{"me-a1", "me-a2"} {
+		if err := s.dal.RetireLoreEntry(id, LoreRetireExpired, "agent:O-197", "", false, 200); err != nil {
+			t.Fatalf("retire %s: %v", id, err)
+		}
+	}
+	after, err := s.foldLoreSection("m-anyone")
+	if err != nil {
+		t.Fatalf("fold after retire: %v", err)
+	}
+	if strings.Contains(after, "agent:Kyle") {
+		t.Fatalf("retired entries still reach a boot context:\n%s", after)
+	}
+	// Control: the subject that was NOT retired is still there, so the assertion
+	// above is about retirement and not about the directory having gone blank.
+	if !strings.Contains(after, "human:Seth") {
+		t.Fatalf("the whole directory vanished, so the check above proves nothing:\n%s", after)
+	}
+
+	if err := s.dal.ReviveLoreEntry("me-a1", "owner", "the situation came back", true, 300); err != nil {
+		t.Fatalf("revive: %v", err)
+	}
+	back, err := s.foldLoreSection("m-anyone")
+	if err != nil {
+		t.Fatalf("fold after revive: %v", err)
+	}
+	if !strings.Contains(back, "agent:Kyle") {
+		t.Fatalf("revive did not put the subject back — retirement is one-way in practice:\n%s", back)
+	}
+}
