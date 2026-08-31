@@ -235,41 +235,6 @@ func TestDirectoryIsGroupedByTypeAndDeterministic(t *testing.T) {
 	}
 }
 
-// TestPrivateEntriesAreWalledOffFromTheDirectory — a count is a disclosure too.
-// A `private` entry the reader is not scoped to must not even contribute to a
-// number, and when it is the subject's only entry the subject vanishes from the
-// directory entirely.
-func TestPrivateEntriesAreWalledOffFromTheDirectory(t *testing.T) {
-	s := newWorkerTestServer(t)
-	t33Entity(t, s.dal, "en-secret", "repo", "repo:secret")
-	e := t33Entry("me-secret")
-	e.Origin = "agent:Kyle"
-	e.Visibility = "private"
-	e.OwnerScope = "m-allowed"
-	t33Put(t, s.dal, e)
-	if err := s.dal.PutLoreSubject("me-secret", "en-secret"); err != nil {
-		t.Fatalf("file: %v", err)
-	}
-
-	blocked, err := s.foldLoreSection("m-someone-else")
-	if err != nil {
-		t.Fatalf("fold blocked: %v", err)
-	}
-	if strings.Contains(blocked, "repo:secret") {
-		t.Error("a private entry outside the reader's scope reached the directory")
-	}
-	// Positive control: the scoped reader DOES see it, so the wall is a wall and
-	// not a broken query that hides everything.
-	allowed, err := s.foldLoreSection("m-allowed")
-	if err != nil {
-		t.Fatalf("fold allowed: %v", err)
-	}
-	if !strings.Contains(allowed, "repo:secret") {
-		t.Fatal("the scoped reader cannot see its own private entry — the filter is " +
-			"hiding everything and the assertion above proves nothing")
-	}
-}
-
 // TestDirectoryIsNotInTheSharedHead — the placement rule, asserted from the
 // other side. workerSharedHead returns the SHARED SEED; this directory is
 // per-actor, so it belongs in buildWorkerBootContext and nowhere else.

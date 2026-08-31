@@ -130,9 +130,12 @@ CREATE TABLE lore_entry (
     status        TEXT NOT NULL DEFAULT 'active'
                   CHECK (status IN ('active','superseded','retired','underspecified')),
     supersedes    TEXT NOT NULL DEFAULT '',
-    visibility    TEXT NOT NULL DEFAULT 'shared'
-                  CHECK (visibility IN ('shared','private')),
-    owner_scope   TEXT NOT NULL DEFAULT '',
+    -- 🔴 THERE IS NO `visibility` / `owner_scope` PAIR HERE, BY RULING. The
+    -- draft carried a coarse private/shared wall with a scope string beside it;
+    -- the owner ruled on 2026-08-31 (rc-26c1fd0c6b3c, option [3]) 「不要私密條目
+    -- 了，全部共享」 — every entry is shared. Keeping the columns "just in case"
+    -- would leave a half-enforced wall that every future reader has to decide
+    -- whether to honour, which is worse than no wall at all.
     editable_by   TEXT NOT NULL DEFAULT 'agent'
                   CHECK (editable_by IN ('agent','owner-gated')),
     -- 🔴 `origin` IS A SUBJECT KEY, NOT AN ENUM — `human:Seth`, `agent:Kyle`,
@@ -150,7 +153,7 @@ CREATE TABLE lore_entry (
 -- author who has nothing to put there leaves it empty. That is the difference
 -- that matters — an empty column is a countable, queryable absence, whereas a
 -- section that was never written leaves nothing behind to count.
-CREATE INDEX idx_lore_entry_status ON lore_entry (status, visibility);
+CREATE INDEX idx_lore_entry_status ON lore_entry (status);
 
 CREATE TABLE lore_revision (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
