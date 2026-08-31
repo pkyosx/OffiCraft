@@ -41,6 +41,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "chat.gallerySenderFilterLabel",
   "chat.galleryTabFiles",
   "chat.galleryTabImages",
+  "chat.gapSuspected",
   "chat.historyStart",
   "chat.imageAlt",
   "chat.imageTooLarge",

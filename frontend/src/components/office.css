@@ -647,6 +647,29 @@
   flex: 1;
   border-top: 1px solid var(--color-border);
 }
+/* 🔴 T-b0bb: "this conversation may be missing a stretch of messages".
+ * Deliberately NOT the muted hairline language of .chat__history-start above:
+ * that one reports an ordinary, correct end-of-history, while this one reports
+ * DATA LOSS the reader cannot otherwise detect — the server has already marked
+ * the missing messages read, so the unread badge stays at zero and nothing
+ * else on screen looks wrong. It uses the same warn tokens as the connection
+ * banner because it is the same class of statement: the app telling you what
+ * it does NOT know. It never renders together with .chat__history-start (the
+ * JSX branches are mutually exclusive). */
+.chat__gap-notice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--color-warn-border);
+  border-radius: 6px;
+  background: var(--color-warn-bg);
+  color: var(--color-warn-fg);
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: center;
+}
 /* LINE/Slack-style day grouping. Each local calendar day of the stream is
  * wrapped in a .chat__day-group whose first child is the date divider — a
  * centered low-emphasis pill. The divider is `position: sticky` INSIDE its

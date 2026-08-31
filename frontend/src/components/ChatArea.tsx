@@ -277,6 +277,7 @@ export function ChatArea({
     markRead,
     hasMore,
     loadOlder,
+    gapSuspected,
   } = useChat(member.id);
 
   // Released-worker codenames: an ow- participant that is NOT in the live
@@ -1657,14 +1658,31 @@ export function ChatArea({
               ref={messagesRef}
               onScroll={onMessagesScroll}
             >
-              {/* T-bf82 scrollback: once the history is exhausted
-               * (hasMore=false — the last older page came back short) the
-               * top of the thread says so honestly instead of silently
-               * refusing to load more. */}
-              {!hasMore && (
-                <div className="chat__history-start" role="note">
-                  <span>{t.chat.historyStart}</span>
+              {/* 🔴 T-b0bb: THE GAP NOTICE COMES FIRST, AND IT SUPPRESSES
+               * "已到最早訊息".
+               *
+               * `hasMore` answers one narrow question — "might there be more
+               * history ABOVE the loaded window?" — and "已到最早訊息" is its
+               * honest negative answer. But a reader does not read it that
+               * narrowly: beside a thread with a hole punched in its MIDDLE it
+               * reads as "you have the whole conversation", which is false.
+               *
+               * Measured on the pre-fix code: after a 40-message burst and a
+               * full walk backwards, the thread was missing 10 rows in the
+               * middle and `hasMore` was false — i.e. the UI actively declared
+               * completeness over a hole. That is the exact shape this pair of
+               * branches exists to prevent, so they are mutually exclusive by
+               * construction rather than by CSS or ordering. */}
+              {gapSuspected ? (
+                <div className="chat__gap-notice" role="status">
+                  <span>{t.chat.gapSuspected}</span>
                 </div>
+              ) : (
+                !hasMore && (
+                  <div className="chat__history-start" role="note">
+                    <span>{t.chat.historyStart}</span>
+                  </div>
+                )
               )}
               {/* LINE/Slack-style day grouping: the stream splits at every
                * local-midnight crossing; each day renders a centered date

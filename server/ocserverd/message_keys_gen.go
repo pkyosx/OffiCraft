@@ -42,6 +42,7 @@ var messageKeys = map[string]bool{
 	"chat.gallerySenderFilterLabel":                    true,
 	"chat.galleryTabFiles":                             true,
 	"chat.galleryTabImages":                            true,
+	"chat.gapSuspected":                                true,
 	"chat.historyStart":                                true,
 	"chat.imageAlt":                                    true,
 	"chat.imageTooLarge":                               true,

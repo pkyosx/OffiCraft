@@ -41,9 +41,81 @@ import { api } from "../api";
 import { createDeltaSink } from "../lib/deltaSink";
 import { isWindowActive } from "./useWindowActive";
 
+// 🔴 THE HOLE IN THE MIDDLE (T-b0bb). Everything from here down to
+// `mergeLatestPage` exists for ONE defect, and it is worth stating exactly,
+// because its correct and its broken output are the same shape and it never
+// throws.
+//
+// `load()` / `refetch()` ask for `GET /api/chat?with=` with NO cursor and NO
+// limit. The server answers with the most recent `chatListDefaultLimit` (30)
+// messages of the stream — a SLIDING WINDOW, not a continuation. The old
+// `mergeLatestPage` reconciled that page into the thread by SET SUBTRACTION on
+// ids and then concatenated (`[...older, ...latest]`). It never asked the one
+// question that matters: DOES THE PAGE'S OLDEST ROW JOIN ONTO THE NEWEST ROW WE
+// ALREADY HOLD?
+//
+// It usually does, so the defect hid. It stops doing so the moment MORE than
+// one page accumulates between two successful loads — a lost load, a
+// backgrounded tab, a burst. Measured on the pre-fix code, to single-message
+// precision: 30 new messages → no hole; 31 → 1 lost; 40 → 10 lost. The hole is
+// exactly (new messages − 30).
+//
+// And it was PERMANENT and SILENT:
+//   · every later refetch is the same newest window, which has slid FURTHER
+//     forward — it can never reach back over the hole;
+//   · `loadOlder()` takes its cursor from `messages[0]`, which sits ABOVE the
+//     hole, so paging backwards walks past it into older history;
+//   · nothing rendered marks the discontinuity, messages carry no sequence
+//     number, and — worst — the server pushes the reader's watermark to the
+//     newest ts OF THAT PAGE, i.e. PAST the hole. The lost messages are
+//     therefore counted as READ: unread goes to 0 and the "以下是未讀" divider
+//     does not point at them. "Lost" and "read" are indistinguishable.
+//
+// THE FIX, and why it has this shape. There is NO forward cursor on the server
+// (`HandleListChatApiChatGetParams` is With / Limit / BeforeTs / BeforeId /
+// Peek / CallerOnly / Ids — verified against api_chat.go, not against a doc),
+// and adding one is out of scope. So we detect the seam and page BACKWARDS into
+// it with the cursor that does exist:
+//   1. after a newest page lands, compare its OLDEST row against our NEWEST row
+//      in the stream's total (ts, id) order;
+//   2. if the page's oldest is strictly NEWER than ours, the range between them
+//      is uncovered — possibly empty, but we cannot know without asking;
+//   3. ask, with `before_ts`+`before_id` taken from the page's oldest row,
+//      walking back until a row we already hold appears (the join), or the
+//      stream runs out;
+//   4. give up after a bounded number of pages — AND SAY SO. See `gapSuspected`.
+//
+// Why the backfill is safe with respect to the read state: a cursor page is
+// served by a branch that returns BEFORE the watermark write (verified by test
+// against the real handler: watermark 40 → 40 across a before-cursor page), so
+// backfilling cannot advance the watermark over anything.
+
 // One scrollback page — mirrors the server's default recent window. A page
 // returning fewer than this means the history is exhausted (hasMore=false).
 const CHAT_PAGE_SIZE = 30;
+
+// How many backfill pages one seam may consume before we stop and admit it.
+// The hole has NO upper bound (it is "burst size − 30"), so a bound is
+// unavoidable; what is NOT acceptable is a bound that gives up quietly. At
+// CHAT_BACKFILL_PAGE_SIZE rows a page this covers a burst of ~600 messages
+// between two loads, which is far past any measured case, while capping a
+// pathological thread at 6 extra requests.
+const MAX_BACKFILL_PAGES = 6;
+// The backfill asks for a BIGGER page than the default window on purpose: the
+// `limit` query parameter is public on the read endpoint and the client had
+// never used it. Each round-trip therefore closes up to 100 rows of seam
+// instead of 30. It does NOT replace the join check — the hole is unbounded, so
+// no single limit can be "big enough" — it only makes the walk cheaper.
+const CHAT_BACKFILL_PAGE_SIZE = 100;
+
+// The stream's total order, as the server sorts it: ts, then id as tiebreak.
+// Both cursor halves are required together server-side (422 otherwise) for
+// exactly this reason — ts alone does not totally order the stream.
+function cmpStreamOrder(a: ChatMessage, b: ChatMessage): number {
+  if (a.ts !== b.ts) return a.ts < b.ts ? -1 : 1;
+  if (a.id === b.id) return 0;
+  return a.id < b.id ? -1 : 1;
+}
 
 interface UseChat {
   messages: ChatMessage[];
@@ -80,6 +152,18 @@ interface UseChat {
   // page never advances the read watermark). No-op on an empty thread or
   // when hasMore is already false.
   loadOlder: () => Promise<void>;
+  // 🔴 T-b0bb: a newest page did not join onto the loaded thread and the
+  // backfill could not close the seam — messages are missing from the MIDDLE
+  // of `messages`, count and identity unknown. The view MUST surface this:
+  // the whole cost of this defect was that a thread with a hole in it is
+  // indistinguishable from a complete one, and the server has already marked
+  // the missing rows READ, so unread counts will not betray it either.
+  //
+  // In particular the "已到最早訊息" marker must not be shown on its own while
+  // this is true. That marker answers "is anything missing ABOVE the loaded
+  // window", and rendering it beside a known hole turns a narrow truth into a
+  // claim of completeness that is false.
+  gapSuspected: boolean;
 }
 
 // Topics that mutate the chat thread → trigger a refetch. "chat_read" advances a
@@ -94,6 +178,89 @@ interface Thread {
   peer: string;
   messages: ChatMessage[];
   hasMore: boolean;
+  // 🔴 A seam this thread could NOT close (T-b0bb): a newest page did not join
+  // onto what we held, and the backfill walk hit MAX_BACKFILL_PAGES (or its own
+  // request failed) before reaching a row we already had. Messages are missing
+  // from the MIDDLE of `messages` and we do not know which or how many.
+  //
+  // This exists so that giving up is not silent. It is deliberately STICKY for
+  // the life of the conversation view: a later page that joins cleanly does not
+  // retroactively deliver the rows we lost, so it must not clear the warning.
+  // It resets on a peer switch / remount, which means a reload makes the notice
+  // disappear WITHOUT the messages having been recovered. That is a real
+  // limitation of a client-side-only fix and it is named here rather than left
+  // to be discovered.
+  gapSuspected: boolean;
+}
+
+/** Does a newest-window `latest` page JOIN onto what we already hold, or is
+ * there an uncovered range between them?
+ *
+ * Joins when: we hold nothing yet; the page is empty; the page repeats a row we
+ * already have (overlap proves contiguity); or the page's OLDEST row is not
+ * newer than our NEWEST row (its window reaches back far enough to cover us).
+ *
+ * Returns false only when the page's oldest is strictly newer than our newest —
+ * the range strictly between them is covered by NOBODY. That range may in truth
+ * be empty; this function cannot tell, and does not guess. Its caller asks the
+ * server. */
+function pageJoinsThread(have: ChatMessage[], latest: ChatMessage[]): boolean {
+  if (have.length === 0 || latest.length === 0) return true;
+  const haveIds = new Set(have.map((m) => m.id));
+  if (latest.some((m) => haveIds.has(m.id))) return true;
+  const ourNewest = have.reduce((a, b) => (cmpStreamOrder(a, b) >= 0 ? a : b));
+  const pageOldest = latest.reduce((a, b) => (cmpStreamOrder(a, b) <= 0 ? a : b));
+  return cmpStreamOrder(pageOldest, ourNewest) <= 0;
+}
+
+/** Walk BACKWARDS from a newest page's oldest row until the seam is closed.
+ *
+ * The only cursor the server offers pages toward the past (`before_ts` +
+ * `before_id`, required together), so closing a forward seam means paging
+ * backwards into it from above. Stops at the first page that overlaps what we
+ * hold, at the start of the stream, or at MAX_BACKFILL_PAGES.
+ *
+ * NEVER REJECTS. A failed backfill request returns `joined: false` with
+ * whatever it managed to collect, so the caller can still adopt the newest page
+ * AND raise the gap flag. Letting it throw would have thrown the newest page
+ * away too, trading a marked hole for a stale thread. */
+async function backfillSeam(
+  withId: string,
+  have: ChatMessage[],
+  latest: ChatMessage[],
+): Promise<{ filled: ChatMessage[]; joined: boolean }> {
+  const haveIds = new Set(have.map((m) => m.id));
+  const ourNewest = have.reduce((a, b) => (cmpStreamOrder(a, b) >= 0 ? a : b));
+  let cursor = latest.reduce((a, b) => (cmpStreamOrder(a, b) <= 0 ? a : b));
+  const filled: ChatMessage[] = [];
+  try {
+    for (let i = 0; i < MAX_BACKFILL_PAGES; i++) {
+      const page = await api.listChat(withId, CHAT_BACKFILL_PAGE_SIZE, {
+        beforeTs: cursor.ts,
+        beforeId: cursor.id,
+      });
+      // Nothing older than the cursor exists ⇒ the seam is empty, not lost.
+      if (page.length === 0) return { filled, joined: true };
+      filled.unshift(...page);
+      // A row we already hold ⇒ the two ranges now touch. Done.
+      if (page.some((m) => haveIds.has(m.id))) return { filled, joined: true };
+      const pageOldest = page.reduce((a, b) => (cmpStreamOrder(a, b) <= 0 ? a : b));
+      // …or this page reached back past our newest row, which is the same
+      // thing when ids happen not to repeat.
+      if (cmpStreamOrder(pageOldest, ourNewest) <= 0) {
+        return { filled, joined: true };
+      }
+      cursor = pageOldest;
+    }
+  } catch (e) {
+    console.warn("useChat: backfill failed, gap left marked", e);
+    return { filled, joined: false };
+  }
+  console.warn(
+    `useChat: backfill gave up after ${MAX_BACKFILL_PAGES} pages; ` +
+      "the thread may be missing messages in the middle",
+  );
+  return { filled, joined: false };
 }
 
 // Reconcile a refetched NEWEST page into the existing thread: messages the
@@ -102,17 +269,38 @@ interface Thread {
 // what it covers (e.g. a reply_card_status that flipped). hasMore is
 // (re)derived from the page ONLY while the thread is still just the newest
 // window (nothing prepended yet); once history is loaded, loadOlder owns it.
-function mergeLatestPage(prev: Thread, latest: ChatMessage[]): Thread {
+//
+// `backfill` (T-b0bb) is whatever backfillSeam recovered from between the
+// thread's newest row and the page's oldest one. It slots BETWEEN them, which
+// is the only place it can belong, and is de-duplicated against both sides.
+// Passing none keeps the pre-fix behaviour byte for byte.
+function mergeLatestPage(
+  prev: Thread,
+  latest: ChatMessage[],
+  backfill: ChatMessage[] = [],
+  gapSuspected?: boolean,
+): Thread {
+  const gap = gapSuspected ?? prev.gapSuspected;
   if (prev.messages.length === 0) {
     return {
       peer: prev.peer,
       messages: latest,
       hasMore: latest.length >= CHAT_PAGE_SIZE,
+      gapSuspected: gap,
     };
   }
   const pageIds = new Set(latest.map((m) => m.id));
-  const older = prev.messages.filter((m) => !pageIds.has(m.id));
-  return { peer: prev.peer, messages: [...older, ...latest], hasMore: prev.hasMore };
+  const fill = backfill.filter((m) => !pageIds.has(m.id));
+  const fillIds = new Set(fill.map((m) => m.id));
+  const older = prev.messages.filter(
+    (m) => !pageIds.has(m.id) && !fillIds.has(m.id),
+  );
+  return {
+    peer: prev.peer,
+    messages: [...older, ...fill, ...latest],
+    hasMore: prev.hasMore,
+    gapSuspected: gap,
+  };
 }
 
 export function useChat(withId: string): UseChat {
@@ -120,6 +308,7 @@ export function useChat(withId: string): UseChat {
     peer: withId,
     messages: [],
     hasMore: true,
+    gapSuspected: false,
   }));
   const [peerLastReadTs, setPeerLastReadTs] = useState(0);
   // Live mirror of `thread` for the async loadOlder (a state read inside an
@@ -187,6 +376,16 @@ export function useChat(withId: string): UseChat {
     // MERGE the newest page (id-dedupe, history kept in front) — never
     // replace, or the loaded scrollback would vanish under the owner.
     const next = await api.listChat(withId);
+    // T-b0bb: close the seam BEFORE merging (see backfillSeam). threadRef is
+    // the live mirror — reading `thread` here would be a stale closure.
+    const cur = threadRef.current;
+    let fill: ChatMessage[] = [];
+    let gap: boolean | undefined;
+    if (cur.peer === withId && !pageJoinsThread(cur.messages, next)) {
+      const r = await backfillSeam(withId, cur.messages, next);
+      fill = r.filled;
+      if (!r.joined) gap = true;
+    }
     setThread((prev) => {
       // A peer switch mid-flight: this page belongs to the peer the owner has
       // already left — DROP it (same guard loadOlder's setThread already has).
@@ -195,7 +394,7 @@ export function useChat(withId: string): UseChat {
       // peer as the thread's owner, so the window kept rendering the old
       // conversation until some later event for the current peer overwrote it.
       if (prev.peer !== withId) return prev;
-      return mergeLatestPage(prev, next);
+      return mergeLatestPage(prev, next, fill, gap);
     });
     // listChat itself marks the owner's read watermark server-side; pull the
     // peer's watermark alongside so the badges reconcile.
@@ -217,7 +416,7 @@ export function useChat(withId: string): UseChat {
     // never on a stale thread. No-op on first mount (already empty).
     // hasMore resets optimistic-true; the first landed page derives it
     // honestly (mergeLatestPage's empty-thread arm).
-    setThread({ peer: withId, messages: [], hasMore: true });
+    setThread({ peer: withId, messages: [], hasMore: true, gapSuspected: false });
     setPeerLastReadTs(0);
 
     // ONE load path (initial + SSE + refocus). Only a load fired while the
@@ -231,19 +430,35 @@ export function useChat(withId: string): UseChat {
         ? api.listChat(withId)
         : api.peekChat(withId);
       fetching
-        .then((next) => {
+        .then(async (next) => {
           if (!alive) return;
           // Landed ⇒ whatever we owed is paid off.
           loadStaleRef.current = false;
+          // 🔴 T-b0bb: this page is the newest WINDOW, not a continuation. If
+          // its oldest row does not join onto our newest one, page backwards
+          // into the seam before merging — otherwise the uncovered range is
+          // lost permanently and silently, and the server has already counted
+          // it as read. backfillSeam never rejects, so a failed backfill costs
+          // a marked gap, not the page we just fetched.
+          const cur = threadRef.current;
+          let fill: ChatMessage[] = [];
+          let gap: boolean | undefined;
+          if (cur.peer === withId && !pageJoinsThread(cur.messages, next)) {
+            const r = await backfillSeam(withId, cur.messages, next);
+            if (!alive) return;
+            fill = r.filled;
+            if (!r.joined) gap = true;
+          }
           // MERGE the newest page into whatever is already loaded for this
           // peer (see mergeLatestPage) — replacing would eat the scrollback.
           setThread((prev) =>
             prev.peer === withId
-              ? mergeLatestPage(prev, next)
+              ? mergeLatestPage(prev, next, fill, gap)
               : {
                   peer: withId,
                   messages: next,
                   hasMore: next.length >= CHAT_PAGE_SIZE,
+                  gapSuspected: false,
                 },
           );
         })
@@ -392,6 +607,7 @@ export function useChat(withId: string): UseChat {
         const older = page.filter((m) => !have.has(m.id));
         return {
           peer: prev.peer,
+          gapSuspected: prev.gapSuspected,
           messages: [...older, ...prev.messages],
           // A short page = the history is exhausted (keyset paging makes this
           // exact; an exactly-full last page just costs one empty follow-up).
@@ -425,5 +641,6 @@ export function useChat(withId: string): UseChat {
     markRead,
     hasMore: thread.hasMore,
     loadOlder,
+    gapSuspected: thread.gapSuspected,
   };
 }

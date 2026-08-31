@@ -731,6 +731,12 @@ export const en: Dict = {
     // T-bf82 scrollback: the top-of-thread marker once the history is
     // exhausted (hasMore=false).
     historyStart: "Beginning of conversation",
+    // 🔴 T-b0bb: a refetched newest page did not join onto the loaded thread
+    // and the backfill could not close the seam, so messages are missing from
+    // the MIDDLE — count and identity unknown. This string exists because the
+    // server has already marked those messages read: the unread count will not
+    // betray it and nothing else on screen looks wrong.
+    gapSuspected: "Some messages may be missing from this conversation (could not be recovered)",
     // LINE-style day dividers in the message stream (centered pill at each day
     // crossing; sticky at the top while scrolling). weekday 0=Sun … 6=Sat; the
     // year only appears when it isn't the current year (LINE convention).
