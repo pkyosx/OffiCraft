@@ -186,10 +186,40 @@ interface Thread {
   // This exists so that giving up is not silent. It is deliberately STICKY for
   // the life of the conversation view: a later page that joins cleanly does not
   // retroactively deliver the rows we lost, so it must not clear the warning.
-  // It resets on a peer switch / remount, which means a reload makes the notice
-  // disappear WITHOUT the messages having been recovered. That is a real
-  // limitation of a client-side-only fix and it is named here rather than left
-  // to be discovered.
+  // It resets on a peer switch / remount, and that reset is CORRECT rather than
+  // a loss: the effect's setup body clears `messages` first, so the rebuilt
+  // thread is a fresh newest window with the hole ABOVE it, not inside it —
+  // `loadOlder`'s cursor (messages[0]) then walks back THROUGH the range that
+  // was skipped and the rows come back. Scrolling up after a reload / peer
+  // switch recovers the messages; the notice going away is not a silent loss of
+  // them. (Do not restate the older claim that a reload makes the notice vanish
+  // "without the messages having been recovered" — that was measured wrong.)
+  //
+  // 🟠 NAMED DEBT — THE SERVER-SIDE READ WATERMARK IS NOT FIXED (T-b0bb).
+  // What a reload does NOT undo is the read state. While the hole existed the
+  // server had already advanced the owner's watermark past it (a no-cursor
+  // `listChat` marks up to the newest ts of the page it served), so those rows
+  // stay counted as READ: unread does not go back up, and the "以下是未讀"
+  // divider will not point at them even after they are scrolled back into view.
+  // Nothing on the client can repair that — it needs either a watermark that
+  // only advances over rows actually delivered, or a way to rewind it. See
+  // server/ocserverd/api_chat_gap_tb0bb_test.go
+  // `TestChatWatermarkAdvancesPastMessagesTheCallerNeverReceived`, which is
+  // labelled CHARACTERIZATION for exactly this reason: it pins the behaviour we
+  // are shipping WITH, not one we fixed.
+  //
+  // 🟠 NAMED DEBT — ONE ABANDON PATH IS STILL SILENT (T-b0bb, review S1).
+  // `backfillSeam` has three ways to stop short. Two of them raise this flag
+  // (budget exhausted; a cursor request that failed). The third — a cursor page
+  // that comes back EMPTY — returns `joined: true` and stays quiet, on the
+  // reasoning that nothing older than the cursor can exist if the rows we
+  // already hold are older still. That reasoning is only sound while the server
+  // is self-consistent, and the ways it is not (retention trimming between the
+  // two requests, a `with`-filter difference, a DAL id tiebreak that disagrees
+  // with `cmpStreamOrder`'s JS string compare) are precisely what would send us
+  // down this branch. No realistic server state that produces it has been
+  // constructed, so it is left as debt rather than fixed here — but it is the
+  // one place in this file where giving up is still silent.
   gapSuspected: boolean;
 }
 
@@ -240,6 +270,10 @@ async function backfillSeam(
         beforeId: cursor.id,
       });
       // Nothing older than the cursor exists ⇒ the seam is empty, not lost.
+      // 🟠 THE ONE SILENT ABANDON PATH (named debt — see Thread.gapSuspected).
+      // This is the only one of the three stops that does NOT raise the flag,
+      // and it is the one that trusts the server's answer. If the server is not
+      // self-consistent with what we hold, rows go missing here with no notice.
       if (page.length === 0) return { filled, joined: true };
       filled.unshift(...page);
       // A row we already hold ⇒ the two ranges now touch. Done.
@@ -318,6 +352,27 @@ export function useChat(withId: string): UseChat {
   const threadRef = useRef(thread);
   threadRef.current = thread;
   const loadingOlderRef = useRef(false);
+  // 🔴 LOAD GENERATIONS (T-b0bb, review B2). Before the backfill, a load was
+  // "fetch → setThread" with ZERO awaits in between, so two overlapping loads
+  // could only interleave if the network answered out of order. The backfill
+  // put up to MAX_BACKFILL_PAGES round-trips between the fetch resolving and the
+  // commit — and it opens that window exactly during a burst, i.e. exactly when
+  // the peer is still typing and another load is most likely to start and finish
+  // inside it. Measured on the unguarded code: load A stalls in its backfill, a
+  // newer load B completes, then A commits on top — 75 rows, none missing, none
+  // duplicated, and the newest 5 sitting at the TOP of the conversation, plus the
+  // same seam backfilled twice because both loads compared against the same stale
+  // threadRef. `alive` does not cover this: it only says "the effect was torn
+  // down", never "a newer load already landed".
+  //
+  // So every load takes a ticket when it STARTS and may only commit while no
+  // later ticket has committed. A superseded load is dropped whole, which is
+  // safe because the later load fetched a newer window and backfilled from it
+  // down to the same held rows — its result is a superset of the one we drop.
+  // `ChatArea.groupMessages` "only partitions, never reorders", so array order
+  // IS screen order: a late commit is not a cosmetic race.
+  const loadSeqRef = useRef(0);
+  const committedSeqRef = useRef(0);
   // 🔴 "THE LAST LOAD NEVER LANDED" (T-929f). `load()` below used to end a
   // rejection at `console.warn` and nothing else. Two failure worlds, and only
   // one of them was already covered:
@@ -375,17 +430,34 @@ export function useChat(withId: string): UseChat {
     // marking listChat is honest here (the owner is looking at what they sent).
     // MERGE the newest page (id-dedupe, history kept in front) — never
     // replace, or the loaded scrollback would vanish under the owner.
+    // Takes a generation ticket like load() does — see loadSeqRef.
+    const seq = ++loadSeqRef.current;
     const next = await api.listChat(withId);
     // T-b0bb: close the seam BEFORE merging (see backfillSeam). threadRef is
     // the live mirror — reading `thread` here would be a stale closure.
     const cur = threadRef.current;
     let fill: ChatMessage[] = [];
     let gap: boolean | undefined;
-    if (cur.peer === withId && !pageJoinsThread(cur.messages, next)) {
+    let superseded = seq < committedSeqRef.current;
+    if (
+      !superseded &&
+      cur.peer === withId &&
+      !pageJoinsThread(cur.messages, next)
+    ) {
       const r = await backfillSeam(withId, cur.messages, next);
+      // A newer load committed while we were paging backwards ⇒ this page and
+      // its backfill are stale. Dropping them keeps the thread in order.
+      superseded = seq < committedSeqRef.current;
       fill = r.filled;
       if (!r.joined) gap = true;
     }
+    // The peer's watermark is still worth pulling even when our own page is
+    // stale, so the drop is a skipped COMMIT, not an early return.
+    if (superseded) {
+      await refetchReads();
+      return;
+    }
+    committedSeqRef.current = seq;
     setThread((prev) => {
       // A peer switch mid-flight: this page belongs to the peer the owner has
       // already left — DROP it (same guard loadOlder's setThread already has).
@@ -426,6 +498,10 @@ export function useChat(withId: string): UseChat {
     // a phantom-empty thread — log it (a 401 is already handled at the http
     // layer, which bounces to login).
     const load = () => {
+      // The generation ticket is taken at FIRE time, so a load that started
+      // later always outranks one that started earlier, however long each of
+      // them spends in the backfill. See loadSeqRef.
+      const seq = ++loadSeqRef.current;
       const fetching = isWindowActive()
         ? api.listChat(withId)
         : api.peekChat(withId);
@@ -434,6 +510,8 @@ export function useChat(withId: string): UseChat {
           if (!alive) return;
           // Landed ⇒ whatever we owed is paid off.
           loadStaleRef.current = false;
+          // A newer load already committed while this one was in flight.
+          if (seq < committedSeqRef.current) return;
           // 🔴 T-b0bb: this page is the newest WINDOW, not a continuation. If
           // its oldest row does not join onto our newest one, page backwards
           // into the seam before merging — otherwise the uncovered range is
@@ -446,9 +524,17 @@ export function useChat(withId: string): UseChat {
           if (cur.peer === withId && !pageJoinsThread(cur.messages, next)) {
             const r = await backfillSeam(withId, cur.messages, next);
             if (!alive) return;
+            // 🔴 THE ORDERING GUARD (review B2). The backfill above is up to 6
+            // round-trips long; a load that started AFTER this one can have
+            // fetched, backfilled and committed inside that window. Committing
+            // now would splice an older newest-page on top of a newer thread —
+            // nothing lost, nothing duplicated, and the newest messages moved
+            // to the top of the screen. Drop instead.
+            if (seq < committedSeqRef.current) return;
             fill = r.filled;
             if (!r.joined) gap = true;
           }
+          committedSeqRef.current = seq;
           // MERGE the newest page into whatever is already loaded for this
           // peer (see mergeLatestPage) — replacing would eat the scrollback.
           setThread((prev) =>

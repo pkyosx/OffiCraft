@@ -304,3 +304,137 @@ describe("useChat: giving up on a seam is NEVER silent", () => {
     expect(result.current.gapSuspected).toBe(false);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MULTI-PAGE BACKFILL (review B1). Everything above this line feeds the walk a
+// seam that ONE page closes (31→1 missing, 40→10, 95→65 — all ≤ 100, the
+// backfill page size), so the while-loop's own machinery — unshifting each page
+// into the right place, advancing the cursor, the 6-page budget — is never
+// exercised by an assertion. Measured: with those tests alone, reversing the
+// page assembly, freezing the cursor, and cutting the budget to 1 page are ALL
+// invisible (21/21 green). A burst of 250 leaves a 220-row seam ⇒ 3 cursor
+// pages, which is the smallest case where each of those three is load-bearing.
+describe("useChat: a seam that takes MORE THAN ONE backfill page", () => {
+  it("a burst of 250 (a 220-row seam, 3 cursor pages): the thread IS the server's stream, in the server's order", async () => {
+    push("a", 30);
+    const { result } = renderHook(() => useChat("b"));
+    await waitFor(() => expect(result.current.messages).toHaveLength(30));
+
+    push("x", 250); // newest window = x220..x249; seam = x0..x219
+    await emit();
+    // Wait for the COMMIT, not for the answer we want: the walk commits exactly
+    // once, whether it closed the seam or gave up, so waiting on "more than the
+    // 30 we started with" lets a broken walk reach the assertions below instead
+    // of dying in a waitFor timeout that says nothing about what went wrong.
+    await waitFor(() =>
+      expect(result.current.messages.length).toBeGreaterThan(30),
+    );
+
+    // 🔴 ORDER, not just membership. "Nothing is missing" cannot see a walk
+    // that collects every row and assembles the pages backwards: the count and
+    // the id-set are identical either way, and ChatArea's groupMessages "only
+    // partitions, never reorders", so this array IS what the owner reads.
+    expect(result.current.messages.map((m) => m.id)).toEqual(
+      server.map((m) => m.id),
+    );
+    expect(missingFrom(result.current.messages)).toEqual([]);
+    expect(result.current.gapSuspected).toBe(false);
+  });
+
+  it("the walk really ADVANCES: a 220-row seam takes several cursor requests and each one is strictly older than the last", async () => {
+    push("a", 30);
+    const { result } = renderHook(() => useChat("b"));
+    await waitFor(() => expect(result.current.messages).toHaveLength(30));
+    cursorCalls = [];
+
+    push("x", 250);
+    await emit();
+    await waitFor(() =>
+      expect(result.current.messages.length).toBeGreaterThan(30),
+    );
+
+    // More than one page, or the seam was never multi-page and this whole
+    // describe block is testing nothing.
+    expect(cursorCalls.length).toBeGreaterThan(1);
+    // And the cursor moved BACKWARDS every time. A walk that re-sends the same
+    // cursor burns the whole budget on one page and then gives up — 120 rows
+    // lost behind a warning — while every count-based assertion stays green.
+    for (let i = 1; i < cursorCalls.length; i++) {
+      const prev = cursorCalls[i - 1];
+      const cur = cursorCalls[i];
+      const strictlyOlder =
+        cur.beforeTs < prev.beforeTs ||
+        (cur.beforeTs === prev.beforeTs && cur.beforeId < prev.beforeId);
+      expect({ i, cur, prev, strictlyOlder }).toEqual({
+        i,
+        cur,
+        prev,
+        strictlyOlder: true,
+      });
+    }
+    // The budget was enough for this seam: it closed without admitting a gap.
+    expect(cursorCalls.length).toBeLessThanOrEqual(6);
+    expect(result.current.gapSuspected).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OVERLAPPING LOADS (review B2). The backfill turned a load from "fetch, then
+// setThread with nothing in between" into "fetch, up to 6 round-trips, THEN
+// setThread" — and it opens that window only during a burst, i.e. exactly when
+// the peer is still talking and another load is most likely to start and finish
+// inside it. Measured on the unguarded code: 75 rows, none missing, none
+// duplicated, and the newest 5 rendered at the TOP of the conversation.
+describe("useChat: a load that started EARLIER may not commit over one that already landed", () => {
+  it("🔴 a stalled backfill does not reorder the thread when a newer load lands first", async () => {
+    push("a", 30);
+    const { result } = renderHook(() => useChat("b"));
+    await waitFor(() => expect(result.current.messages).toHaveLength(30));
+
+    // Hold the FIRST cursor request open: load A is now parked mid-backfill.
+    let releaseA: (() => void) | null = null;
+    let sawFirstCursor = false;
+    const aParked = new Promise<void>((res) => {
+      releaseA = res;
+    });
+    h.listChat.mockImplementation(async (_w, limit, before) => {
+      if (before && !sawFirstCursor) {
+        sawFirstCursor = true;
+        await aParked;
+      }
+      return serve(limit, before);
+    });
+
+    push("x", 40); // seam of 10 for load A
+    await emit(); // load A: newest page landed, backfill blocked
+    await waitFor(() => expect(sawFirstCursor).toBe(true));
+
+    push("y", 5); // the peer keeps talking while A is parked
+    await emit(); // load B: fetches, backfills, COMMITS a complete thread
+    await waitFor(() =>
+      expect(result.current.messages.some((m) => m.id === "y4")).toBe(true),
+    );
+
+    // Now let the older load finish. It carries a newest page (x10..x39) that
+    // is a PREFIX of what B already committed, plus its own backfill.
+    await act(async () => {
+      releaseA?.();
+      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    // 🔴 THE NAMED ASSERTION. Membership is NOT the subject here — the
+    // unguarded code loses nothing and duplicates nothing. Order is.
+    expect(result.current.messages.map((m) => m.id)).toEqual(
+      server.map((m) => m.id),
+    );
+    expect(missingFrom(result.current.messages)).toEqual([]);
+    // Concretely: the newest rows are last, not first.
+    const ids = result.current.messages.map((m) => m.id);
+    expect(ids[ids.length - 1]).toBe("y4");
+    expect(ids[0]).toBe("a0");
+  });
+});
