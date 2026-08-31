@@ -8,14 +8,14 @@ import (
 	"testing"
 )
 
-// seedWorldStateMemoryDirectoryFixture files a small, deliberately MIXED
+// seedLoreDirectoryFixture files a small, deliberately MIXED
 // directory: two entity types, a human-origin subject and agent-origin ones, so
 // the grouping, the ordering and the human rule all have something to bite on.
 //
 // It is used by the boot-context equality guard in worker_spawn_test.go as well
 // as by the tests below — one fixture, so "what a directory looks like" is not
 // re-invented per test.
-func seedWorldStateMemoryDirectoryFixture(t *testing.T, s *apiServer) {
+func seedLoreDirectoryFixture(t *testing.T, s *apiServer) {
 	t.Helper()
 	t33Entity(t, s.dal, "en-seth", "human", "human:Seth")
 	t33Entity(t, s.dal, "en-kyle", "agent", "agent:Kyle")
@@ -27,7 +27,7 @@ func seedWorldStateMemoryDirectoryFixture(t *testing.T, s *apiServer) {
 		e.Origin = origin
 		t33Put(t, s.dal, e)
 		for _, sub := range subjects {
-			if err := s.dal.PutWorldStateMemorySubject(id, sub); err != nil {
+			if err := s.dal.PutLoreSubject(id, sub); err != nil {
 				t.Fatalf("file %s against %s: %v", id, sub, err)
 			}
 		}
@@ -45,7 +45,7 @@ func seedWorldStateMemoryDirectoryFixture(t *testing.T, s *apiServer) {
 // this is not just asserting that some unrelated thing is broken.
 func TestDirectoryIsAbsentWhenThereAreNoSubjects(t *testing.T) {
 	s := newWorkerTestServer(t)
-	got, err := s.foldWorldStateMemorySection("m-anyone")
+	got, err := s.foldLoreSection("m-anyone")
 	if err != nil {
 		t.Fatalf("fold: %v", err)
 	}
@@ -56,12 +56,12 @@ func TestDirectoryIsAbsentWhenThereAreNoSubjects(t *testing.T) {
 	if err != nil || bc == nil {
 		t.Fatalf("buildBootContext: %v", err)
 	}
-	if strings.Contains(bc.Context, worldStateMemorySectionH1) {
+	if strings.Contains(bc.Context, loreSectionH1) {
 		t.Error("boot context carries an empty 對象目錄 heading")
 	}
 
-	seedWorldStateMemoryDirectoryFixture(t, s)
-	if got, err := s.foldWorldStateMemorySection("m-anyone"); err != nil || got == "" {
+	seedLoreDirectoryFixture(t, s)
+	if got, err := s.foldLoreSection("m-anyone"); err != nil || got == "" {
 		t.Fatalf("positive control: a seeded ontology must produce a section (err=%v, %d bytes)",
 			err, len(got))
 	}
@@ -76,7 +76,7 @@ func TestDirectoryIsAbsentWhenThereAreNoSubjects(t *testing.T) {
 // have appeared.
 func TestDirectoryCarriesNoEntryBody(t *testing.T) {
 	s := newWorkerTestServer(t)
-	seedWorldStateMemoryDirectoryFixture(t, s)
+	seedLoreDirectoryFixture(t, s)
 	body := t33Entry("me-probe")
 
 	bc, err := s.buildBootContext("", nil)
@@ -91,7 +91,7 @@ func TestDirectoryCarriesNoEntryBody(t *testing.T) {
 	// Positive control: the directory really is in both documents, so the
 	// absences below are absences from a document that HAS the block.
 	for name, doc := range map[string]string{"staff": bc.Context, "outsource": worker} {
-		if !strings.Contains(doc, worldStateMemorySectionH1) {
+		if !strings.Contains(doc, loreSectionH1) {
 			t.Fatalf("%s boot context has no 對象目錄 — the checks below would be vacuous", name)
 		}
 		for field, text := range map[string]string{
@@ -118,7 +118,7 @@ func seedManySubjects(t *testing.T, s *apiServer, n int) (humanCanonical string)
 		e := t33Entry(fmt.Sprintf("me-bulk-%03d", i))
 		e.Origin = "agent:Kyle"
 		t33Put(t, s.dal, e)
-		if err := s.dal.PutWorldStateMemorySubject(e.ID, id); err != nil {
+		if err := s.dal.PutLoreSubject(e.ID, id); err != nil {
 			t.Fatalf("file bulk %d: %v", i, err)
 		}
 	}
@@ -126,7 +126,7 @@ func seedManySubjects(t *testing.T, s *apiServer, n int) (humanCanonical string)
 	e := t33Entry("me-owner")
 	e.Origin = "human:Seth"
 	t33Put(t, s.dal, e)
-	if err := s.dal.PutWorldStateMemorySubject(e.ID, "en-owner"); err != nil {
+	if err := s.dal.PutLoreSubject(e.ID, "en-owner"); err != nil {
 		t.Fatalf("file owner subject: %v", err)
 	}
 	return "agent:zzzz-owner-said-this"
@@ -141,10 +141,10 @@ func seedManySubjects(t *testing.T, s *apiServer, n int) (humanCanonical string)
 // overflow read the same as one missing row.
 func TestDirectoryAnnouncesItsOwnTruncation(t *testing.T) {
 	s := newWorkerTestServer(t)
-	over := worldStateMemorySubjectIndexMaxSubjects + 7
+	over := loreSubjectIndexMaxSubjects + 7
 	seedManySubjects(t, s, over)
 
-	got, err := s.foldWorldStateMemorySection("m-reader")
+	got, err := s.foldLoreSection("m-reader")
 	if err != nil {
 		t.Fatalf("fold: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestDirectoryAnnouncesItsOwnTruncation(t *testing.T) {
 			lines, over+1)
 	}
 	omitted := over + 1 - lines
-	want := worldStateMemoryTruncationLine(omitted)
+	want := loreTruncationLine(omitted)
 	if !strings.Contains(got, want) {
 		t.Fatalf("截斷了卻沒有印出那一行。少了：%q\n"+
 			"a truncated directory MUST say so, with the number, or 「沒列到」 and "+
@@ -178,9 +178,9 @@ func TestDirectoryAnnouncesItsOwnTruncation(t *testing.T) {
 // present.
 func TestHumanOriginSubjectsSurviveTruncation(t *testing.T) {
 	s := newWorkerTestServer(t)
-	humanCanonical := seedManySubjects(t, s, worldStateMemorySubjectIndexMaxSubjects*3)
+	humanCanonical := seedManySubjects(t, s, loreSubjectIndexMaxSubjects*3)
 
-	got, err := s.foldWorldStateMemorySection("m-reader")
+	got, err := s.foldLoreSection("m-reader")
 	if err != nil {
 		t.Fatalf("fold: %v", err)
 	}
@@ -206,9 +206,9 @@ func TestHumanOriginSubjectsSurviveTruncation(t *testing.T) {
 // boot document that reshuffles itself makes every diff of it noise.
 func TestDirectoryIsGroupedByTypeAndDeterministic(t *testing.T) {
 	s := newWorkerTestServer(t)
-	seedWorldStateMemoryDirectoryFixture(t, s)
+	seedLoreDirectoryFixture(t, s)
 
-	got, err := s.foldWorldStateMemorySection("m-reader")
+	got, err := s.foldLoreSection("m-reader")
 	if err != nil {
 		t.Fatalf("fold: %v", err)
 	}
@@ -226,7 +226,7 @@ func TestDirectoryIsGroupedByTypeAndDeterministic(t *testing.T) {
 			t.Errorf("missing subject line %q\n--- got ---\n%s", want, got)
 		}
 	}
-	again, err := s.foldWorldStateMemorySection("m-reader")
+	again, err := s.foldLoreSection("m-reader")
 	if err != nil {
 		t.Fatalf("fold again: %v", err)
 	}
@@ -247,11 +247,11 @@ func TestPrivateEntriesAreWalledOffFromTheDirectory(t *testing.T) {
 	e.Visibility = "private"
 	e.OwnerScope = "m-allowed"
 	t33Put(t, s.dal, e)
-	if err := s.dal.PutWorldStateMemorySubject("me-secret", "en-secret"); err != nil {
+	if err := s.dal.PutLoreSubject("me-secret", "en-secret"); err != nil {
 		t.Fatalf("file: %v", err)
 	}
 
-	blocked, err := s.foldWorldStateMemorySection("m-someone-else")
+	blocked, err := s.foldLoreSection("m-someone-else")
 	if err != nil {
 		t.Fatalf("fold blocked: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestPrivateEntriesAreWalledOffFromTheDirectory(t *testing.T) {
 	}
 	// Positive control: the scoped reader DOES see it, so the wall is a wall and
 	// not a broken query that hides everything.
-	allowed, err := s.foldWorldStateMemorySection("m-allowed")
+	allowed, err := s.foldLoreSection("m-allowed")
 	if err != nil {
 		t.Fatalf("fold allowed: %v", err)
 	}
@@ -279,13 +279,13 @@ func TestPrivateEntriesAreWalledOffFromTheDirectory(t *testing.T) {
 // the positive control that the assembled worker document does carry it.
 func TestDirectoryIsNotInTheSharedHead(t *testing.T) {
 	s := newWorkerTestServer(t)
-	seedWorldStateMemoryDirectoryFixture(t, s)
+	seedLoreDirectoryFixture(t, s)
 
 	head, err := s.workerSharedHead()
 	if err != nil {
 		t.Fatalf("workerSharedHead: %v", err)
 	}
-	if strings.Contains(head, worldStateMemorySectionH1) {
+	if strings.Contains(head, loreSectionH1) {
 		t.Error("對象目錄 is in workerSharedHead. That function's contract is the " +
 			"SHARED SEED — bytes identical for every reader — and this directory is " +
 			"per-actor. It belongs in buildWorkerBootContext.")
@@ -295,12 +295,12 @@ func TestDirectoryIsNotInTheSharedHead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildWorkerBootContext: %v", err)
 	}
-	if !strings.Contains(worker, worldStateMemorySectionH1) {
+	if !strings.Contains(worker, loreSectionH1) {
 		t.Fatal("the assembled worker document has no 對象目錄 either — the absence " +
 			"above is not a placement guarantee, it is a missing feature")
 	}
 	// And in the right place: after the shared head, before the 啟動步驟 tail.
-	mem := strings.Index(worker, worldStateMemorySectionH1)
+	mem := strings.Index(worker, loreSectionH1)
 	boot := strings.Index(worker, bootSequenceH1)
 	if boot < 0 || mem > boot {
 		t.Errorf("對象目錄 must sit at the tail of slot 3, before 啟動步驟 "+

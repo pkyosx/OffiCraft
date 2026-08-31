@@ -1,6 +1,6 @@
 package main
 
-// dal_world_state_memory.go — T-33, the access layer for the tables migration
+// dal_lore.go — T-33, the access layer for the tables migration
 // 00063 introduces. Same convention as dal_tasks.go / dal_task_artifacts.go:
 // explicit per-table methods, no generic repository.
 //
@@ -26,7 +26,7 @@ import (
 	"strings"
 )
 
-// WorldStateMemoryEntry mirrors the world_state_memory_entry table — the L1
+// LoreEntry mirrors the lore_entry table — the L1
 // layer, and the ONLY layer whose columns are ever folded into a boot context.
 //
 // 🔴 THERE IS NO TrustScope FIELD, DELIBERATELY. An entry's class is derived
@@ -36,10 +36,10 @@ import (
 //
 // 🔴 Origin IS AN L1 FIELD, NOT AN L2 ONE, and that placement is load-bearing:
 // a human origin sorts ahead within its tier and is exempt from the count cap,
-// so the assembler must be able to SELECT it. L2 (world_state_memory_meta) is
+// so the assembler must be able to SELECT it. L2 (lore_meta) is
 // defined by the assembler NOT being able to see it, which is precisely why
 // origin cannot live there.
-type WorldStateMemoryEntry struct {
+type LoreEntry struct {
 	ID string
 
 	// 🔴 THE SIX BODY FIELDS, FIXED. There is no free-form field here and none
@@ -81,16 +81,16 @@ type WorldStateMemoryEntry struct {
 // It is BOTH fields, not either: an entry with a concrete instance but no
 // falsifier is thin, not empty, and calling it degraded would flag most honest
 // first drafts.
-func (e WorldStateMemoryEntry) IsDegraded() bool {
+func (e LoreEntry) IsDegraded() bool {
 	return strings.TrimSpace(e.Falsify) == "" && strings.TrimSpace(e.Instance) == ""
 }
 
-const worldStateMemoryEntryColumns = `id, label, symptoms, short, falsify, instance, residual_risk,
+const loreEntryColumns = `id, label, symptoms, short, falsify, instance, residual_risk,
 	status, supersedes, visibility, owner_scope, editable_by, origin,
 	created_ts, updated_ts`
 
-func scanWorldStateMemoryEntry(row interface{ Scan(...any) error }) (WorldStateMemoryEntry, error) {
-	var e WorldStateMemoryEntry
+func scanLoreEntry(row interface{ Scan(...any) error }) (LoreEntry, error) {
+	var e LoreEntry
 	err := row.Scan(
 		&e.ID, &e.Label, &e.Symptoms, &e.Short, &e.Falsify, &e.Instance, &e.ResidualRisk,
 		&e.Status, &e.Supersedes, &e.Visibility, &e.OwnerScope, &e.EditableBy, &e.Origin,
@@ -99,7 +99,7 @@ func scanWorldStateMemoryEntry(row interface{ Scan(...any) error }) (WorldStateM
 	return e, err
 }
 
-// worldStateMemoryLabelMaxRunes caps the label, in runes (the repo's length unit
+// loreLabelMaxRunes caps the label, in runes (the repo's length unit
 // everywhere else, and the only one under which a name in Chinese and a name in
 // English are counted the same way).
 //
@@ -111,21 +111,21 @@ func scanWorldStateMemoryEntry(row interface{ Scan(...any) error }) (WorldStateM
 //
 // ⚠️ 40 是佔位數字，不是算出來的. It is a placeholder, not a measured value; it
 // has to be calibrated after the trial.
-const worldStateMemoryLabelMaxRunes = 40
+const loreLabelMaxRunes = 40
 
-// worldStateMemoryLabelError enforces that cap. A blank label is NOT refused
+// loreLabelError enforces that cap. A blank label is NOT refused
 // here: an entry can legitimately be written before it has been named, and
 // refusing that would push writers into inventing a name, which is worse than an
 // empty one — an invented name looks exactly like a chosen one.
-func worldStateMemoryLabelError(label string) error {
-	if n := len([]rune(label)); n > worldStateMemoryLabelMaxRunes {
+func loreLabelError(label string) error {
+	if n := len([]rune(label)); n > loreLabelMaxRunes {
 		return fmt.Errorf("%w: %d runes, max %d — a label is a NAME, put the sentence in `short`",
-			ErrWorldStateMemoryLabelTooLong, n, worldStateMemoryLabelMaxRunes)
+			ErrLoreLabelTooLong, n, loreLabelMaxRunes)
 	}
 	return nil
 }
 
-// worldStateMemoryOriginError validates an origin as a subject key.
+// loreOriginError validates an origin as a subject key.
 //
 // 🔴 ORIGIN AND SUBJECT ARE THE SAME SHAPE, `type:name`, AND THEY DRAW ON THE
 // SAME LIST — the `entity_type` table, read here at run time. That table is the
@@ -140,35 +140,35 @@ func worldStateMemoryLabelError(label string) error {
 // into something that parses. A blank origin is refused too: there is no default
 // author, and "unspecified" written as if it were a person would be a claim
 // nobody made.
-func (d *DAL) worldStateMemoryOriginError(origin string) error {
+func (d *DAL) loreOriginError(origin string) error {
 	if strings.TrimSpace(origin) == "" {
-		return ErrWorldStateMemoryOriginBlank
+		return ErrLoreOriginBlank
 	}
 	prefix, name, found := strings.Cut(origin, ":")
 	if !found || prefix == "" || strings.TrimSpace(name) == "" {
-		return fmt.Errorf("%w: %q is not `type:name`", ErrWorldStateMemoryOriginMalformed, origin)
+		return fmt.Errorf("%w: %q is not `type:name`", ErrLoreOriginMalformed, origin)
 	}
 	var one int
 	err := d.rdb.QueryRow(`SELECT 1 FROM entity_type WHERE type = ?`, prefix).Scan(&one)
 	if errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("%w: %q", ErrWorldStateMemoryOriginUnknownType, prefix)
+		return fmt.Errorf("%w: %q", ErrLoreOriginUnknownType, prefix)
 	}
 	return err
 }
 
-// ErrWorldStateMemoryEntryIDBlank refuses a write with no id. It is a NAMED
+// ErrLoreEntryIDBlank refuses a write with no id. It is a NAMED
 // error rather than a database message because the layer above has to turn it
 // into a 400 that says what is wrong, and matching on a driver's wording is
 // matching on something nobody promised to keep stable.
 var (
-	ErrWorldStateMemoryEntryIDBlank      = errors.New("world state memory: the entry id is blank")
-	ErrWorldStateMemoryLabelTooLong      = errors.New("world state memory: the label is too long")
-	ErrWorldStateMemoryOriginBlank       = errors.New("world state memory: the origin is blank")
-	ErrWorldStateMemoryOriginMalformed   = errors.New("world state memory: the origin is not a `type:name` subject key")
-	ErrWorldStateMemoryOriginUnknownType = errors.New("world state memory: the origin names an unapproved type prefix")
+	ErrLoreEntryIDBlank      = errors.New("lore: the entry id is blank")
+	ErrLoreLabelTooLong      = errors.New("lore: the label is too long")
+	ErrLoreOriginBlank       = errors.New("lore: the origin is blank")
+	ErrLoreOriginMalformed   = errors.New("lore: the origin is not a `type:name` subject key")
+	ErrLoreOriginUnknownType = errors.New("lore: the origin names an unapproved type prefix")
 )
 
-// PutWorldStateMemoryEntry creates or replaces ONE entry.
+// PutLoreEntry creates or replaces ONE entry.
 //
 // 🔴 created_ts IS NOT IN THE UPDATE CLAUSE. An edit is not a birth: an entry
 // that gets its wording tightened must keep the moment it first appeared,
@@ -176,9 +176,9 @@ var (
 // expression still carries a created_ts — SQLite evaluates it before it finds
 // the conflict — and it is discarded there, which is why the column is absent
 // from DO UPDATE SET rather than being set to itself.
-func (d *DAL) PutWorldStateMemoryEntry(e WorldStateMemoryEntry) error {
+func (d *DAL) PutLoreEntry(e LoreEntry) error {
 	if e.ID == "" {
-		return ErrWorldStateMemoryEntryIDBlank
+		return ErrLoreEntryIDBlank
 	}
 	if e.Status == "" {
 		e.Status = "active"
@@ -189,14 +189,14 @@ func (d *DAL) PutWorldStateMemoryEntry(e WorldStateMemoryEntry) error {
 	if e.EditableBy == "" {
 		e.EditableBy = "agent"
 	}
-	if err := worldStateMemoryLabelError(e.Label); err != nil {
+	if err := loreLabelError(e.Label); err != nil {
 		return err
 	}
-	if err := d.worldStateMemoryOriginError(e.Origin); err != nil {
+	if err := d.loreOriginError(e.Origin); err != nil {
 		return err
 	}
 	_, err := d.wdb.Exec(`
-		INSERT INTO world_state_memory_entry (`+worldStateMemoryEntryColumns+`)
+		INSERT INTO lore_entry (`+loreEntryColumns+`)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
 			label = excluded.label, symptoms = excluded.symptoms,
@@ -212,12 +212,12 @@ func (d *DAL) PutWorldStateMemoryEntry(e WorldStateMemoryEntry) error {
 	return err
 }
 
-// GetWorldStateMemoryEntry returns one entry, or nil when no entry carries that
+// GetLoreEntry returns one entry, or nil when no entry carries that
 // id. A missing entry is not an error: "does this id exist" is a question the
 // callers ask on purpose, and folding it into an error would make them parse one.
-func (d *DAL) GetWorldStateMemoryEntry(id string) (*WorldStateMemoryEntry, error) {
-	e, err := scanWorldStateMemoryEntry(d.rdb.QueryRow(
-		`SELECT `+worldStateMemoryEntryColumns+` FROM world_state_memory_entry WHERE id = ?`, id))
+func (d *DAL) GetLoreEntry(id string) (*LoreEntry, error) {
+	e, err := scanLoreEntry(d.rdb.QueryRow(
+		`SELECT `+loreEntryColumns+` FROM lore_entry WHERE id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -227,7 +227,7 @@ func (d *DAL) GetWorldStateMemoryEntry(id string) (*WorldStateMemoryEntry, error
 	return &e, nil
 }
 
-// ListWorldStateMemoryEntriesBySubject returns the entries filed against one
+// ListLoreEntriesBySubject returns the entries filed against one
 // entity, oldest→newest with an id tiebreak so the order is deterministic.
 //
 // 🔴 `retired` ROWS ARE EXCLUDED HERE, AND THAT IS THE RULING, NOT AN
@@ -239,19 +239,19 @@ func (d *DAL) GetWorldStateMemoryEntry(id string) (*WorldStateMemoryEntry, error
 // ⚠️ 'superseded' AND 'underspecified' ARE STILL RETURNED. Neither has a ruling
 // on retrieval, and silently dropping them here would decide it by accident. The
 // ranking layer is where that belongs once somebody decides it.
-func (d *DAL) ListWorldStateMemoryEntriesBySubject(entityID string) ([]WorldStateMemoryEntry, error) {
+func (d *DAL) ListLoreEntriesBySubject(entityID string) ([]LoreEntry, error) {
 	rows, err := d.rdb.Query(`
-		SELECT `+worldStateMemoryEntryColumns+` FROM world_state_memory_entry e
-		JOIN world_state_memory_subject s ON s.entry_id = e.id
+		SELECT `+loreEntryColumns+` FROM lore_entry e
+		JOIN lore_subject s ON s.entry_id = e.id
 		WHERE s.entity_id = ? AND e.status <> 'retired'
 		ORDER BY e.created_ts, e.id`, entityID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []WorldStateMemoryEntry
+	var out []LoreEntry
 	for rows.Next() {
-		e, err := scanWorldStateMemoryEntry(rows)
+		e, err := scanLoreEntry(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -260,7 +260,7 @@ func (d *DAL) ListWorldStateMemoryEntriesBySubject(entityID string) ([]WorldStat
 	return out, rows.Err()
 }
 
-// CountWorldStateMemoryEntriesBySubject counts what the list above would return.
+// CountLoreEntriesBySubject counts what the list above would return.
 //
 // It exists as its own query because the wake-time subject roster needs "how
 // many does this subject have" for every subject and the bodies for none of
@@ -268,16 +268,16 @@ func (d *DAL) ListWorldStateMemoryEntriesBySubject(entityID string) ([]WorldStat
 // a per-wake path. The two share their predicate word for word ON PURPOSE — a
 // count that disagrees with its own list is a bug that shows up as a number
 // nobody can reconcile.
-func (d *DAL) CountWorldStateMemoryEntriesBySubject(entityID string) (int, error) {
+func (d *DAL) CountLoreEntriesBySubject(entityID string) (int, error) {
 	var n int
 	err := d.rdb.QueryRow(`
-		SELECT COUNT(*) FROM world_state_memory_entry e
-		JOIN world_state_memory_subject s ON s.entry_id = e.id
+		SELECT COUNT(*) FROM lore_entry e
+		JOIN lore_subject s ON s.entry_id = e.id
 		WHERE s.entity_id = ? AND e.status <> 'retired'`, entityID).Scan(&n)
 	return n, err
 }
 
-// PutWorldStateMemorySubject files an entry against one subject.
+// PutLoreSubject files an entry against one subject.
 //
 // 🔴 ONE ENTRY CAN CARRY MANY SUBJECTS — that is why this is a join table and
 // not a column. A memory about "how the boot context is assembled" is about the
@@ -286,22 +286,22 @@ func (d *DAL) CountWorldStateMemoryEntriesBySubject(entityID string) (int, error
 //
 // Re-filing an existing pair is a no-op rather than an error: the pair IS the
 // primary key, so "already filed" is the state the caller asked for.
-func (d *DAL) PutWorldStateMemorySubject(entryID, entityID string) error {
+func (d *DAL) PutLoreSubject(entryID, entityID string) error {
 	_, err := d.wdb.Exec(`
-		INSERT INTO world_state_memory_subject (entry_id, entity_id) VALUES (?, ?)
+		INSERT INTO lore_subject (entry_id, entity_id) VALUES (?, ?)
 		ON CONFLICT (entry_id, entity_id) DO NOTHING`, entryID, entityID)
 	return err
 }
 
-// ListWorldStateMemorySubjects returns one entry's subject entity ids, sorted so
+// ListLoreSubjects returns one entry's subject entity ids, sorted so
 // the order is a property of the data rather than of the insert history.
-func (d *DAL) ListWorldStateMemorySubjects(entryID string) ([]string, error) {
-	return d.worldStateMemoryStrings(`
-		SELECT entity_id FROM world_state_memory_subject
+func (d *DAL) ListLoreSubjects(entryID string) ([]string, error) {
+	return d.loreStrings(`
+		SELECT entity_id FROM lore_subject
 		WHERE entry_id = ? ORDER BY entity_id`, entryID)
 }
 
-// PutWorldStateMemoryAction files an action name against an entry.
+// PutLoreAction files an action name against an entry.
 //
 // 🔴 THE ACTION NAME IS NOT VALIDATED AGAINST A LIST, AND MUST NOT BE. The
 // action axis is an OPEN set — a writer mints a new name every time a new kind
@@ -309,25 +309,25 @@ func (d *DAL) ListWorldStateMemorySubjects(entryID string) ([]string, error) {
 // the writes the mechanism exists to capture. The safety lives at READ time
 // instead: memoryTrustScope() fails closed on a name it does not recognise and
 // reports it. See memory_trust_scope.go.
-func (d *DAL) PutWorldStateMemoryAction(entryID, action string) error {
+func (d *DAL) PutLoreAction(entryID, action string) error {
 	_, err := d.wdb.Exec(`
-		INSERT INTO world_state_memory_action (entry_id, action) VALUES (?, ?)
+		INSERT INTO lore_action (entry_id, action) VALUES (?, ?)
 		ON CONFLICT (entry_id, action) DO NOTHING`, entryID, action)
 	return err
 }
 
-// ListWorldStateMemoryActions returns one entry's action names, sorted. This is
+// ListLoreActions returns one entry's action names, sorted. This is
 // what feeds memoryTrustScope.
-func (d *DAL) ListWorldStateMemoryActions(entryID string) ([]string, error) {
-	return d.worldStateMemoryStrings(`
-		SELECT action FROM world_state_memory_action
+func (d *DAL) ListLoreActions(entryID string) ([]string, error) {
+	return d.loreStrings(`
+		SELECT action FROM lore_action
 		WHERE entry_id = ? ORDER BY action`, entryID)
 }
 
-// worldStateMemoryStrings is the shared single-column read for the two join
+// loreStrings is the shared single-column read for the two join
 // tables above — the same six lines twice is the shape that lets one of them
 // quietly forget rows.Err().
-func (d *DAL) worldStateMemoryStrings(query string, args ...any) ([]string, error) {
+func (d *DAL) loreStrings(query string, args ...any) ([]string, error) {
 	rows, err := d.rdb.Query(query, args...)
 	if err != nil {
 		return nil, err
@@ -346,7 +346,7 @@ func (d *DAL) worldStateMemoryStrings(query string, args ...any) ([]string, erro
 
 // ── the subject roster (T-33, the boot-context directory) ───────────────────
 
-// WorldStateMemorySubjectRosterRow is ONE line of the wake-time 對象目錄: an
+// LoreSubjectRosterRow is ONE line of the wake-time 對象目錄: an
 // entity that has at least one retrievable entry filed against it, plus how many.
 //
 // 🔴 THERE IS NO BODY FIELD ON THIS STRUCT, AND THAT IS THE POINT. The boot
@@ -355,7 +355,7 @@ func (d *DAL) worldStateMemoryStrings(query string, args ...any) ([]string, erro
 // would put the entries themselves one careless `+=` away from every boot
 // document in the fleet, which is a size decision nobody has made. An agent that
 // wants an entry reads it deliberately.
-type WorldStateMemorySubjectRosterRow struct {
+type LoreSubjectRosterRow struct {
 	EntityID  string
 	Type      string
 	Canonical string
@@ -368,13 +368,13 @@ type WorldStateMemorySubjectRosterRow struct {
 	HumanOrigin bool
 }
 
-// ListWorldStateMemorySubjectRoster returns the whole directory in ONE grouped
+// ListLoreSubjectRoster returns the whole directory in ONE grouped
 // query.
 //
 // 🔴 COST: THIS IS A BOOT-PATH QUERY — every agent, every wake, forever. It is
 // therefore ONE statement with no per-subject follow-up: the count and the
 // human-origin flag are both aggregates of the same GROUP BY, never a loop over
-// CountWorldStateMemoryEntriesBySubject. Approved as an addition to the per-wake
+// CountLoreEntriesBySubject. Approved as an addition to the per-wake
 // query set by the owner on reply card rc-e5a9efbed9da (2026-08-31, option [0]);
 // see the COST DISCIPLINE block above resumeFloorParts in api_chat.go, where the
 // tree keeps that list.
@@ -395,13 +395,13 @@ type WorldStateMemorySubjectRosterRow struct {
 // written in a different vocabulary matches nothing and the entry stays hidden.
 // That is the safe direction to be wrong in, and it is a REFUSAL TO GUESS, not a
 // design: when the vocabulary is decided this predicate has to be revisited.
-func (d *DAL) ListWorldStateMemorySubjectRoster(actorID string) ([]WorldStateMemorySubjectRosterRow, error) {
+func (d *DAL) ListLoreSubjectRoster(actorID string) ([]LoreSubjectRosterRow, error) {
 	rows, err := d.rdb.Query(`
 		SELECT n.id, n.type, n.canonical, n.display,
 		       COUNT(*),
 		       MAX(CASE WHEN e.origin LIKE 'human:%' THEN 1 ELSE 0 END)
-		FROM world_state_memory_entry e
-		JOIN world_state_memory_subject s ON s.entry_id = e.id
+		FROM lore_entry e
+		JOIN lore_subject s ON s.entry_id = e.id
 		JOIN entity n ON n.id = s.entity_id
 		WHERE e.status <> 'retired'
 		  AND (e.visibility <> 'private' OR e.owner_scope = ?)
@@ -411,9 +411,9 @@ func (d *DAL) ListWorldStateMemorySubjectRoster(actorID string) ([]WorldStateMem
 		return nil, err
 	}
 	defer rows.Close()
-	var out []WorldStateMemorySubjectRosterRow
+	var out []LoreSubjectRosterRow
 	for rows.Next() {
-		var r WorldStateMemorySubjectRosterRow
+		var r LoreSubjectRosterRow
 		var human int
 		if err := rows.Scan(&r.EntityID, &r.Type, &r.Canonical, &r.Display, &r.Entries, &human); err != nil {
 			return nil, err
