@@ -56,8 +56,6 @@ type LoreEntry struct {
 
 	Status     string // 'active' | 'superseded' | 'retired' | 'underspecified'
 	Supersedes string // id of the entry this replaces; the replaced row is re-statused, never deleted
-	Visibility string // 'shared' | 'private' — a coarse wall, not a retrieval dimension
-	OwnerScope string // who may see it while Visibility is 'private'
 	EditableBy string // 'agent' | 'owner-gated'
 	Origin     string // a subject key — `human:Seth`, `agent:Kyle`. WHO this knowledge came from.
 	CreatedTS  float64
@@ -86,14 +84,14 @@ func (e LoreEntry) IsDegraded() bool {
 }
 
 const loreEntryColumns = `id, label, symptoms, short, falsify, instance, residual_risk,
-	status, supersedes, visibility, owner_scope, editable_by, origin,
+	status, supersedes, editable_by, origin,
 	created_ts, updated_ts`
 
 func scanLoreEntry(row interface{ Scan(...any) error }) (LoreEntry, error) {
 	var e LoreEntry
 	err := row.Scan(
 		&e.ID, &e.Label, &e.Symptoms, &e.Short, &e.Falsify, &e.Instance, &e.ResidualRisk,
-		&e.Status, &e.Supersedes, &e.Visibility, &e.OwnerScope, &e.EditableBy, &e.Origin,
+		&e.Status, &e.Supersedes, &e.EditableBy, &e.Origin,
 		&e.CreatedTS, &e.UpdatedTS,
 	)
 	return e, err
@@ -183,9 +181,6 @@ func (d *DAL) PutLoreEntry(e LoreEntry) error {
 	if e.Status == "" {
 		e.Status = "active"
 	}
-	if e.Visibility == "" {
-		e.Visibility = "shared"
-	}
 	if e.EditableBy == "" {
 		e.EditableBy = "agent"
 	}
@@ -197,17 +192,16 @@ func (d *DAL) PutLoreEntry(e LoreEntry) error {
 	}
 	_, err := d.wdb.Exec(`
 		INSERT INTO lore_entry (`+loreEntryColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
 			label = excluded.label, symptoms = excluded.symptoms,
 			short = excluded.short, falsify = excluded.falsify,
 			instance = excluded.instance, residual_risk = excluded.residual_risk,
 			status = excluded.status,
-			supersedes = excluded.supersedes, visibility = excluded.visibility,
-			owner_scope = excluded.owner_scope, editable_by = excluded.editable_by,
+			supersedes = excluded.supersedes, editable_by = excluded.editable_by,
 			origin = excluded.origin, updated_ts = excluded.updated_ts`,
 		e.ID, e.Label, e.Symptoms, e.Short, e.Falsify, e.Instance, e.ResidualRisk,
-		e.Status, e.Supersedes, e.Visibility, e.OwnerScope, e.EditableBy, e.Origin,
+		e.Status, e.Supersedes, e.EditableBy, e.Origin,
 		e.CreatedTS, e.UpdatedTS)
 	return err
 }
@@ -384,17 +378,12 @@ type LoreSubjectRosterRow struct {
 // identical so a directory that disagrees with the list it indexes is impossible
 // rather than merely unlikely.
 //
-// 🔴 PRIVATE ENTRIES FAIL CLOSED. A `private` entry is counted only when its
-// owner_scope equals the reading actor; anything else is left out entirely —
-// including its CONTRIBUTION TO A COUNT, because a count is a disclosure too
-// ("something exists about you that you cannot see" is information).
-//
-// ⚠️ owner_scope's VOCABULARY IS NOT RULED YET — the column holds an opaque
-// string, and whether it names a member id, a role key or something else is an
-// open question. This compares it to actorID verbatim, which means a scope
-// written in a different vocabulary matches nothing and the entry stays hidden.
-// That is the safe direction to be wrong in, and it is a REFUSAL TO GUESS, not a
-// design: when the vocabulary is decided this predicate has to be revisited.
+// 🔴 THERE IS NO PER-READER FILTER LEFT IN THIS QUERY, AND THAT IS THE RULING,
+// NOT AN OVERSIGHT. The private/shared wall is gone (rc-26c1fd0c6b3c, option
+// [3]: 「不要私密條目了，全部共享」), so every reader sees the same directory.
+// `actorID` is therefore currently unused — it is kept in the signature because
+// the callers are the two boot paths and a per-actor axis is the shape this
+// query is expected to grow again; removing it would churn them both twice.
 func (d *DAL) ListLoreSubjectRoster(actorID string) ([]LoreSubjectRosterRow, error) {
 	rows, err := d.rdb.Query(`
 		SELECT n.id, n.type, n.canonical, n.display,
@@ -404,9 +393,8 @@ func (d *DAL) ListLoreSubjectRoster(actorID string) ([]LoreSubjectRosterRow, err
 		JOIN lore_subject s ON s.entry_id = e.id
 		JOIN entity n ON n.id = s.entity_id
 		WHERE e.status <> 'retired'
-		  AND (e.visibility <> 'private' OR e.owner_scope = ?)
 		GROUP BY n.id, n.type, n.canonical, n.display
-		ORDER BY n.type, n.canonical, n.id`, actorID)
+		ORDER BY n.type, n.canonical, n.id`)
 	if err != nil {
 		return nil, err
 	}

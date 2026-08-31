@@ -20,11 +20,18 @@ package main
 // nobody reads both boot contexts side by side.
 //
 // 🔴 IT IS NOT CALLED FROM workerSharedHead, AND MUST NOT BE. That function's
-// contract is "the first two blocks of the SHARED SEED" — bytes that are
-// identical for every reader. This directory is PER-ACTOR (private entries are
-// filtered by the reader). Putting it there would make a per-person document
-// masquerade as the shared core. TestDirectoryIsNotInTheSharedHead is the guard
-// that catches the move.
+// contract is "the first two blocks of the SHARED SEED" — a seed that is
+// assembled once and cached, with no live table read in it. This directory is a
+// live query over the ontology, so folding it in there would freeze a table that
+// changes under the station into the cached head. It takes a reader id because
+// it is assembled per boot, not because the seed could carry it.
+// TestDirectoryIsNotInTheSharedHead is the guard that catches the move.
+//
+// ⚠️ THE ORIGINAL REASON WAS DIFFERENT: this used to be a PER-ACTOR document
+// because `private` entries were filtered by reader. That wall is gone
+// (rc-26c1fd0c6b3c: 全部共享), so the bytes are now the same for every reader —
+// the placement rule survives on the staleness argument above, which is the one
+// stated here so nobody re-derives it from a filter that no longer exists.
 //
 // ⚠️ MEASURED, AND NOT WHAT YOU WOULD ASSUME:
 // TestWorkerSharedHeadMatchesUnfilteredSeedAssembly does NOT catch it. That test
@@ -96,10 +103,14 @@ const loreSubjectIndexMaxChars = 3000
 // once it has content.
 //
 // actorID is the reader — a member id, an outsource worker id, or "" for the
-// role-only fold with no member behind it. It is used ONLY to decide which
-// `private` entries this reader may be told about; nothing else in the output
-// varies by reader, so two agents on one station see the same directory apart
-// from what is genuinely walled off from one of them.
+// role-only fold with no member behind it.
+//
+// ⚠️ IT CURRENTLY CHANGES NOTHING. Its only job was choosing which `private`
+// entries the reader could be told about, and that wall is gone
+// (rc-26c1fd0c6b3c: 全部共享), so every reader now gets identical bytes. The
+// parameter is kept rather than removed because both boot callers already thread
+// a reader id through, and a per-actor axis is what this directory is expected to
+// grow again — dropping it would churn both call sites twice.
 func (s *apiServer) foldLoreSection(actorID string) (string, error) {
 	rows, err := s.dal.ListLoreSubjectRoster(actorID)
 	if err != nil {
