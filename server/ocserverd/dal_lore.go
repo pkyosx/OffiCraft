@@ -378,7 +378,7 @@ type LoreSubjectRosterRow struct {
 // identical so a directory that disagrees with the list it indexes is impossible
 // rather than merely unlikely.
 //
-// 🔴 THE ENTITY SIDE IS FILTERED TOO — `pending = 0` AND `merged_into = ''` —
+// 🔴 THE ENTITY SIDE IS FILTERED TOO — `pending = 0` AND an EMPTY `merged_into` —
 // AND BOTH ARE CORRECTNESS, NOT TIDINESS. `entity` is written by agents without
 // a gate (that is deliberate: gating the write is what pushes an agent into
 // forcing a near-miss key), so `pending = 1` is the whole review queue. Without
