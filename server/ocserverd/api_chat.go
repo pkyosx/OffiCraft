@@ -1755,10 +1755,10 @@ func resumeChatPackBudget(budget int, generatedAt string) int {
 // LIVES OUTSIDE THIS FUNCTION — declared rather than smuggled in, which is the
 // whole point of writing the list down:
 //
-//   - ONE ListWorldStateMemorySubjectRoster (T-33,
-//     dal_world_state_memory.go) on the BOOT-CONTEXT path — buildBootContext
-//     and buildWorkerBootContext, through foldWorldStateMemorySection. It is a
-//     single grouped SELECT over world_state_memory_entry ⋈ _subject ⋈ entity,
+//   - ONE ListLoreSubjectRoster (T-33,
+//     dal_lore.go) on the BOOT-CONTEXT path — buildBootContext
+//     and buildWorkerBootContext, through foldLoreSection. It is a
+//     single grouped SELECT over lore_entry ⋈ _subject ⋈ entity,
 //     with the count and the human-origin flag as aggregates of that one GROUP
 //     BY; there is deliberately no per-subject follow-up query, which would
 //     have turned one boot query into N.

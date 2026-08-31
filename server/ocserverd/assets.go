@@ -550,7 +550,7 @@ func (s *apiServer) buildBootContext(role string, member *Member) (*bootContext,
 		parts = append(parts, "# Insight ("+roleKey+")\n\n"+insightBody)
 	}
 	parts = append(parts, lessonsTitle+"\n\n"+lessonsBody)
-	// World state memory 對象目錄 (T-33) — the TAIL of slot 3, after 長期筆記 and
+	// 傳承（lore）對象目錄 (T-33) — the TAIL of slot 3, after 長期筆記 and
 	// before 啟動步驟. buildWorkerBootContext calls the same function at the same
 	// relative position; that symmetry is what keeps the two documents one
 	// assembly rather than two that drift.
@@ -564,7 +564,7 @@ func (s *apiServer) buildBootContext(role string, member *Member) (*bootContext,
 	if member != nil {
 		memberID = member.ID
 	}
-	memorySection, err := s.foldWorldStateMemorySection(memberID)
+	memorySection, err := s.foldLoreSection(memberID)
 	if err != nil {
 		return nil, err
 	}
