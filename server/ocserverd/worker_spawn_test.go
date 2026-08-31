@@ -222,6 +222,15 @@ func TestBuildWorkerBootContext_RuntimeGuidanceIsTheSeedsOwnAndItIsLast(t *testi
 // 「外包的 boot context ＝ 正職的 boot context 扣掉第 3 格（角色說明→判準→長期筆記）。
 // 一個字都不為外包另寫。」
 //
+// 🔴 T-33 MOVED THE LINE OF THE SUBTRACTION, AND ONLY THE LINE. 外包的 slot 3
+// 從 T-33 起不再是空的：the world state memory 對象目錄 sits at the tail of that
+// slot on BOTH sides (owner rc-614815d0b811, Q4). So the invariant read here is
+// now「外包 ＝ 正職減掉 slot 3 裡的【角色專屬文件】（角色說明／判準／長期筆記），
+// 記憶那一段兩邊都保留」— and it is still a BYTE-FOR-BYTE equality, not a
+// Contains, not a substring probe. The directory is not role-specific (it is the
+// station's), so cutting it from the worker would be writing a document for
+// outsource readers by omission, which is the thing T-4595 forbids.
+//
 // So the want is BUILT FROM THE STAFF FOLD: take the document a staff member
 // actually receives, cut the persona slot out of it, and require the worker's
 // document to equal what is left, byte for byte. That is deliberately not a
@@ -249,6 +258,11 @@ func TestWorkerBootContextIsTheStaffFoldMinusThePersona(t *testing.T) {
 	if err := s.dal.PutUserContext(UserContext{Text: ownerMark}); err != nil {
 		t.Fatalf("put user context: %v", err)
 	}
+	// A non-empty world state memory directory, so the tail of slot 3 is real
+	// on both sides. Without this the section folds to "" for both documents and
+	// the equality below would still pass while proving nothing about the block
+	// T-33 added — the vacuous-green shape this whole test exists to refuse.
+	seedWorldStateMemoryDirectoryFixture(t, s)
 
 	staff, err := s.buildBootContext("", nil)
 	if err != nil || staff == nil {
@@ -275,17 +289,46 @@ func TestWorkerBootContextIsTheStaffFoldMinusThePersona(t *testing.T) {
 	// the equality only — which is how this anchor announced the change.
 	role := strings.Index(staff.Context, "# Role: ")
 	boot := strings.Index(staff.Context, "# Claude Code 執行環境")
-	if role < 0 || boot < 0 || role >= boot {
-		t.Fatalf("cannot locate slot 3 in the staff fold (角色說明=%d 啟動步驟=%d) — "+
-			"the staff assembly moved and this equality must be re-derived", role, boot)
+	// T-33: the cut now STOPS at the world state memory directory rather than at
+	// slot 4, because that directory is the tail of slot 3 and stays on BOTH
+	// sides. Cutting at 執行環境 would excise it from the want only, and the
+	// equality would then demand that the worker NOT have it — the opposite of
+	// the ruling.
+	mem := strings.Index(staff.Context, worldStateMemorySectionH1)
+	if mem < 0 {
+		t.Fatal("the staff fold carries no world state memory directory — the fixture " +
+			"above seeded subjects, so either the fold stopped calling " +
+			"foldWorldStateMemorySection or the section is being suppressed")
 	}
-	// Positive control: the persona really is a substantial block, so "minus
-	// slot 3" is a real subtraction and not a no-op that makes this vacuous.
-	if boot-role < 200 {
-		t.Fatalf("staff slot 3 is only %d bytes — too small to be the persona; "+
-			"the subtraction below would prove nothing", boot-role)
+	cutEnd := mem
+	if role < 0 || boot < 0 || role >= cutEnd || cutEnd >= boot {
+		t.Fatalf("cannot locate slot 3 in the staff fold (角色說明=%d 對象目錄=%d 啟動步驟=%d) — "+
+			"the staff assembly moved and this equality must be re-derived", role, mem, boot)
 	}
-	want := staff.Context[:role] + staff.Context[boot:]
+	// Positive control #1: the role-specific part really is a substantial block,
+	// so "minus the persona documents" is a real subtraction and not a no-op that
+	// makes this vacuous. WITHOUT THIS, the whole equality passes when both sides
+	// are empty strings.
+	if cutEnd-role < 200 {
+		t.Fatalf("the role-specific part of staff slot 3 is only %d bytes — too small "+
+			"to be the persona; the subtraction below would prove nothing", cutEnd-role)
+	}
+	// Positive control #2, T-33's own: the surviving tail of slot 3 must be a
+	// real block too. If the directory folded to a heading and nothing else,
+	// "記憶那一段兩邊都保留" would be true and empty at the same time.
+	if boot-mem < 100 {
+		t.Fatalf("the world state memory directory is only %d bytes — the fixture seeded "+
+			"several subjects, so this is not a real directory and 「兩邊都保留」 "+
+			"would be vacuous", boot-mem)
+	}
+	want := staff.Context[:role] + staff.Context[cutEnd:]
+	// And it really must be on the worker's side, not merely on the want's: the
+	// equality below would also hold if BOTH documents had dropped it, since the
+	// want is derived from the staff fold.
+	if !strings.Contains(worker, worldStateMemorySectionH1) {
+		t.Fatal("外包 boot context 沒有世界狀態記憶對象目錄；記憶那一段是兩邊都要保留的 " +
+			"(T-33, owner rc-614815d0b811 Q4)")
+	}
 
 	// And prove the owner block is on BOTH sides, above the cut: if it were
 	// still fourth (the pre-T-4595 staff order) it would sit inside the excised
@@ -296,10 +339,10 @@ func TestWorkerBootContextIsTheStaffFoldMinusThePersona(t *testing.T) {
 	}
 
 	if worker != want {
-		t.Errorf("outsource boot context is not the staff fold minus slot 3\n"+
+		t.Errorf("outsource boot context is not the staff fold minus the role documents\n"+
 			"got  %d bytes\nwant %d bytes\n"+
-			"外包的 boot context ＝ 正職的扣掉第 3 格（角色說明→判準→長期筆記），"+
-			"一個字都不為外包另寫（T-4595）\n"+
+			"外包的 boot context ＝ 正職的扣掉第 3 格裡的角色專屬文件（角色說明→判準→長期筆記），"+
+			"記憶那一段兩邊都保留，一個字都不為外包另寫（T-4595 ＋ T-33）\n"+
 			"⚠️ 這顆守的是【組裝結構】，不是 seed 的文字內容：want 由正職那份實際產出"+
 			"切出來，所以改 seed 會讓兩邊一起移動、這顆不會紅。",
 			len(worker), len(want))
