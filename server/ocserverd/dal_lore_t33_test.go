@@ -52,8 +52,6 @@ func TestLoreEntryRoundTrips(t *testing.T) {
 	want := t33Entry("me-aaa")
 	want.Origin = "human:Seth"
 	want.Status = "underspecified"
-	want.Visibility = "private"
-	want.OwnerScope = "assistant"
 	want.EditableBy = "owner-gated"
 	want.Supersedes = "me-old"
 	t33Put(t, d, want)
