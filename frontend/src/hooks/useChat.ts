@@ -208,18 +208,11 @@ interface Thread {
   // labelled CHARACTERIZATION for exactly this reason: it pins the behaviour we
   // are shipping WITH, not one we fixed.
   //
-  // 🟠 NAMED DEBT — ONE ABANDON PATH IS STILL SILENT (T-b0bb, review S1).
-  // `backfillSeam` has three ways to stop short. Two of them raise this flag
-  // (budget exhausted; a cursor request that failed). The third — a cursor page
-  // that comes back EMPTY — returns `joined: true` and stays quiet, on the
-  // reasoning that nothing older than the cursor can exist if the rows we
-  // already hold are older still. That reasoning is only sound while the server
-  // is self-consistent, and the ways it is not (retention trimming between the
-  // two requests, a `with`-filter difference, a DAL id tiebreak that disagrees
-  // with `cmpStreamOrder`'s JS string compare) are precisely what would send us
-  // down this branch. No realistic server state that produces it has been
-  // constructed, so it is left as debt rather than fixed here — but it is the
-  // one place in this file where giving up is still silent.
+  // All THREE of backfillSeam's ways to stop short raise this flag: the budget
+  // ran out, a cursor request failed, or a cursor page came back EMPTY while we
+  // are demonstrably holding older rows (review S1 — see the comment on that
+  // branch for why an empty page there is a contradiction and never an ending).
+  // Nothing in this file gives up quietly.
   gapSuspected: boolean;
 }
 
@@ -269,12 +262,34 @@ async function backfillSeam(
         beforeTs: cursor.ts,
         beforeId: cursor.id,
       });
-      // Nothing older than the cursor exists ⇒ the seam is empty, not lost.
-      // 🟠 THE ONE SILENT ABANDON PATH (named debt — see Thread.gapSuspected).
-      // This is the only one of the three stops that does NOT raise the flag,
-      // and it is the one that trusts the server's answer. If the server is not
-      // self-consistent with what we hold, rows go missing here with no notice.
-      if (page.length === 0) return { filled, joined: true };
+      // 🔴 AN EMPTY CURSOR PAGE IS A CONTRADICTION, NOT AN ENDING (review S1).
+      // The tempting reading is "nothing older than the cursor exists ⇒ the
+      // seam was empty" — and it is WRONG here, definitionally. backfillSeam is
+      // only ever entered when `pageJoinsThread` returned false, and that
+      // function's first line is `if (have.length === 0 …) return true`, so we
+      // are ALWAYS holding messages when this runs, and every one of them is
+      // older than this cursor (the cursor starts at the newest page's oldest
+      // row and only walks backwards). A server that answers "there is nothing
+      // older" is therefore contradicting rows we are holding in our hand.
+      //
+      // The ways it happens are ordinary, not exotic: retention trimmed the
+      // range between the two requests; the `with` filter does not resolve the
+      // same set both times; the DAL's id tiebreak disagrees with this file's
+      // JS string compare in `cmpStreamOrder`. All of them lose rows out of the
+      // MIDDLE of the thread — the exact defect this whole file exists for.
+      //
+      // So this is a give-up like the other two, and it says so. Measured: the
+      // 10-row case went `missing = 10, gapSuspected = false, warns = 0` before
+      // this line changed. There is no false-positive cost to weigh against it,
+      // because the "we really had reached the start of the stream" reading
+      // cannot occur on this path at all.
+      if (page.length === 0) {
+        console.warn(
+          "useChat: backfill got an EMPTY page for a cursor we hold older " +
+            "messages than; the seam cannot be confirmed closed",
+        );
+        return { filled, joined: false };
+      }
       filled.unshift(...page);
       // A row we already hold ⇒ the two ranges now touch. Done.
       if (page.some((m) => haveIds.has(m.id))) return { filled, joined: true };

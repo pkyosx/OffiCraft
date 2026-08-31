@@ -438,3 +438,107 @@ describe("useChat: a load that started EARLIER may not commit over one that alre
     expect(ids[0]).toBe("a0");
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE SAME ORDERING GUARD, ON THE OTHER LOAD PATH (review B3). `load()` above is
+// the SSE / focus / mount path; `refetch()` is the one and only path a user's
+// own Enter takes (send() → postChat → refetch). They carry independent copies
+// of the generation check, and measured: deleting refetch()'s copy leaves 55
+// chat files / 453 tests entirely green while producing the identical symptom —
+// the peer's newest messages jump to the top of the conversation.
+describe("useChat: the post-send refetch obeys the same generation rule", () => {
+  it("🔴 a stalled post-send backfill does not reorder the thread when a newer load lands first", async () => {
+    push("a", 30);
+    const { result } = renderHook(() => useChat("b"));
+    await waitFor(() => expect(result.current.messages).toHaveLength(30));
+
+    // Park the FIRST cursor request: the send's refetch stalls mid-backfill.
+    let releaseSend: (() => void) | null = null;
+    let sawFirstCursor = false;
+    const parked = new Promise<void>((res) => {
+      releaseSend = res;
+    });
+    h.listChat.mockImplementation(async (_w, limit, before) => {
+      if (before && !sawFirstCursor) {
+        sawFirstCursor = true;
+        await parked;
+      }
+      return serve(limit, before);
+    });
+
+    push("x", 40); // the peer burst while the owner was typing
+    // Fire the send WITHOUT awaiting it — its refetch is about to block.
+    await act(async () => {
+      void result.current.send("hello");
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(sawFirstCursor).toBe(true));
+
+    push("y", 5); // the peer keeps talking while the send's refetch is parked
+    await emit(); // an SSE load: fetches, backfills, COMMITS a complete thread
+    await waitFor(() =>
+      expect(result.current.messages.some((m) => m.id === "y4")).toBe(true),
+    );
+
+    await act(async () => {
+      releaseSend?.();
+      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    // 🔴 THE NAMED ASSERTION. Order, not membership — the unguarded refetch
+    // loses nothing and duplicates nothing, it just puts the newest rows first.
+    expect(result.current.messages.map((m) => m.id)).toEqual(
+      server.map((m) => m.id),
+    );
+    const ids = result.current.messages.map((m) => m.id);
+    expect(ids[ids.length - 1]).toBe("y4");
+    expect(ids[0]).toBe("a0");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE THIRD ABANDON PATH (review S1). backfillSeam stops short three ways;
+// two of them (budget, failed request) are pinned above. The third is a cursor
+// page that comes back EMPTY. It cannot mean "the stream starts here": the walk
+// is only entered while we HOLD messages (pageJoinsThread returns true for an
+// empty `have`), and every row we hold is older than the cursor. An empty answer
+// contradicts our own hand — retention trimming between the two requests, a
+// `with`-filter that does not resolve the same set twice, or a DAL id tiebreak
+// that disagrees with cmpStreamOrder's JS string compare all land here, and all
+// of them lose rows out of the MIDDLE.
+describe("useChat: an EMPTY cursor page is a give-up, not an ending", () => {
+  it("🔴 a cursor page that comes back empty while we hold older rows raises gapSuspected", async () => {
+    push("a", 30);
+    const { result } = renderHook(() => useChat("b"));
+    await waitFor(() => expect(result.current.messages).toHaveLength(30));
+
+    push("x", 40); // seam = x0..x9
+    // The server answers the backfill with "there is nothing older" — while we
+    // are holding a0..a29, which are older still.
+    h.listChat.mockImplementation(async (_w, limit, before) => {
+      if (before) {
+        cursorCalls.push(before);
+        return [];
+      }
+      return serve(limit);
+    });
+    await emit();
+    await waitFor(() =>
+      expect(result.current.messages.some((m) => m.id === "x39")).toBe(true),
+    );
+
+    // The rows really are gone from the middle…
+    expect(missingFrom(result.current.messages).length).toBeGreaterThan(0);
+    // …so this must NOT be presented as a complete thread. Measured before the
+    // fix: missing = 10, gapSuspected = false, warns = 0.
+    expect(result.current.gapSuspected).toBe(true);
+    // And it is not silent in the console either.
+    expect(warnSpy.mock.calls.length).toBeGreaterThan(0);
+  });
+});
