@@ -344,6 +344,11 @@ type bootContext struct {
 	RoleKey string
 	Name    string
 	Context string
+	// Lore is the receipt for the 對象目錄 this document carries (T-33). The
+	// fold cannot file it itself — /api/bootstrap without a member_id assembles
+	// a PREVIEW nobody boots with — so the assembly hands it up and the caller
+	// that really delivers the document records it.
+	Lore loreSurfacing
 }
 
 // bootSequenceSeedName picks the boot-sequence seed for a runtime. It is the
@@ -564,7 +569,7 @@ func (s *apiServer) buildBootContext(role string, member *Member) (*bootContext,
 	if member != nil {
 		memberID = member.ID
 	}
-	memorySection, err := s.foldLoreSection(memberID)
+	memorySection, lore, err := s.foldLoreSectionWithSurfacing(memberID)
 	if err != nil {
 		return nil, err
 	}
@@ -580,6 +585,7 @@ func (s *apiServer) buildBootContext(role string, member *Member) (*bootContext,
 		RoleKey: roleKey,
 		Name:    name,
 		Context: strings.Join(parts, "\n\n") + "\n",
+		Lore:    lore,
 	}, nil
 }
 
