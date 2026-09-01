@@ -1030,6 +1030,31 @@ def _lore_fresh_subject(_ctx: HCtx) -> str:
     return _LORE_FRESH_SUBJECT
 
 
+def _check_lore_search(_ctx: HCtx, r: httpx.Response) -> None:
+    d = r.json()
+    # 🔴 `applied` IS NOT OPTIONAL AND THIS IS WHERE THAT IS PINNED. The tier
+    # labels mean "matched every axis you asked on", which is only interpretable
+    # beside the axes that were asked — a tier that travelled alone would be read
+    # under the design's older meaning ("both axes intersect") and quietly mean
+    # something else.
+    applied = d["applied"]
+    assert applied["subject"] == _LORE_FRESH_SUBJECT, d
+    assert applied["tiered_by"] == ["subject"], d
+    assert applied["limit"] == 5, d
+    # The kind of matching is a VALUE, not a sentence in a document, so that the
+    # day it becomes semantic the answer says so instead of quietly changing.
+    assert applied["query_match"] == "literal-substring", d
+    assert d["subject_resolved"] is True, d
+    assert d["unresolved_subject"] == "", d
+    # The subject was minted by the write row, which files one entry under it.
+    assert d["total"] >= 1 and d["entries"], d
+    first = d["entries"][0]
+    assert first["tier"] == "T1", first
+    assert first["tier_note"], first
+    assert first["trust_scope"] in {"method", "trust", "cognitive"}, first
+    assert isinstance(first["trust_fell_back"], bool), first
+
+
 def _check_lore_write(_ctx: HCtx, r: httpx.Response) -> None:
     d = r.json()
     assert d["entry_id"], d
@@ -1082,6 +1107,15 @@ HAPPY: dict[str, Happy] = {
             and d["reason"] == "expired"
             and bool(d["actor_id"]),
         ),
+    ),
+    # 🔴 THE ASSERTION THAT MATTERS HERE IS THE REFUSAL, and it is in
+    # `test_lore_search_refuses_an_undeclared_condition` below rather than in
+    # this row: a happy face proves the route answers, not that it would have
+    # objected to a condition it does not implement.
+    "POST /api/lore/search": Happy(
+        identity="agent",
+        body={"subject": _LORE_FRESH_SUBJECT, "limit": 5},
+        check=_check_lore_search,
     ),
     "POST /api/lore/entries/{entry_id}/revive": Happy(
         path=lambda ctx: f"/api/lore/entries/{_lore_retired_entry(ctx)}/revive",
@@ -2904,6 +2938,47 @@ def test_mfa_full_ceremony(hctx: HCtx) -> None:
 
 
 # ── coverage teeth ───────────────────────────────────────────────────────────
+
+
+def test_lore_search_refuses_an_undeclared_condition(hctx: HCtx) -> None:
+    """🔴 THE ASSERTION THE WHOLE BODY-SIDE DESIGN EXISTS FOR.
+
+    This route's entire value is its selection conditions, and a condition that
+    is silently ignored does not raise — it hands back a plausible set of
+    memories that is not the set that was asked for, and the symptom of that is
+    "somebody forgot something today".
+
+    Two halves, and BOTH are needed. A key the DTO does not declare must be
+    REFUSED, naming itself. The same word on the QUERY STRING must be accepted
+    and ignored — which is not a bug being pinned as correct, it is the reason
+    the conditions had to be put in the body: `POST …?typo=1` is exactly as
+    silent as the GET would be, so the verb protects nothing and the SIDE is
+    what does. If the second half ever starts failing, the router changed and
+    the design note explaining this choice has to be re-read, not deleted.
+    """
+    token = hctx.agent.token
+    head = {"Authorization": f"Bearer {token}"}
+
+    refused = hctx.client.post(
+        "/api/lore/search", headers=head, json={"context_labels": ["anything"]}
+    )
+    assert refused.status_code == 422, f"{refused.status_code} {refused.text}"
+    assert "context_labels" in refused.text, (
+        "the refusal must name the field, or a caller cannot tell WHICH condition "
+        f"was rejected: {refused.text}"
+    )
+
+    ignored = hctx.client.post(
+        "/api/lore/search?context_labels=anything", headers=head, json={}
+    )
+    assert ignored.status_code == 200, (
+        "an undeclared QUERY parameter is silently ignored on every route this "
+        "station serves; if that changed, the body-side rule above needs "
+        f"re-justifying rather than deleting: {ignored.status_code} {ignored.text}"
+    )
+    assert ignored.json()["applied"]["tiered_by"] == [], (
+        "the query-string condition must have been ignored, not applied"
+    )
 
 
 def test_set_password_after_set_conflicts(hctx: HCtx) -> None:

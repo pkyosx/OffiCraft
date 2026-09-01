@@ -1202,5 +1202,12 @@
     "method": "POST",
     "path": "/api/lore/entries",
     "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "search_lore_entries",
+    "method": "POST",
+    "path": "/api/lore/search",
+    "requires": "agent"
   }
 ]

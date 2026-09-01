@@ -2190,5 +2190,34 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary:  "Write ONE lore entry — the entry, the subjects it is filed under, the actions it is about, and the FULL ORIGINAL that outlives every later rewrite, all in one transaction. `symptoms` and `short` are required: `short` is the only field that ever enters a boot context and `symptoms` is the axis a reader finds the entry by, so an entry missing either is not thin, it is unreachable. `falsify` and `instance` are DELIBERATELY optional (owner ruling 2026-09-01: 寬鬆，不當硬門檻) — forcing them produces invented ones, which nothing can count, whereas an empty one can be counted; an entry with neither comes back `degraded: true`, which is a signal to you and not a refusal. `subjects` are subject keys shaped `type:name` (`repo:officraft`, `agent:Kyle`): an alias resolves, a merged-away subject follows to the survivor, an unapproved type prefix is refused BY NAME, and a key nobody has used yet MINTS a new subject parked for review and names it back to you in `pending_entities` — so a typo surfaces in this response instead of in the ontology a month later. `origin` says WHOSE knowledge this is (`human:Seth` for something the owner told you) and is not the same question as who is writing: the actor is taken from your verified token and cannot be asserted here. `label` is a NAME, at most 40 runes; over that is refused with both counts and NEVER trimmed, because a name that changes silently breaks whatever was pointing at it. `supersedes` names the entry this one takes over from: it is re-statused `superseded` and the act is written to the governance journal, while an id that names nothing refuses the WHOLE write rather than leaving a pointer into empty space.",
 			MCPTool:  "write_lore_entry",
 		},
+		// ── T-33 lore retrieval ──────────────────────────────────────────────
+		// 🔴 EVERY SELECTION CONDITION IS IN THE BODY, AND THE REASON IS NOT THE
+		// VERB. This router ignores an undeclared QUERY parameter on every route
+		// it serves and answers 200 — pinned by a test that fires a real
+		// request. The body decoder refuses an undeclared key with a 422 naming
+		// it. So `POST …?typo=1` is exactly as silent as the GET would be: what
+		// protects this hop is which side the conditions sit on, and moving one
+		// to the query string would remove that while leaving the verb, and
+		// every test, unchanged.
+		//
+		// 🔴 principalAgent. Retrieval is what an agent does with the directory
+		// it woke up holding; a floor above that would mean an agent cannot read
+		// its own store, which is the whole point of the store. A machine is
+		// still refused at the door — a warden has nothing to recall.
+		//
+		// ⚠️ WHAT THIS ROUTE CANNOT DO, said here because a summary is where
+		// people look: `symptoms` comes back and cannot be searched on. It has
+		// no table, no index and no parameter, and de-duplication and
+		// conflict-finding both run on that axis — so neither is reachable
+		// through this route today. That is a known gap, not an oversight.
+		{
+			Method:   "POST",
+			Path:     "/api/lore/search",
+			Handler:  w.HandleSearchLoreEntriesApiLoreSearchPost,
+			Auth:     authGated,
+			Requires: principalAgent,
+			Summary:  "Retrieve lore entries — hop ② of the design: you have seen the subject directory at wake and now want what is actually filed under one of those subjects. 🔴 EVERY SELECTION CONDITION GOES IN THE REQUEST BODY AND NONE IN THE QUERY STRING, and that is load-bearing rather than stylistic: an undeclared body key is refused 422 by name, while an undeclared QUERY parameter is silently ignored on every route this station serves — so a mistyped condition on the query side would hand you a plausible answer that is not the one you asked for, and nothing would report it. All fields are optional; sending none asks for everything still retrievable. `subject` is a subject key (`repo:officraft`); an alias resolves and a merged-away subject follows to the survivor, and a key that names NOTHING comes back as `subject_resolved: false` rather than as an empty result — 「this subject has nothing on it」 and 「this subject does not exist」 are different answers and you need to tell them apart. Every entry carries a `tier`: `T1` matched every axis you asked on, `T2` (類比) reached you across an axis you did NOT ask about and is a guess rather than a rule for your case. 🔴 `tier` is meaningless without `applied.tiered_by`, which names the axes the tier was computed over — read them together. A `trust`-class entry (how far something can be relied on) is WITHHELD from the analogy tier unless you set `force_trust_analogy`, because 「X was reliable」 is a fact about X; when you do force it, the note says whose situation the entry actually describes. `trust_fell_back` on an entry means its class came from failing closed on an action name nothing recognised, not from the table — the class is a guess, and the names are listed in `unmapped_actions`. `query` is a LITERAL, case-insensitive substring over label/short/symptoms and `applied.query_match` says so: it is not semantic, and two entries describing the same situation in different words will not find each other. 🔴 `symptoms` comes back but CANNOT be searched on — it has no table, no index and no parameter here, which is why de-duplication and conflict-finding cannot be done through this route yet.",
+			MCPTool:  "search_lore_entries",
+		},
 	}
 }

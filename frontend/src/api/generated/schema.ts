@@ -1417,6 +1417,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/lore/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retrieve lore entries — hop ② of the design: you have seen the subject directory at wake and now want what is actually filed under one of those subjects. 🔴 EVERY SELECTION CONDITION GOES IN THE REQUEST BODY AND NONE IN THE QUERY STRING, and that is load-bearing rather than stylistic: an undeclared body key is refused 422 by name, while an undeclared QUERY parameter is silently ignored on every route this station serves — so a mistyped condition on the query side would hand you a plausible answer that is not the one you asked for, and nothing would report it. All fields are optional; sending none asks for everything still retrievable. `subject` is a subject key (`repo:officraft`); an alias resolves and a merged-away subject follows to the survivor, and a key that names NOTHING comes back as `subject_resolved: false` rather than as an empty result — 「this subject has nothing on it」 and 「this subject does not exist」 are different answers and you need to tell them apart. Every entry carries a `tier`: `T1` matched every axis you asked on, `T2` (類比) reached you across an axis you did NOT ask about and is a guess rather than a rule for your case. 🔴 `tier` is meaningless without `applied.tiered_by`, which names the axes the tier was computed over — read them together. A `trust`-class entry (how far something can be relied on) is WITHHELD from the analogy tier unless you set `force_trust_analogy`, because 「X was reliable」 is a fact about X; when you do force it, the note says whose situation the entry actually describes. `trust_fell_back` on an entry means its class came from failing closed on an action name nothing recognised, not from the table — the class is a guess, and the names are listed in `unmapped_actions`. `query` is a LITERAL, case-insensitive substring over label/short/symptoms and `applied.query_match` says so: it is not semantic, and two entries describing the same situation in different words will not find each other. 🔴 `symptoms` comes back but CANNOT be searched on — it has no table, no index and no parameter here, which is why de-duplication and conflict-finding cannot be done through this route yet.
+         * @description Retrieve lore entries (T-33, hop ②).
+         *
+         *     🔴 THE CONDITIONS ARE IN THE BODY BECAUSE OF WHERE THE SILENCE IS, NOT BECAUSE OF THE VERB. This station's router ignores an undeclared QUERY parameter on every route it serves and answers 200; the JSON body decoder refuses an undeclared key with a 422 naming it. `POST …?typo=1` is therefore just as silent as `GET …?typo=1` — what protects this hop is that the conditions live on the side that refuses, not that the verb is POST.
+         *
+         *     🔴 THIS IS THE HOP WHOSE WHOLE VALUE IS THE SELECTION, so getting it wrong does not raise: it hands an agent a plausible set of memories that is not the set it asked for, and the symptom is 「somebody forgot something today」.
+         */
+        post: operations["handle_search_lore_entries_api_lore_search_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/login": {
         parameters: {
             query?: never;
@@ -5794,6 +5818,186 @@ export interface components {
              * @description The type prefix of the key.
              */
             type: string;
+        };
+        /**
+         * LoreSearchAppliedDTO
+         * @description What the server ACTUALLY applied, echoed back condition by condition. 🔴 It is a required part of every answer, not an optional debugging extra: the tier labels mean 「matched every axis you asked on」, which is only interpretable beside the axes that were asked. A tier that travelled without its axes would be read under the older meaning (「both axes matched」) and quietly mean something else.
+         */
+        LoreSearchAppliedDTO: {
+            /**
+             * Actions
+             * @description The action filter applied.
+             */
+            actions: string[];
+            /**
+             * Force Trust Analogy
+             * @description Whether trust-class analogies were allowed through.
+             */
+            force_trust_analogy: boolean;
+            /**
+             * Limit
+             * @description The count cap applied, after defaulting.
+             */
+            limit: number;
+            /**
+             * Query
+             * @description The literal needle applied, empty when none.
+             */
+            query: string;
+            /**
+             * Query Match
+             * @description How `query` was matched. Today always `literal-substring`. It exists so that a caller never has to assume the match was semantic — and so that the day it becomes semantic, the answer says so rather than silently changing.
+             */
+            query_match: string;
+            /**
+             * Subject
+             * @description The subject key applied, empty when none.
+             */
+            subject: string;
+            /**
+             * Tiered By
+             * @description 🔴 The axes the tier was computed over — some subset of `subject` and `actions`. Empty means no axis was supplied, so nothing in the answer reached you across an axis you did not ask about.
+             */
+            tiered_by: string[];
+        };
+        /**
+         * LoreSearchDTO
+         * @description Retrieve lore entries: the selection conditions, all optional, all in the BODY. The field set is CLOSED — an unknown key is a 422 naming it, never a silent drop, because a selection condition that is quietly ignored produces a plausible wrong answer.
+         */
+        LoreSearchDTO: {
+            /**
+             * Actions
+             * @description Filter to entries carrying any of these action names. Combined with `subject` this is the second tiering axis: an entry matching both is `T1`, one matching only this axis is an analogy.
+             */
+            actions?: string[];
+            /**
+             * Force Trust Analogy
+             * @description Let `trust`-class entries appear in the analogy tier. Off by default because 「how far X could be relied on」 is a fact about X and does not travel to another subject; when on, each such entry's `tier_note` names whose situation it actually describes.
+             * @default false
+             */
+            force_trust_analogy: boolean;
+            /**
+             * Limit
+             * @description How many entries to return, 1..100, default 20. Out of range is REFUSED, never clamped: a caller that asked for 500 and silently got 100 believes it has seen everything. Entries whose origin is a `human:` key do not count against it.
+             * @default 0
+             */
+            limit: number;
+            /**
+             * Query
+             * @description A LITERAL, case-insensitive substring matched against label, short and symptoms. Not semantic — `applied.query_match` reports which kind it was, so nothing has to guess.
+             * @default
+             */
+            query: string;
+            /**
+             * Subject
+             * @description A subject key, `type:name`. An alias resolves onto its subject and a merged-away subject follows to the survivor. A key that names nothing is NOT an error and NOT an empty result: it comes back as `subject_resolved: false` with the key echoed.
+             * @default
+             */
+            subject: string;
+        };
+        /**
+         * LoreSearchHitDTO
+         * @description One retrieved entry, plus why it is in the answer.
+         */
+        LoreSearchHitDTO: {
+            /**
+             * Actions
+             * @description The entry's action names.
+             */
+            actions: string[];
+            /**
+             * Degraded
+             * @description True when the entry carries neither a falsifier nor an instance — it asserts something while offering no way to check it. Reported, not filtered.
+             */
+            degraded: boolean;
+            /**
+             * Entry Id
+             * @description The entry's id — what `lore_get` will address once it exists.
+             */
+            entry_id: string;
+            /**
+             * Label
+             * @description The entry's one-line name.
+             */
+            label: string;
+            /**
+             * Origin
+             * @description Whose knowledge this is (`human:Seth`, `agent:Kyle`). A `human:` origin sorts ahead within its tier and is exempt from `limit`.
+             */
+            origin: string;
+            /**
+             * Short
+             * @description The compressed body: the mechanism and why.
+             */
+            short: string;
+            /**
+             * Subjects
+             * @description The subject keys this entry is filed under.
+             */
+            subjects: string[];
+            /**
+             * Symptoms
+             * @description What you would be SEEING when this applies. 🔴 Returned but NOT searchable — there is no parameter, table or index for it.
+             */
+            symptoms: string;
+            /**
+             * Tier
+             * @description `T1` — this matched every axis you asked on. `T2` — 類比: it reached you across an axis you did NOT ask about, so it is a guess about your case rather than a rule for it. 🔴 Read this together with `applied.tiered_by`; alone it does not say what it matched.
+             */
+            tier: string;
+            /**
+             * Tier Note
+             * @description The tier in words, including — for a forced trust-class analogy — whose situation the entry actually describes.
+             */
+            tier_note: string;
+            /**
+             * Trust Fell Back
+             * @description 🔴 True when this entry's `trust_scope` was reached by FAILING CLOSED on an action name nothing recognised, rather than by the mapping table. The mapping table is hand-written and provisional (its own header says so), so a class that was guessed must not look identical to one that was known.
+             */
+            trust_fell_back: boolean;
+            /**
+             * Trust Scope
+             * @description `method` (how to do a thing — crosses subjects as an ordinary analogy), `trust` (how far something can be relied on — does not cross, and the fail-closed answer for anything unrecognised) or `cognitive` (a failure mode of thinking).
+             */
+            trust_scope: string;
+        };
+        /**
+         * LoreSearchResultDTO
+         * @description The retrieved entries plus everything needed to tell a real empty answer from a question that never got asked properly.
+         */
+        LoreSearchResultDTO: {
+            /** @description What the server actually applied. Always present. */
+            applied: components["schemas"]["LoreSearchAppliedDTO"];
+            /**
+             * Entries
+             * @description The entries, ordered T1 before T2, `human:` origins first within a tier.
+             */
+            entries: components["schemas"]["LoreSearchHitDTO"][];
+            /**
+             * Subject Resolved
+             * @description 🔴 False ONLY when a `subject` was given and named nothing. It is NOT folded into an empty `entries`: 「this subject has no entries」 is an answer and 「this subject does not exist」 is a typo, and a caller that cannot tell them apart will read one as the other.
+             */
+            subject_resolved: boolean;
+            /**
+             * Total
+             * @description How many entries matched before the count cap.
+             */
+            total: number;
+            /**
+             * Truncated
+             * @description True when the cap dropped some of them.
+             */
+            truncated: boolean;
+            /**
+             * Unmapped Actions
+             * @description Every action name in this answer that the trust table did not recognise. Non-empty means at least one entry was classified by failing closed — which changes what the trust filter did — so it rides back with the answer instead of only reaching a log.
+             */
+            unmapped_actions: string[];
+            /**
+             * Unresolved Subject
+             * @description The subject key that named nothing, echoed back so a typo is visible. Empty otherwise.
+             */
+            unresolved_subject: string;
         };
         /**
          * LoreWriteDTO
@@ -12455,6 +12659,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LoreGovernanceDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_search_lore_entries_api_lore_search_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoreSearchDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreSearchResultDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

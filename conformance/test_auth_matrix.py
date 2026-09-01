@@ -1208,6 +1208,14 @@ MATRIX: dict[str, Route] = {
             "subjects": ["agent:conformance-authz"],
         },
     ),
+    # Retrieval sits at the same floor as writing, and the empty body is the
+    # point: every condition on this route is optional, so the floor is the ONLY
+    # thing standing between a caller and an answer. A warden gets 403 here for
+    # the same reason it does on the write row.
+    "POST /api/lore/search": Route(
+        requires="agent",
+        body={},
+    ),
     # ── insight (T-3809) ─────────────────────────────────────────────────────
     # The role journal's third block. Its authz face is the lessons face with
     # the task_type axis removed — three rows, same three floors, same handler

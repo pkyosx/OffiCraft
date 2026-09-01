@@ -1154,6 +1154,111 @@ type LoreReviveDTO struct {
 	Reason *string `json:"reason,omitempty"`
 }
 
+// LoreSearchAppliedDTO What the server ACTUALLY applied, echoed back condition by condition. 🔴 It is a required part of every answer, not an optional debugging extra: the tier labels mean 「matched every axis you asked on」, which is only interpretable beside the axes that were asked. A tier that travelled without its axes would be read under the older meaning (「both axes matched」) and quietly mean something else.
+type LoreSearchAppliedDTO struct {
+	// Actions The action filter applied.
+	Actions []string `json:"actions"`
+
+	// ForceTrustAnalogy Whether trust-class analogies were allowed through.
+	ForceTrustAnalogy bool `json:"force_trust_analogy"`
+
+	// Limit The count cap applied, after defaulting.
+	Limit int `json:"limit"`
+
+	// Query The literal needle applied, empty when none.
+	Query string `json:"query"`
+
+	// QueryMatch How `query` was matched. Today always `literal-substring`. It exists so that a caller never has to assume the match was semantic — and so that the day it becomes semantic, the answer says so rather than silently changing.
+	QueryMatch string `json:"query_match"`
+
+	// Subject The subject key applied, empty when none.
+	Subject string `json:"subject"`
+
+	// TieredBy 🔴 The axes the tier was computed over — some subset of `subject` and `actions`. Empty means no axis was supplied, so nothing in the answer reached you across an axis you did not ask about.
+	TieredBy []string `json:"tiered_by"`
+}
+
+// LoreSearchDTO Retrieve lore entries: the selection conditions, all optional, all in the BODY. The field set is CLOSED — an unknown key is a 422 naming it, never a silent drop, because a selection condition that is quietly ignored produces a plausible wrong answer.
+type LoreSearchDTO struct {
+	// Actions Filter to entries carrying any of these action names. Combined with `subject` this is the second tiering axis: an entry matching both is `T1`, one matching only this axis is an analogy.
+	Actions *[]string `json:"actions,omitempty"`
+
+	// ForceTrustAnalogy Let `trust`-class entries appear in the analogy tier. Off by default because 「how far X could be relied on」 is a fact about X and does not travel to another subject; when on, each such entry's `tier_note` names whose situation it actually describes.
+	ForceTrustAnalogy *bool `json:"force_trust_analogy,omitempty"`
+
+	// Limit How many entries to return, 1..100, default 20. Out of range is REFUSED, never clamped: a caller that asked for 500 and silently got 100 believes it has seen everything. Entries whose origin is a `human:` key do not count against it.
+	Limit *int `json:"limit,omitempty"`
+
+	// Query A LITERAL, case-insensitive substring matched against label, short and symptoms. Not semantic — `applied.query_match` reports which kind it was, so nothing has to guess.
+	Query *string `json:"query,omitempty"`
+
+	// Subject A subject key, `type:name`. An alias resolves onto its subject and a merged-away subject follows to the survivor. A key that names nothing is NOT an error and NOT an empty result: it comes back as `subject_resolved: false` with the key echoed.
+	Subject *string `json:"subject,omitempty"`
+}
+
+// LoreSearchHitDTO One retrieved entry, plus why it is in the answer.
+type LoreSearchHitDTO struct {
+	// Actions The entry's action names.
+	Actions []string `json:"actions"`
+
+	// Degraded True when the entry carries neither a falsifier nor an instance — it asserts something while offering no way to check it. Reported, not filtered.
+	Degraded bool `json:"degraded"`
+
+	// EntryId The entry's id — what `lore_get` will address once it exists.
+	EntryId string `json:"entry_id"`
+
+	// Label The entry's one-line name.
+	Label string `json:"label"`
+
+	// Origin Whose knowledge this is (`human:Seth`, `agent:Kyle`). A `human:` origin sorts ahead within its tier and is exempt from `limit`.
+	Origin string `json:"origin"`
+
+	// Short The compressed body: the mechanism and why.
+	Short string `json:"short"`
+
+	// Subjects The subject keys this entry is filed under.
+	Subjects []string `json:"subjects"`
+
+	// Symptoms What you would be SEEING when this applies. 🔴 Returned but NOT searchable — there is no parameter, table or index for it.
+	Symptoms string `json:"symptoms"`
+
+	// Tier `T1` — this matched every axis you asked on. `T2` — 類比: it reached you across an axis you did NOT ask about, so it is a guess about your case rather than a rule for it. 🔴 Read this together with `applied.tiered_by`; alone it does not say what it matched.
+	Tier string `json:"tier"`
+
+	// TierNote The tier in words, including — for a forced trust-class analogy — whose situation the entry actually describes.
+	TierNote string `json:"tier_note"`
+
+	// TrustFellBack 🔴 True when this entry's `trust_scope` was reached by FAILING CLOSED on an action name nothing recognised, rather than by the mapping table. The mapping table is hand-written and provisional (its own header says so), so a class that was guessed must not look identical to one that was known.
+	TrustFellBack bool `json:"trust_fell_back"`
+
+	// TrustScope `method` (how to do a thing — crosses subjects as an ordinary analogy), `trust` (how far something can be relied on — does not cross, and the fail-closed answer for anything unrecognised) or `cognitive` (a failure mode of thinking).
+	TrustScope string `json:"trust_scope"`
+}
+
+// LoreSearchResultDTO The retrieved entries plus everything needed to tell a real empty answer from a question that never got asked properly.
+type LoreSearchResultDTO struct {
+	// Applied What the server actually applied. Always present.
+	Applied LoreSearchAppliedDTO `json:"applied"`
+
+	// Entries The entries, ordered T1 before T2, `human:` origins first within a tier.
+	Entries []LoreSearchHitDTO `json:"entries"`
+
+	// SubjectResolved 🔴 False ONLY when a `subject` was given and named nothing. It is NOT folded into an empty `entries`: 「this subject has no entries」 is an answer and 「this subject does not exist」 is a typo, and a caller that cannot tell them apart will read one as the other.
+	SubjectResolved bool `json:"subject_resolved"`
+
+	// Total How many entries matched before the count cap.
+	Total int `json:"total"`
+
+	// Truncated True when the cap dropped some of them.
+	Truncated bool `json:"truncated"`
+
+	// UnmappedActions Every action name in this answer that the trust table did not recognise. Non-empty means at least one entry was classified by failing closed — which changes what the trust filter did — so it rides back with the answer instead of only reaching a log.
+	UnmappedActions []string `json:"unmapped_actions"`
+
+	// UnresolvedSubject The subject key that named nothing, echoed back so a typo is visible. Empty otherwise.
+	UnresolvedSubject string `json:"unresolved_subject"`
+}
+
 // LoreWriteDTO Create one lore entry: the six body fields plus the axes it is filed under. The field set is CLOSED — an unknown key is a 422, never a silent drop.
 type LoreWriteDTO struct {
 	// Actions The action names this entry is about — an OPEN set, mint a new one whenever a new kind of experience turns up. They are not checked against a list here on purpose; the safety is at read time, where an unrecognised action fails closed and says so.
@@ -3665,6 +3770,9 @@ type HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePostJSONRequestBody = LoreR
 // HandleReviveLoreEntryApiLoreEntriesEntryIdRevivePostJSONRequestBody defines body for HandleReviveLoreEntryApiLoreEntriesEntryIdRevivePost for application/json ContentType.
 type HandleReviveLoreEntryApiLoreEntriesEntryIdRevivePostJSONRequestBody = LoreReviveDTO
 
+// HandleSearchLoreEntriesApiLoreSearchPostJSONRequestBody defines body for HandleSearchLoreEntriesApiLoreSearchPost for application/json ContentType.
+type HandleSearchLoreEntriesApiLoreSearchPostJSONRequestBody = LoreSearchDTO
+
 // HandleOnboardMachineApiMachinesPostJSONRequestBody defines body for HandleOnboardMachineApiMachinesPost for application/json ContentType.
 type HandleOnboardMachineApiMachinesPostJSONRequestBody = MachineOnboardDTO
 
@@ -4045,6 +4153,9 @@ type ServerInterface interface {
 	// Bring a retired lore entry back into retrieval — owner only, and it is what makes retirement reversible rather than a delete. 404 when no entry carries that id; 409 when the entry is not retired, because answering `done` would confirm a belief about its state that is wrong. `reason` is optional prose recorded in the governance journal beside the revival.
 	// (POST /api/lore/entries/{entry_id}/revive)
 	HandleReviveLoreEntryApiLoreEntriesEntryIdRevivePost(w http.ResponseWriter, r *http.Request, entryId string)
+	// Retrieve lore entries — hop ② of the design: you have seen the subject directory at wake and now want what is actually filed under one of those subjects. 🔴 EVERY SELECTION CONDITION GOES IN THE REQUEST BODY AND NONE IN THE QUERY STRING, and that is load-bearing rather than stylistic: an undeclared body key is refused 422 by name, while an undeclared QUERY parameter is silently ignored on every route this station serves — so a mistyped condition on the query side would hand you a plausible answer that is not the one you asked for, and nothing would report it. All fields are optional; sending none asks for everything still retrievable. `subject` is a subject key (`repo:officraft`); an alias resolves and a merged-away subject follows to the survivor, and a key that names NOTHING comes back as `subject_resolved: false` rather than as an empty result — 「this subject has nothing on it」 and 「this subject does not exist」 are different answers and you need to tell them apart. Every entry carries a `tier`: `T1` matched every axis you asked on, `T2` (類比) reached you across an axis you did NOT ask about and is a guess rather than a rule for your case. 🔴 `tier` is meaningless without `applied.tiered_by`, which names the axes the tier was computed over — read them together. A `trust`-class entry (how far something can be relied on) is WITHHELD from the analogy tier unless you set `force_trust_analogy`, because 「X was reliable」 is a fact about X; when you do force it, the note says whose situation the entry actually describes. `trust_fell_back` on an entry means its class came from failing closed on an action name nothing recognised, not from the table — the class is a guess, and the names are listed in `unmapped_actions`. `query` is a LITERAL, case-insensitive substring over label/short/symptoms and `applied.query_match` says so: it is not semantic, and two entries describing the same situation in different words will not find each other. 🔴 `symptoms` comes back but CANNOT be searched on — it has no table, no index and no parameter here, which is why de-duplication and conflict-finding cannot be done through this route yet.
+	// (POST /api/lore/search)
+	HandleSearchLoreEntriesApiLoreSearchPost(w http.ResponseWriter, r *http.Request)
 	// List machines (active wardens): machine_id/display_name/online.
 	// (GET /api/machines)
 	HandleListMachinesApiMachinesGet(w http.ResponseWriter, r *http.Request)
@@ -5671,6 +5782,20 @@ func (siw *ServerInterfaceWrapper) HandleReviveLoreEntryApiLoreEntriesEntryIdRev
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleReviveLoreEntryApiLoreEntriesEntryIdRevivePost(w, r, entryId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleSearchLoreEntriesApiLoreSearchPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleSearchLoreEntriesApiLoreSearchPost(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleSearchLoreEntriesApiLoreSearchPost(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -8692,6 +8817,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/entries", wrapper.HandleWriteLoreEntryApiLoreEntriesPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/entries/{entry_id}/retire", wrapper.HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/entries/{entry_id}/revive", wrapper.HandleReviveLoreEntryApiLoreEntriesEntryIdRevivePost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/search", wrapper.HandleSearchLoreEntriesApiLoreSearchPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/machines", wrapper.HandleListMachinesApiMachinesGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/machines", wrapper.HandleOnboardMachineApiMachinesPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/machines/claim", wrapper.HandleClaimMachineTokenApiMachinesClaimPost)

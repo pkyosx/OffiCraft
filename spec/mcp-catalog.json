@@ -4268,6 +4268,44 @@
           "type": "object"
         },
         "name": "write_lore_entry"
+      },
+    {
+        "description": "Retrieve lore entries — hop ② of the design: you have seen the subject directory at wake and now want what is actually filed under one of those subjects. 🔴 EVERY SELECTION CONDITION GOES IN THE REQUEST BODY AND NONE IN THE QUERY STRING, and that is load-bearing rather than stylistic: an undeclared body key is refused 422 by name, while an undeclared QUERY parameter is silently ignored on every route this station serves — so a mistyped condition on the query side would hand you a plausible answer that is not the one you asked for, and nothing would report it. All fields are optional; sending none asks for everything still retrievable. `subject` is a subject key (`repo:officraft`); an alias resolves and a merged-away subject follows to the survivor, and a key that names NOTHING comes back as `subject_resolved: false` rather than as an empty result — 「this subject has nothing on it」 and 「this subject does not exist」 are different answers and you need to tell them apart. Every entry carries a `tier`: `T1` matched every axis you asked on, `T2` (類比) reached you across an axis you did NOT ask about and is a guess rather than a rule for your case. 🔴 `tier` is meaningless without `applied.tiered_by`, which names the axes the tier was computed over — read them together. A `trust`-class entry (how far something can be relied on) is WITHHELD from the analogy tier unless you set `force_trust_analogy`, because 「X was reliable」 is a fact about X; when you do force it, the note says whose situation the entry actually describes. `trust_fell_back` on an entry means its class came from failing closed on an action name nothing recognised, not from the table — the class is a guess, and the names are listed in `unmapped_actions`. `query` is a LITERAL, case-insensitive substring over label/short/symptoms and `applied.query_match` says so: it is not semantic, and two entries describing the same situation in different words will not find each other. 🔴 `symptoms` comes back but CANNOT be searched on — it has no table, no index and no parameter here, which is why de-duplication and conflict-finding cannot be done through this route yet.",
+        "inputSchema": {
+          "properties": {
+            "actions": {
+              "description": "Filter to entries carrying any of these action names. Combined with `subject` this is the second tiering axis: an entry matching both is `T1`, one matching only this axis is an analogy.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "force_trust_analogy": {
+              "default": false,
+              "description": "Let `trust`-class entries appear in the analogy tier. Off by default because 「how far X could be relied on」 is a fact about X and does not travel to another subject; when on, each such entry's `tier_note` names whose situation it actually describes.",
+              "type": "boolean"
+            },
+            "limit": {
+              "default": 0,
+              "description": "How many entries to return, 1..100, default 20. Out of range is REFUSED, never clamped: a caller that asked for 500 and silently got 100 believes it has seen everything. Entries whose origin is a `human:` key do not count against it.",
+              "type": "integer"
+            },
+            "query": {
+              "default": "",
+              "description": "A LITERAL, case-insensitive substring matched against label, short and symptoms. Not semantic — `applied.query_match` reports which kind it was, so nothing has to guess.",
+              "type": "string"
+            },
+            "subject": {
+              "default": "",
+              "description": "A subject key, `type:name`. An alias resolves onto its subject and a merged-away subject follows to the survivor. A key that names nothing is NOT an error and NOT an empty result: it comes back as `subject_resolved: false` with the key echoed.",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "additionalProperties": false,
+          "type": "object"
+        },
+        "name": "search_lore_entries"
       }
   ]
 }
