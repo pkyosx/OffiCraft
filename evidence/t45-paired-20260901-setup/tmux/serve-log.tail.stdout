@@ -1,0 +1,12 @@
+2026/09/01 10:47:30 [backup] WARNING newest existing backup was stale (no previous backup) — this studio had no recent retreat point
+2026/09/01 10:47:30 [backup] ok (premigration): officraft-20260901-024730-premigration.db (0 MB in 3ms)
+2026/09/01 10:47:30 goose: no migrations to run. current version: 65
+[ocserverd] journal_mode=wal (reads do not queue behind each other)
+[reconcile] cadence started (period=30s)
+[outsource] cadence started (period=30s)
+[scheduled] cadence started (period=60s)
+ocserverd serving on http://127.0.0.1:8793
+2026/09/01 10:47:31 [update-check] GitHub release check failed (channel include_prerelease=false): Get "http://127.0.0.1:1/repos/pkyosx/OffiCraft/releases?per_page=20": dial tcp 127.0.0.1:1: connect: connection refused
+[reconcile] recycle: gate skip mira gate=no-actionable-pct pct=- pct_ts=- boot_ts=- boot_secs=- online=false
+[reconcile] tick: 1 candidate(s)
+[reconcile] mira: desired=offline command=none — offline: converged

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# e2e_test/lib/tmux.sh — keep the isolated serve alive between agent execs.
+# e2e_test/lib/tmux.sh — carry and manage the isolated serve between agent execs.
 #
 # setup.sh and teardown.sh both source this file.  The tmux socket/session are
 # per-run names, never the shared `officraft` socket.  Keeping the validation in
@@ -24,17 +24,23 @@ oc_e2e_tmux_require() {
 }
 
 # oc_e2e_tmux_start SOCKET SESSION REPO_ROOT SERVER LOG -> pane pid on stdout.
-# The command is intentionally launched through a private tmux socket and with
-# the same ambient-fleet scrub as the old nohup path.  The pane pid is returned
-# only as a diagnostic/launch pid; setup still records the actual socket holder
-# after the identity-bound health check.
+# The command is intentionally launched through a private tmux socket.  The
+# ambient-fleet scrub is emitted by common.sh's single source of truth; keeping
+# it out of this helper prevents the two launch paths from drifting. The pane
+# pid is returned only as a diagnostic/launch pid; setup still records the
+# actual socket holder after the identity-bound health check.
 oc_e2e_tmux_start() {
-  local socket="$1" session="$2" repo_root="$3" server="$4" log="$5" pane_pid command
+  local socket="$1" session="$2" repo_root="$3" server="$4" log="$5" pane_pid command env_prefix
   oc_e2e_tmux_validate_name socket "$socket" || return $?
   oc_e2e_tmux_validate_name session "$session" || return $?
   oc_e2e_tmux_require || return $?
 
-  command="cd \"$repo_root\" && exec env -u OC_ID -u OC_TOKEN -u OC_BASE OC_RELEASE_API_BASE=http://127.0.0.1:1 \"$server\" serve >\"$log\" 2>&1"
+  if ! declare -F oc_e2e_scrub_env_command_prefix >/dev/null 2>&1; then
+    echo "[e2e] FATAL: common.sh's environment scrub helper is unavailable; refusing to start the isolated serve without fleet isolation." >&2
+    return 2
+  fi
+  env_prefix="$(oc_e2e_scrub_env_command_prefix)" || return $?
+  command="cd \"$repo_root\" && exec $env_prefix \"$server\" serve >\"$log\" 2>&1"
   if ! tmux -L "$socket" -f /dev/null new-session -d -s "$session" -c "$repo_root" "$command"; then
     echo "[e2e] FATAL: tmux could not create isolated session '$session' on socket '$socket'." >&2
     return 1

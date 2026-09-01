@@ -3102,11 +3102,13 @@ fi
 
 # ── 27) T-45: the independent-exec carrier is tmux, and its guard is live ────
 #
-# setup.sh and teardown.sh are invoked by agents as separate execs.  A plain
-# background child dies at that boundary, so this case pins the replacement's
-# three safety properties in a hermetic fixture: tmux is an explicit
-# prerequisite, every socket/session name is per-run and non-fleet, and the
-# setup/teardown scripts actually source and call the helper.  The fake tmux
+# setup.sh and teardown.sh are invoked by agents as separate execs.  A paired
+# measurement in this Codex runtime saw the old nohup listener disappear at the
+# next exec while the tmux listener remained; that is an observed failure mode,
+# not a universal claim about every executor.  This case therefore pins the
+# selected carrier's explicit management properties in a hermetic fixture:
+# tmux is an explicit prerequisite, every socket/session name is per-run and
+# non-fleet, and setup/teardown really execute the helper calls.  The fake tmux
 # never creates a real server; it only records argv and returns controlled
 # answers.
 T45_TMUX_FIXTURE="$SHIMDIR/t45-tmux"
@@ -3128,17 +3130,31 @@ T45_TMUX_LIB="$HERE/../lib/tmux.sh"
 if [[ ! -f "$T45_TMUX_LIB" ]]; then
   bad "T-45: lib/tmux.sh is missing — the independent-exec carrier has no implementation"
 else
+  # tmux.sh deliberately consumes common.sh's single environment-scrub helper;
+  # source both here so this fixture exercises the same wiring as setup.sh.
+  source "$HERE/../lib/common.sh"
   source "$T45_TMUX_LIB"
   _t45_code() { grep -v '^[[:space:]]*#' "$1"; }
-  _t45_code "$HERE/../setup.sh" | grep -qF 'lib/tmux.sh' \
+  T45_SETUP="$HERE/../setup.sh"
+  T45_TEARDOWN="$HERE/../teardown.sh"
+  T45_SETUP_CODE="$(_t45_code "$T45_SETUP")"
+  T45_TEARDOWN_CODE="$(_t45_code "$T45_TEARDOWN")"
+  printf '%s\n' "$T45_SETUP_CODE" | grep -qE '^[[:space:]]*source .*lib/tmux\.sh' \
     && ok "T-45: setup.sh sources the tmux helper in code" \
     || bad "T-45: setup.sh no longer sources lib/tmux.sh — its independent-exec fix is disconnected"
-  _t45_code "$HERE/../setup.sh" | grep -qF 'oc_e2e_tmux_start' \
+  printf '%s\n' "$T45_SETUP_CODE" | grep -qE '^[[:space:]]*if ! SERVE_LAUNCH_PID=.*oc_e2e_tmux_start' \
     && ok "T-45: setup.sh starts the server through the tmux helper" \
-    || bad "T-45: setup.sh no longer calls oc_e2e_tmux_start — it can regress to a child that dies at exec"
-  _t45_code "$HERE/../teardown.sh" | grep -qF 'oc_e2e_tmux_stop' \
-    && ok "T-45: teardown.sh stops the exact tmux session through the helper" \
-    || bad "T-45: teardown.sh no longer calls oc_e2e_tmux_stop — a live carrier could leak after port cleanup"
+    || bad "T-45: setup.sh has no executable oc_e2e_tmux_start assignment — a trailing comment must not satisfy the carrier guard"
+  if printf '%s\n' "$T45_TEARDOWN_CODE" \
+       | grep -qE '^[[:space:]]*oc_e2e_tmux_stop[[:space:]]' \
+     && printf '%s\n' "$T45_TEARDOWN_CODE" \
+       | grep -qF 'if [ -e "$STATE_DIR/tmux.socket" ] || [ -e "$STATE_DIR/tmux.session" ]; then' \
+     && ! printf '%s\n' "$T45_TEARDOWN_CODE" \
+       | grep -qE '^[[:space:]]*if[[:space:]]+false([;[:space:]]|$)'; then
+    ok "T-45: teardown.sh executes the exact tmux stop and clears even empty state files"
+  else
+    bad "T-45: teardown.sh must execute oc_e2e_tmux_stop and clear even empty tmux state files"
+  fi
 
   T45_OLD_PATH="$PATH"
   PATH="$T45_TMUX_FIXTURE/bin:$PATH"
@@ -3151,9 +3167,12 @@ else
   T45_START_RC=$?
   check "T-45: a private tmux carrier starts successfully" "0" "$T45_START_RC"
   check "T-45: the carrier returns the numeric pane pid for diagnostics" "4242" "$T45_START_PID"
-  grep -qF -- "-L $T45_SOCKET" "$T45_TMUX_LOG" \
-    && ok "T-45: start uses the requested private socket" \
-    || bad "T-45: start did not pass the private socket to tmux (log: $(tr '\n' '|' < "$T45_TMUX_LOG"))"
+  if grep -qF -- "-L $T45_SOCKET" "$T45_TMUX_LOG" \
+     && grep -qF 'env -u OC_ID -u OC_TOKEN -u OC_BASE OC_RELEASE_API_BASE=http://127.0.0.1:1' "$T45_TMUX_LOG"; then
+    ok "T-45: start uses the requested private socket and single-source env scrub"
+  else
+    bad "T-45: start did not pass the private socket and single-source env scrub to tmux (log: $(tr '\n' '|' < "$T45_TMUX_LOG"))"
+  fi
   grep -qF 'new-session' "$T45_TMUX_LOG" \
     && ok "T-45: start creates a detached tmux session" \
     || bad "T-45: start never issued new-session (log: $(tr '\n' '|' < "$T45_TMUX_LOG"))"
@@ -3222,9 +3241,16 @@ T45_MEMBER_ERROR="[run_all] FATAL: OffiCraft members do not use cmux browser for
 T45_MEMBER_ROUTE="[run_all] member e2e browser backend=Playwright"
 T45_MEMBER_README="$HERE/../README.md"
 T45_MEMBER_CLAUDE="$HERE/../CLAUDE.md"
-grep -qF 'OC_E2E_BROWSER_BACKEND' "$T45_RUN_ALL" \
-  && ok "T-45/B: run_all has an explicit browser-backend selector" \
-  || bad "T-45/B: run_all has no explicit browser-backend selector — cmux could return a misleading downstream failure"
+T45_RUN_ALL_CODE="$(_t45_code "$T45_RUN_ALL")"
+T45_CMUX_GATE_LINE="$(printf '%s\n' "$T45_RUN_ALL_CODE" | grep -nF 'case "${OC_E2E_BROWSER_BACKEND:-playwright}" in' | head -1 | cut -d: -f1)"
+T45_SETUP_LINE="$(printf '%s\n' "$T45_RUN_ALL_CODE" | grep -nF 'if ! bash "$HERE/setup.sh"; then' | head -1 | cut -d: -f1)"
+if printf '%s\n' "$T45_RUN_ALL_CODE" | grep -qF 'OC_E2E_BROWSER_BACKEND' \
+   && [[ -n "$T45_CMUX_GATE_LINE" && -n "$T45_SETUP_LINE" \
+         && "$T45_CMUX_GATE_LINE" -lt "$T45_SETUP_LINE" ]]; then
+  ok "T-45/B: run_all has an explicit browser-backend selector before setup"
+else
+  bad "T-45/B: the browser-backend selector is missing or runs after setup — cmux must refuse before build/migrate/server"
+fi
 grep -qF "$T45_MEMBER_ERROR" "$T45_RUN_ALL" \
   && ok "T-45/B: explicit cmux selection fails with a named member-route error" \
   || bad "T-45/B: explicit cmux selection has no named member-route error"
@@ -3274,12 +3300,12 @@ echo "[tests_guard] PASS=$PASS FAIL=$FAIL"
 # (2026-08-11, hole 191).
 #
 # SO IT IS NOW SET NEAR THE COUNT, WITH DELIBERATE SLACK, AND IT IS EXPECTED TO
-# BE EDITED. 310 today, floor 307: three assertions of room. (291/288 → 298/295
+# BE EDITED. 317 today, floor 314: three assertions of room. (291/288 → 298/295
 # when 2026-08-11's bash-3.2 round added 23e's three cells and case 26's four →
 # 303/300 when ⑤'s downgrade traded two cells away — `sg_mutant step_done` and
-# the ⑤-red/⑦-green pair — for seven in 21b-i/21b-v → 310/307 when T-45 added
-# its 15 carrier/namespace assertions. Each move edited the floor in the same
-# commit, which is the edit this block asks for.) The slack is measured, not guessed — deleting the whole of case 26 (then
+# the ⑤-red/⑦-green pair — for seven in 21b-i/21b-v → 317/314 when T-45 added
+# its 22 carrier/namespace/browser assertions. Each move edited the floor in the
+# same commit, which is the edit this block asks for.) The slack is measured, not guessed — deleting the whole of case 26 (then
 # 8 assertions) gave PASS=283, which was FATAL and named at 288 and GREEN at
 # 280. Read the
 # guarantee narrowly: a change that removes FOUR OR MORE assertions is loud; one
@@ -3316,7 +3342,7 @@ echo "[tests_guard] PASS=$PASS FAIL=$FAIL"
 # printed the marker with no floor evaluated at all: MEASURED, floor block
 # deleted and the trailing echo kept → PASS=153 FAIL=0 rc=0, last line
 # `[tests_guard] all green`, `bin/ci.sh` all green. Keep it in the branch.
-PASS_FLOOR=307
+PASS_FLOOR=314
 if [[ "$PASS" -lt "$PASS_FLOOR" ]]; then
   echo "[tests_guard] FATAL: only $PASS assertion(s) ran, floor is $PASS_FLOOR." >&2
   echo "[tests_guard] FAIL=0 with a collapsed PASS count means cases went missing, not that they passed." >&2
