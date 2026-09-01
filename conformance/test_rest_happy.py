@@ -1020,7 +1020,17 @@ def _lore_retired_entry(ctx: HCtx) -> str:
     return entry_id
 
 
-def _check_lore_write(ctx: HCtx, r: httpx.Response) -> None:
+# The subject key the write row files against. It is generated ONCE per session
+# and never used by any other row, so "was this minted" is a question about the
+# server rather than about which happy row pytest ran first.
+_LORE_FRESH_SUBJECT = f"agent:conformance-lore-{uuid.uuid4().hex[:8]}"
+
+
+def _lore_fresh_subject(_ctx: HCtx) -> str:
+    return _LORE_FRESH_SUBJECT
+
+
+def _check_lore_write(_ctx: HCtx, r: httpx.Response) -> None:
     d = r.json()
     assert d["entry_id"], d
     # 🔴 THE ORIGINAL, ASSERTED ON THE WIRE. An entry written with no L0 revision
@@ -1031,7 +1041,7 @@ def _check_lore_write(ctx: HCtx, r: httpx.Response) -> None:
     # The subject key was new, so it must come back as a MINT rather than being
     # swallowed — that is what turns a typo into something the writer sees now.
     assert [e["canonical"] for e in d["pending_entities"]] == [
-        f"agent:{ctx.agent.member_id}"
+        _LORE_FRESH_SUBJECT
     ], d
     assert d["subject_ids"] and all(d["subject_ids"]), d
     # falsify and instance were both omitted, and the ruling is that this is
@@ -1044,12 +1054,20 @@ HAPPY: dict[str, Happy] = {
     # ── T-33 lore ────────────────────────────────────────────────────────────
     "POST /api/lore/entries": Happy(
         identity="agent",
+        # 🔴 THE SUBJECT KEY IS FRESH PER RUN, AND THAT IS A FIX, NOT A STYLE
+        # CHOICE. The first version filed against `agent:<the happy agent>` and
+        # asserted the key came back as a MINT — which passed alone and failed in
+        # the suite, because the retire and revive rows seed an entry against
+        # that same key first, so by the time this row ran the subject already
+        # existed and nothing was minted. An assertion that depends on which
+        # rows ran before it is not pinning the server's behaviour, it is
+        # pinning the order pytest happened to choose.
         body=lambda ctx: {
             "label": "conformance happy write",
             "symptoms": "a route answers 200 and nothing was written",
             "short": "the entry and its original are one transaction",
             "origin": f"agent:{ctx.agent.member_id}",
-            "subjects": [f"agent:{ctx.agent.member_id}"],
+            "subjects": [_lore_fresh_subject(ctx)],
         },
         check=_check_lore_write,
     ),
