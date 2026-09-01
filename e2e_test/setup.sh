@@ -5,6 +5,7 @@
 # All prod-safety guards live in lib/common.sh.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/tmux.sh"
 
 cd "$REPO_ROOT"
 mkdir -p "$STATE_DIR"
@@ -38,6 +39,20 @@ if lsof -nP -iTCP:"$OC_E2E_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
   echo "[setup] FATAL: :$OC_E2E_PORT already in use — run teardown.sh first." >&2
   exit 2
 fi
+# The private tmux state is another leftover guard.  Reusing a state file could
+# make a later teardown target an earlier run's session, so refuse before the
+# teardown is armed and before any new resource is created.
+if [ -e "$STATE_DIR/tmux.socket" ] || [ -e "$STATE_DIR/tmux.session" ]; then
+  echo "[setup] FATAL: isolated tmux state already exists in $STATE_DIR — run teardown.sh first; refusing to overwrite the earlier session identity." >&2
+  exit 2
+fi
+# A plain nohup child is reaped by the agent executor when this script's exec
+# ends.  tmux is an explicit prerequisite for the independent-exec contract;
+# fail here, before arming/mutating, rather than later as a misleading refused
+# connection to :$OC_E2E_PORT.
+if ! oc_e2e_tmux_require; then
+  exit 2
+fi
 
 # 1b. ARM THE TEARDOWN (T-ff8a). This line is the boundary of the script:
 #     everything above it is a REFUSAL gate that has created nothing, everything
@@ -48,6 +63,15 @@ fi
 #     It is armed BEFORE the first mutation, not after setup succeeds: a setup
 #     that dies half-way through HAS created things and must still be cleaned up.
 oc_e2e_arm_teardown
+
+# Per-run tmux names are state, not a shared/default socket.  uuidgen is already
+# required below for the per-run owner password, and the prefix is validated by
+# lib/tmux.sh before either start or stop can touch tmux.
+TMUX_RUN_ID="$(uuidgen | tr -d '-' | tr '[:upper:]' '[:lower:]')"
+TMUX_SOCKET="oc-e2e-$TMUX_RUN_ID"
+TMUX_SESSION="oc-e2e-$TMUX_RUN_ID"
+printf '%s\n' "$TMUX_SOCKET" > "$STATE_DIR/tmux.socket"
+printf '%s\n' "$TMUX_SESSION" > "$STATE_DIR/tmux.session"
 
 # 2. fresh DB (migrate runs in 2c, after the build steps).
 rm -rf "$REPO_ROOT/var/data"
@@ -138,10 +162,12 @@ if lsof -nP -iTCP:"$OC_E2E_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
   exit 2
 fi
 
-# 3. start serve in the background (ambient fleet env stripped).
-echo "[setup] starting isolated serve…"
-oc_env nohup "$STATE_DIR/ocserverd" serve > "$STATE_DIR/serve.log" 2>&1 &
-SERVE_LAUNCH_PID="$!"
+# 3. start serve in a detached, per-run tmux session (ambient fleet env stripped).
+echo "[setup] starting isolated serve in tmux (socket=$TMUX_SOCKET session=$TMUX_SESSION)…"
+if ! SERVE_LAUNCH_PID="$(oc_e2e_tmux_start "$TMUX_SOCKET" "$TMUX_SESSION" "$REPO_ROOT" "$STATE_DIR/ocserverd" "$STATE_DIR/serve.log")"; then
+  echo "[setup] FATAL: could not start isolated serve in tmux (socket=$TMUX_SOCKET session=$TMUX_SESSION)." >&2
+  exit 1
+fi
 echo "$SERVE_LAUNCH_PID" > "$STATE_DIR/serve.launch.pid"
 
 # Expected build identity: gitSHA() (server/ocserverd/server.go) is unstamped

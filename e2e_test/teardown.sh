@@ -9,11 +9,32 @@
 # default and a foreign product while the real prod port went unnamed (T-191d).
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/tmux.sh"
 
 echo "[teardown] base=$OC_E2E_BASE"
 
-# 1. stop serve — kill BOTH the recorded listener pid AND the launch pid (the
-#    socket holder can differ from the nohup launch pid, so killing only the
+# 1. stop the exact per-run tmux session first.  A tmux pane can outlive the
+#    setup shell, so killing only the recorded listener pid could leave a live
+#    tmux server/session behind even after the port is released.
+TMUX_SOCKET=""
+TMUX_SESSION=""
+if [ -f "$STATE_DIR/tmux.socket" ]; then
+  TMUX_SOCKET="$(cat "$STATE_DIR/tmux.socket" 2>/dev/null || true)"
+fi
+if [ -f "$STATE_DIR/tmux.session" ]; then
+  TMUX_SESSION="$(cat "$STATE_DIR/tmux.session" 2>/dev/null || true)"
+fi
+if [ -n "$TMUX_SOCKET" ] || [ -n "$TMUX_SESSION" ]; then
+  if [ -n "$TMUX_SOCKET" ] && [ -n "$TMUX_SESSION" ]; then
+    oc_e2e_tmux_stop "$TMUX_SOCKET" "$TMUX_SESSION" || true
+  else
+    echo "[teardown] WARN: incomplete tmux state (socket='${TMUX_SOCKET:-<empty>}' session='${TMUX_SESSION:-<empty>}') — refusing to guess a session." >&2
+  fi
+  oc_e2e_destroy "$STATE_DIR/tmux.socket" "$STATE_DIR/tmux.session"
+fi
+
+# 2. stop serve — kill BOTH the recorded listener pid AND the launch pid (the
+#    socket holder can differ from the tmux pane/launch pid, so killing only the
 #    launch pid could leave a stray listener). Only pids WE recorded.
 for f in serve.pid serve.launch.pid; do
   if [ -f "$STATE_DIR/$f" ]; then
@@ -25,7 +46,7 @@ for f in serve.pid serve.launch.pid; do
   fi
 done
 
-# 2. poll until the port is actually released (up to ~8s).
+# 3. poll until the port is actually released (up to ~8s).
 released=""
 for _ in $(seq 1 16); do
   if ! lsof -nP -iTCP:"$OC_E2E_PORT" -sTCP:LISTEN >/dev/null 2>&1; then released=1; break; fi
@@ -53,11 +74,11 @@ else
   echo "[teardown] WARN: :$OC_E2E_PORT still listening — inspect manually (not force-killing a process we did not launch)." >&2
 fi
 
-# 3. NOTE: when ocwarden-install specs (C2) are added, bootout the isolated warden
+# 4. NOTE: when ocwarden-install specs (C2) are added, bootout the isolated warden
 #    here by its EXACT launchctl label + rm its tokfile/plist. The minimal
 #    skeleton installs no warden, so there is nothing to bootout yet.
 
-# 4. drop isolated DB + run state (self-created only).
+# 5. drop isolated DB + run state (self-created only).
 # T-ff8a: every delete here goes through oc_e2e_destroy (lib/common.sh) — it
 # writes each target to $OC_E2E_DESTROY_RECORD before dispatching to a
 # REPLACEABLE impl. Two reasons, both structural: (a) "what did this run delete"
@@ -70,7 +91,7 @@ oc_e2e_destroy "$REPO_ROOT/var/data"
 oc_e2e_destroy "$STATE_DIR/owner.tok" "$STATE_DIR/env" "$STATE_DIR/serve.log" "$STATE_DIR/ocserverd"
 echo "[teardown] dropped isolated DB + state"
 
-# 4b. restore server/ocserverd/webdist/ to pristine (.gitkeep only). The go leg
+# 5b. restore server/ocserverd/webdist/ to pristine (.gitkeep only). The go leg
 # stages the SPA there for go:embed; the COMMITTED prebuilt bin/ocserverd must
 # always be built from a pristine webdist (server/CLAUDE.md) — leaving the
 # staged dist behind would bait a later rebuild into embedding it.

@@ -27,6 +27,25 @@
 # a change here is the `macos-e2e` job on the PR and its log.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# T-45/B: member e2e uses the Playwright path, not cmux browser discovery.  The
+# browser tool lives outside this repository, so this explicit selector is the
+# boundary we can enforce here: a caller that tries to route this harness
+# through cmux gets a named refusal instead of a misleading setup failure.
+case "${OC_E2E_BROWSER_BACKEND:-playwright}" in
+  playwright)
+    echo "[run_all] member e2e browser backend=Playwright (cmux browser is unsupported; use this harness)"
+    ;;
+  cmux)
+    echo "[run_all] FATAL: OffiCraft members do not use cmux browser for e2e; run 'bash e2e_test/run_all.sh' or setup.sh -> Playwright -> teardown.sh instead. NOT a server failure." >&2
+    exit 2
+    ;;
+  *)
+    echo "[run_all] FATAL: unsupported member e2e browser backend '${OC_E2E_BROWSER_BACKEND}' (supported: Playwright; cmux browser is not a member e2e path)." >&2
+    exit 2
+    ;;
+esac
+
 # `||` does NOT swallow common.sh's own hard guards: an `exit 2` inside a sourced
 # file exits this script with 2 regardless (verified) — this only catches the
 # file being missing/unreadable, which would otherwise surface as a confusing

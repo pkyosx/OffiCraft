@@ -19,12 +19,13 @@ a one-command, objectively-verified check.
 
 ```
 e2e_test/
-  setup.sh              # start isolated service: fresh DB → migrate → serve(:8791) → login
-  teardown.sh           # tear down: stop serve (only our pid) → drop isolated DB → verify
+  setup.sh              # start isolated service: fresh DB → migrate → tmux serve(:8791) → login
+  teardown.sh           # tear down: stop exact tmux session/pids → drop isolated DB → verify
   run_all.sh            # one-shot: setup → playwright specs → teardown (teardown always runs)
   playwright.config.js
   package.json          # @playwright/test
   lib/common.sh         # shared config + prod-safety guards
+  lib/tmux.sh           # per-run tmux carrier + namespace/availability guards
   tests/
     01_login.spec.js                   # A · skeleton: version up, login, token authorizes DB-backed endpoint
     02_monitoring_hardware_cards.spec.js  # B1 · monitor page renders CPU/RAM/POWER columns (browser)
@@ -52,6 +53,23 @@ either — set `OC_E2E_SKIP_BUILD=1` to skip the SPA build when running only tho
 
 ## Run
 
+### Member browser contract (T-45/B)
+
+OffiCraft members **do not use cmux browser for e2e**. The supported member
+route is this repository's isolated **Playwright** harness:
+
+```text
+bash e2e_test/run_all.sh
+```
+
+If `agent.browsers.getForUrl(...)` says `No browser is available`, or
+`agent.browsers.list()` returns `[]`, stop retrying cmux. That is not a request
+to repair this e2e server; `cmux browser open` is outside the member e2e
+contract. Use `run_all.sh` (or `setup.sh` → Playwright → `teardown.sh`) and
+report the exact output if that supported route fails. `run_all.sh` also
+refuses an explicit `OC_E2E_BROWSER_BACKEND=cmux` selection with the same
+guidance.
+
 ```bash
 cd e2e_test
 bash run_all.sh          # setup → every default-ON spec → teardown, in one shot
@@ -78,10 +96,25 @@ embedded agent/MCP assets as a production build.
 Or drive the phases by hand:
 
 ```bash
-bash setup.sh            # bring the service up, persist token to .state/
-OC_E2E_BASE=http://127.0.0.1:8791 npx playwright test
-bash teardown.sh         # clean up
+bash setup.sh            # bring the service up in a private tmux session
+source .state/env        # loads OC_E2E_BASE for the next independent exec
+export OC_E2E_PASSWORD="$(cat .state/owner.password)"
+npx playwright test      # the server remains alive across this exec boundary
+bash teardown.sh         # stop that exact session, then clean up
 ```
+
+### Independent-exec contract
+
+Agents may run `setup.sh`, the Playwright command, and `teardown.sh` as separate
+tool/exec calls. `setup.sh` therefore requires `tmux` and starts `ocserverd` in
+a fresh per-run `oc-e2e-*` socket and session, recording both names under
+`.state/`. It never uses the fleet `officraft` socket. If `tmux` is missing or
+the state files already exist, setup fails loudly before creating a server.
+
+`teardown.sh` reads the exact recorded socket/session, stops that session first,
+then applies the existing exact-pid and port checks. An incomplete or
+non-`oc-e2e-*` identity is refused rather than guessed; the shared fleet ports
+remain outside this harness's cleanup scope.
 
 ## Isolation & prod safety (hard rules)
 
@@ -105,8 +138,10 @@ bash teardown.sh         # clean up
 - Ambient fleet env (`OC_ID` / `OC_TOKEN` / `OC_BASE`) is **stripped** before
   starting the service or any tool, so nothing authenticates against or emits to
   the fleet/prod server.
-- `teardown.sh` stops **only the pid it captured** at setup — never `pkill` /
-  `killall`.
+- `setup.sh` and `teardown.sh` use only a fresh per-run `oc-e2e-*` tmux
+  namespace; the fleet `-L officraft` socket is never a cleanup target.
+- `teardown.sh` stops the exact recorded tmux session and **only the pids it
+  captured** at setup — never `pkill` / `killall`.
 
 ### ⚠️ Responder-identity checks are NOT applied everywhere yet (T-a3ba, known gap)
 
