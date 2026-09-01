@@ -18,13 +18,16 @@ echo "[teardown] base=$OC_E2E_BASE"
 #    tmux server/session behind even after the port is released.
 TMUX_SOCKET=""
 TMUX_SESSION=""
-if [ -f "$STATE_DIR/tmux.socket" ]; then
+if [ -e "$STATE_DIR/tmux.socket" ]; then
   TMUX_SOCKET="$(cat "$STATE_DIR/tmux.socket" 2>/dev/null || true)"
 fi
-if [ -f "$STATE_DIR/tmux.session" ]; then
+if [ -e "$STATE_DIR/tmux.session" ]; then
   TMUX_SESSION="$(cat "$STATE_DIR/tmux.session" 2>/dev/null || true)"
 fi
-if [ -n "$TMUX_SOCKET" ] || [ -n "$TMUX_SESSION" ]; then
+# Test for the state files, not their contents. An empty file is still stranded
+# state from a partial setup and must be removed, or every later setup deadlocks
+# on its [ -e ] leftover guard forever.
+if [ -e "$STATE_DIR/tmux.socket" ] || [ -e "$STATE_DIR/tmux.session" ]; then
   if [ -n "$TMUX_SOCKET" ] && [ -n "$TMUX_SESSION" ]; then
     oc_e2e_tmux_stop "$TMUX_SOCKET" "$TMUX_SESSION" || true
   else

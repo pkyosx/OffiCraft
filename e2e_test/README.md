@@ -99,7 +99,7 @@ Or drive the phases by hand:
 bash setup.sh            # bring the service up in a private tmux session
 source .state/env        # loads OC_E2E_BASE for the next independent exec
 export OC_E2E_PASSWORD="$(cat .state/owner.password)"
-npx playwright test      # the server remains alive across this exec boundary
+npx playwright test      # tmux carries the server across this exec boundary
 bash teardown.sh         # stop that exact session, then clean up
 ```
 
@@ -110,6 +110,12 @@ tool/exec calls. `setup.sh` therefore requires `tmux` and starts `ocserverd` in
 a fresh per-run `oc-e2e-*` socket and session, recording both names under
 `.state/`. It never uses the fleet `officraft` socket. If `tmux` is missing or
 the state files already exist, setup fails loudly before creating a server.
+
+The tmux choice is a lifecycle and operations decision: it gives the run an
+explicit identity, a directly inspectable session, and an exact cleanup target.
+A paired measurement in the current Codex runtime also observed the old nohup
+path losing its listener at the next independent exec while tmux survived, but
+that observation is not a universal claim that every executor kills nohup.
 
 `teardown.sh` reads the exact recorded socket/session, stops that session first,
 then applies the existing exact-pid and port checks. An incomplete or

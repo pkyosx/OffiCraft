@@ -11,7 +11,7 @@
 ## 1. target 與一次 run
 
 - Go `ocserverd` 是唯一 target；入口是 `bash e2e_test/run_all.sh`。每輪使用隔離 port（預設由 e2e config 指定）、repo-local SQLite、臨時 owner password、fresh DB、每輪唯一的非 fleet tmux socket/session，以及 exact-session/exact-PID teardown；不能碰 repo 根 config 或 production server。產生隔離 `oc.toml` 時已有檔案要拒絕覆蓋，因為它可能正指向正式 DB。
-- `setup.sh`、Playwright 與 `teardown.sh` 可以分屬不同 agent exec。setup 以 `lib/tmux.sh` 將 server 放進 `oc-e2e-*` 私有 tmux namespace，並把 socket/session 寫進 `.state/`；不能改回只在 setup shell 內存活的普通背景 child，也不能使用 fleet 的 `-L officraft` socket。缺 tmux 或殘留 identity 時要在建立 server 前大聲拒絕。
+- `setup.sh`、Playwright 與 `teardown.sh` 可以分屬不同 agent exec。setup 以 `lib/tmux.sh` 將 server 放進 `oc-e2e-*` 私有 tmux namespace，並把 socket/session 寫進 `.state/`；不能改回未受明確 lifecycle／exact cleanup 管理的普通背景 child，也不能使用 fleet 的 `-L officraft` socket。tmux 的選擇依據是可觀測、可識別、可清理；目前 Codex runtime 的成對量測雖觀察到 nohup 路徑在下一個 exec 失去 listener，這不是對所有 executor 的普遍根因宣稱。缺 tmux 或殘留 identity 時要在建立 server 前大聲拒絕。
 - setup 必須在 server 前 stage 全部 embed assets：SPA→`webdist`、docs→`docsdist`、seeds→`seedsdist`、binaries/catalog→`bindist`，再 fresh build/migrate/serve。缺一項可能讓 server 起得來但 agent boot、MCP catalog 或 binary route 假綠／假紅。
 - 失敗時 teardown 仍跑，但只處理本輪 state 記錄的 tmux session、listener/process；不能用模糊 process kill。prod safety 依 `lib/common.sh` 從現行 source 取得 production ports、identity、residue 與 explicit isolation/destructiveness ack，不能把某個歷史 port 當唯一防線。
 

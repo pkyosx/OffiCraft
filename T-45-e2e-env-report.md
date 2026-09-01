@@ -1,23 +1,60 @@
 # T-45 — e2e environment evidence
 
-測量基準固定為完整 commit `c8d2506f386bce15f731c50fb53d5c8e06e9c62b`，
-worktree 為 `/Users/seth_wang/ai_workspace/officraft-t45-e2e-env-x107`。共用
-`/Users/seth_wang/ai_workspace/OffiCraft` 沒有 checkout；正式 port `7755`
-本輪一直由既有 `ocserverd` PID `3821` 持有，未碰。所有以下站台操作都在
-own worktree 的 `8791` 隔離 DB／binary 上，沒有滿載測試。
+測量不寫 `main`，每一筆都固定記錄實際 checkout：修法前 nohup 基準是完整
+commit `c8d2506f386bce15f731c50fb53d5c8e06e9c62b`，tmux 實作基準是
+`d84a2302fa43c7ddb4aa9f839834b86cf8c3db85`；報告與後續 guard 修正在
+`/Users/seth_wang/ai_workspace/officraft-t45-e2e-env-x107`。共用
+`/Users/seth_wang/ai_workspace/OffiCraft` 沒有 checkout。正式 port `7755`
+只做唯讀觀察，未由本票操作；所有站台操作都在 own worktree 的隔離 port／DB／
+binary 上，沒有滿載測試。
 
 ## A — 修法前重現
 
-- `evidence/t45-recon-20260901-091510`：setup 在獨立 exec 分別耗時 16s、
-  11s，均 rc=0；exec 結束後下一個 health probe 失敗。原始 stderr：
+- `evidence/t45-recon-20260901-091510`：c8d2506f 的 setup 在獨立 exec 分別
+  耗時 16s、11s，均 rc=0；exec 結束後下一個 health probe 失敗。原始 stderr：
   `curl: (7) Failed to connect to 127.0.0.1 port 8791 after 0 ms: Couldn't connect to server`。
 - 同目錄的持續 shell positive control 在 6s 內取得 HTTP 200、listener PID
-  `28720`；差異是 exec 邊界，不是 server route。
+  `28720`；它只證明同 shell 與獨立 exec 的行為不同，不單獨證明死因。
 - 同 shell 的完整 positive control 在
   `evidence/t45-recon-20260901-092650`：setup 9s、health 200 且
   `git_sha=c8d2506f`、login 200、Chromium spec `1 passed / 1s`、teardown
   0s。兩個中間 rc=1 已辨識為量測 wiring（SHA 長短比較、漏傳
   `OC_E2E_PASSWORD`），不是產品根因。
+
+## A — 複審後的成對量測
+
+這一輪修正了原先把「server 死了」誤寫成「exec 邊界就是根因」的問題。
+在同一個啟動 exec、同一個 user／executor、同一時間（`2026-09-01
+10:47:14 +08`）並行啟動兩個不同 port 的隔離 checkout：
+
+- nohup：c8d2506f，`8791`，setup start epoch `1788230834.541188000`、end
+  `1788230852.302288000`、rc=0；setup 自己印出 listener PID `25609`、launch
+  PID `25608`，serve log 有 `ocserverd serving on http://127.0.0.1:8791`。
+- tmux：d84a2302，`8793`，setup start epoch `1788230834.541518000`、end
+  `1788230851.800961000`、rc=0；setup 自己印出 listener／pane PID `25592`，
+  `/api/version` 回報 `git_sha=d84a2302`。
+
+下一個獨立 exec（epoch `1788230884`）的 health：nohup `/api/version` 原始
+stderr 是 `curl: (7) Failed to connect to 127.0.0.1 port 8791 after 0 ms: Couldn't connect to server`、rc=7，listener PID `25609` 已不存在；tmux
+HTTP 200、rc=0。再下一個獨立 exec（`2026-09-01T10:51:16+0800`）仍是 nohup
+rc=7／無 listener，而 tmux HTTP 200／rc=0、listener `25592` 仍在；正確的
+`tmux -L oc-e2e-00c5d45e5ced4f62ac0fb7f81a87f6cc has-session` rc=0。
+
+為了排除「兩條同時啟動互撞」，清理 pair 後只跑 c8d2506f 的 nohup：setup
+`2026-09-01T10:51:57+0800`–`10:52:12+0800` rc=0，印出 listener PID
+`40738`；下一個 exec `10:52:20+0800` 已是同一個原始 connection-refused、rc=7，
+無 listener。這表示在本 Codex runtime／這個 setup 路徑，問題不是只有並行干擾。
+
+但「到底是哪個 signal／系統元件殺掉」仍未被隔離：serve log 沒有 fatal，
+setup 的 PID 在下一個 exec 消失；最小 nohup heartbeat 控制也只留下 1 筆
+heartbeat、沒有 caught-signal log，之後 PID 消失。因此目前能負責任回答的是：
+**普通 background child 在這個 runtime 的獨立 exec 生命週期不可靠，tmux
+carrier 在同條件下留下可觀測且可清理的 listener；精確 killer／signal 尚無一手
+證據。** 這不是「所有 executor 都會殺 nohup」的普遍根因結論，也不把 Kyle
+的 nohup positive control 改寫成錯誤。
+
+原始成對資料（包含 setup／health／PID／listener／tmux raw output）在：
+`evidence/t45-paired-20260901-setup/`。
 
 ## A — 候選與採用
 
@@ -26,6 +63,11 @@ own worktree 的 `8791` 隔離 DB／binary 上，沒有滿載測試。
 跨平台、權限、job/pid/socket identity 與清理複雜度最高。候選 ③ 是同 shell
 明文契約加跨 exec hard-fail guard；代價是 agent 拆步仍不可用，且 guard 必須
 可執行並有 red mutant。本包採 ①，未採 ②/③。
+
+採用 ① 的論證現在是**管理性**而不是未證明的根因治療：每輪私有 tmux
+socket/session 提供明確 run identity、可直接觀察的 carrier、以及 exact
+`kill-session` cleanup；現有 fleet socket 不會被碰。成對量測只是說明它在本
+Codex runtime 的 lifecycle 結果較穩定，不宣稱 tmux 是唯一可行的背景機制。
 
 採用前的實際 tmux positive control 在
 `evidence/t45-recon-20260901-093249-tmux`：私有 socket
@@ -39,13 +81,13 @@ own worktree 的 `8791` 隔離 DB／binary 上，沒有滿載測試。
 變更位於：
 
 - `e2e_test/lib/tmux.sh`：tmux prerequisite、`oc-e2e-*` namespace validation、
-  exact session start/stop。
-- `e2e_test/setup.sh`：每輪建立並記錄唯一 tmux socket/session，server 活過
-  setup exec 邊界。
+  exact session start/stop；env scrub 從 `common.sh` 的單一來源產生。
+- `e2e_test/setup.sh`：每輪建立並記錄唯一 tmux socket/session；明確寫出
+  tmux 是 lifecycle／管理選擇，不把 nohup 死亡寫成普遍根因。
 - `e2e_test/teardown.sh`：先停止 state 指定的 exact session，再做既有 exact
-  PID/port cleanup；不猜 incomplete identity。
+  PID/port cleanup；空或 incomplete state 也會清掉，不猜 session identity。
 - `e2e_test/tests_guard/run.sh`：接線、缺 tmux、fleet socket refusal、fake
-  tmux positive control，以及 `MUT-T-45`。
+  tmux positive control、呼叫／位置／empty-state guard，以及 `MUT-T-45`。
 - `e2e_test/README.md`：獨立 exec 契約與手動流程。
 - `e2e_test/CLAUDE.md`：實作者入口的 tmux／獨立 exec 隔離規則。
 
@@ -63,16 +105,25 @@ own worktree 的 `8791` 隔離 DB／binary 上，沒有滿載測試。
   `[teardown] :8791 released` 與 `[teardown] ✅ clean`；最終 8791 無 listener，
   7755 仍為 PID `3821`。tmux state files 已移除。
 - 語法／whitespace：4 個 bash `-n` 與 `git diff --check` 全部 rc=0。
-- `e2e_test/tests_guard/run.sh`：最終 strict namespace 版本 35s，rc=0，`PASS=310 FAIL=0`、
-  `[tests_guard] all green`。`MUT-T-45` 證明移除 namespace guard 後 fleet
-  socket command 會真的通過，因此 shipped guard 是 load-bearing。
+- `e2e_test/tests_guard/run.sh`：複審修正後耗時 45.3s，rc=0，`PASS=317 FAIL=0`、
+  `[tests_guard] all green`。PASS floor 現為 314；移除 B 的 7 顆 assertion
+  會降到 310 並被 floor 擋住。setup 的 executable call、teardown 的 executable
+  stop／empty-state condition、以及 cmux gate-before-setup position 都不再靠
+  grep 到一段註解即可通過。
 - strict namespace guard 加入後的最後一輪實際重跑：setup 21s rc=0；下一個
   exec health 0s rc=0（socket/session
   `oc-e2e-24770e711bc745c0a071b84986ac34dd`、listener PID `9943`、API 200、
   SHA `c8d2506f`）；再下一個 exec spec 2s rc=0、`1 passed (1.2s)`；exact
   kill rc=0、teardown 0s rc=0，8791 released、7755 仍 PID `3821`。
+- follow-up 變更後的 own worktree setup 於 `11:02:12`–`11:02:26 +08` rc=2，
+  原始 stderr 為 `[setup] FATAL: :8791 became occupied during build/migrate/seed (TOCTOU window) — refuse to stomp it. Find and stop that listener, then re-run.`。
+  唯讀 `lsof`／`ps` 顯示 PID `55975` 實際屬於 T-46 own worktree
+  `/Users/seth_wang/.officraft/agents/ow-f5025c393ead/work/t46-rebase-4039`；
+  本 worker 沒有停止或修改它。完整原文在
+  `evidence/t45-followup-20260901-setup-blocked.md`，所以這次不能當成
+  follow-up implementation 的 server failure 或正式站／SSE blocker。
 
-沒有開 PR、沒有 merge；交由 Kyle 複審與後續 land。
+沒有開 PR、沒有 merge；本輪仍交由 Kyle 複審與後續 land。
 
 ## B — cmux/browser discovery（獨立、尚未定案）
 
@@ -104,8 +155,9 @@ pipe 分成「無 workspace」或「socket 本身壞掉」。Chrome extension �
 B，因為它和 cmux browser 是不同子系統。
 
 在 recon 當時，射程問題「成員設計上是否應該用得到 cmux browser」仍無答案。
-以上只證明 Joey 現在的環境，不回推昨日三次；也不能把 B 寫成 cmux 程式
-bug 或設計上不用。四次被擋是事實，並未因 A 找到機制而結案。
+以上只證明 Joey／Kyle 各自**現在**的 session，不回推 Joey 昨日三次的環境；
+也不能把 B 寫成 cmux 程式 bug 或設計上不用。四次被擋是事實，並未因 A
+找到一種 lifecycle 機制而結案。
 
 ## B — owner 裁定與可執行契約
 

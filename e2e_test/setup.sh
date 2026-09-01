@@ -46,9 +46,12 @@ if [ -e "$STATE_DIR/tmux.socket" ] || [ -e "$STATE_DIR/tmux.session" ]; then
   echo "[setup] FATAL: isolated tmux state already exists in $STATE_DIR — run teardown.sh first; refusing to overwrite the earlier session identity." >&2
   exit 2
 fi
-# A plain nohup child is reaped by the agent executor when this script's exec
-# ends.  tmux is an explicit prerequisite for the independent-exec contract;
-# fail here, before arming/mutating, rather than later as a misleading refused
+# A plain background child is not a reliable lifecycle carrier for this harness:
+# a paired measurement in this Codex runtime observed the old nohup listener gone
+# at the next independent exec while the tmux listener remained. That is an
+# observed failure mode, not a universal claim about every executor. tmux is
+# selected here for an explicit per-run identity, observation, and cleanup
+# surface; fail before arming/mutating rather than later as a misleading refused
 # connection to :$OC_E2E_PORT.
 if ! oc_e2e_tmux_require; then
   exit 2
