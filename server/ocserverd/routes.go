@@ -2103,5 +2103,62 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary:  "強制停止 an outsource worker: kill the session NOW and hold it down; says nothing to it. Third rung of 停止 -> 加速停止 -> 強制停止.",
 			MCPTool:  "force_stop_outsource_worker",
 		},
+		// ── T-33 lore governance ─────────────────────────────────────────────
+		// 🔴 THESE TWO ROWS ARE WHY loreRetireNeedsOwner IS A GATE RATHER THAN A
+		// DESCRIPTION OF ONE. The DAL shipped the three reasons, the owner split
+		// and the journal with a full test suite and NOTHING calling it — so the
+		// only thing driving it was the tests that assert it.
+		//
+		// 🔴 THE FLOOR IS principalAgent, NOT principalAdminAgent, AND THAT IS
+		// THE OWNER'S RULING SHOWING UP IN THE TABLE (ta-c568dfd29844 D11). The
+		// general rule for governance acts on this surface is admin_agent+; this
+		// row is the written exception, because 'expired' and 'merged' claim
+		// nothing about truth — they are tidying, and if even those had to wait
+		// for the owner the tidying would never happen and the store would only
+		// ever grow, which is the exact opposite of 「精而非多」.
+		//
+		// 🔴 WHAT THE FLOOR CANNOT SAY, AND WHY IT IS NOT ASKED TO: the SAME
+		// route admits 'expired' from an ordinary agent and refuses 'falsified'
+		// from that same caller. `Requires` has no vocabulary for "it depends on
+		// a body field", so the per-reason half stays where it already lives —
+		// loreRetireNeedsOwner — and this table declares only the floor. Do not
+		// "finish the job" by raising this row to admin_agent: that would take
+		// the tidying away from every agent while leaving the falsified gate
+		// exactly where it is.
+		//
+		// ⚠️ The floor still earns its place: a machine (a warden) is not a
+		// governance principal, and this row is what refuses it at the door.
+		{
+			Method:   "POST",
+			Path:     "/api/lore/entries/{entry_id}/retire",
+			Handler:  w.HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePost,
+			Auth:     authGated,
+			Requires: principalAgent,
+			Summary:  "Stop retrieving one lore entry and record WHY. Retirement is NOT a delete — the row stays and `revive_lore_entry` brings it back. `reason` is one of `expired` (the situation changed; it may come back), `merged` (folded into another entry — name it in `replaced_by`) or `falsified` (the claim was never true; it should not come back). An ordinary agent may file `expired` and `merged` itself; `falsified` is a judgement about truth and is refused 403 for anyone but the owner. An unrecognised reason is refused 422 rather than defaulted, so a typo cannot retire an entry as if it were merely stale. The reason is written to the governance journal, never onto the entry, because one entry can be retired, revived and retired again for a different reason and a column would only ever remember the last one.",
+			MCPTool:  "retire_lore_entry",
+		},
+		{
+			// principalOwner: reviving asserts the entry holds after all, which
+			// is the same class of judgement as overturning one. ⚠️ That is a
+			// DERIVATION, not the owner's words — recorded as such in
+			// dal_lore_governance.go, where the same rule is enforced a second
+			// time so the function is safe for callers this table does not know
+			// about.
+			//
+			// 🔴 MCPExclude, AND IT FOLLOWS FROM THE FLOOR RATHER THAN BEING A
+			// SECOND DECISION. Every owner-floor row this station serves is off
+			// the tool surface, because the owner does not drive MCP tools — the
+			// cockpit does, over REST. An owner-only tool in tools/list would be
+			// a name every agent can read and no agent can use, which is exactly
+			// the 「看得到、其實不存在」 this ticket exists to end. The owner's
+			// path to this route is the Lore tab's button (詳細設計 §6.4).
+			Method:     "POST",
+			Path:       "/api/lore/entries/{entry_id}/revive",
+			Handler:    w.HandleReviveLoreEntryApiLoreEntriesEntryIdRevivePost,
+			Auth:       authGated,
+			Requires:   principalOwner,
+			MCPExclude: true,
+			Summary:    "Bring a retired lore entry back into retrieval — owner only, and it is what makes retirement reversible rather than a delete. 404 when no entry carries that id; 409 when the entry is not retired, because answering `done` would confirm a belief about its state that is wrong. `reason` is optional prose recorded in the governance journal beside the revival.",
+		},
 	}
 }

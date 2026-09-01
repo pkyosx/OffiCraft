@@ -1160,6 +1160,37 @@ MATRIX: dict[str, Route] = {
         ),
         body={"edits": [{"old": "", "new": "conformance patch probe"}]},
     ),
+    # ── T-33 lore governance ────────────────────────────────────────────────
+    # Both rows aim at an entry id NOTHING carries, so every at-or-above-floor
+    # cell is a 404. That is deliberate and it is not a weaker test: this
+    # station has no route that CREATES a lore entry yet, so a 200 face cannot
+    # be built over the wire at all — and the choke these rows exist to pin is
+    # the FLOOR, which is decided before the id is ever looked up. A warden is
+    # refused 403 (derived) while an agent gets as far as the lookup.
+    #
+    # 🔴 WHAT THIS ROW DOES NOT COVER, said plainly so nobody reads more into a
+    # green than it carries: the per-REASON split (an agent may file `expired`
+    # and `merged`, only the owner may file `falsified`) is invisible here,
+    # because it lives below the floor gate and behind an entry that has to
+    # exist. It is pinned in the server unit tests
+    # (api_lore_governance_route_t33_test.go), against real HTTP requests.
+    "POST /api/lore/entries/{entry_id}/retire": Route(
+        requires="agent",
+        path="/api/lore/entries/e-conf-no-such-entry/retire",
+        body={"reason": "expired"},
+        overrides={
+            "agent_self": 404,
+            "agent_other": 404,
+            "admin_agent": 404,
+            "owner": 404,
+        },
+    ),
+    "POST /api/lore/entries/{entry_id}/revive": Route(
+        requires="owner",
+        path="/api/lore/entries/e-conf-no-such-entry/revive",
+        body={"reason": "conformance revive probe"},
+        overrides={"owner": 404},
+    ),
     # ── insight (T-3809) ─────────────────────────────────────────────────────
     # The role journal's third block. Its authz face is the lessons face with
     # the task_type axis removed — three rows, same three floors, same handler

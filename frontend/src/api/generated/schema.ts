@@ -1343,6 +1343,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/lore/entries/{entry_id}/retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop retrieving one lore entry and record WHY. Retirement is NOT a delete — the row stays and `revive_lore_entry` brings it back. `reason` is one of `expired` (the situation changed; it may come back), `merged` (folded into another entry — name it in `replaced_by`) or `falsified` (the claim was never true; it should not come back). An ordinary agent may file `expired` and `merged` itself; `falsified` is a judgement about truth and is refused 403 for anyone but the owner. An unrecognised reason is refused 422 rather than defaulted, so a typo cannot retire an entry as if it were merely stale. The reason is written to the governance journal, never onto the entry, because one entry can be retired, revived and retired again for a different reason and a column would only ever remember the last one.
+         * @description Retire ONE lore entry (T-33, owner ruling ta-c568dfd29844 D11).
+         *
+         *     The status change and the journal row are ONE transaction: an entry that is retired with no recorded reason is the exact hole this ticket was opened to close.
+         *
+         *     WHO MAY FILE WHICH REASON is decided by loreRetireNeedsOwner() in the DAL, and this route does not re-derive it. 'expired' and 'merged' claim nothing about truth — they are tidying, and if even those had to wait for the owner the tidying would never happen and the store would only ever grow. 'falsified' says the entry was WRONG, which is a judgement about truth, and the owner ruled that overturning a memory needs him.
+         *
+         *     Retiring an ALREADY-RETIRED entry is not an error, it is a second journal row: an entry parked as 'expired' can later be judged false, and both records survive.
+         */
+        post: operations["handle_retire_lore_entry_api_lore_entries__entry_id__retire_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lore/entries/{entry_id}/revive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bring a retired lore entry back into retrieval — owner only, and it is what makes retirement reversible rather than a delete. 404 when no entry carries that id; 409 when the entry is not retired, because answering `done` would confirm a belief about its state that is wrong. `reason` is optional prose recorded in the governance journal beside the revival.
+         * @description Un-retire ONE lore entry (T-33, owner ruling ta-c568dfd29844 D11).
+         *
+         *     Owner-only, and that placement is a DERIVATION rather than the owner's words: reviving asserts the entry holds after all, which is the same class of judgement as overturning one. If the reading is wrong the cost is one-directional — a revive that should have been an agent's is a message to the owner, while an agent quietly reviving something the owner retired as false is not.
+         *
+         *     This route is the reason retirement may be called reversible at all: until it existed, 'retire is not a delete, you can bring it back' was a claim with nothing behind it.
+         */
+        post: operations["handle_revive_lore_entry_api_lore_entries__entry_id__revive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/login": {
         parameters: {
             query?: never;
@@ -5641,6 +5691,64 @@ export interface components {
              * @default
              */
             text: string;
+        };
+        /**
+         * LoreGovernanceDTO
+         * @description One lore governance act, as it stands after the call: the entry, the state it is now in, and the journal row just written. `reason` is the row's reason, NOT a column on the entry — an entry retired, revived and retired again for a different reason keeps every row, and reading the latest is how 'why did this stop being used' is answered without a column that only remembers the last answer.
+         */
+        LoreGovernanceDTO: {
+            /** Entry Id */
+            entry_id: string;
+            /**
+             * Status
+             * @description The entry's status AFTER the act: `retired` after a retire, `active` after a revive.
+             */
+            status: string;
+            /**
+             * Kind
+             * @description `retire` or `revive` — which journal row this is.
+             */
+            kind: string;
+            /** Reason */
+            reason: string;
+            /** Replaced By */
+            replaced_by: string;
+            /**
+             * Actor Id
+             * @description The caller, taken from the VERIFIED token subject — never from the request body.
+             */
+            actor_id: string;
+            /** Created Ts */
+            created_ts: number;
+        };
+        /**
+         * LoreRetireDTO
+         * @description Retire one lore entry: `{reason, replaced_by}`. `reason` is REQUIRED and closed to `expired` / `merged` / `falsified` — an unrecognised value is refused rather than defaulted, because a typo defaulted to the permissive side would retire an entry as if it were merely stale.
+         */
+        LoreRetireDTO: {
+            /**
+             * Reason
+             * @description WHY this entry stops being retrieved, and it is the field that decides whether you are allowed to file it at all. Exactly one of: `expired` — the situation changed and this no longer applies (it MAY come back); `merged` — folded into another entry, whose id belongs in `replaced_by` (the content still exists over there); `falsified` — the entry's claim WAS NEVER TRUE (it should NOT come back), and only the owner may file this one. Anything else is refused 422 with the value named; there is no default, because defaulting a typo to the permissive side would retire an entry as if it were merely stale and nothing downstream could tell afterwards.
+             */
+            reason: string;
+            /**
+             * Replaced By
+             * @description The entry that takes over, meaningful above all for `merged`. Stored as sent and never validated as an id: the journal's job is to record what you said, not to re-derive it later.
+             * @default
+             */
+            replaced_by: string;
+        };
+        /**
+         * LoreReviveDTO
+         * @description Revive one retired lore entry: `{reason}`. `reason` is optional free prose recorded in the governance journal; unlike the retire reason it carries no permission consequence.
+         */
+        LoreReviveDTO: {
+            /**
+             * Reason
+             * @description Optional prose recorded in the governance journal beside the revival — why this entry is being brought back. Unlike the retire reason it is free text and carries no permission consequence.
+             * @default
+             */
+            reason: string;
         };
         /**
          * LoginDTO
@@ -11980,6 +12088,112 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LessonsPatchResultDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_retire_lore_entry_api_lore_entries__entry_id__retire_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoreRetireDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreGovernanceDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_revive_lore_entry_api_lore_entries__entry_id__revive_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoreReviveDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreGovernanceDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

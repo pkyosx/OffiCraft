@@ -4136,6 +4136,33 @@
         "type": "object"
       },
       "name": "force_stop_outsource_worker"
-    }
+    },
+    {
+        "description": "Stop retrieving one lore entry and record WHY. Retirement is NOT a delete — the row stays and `revive_lore_entry` brings it back. `reason` is one of `expired` (the situation changed; it may come back), `merged` (folded into another entry — name it in `replaced_by`) or `falsified` (the claim was never true; it should not come back). An ordinary agent may file `expired` and `merged` itself; `falsified` is a judgement about truth and is refused 403 for anyone but the owner. An unrecognised reason is refused 422 rather than defaulted, so a typo cannot retire an entry as if it were merely stale. The reason is written to the governance journal, never onto the entry, because one entry can be retired, revived and retired again for a different reason and a column would only ever remember the last one.",
+        "inputSchema": {
+          "properties": {
+            "entry_id": {
+              "description": "The lore entry's id. It is not checked for shape — an id nothing carries is a flat 404, never a silent no-op, because a retire of a typo'd id that answered 200 would leave nothing behind but a journal row pointing at nothing.",
+              "type": "string"
+            },
+            "reason": {
+              "description": "WHY this entry stops being retrieved, and it is the field that decides whether you are allowed to file it at all. Exactly one of: `expired` — the situation changed and this no longer applies (it MAY come back); `merged` — folded into another entry, whose id belongs in `replaced_by` (the content still exists over there); `falsified` — the entry's claim WAS NEVER TRUE (it should NOT come back), and only the owner may file this one. Anything else is refused 422 with the value named; there is no default, because defaulting a typo to the permissive side would retire an entry as if it were merely stale and nothing downstream could tell afterwards.",
+              "type": "string"
+            },
+            "replaced_by": {
+              "default": "",
+              "description": "The entry that takes over, meaningful above all for `merged`. Stored as sent and never validated as an id: the journal's job is to record what you said, not to re-derive it later.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "entry_id",
+            "reason"
+          ],
+          "additionalProperties": false,
+          "type": "object"
+        },
+        "name": "retire_lore_entry"
+      }
   ]
 }
