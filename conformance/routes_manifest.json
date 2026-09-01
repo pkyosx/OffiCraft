@@ -1181,5 +1181,19 @@
     "method": "POST",
     "path": "/api/outsource-workers/{id}/force-stop",
     "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "retire_lore_entry",
+    "method": "POST",
+    "path": "/api/lore/entries/{entry_id}/retire",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/lore/entries/{entry_id}/revive",
+    "requires": "owner"
   }
 ]

@@ -1111,6 +1111,37 @@ type LoginDTO struct {
 	Password string  `json:"password"`
 }
 
+// LoreGovernanceDTO One lore governance act, as it stands after the call: the entry, the state it is now in, and the journal row just written. `reason` is the row's reason, NOT a column on the entry — an entry retired, revived and retired again for a different reason keeps every row, and reading the latest is how 'why did this stop being used' is answered without a column that only remembers the last answer.
+type LoreGovernanceDTO struct {
+	// ActorId The caller, taken from the VERIFIED token subject — never from the request body.
+	ActorId   string  `json:"actor_id"`
+	CreatedTs float64 `json:"created_ts"`
+	EntryId   string  `json:"entry_id"`
+
+	// Kind `retire` or `revive` — which journal row this is.
+	Kind       string `json:"kind"`
+	Reason     string `json:"reason"`
+	ReplacedBy string `json:"replaced_by"`
+
+	// Status The entry's status AFTER the act: `retired` after a retire, `active` after a revive.
+	Status string `json:"status"`
+}
+
+// LoreRetireDTO Retire one lore entry: `{reason, replaced_by}`. `reason` is REQUIRED and closed to `expired` / `merged` / `falsified` — an unrecognised value is refused rather than defaulted, because a typo defaulted to the permissive side would retire an entry as if it were merely stale.
+type LoreRetireDTO struct {
+	// Reason WHY this entry stops being retrieved, and it is the field that decides whether you are allowed to file it at all. Exactly one of: `expired` — the situation changed and this no longer applies (it MAY come back); `merged` — folded into another entry, whose id belongs in `replaced_by` (the content still exists over there); `falsified` — the entry's claim WAS NEVER TRUE (it should NOT come back), and only the owner may file this one. Anything else is refused 422 with the value named; there is no default, because defaulting a typo to the permissive side would retire an entry as if it were merely stale and nothing downstream could tell afterwards.
+	Reason string `json:"reason"`
+
+	// ReplacedBy The entry that takes over, meaningful above all for `merged`. Stored as sent and never validated as an id: the journal's job is to record what you said, not to re-derive it later.
+	ReplacedBy *string `json:"replaced_by,omitempty"`
+}
+
+// LoreReviveDTO Revive one retired lore entry: `{reason}`. `reason` is optional free prose recorded in the governance journal; unlike the retire reason it carries no permission consequence.
+type LoreReviveDTO struct {
+	// Reason Optional prose recorded in the governance journal beside the revival — why this entry is being brought back. Unlike the retire reason it is free text and carries no permission consequence.
+	Reason *string `json:"reason,omitempty"`
+}
+
 // MachineClaimDTO Redeem a one-time machine claim code (“POST /api/machines/claim“).
 //
 // “code“ is the single-use, short-lived (600 s) code the onboard /
@@ -3556,6 +3587,12 @@ type HandlePatchLessonsApiLessonsRoleKeyPatchPostJSONRequestBody = LessonsPatchD
 // HandleLoginApiLoginPostJSONRequestBody defines body for HandleLoginApiLoginPost for application/json ContentType.
 type HandleLoginApiLoginPostJSONRequestBody = LoginDTO
 
+// HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePostJSONRequestBody defines body for HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePost for application/json ContentType.
+type HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePostJSONRequestBody = LoreRetireDTO
+
+// HandleReviveLoreEntryApiLoreEntriesEntryIdRevivePostJSONRequestBody defines body for HandleReviveLoreEntryApiLoreEntriesEntryIdRevivePost for application/json ContentType.
+type HandleReviveLoreEntryApiLoreEntriesEntryIdRevivePostJSONRequestBody = LoreReviveDTO
+
 // HandleOnboardMachineApiMachinesPostJSONRequestBody defines body for HandleOnboardMachineApiMachinesPost for application/json ContentType.
 type HandleOnboardMachineApiMachinesPostJSONRequestBody = MachineOnboardDTO
 
@@ -3927,6 +3964,12 @@ type ServerInterface interface {
 	// Owner login: exchange the password for an owner-scoped JWT.
 	// (POST /api/login)
 	HandleLoginApiLoginPost(w http.ResponseWriter, r *http.Request)
+	// Stop retrieving one lore entry and record WHY. Retirement is NOT a delete — the row stays and `revive_lore_entry` brings it back. `reason` is one of `expired` (the situation changed; it may come back), `merged` (folded into another entry — name it in `replaced_by`) or `falsified` (the claim was never true; it should not come back). An ordinary agent may file `expired` and `merged` itself; `falsified` is a judgement about truth and is refused 403 for anyone but the owner. An unrecognised reason is refused 422 rather than defaulted, so a typo cannot retire an entry as if it were merely stale. The reason is written to the governance journal, never onto the entry, because one entry can be retired, revived and retired again for a different reason and a column would only ever remember the last one.
+	// (POST /api/lore/entries/{entry_id}/retire)
+	HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePost(w http.ResponseWriter, r *http.Request, entryId string)
+	// Bring a retired lore entry back into retrieval — owner only, and it is what makes retirement reversible rather than a delete. 404 when no entry carries that id; 409 when the entry is not retired, because answering `done` would confirm a belief about its state that is wrong. `reason` is optional prose recorded in the governance journal beside the revival.
+	// (POST /api/lore/entries/{entry_id}/revive)
+	HandleReviveLoreEntryApiLoreEntriesEntryIdRevivePost(w http.ResponseWriter, r *http.Request, entryId string)
 	// List machines (active wardens): machine_id/display_name/online.
 	// (GET /api/machines)
 	HandleListMachinesApiMachinesGet(w http.ResponseWriter, r *http.Request)
@@ -5487,6 +5530,58 @@ func (siw *ServerInterfaceWrapper) HandleLoginApiLoginPost(w http.ResponseWriter
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleLoginApiLoginPost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePost operation middleware
+func (siw *ServerInterfaceWrapper) HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "entry_id" -------------
+	var entryId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entry_id", r.PathValue("entry_id"), &entryId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entry_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePost(w, r, entryId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleReviveLoreEntryApiLoreEntriesEntryIdRevivePost operation middleware
+func (siw *ServerInterfaceWrapper) HandleReviveLoreEntryApiLoreEntriesEntryIdRevivePost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "entry_id" -------------
+	var entryId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entry_id", r.PathValue("entry_id"), &entryId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entry_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleReviveLoreEntryApiLoreEntriesEntryIdRevivePost(w, r, entryId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -8505,6 +8600,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lessons/{role_key}", wrapper.HandleReplaceLessonsApiLessonsRoleKeyPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lessons/{role_key}/patch", wrapper.HandlePatchLessonsApiLessonsRoleKeyPatchPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/login", wrapper.HandleLoginApiLoginPost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/entries/{entry_id}/retire", wrapper.HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/entries/{entry_id}/revive", wrapper.HandleReviveLoreEntryApiLoreEntriesEntryIdRevivePost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/machines", wrapper.HandleListMachinesApiMachinesGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/machines", wrapper.HandleOnboardMachineApiMachinesPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/machines/claim", wrapper.HandleClaimMachineTokenApiMachinesClaimPost)

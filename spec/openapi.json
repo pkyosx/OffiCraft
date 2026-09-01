@@ -2020,6 +2020,90 @@
         "additionalProperties": false,
         "type": "object"
       },
+      "LoreGovernanceDTO": {
+        "description": "One lore governance act, as it stands after the call: the entry, the state it is now in, and the journal row just written. `reason` is the row's reason, NOT a column on the entry — an entry retired, revived and retired again for a different reason keeps every row, and reading the latest is how 'why did this stop being used' is answered without a column that only remembers the last answer.",
+        "properties": {
+          "entry_id": {
+            "title": "Entry Id",
+            "type": "string"
+          },
+          "status": {
+            "description": "The entry's status AFTER the act: `retired` after a retire, `active` after a revive.",
+            "title": "Status",
+            "type": "string"
+          },
+          "kind": {
+            "description": "`retire` or `revive` — which journal row this is.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "replaced_by": {
+            "title": "Replaced By",
+            "type": "string"
+          },
+          "actor_id": {
+            "description": "The caller, taken from the VERIFIED token subject — never from the request body.",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "created_ts": {
+            "title": "Created Ts",
+            "type": "number"
+          }
+        },
+        "required": [
+          "entry_id",
+          "status",
+          "kind",
+          "reason",
+          "replaced_by",
+          "actor_id",
+          "created_ts"
+        ],
+        "title": "LoreGovernanceDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "LoreRetireDTO": {
+        "description": "Retire one lore entry: `{reason, replaced_by}`. `reason` is REQUIRED and closed to `expired` / `merged` / `falsified` — an unrecognised value is refused rather than defaulted, because a typo defaulted to the permissive side would retire an entry as if it were merely stale.",
+        "properties": {
+          "reason": {
+            "description": "WHY this entry stops being retrieved, and it is the field that decides whether you are allowed to file it at all. Exactly one of: `expired` — the situation changed and this no longer applies (it MAY come back); `merged` — folded into another entry, whose id belongs in `replaced_by` (the content still exists over there); `falsified` — the entry's claim WAS NEVER TRUE (it should NOT come back), and only the owner may file this one. Anything else is refused 422 with the value named; there is no default, because defaulting a typo to the permissive side would retire an entry as if it were merely stale and nothing downstream could tell afterwards.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "replaced_by": {
+            "default": "",
+            "description": "The entry that takes over, meaningful above all for `merged`. Stored as sent and never validated as an id: the journal's job is to record what you said, not to re-derive it later.",
+            "title": "Replaced By",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "LoreRetireDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "LoreReviveDTO": {
+        "description": "Revive one retired lore entry: `{reason}`. `reason` is optional free prose recorded in the governance journal; unlike the retire reason it carries no permission consequence.",
+        "properties": {
+          "reason": {
+            "default": "",
+            "description": "Optional prose recorded in the governance journal beside the revival — why this entry is being brought back. Unlike the retire reason it is free text and carries no permission consequence.",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "title": "LoreReviveDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
       "LoginDTO": {
         "description": "Owner login request: the password exchanged at `/api/login` for a JWT.\n\n`code` is the TOTP second factor, and it is OPTIONAL in the schema on purpose — it is required by SERVER STATE, not by the wire. While the owner has no TOTP secret enrolled it must be absent (or null) and is ignored; once enrolled, a login without it is a flat 401. Making it schema-required would break every existing client on an install that never turned MFA on.",
         "properties": {
@@ -11484,6 +11568,158 @@
           "legacy": {
             "descriptor": "{\n        \"description\": \"Patch a per-role lessons doc by unique anchors ({edits:[{old,new}]}). role_key must be addressable — a role that folds (list_roles), or a member carrying that role_key (list_members) — or the patch is refused 404.\",\n        \"inputSchema\": {\n          \"properties\": {\n            \"allow_shrink\": {\n              \"default\": false,\n              \"title\": \"Allow Shrink\",\n              \"type\": \"boolean\"\n            },\n            \"edits\": {\n              \"items\": {\n                \"properties\": {\n                  \"new\": {\n                    \"default\": \"\",\n                    \"title\": \"New\",\n                    \"type\": \"string\"\n                  },\n                  \"old\": {\n                    \"default\": \"\",\n                    \"title\": \"Old\",\n                    \"type\": \"string\"\n                  }\n                },\n                \"title\": \"LessonsEditDTO\",\n                \"type\": \"object\",\n                \"additionalProperties\": false\n              },\n              \"title\": \"Edits\",\n              \"type\": \"array\"\n            },\n            \"role_key\": {\n              \"description\": \"Names WHOSE lessons to edit. Nothing checks the key against the roster, so who catches a typo depends on WHO YOU ARE: an ordinary member may only write its own role and is refused with 403, while an admin or the owner may write any role and gets no refusal at all. For them the edit form decides what happens next - an edit with a non-empty old cannot find its anchor in an empty document and fails with 400, but an edit with an EMPTY old (the append form) has no anchor to miss and CREATES a lessons document under a role nobody answers to, answering 200 while the role you meant stays untouched.\\n\\nTHERE IS NO task_type. A lessons doc is addressed by role_key ALONE. The task_type axis was removed in T-2 and sending the field is REFUSED with a 400 naming it - it is never accepted and never quietly dropped, because a silently-ignored bucket name is exactly the failure this removal exists to end: the caller believed it had written one classification and the write went somewhere else.\",\n              \"type\": \"string\"\n            }\n          },\n          \"required\": [\n            \"role_key\",\n            \"edits\"\n          ],\n          \"additionalProperties\": false,\n          \"type\": \"object\"\n        },\n        \"name\": \"patch_lessons\"\n      }"
           }
+        }
+      }
+    },
+    "/api/lore/entries/{entry_id}/retire": {
+      "post": {
+        "description": "Retire ONE lore entry (T-33, owner ruling ta-c568dfd29844 D11).\n\nThe status change and the journal row are ONE transaction: an entry that is retired with no recorded reason is the exact hole this ticket was opened to close.\n\nWHO MAY FILE WHICH REASON is decided by loreRetireNeedsOwner() in the DAL, and this route does not re-derive it. 'expired' and 'merged' claim nothing about truth — they are tidying, and if even those had to wait for the owner the tidying would never happen and the store would only ever grow. 'falsified' says the entry was WRONG, which is a judgement about truth, and the owner ruled that overturning a memory needs him.\n\nRetiring an ALREADY-RETIRED entry is not an error, it is a second journal row: an entry parked as 'expired' can later be judged false, and both records survive.",
+        "operationId": "handle_retire_lore_entry_api_lore_entries__entry_id__retire_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "title": "Entry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoreRetireDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoreGovernanceDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Stop retrieving one lore entry and record WHY. Retirement is NOT a delete — the row stays and `revive_lore_entry` brings it back. `reason` is one of `expired` (the situation changed; it may come back), `merged` (folded into another entry — name it in `replaced_by`) or `falsified` (the claim was never true; it should not come back). An ordinary agent may file `expired` and `merged` itself; `falsified` is a judgement about truth and is refused 403 for anyone but the owner. An unrecognised reason is refused 422 rather than defaulted, so a typo cannot retire an entry as if it were merely stale. The reason is written to the governance journal, never onto the entry, because one entry can be retired, revived and retired again for a different reason and a column would only ever remember the last one.",
+        "x-mcp": {
+          "include": true,
+          "order": 123,
+          "name": "retire_lore_entry",
+          "description": "Stop retrieving one lore entry and record WHY. Retirement is NOT a delete — the row stays and `revive_lore_entry` brings it back. `reason` is one of `expired` (the situation changed; it may come back), `merged` (folded into another entry — name it in `replaced_by`) or `falsified` (the claim was never true; it should not come back). An ordinary agent may file `expired` and `merged` itself; `falsified` is a judgement about truth and is refused 403 for anyone but the owner. An unrecognised reason is refused 422 rather than defaulted, so a typo cannot retire an entry as if it were merely stale. The reason is written to the governance journal, never onto the entry, because one entry can be retired, revived and retired again for a different reason and a column would only ever remember the last one.",
+          "legacy": {
+            "descriptor": "{\n        \"description\": \"Stop retrieving one lore entry and record WHY. Retirement is NOT a delete — the row stays and `revive_lore_entry` brings it back. `reason` is one of `expired` (the situation changed; it may come back), `merged` (folded into another entry — name it in `replaced_by`) or `falsified` (the claim was never true; it should not come back). An ordinary agent may file `expired` and `merged` itself; `falsified` is a judgement about truth and is refused 403 for anyone but the owner. An unrecognised reason is refused 422 rather than defaulted, so a typo cannot retire an entry as if it were merely stale. The reason is written to the governance journal, never onto the entry, because one entry can be retired, revived and retired again for a different reason and a column would only ever remember the last one.\",\n        \"inputSchema\": {\n          \"properties\": {\n            \"entry_id\": {\n              \"description\": \"The lore entry's id. It is not checked for shape — an id nothing carries is a flat 404, never a silent no-op, because a retire of a typo'd id that answered 200 would leave nothing behind but a journal row pointing at nothing.\",\n              \"type\": \"string\"\n            },\n            \"reason\": {\n              \"description\": \"WHY this entry stops being retrieved, and it is the field that decides whether you are allowed to file it at all. Exactly one of: `expired` — the situation changed and this no longer applies (it MAY come back); `merged` — folded into another entry, whose id belongs in `replaced_by` (the content still exists over there); `falsified` — the entry's claim WAS NEVER TRUE (it should NOT come back), and only the owner may file this one. Anything else is refused 422 with the value named; there is no default, because defaulting a typo to the permissive side would retire an entry as if it were merely stale and nothing downstream could tell afterwards.\",\n              \"type\": \"string\"\n            },\n            \"replaced_by\": {\n              \"default\": \"\",\n              \"description\": \"The entry that takes over, meaningful above all for `merged`. Stored as sent and never validated as an id: the journal's job is to record what you said, not to re-derive it later.\",\n              \"type\": \"string\"\n            }\n          },\n          \"required\": [\n            \"entry_id\",\n            \"reason\"\n          ],\n          \"additionalProperties\": false,\n          \"type\": \"object\"\n        },\n        \"name\": \"retire_lore_entry\"\n      }"
+          }
+        }
+      }
+    },
+    "/api/lore/entries/{entry_id}/revive": {
+      "post": {
+        "description": "Un-retire ONE lore entry (T-33, owner ruling ta-c568dfd29844 D11).\n\nOwner-only, and that placement is a DERIVATION rather than the owner's words: reviving asserts the entry holds after all, which is the same class of judgement as overturning one. If the reading is wrong the cost is one-directional — a revive that should have been an agent's is a message to the owner, while an agent quietly reviving something the owner retired as false is not.\n\nThis route is the reason retirement may be called reversible at all: until it existed, 'retire is not a delete, you can bring it back' was a claim with nothing behind it.",
+        "operationId": "handle_revive_lore_entry_api_lore_entries__entry_id__revive_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "title": "Entry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoreReviveDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoreGovernanceDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Bring a retired lore entry back into retrieval — owner only, and it is what makes retirement reversible rather than a delete. 404 when no entry carries that id; 409 when the entry is not retired, because answering `done` would confirm a belief about its state that is wrong. `reason` is optional prose recorded in the governance journal beside the revival.",
+        "x-mcp": {
+          "include": false
         }
       }
     },

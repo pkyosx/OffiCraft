@@ -2109,6 +2109,23 @@ HAPPY: dict[str, Happy] = {
 # Manifest rows deliberately NOT happy-tested (reason required — the coverage
 # tooth enforces the union).
 SKIPPED_HAPPY: dict[str, str] = {
+    "POST /api/lore/entries/{entry_id}/retire": (
+        "a happy face needs a lore entry to exist, and this station serves NO "
+        "route that creates one — the write path for entries is a later slot of "
+        "T-33. Every wire-reachable face of this route is therefore a 404 today, "
+        "and that face is pinned in the auth matrix. The behaviour that matters "
+        "(expired/merged from an ordinary agent, falsified refused to everyone "
+        "but the owner, and the journal row each leaves) is pinned against real "
+        "HTTP requests in the server unit tests "
+        "(api_lore_governance_route_t33_test.go), which can seed an entry "
+        "through the DAL. Delete this entry the moment a create route lands."
+    ),
+    "POST /api/lore/entries/{entry_id}/revive": (
+        "same reason as the retire row above: nothing over the wire can create "
+        "the retired entry a revival needs. The owner floor is pinned in the "
+        "auth matrix; the revival actually putting an entry back where "
+        "retrieval finds it is pinned in api_lore_governance_route_t33_test.go."
+    ),
     "POST /api/auth/set-password": (
         "the positive face needs an UNSET password + the serve-log claim token; "
         "the harness seeds the password before serve, so no claim token exists. "
