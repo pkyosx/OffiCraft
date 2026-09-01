@@ -4201,6 +4201,73 @@
           "type": "object"
         },
         "name": "retire_lore_entry"
+      },
+    {
+        "description": "Write ONE lore entry — the entry, the subjects it is filed under, the actions it is about, and the FULL ORIGINAL that outlives every later rewrite, all in one transaction. `symptoms` and `short` are required: `short` is the only field that ever enters a boot context and `symptoms` is the axis a reader finds the entry by, so an entry missing either is not thin, it is unreachable. `falsify` and `instance` are DELIBERATELY optional (owner ruling 2026-09-01: 寬鬆，不當硬門檻) — forcing them produces invented ones, which nothing can count, whereas an empty one can be counted; an entry with neither comes back `degraded: true`, which is a signal to you and not a refusal. `subjects` are subject keys shaped `type:name` (`repo:officraft`, `agent:Kyle`): an alias resolves, a merged-away subject follows to the survivor, an unapproved type prefix is refused BY NAME, and a key nobody has used yet MINTS a new subject parked for review and names it back to you in `pending_entities` — so a typo surfaces in this response instead of in the ontology a month later. `origin` says WHOSE knowledge this is (`human:Seth` for something the owner told you) and is not the same question as who is writing: the actor is taken from your verified token and cannot be asserted here. `label` is a NAME, at most 40 runes; over that is refused with both counts and NEVER trimmed, because a name that changes silently breaks whatever was pointing at it. `supersedes` names the entry this one takes over from: it is re-statused `superseded` and the act is written to the governance journal, while an id that names nothing refuses the WHOLE write rather than leaving a pointer into empty space.",
+        "inputSchema": {
+          "properties": {
+            "actions": {
+              "description": "The action names this entry is about — an OPEN set, mint a new one whenever a new kind of experience turns up. They are not checked against a list here on purpose; the safety is at read time, where an unrecognised action fails closed and says so.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "falsify": {
+              "default": "",
+              "description": "How somebody could show this entry does NOT hold. Optional by owner ruling (2026-09-01): making it a hard gate produces invented falsifiers, and an invented one cannot be told from a real one, whereas a MISSING one is counted — an entry with neither this nor `instance` comes back `degraded: true`.",
+              "type": "string"
+            },
+            "instance": {
+              "default": "",
+              "description": "One case that really happened. Optional for the same reason as `falsify`, and counted the same way.",
+              "type": "string"
+            },
+            "label": {
+              "default": "",
+              "description": "A one-line NAME for the entry, at most 40 runes. Over the cap the write is REFUSED with the actual count and the cap, never trimmed: a label is what a reader scans a list by and what a supersede points at, so a name the server quietly edited breaks whatever was pointing at it. Blank is allowed — an entry can be written before it has been named, and an invented name looks exactly like a chosen one.",
+              "type": "string"
+            },
+            "origin": {
+              "description": "REQUIRED. A subject key, `type:name`, naming WHOSE knowledge this is — `human:Seth` for something the owner told you, `agent:Kyle` for something a member worked out. It is NOT who is writing: the actor comes from your verified token. The distinction is load-bearing — a `human:` origin sorts ahead within its tier and is exempt from the boot-directory count cap. A blank origin, or a type prefix nothing has approved, is refused: there is no default author.",
+              "type": "string"
+            },
+            "residual_risk": {
+              "default": "",
+              "description": "What this entry does NOT protect against. It is the field that stops a reader over-reading the claim.",
+              "type": "string"
+            },
+            "short": {
+              "description": "REQUIRED. The compressed body: the mechanism, and why. THIS is the field that enters a boot context — nothing else here does — so an entry with a blank `short` contributes literally nothing to anybody and is refused.",
+              "type": "string"
+            },
+            "subjects": {
+              "description": "REQUIRED, at least one. The subject keys this entry is filed under, each shaped `type:name`. An alias resolves onto its subject; a merged-away subject follows to the survivor; a duplicate files one row. A key nobody has used yet is MINTED as a new subject parked `pending` for review and reported back in `pending_entities` — it does not reach anybody's boot directory until somebody approves it. An unapproved type prefix is refused by name rather than minted, and so is a key that is not `type:name` at all.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "supersedes": {
+              "default": "",
+              "description": "The id of the entry this one takes over from. That entry is re-statused `superseded` (it is NOT deleted and it keeps its own original) and the act is written to the governance journal with you as the actor. An id that names no entry refuses the whole write: a pointer into empty space is a dead end that looks like a trail.",
+              "type": "string"
+            },
+            "symptoms": {
+              "description": "REQUIRED. What you would be SEEING when this entry applies — the situation, not a category name. It is the axis a reader finds the entry by, so an entry without it exists and is reachable by nobody. Write the sentence you could have written BEFORE you knew the answer.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "symptoms",
+            "short",
+            "origin",
+            "subjects"
+          ],
+          "additionalProperties": false,
+          "type": "object"
+        },
+        "name": "write_lore_entry"
       }
   ]
 }

@@ -2160,5 +2160,35 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			MCPExclude: true,
 			Summary:    "Bring a retired lore entry back into retrieval — owner only, and it is what makes retirement reversible rather than a delete. 404 when no entry carries that id; 409 when the entry is not retired, because answering `done` would confirm a belief about its state that is wrong. `reason` is optional prose recorded in the governance journal beside the revival.",
 		},
+		// ── T-33 lore write ──────────────────────────────────────────────────
+		// 🔴 THE ROUTE THE OTHER TWO WERE WAITING FOR. Retire and revive shipped
+		// first and could only ever act on entries a test had seeded, because
+		// this station served no way to create one. The visible symptom was not
+		// an error: the subject directory was empty, an empty directory is not
+		// rendered at all, and so the whole feature was invisible to every
+		// member while looking, from the outside, exactly like a feature nobody
+		// had used yet.
+		//
+		// 🔴 principalAgent, AND THE FLOOR IS THE POINT OF THE WHOLE TICKET.
+		// Writing lore is what an agent does with what it just learned; putting
+		// it any higher would put the owner back in the path of every write,
+		// which is the load this ticket exists to take OFF him (his ruling of
+		// 2026-09-01: 「可以先寫入 但是審核可以事後」). A machine is still
+		// refused at the door — a warden has no experience to record.
+		//
+		// ⚠️ WHAT THE FLOOR DOES NOT DO, said plainly: there is no per-field
+		// gate here and no review gate. An agent can write an entry with no
+		// falsifier and no instance, and it lands. That is the ruling, not an
+		// oversight — the receipt reports `degraded` so the looseness is
+		// visible, and review happens afterwards.
+		{
+			Method:   "POST",
+			Path:     "/api/lore/entries",
+			Handler:  w.HandleWriteLoreEntryApiLoreEntriesPost,
+			Auth:     authGated,
+			Requires: principalAgent,
+			Summary:  "Write ONE lore entry — the entry, the subjects it is filed under, the actions it is about, and the FULL ORIGINAL that outlives every later rewrite, all in one transaction. `symptoms` and `short` are required: `short` is the only field that ever enters a boot context and `symptoms` is the axis a reader finds the entry by, so an entry missing either is not thin, it is unreachable. `falsify` and `instance` are DELIBERATELY optional (owner ruling 2026-09-01: 寬鬆，不當硬門檻) — forcing them produces invented ones, which nothing can count, whereas an empty one can be counted; an entry with neither comes back `degraded: true`, which is a signal to you and not a refusal. `subjects` are subject keys shaped `type:name` (`repo:officraft`, `agent:Kyle`): an alias resolves, a merged-away subject follows to the survivor, an unapproved type prefix is refused BY NAME, and a key nobody has used yet MINTS a new subject parked for review and names it back to you in `pending_entities` — so a typo surfaces in this response instead of in the ontology a month later. `origin` says WHOSE knowledge this is (`human:Seth` for something the owner told you) and is not the same question as who is writing: the actor is taken from your verified token and cannot be asserted here. `label` is a NAME, at most 40 runes; over that is refused with both counts and NEVER trimmed, because a name that changes silently breaks whatever was pointing at it. `supersedes` names the entry this one takes over from: it is re-statused `superseded` and the act is written to the governance journal, while an id that names nothing refuses the WHOLE write rather than leaving a pointer into empty space.",
+			MCPTool:  "write_lore_entry",
+		},
 	}
 }

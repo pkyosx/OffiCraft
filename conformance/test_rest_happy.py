@@ -984,7 +984,94 @@ def _boot_doc_read(kind: str, key: str):
     return check
 
 
+# ── T-33 lore ────────────────────────────────────────────────────────────────
+# 🔴 THIS HELPER IS WHY THE TWO GOVERNANCE ROWS STOPPED BEING SKIPS. They were
+# skipped with a reason that said, in as many words, "delete this entry the
+# moment a create route lands" — the station served no way to make an entry, so
+# every wire-reachable face of retire and revive was a 404 and the only thing
+# checking them was a Go test that could reach the DAL directly. A create route
+# exists now, so the skip's own condition is gone and the rows are real.
+def _lore_entry(ctx: HCtx) -> str:
+    """Write one entry as the happy agent and return its id."""
+    r = ctx.client.post(
+        "/api/lore/entries",
+        headers={"Authorization": f"Bearer {ctx.agent.token}"},
+        json={
+            "label": "conformance happy entry",
+            "symptoms": "a route answers 200 and nothing was written",
+            "short": "the entry and its original are one transaction",
+            "origin": f"agent:{ctx.agent.member_id}",
+            "subjects": [f"agent:{ctx.agent.member_id}"],
+        },
+    )
+    assert r.status_code == 200, f"seed lore entry: {r.status_code} {r.text}"
+    return r.json()["entry_id"]
+
+
+def _lore_retired_entry(ctx: HCtx) -> str:
+    """Write one entry and retire it, so a revival has something to revive."""
+    entry_id = _lore_entry(ctx)
+    r = ctx.client.post(
+        f"/api/lore/entries/{entry_id}/retire",
+        headers={"Authorization": f"Bearer {ctx.agent.token}"},
+        json={"reason": "expired"},
+    )
+    assert r.status_code == 200, f"seed retirement: {r.status_code} {r.text}"
+    return entry_id
+
+
+def _check_lore_write(ctx: HCtx, r: httpx.Response) -> None:
+    d = r.json()
+    assert d["entry_id"], d
+    # 🔴 THE ORIGINAL, ASSERTED ON THE WIRE. An entry written with no L0 revision
+    # behind it looks identical in every count and every context; revision_id is
+    # the only place a caller can see that it was preserved.
+    assert d["revision_id"] > 0, f"the write reports no preserved original: {d}"
+    assert len(d["sha256"]) == 64, d
+    # The subject key was new, so it must come back as a MINT rather than being
+    # swallowed — that is what turns a typo into something the writer sees now.
+    assert [e["canonical"] for e in d["pending_entities"]] == [
+        f"agent:{ctx.agent.member_id}"
+    ], d
+    assert d["subject_ids"] and all(d["subject_ids"]), d
+    # falsify and instance were both omitted, and the ruling is that this is
+    # allowed and REPORTED rather than refused.
+    assert d["degraded"] is True, f"a thin entry did not come back degraded: {d}"
+    assert d["superseded"] == "", d
+
+
 HAPPY: dict[str, Happy] = {
+    # ── T-33 lore ────────────────────────────────────────────────────────────
+    "POST /api/lore/entries": Happy(
+        identity="agent",
+        body=lambda ctx: {
+            "label": "conformance happy write",
+            "symptoms": "a route answers 200 and nothing was written",
+            "short": "the entry and its original are one transaction",
+            "origin": f"agent:{ctx.agent.member_id}",
+            "subjects": [f"agent:{ctx.agent.member_id}"],
+        },
+        check=_check_lore_write,
+    ),
+    "POST /api/lore/entries/{entry_id}/retire": Happy(
+        identity="agent",
+        path=lambda ctx: f"/api/lore/entries/{_lore_entry(ctx)}/retire",
+        body={"reason": "expired"},
+        check=lambda _c, r: _expect(
+            r,
+            lambda d: d["status"] == "retired"
+            and d["kind"] == "retire"
+            and d["reason"] == "expired"
+            and bool(d["actor_id"]),
+        ),
+    ),
+    "POST /api/lore/entries/{entry_id}/revive": Happy(
+        path=lambda ctx: f"/api/lore/entries/{_lore_retired_entry(ctx)}/revive",
+        body={"reason": "conformance happy revival"},
+        check=lambda _c, r: _expect(
+            r, lambda d: d["status"] == "active" and d["kind"] == "revive"
+        ),
+    ),
     # ── public ───────────────────────────────────────────────────────────────
     "GET /api/health": Happy(identity="none"),
     "GET /api/version": Happy(identity="none", check=_check_version),
@@ -2109,23 +2196,6 @@ HAPPY: dict[str, Happy] = {
 # Manifest rows deliberately NOT happy-tested (reason required — the coverage
 # tooth enforces the union).
 SKIPPED_HAPPY: dict[str, str] = {
-    "POST /api/lore/entries/{entry_id}/retire": (
-        "a happy face needs a lore entry to exist, and this station serves NO "
-        "route that creates one — the write path for entries is a later slot of "
-        "T-33. Every wire-reachable face of this route is therefore a 404 today, "
-        "and that face is pinned in the auth matrix. The behaviour that matters "
-        "(expired/merged from an ordinary agent, falsified refused to everyone "
-        "but the owner, and the journal row each leaves) is pinned against real "
-        "HTTP requests in the server unit tests "
-        "(api_lore_governance_route_t33_test.go), which can seed an entry "
-        "through the DAL. Delete this entry the moment a create route lands."
-    ),
-    "POST /api/lore/entries/{entry_id}/revive": (
-        "same reason as the retire row above: nothing over the wire can create "
-        "the retired entry a revival needs. The owner floor is pinned in the "
-        "auth matrix; the revival actually putting an entry back where "
-        "retrieval finds it is pinned in api_lore_governance_route_t33_test.go."
-    ),
     "POST /api/auth/set-password": (
         "the positive face needs an UNSET password + the serve-log claim token; "
         "the harness seeds the password before serve, so no claim token exists. "

@@ -1195,5 +1195,12 @@
     "method": "POST",
     "path": "/api/lore/entries/{entry_id}/revive",
     "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "write_lore_entry",
+    "method": "POST",
+    "path": "/api/lore/entries",
+    "requires": "agent"
   }
 ]

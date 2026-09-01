@@ -2104,6 +2104,168 @@
         "additionalProperties": false,
         "type": "object"
       },
+      "LorePendingEntityDTO": {
+        "description": "A subject key that named nothing and was therefore CREATED by this write, parked `pending` for review. It is reported rather than swallowed so a typo shows up here instead of quietly becoming part of the ontology.",
+        "properties": {
+          "canonical": {
+            "description": "The subject key exactly as you sent it.",
+            "title": "Canonical",
+            "type": "string"
+          },
+          "entity_id": {
+            "description": "The id the new subject was minted under.",
+            "title": "Entity Id",
+            "type": "string"
+          },
+          "type": {
+            "description": "The type prefix of the key.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entity_id",
+          "canonical",
+          "type"
+        ],
+        "title": "LorePendingEntityDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "LoreWriteDTO": {
+        "description": "Create one lore entry: the six body fields plus the axes it is filed under. The field set is CLOSED — an unknown key is a 422, never a silent drop.",
+        "properties": {
+          "actions": {
+            "description": "The action names this entry is about — an OPEN set, mint a new one whenever a new kind of experience turns up. They are not checked against a list here on purpose; the safety is at read time, where an unrecognised action fails closed and says so.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "falsify": {
+            "default": "",
+            "description": "How somebody could show this entry does NOT hold. Optional by owner ruling (2026-09-01): making it a hard gate produces invented falsifiers, and an invented one cannot be told from a real one, whereas a MISSING one is counted — an entry with neither this nor `instance` comes back `degraded: true`.",
+            "title": "Falsify",
+            "type": "string"
+          },
+          "instance": {
+            "default": "",
+            "description": "One case that really happened. Optional for the same reason as `falsify`, and counted the same way.",
+            "title": "Instance",
+            "type": "string"
+          },
+          "label": {
+            "default": "",
+            "description": "A one-line NAME for the entry, at most 40 runes. Over the cap the write is REFUSED with the actual count and the cap, never trimmed: a label is what a reader scans a list by and what a supersede points at, so a name the server quietly edited breaks whatever was pointing at it. Blank is allowed — an entry can be written before it has been named, and an invented name looks exactly like a chosen one.",
+            "title": "Label",
+            "type": "string"
+          },
+          "origin": {
+            "description": "REQUIRED. A subject key, `type:name`, naming WHOSE knowledge this is — `human:Seth` for something the owner told you, `agent:Kyle` for something a member worked out. It is NOT who is writing: the actor comes from your verified token. The distinction is load-bearing — a `human:` origin sorts ahead within its tier and is exempt from the boot-directory count cap. A blank origin, or a type prefix nothing has approved, is refused: there is no default author.",
+            "title": "Origin",
+            "type": "string"
+          },
+          "residual_risk": {
+            "default": "",
+            "description": "What this entry does NOT protect against. It is the field that stops a reader over-reading the claim.",
+            "title": "Residual Risk",
+            "type": "string"
+          },
+          "short": {
+            "description": "REQUIRED. The compressed body: the mechanism, and why. THIS is the field that enters a boot context — nothing else here does — so an entry with a blank `short` contributes literally nothing to anybody and is refused.",
+            "title": "Short",
+            "type": "string"
+          },
+          "subjects": {
+            "description": "REQUIRED, at least one. The subject keys this entry is filed under, each shaped `type:name`. An alias resolves onto its subject; a merged-away subject follows to the survivor; a duplicate files one row. A key nobody has used yet is MINTED as a new subject parked `pending` for review and reported back in `pending_entities` — it does not reach anybody's boot directory until somebody approves it. An unapproved type prefix is refused by name rather than minted, and so is a key that is not `type:name` at all.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Subjects",
+            "type": "array"
+          },
+          "supersedes": {
+            "default": "",
+            "description": "The id of the entry this one takes over from. That entry is re-statused `superseded` (it is NOT deleted and it keeps its own original) and the act is written to the governance journal with you as the actor. An id that names no entry refuses the whole write: a pointer into empty space is a dead end that looks like a trail.",
+            "title": "Supersedes",
+            "type": "string"
+          },
+          "symptoms": {
+            "description": "REQUIRED. What you would be SEEING when this entry applies — the situation, not a category name. It is the axis a reader finds the entry by, so an entry without it exists and is reachable by nobody. Write the sentence you could have written BEFORE you knew the answer.",
+            "title": "Symptoms",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symptoms",
+          "short",
+          "origin",
+          "subjects"
+        ],
+        "title": "LoreWriteDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "LoreWriteReceiptDTO": {
+        "description": "What the write actually did, read back from the tables rather than echoed from the request: the new entry's id, the digest of the original that was preserved beside it, the subjects it ended up filed against, any subject it had to mint, and whether it landed degraded.",
+        "properties": {
+          "degraded": {
+            "description": "True when the entry carries NEITHER a falsifier NOR an instance — it asserts something while offering no way to check it and no case where it happened. It is a signal, not a refusal: the owner ruled those two fields stay optional, and an empty one can be counted whereas an invented one cannot.",
+            "title": "Degraded",
+            "type": "boolean"
+          },
+          "entry_id": {
+            "description": "The id of the entry that was created.",
+            "title": "Entry Id",
+            "type": "string"
+          },
+          "pending_entities": {
+            "description": "The subjects this write had to MINT because the key named nothing yet. Each is parked `pending` and reaches nobody's boot directory until it is approved. An empty list means every key you sent already named a subject.",
+            "items": {
+              "$ref": "#/components/schemas/LorePendingEntityDTO"
+            },
+            "title": "Pending Entities",
+            "type": "array"
+          },
+          "revision_id": {
+            "description": "The id of the L0 revision row holding the full original. It is not optional and never zero: an entry without one would look identical in every context and every count, and the loss would only surface when somebody went looking for the original.",
+            "title": "Revision Id",
+            "type": "integer"
+          },
+          "sha256": {
+            "description": "The digest of the preserved original, so a later reader can tell that what it is holding is what was written.",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "subject_ids": {
+            "description": "The entity ids the entry was actually filed against, after aliases resolved, merges were followed and duplicates collapsed. Compare it with what you sent when you want to know which of your keys were the same subject.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Subject Ids",
+            "type": "array"
+          },
+          "superseded": {
+            "default": "",
+            "description": "The id of the entry this one took over from, empty when it took over from nothing.",
+            "title": "Superseded",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entry_id",
+          "sha256",
+          "revision_id",
+          "subject_ids",
+          "pending_entities",
+          "superseded",
+          "degraded"
+        ],
+        "title": "LoreWriteReceiptDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
       "LoginDTO": {
         "description": "Owner login request: the password exchanged at `/api/login` for a JWT.\n\n`code` is the TOTP second factor, and it is OPTIONAL in the schema on purpose — it is required by SERVER STATE, not by the wire. While the owner has no TOTP secret enrolled it must be absent (or null) and is ignored; once enrolled, a login without it is a flat 401. Making it schema-required would break every existing client on an install that never turned MFA on.",
         "properties": {
@@ -11567,6 +11729,74 @@
           "description": "Patch a per-role lessons doc by unique anchors ({edits:[{old,new}]}). role_key must be addressable — a role that folds (list_roles), or a member carrying that role_key (list_members) — or the patch is refused 404.",
           "legacy": {
             "descriptor": "{\n        \"description\": \"Patch a per-role lessons doc by unique anchors ({edits:[{old,new}]}). role_key must be addressable — a role that folds (list_roles), or a member carrying that role_key (list_members) — or the patch is refused 404.\",\n        \"inputSchema\": {\n          \"properties\": {\n            \"allow_shrink\": {\n              \"default\": false,\n              \"title\": \"Allow Shrink\",\n              \"type\": \"boolean\"\n            },\n            \"edits\": {\n              \"items\": {\n                \"properties\": {\n                  \"new\": {\n                    \"default\": \"\",\n                    \"title\": \"New\",\n                    \"type\": \"string\"\n                  },\n                  \"old\": {\n                    \"default\": \"\",\n                    \"title\": \"Old\",\n                    \"type\": \"string\"\n                  }\n                },\n                \"title\": \"LessonsEditDTO\",\n                \"type\": \"object\",\n                \"additionalProperties\": false\n              },\n              \"title\": \"Edits\",\n              \"type\": \"array\"\n            },\n            \"role_key\": {\n              \"description\": \"Names WHOSE lessons to edit. Nothing checks the key against the roster, so who catches a typo depends on WHO YOU ARE: an ordinary member may only write its own role and is refused with 403, while an admin or the owner may write any role and gets no refusal at all. For them the edit form decides what happens next - an edit with a non-empty old cannot find its anchor in an empty document and fails with 400, but an edit with an EMPTY old (the append form) has no anchor to miss and CREATES a lessons document under a role nobody answers to, answering 200 while the role you meant stays untouched.\\n\\nTHERE IS NO task_type. A lessons doc is addressed by role_key ALONE. The task_type axis was removed in T-2 and sending the field is REFUSED with a 400 naming it - it is never accepted and never quietly dropped, because a silently-ignored bucket name is exactly the failure this removal exists to end: the caller believed it had written one classification and the write went somewhere else.\",\n              \"type\": \"string\"\n            }\n          },\n          \"required\": [\n            \"role_key\",\n            \"edits\"\n          ],\n          \"additionalProperties\": false,\n          \"type\": \"object\"\n        },\n        \"name\": \"patch_lessons\"\n      }"
+          }
+        }
+      }
+    },
+    "/api/lore/entries": {
+      "post": {
+        "description": "Create ONE lore entry (T-33). This is the door every ruling of 2026-09-01 was waiting for: until it existed the station served no way to put a single entry into lore, so the directory was empty, an empty directory is not rendered, and no member had ever seen it.\n\n🔴 THE ENTRY AND ITS ORIGINAL ARE ONE TRANSACTION. `short` is what enters a context; the L0 revision is what an agent reads when it stops believing the short version. An entry written without one looks identical in every count, which is exactly the silent loss this ticket exists to end — so either both land or neither does.\n\n🔴 WHO IS WRITING IS NOT A BODY FIELD. The actor is the verified token subject. `origin` is a different question — whose knowledge this is — and it IS yours to state.",
+        "operationId": "handle_write_lore_entry_api_lore_entries_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoreWriteDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoreWriteReceiptDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Write ONE lore entry — the entry, the subjects it is filed under, the actions it is about, and the FULL ORIGINAL that outlives every later rewrite, all in one transaction. `symptoms` and `short` are required: `short` is the only field that ever enters a boot context and `symptoms` is the axis a reader finds the entry by, so an entry missing either is not thin, it is unreachable. `falsify` and `instance` are DELIBERATELY optional (owner ruling 2026-09-01: 寬鬆，不當硬門檻) — forcing them produces invented ones, which nothing can count, whereas an empty one can be counted; an entry with neither comes back `degraded: true`, which is a signal to you and not a refusal. `subjects` are subject keys shaped `type:name` (`repo:officraft`, `agent:Kyle`): an alias resolves, a merged-away subject follows to the survivor, an unapproved type prefix is refused BY NAME, and a key nobody has used yet MINTS a new subject parked for review and names it back to you in `pending_entities` — so a typo surfaces in this response instead of in the ontology a month later. `origin` says WHOSE knowledge this is (`human:Seth` for something the owner told you) and is not the same question as who is writing: the actor is taken from your verified token and cannot be asserted here. `label` is a NAME, at most 40 runes; over that is refused with both counts and NEVER trimmed, because a name that changes silently breaks whatever was pointing at it. `supersedes` names the entry this one takes over from: it is re-statused `superseded` and the act is written to the governance journal, while an id that names nothing refuses the WHOLE write rather than leaving a pointer into empty space.",
+        "x-mcp": {
+          "include": true,
+          "order": 124,
+          "name": "write_lore_entry",
+          "description": "Write ONE lore entry — the entry, the subjects it is filed under, the actions it is about, and the FULL ORIGINAL that outlives every later rewrite, all in one transaction. `symptoms` and `short` are required: `short` is the only field that ever enters a boot context and `symptoms` is the axis a reader finds the entry by, so an entry missing either is not thin, it is unreachable. `falsify` and `instance` are DELIBERATELY optional (owner ruling 2026-09-01: 寬鬆，不當硬門檻) — forcing them produces invented ones, which nothing can count, whereas an empty one can be counted; an entry with neither comes back `degraded: true`, which is a signal to you and not a refusal. `subjects` are subject keys shaped `type:name` (`repo:officraft`, `agent:Kyle`): an alias resolves, a merged-away subject follows to the survivor, an unapproved type prefix is refused BY NAME, and a key nobody has used yet MINTS a new subject parked for review and names it back to you in `pending_entities` — so a typo surfaces in this response instead of in the ontology a month later. `origin` says WHOSE knowledge this is (`human:Seth` for something the owner told you) and is not the same question as who is writing: the actor is taken from your verified token and cannot be asserted here. `label` is a NAME, at most 40 runes; over that is refused with both counts and NEVER trimmed, because a name that changes silently breaks whatever was pointing at it. `supersedes` names the entry this one takes over from: it is re-statused `superseded` and the act is written to the governance journal, while an id that names nothing refuses the WHOLE write rather than leaving a pointer into empty space.",
+          "legacy": {
+            "descriptor": "{\n        \"description\": \"Write ONE lore entry — the entry, the subjects it is filed under, the actions it is about, and the FULL ORIGINAL that outlives every later rewrite, all in one transaction. `symptoms` and `short` are required: `short` is the only field that ever enters a boot context and `symptoms` is the axis a reader finds the entry by, so an entry missing either is not thin, it is unreachable. `falsify` and `instance` are DELIBERATELY optional (owner ruling 2026-09-01: 寬鬆，不當硬門檻) — forcing them produces invented ones, which nothing can count, whereas an empty one can be counted; an entry with neither comes back `degraded: true`, which is a signal to you and not a refusal. `subjects` are subject keys shaped `type:name` (`repo:officraft`, `agent:Kyle`): an alias resolves, a merged-away subject follows to the survivor, an unapproved type prefix is refused BY NAME, and a key nobody has used yet MINTS a new subject parked for review and names it back to you in `pending_entities` — so a typo surfaces in this response instead of in the ontology a month later. `origin` says WHOSE knowledge this is (`human:Seth` for something the owner told you) and is not the same question as who is writing: the actor is taken from your verified token and cannot be asserted here. `label` is a NAME, at most 40 runes; over that is refused with both counts and NEVER trimmed, because a name that changes silently breaks whatever was pointing at it. `supersedes` names the entry this one takes over from: it is re-statused `superseded` and the act is written to the governance journal, while an id that names nothing refuses the WHOLE write rather than leaving a pointer into empty space.\",\n        \"inputSchema\": {\n          \"properties\": {\n            \"actions\": {\n              \"description\": \"The action names this entry is about — an OPEN set, mint a new one whenever a new kind of experience turns up. They are not checked against a list here on purpose; the safety is at read time, where an unrecognised action fails closed and says so.\",\n              \"items\": {\n                \"type\": \"string\"\n              },\n              \"type\": \"array\"\n            },\n            \"falsify\": {\n              \"default\": \"\",\n              \"description\": \"How somebody could show this entry does NOT hold. Optional by owner ruling (2026-09-01): making it a hard gate produces invented falsifiers, and an invented one cannot be told from a real one, whereas a MISSING one is counted — an entry with neither this nor `instance` comes back `degraded: true`.\",\n              \"type\": \"string\"\n            },\n            \"instance\": {\n              \"default\": \"\",\n              \"description\": \"One case that really happened. Optional for the same reason as `falsify`, and counted the same way.\",\n              \"type\": \"string\"\n            },\n            \"label\": {\n              \"default\": \"\",\n              \"description\": \"A one-line NAME for the entry, at most 40 runes. Over the cap the write is REFUSED with the actual count and the cap, never trimmed: a label is what a reader scans a list by and what a supersede points at, so a name the server quietly edited breaks whatever was pointing at it. Blank is allowed — an entry can be written before it has been named, and an invented name looks exactly like a chosen one.\",\n              \"type\": \"string\"\n            },\n            \"origin\": {\n              \"description\": \"REQUIRED. A subject key, `type:name`, naming WHOSE knowledge this is — `human:Seth` for something the owner told you, `agent:Kyle` for something a member worked out. It is NOT who is writing: the actor comes from your verified token. The distinction is load-bearing — a `human:` origin sorts ahead within its tier and is exempt from the boot-directory count cap. A blank origin, or a type prefix nothing has approved, is refused: there is no default author.\",\n              \"type\": \"string\"\n            },\n            \"residual_risk\": {\n              \"default\": \"\",\n              \"description\": \"What this entry does NOT protect against. It is the field that stops a reader over-reading the claim.\",\n              \"type\": \"string\"\n            },\n            \"short\": {\n              \"description\": \"REQUIRED. The compressed body: the mechanism, and why. THIS is the field that enters a boot context — nothing else here does — so an entry with a blank `short` contributes literally nothing to anybody and is refused.\",\n              \"type\": \"string\"\n            },\n            \"subjects\": {\n              \"description\": \"REQUIRED, at least one. The subject keys this entry is filed under, each shaped `type:name`. An alias resolves onto its subject; a merged-away subject follows to the survivor; a duplicate files one row. A key nobody has used yet is MINTED as a new subject parked `pending` for review and reported back in `pending_entities` — it does not reach anybody's boot directory until somebody approves it. An unapproved type prefix is refused by name rather than minted, and so is a key that is not `type:name` at all.\",\n              \"items\": {\n                \"type\": \"string\"\n              },\n              \"type\": \"array\"\n            },\n            \"supersedes\": {\n              \"default\": \"\",\n              \"description\": \"The id of the entry this one takes over from. That entry is re-statused `superseded` (it is NOT deleted and it keeps its own original) and the act is written to the governance journal with you as the actor. An id that names no entry refuses the whole write: a pointer into empty space is a dead end that looks like a trail.\",\n              \"type\": \"string\"\n            },\n            \"symptoms\": {\n              \"description\": \"REQUIRED. What you would be SEEING when this entry applies — the situation, not a category name. It is the axis a reader finds the entry by, so an entry without it exists and is reachable by nobody. Write the sentence you could have written BEFORE you knew the answer.\",\n              \"type\": \"string\"\n            }\n          },\n          \"required\": [\n            \"symptoms\",\n            \"short\",\n            \"origin\",\n            \"subjects\"\n          ],\n          \"additionalProperties\": false,\n          \"type\": \"object\"\n        },\n        \"name\": \"write_lore_entry\"\n      }"
           }
         }
       }

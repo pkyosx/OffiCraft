@@ -1343,6 +1343,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/lore/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Write ONE lore entry — the entry, the subjects it is filed under, the actions it is about, and the FULL ORIGINAL that outlives every later rewrite, all in one transaction. `symptoms` and `short` are required: `short` is the only field that ever enters a boot context and `symptoms` is the axis a reader finds the entry by, so an entry missing either is not thin, it is unreachable. `falsify` and `instance` are DELIBERATELY optional (owner ruling 2026-09-01: 寬鬆，不當硬門檻) — forcing them produces invented ones, which nothing can count, whereas an empty one can be counted; an entry with neither comes back `degraded: true`, which is a signal to you and not a refusal. `subjects` are subject keys shaped `type:name` (`repo:officraft`, `agent:Kyle`): an alias resolves, a merged-away subject follows to the survivor, an unapproved type prefix is refused BY NAME, and a key nobody has used yet MINTS a new subject parked for review and names it back to you in `pending_entities` — so a typo surfaces in this response instead of in the ontology a month later. `origin` says WHOSE knowledge this is (`human:Seth` for something the owner told you) and is not the same question as who is writing: the actor is taken from your verified token and cannot be asserted here. `label` is a NAME, at most 40 runes; over that is refused with both counts and NEVER trimmed, because a name that changes silently breaks whatever was pointing at it. `supersedes` names the entry this one takes over from: it is re-statused `superseded` and the act is written to the governance journal, while an id that names nothing refuses the WHOLE write rather than leaving a pointer into empty space.
+         * @description Create ONE lore entry (T-33). This is the door every ruling of 2026-09-01 was waiting for: until it existed the station served no way to put a single entry into lore, so the directory was empty, an empty directory is not rendered, and no member had ever seen it.
+         *
+         *     🔴 THE ENTRY AND ITS ORIGINAL ARE ONE TRANSACTION. `short` is what enters a context; the L0 revision is what an agent reads when it stops believing the short version. An entry written without one looks identical in every count, which is exactly the silent loss this ticket exists to end — so either both land or neither does.
+         *
+         *     🔴 WHO IS WRITING IS NOT A BODY FIELD. The actor is the verified token subject. `origin` is a different question — whose knowledge this is — and it IS yours to state.
+         */
+        post: operations["handle_write_lore_entry_api_lore_entries_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/lore/entries/{entry_id}/retire": {
         parameters: {
             query?: never;
@@ -5749,6 +5773,130 @@ export interface components {
              * @default
              */
             reason: string;
+        };
+        /**
+         * LorePendingEntityDTO
+         * @description A subject key that named nothing and was therefore CREATED by this write, parked `pending` for review. It is reported rather than swallowed so a typo shows up here instead of quietly becoming part of the ontology.
+         */
+        LorePendingEntityDTO: {
+            /**
+             * Canonical
+             * @description The subject key exactly as you sent it.
+             */
+            canonical: string;
+            /**
+             * Entity Id
+             * @description The id the new subject was minted under.
+             */
+            entity_id: string;
+            /**
+             * Type
+             * @description The type prefix of the key.
+             */
+            type: string;
+        };
+        /**
+         * LoreWriteDTO
+         * @description Create one lore entry: the six body fields plus the axes it is filed under. The field set is CLOSED — an unknown key is a 422, never a silent drop.
+         */
+        LoreWriteDTO: {
+            /**
+             * Actions
+             * @description The action names this entry is about — an OPEN set, mint a new one whenever a new kind of experience turns up. They are not checked against a list here on purpose; the safety is at read time, where an unrecognised action fails closed and says so.
+             */
+            actions?: string[];
+            /**
+             * Falsify
+             * @description How somebody could show this entry does NOT hold. Optional by owner ruling (2026-09-01): making it a hard gate produces invented falsifiers, and an invented one cannot be told from a real one, whereas a MISSING one is counted — an entry with neither this nor `instance` comes back `degraded: true`.
+             * @default
+             */
+            falsify: string;
+            /**
+             * Instance
+             * @description One case that really happened. Optional for the same reason as `falsify`, and counted the same way.
+             * @default
+             */
+            instance: string;
+            /**
+             * Label
+             * @description A one-line NAME for the entry, at most 40 runes. Over the cap the write is REFUSED with the actual count and the cap, never trimmed: a label is what a reader scans a list by and what a supersede points at, so a name the server quietly edited breaks whatever was pointing at it. Blank is allowed — an entry can be written before it has been named, and an invented name looks exactly like a chosen one.
+             * @default
+             */
+            label: string;
+            /**
+             * Origin
+             * @description REQUIRED. A subject key, `type:name`, naming WHOSE knowledge this is — `human:Seth` for something the owner told you, `agent:Kyle` for something a member worked out. It is NOT who is writing: the actor comes from your verified token. The distinction is load-bearing — a `human:` origin sorts ahead within its tier and is exempt from the boot-directory count cap. A blank origin, or a type prefix nothing has approved, is refused: there is no default author.
+             */
+            origin: string;
+            /**
+             * Residual Risk
+             * @description What this entry does NOT protect against. It is the field that stops a reader over-reading the claim.
+             * @default
+             */
+            residual_risk: string;
+            /**
+             * Short
+             * @description REQUIRED. The compressed body: the mechanism, and why. THIS is the field that enters a boot context — nothing else here does — so an entry with a blank `short` contributes literally nothing to anybody and is refused.
+             */
+            short: string;
+            /**
+             * Subjects
+             * @description REQUIRED, at least one. The subject keys this entry is filed under, each shaped `type:name`. An alias resolves onto its subject; a merged-away subject follows to the survivor; a duplicate files one row. A key nobody has used yet is MINTED as a new subject parked `pending` for review and reported back in `pending_entities` — it does not reach anybody's boot directory until somebody approves it. An unapproved type prefix is refused by name rather than minted, and so is a key that is not `type:name` at all.
+             */
+            subjects: string[];
+            /**
+             * Supersedes
+             * @description The id of the entry this one takes over from. That entry is re-statused `superseded` (it is NOT deleted and it keeps its own original) and the act is written to the governance journal with you as the actor. An id that names no entry refuses the whole write: a pointer into empty space is a dead end that looks like a trail.
+             * @default
+             */
+            supersedes: string;
+            /**
+             * Symptoms
+             * @description REQUIRED. What you would be SEEING when this entry applies — the situation, not a category name. It is the axis a reader finds the entry by, so an entry without it exists and is reachable by nobody. Write the sentence you could have written BEFORE you knew the answer.
+             */
+            symptoms: string;
+        };
+        /**
+         * LoreWriteReceiptDTO
+         * @description What the write actually did, read back from the tables rather than echoed from the request: the new entry's id, the digest of the original that was preserved beside it, the subjects it ended up filed against, any subject it had to mint, and whether it landed degraded.
+         */
+        LoreWriteReceiptDTO: {
+            /**
+             * Degraded
+             * @description True when the entry carries NEITHER a falsifier NOR an instance — it asserts something while offering no way to check it and no case where it happened. It is a signal, not a refusal: the owner ruled those two fields stay optional, and an empty one can be counted whereas an invented one cannot.
+             */
+            degraded: boolean;
+            /**
+             * Entry Id
+             * @description The id of the entry that was created.
+             */
+            entry_id: string;
+            /**
+             * Pending Entities
+             * @description The subjects this write had to MINT because the key named nothing yet. Each is parked `pending` and reaches nobody's boot directory until it is approved. An empty list means every key you sent already named a subject.
+             */
+            pending_entities: components["schemas"]["LorePendingEntityDTO"][];
+            /**
+             * Revision Id
+             * @description The id of the L0 revision row holding the full original. It is not optional and never zero: an entry without one would look identical in every context and every count, and the loss would only surface when somebody went looking for the original.
+             */
+            revision_id: number;
+            /**
+             * Sha256
+             * @description The digest of the preserved original, so a later reader can tell that what it is holding is what was written.
+             */
+            sha256: string;
+            /**
+             * Subject Ids
+             * @description The entity ids the entry was actually filed against, after aliases resolved, merges were followed and duplicates collapsed. Compare it with what you sent when you want to know which of your keys were the same subject.
+             */
+            subject_ids: string[];
+            /**
+             * Superseded
+             * @description The id of the entry this one took over from, empty when it took over from nothing.
+             * @default
+             */
+            superseded: string;
         };
         /**
          * LoginDTO
@@ -12150,6 +12298,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LessonsPatchResultDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_write_lore_entry_api_lore_entries_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoreWriteDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreWriteReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
