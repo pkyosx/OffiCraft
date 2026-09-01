@@ -131,8 +131,20 @@ func TestLoreHeadingEveryMemberReadsOnBoot(t *testing.T) {
 		}
 	}
 
-	if a, b := headings["staff（成員）"], headings["outsource（外包 worker）"]; a != b {
-		t.Errorf("兩條開機路徑印出不同的傳承段標題：\n  staff = %q\n  outsource = %q\n"+
-			"同一段在兩份文件裡叫不同名字，等於同一件事被當成兩件事讀。", a, b)
-	}
+	// 🔴 THERE USED TO BE A FOURTH CHECK HERE — "the two boot paths print the
+	// same heading" — AND IT IS GONE BECAUSE IT COULD NOT FAIL. Both documents
+	// are assembled by ONE function reading ONE constant, so the two strings are
+	// the same object's output twice; and the other way it could have differed —
+	// one path not folding the section at all — dies earlier, in
+	// loreHeadingInBootDoc's t.Fatalf, so the comparison is never reached.
+	//
+	// It was removed rather than annotated because a check that cannot produce a
+	// different outcome is decoration, and decoration in a guard is worse than an
+	// absent check: it reads, to the next person, as coverage that exists. That
+	// is the exact failure this whole ticket is about. (Found in review by Kyle.)
+	//
+	// What actually holds the property: one assembler, one constant — structure,
+	// not assertion. If a per-path axis ever comes back (§ the actorID parameter
+	// that foldLoreSectionWithSurfacing still takes), this comparison becomes
+	// meaningful and should be restored WITH a mutant proving it fails.
 }
