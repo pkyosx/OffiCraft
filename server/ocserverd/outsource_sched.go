@@ -6,12 +6,19 @@ package main
 //   * outsourceDecide — the PURE admission core (the reconcileDecide twin):
 //     (queue snapshot, per-type manual specs, live worker counts, the global
 //     cap) → the ordered assignment list. All IO lives in runOutsourceTick.
-//   * the 30s cadence tick (startOutsourceCadence) + the event-driven single
-//     tick (outsourceTickNow — fired when create_task lands an outsource
-//     task, so an assignment never waits a full period).
-//   * --no-outsource (serve flag) disables the producer WHOLESALE — cadence
-//     AND the event-driven tick — the --no-reconcile mirror: a shadow server
-//     must never mint workers against the production queue.
+//   * runOutsourceTick — the OUTSOURCE HALF of the 30s cadence tick. Since
+//     T-14 item 5 there is one cadence loop for both populations
+//     (startLifecycleCadence, lifecycle_tick.go); this function is what it
+//     calls second, after the reconcile half has finished and dropped its
+//     lock. It is also the event-driven single tick's body (outsourceTickNow —
+//     fired when create_task lands an outsource task, so an assignment never
+//     waits a full period).
+//   * --no-outsource (serve flag) disables the producer WHOLESALE — its half of
+//     the cadence AND the event-driven tick — the --no-reconcile mirror: a
+//     shadow server must never mint workers against the production queue.
+//     🔴 The flag is read at the CALL SITE (runLifecycleTick) and in
+//     outsourceTickNow, never inside runOutsourceTick — see the ruling in
+//     lifecycle_tick.go and the pins in lifecycle_tick_test.go.
 //
 // Admission (contract §B.4, owner rulings ③/H6/H7):
 //   * candidates: status='not_started' ∧ executor_kind='outsource' ∧
@@ -41,12 +48,7 @@ import (
 	"os"
 	"sort"
 	"strings"
-	"time"
 )
-
-// outsourceCadenceSecs is the scheduler tick period — sized like the
-// reconcile cadence (§B.4: 30s scan + event-driven immediate tick).
-const outsourceCadenceSecs = 30.0
 
 // ── pure decision core (the reconcileDecide twin) ────────────────────────────
 
@@ -681,17 +683,11 @@ func (s *apiServer) runOutsourceTick(now float64) {
 
 // ── the cadence + the event-driven seam ──────────────────────────────────────
 
-// startOutsourceCadence mounts the 30s scheduler loop (sleep-then-tick, the
-// startReconcileCadence twin). Never called when --no-outsource is set.
-func (s *apiServer) startOutsourceCadence(period time.Duration) {
-	go func() {
-		for {
-			time.Sleep(period)
-			s.runOutsourceTick(nowSecs())
-		}
-	}()
-	outsourceLog("cadence started (period=%gs)", period.Seconds())
-}
+// The scheduler's own 30s goroutine (startOutsourceCadence) is gone: T-14
+// item 5 folded it into startLifecycleCadence (lifecycle_tick.go), the one
+// producer loop, which calls this tick after the reconcile half and skips it
+// when --no-outsource is set. The flag is deliberately NOT read inside this
+// function — see the ruling in lifecycle_tick.go.
 
 // outsourceTickNow is the EVENT-DRIVEN immediate tick — the create_task seam
 // (an outsource task just landed unassigned; assign it now rather than up to

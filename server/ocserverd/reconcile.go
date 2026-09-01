@@ -18,7 +18,9 @@ package main
 //     the fail-closed START payload fold+mint. A refused dispatch keeps the
 //     PRIOR state so the next tick retries (never record an undelivered
 //     command).
-//   * the 30s cadence tick (runReconcileTick) with the four pre-decide roster
+//   * the RECONCILE HALF of the 30s cadence tick (runReconcileTick — since
+//     T-14 item 5 one loop runs both halves in order, startLifecycleCadence in
+//     lifecycle_tick.go), with the four pre-decide roster
 //     passes (auto-recycle stamp / recycle loop-break / stale-stopping clear /
 //     offline-warden uninstall-intent consumption)
 //     and the event-driven single-member tick (reconcileMemberNow — the
@@ -37,7 +39,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // ── config (spec/lifecycle.md §4.4 — defaults are contract) ──────────────────
@@ -98,10 +99,6 @@ func defaultReconcileConfig() reconcileConfig {
 		ZombieConfirmGrace: 2 * WakingTTLSecs,
 	}
 }
-
-// reconcileCadenceSecs is the producer tick period (§4.1), not a member-presence
-// heartbeat.
-const reconcileCadenceSecs = 30.0
 
 // ── vocabulary ───────────────────────────────────────────────────────────────
 
@@ -2723,19 +2720,11 @@ func (s *apiServer) runReconcileTick(now float64) {
 	}
 }
 
-// startReconcileCadence mounts the always-on 30s producer loop (§4.1) — the
-// Python mount_reconcile_producer twin. The first tick fires one full period
-// after start (sleep-then-tick, matching the asyncio cadence). Never called
-// when --no-reconcile is set.
-func (s *apiServer) startReconcileCadence(period time.Duration) {
-	go func() {
-		for {
-			time.Sleep(period)
-			s.runReconcileTick(nowSecs())
-		}
-	}()
-	reconcileLog("cadence started (period=%gs)", period.Seconds())
-}
+// The 30s cadence that used to mount runReconcileTick on its own goroutine
+// (startReconcileCadence) is gone: T-14 item 5 merged it with the outsource
+// producer's identical loop into the single startLifecycleCadence
+// (lifecycle_tick.go), which runs this half first and the outsource half
+// after, each under its own lock and never both at once.
 
 // reconcileMemberNow is the EVENT-DRIVEN immediate reconcile for ONE member —
 // the activate/deactivate/uninstall click seam (producer.py

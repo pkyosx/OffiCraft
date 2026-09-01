@@ -494,10 +494,13 @@ The server owns desired-state reconciliation; the warden is a stateless executor
 
 ### 4.1 Cadence and candidates
 
-- A background tick MUST run every **30 s** and is **always on in production** —
-  the reconcile producer is mounted unless the serve flag `--no-reconcile` is
-  passed. That flag is the shadow-deployment kill-switch for THIS producer: it disables it
-  WHOLESALE (the cadence loop AND every event-driven warden-command dispatch it owns), which
+- A background tick MUST run every **30 s** and is **always on in production**. Since
+  T-14 item 5 there is ONE cadence loop, not two: it runs the reconcile half
+  (`runReconcileTick`) and then the outsource half (`runOutsourceTick`), each under its own
+  lock and never both at once, and each half is skipped when ITS serve flag is passed.
+  `--no-reconcile` is the shadow-deployment kill-switch for THIS producer: it disables it
+  WHOLESALE (its half of the cadence tick AND every event-driven warden-command dispatch it
+  owns), which
   covers **every command this producer DISPATCHES** at a staff-member or warden row — START,
   STOP, UNINSTALL, and the machine-upgrade `update` kick (`api_machines.go`). Every
   member-facing HTTP verb funnels into those seams.
@@ -514,7 +517,7 @@ The server owns desired-state reconciliation; the warden is a stateless executor
   oracle, spec/sse.md §7).
   (b) **Outsource workers.** Worker spawn and stop dispatch (`worker_spawn.go`) never consults
   `--no-reconcile`; the mirror flag `--no-outsource` gates only the assignment PRODUCER
-  (`outsourceTickNow`, plus not mounting that cadence). Everything else that reaches
+  (`outsourceTickNow`, plus that producer's half of the cadence tick). Everything else that reaches
   `respawnWorkerForOwnerOp` / `enqueueWorkerStop` consults **neither** flag — the owner verbs
   (restart, model change, relocate, stop, refocus), a task terminate that dismisses its
   workers, and the worker's own `report_stopped` — so a shadow server with both flags set
@@ -525,8 +528,8 @@ The server owns desired-state reconciliation; the warden is a stateless executor
   enqueues nothing and is still gated); the row stamps the decide pass itself performs
   (`stampWakeObservability`, `stampMemberPlacementBlocked`, and — T-14 #4 — `armDecidedHandover`,
   which opens a relocate wind-down epoch on the row); the one HTTP kick that borrows it
-  (`api_machines.go`); and — because the cadence is simply not mounted — every roster pass
-  that cadence runs BEFORE it decides anything (context-high recycle stamping,
+  (`api_machines.go`); and — because the whole reconcile HALF of the cadence tick is skipped —
+  every roster pass that half runs BEFORE it decides anything (context-high recycle stamping,
   recycle-marker and stale-stopping clears, uninstall-intent consumption,
   lapsed-receipt sweep). Each of those passes persists real member rows. A
   rewrite that gates only the dispatches leaves every one of them running against real data.

@@ -102,7 +102,7 @@ const (
 
 // WakingTTLSecs: a phase="waking" signal this old (seconds), with no online
 // session having come up, falls back to offline — the wake failed. Sized to
-// span several reconcileCadenceSecs producer ticks, so a wake in flight is
+// span several lifecycleCadenceSecs producer ticks, so a wake in flight is
 // re-examined repeatedly before it is declared failed. Keep it a comfortable
 // multiple of that cadence; the ratio is deliberately NOT written down here,
 // because a number in this sentence goes stale the moment either constant

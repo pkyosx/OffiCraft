@@ -44,7 +44,7 @@ const receiptMissingReasonCode = "receipt_missing"
 // nothing), and inventing one from a single host would be worse than naming the
 // derivation. Worst honest round trip: claudeProbeBudget 20s + nudgeSettle 1s
 // (spawn) or the ~5s kill ladder (stop), + commandReportTimeout 5s for the POST
-// itself, + up to one reconcileCadenceSecs 30s of sweep granularity ≈ 56s. 90s
+// itself, + up to one lifecycleCadenceSecs 30s of sweep granularity ≈ 56s. 90s
 // leaves a full extra tick of slack on top, so a stamp means the receipt is
 // genuinely gone rather than merely slow. Erring long is the safe direction: a
 // late stamp costs nothing, a premature one would cry wolf on a healthy fleet.

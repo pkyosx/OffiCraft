@@ -641,24 +641,22 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 	// The MCP tools/call loopback re-enters this very mux (auth gate + RBAC
 	// choke + param binding included) — wire it back onto the server.
 	api.loopback = handler
-	// Reconcile producer (reconcile.go): the 30s cadence is ALWAYS ON unless
-	// --no-reconcile (the shadow-deployment kill-switch — it also disables the
-	// event-driven dispatch seams via api.noReconcile).
+	// The lifecycle producer cadence (lifecycle_tick.go): ONE 30s loop running
+	// the reconcile half (reconcile.go) then the outsource half
+	// (outsource_sched.go), each under its own lock. Both kill switches survive
+	// the merge unchanged in meaning — each one skips ITS half inside the tick,
+	// and still disables that producer's event-driven seams (api.noReconcile /
+	// api.noOutsource). The loop is mounted either way; with both flags set its
+	// body is two boolean tests.
 	api.noReconcile = noReconcile
-	if noReconcile {
-		fmt.Fprintln(out, "[ocserverd] --no-reconcile: reconcile producer disabled (no cadence, no warden-command dispatch)")
-	} else {
-		api.startReconcileCadence(time.Duration(reconcileCadenceSecs * float64(time.Second)))
-	}
-	// Outsource assignment scheduler (outsource_sched.go; M3 Phase 2): the 30s
-	// cadence is ALWAYS ON unless --no-outsource (which also disables the
-	// event-driven create_task tick via api.noOutsource).
 	api.noOutsource = noOutsource
-	if noOutsource {
-		fmt.Fprintln(out, "[ocserverd] --no-outsource: outsource-assignment scheduler disabled (no cadence, no event-driven assignment)")
-	} else {
-		api.startOutsourceCadence(time.Duration(outsourceCadenceSecs * float64(time.Second)))
+	if noReconcile {
+		fmt.Fprintln(out, "[ocserverd] --no-reconcile: reconcile producer disabled (no cadence half, no warden-command dispatch)")
 	}
+	if noOutsource {
+		fmt.Fprintln(out, "[ocserverd] --no-outsource: outsource-assignment scheduler disabled (no cadence half, no event-driven assignment)")
+	}
+	api.startLifecycleCadence(time.Duration(lifecycleCadenceSecs * float64(time.Second)))
 	// Auto-update cadence (auto_update.go): ALWAYS mounted — the OFF-default
 	// `updater.auto_update` setting gates action, so an owner arming it via
 	// PATCH /api/settings needs no restart. An unarmed tick is two mutex reads.

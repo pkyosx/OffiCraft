@@ -1297,18 +1297,31 @@ type producerLoopRuling struct {
 	Why   string
 }
 
-// lifecycleTickProducers are the two functions that turn a roster snapshot into
+// lifecycleTickProducers are the functions that turn a roster snapshot into
 // decisions. They are named as strings, which is a stale-name risk — so the gate
-// FATALS if either name resolves to no function declaration, rather than
+// FATALS if any name resolves to no function declaration, rather than
 // quietly scanning one producer or none.
 //
-// ⚠️ TWO NAMES IS A CLAIM ABOUT A SET, so the set is built rather than asserted.
-// "these are the only producers" is exactly the shape of sentence this ticket
-// has been burned by, so TestLifecycleTickProducerSetIsDerived enumerates every
-// `*Tick` method on apiServer and requires each one to be either a producer here
-// or an entry in lifecycleNonRosterTicks with a reason. A new tick cannot be
-// added to this package without that check saying something.
-var lifecycleTickProducers = []string{"runReconcileTick", "runOutsourceTick"}
+// ⚠️ A NAME LIST IS A CLAIM ABOUT A SET, so the set is built rather than
+// asserted. "these are the only producers" is exactly the shape of sentence this
+// ticket has been burned by, so TestLifecycleTickProducerSetIsDerived enumerates
+// every `*Tick` method on apiServer and requires each one to be either a
+// producer here or an entry in lifecycleNonRosterTicks with a reason. A new tick
+// cannot be added to this package without that check saying something.
+//
+// 🔴 T-14 item 5 added the THIRD name, and it is deliberately not the shape the
+// warning below is about. runLifecycleTick is the merged cadence entry — it
+// replaced two 30s goroutines with one ordered tick — and its whole body is two
+// flag-gated calls to the halves already on this list. It reads no rows and
+// iterates nothing, so it brings no loop rulings with it. It is listed as a
+// producer rather than excused in lifecycleNonRosterTicks for one reason: being
+// on this list is what makes TestTickProducersHaveNoUndeclaredRosterLoop watch
+// it, so a roster loop written into the merged entry — the newest, most obvious
+// place to put one — has to be declared like any other. Excusing it as a
+// non-roster tick would be true today and unwatched tomorrow.
+var lifecycleTickProducers = []string{
+	"runLifecycleTick", "runReconcileTick", "runOutsourceTick",
+}
 
 // lifecycleNonRosterTicks are the OTHER cadence/loop ticks in this package —
 // the ones that are not pre-decide roster producers — each with the reason it
