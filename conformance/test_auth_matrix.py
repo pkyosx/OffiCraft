@@ -1160,13 +1160,15 @@ MATRIX: dict[str, Route] = {
         ),
         body={"edits": [{"old": "", "new": "conformance patch probe"}]},
     ),
-    # ── T-33 lore governance ────────────────────────────────────────────────
-    # Both rows aim at an entry id NOTHING carries, so every at-or-above-floor
-    # cell is a 404. That is deliberate and it is not a weaker test: this
-    # station has no route that CREATES a lore entry yet, so a 200 face cannot
-    # be built over the wire at all — and the choke these rows exist to pin is
-    # the FLOOR, which is decided before the id is ever looked up. A warden is
-    # refused 403 (derived) while an agent gets as far as the lookup.
+    # ── T-33 lore ────────────────────────────────────────────────────────────
+    # The two governance rows aim at an entry id NOTHING carries, so every
+    # at-or-above-floor cell is a 404. That stays deliberate even now that a
+    # create route exists: the choke these rows pin is the FLOOR, which is
+    # decided before the id is ever looked up, and a matrix cell that had to
+    # seed an entry first would be testing the seeding as much as the floor. A
+    # warden is refused 403 (derived) while an agent gets as far as the lookup.
+    # The 200 faces of all three routes are pinned in test_rest_happy.py, which
+    # is where a row is allowed to do setup.
     #
     # 🔴 WHAT THIS ROW DOES NOT COVER, said plainly so nobody reads more into a
     # green than it carries: the per-REASON split (an agent may file `expired`
@@ -1190,6 +1192,21 @@ MATRIX: dict[str, Route] = {
         path="/api/lore/entries/e-conf-no-such-entry/revive",
         body={"reason": "conformance revive probe"},
         overrides={"owner": 404},
+    ),
+    # 🔴 THE WRITE ROW HAS NO OVERRIDES, AND THAT ASYMMETRY IS THE POINT: unlike
+    # its two siblings it needs no pre-existing entry, so every at-or-above-floor
+    # cell is a real 200 that really wrote something. The floor is principalAgent
+    # because writing down what you just learned is an agent's own act — the
+    # owner's ruling of 2026-09-01 was that review happens AFTER the write, and a
+    # higher floor here would have put him back in front of every one of them.
+    "POST /api/lore/entries": Route(
+        requires="agent",
+        body={
+            "symptoms": "the authz matrix is probing this row",
+            "short": "a floor is decided before the body is ever read",
+            "origin": "agent:conformance-authz",
+            "subjects": ["agent:conformance-authz"],
+        },
     ),
     # ── insight (T-3809) ─────────────────────────────────────────────────────
     # The role journal's third block. Its authz face is the lessons face with
