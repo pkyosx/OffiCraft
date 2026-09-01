@@ -340,3 +340,47 @@ func TestJournalWriteFailureDoesNotBlockTheBoot(t *testing.T) {
 		t.Error("the dispatched document lost its 對象目錄 when the journal failed")
 	}
 }
+
+// TestBootstrapWithoutASigningSecretJournalsNothing pins the case the handler's
+// own comment always claimed and the code did not implement: a bootstrap that
+// names a member but mints NO TOKEN is not a delivery.
+//
+// 🔴 WHY THIS IS A REAL CASE AND NOT A CONTRIVED ONE. Minting needs a member AND
+// a signing secret. A station running without a secret answers 200, hands back
+// the boot document, and sets `token: null` — and NOBODY CAN BOOT ON THAT, there
+// is no credential to connect with. The journal used to key off `member != nil`,
+// so it filed those as real wakes: precisely the non-event the whole journal
+// exists to keep out, sitting in the one table that is supposed to answer "who
+// actually saw this".
+//
+// ⚠️ FOUND IN REVIEW BY A HUMAN-DRIVEN READ (Kyle), NOT BY A TEST. Seven other
+// tests covered this file and every one of them ran on a server that happens to
+// have a secret, so the branch was never exercised. That is the reason this test
+// exists rather than a comment: the next person needs the machine to say it.
+func TestBootstrapWithoutASigningSecretJournalsNothing(t *testing.T) {
+	s := newWorkerTestServer(t)
+	seedLoreDirectoryFixture(t, s)
+	s.secret = nil
+
+	rec := httptest.NewRecorder()
+	s.HandleBootstrapApiBootstrapPost(rec, taskReq(t, "POST", "/api/bootstrap",
+		map[string]any{"member_id": seedMiraID, "role": seedRoleAssistant},
+		wireOwnerID, "owner"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("bootstrap without a secret: %d %s", rec.Code, rec.Body.String())
+	}
+	got := decodeBody[bootstrapDTO](t, rec)
+	if got.Token != nil {
+		t.Fatalf("a station with no secret must not mint a token — the premise of "+
+			"this test is gone, re-read the handler (token=%q)", *got.Token)
+	}
+	// Positive control: the directory really is in this response, so the absence
+	// of a journal row below cannot be explained by "there was nothing to record".
+	if !strings.Contains(got.Context, loreSectionH1) {
+		t.Fatalf("this response carries no 對象目錄 — the assertion below would be vacuous")
+	}
+	if rows := readLoreRecalls(t, s); len(rows) != 0 {
+		t.Fatalf("a bootstrap that minted no token filed %d recall row(s) — "+
+			"沒有人拿得到憑證，那份文件不會被任何 agent 讀到，這條紀錄是假的", len(rows))
+	}
+}
