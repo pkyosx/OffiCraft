@@ -2,11 +2,18 @@
 
 進入 `e2e_test/` 時讀本檔；repo-wide 規則在根目錄 `CLAUDE.md`。本檔只保留 e2e harness 會讓實作者猜錯的隔離、生命週期與驗證邊界。
 
+## 0. member browser contract（T-45/B）
+
+- OffiCraft 成員做 e2e **不使用 cmux browser**。正式路徑是本目錄的隔離 Playwright：`bash e2e_test/run_all.sh`，或 `setup.sh` → Playwright → `teardown.sh`。
+- `agent.browsers.getForUrl(...)` 的 `No browser is available` 與 `agent.browsers.list()` 的 `[]` 是 cmux／browser-tool 路徑的結果，不是這支 e2e server 的 setup 指示；不要重試 `cmux browser open`。改走上面的 Playwright 路徑，失敗時保留原始輸出。
+- `run_all.sh` 對明確的 `OC_E2E_BROWSER_BACKEND=cmux` 會印具名 FATAL 並拒絕執行；這是防止未來把不支援的 backend 接回來，不宣稱能攔截 repo 外的 cmux CLI。
+
 ## 1. target 與一次 run
 
-- Go `ocserverd` 是唯一 target；入口是 `bash e2e_test/run_all.sh`。每輪使用隔離 port（預設由 e2e config 指定）、repo-local SQLite、臨時 owner password、fresh DB、exact-PID teardown；不能碰 repo 根 config 或 production server。產生隔離 `oc.toml` 時已有檔案要拒絕覆蓋，因為它可能正指向正式 DB。
+- Go `ocserverd` 是唯一 target；入口是 `bash e2e_test/run_all.sh`。每輪使用隔離 port（預設由 e2e config 指定）、repo-local SQLite、臨時 owner password、fresh DB、每輪唯一的非 fleet tmux socket/session，以及 exact-session/exact-PID teardown；不能碰 repo 根 config 或 production server。產生隔離 `oc.toml` 時已有檔案要拒絕覆蓋，因為它可能正指向正式 DB。
+- `setup.sh`、Playwright 與 `teardown.sh` 可以分屬不同 agent exec。setup 以 `lib/tmux.sh` 將 server 放進 `oc-e2e-*` 私有 tmux namespace，並把 socket/session 寫進 `.state/`；不能改回只在 setup shell 內存活的普通背景 child，也不能使用 fleet 的 `-L officraft` socket。缺 tmux 或殘留 identity 時要在建立 server 前大聲拒絕。
 - setup 必須在 server 前 stage 全部 embed assets：SPA→`webdist`、docs→`docsdist`、seeds→`seedsdist`、binaries/catalog→`bindist`，再 fresh build/migrate/serve。缺一項可能讓 server 起得來但 agent boot、MCP catalog 或 binary route 假綠／假紅。
-- 失敗時 teardown 仍跑，但只處理本輪捕獲的 listener/process；不能用模糊 process kill。prod safety 依 `lib/common.sh` 從現行 source 取得 production ports、identity、residue 與 explicit isolation/destructiveness ack，不能把某個歷史 port 當唯一防線。
+- 失敗時 teardown 仍跑，但只處理本輪 state 記錄的 tmux session、listener/process；不能用模糊 process kill。prod safety 依 `lib/common.sh` 從現行 source 取得 production ports、identity、residue 與 explicit isolation/destructiveness ack，不能把某個歷史 port 當唯一防線。
 
 ## 2. CI、本機與 live-agent 分界
 
