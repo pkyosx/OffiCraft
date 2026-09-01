@@ -1216,6 +1216,30 @@ MATRIX: dict[str, Route] = {
         requires="agent",
         body={},
     ),
+    # 🔴 THE TWO READ ROWS AIM AT AN ENTRY THAT DOES NOT EXIST, so every
+    # at-or-above-floor cell is a 404 — the floor is decided before the id is
+    # ever looked up, which is exactly what these rows pin. The 200 faces are in
+    # test_rest_happy.py, which is where a row may seed one first.
+    "GET /api/lore/entries/{entry_id}": Route(
+        requires="agent",
+        path="/api/lore/entries/lore-conf-no-such-entry",
+        overrides={
+            "agent_self": 404,
+            "agent_other": 404,
+            "admin_agent": 404,
+            "owner": 404,
+        },
+    ),
+    "GET /api/lore/entries/{entry_id}/revisions/{revision_id}": Route(
+        requires="agent",
+        path="/api/lore/entries/lore-conf-no-such-entry/revisions/1",
+        overrides={
+            "agent_self": 404,
+            "agent_other": 404,
+            "admin_agent": 404,
+            "owner": 404,
+        },
+    ),
     # ── insight (T-3809) ─────────────────────────────────────────────────────
     # The role journal's third block. Its authz face is the lessons face with
     # the task_type axis removed — three rows, same three floors, same handler

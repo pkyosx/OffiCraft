@@ -4306,6 +4306,45 @@
           "type": "object"
         },
         "name": "search_lore_entries"
+      },
+    {
+        "description": "Read ONE lore entry in full, together with the ORIGINAL that was preserved beside it — hop ③ of the design, and the reason 「原始資訊可以保留讓我們可以重新判定」 is a mechanism rather than a sentence. `short` is the compressed line that enters a boot context; `original` is the complete text of the entry as it was last written, so an agent that has stopped believing the short version has somewhere to go. `sha256` digests that original, so a reader can tell that what it is holding is what was stored. `revisions` is a CATALOGUE — id, when, who, and how many characters that write REMOVED — and carries no text at all, because a list is how you choose a revision and choosing does not need the prose; fetch one by id from `/api/lore/entries/{entry_id}/revisions/{revision_id}`. 🔴 ADDRESSING IS ENTIRELY IN THE PATH AND THERE ARE NO QUERY PARAMETERS, deliberately: an undeclared query parameter is silently ignored on every route this station serves, so `?revision=3` would have been a way to ask for a specific revision and quietly receive the latest one. A wrong path is a 404, which is loud. 404 when no entry carries that id.",
+        "inputSchema": {
+          "properties": {
+            "entry_id": {
+              "description": "The entry to read. An id nothing carries is a flat 404.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "entry_id"
+          ],
+          "additionalProperties": false,
+          "type": "object"
+        },
+        "name": "get_lore_entry"
+      },
+    {
+        "description": "Read ONE revision of a lore entry in full — the exact text that was stored at that moment, plus its `sha256`. `shrink_chars` says how many characters that write removed compared with the one before it, which is how a compression that quietly hollowed an entry out becomes visible at all (the entry count does not move when an entry is emptied). 🔴 THE ENTRY ID IN THE PATH IS A CONSTRAINT, NOT DECORATION: revision ids are global, so a revision that belongs to a DIFFERENT entry is a 404 rather than being served through this address — a mistyped entry id must not hand you somebody else's text with nothing to signal it. 404 when the entry does not exist, or when it does and that revision is not one of its own.",
+        "inputSchema": {
+          "properties": {
+            "entry_id": {
+              "description": "The entry the revision must belong to.",
+              "type": "string"
+            },
+            "revision_id": {
+              "description": "The revision id, from the entry's `revisions` catalogue.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "entry_id",
+            "revision_id"
+          ],
+          "additionalProperties": false,
+          "type": "object"
+        },
+        "name": "get_lore_revision"
       }
   ]
 }

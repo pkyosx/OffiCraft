@@ -1030,6 +1030,39 @@ def _lore_fresh_subject(_ctx: HCtx) -> str:
     return _LORE_FRESH_SUBJECT
 
 
+def _lore_revision_path(ctx: HCtx) -> str:
+    """Write an entry, read its revision catalogue, and address the one revision
+    it has. The id is READ BACK rather than assumed to be 1: revision ids are
+    global, so hard-coding one would pass or fail depending on what else ran."""
+    entry_id = _lore_entry(ctx)
+    r = ctx.client.get(
+        f"/api/lore/entries/{entry_id}",
+        headers={"Authorization": f"Bearer {ctx.agent.token}"},
+    )
+    assert r.status_code == 200, f"read back: {r.status_code} {r.text}"
+    revs = r.json()["revisions"]
+    assert len(revs) == 1, f"a freshly written entry must have exactly one revision: {revs}"
+    return f"/api/lore/entries/{entry_id}/revisions/{revs[0]['revision_id']}"
+
+
+def _check_lore_read(_ctx: HCtx, r: httpx.Response) -> None:
+    d = r.json()
+    # 🔴 THE ORIGINAL. `short` is what enters a boot context and it is lossy on
+    # purpose; this field is the whole reason the ticket exists. An entry served
+    # with an empty one would look correct in every other respect.
+    assert d["original"], f"the entry was served with NO original: {d}"
+    for field in ("label", "symptoms", "short", "falsify", "instance", "residual_risk"):
+        assert f"{field}:" in d["original"], (
+            f"the original drops the {field!r} section — a renderer that skips blanks "
+            f"cannot tell 'never written' from 'deleted': {d['original']!r}"
+        )
+    assert len(d["sha256"]) == 64, d
+    assert d["written_by"], d
+    assert len(d["revisions"]) == 1, d
+    # The catalogue carries NO text: a list is how you choose a revision.
+    assert "body" not in d["revisions"][0], d["revisions"][0]
+
+
 def _check_lore_search(_ctx: HCtx, r: httpx.Response) -> None:
     d = r.json()
     # 🔴 `applied` IS NOT OPTIONAL AND THIS IS WHERE THAT IS PINNED. The tier
@@ -1095,6 +1128,26 @@ HAPPY: dict[str, Happy] = {
             "subjects": [_lore_fresh_subject(ctx)],
         },
         check=_check_lore_write,
+    ),
+    # 🔴 HOP ③ — the route the ticket was opened for. The assertion that matters
+    # is `original`: the entry's full text as written, which `short` is a lossy
+    # compression of. Without it, 「原始資訊可以保留」 is true of the database and
+    # false of every agent.
+    "GET /api/lore/entries/{entry_id}": Happy(
+        identity="agent",
+        path=lambda ctx: f"/api/lore/entries/{_lore_entry(ctx)}",
+        check=_check_lore_read,
+    ),
+    "GET /api/lore/entries/{entry_id}/revisions/{revision_id}": Happy(
+        identity="agent",
+        path=_lore_revision_path,
+        check=lambda _c, r: _expect(
+            r,
+            lambda d: d["body"]
+            and len(d["sha256"]) == 64
+            and d["shrink_chars"] == 0
+            and bool(d["actor_id"]),
+        ),
     ),
     "POST /api/lore/entries/{entry_id}/retire": Happy(
         identity="agent",

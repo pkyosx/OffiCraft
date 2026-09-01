@@ -1367,6 +1367,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/lore/entries/{entry_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read ONE lore entry in full, together with the ORIGINAL that was preserved beside it — hop ③ of the design, and the reason 「原始資訊可以保留讓我們可以重新判定」 is a mechanism rather than a sentence. `short` is the compressed line that enters a boot context; `original` is the complete text of the entry as it was last written, so an agent that has stopped believing the short version has somewhere to go. `sha256` digests that original, so a reader can tell that what it is holding is what was stored. `revisions` is a CATALOGUE — id, when, who, and how many characters that write REMOVED — and carries no text at all, because a list is how you choose a revision and choosing does not need the prose; fetch one by id from `/api/lore/entries/{entry_id}/revisions/{revision_id}`. 🔴 ADDRESSING IS ENTIRELY IN THE PATH AND THERE ARE NO QUERY PARAMETERS, deliberately: an undeclared query parameter is silently ignored on every route this station serves, so `?revision=3` would have been a way to ask for a specific revision and quietly receive the latest one. A wrong path is a 404, which is loud. 404 when no entry carries that id.
+         * @description Read ONE lore entry plus its preserved original (T-33, hop ③).
+         *
+         *     🔴 THIS IS THE HOP THE TICKET WAS OPENED FOR. Everything else in this feature compresses; this is the only route that hands back what was compressed AWAY. Without it, 「原始資訊可以保留」 is true of the database and false of every agent.
+         *
+         *     🔴 NO QUERY PARAMETERS, AND THAT IS THE DESIGN. An undeclared query parameter is silently ignored on every route this station serves, so `?revision=3` would let a caller ask for one revision and quietly receive another. Addressing is entirely in the path, where a mistake is a 404.
+         */
+        get: operations["handle_get_lore_entry_api_lore_entries__entry_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lore/entries/{entry_id}/revisions/{revision_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read ONE revision of a lore entry in full — the exact text that was stored at that moment, plus its `sha256`. `shrink_chars` says how many characters that write removed compared with the one before it, which is how a compression that quietly hollowed an entry out becomes visible at all (the entry count does not move when an entry is emptied). 🔴 THE ENTRY ID IN THE PATH IS A CONSTRAINT, NOT DECORATION: revision ids are global, so a revision that belongs to a DIFFERENT entry is a 404 rather than being served through this address — a mistyped entry id must not hand you somebody else's text with nothing to signal it. 404 when the entry does not exist, or when it does and that revision is not one of its own.
+         * @description Read ONE revision of a lore entry in full (T-33, hop ③).
+         *
+         *     🔴 SCOPED TO THE ENTRY IN THE PATH. Revision ids are global; a lookup by id alone would serve any entry's text through any entry's address, so a mistyped entry id would hand back somebody else's original with nothing to signal it. Here that is a 404.
+         */
+        get: operations["handle_get_lore_revision_api_lore_entries__entry_id__revisions__revision_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/lore/entries/{entry_id}/retire": {
         parameters: {
             query?: never;
@@ -5741,6 +5787,97 @@ export interface components {
             text: string;
         };
         /**
+         * LoreEntryDetailDTO
+         * @description One lore entry in full, plus the original preserved beside it.
+         */
+        LoreEntryDetailDTO: {
+            /**
+             * Actions
+             * @description The entry's action names.
+             */
+            actions: string[];
+            /**
+             * Degraded
+             * @description True when the entry has neither a falsifier nor an instance.
+             */
+            degraded: boolean;
+            /**
+             * Entry Id
+             * @description The entry's id.
+             */
+            entry_id: string;
+            /**
+             * Falsify
+             * @description How to show this entry does NOT hold. May be empty — optional by ruling.
+             */
+            falsify: string;
+            /**
+             * Instance
+             * @description One case that really happened. May be empty — optional by ruling.
+             */
+            instance: string;
+            /**
+             * Label
+             * @description The entry's one-line name.
+             */
+            label: string;
+            /**
+             * Origin
+             * @description Whose knowledge this is (`human:Seth`, `agent:Kyle`).
+             */
+            origin: string;
+            /**
+             * Original
+             * @description 🔴 THE FULL TEXT OF THE ENTRY AS IT WAS LAST WRITTEN — every one of the six body fields, named, blank ones included. This is what the whole ticket means by keeping the original: `short` is lossy by design, and without this an agent that doubts it has nowhere to go. Empty ONLY for an entry written before this mechanism existed; a normal entry always has one, because the entry and its first revision are one transaction.
+             */
+            original: string;
+            /**
+             * Residual Risk
+             * @description What this entry does NOT protect against.
+             */
+            residual_risk: string;
+            /**
+             * Revisions
+             * @description The revision catalogue, oldest first, without any text.
+             */
+            revisions: components["schemas"]["LoreRevisionRowDTO"][];
+            /**
+             * Sha256
+             * @description Digest of `original`, so a reader can tell it is holding what was stored.
+             */
+            sha256: string;
+            /**
+             * Short
+             * @description The compressed body — the field that enters a boot context.
+             */
+            short: string;
+            /**
+             * Status
+             * @description `active`, `superseded`, `retired` or `underspecified`.
+             */
+            status: string;
+            /**
+             * Subjects
+             * @description The subject keys this entry is filed under.
+             */
+            subjects: string[];
+            /**
+             * Supersedes
+             * @description The entry this one took over from, empty when none.
+             */
+            supersedes: string;
+            /**
+             * Symptoms
+             * @description What you would be SEEING when this applies.
+             */
+            symptoms: string;
+            /**
+             * Written By
+             * @description Who wrote the latest revision, from the verified token. 🔴 There is deliberately no `task_id` / `chat_id` beside it: the write request has no field that could say where the knowledge came from, so those two would be permanently empty — and an empty string reads as 「we looked and there was no source」 rather than 「no path could ever fill this」.
+             */
+            written_by: string;
+        };
+        /**
          * LoreGovernanceDTO
          * @description One lore governance act, as it stands after the call: the entry, the state it is now in, and the journal row just written. `reason` is the row's reason, NOT a column on the entry — an entry retired, revived and retired again for a different reason keeps every row, and reading the latest is how 'why did this stop being used' is answered without a column that only remembers the last answer.
          */
@@ -5768,6 +5905,78 @@ export interface components {
             actor_id: string;
             /** Created Ts */
             created_ts: number;
+        };
+        /**
+         * LoreRevisionDTO
+         * @description One revision of a lore entry, in full.
+         */
+        LoreRevisionDTO: {
+            /**
+             * Actor Id
+             * @description Who wrote it.
+             */
+            actor_id: string;
+            /**
+             * Body
+             * @description The exact text stored at that moment.
+             */
+            body: string;
+            /**
+             * Created Ts
+             * @description When.
+             */
+            created_ts: number;
+            /**
+             * Entry Id
+             * @description The entry it belongs to.
+             */
+            entry_id: string;
+            /**
+             * Revision Id
+             * @description This revision's id.
+             */
+            revision_id: number;
+            /**
+             * Sha256
+             * @description Digest of `body`.
+             */
+            sha256: string;
+            /**
+             * Shrink Chars
+             * @description How many characters this write removed compared with the previous one.
+             */
+            shrink_chars: number;
+        };
+        /**
+         * LoreRevisionRowDTO
+         * @description One line of an entry's revision catalogue. It carries NO text: a list is how a reader chooses a revision, and the journal has no depth limit, so carrying every body here would put the whole history in one response.
+         */
+        LoreRevisionRowDTO: {
+            /**
+             * Actor Id
+             * @description Who wrote this revision — the verified token subject at the time.
+             */
+            actor_id: string;
+            /**
+             * Created Ts
+             * @description When it was written.
+             */
+            created_ts: number;
+            /**
+             * Revision Id
+             * @description Address this revision by this id under the same entry.
+             */
+            revision_id: number;
+            /**
+             * Sha256
+             * @description Digest of that revision's text.
+             */
+            sha256: string;
+            /**
+             * Shrink Chars
+             * @description How many characters this write REMOVED compared with the previous revision, 0 when it removed none. It is the only place a compression that hollowed an entry out shows up: the number of entries does not change when an entry is emptied.
+             */
+            shrink_chars: number;
         };
         /**
          * LoreRetireDTO
@@ -12553,6 +12762,105 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LoreWriteReceiptDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_get_lore_entry_api_lore_entries__entry_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreEntryDetailDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_get_lore_revision_api_lore_entries__entry_id__revisions__revision_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+                revision_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreRevisionDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

@@ -428,3 +428,67 @@ func (d *DAL) LatestLoreRevision(entryID string) (*LoreRevision, error) {
 	}
 	return &r, nil
 }
+
+// ── the L0 journal, read side (T-33, hop ③) ─────────────────────────────────
+
+// LoreRevisionRow is ONE line of an entry's revision catalogue: which revision,
+// when, by whom, and how much that write REMOVED — never the text.
+//
+// 🔴 THE BODY IS ABSENT ON PURPOSE, and it is the same rule the document
+// history catalogue follows: a list is how a reader CHOOSES a revision, and
+// choosing does not need the prose. Carrying every body in the list would put
+// the entire journal — which has no depth limit at all — into one response.
+type LoreRevisionRow struct {
+	ID          int64
+	ActorID     string
+	CreatedTS   float64
+	ShrinkChars int
+	SHA256      string
+}
+
+// ListLoreRevisions returns an entry's revision catalogue, OLDEST FIRST.
+//
+// Oldest-first because the sequence is the point: an entry written, tightened,
+// tightened again reads as a story in that order and as a pile of rows in the
+// other — and `shrink_chars` only means anything against the one before it.
+func (d *DAL) ListLoreRevisions(entryID string) ([]LoreRevisionRow, error) {
+	rows, err := d.rdb.Query(`
+		SELECT id, actor_id, created_ts, shrink_chars, sha256
+		FROM lore_revision WHERE entry_id = ? ORDER BY id`, entryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []LoreRevisionRow
+	for rows.Next() {
+		var r LoreRevisionRow
+		if err := rows.Scan(&r.ID, &r.ActorID, &r.CreatedTS, &r.ShrinkChars, &r.SHA256); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// GetLoreRevision returns ONE revision in full, and it is scoped to the entry
+// the caller addressed.
+//
+// 🔴 THE entry_id IN THE PATH IS A CONSTRAINT, NOT DECORATION. Revision ids are
+// global, so a lookup by id alone would serve any entry's original through any
+// entry's URL — the address would stop meaning what it says, and a reader that
+// mis-typed the entry id would get somebody else's text with no sign anything
+// was wrong. Scoping it makes that mistake a 404, which is loud.
+func (d *DAL) GetLoreRevision(entryID string, revisionID int64) (*LoreRevision, error) {
+	var r LoreRevision
+	err := d.rdb.QueryRow(`
+		SELECT id, entry_id, body, sha256, actor_id, created_ts, shrink_chars
+		FROM lore_revision WHERE entry_id = ? AND id = ?`, entryID, revisionID).Scan(
+		&r.ID, &r.EntryID, &r.Body, &r.SHA256, &r.ActorID, &r.CreatedTS, &r.ShrinkChars)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &r, nil
+}

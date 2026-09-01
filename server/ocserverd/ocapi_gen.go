@@ -1111,6 +1111,60 @@ type LoginDTO struct {
 	Password string  `json:"password"`
 }
 
+// LoreEntryDetailDTO One lore entry in full, plus the original preserved beside it.
+type LoreEntryDetailDTO struct {
+	// Actions The entry's action names.
+	Actions []string `json:"actions"`
+
+	// Degraded True when the entry has neither a falsifier nor an instance.
+	Degraded bool `json:"degraded"`
+
+	// EntryId The entry's id.
+	EntryId string `json:"entry_id"`
+
+	// Falsify How to show this entry does NOT hold. May be empty — optional by ruling.
+	Falsify string `json:"falsify"`
+
+	// Instance One case that really happened. May be empty — optional by ruling.
+	Instance string `json:"instance"`
+
+	// Label The entry's one-line name.
+	Label string `json:"label"`
+
+	// Origin Whose knowledge this is (`human:Seth`, `agent:Kyle`).
+	Origin string `json:"origin"`
+
+	// Original 🔴 THE FULL TEXT OF THE ENTRY AS IT WAS LAST WRITTEN — every one of the six body fields, named, blank ones included. This is what the whole ticket means by keeping the original: `short` is lossy by design, and without this an agent that doubts it has nowhere to go. Empty ONLY for an entry written before this mechanism existed; a normal entry always has one, because the entry and its first revision are one transaction.
+	Original string `json:"original"`
+
+	// ResidualRisk What this entry does NOT protect against.
+	ResidualRisk string `json:"residual_risk"`
+
+	// Revisions The revision catalogue, oldest first, without any text.
+	Revisions []LoreRevisionRowDTO `json:"revisions"`
+
+	// Sha256 Digest of `original`, so a reader can tell it is holding what was stored.
+	Sha256 string `json:"sha256"`
+
+	// Short The compressed body — the field that enters a boot context.
+	Short string `json:"short"`
+
+	// Status `active`, `superseded`, `retired` or `underspecified`.
+	Status string `json:"status"`
+
+	// Subjects The subject keys this entry is filed under.
+	Subjects []string `json:"subjects"`
+
+	// Supersedes The entry this one took over from, empty when none.
+	Supersedes string `json:"supersedes"`
+
+	// Symptoms What you would be SEEING when this applies.
+	Symptoms string `json:"symptoms"`
+
+	// WrittenBy Who wrote the latest revision, from the verified token. 🔴 There is deliberately no `task_id` / `chat_id` beside it: the write request has no field that could say where the knowledge came from, so those two would be permanently empty — and an empty string reads as 「we looked and there was no source」 rather than 「no path could ever fill this」.
+	WrittenBy string `json:"written_by"`
+}
+
 // LoreGovernanceDTO One lore governance act, as it stands after the call: the entry, the state it is now in, and the journal row just written. `reason` is the row's reason, NOT a column on the entry — an entry retired, revived and retired again for a different reason keeps every row, and reading the latest is how 'why did this stop being used' is answered without a column that only remembers the last answer.
 type LoreGovernanceDTO struct {
 	// ActorId The caller, taken from the VERIFIED token subject — never from the request body.
@@ -1146,6 +1200,48 @@ type LoreRetireDTO struct {
 
 	// ReplacedBy The entry that takes over, meaningful above all for `merged`. Stored as sent and never validated as an id: the journal's job is to record what you said, not to re-derive it later.
 	ReplacedBy *string `json:"replaced_by,omitempty"`
+}
+
+// LoreRevisionDTO One revision of a lore entry, in full.
+type LoreRevisionDTO struct {
+	// ActorId Who wrote it.
+	ActorId string `json:"actor_id"`
+
+	// Body The exact text stored at that moment.
+	Body string `json:"body"`
+
+	// CreatedTs When.
+	CreatedTs float64 `json:"created_ts"`
+
+	// EntryId The entry it belongs to.
+	EntryId string `json:"entry_id"`
+
+	// RevisionId This revision's id.
+	RevisionId int `json:"revision_id"`
+
+	// Sha256 Digest of `body`.
+	Sha256 string `json:"sha256"`
+
+	// ShrinkChars How many characters this write removed compared with the previous one.
+	ShrinkChars int `json:"shrink_chars"`
+}
+
+// LoreRevisionRowDTO One line of an entry's revision catalogue. It carries NO text: a list is how a reader chooses a revision, and the journal has no depth limit, so carrying every body here would put the whole history in one response.
+type LoreRevisionRowDTO struct {
+	// ActorId Who wrote this revision — the verified token subject at the time.
+	ActorId string `json:"actor_id"`
+
+	// CreatedTs When it was written.
+	CreatedTs float64 `json:"created_ts"`
+
+	// RevisionId Address this revision by this id under the same entry.
+	RevisionId int `json:"revision_id"`
+
+	// Sha256 Digest of that revision's text.
+	Sha256 string `json:"sha256"`
+
+	// ShrinkChars How many characters this write REMOVED compared with the previous revision, 0 when it removed none. It is the only place a compression that hollowed an entry out shows up: the number of entries does not change when an entry is emptied.
+	ShrinkChars int `json:"shrink_chars"`
 }
 
 // LoreReviveDTO Revive one retired lore entry: `{reason}`. `reason` is optional free prose recorded in the governance journal; unlike the retire reason it carries no permission consequence.
@@ -4147,9 +4243,15 @@ type ServerInterface interface {
 	// Write ONE lore entry — the entry, the subjects it is filed under, the actions it is about, and the FULL ORIGINAL that outlives every later rewrite, all in one transaction. `symptoms` and `short` are required: `short` is the only field that ever enters a boot context and `symptoms` is the axis a reader finds the entry by, so an entry missing either is not thin, it is unreachable. `falsify` and `instance` are DELIBERATELY optional (owner ruling 2026-09-01: 寬鬆，不當硬門檻) — forcing them produces invented ones, which nothing can count, whereas an empty one can be counted; an entry with neither comes back `degraded: true`, which is a signal to you and not a refusal. `subjects` are subject keys shaped `type:name` (`repo:officraft`, `agent:Kyle`): an alias resolves, a merged-away subject follows to the survivor, an unapproved type prefix is refused BY NAME, and a key nobody has used yet MINTS a new subject parked for review and names it back to you in `pending_entities` — so a typo surfaces in this response instead of in the ontology a month later. `origin` says WHOSE knowledge this is (`human:Seth` for something the owner told you) and is not the same question as who is writing: the actor is taken from your verified token and cannot be asserted here. `label` is a NAME, at most 40 runes; over that is refused with both counts and NEVER trimmed, because a name that changes silently breaks whatever was pointing at it. `supersedes` names the entry this one takes over from: it is re-statused `superseded` and the act is written to the governance journal, while an id that names nothing refuses the WHOLE write rather than leaving a pointer into empty space.
 	// (POST /api/lore/entries)
 	HandleWriteLoreEntryApiLoreEntriesPost(w http.ResponseWriter, r *http.Request)
+	// Read ONE lore entry in full, together with the ORIGINAL that was preserved beside it — hop ③ of the design, and the reason 「原始資訊可以保留讓我們可以重新判定」 is a mechanism rather than a sentence. `short` is the compressed line that enters a boot context; `original` is the complete text of the entry as it was last written, so an agent that has stopped believing the short version has somewhere to go. `sha256` digests that original, so a reader can tell that what it is holding is what was stored. `revisions` is a CATALOGUE — id, when, who, and how many characters that write REMOVED — and carries no text at all, because a list is how you choose a revision and choosing does not need the prose; fetch one by id from `/api/lore/entries/{entry_id}/revisions/{revision_id}`. 🔴 ADDRESSING IS ENTIRELY IN THE PATH AND THERE ARE NO QUERY PARAMETERS, deliberately: an undeclared query parameter is silently ignored on every route this station serves, so `?revision=3` would have been a way to ask for a specific revision and quietly receive the latest one. A wrong path is a 404, which is loud. 404 when no entry carries that id.
+	// (GET /api/lore/entries/{entry_id})
+	HandleGetLoreEntryApiLoreEntriesEntryIdGet(w http.ResponseWriter, r *http.Request, entryId string)
 	// Stop retrieving one lore entry and record WHY. Retirement is NOT a delete — the row stays and `revive_lore_entry` brings it back. `reason` is one of `expired` (the situation changed; it may come back), `merged` (folded into another entry — name it in `replaced_by`) or `falsified` (the claim was never true; it should not come back). An ordinary agent may file `expired` and `merged` itself; `falsified` is a judgement about truth and is refused 403 for anyone but the owner. An unrecognised reason is refused 422 rather than defaulted, so a typo cannot retire an entry as if it were merely stale. The reason is written to the governance journal, never onto the entry, because one entry can be retired, revived and retired again for a different reason and a column would only ever remember the last one.
 	// (POST /api/lore/entries/{entry_id}/retire)
 	HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePost(w http.ResponseWriter, r *http.Request, entryId string)
+	// Read ONE revision of a lore entry in full — the exact text that was stored at that moment, plus its `sha256`. `shrink_chars` says how many characters that write removed compared with the one before it, which is how a compression that quietly hollowed an entry out becomes visible at all (the entry count does not move when an entry is emptied). 🔴 THE ENTRY ID IN THE PATH IS A CONSTRAINT, NOT DECORATION: revision ids are global, so a revision that belongs to a DIFFERENT entry is a 404 rather than being served through this address — a mistyped entry id must not hand you somebody else's text with nothing to signal it. 404 when the entry does not exist, or when it does and that revision is not one of its own.
+	// (GET /api/lore/entries/{entry_id}/revisions/{revision_id})
+	HandleGetLoreRevisionApiLoreEntriesEntryIdRevisionsRevisionIdGet(w http.ResponseWriter, r *http.Request, entryId string, revisionId string)
 	// Bring a retired lore entry back into retrieval — owner only, and it is what makes retirement reversible rather than a delete. 404 when no entry carries that id; 409 when the entry is not retired, because answering `done` would confirm a belief about its state that is wrong. `reason` is optional prose recorded in the governance journal beside the revival.
 	// (POST /api/lore/entries/{entry_id}/revive)
 	HandleReviveLoreEntryApiLoreEntriesEntryIdRevivePost(w http.ResponseWriter, r *http.Request, entryId string)
@@ -5739,6 +5841,32 @@ func (siw *ServerInterfaceWrapper) HandleWriteLoreEntryApiLoreEntriesPost(w http
 	handler.ServeHTTP(w, r)
 }
 
+// HandleGetLoreEntryApiLoreEntriesEntryIdGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleGetLoreEntryApiLoreEntriesEntryIdGet(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "entry_id" -------------
+	var entryId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entry_id", r.PathValue("entry_id"), &entryId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entry_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleGetLoreEntryApiLoreEntriesEntryIdGet(w, r, entryId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePost operation middleware
 func (siw *ServerInterfaceWrapper) HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePost(w http.ResponseWriter, r *http.Request) {
 
@@ -5756,6 +5884,41 @@ func (siw *ServerInterfaceWrapper) HandleRetireLoreEntryApiLoreEntriesEntryIdRet
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePost(w, r, entryId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleGetLoreRevisionApiLoreEntriesEntryIdRevisionsRevisionIdGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleGetLoreRevisionApiLoreEntriesEntryIdRevisionsRevisionIdGet(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "entry_id" -------------
+	var entryId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entry_id", r.PathValue("entry_id"), &entryId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entry_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "revision_id" -------------
+	var revisionId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "revision_id", r.PathValue("revision_id"), &revisionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "revision_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleGetLoreRevisionApiLoreEntriesEntryIdRevisionsRevisionIdGet(w, r, entryId, revisionId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -8815,7 +8978,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lessons/{role_key}/patch", wrapper.HandlePatchLessonsApiLessonsRoleKeyPatchPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/login", wrapper.HandleLoginApiLoginPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/entries", wrapper.HandleWriteLoreEntryApiLoreEntriesPost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/lore/entries/{entry_id}", wrapper.HandleGetLoreEntryApiLoreEntriesEntryIdGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/entries/{entry_id}/retire", wrapper.HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/lore/entries/{entry_id}/revisions/{revision_id}", wrapper.HandleGetLoreRevisionApiLoreEntriesEntryIdRevisionsRevisionIdGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/entries/{entry_id}/revive", wrapper.HandleReviveLoreEntryApiLoreEntriesEntryIdRevivePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/search", wrapper.HandleSearchLoreEntriesApiLoreSearchPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/machines", wrapper.HandleListMachinesApiMachinesGet)

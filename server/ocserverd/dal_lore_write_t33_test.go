@@ -376,3 +376,43 @@ func TestLoreCreateEnforcesTheOriginRuleOnItsOwnPath(t *testing.T) {
 		t.Fatalf("unknown origin type: got %v", err)
 	}
 }
+
+// 🔴 THIS TEST LOOKS LIKE A TAUTOLOGY TODAY AND THAT IS THE POINT.
+//
+// api_lore_read.go carries an early return that turns an unparsable revision id
+// into a 404. Mutating that branch away leaves every test green — measured —
+// because strconv.ParseInt answers 0 on failure and the scoped lookup then finds
+// nothing, so the same 404 comes out of the other door. The guard is therefore
+// not load-bearing, and it is only SAFE to say that because of ONE unstated
+// premise: no revision ever carries id 0.
+//
+// That premise is what this test pins. Nothing else does: it is a property of
+// `INTEGER PRIMARY KEY AUTOINCREMENT`, and a comment describing it would not
+// raise its hand on the day somebody changes how revision ids are allocated.
+//
+// ⇒ The value of this test is not today, when it cannot fail. It is the day it
+// DOES fail — because on that day the meaning of the failure is "the read
+// route's parse guard has just started carrying load; go and test it properly".
+func TestLoreRevisionIdsNeverStartAtZero(t *testing.T) {
+	d := newTestDAL(t)
+	t33Entity(t, d, "e-repo", "repo", "repo:officraft")
+
+	first := t33Create(t, d, t33Write())
+	if first.RevisionID == 0 {
+		t.Fatal("a revision was allocated id 0 — the read route's parse guard is now " +
+			"load-bearing (a garbage id parses to 0 and would ADDRESS this row), and " +
+			"api_lore_read.go says in as many words that it is not")
+	}
+	// Not merely non-zero: the ids come from AUTOINCREMENT, so the first one is
+	// 1. Asserting the actual start makes a change of allocation scheme visible
+	// rather than merely a change that happens to skip zero.
+	if first.RevisionID != 1 {
+		t.Fatalf("the first revision has id %d, want 1 — revision ids are no longer "+
+			"plain AUTOINCREMENT, so anything reasoning about their values (see "+
+			"api_lore_read.go) has to be re-read", first.RevisionID)
+	}
+	second := t33Create(t, d, t33Write())
+	if second.RevisionID <= first.RevisionID {
+		t.Fatalf("revision ids are not increasing: %d then %d", first.RevisionID, second.RevisionID)
+	}
+}

@@ -2219,5 +2219,47 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary:  "Retrieve lore entries — hop ② of the design: you have seen the subject directory at wake and now want what is actually filed under one of those subjects. 🔴 EVERY SELECTION CONDITION GOES IN THE REQUEST BODY AND NONE IN THE QUERY STRING, and that is load-bearing rather than stylistic: an undeclared body key is refused 422 by name, while an undeclared QUERY parameter is silently ignored on every route this station serves — so a mistyped condition on the query side would hand you a plausible answer that is not the one you asked for, and nothing would report it. All fields are optional; sending none asks for everything still retrievable. `subject` is a subject key (`repo:officraft`); an alias resolves and a merged-away subject follows to the survivor, and a key that names NOTHING comes back as `subject_resolved: false` rather than as an empty result — 「this subject has nothing on it」 and 「this subject does not exist」 are different answers and you need to tell them apart. Every entry carries a `tier`: `T1` matched every axis you asked on, `T2` (類比) reached you across an axis you did NOT ask about and is a guess rather than a rule for your case. 🔴 `tier` is meaningless without `applied.tiered_by`, which names the axes the tier was computed over — read them together. A `trust`-class entry (how far something can be relied on) is WITHHELD from the analogy tier unless you set `force_trust_analogy`, because 「X was reliable」 is a fact about X; when you do force it, the note says whose situation the entry actually describes. `trust_fell_back` on an entry means its class came from failing closed on an action name nothing recognised, not from the table — the class is a guess, and the names are listed in `unmapped_actions`. `query` is a LITERAL, case-insensitive substring over label/short/symptoms and `applied.query_match` says so: it is not semantic, and two entries describing the same situation in different words will not find each other. 🔴 `symptoms` comes back but CANNOT be searched on — it has no table, no index and no parameter here, which is why de-duplication and conflict-finding cannot be done through this route yet.",
 			MCPTool:  "search_lore_entries",
 		},
+		// ── T-33 lore, hop ③: reading the original back ──────────────────────
+		// 🔴 THESE TWO ROWS ARE THE TICKET'S OWN OPENING SENTENCE. The owner
+		// asked for 「原始資訊可以保留讓我們可以重新判定一些東西」. The original
+		// was already being kept — entry and first revision are one transaction
+		// — and until these rows existed NO PATH SERVED IT. That state satisfies
+		// the database and no reader: every count agrees, and not one agent can
+		// act on any of it.
+		//
+		// 🔴 GET, AND EVERY ADDRESS IS A PATH PARAMETER. There is no `?revision=`
+		// and there must never be: an undeclared query parameter is silently
+		// ignored on every route this station serves, so that spelling would let
+		// a caller ask for one revision and quietly receive another, with the
+		// response looking exactly right. A path that does not match is a 404.
+		//
+		// 🔴 A RETIRED ENTRY IS STILL READABLE HERE. `retired` means "no longer
+		// RETRIEVED" — search and the boot directory exclude it — and nothing
+		// more. Refusing it here too would make retirement a delete through the
+		// back door, and the only path that can answer "what did the thing we
+		// stopped using actually say" would be the one that refuses.
+		{
+			Method:   "GET",
+			Path:     "/api/lore/entries/{entry_id}",
+			Handler:  w.HandleGetLoreEntryApiLoreEntriesEntryIdGet,
+			Auth:     authGated,
+			Requires: principalAgent,
+			Summary:  "Read ONE lore entry in full, together with the ORIGINAL that was preserved beside it — hop ③ of the design, and the reason 「原始資訊可以保留讓我們可以重新判定」 is a mechanism rather than a sentence. `short` is the compressed line that enters a boot context; `original` is the complete text of the entry as it was last written, so an agent that has stopped believing the short version has somewhere to go. `sha256` digests that original, so a reader can tell that what it is holding is what was stored. `revisions` is a CATALOGUE — id, when, who, and how many characters that write REMOVED — and carries no text at all, because a list is how you choose a revision and choosing does not need the prose; fetch one by id from `/api/lore/entries/{entry_id}/revisions/{revision_id}`. 🔴 ADDRESSING IS ENTIRELY IN THE PATH AND THERE ARE NO QUERY PARAMETERS, deliberately: an undeclared query parameter is silently ignored on every route this station serves, so `?revision=3` would have been a way to ask for a specific revision and quietly receive the latest one. A wrong path is a 404, which is loud. 404 when no entry carries that id.",
+			MCPTool:  "get_lore_entry",
+		},
+		{
+			// The revision lookup is SCOPED to the entry in the path, and that is
+			// enforced in the DAL rather than here: revision ids are global, so an
+			// unscoped read would serve any entry's text through any entry's
+			// address and a mistyped entry id would hand back somebody else's
+			// original with nothing to signal it.
+			Method:   "GET",
+			Path:     "/api/lore/entries/{entry_id}/revisions/{revision_id}",
+			Handler:  w.HandleGetLoreRevisionApiLoreEntriesEntryIdRevisionsRevisionIdGet,
+			Auth:     authGated,
+			Requires: principalAgent,
+			Summary:  "Read ONE revision of a lore entry in full — the exact text that was stored at that moment, plus its `sha256`. `shrink_chars` says how many characters that write removed compared with the one before it, which is how a compression that quietly hollowed an entry out becomes visible at all (the entry count does not move when an entry is emptied). 🔴 THE ENTRY ID IN THE PATH IS A CONSTRAINT, NOT DECORATION: revision ids are global, so a revision that belongs to a DIFFERENT entry is a 404 rather than being served through this address — a mistyped entry id must not hand you somebody else's text with nothing to signal it. 404 when the entry does not exist, or when it does and that revision is not one of its own.",
+			MCPTool:  "get_lore_revision",
+		},
 	}
 }

@@ -2020,6 +2020,127 @@
         "additionalProperties": false,
         "type": "object"
       },
+      "LoreEntryDetailDTO": {
+        "description": "One lore entry in full, plus the original preserved beside it.",
+        "properties": {
+          "actions": {
+            "description": "The entry's action names.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "degraded": {
+            "description": "True when the entry has neither a falsifier nor an instance.",
+            "title": "Degraded",
+            "type": "boolean"
+          },
+          "entry_id": {
+            "description": "The entry's id.",
+            "title": "Entry Id",
+            "type": "string"
+          },
+          "falsify": {
+            "description": "How to show this entry does NOT hold. May be empty — optional by ruling.",
+            "title": "Falsify",
+            "type": "string"
+          },
+          "instance": {
+            "description": "One case that really happened. May be empty — optional by ruling.",
+            "title": "Instance",
+            "type": "string"
+          },
+          "label": {
+            "description": "The entry's one-line name.",
+            "title": "Label",
+            "type": "string"
+          },
+          "origin": {
+            "description": "Whose knowledge this is (`human:Seth`, `agent:Kyle`).",
+            "title": "Origin",
+            "type": "string"
+          },
+          "original": {
+            "description": "🔴 THE FULL TEXT OF THE ENTRY AS IT WAS LAST WRITTEN — every one of the six body fields, named, blank ones included. This is what the whole ticket means by keeping the original: `short` is lossy by design, and without this an agent that doubts it has nowhere to go. Empty ONLY for an entry written before this mechanism existed; a normal entry always has one, because the entry and its first revision are one transaction.",
+            "title": "Original",
+            "type": "string"
+          },
+          "residual_risk": {
+            "description": "What this entry does NOT protect against.",
+            "title": "Residual Risk",
+            "type": "string"
+          },
+          "revisions": {
+            "description": "The revision catalogue, oldest first, without any text.",
+            "items": {
+              "$ref": "#/components/schemas/LoreRevisionRowDTO"
+            },
+            "title": "Revisions",
+            "type": "array"
+          },
+          "sha256": {
+            "description": "Digest of `original`, so a reader can tell it is holding what was stored.",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "short": {
+            "description": "The compressed body — the field that enters a boot context.",
+            "title": "Short",
+            "type": "string"
+          },
+          "status": {
+            "description": "`active`, `superseded`, `retired` or `underspecified`.",
+            "title": "Status",
+            "type": "string"
+          },
+          "subjects": {
+            "description": "The subject keys this entry is filed under.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Subjects",
+            "type": "array"
+          },
+          "supersedes": {
+            "description": "The entry this one took over from, empty when none.",
+            "title": "Supersedes",
+            "type": "string"
+          },
+          "symptoms": {
+            "description": "What you would be SEEING when this applies.",
+            "title": "Symptoms",
+            "type": "string"
+          },
+          "written_by": {
+            "description": "Who wrote the latest revision, from the verified token. 🔴 There is deliberately no `task_id` / `chat_id` beside it: the write request has no field that could say where the knowledge came from, so those two would be permanently empty — and an empty string reads as 「we looked and there was no source」 rather than 「no path could ever fill this」.",
+            "title": "Written By",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entry_id",
+          "label",
+          "symptoms",
+          "short",
+          "falsify",
+          "instance",
+          "residual_risk",
+          "status",
+          "supersedes",
+          "origin",
+          "subjects",
+          "actions",
+          "degraded",
+          "original",
+          "sha256",
+          "written_by",
+          "revisions"
+        ],
+        "title": "LoreEntryDetailDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
       "LoreGovernanceDTO": {
         "description": "One lore governance act, as it stands after the call: the entry, the state it is now in, and the journal row just written. `reason` is the row's reason, NOT a column on the entry — an entry retired, revived and retired again for a different reason keeps every row, and reading the latest is how 'why did this stop being used' is answered without a column that only remembers the last answer.",
         "properties": {
@@ -2065,6 +2186,98 @@
           "created_ts"
         ],
         "title": "LoreGovernanceDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "LoreRevisionDTO": {
+        "description": "One revision of a lore entry, in full.",
+        "properties": {
+          "actor_id": {
+            "description": "Who wrote it.",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "body": {
+            "description": "The exact text stored at that moment.",
+            "title": "Body",
+            "type": "string"
+          },
+          "created_ts": {
+            "description": "When.",
+            "title": "Created Ts",
+            "type": "number"
+          },
+          "entry_id": {
+            "description": "The entry it belongs to.",
+            "title": "Entry Id",
+            "type": "string"
+          },
+          "revision_id": {
+            "description": "This revision's id.",
+            "title": "Revision Id",
+            "type": "integer"
+          },
+          "sha256": {
+            "description": "Digest of `body`.",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "shrink_chars": {
+            "description": "How many characters this write removed compared with the previous one.",
+            "title": "Shrink Chars",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revision_id",
+          "entry_id",
+          "body",
+          "sha256",
+          "actor_id",
+          "created_ts",
+          "shrink_chars"
+        ],
+        "title": "LoreRevisionDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "LoreRevisionRowDTO": {
+        "description": "One line of an entry's revision catalogue. It carries NO text: a list is how a reader chooses a revision, and the journal has no depth limit, so carrying every body here would put the whole history in one response.",
+        "properties": {
+          "actor_id": {
+            "description": "Who wrote this revision — the verified token subject at the time.",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "created_ts": {
+            "description": "When it was written.",
+            "title": "Created Ts",
+            "type": "number"
+          },
+          "revision_id": {
+            "description": "Address this revision by this id under the same entry.",
+            "title": "Revision Id",
+            "type": "integer"
+          },
+          "sha256": {
+            "description": "Digest of that revision's text.",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "shrink_chars": {
+            "description": "How many characters this write REMOVED compared with the previous revision, 0 when it removed none. It is the only place a compression that hollowed an entry out shows up: the number of entries does not change when an entry is emptied.",
+            "title": "Shrink Chars",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revision_id",
+          "actor_id",
+          "created_ts",
+          "shrink_chars",
+          "sha256"
+        ],
+        "title": "LoreRevisionRowDTO",
         "additionalProperties": false,
         "type": "object"
       },
@@ -12044,6 +12257,156 @@
           "description": "Write ONE lore entry — the entry, the subjects it is filed under, the actions it is about, and the FULL ORIGINAL that outlives every later rewrite, all in one transaction. `symptoms` and `short` are required: `short` is the only field that ever enters a boot context and `symptoms` is the axis a reader finds the entry by, so an entry missing either is not thin, it is unreachable. `falsify` and `instance` are DELIBERATELY optional (owner ruling 2026-09-01: 寬鬆，不當硬門檻) — forcing them produces invented ones, which nothing can count, whereas an empty one can be counted; an entry with neither comes back `degraded: true`, which is a signal to you and not a refusal. `subjects` are subject keys shaped `type:name` (`repo:officraft`, `agent:Kyle`): an alias resolves, a merged-away subject follows to the survivor, an unapproved type prefix is refused BY NAME, and a key nobody has used yet MINTS a new subject parked for review and names it back to you in `pending_entities` — so a typo surfaces in this response instead of in the ontology a month later. `origin` says WHOSE knowledge this is (`human:Seth` for something the owner told you) and is not the same question as who is writing: the actor is taken from your verified token and cannot be asserted here. `label` is a NAME, at most 40 runes; over that is refused with both counts and NEVER trimmed, because a name that changes silently breaks whatever was pointing at it. `supersedes` names the entry this one takes over from: it is re-statused `superseded` and the act is written to the governance journal, while an id that names nothing refuses the WHOLE write rather than leaving a pointer into empty space.",
           "legacy": {
             "descriptor": "{\n        \"description\": \"Write ONE lore entry — the entry, the subjects it is filed under, the actions it is about, and the FULL ORIGINAL that outlives every later rewrite, all in one transaction. `symptoms` and `short` are required: `short` is the only field that ever enters a boot context and `symptoms` is the axis a reader finds the entry by, so an entry missing either is not thin, it is unreachable. `falsify` and `instance` are DELIBERATELY optional (owner ruling 2026-09-01: 寬鬆，不當硬門檻) — forcing them produces invented ones, which nothing can count, whereas an empty one can be counted; an entry with neither comes back `degraded: true`, which is a signal to you and not a refusal. `subjects` are subject keys shaped `type:name` (`repo:officraft`, `agent:Kyle`): an alias resolves, a merged-away subject follows to the survivor, an unapproved type prefix is refused BY NAME, and a key nobody has used yet MINTS a new subject parked for review and names it back to you in `pending_entities` — so a typo surfaces in this response instead of in the ontology a month later. `origin` says WHOSE knowledge this is (`human:Seth` for something the owner told you) and is not the same question as who is writing: the actor is taken from your verified token and cannot be asserted here. `label` is a NAME, at most 40 runes; over that is refused with both counts and NEVER trimmed, because a name that changes silently breaks whatever was pointing at it. `supersedes` names the entry this one takes over from: it is re-statused `superseded` and the act is written to the governance journal, while an id that names nothing refuses the WHOLE write rather than leaving a pointer into empty space.\",\n        \"inputSchema\": {\n          \"properties\": {\n            \"actions\": {\n              \"description\": \"The action names this entry is about — an OPEN set, mint a new one whenever a new kind of experience turns up. They are not checked against a list here on purpose; the safety is at read time, where an unrecognised action fails closed and says so.\",\n              \"items\": {\n                \"type\": \"string\"\n              },\n              \"type\": \"array\"\n            },\n            \"falsify\": {\n              \"default\": \"\",\n              \"description\": \"How somebody could show this entry does NOT hold. Optional by owner ruling (2026-09-01): making it a hard gate produces invented falsifiers, and an invented one cannot be told from a real one, whereas a MISSING one is counted — an entry with neither this nor `instance` comes back `degraded: true`.\",\n              \"type\": \"string\"\n            },\n            \"instance\": {\n              \"default\": \"\",\n              \"description\": \"One case that really happened. Optional for the same reason as `falsify`, and counted the same way.\",\n              \"type\": \"string\"\n            },\n            \"label\": {\n              \"default\": \"\",\n              \"description\": \"A one-line NAME for the entry, at most 40 runes. Over the cap the write is REFUSED with the actual count and the cap, never trimmed: a label is what a reader scans a list by and what a supersede points at, so a name the server quietly edited breaks whatever was pointing at it. Blank is allowed — an entry can be written before it has been named, and an invented name looks exactly like a chosen one.\",\n              \"type\": \"string\"\n            },\n            \"origin\": {\n              \"description\": \"REQUIRED. A subject key, `type:name`, naming WHOSE knowledge this is — `human:Seth` for something the owner told you, `agent:Kyle` for something a member worked out. It is NOT who is writing: the actor comes from your verified token. The distinction is load-bearing — a `human:` origin sorts ahead within its tier and is exempt from the boot-directory count cap. A blank origin, or a type prefix nothing has approved, is refused: there is no default author.\",\n              \"type\": \"string\"\n            },\n            \"residual_risk\": {\n              \"default\": \"\",\n              \"description\": \"What this entry does NOT protect against. It is the field that stops a reader over-reading the claim.\",\n              \"type\": \"string\"\n            },\n            \"short\": {\n              \"description\": \"REQUIRED. The compressed body: the mechanism, and why. THIS is the field that enters a boot context — nothing else here does — so an entry with a blank `short` contributes literally nothing to anybody and is refused.\",\n              \"type\": \"string\"\n            },\n            \"subjects\": {\n              \"description\": \"REQUIRED, at least one. The subject keys this entry is filed under, each shaped `type:name`. An alias resolves onto its subject; a merged-away subject follows to the survivor; a duplicate files one row. A key nobody has used yet is MINTED as a new subject parked `pending` for review and reported back in `pending_entities` — it does not reach anybody's boot directory until somebody approves it. An unapproved type prefix is refused by name rather than minted, and so is a key that is not `type:name` at all.\",\n              \"items\": {\n                \"type\": \"string\"\n              },\n              \"type\": \"array\"\n            },\n            \"supersedes\": {\n              \"default\": \"\",\n              \"description\": \"The id of the entry this one takes over from. That entry is re-statused `superseded` (it is NOT deleted and it keeps its own original) and the act is written to the governance journal with you as the actor. An id that names no entry refuses the whole write: a pointer into empty space is a dead end that looks like a trail.\",\n              \"type\": \"string\"\n            },\n            \"symptoms\": {\n              \"description\": \"REQUIRED. What you would be SEEING when this entry applies — the situation, not a category name. It is the axis a reader finds the entry by, so an entry without it exists and is reachable by nobody. Write the sentence you could have written BEFORE you knew the answer.\",\n              \"type\": \"string\"\n            }\n          },\n          \"required\": [\n            \"symptoms\",\n            \"short\",\n            \"origin\",\n            \"subjects\"\n          ],\n          \"additionalProperties\": false,\n          \"type\": \"object\"\n        },\n        \"name\": \"write_lore_entry\"\n      }"
+          }
+        }
+      }
+    },
+    "/api/lore/entries/{entry_id}": {
+      "get": {
+        "description": "Read ONE lore entry plus its preserved original (T-33, hop ③).\n\n🔴 THIS IS THE HOP THE TICKET WAS OPENED FOR. Everything else in this feature compresses; this is the only route that hands back what was compressed AWAY. Without it, 「原始資訊可以保留」 is true of the database and false of every agent.\n\n🔴 NO QUERY PARAMETERS, AND THAT IS THE DESIGN. An undeclared query parameter is silently ignored on every route this station serves, so `?revision=3` would let a caller ask for one revision and quietly receive another. Addressing is entirely in the path, where a mistake is a 404.",
+        "operationId": "handle_get_lore_entry_api_lore_entries__entry_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "description": "The entry to read. An id nothing carries is a flat 404.",
+              "title": "Entry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoreEntryDetailDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Read ONE lore entry in full, together with the ORIGINAL that was preserved beside it — hop ③ of the design, and the reason 「原始資訊可以保留讓我們可以重新判定」 is a mechanism rather than a sentence. `short` is the compressed line that enters a boot context; `original` is the complete text of the entry as it was last written, so an agent that has stopped believing the short version has somewhere to go. `sha256` digests that original, so a reader can tell that what it is holding is what was stored. `revisions` is a CATALOGUE — id, when, who, and how many characters that write REMOVED — and carries no text at all, because a list is how you choose a revision and choosing does not need the prose; fetch one by id from `/api/lore/entries/{entry_id}/revisions/{revision_id}`. 🔴 ADDRESSING IS ENTIRELY IN THE PATH AND THERE ARE NO QUERY PARAMETERS, deliberately: an undeclared query parameter is silently ignored on every route this station serves, so `?revision=3` would have been a way to ask for a specific revision and quietly receive the latest one. A wrong path is a 404, which is loud. 404 when no entry carries that id.",
+        "x-mcp": {
+          "include": true,
+          "order": 126,
+          "name": "get_lore_entry",
+          "description": "Read ONE lore entry in full, together with the ORIGINAL that was preserved beside it — hop ③ of the design, and the reason 「原始資訊可以保留讓我們可以重新判定」 is a mechanism rather than a sentence. `short` is the compressed line that enters a boot context; `original` is the complete text of the entry as it was last written, so an agent that has stopped believing the short version has somewhere to go. `sha256` digests that original, so a reader can tell that what it is holding is what was stored. `revisions` is a CATALOGUE — id, when, who, and how many characters that write REMOVED — and carries no text at all, because a list is how you choose a revision and choosing does not need the prose; fetch one by id from `/api/lore/entries/{entry_id}/revisions/{revision_id}`. 🔴 ADDRESSING IS ENTIRELY IN THE PATH AND THERE ARE NO QUERY PARAMETERS, deliberately: an undeclared query parameter is silently ignored on every route this station serves, so `?revision=3` would have been a way to ask for a specific revision and quietly receive the latest one. A wrong path is a 404, which is loud. 404 when no entry carries that id.",
+          "legacy": {
+            "descriptor": "{\n        \"description\": \"Read ONE lore entry in full, together with the ORIGINAL that was preserved beside it — hop ③ of the design, and the reason 「原始資訊可以保留讓我們可以重新判定」 is a mechanism rather than a sentence. `short` is the compressed line that enters a boot context; `original` is the complete text of the entry as it was last written, so an agent that has stopped believing the short version has somewhere to go. `sha256` digests that original, so a reader can tell that what it is holding is what was stored. `revisions` is a CATALOGUE — id, when, who, and how many characters that write REMOVED — and carries no text at all, because a list is how you choose a revision and choosing does not need the prose; fetch one by id from `/api/lore/entries/{entry_id}/revisions/{revision_id}`. 🔴 ADDRESSING IS ENTIRELY IN THE PATH AND THERE ARE NO QUERY PARAMETERS, deliberately: an undeclared query parameter is silently ignored on every route this station serves, so `?revision=3` would have been a way to ask for a specific revision and quietly receive the latest one. A wrong path is a 404, which is loud. 404 when no entry carries that id.\",\n        \"inputSchema\": {\n          \"properties\": {\n            \"entry_id\": {\n              \"description\": \"The entry to read. An id nothing carries is a flat 404.\",\n              \"type\": \"string\"\n            }\n          },\n          \"required\": [\n            \"entry_id\"\n          ],\n          \"additionalProperties\": false,\n          \"type\": \"object\"\n        },\n        \"name\": \"get_lore_entry\"\n      }"
+          }
+        }
+      }
+    },
+    "/api/lore/entries/{entry_id}/revisions/{revision_id}": {
+      "get": {
+        "description": "Read ONE revision of a lore entry in full (T-33, hop ③).\n\n🔴 SCOPED TO THE ENTRY IN THE PATH. Revision ids are global; a lookup by id alone would serve any entry's text through any entry's address, so a mistyped entry id would hand back somebody else's original with nothing to signal it. Here that is a 404.",
+        "operationId": "handle_get_lore_revision_api_lore_entries__entry_id__revisions__revision_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "description": "The entry the revision must belong to.",
+              "title": "Entry Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "revision_id",
+            "required": true,
+            "schema": {
+              "description": "The revision id, from the entry's `revisions` catalogue.",
+              "title": "Revision Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoreRevisionDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Read ONE revision of a lore entry in full — the exact text that was stored at that moment, plus its `sha256`. `shrink_chars` says how many characters that write removed compared with the one before it, which is how a compression that quietly hollowed an entry out becomes visible at all (the entry count does not move when an entry is emptied). 🔴 THE ENTRY ID IN THE PATH IS A CONSTRAINT, NOT DECORATION: revision ids are global, so a revision that belongs to a DIFFERENT entry is a 404 rather than being served through this address — a mistyped entry id must not hand you somebody else's text with nothing to signal it. 404 when the entry does not exist, or when it does and that revision is not one of its own.",
+        "x-mcp": {
+          "include": true,
+          "order": 127,
+          "name": "get_lore_revision",
+          "description": "Read ONE revision of a lore entry in full — the exact text that was stored at that moment, plus its `sha256`. `shrink_chars` says how many characters that write removed compared with the one before it, which is how a compression that quietly hollowed an entry out becomes visible at all (the entry count does not move when an entry is emptied). 🔴 THE ENTRY ID IN THE PATH IS A CONSTRAINT, NOT DECORATION: revision ids are global, so a revision that belongs to a DIFFERENT entry is a 404 rather than being served through this address — a mistyped entry id must not hand you somebody else's text with nothing to signal it. 404 when the entry does not exist, or when it does and that revision is not one of its own.",
+          "legacy": {
+            "descriptor": "{\n        \"description\": \"Read ONE revision of a lore entry in full — the exact text that was stored at that moment, plus its `sha256`. `shrink_chars` says how many characters that write removed compared with the one before it, which is how a compression that quietly hollowed an entry out becomes visible at all (the entry count does not move when an entry is emptied). 🔴 THE ENTRY ID IN THE PATH IS A CONSTRAINT, NOT DECORATION: revision ids are global, so a revision that belongs to a DIFFERENT entry is a 404 rather than being served through this address — a mistyped entry id must not hand you somebody else's text with nothing to signal it. 404 when the entry does not exist, or when it does and that revision is not one of its own.\",\n        \"inputSchema\": {\n          \"properties\": {\n            \"entry_id\": {\n              \"description\": \"The entry the revision must belong to.\",\n              \"type\": \"string\"\n            },\n            \"revision_id\": {\n              \"description\": \"The revision id, from the entry's `revisions` catalogue.\",\n              \"type\": \"string\"\n            }\n          },\n          \"required\": [\n            \"entry_id\",\n            \"revision_id\"\n          ],\n          \"additionalProperties\": false,\n          \"type\": \"object\"\n        },\n        \"name\": \"get_lore_revision\"\n      }"
           }
         }
       }
