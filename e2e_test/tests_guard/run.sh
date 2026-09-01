@@ -3142,7 +3142,8 @@ else
   printf '%s\n' "$T45_SETUP_CODE" | grep -qE '^[[:space:]]*source .*lib/tmux\.sh' \
     && ok "T-45: setup.sh sources the tmux helper in code" \
     || bad "T-45: setup.sh no longer sources lib/tmux.sh — its independent-exec fix is disconnected"
-  printf '%s\n' "$T45_SETUP_CODE" | grep -qE '^[[:space:]]*if ! SERVE_LAUNCH_PID=.*oc_e2e_tmux_start' \
+  T45_START_CALL='if ! SERVE_LAUNCH_PID="$(oc_e2e_tmux_start '
+  printf '%s\n' "$T45_SETUP_CODE" | grep -qF "$T45_START_CALL" \
     && ok "T-45: setup.sh starts the server through the tmux helper" \
     || bad "T-45: setup.sh has no executable oc_e2e_tmux_start assignment — a trailing comment must not satisfy the carrier guard"
   if printf '%s\n' "$T45_TEARDOWN_CODE" \
@@ -3203,6 +3204,48 @@ else
     *'tmux is required'*) ok "T-45: missing tmux explains the independent-exec prerequisite" ;;
     *) bad "T-45: missing tmux did not explain the prerequisite (stderr: $T45_NO_TMUX_MSG)" ;;
   esac
+
+  # The helper's fail-closed refusal is necessary for a member runtime, but CI
+  # itself is one continuous shell step and does not naturally need a carrier.
+  # The macOS real-browser job must therefore install the dependency explicitly;
+  # otherwise this suite can be green locally and dead before its first spec in
+  # CI. Extract only the macos-e2e job so a comment or another job cannot satisfy
+  # this check.
+  T45_CI_WORKFLOW="$HERE/../../.github/workflows/ci.yml"
+  if [[ ! -f "$T45_CI_WORKFLOW" ]]; then
+    bad "T-45: CI workflow is missing — the macos-e2e tmux prerequisite is not guarded"
+  else
+    T45_CI_E2E_CODE="$(awk '
+      /^  macos-e2e:[[:space:]]*$/ { in_job=1; next }
+      in_job && /^  [[:alnum:]_.-]+:[[:space:]]*$/ { exit }
+      in_job { print }
+    ' "$T45_CI_WORKFLOW")"
+    T45_CI_TMUX_STEP_LINE="$(printf '%s\n' "$T45_CI_E2E_CODE" | grep -nE '^[[:space:]]*- name: install tmux for isolated e2e[[:space:]]*$' | head -1 | cut -d: -f1)"
+    T45_CI_BREW_LINE="$(printf '%s\n' "$T45_CI_E2E_CODE" | grep -nE '^[[:space:]]*brew install tmux[[:space:]]*$' | head -1 | cut -d: -f1)"
+    T45_CI_VERIFY_LINE="$(printf '%s\n' "$T45_CI_E2E_CODE" | grep -nE '^[[:space:]]*tmux -V[[:space:]]*$' | head -1 | cut -d: -f1)"
+    T45_CI_RUN_LINE="$(printf '%s\n' "$T45_CI_E2E_CODE" | grep -nE '^[[:space:]]*bash e2e_test/run_all\.sh([[:space:]]|$)' | head -1 | cut -d: -f1)"
+    if [[ -n "$T45_CI_TMUX_STEP_LINE" && -n "$T45_CI_BREW_LINE" \
+          && -n "$T45_CI_VERIFY_LINE" && -n "$T45_CI_RUN_LINE" \
+          && "$T45_CI_TMUX_STEP_LINE" -lt "$T45_CI_RUN_LINE" \
+          && "$T45_CI_BREW_LINE" -lt "$T45_CI_RUN_LINE" \
+          && "$T45_CI_VERIFY_LINE" -lt "$T45_CI_RUN_LINE" ]]; then
+      ok "T-45: macos-e2e installs and verifies tmux before run_all"
+    else
+      bad "T-45: macos-e2e has no guarded tmux install/verification before run_all — CI can die before the first spec"
+    fi
+  fi
+
+  # MUTANT: rename the helper so a substring grep still sees
+  # `oc_e2e_tmux_start` inside `DISABLED_oc_e2e_tmux_start`. The guard must
+  # reject that source shape; it is not enough to prove the name appears.
+  T45_START_MUT="$T45_TMUX_FIXTURE/setup-disabled-start.sh"
+  sed 's/oc_e2e_tmux_start/DISABLED_oc_e2e_tmux_start/g' "$T45_SETUP" > "$T45_START_MUT"
+  T45_START_MUT_CODE="$(_t45_code "$T45_START_MUT")"
+  if printf '%s\n' "$T45_START_MUT_CODE" | grep -qF "$T45_START_CALL"; then
+    bad "MUT-T-45: renaming oc_e2e_tmux_start left the carrier guard apparently green"
+  else
+    ok "MUT-T-45: renaming the carrier helper removes the exact executable call"
+  fi
 
   T45_MUT="$T45_TMUX_FIXTURE/tmux-mut.sh"
   sed 's/^oc_e2e_tmux_validate_name() {$/oc_e2e_tmux_validate_name() { return 0;/' \
@@ -3300,11 +3343,12 @@ echo "[tests_guard] PASS=$PASS FAIL=$FAIL"
 # (2026-08-11, hole 191).
 #
 # SO IT IS NOW SET NEAR THE COUNT, WITH DELIBERATE SLACK, AND IT IS EXPECTED TO
-# BE EDITED. 317 today, floor 314: three assertions of room. (291/288 → 298/295
+# BE EDITED. 319 today, floor 316: three assertions of room. (291/288 → 298/295
 # when 2026-08-11's bash-3.2 round added 23e's three cells and case 26's four →
 # 303/300 when ⑤'s downgrade traded two cells away — `sg_mutant step_done` and
 # the ⑤-red/⑦-green pair — for seven in 21b-i/21b-v → 317/314 when T-45 added
-# its 22 carrier/namespace/browser assertions. Each move edited the floor in the
+# its 22 carrier/namespace/browser assertions → 319/316 when the CI tmux
+# prerequisite and exact-call mutant were added. Each move edited the floor in the
 # same commit, which is the edit this block asks for.) The slack is measured, not guessed — deleting the whole of case 26 (then
 # 8 assertions) gave PASS=283, which was FATAL and named at 288 and GREEN at
 # 280. Read the
@@ -3342,7 +3386,7 @@ echo "[tests_guard] PASS=$PASS FAIL=$FAIL"
 # printed the marker with no floor evaluated at all: MEASURED, floor block
 # deleted and the trailing echo kept → PASS=153 FAIL=0 rc=0, last line
 # `[tests_guard] all green`, `bin/ci.sh` all green. Keep it in the branch.
-PASS_FLOOR=314
+PASS_FLOOR=316
 if [[ "$PASS" -lt "$PASS_FLOOR" ]]; then
   echo "[tests_guard] FATAL: only $PASS assertion(s) ran, floor is $PASS_FLOOR." >&2
   echo "[tests_guard] FAIL=0 with a collapsed PASS count means cases went missing, not that they passed." >&2

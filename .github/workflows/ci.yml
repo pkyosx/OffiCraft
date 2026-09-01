@@ -372,6 +372,16 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      # e2e_test/setup.sh deliberately uses tmux as the cross-exec lifecycle
+      # carrier. GitHub's macOS image does not provide it by default; install
+      # the same prerequisite explicitly so CI exercises the shipped path.
+      - name: install tmux for isolated e2e
+        run: |
+          if ! command -v tmux >/dev/null 2>&1; then
+            brew install tmux
+          fi
+          tmux -V
+
       # setup.sh refuses to run without an oc.toml that binds the non-prod port
       # and names a repo-local DSN — those refusals ARE the prod guards, so a
       # runner has to satisfy them rather than skip them.
