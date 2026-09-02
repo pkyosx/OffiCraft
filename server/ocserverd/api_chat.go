@@ -1750,6 +1750,22 @@ func resumeChatPackBudget(budget int, generatedAt string) int {
 //     ONCE for the whole roster and read from the resulting map per
 //     contractor — never a per-contractor ListTaskSteps, which would drag
 //     back every step's Name/DoD text onto a path every agent boots through.
+//
+// 🔴 THE PER-WAKE QUERY WHITELIST IS KEPT HERE, AND IT NOW HAS ONE ENTRY THAT
+// LIVES OUTSIDE THIS FUNCTION — declared rather than smuggled in, which is the
+// whole point of writing the list down:
+//
+//   - ONE ListLoreSubjectRoster (T-33,
+//     dal_lore.go) on the BOOT-CONTEXT path — buildBootContext
+//     and buildWorkerBootContext, through foldLoreSection. It is a
+//     single grouped SELECT over lore_entry ⋈ _subject ⋈ entity,
+//     with the count and the human-origin flag as aggregates of that one GROUP
+//     BY; there is deliberately no per-subject follow-up query, which would
+//     have turned one boot query into N.
+//     ✅ APPROVED BY THE OWNER ON REPLY CARD rc-e5a9efbed9da (2026-08-31,
+//     option [0]). It is named here because this comment is the tree's record of
+//     what an agent pays on every wake, and a boot-path query that is not in the
+//     record is exactly the silent addition this block exists to prevent.
 func (s *apiServer) resumeFloorParts(actor string) ([]resumeRosterMemberDTO, resumeMachinesDTO, int, int, map[string]string, error) {
 	members, err := s.dal.ListMembersIncludingOutsource()
 	if err != nil {

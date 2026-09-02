@@ -353,6 +353,30 @@ var authzOutsideRouteTable = map[string]string{
 	"api_monitoring.go :: HandleGetMonitoringApiMonitoringGet :: s.principalOfRequest(r) == principalOwner": "" +
 		"same owner-only account-label overlay, at the monitoring handler's call site.",
 
+	// ── T-33 lore governance: the per-REASON half of a two-part gate ─────────
+	// These two are the shape (b) exists for. The route table carries the FLOOR
+	// (retire=agent, revive=owner) and the floor is what a re-grade reads; what
+	// it cannot express is that ONE route admits `expired` from an ordinary
+	// agent and refuses `falsified` from that same caller, because the answer
+	// depends on a body field. So the handler resolves ONE fact — is this caller
+	// the owner — and hands it to loreRetireNeedsOwner, which is the single
+	// place the per-reason question is answered.
+	"api_lore_governance.go :: HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePost :: s.principalOfRequest(r) == principalOwner": "" +
+		"owner ruling ta-c568dfd29844 D11: retiring an entry as `falsified` declares it " +
+		"was never true, and overturning a memory needs the owner; `expired` and " +
+		"`merged` claim nothing about truth and stay with the agent, or the tidying " +
+		"never happens and the store only ever grows. A route floor cannot say " +
+		"'depends on the reason', so the owner test is resolved here and the DECISION " +
+		"stays in loreRetireNeedsOwner (dal_lore_governance.go) — one question, one " +
+		"answer, never re-derived in this layer. principalOwner and NOT " +
+		"principalAtLeast(admin_agent) deliberately: an admin agent is still an agent.",
+	"api_lore_governance.go :: HandleReviveLoreEntryApiLoreEntriesEntryIdRevivePost :: s.principalOfRequest(r) == principalOwner": "" +
+		"the same fact resolved for the revival face. Here the route floor IS " +
+		"principalOwner, so this expression is deliberately redundant with it: it feeds " +
+		"ReviveLoreEntry's own owner check, which is what keeps that DAL function safe " +
+		"for callers the route table does not know about. Redundant, not decorative — " +
+		"remove either half and the other still refuses, which is the point.",
+
 	// ── self-ops: identity from the token, never a parameter (CLAUDE.md §14) ──
 	"api_members.go :: HandleGetMemberApiMembersMemberIdGet :: memberId == currentActor(r)": "" +
 		"self-read fold: an outsource worker's recycle/wind-down hook refetches ITS OWN " +

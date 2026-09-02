@@ -10,6 +10,13 @@ import { DOC_CAP_CHARS_DEFAULTS } from "./docCap";
 import { CHAT_BUDGET_CHARS_DEFAULT } from "./chatBudget";
 import { BACKUP_RETAIN_DEFAULT } from "./backupRetain";
 import type {
+  LoreEntrySummaryView,
+  LoreSearchView,
+  LoreRevisionRowView,
+  LoreEntryDetailView,
+  LoreRevisionView,
+  LorePendingEntityView,
+  LoreEntityGovernanceView,
   Member,
   MemberStatus,
   MemberLifecycle,
@@ -52,6 +59,13 @@ import type {
   WireChatMessage,
   WireMachine,
   WireMonSession,
+  WireLoreSearchResult,
+  WireLoreSearchHit,
+  WireLoreEntryDetail,
+  WireLoreRevisionRow,
+  WireLoreRevision,
+  WireLorePendingEntity,
+  WireLoreEntityGovernance,
   WireMonMachine,
   WireMonAccount,
   WireMonitoring,
@@ -1777,5 +1791,162 @@ export function toMemberResumeSummary(
     // panel never has to distinguish "no marker" from "marker down".
     roster: (w.roster ?? []).map(toResumeRosterMember),
     machines: w.machines ? toResumeMachines(w.machines) : null,
+  };
+}
+
+// ── T-33 傳承 (lore) ────────────────────────────────────────────────────────
+
+/** Map one search hit → the summary view (snake→camel, nothing derived).
+ *
+ * Every honesty marker the wire carries is carried through: `tier` WITHOUT
+ * `applied.tiered_by` means something different from what it says, and
+ * `trust_fell_back` is what separates a class the table KNEW from one that was
+ * guessed by failing closed. Dropping either here would leave the screen
+ * unable to tell the two apart, and nothing would throw. */
+export function toLoreEntrySummary(
+  w: WireLoreSearchHit
+): LoreEntrySummaryView {
+  return {
+    entryId: w.entry_id,
+    label: w.label,
+    short: w.short,
+    symptoms: w.symptoms,
+    subjects: [...w.subjects],
+    actions: [...w.actions],
+    origin: w.origin,
+    degraded: w.degraded,
+    tier: w.tier,
+    tierNote: w.tier_note,
+    trustScope: w.trust_scope,
+    trustFellBack: w.trust_fell_back,
+  };
+}
+
+/** Map one search answer → the view model.
+ *
+ * 🔴 `total` is the server's count BEFORE the cap and is NOT re-derived from
+ * `entries.length`: a caller that read the page length as the total would show
+ * a capped page as the whole store, and the cap is silent. `subject_resolved`
+ * likewise survives instead of being folded into an empty list — 「this subject
+ * has nothing on it」 and 「this subject does not exist」 are different answers,
+ * and the second one is a typo somebody needs to see. */
+export function toLoreSearch(w: WireLoreSearchResult): LoreSearchView {
+  return {
+    entries: w.entries.map(toLoreEntrySummary),
+    total: w.total,
+    truncated: w.truncated,
+    subjectResolved: w.subject_resolved,
+    unresolvedSubject: w.unresolved_subject,
+    applied: {
+      subject: w.applied.subject,
+      actions: [...w.applied.actions],
+      query: w.applied.query,
+      queryMatch: w.applied.query_match,
+      limit: w.applied.limit,
+      tieredBy: [...w.applied.tiered_by],
+    },
+    unmappedActions: [...w.unmapped_actions],
+  };
+}
+
+/** Map one revision catalogue line → the view model. `shrink_chars` is the
+ * field the whole 版本時間軸 exists for; it is a COUNT from the server and is
+ * never derived here, because the catalogue carries no text to derive from. */
+export function toLoreRevisionRow(
+  w: WireLoreRevisionRow
+): LoreRevisionRowView {
+  return {
+    revisionId: w.revision_id,
+    createdTs: w.created_ts,
+    actorId: w.actor_id,
+    sha256: w.sha256,
+    shrinkChars: w.shrink_chars,
+  };
+}
+
+/** Map one entry detail → the view model.
+ *
+ * Every body field is mapped verbatim, empty string included. `residual_risk`
+ * is still optional on a write; `falsify` and `instance` became REQUIRED on
+ * 2026-09-02 (rc-714eea33c6ed), so a blank pair now only reaches this mapper
+ * from an entry written BEFORE that ruling — which is precisely the entry a
+ * reader needs to spot at a glance, and why the empty case is still mapped
+ * rather than hidden.
+ *
+ * The surface prints an empty field WITH its name; substituting a placeholder
+ * here would make 「the writer left this blank」 and 「this entry has no such
+ * section」 render identically. */
+export function toLoreEntryDetail(
+  w: WireLoreEntryDetail
+): LoreEntryDetailView {
+  return {
+    entryId: w.entry_id,
+    label: w.label,
+    symptoms: w.symptoms,
+    short: w.short,
+    falsify: w.falsify,
+    instance: w.instance,
+    residualRisk: w.residual_risk,
+    subjects: [...w.subjects],
+    actions: [...w.actions],
+    origin: w.origin,
+    status: w.status,
+    degraded: w.degraded,
+    original: w.original,
+    sha256: w.sha256,
+    supersedes: w.supersedes,
+    writtenBy: w.written_by,
+    revisions: w.revisions.map(toLoreRevisionRow),
+  };
+}
+
+/** Map one revision's full text → the view model. */
+export function toLoreRevision(w: WireLoreRevision): LoreRevisionView {
+  return {
+    revisionId: w.revision_id,
+    entryId: w.entry_id,
+    body: w.body,
+    sha256: w.sha256,
+    createdTs: w.created_ts,
+    actorId: w.actor_id,
+    shrinkChars: w.shrink_chars,
+  };
+}
+
+/** 待審一列。`suggestion` 是空字串就原樣留空 —— 不在這裡補一個預設建議。 */
+export function toLorePendingEntity(
+  w: WireLorePendingEntity
+): LorePendingEntityView {
+  return {
+    entityId: w.entity_id,
+    canonical: w.canonical,
+    type: w.type,
+    name: w.name,
+    createdTs: w.created_ts,
+    entries: w.entries,
+    suggestion: w.suggestion,
+    mergeTarget: w.merge_target,
+    similar: (w.similar ?? []).map((r) => ({
+      entityId: r.entity_id,
+      canonical: r.canonical,
+      reason: r.reason,
+    })),
+    sampleShort: w.sample_short,
+  };
+}
+
+/** 核可／合併的收據。 */
+export function toLoreEntityGovernance(
+  w: WireLoreEntityGovernance
+): LoreEntityGovernanceView {
+  return {
+    entityId: w.entity_id,
+    canonical: w.canonical,
+    pending: w.pending,
+    mergedInto: w.merged_into,
+    kind: w.kind,
+    reason: w.reason,
+    actorId: w.actor_id,
+    createdTs: w.created_ts,
   };
 }

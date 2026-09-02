@@ -9,6 +9,11 @@
 
 import type { ThemeBundle } from "../lib/themeBundle";
 import type {
+  LoreSearchView,
+  LoreEntryDetailView,
+  LoreRevisionView,
+  LorePendingEntityView,
+  LoreEntityGovernanceView,
   Member,
   MemberLifecycle,
   MemberActivateResult,
@@ -2586,6 +2591,64 @@ export interface Api {
    * absent delta MUST be read as "something in this topic changed, refetch the
    * lot", never as "nothing changed".
    */
+  // ── T-33 傳承 (lore) — READ ONLY, and that is the whole surface ─────────
+  //
+  // 🔴 These three are EVERY lore method the seam has, because the station
+  // serves six lore routes and these cover the three the cockpit reads. The
+  // three it does NOT wrap are writes (`POST /api/lore/entries`, retire,
+  // revive), and nothing on the 傳承 tab calls a write this round.
+  //
+  // 🔴 There is deliberately NO `listLoreSubjects`, NO `listPendingEntities`
+  // and NO `approveLoreEntity` here. Not because they were forgotten — the
+  // station has no such route (checked against server/ocserverd/routes.go and
+  // ocapi_gen.go on this branch: every `/api/lore/*` path is one of the six,
+  // and nothing whose path contains `entit` exists at all). Declaring them on
+  // this interface would push the lie one layer down: the mock would answer
+  // them plausibly, the page would render numbers, and the only place the
+  // absence would show up is a 404 nobody runs.
+
+  /** Retrieve lore entries. Every selection condition rides in the BODY — an
+   * undeclared body key is refused 422 by name, while an undeclared QUERY
+   * parameter is silently ignored on every route this station serves. */
+  searchLore(input?: LoreSearchInput): Promise<LoreSearchView>;
+
+  /** Read ONE entry in full, with the preserved original and the revision
+   * CATALOGUE (identity + shrink counts, no text). */
+  getLoreEntry(entryId: string): Promise<LoreEntryDetailView>;
+
+  /** Read ONE revision's exact stored text. The entry id in the path is a
+   * CONSTRAINT, not decoration: revision ids are global, and a revision
+   * belonging to another entry 404s rather than handing over its text. */
+  getLoreRevision(
+    entryId: string,
+    revisionId: number
+  ): Promise<LoreRevisionView>;
+
+  // ── T-33 對象審核 ────────────────────────────────────────────────────────
+  //
+  // 🔴 這三條是 owner 2026-09-02 圈的（`rc-55e3f5b13b42`）。核可與合併是
+  // admin 專屬（他 `rc-139a5ab99a19` 逐字:「待審,我跟 mira 有 admin 權限的才
+  // 行」）—— 一般成員拿到的是 403,不是一顆按不動的按鈕。
+  //
+  // 🔴 這裡沒有 `rejectLoreEntity`。「駁回」這個出口 owner 從來沒有裁定過,補一
+  // 個等於替他決定。
+
+  /** 待審佇列。每一列自己帶著伺服器算出的建議與依據。 */
+  listPendingLoreEntities(): Promise<LorePendingEntityView[]>;
+
+  /** 核可一個待審對象。 */
+  approveLoreEntity(
+    entityId: string,
+    reason?: string
+  ): Promise<LoreEntityGovernanceView>;
+
+  /** 把待審對象併進一個既有對象;`into` 是存活那一個的 id。 */
+  mergeLoreEntity(
+    entityId: string,
+    into: string,
+    reason?: string
+  ): Promise<LoreEntityGovernanceView>;
+
   subscribeEvents(
     onTopic: (topic: string, delta?: SseDelta) => void
   ): () => void;
@@ -2602,4 +2665,27 @@ export interface Api {
   subscribeConnection(
     onState: (state: SseConnectionState) => void
   ): () => void;
+}
+
+/**
+ * The selection conditions for `searchLore`. Every field is optional and every
+ * one goes in the request BODY (`LoreSearchDTO`); sending none asks for
+ * everything still retrievable.
+ *
+ * `limit` is 1..100 and OUT OF RANGE IS REFUSED rather than clamped — a caller
+ * that asked for 500 and silently received 100 believes it has seen
+ * everything. Omit it to take the server's default.
+ */
+export interface LoreSearchInput {
+  /** A subject key, `type:name`. A key that names nothing is NOT an error and
+   * NOT an empty result: the answer comes back `subjectResolved: false`. */
+  subject?: string;
+  actions?: string[];
+  /** A LITERAL, case-insensitive substring over label/short/symptoms. Not
+   * semantic — two entries describing the same situation in different words
+   * will not find each other. */
+  query?: string;
+  limit?: number;
+  /** Let `trust`-class entries appear in the analogy tier. */
+  forceTrustAnalogy?: boolean;
 }

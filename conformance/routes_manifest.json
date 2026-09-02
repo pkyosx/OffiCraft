@@ -1181,5 +1181,68 @@
     "method": "POST",
     "path": "/api/outsource-workers/{id}/force-stop",
     "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "retire_lore_entry",
+    "method": "POST",
+    "path": "/api/lore/entries/{entry_id}/retire",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/lore/entries/{entry_id}/revive",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "write_lore_entry",
+    "method": "POST",
+    "path": "/api/lore/entries",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "search_lore_entries",
+    "method": "POST",
+    "path": "/api/lore/search",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "get_lore_entry",
+    "method": "GET",
+    "path": "/api/lore/entries/{entry_id}",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "get_lore_revision",
+    "method": "GET",
+    "path": "/api/lore/entries/{entry_id}/revisions/{revision_id}",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "list_pending_lore_entities",
+    "method": "GET",
+    "path": "/api/lore/entities/pending",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "approve_lore_entity",
+    "method": "POST",
+    "path": "/api/lore/entities/{entity_id}/approve",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "merge_lore_entity",
+    "method": "POST",
+    "path": "/api/lore/entities/{entity_id}/merge",
+    "requires": "admin_agent"
   }
 ]

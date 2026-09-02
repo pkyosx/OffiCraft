@@ -9,6 +9,7 @@ import {
   InboxIcon,
   TasksIcon,
   MonitorIcon,
+  BookIcon,
   FileTextIcon,
 } from "./components/icons";
 import { Avatar } from "./components/Avatar";
@@ -18,6 +19,7 @@ import { OfficePage } from "./components/OfficePage";
 import { RepliesPage } from "./components/RepliesPage";
 import { TasksPage } from "./components/TasksPage";
 import { MonitorPage } from "./components/MonitorPage";
+import { LorePage } from "./components/LorePage";
 import { GuidePage } from "./components/UserGuidePage";
 import { SettingsPage } from "./components/SettingsPage";
 import { ProfileDropdown } from "./components/ProfileDropdown";
@@ -32,7 +34,7 @@ import { useChatUnread } from "./hooks/useChatUnread";
 import { useTaskCount } from "./hooks/useTaskCount";
 import "./components/chrome.css";
 
-type Tab = "office" | "replies" | "tasks" | "monitor" | "guide";
+type Tab = "office" | "replies" | "tasks" | "monitor" | "lore" | "guide";
 
 export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   const { t } = useI18n();
@@ -60,13 +62,15 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   const tab: Tab =
     route.page === "monitor"
       ? "monitor"
-      : route.page === "guide"
-        ? "guide"
-        : route.page === "replies"
-          ? "replies"
-          : route.page === "tasks"
-            ? "tasks"
-            : "office";
+      : route.page === "lore"
+        ? "lore"
+        : route.page === "guide"
+          ? "guide"
+          : route.page === "replies"
+            ? "replies"
+            : route.page === "tasks"
+              ? "tasks"
+              : "office";
   // The 等我回覆 nav badge: how many reply cards are WAITING (answered never
   // counts). Live via the count endpoint + "reply_card" SSE deltas. A separate
   // signal from the per-member chat unread red dot (different clearing rules —
@@ -248,6 +252,38 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
               </span>
             )}
           </button>
+          {/* 傳承 — immediately right of 任務 (owner 2026-09-02, 逐字:
+              「傳承應該放在案件右邊不是指南右邊」). 案件/指南 are what the
+              ACTIVE THEME renames 任務/使用說明 to — read off the station's own
+              `display.theme` wording, not guessed from the label in this file,
+              because the words the owner sees are not the words written here.
+
+              This also leaves the 2026-07-22 guide ruling intact in BOTH its
+              halves: 使用說明 stays last AND stays immediately right of 監控.
+
+              NO badge: the mockup drew a 「待審 9」 on this tab and nothing on
+              the station produces it — the six lore routes cover write /
+              search / read one / read one revision / retire / revive, and none
+              of them lists pending subjects. A badge counting something else
+              instead would be the exact failure this tab exists to stop.
+
+              The glyph is rendered DIRECTLY rather than through <NavIcon>: a
+              theme bundle's `navIcons` key set is a closed, SERVER-VALIDATED
+              set (lib/themeBundleCore NAV_ICON_KEYS ↔ ocserverd
+              navIconKeyAllowed ↔ the openapi description), so admitting a
+              `lore` key here without its server twin would mean a bundle
+              carrying it is 422'd by name. Making this tab themable is that
+              cross-boundary change, not this ticket. */}
+          <button
+            type="button"
+            className={`nav-tab${
+              !settingsOpen && tab === "lore" ? " nav-tab--active" : ""
+            }`}
+            onClick={() => selectTab("lore")}
+          >
+            <BookIcon size={15} />
+            <span>{t.lore.title}</span>
+          </button>
           <button
             type="button"
             className={`nav-tab${
@@ -298,6 +334,8 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           <RepliesPage replyCardId={route.replyCardId} />
         ) : tab === "tasks" ? (
           <TasksPage />
+        ) : tab === "lore" ? (
+          <LorePage />
         ) : tab === "guide" ? (
           <GuidePage />
         ) : (

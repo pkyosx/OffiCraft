@@ -1111,6 +1111,388 @@ type LoginDTO struct {
 	Password string  `json:"password"`
 }
 
+// LoreEntityApproveDTO Approve one pending subject entity: `{reason}`. `reason` is optional free prose recorded in the governance journal; unlike the retire reason it carries no permission consequence.
+type LoreEntityApproveDTO struct {
+	// Reason Optional prose recorded in the governance journal beside the act. Unlike the retire reason it carries no permission consequence — it is there so 「why was this name accepted」 has somewhere to live.
+	Reason *string `json:"reason,omitempty"`
+}
+
+// LoreEntityGovernanceDTO One subject-entity governance act, as it stands AFTER the call: the entity, the state it is now in, and the journal row just written. 🔴 Every field is read back off the tables rather than echoed from the request — an echo would report `pending: false` for a write that did not happen, which is the one thing a receipt exists to rule out.
+type LoreEntityGovernanceDTO struct {
+	// ActorId The caller, taken from the VERIFIED token subject — never from the request body.
+	ActorId string `json:"actor_id"`
+
+	// Canonical The entity's `type:name` key.
+	Canonical string  `json:"canonical"`
+	CreatedTs float64 `json:"created_ts"`
+	EntityId  string  `json:"entity_id"`
+
+	// Kind `entity-approve` or `entity-merge` — which journal row this is.
+	Kind string `json:"kind"`
+
+	// MergedInto The surviving entity this one was folded into, empty when it stands on its own. After an approve it is always empty; after a merge it names the survivor.
+	MergedInto string `json:"merged_into"`
+
+	// Pending Whether the entity is STILL awaiting review. Both acts clear it, so a `true` here after a 200 would mean the write did not take.
+	Pending bool   `json:"pending"`
+	Reason  string `json:"reason"`
+}
+
+// LoreEntityMergeDTO Fold one pending subject entity into an existing approved one: `{into, reason}`. `into` is REQUIRED — there is no default survivor, and guessing one would silently attach a subject's whole history to a name nobody chose.
+type LoreEntityMergeDTO struct {
+	// Into The id of the SURVIVING entity this one is folded into. It must already be approved and must not itself have been merged away; either is refused 422 by name, because merging into a subject the boot directory hides would park the source somewhere no reader can follow.
+	Into string `json:"into"`
+
+	// Reason Optional prose recorded in the governance journal beside the act. Unlike the retire reason it carries no permission consequence — it is there so 「why was this name accepted」 has somewhere to live.
+	Reason *string `json:"reason,omitempty"`
+}
+
+// LoreEntitySimilarDTO ONE existing subject that resembles a pending one, WITH the reason it was offered. 🔴 THE REASON IS THE PAYLOAD AND THERE IS DELIBERATELY NO SCORE. A number is a judgement wearing a number's clothes — nobody can check `0.87` — whereas `same_normalized` names the exact test that fired and can be checked at a glance, which is the whole point of the packet.
+type LoreEntitySimilarDTO struct {
+	// Canonical The existing subject's `type:name` key.
+	Canonical string `json:"canonical"`
+
+	// EntityId The existing subject's id — what `merge`'s `into` takes.
+	EntityId string `json:"entity_id"`
+
+	// Reason WHICH test fired, one of: `same_normalized` — identical once case, full-width/half-width and `_`/`-` are folded (`repo:OffiCraft` vs `repo:officraft`), the only reason strong enough to carry a suggestion; `edit_distance_1` / `edit_distance_2` — that many single-character edits apart; `prefix` — one name starts with the other; `substring` — one name contains the other. The fuzzy four are withheld for names shorter than 3 characters, where everything resembles everything. Comparison is WITHIN one type prefix, because the schema says an identical name under two prefixes is correct rather than a duplicate.
+	Reason string `json:"reason"`
+}
+
+// LoreEntryDetailDTO One lore entry in full, plus the original preserved beside it.
+type LoreEntryDetailDTO struct {
+	// Actions The entry's action names.
+	Actions []string `json:"actions"`
+
+	// Degraded True when the entry has neither a falsifier nor an instance.
+	Degraded bool `json:"degraded"`
+
+	// EntryId The entry's id.
+	EntryId string `json:"entry_id"`
+
+	// Falsify How to show this entry does NOT hold. May be empty on an entry written before owner ruling rc-714eea33c6ed (2026-09-02) made it required on write.
+	Falsify string `json:"falsify"`
+
+	// Instance One case that really happened. May be empty for the same reason as `falsify`.
+	Instance string `json:"instance"`
+
+	// Label The entry's one-line name.
+	Label string `json:"label"`
+
+	// Origin Whose knowledge this is (`human:Seth`, `agent:Kyle`).
+	Origin string `json:"origin"`
+
+	// Original 🔴 THE FULL TEXT OF THE ENTRY AS IT WAS LAST WRITTEN — every one of the six body fields, named, blank ones included. This is what the whole ticket means by keeping the original: `short` is lossy by design, and without this an agent that doubts it has nowhere to go. Empty ONLY for an entry written before this mechanism existed; a normal entry always has one, because the entry and its first revision are one transaction.
+	Original string `json:"original"`
+
+	// ResidualRisk What this entry does NOT protect against.
+	ResidualRisk string `json:"residual_risk"`
+
+	// Revisions The revision catalogue, oldest first, without any text.
+	Revisions []LoreRevisionRowDTO `json:"revisions"`
+
+	// Sha256 Digest of `original`, so a reader can tell it is holding what was stored.
+	Sha256 string `json:"sha256"`
+
+	// Short The compressed body — the field that enters a boot context.
+	Short string `json:"short"`
+
+	// Status `active`, `superseded`, `retired` or `underspecified`.
+	Status string `json:"status"`
+
+	// Subjects The subject keys this entry is filed under.
+	Subjects []string `json:"subjects"`
+
+	// Supersedes The entry this one took over from, empty when none.
+	Supersedes string `json:"supersedes"`
+
+	// Symptoms What you would be SEEING when this applies.
+	Symptoms string `json:"symptoms"`
+
+	// WrittenBy Who wrote the latest revision, from the verified token. 🔴 There is deliberately no `task_id` / `chat_id` beside it: the write request has no field that could say where the knowledge came from, so those two would be permanently empty — and an empty string reads as 「we looked and there was no source」 rather than 「no path could ever fill this」.
+	WrittenBy string `json:"written_by"`
+}
+
+// LoreGovernanceDTO One lore governance act, as it stands after the call: the entry, the state it is now in, and the journal row just written. `reason` is the row's reason, NOT a column on the entry — an entry retired, revived and retired again for a different reason keeps every row, and reading the latest is how 'why did this stop being used' is answered without a column that only remembers the last answer.
+type LoreGovernanceDTO struct {
+	// ActorId The caller, taken from the VERIFIED token subject — never from the request body.
+	ActorId   string  `json:"actor_id"`
+	CreatedTs float64 `json:"created_ts"`
+	EntryId   string  `json:"entry_id"`
+
+	// Kind `retire` or `revive` — which journal row this is.
+	Kind       string `json:"kind"`
+	Reason     string `json:"reason"`
+	ReplacedBy string `json:"replaced_by"`
+
+	// Status The entry's status AFTER the act: `retired` after a retire, `active` after a revive.
+	Status string `json:"status"`
+}
+
+// LorePendingEntityDTO A subject key that named nothing and was therefore CREATED by this write, parked `pending` for review. It is reported rather than swallowed so a typo shows up here instead of quietly becoming part of the ontology.
+type LorePendingEntityDTO struct {
+	// Canonical The subject key exactly as you sent it.
+	Canonical string `json:"canonical"`
+
+	// EntityId The id the new subject was minted under.
+	EntityId string `json:"entity_id"`
+
+	// Type The type prefix of the key.
+	Type string `json:"type"`
+}
+
+// LorePendingEntityRowDTO ONE subject entity waiting for review: what it is, what it was minted as, when, and how much lore already depends on it. 🔴 `display` IS DELIBERATELY ABSENT. The column exists and no path in this tree writes it, so the field could only ever be empty — and an empty string reads as 「we looked and there was no name」 rather than 「nothing can fill this yet」. `name` is the name half of `canonical`, derived at read time, so there is no second copy to go stale.
+type LorePendingEntityRowDTO struct {
+	// Canonical The full `type:name` key the entity was minted under.
+	Canonical string `json:"canonical"`
+
+	// CreatedTs When the key was first written, which is when review became owed.
+	CreatedTs float64 `json:"created_ts"`
+
+	// EntityId The entity's id.
+	EntityId string `json:"entity_id"`
+
+	// Entries How many lore entries are filed under this subject RIGHT NOW, counted with the same predicate the boot directory and search use — retired entries are excluded, so this number reconciles against what the subject would actually serve once approved.
+	Entries int `json:"entries"`
+
+	// MergeTarget The entity id `suggestion: merge` points at — the surviving subject to fold this one into. Empty whenever `suggestion` is not `merge`.
+	MergeTarget string `json:"merge_target"`
+
+	// Name The name half of `canonical` — what the subject is called, without its type prefix.
+	Name string `json:"name"`
+
+	// SampleShort The `short` of the FIRST lore entry filed under this subject, trimmed to 120 characters with an ellipsis when it was cut. 🔴 IT IS A SAMPLE AND IT SAYS SO BY ENDING IN 「…」: it exists so a reviewer can see what the subject is actually about without opening it, and it is never the field to act on — read the entry for that. Empty when the subject carries no entry yet, which the `entries` count already says.
+	SampleShort string `json:"sample_short"`
+
+	// Similar The existing APPROVED subjects that resemble this one, each with the reason it was offered, strongest reason first per candidate. Empty means nothing in the ontology looks like this name — which is exactly what makes `suggestion: approve` computable.
+	Similar []LoreEntitySimilarDTO `json:"similar"`
+
+	// Suggestion What the RULE concludes — `approve`, `merge`, or the EMPTY STRING. 🔴 EMPTY IS AN ANSWER, NOT A MISSING FIELD, and it is the field's most important value: the rule fills it only when it reaches a clear conclusion, because a guessed suggestion looks exactly like a computed one and 「something was decided and nothing said so」 is the failure this whole feature exists to end. The rule: no `similar` candidate at all ⇒ `approve`; exactly one `same_normalized` candidate ⇒ `merge` into it; anything else — fuzzy-only resemblance, or two equally exact candidates ⇒ empty, and the reviewer decides on the evidence in `similar`. 🔴 IT IS A SUGGESTION AND NOTHING ELSE: no route approves or merges on it, both acts stay behind the admin floor, and the verdict is the owner's.
+	Suggestion string `json:"suggestion"`
+
+	// Type The approved type prefix of the key (`repo`, `agent`, `human`, …).
+	Type string `json:"type"`
+}
+
+// LoreRetireDTO Retire one lore entry: `{reason, replaced_by}`. `reason` is REQUIRED and closed to `expired` / `merged` / `falsified` — an unrecognised value is refused rather than defaulted, because a typo defaulted to the permissive side would retire an entry as if it were merely stale.
+type LoreRetireDTO struct {
+	// Reason WHY this entry stops being retrieved, and it is the field that decides whether you are allowed to file it at all. Exactly one of: `expired` — the situation changed and this no longer applies (it MAY come back); `merged` — folded into another entry, whose id belongs in `replaced_by` (the content still exists over there); `falsified` — the entry's claim WAS NEVER TRUE (it should NOT come back), and only the owner may file this one. Anything else is refused 422 with the value named; there is no default, because defaulting a typo to the permissive side would retire an entry as if it were merely stale and nothing downstream could tell afterwards.
+	Reason string `json:"reason"`
+
+	// ReplacedBy The entry that takes over, meaningful above all for `merged`. Stored as sent and never validated as an id: the journal's job is to record what you said, not to re-derive it later.
+	ReplacedBy *string `json:"replaced_by,omitempty"`
+}
+
+// LoreRevisionDTO One revision of a lore entry, in full.
+type LoreRevisionDTO struct {
+	// ActorId Who wrote it.
+	ActorId string `json:"actor_id"`
+
+	// Body The exact text stored at that moment.
+	Body string `json:"body"`
+
+	// CreatedTs When.
+	CreatedTs float64 `json:"created_ts"`
+
+	// EntryId The entry it belongs to.
+	EntryId string `json:"entry_id"`
+
+	// RevisionId This revision's id.
+	RevisionId int `json:"revision_id"`
+
+	// Sha256 Digest of `body`.
+	Sha256 string `json:"sha256"`
+
+	// ShrinkChars How many characters this write removed compared with the previous one.
+	ShrinkChars int `json:"shrink_chars"`
+}
+
+// LoreRevisionRowDTO One line of an entry's revision catalogue. It carries NO text: a list is how a reader chooses a revision, and the journal has no depth limit, so carrying every body here would put the whole history in one response.
+type LoreRevisionRowDTO struct {
+	// ActorId Who wrote this revision — the verified token subject at the time.
+	ActorId string `json:"actor_id"`
+
+	// CreatedTs When it was written.
+	CreatedTs float64 `json:"created_ts"`
+
+	// RevisionId Address this revision by this id under the same entry.
+	RevisionId int `json:"revision_id"`
+
+	// Sha256 Digest of that revision's text.
+	Sha256 string `json:"sha256"`
+
+	// ShrinkChars How many characters this write REMOVED compared with the previous revision, 0 when it removed none. It is the only place a compression that hollowed an entry out shows up: the number of entries does not change when an entry is emptied.
+	ShrinkChars int `json:"shrink_chars"`
+}
+
+// LoreReviveDTO Revive one retired lore entry: `{reason}`. `reason` is optional free prose recorded in the governance journal; unlike the retire reason it carries no permission consequence.
+type LoreReviveDTO struct {
+	// Reason Optional prose recorded in the governance journal beside the revival — why this entry is being brought back. Unlike the retire reason it is free text and carries no permission consequence.
+	Reason *string `json:"reason,omitempty"`
+}
+
+// LoreSearchAppliedDTO What the server ACTUALLY applied, echoed back condition by condition. 🔴 It is a required part of every answer, not an optional debugging extra: the tier labels mean 「matched every axis you asked on」, which is only interpretable beside the axes that were asked. A tier that travelled without its axes would be read under the older meaning (「both axes matched」) and quietly mean something else.
+type LoreSearchAppliedDTO struct {
+	// Actions The action filter applied.
+	Actions []string `json:"actions"`
+
+	// ForceTrustAnalogy Whether trust-class analogies were allowed through.
+	ForceTrustAnalogy bool `json:"force_trust_analogy"`
+
+	// Limit The count cap applied, after defaulting.
+	Limit int `json:"limit"`
+
+	// Query The literal needle applied, empty when none.
+	Query string `json:"query"`
+
+	// QueryMatch How `query` was matched. Today always `literal-substring`. It exists so that a caller never has to assume the match was semantic — and so that the day it becomes semantic, the answer says so rather than silently changing.
+	QueryMatch string `json:"query_match"`
+
+	// Subject The subject key applied, empty when none.
+	Subject string `json:"subject"`
+
+	// TieredBy 🔴 The axes the tier was computed over — some subset of `subject` and `actions`. Empty means no axis was supplied, so nothing in the answer reached you across an axis you did not ask about.
+	TieredBy []string `json:"tiered_by"`
+}
+
+// LoreSearchDTO Retrieve lore entries: the selection conditions, all optional, all in the BODY. The field set is CLOSED — an unknown key is a 422 naming it, never a silent drop, because a selection condition that is quietly ignored produces a plausible wrong answer.
+type LoreSearchDTO struct {
+	// Actions Filter to entries carrying any of these action names. Combined with `subject` this is the second tiering axis: an entry matching both is `T1`, one matching only this axis is an analogy.
+	Actions *[]string `json:"actions,omitempty"`
+
+	// ForceTrustAnalogy Let `trust`-class entries appear in the analogy tier. Off by default because 「how far X could be relied on」 is a fact about X and does not travel to another subject; when on, each such entry's `tier_note` names whose situation it actually describes.
+	ForceTrustAnalogy *bool `json:"force_trust_analogy,omitempty"`
+
+	// Limit How many entries to return, 1..100, default 20. Out of range is REFUSED, never clamped: a caller that asked for 500 and silently got 100 believes it has seen everything. Entries whose origin is a `human:` key do not count against it.
+	Limit *int `json:"limit,omitempty"`
+
+	// Query A LITERAL, case-insensitive substring matched against label, short and symptoms. Not semantic — `applied.query_match` reports which kind it was, so nothing has to guess.
+	Query *string `json:"query,omitempty"`
+
+	// Subject A subject key, `type:name`. An alias resolves onto its subject and a merged-away subject follows to the survivor. A key that names nothing is NOT an error and NOT an empty result: it comes back as `subject_resolved: false` with the key echoed.
+	Subject *string `json:"subject,omitempty"`
+}
+
+// LoreSearchHitDTO One retrieved entry, plus why it is in the answer.
+type LoreSearchHitDTO struct {
+	// Actions The entry's action names.
+	Actions []string `json:"actions"`
+
+	// Degraded True when the entry carries neither a falsifier nor an instance — it asserts something while offering no way to check it. Reported, not filtered.
+	Degraded bool `json:"degraded"`
+
+	// EntryId The entry's id — what `lore_get` will address once it exists.
+	EntryId string `json:"entry_id"`
+
+	// Label The entry's one-line name.
+	Label string `json:"label"`
+
+	// Origin Whose knowledge this is (`human:Seth`, `agent:Kyle`). A `human:` origin sorts ahead within its tier and is exempt from `limit`.
+	Origin string `json:"origin"`
+
+	// Short The compressed body: the mechanism and why.
+	Short string `json:"short"`
+
+	// Subjects The subject keys this entry is filed under.
+	Subjects []string `json:"subjects"`
+
+	// Symptoms What you would be SEEING when this applies. 🔴 Returned but NOT searchable — there is no parameter, table or index for it.
+	Symptoms string `json:"symptoms"`
+
+	// Tier `T1` — this matched every axis you asked on. `T2` — 類比: it reached you across an axis you did NOT ask about, so it is a guess about your case rather than a rule for it. 🔴 Read this together with `applied.tiered_by`; alone it does not say what it matched.
+	Tier string `json:"tier"`
+
+	// TierNote The tier in words, including — for a forced trust-class analogy — whose situation the entry actually describes.
+	TierNote string `json:"tier_note"`
+
+	// TrustFellBack 🔴 True when this entry's `trust_scope` was reached by FAILING CLOSED on an action name nothing recognised, rather than by the mapping table. The mapping table is hand-written and provisional (its own header says so), so a class that was guessed must not look identical to one that was known.
+	TrustFellBack bool `json:"trust_fell_back"`
+
+	// TrustScope `method` (how to do a thing — crosses subjects as an ordinary analogy), `trust` (how far something can be relied on — does not cross, and the fail-closed answer for anything unrecognised) or `cognitive` (a failure mode of thinking).
+	TrustScope string `json:"trust_scope"`
+}
+
+// LoreSearchResultDTO The retrieved entries plus everything needed to tell a real empty answer from a question that never got asked properly.
+type LoreSearchResultDTO struct {
+	// Applied What the server actually applied. Always present.
+	Applied LoreSearchAppliedDTO `json:"applied"`
+
+	// Entries The entries, ordered T1 before T2, `human:` origins first within a tier.
+	Entries []LoreSearchHitDTO `json:"entries"`
+
+	// SubjectResolved 🔴 False ONLY when a `subject` was given and named nothing. It is NOT folded into an empty `entries`: 「this subject has no entries」 is an answer and 「this subject does not exist」 is a typo, and a caller that cannot tell them apart will read one as the other.
+	SubjectResolved bool `json:"subject_resolved"`
+
+	// Total How many entries matched before the count cap.
+	Total int `json:"total"`
+
+	// Truncated True when the cap dropped some of them.
+	Truncated bool `json:"truncated"`
+
+	// UnmappedActions Every action name in this answer that the trust table did not recognise. Non-empty means at least one entry was classified by failing closed — which changes what the trust filter did — so it rides back with the answer instead of only reaching a log.
+	UnmappedActions []string `json:"unmapped_actions"`
+
+	// UnresolvedSubject The subject key that named nothing, echoed back so a typo is visible. Empty otherwise.
+	UnresolvedSubject string `json:"unresolved_subject"`
+}
+
+// LoreWriteDTO Create one lore entry: the six body fields plus the axes it is filed under. The field set is CLOSED — an unknown key is a 422, never a silent drop.
+type LoreWriteDTO struct {
+	// Actions The action names this entry is about — an OPEN set, mint a new one whenever a new kind of experience turns up. They are not checked against a list here on purpose; the safety is at read time, where an unrecognised action fails closed and says so.
+	Actions *[]string `json:"actions,omitempty"`
+
+	// Falsify REQUIRED. How somebody could show this entry does NOT hold. Made a hard requirement by owner ruling rc-714eea33c6ed (2026-09-02), which knowingly overturns his own 2026-09-01 ruling that had left it optional: 純 required，不做逃生口，真的撞到再回來加 — there is no legal way to answer 「我沒有」. The evidence for the old ruling was asked for and did not exist: read against the 5 entries the station carried at the time, every falsifier was filled in and every one of them held up. ⚠️ THE COST IS ACCEPTED, NOT SOLVED — with no escape hatch a writer who genuinely has none will invent one, and an invented falsifier reads exactly like a real one. Do not add an escape hatch here on your own.
+	Falsify string `json:"falsify"`
+
+	// Instance REQUIRED. One case that really happened. Required by the same ruling as `falsify` (rc-714eea33c6ed, 2026-09-02) and carrying the same accepted, unsolved cost: nothing here can tell a fabricated case from a real one.
+	Instance string `json:"instance"`
+
+	// Label A one-line NAME for the entry, at most 40 runes. Over the cap the write is REFUSED with the actual count and the cap, never trimmed: a label is what a reader scans a list by and what a supersede points at, so a name the server quietly edited breaks whatever was pointing at it. Blank is allowed — an entry can be written before it has been named, and an invented name looks exactly like a chosen one.
+	Label *string `json:"label,omitempty"`
+
+	// Origin REQUIRED. A subject key, `type:name`, naming WHOSE knowledge this is — `human:Seth` for something the owner told you, `agent:Kyle` for something a member worked out. It is NOT who is writing: the actor comes from your verified token. The distinction is load-bearing — a `human:` origin sorts ahead within its tier and is exempt from the boot-directory count cap. A blank origin, or a type prefix nothing has approved, is refused: there is no default author.
+	Origin string `json:"origin"`
+
+	// ResidualRisk What this entry does NOT protect against. It is the field that stops a reader over-reading the claim.
+	ResidualRisk *string `json:"residual_risk,omitempty"`
+
+	// Short REQUIRED. The compressed body: the mechanism, and why. THIS is the field that enters a boot context — nothing else here does — so an entry with a blank `short` contributes literally nothing to anybody and is refused.
+	Short string `json:"short"`
+
+	// Subjects REQUIRED, at least one. The subject keys this entry is filed under, each shaped `type:name`. An alias resolves onto its subject; a merged-away subject follows to the survivor; a duplicate files one row. A key nobody has used yet is MINTED as a new subject parked `pending` for review and reported back in `pending_entities` — it does not reach anybody's boot directory until somebody approves it. An unapproved type prefix is refused by name rather than minted, and so is a key that is not `type:name` at all.
+	Subjects []string `json:"subjects"`
+
+	// Supersedes The id of the entry this one takes over from. That entry is re-statused `superseded` (it is NOT deleted and it keeps its own original) and the act is written to the governance journal with you as the actor. An id that names no entry refuses the whole write: a pointer into empty space is a dead end that looks like a trail.
+	Supersedes *string `json:"supersedes,omitempty"`
+
+	// Symptoms REQUIRED. What you would be SEEING when this entry applies — the situation, not a category name. It is the axis a reader finds the entry by, so an entry without it exists and is reachable by nobody. Write the sentence you could have written BEFORE you knew the answer.
+	Symptoms string `json:"symptoms"`
+}
+
+// LoreWriteReceiptDTO What the write actually did, read back from the tables rather than echoed from the request: the new entry's id, the digest of the original that was preserved beside it, the subjects it ended up filed against, any subject it had to mint, and whether it landed degraded.
+type LoreWriteReceiptDTO struct {
+	// Degraded True when the entry carries NEITHER a falsifier NOR an instance — it asserts something while offering no way to check it and no case where it happened. Since owner ruling rc-714eea33c6ed (2026-09-02) made both fields REQUIRED on a write, a NEW entry can no longer land degraded; the field stays because entries written BEFORE that ruling can carry neither, and this flag is the only thing that makes them visible.
+	Degraded bool `json:"degraded"`
+
+	// EntryId The id of the entry that was created.
+	EntryId string `json:"entry_id"`
+
+	// PendingEntities The subjects this write had to MINT because the key named nothing yet. Each is parked `pending` and reaches nobody's boot directory until it is approved. An empty list means every key you sent already named a subject.
+	PendingEntities []LorePendingEntityDTO `json:"pending_entities"`
+
+	// RevisionId The id of the L0 revision row holding the full original. It is not optional and never zero: an entry without one would look identical in every context and every count, and the loss would only surface when somebody went looking for the original.
+	RevisionId int `json:"revision_id"`
+
+	// Sha256 The digest of the preserved original, so a later reader can tell that what it is holding is what was written.
+	Sha256 string `json:"sha256"`
+
+	// SubjectIds The entity ids the entry was actually filed against, after aliases resolved, merges were followed and duplicates collapsed. Compare it with what you sent when you want to know which of your keys were the same subject.
+	SubjectIds []string `json:"subject_ids"`
+
+	// Superseded The id of the entry this one took over from, empty when it took over from nothing.
+	Superseded string `json:"superseded"`
+}
+
 // MachineClaimDTO Redeem a one-time machine claim code (“POST /api/machines/claim“).
 //
 // “code“ is the single-use, short-lived (600 s) code the onboard /
@@ -3556,6 +3938,24 @@ type HandlePatchLessonsApiLessonsRoleKeyPatchPostJSONRequestBody = LessonsPatchD
 // HandleLoginApiLoginPostJSONRequestBody defines body for HandleLoginApiLoginPost for application/json ContentType.
 type HandleLoginApiLoginPostJSONRequestBody = LoginDTO
 
+// HandleApproveLoreEntityApiLoreEntitiesEntityIdApprovePostJSONRequestBody defines body for HandleApproveLoreEntityApiLoreEntitiesEntityIdApprovePost for application/json ContentType.
+type HandleApproveLoreEntityApiLoreEntitiesEntityIdApprovePostJSONRequestBody = LoreEntityApproveDTO
+
+// HandleMergeLoreEntityApiLoreEntitiesEntityIdMergePostJSONRequestBody defines body for HandleMergeLoreEntityApiLoreEntitiesEntityIdMergePost for application/json ContentType.
+type HandleMergeLoreEntityApiLoreEntitiesEntityIdMergePostJSONRequestBody = LoreEntityMergeDTO
+
+// HandleWriteLoreEntryApiLoreEntriesPostJSONRequestBody defines body for HandleWriteLoreEntryApiLoreEntriesPost for application/json ContentType.
+type HandleWriteLoreEntryApiLoreEntriesPostJSONRequestBody = LoreWriteDTO
+
+// HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePostJSONRequestBody defines body for HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePost for application/json ContentType.
+type HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePostJSONRequestBody = LoreRetireDTO
+
+// HandleReviveLoreEntryApiLoreEntriesEntryIdRevivePostJSONRequestBody defines body for HandleReviveLoreEntryApiLoreEntriesEntryIdRevivePost for application/json ContentType.
+type HandleReviveLoreEntryApiLoreEntriesEntryIdRevivePostJSONRequestBody = LoreReviveDTO
+
+// HandleSearchLoreEntriesApiLoreSearchPostJSONRequestBody defines body for HandleSearchLoreEntriesApiLoreSearchPost for application/json ContentType.
+type HandleSearchLoreEntriesApiLoreSearchPostJSONRequestBody = LoreSearchDTO
+
 // HandleOnboardMachineApiMachinesPostJSONRequestBody defines body for HandleOnboardMachineApiMachinesPost for application/json ContentType.
 type HandleOnboardMachineApiMachinesPostJSONRequestBody = MachineOnboardDTO
 
@@ -3927,6 +4327,33 @@ type ServerInterface interface {
 	// Owner login: exchange the password for an owner-scoped JWT.
 	// (POST /api/login)
 	HandleLoginApiLoginPost(w http.ResponseWriter, r *http.Request)
+	// List the subject entities parked for review, each with the homework already done — the `type:name` key it was minted under, its type, its name, when it was created, HOW MANY lore entries are filed under it, a SAMPLE of the first one's `short`, the existing subjects it resembles WITH the reason each was offered, and what the rule concludes. 🔴 A pending entity is a name an agent INVENTED while writing lore: minting is deliberately ungated (gating it is what pushes a writer into forcing a near-miss key onto an existing subject), so this queue is the only place a typo like `repo:offcraft` is caught before it becomes part of the ontology. `entries` is counted with the SAME predicate the boot subject directory and `search_lore_entries` use — retired entries are not counted. 🔴 `suggestion` IS A RULE, NOT A JUDGEMENT, AND EMPTY IS ONE OF ITS ANSWERS: nothing resembles it ⇒ `approve`; exactly one candidate is identical once case, width and `_`/`-` are folded ⇒ `merge` into the id in `merge_target`; fuzzy-only resemblance, or two equally exact candidates ⇒ empty, because a guessed suggestion looks exactly like a computed one. Nothing here approves or merges anything — both acts stay behind the owner/admin floor and the verdict is the reviewer's. 🔴 A pending entity is INVISIBLE to the boot subject directory until it is approved, so a queue nobody works is a set of lore entries no agent can reach by subject.
+	// (GET /api/lore/entities/pending)
+	HandleListPendingLoreEntitiesApiLoreEntitiesPendingGet(w http.ResponseWriter, r *http.Request)
+	// Approve ONE pending subject entity — owner or admin agent only (owner ruling rc-139a5ab99a19: 「待審，我跟 mira 有 admin 權限的才行」). The entity stops being `pending` and starts appearing in the boot subject directory, which is what makes the lore entries filed under it reachable by subject at all. 404 when no entity carries that id; 409 when the entity is not pending, because answering `done` would confirm a belief about its state that is wrong. 🔴 THERE IS DELIBERATELY NO REJECT ROUTE BESIDE THIS ONE: nothing has been ruled about whether a pending name may be thrown away, and inventing that exit here would decide it. `reason` is optional prose recorded in the governance journal beside the approval.
+	// (POST /api/lore/entities/{entity_id}/approve)
+	HandleApproveLoreEntityApiLoreEntitiesEntityIdApprovePost(w http.ResponseWriter, r *http.Request, entityId string)
+	// Fold ONE pending subject entity into an existing APPROVED one — owner or admin agent only (owner ruling rc-139a5ab99a19). This is the repair approve cannot make: two names for one thing. The source keeps existing (nothing in this schema deletes) with `merged_into` pointing at the survivor, and its `type:name` key is registered as an ALIAS of the survivor — so every later write and search naming the old key resolves onto the surviving subject instead of minting it a second time. 404 when either id names nothing; 409 when the source is not pending; 422 when the target is itself still pending, has itself been merged away, or IS the source — each refused BY NAME rather than silently succeeding, because a merge into a subject the directory also hides parks the source somewhere no reader can follow. `reason` is optional prose recorded in the governance journal.
+	// (POST /api/lore/entities/{entity_id}/merge)
+	HandleMergeLoreEntityApiLoreEntitiesEntityIdMergePost(w http.ResponseWriter, r *http.Request, entityId string)
+	// Write ONE lore entry — the entry, the subjects it is filed under, the actions it is about, and the FULL ORIGINAL that outlives every later rewrite, all in one transaction. `symptoms` and `short` are required: `short` is the only field that ever enters a boot context and `symptoms` is the axis a reader finds the entry by, so an entry missing either is not thin, it is unreachable. `falsify` and `instance` are REQUIRED as well (owner ruling rc-714eea33c6ed, 2026-09-02: 純 required，不做逃生口，真的撞到再回來加 — it knowingly overturns the 2026-09-01 ruling that had left them optional), so there is no legal way to answer 「我沒有」. ⚠️ The cost is accepted and UNSOLVED: a writer who has neither will invent them, and an invented one reads exactly like a real one. `degraded: true` on the receipt still exists for entries written BEFORE that ruling, which can carry neither. `subjects` are subject keys shaped `type:name` (`repo:officraft`, `agent:Kyle`): an alias resolves, a merged-away subject follows to the survivor, an unapproved type prefix is refused BY NAME, and a key nobody has used yet MINTS a new subject parked for review and names it back to you in `pending_entities` — so a typo surfaces in this response instead of in the ontology a month later. `origin` says WHOSE knowledge this is (`human:Seth` for something the owner told you) and is not the same question as who is writing: the actor is taken from your verified token and cannot be asserted here. `label` is a NAME, at most 40 runes; over that is refused with both counts and NEVER trimmed, because a name that changes silently breaks whatever was pointing at it. `supersedes` names the entry this one takes over from: it is re-statused `superseded` and the act is written to the governance journal, while an id that names nothing refuses the WHOLE write rather than leaving a pointer into empty space.
+	// (POST /api/lore/entries)
+	HandleWriteLoreEntryApiLoreEntriesPost(w http.ResponseWriter, r *http.Request)
+	// Read ONE lore entry in full, together with the ORIGINAL that was preserved beside it — hop ③ of the design, and the reason 「原始資訊可以保留讓我們可以重新判定」 is a mechanism rather than a sentence. `short` is the compressed line that enters a boot context; `original` is the complete text of the entry as it was last written, so an agent that has stopped believing the short version has somewhere to go. `sha256` digests that original, so a reader can tell that what it is holding is what was stored. `revisions` is a CATALOGUE — id, when, who, and how many characters that write REMOVED — and carries no text at all, because a list is how you choose a revision and choosing does not need the prose; fetch one by id from `/api/lore/entries/{entry_id}/revisions/{revision_id}`. 🔴 ADDRESSING IS ENTIRELY IN THE PATH AND THERE ARE NO QUERY PARAMETERS, deliberately: an undeclared query parameter is silently ignored on every route this station serves, so `?revision=3` would have been a way to ask for a specific revision and quietly receive the latest one. A wrong path is a 404, which is loud. 404 when no entry carries that id.
+	// (GET /api/lore/entries/{entry_id})
+	HandleGetLoreEntryApiLoreEntriesEntryIdGet(w http.ResponseWriter, r *http.Request, entryId string)
+	// Stop retrieving one lore entry and record WHY. Retirement is NOT a delete — the row stays and `revive_lore_entry` brings it back. `reason` is one of `expired` (the situation changed; it may come back), `merged` (folded into another entry — name it in `replaced_by`) or `falsified` (the claim was never true; it should not come back). An ordinary agent may file `expired` and `merged` itself; `falsified` is a judgement about truth and is refused 403 for anyone but the owner. An unrecognised reason is refused 422 rather than defaulted, so a typo cannot retire an entry as if it were merely stale. The reason is written to the governance journal, never onto the entry, because one entry can be retired, revived and retired again for a different reason and a column would only ever remember the last one.
+	// (POST /api/lore/entries/{entry_id}/retire)
+	HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePost(w http.ResponseWriter, r *http.Request, entryId string)
+	// Read ONE revision of a lore entry in full — the exact text that was stored at that moment, plus its `sha256`. `shrink_chars` says how many characters that write removed compared with the one before it, which is how a compression that quietly hollowed an entry out becomes visible at all (the entry count does not move when an entry is emptied). 🔴 THE ENTRY ID IN THE PATH IS A CONSTRAINT, NOT DECORATION: revision ids are global, so a revision that belongs to a DIFFERENT entry is a 404 rather than being served through this address — a mistyped entry id must not hand you somebody else's text with nothing to signal it. 404 when the entry does not exist, or when it does and that revision is not one of its own.
+	// (GET /api/lore/entries/{entry_id}/revisions/{revision_id})
+	HandleGetLoreRevisionApiLoreEntriesEntryIdRevisionsRevisionIdGet(w http.ResponseWriter, r *http.Request, entryId string, revisionId string)
+	// Bring a retired lore entry back into retrieval — owner only, and it is what makes retirement reversible rather than a delete. 404 when no entry carries that id; 409 when the entry is not retired, because answering `done` would confirm a belief about its state that is wrong. `reason` is optional prose recorded in the governance journal beside the revival.
+	// (POST /api/lore/entries/{entry_id}/revive)
+	HandleReviveLoreEntryApiLoreEntriesEntryIdRevivePost(w http.ResponseWriter, r *http.Request, entryId string)
+	// Retrieve lore entries — hop ② of the design: you have seen the subject directory at wake and now want what is actually filed under one of those subjects. 🔴 EVERY SELECTION CONDITION GOES IN THE REQUEST BODY AND NONE IN THE QUERY STRING, and that is load-bearing rather than stylistic: an undeclared body key is refused 422 by name, while an undeclared QUERY parameter is silently ignored on every route this station serves — so a mistyped condition on the query side would hand you a plausible answer that is not the one you asked for, and nothing would report it. All fields are optional; sending none asks for everything still retrievable. `subject` is a subject key (`repo:officraft`); an alias resolves and a merged-away subject follows to the survivor, and a key that names NOTHING comes back as `subject_resolved: false` rather than as an empty result — 「this subject has nothing on it」 and 「this subject does not exist」 are different answers and you need to tell them apart. Every entry carries a `tier`: `T1` matched every axis you asked on, `T2` (類比) reached you across an axis you did NOT ask about and is a guess rather than a rule for your case. 🔴 `tier` is meaningless without `applied.tiered_by`, which names the axes the tier was computed over — read them together. A `trust`-class entry (how far something can be relied on) is WITHHELD from the analogy tier unless you set `force_trust_analogy`, because 「X was reliable」 is a fact about X; when you do force it, the note says whose situation the entry actually describes. `trust_fell_back` on an entry means its class came from failing closed on an action name nothing recognised, not from the table — the class is a guess, and the names are listed in `unmapped_actions`. `query` is a LITERAL, case-insensitive substring over label/short/symptoms and `applied.query_match` says so: it is not semantic, and two entries describing the same situation in different words will not find each other. 🔴 `symptoms` comes back but CANNOT be searched on — it has no table, no index and no parameter here, which is why de-duplication and conflict-finding cannot be done through this route yet.
+	// (POST /api/lore/search)
+	HandleSearchLoreEntriesApiLoreSearchPost(w http.ResponseWriter, r *http.Request)
 	// List machines (active wardens): machine_id/display_name/online.
 	// (GET /api/machines)
 	HandleListMachinesApiMachinesGet(w http.ResponseWriter, r *http.Request)
@@ -5487,6 +5914,213 @@ func (siw *ServerInterfaceWrapper) HandleLoginApiLoginPost(w http.ResponseWriter
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleLoginApiLoginPost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleListPendingLoreEntitiesApiLoreEntitiesPendingGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleListPendingLoreEntitiesApiLoreEntitiesPendingGet(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleListPendingLoreEntitiesApiLoreEntitiesPendingGet(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleApproveLoreEntityApiLoreEntitiesEntityIdApprovePost operation middleware
+func (siw *ServerInterfaceWrapper) HandleApproveLoreEntityApiLoreEntitiesEntityIdApprovePost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "entity_id" -------------
+	var entityId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entity_id", r.PathValue("entity_id"), &entityId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entity_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleApproveLoreEntityApiLoreEntitiesEntityIdApprovePost(w, r, entityId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleMergeLoreEntityApiLoreEntitiesEntityIdMergePost operation middleware
+func (siw *ServerInterfaceWrapper) HandleMergeLoreEntityApiLoreEntitiesEntityIdMergePost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "entity_id" -------------
+	var entityId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entity_id", r.PathValue("entity_id"), &entityId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entity_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleMergeLoreEntityApiLoreEntitiesEntityIdMergePost(w, r, entityId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleWriteLoreEntryApiLoreEntriesPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleWriteLoreEntryApiLoreEntriesPost(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleWriteLoreEntryApiLoreEntriesPost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleGetLoreEntryApiLoreEntriesEntryIdGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleGetLoreEntryApiLoreEntriesEntryIdGet(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "entry_id" -------------
+	var entryId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entry_id", r.PathValue("entry_id"), &entryId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entry_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleGetLoreEntryApiLoreEntriesEntryIdGet(w, r, entryId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePost operation middleware
+func (siw *ServerInterfaceWrapper) HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "entry_id" -------------
+	var entryId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entry_id", r.PathValue("entry_id"), &entryId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entry_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePost(w, r, entryId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleGetLoreRevisionApiLoreEntriesEntryIdRevisionsRevisionIdGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleGetLoreRevisionApiLoreEntriesEntryIdRevisionsRevisionIdGet(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "entry_id" -------------
+	var entryId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entry_id", r.PathValue("entry_id"), &entryId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entry_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "revision_id" -------------
+	var revisionId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "revision_id", r.PathValue("revision_id"), &revisionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "revision_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleGetLoreRevisionApiLoreEntriesEntryIdRevisionsRevisionIdGet(w, r, entryId, revisionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleReviveLoreEntryApiLoreEntriesEntryIdRevivePost operation middleware
+func (siw *ServerInterfaceWrapper) HandleReviveLoreEntryApiLoreEntriesEntryIdRevivePost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "entry_id" -------------
+	var entryId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entry_id", r.PathValue("entry_id"), &entryId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entry_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleReviveLoreEntryApiLoreEntriesEntryIdRevivePost(w, r, entryId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleSearchLoreEntriesApiLoreSearchPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleSearchLoreEntriesApiLoreSearchPost(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleSearchLoreEntriesApiLoreSearchPost(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -8505,6 +9139,15 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lessons/{role_key}", wrapper.HandleReplaceLessonsApiLessonsRoleKeyPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lessons/{role_key}/patch", wrapper.HandlePatchLessonsApiLessonsRoleKeyPatchPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/login", wrapper.HandleLoginApiLoginPost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/lore/entities/pending", wrapper.HandleListPendingLoreEntitiesApiLoreEntitiesPendingGet)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/entities/{entity_id}/approve", wrapper.HandleApproveLoreEntityApiLoreEntitiesEntityIdApprovePost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/entities/{entity_id}/merge", wrapper.HandleMergeLoreEntityApiLoreEntitiesEntityIdMergePost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/entries", wrapper.HandleWriteLoreEntryApiLoreEntriesPost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/lore/entries/{entry_id}", wrapper.HandleGetLoreEntryApiLoreEntriesEntryIdGet)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/entries/{entry_id}/retire", wrapper.HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/lore/entries/{entry_id}/revisions/{revision_id}", wrapper.HandleGetLoreRevisionApiLoreEntriesEntryIdRevisionsRevisionIdGet)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/entries/{entry_id}/revive", wrapper.HandleReviveLoreEntryApiLoreEntriesEntryIdRevivePost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/search", wrapper.HandleSearchLoreEntriesApiLoreSearchPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/machines", wrapper.HandleListMachinesApiMachinesGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/machines", wrapper.HandleOnboardMachineApiMachinesPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/machines/claim", wrapper.HandleClaimMachineTokenApiMachinesClaimPost)

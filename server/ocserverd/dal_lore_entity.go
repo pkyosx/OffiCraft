@@ -1,0 +1,652 @@
+package main
+
+// dal_lore_entity.go — T-33. 對象審核: the queue of subject entities an agent
+// minted, and the two acts that empty it — 核可 and 合併.
+//
+// 🔴 WHY THIS QUEUE EXISTS AT ALL, AND WHY IT IS NOT A GATE ON THE WRITE.
+// loreResolveSubject mints any subject key it does not recognise and parks it
+// `pending = 1`. That is deliberate and it is the ticket's own ruling: gating
+// the write is what pushes an agent into forcing a near-miss key onto an
+// existing subject (silent), or into not writing at all (the disease the ticket
+// treats). The cost of an ungated mint is that a typo becomes part of the
+// ontology — and `pending = 1` is where that cost was parked. Until this file
+// existed the column was a queue nothing could read and nothing could clear.
+//
+// 🔴 WHAT AN UNWORKED QUEUE ACTUALLY COSTS, measured rather than feared:
+// ListLoreSubjectRoster — the boot subject directory — filters `pending = 0`,
+// so an entry filed ONLY against a pending subject is invisible to every
+// agent's wake. The write reports success, the row exists, and no reader can
+// reach it by subject. That is the same shape of silent loss the whole ticket
+// is about, which is why these two acts are governance acts with a journal row
+// rather than column updates.
+//
+// 🔴 NO MIGRATION, AND THAT IS NOT A COINCIDENCE. `entity.pending`,
+// `entity.merged_into` and `entity_alias` already exist (00066) and are already
+// READ on every write (loreResolveSubject) and every search (loreEntityIDForKey).
+// Recording a merge through those columns therefore repairs the ontology for
+// every path at once; a new table would have been a second answer to 「which
+// subject is this really」, and the two would disagree the first time one reader
+// was updated and the other was not.
+//
+// 🔴 THERE IS NO REJECT / 駁回 HERE, BY OMISSION ON PURPOSE. The owner ruled on
+// approving and on merging (rc-139a5ab99a19) and on nothing else. What happens
+// to a minted name nobody wants — dropped, retired, left parked forever — has
+// never been decided, and shipping an exit for it would decide it by accident,
+// in the direction that destroys rows. An unapproved name costs a line in this
+// queue; a wrong erase path costs the thing it erased.
+
+import (
+	"database/sql"
+	"errors"
+	"fmt"
+	"strings"
+	"unicode"
+)
+
+// Governance event kinds written by this file. They are namespaced `entity-`
+// because `lore_governance_event.target` is one column holding two KINDS of id
+// — entry ids from the retire/revive/supersede acts, entity ids from these two
+// — and a reader that cannot tell which it is holding cannot join either.
+const (
+	LoreGovEntityApprove = "entity-approve"
+	LoreGovEntityMerge   = "entity-merge"
+)
+
+var (
+	ErrLoreEntityUnknown       = errors.New("lore: no subject entity carries that id")
+	ErrLoreEntityNotPending    = errors.New("lore: the subject entity is not awaiting review")
+	ErrLoreEntityMergeSelf     = errors.New("lore: a subject entity cannot be merged into itself")
+	ErrLoreEntityTargetPending = errors.New("lore: the merge target is itself awaiting review")
+	ErrLoreEntityTargetMerged  = errors.New("lore: the merge target has itself been merged away")
+)
+
+// LorePendingEntity is ONE line of the review queue.
+//
+// 🔴 THERE IS NO Display FIELD, AND ITS ABSENCE IS THE HONEST ANSWER. The
+// column exists in 00066 and NOTHING in this tree writes it, so a `display` on
+// this struct could only ever be "" — and an empty string reads as 「we looked
+// and it has no name」 rather than 「no path can fill this yet」. Name is the name
+// half of Canonical, split at read time: a stored second copy of a substring of
+// the key is exactly the kind of duplicate truth this ticket keeps refusing.
+type LorePendingEntity struct {
+	ID        string
+	Type      string
+	Canonical string
+	Name      string
+	CreatedTS float64
+
+	// Entries is how many lore entries are filed under this subject.
+	//
+	// 🔴 IT IS COUNTED, AND IT IS COUNTED WITH THE SAME PREDICATE AS EVERY OTHER
+	// READER — `status <> 'retired'`, word for word what ListLoreEntriesBySubject,
+	// CountLoreEntriesBySubject and ListLoreSubjectRoster use. A review number
+	// that disagreed with what the subject actually serves after approval would
+	// be worse than no number: a reviewer would approve a name on the strength
+	// of a count, and find nothing behind it.
+	Entries int
+
+	// ── the 功課 the owner asked for (round 2, 2026-09-02) ──────────────────
+	//
+	// Suggestion is "approve", "merge" or "" — and "" is a real answer, not a
+	// missing one. See loreSuggestionFor for the rule and for why it refuses to
+	// fill the blank.
+	Suggestion  string
+	MergeTarget string // the entity Suggestion=="merge" points at; empty otherwise
+	Similar     []LoreEntitySimilar
+	SampleShort string // the FIRST entry's `short`, trimmed — a sample, never the field
+}
+
+// ListPendingLoreEntities returns the whole review queue, oldest first.
+//
+// Oldest-first because the queue is worked in the order it filled, and because
+// the oldest parked name is the one that has been unreachable the longest.
+//
+// 🔴 THE COUNT RIDES A CORRELATED SUBQUERY, NOT A JOIN. A join would drop a
+// pending entity with ZERO entries — and that row is the single most
+// interesting one in the queue: a subject key that was minted and never used is
+// a typo the writer corrected on its next attempt, so the count that reveals it
+// must be able to come back 0 rather than remove the line.
+//
+// 🔴 `merged_into = ”` IS IN THE PREDICATE ALONGSIDE `pending = 1`, the same
+// pair ListLoreSubjectRoster uses. MergeLoreEntity below clears `pending` when
+// it sets `merged_into`, so today the second clause changes nothing — it is
+// here so that a future path which merges WITHOUT clearing pending cannot put a
+// dead name back in front of a reviewer with nothing to signal it.
+//
+// 🔴 THE SAMPLE RIDES THE SAME STATEMENT, and it is ORDER BY … LIMIT 1 rather
+// than a second round trip per row. It is the FIRST entry by the same ordering
+// ListLoreEntriesBySubject uses, so 「the first one」 means one thing in this
+// tree rather than two.
+//
+// 🔴 COST, STATED: this is TWO statements — the queue, and the approved-subject
+// list the similarity is computed against — plus O(pending × approved) fold and
+// edit-distance work in Go. That is affordable HERE and would not be on a boot
+// path: this route is an admin console's work queue, driven by a person, not by
+// every agent on every wake. It is deliberately NOT wired into
+// ListLoreSubjectRoster for that reason.
+func (d *DAL) ListPendingLoreEntities() ([]LorePendingEntity, error) {
+	rows, err := d.rdb.Query(`
+		SELECT n.id, n.type, n.canonical, n.created_ts,
+		       (SELECT COUNT(*) FROM lore_entry e
+		         JOIN lore_subject s ON s.entry_id = e.id
+		        WHERE s.entity_id = n.id AND e.status <> 'retired'),
+		       (SELECT e.short FROM lore_entry e
+		         JOIN lore_subject s ON s.entry_id = e.id
+		        WHERE s.entity_id = n.id AND e.status <> 'retired'
+		        ORDER BY e.created_ts, e.id LIMIT 1)
+		FROM entity n
+		WHERE n.pending = 1 AND n.merged_into = ''
+		ORDER BY n.created_ts, n.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []LorePendingEntity
+	for rows.Next() {
+		var r LorePendingEntity
+		var short sql.NullString
+		if err := rows.Scan(&r.ID, &r.Type, &r.Canonical, &r.CreatedTS, &r.Entries, &short); err != nil {
+			return nil, err
+		}
+		r.Name = loreEntityName(r.Canonical)
+		// A subject with no entry has no sample, and that is "" rather than a
+		// placeholder sentence: the row already says `entries: 0`, and prose
+		// invented here would be prose a reviewer could mistake for content.
+		r.SampleShort = loreSampleShort(short.String)
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return out, nil
+	}
+
+	approved, err := d.listApprovedLoreEntities()
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		for _, cand := range approved {
+			if reason := loreSimilarReason(out[i].Canonical, cand.Canonical); reason != "" {
+				out[i].Similar = append(out[i].Similar, LoreEntitySimilar{
+					EntityID: cand.ID, Canonical: cand.Canonical, Reason: reason,
+				})
+			}
+		}
+		out[i].Suggestion, out[i].MergeTarget = loreSuggestionFor(out[i].Similar)
+	}
+	return out, nil
+}
+
+// listApprovedLoreEntities is the candidate set the similarity is computed
+// against: everything that is IN the ontology and still stands.
+//
+// 🔴 IT IS THE SAME PREDICATE THE BOOT DIRECTORY USES — `pending = 0` AND an
+// empty `merged_into`. Offering a merged-away subject as a merge target would
+// produce a suggestion the merge route itself refuses 422, which is worse than
+// no suggestion: it reads as homework and it is a dead end.
+func (d *DAL) listApprovedLoreEntities() ([]LoreEntity, error) {
+	rows, err := d.rdb.Query(`
+		SELECT id, type, canonical FROM entity
+		WHERE pending = 0 AND merged_into = ''
+		ORDER BY canonical, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []LoreEntity
+	for rows.Next() {
+		var e LoreEntity
+		if err := rows.Scan(&e.ID, &e.Type, &e.Canonical); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// loreEntityName is the name half of a `type:name` key. A key that somehow
+// carries no colon answers with itself rather than with "": the queue's job is
+// to show a reviewer what is parked, and a blank name would hide the very row
+// that is malformed.
+func loreEntityName(canonical string) string {
+	if _, name, found := strings.Cut(canonical, ":"); found {
+		return name
+	}
+	return canonical
+}
+
+// loreEntityState is the pair every act below has to read before it may write:
+// is this entity still awaiting review, and has it already been merged away.
+// Reading both in one statement is what keeps "unknown", "already approved" and
+// "already merged" three different answers instead of one.
+func loreEntityState(tx *sql.Tx, entityID string) (canonical string, pending bool, mergedInto string, err error) {
+	var p int
+	err = tx.QueryRow(
+		`SELECT canonical, pending, merged_into FROM entity WHERE id = ?`, entityID).
+		Scan(&canonical, &p, &mergedInto)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, "", fmt.Errorf("%w: %q", ErrLoreEntityUnknown, entityID)
+	}
+	if err != nil {
+		return "", false, "", err
+	}
+	return canonical, p == 1, mergedInto, nil
+}
+
+// ApproveLoreEntity publishes one minted subject into the ontology.
+//
+// 🔴 APPROVING AN ALREADY-APPROVED ENTITY IS REFUSED, NOT TREATED AS A NO-OP,
+// and it is the same rule ReviveLoreEntry follows for the same reason: the
+// caller believes the entity is in a state it is not, and answering "done"
+// would confirm a belief that is wrong. A merged-away entity is refused through
+// the same door — it is not awaiting review either, and approving it would
+// un-hide a name the merge deliberately folded away.
+//
+// 🔴 THE STATE CHANGE AND THE JOURNAL ROW ARE ONE TRANSACTION, exactly as they
+// are for a retirement. An approval publishes a name to every agent's boot
+// directory; an approval nobody can attribute is the hole the journal exists to
+// close.
+//
+// ⚠️ WHO may call this is NOT decided here. The owner's ruling (「待審，我跟 mira
+// 有 admin 權限的才行」, rc-139a5ab99a19) is a statement about principal CLASS,
+// which the route table can express exactly (`Requires: principalAdminAgent`)
+// and this layer cannot see at all. Re-deriving it from an `actorIsOwner`-style
+// flag here would be a second answer to one question — unlike the retire split,
+// which is per-REASON and therefore genuinely unsayable in the route table.
+func (d *DAL) ApproveLoreEntity(entityID, actorID, reason string, nowTS float64) error {
+	if actorID == "" {
+		return ErrLoreActorBlank
+	}
+	return d.inTx(func(tx *sql.Tx) error {
+		_, pending, mergedInto, err := loreEntityState(tx, entityID)
+		if err != nil {
+			return err
+		}
+		if !pending || mergedInto != "" {
+			return fmt.Errorf("%w: %q", ErrLoreEntityNotPending, entityID)
+		}
+		if _, err := tx.Exec(`UPDATE entity SET pending = 0 WHERE id = ?`, entityID); err != nil {
+			return err
+		}
+		return insertLoreGovernanceEvent(tx, LoreGovernanceEvent{
+			Kind: LoreGovEntityApprove, Target: entityID, ActorID: actorID,
+			Reason: reason, CreatedTS: nowTS,
+		})
+	})
+}
+
+// MergeLoreEntity folds a pending subject into an existing approved one.
+//
+// 🔴 IT WRITES BOTH HALVES OF THE MECHANISM THAT ALREADY EXISTS, and one
+// without the other is worse than neither:
+//
+//   - `merged_into` is what makes the old KEY resolve onto the survivor —
+//     loreResolveSubject and loreEntityIDForKey both walk it. Without it a later
+//     write or search naming the old key lands back on a subject the boot
+//     directory hides.
+//   - the `entity_alias` row is what stops the old key being MINTED AGAIN. The
+//     resolver looks up canonical, then alias, and mints when neither hits; an
+//     alias-less merge would produce a fresh pending entity under the same
+//     spelling the next time anyone wrote that key, and the review would have
+//     bought nothing.
+//   - re-filing the `lore_subject` rows is what makes the entries ALREADY under
+//     the source reachable. 🔴 THIS ONE IS THE HALF THAT IS EASY TO MISS AND THE
+//     ONE THAT LOSES DATA: those join rows name the source's ENTITY ID, and
+//     nothing resolves an id through `merged_into` — resolution happens on the
+//     KEY, on the way in. So a merge that wrote only the first two columns would
+//     leave every existing entry filed against an entity the boot directory
+//     hides and that no key now reaches: the entries would exist, the merge
+//     would report success, and the knowledge would be gone from every retrieval
+//     path. Measured, not feared — the search assertion in
+//     dal_lore_entity_t33_test.go went red on exactly that version.
+//
+// 🔴 THE RE-FILING IS AN INSERT, NEVER A MOVE. The source's own rows are LEFT
+// WHERE THEY ARE: nothing in this schema deletes, and a join row is the record
+// that this entry was once filed under that name. The survivor gains the
+// filings; the source keeps its history; and because the source is hidden from
+// every reader by `merged_into`, its copies cost a row and change no answer.
+//
+// 🔴 THE TARGET IS CHECKED AND EVERY REFUSAL IS NAMED. Merging into a target
+// that does not exist, is itself pending, or has itself been merged away are
+// three different mistakes, and all three would otherwise "succeed": the source
+// would end up pointing at a name the boot directory ALSO hides, i.e. a subject
+// no reader can follow, reported as a repair. The self-merge is refused for the
+// same reason — `merged_into` pointing at its own row is a cycle, and
+// loreResolveSubject answers a cycle by refusing the WRITE that touches it.
+//
+// ⚠️ THE TWO TYPE PREFIXES ARE NOT REQUIRED TO MATCH, AND THAT IS DELIBERATE
+// RATHER THAN AN OVERSIGHT. The commonest thing in this queue after a spelling
+// slip is a name minted under the WRONG prefix — `agent:Seth` for the person
+// the ontology already carries as `human:Seth` — and a same-type rule would
+// refuse exactly the merge that repairs it, leaving the reviewer with approve
+// (publishes the duplicate) or nothing.
+//
+// ⚠️ THE TARGET IS NOT FOLLOWED THROUGH ITS OWN CHAIN, deliberately. A target
+// that has been merged away is REFUSED rather than silently redirected onto its
+// survivor: the caller named a subject to keep, and quietly keeping a different
+// one is precisely the kind of helpfulness this store cannot afford.
+func (d *DAL) MergeLoreEntity(entityID, into, actorID, reason string, nowTS float64) error {
+	if actorID == "" {
+		return ErrLoreActorBlank
+	}
+	if strings.TrimSpace(into) == "" {
+		return fmt.Errorf("%w: %q", ErrLoreEntityUnknown, into)
+	}
+	if entityID == into {
+		return fmt.Errorf("%w: %q", ErrLoreEntityMergeSelf, entityID)
+	}
+	return d.inTx(func(tx *sql.Tx) error {
+		canonical, pending, mergedInto, err := loreEntityState(tx, entityID)
+		if err != nil {
+			return err
+		}
+		if !pending || mergedInto != "" {
+			return fmt.Errorf("%w: %q", ErrLoreEntityNotPending, entityID)
+		}
+		_, targetPending, targetMerged, err := loreEntityState(tx, into)
+		if err != nil {
+			return err
+		}
+		if targetPending {
+			return fmt.Errorf("%w: %q", ErrLoreEntityTargetPending, into)
+		}
+		if targetMerged != "" {
+			return fmt.Errorf("%w: %q was merged into %q", ErrLoreEntityTargetMerged, into, targetMerged)
+		}
+		if _, err := tx.Exec(
+			`UPDATE entity SET merged_into = ?, pending = 0 WHERE id = ?`, into, entityID); err != nil {
+			return err
+		}
+		// The alias PRIMARY KEY is (alias, entity_id), so re-filing the same
+		// pair is the state the caller asked for rather than an error.
+		if _, err := tx.Exec(`
+			INSERT INTO entity_alias (alias, entity_id) VALUES (?, ?)
+			ON CONFLICT (alias, entity_id) DO NOTHING`, canonical, into); err != nil {
+			return err
+		}
+		// Every entry the source carries becomes an entry of the survivor. The
+		// conflict clause covers an entry that was already filed under both.
+		if _, err := tx.Exec(`
+			INSERT INTO lore_subject (entry_id, entity_id)
+			SELECT entry_id, ? FROM lore_subject WHERE entity_id = ?
+			ON CONFLICT (entry_id, entity_id) DO NOTHING`, into, entityID); err != nil {
+			return err
+		}
+		return insertLoreGovernanceEvent(tx, LoreGovernanceEvent{
+			Kind: LoreGovEntityMerge, Target: entityID, ActorID: actorID,
+			Reason: reason, ReplacedBy: into, CreatedTS: nowTS,
+		})
+	})
+}
+
+// LoreEntity mirrors the row the two acts above write to.
+type LoreEntity struct {
+	ID         string
+	Type       string
+	Canonical  string
+	Pending    bool
+	MergedInto string
+	CreatedTS  float64
+	CreatedBy  string
+}
+
+// GetLoreEntity reads one entity back, or nil when no entity carries that id.
+//
+// It exists so the two acts above can be RECEIPTED from the stored row rather
+// than from the request — the same rule writeLoreGovernanceReceipt follows, and
+// for the same reason: an echo would report the state the caller asked for on a
+// write that did not happen.
+func (d *DAL) GetLoreEntity(id string) (*LoreEntity, error) {
+	var e LoreEntity
+	var pending int
+	err := d.rdb.QueryRow(`
+		SELECT id, type, canonical, pending, merged_into, created_ts, created_by
+		FROM entity WHERE id = ?`, id).Scan(
+		&e.ID, &e.Type, &e.Canonical, &pending, &e.MergedInto, &e.CreatedTS, &e.CreatedBy)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	e.Pending = pending == 1
+	return &e, nil
+}
+
+// ── the review packet (T-33 round 2, owner ruling 2026-09-02) ────────────────
+//
+// 🔴 THE OWNER'S WORDS ARE THE SHAPE OF THIS WHOLE SECTION: 「我希望 agent 做完
+// 功課以後給建議並提出我一眼就可以判斷的資訊，我還是做最後的裁決，lore 的品質
+// 優於數量」. Two halves, and BOTH are load-bearing:
+//
+//   - the homework is DONE HERE, not by the reviewer. A queue row that says only
+//     「repo:offcraft, 2 entries」 makes the owner open two other screens to find
+//     out whether that name is a typo of something the ontology already carries.
+//   - the VERDICT is still his. Nothing below approves or merges anything; it
+//     produces a suggestion, and the two acts stay behind the admin floor.
+//
+// 🔴 THE SUGGESTION IS A RULE, NOT A JUDGEMENT, AND IT REFUSES TO GUESS. When
+// the rule reaches no clear conclusion the suggestion is EMPTY — never a
+// plausible-looking default. A guessed suggestion is indistinguishable from a
+// computed one at a glance, and「something was decided and nothing said so」is
+// the disease this whole ticket treats. The reasons are named for the same
+// reason a score would not do: 「0.87」 tells a reviewer nothing he can check,
+// whereas 「same_normalized」 tells him exactly what to look at.
+
+// The similarity reasons. They are NAMES OF EVIDENCE, and the vocabulary is
+// closed here because the cockpit and the MCP surface both render them.
+const (
+	LoreSimilarSameNormalized = "same_normalized" // identical after case / width / _-­ folding
+	LoreSimilarEditDistance1  = "edit_distance_1"
+	LoreSimilarEditDistance2  = "edit_distance_2"
+	LoreSimilarPrefix         = "prefix"    // one name starts with the other
+	LoreSimilarSubstring      = "substring" // one name contains the other
+)
+
+// The two suggestions. There is deliberately no third value for 「I do not
+// know」: that is the EMPTY string, so a reader that forgets to handle it gets
+// nothing rather than a verdict.
+const (
+	LoreSuggestApprove = "approve"
+	LoreSuggestMerge   = "merge"
+)
+
+// loreFuzzyMinRunes is the floor under which the fuzzy reasons are not reported
+// at all. Below it every short name is 「similar」 to every other: `agent:Al`
+// and `agent:Ax` are one edit apart and have nothing to do with each other, and
+// a queue full of those is a queue nobody reads.
+//
+// ⚠️ 3 是佔位數字，不是算出來的 — a placeholder, like loreLabelMaxRunes, to be
+// calibrated once there is a real queue to calibrate against. same_normalized
+// is NOT subject to it: two names that fold to the same string are the same
+// name at any length.
+const loreFuzzyMinRunes = 3
+
+// loreSampleShortRunes caps the sample body carried into the queue row.
+//
+// 🔴 THIS ONE IS A TRUNCATION AND IT ANNOUNCES ITSELF, which is the opposite of
+// the label rule two files over — and the difference is what the field IS. A
+// label is a NAME that other rows point at, so shortening it silently breaks
+// the pointer; this is a SAMPLE whose only job is to let a reviewer see what the
+// subject is about without opening it. A truncated sample ends in an ellipsis so
+// nobody mistakes it for the entry.
+const loreSampleShortRunes = 120
+
+// LoreEntitySimilar is one existing subject that resembles a pending one, WITH
+// the reason it was offered.
+//
+// 🔴 THE REASON IS THE PAYLOAD, NOT AN ANNOTATION. A number would be a
+// judgement wearing a number's clothes: nobody can check 「0.87」, and everybody
+// can check 「these two fold to the same string」.
+type LoreEntitySimilar struct {
+	EntityID  string
+	Canonical string
+	Reason    string
+}
+
+// loreFoldKey folds a subject key or name for comparison: full-width ASCII to
+// half-width, upper to lower, and `_` and `-` to one character.
+//
+// 🔴 THE THREE FOLDS ARE THE OWNER'S OWN LIST (大小寫／全半形／底線連字號) and
+// nothing else is folded. Stripping punctuation or spaces in general would make
+// two genuinely different names collide, and a collision here produces a MERGE
+// suggestion — the one suggestion that moves knowledge under a different name.
+func loreFoldKey(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r == '　': // ideographic space
+			r = ' '
+		case r >= '！' && r <= '～': // full-width ASCII
+			r -= 0xFEE0
+		}
+		if r == '_' {
+			r = '-'
+		}
+		b.WriteRune(unicode.ToLower(r))
+	}
+	return b.String()
+}
+
+// loreEditDistance is Levenshtein over runes, with an EARLY CEILING: it stops
+// as soon as the answer is known to exceed `max`. Only 1 and 2 are reportable
+// reasons, so computing an exact 37 for two unrelated names is work whose result
+// is discarded.
+func loreEditDistance(a, b string, max int) int {
+	ar, br := []rune(a), []rune(b)
+	if len(ar) < len(br) {
+		ar, br = br, ar
+	}
+	if len(ar)-len(br) > max {
+		return max + 1
+	}
+	prev := make([]int, len(br)+1)
+	cur := make([]int, len(br)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(ar); i++ {
+		cur[0] = i
+		best := cur[0]
+		for j := 1; j <= len(br); j++ {
+			cost := 1
+			if ar[i-1] == br[j-1] {
+				cost = 0
+			}
+			cur[j] = prev[j] + 1
+			if v := cur[j-1] + 1; v < cur[j] {
+				cur[j] = v
+			}
+			if v := prev[j-1] + cost; v < cur[j] {
+				cur[j] = v
+			}
+			if cur[j] < best {
+				best = cur[j]
+			}
+		}
+		if best > max {
+			return max + 1
+		}
+		prev, cur = cur, prev
+	}
+	return prev[len(br)]
+}
+
+// loreSimilarReason answers "how does this pending key resemble that existing
+// one", or "" when it does not.
+//
+// 🔴 THE COMPARISON IS WITHIN ONE TYPE, AND THAT IS THE SCHEMA'S OWN RULING
+// RATHER THAN A CHOICE MADE HERE. 00066 says it in as many words: 「Kyle being
+// both the canonical of agent:Kyle and an alias of human:KyleHsia is CORRECT,
+// not a data error」. So an identical NAME under two different type prefixes is
+// not evidence of a duplicate, and offering it as one would push a reviewer
+// toward merging two things the design says are two things.
+// ⚠️ The cost is stated rather than hidden: a name genuinely minted under the
+// WRONG prefix (`agent:Seth` for the person the ontology carries as
+// `human:Seth`) will NOT be suggested. The merge route still accepts it — the
+// suggestion is silent there, which is the direction that leaves the decision
+// with the reviewer instead of aiming it.
+//
+// The precedence is strongest-first and only ONE reason is returned: a row that
+// listed every way two names resemble each other would bury the one that
+// decides anything.
+func loreSimilarReason(pendingKey, existingKey string) string {
+	pt, pn, err := loreSubjectTypeAndName(pendingKey)
+	if err != nil {
+		return ""
+	}
+	et, en, err := loreSubjectTypeAndName(existingKey)
+	if err != nil || loreFoldKey(pt) != loreFoldKey(et) {
+		return ""
+	}
+	a, b := loreFoldKey(pn), loreFoldKey(en)
+	if a == b {
+		return LoreSimilarSameNormalized
+	}
+	if len([]rune(a)) < loreFuzzyMinRunes || len([]rune(b)) < loreFuzzyMinRunes {
+		return ""
+	}
+	switch loreEditDistance(a, b, 2) {
+	case 1:
+		return LoreSimilarEditDistance1
+	case 2:
+		return LoreSimilarEditDistance2
+	}
+	if strings.HasPrefix(a, b) || strings.HasPrefix(b, a) {
+		return LoreSimilarPrefix
+	}
+	if strings.Contains(a, b) || strings.Contains(b, a) {
+		return LoreSimilarSubstring
+	}
+	return ""
+}
+
+// loreSuggestionFor turns the evidence into the rule's verdict, or into "".
+//
+// THE RULE, in full, so that nobody has to read the code to know what the
+// suggestion means:
+//
+//	no similar candidate at all      → approve   (nothing in the ontology looks like it)
+//	EXACTLY ONE same_normalized      → merge     (it is that subject, spelled differently)
+//	anything else                    → ""        (the owner decides)
+//
+// 🔴 THE 「EXACTLY ONE」 IS NOT PEDANTRY. `canonical` is unique but the FOLD is
+// not: `repo:OffiCraft` and `repo:offi-craft` both fold onto `repo:officraft`,
+// so two existing subjects can be equally strong candidates. Picking the first
+// would be a coin toss rendered as a recommendation.
+//
+// ⚠️ AND A FUZZY-ONLY QUEUE ROW GETS NO SUGGESTION AT ALL, deliberately. One
+// edit apart is how a typo looks AND how two genuinely different names look
+// (`repo:ocagent` / `repo:ocwarden` are 2 apart); the evidence is shown and the
+// verdict is withheld, which is exactly 「我還是做最後的裁決」.
+func loreSuggestionFor(similar []LoreEntitySimilar) (string, string) {
+	if len(similar) == 0 {
+		return LoreSuggestApprove, ""
+	}
+	target := ""
+	for _, s := range similar {
+		if s.Reason != LoreSimilarSameNormalized {
+			continue
+		}
+		if target != "" {
+			return "", "" // two equally exact candidates — a coin toss is not a suggestion
+		}
+		target = s.EntityID
+	}
+	if target == "" {
+		return "", ""
+	}
+	return LoreSuggestMerge, target
+}
+
+// loreSampleShort trims one entry's `short` to the sample cap, announcing the
+// trim with an ellipsis so it cannot be mistaken for the whole field.
+func loreSampleShort(short string) string {
+	r := []rune(strings.TrimSpace(short))
+	if len(r) <= loreSampleShortRunes {
+		return string(r)
+	}
+	return string(r[:loreSampleShortRunes]) + "…"
+}

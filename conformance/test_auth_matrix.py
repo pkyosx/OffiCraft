@@ -1160,6 +1160,117 @@ MATRIX: dict[str, Route] = {
         ),
         body={"edits": [{"old": "", "new": "conformance patch probe"}]},
     ),
+    # ── T-33 lore 對象審核 ─────────────────────────────────────────────────────
+    # The review queue's three rows sit on the admin_agent floor (owner ruling
+    # rc-139a5ab99a19), so an ORDINARY AGENT IS 403 HERE while it is 200 on the
+    # lore rows below — that asymmetry is the whole point of these three cells
+    # and nothing else in the suite states it. Approving publishes a name into
+    # every agent's boot subject directory and merging rewrites which subject an
+    # entry belongs to; neither is an agent curating what it knows.
+    #
+    # The two acts aim at an entity id NOTHING carries, so every at-or-above-floor
+    # cell is a 404 and every below-floor cell is a derived 403 — which is the
+    # deny-first order being pinned: an agent must not learn from this route
+    # whether an entity exists. The 200 faces are in test_rest_happy.py, which is
+    # where a row may seed a pending entity first.
+    "GET /api/lore/entities/pending": Route(requires="admin_agent"),
+    "POST /api/lore/entities/{entity_id}/approve": Route(
+        requires="admin_agent",
+        path="/api/lore/entities/en-conf-no-such-entity/approve",
+        body={"reason": "conformance authz probe"},
+        overrides={"admin_agent": 404, "owner": 404},
+    ),
+    "POST /api/lore/entities/{entity_id}/merge": Route(
+        requires="admin_agent",
+        path="/api/lore/entities/en-conf-no-such-entity/merge",
+        body={"into": "en-conf-no-such-target"},
+        overrides={"admin_agent": 404, "owner": 404},
+    ),
+    # ── T-33 lore ────────────────────────────────────────────────────────────
+    # The two governance rows aim at an entry id NOTHING carries, so every
+    # at-or-above-floor cell is a 404. That stays deliberate even now that a
+    # create route exists: the choke these rows pin is the FLOOR, which is
+    # decided before the id is ever looked up, and a matrix cell that had to
+    # seed an entry first would be testing the seeding as much as the floor. A
+    # warden is refused 403 (derived) while an agent gets as far as the lookup.
+    # The 200 faces of all three routes are pinned in test_rest_happy.py, which
+    # is where a row is allowed to do setup.
+    #
+    # 🔴 WHAT THIS ROW DOES NOT COVER, said plainly so nobody reads more into a
+    # green than it carries: the per-REASON split (an agent may file `expired`
+    # and `merged`, only the owner may file `falsified`) is invisible here,
+    # because it lives below the floor gate and behind an entry that has to
+    # exist. It is pinned in the server unit tests
+    # (api_lore_governance_route_t33_test.go), against real HTTP requests.
+    "POST /api/lore/entries/{entry_id}/retire": Route(
+        requires="agent",
+        path="/api/lore/entries/e-conf-no-such-entry/retire",
+        body={"reason": "expired"},
+        overrides={
+            "agent_self": 404,
+            "agent_other": 404,
+            "admin_agent": 404,
+            "owner": 404,
+        },
+    ),
+    "POST /api/lore/entries/{entry_id}/revive": Route(
+        requires="owner",
+        path="/api/lore/entries/e-conf-no-such-entry/revive",
+        body={"reason": "conformance revive probe"},
+        overrides={"owner": 404},
+    ),
+    # 🔴 THE WRITE ROW HAS NO OVERRIDES, AND THAT ASYMMETRY IS THE POINT: unlike
+    # its two siblings it needs no pre-existing entry, so every at-or-above-floor
+    # cell is a real 200 that really wrote something. The floor is principalAgent
+    # because writing down what you just learned is an agent's own act — the
+    # owner's ruling of 2026-09-01 was that review happens AFTER the write, and a
+    # higher floor here would have put him back in front of every one of them.
+    # (That ruling stands. The one his 2026-09-02 ruling rc-714eea33c6ed
+    # overturned was a different one — `falsify`/`instance` being optional — which
+    # is why this body now carries both.)
+    "POST /api/lore/entries": Route(
+        requires="agent",
+        body={
+            "symptoms": "the authz matrix is probing this row",
+            "short": "a floor is decided before the body is ever read",
+            "falsify": "a cell answers 200 without the floor ever being consulted",
+            "instance": "this very row, run against every identity in the matrix",
+            "origin": "agent:conformance-authz",
+            "subjects": ["agent:conformance-authz"],
+        },
+    ),
+    # Retrieval sits at the same floor as writing, and the empty body is the
+    # point: every condition on this route is optional, so the floor is the ONLY
+    # thing standing between a caller and an answer. A warden gets 403 here for
+    # the same reason it does on the write row.
+    "POST /api/lore/search": Route(
+        requires="agent",
+        body={},
+    ),
+    # 🔴 THE TWO READ ROWS AIM AT AN ENTRY THAT DOES NOT EXIST, so every
+    # at-or-above-floor cell is a 404 — the floor is decided before the id is
+    # ever looked up, which is exactly what these rows pin. The 200 faces are in
+    # test_rest_happy.py, which is where a row may seed one first.
+    "GET /api/lore/entries/{entry_id}": Route(
+        requires="agent",
+        path="/api/lore/entries/lore-conf-no-such-entry",
+        overrides={
+            "agent_self": 404,
+            "agent_other": 404,
+            "admin_agent": 404,
+            "owner": 404,
+        },
+    ),
+    "GET /api/lore/entries/{entry_id}/revisions/{revision_id}": Route(
+        requires="agent",
+        path="/api/lore/entries/lore-conf-no-such-entry/revisions/1",
+        overrides={
+            "agent_self": 404,
+            "agent_other": 404,
+            "admin_agent": 404,
+            "owner": 404,
+        },
+    ),
     # ── insight (T-3809) ─────────────────────────────────────────────────────
     # The role journal's third block. Its authz face is the lessons face with
     # the task_type axis removed — three rows, same three floors, same handler

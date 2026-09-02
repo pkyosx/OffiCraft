@@ -924,6 +924,12 @@ var identityGateLedger = map[string]string{
 		"NOT an identity gate — the wire twin of the reply-card kind copy above.",
 	"wire.go :: newTaskArtifactDTO :: Kind: a.Kind": "" +
 		"NOT an identity gate — ARTIFACT kind (file / image / link), copied to the DTO.",
+	"api_lore_governance.go :: writeLoreGovernanceReceipt :: Kind: event.Kind": "" +
+		"NOT an identity gate — LORE GOVERNANCE kind (`retire` / `revive`), the journal " +
+		"row's own vocabulary, copied to the receipt. Nothing here reads a member.",
+	"api_lore_entity.go :: writeLoreEntityReceipt :: Kind: event.Kind": "" +
+		"NOT an identity gate — the SAME lore governance vocabulary one file over " +
+		"(`entity-approve` / `entity-merge`), copied to the subject-review receipt.",
 
 	// ── NOT identity gates at all ──────────────────────────────────────────
 	//

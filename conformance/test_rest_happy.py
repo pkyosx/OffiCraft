@@ -984,7 +984,354 @@ def _boot_doc_read(kind: str, key: str):
     return check
 
 
+# ── T-33 lore ────────────────────────────────────────────────────────────────
+# 🔴 THIS HELPER IS WHY THE TWO GOVERNANCE ROWS STOPPED BEING SKIPS. They were
+# skipped with a reason that said, in as many words, "delete this entry the
+# moment a create route lands" — the station served no way to make an entry, so
+# every wire-reachable face of retire and revive was a 404 and the only thing
+# checking them was a Go test that could reach the DAL directly. A create route
+# exists now, so the skip's own condition is gone and the rows are real.
+def _lore_entry(ctx: HCtx) -> str:
+    """Write one entry as the happy agent and return its id."""
+    r = ctx.client.post(
+        "/api/lore/entries",
+        headers={"Authorization": f"Bearer {ctx.agent.token}"},
+        json={
+            "label": "conformance happy entry",
+            "symptoms": "a route answers 200 and nothing was written",
+            "short": "the entry and its original are one transaction",
+            "falsify": "a second route turns out to write entries too",
+            "instance": "the conformance suite seeding this very entry",
+            "origin": f"agent:{ctx.agent.member_id}",
+            "subjects": [f"agent:{ctx.agent.member_id}"],
+        },
+    )
+    assert r.status_code == 200, f"seed lore entry: {r.status_code} {r.text}"
+    return r.json()["entry_id"]
+
+
+def _lore_retired_entry(ctx: HCtx) -> str:
+    """Write one entry and retire it, so a revival has something to revive."""
+    entry_id = _lore_entry(ctx)
+    r = ctx.client.post(
+        f"/api/lore/entries/{entry_id}/retire",
+        headers={"Authorization": f"Bearer {ctx.agent.token}"},
+        json={"reason": "expired"},
+    )
+    assert r.status_code == 200, f"seed retirement: {r.status_code} {r.text}"
+    return entry_id
+
+
+# The subject key the write row files against. It is generated ONCE per session
+# and never used by any other row, so "was this minted" is a question about the
+# server rather than about which happy row pytest ran first.
+_LORE_FRESH_SUBJECT = f"agent:conformance-lore-{uuid.uuid4().hex[:8]}"
+
+
+def _lore_fresh_subject(_ctx: HCtx) -> str:
+    return _LORE_FRESH_SUBJECT
+
+
+def _lore_revision_path(ctx: HCtx) -> str:
+    """Write an entry, read its revision catalogue, and address the one revision
+    it has. The id is READ BACK rather than assumed to be 1: revision ids are
+    global, so hard-coding one would pass or fail depending on what else ran."""
+    entry_id = _lore_entry(ctx)
+    r = ctx.client.get(
+        f"/api/lore/entries/{entry_id}",
+        headers={"Authorization": f"Bearer {ctx.agent.token}"},
+    )
+    assert r.status_code == 200, f"read back: {r.status_code} {r.text}"
+    revs = r.json()["revisions"]
+    assert len(revs) == 1, f"a freshly written entry must have exactly one revision: {revs}"
+    return f"/api/lore/entries/{entry_id}/revisions/{revs[0]['revision_id']}"
+
+
+def _check_lore_read(_ctx: HCtx, r: httpx.Response) -> None:
+    d = r.json()
+    # 🔴 THE ORIGINAL. `short` is what enters a boot context and it is lossy on
+    # purpose; this field is the whole reason the ticket exists. An entry served
+    # with an empty one would look correct in every other respect.
+    assert d["original"], f"the entry was served with NO original: {d}"
+    for field in ("label", "symptoms", "short", "falsify", "instance", "residual_risk"):
+        assert f"{field}:" in d["original"], (
+            f"the original drops the {field!r} section — a renderer that skips blanks "
+            f"cannot tell 'never written' from 'deleted': {d['original']!r}"
+        )
+    assert len(d["sha256"]) == 64, d
+    assert d["written_by"], d
+    assert len(d["revisions"]) == 1, d
+    # The catalogue carries NO text: a list is how you choose a revision.
+    assert "body" not in d["revisions"][0], d["revisions"][0]
+
+
+def _check_lore_search(_ctx: HCtx, r: httpx.Response) -> None:
+    d = r.json()
+    # 🔴 `applied` IS NOT OPTIONAL AND THIS IS WHERE THAT IS PINNED. The tier
+    # labels mean "matched every axis you asked on", which is only interpretable
+    # beside the axes that were asked — a tier that travelled alone would be read
+    # under the design's older meaning ("both axes intersect") and quietly mean
+    # something else.
+    applied = d["applied"]
+    assert applied["subject"] == _LORE_FRESH_SUBJECT, d
+    assert applied["tiered_by"] == ["subject"], d
+    assert applied["limit"] == 5, d
+    # The kind of matching is a VALUE, not a sentence in a document, so that the
+    # day it becomes semantic the answer says so instead of quietly changing.
+    assert applied["query_match"] == "literal-substring", d
+    assert d["subject_resolved"] is True, d
+    assert d["unresolved_subject"] == "", d
+    # The subject was minted by the write row, which files one entry under it.
+    assert d["total"] >= 1 and d["entries"], d
+    first = d["entries"][0]
+    assert first["tier"] == "T1", first
+    assert first["tier_note"], first
+    assert first["trust_scope"] in {"method", "trust", "cognitive"}, first
+    assert isinstance(first["trust_fell_back"], bool), first
+
+
+def _check_lore_write(_ctx: HCtx, r: httpx.Response) -> None:
+    d = r.json()
+    assert d["entry_id"], d
+    # 🔴 THE ORIGINAL, ASSERTED ON THE WIRE. An entry written with no L0 revision
+    # behind it looks identical in every count and every context; revision_id is
+    # the only place a caller can see that it was preserved.
+    assert d["revision_id"] > 0, f"the write reports no preserved original: {d}"
+    assert len(d["sha256"]) == 64, d
+    # The subject key was new, so it must come back as a MINT rather than being
+    # swallowed — that is what turns a typo into something the writer sees now.
+    assert [e["canonical"] for e in d["pending_entities"]] == [
+        _LORE_FRESH_SUBJECT
+    ], d
+    assert d["subject_ids"] and all(d["subject_ids"]), d
+    # falsify and instance are both REQUIRED since the owner's 2026-09-02 ruling
+    # (rc-714eea33c6ed), so a write that lands can no longer be degraded. The
+    # flag itself stays: entries written BEFORE that ruling can carry neither.
+    assert d["degraded"] is False, f"a complete entry came back degraded: {d}"
+    assert d["superseded"] == "", d
+
+
+# ── T-33 lore 對象審核 (the review queue) ──────────────────────────────────────
+# Every subject key an agent writes and nothing recognises is MINTED pending, so
+# the write route IS the seam that fills this queue — these rows seed through it
+# rather than reaching for a fixture the wire does not offer. Each row gets its
+# OWN subject key, generated once per session: approving or merging is a state
+# change, and a row sharing a key with another would pass or fail on which one
+# pytest ran first.
+_LORE_QUEUE_SUBJECT = f"repo:conf-queue-{uuid.uuid4().hex[:8]}"
+_LORE_APPROVE_SUBJECT = f"repo:conf-approve-{uuid.uuid4().hex[:8]}"
+_LORE_MERGE_TARGET_SUBJECT = f"repo:conf-survivor-{uuid.uuid4().hex[:8]}"
+_LORE_MERGE_SOURCE_SUBJECT = f"repo:conf-folded-{uuid.uuid4().hex[:8]}"
+
+# The merge row's target id, learned by its path builder (which runs before the
+# body builder) and read by the body. It cannot be a constant: the id is minted
+# by the server on the seeding write.
+_LORE_MERGE_TARGET_ID: dict[str, str] = {}
+
+
+
+def _lore_pending_entity(ctx: HCtx, subject: str) -> str:
+    """Write one entry under a subject key nothing carries and return the
+    entity id the write minted for it."""
+    r = ctx.client.post(
+        "/api/lore/entries",
+        headers=_auth(ctx.agent.token),
+        json={
+            "label": "conformance queue seed",
+            "symptoms": "a subject key is minted and no route can reach it",
+            "short": "an unreviewed name is invisible to every agent's boot",
+            "falsify": "the pending entity is listed before anyone approves it",
+            "instance": "the conformance suite seeding this very entity",
+            "origin": f"agent:{ctx.agent.member_id}",
+            "subjects": [subject],
+        },
+    )
+    assert r.status_code == 200, f"seed pending entity: {r.status_code} {r.text}"
+    minted = [e for e in r.json()["pending_entities"] if e["canonical"] == subject]
+    assert len(minted) == 1, f"{subject} was not minted pending: {r.json()}"
+    return minted[0]["entity_id"]
+
+
+def _lore_queue_path(ctx: HCtx) -> str:
+    """Seed one pending entity so the queue answers a row rather than `[]`. An
+    empty queue is a legal answer, so a list row with nothing in it would pass
+    against a handler that serves a constant."""
+    _lore_pending_entity(ctx, _LORE_QUEUE_SUBJECT)
+    return "/api/lore/entities/pending"
+
+
+def _check_lore_queue(_ctx: HCtx, r: httpx.Response) -> None:
+    rows = r.json()
+    assert isinstance(rows, list)
+    seeded = [row for row in rows if row["canonical"] == _LORE_QUEUE_SUBJECT]
+    assert len(seeded) == 1, f"the seeded pending entity is not in the queue: {rows}"
+    row = seeded[0]
+    # 🔴 THE HOMEWORK IS THE ROUTE'S REASON TO EXIST. A row carrying only the
+    # key sends the reviewer to two other screens to find out whether it is a
+    # typo, so the count and the sample travel WITH it.
+    assert row["entries"] >= 1, row
+    assert row["sample_short"], row
+    assert row["type"] == "repo" and row["name"], row
+    # 🔴 THE SUGGESTION IS PINNED TO THE ONE BRANCH THIS FIXTURE FORCES, not to
+    # the closed vocabulary. `suggestion in {"", "approve", "merge"}` is the
+    # complete enumeration of the legal values, so it passes against every
+    # possible answer including a handler that never computes anything — zero
+    # discriminating power. The fixture makes the branch determinate: the
+    # subject is `repo:conf-queue-<random hex>`, a name no approved subject can
+    # fold onto (`same_normalized`) and none is within 2 edits / a prefix / a
+    # substring of — the suite's own sibling subjects (`conf-approve-`,
+    # `conf-survivor-`, `conf-folded-`) diverge at the 6th character and are
+    # nowhere near. So `similar` is EMPTY, and the rule's first clause — no
+    # candidate at all ⇒ `approve`, with no merge target — is the only reachable
+    # answer here.
+    assert row["similar"] == [], row
+    assert row["suggestion"] == "approve", row
+    assert row["merge_target"] == "", row
+
+
+def _lore_approve_path(ctx: HCtx) -> str:
+    return f"/api/lore/entities/{_lore_pending_entity(ctx, _LORE_APPROVE_SUBJECT)}/approve"
+
+
+def _check_lore_approve(ctx: HCtx, r: httpx.Response) -> None:
+    d = r.json()
+    assert d["canonical"] == _LORE_APPROVE_SUBJECT, d
+    assert d["kind"] == "entity-approve" and d["actor_id"], d
+    # 🔴 THE RECEIPT IS READ BACK, NOT ECHOED, so `pending: false` here is the
+    # state the entity is actually in — and leaving the queue is the whole act.
+    assert d["pending"] is False and d["merged_into"] == "", d
+    left = ctx.client.get(
+        "/api/lore/entities/pending", headers=_auth(ctx.owner_token)
+    )
+    assert left.status_code == 200, left.text
+    assert _LORE_APPROVE_SUBJECT not in [
+        row["canonical"] for row in left.json()
+    ], "an approved entity is still parked in the review queue"
+
+
+def _lore_merge_path(ctx: HCtx) -> str:
+    """A merge needs a survivor that is itself APPROVED — merging into a subject
+    the boot directory also hides is the refusal the route names, not the happy
+    face — so the target is minted and approved before the source is minted."""
+    target = _lore_pending_entity(ctx, _LORE_MERGE_TARGET_SUBJECT)
+    approved = ctx.client.post(
+        f"/api/lore/entities/{target}/approve",
+        headers=_auth(ctx.owner_token),
+        json={"reason": "conformance merge target"},
+    )
+    assert approved.status_code == 200, f"seed merge target: {approved.text}"
+    _LORE_MERGE_TARGET_ID["id"] = target
+    source = _lore_pending_entity(ctx, _LORE_MERGE_SOURCE_SUBJECT)
+    return f"/api/lore/entities/{source}/merge"
+
+
+def _check_lore_merge(ctx: HCtx, r: httpx.Response) -> None:
+    d = r.json()
+    assert d["canonical"] == _LORE_MERGE_SOURCE_SUBJECT, d
+    assert d["kind"] == "entity-merge" and d["actor_id"], d
+    # The source keeps existing — nothing in this schema deletes — but it stops
+    # being pending and now names its survivor.
+    assert d["pending"] is False, d
+    assert d["merged_into"] == _LORE_MERGE_TARGET_ID["id"], d
+    left = ctx.client.get(
+        "/api/lore/entities/pending", headers=_auth(ctx.owner_token)
+    )
+    assert left.status_code == 200, left.text
+    assert _LORE_MERGE_SOURCE_SUBJECT not in [
+        row["canonical"] for row in left.json()
+    ], "a merged-away entity is still parked in the review queue"
 HAPPY: dict[str, Happy] = {
+    # ── T-33 lore 對象審核 ─────────────────────────────────────────────────────
+    # The queue's three faces run as the owner: the floor is admin_agent (owner
+    # ruling rc-139a5ab99a19), and the owner is this file's lowest-friction
+    # identity at or above it.
+    "GET /api/lore/entities/pending": Happy(
+        path=_lore_queue_path,
+        check=_check_lore_queue,
+    ),
+    "POST /api/lore/entities/{entity_id}/approve": Happy(
+        path=_lore_approve_path,
+        body={"reason": "conformance happy approval"},
+        check=_check_lore_approve,
+    ),
+    "POST /api/lore/entities/{entity_id}/merge": Happy(
+        path=_lore_merge_path,
+        body=lambda _ctx: {
+            "into": _LORE_MERGE_TARGET_ID["id"],
+            "reason": "conformance happy merge",
+        },
+        check=_check_lore_merge,
+    ),
+    # ── T-33 lore ────────────────────────────────────────────────────────────
+    "POST /api/lore/entries": Happy(
+        identity="agent",
+        # 🔴 THE SUBJECT KEY IS FRESH PER RUN, AND THAT IS A FIX, NOT A STYLE
+        # CHOICE. The first version filed against `agent:<the happy agent>` and
+        # asserted the key came back as a MINT — which passed alone and failed in
+        # the suite, because the retire and revive rows seed an entry against
+        # that same key first, so by the time this row ran the subject already
+        # existed and nothing was minted. An assertion that depends on which
+        # rows ran before it is not pinning the server's behaviour, it is
+        # pinning the order pytest happened to choose.
+        body=lambda ctx: {
+            "label": "conformance happy write",
+            "symptoms": "a route answers 200 and nothing was written",
+            "short": "the entry and its original are one transaction",
+            "falsify": "a second route turns out to write entries too",
+            "instance": "the conformance suite writing this very row",
+            "origin": f"agent:{ctx.agent.member_id}",
+            "subjects": [_lore_fresh_subject(ctx)],
+        },
+        check=_check_lore_write,
+    ),
+    # 🔴 HOP ③ — the route the ticket was opened for. The assertion that matters
+    # is `original`: the entry's full text as written, which `short` is a lossy
+    # compression of. Without it, 「原始資訊可以保留」 is true of the database and
+    # false of every agent.
+    "GET /api/lore/entries/{entry_id}": Happy(
+        identity="agent",
+        path=lambda ctx: f"/api/lore/entries/{_lore_entry(ctx)}",
+        check=_check_lore_read,
+    ),
+    "GET /api/lore/entries/{entry_id}/revisions/{revision_id}": Happy(
+        identity="agent",
+        path=_lore_revision_path,
+        check=lambda _c, r: _expect(
+            r,
+            lambda d: d["body"]
+            and len(d["sha256"]) == 64
+            and d["shrink_chars"] == 0
+            and bool(d["actor_id"]),
+        ),
+    ),
+    "POST /api/lore/entries/{entry_id}/retire": Happy(
+        identity="agent",
+        path=lambda ctx: f"/api/lore/entries/{_lore_entry(ctx)}/retire",
+        body={"reason": "expired"},
+        check=lambda _c, r: _expect(
+            r,
+            lambda d: d["status"] == "retired"
+            and d["kind"] == "retire"
+            and d["reason"] == "expired"
+            and bool(d["actor_id"]),
+        ),
+    ),
+    # 🔴 THE ASSERTION THAT MATTERS HERE IS THE REFUSAL, and it is in
+    # `test_lore_search_refuses_an_undeclared_condition` below rather than in
+    # this row: a happy face proves the route answers, not that it would have
+    # objected to a condition it does not implement.
+    "POST /api/lore/search": Happy(
+        identity="agent",
+        body={"subject": _LORE_FRESH_SUBJECT, "limit": 5},
+        check=_check_lore_search,
+    ),
+    "POST /api/lore/entries/{entry_id}/revive": Happy(
+        path=lambda ctx: f"/api/lore/entries/{_lore_retired_entry(ctx)}/revive",
+        body={"reason": "conformance happy revival"},
+        check=lambda _c, r: _expect(
+            r, lambda d: d["status"] == "active" and d["kind"] == "revive"
+        ),
+    ),
     # ── public ───────────────────────────────────────────────────────────────
     "GET /api/health": Happy(identity="none"),
     "GET /api/version": Happy(identity="none", check=_check_version),
@@ -2799,6 +3146,47 @@ def test_mfa_full_ceremony(hctx: HCtx) -> None:
 
 
 # ── coverage teeth ───────────────────────────────────────────────────────────
+
+
+def test_lore_search_refuses_an_undeclared_condition(hctx: HCtx) -> None:
+    """🔴 THE ASSERTION THE WHOLE BODY-SIDE DESIGN EXISTS FOR.
+
+    This route's entire value is its selection conditions, and a condition that
+    is silently ignored does not raise — it hands back a plausible set of
+    memories that is not the set that was asked for, and the symptom of that is
+    "somebody forgot something today".
+
+    Two halves, and BOTH are needed. A key the DTO does not declare must be
+    REFUSED, naming itself. The same word on the QUERY STRING must be accepted
+    and ignored — which is not a bug being pinned as correct, it is the reason
+    the conditions had to be put in the body: `POST …?typo=1` is exactly as
+    silent as the GET would be, so the verb protects nothing and the SIDE is
+    what does. If the second half ever starts failing, the router changed and
+    the design note explaining this choice has to be re-read, not deleted.
+    """
+    token = hctx.agent.token
+    head = {"Authorization": f"Bearer {token}"}
+
+    refused = hctx.client.post(
+        "/api/lore/search", headers=head, json={"context_labels": ["anything"]}
+    )
+    assert refused.status_code == 422, f"{refused.status_code} {refused.text}"
+    assert "context_labels" in refused.text, (
+        "the refusal must name the field, or a caller cannot tell WHICH condition "
+        f"was rejected: {refused.text}"
+    )
+
+    ignored = hctx.client.post(
+        "/api/lore/search?context_labels=anything", headers=head, json={}
+    )
+    assert ignored.status_code == 200, (
+        "an undeclared QUERY parameter is silently ignored on every route this "
+        "station serves; if that changed, the body-side rule above needs "
+        f"re-justifying rather than deleting: {ignored.status_code} {ignored.text}"
+    )
+    assert ignored.json()["applied"]["tiered_by"] == [], (
+        "the query-string condition must have been ignored, not applied"
+    )
 
 
 def test_set_password_after_set_conflicts(hctx: HCtx) -> None:

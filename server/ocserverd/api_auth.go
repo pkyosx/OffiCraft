@@ -227,4 +227,24 @@ func (s *apiServer) HandleBootstrapApiBootstrapPost(w http.ResponseWriter, r *ht
 		Context: boot.Context,
 		Token:   token,
 	})
+	// 🔴 ONLY A WARDEN SPAWN IS A SURFACING (T-33). member == nil is the UI
+	// preview this handler documents above: the owner looking at what a boot
+	// document would say, with no agent behind it and no token minted. Filing a
+	// recall row for that would put reads into the journal that nobody ever did,
+	// and a journal padded with non-events cannot be used to argue that anything
+	// is unused. Recorded after the response is written, because everything
+	// before it can still answer 404 or 500 and hand over nothing.
+	//
+	// 🔴 THE CONDITION IS `token != nil`, NOT `member != nil`, AND THE DIFFERENCE
+	// IS A REAL CASE, NOT A STYLE CHOICE. Minting needs BOTH a member and a
+	// signing secret; a station running without a secret answers 200 with the
+	// document and `token: null`, and NOBODY CAN BOOT ON THAT — there is no
+	// credential to connect with. Keying the journal off `member != nil` filed
+	// those as deliveries, which is exactly the non-event this comment was
+	// written to forbid: the paragraph above already states the criterion as "no
+	// token minted", and the code did not implement its own stated rule. Found in
+	// review by Kyle, not by a test.
+	if token != nil {
+		s.recordLoreSurfacing(boot.Lore)
+	}
 }
