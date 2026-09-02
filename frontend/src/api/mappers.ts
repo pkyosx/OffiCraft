@@ -15,6 +15,8 @@ import type {
   LoreRevisionRowView,
   LoreEntryDetailView,
   LoreRevisionView,
+  LorePendingEntityView,
+  LoreEntityGovernanceView,
   Member,
   MemberStatus,
   MemberLifecycle,
@@ -62,6 +64,8 @@ import type {
   WireLoreEntryDetail,
   WireLoreRevisionRow,
   WireLoreRevision,
+  WireLorePendingEntity,
+  WireLoreEntityGovernance,
   WireMonMachine,
   WireMonAccount,
   WireMonitoring,
@@ -1902,5 +1906,43 @@ export function toLoreRevision(w: WireLoreRevision): LoreRevisionView {
     createdTs: w.created_ts,
     actorId: w.actor_id,
     shrinkChars: w.shrink_chars,
+  };
+}
+
+/** 待審一列。`suggestion` 是空字串就原樣留空 —— 不在這裡補一個預設建議。 */
+export function toLorePendingEntity(
+  w: WireLorePendingEntity
+): LorePendingEntityView {
+  return {
+    entityId: w.entity_id,
+    canonical: w.canonical,
+    type: w.type,
+    name: w.name,
+    createdTs: w.created_ts,
+    entries: w.entries,
+    suggestion: w.suggestion,
+    mergeTarget: w.merge_target,
+    similar: (w.similar ?? []).map((r) => ({
+      entityId: r.entity_id,
+      canonical: r.canonical,
+      reason: r.reason,
+    })),
+    sampleShort: w.sample_short,
+  };
+}
+
+/** 核可／合併的收據。 */
+export function toLoreEntityGovernance(
+  w: WireLoreEntityGovernance
+): LoreEntityGovernanceView {
+  return {
+    entityId: w.entity_id,
+    canonical: w.canonical,
+    pending: w.pending,
+    mergedInto: w.merged_into,
+    kind: w.kind,
+    reason: w.reason,
+    actorId: w.actor_id,
+    createdTs: w.created_ts,
   };
 }

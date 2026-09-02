@@ -28,6 +28,8 @@ import type {
   LoreSearchView,
   LoreEntryDetailView,
   LoreRevisionView,
+  LorePendingEntityView,
+  LoreEntityGovernanceView,
   Member,
   MonitoringView,
   VersionView,
@@ -121,6 +123,8 @@ import {
   toDocumentHistoryEntry,
   toLoreSearch,
   toLoreEntryDetail,
+  toLorePendingEntity,
+  toLoreEntityGovernance,
   toLoreRevision,
   toDocumentRevision,
   toDocumentSeed,
@@ -2901,6 +2905,44 @@ export const httpApi: Api = {
       }),
     );
     return toLoreRevision(wire);
+  },
+
+  // ── T-33 對象審核 ────────────────────────────────────────────────────────
+  async listPendingLoreEntities(): Promise<LorePendingEntityView[]> {
+    // GET /api/lore/entities/pending -> LorePendingEntityRowDTO[]。這條是唯一
+    // 一條看得到「待審」的路:待審資料本來就在 DB 裡,但在這條路存在之前沒有出
+    // 口,所以座艙畫得出佇列的那一天就是這條路落地的那一天。
+    const wire = unwrap(await client.GET("/api/lore/entities/pending", {}));
+    return (wire ?? []).map(toLorePendingEntity);
+  },
+
+  async approveLoreEntity(
+    entityId: string,
+    reason = ""
+  ): Promise<LoreEntityGovernanceView> {
+    // 回的是治理收據,不是 204:呼叫端要看得到它實際落在哪個狀態,而不是靠「沒
+    // 有報錯」推論。
+    const wire = unwrap(
+      await client.POST("/api/lore/entities/{entity_id}/approve", {
+        params: { path: { entity_id: entityId } },
+        body: { reason },
+      }),
+    );
+    return toLoreEntityGovernance(wire);
+  },
+
+  async mergeLoreEntity(
+    entityId: string,
+    into: string,
+    reason = ""
+  ): Promise<LoreEntityGovernanceView> {
+    const wire = unwrap(
+      await client.POST("/api/lore/entities/{entity_id}/merge", {
+        params: { path: { entity_id: entityId } },
+        body: { into, reason },
+      }),
+    );
+    return toLoreEntityGovernance(wire);
   },
 
   subscribeConnection(

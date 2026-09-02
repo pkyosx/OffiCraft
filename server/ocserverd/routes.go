@@ -2103,6 +2103,72 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary:  "強制停止 an outsource worker: kill the session NOW and hold it down; says nothing to it. Third rung of 停止 -> 加速停止 -> 強制停止.",
 			MCPTool:  "force_stop_outsource_worker",
 		},
+		// ── T-33 lore 對象審核 (entity review) ────────────────────────────────
+		// 🔴 THESE THREE ROWS ARE THE EXIT FROM A QUEUE THAT HAD NONE. Every
+		// subject key an agent writes and nothing recognises is MINTED and parked
+		// `pending = 1` — deliberately, because gating the write is what pushes an
+		// agent into forcing a near-miss key onto an existing subject. The parked
+		// column was written on every such write and READ by nothing: the boot
+		// subject directory filters `pending = 0`, so an entry filed only against a
+		// pending subject exists, answers a direct read, and is invisible to every
+		// agent's wake. That is the ticket's own disease, one layer down.
+		//
+		// 🔴 THE FLOOR IS principalAdminAgent ON ALL THREE, AND ON THE TWO ACTS IT
+		// IS THE OWNER'S OWN WORDS (rc-139a5ab99a19): 「待審，我跟 mira 有 admin
+		// 權限的才行」. Approving publishes a name into EVERY agent's boot
+		// directory and merging rewrites which subject an entry belongs to; neither
+		// is an agent curating what it knows, which is what put retire at
+		// principalAgent. The owner outranks admin_agent on the ladder, so one row
+		// says both halves of his sentence.
+		//
+		// ⚠️ THE READ IS HELD TO THE SAME FLOOR, AND THAT HALF IS A READING RATHER
+		// THAN HIS WORDS — the precedent it follows is GET /api/settings, whose
+		// read sits at principalAdminAgent beside the PATCH that edits it (and GET
+		// /api/members/{member_id}/scheduled-messages, same shape). This station
+		// puts an admin-gated console's READ at the console's floor, not below it.
+		// The lore retrieval rows are NOT the precedent: they serve an agent its
+		// own store, whereas this list is a work queue whose every row names an act
+		// only an admin may perform. ⚠️ If that reading is wrong the cost is one
+		// 403 an ordinary agent can argue with; the reverse — the whole fleet
+		// reading a queue of names nobody has approved — is the thing the `pending`
+		// filter on the boot directory exists to prevent.
+		//
+		// 🔴 THERE IS NO REJECT ROW, AND ITS ABSENCE IS DELIBERATE. The owner has
+		// ruled on 核可 and on 合併. What becomes of a minted name nobody wants has
+		// never been decided, and shipping that exit would decide it here — in the
+		// direction that destroys rows.
+		{
+			Method:   "GET",
+			Path:     "/api/lore/entities/pending",
+			Handler:  w.HandleListPendingLoreEntitiesApiLoreEntitiesPendingGet,
+			Auth:     authGated,
+			Requires: principalAdminAgent,
+			Summary:  "List the subject entities parked for review, each with the homework already done — the `type:name` key it was minted under, its type, its name, when it was created, HOW MANY lore entries are filed under it, a SAMPLE of the first one's `short`, the existing subjects it resembles WITH the reason each was offered, and what the rule concludes. 🔴 A pending entity is a name an agent INVENTED while writing lore: minting is deliberately ungated (gating it is what pushes a writer into forcing a near-miss key onto an existing subject), so this queue is the only place a typo like `repo:offcraft` is caught before it becomes part of the ontology. `entries` is counted with the SAME predicate the boot subject directory and `search_lore_entries` use — retired entries are not counted. 🔴 `suggestion` IS A RULE, NOT A JUDGEMENT, AND EMPTY IS ONE OF ITS ANSWERS: nothing resembles it ⇒ `approve`; exactly one candidate is identical once case, width and `_`/`-` are folded ⇒ `merge` into the id in `merge_target`; fuzzy-only resemblance, or two equally exact candidates ⇒ empty, because a guessed suggestion looks exactly like a computed one. Nothing here approves or merges anything — both acts stay behind the owner/admin floor and the verdict is the reviewer's. 🔴 A pending entity is INVISIBLE to the boot subject directory until it is approved, so a queue nobody works is a set of lore entries no agent can reach by subject.",
+			MCPTool:  "list_pending_lore_entities",
+		},
+		{
+			Method:   "POST",
+			Path:     "/api/lore/entities/{entity_id}/approve",
+			Handler:  w.HandleApproveLoreEntityApiLoreEntitiesEntityIdApprovePost,
+			Auth:     authGated,
+			Requires: principalAdminAgent,
+			Summary:  "Approve ONE pending subject entity — owner or admin agent only (owner ruling rc-139a5ab99a19: 「待審，我跟 mira 有 admin 權限的才行」). The entity stops being `pending` and starts appearing in the boot subject directory, which is what makes the lore entries filed under it reachable by subject at all. 404 when no entity carries that id; 409 when the entity is not pending, because answering `done` would confirm a belief about its state that is wrong. 🔴 THERE IS DELIBERATELY NO REJECT ROUTE BESIDE THIS ONE: nothing has been ruled about whether a pending name may be thrown away, and inventing that exit here would decide it. `reason` is optional prose recorded in the governance journal beside the approval.",
+			MCPTool:  "approve_lore_entity",
+		},
+		{
+			// The per-target refusals (unknown / still pending / already merged /
+			// itself) live in MergeLoreEntity, not here. `Requires` answers WHO may
+			// ask; which targets are legal is a fact about the rows, and a copy of
+			// it in this table would be a second answer that drifts the first time
+			// one of them is added.
+			Method:   "POST",
+			Path:     "/api/lore/entities/{entity_id}/merge",
+			Handler:  w.HandleMergeLoreEntityApiLoreEntitiesEntityIdMergePost,
+			Auth:     authGated,
+			Requires: principalAdminAgent,
+			Summary:  "Fold ONE pending subject entity into an existing APPROVED one — owner or admin agent only (owner ruling rc-139a5ab99a19). This is the repair approve cannot make: two names for one thing. The source keeps existing (nothing in this schema deletes) with `merged_into` pointing at the survivor, and its `type:name` key is registered as an ALIAS of the survivor — so every later write and search naming the old key resolves onto the surviving subject instead of minting it a second time. 404 when either id names nothing; 409 when the source is not pending; 422 when the target is itself still pending, has itself been merged away, or IS the source — each refused BY NAME rather than silently succeeding, because a merge into a subject the directory also hides parks the source somewhere no reader can follow. `reason` is optional prose recorded in the governance journal.",
+			MCPTool:  "merge_lore_entity",
+		},
 		// ── T-33 lore governance ─────────────────────────────────────────────
 		// 🔴 THESE TWO ROWS ARE WHY loreRetireNeedsOwner IS A GATE RATHER THAN A
 		// DESCRIPTION OF ONE. The DAL shipped the three reasons, the owner split

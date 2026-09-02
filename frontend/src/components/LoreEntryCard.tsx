@@ -6,6 +6,12 @@
 //
 // 六格空著的時候照樣把欄位名印出來(fieldEmpty),因為「空著」跟「沒有這一節」
 // 必須長得不一樣 —— 一條證偽條件與實例都空的記錄,要一眼看得出它是口號。
+//
+// 摺起來那一列上刻意沒有分層、信任類別、tier note 這些欄位:它們是檢索器內部
+// 怎麼挑中這一條的紀錄,對「我有哪些記憶」這個問題沒有回答任何東西
+// (owner 2026-09-02:「這是給使用者的頁面 不是你拿來跟我對 spec 的 design
+// doc」)。留下的是他認得的東西:名字、對象、來源、短版,以及「這條沒有證偽也
+// 沒有實例」這個警告。
 
 import { useState } from "react";
 import { useI18n } from "../i18n";
@@ -16,7 +22,6 @@ import type {
   LoreEntrySummaryView,
   LoreRevisionRowView,
 } from "../types";
-import { LoreEmptySource } from "./LoreEmptySource";
 import "./lore.css";
 
 /** 一格:欄位名永遠印,值空的時候印出「空白」而不是把整格藏起來。 */
@@ -154,18 +159,6 @@ export function LoreEntryCard({ entry }: { entry: LoreEntrySummaryView }) {
               {a}
             </span>
           ))}
-          <span className="lore__badge lore__badge--status">
-            {t.lore.entryTierLabel} {entry.tier}
-          </span>
-          <span className="lore__badge lore__badge--status">
-            {t.lore.entryTrustScopeLabel} {entry.trustScope}
-          </span>
-          {/* 猜出來的類別不可以跟查表查出來的長得一樣。 */}
-          {entry.trustFellBack && (
-            <span className="lore__badge lore__badge--warn">
-              {t.lore.entryTrustFellBack}
-            </span>
-          )}
           {entry.degraded && (
             <span className="lore__badge lore__badge--warn">
               {t.lore.entryDegraded}
@@ -175,11 +168,6 @@ export function LoreEntryCard({ entry }: { entry: LoreEntrySummaryView }) {
             {t.lore.entryOriginLabel} {entry.origin}
           </span>
         </div>
-        {entry.tierNote.trim() !== "" && (
-          <div className="lore-entry__short">
-            {t.lore.entryTierNoteLabel}：{entry.tierNote}
-          </div>
-        )}
         <div className="lore-entry__short">{entry.short}</div>
       </button>
 
@@ -261,24 +249,6 @@ export function LoreEntryCard({ entry }: { entry: LoreEntrySummaryView }) {
               </div>
 
               {/* 撈取次數那一排:設計稿有,而沒有任何一條路回得出來。 */}
-              <div className="lore-entry__block">
-                <LoreEmptySource
-                  title={t.lore.metaTitle}
-                  why={t.lore.metaWhy}
-                  missing={["GET /api/lore/entries/{id}/stats"]}
-                />
-              </div>
-
-              {/* 回報／不再撈取／給分:停用與恢復兩條路存在,但這個分頁只接讀的
-                  那三條;給分那一格資料庫今天根本沒有。兩件事都照實講。 */}
-              <div className="lore-entry__block">
-                <LoreEmptySource
-                  title={t.lore.actionsTitle}
-                  why={t.lore.actionsWhy}
-                  missing={[]}
-                />
-                <div className="lore__note">{t.lore.scoreWhy}</div>
-              </div>
             </>
           )}
         </div>

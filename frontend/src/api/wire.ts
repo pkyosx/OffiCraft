@@ -413,3 +413,13 @@ export type WireLoreRevisionRow = components["schemas"]["LoreRevisionRowDTO"];
 
 /** Mirrors `LoreRevisionDTO` — ONE revision's exact stored text. */
 export type WireLoreRevision = components["schemas"]["LoreRevisionDTO"];
+
+/** Mirrors `LorePendingEntityRowDTO` — one row of the approval queue, carrying
+ * the server's own suggestion and the NAMED reason behind it. */
+export type WireLorePendingEntity =
+  components["schemas"]["LorePendingEntityRowDTO"];
+
+/** Mirrors `LoreEntityGovernanceDTO` — the receipt an approve/merge answers
+ * with, so the caller can see the state it actually landed in. */
+export type WireLoreEntityGovernance =
+  components["schemas"]["LoreEntityGovernanceDTO"];

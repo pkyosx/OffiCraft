@@ -1111,6 +1111,54 @@ type LoginDTO struct {
 	Password string  `json:"password"`
 }
 
+// LoreEntityApproveDTO Approve one pending subject entity: `{reason}`. `reason` is optional free prose recorded in the governance journal; unlike the retire reason it carries no permission consequence.
+type LoreEntityApproveDTO struct {
+	// Reason Optional prose recorded in the governance journal beside the act. Unlike the retire reason it carries no permission consequence — it is there so 「why was this name accepted」 has somewhere to live.
+	Reason *string `json:"reason,omitempty"`
+}
+
+// LoreEntityGovernanceDTO One subject-entity governance act, as it stands AFTER the call: the entity, the state it is now in, and the journal row just written. 🔴 Every field is read back off the tables rather than echoed from the request — an echo would report `pending: false` for a write that did not happen, which is the one thing a receipt exists to rule out.
+type LoreEntityGovernanceDTO struct {
+	// ActorId The caller, taken from the VERIFIED token subject — never from the request body.
+	ActorId string `json:"actor_id"`
+
+	// Canonical The entity's `type:name` key.
+	Canonical string  `json:"canonical"`
+	CreatedTs float64 `json:"created_ts"`
+	EntityId  string  `json:"entity_id"`
+
+	// Kind `entity-approve` or `entity-merge` — which journal row this is.
+	Kind string `json:"kind"`
+
+	// MergedInto The surviving entity this one was folded into, empty when it stands on its own. After an approve it is always empty; after a merge it names the survivor.
+	MergedInto string `json:"merged_into"`
+
+	// Pending Whether the entity is STILL awaiting review. Both acts clear it, so a `true` here after a 200 would mean the write did not take.
+	Pending bool   `json:"pending"`
+	Reason  string `json:"reason"`
+}
+
+// LoreEntityMergeDTO Fold one pending subject entity into an existing approved one: `{into, reason}`. `into` is REQUIRED — there is no default survivor, and guessing one would silently attach a subject's whole history to a name nobody chose.
+type LoreEntityMergeDTO struct {
+	// Into The id of the SURVIVING entity this one is folded into. It must already be approved and must not itself have been merged away; either is refused 422 by name, because merging into a subject the boot directory hides would park the source somewhere no reader can follow.
+	Into string `json:"into"`
+
+	// Reason Optional prose recorded in the governance journal beside the act. Unlike the retire reason it carries no permission consequence — it is there so 「why was this name accepted」 has somewhere to live.
+	Reason *string `json:"reason,omitempty"`
+}
+
+// LoreEntitySimilarDTO ONE existing subject that resembles a pending one, WITH the reason it was offered. 🔴 THE REASON IS THE PAYLOAD AND THERE IS DELIBERATELY NO SCORE. A number is a judgement wearing a number's clothes — nobody can check `0.87` — whereas `same_normalized` names the exact test that fired and can be checked at a glance, which is the whole point of the packet.
+type LoreEntitySimilarDTO struct {
+	// Canonical The existing subject's `type:name` key.
+	Canonical string `json:"canonical"`
+
+	// EntityId The existing subject's id — what `merge`'s `into` takes.
+	EntityId string `json:"entity_id"`
+
+	// Reason WHICH test fired, one of: `same_normalized` — identical once case, full-width/half-width and `_`/`-` are folded (`repo:OffiCraft` vs `repo:officraft`), the only reason strong enough to carry a suggestion; `edit_distance_1` / `edit_distance_2` — that many single-character edits apart; `prefix` — one name starts with the other; `substring` — one name contains the other. The fuzzy four are withheld for names shorter than 3 characters, where everything resembles everything. Comparison is WITHIN one type prefix, because the schema says an identical name under two prefixes is correct rather than a duplicate.
+	Reason string `json:"reason"`
+}
+
 // LoreEntryDetailDTO One lore entry in full, plus the original preserved beside it.
 type LoreEntryDetailDTO struct {
 	// Actions The entry's action names.
@@ -1190,6 +1238,39 @@ type LorePendingEntityDTO struct {
 	EntityId string `json:"entity_id"`
 
 	// Type The type prefix of the key.
+	Type string `json:"type"`
+}
+
+// LorePendingEntityRowDTO ONE subject entity waiting for review: what it is, what it was minted as, when, and how much lore already depends on it. 🔴 `display` IS DELIBERATELY ABSENT. The column exists and no path in this tree writes it, so the field could only ever be empty — and an empty string reads as 「we looked and there was no name」 rather than 「nothing can fill this yet」. `name` is the name half of `canonical`, derived at read time, so there is no second copy to go stale.
+type LorePendingEntityRowDTO struct {
+	// Canonical The full `type:name` key the entity was minted under.
+	Canonical string `json:"canonical"`
+
+	// CreatedTs When the key was first written, which is when review became owed.
+	CreatedTs float64 `json:"created_ts"`
+
+	// EntityId The entity's id.
+	EntityId string `json:"entity_id"`
+
+	// Entries How many lore entries are filed under this subject RIGHT NOW, counted with the same predicate the boot directory and search use — retired entries are excluded, so this number reconciles against what the subject would actually serve once approved.
+	Entries int `json:"entries"`
+
+	// MergeTarget The entity id `suggestion: merge` points at — the surviving subject to fold this one into. Empty whenever `suggestion` is not `merge`.
+	MergeTarget string `json:"merge_target"`
+
+	// Name The name half of `canonical` — what the subject is called, without its type prefix.
+	Name string `json:"name"`
+
+	// SampleShort The `short` of the FIRST lore entry filed under this subject, trimmed to 120 characters with an ellipsis when it was cut. 🔴 IT IS A SAMPLE AND IT SAYS SO BY ENDING IN 「…」: it exists so a reviewer can see what the subject is actually about without opening it, and it is never the field to act on — read the entry for that. Empty when the subject carries no entry yet, which the `entries` count already says.
+	SampleShort string `json:"sample_short"`
+
+	// Similar The existing APPROVED subjects that resemble this one, each with the reason it was offered, strongest reason first per candidate. Empty means nothing in the ontology looks like this name — which is exactly what makes `suggestion: approve` computable.
+	Similar []LoreEntitySimilarDTO `json:"similar"`
+
+	// Suggestion What the RULE concludes — `approve`, `merge`, or the EMPTY STRING. 🔴 EMPTY IS AN ANSWER, NOT A MISSING FIELD, and it is the field's most important value: the rule fills it only when it reaches a clear conclusion, because a guessed suggestion looks exactly like a computed one and 「something was decided and nothing said so」 is the failure this whole feature exists to end. The rule: no `similar` candidate at all ⇒ `approve`; exactly one `same_normalized` candidate ⇒ `merge` into it; anything else — fuzzy-only resemblance, or two equally exact candidates ⇒ empty, and the reviewer decides on the evidence in `similar`. 🔴 IT IS A SUGGESTION AND NOTHING ELSE: no route approves or merges on it, both acts stay behind the admin floor, and the verdict is the owner's.
+	Suggestion string `json:"suggestion"`
+
+	// Type The approved type prefix of the key (`repo`, `agent`, `human`, …).
 	Type string `json:"type"`
 }
 
@@ -3857,6 +3938,12 @@ type HandlePatchLessonsApiLessonsRoleKeyPatchPostJSONRequestBody = LessonsPatchD
 // HandleLoginApiLoginPostJSONRequestBody defines body for HandleLoginApiLoginPost for application/json ContentType.
 type HandleLoginApiLoginPostJSONRequestBody = LoginDTO
 
+// HandleApproveLoreEntityApiLoreEntitiesEntityIdApprovePostJSONRequestBody defines body for HandleApproveLoreEntityApiLoreEntitiesEntityIdApprovePost for application/json ContentType.
+type HandleApproveLoreEntityApiLoreEntitiesEntityIdApprovePostJSONRequestBody = LoreEntityApproveDTO
+
+// HandleMergeLoreEntityApiLoreEntitiesEntityIdMergePostJSONRequestBody defines body for HandleMergeLoreEntityApiLoreEntitiesEntityIdMergePost for application/json ContentType.
+type HandleMergeLoreEntityApiLoreEntitiesEntityIdMergePostJSONRequestBody = LoreEntityMergeDTO
+
 // HandleWriteLoreEntryApiLoreEntriesPostJSONRequestBody defines body for HandleWriteLoreEntryApiLoreEntriesPost for application/json ContentType.
 type HandleWriteLoreEntryApiLoreEntriesPostJSONRequestBody = LoreWriteDTO
 
@@ -4240,6 +4327,15 @@ type ServerInterface interface {
 	// Owner login: exchange the password for an owner-scoped JWT.
 	// (POST /api/login)
 	HandleLoginApiLoginPost(w http.ResponseWriter, r *http.Request)
+	// List the subject entities parked for review, each with the homework already done — the `type:name` key it was minted under, its type, its name, when it was created, HOW MANY lore entries are filed under it, a SAMPLE of the first one's `short`, the existing subjects it resembles WITH the reason each was offered, and what the rule concludes. 🔴 A pending entity is a name an agent INVENTED while writing lore: minting is deliberately ungated (gating it is what pushes a writer into forcing a near-miss key onto an existing subject), so this queue is the only place a typo like `repo:offcraft` is caught before it becomes part of the ontology. `entries` is counted with the SAME predicate the boot subject directory and `search_lore_entries` use — retired entries are not counted. 🔴 `suggestion` IS A RULE, NOT A JUDGEMENT, AND EMPTY IS ONE OF ITS ANSWERS: nothing resembles it ⇒ `approve`; exactly one candidate is identical once case, width and `_`/`-` are folded ⇒ `merge` into the id in `merge_target`; fuzzy-only resemblance, or two equally exact candidates ⇒ empty, because a guessed suggestion looks exactly like a computed one. Nothing here approves or merges anything — both acts stay behind the owner/admin floor and the verdict is the reviewer's. 🔴 A pending entity is INVISIBLE to the boot subject directory until it is approved, so a queue nobody works is a set of lore entries no agent can reach by subject.
+	// (GET /api/lore/entities/pending)
+	HandleListPendingLoreEntitiesApiLoreEntitiesPendingGet(w http.ResponseWriter, r *http.Request)
+	// Approve ONE pending subject entity — owner or admin agent only (owner ruling rc-139a5ab99a19: 「待審，我跟 mira 有 admin 權限的才行」). The entity stops being `pending` and starts appearing in the boot subject directory, which is what makes the lore entries filed under it reachable by subject at all. 404 when no entity carries that id; 409 when the entity is not pending, because answering `done` would confirm a belief about its state that is wrong. 🔴 THERE IS DELIBERATELY NO REJECT ROUTE BESIDE THIS ONE: nothing has been ruled about whether a pending name may be thrown away, and inventing that exit here would decide it. `reason` is optional prose recorded in the governance journal beside the approval.
+	// (POST /api/lore/entities/{entity_id}/approve)
+	HandleApproveLoreEntityApiLoreEntitiesEntityIdApprovePost(w http.ResponseWriter, r *http.Request, entityId string)
+	// Fold ONE pending subject entity into an existing APPROVED one — owner or admin agent only (owner ruling rc-139a5ab99a19). This is the repair approve cannot make: two names for one thing. The source keeps existing (nothing in this schema deletes) with `merged_into` pointing at the survivor, and its `type:name` key is registered as an ALIAS of the survivor — so every later write and search naming the old key resolves onto the surviving subject instead of minting it a second time. 404 when either id names nothing; 409 when the source is not pending; 422 when the target is itself still pending, has itself been merged away, or IS the source — each refused BY NAME rather than silently succeeding, because a merge into a subject the directory also hides parks the source somewhere no reader can follow. `reason` is optional prose recorded in the governance journal.
+	// (POST /api/lore/entities/{entity_id}/merge)
+	HandleMergeLoreEntityApiLoreEntitiesEntityIdMergePost(w http.ResponseWriter, r *http.Request, entityId string)
 	// Write ONE lore entry — the entry, the subjects it is filed under, the actions it is about, and the FULL ORIGINAL that outlives every later rewrite, all in one transaction. `symptoms` and `short` are required: `short` is the only field that ever enters a boot context and `symptoms` is the axis a reader finds the entry by, so an entry missing either is not thin, it is unreachable. `falsify` and `instance` are DELIBERATELY optional (owner ruling 2026-09-01: 寬鬆，不當硬門檻) — forcing them produces invented ones, which nothing can count, whereas an empty one can be counted; an entry with neither comes back `degraded: true`, which is a signal to you and not a refusal. `subjects` are subject keys shaped `type:name` (`repo:officraft`, `agent:Kyle`): an alias resolves, a merged-away subject follows to the survivor, an unapproved type prefix is refused BY NAME, and a key nobody has used yet MINTS a new subject parked for review and names it back to you in `pending_entities` — so a typo surfaces in this response instead of in the ontology a month later. `origin` says WHOSE knowledge this is (`human:Seth` for something the owner told you) and is not the same question as who is writing: the actor is taken from your verified token and cannot be asserted here. `label` is a NAME, at most 40 runes; over that is refused with both counts and NEVER trimmed, because a name that changes silently breaks whatever was pointing at it. `supersedes` names the entry this one takes over from: it is re-statused `superseded` and the act is written to the governance journal, while an id that names nothing refuses the WHOLE write rather than leaving a pointer into empty space.
 	// (POST /api/lore/entries)
 	HandleWriteLoreEntryApiLoreEntriesPost(w http.ResponseWriter, r *http.Request)
@@ -5818,6 +5914,72 @@ func (siw *ServerInterfaceWrapper) HandleLoginApiLoginPost(w http.ResponseWriter
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleLoginApiLoginPost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleListPendingLoreEntitiesApiLoreEntitiesPendingGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleListPendingLoreEntitiesApiLoreEntitiesPendingGet(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleListPendingLoreEntitiesApiLoreEntitiesPendingGet(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleApproveLoreEntityApiLoreEntitiesEntityIdApprovePost operation middleware
+func (siw *ServerInterfaceWrapper) HandleApproveLoreEntityApiLoreEntitiesEntityIdApprovePost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "entity_id" -------------
+	var entityId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entity_id", r.PathValue("entity_id"), &entityId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entity_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleApproveLoreEntityApiLoreEntitiesEntityIdApprovePost(w, r, entityId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleMergeLoreEntityApiLoreEntitiesEntityIdMergePost operation middleware
+func (siw *ServerInterfaceWrapper) HandleMergeLoreEntityApiLoreEntitiesEntityIdMergePost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "entity_id" -------------
+	var entityId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entity_id", r.PathValue("entity_id"), &entityId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entity_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleMergeLoreEntityApiLoreEntitiesEntityIdMergePost(w, r, entityId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -8977,6 +9139,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lessons/{role_key}", wrapper.HandleReplaceLessonsApiLessonsRoleKeyPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lessons/{role_key}/patch", wrapper.HandlePatchLessonsApiLessonsRoleKeyPatchPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/login", wrapper.HandleLoginApiLoginPost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/lore/entities/pending", wrapper.HandleListPendingLoreEntitiesApiLoreEntitiesPendingGet)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/entities/{entity_id}/approve", wrapper.HandleApproveLoreEntityApiLoreEntitiesEntityIdApprovePost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/entities/{entity_id}/merge", wrapper.HandleMergeLoreEntityApiLoreEntitiesEntityIdMergePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/entries", wrapper.HandleWriteLoreEntryApiLoreEntriesPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/lore/entries/{entry_id}", wrapper.HandleGetLoreEntryApiLoreEntriesEntryIdGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/entries/{entry_id}/retire", wrapper.HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePost)

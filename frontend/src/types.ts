@@ -1106,3 +1106,50 @@ export interface LoreRevisionView {
   actorId: string;
   shrinkChars: number;
 }
+
+// ── T-33 對象審核 (待審 / 核可 / 合併) ────────────────────────────────────
+//
+// owner 2026-09-02 逐字:「agent 做完功課以後給建議並提出我一眼就可以判斷的資
+// 訊,我還是做最後的裁決」⇒ 每一列除了「是什麼」還要帶「伺服器算出來的建議、
+// 以及那個建議的依據」。依據是**像法的名字**(正規化後相同/編輯距離 1/前綴),
+// 刻意不是一個相似度分數:分數是判斷冒充數字,而這張票在治的就是那個。
+
+/** 一個既有對象跟待審這一筆像在哪裡。 */
+export interface LoreEntitySimilarView {
+  entityId: string;
+  /** `type:name`。 */
+  canonical: string;
+  /** 最強的那一種像法的名字,不是分數。 */
+  reason: string;
+}
+
+/** 待審佇列的一列:對象本身 ＋ 伺服器做完的功課。 */
+export interface LorePendingEntityView {
+  entityId: string;
+  canonical: string;
+  type: string;
+  name: string;
+  createdTs: number;
+  /** 這個對象底下已經有幾條記憶。 */
+  entries: number;
+  /** `approve` / `merge` / **空字串 ＝ 算不出明確結論**。空的時候畫面不准補一
+   * 個 —— 硬給的建議跟算得出來的長得一模一樣。 */
+  suggestion: string;
+  /** `suggestion` 是 merge 時,建議併進哪一個。 */
+  mergeTarget: string;
+  similar: LoreEntitySimilarView[];
+  /** 這個對象底下第一條記憶的短版,截斷過。空 ⇒ 底下還沒有記憶。 */
+  sampleShort: string;
+}
+
+/** 核可或合併之後,伺服器回的那一筆治理紀錄。 */
+export interface LoreEntityGovernanceView {
+  entityId: string;
+  canonical: string;
+  pending: boolean;
+  mergedInto: string;
+  kind: string;
+  reason: string;
+  actorId: string;
+  createdTs: number;
+}

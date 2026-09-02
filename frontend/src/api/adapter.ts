@@ -12,6 +12,8 @@ import type {
   LoreSearchView,
   LoreEntryDetailView,
   LoreRevisionView,
+  LorePendingEntityView,
+  LoreEntityGovernanceView,
   Member,
   MemberLifecycle,
   MemberActivateResult,
@@ -2621,6 +2623,31 @@ export interface Api {
     entryId: string,
     revisionId: number
   ): Promise<LoreRevisionView>;
+
+  // ── T-33 對象審核 ────────────────────────────────────────────────────────
+  //
+  // 🔴 這三條是 owner 2026-09-02 圈的（`rc-55e3f5b13b42`）。核可與合併是
+  // admin 專屬（他 `rc-139a5ab99a19` 逐字:「待審,我跟 mira 有 admin 權限的才
+  // 行」）—— 一般成員拿到的是 403,不是一顆按不動的按鈕。
+  //
+  // 🔴 這裡沒有 `rejectLoreEntity`。「駁回」這個出口 owner 從來沒有裁定過,補一
+  // 個等於替他決定。
+
+  /** 待審佇列。每一列自己帶著伺服器算出的建議與依據。 */
+  listPendingLoreEntities(): Promise<LorePendingEntityView[]>;
+
+  /** 核可一個待審對象。 */
+  approveLoreEntity(
+    entityId: string,
+    reason?: string
+  ): Promise<LoreEntityGovernanceView>;
+
+  /** 把待審對象併進一個既有對象;`into` 是存活那一個的 id。 */
+  mergeLoreEntity(
+    entityId: string,
+    into: string,
+    reason?: string
+  ): Promise<LoreEntityGovernanceView>;
 
   subscribeEvents(
     onTopic: (topic: string, delta?: SseDelta) => void

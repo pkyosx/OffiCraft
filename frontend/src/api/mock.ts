@@ -7,6 +7,8 @@
 
 import type {
   LoreEntryDetailView,
+  LorePendingEntityView,
+  LoreEntityGovernanceView,
   LoreEntrySummaryView,
   LoreRevisionView,
   LoreSearchView,
@@ -2471,6 +2473,63 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
 function mockLoreDegraded(e: MockLoreEntry): boolean {
   return e.falsify.trim() === "" && e.instance.trim() === "";
 }
+
+
+/** mock 的待審佇列。刻意做成兩種形狀都有:一個算得出建議的(大小寫折疊後跟既有
+ * 的完全一樣 ⇒ 建議合併)、一個沒有任何相似對象的(⇒ 建議核可)、一個只有模糊
+ * 相似的(⇒ **建議是空字串**)。第三種存在的理由就是要讓「算不出來」在畫面上
+ * 有東西可測 —— 那一格空著才是對的,補一個建議是這張票在治的病。 */
+let mockPendingEntities: LorePendingEntityView[] = [
+  {
+    entityId: "en-mock-1",
+    canonical: "repo:OffiCraft",
+    type: "repo",
+    name: "OffiCraft",
+    createdTs: 1788330000,
+    entries: 2,
+    suggestion: "merge",
+    mergeTarget: "en-mock-live",
+    similar: [
+      {
+        entityId: "en-mock-live",
+        canonical: "repo:officraft",
+        reason: "same_normalized",
+      },
+    ],
+    sampleShort: "綠燈只證明「它看得到的那些東西沒問題」。",
+  },
+  {
+    entityId: "en-mock-2",
+    canonical: "tool:sqlite",
+    type: "tool",
+    name: "sqlite",
+    createdTs: 1788330100,
+    entries: 5,
+    suggestion: "approve",
+    mergeTarget: "",
+    similar: [],
+    sampleShort: "複製資料庫等於複製設定 —— 開關存在資料裡,跟著資料走。",
+  },
+  {
+    entityId: "en-mock-3",
+    canonical: "tool:goose",
+    type: "tool",
+    name: "goose",
+    createdTs: 1788330200,
+    entries: 1,
+    // 只有模糊相似 ⇒ 伺服器算不出明確結論 ⇒ 這一格就是空的。
+    suggestion: "",
+    mergeTarget: "",
+    similar: [
+      {
+        entityId: "en-mock-4",
+        canonical: "tool:grep",
+        reason: "edit_distance_2",
+      },
+    ],
+    sampleShort: "",
+  },
+];
 
 export const mockApi: Api = {
   async listMembers(_opts?: { light?: boolean }): Promise<Member[]> {
@@ -6167,6 +6226,77 @@ export const mockApi: Api = {
       createdTs: row.createdTs,
       actorId: row.actorId,
       shrinkChars: row.shrinkChars,
+    };
+  },
+
+  // ── T-33 對象審核 ────────────────────────────────────────────────────────
+  async listPendingLoreEntities(): Promise<LorePendingEntityView[]> {
+    return mockPendingEntities.map((e) => ({
+      ...e,
+      similar: e.similar.map((r) => ({ ...r })),
+    }));
+  },
+
+  async approveLoreEntity(
+    entityId: string,
+    reason = ""
+  ): Promise<LoreEntityGovernanceView> {
+    const row = mockPendingEntities.find((e) => e.entityId === entityId);
+    if (!row) {
+      throw mockApiError(
+        `http 404 for /api/lore/entities/${entityId}/approve`,
+        404,
+        "lore entity not found"
+      );
+    }
+    // 核可之後它就不在佇列裡了 —— 佇列是待審的,不是全部對象的清單。
+    mockPendingEntities = mockPendingEntities.filter(
+      (e) => e.entityId !== entityId
+    );
+    return {
+      entityId: row.entityId,
+      canonical: row.canonical,
+      pending: false,
+      mergedInto: "",
+      kind: "approve",
+      reason,
+      actorId: "owner",
+      createdTs: 0,
+    };
+  },
+
+  async mergeLoreEntity(
+    entityId: string,
+    into: string,
+    reason = ""
+  ): Promise<LoreEntityGovernanceView> {
+    const row = mockPendingEntities.find((e) => e.entityId === entityId);
+    if (!row) {
+      throw mockApiError(
+        `http 404 for /api/lore/entities/${entityId}/merge`,
+        404,
+        "lore entity not found"
+      );
+    }
+    if (into.trim() === "") {
+      throw mockApiError(
+        `http 422 for /api/lore/entities/${entityId}/merge`,
+        422,
+        "into is required"
+      );
+    }
+    mockPendingEntities = mockPendingEntities.filter(
+      (e) => e.entityId !== entityId
+    );
+    return {
+      entityId: row.entityId,
+      canonical: row.canonical,
+      pending: false,
+      mergedInto: into,
+      kind: "merge",
+      reason,
+      actorId: "owner",
+      createdTs: 0,
     };
   },
 

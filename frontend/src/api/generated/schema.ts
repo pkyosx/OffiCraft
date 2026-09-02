@@ -1343,6 +1343,82 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/lore/entities/pending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the subject entities parked for review, each with the homework already done — the `type:name` key it was minted under, its type, its name, when it was created, HOW MANY lore entries are filed under it, a SAMPLE of the first one's `short`, the existing subjects it resembles WITH the reason each was offered, and what the rule concludes. 🔴 A pending entity is a name an agent INVENTED while writing lore: minting is deliberately ungated (gating it is what pushes a writer into forcing a near-miss key onto an existing subject), so this queue is the only place a typo like `repo:offcraft` is caught before it becomes part of the ontology. `entries` is counted with the SAME predicate the boot subject directory and `search_lore_entries` use — retired entries are not counted. 🔴 `suggestion` IS A RULE, NOT A JUDGEMENT, AND EMPTY IS ONE OF ITS ANSWERS: nothing resembles it ⇒ `approve`; exactly one candidate is identical once case, width and `_`/`-` are folded ⇒ `merge` into the id in `merge_target`; fuzzy-only resemblance, or two equally exact candidates ⇒ empty, because a guessed suggestion looks exactly like a computed one. Nothing here approves or merges anything — both acts stay behind the owner/admin floor and the verdict is the reviewer's. 🔴 A pending entity is INVISIBLE to the boot subject directory until it is approved, so a queue nobody works is a set of lore entries no agent can reach by subject.
+         * @description List the subject entities awaiting review, with the evidence a decision needs (T-33, owner rulings rc-139a5ab99a19 and 2026-09-02).
+         *
+         *     🔴 THE QUEUE EXISTS BECAUSE MINTING IS UNGATED. `write_lore_entry` creates any subject key it does not recognise and parks it `pending = 1`; that is deliberate (a gate there pushes a writer into forcing a near-miss key onto an existing subject), and it is exactly why the parked names need an exit. Until this route existed the review queue was a column nothing could read.
+         *
+         *     🔴 THE COUNT IS COUNTED, NOT ESTIMATED. `entries` comes from the same predicate the boot directory and search use, so a reviewer deciding whether a name is worth keeping is looking at the number that name actually serves.
+         *
+         *     🔴 THE HOMEWORK IS DONE HERE AND THE VERDICT IS NOT. The owner's ruling is 「我希望 agent 做完功課以後給建議並提出我一眼就可以判斷的資訊，我還是做最後的裁決」: a row that said only 「repo:offcraft, 2 entries」 sends the reviewer to two other screens to find out whether that name is a typo of something the ontology already carries, so `similar`, `sample_short` and `suggestion` bring that comparison into the row. `suggestion` is computed by a rule and is EMPTY whenever the rule reaches no clear conclusion — never a plausible default, because a guessed suggestion is indistinguishable from a computed one at a glance.
+         */
+        get: operations["handle_list_pending_lore_entities_api_lore_entities_pending_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lore/entities/{entity_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve ONE pending subject entity — owner or admin agent only (owner ruling rc-139a5ab99a19: 「待審，我跟 mira 有 admin 權限的才行」). The entity stops being `pending` and starts appearing in the boot subject directory, which is what makes the lore entries filed under it reachable by subject at all. 404 when no entity carries that id; 409 when the entity is not pending, because answering `done` would confirm a belief about its state that is wrong. 🔴 THERE IS DELIBERATELY NO REJECT ROUTE BESIDE THIS ONE: nothing has been ruled about whether a pending name may be thrown away, and inventing that exit here would decide it. `reason` is optional prose recorded in the governance journal beside the approval.
+         * @description Approve ONE pending subject entity (T-33, owner ruling rc-139a5ab99a19: 「待審，我跟 mira 有 admin 權限的才行」).
+         *
+         *     🔴 THE FLOOR IS admin_agent, AND IT IS THE OWNER'S WORDS RATHER THAN A DERIVATION. Approving a name publishes it into EVERY agent's boot subject directory, which is a statement to the whole fleet that this name is part of the ontology.
+         *
+         *     🔴 THE STATE CHANGE AND THE JOURNAL ROW ARE ONE TRANSACTION, for the same reason retirement's are: an approval nobody can attribute is the hole the governance journal exists to close.
+         *
+         *     🔴 THERE IS NO REJECT ROUTE. The owner has ruled on approving and on merging and on nothing else; a 「駁回」 exit would be this layer deciding for him what happens to a name nobody wants.
+         */
+        post: operations["handle_approve_lore_entity_api_lore_entities__entity_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lore/entities/{entity_id}/merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fold ONE pending subject entity into an existing APPROVED one — owner or admin agent only (owner ruling rc-139a5ab99a19). This is the repair approve cannot make: two names for one thing. The source keeps existing (nothing in this schema deletes) with `merged_into` pointing at the survivor, and its `type:name` key is registered as an ALIAS of the survivor — so every later write and search naming the old key resolves onto the surviving subject instead of minting it a second time. 404 when either id names nothing; 409 when the source is not pending; 422 when the target is itself still pending, has itself been merged away, or IS the source — each refused BY NAME rather than silently succeeding, because a merge into a subject the directory also hides parks the source somewhere no reader can follow. `reason` is optional prose recorded in the governance journal.
+         * @description Fold ONE pending subject entity into an existing approved one (T-33, owner ruling rc-139a5ab99a19).
+         *
+         *     🔴 IT USES THE MECHANISM THAT WAS ALREADY THERE, and adds no schema. `entity.merged_into` is already followed by the write and search resolvers, and `entity_alias` is already consulted before a key is minted — so a merge recorded through them repairs the ontology for every path at once, and a new table would have been a second answer to 「which subject is this really」. The merge also RE-FILES the source's `lore_subject` rows onto the survivor: resolution happens on the KEY, never on a stored entity id, so without that third write every entry already under the old name would stay attached to an entity no key reaches — present in the table, gone from every retrieval path, and reported as a repair.
+         *
+         *     🔴 THE TARGET IS CHECKED, AND THE REFUSALS ARE NAMED. A target that does not exist, one that is itself pending, one that has itself been merged away, and the source itself are four different mistakes and each says which it was. Merging into a hidden subject would leave the source pointing at a name the boot directory also refuses to show — a repair that reports success and loses the subject.
+         */
+        post: operations["handle_merge_lore_entity_api_lore_entities__entity_id__merge_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/lore/entries": {
         parameters: {
             query?: never;
@@ -6027,6 +6103,149 @@ export interface components {
              * @description The type prefix of the key.
              */
             type: string;
+        };
+        /**
+         * LorePendingEntityRowDTO
+         * @description ONE subject entity waiting for review: what it is, what it was minted as, when, and how much lore already depends on it. 🔴 `display` IS DELIBERATELY ABSENT. The column exists and no path in this tree writes it, so the field could only ever be empty — and an empty string reads as 「we looked and there was no name」 rather than 「nothing can fill this yet」. `name` is the name half of `canonical`, derived at read time, so there is no second copy to go stale.
+         */
+        LorePendingEntityRowDTO: {
+            /**
+             * Canonical
+             * @description The full `type:name` key the entity was minted under.
+             */
+            canonical: string;
+            /**
+             * Created Ts
+             * @description When the key was first written, which is when review became owed.
+             */
+            created_ts: number;
+            /**
+             * Entries
+             * @description How many lore entries are filed under this subject RIGHT NOW, counted with the same predicate the boot directory and search use — retired entries are excluded, so this number reconciles against what the subject would actually serve once approved.
+             */
+            entries: number;
+            /**
+             * Entity Id
+             * @description The entity's id.
+             */
+            entity_id: string;
+            /**
+             * Merge Target
+             * @description The entity id `suggestion: merge` points at — the surviving subject to fold this one into. Empty whenever `suggestion` is not `merge`.
+             */
+            merge_target: string;
+            /**
+             * Name
+             * @description The name half of `canonical` — what the subject is called, without its type prefix.
+             */
+            name: string;
+            /**
+             * Sample Short
+             * @description The `short` of the FIRST lore entry filed under this subject, trimmed to 120 characters with an ellipsis when it was cut. 🔴 IT IS A SAMPLE AND IT SAYS SO BY ENDING IN 「…」: it exists so a reviewer can see what the subject is actually about without opening it, and it is never the field to act on — read the entry for that. Empty when the subject carries no entry yet, which the `entries` count already says.
+             */
+            sample_short: string;
+            /**
+             * Similar
+             * @description The existing APPROVED subjects that resemble this one, each with the reason it was offered, strongest reason first per candidate. Empty means nothing in the ontology looks like this name — which is exactly what makes `suggestion: approve` computable.
+             */
+            similar: components["schemas"]["LoreEntitySimilarDTO"][];
+            /**
+             * Suggestion
+             * @description What the RULE concludes — `approve`, `merge`, or the EMPTY STRING. 🔴 EMPTY IS AN ANSWER, NOT A MISSING FIELD, and it is the field's most important value: the rule fills it only when it reaches a clear conclusion, because a guessed suggestion looks exactly like a computed one and 「something was decided and nothing said so」 is the failure this whole feature exists to end. The rule: no `similar` candidate at all ⇒ `approve`; exactly one `same_normalized` candidate ⇒ `merge` into it; anything else — fuzzy-only resemblance, or two equally exact candidates ⇒ empty, and the reviewer decides on the evidence in `similar`. 🔴 IT IS A SUGGESTION AND NOTHING ELSE: no route approves or merges on it, both acts stay behind the admin floor, and the verdict is the owner's.
+             */
+            suggestion: string;
+            /**
+             * Type
+             * @description The approved type prefix of the key (`repo`, `agent`, `human`, …).
+             */
+            type: string;
+        };
+        /**
+         * LoreEntityApproveDTO
+         * @description Approve one pending subject entity: `{reason}`. `reason` is optional free prose recorded in the governance journal; unlike the retire reason it carries no permission consequence.
+         */
+        LoreEntityApproveDTO: {
+            /**
+             * Reason
+             * @description Optional prose recorded in the governance journal beside the act. Unlike the retire reason it carries no permission consequence — it is there so 「why was this name accepted」 has somewhere to live.
+             * @default
+             */
+            reason: string;
+        };
+        /**
+         * LoreEntitySimilarDTO
+         * @description ONE existing subject that resembles a pending one, WITH the reason it was offered. 🔴 THE REASON IS THE PAYLOAD AND THERE IS DELIBERATELY NO SCORE. A number is a judgement wearing a number's clothes — nobody can check `0.87` — whereas `same_normalized` names the exact test that fired and can be checked at a glance, which is the whole point of the packet.
+         */
+        LoreEntitySimilarDTO: {
+            /**
+             * Canonical
+             * @description The existing subject's `type:name` key.
+             */
+            canonical: string;
+            /**
+             * Entity Id
+             * @description The existing subject's id — what `merge`'s `into` takes.
+             */
+            entity_id: string;
+            /**
+             * Reason
+             * @description WHICH test fired, one of: `same_normalized` — identical once case, full-width/half-width and `_`/`-` are folded (`repo:OffiCraft` vs `repo:officraft`), the only reason strong enough to carry a suggestion; `edit_distance_1` / `edit_distance_2` — that many single-character edits apart; `prefix` — one name starts with the other; `substring` — one name contains the other. The fuzzy four are withheld for names shorter than 3 characters, where everything resembles everything. Comparison is WITHIN one type prefix, because the schema says an identical name under two prefixes is correct rather than a duplicate.
+             */
+            reason: string;
+        };
+        /**
+         * LoreEntityGovernanceDTO
+         * @description One subject-entity governance act, as it stands AFTER the call: the entity, the state it is now in, and the journal row just written. 🔴 Every field is read back off the tables rather than echoed from the request — an echo would report `pending: false` for a write that did not happen, which is the one thing a receipt exists to rule out.
+         */
+        LoreEntityGovernanceDTO: {
+            /**
+             * Actor Id
+             * @description The caller, taken from the VERIFIED token subject — never from the request body.
+             */
+            actor_id: string;
+            /**
+             * Canonical
+             * @description The entity's `type:name` key.
+             */
+            canonical: string;
+            /** Created Ts */
+            created_ts: number;
+            /** Entity Id */
+            entity_id: string;
+            /**
+             * Kind
+             * @description `entity-approve` or `entity-merge` — which journal row this is.
+             */
+            kind: string;
+            /**
+             * Merged Into
+             * @description The surviving entity this one was folded into, empty when it stands on its own. After an approve it is always empty; after a merge it names the survivor.
+             */
+            merged_into: string;
+            /**
+             * Pending
+             * @description Whether the entity is STILL awaiting review. Both acts clear it, so a `true` here after a 200 would mean the write did not take.
+             */
+            pending: boolean;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * LoreEntityMergeDTO
+         * @description Fold one pending subject entity into an existing approved one: `{into, reason}`. `into` is REQUIRED — there is no default survivor, and guessing one would silently attach a subject's whole history to a name nobody chose.
+         */
+        LoreEntityMergeDTO: {
+            /**
+             * Into
+             * @description The id of the SURVIVING entity this one is folded into. It must already be approved and must not itself have been merged away; either is refused 422 by name, because merging into a subject the boot directory hides would park the source somewhere no reader can follow.
+             */
+            into: string;
+            /**
+             * Reason
+             * @description Optional prose recorded in the governance journal beside the act. Unlike the retire reason it carries no permission consequence — it is there so 「why was this name accepted」 has somewhere to live.
+             * @default
+             */
+            reason: string;
         };
         /**
          * LoreSearchAppliedDTO
@@ -12711,6 +12930,159 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LessonsPatchResultDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_list_pending_lore_entities_api_lore_entities_pending_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LorePendingEntityRowDTO"][];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_approve_lore_entity_api_lore_entities__entity_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoreEntityApproveDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreEntityGovernanceDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_merge_lore_entity_api_lore_entities__entity_id__merge_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoreEntityMergeDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreEntityGovernanceDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
