@@ -1,0 +1,426 @@
+/* 傳承 Lore 分頁 (T-33) — 版面照 artifacts/lore-tab-mockup.html v8。
+   顏色一律走 styles/theme.css 的語意 token;帶透明度的用 color-mix,不寫死。 */
+
+.lore {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 12px;
+}
+
+/* ── 子分頁(概覽/待審/對象/健康)── */
+.lore__subtabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.lore__subtab {
+  padding: 6px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.lore__subtab:hover {
+  border-color: var(--color-text-muted);
+}
+.lore__subtab--active {
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.lore__view {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.lore__section-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.lore__card {
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-card);
+}
+
+/* 一般說明(灰底),與 --warn 的裁定/警示區分開 */
+.lore__note {
+  margin-top: 12px;
+  padding: 11px 13px;
+  border: 1px solid var(--color-border);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--color-text-muted) 7%, transparent);
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.lore__note--warn {
+  border-color: var(--color-warn-border);
+  background: var(--color-warn-bg);
+  color: var(--color-warn-fg);
+}
+
+.lore__badge {
+  display: inline-block;
+  padding: 1px 9px;
+  border-radius: var(--radius-pill);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.lore__badge--subject {
+  background: color-mix(in srgb, var(--color-task-id) 16%, transparent);
+  color: var(--color-task-id);
+}
+.lore__badge--action {
+  background: color-mix(in srgb, var(--color-task-type) 14%, transparent);
+  color: var(--color-task-type);
+}
+.lore__badge--status {
+  background: var(--color-indigo);
+  color: var(--color-on-indigo);
+}
+.lore__badge--warn {
+  border: 1px solid var(--color-warn-border);
+  background: var(--color-warn-bg);
+  color: var(--color-warn-fg);
+}
+
+.lore__mono {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+}
+
+/* ── 「尚無資料來源」區塊(components/LoreEmptySource)──
+   這個樣式刻意樸素:它不是錯誤,也不是空清單,是一句「缺的是哪一條路」。 */
+.lore-nosource {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 15px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--color-text-muted) 5%, transparent);
+}
+.lore-nosource__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.lore-nosource__chip {
+  padding: 1px 9px;
+  border: 1px dashed var(--color-text-muted);
+  border-radius: var(--radius-pill);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.lore-nosource__title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.lore-nosource__body,
+.lore-nosource__foot {
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.lore-nosource__route {
+  display: inline-block;
+  padding: 1px 7px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+}
+
+/* ── 概覽 ── */
+.lore-overview__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+}
+.lore-overview__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 15px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-card);
+}
+.lore-overview__stat-label {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+.lore-overview__stat-value {
+  font-size: 27px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.lore-overview__row {
+  display: grid;
+  grid-template-columns: 116px 1fr;
+  gap: 12px;
+  align-items: baseline;
+  padding: 12px 4px;
+  border-bottom: 1px solid var(--color-border);
+}
+.lore-overview__row:last-child {
+  border-bottom: 0;
+}
+.lore-overview__row-title {
+  color: var(--color-text-strong);
+  font-weight: 600;
+}
+.lore-overview__row-body {
+  margin-top: 3px;
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+/* ── 對象(搜尋 → 結果 → 詳情)── */
+.lore-subjects {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 14px;
+  align-items: start;
+}
+@media (max-width: 940px) {
+  .lore-subjects {
+    grid-template-columns: 1fr;
+  }
+}
+.lore-subjects__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.lore-subjects__label {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+.lore-subjects__input {
+  padding: 7px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+}
+.lore-subjects__hint {
+  color: var(--color-text-muted);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+.lore-subjects__submit {
+  padding: 6px 14px;
+  border: 1px solid var(--color-accent);
+  border-radius: 8px;
+  background: var(--color-accent-cta-bg);
+  color: var(--color-accent);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.lore-subjects__submit:hover:not(:disabled) {
+  background: var(--color-accent-cta-bg-hover);
+}
+.lore-subjects__submit:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.lore-subjects__error {
+  margin-top: 12px;
+  padding: 10px 13px;
+  border: 1px solid var(--color-danger);
+  border-radius: 9px;
+  color: var(--color-danger-soft);
+  font-size: 12.5px;
+}
+.lore-subjects__applied {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  font-size: 12.5px;
+}
+.lore-subjects__applied dt {
+  color: var(--color-text-muted);
+}
+.lore-subjects__applied dd {
+  margin: 0;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+.lore-subjects__results {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ── 條目卡 ── */
+.lore-entry {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-card);
+  overflow: hidden;
+}
+.lore-entry__head {
+  display: block;
+  width: 100%;
+  padding: 13px 15px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.lore-entry__head:hover {
+  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
+}
+.lore-entry__title {
+  color: var(--color-text-strong);
+  font-weight: 600;
+}
+.lore-entry__axes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  align-items: center;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+.lore-entry__short {
+  margin-top: 6px;
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.lore-entry__body {
+  border-top: 1px solid var(--color-border);
+}
+.lore-entry__block {
+  padding: 15px;
+  border-bottom: 1px solid var(--color-border);
+}
+.lore-entry__block:last-child {
+  border-bottom: 0;
+}
+.lore-entry__field {
+  padding: 9px 0;
+  border-bottom: 1px dashed color-mix(in srgb, var(--color-text-muted) 18%, transparent);
+}
+.lore-entry__field:last-child {
+  border-bottom: 0;
+}
+.lore-entry__field-name {
+  margin-bottom: 3px;
+  color: var(--color-text-muted);
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+}
+.lore-entry__field-value {
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.lore-entry__field-value--empty {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+.lore-entry__raw {
+  margin: 0;
+  padding: 12px;
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-surface-sunken) 22%, var(--color-bg));
+  color: var(--color-text);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+.lore-entry__rev {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 12px;
+  align-items: baseline;
+  padding: 8px 0;
+  border-bottom: 1px dashed color-mix(in srgb, var(--color-text-muted) 18%, transparent);
+}
+.lore-entry__rev:last-of-type {
+  border-bottom: 0;
+}
+.lore-entry__rev--shrunk {
+  margin: 0 -8px;
+  padding: 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-warn-bg) 60%, transparent);
+}
+.lore-entry__rev-meta {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.lore-entry__rev-shrink {
+  color: var(--color-warn-fg);
+  font-variant-numeric: tabular-nums;
+  font-size: 12.5px;
+}
+.lore-entry__rev-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.lore-entry__rev-btn:hover {
+  border-color: var(--color-text-muted);
+}
+
+/* ── 健康 ── */
+.lore-health__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+}
+.lore-health__title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  font-size: 15px;
+  color: var(--color-text-strong);
+}
+.lore-health__body {
+  margin: 0 0 12px;
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+  line-height: 1.6;
+}

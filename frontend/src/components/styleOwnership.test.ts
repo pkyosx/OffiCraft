@@ -52,6 +52,10 @@ const OWNED_SHEETS = [
   // which imports settings.css — so it would free-ride exactly like the two
   // above until the day something else opens it.
   "doc-hist-modal.css",
+  // T-33: the 傳承 sheet is drawn by FOUR components (page shell, the subjects
+  // view, one entry card, the 尚無資料來源 block) and only the page shell is
+  // reachable from App — the other three would free-ride on its import.
+  "lore.css",
 ] as const;
 
 /** Sheets whose BEM block is not just the filename. `member-detail.css` owns the

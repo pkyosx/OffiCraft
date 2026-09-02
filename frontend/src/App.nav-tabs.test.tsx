@@ -4,9 +4,13 @@
 // (owner 2026-07-22:「user guide 改放在 tab 中,監控的右邊,不要放在 settings
 // 裡」). What is locked here is the part a screenshot conveys and a component
 // test otherwise cannot:
-//   1. ORDER — 辦公室 / 請示 / 任務 / 監控 / 使用說明, with 使用說明 LAST, i.e.
+//   1. ORDER — 辦公室 / 請示 / 任務 / 監控 / 使用說明 / 傳承, with 使用說明 still
 //      immediately to the right of 監控. The owner's红框 was a position, so
 //      position is the requirement; "the tab exists somewhere" would not be.
+//      T-33 added 傳承 AFTER 使用說明 rather than between: the ruling reads BOTH
+//      「最後一個」 and 「監控的右邊」, and those stopped being the same position
+//      the moment a sixth tab existed. Nobody has ruled where 傳承 goes, so it
+//      took the slot that breaks neither half.
 //   2. It routes: clicking it writes #guide and renders the guide page.
 //   3. It is a NAV tab, not a settings sub-page — opening Settings deactivates
 //      it, exactly like every sibling tab.
@@ -29,6 +33,7 @@ vi.mock("./components/OfficePage", () => ({ OfficePage: () => null }));
 vi.mock("./components/RepliesPage", () => ({ RepliesPage: () => null }));
 vi.mock("./components/TasksPage", () => ({ TasksPage: () => null }));
 vi.mock("./components/MonitorPage", () => ({ MonitorPage: () => null }));
+vi.mock("./components/LorePage", () => ({ LorePage: () => null }));
 vi.mock("./components/SettingsPage", () => ({ SettingsPage: () => null }));
 // The guide body itself is exercised in GuidePage.test.tsx; here we only need
 // to see WHICH page App mounted.
@@ -57,7 +62,7 @@ describe("主導覽分頁", () => {
     history.replaceState(null, "", window.location.pathname);
   });
 
-  it("使用說明 is the last tab, immediately right of 監控", () => {
+  it("使用說明 stays immediately right of 監控, with 傳承 after it", () => {
     renderApp();
     const labels = tabLabels();
     expect(labels).toEqual([
@@ -66,6 +71,7 @@ describe("主導覽分頁", () => {
       zh.nav.tasks,
       zh.nav.monitor,
       zh.nav.guide,
+      zh.lore.title,
     ]);
     expect(labels.indexOf(zh.nav.guide)).toBe(
       labels.indexOf(zh.nav.monitor) + 1,

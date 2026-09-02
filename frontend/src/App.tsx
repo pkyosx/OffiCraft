@@ -9,6 +9,7 @@ import {
   InboxIcon,
   TasksIcon,
   MonitorIcon,
+  BookIcon,
   FileTextIcon,
 } from "./components/icons";
 import { Avatar } from "./components/Avatar";
@@ -18,6 +19,7 @@ import { OfficePage } from "./components/OfficePage";
 import { RepliesPage } from "./components/RepliesPage";
 import { TasksPage } from "./components/TasksPage";
 import { MonitorPage } from "./components/MonitorPage";
+import { LorePage } from "./components/LorePage";
 import { GuidePage } from "./components/UserGuidePage";
 import { SettingsPage } from "./components/SettingsPage";
 import { ProfileDropdown } from "./components/ProfileDropdown";
@@ -32,7 +34,7 @@ import { useChatUnread } from "./hooks/useChatUnread";
 import { useTaskCount } from "./hooks/useTaskCount";
 import "./components/chrome.css";
 
-type Tab = "office" | "replies" | "tasks" | "monitor" | "guide";
+type Tab = "office" | "replies" | "tasks" | "monitor" | "lore" | "guide";
 
 export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   const { t } = useI18n();
@@ -60,13 +62,15 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   const tab: Tab =
     route.page === "monitor"
       ? "monitor"
-      : route.page === "guide"
-        ? "guide"
-        : route.page === "replies"
-          ? "replies"
-          : route.page === "tasks"
-            ? "tasks"
-            : "office";
+      : route.page === "lore"
+        ? "lore"
+        : route.page === "guide"
+          ? "guide"
+          : route.page === "replies"
+            ? "replies"
+            : route.page === "tasks"
+              ? "tasks"
+              : "office";
   // The 等我回覆 nav badge: how many reply cards are WAITING (answered never
   // counts). Live via the count endpoint + "reply_card" SSE deltas. A separate
   // signal from the per-member chat unread red dot (different clearing rules —
@@ -274,6 +278,38 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
             <NavIcon tabKey="guide" fallback={<FileTextIcon size={15} />} />
             <span>{t.nav.guide}</span>
           </button>
+          {/* 傳承 — AFTER 使用說明 (T-33), and the position is the reason this
+              comment exists. 使用說明 carries a verbatim owner ruling that is
+              BOTH 「最後一個」 and 「監控的右邊」 (2026-07-22); those were the
+              same position until a sixth tab existed, and inserting 傳承 in
+              between would break one of them and leave whoever comes next
+              unable to tell which half was meant. Sitting here breaks neither.
+              Nobody has ruled where 傳承 itself belongs — if the owner wants it
+              beside 監控, that is a one-block move, not a rewrite.
+
+              NO badge: the mockup drew a 「待審 9」 on this tab and nothing on
+              the station produces it — the six lore routes cover write /
+              search / read one / read one revision / retire / revive, and none
+              of them lists pending subjects. A badge counting something else
+              instead would be the exact failure this tab exists to stop.
+
+              The glyph is rendered DIRECTLY rather than through <NavIcon>: a
+              theme bundle's `navIcons` key set is a closed, SERVER-VALIDATED
+              set (lib/themeBundleCore NAV_ICON_KEYS ↔ ocserverd
+              navIconKeyAllowed ↔ the openapi description), so admitting a
+              `lore` key here without its server twin would mean a bundle
+              carrying it is 422'd by name. Making this tab themable is that
+              cross-boundary change, not this ticket. */}
+          <button
+            type="button"
+            className={`nav-tab${
+              !settingsOpen && tab === "lore" ? " nav-tab--active" : ""
+            }`}
+            onClick={() => selectTab("lore")}
+          >
+            <BookIcon size={15} />
+            <span>{t.lore.title}</span>
+          </button>
         </div>
       </nav>
 
@@ -298,6 +334,8 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           <RepliesPage replyCardId={route.replyCardId} />
         ) : tab === "tasks" ? (
           <TasksPage />
+        ) : tab === "lore" ? (
+          <LorePage />
         ) : tab === "guide" ? (
           <GuidePage />
         ) : (

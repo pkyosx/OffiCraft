@@ -58,6 +58,182 @@ export const en: Dict = {
     loadError: "Failed to load the user guide. Please try again.",
     empty: "No guide pages yet",
   },
+  // ── 傳承 / Lore (T-33) ──
+  // Half the copy on this tab says "there is nothing to put here, and here is
+  // the route that is missing". That is the ticket, not filler: the station
+  // serves six lore routes (write, search, read one, read one revision, retire,
+  // revive), and half the mockup's blocks need a subject CATALOGUE, a PENDING
+  // list, or APPROVE/MERGE — none of which exist. A 0 with no producer reads as
+  // "we looked, there is none", so those blocks name the missing route and
+  // print no number at all.
+  lore: {
+    title: "Lore",
+    tabOverview: "Overview",
+    tabPending: "Pending",
+    tabSubjects: "Subjects",
+    tabHealth: "Health",
+
+    noSource: "No data source yet",
+    noSourceMissing: "The missing route:",
+    noSourceNoNumber:
+      "This block will never show a number. A zero with nothing producing it reads as “we looked, and there is none”.",
+    routesToday:
+      "The station serves six lore routes today: write, search, read one entry, read one revision, retire, revive. Listing the subject catalogue, listing pending subjects, approving and merging have no route at all.",
+
+    countsTitle: "What can actually be counted",
+    entryTotalLabel: "Retrievable entries",
+    entryTotalNote:
+      "The server hands this total back in an unfiltered search response — it is not the length of the list on screen.",
+    entryTotalTruncated: "The returned rows were capped; the total is the count before the cap.",
+    subjectTotalLabel: "Subjects",
+    subjectTotalWhy:
+      "Counting them needs a route that lists the subject catalogue. Adding up the subjects that happen to appear in a search result counts what THIS search reached, not what the station holds.",
+    pendingCountLabel: "Subjects awaiting review",
+    pendingCountWhy: "No route lists pending subjects, and no route approves one.",
+
+    judgementTitle: "The ones a person has to judge — a list, never a number",
+    judgementNote:
+      "These are not “not computed yet”, they are “not computable”. A count that only exists after a judgement reads as if it had been measured. A list can be read one row at a time; a number cannot.",
+    judgementUnderspecTag: "Superseded",
+    judgementUnderspecTitle: "Written too thin",
+    judgementUnderspecBody:
+      "Falsifier and instance are now required at write time, so no new one can be produced. What is left is the backlog carried over from the old markdown — that is migration progress, not a health metric.",
+    judgementConflictTag: "Judgement",
+    judgementConflictTitle: "Contradicting each other",
+    judgementConflictBody:
+      "What has to be compared is the MEANING, not the wording, so nothing static can decide it. Nothing judges this today and the design names nobody to do it. Built, the candidates would necessarily come from an AI and a person would rule on them.",
+    judgementStripTag: "Judgement",
+    judgementStripTitle: "Candidates to strip out of the rules",
+    judgementStripBody:
+      "The evidence itself does not exist: no field remembers who wrote each sentence of the rules. So it is three beats — mark (leaving the text untouched) → cross out the ones you disagree with → only then strip.",
+
+    attentionTitle: "Worth a look",
+    attentionWhy:
+      "This block lists pending subjects, requested new types, and migration backlog — each needs a route that can list them.",
+    mergeChartTitle: "Merges per type, per week",
+    mergeChartWhy:
+      "Merging leaves no record at all today, so there is nothing to plot. The question it would answer is: a type merged every week means the NAMING rule is wrong, not that people are careless.",
+
+    pendingRuling:
+      "This page is settled: the pending state stays, and only the owner and admins can approve. It has to be enforced on the SERVER — a hidden button over an open API is not a permission.",
+    pendingQueueEntities: "New subjects",
+    pendingQueueTypes: "Requested types",
+    pendingQueueConflicts: "Contradicting pairs",
+    pendingQueueStrip: "Candidates to strip",
+    pendingEntitiesWhy:
+      "A typo at write time mints a pending subject, and today no route lists them and no route approves or merges them — it stays there forever.",
+    pendingTypesWhy: "No route lists requested types, and no route rules on one.",
+    pendingConflictsWhy:
+      "Nothing produces a “contradiction” marker today. Finding two records that contradict each other needs the symptoms axis, and symptoms come BACK but cannot be searched ON.",
+    pendingStripWhy:
+      "No field remembers who wrote each sentence of the rules, so the evidence itself does not exist.",
+    pendingNoRejectNote:
+      "“Reject” has never been adjudicated, so no such button grows here — an exit nobody ruled on is a decision made on someone else's behalf.",
+
+    searchTitle: "Search",
+    searchCatalogueWhy:
+      "This column was meant to hold the subject catalogue — reviewed in one group, unreviewed in another, reviewed first. There is no route that lists it, so all this column can offer is a subject key you type yourself.",
+    searchSubjectLabel: "Subject key",
+    searchSubjectHint: "type:name, e.g. repo:officraft. Leave blank for any subject.",
+    searchQueryLabel: "Text",
+    searchQueryHint:
+      "A literal, case-insensitive substring over label / short / symptoms. NOT semantic — two entries describing the same situation in different words will not find each other.",
+    searchSubmit: "Search",
+    searchBusy: "Searching…",
+    searchFailed: "The search failed. This is what the server said:",
+
+    resultsTitle: "Results",
+    resultsEmpty: "Nothing matched these conditions.",
+    resultsTotalLead: "Matched ",
+    resultsTotalTail: " entries",
+    resultsTruncated: "The returned rows were capped — what is below is not all of them.",
+    unresolvedTitle: "This subject key names nothing",
+    unresolvedBody:
+      "This is not “this subject has no entries”, it is “this station has no such subject”. The server echoes the key you typed below, so a typo is visible.",
+    unresolvedEcho: "Echoed subject key",
+    appliedTitle: "What the server actually applied",
+    appliedWhy:
+      "A tier without its axes is read under a meaning it no longer has, so the applied conditions print beside the answer, not somewhere else.",
+    appliedSubject: "Subject",
+    appliedActions: "Actions",
+    appliedQuery: "Text",
+    appliedQueryMatch: "Match",
+    appliedLimit: "Row cap",
+    appliedTieredBy: "Tiered by",
+    appliedNone: "(none)",
+    appliedTieredByEmpty: "(nothing here reached you across an axis you did not ask about)",
+    unmappedActionsTitle: "Action names the trust table did not recognise",
+    unmappedActionsBody:
+      "At least one entry was classified by failing closed. A guessed class must not look identical to a looked-up one.",
+
+    entryNoLabel: "(this entry has no name)",
+    entryTierLabel: "Tier",
+    entryTierNoteLabel: "Tier note",
+    entryTrustScopeLabel: "Trust scope",
+    entryTrustFellBack: "class was guessed",
+    entryDegraded: "no falsifier and no instance",
+    entryOriginLabel: "From",
+    entrySubjectsLabel: "Subjects",
+    entryActionsLabel: "Actions",
+    entryOpen: "Open this entry",
+    entryClose: "Close this entry",
+    entryLoading: "Loading…",
+    entryFailed: "Could not read this entry. This is what the server said:",
+
+    fieldSymptoms: "Symptoms · what I was seeing",
+    fieldShort: "Short · the only part that enters an agent's memory",
+    fieldFalsify: "Falsifier · what would show this does not hold",
+    fieldInstance: "Instance · one time it really happened",
+    fieldResidual: "Residual risk · what this does not protect against",
+    fieldEmpty: "(blank — whoever wrote it left this empty)",
+    fieldsNote:
+      "Every field prints its name, blank ones included. “Blank” and “no such section” must not look the same — an entry with neither falsifier nor instance should be recognisable as a slogan at a glance.",
+    detailStatusLabel: "Status",
+    detailWrittenByLabel: "Latest revision written by",
+    detailSupersedesLabel: "Supersedes",
+    originalTitle: "The original as written (latest revision)",
+    originalEmpty: "This entry has no original — it was written before the mechanism existed.",
+    shaLabel: "Digest",
+    shaEmpty: "(this response carries no digest, so nothing here can be checked against what was stored)",
+    revisionsTitle: "Revision timeline",
+    revisionsEmpty: "This entry has no revision rows.",
+    revisionLabel: "Revision ",
+    revisionLabelTail: " ",
+    revisionShrinkLead: "hollowed out by ",
+    revisionShrinkTail: " characters",
+    revisionNoShrink: "not shortened",
+    revisionView: "Read this revision",
+    revisionHide: "Hide this revision",
+    revisionFailed: "Could not read this revision. This is what the server said:",
+    revisionsNote:
+      "The “hollowed out by N characters” row is the most valuable cell on this tab: when an entry is emptied, the entry COUNT does not move, so no metric built on “how many are left” ever notices.",
+    metaTitle: "Metadata",
+    metaWhy:
+      "Times retrieved, times shortlisted but not chosen, times confirmed useful, times reported stale — no route returns any of it.",
+    actionsTitle: "Actions",
+    actionsWhy:
+      "Reporting harm, retiring an entry, opening a card that says “I think this one is wrong” all WRITE. This tab wired up only the three read routes.",
+    scoreWhy:
+      "Scoring (a weight given after review, ordering only — it blocks nothing) has no column in the database today; it needs new fields: the score, who gave it, when.",
+
+    unhelpfulTitle: "Not helping",
+    unhelpfulBody:
+      "Entries never retrieved. “The subject WAS queried and this entry was not returned” and “nobody ever queried that subject” cannot be merged into one column — the first is a retrieval problem, the second may just be that nobody did that work lately. Merging them deletes good entries.",
+    unhelpfulWhy: "No route returns retrieval records.",
+    helpfulTitle: "Helped",
+    helpfulWeak: "weak signal",
+    helpfulBody:
+      "Deliberately a list of events, not a ratio: “this memory really saved someone today” carries more than any percentage. Agents press it themselves, so it is biased — hence the weak-signal label, not authority.",
+    helpfulWhy: "Somewhere has to record “this one saved someone” — nothing does today.",
+    harmfulTitle: "Actively harmful",
+    harmfulBody:
+      "This will never display “zero reports”. It depends on someone pressing a button — with nobody pressing, the number is zero, and that looks exactly like really having no harm. Keeping those two apart on screen is this block's whole value.",
+    erosionTitle: "Erosion",
+    erosionBody:
+      "Entries rewritten shorter this week, characters lost in total, falsifiers and instances ground away — all of it aggregates across every entry, and the search response carries no revision sizes at all.",
+    erosionWhere:
+      "The one place erosion IS visible today is the Subjects tab: open an entry and read its revision timeline.",
+  },
   notifications: {
     dismiss: "Dismiss notification",
     title: "Turn on notifications",
