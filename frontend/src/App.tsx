@@ -252,6 +252,38 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
               </span>
             )}
           </button>
+          {/* 傳承 — immediately right of 任務 (owner 2026-09-02, 逐字:
+              「傳承應該放在案件右邊不是指南右邊」). 案件/指南 are what the
+              ACTIVE THEME renames 任務/使用說明 to — read off the station's own
+              `display.theme` wording, not guessed from the label in this file,
+              because the words the owner sees are not the words written here.
+
+              This also leaves the 2026-07-22 guide ruling intact in BOTH its
+              halves: 使用說明 stays last AND stays immediately right of 監控.
+
+              NO badge: the mockup drew a 「待審 9」 on this tab and nothing on
+              the station produces it — the six lore routes cover write /
+              search / read one / read one revision / retire / revive, and none
+              of them lists pending subjects. A badge counting something else
+              instead would be the exact failure this tab exists to stop.
+
+              The glyph is rendered DIRECTLY rather than through <NavIcon>: a
+              theme bundle's `navIcons` key set is a closed, SERVER-VALIDATED
+              set (lib/themeBundleCore NAV_ICON_KEYS ↔ ocserverd
+              navIconKeyAllowed ↔ the openapi description), so admitting a
+              `lore` key here without its server twin would mean a bundle
+              carrying it is 422'd by name. Making this tab themable is that
+              cross-boundary change, not this ticket. */}
+          <button
+            type="button"
+            className={`nav-tab${
+              !settingsOpen && tab === "lore" ? " nav-tab--active" : ""
+            }`}
+            onClick={() => selectTab("lore")}
+          >
+            <BookIcon size={15} />
+            <span>{t.lore.title}</span>
+          </button>
           <button
             type="button"
             className={`nav-tab${
@@ -277,38 +309,6 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           >
             <NavIcon tabKey="guide" fallback={<FileTextIcon size={15} />} />
             <span>{t.nav.guide}</span>
-          </button>
-          {/* 傳承 — AFTER 使用說明 (T-33), and the position is the reason this
-              comment exists. 使用說明 carries a verbatim owner ruling that is
-              BOTH 「最後一個」 and 「監控的右邊」 (2026-07-22); those were the
-              same position until a sixth tab existed, and inserting 傳承 in
-              between would break one of them and leave whoever comes next
-              unable to tell which half was meant. Sitting here breaks neither.
-              Nobody has ruled where 傳承 itself belongs — if the owner wants it
-              beside 監控, that is a one-block move, not a rewrite.
-
-              NO badge: the mockup drew a 「待審 9」 on this tab and nothing on
-              the station produces it — the six lore routes cover write /
-              search / read one / read one revision / retire / revive, and none
-              of them lists pending subjects. A badge counting something else
-              instead would be the exact failure this tab exists to stop.
-
-              The glyph is rendered DIRECTLY rather than through <NavIcon>: a
-              theme bundle's `navIcons` key set is a closed, SERVER-VALIDATED
-              set (lib/themeBundleCore NAV_ICON_KEYS ↔ ocserverd
-              navIconKeyAllowed ↔ the openapi description), so admitting a
-              `lore` key here without its server twin would mean a bundle
-              carrying it is 422'd by name. Making this tab themable is that
-              cross-boundary change, not this ticket. */}
-          <button
-            type="button"
-            className={`nav-tab${
-              !settingsOpen && tab === "lore" ? " nav-tab--active" : ""
-            }`}
-            onClick={() => selectTab("lore")}
-          >
-            <BookIcon size={15} />
-            <span>{t.lore.title}</span>
           </button>
         </div>
       </nav>
