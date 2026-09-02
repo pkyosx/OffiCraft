@@ -96,7 +96,10 @@ CREATE TABLE lore_proposal (
     actor_id         TEXT NOT NULL,
     created_ts       REAL NOT NULL DEFAULT 0.0
 );
-CREATE INDEX idx_lore_proposal_entry ON lore_proposal (entry_id, id DESC);
+-- The listing reads an entry's proposals NEWEST FIRST, and 'newest' is
+-- created_ts: the id is random hex and orders nothing. The index carries the
+-- same tie-break the query does so the two never disagree.
+CREATE INDEX idx_lore_proposal_entry ON lore_proposal (entry_id, created_ts DESC, id DESC);
 
 -- +goose Down
 -- ⚠️ 有損，而且說在前面：every proposal filed while this table existed is gone.

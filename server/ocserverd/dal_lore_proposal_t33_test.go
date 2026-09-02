@@ -343,3 +343,62 @@ func TestLoreProposalRefusesAnUnknownEntry(t *testing.T) {
 		t.Fatalf("a proposal against a non-existent entry: %v", err)
 	}
 }
+
+// 🔴 THE ORDER IS ORDERED BY TIME, AND THE TEST MAKES TIME AND id DISAGREE.
+//
+// A proposal id is random hex, so on real data `ORDER BY id DESC` lands on the
+// right answer roughly half the time and on the wrong one the other half — and
+// both look identical to a reader, because every row is present and every field
+// is right. Only the reading order is wrong, and the reviewer reads the first
+// one. A test that files two proposals and trusts whatever ids came out cannot
+// see this: it passes on the coin-flip. So the ids are forced into the order
+// OPPOSITE to the filing order, which is the only arrangement in which
+// id-ordering and time-ordering give different answers every single run.
+func TestLoreProposalListsNewestFirstWhenIdOrderContradictsTime(t *testing.T) {
+	d := newTestDAL(t)
+	entryID, sha := t33SeedForProposal(t, d)
+
+	older := t33Propose(entryID)
+	older.BaseSHA256 = sha
+	older.Short = "the fold happens in one place, and that place is lore_fold.go"
+	gotOlder, err := d.CreateLoreProposal(older, 1000)
+	if err != nil {
+		t.Fatalf("filing the older proposal: %v", err)
+	}
+	newer := t33Propose(entryID)
+	newer.BaseSHA256 = sha
+	newer.Short = "the fold happens in lore_fold.go, and nothing else may assemble one"
+	gotNewer, err := d.CreateLoreProposal(newer, 2000)
+	if err != nil {
+		t.Fatalf("filing the newer proposal: %v", err)
+	}
+
+	// Forced, not hoped for: the OLDER row gets the id that sorts LAST
+	// descending, so an id-ordered read must lead with the replaced version.
+	const olderID, newerID = "lp-ffffffffffff", "lp-000000000000"
+	for _, r := range []struct{ from, to string }{
+		{gotOlder.ProposalID, olderID}, {gotNewer.ProposalID, newerID},
+	} {
+		if _, err := d.wdb.Exec(`UPDATE lore_proposal SET id = ? WHERE id = ?`, r.to, r.from); err != nil {
+			t.Fatalf("renaming %s: %v", r.from, err)
+		}
+	}
+
+	list, err := d.ListLoreProposals(entryID)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list.Proposals) != 2 {
+		t.Fatalf("both proposals must be listed, got %d", len(list.Proposals))
+	}
+	if list.Proposals[0].ID != newerID {
+		t.Fatalf("the list leads with the version its proposer already replaced: "+
+			"got %s (created_ts %.0f), want %s (created_ts %.0f)",
+			list.Proposals[0].ID, list.Proposals[0].CreatedTS,
+			newerID, list.Proposals[1].CreatedTS)
+	}
+	if list.Proposals[0].CreatedTS <= list.Proposals[1].CreatedTS {
+		t.Fatalf("the listing is not descending in time: %.0f then %.0f",
+			list.Proposals[0].CreatedTS, list.Proposals[1].CreatedTS)
+	}
+}

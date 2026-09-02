@@ -297,6 +297,14 @@ func (d *DAL) CreateLoreProposal(p LoreProposal, nowTS float64) (LoreProposalRes
 // Newest first because a proposer who rewrote his proposal against a newer
 // version wants the newer one read; oldest-first would lead with the one he
 // himself replaced.
+//
+// 🔴 ORDERED BY created_ts, NOT BY id. A proposal id is "lp-" + newHexID(12) —
+// random hex, carrying no time at all — so `ORDER BY id DESC` returns an
+// arbitrary order that LOOKS like an order. It is the failure this whole route
+// is least able to notice: every row is present, every field is right, and the
+// only thing wrong is which one the reviewer reads first. id stays as the
+// tie-break so two proposals filed in the same second still come back in a
+// stable order rather than whatever the scan happens to produce.
 func (d *DAL) ListLoreProposals(entryID string) (LoreProposalList, error) {
 	out := LoreProposalList{EntryID: entryID, Proposals: []LoreProposalRow{}}
 	current, err := d.LatestLoreRevision(entryID)
@@ -314,7 +322,7 @@ func (d *DAL) ListLoreProposals(entryID string) (LoreProposalList, error) {
 		       encountered, fault, evidence,
 		       label, symptoms, short, falsify, instance, residual_risk,
 		       body, sha256, actor_id, created_ts
-		FROM lore_proposal WHERE entry_id = ? ORDER BY id DESC`, entryID)
+		FROM lore_proposal WHERE entry_id = ? ORDER BY created_ts DESC, id DESC`, entryID)
 	if err != nil {
 		return out, err
 	}
