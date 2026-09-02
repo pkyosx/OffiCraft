@@ -1866,12 +1866,16 @@ export function toLoreRevisionRow(
 
 /** Map one entry detail → the view model.
  *
- * The three OPTIONAL body fields (`falsify`, `instance`, `residual_risk`) are
- * mapped verbatim, empty string included. The surface prints an empty field
- * WITH its name; substituting a placeholder here would make 「the writer left
- * this blank」 and 「this entry has no such section」 render identically, and
- * an entry whose falsifier and instance are both blank is exactly the one a
- * reader needs to spot at a glance. */
+ * Every body field is mapped verbatim, empty string included. `residual_risk`
+ * is still optional on a write; `falsify` and `instance` became REQUIRED on
+ * 2026-09-02 (rc-714eea33c6ed), so a blank pair now only reaches this mapper
+ * from an entry written BEFORE that ruling — which is precisely the entry a
+ * reader needs to spot at a glance, and why the empty case is still mapped
+ * rather than hidden.
+ *
+ * The surface prints an empty field WITH its name; substituting a placeholder
+ * here would make 「the writer left this blank」 and 「this entry has no such
+ * section」 render identically. */
 export function toLoreEntryDetail(
   w: WireLoreEntryDetail
 ): LoreEntryDetailView {

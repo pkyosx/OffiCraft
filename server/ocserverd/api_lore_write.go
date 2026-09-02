@@ -3,10 +3,9 @@ package main
 // api_lore_write.go — T-33. The door that lets a lore entry exist at all.
 //
 // 🔴 WHY THIS ROUTE IS THE ONE THAT MATTERED. Every ruling the owner made on
-// 2026-09-01 — write lore first and skip the rest of the list, keep the
-// falsifier loose, review AFTER the write, mark what has been reviewed — is a
-// rule about writing entries, and until this handler existed the station served
-// no way to write one. The consequence was not "the feature is incomplete": the
+// 2026-09-01 — write lore first and skip the rest of the list, review AFTER the
+// write, mark what has been reviewed — is a rule about writing entries, and
+// until this handler existed the station served no way to write one. The consequence was not "the feature is incomplete": the
 // entry table was empty, an empty subject directory renders as nothing at all,
 // and so no member had ever seen the directory. A rule about a tool nobody has
 // is worse than no rule, because it reads like a capability.
@@ -32,6 +31,8 @@ func writeLoreWriteError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrLoreSymptomsBlank),
 		errors.Is(err, ErrLoreShortBlank),
+		errors.Is(err, ErrLoreFalsifyBlank),
+		errors.Is(err, ErrLoreInstanceBlank),
 		errors.Is(err, ErrLoreSubjectsEmpty),
 		errors.Is(err, ErrLoreSubjectBlank),
 		errors.Is(err, ErrLoreSubjectMalformed),
@@ -66,15 +67,15 @@ func writeLoreWriteError(w http.ResponseWriter, err error) {
 // to be one subject.
 func (s *apiServer) HandleWriteLoreEntryApiLoreEntriesPost(w http.ResponseWriter, r *http.Request) {
 	var body LoreWriteDTO
-	if !decodeJSONBodyStrict(w, r, &body, "symptoms", "short", "origin", "subjects") {
+	if !decodeJSONBodyStrict(w, r, &body, "symptoms", "short", "falsify", "instance", "origin", "subjects") {
 		return
 	}
 	write := LoreWrite{
 		Label:        strOrEmpty(body.Label),
 		Symptoms:     body.Symptoms,
 		Short:        body.Short,
-		Falsify:      strOrEmpty(body.Falsify),
-		Instance:     strOrEmpty(body.Instance),
+		Falsify:      body.Falsify,
+		Instance:     body.Instance,
 		ResidualRisk: strOrEmpty(body.ResidualRisk),
 		Origin:       body.Origin,
 		Supersedes:   strOrEmpty(body.Supersedes),
@@ -94,6 +95,11 @@ func (s *apiServer) HandleWriteLoreEntryApiLoreEntriesPost(w http.ResponseWriter
 	// that was sent. The two agree today; the point is that they will still agree
 	// the day the write seam starts normalising a field, because this asks the
 	// entry rather than the request.
+	//
+	// ⚠️ 2026-09-02 之後這條路徑上的 `degraded` 一律是 false——`falsify` 與
+	// `instance` 兩格空白已經在 CreateLoreEntry 被擋掉了。這個旗標不能因此拿掉：
+	// 站上還有那道裁定之前寫下的條目，兩格都是空的，而這個旗標是唯一看得見它們的
+	// 東西。
 	entry, err := s.dal.GetLoreEntry(got.EntryID)
 	if err != nil {
 		internalError(w, err)

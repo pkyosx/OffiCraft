@@ -33,6 +33,8 @@ import (
 var (
 	ErrLoreSymptomsBlank      = errors.New("lore: `symptoms` is blank")
 	ErrLoreShortBlank         = errors.New("lore: `short` is blank")
+	ErrLoreFalsifyBlank       = errors.New("lore: `falsify` is blank")
+	ErrLoreInstanceBlank      = errors.New("lore: `instance` is blank")
 	ErrLoreSubjectBlank       = errors.New("lore: a subject key is blank")
 	ErrLoreSubjectMalformed   = errors.New("lore: a subject key is not `type:name`")
 	ErrLoreSubjectUnknownType = errors.New("lore: a subject key names an unapproved type prefix")
@@ -233,15 +235,16 @@ func loreResolveSubject(tx *sql.Tx, key, actorID string, nowTS float64) (string,
 // reach it by. Half of this write is not a smaller version of it; it is a row
 // that looks finished and is not.
 //
-// 🔴 `symptoms` AND `short` ARE REFUSED WHEN BLANK; `falsify` AND `instance` ARE
-// NOT. That asymmetry is the owner's ruling of 2026-09-01 (寬鬆，不當硬門檻) held
-// against the two fields without which the row cannot do anything at all:
-// `short` is the ONLY field that ever enters a context, and `symptoms` is the
-// axis a reader finds the entry by. An entry missing either is not a thin entry,
-// it is an unreachable one.
-// ⚠️ Requiring `short` is MY call, not his words — he ruled on the falsifier. If
-// it turns out to be wrong the cost is a refusal the writer can see and argue
-// with, which is the cheap direction.
+// 🔴 四格都在空白時被拒：`symptoms`、`short`、`falsify`、`instance`。前兩格是
+// 「沒有它這一列誰都讀不到」——`short` 是唯一會進開機脈絡的一格，`symptoms` 是
+// 讀者找到它的那一軸。後兩格是負責人 2026-09-02 的裁定 rc-714eea33c6ed（純
+// required，不做逃生口，真的撞到再回來加），他知情地推翻了自己前一天「刻意選填」
+// 的裁定：他要的證據——一條真的填不出 falsify 的條目——在當時站上僅有的 5 條裡
+// 一條都不存在，5 條全都填了而且都站得住。
+//
+// ⚠️ 這裡有一個他知情接受、而且沒有解掉的代價，不要假裝它不存在：沒有逃生口
+// 之後，真的填不出來的人會硬掰一個，而硬掰的跟真的長得一模一樣，這一層分不出
+// 來。真的撞到再回來加逃生口是他的話——不要自己先加一個。
 func (d *DAL) CreateLoreEntry(w LoreWrite, nowTS float64) (LoreWriteResult, error) {
 	var out LoreWriteResult
 	if w.ActorID == "" {
@@ -252,6 +255,12 @@ func (d *DAL) CreateLoreEntry(w LoreWrite, nowTS float64) (LoreWriteResult, erro
 	}
 	if strings.TrimSpace(w.Short) == "" {
 		return out, ErrLoreShortBlank
+	}
+	if strings.TrimSpace(w.Falsify) == "" {
+		return out, ErrLoreFalsifyBlank
+	}
+	if strings.TrimSpace(w.Instance) == "" {
+		return out, ErrLoreInstanceBlank
 	}
 	if err := loreLabelError(w.Label); err != nil {
 		return out, err

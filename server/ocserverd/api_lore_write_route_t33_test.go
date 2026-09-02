@@ -107,23 +107,75 @@ func TestLoreWriteRouteLetsAnAgentPutAnEntryWhereTheDirectoryFindsIt(t *testing.
 	}
 }
 
-// 🔴 THE OWNER'S 2026-09-01 RULING AS A WIRE FACT: a thin entry LANDS and is
-// reported, it is not refused. A hard gate here is the version of this feature
-// that produces invented falsifiers, and an invented one cannot be counted.
-func TestLoreWriteRouteAcceptsAThinEntryAndSaysSo(t *testing.T) {
-	url, _, agentTok, _, _ := loreGovStack(t)
+// 🔴 負責人 2026-09-02 的裁定（rc-714eea33c6ed）在線上的樣子：兩格空著的條目
+// 進不來，而且拒絕會點名是哪一格。他知情接受的代價是有人會硬掰——這裡擋得住空
+// 白，擋不住硬掰，這一點不要在碼裡假裝相反。
+func TestLoreWriteRouteRefusesAThinEntryAndNamesTheMissingField(t *testing.T) {
+	url, dal, agentTok, _, _ := loreGovStack(t)
 
-	st, body := rosterREST(t, url, agentTok, "POST", "/api/lore/entries", `{
-		"symptoms": "a rule exists and no tool implements it",
-		"short": "a capability nobody can reach reads like a capability",
-		"origin": "agent:O-197",
-		"subjects": ["repo:officraft"]
-	}`)
-	if st != 200 {
-		t.Fatalf("thin write: want 200, got %d %s", st, body)
+	for _, tc := range []struct{ name, body, want string }{
+		{"no falsify at all", `{
+			"symptoms": "a rule exists and no tool implements it",
+			"short": "a capability nobody can reach reads like a capability",
+			"instance": "T-33 slot 3",
+			"origin": "agent:O-197", "subjects": ["repo:officraft"]
+		}`, "falsify"},
+		{"blank falsify", `{
+			"symptoms": "x", "short": "y", "falsify": "   ", "instance": "T-33 slot 3",
+			"origin": "agent:O-197", "subjects": ["repo:officraft"]
+		}`, "falsify"},
+		{"no instance at all", `{
+			"symptoms": "x", "short": "y", "falsify": "a second assembler appears",
+			"origin": "agent:O-197", "subjects": ["repo:officraft"]
+		}`, "instance"},
+		{"blank instance", `{
+			"symptoms": "x", "short": "y", "falsify": "a second assembler appears",
+			"instance": "  ", "origin": "agent:O-197", "subjects": ["repo:officraft"]
+		}`, "instance"},
+	} {
+		st, body := rosterREST(t, url, agentTok, "POST", "/api/lore/entries", tc.body)
+		if st != 422 {
+			t.Fatalf("%s: want 422, got %d %s", tc.name, st, body)
+		}
+		if !strings.Contains(body, tc.want) {
+			t.Fatalf("%s: the refusal does not name %q: %s", tc.name, tc.want, body)
+		}
 	}
-	if dto := loreWriteBody(t, body); !dto.Degraded {
-		t.Fatalf("an entry with neither falsifier nor instance was not reported degraded: %+v", dto)
+
+	var n int
+	if err := dal.rdb.QueryRow(`SELECT COUNT(*) FROM lore_entry`).Scan(&n); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("a refused thin write left %d entries behind", n)
+	}
+}
+
+// 🔴 新規則只擋新寫入。那道裁定之前寫下的條目兩格可以都是空的，它們必須照樣讀得
+// 出來，而 `degraded` 必須照樣是 true——座艙上「N 條沒有證偽也沒有實例」那個品質
+// 訊號是唯一看得見它們的東西。
+func TestLoreEntriesWrittenBeforeTheRulingStayReadableAndDegradedOverTheWire(t *testing.T) {
+	url, dal, agentTok, _, _ := loreGovStack(t)
+
+	legacy := LoreEntry{
+		ID: "lore-legacy-01", Label: "口號", Symptoms: "兩個區塊對同一件事說法不一致",
+		Short: "the fold happens in one place", Origin: "agent:O-197",
+		CreatedTS: 1000, UpdatedTS: 1000,
+	}
+	if err := dal.PutLoreEntry(legacy); err != nil {
+		t.Fatalf("seed a pre-ruling entry: %v", err)
+	}
+
+	st, body := rosterREST(t, url, agentTok, "GET", "/api/lore/entries/"+legacy.ID, "")
+	if st != 200 {
+		t.Fatalf("read a pre-ruling entry: want 200, got %d %s", st, body)
+	}
+	var dto LoreEntryDetailDTO
+	if err := json.Unmarshal([]byte(body), &dto); err != nil {
+		t.Fatalf("decode detail %q: %v", body, err)
+	}
+	if !dto.Degraded {
+		t.Fatalf("a pre-ruling entry with neither field stopped being reported degraded: %+v", dto)
 	}
 }
 
@@ -134,12 +186,12 @@ func TestLoreWriteRouteRefusesAnEntryNobodyCouldRead(t *testing.T) {
 	url, _, agentTok, _, _ := loreGovStack(t)
 
 	for _, tc := range []struct{ name, body, want string }{
-		{"blank symptoms", `{"symptoms":"  ","short":"x","origin":"agent:O-197","subjects":["repo:officraft"]}`, "symptoms"},
-		{"blank short", `{"symptoms":"x","short":"","origin":"agent:O-197","subjects":["repo:officraft"]}`, "short"},
-		{"no subject", `{"symptoms":"x","short":"y","origin":"agent:O-197","subjects":[]}`, "subject"},
-		{"unknown origin type", `{"symptoms":"x","short":"y","origin":"vendor:acme","subjects":["repo:officraft"]}`, "vendor"},
-		{"unknown subject type", `{"symptoms":"x","short":"y","origin":"agent:O-197","subjects":["vendor:acme"]}`, "vendor"},
-		{"malformed subject", `{"symptoms":"x","short":"y","origin":"agent:O-197","subjects":["officraft"]}`, "officraft"},
+		{"blank symptoms", `{"symptoms":"  ","short":"x","falsify":"a second assembler appears","instance":"T-33 slot 3","origin":"agent:O-197","subjects":["repo:officraft"]}`, "symptoms"},
+		{"blank short", `{"symptoms":"x","short":"","falsify":"a second assembler appears","instance":"T-33 slot 3","origin":"agent:O-197","subjects":["repo:officraft"]}`, "short"},
+		{"no subject", `{"symptoms":"x","short":"y","falsify":"a second assembler appears","instance":"T-33 slot 3","origin":"agent:O-197","subjects":[]}`, "subject"},
+		{"unknown origin type", `{"symptoms":"x","short":"y","falsify":"a second assembler appears","instance":"T-33 slot 3","origin":"vendor:acme","subjects":["repo:officraft"]}`, "vendor"},
+		{"unknown subject type", `{"symptoms":"x","short":"y","falsify":"a second assembler appears","instance":"T-33 slot 3","origin":"agent:O-197","subjects":["vendor:acme"]}`, "vendor"},
+		{"malformed subject", `{"symptoms":"x","short":"y","falsify":"a second assembler appears","instance":"T-33 slot 3","origin":"agent:O-197","subjects":["officraft"]}`, "officraft"},
 	} {
 		st, body := rosterREST(t, url, agentTok, "POST", "/api/lore/entries", tc.body)
 		if st != 422 {
@@ -159,7 +211,8 @@ func TestLoreWriteRouteRefusesAnUnknownFieldRatherThanDroppingIt(t *testing.T) {
 
 	st, body := rosterREST(t, url, agentTok, "POST", "/api/lore/entries", `{
 		"symptoms": "x", "shortt": "the typo that empties the body",
-		"short": "y", "origin": "agent:O-197", "subjects": ["repo:officraft"]
+		"short": "y", "falsify": "a second assembler appears", "instance": "T-33 slot 3",
+		"origin": "agent:O-197", "subjects": ["repo:officraft"]
 	}`)
 	if st != 422 {
 		t.Fatalf("unknown field: want 422, got %d %s", st, body)
@@ -186,7 +239,8 @@ func TestLoreWriteRouteSupersedesOnlyAnEntryThatExists(t *testing.T) {
 	first := loreWriteBody(t, body).EntryId
 
 	st, body = rosterREST(t, url, agentTok, "POST", "/api/lore/entries", `{
-		"symptoms": "x", "short": "y", "origin": "agent:O-197",
+		"symptoms": "x", "short": "y", "falsify": "a second assembler appears",
+		"instance": "T-33 slot 3", "origin": "agent:O-197",
 		"subjects": ["repo:officraft"], "supersedes": "`+first+`"
 	}`)
 	if st != 200 {
@@ -209,7 +263,8 @@ func TestLoreWriteRouteSupersedesOnlyAnEntryThatExists(t *testing.T) {
 	}
 
 	st, body = rosterREST(t, url, agentTok, "POST", "/api/lore/entries", `{
-		"symptoms": "x", "short": "y", "origin": "agent:O-197",
+		"symptoms": "x", "short": "y", "falsify": "a second assembler appears",
+		"instance": "T-33 slot 3", "origin": "agent:O-197",
 		"subjects": ["repo:officraft"], "supersedes": "lore-nope"
 	}`)
 	if st != 404 {

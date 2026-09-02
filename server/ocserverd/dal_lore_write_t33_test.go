@@ -119,35 +119,64 @@ func TestLoreRevisionBodyNamesEveryFieldEvenWhenBlank(t *testing.T) {
 	}
 }
 
-// `symptoms` and `short` are refused when blank; the falsifier is not. The
-// owner ruled the falsifier stays optional — this asserts the two rules do not
-// bleed into each other.
-func TestLoreCreateRefusesTheTwoFieldsWithoutWhichNothingIsReachable(t *testing.T) {
+// 四格空白都被拒，而且每一格是它自己的具名錯誤——沒有哪一格會被折進別格的錯誤裡，
+// 不然寫的人只會知道「被擋了」而不知道要補哪一格。
+func TestLoreCreateRefusesTheFourFieldsWithoutWhichNothingIsReachable(t *testing.T) {
 	d := newTestDAL(t)
 	t33Entity(t, d, "e-repo", "repo", "repo:officraft")
 
-	blankSymptoms := t33Write()
-	blankSymptoms.Symptoms = "   "
-	if _, err := d.CreateLoreEntry(blankSymptoms, 1000); !errors.Is(err, ErrLoreSymptomsBlank) {
-		t.Fatalf("blank symptoms: got %v", err)
-	}
-	blankShort := t33Write()
-	blankShort.Short = ""
-	if _, err := d.CreateLoreEntry(blankShort, 1000); !errors.Is(err, ErrLoreShortBlank) {
-		t.Fatalf("blank short: got %v", err)
+	for _, tc := range []struct {
+		name   string
+		mangle func(*LoreWrite)
+		want   error
+	}{
+		{"blank symptoms", func(w *LoreWrite) { w.Symptoms = "   " }, ErrLoreSymptomsBlank},
+		{"blank short", func(w *LoreWrite) { w.Short = "" }, ErrLoreShortBlank},
+		{"blank falsify", func(w *LoreWrite) { w.Falsify = "" }, ErrLoreFalsifyBlank},
+		{"whitespace falsify", func(w *LoreWrite) { w.Falsify = "  \t " }, ErrLoreFalsifyBlank},
+		{"blank instance", func(w *LoreWrite) { w.Instance = "" }, ErrLoreInstanceBlank},
+		{"whitespace instance", func(w *LoreWrite) { w.Instance = "   " }, ErrLoreInstanceBlank},
+	} {
+		w := t33Write()
+		tc.mangle(&w)
+		_, err := d.CreateLoreEntry(w, 1000)
+		if !errors.Is(err, tc.want) {
+			t.Fatalf("%s: got %v, want %v", tc.name, err, tc.want)
+		}
 	}
 	if n := t33CountEntries(t, d); n != 0 {
 		t.Fatalf("a refused write left %d entries behind", n)
 	}
 
-	// 🔴 THE OTHER SIDE OF THE RULING. An entry with neither falsifier nor
-	// instance is accepted and is merely DEGRADED — visible, not refused.
-	thin := t33Write()
-	thin.Falsify, thin.Instance = "", ""
-	got := t33Create(t, d, thin)
+	// 兩格都給的寫入照樣成功，而且不是 degraded。少了這一半，一個把每一筆寫入都
+	// 拒掉的實作也會讓上面全綠。
+	got := t33Create(t, d, t33Write())
 	entry := t33Get(t, d, got.EntryID)
-	if entry == nil || !entry.IsDegraded() {
-		t.Fatalf("a thin entry should be written and countable as degraded: %+v", entry)
+	if entry == nil || entry.IsDegraded() {
+		t.Fatalf("a complete entry must land and must not be degraded: %+v", entry)
+	}
+}
+
+// 🔴 新規則只擋新寫入，不能回頭把舊資料變成讀不到的。2026-09-02 之前寫下的條目
+// 兩格可以都是空的；它們必須照樣讀得出來，而 `degraded` 必須照樣是 true——那個
+// 旗標是唯一看得見它們的東西。
+func TestLoreEntriesWrittenBeforeTheRulingStillReadBackAsDegraded(t *testing.T) {
+	d := newTestDAL(t)
+	t33Entity(t, d, "e-repo", "repo", "repo:officraft")
+
+	legacy := LoreEntry{
+		ID: "lore-legacy-01", Label: "口號", Symptoms: "x", Short: "y",
+		Origin: "agent:O-197", CreatedTS: 1000, UpdatedTS: 1000,
+	}
+	if err := d.PutLoreEntry(legacy); err != nil {
+		t.Fatalf("seed a pre-ruling entry: %v", err)
+	}
+	got := t33Get(t, d, legacy.ID)
+	if got == nil {
+		t.Fatal("an entry written before the ruling stopped being readable")
+	}
+	if !got.IsDegraded() {
+		t.Fatalf("the only thing that makes a pre-ruling entry visible stopped firing: %+v", got)
 	}
 }
 

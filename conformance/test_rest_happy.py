@@ -1000,6 +1000,8 @@ def _lore_entry(ctx: HCtx) -> str:
             "label": "conformance happy entry",
             "symptoms": "a route answers 200 and nothing was written",
             "short": "the entry and its original are one transaction",
+            "falsify": "a second route turns out to write entries too",
+            "instance": "the conformance suite seeding this very entry",
             "origin": f"agent:{ctx.agent.member_id}",
             "subjects": [f"agent:{ctx.agent.member_id}"],
         },
@@ -1102,9 +1104,10 @@ def _check_lore_write(_ctx: HCtx, r: httpx.Response) -> None:
         _LORE_FRESH_SUBJECT
     ], d
     assert d["subject_ids"] and all(d["subject_ids"]), d
-    # falsify and instance were both omitted, and the ruling is that this is
-    # allowed and REPORTED rather than refused.
-    assert d["degraded"] is True, f"a thin entry did not come back degraded: {d}"
+    # falsify and instance are both REQUIRED since the owner's 2026-09-02 ruling
+    # (rc-714eea33c6ed), so a write that lands can no longer be degraded. The
+    # flag itself stays: entries written BEFORE that ruling can carry neither.
+    assert d["degraded"] is False, f"a complete entry came back degraded: {d}"
     assert d["superseded"] == "", d
 
 
@@ -1124,6 +1127,8 @@ HAPPY: dict[str, Happy] = {
             "label": "conformance happy write",
             "symptoms": "a route answers 200 and nothing was written",
             "short": "the entry and its original are one transaction",
+            "falsify": "a second route turns out to write entries too",
+            "instance": "the conformance suite writing this very row",
             "origin": f"agent:{ctx.agent.member_id}",
             "subjects": [_lore_fresh_subject(ctx)],
         },

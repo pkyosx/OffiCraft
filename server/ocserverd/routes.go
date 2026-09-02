@@ -2242,18 +2242,17 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// 2026-09-01: 「可以先寫入 但是審核可以事後」). A machine is still
 		// refused at the door — a warden has no experience to record.
 		//
-		// ⚠️ WHAT THE FLOOR DOES NOT DO, said plainly: there is no per-field
-		// gate here and no review gate. An agent can write an entry with no
-		// falsifier and no instance, and it lands. That is the ruling, not an
-		// oversight — the receipt reports `degraded` so the looseness is
-		// visible, and review happens afterwards.
+		// ⚠️ WHAT THE FLOOR DOES NOT DO, said plainly: there is no review gate
+		// here. 欄位這一層有門檻——`symptoms`／`short`／`falsify`／`instance` 空白
+		// 一律拒絕（2026-09-02 裁定 rc-714eea33c6ed）——但擋的是欄位，不是內容：
+		// 沒有任何東西能分辨一格是真的填出來的還是硬掰的。審核仍然發生在寫入之後。
 		{
 			Method:   "POST",
 			Path:     "/api/lore/entries",
 			Handler:  w.HandleWriteLoreEntryApiLoreEntriesPost,
 			Auth:     authGated,
 			Requires: principalAgent,
-			Summary:  "Write ONE lore entry — the entry, the subjects it is filed under, the actions it is about, and the FULL ORIGINAL that outlives every later rewrite, all in one transaction. `symptoms` and `short` are required: `short` is the only field that ever enters a boot context and `symptoms` is the axis a reader finds the entry by, so an entry missing either is not thin, it is unreachable. `falsify` and `instance` are DELIBERATELY optional (owner ruling 2026-09-01: 寬鬆，不當硬門檻) — forcing them produces invented ones, which nothing can count, whereas an empty one can be counted; an entry with neither comes back `degraded: true`, which is a signal to you and not a refusal. `subjects` are subject keys shaped `type:name` (`repo:officraft`, `agent:Kyle`): an alias resolves, a merged-away subject follows to the survivor, an unapproved type prefix is refused BY NAME, and a key nobody has used yet MINTS a new subject parked for review and names it back to you in `pending_entities` — so a typo surfaces in this response instead of in the ontology a month later. `origin` says WHOSE knowledge this is (`human:Seth` for something the owner told you) and is not the same question as who is writing: the actor is taken from your verified token and cannot be asserted here. `label` is a NAME, at most 40 runes; over that is refused with both counts and NEVER trimmed, because a name that changes silently breaks whatever was pointing at it. `supersedes` names the entry this one takes over from: it is re-statused `superseded` and the act is written to the governance journal, while an id that names nothing refuses the WHOLE write rather than leaving a pointer into empty space.",
+			Summary:  "Write ONE lore entry — the entry, the subjects it is filed under, the actions it is about, and the FULL ORIGINAL that outlives every later rewrite, all in one transaction. `symptoms` and `short` are required: `short` is the only field that ever enters a boot context and `symptoms` is the axis a reader finds the entry by, so an entry missing either is not thin, it is unreachable. `falsify` and `instance` are REQUIRED as well (owner ruling rc-714eea33c6ed, 2026-09-02: 純 required，不做逃生口，真的撞到再回來加 — it knowingly overturns the 2026-09-01 ruling that had left them optional), so there is no legal way to answer 「我沒有」. ⚠️ The cost is accepted and UNSOLVED: a writer who has neither will invent them, and an invented one reads exactly like a real one. `degraded: true` on the receipt still exists for entries written BEFORE that ruling, which can carry neither. `subjects` are subject keys shaped `type:name` (`repo:officraft`, `agent:Kyle`): an alias resolves, a merged-away subject follows to the survivor, an unapproved type prefix is refused BY NAME, and a key nobody has used yet MINTS a new subject parked for review and names it back to you in `pending_entities` — so a typo surfaces in this response instead of in the ontology a month later. `origin` says WHOSE knowledge this is (`human:Seth` for something the owner told you) and is not the same question as who is writing: the actor is taken from your verified token and cannot be asserted here. `label` is a NAME, at most 40 runes; over that is refused with both counts and NEVER trimmed, because a name that changes silently breaks whatever was pointing at it. `supersedes` names the entry this one takes over from: it is re-statused `superseded` and the act is written to the governance journal, while an id that names nothing refuses the WHOLE write rather than leaving a pointer into empty space.",
 			MCPTool:  "write_lore_entry",
 		},
 		// ── T-33 lore retrieval ──────────────────────────────────────────────

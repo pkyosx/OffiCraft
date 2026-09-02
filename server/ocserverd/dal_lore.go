@@ -76,6 +76,10 @@ type LoreEntry struct {
 // retrieval filter. What to DO about a degraded entry is a later round's
 // decision, and hanging a behaviour off it now would decide that by accident.
 //
+// 🔴 2026-09-02 的裁定（rc-714eea33c6ed）把 `falsify` 與 `instance` 變成寫入必填
+// 之後，這個判斷仍然要留著，而且不會永遠是 false：那道裁定只擋新寫入，站上在它
+// 之前寫下的條目兩格可以都是空的，這個函式是唯一看得見它們的東西。
+//
 // It is BOTH fields, not either: an entry with a concrete instance but no
 // falsifier is thin, not empty, and calling it degraded would flag most honest
 // first drafts.

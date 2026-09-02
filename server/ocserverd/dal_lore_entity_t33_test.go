@@ -17,6 +17,8 @@ func t33Mint(t *testing.T, d *DAL, subjects ...string) LoreWriteResult {
 	got, err := d.CreateLoreEntry(LoreWrite{
 		Symptoms: "the queue is full and nothing reads it",
 		Short:    "the pending column had no exit",
+		Falsify:  "a second exit from the pending column turns up",
+		Instance: "T-33 slot 3",
 		Origin:   "agent:O-197",
 		Subjects: subjects,
 		ActorID:  "m-writer",
@@ -434,14 +436,14 @@ func TestPendingLoreEntityCarriesTheFirstEntrysShortAsASample(t *testing.T) {
 	d := newTestDAL(t)
 	first, err := d.CreateLoreEntry(LoreWrite{
 		Symptoms: "s", Short: "the fold happens in exactly one place",
-		Origin: "agent:O-197", Subjects: []string{"repo:offcraft"}, ActorID: "m-writer",
+		Falsify: "f", Instance: "i", Origin: "agent:O-197", Subjects: []string{"repo:offcraft"}, ActorID: "m-writer",
 	}, 100)
 	if err != nil {
 		t.Fatalf("first write: %v", err)
 	}
 	if _, err := d.CreateLoreEntry(LoreWrite{
 		Symptoms: "s", Short: "a later entry that must NOT be the sample",
-		Origin: "agent:O-197", Subjects: []string{"repo:offcraft"}, ActorID: "m-writer",
+		Falsify: "f", Instance: "i", Origin: "agent:O-197", Subjects: []string{"repo:offcraft"}, ActorID: "m-writer",
 	}, 200); err != nil {
 		t.Fatalf("second write: %v", err)
 	}
@@ -453,7 +455,7 @@ func TestPendingLoreEntityCarriesTheFirstEntrysShortAsASample(t *testing.T) {
 	// rather than a sentence invented here.
 	long := strings.Repeat("長", loreSampleShortRunes+40)
 	if _, err := d.CreateLoreEntry(LoreWrite{
-		Symptoms: "s", Short: long, Origin: "agent:O-197",
+		Symptoms: "s", Short: long, Falsify: "f", Instance: "i", Origin: "agent:O-197",
 		Subjects: []string{"repo:verbose"}, ActorID: "m-writer",
 	}, 300); err != nil {
 		t.Fatalf("long write: %v", err)

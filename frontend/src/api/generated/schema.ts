@@ -1429,7 +1429,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Write ONE lore entry — the entry, the subjects it is filed under, the actions it is about, and the FULL ORIGINAL that outlives every later rewrite, all in one transaction. `symptoms` and `short` are required: `short` is the only field that ever enters a boot context and `symptoms` is the axis a reader finds the entry by, so an entry missing either is not thin, it is unreachable. `falsify` and `instance` are DELIBERATELY optional (owner ruling 2026-09-01: 寬鬆，不當硬門檻) — forcing them produces invented ones, which nothing can count, whereas an empty one can be counted; an entry with neither comes back `degraded: true`, which is a signal to you and not a refusal. `subjects` are subject keys shaped `type:name` (`repo:officraft`, `agent:Kyle`): an alias resolves, a merged-away subject follows to the survivor, an unapproved type prefix is refused BY NAME, and a key nobody has used yet MINTS a new subject parked for review and names it back to you in `pending_entities` — so a typo surfaces in this response instead of in the ontology a month later. `origin` says WHOSE knowledge this is (`human:Seth` for something the owner told you) and is not the same question as who is writing: the actor is taken from your verified token and cannot be asserted here. `label` is a NAME, at most 40 runes; over that is refused with both counts and NEVER trimmed, because a name that changes silently breaks whatever was pointing at it. `supersedes` names the entry this one takes over from: it is re-statused `superseded` and the act is written to the governance journal, while an id that names nothing refuses the WHOLE write rather than leaving a pointer into empty space.
+         * Write ONE lore entry — the entry, the subjects it is filed under, the actions it is about, and the FULL ORIGINAL that outlives every later rewrite, all in one transaction. `symptoms` and `short` are required: `short` is the only field that ever enters a boot context and `symptoms` is the axis a reader finds the entry by, so an entry missing either is not thin, it is unreachable. `falsify` and `instance` are REQUIRED as well (owner ruling rc-714eea33c6ed, 2026-09-02: 純 required，不做逃生口，真的撞到再回來加 — it knowingly overturns the 2026-09-01 ruling that had left them optional), so there is no legal way to answer 「我沒有」. ⚠️ The cost is accepted and UNSOLVED: a writer who has neither will invent them, and an invented one reads exactly like a real one. `degraded: true` on the receipt still exists for entries written BEFORE that ruling, which can carry neither. `subjects` are subject keys shaped `type:name` (`repo:officraft`, `agent:Kyle`): an alias resolves, a merged-away subject follows to the survivor, an unapproved type prefix is refused BY NAME, and a key nobody has used yet MINTS a new subject parked for review and names it back to you in `pending_entities` — so a typo surfaces in this response instead of in the ontology a month later. `origin` says WHOSE knowledge this is (`human:Seth` for something the owner told you) and is not the same question as who is writing: the actor is taken from your verified token and cannot be asserted here. `label` is a NAME, at most 40 runes; over that is refused with both counts and NEVER trimmed, because a name that changes silently breaks whatever was pointing at it. `supersedes` names the entry this one takes over from: it is re-statused `superseded` and the act is written to the governance journal, while an id that names nothing refuses the WHOLE write rather than leaving a pointer into empty space.
          * @description Create ONE lore entry (T-33). This is the door every ruling of 2026-09-01 was waiting for: until it existed the station served no way to put a single entry into lore, so the directory was empty, an empty directory is not rendered, and no member had ever seen it.
          *
          *     🔴 THE ENTRY AND ITS ORIGINAL ARE ONE TRANSACTION. `short` is what enters a context; the L0 revision is what an agent reads when it stops believing the short version. An entry written without one looks identical in every count, which is exactly the silent loss this ticket exists to end — so either both land or neither does.
@@ -5884,12 +5884,12 @@ export interface components {
             entry_id: string;
             /**
              * Falsify
-             * @description How to show this entry does NOT hold. May be empty — optional by ruling.
+             * @description How to show this entry does NOT hold. May be empty on an entry written before owner ruling rc-714eea33c6ed (2026-09-02) made it required on write.
              */
             falsify: string;
             /**
              * Instance
-             * @description One case that really happened. May be empty — optional by ruling.
+             * @description One case that really happened. May be empty for the same reason as `falsify`.
              */
             instance: string;
             /**
@@ -6439,14 +6439,12 @@ export interface components {
             actions?: string[];
             /**
              * Falsify
-             * @description How somebody could show this entry does NOT hold. Optional by owner ruling (2026-09-01): making it a hard gate produces invented falsifiers, and an invented one cannot be told from a real one, whereas a MISSING one is counted — an entry with neither this nor `instance` comes back `degraded: true`.
-             * @default
+             * @description REQUIRED. How somebody could show this entry does NOT hold. Made a hard requirement by owner ruling rc-714eea33c6ed (2026-09-02), which knowingly overturns his own 2026-09-01 ruling that had left it optional: 純 required，不做逃生口，真的撞到再回來加 — there is no legal way to answer 「我沒有」. The evidence for the old ruling was asked for and did not exist: read against the 5 entries the station carried at the time, every falsifier was filled in and every one of them held up. ⚠️ THE COST IS ACCEPTED, NOT SOLVED — with no escape hatch a writer who genuinely has none will invent one, and an invented falsifier reads exactly like a real one. Do not add an escape hatch here on your own.
              */
             falsify: string;
             /**
              * Instance
-             * @description One case that really happened. Optional for the same reason as `falsify`, and counted the same way.
-             * @default
+             * @description REQUIRED. One case that really happened. Required by the same ruling as `falsify` (rc-714eea33c6ed, 2026-09-02) and carrying the same accepted, unsolved cost: nothing here can tell a fabricated case from a real one.
              */
             instance: string;
             /**
@@ -6495,7 +6493,7 @@ export interface components {
         LoreWriteReceiptDTO: {
             /**
              * Degraded
-             * @description True when the entry carries NEITHER a falsifier NOR an instance — it asserts something while offering no way to check it and no case where it happened. It is a signal, not a refusal: the owner ruled those two fields stay optional, and an empty one can be counted whereas an invented one cannot.
+             * @description True when the entry carries NEITHER a falsifier NOR an instance — it asserts something while offering no way to check it and no case where it happened. Since owner ruling rc-714eea33c6ed (2026-09-02) made both fields REQUIRED on a write, a NEW entry can no longer land degraded; the field stays because entries written BEFORE that ruling can carry neither, and this flag is the only thing that makes them visible.
              */
             degraded: boolean;
             /**

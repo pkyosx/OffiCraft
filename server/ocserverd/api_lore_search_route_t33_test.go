@@ -24,7 +24,8 @@ func loreSearchSeed(t *testing.T, url, tok, subject, short string) string {
 	t.Helper()
 	st, body := rosterREST(t, url, tok, "POST", "/api/lore/entries", `{
 		"label": "seeded", "symptoms": "something is visible",
-		"short": "`+short+`", "origin": "agent:O-197",
+		"short": "`+short+`", "falsify": "a second assembler appears",
+		"instance": "T-33 slot 3", "origin": "agent:O-197",
 		"subjects": ["`+subject+`"], "actions": ["build"]
 	}`)
 	if st != 200 {
@@ -159,7 +160,8 @@ func TestLoreSearchRouteRefusesAMachineAtTheDoor(t *testing.T) {
 func TestLoreSearchRouteSaysWhenAClassWasAGuess(t *testing.T) {
 	url, dal, agentTok, _, _ := loreGovStack(t)
 	st, body := rosterREST(t, url, agentTok, "POST", "/api/lore/entries", `{
-		"symptoms": "x", "short": "y", "origin": "agent:O-197",
+		"symptoms": "x", "short": "y", "falsify": "a second assembler appears",
+		"instance": "T-33 slot 3", "origin": "agent:O-197",
 		"subjects": ["repo:officraft"], "actions": ["zzz-not-in-the-table"]
 	}`)
 	if st != 200 {

@@ -276,7 +276,7 @@ func TestLoreEntityPendingRouteCarriesTheReviewPacket(t *testing.T) {
 	t33Entity(t, dal, "en-real", "repo", "repo:officraft")
 	if _, err := dal.CreateLoreEntry(LoreWrite{
 		Symptoms: "s", Short: "the fold happens in exactly one place",
-		Origin: "agent:O-197", Subjects: []string{"repo:OffiCraft"}, ActorID: "m-writer",
+		Falsify: "f", Instance: "i", Origin: "agent:O-197", Subjects: []string{"repo:OffiCraft"}, ActorID: "m-writer",
 	}, 100); err != nil {
 		t.Fatalf("write: %v", err)
 	}
