@@ -6,6 +6,10 @@
 // online, no fabricated timestamps.
 
 import type {
+  LoreEntryDetailView,
+  LoreEntrySummaryView,
+  LoreRevisionView,
+  LoreSearchView,
   Member,
   MonitoringView,
   VersionView,
@@ -2354,6 +2358,119 @@ let relocationPendingNext = false;
 // has no live agent to wind down, so this is staged rather than derived — same
 // shape as relocationPendingNext, and equally sticky.
 let relocationDeferredNext = false;
+
+// ── T-33 傳承 (lore) fixtures ──────────────────────────────────────────────
+//
+// These five are the entries actually written into the trial station on
+// 2026-09-01 (exported as task artifact `ta-e37e44623f9e`), text unchanged.
+// They are here rather than invented because the whole tab is about telling a
+// real entry from a plausible one — a mock full of lorem ipsum would make the
+// screens look right while proving nothing about what they render.
+//
+// 🔴 `actions` is EMPTY on every one of them, and that is the export, not a
+// shortcut: the write path those five went through never carried an action
+// name. So the mock cannot demonstrate action-axis tiering, and no screen may
+// pretend it can.
+interface MockLoreEntry {
+  entryId: string;
+  label: string;
+  symptoms: string;
+  short: string;
+  falsify: string;
+  instance: string;
+  residualRisk: string;
+  subjects: string[];
+  actions: string[];
+  origin: string;
+  status: string;
+  supersedes: string;
+  writtenBy: string;
+}
+
+const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
+  {
+    entryId: "lore-31274bbb892c",
+    label: "綠燈的射程等於它看得到的範圍",
+    symptoms: "整套測試回 PASS／ok，而我正要拿這個結果去說「這一包沒問題」。",
+    short: "綠燈只證明「它看得到的那些東西沒問題」。go test -run 配一個匹配不到任何東西的正則，輸出跟真的全部通過逐字相同（唯一訊號 no tests to run 常被 grep 濾掉）。⇒ 跑完之後要問的是「這一次的量法，看得到的範圍是什麼」——而且要在跑過之後問，不是在寫的時候。",
+    falsify: "找到一次「量法涵蓋範圍為零，而輸出跟正確答案長得不一樣」的例子 —— 那表示這類錯誤會自己現形，這條就不成立。",
+    instance: "2026-09-01：-run 的正則打錯字，26 顆 mutant 一顆都沒跑，回報 PASS。分母改成可驗的做法是逐一 grep -c \"^func <name>(\"。",
+    residualRisk: "它擋不住「量法涵蓋範圍正確、但斷言本身是恆真的」那一類 —— 那要靠種 mutant，不是靠問射程。",
+    subjects: ["repo:officraft"],
+    actions: [],
+    origin: "agent:O-197",
+    status: "active",
+    supersedes: "",
+    writtenBy: "agent:O-197",
+  },
+  {
+    entryId: "lore-3a8f02e14c10",
+    label: "有機制不等於這一次真的有",
+    symptoms: "我正要拿「它有自動備份／有守衛／有檢查」去對別人保證這一次是安全的。",
+    short: "機制存在只證明那條路上有那段碼，不證明這一次走的是那條路。實例：升級前備份只掛在 serve 開機那條路（backupBeforeMigrations 全樹一個呼叫者），而 bin/migrate 走的是沒有它的那條 ⇒ 用 migrate 升級的人沒有退路，而畫面上跟有退路一模一樣。⇒ 保證要講「這一次」，不是「有機制」。",
+    falsify: "找到一個機制，它的每一條呼叫路徑都被證明涵蓋，而且有東西在守「新增路徑時不會漏掉」——那這條就不成立。",
+    instance: "2026-09-01 分站換版：因此改成走 serve 開機而不是 migrate，並另外手拍一份驗過的備份。",
+    residualRisk: "它不告訴你「這一次真的有」要怎麼驗；那要另外找一個可觀察的訊號（檔案、log 行、時間順序）。",
+    subjects: ["repo:officraft"],
+    actions: [],
+    origin: "agent:O-197",
+    status: "active",
+    supersedes: "",
+    writtenBy: "agent:O-197",
+  },
+  {
+    entryId: "lore-b97ced3313a6",
+    label: "一次的綠燈只證明那一秒",
+    symptoms: "我剛驗完一台機器的狀態，正要把結果當成「現在就是這樣」回報出去。",
+    short: "對一台會自己動的機器（有更新器、有排程、有 KeepAlive），驗證是瞬時的而狀態不是。⇒ 驗完要多問一句「有什麼東西會在我不看的時候改變它」，並把答案變成可觀察的（掛一個定期查、或關掉那個會動的東西）。",
+    falsify: "驗完之後隔一段時間再查，狀態沒變，而且找不到任何會自動改變它的機制 —— 那這條在該情境不成立。",
+    instance: "2026-09-01：我回報 trial 站跑 feab5437，90 秒後它自己 [upgrade] 換成 v0.5.281。成因是我複製的 DB 帶著 updater.auto_update=true。",
+    residualRisk: "它擋不住「觀察期間剛好沒發生、觀察結束後才發生」——定期查只是把窗口變小，不是關掉它。",
+    subjects: ["repo:officraft"],
+    actions: [],
+    origin: "agent:O-197",
+    status: "active",
+    supersedes: "",
+    writtenBy: "agent:O-197",
+  },
+  {
+    entryId: "lore-dab4e84475b4",
+    label: "複製資料庫等於複製設定",
+    symptoms: "我把一個站的 DB 複製到另一個站，然後預期新站會照我在新站上做的設定跑。",
+    short: "OffiCraft 的站台設定存在 DB 的 setting 表裡（updater.auto_update、receive_beta、JWT 簽章金鑰等），所以複製 DB 會一起搬過去。後果一：新站會照舊站的自動更新設定把你剛裝的 binary 換掉。後果二：舊站簽出來的 token 在新站也通。⇒ 複製 DB 之後、開機之前，先把那些跟「這台該怎麼行為」有關的設定改掉。",
+    falsify: "找到一個站台行為設定不存在 DB 而只存在 oc.toml 或環境變數 —— 那這條對那一格不成立（port 與 namespace 就是這樣，它們在 oc.toml）。",
+    instance: "2026-09-01：分站換版後 90 秒自己升級（auto_update 跟著 DB 過去）；另外我主站的 agent token 打分站 /api/members 回 200，改一個字元回 401 ⇒ 簽章金鑰也跟著過去了。",
+    residualRisk: "它沒有列出「哪些設定該改」的完整清單 —— 今天只知道 updater 那兩個與簽章金鑰。",
+    subjects: ["repo:officraft"],
+    actions: [],
+    origin: "agent:O-197",
+    status: "active",
+    supersedes: "",
+    writtenBy: "agent:O-197",
+  },
+  {
+    entryId: "lore-76fba702e52a",
+    label: "更正有兩半，而且成本不對稱",
+    symptoms: "我剛說完「我收回那句話」，覺得這件事已經處理完了。",
+    short: "收回只對聽到的人生效，幾秒鐘；真正的工作是把那句話從每一個會被再讀一次的地方拔掉（記憶檔、步驟筆記、票面、已送出的卡、產物、PR 描述）。⇒ 真正會發生的失敗不是不願意更正，是只做了便宜的那一半，而做完那半的人主觀上覺得自己已經更正過了。",
+    falsify: "找到一次「只在對話裡收回、沒有去拔」而那句話後來也沒有再影響任何人 —— 那表示射程沒有外溢，這條在該情境不成立。",
+    instance: "2026-09-01：Kyle 收回一句關於部署路徑的錯誤結論，而那句話已經被我寫進步驟筆記（下一代開機第一件要讀的東西）。掃描結果：步驟筆記命中 1、卡零、產物零、waiting_reason 零。",
+    residualRisk: "它擋不住「我漏掉了某個會被再讀的地方」——所以掃描清單本身要被維護，而且零命中也要講出來。",
+    subjects: ["repo:officraft"],
+    actions: [],
+    origin: "agent:O-197",
+    status: "active",
+    supersedes: "",
+    writtenBy: "agent:O-197",
+  },
+];
+
+/** An entry is `degraded` when it carries NEITHER a falsifier NOR an instance
+ * — the same rule the server applies, recomputed here so the mock cannot drift
+ * into reporting a flag nothing derived. */
+function mockLoreDegraded(e: MockLoreEntry): boolean {
+  return e.falsify.trim() === "" && e.instance.trim() === "";
+}
 
 export const mockApi: Api = {
   async listMembers(_opts?: { light?: boolean }): Promise<Member[]> {
@@ -5899,6 +6016,157 @@ export const mockApi: Api = {
     topicSubscribers.add(onTopic);
     return () => {
       topicSubscribers.delete(onTopic);
+    };
+  },
+
+  // ── T-33 傳承 (lore), read side ──────────────────────────────────────────
+  async searchLore(input: LoreSearchInput = {}): Promise<LoreSearchView> {
+    // The selection is applied HERE rather than returning the whole fixture,
+    // so a screen that forgets to pass its filter looks wrong in mock mode
+    // too. `limit` is REFUSED out of range exactly as the route refuses it —
+    // a mock that silently clamped would hide the one failure the caller
+    // most needs to see.
+    if (input.limit !== undefined && (input.limit < 1 || input.limit > 100)) {
+      throw mockApiError(
+        "http 422 for /api/lore/search",
+        422,
+        "limit must be between 1 and 100"
+      );
+    }
+    const subject = input.subject ?? "";
+    const query = input.query ?? "";
+    const needle = query.toLowerCase();
+    const known = new Set(
+      MOCK_LORE_ENTRIES.flatMap((e) => e.subjects)
+    );
+    // A subject key that names nothing is NOT an empty result: it comes back
+    // unresolved with the key echoed, so a typo is visible instead of reading
+    // as 「this subject has nothing filed under it」.
+    const subjectResolved = subject === "" || known.has(subject);
+    const matched = !subjectResolved
+      ? []
+      : MOCK_LORE_ENTRIES.filter((e) => {
+          if (subject !== "" && !e.subjects.includes(subject)) return false;
+          if (needle === "") return true;
+          return (
+            e.label.toLowerCase().includes(needle) ||
+            e.short.toLowerCase().includes(needle) ||
+            e.symptoms.toLowerCase().includes(needle)
+          );
+        });
+    const limit = input.limit ?? 20;
+    const entries: LoreEntrySummaryView[] = matched
+      .slice(0, limit)
+      .map((e) => ({
+        entryId: e.entryId,
+        label: e.label,
+        short: e.short,
+        symptoms: e.symptoms,
+        subjects: [...e.subjects],
+        actions: [...e.actions],
+        origin: e.origin,
+        degraded: mockLoreDegraded(e),
+        // Every fixture entry matches on the axes actually asked about, so
+        // nothing here reaches the caller across an axis it did not ask for.
+        tier: "T1",
+        tierNote: "",
+        trustScope: "method",
+        trustFellBack: false,
+      }));
+    return {
+      entries,
+      total: matched.length,
+      truncated: matched.length > entries.length,
+      subjectResolved,
+      unresolvedSubject: subjectResolved ? "" : subject,
+      applied: {
+        subject,
+        actions: input.actions ? [...input.actions] : [],
+        query,
+        queryMatch: "literal-substring",
+        limit,
+        // No fixture entry carries an action, so no tiering axis was ever
+        // exercised — reporting one would be the mock inventing evidence.
+        tieredBy: [],
+      },
+      unmappedActions: [],
+    };
+  },
+
+  async getLoreEntry(entryId: string): Promise<LoreEntryDetailView> {
+    const e = MOCK_LORE_ENTRIES.find((x) => x.entryId === entryId);
+    if (!e) {
+      throw mockApiError(
+        `http 404 for /api/lore/entries/${entryId}`,
+        404,
+        "lore entry not found"
+      );
+    }
+    // `original` is the FULL text as written, every named field including the
+    // blank ones — rebuilt here in the same field order the writer used, so
+    // 「this section is blank」 and 「there is no such section」 stay different
+    // on screen. The mock has no digest of a real stored blob, so `sha256` is
+    // empty rather than a plausible-looking hex string nothing computed.
+    const original = [
+      `symptoms: ${e.symptoms}`,
+      `short: ${e.short}`,
+      `falsify: ${e.falsify}`,
+      `instance: ${e.instance}`,
+      `residual_risk: ${e.residualRisk}`,
+    ].join("\n");
+    return {
+      entryId: e.entryId,
+      label: e.label,
+      symptoms: e.symptoms,
+      short: e.short,
+      falsify: e.falsify,
+      instance: e.instance,
+      residualRisk: e.residualRisk,
+      subjects: [...e.subjects],
+      actions: [...e.actions],
+      origin: e.origin,
+      status: e.status,
+      degraded: mockLoreDegraded(e),
+      original,
+      sha256: "",
+      supersedes: e.supersedes,
+      writtenBy: e.writtenBy,
+      // One revision each: these five were written once and never rewritten,
+      // so there is no shrink to show. A fabricated second revision would put
+      // an 「entry hollowed out」 signal on screen that never happened.
+      revisions: [
+        {
+          revisionId: 1,
+          createdTs: 0,
+          actorId: e.writtenBy,
+          sha256: "",
+          shrinkChars: 0,
+        },
+      ],
+    };
+  },
+
+  async getLoreRevision(
+    entryId: string,
+    revisionId: number
+  ): Promise<LoreRevisionView> {
+    const detail = await mockApi.getLoreEntry(entryId);
+    const row = detail.revisions.find((r) => r.revisionId === revisionId);
+    if (!row) {
+      throw mockApiError(
+        `http 404 for /api/lore/entries/${entryId}/revisions/${revisionId}`,
+        404,
+        "lore revision not found"
+      );
+    }
+    return {
+      revisionId: row.revisionId,
+      entryId: detail.entryId,
+      body: detail.original,
+      sha256: row.sha256,
+      createdTs: row.createdTs,
+      actorId: row.actorId,
+      shrinkChars: row.shrinkChars,
     };
   },
 

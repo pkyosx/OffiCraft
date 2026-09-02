@@ -386,6 +386,12 @@ export type WireChatInlineReplyCard =
 // pending queue and its approval buttons have no wire to ride, and the page
 // says so rather than drawing a zero.
 
+/** Mirrors `LoreSearchDTO` — the selection conditions as they go on the wire.
+ * Every field carries a server-side default, which the generator renders as
+ * REQUIRED even though the route accepts a body with none of them; senders
+ * build a `Partial` of this and only fill what the caller actually chose. */
+export type WireLoreSearchRequest = components["schemas"]["LoreSearchDTO"];
+
 /** Mirrors `LoreSearchResultDTO` — the retrieved entries plus everything that
  * separates a real empty answer from a question that never got asked (`total`,
  * `truncated`, `subject_resolved`, `applied`). */

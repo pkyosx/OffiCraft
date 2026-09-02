@@ -156,7 +156,7 @@ import {
 // The one wire type this seam names directly: GET /api/reply-cards serves a
 // UNION (light rows | full cards) and `?view=full` is what picks the second
 // arm, so listReplyCards has to narrow to it. See that function.
-import type { WireReplyCard } from "./wire";
+import type { WireLoreSearchRequest, WireReplyCard } from "./wire";
 import { ownerToken, setToken } from "./auth";
 import { ApiError, parseRetryAfter } from "./errors";
 import { client, handleUnauthorized } from "./client";
@@ -2848,13 +2848,7 @@ export const httpApi: Api = {
     // Only the fields the caller actually set are sent. `limit` is 1..100 and
     // out of range is REFUSED rather than clamped, so passing a caller's 0
     // through would turn "I did not choose" into a rejected request.
-    const body: {
-      subject?: string;
-      actions?: string[];
-      query?: string;
-      limit?: number;
-      force_trust_analogy?: boolean;
-    } = {};
+    const body: Partial<WireLoreSearchRequest> = {};
     if (input.subject !== undefined) body.subject = input.subject;
     if (input.actions !== undefined) body.actions = input.actions;
     if (input.query !== undefined) body.query = input.query;
@@ -2863,7 +2857,13 @@ export const httpApi: Api = {
       body.force_trust_analogy = input.forceTrustAnalogy;
     }
     const wire = unwrap(
-      await client.POST("/api/lore/search", { body }),
+      // The generator marks every defaulted field REQUIRED, so the partial
+      // body the route actually accepts does not fit the generated type. The
+      // cast is on the shape only — sending a filled-in default instead would
+      // change what is asked for, which is the one thing this hop must not do.
+      await client.POST("/api/lore/search", {
+        body: body as WireLoreSearchRequest,
+      }),
     );
     return toLoreSearch(wire);
   },
@@ -2892,7 +2892,12 @@ export const httpApi: Api = {
     // text with nothing to signal it.
     const wire = unwrap(
       await client.GET("/api/lore/entries/{entry_id}/revisions/{revision_id}", {
-        params: { path: { entry_id: entryId, revision_id: revisionId } },
+        // `revision_id` is an integer everywhere in the DTOs and a STRING in
+        // the path parameter — a path segment has no other form. Stringify
+        // here rather than widening the domain type to match a URL detail.
+        params: {
+          path: { entry_id: entryId, revision_id: String(revisionId) },
+        },
       }),
     );
     return toLoreRevision(wire);
