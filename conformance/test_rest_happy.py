@@ -1240,6 +1240,102 @@ def _check_lore_merge(ctx: HCtx, r: httpx.Response) -> None:
     assert _LORE_MERGE_SOURCE_SUBJECT not in [
         row["canonical"] for row in left.json()
     ], "a merged-away entity is still parked in the review queue"
+# ── T-33 lore 提案 ───────────────────────────────────────────────────────────
+# 🔴 THE SEED IS MEMOISED RATHER THAN ORDERED. The POST row needs the entry id in
+# its PATH and that entry's digest in its BODY, and a row's path and body are
+# resolved by two separate calls. Seeding twice would hand the body the digest of
+# a different entry, and the 409 that produced would look exactly like a real
+# staleness refusal. Memoising makes the two calls agree without either of them
+# knowing which ran first.
+_LORE_PROPOSAL_SEED: dict[str, tuple[str, str]] = {}
+
+
+def _lore_proposal_target(ctx: HCtx, slot: str) -> tuple[str, str]:
+    """Write one entry and read its CURRENT digest back off the wire.
+
+    The digest comes from `GET /api/lore/entries/{id}`, which is the path a real
+    proposer has. Taking it from the write receipt instead would pass even if the
+    read route served a different digest — and that is the one way this feature
+    could be wrong while every screen looked right."""
+    if slot in _LORE_PROPOSAL_SEED:
+        return _LORE_PROPOSAL_SEED[slot]
+    entry_id = _lore_entry(ctx)
+    r = ctx.client.get(
+        f"/api/lore/entries/{entry_id}",
+        headers={"Authorization": f"Bearer {ctx.agent.token}"},
+    )
+    assert r.status_code == 200, f"read back for {slot}: {r.status_code} {r.text}"
+    sha = r.json()["sha256"]
+    assert len(sha) == 64, sha
+    _LORE_PROPOSAL_SEED[slot] = (entry_id, sha)
+    return entry_id, sha
+
+
+def _lore_propose_body(ctx: HCtx) -> dict[str, str]:
+    _, sha = _lore_proposal_target(ctx, "post")
+    return {
+        "kind": "update",
+        "base_sha256": sha,
+        "encountered": "the conformance suite's own happy row",
+        "fault": "stale",
+        "evidence": "this entry names the transaction, and the transaction moved file",
+        "label": "conformance proposed name",
+        "symptoms": "a route answers 200 and nothing was written",
+        "short": "the entry, its original and its axes are ONE transaction",
+        "falsify": "an entry turns up with no revision behind it",
+        "instance": "the conformance suite proposing this very change",
+    }
+
+
+def _check_lore_propose(ctx: HCtx, r: httpx.Response) -> None:
+    d = r.json()
+    _, sha = _lore_proposal_target(ctx, "post")
+    assert d["proposal_id"], d
+    # 🔴 THE BINDING. A receipt that did not name the revision it matched would
+    # leave a reviewer unable to tell what this proposal was written against.
+    assert d["base_sha256"] == sha, d
+    assert d["base_revision_id"] > 0, d
+    # The proposed version really was rendered and digested, and it is NOT the
+    # base — a proposal that digests to the base changed nothing.
+    assert len(d["sha256"]) == 64 and d["sha256"] != sha, d
+
+
+def _lore_proposal_list_path(ctx: HCtx) -> str:
+    """Seed an entry AND a proposal against it, so the list row has something to
+    serve. An empty list would satisfy the schema and prove nothing."""
+    entry_id, sha = _lore_proposal_target(ctx, "get")
+    r = ctx.client.post(
+        f"/api/lore/entries/{entry_id}/proposals",
+        headers={"Authorization": f"Bearer {ctx.agent.token}"},
+        json={
+            "kind": "remove",
+            "base_sha256": sha,
+            "encountered": "the conformance suite's own list row",
+            "fault": "misled",
+            "evidence": "the entry is retrieved for a situation it does not describe",
+        },
+    )
+    assert r.status_code == 200, f"seed proposal: {r.status_code} {r.text}"
+    return f"/api/lore/entries/{entry_id}/proposals"
+
+
+def _check_lore_proposal_list(ctx: HCtx, r: httpx.Response) -> None:
+    d = r.json()
+    _, sha = _lore_proposal_target(ctx, "get")
+    assert d["current_sha256"] == sha and d["current_revision_id"] > 0, d
+    assert d["proposals"], d
+    row = d["proposals"][0]
+    # 🔴 `stale` IS A COMPARISON AND BOTH SIDES OF IT ARE ON THE WIRE, so a
+    # reviewer can re-derive it instead of trusting it.
+    assert row["base_sha256"] == d["current_sha256"], row
+    assert row["stale"] is False, row
+    # A removal proposes NO version: the body fields are empty, and that is the
+    # difference between "he proposed nothing" and "he proposed a blank entry".
+    assert row["kind"] == "remove" and row["body"] == "" and row["short"] == "", row
+    assert row["fault"] == "misled" and row["encountered"] and row["evidence"], row
+    assert row["actor_id"], row
+
+
 HAPPY: dict[str, Happy] = {
     # ── T-33 lore 對象審核 ─────────────────────────────────────────────────────
     # The queue's three faces run as the owner: the floor is admin_agent (owner
@@ -1324,6 +1420,17 @@ HAPPY: dict[str, Happy] = {
         identity="agent",
         body={"subject": _LORE_FRESH_SUBJECT, "limit": 5},
         check=_check_lore_search,
+    ),
+    "POST /api/lore/entries/{entry_id}/proposals": Happy(
+        identity="agent",
+        path=lambda ctx: f"/api/lore/entries/{_lore_proposal_target(ctx, 'post')[0]}/proposals",
+        body=_lore_propose_body,
+        check=_check_lore_propose,
+    ),
+    "GET /api/lore/entries/{entry_id}/proposals": Happy(
+        identity="agent",
+        path=_lore_proposal_list_path,
+        check=_check_lore_proposal_list,
     ),
     "POST /api/lore/entries/{entry_id}/revive": Happy(
         path=lambda ctx: f"/api/lore/entries/{_lore_retired_entry(ctx)}/revive",
@@ -3146,6 +3253,46 @@ def test_mfa_full_ceremony(hctx: HCtx) -> None:
 
 
 # ── coverage teeth ───────────────────────────────────────────────────────────
+
+
+def test_lore_proposal_refuses_a_base_digest_that_is_not_current(hctx: HCtx) -> None:
+    """T-33 — 過期提案跟 PR 一模一樣的坑, on the wire.
+
+    A proposal names the version it was written against. If that is not the
+    version the entry stands at, the submission is refused 409 rather than
+    stored: applying it later would silently discard whoever changed the entry in
+    between, and NOTHING about the result would look wrong.
+
+    The 200 at the end is the positive control. Without it a route that refused
+    every proposal would satisfy the assertion above."""
+    head = {"Authorization": f"Bearer {hctx.agent.token}"}
+    entry_id = _lore_entry(hctx)
+    sha = hctx.client.get(f"/api/lore/entries/{entry_id}", headers=head).json()["sha256"]
+
+    body = {
+        "kind": "remove",
+        "base_sha256": "0" * 64,
+        "encountered": "the conformance suite probing the staleness refusal",
+        "fault": "never-true",
+        "evidence": "this proposal names a version of the entry that never existed",
+    }
+    r = hctx.client.post(
+        f"/api/lore/entries/{entry_id}/proposals", headers=head, json=body)
+    assert r.status_code == 409, (
+        f"a proposal against a version nobody holds must be refused 409, got "
+        f"{r.status_code} {r.text[:300]}")
+    message = r.json()["error"]["message"]
+    # The words carry as much as the number: 409 alone does not tell a proposer
+    # whether to re-read the entry or to fix his own body.
+    assert "changed while you were reviewing it" in message, message
+    assert sha in message and "0" * 64 in message, message
+
+    body["base_sha256"] = sha
+    ok = hctx.client.post(
+        f"/api/lore/entries/{entry_id}/proposals", headers=head, json=body)
+    assert ok.status_code == 200, (
+        f"the SAME proposal against the current digest must land: "
+        f"{ok.status_code} {ok.text[:300]}")
 
 
 def test_lore_search_refuses_an_undeclared_condition(hctx: HCtx) -> None:

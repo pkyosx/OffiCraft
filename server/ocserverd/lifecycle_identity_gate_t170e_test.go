@@ -930,6 +930,13 @@ var identityGateLedger = map[string]string{
 	"api_lore_entity.go :: writeLoreEntityReceipt :: Kind: event.Kind": "" +
 		"NOT an identity gate — the SAME lore governance vocabulary one file over " +
 		"(`entity-approve` / `entity-merge`), copied to the subject-review receipt.",
+	"api_lore_proposal.go :: HandleProposeLoreChangeApiLoreEntriesEntryIdProposalsPost :: Kind: body.Kind": "" +
+		"NOT an identity gate — LORE PROPOSAL kind (`update` / `remove`): what a " +
+		"proposal ASKS FOR, not who is asking. The caller identity on this route is " +
+		"currentActor(r), which the body cannot assert.",
+	"api_lore_proposal.go :: HandleListLoreProposalsApiLoreEntriesEntryIdProposalsGet :: Kind: p.Kind": "" +
+		"NOT an identity gate — the same proposal-kind vocabulary, copied to the DTO " +
+		"on the read side.",
 
 	// ── NOT identity gates at all ──────────────────────────────────────────
 	//
@@ -947,6 +954,12 @@ var identityGateLedger = map[string]string{
 		"field name, same reason for keeping it visible.",
 	"wire.go :: newTaskArtifactDTO :: a.Kind != ArtifactKindLink": "" +
 		"NOT an identity gate — the wire twin of the artifact-kind test above.",
+	"dal_lore_proposal.go :: loreProposalShapeError :: p.Kind == \"remove\"": "" +
+		"NOT an identity gate — LORE PROPOSAL kind again, deciding whether a whole " +
+		"replacement version is expected. Reads no member.",
+	"dal_lore_proposal.go :: CreateLoreProposal :: p.Kind == \"update\"": "" +
+		"NOT an identity gate — the other arm of the same proposal-kind question, " +
+		"deciding whether there is a version to render and digest.",
 	"api_tasks_handoff.go :: applyHandoffPlan :: plan.Kind switch case HandoffFollowUp": "" +
 		"NOT an identity gate — HANDOFF-PLAN kind (none / follow-up / return to " +
 		"creator). Caught by the switch shape, which exists for the member-kind switch " +

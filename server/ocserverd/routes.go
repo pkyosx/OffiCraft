@@ -2326,5 +2326,50 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary:  "Read ONE revision of a lore entry in full — the exact text that was stored at that moment, plus its `sha256`. `shrink_chars` says how many characters that write removed compared with the one before it, which is how a compression that quietly hollowed an entry out becomes visible at all (the entry count does not move when an entry is emptied). 🔴 THE ENTRY ID IN THE PATH IS A CONSTRAINT, NOT DECORATION: revision ids are global, so a revision that belongs to a DIFFERENT entry is a 404 rather than being served through this address — a mistyped entry id must not hand you somebody else's text with nothing to signal it. 404 when the entry does not exist, or when it does and that revision is not one of its own.",
 			MCPTool:  "get_lore_revision",
 		},
+		// ── T-33 lore, 回饋與提案 ──────────────────────────────────────────────
+		// 🔴 APPENDED AT THE END OF THE TABLE, like every tool before them, and
+		// for the reason stated in full at the custom-themes block above: the MCP
+		// tool surface has ONE order shared by this table, spec/openapi.json's
+		// x-mcp.order and conformance/routes_manifest.json, and x-mcp.order must
+		// be the consecutive range 0..N-1. Inserting these beside the other lore
+		// rows — where they read better — would renumber every tool after them.
+		//
+		// 🔴 principalAgent ON BOTH, AND THAT IS THE POINT OF THE PAIR. Saying
+		// 「這條幫倒忙，我認為它應該長這樣」 is an agent's own act on knowledge it
+		// was handed; a floor above that would mean the only members who ever
+		// USE the store cannot report what it did to them, and the owner's ruling
+		// of 2026-09-01 (「可以先寫入 但是審核可以事後」) already put review after
+		// the act rather than in front of it. Nothing here decides anything: a
+		// proposal changes no entry, so an agent floor grants no authority over
+		// the store, only the ability to ask.
+		//
+		// ⚠️ THE READ IS AT THE SAME FLOOR AS THE WRITE, deliberately. A proposer
+		// has to be able to see whether somebody already filed the same thing,
+		// and — more to the point — whether his own proposal has gone stale since
+		// he filed it. Putting the read above the write would make a proposal
+		// something an agent can send and never see again.
+		//
+		// ⚠️ WHAT THESE TWO ROWS DO NOT DO: there is no accept, no decline, and
+		// no cross-entry queue. 仲裁 is separate work. What this pair owes it is
+		// the base digest, and that is recorded, checked at submit and recomputed
+		// on every read.
+		{
+			Method:   "POST",
+			Path:     "/api/lore/entries/{entry_id}/proposals",
+			Handler:  w.HandleProposeLoreChangeApiLoreEntriesEntryIdProposalsPost,
+			Auth:     authGated,
+			Requires: principalAgent,
+			Summary:  "Propose a change to ONE lore entry — a WHOLE replacement version, not a patch, plus the account of why. 🔴 YOU SEND THE FULL NEW VERSION AND THE DIFF IS COMPUTED FROM IT (owner ruling, 2026-09-02: 「讓 agent submit new full version 即可 / diff view 我們自己產出」). A patch would leave two artefacts — what you said you were changing and what applying it actually produces — and the gap between them looks completely normal to a reviewer. With a whole version there is no second artefact: the difference a reviewer reads is the bytes that would land. 🔴 `base_sha256` IS THE VERSION YOU ACTUALLY READ, taken from `sha256` on `GET /api/lore/entries/{entry_id}`, and it is REQUIRED. If the entry has been rewritten since you read it the proposal is refused 409 naming both digests — filing against the older text would silently discard whoever changed it, which is exactly the failure a stale pull request causes and it looks correct from every side. Re-read the entry and rebuild your version on what is there now. A proposal that was fine when filed and went stale AFTERWARDS is not refused — it comes back from the list route with `stale: true`, because at that point the reviewer, not you, is the one who has to know. 🔴 THE THREE ACCOUNT FIELDS ARE ALL REQUIRED, for the reason `falsify` is required on a write: `encountered` says what you were doing when this entry reached you, `fault` says which of three things is wrong with it (`stale` — it was right and is not any more; `never-true` — the claim never held; `misled` — it is retrieved for situations it does not describe and it sent you the wrong way), and `evidence` is what you actually SAW. ⚠️ The cost is the same one the write path accepts and has not solved: nothing here can tell a real account from an invented one; an empty cell is all it can refuse. `kind` is `update` (the six body fields carry the whole new version and are held to the SAME rules a write is, so a proposal nobody could ever accept is refused now rather than sitting in the queue looking acceptable) or `remove` (you are proposing this entry stop being retrieved and you send NO body fields; a removal that carried a version would put text on the reviewer's screen that no accept would ever write). Removal is not deletion — the existing act is `retire`, and `revive_lore_entry` undoes it. 🔴 NOTHING HERE ACCEPTS ANYTHING: this route files a proposal and no more.",
+			MCPTool:  "propose_lore_change",
+		},
+		{
+			Method:   "GET",
+			Path:     "/api/lore/entries/{entry_id}/proposals",
+			Handler:  w.HandleListLoreProposalsApiLoreEntriesEntryIdProposalsGet,
+			Auth:     authGated,
+			Requires: principalAgent,
+			Summary:  "List the change proposals filed against ONE lore entry, newest first, each carrying the WHOLE proposed version rather than a description of it — so what a reviewer compares is the bytes that would land. `current_sha256` and `current_revision_id` say what the entry stands at RIGHT NOW, and every proposal carries the `base_sha256` it was written against. 🔴 `stale: true` MEANS THE ENTRY WAS REWRITTEN AFTER THIS PROPOSAL WAS FILED — its author argued against text that is no longer there, and applying it would discard whoever changed it in between. It is COMPUTED on every read by comparing the two digests, never stored: a stored flag would be right the day it was written and wrong every day after. The digest it was compared against travels in the same response so the comparison can be checked rather than trusted. 🔴 THIS ROUTE DECIDES NOTHING. There is no accept or decline here; a proposal is a request for review and the verdict is a separate act.",
+			MCPTool:  "list_lore_proposals",
+		},
 	}
 }

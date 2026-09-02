@@ -1244,5 +1244,19 @@
     "method": "POST",
     "path": "/api/lore/entities/{entity_id}/merge",
     "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "propose_lore_change",
+    "method": "POST",
+    "path": "/api/lore/entries/{entry_id}/proposals",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "list_lore_proposals",
+    "method": "GET",
+    "path": "/api/lore/entries/{entry_id}/proposals",
+    "requires": "agent"
   }
 ]

@@ -1274,6 +1274,129 @@ type LorePendingEntityRowDTO struct {
 	Type string `json:"type"`
 }
 
+// LoreProposalDTO ONE filed proposal, in full: why it was filed, which version it was written against, whether that version is still the current one, and — on an `update` — the complete proposed text.
+type LoreProposalDTO struct {
+	// ActorId Who filed it — the verified token subject at the time.
+	ActorId string `json:"actor_id"`
+
+	// BaseRevisionId The L0 revision this proposal was written against.
+	BaseRevisionId int `json:"base_revision_id"`
+
+	// BaseSha256 The digest of that revision. Compare it with `current_sha256` on the enclosing response and you have recomputed `stale` yourself.
+	BaseSha256 string `json:"base_sha256"`
+
+	// Body The complete proposed version as rendered text — every field present with its name, blank or not, so a deleted section and a never-written one do not hash the same. Empty on a `remove`.
+	Body string `json:"body"`
+
+	// CreatedTs When it was filed.
+	CreatedTs float64 `json:"created_ts"`
+
+	// Encountered What the proposer was doing when this entry reached them.
+	Encountered string `json:"encountered"`
+
+	// Evidence What the proposer actually saw.
+	Evidence string `json:"evidence"`
+
+	// Falsify The proposed falsifier. Empty on a `remove`.
+	Falsify string `json:"falsify"`
+
+	// Fault `stale`, `never-true` or `misled` — which of the three repairs this proposal is asking for.
+	Fault string `json:"fault"`
+
+	// Instance The proposed instance. Empty on a `remove`.
+	Instance string `json:"instance"`
+
+	// Kind `update` or `remove`.
+	Kind string `json:"kind"`
+
+	// Label The proposed label. Empty on a `remove`.
+	Label string `json:"label"`
+
+	// ProposalId This proposal's id.
+	ProposalId string `json:"proposal_id"`
+
+	// ResidualRisk The proposed residual risk. Empty on a `remove`.
+	ResidualRisk string `json:"residual_risk"`
+
+	// Sha256 The digest of the proposed version. Empty on a `remove`.
+	Sha256 string `json:"sha256"`
+
+	// Short The proposed short body. Empty on a `remove`.
+	Short string `json:"short"`
+
+	// Stale 🔴 TRUE MEANS THE ENTRY WAS REWRITTEN AFTER THIS WAS FILED. The proposer argued against text that is no longer there, so applying it as-is would discard whoever changed it in between — silently, and the result would look entirely correct. COMPUTED on every read from the two digests, never stored.
+	Stale bool `json:"stale"`
+
+	// Symptoms The proposed symptoms. Empty on a `remove`.
+	Symptoms string `json:"symptoms"`
+}
+
+// LoreProposalListDTO An entry's proposals together with the version they are all being compared against. The current digest travels WITH the list on purpose: `stale` is a comparison, and a comparison served without the thing it compared against cannot be checked by whoever reads it.
+type LoreProposalListDTO struct {
+	// CurrentRevisionId The entry's latest L0 revision id, right now.
+	CurrentRevisionId int `json:"current_revision_id"`
+
+	// CurrentSha256 The digest of that revision — what every proposal's `base_sha256` is compared against.
+	CurrentSha256 string `json:"current_sha256"`
+
+	// EntryId The entry these proposals are filed against.
+	EntryId string `json:"entry_id"`
+
+	// Proposals The proposals, newest first. Empty when nobody has filed one.
+	Proposals []LoreProposalDTO `json:"proposals"`
+}
+
+// LoreProposalReceiptDTO What the submission stored: the proposal's id, the revision it is bound to, and the digest of the version you proposed. Read back off what was rendered rather than echoed from the request.
+type LoreProposalReceiptDTO struct {
+	// BaseRevisionId The L0 revision row this proposal is bound to — the entry as it stood when you submitted. The digest is the comparison; this makes the row findable.
+	BaseRevisionId int `json:"base_revision_id"`
+
+	// BaseSha256 The digest that was matched. Equal to what you sent, by definition — a mismatch is a 409 and nothing is stored.
+	BaseSha256 string `json:"base_sha256"`
+
+	// ProposalId The id of the proposal that was filed.
+	ProposalId string `json:"proposal_id"`
+
+	// Sha256 The digest of the version you proposed, rendered by the SAME renderer the L0 journal uses — which is what makes it comparable with a revision's digest at all. Empty on a `remove`, which proposes no version.
+	Sha256 string `json:"sha256"`
+}
+
+// LoreProposeDTO Propose one change to a lore entry: the account of what is wrong, and — for an `update` — the COMPLETE replacement version. The field set is CLOSED; an unknown key is a 422, never a silent drop.
+type LoreProposeDTO struct {
+	// BaseSha256 REQUIRED. The `sha256` of the entry version you actually read, copied from `GET /api/lore/entries/{entry_id}`. It is what binds this proposal to a specific text: if the entry has changed since, the submission is refused 409 naming both digests rather than stored against text nobody is looking at any more. It is caller-supplied on purpose — a value the server filled in for itself would always match and would prove nothing.
+	BaseSha256 string `json:"base_sha256"`
+
+	// Encountered REQUIRED. What you were DOING when this entry reached you — the ticket, the task, the bucket you were working out of. A reviewer cannot judge 「這條幫倒忙」 without knowing what it was supposed to help with.
+	Encountered string `json:"encountered"`
+
+	// Evidence REQUIRED. What you actually SAW — the output, the file, the failure — not what you think. ⚠️ Nothing at this layer can tell a real observation from an invented one; it refuses an empty cell, which is all a column can do.
+	Evidence string `json:"evidence"`
+
+	// Falsify How somebody could show the PROPOSED version does not hold. Required on an `update` for the same reason it is required on a write. Sent only on an `update`, where all six together are the whole new version; on a `remove` it must be absent or empty.
+	Falsify *string `json:"falsify,omitempty"`
+
+	// Fault REQUIRED. Which of three things is wrong with the entry, because the three want three different repairs: `stale` — it was right when it was written and is not any more (it wants rewriting against today); `never-true` — the claim never held (it wants retiring as `falsified`, which is the owner's call); `misled` — it is retrieved for situations it does not describe and it sent you the wrong way (its `symptoms` want fixing). An unrecognised value is refused 422 with the value named; there is no default, because an undifferentiated 「這條不好」 tells a reviewer nothing about what to do.
+	Fault string `json:"fault"`
+
+	// Instance One case that really happened, for the PROPOSED version. Required on an `update`. Sent only on an `update`, where all six together are the whole new version; on a `remove` it must be absent or empty.
+	Instance *string `json:"instance,omitempty"`
+
+	// Kind REQUIRED. `update` — you are proposing the entry should say something else, and the six body fields below carry the whole new version. `remove` — you are proposing it stop being retrieved, and you send NO body fields at all; a removal carrying a version would put text on a reviewer's screen that no accept would ever write. Anything else is refused 422 with the value named. Note that a removal is not a deletion: the act it asks for is `retire_lore_entry`, and `revive_lore_entry` undoes it.
+	Kind string `json:"kind"`
+
+	// Label The proposed one-line NAME, at most 40 runes — the same cap and the same refusal (never a trim) a write is held to. Sent only on an `update`, where all six together are the whole new version; on a `remove` it must be absent or empty.
+	Label *string `json:"label,omitempty"`
+
+	// ResidualRisk What the PROPOSED version does not protect against. Sent only on an `update`, where all six together are the whole new version; on a `remove` it must be absent or empty.
+	ResidualRisk *string `json:"residual_risk,omitempty"`
+
+	// Short The proposed compressed body — the one field that ever enters a boot context. Required on an `update`. Sent only on an `update`, where all six together are the whole new version; on a `remove` it must be absent or empty.
+	Short *string `json:"short,omitempty"`
+
+	// Symptoms The proposed 「what I would be SEEING」 — the axis a reader finds the entry by. Required on an `update`. Sent only on an `update`, where all six together are the whole new version; on a `remove` it must be absent or empty.
+	Symptoms *string `json:"symptoms,omitempty"`
+}
+
 // LoreRetireDTO Retire one lore entry: `{reason, replaced_by}`. `reason` is REQUIRED and closed to `expired` / `merged` / `falsified` — an unrecognised value is refused rather than defaulted, because a typo defaulted to the permissive side would retire an entry as if it were merely stale.
 type LoreRetireDTO struct {
 	// Reason WHY this entry stops being retrieved, and it is the field that decides whether you are allowed to file it at all. Exactly one of: `expired` — the situation changed and this no longer applies (it MAY come back); `merged` — folded into another entry, whose id belongs in `replaced_by` (the content still exists over there); `falsified` — the entry's claim WAS NEVER TRUE (it should NOT come back), and only the owner may file this one. Anything else is refused 422 with the value named; there is no default, because defaulting a typo to the permissive side would retire an entry as if it were merely stale and nothing downstream could tell afterwards.
@@ -3947,6 +4070,9 @@ type HandleMergeLoreEntityApiLoreEntitiesEntityIdMergePostJSONRequestBody = Lore
 // HandleWriteLoreEntryApiLoreEntriesPostJSONRequestBody defines body for HandleWriteLoreEntryApiLoreEntriesPost for application/json ContentType.
 type HandleWriteLoreEntryApiLoreEntriesPostJSONRequestBody = LoreWriteDTO
 
+// HandleProposeLoreChangeApiLoreEntriesEntryIdProposalsPostJSONRequestBody defines body for HandleProposeLoreChangeApiLoreEntriesEntryIdProposalsPost for application/json ContentType.
+type HandleProposeLoreChangeApiLoreEntriesEntryIdProposalsPostJSONRequestBody = LoreProposeDTO
+
 // HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePostJSONRequestBody defines body for HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePost for application/json ContentType.
 type HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePostJSONRequestBody = LoreRetireDTO
 
@@ -4342,6 +4468,12 @@ type ServerInterface interface {
 	// Read ONE lore entry in full, together with the ORIGINAL that was preserved beside it — hop ③ of the design, and the reason 「原始資訊可以保留讓我們可以重新判定」 is a mechanism rather than a sentence. `short` is the compressed line that enters a boot context; `original` is the complete text of the entry as it was last written, so an agent that has stopped believing the short version has somewhere to go. `sha256` digests that original, so a reader can tell that what it is holding is what was stored. `revisions` is a CATALOGUE — id, when, who, and how many characters that write REMOVED — and carries no text at all, because a list is how you choose a revision and choosing does not need the prose; fetch one by id from `/api/lore/entries/{entry_id}/revisions/{revision_id}`. 🔴 ADDRESSING IS ENTIRELY IN THE PATH AND THERE ARE NO QUERY PARAMETERS, deliberately: an undeclared query parameter is silently ignored on every route this station serves, so `?revision=3` would have been a way to ask for a specific revision and quietly receive the latest one. A wrong path is a 404, which is loud. 404 when no entry carries that id.
 	// (GET /api/lore/entries/{entry_id})
 	HandleGetLoreEntryApiLoreEntriesEntryIdGet(w http.ResponseWriter, r *http.Request, entryId string)
+	// List the change proposals filed against ONE lore entry, newest first, each carrying the WHOLE proposed version rather than a description of it — so what a reviewer compares is the bytes that would land. `current_sha256` and `current_revision_id` say what the entry stands at RIGHT NOW, and every proposal carries the `base_sha256` it was written against. 🔴 `stale: true` MEANS THE ENTRY WAS REWRITTEN AFTER THIS PROPOSAL WAS FILED — its author argued against text that is no longer there, and applying it would discard whoever changed it in between. It is COMPUTED on every read by comparing the two digests, never stored: a stored flag would be right the day it was written and wrong every day after. The digest it was compared against travels in the same response so the comparison can be checked rather than trusted. 🔴 THIS ROUTE DECIDES NOTHING. There is no accept or decline here; a proposal is a request for review and the verdict is a separate act.
+	// (GET /api/lore/entries/{entry_id}/proposals)
+	HandleListLoreProposalsApiLoreEntriesEntryIdProposalsGet(w http.ResponseWriter, r *http.Request, entryId string)
+	// Propose a change to ONE lore entry — a WHOLE replacement version, not a patch, plus the account of why. 🔴 YOU SEND THE FULL NEW VERSION AND THE DIFF IS COMPUTED FROM IT (owner ruling, 2026-09-02: 「讓 agent submit new full version 即可 / diff view 我們自己產出」). A patch would leave two artefacts — what you said you were changing and what applying it actually produces — and the gap between them looks completely normal to a reviewer. With a whole version there is no second artefact: the difference a reviewer reads is the bytes that would land. 🔴 `base_sha256` IS THE VERSION YOU ACTUALLY READ, taken from `sha256` on `GET /api/lore/entries/{entry_id}`, and it is REQUIRED. If the entry has been rewritten since you read it the proposal is refused 409 naming both digests — filing against the older text would silently discard whoever changed it, which is exactly the failure a stale pull request causes and it looks correct from every side. Re-read the entry and rebuild your version on what is there now. A proposal that was fine when filed and went stale AFTERWARDS is not refused — it comes back from the list route with `stale: true`, because at that point the reviewer, not you, is the one who has to know. 🔴 THE THREE ACCOUNT FIELDS ARE ALL REQUIRED, for the reason `falsify` is required on a write: `encountered` says what you were doing when this entry reached you, `fault` says which of three things is wrong with it (`stale` — it was right and is not any more; `never-true` — the claim never held; `misled` — it is retrieved for situations it does not describe and it sent you the wrong way), and `evidence` is what you actually SAW. ⚠️ The cost is the same one the write path accepts and has not solved: nothing here can tell a real account from an invented one; an empty cell is all it can refuse. `kind` is `update` (the six body fields carry the whole new version and are held to the SAME rules a write is, so a proposal nobody could ever accept is refused now rather than sitting in the queue looking acceptable) or `remove` (you are proposing this entry stop being retrieved and you send NO body fields; a removal that carried a version would put text on the reviewer's screen that no accept would ever write). Removal is not deletion — the existing act is `retire`, and `revive_lore_entry` undoes it. 🔴 NOTHING HERE ACCEPTS ANYTHING: this route files a proposal and no more.
+	// (POST /api/lore/entries/{entry_id}/proposals)
+	HandleProposeLoreChangeApiLoreEntriesEntryIdProposalsPost(w http.ResponseWriter, r *http.Request, entryId string)
 	// Stop retrieving one lore entry and record WHY. Retirement is NOT a delete — the row stays and `revive_lore_entry` brings it back. `reason` is one of `expired` (the situation changed; it may come back), `merged` (folded into another entry — name it in `replaced_by`) or `falsified` (the claim was never true; it should not come back). An ordinary agent may file `expired` and `merged` itself; `falsified` is a judgement about truth and is refused 403 for anyone but the owner. An unrecognised reason is refused 422 rather than defaulted, so a typo cannot retire an entry as if it were merely stale. The reason is written to the governance journal, never onto the entry, because one entry can be retired, revived and retired again for a different reason and a column would only ever remember the last one.
 	// (POST /api/lore/entries/{entry_id}/retire)
 	HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePost(w http.ResponseWriter, r *http.Request, entryId string)
@@ -6020,6 +6152,58 @@ func (siw *ServerInterfaceWrapper) HandleGetLoreEntryApiLoreEntriesEntryIdGet(w 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleGetLoreEntryApiLoreEntriesEntryIdGet(w, r, entryId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleListLoreProposalsApiLoreEntriesEntryIdProposalsGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleListLoreProposalsApiLoreEntriesEntryIdProposalsGet(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "entry_id" -------------
+	var entryId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entry_id", r.PathValue("entry_id"), &entryId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entry_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleListLoreProposalsApiLoreEntriesEntryIdProposalsGet(w, r, entryId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleProposeLoreChangeApiLoreEntriesEntryIdProposalsPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleProposeLoreChangeApiLoreEntriesEntryIdProposalsPost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "entry_id" -------------
+	var entryId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entry_id", r.PathValue("entry_id"), &entryId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entry_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleProposeLoreChangeApiLoreEntriesEntryIdProposalsPost(w, r, entryId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -9144,6 +9328,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/entities/{entity_id}/merge", wrapper.HandleMergeLoreEntityApiLoreEntitiesEntityIdMergePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/entries", wrapper.HandleWriteLoreEntryApiLoreEntriesPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/lore/entries/{entry_id}", wrapper.HandleGetLoreEntryApiLoreEntriesEntryIdGet)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/lore/entries/{entry_id}/proposals", wrapper.HandleListLoreProposalsApiLoreEntriesEntryIdProposalsGet)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/entries/{entry_id}/proposals", wrapper.HandleProposeLoreChangeApiLoreEntriesEntryIdProposalsPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/entries/{entry_id}/retire", wrapper.HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/lore/entries/{entry_id}/revisions/{revision_id}", wrapper.HandleGetLoreRevisionApiLoreEntriesEntryIdRevisionsRevisionIdGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/entries/{entry_id}/revive", wrapper.HandleReviveLoreEntryApiLoreEntriesEntryIdRevivePost)
