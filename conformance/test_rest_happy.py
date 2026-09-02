@@ -1128,7 +1128,6 @@ _LORE_MERGE_SOURCE_SUBJECT = f"repo:conf-folded-{uuid.uuid4().hex[:8]}"
 # by the server on the seeding write.
 _LORE_MERGE_TARGET_ID: dict[str, str] = {}
 
-_LORE_SUGGESTIONS = {"", "approve", "merge"}
 
 
 def _lore_pending_entity(ctx: HCtx, subject: str) -> str:
@@ -1173,12 +1172,21 @@ def _check_lore_queue(_ctx: HCtx, r: httpx.Response) -> None:
     assert row["entries"] >= 1, row
     assert row["sample_short"], row
     assert row["type"] == "repo" and row["name"], row
-    assert isinstance(row["similar"], list), row
-    # `suggestion` is a RULE with an empty answer, never a plausible default —
-    # so what is pinned is the closed vocabulary and the one thing that makes a
-    # `merge` suggestion actionable.
-    assert row["suggestion"] in _LORE_SUGGESTIONS, row
-    assert bool(row["merge_target"]) == (row["suggestion"] == "merge"), row
+    # 🔴 THE SUGGESTION IS PINNED TO THE ONE BRANCH THIS FIXTURE FORCES, not to
+    # the closed vocabulary. `suggestion in {"", "approve", "merge"}` is the
+    # complete enumeration of the legal values, so it passes against every
+    # possible answer including a handler that never computes anything — zero
+    # discriminating power. The fixture makes the branch determinate: the
+    # subject is `repo:conf-queue-<random hex>`, a name no approved subject can
+    # fold onto (`same_normalized`) and none is within 2 edits / a prefix / a
+    # substring of — the suite's own sibling subjects (`conf-approve-`,
+    # `conf-survivor-`, `conf-folded-`) diverge at the 6th character and are
+    # nowhere near. So `similar` is EMPTY, and the rule's first clause — no
+    # candidate at all ⇒ `approve`, with no merge target — is the only reachable
+    # answer here.
+    assert row["similar"] == [], row
+    assert row["suggestion"] == "approve", row
+    assert row["merge_target"] == "", row
 
 
 def _lore_approve_path(ctx: HCtx) -> str:
