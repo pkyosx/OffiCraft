@@ -117,6 +117,14 @@ type LoreSearchResult struct {
 	SubjectResolved   bool
 	UnresolvedSubject string
 
+	// SubjectEntityID is the entity the subject key actually resolved ONTO —
+	// after an alias was followed and after a merged-away subject was chased to
+	// its survivor. It is not on the wire; it exists so the recall journal can
+	// file the subject that was really searched rather than the string the
+	// caller happened to type, which is the only form two callers asking the
+	// same question can be recognised as having done so.
+	SubjectEntityID string
+
 	// UnmappedActions lists action names the trust table did not recognise
 	// anywhere in this result. Non-empty means at least one entry was classed by
 	// FAILING CLOSED rather than by knowing, which changes what the T2 filter
@@ -157,6 +165,7 @@ func (d *DAL) SearchLore(s LoreSearch) (LoreSearchResult, error) {
 			return out, nil
 		}
 		subjectEntity = id
+		out.SubjectEntityID = id
 	}
 
 	rows, err := d.rdb.Query(`

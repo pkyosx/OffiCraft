@@ -225,15 +225,18 @@ func (s *apiServer) recordLoreSurfacing(sur loreSurfacing) {
 	// directory covering many subjects, so there is no single subject to name,
 	// and nothing was walked to reach it — a hop count would be inventing a
 	// traversal that did not happen.
-	if err := s.dal.InsertLoreRecall(LoreRecall{
-		ActorID:   sur.ActorID,
-		Query:     loreRecallQueryBoot,
-		Returned:  string(returned),
-		CreatedTS: nowSecs(),
-	}); err != nil {
-		log.Printf("[lore] recall journal: recording the boot fold for %q failed: %v — "+
-			"booting anyway", sur.ActorID, err)
-	}
+	//
+	// 🔴 IT GOES THROUGH recordLoreRecall LIKE EVERY OTHER PATH, and the anchor
+	// mode is the load-bearing argument. A boot fold is dispatched to a session
+	// that has NOT connected yet, so it has no anchor of its own — and in
+	// reconcileOne this call sits one line BEFORE clearSessionBootTS, so asking
+	// the roster here would file the OUTGOING session's anchor as this row's.
+	// That number would look right and belong to a session that had ended.
+	s.recordLoreRecall(LoreRecall{
+		ActorID:  sur.ActorID,
+		Query:    loreRecallQueryBoot,
+		Returned: string(returned),
+	}, loreAnchorSessionNotStartedYet)
 }
 
 // loreSubjectsWithinCaps applies both ceilings and reports how many

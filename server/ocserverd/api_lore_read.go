@@ -81,6 +81,25 @@ func (s *apiServer) HandleGetLoreEntryApiLoreEntriesEntryIdGet(
 		actions = []string{}
 	}
 
+	// 🔴 THE ROW IS FILED HERE, AFTER THE 404s, AND THAT IS WHAT MAKES IT
+	// COUNTABLE. Above this line the entry may not exist; below it, the original
+	// is genuinely about to be handed over. A row for an id that named nothing
+	// would say an entry was used when nothing was — the same non-event rule the
+	// boot fold's own preview exclusion follows.
+	//
+	// One read is ONE ROW even when the same actor opens the same entry three
+	// times in a row. That repetition is the measurement, not a duplicate:
+	// inside one session it says the `short` form is not enough and the agent
+	// keeps coming back to the原文; across sessions it says the entry carries
+	// weight. The session anchor on the row is what tells those apart.
+	s.recordLoreRecall(LoreRecall{
+		ActorID: currentActor(r),
+		Query:   loreRecallQueryEntryRead,
+		Returned: encodeLoreRecallReturned(loreRecallReturned{
+			Entries: []string{entry.ID},
+		}),
+	}, loreAnchorFromRoster)
+
 	writeJSON(w, http.StatusOK, LoreEntryDetailDTO{
 		EntryId:      entry.ID,
 		Label:        entry.Label,
@@ -148,6 +167,19 @@ func (s *apiServer) HandleGetLoreRevisionApiLoreEntriesEntryIdRevisionsRevisionI
 			"lore entry '"+entryID+"' has no revision '"+revisionID+"'")
 		return
 	}
+	// A revision read is a SEPARATE row kind from an entry read, not the same
+	// event seen twice. Opening the entry hands back the latest original beside
+	// the six fields; coming back here names ONE revision, which is an agent
+	// working out what an entry used to say — the strongest form of 「短版不夠
+	// 用」 the journal can observe.
+	s.recordLoreRecall(LoreRecall{
+		ActorID: currentActor(r),
+		Query:   loreRecallQueryRevisionRead,
+		Returned: encodeLoreRecallReturned(loreRecallReturned{
+			Entries: []string{rev.EntryID},
+		}),
+	}, loreAnchorFromRoster)
+
 	writeJSON(w, http.StatusOK, LoreRevisionDTO{
 		RevisionId:  int(rev.ID),
 		EntryId:     rev.EntryID,
