@@ -1539,6 +1539,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/lore/entries/{entry_id}/proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the change proposals filed against ONE lore entry, newest first, each carrying the WHOLE proposed version rather than a description of it — so what a reviewer compares is the bytes that would land. `current_sha256` and `current_revision_id` say what the entry stands at RIGHT NOW, and every proposal carries the `base_sha256` it was written against. 🔴 `stale: true` MEANS THE ENTRY WAS REWRITTEN AFTER THIS PROPOSAL WAS FILED — its author argued against text that is no longer there, and applying it would discard whoever changed it in between. It is COMPUTED on every read by comparing the two digests, never stored: a stored flag would be right the day it was written and wrong every day after. The digest it was compared against travels in the same response so the comparison can be checked rather than trusted. 🔴 THIS ROUTE DECIDES NOTHING. There is no accept or decline here; a proposal is a request for review and the verdict is a separate act.
+         * @description Read the change proposals filed against one lore entry (T-33).
+         *
+         *     Each row carries the WHOLE proposed version, so a reviewer compares texts rather than reading a description of a change. `stale` is computed on every read by comparing the proposal's base digest with the entry's current one — never stored, because a stored flag is correct on the day it is written and wrong every day after, which is the second-truth failure this ticket exists to kill. The digest it was compared against is served alongside, so the comparison can be re-derived by whoever reads it.
+         *
+         *     There is no verdict here: this route lists, and decides nothing.
+         */
+        get: operations["handle_list_lore_proposals_api_lore_entries__entry_id__proposals_get"];
+        put?: never;
+        /**
+         * Propose a change to ONE lore entry — a WHOLE replacement version, not a patch, plus the account of why. 🔴 YOU SEND THE FULL NEW VERSION AND THE DIFF IS COMPUTED FROM IT (owner ruling, 2026-09-02: 「讓 agent submit new full version 即可 / diff view 我們自己產出」). A patch would leave two artefacts — what you said you were changing and what applying it actually produces — and the gap between them looks completely normal to a reviewer. With a whole version there is no second artefact: the difference a reviewer reads is the bytes that would land. 🔴 `base_sha256` IS THE VERSION YOU ACTUALLY READ, taken from `sha256` on `GET /api/lore/entries/{entry_id}`, and it is REQUIRED. If the entry has been rewritten since you read it the proposal is refused 409 naming both digests — filing against the older text would silently discard whoever changed it, which is exactly the failure a stale pull request causes and it looks correct from every side. Re-read the entry and rebuild your version on what is there now. A proposal that was fine when filed and went stale AFTERWARDS is not refused — it comes back from the list route with `stale: true`, because at that point the reviewer, not you, is the one who has to know. 🔴 THE THREE ACCOUNT FIELDS ARE ALL REQUIRED, for the reason `falsify` is required on a write: `encountered` says what you were doing when this entry reached you, `fault` says which of three things is wrong with it (`stale` — it was right and is not any more; `never-true` — the claim never held; `misled` — it is retrieved for situations it does not describe and it sent you the wrong way), and `evidence` is what you actually SAW. ⚠️ The cost is the same one the write path accepts and has not solved: nothing here can tell a real account from an invented one; an empty cell is all it can refuse. `kind` is `update` (the six body fields carry the whole new version and are held to the SAME rules a write is, so a proposal nobody could ever accept is refused now rather than sitting in the queue looking acceptable) or `remove` (you are proposing this entry stop being retrieved and you send NO body fields; a removal that carried a version would put text on the reviewer's screen that no accept would ever write). Removal is not deletion — the existing act is `retire`, and `revive_lore_entry` undoes it. 🔴 NOTHING HERE ACCEPTS ANYTHING: this route files a proposal and no more.
+         * @description File one change proposal against a lore entry (T-33).
+         *
+         *     THE PROPOSAL IS A WHOLE VERSION, NOT A PATCH, and that is the owner's ruling of 2026-09-02 rather than a storage preference. A patch keeps two artefacts alive — the change as described and the change as applied — and a reviewer reading a plausible description has no way to see that they differ. Storing the whole version deletes the second artefact: the diff the cockpit renders is computed from the exact bytes an accept would write.
+         *
+         *     THE BASE DIGEST IS CHECKED HERE AND RE-CHECKED ON EVERY READ. A stale proposal is the same trap a stale pull request is: applied after somebody else edited the entry, it silently reverts their work, and nothing about the outcome looks wrong. Submitting against a digest that is no longer current is refused 409 with both digests named. Going stale later is not refusable and is reported instead, on the list route.
+         *
+         *     NOTHING IS ACCEPTED HERE. Filing a proposal changes no entry.
+         */
+        post: operations["handle_propose_lore_change_api_lore_entries__entry_id__proposals_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/lore/search": {
         parameters: {
             query?: never;
@@ -6527,6 +6561,221 @@ export interface components {
              * @default
              */
             superseded: string;
+        };
+        /**
+         * LoreProposeDTO
+         * @description Propose one change to a lore entry: the account of what is wrong, and — for an `update` — the COMPLETE replacement version. The field set is CLOSED; an unknown key is a 422, never a silent drop.
+         */
+        LoreProposeDTO: {
+            /**
+             * Base Sha256
+             * @description REQUIRED. The `sha256` of the entry version you actually read, copied from `GET /api/lore/entries/{entry_id}`. It is what binds this proposal to a specific text: if the entry has changed since, the submission is refused 409 naming both digests rather than stored against text nobody is looking at any more. It is caller-supplied on purpose — a value the server filled in for itself would always match and would prove nothing.
+             */
+            base_sha256: string;
+            /**
+             * Encountered
+             * @description REQUIRED. What you were DOING when this entry reached you — the ticket, the task, the bucket you were working out of. A reviewer cannot judge 「這條幫倒忙」 without knowing what it was supposed to help with.
+             */
+            encountered: string;
+            /**
+             * Evidence
+             * @description REQUIRED. What you actually SAW — the output, the file, the failure — not what you think. ⚠️ Nothing at this layer can tell a real observation from an invented one; it refuses an empty cell, which is all a column can do.
+             */
+            evidence: string;
+            /**
+             * Falsify
+             * @description How somebody could show the PROPOSED version does not hold. Required on an `update` for the same reason it is required on a write. Sent only on an `update`, where all six together are the whole new version; on a `remove` it must be absent or empty.
+             * @default
+             */
+            falsify: string;
+            /**
+             * Fault
+             * @description REQUIRED. Which of three things is wrong with the entry, because the three want three different repairs: `stale` — it was right when it was written and is not any more (it wants rewriting against today); `never-true` — the claim never held (it wants retiring as `falsified`, which is the owner's call); `misled` — it is retrieved for situations it does not describe and it sent you the wrong way (its `symptoms` want fixing). An unrecognised value is refused 422 with the value named; there is no default, because an undifferentiated 「這條不好」 tells a reviewer nothing about what to do.
+             */
+            fault: string;
+            /**
+             * Instance
+             * @description One case that really happened, for the PROPOSED version. Required on an `update`. Sent only on an `update`, where all six together are the whole new version; on a `remove` it must be absent or empty.
+             * @default
+             */
+            instance: string;
+            /**
+             * Kind
+             * @description REQUIRED. `update` — you are proposing the entry should say something else, and the six body fields below carry the whole new version. `remove` — you are proposing it stop being retrieved, and you send NO body fields at all; a removal carrying a version would put text on a reviewer's screen that no accept would ever write. Anything else is refused 422 with the value named. Note that a removal is not a deletion: the act it asks for is `retire_lore_entry`, and `revive_lore_entry` undoes it.
+             */
+            kind: string;
+            /**
+             * Label
+             * @description The proposed one-line NAME, at most 40 runes — the same cap and the same refusal (never a trim) a write is held to. Sent only on an `update`, where all six together are the whole new version; on a `remove` it must be absent or empty.
+             * @default
+             */
+            label: string;
+            /**
+             * Residual Risk
+             * @description What the PROPOSED version does not protect against. Sent only on an `update`, where all six together are the whole new version; on a `remove` it must be absent or empty.
+             * @default
+             */
+            residual_risk: string;
+            /**
+             * Short
+             * @description The proposed compressed body — the one field that ever enters a boot context. Required on an `update`. Sent only on an `update`, where all six together are the whole new version; on a `remove` it must be absent or empty.
+             * @default
+             */
+            short: string;
+            /**
+             * Symptoms
+             * @description The proposed 「what I would be SEEING」 — the axis a reader finds the entry by. Required on an `update`. Sent only on an `update`, where all six together are the whole new version; on a `remove` it must be absent or empty.
+             * @default
+             */
+            symptoms: string;
+        };
+        /**
+         * LoreProposalReceiptDTO
+         * @description What the submission stored: the proposal's id, the revision it is bound to, and the digest of the version you proposed. Read back off what was rendered rather than echoed from the request.
+         */
+        LoreProposalReceiptDTO: {
+            /**
+             * Base Revision Id
+             * @description The L0 revision row this proposal is bound to — the entry as it stood when you submitted. The digest is the comparison; this makes the row findable.
+             */
+            base_revision_id: number;
+            /**
+             * Base Sha256
+             * @description The digest that was matched. Equal to what you sent, by definition — a mismatch is a 409 and nothing is stored.
+             */
+            base_sha256: string;
+            /**
+             * Proposal Id
+             * @description The id of the proposal that was filed.
+             */
+            proposal_id: string;
+            /**
+             * Sha256
+             * @description The digest of the version you proposed, rendered by the SAME renderer the L0 journal uses — which is what makes it comparable with a revision's digest at all. Empty on a `remove`, which proposes no version.
+             */
+            sha256: string;
+        };
+        /**
+         * LoreProposalDTO
+         * @description ONE filed proposal, in full: why it was filed, which version it was written against, whether that version is still the current one, and — on an `update` — the complete proposed text.
+         */
+        LoreProposalDTO: {
+            /**
+             * Actor Id
+             * @description Who filed it — the verified token subject at the time.
+             */
+            actor_id: string;
+            /**
+             * Base Revision Id
+             * @description The L0 revision this proposal was written against.
+             */
+            base_revision_id: number;
+            /**
+             * Base Sha256
+             * @description The digest of that revision. Compare it with `current_sha256` on the enclosing response and you have recomputed `stale` yourself.
+             */
+            base_sha256: string;
+            /**
+             * Body
+             * @description The complete proposed version as rendered text — every field present with its name, blank or not, so a deleted section and a never-written one do not hash the same. Empty on a `remove`.
+             */
+            body: string;
+            /**
+             * Created Ts
+             * @description When it was filed.
+             */
+            created_ts: number;
+            /**
+             * Encountered
+             * @description What the proposer was doing when this entry reached them.
+             */
+            encountered: string;
+            /**
+             * Evidence
+             * @description What the proposer actually saw.
+             */
+            evidence: string;
+            /**
+             * Falsify
+             * @description The proposed falsifier. Empty on a `remove`.
+             */
+            falsify: string;
+            /**
+             * Fault
+             * @description `stale`, `never-true` or `misled` — which of the three repairs this proposal is asking for.
+             */
+            fault: string;
+            /**
+             * Instance
+             * @description The proposed instance. Empty on a `remove`.
+             */
+            instance: string;
+            /**
+             * Kind
+             * @description `update` or `remove`.
+             */
+            kind: string;
+            /**
+             * Label
+             * @description The proposed label. Empty on a `remove`.
+             */
+            label: string;
+            /**
+             * Proposal Id
+             * @description This proposal's id.
+             */
+            proposal_id: string;
+            /**
+             * Residual Risk
+             * @description The proposed residual risk. Empty on a `remove`.
+             */
+            residual_risk: string;
+            /**
+             * Sha256
+             * @description The digest of the proposed version. Empty on a `remove`.
+             */
+            sha256: string;
+            /**
+             * Short
+             * @description The proposed short body. Empty on a `remove`.
+             */
+            short: string;
+            /**
+             * Stale
+             * @description 🔴 TRUE MEANS THE ENTRY WAS REWRITTEN AFTER THIS WAS FILED. The proposer argued against text that is no longer there, so applying it as-is would discard whoever changed it in between — silently, and the result would look entirely correct. COMPUTED on every read from the two digests, never stored.
+             */
+            stale: boolean;
+            /**
+             * Symptoms
+             * @description The proposed symptoms. Empty on a `remove`.
+             */
+            symptoms: string;
+        };
+        /**
+         * LoreProposalListDTO
+         * @description An entry's proposals together with the version they are all being compared against. The current digest travels WITH the list on purpose: `stale` is a comparison, and a comparison served without the thing it compared against cannot be checked by whoever reads it.
+         */
+        LoreProposalListDTO: {
+            /**
+             * Current Revision Id
+             * @description The entry's latest L0 revision id, right now.
+             */
+            current_revision_id: number;
+            /**
+             * Current Sha256
+             * @description The digest of that revision — what every proposal's `base_sha256` is compared against.
+             */
+            current_sha256: string;
+            /**
+             * Entry Id
+             * @description The entry these proposals are filed against.
+             */
+            entry_id: string;
+            /**
+             * Proposals
+             * @description The proposals, newest first. Empty when nobody has filed one.
+             */
+            proposals: components["schemas"]["LoreProposalDTO"][];
         };
         /**
          * LoginDTO
@@ -13337,6 +13586,108 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LoreGovernanceDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_list_lore_proposals_api_lore_entries__entry_id__proposals_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreProposalListDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_propose_lore_change_api_lore_entries__entry_id__proposals_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoreProposeDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreProposalReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
