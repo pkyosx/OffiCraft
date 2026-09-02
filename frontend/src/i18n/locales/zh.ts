@@ -101,117 +101,9 @@ export const zh = {
     pendingTitle: "等你審核",
     entriesTitle: "記憶",
     title: "傳承",
-    tabOverview: "概覽",
-    tabPending: "待審",
-    tabSubjects: "對象",
-    tabHealth: "健康",
-
-    // 共用的「尚無資料來源」區塊(components/LoreEmptySource)
-    noSource: "尚無資料來源",
-    noSourceMissing: "缺的是這一條路：",
-    noSourceNoNumber:
-      "這一格永遠不會顯示數字。一個沒有生產者的零，讀起來就是「我們查過，沒有」。",
-    routesToday:
-      "站上今天只有六條 lore route：寫入、搜尋、讀一條、讀一版、停用、恢復。列對象目錄、列待審對象、核可與合併都沒有路。",
-
-    // ── 概覽 ──
-    countsTitle: "數得出來的",
-    entryTotalLabel: "可撈取的條目總數",
-    entryTotalNote:
-      "這個數字是伺服器在不帶條件的搜尋回應裡給的 total，不是把畫面上的清單長度數出來的。",
-    entryTotalTruncated: "回傳的筆數被上限切過，total 仍是切之前的數量。",
-    subjectTotalLabel: "對象總數",
-    subjectTotalWhy:
-      "要有一條列對象目錄的路才數得出來。拿搜尋結果裡出現過的對象去湊，湊出來的是「這一次撈到的」，不是「站上有的」。",
-    pendingCountLabel: "待審新對象",
-    pendingCountWhy: "沒有任何一條路列得出待審對象，也沒有一條路核可它。",
-
-    judgementTitle: "要人判斷的 —— 只給清單，不給數字",
-    judgementNote:
-      "它們不是還沒算出來，是算不出來。一個要靠判斷才有的數，寫成數字就會被當成量過的 —— 清單可以一條一條看，數字不行。",
-    judgementUnderspecTag: "已被取代",
-    judgementUnderspecTitle: "寫得不夠清楚",
-    judgementUnderspecBody:
-      "證偽條件與實例已裁定為寫入時必填，往後不會再產生。剩下的只會是從舊 markdown 搬過來的存量 —— 那是搬家進度，不是健康指標。",
-    judgementConflictTag: "判斷",
-    judgementConflictTitle: "互相矛盾",
-    judgementConflictBody:
-      "要比的是意思不是字面，靜態判不出來。今天沒有任何東西在判，設計也沒指名誰做。做出來的話，找候選必然是 AI，人只拿到候選去裁。",
-    judgementStripTag: "判斷",
-    judgementStripTitle: "規範拔除候選",
-    judgementStripBody:
-      "判斷依據本身不存在：沒有任何欄位記得規範裡每一句是誰寫的。所以它是三拍 —— 標記（原文一個字不動）→ 圈掉不同意的 → 才拔。",
-
-    attentionTitle: "需要你看一眼",
-    attentionWhy:
-      "這一區要列的是待審新對象、型別新增請求與搬家存量，三種都要一條列得出它們的路。",
-    mergeChartTitle: "每個型別每週被合併幾次",
-    mergeChartWhy:
-      "合併這件事今天沒有留下任何一筆紀錄，所以這張圖沒有東西可畫。它要回答的是「某個型別每週都在被合併 ⇒ 是命名規則有問題，不是使用者不小心」。",
-
-    // ── 待審 ──
-    pendingRuling:
-      "這一頁確定要存在：owner 已裁定保留待審狀態，核可只有 owner 與 admin 按得動，而且要做成後端自己擋 —— 把按鈕藏起來但 API 放行，等於沒有權限。",
-    pendingQueueEntities: "新對象",
-    pendingQueueTypes: "型別新增",
-    pendingQueueConflicts: "矛盾對",
-    pendingQueueStrip: "規範拔除候選",
-    pendingEntitiesWhy:
-      "寫入時名字打錯會鑄一個待審對象，而今天沒有一條路列得出它們，也沒有一條路核可或合併它們 —— 它永遠停在那裡。",
-    pendingTypesWhy: "沒有一條路列得出型別新增請求，也沒有一條路裁定它。",
-    pendingConflictsWhy:
-      "今天沒有任何東西在產生「矛盾」這個標記。要找出兩條互相矛盾的記錄得靠症狀那一軸去比對，而症狀回得來、查不進去。",
-    pendingStripWhy:
-      "沒有任何欄位記得規範裡每一句是誰寫的，判斷依據本身不存在。",
-    pendingNoRejectNote:
-      "「駁回」這個動作還沒有人裁定過，所以這裡不會長出那一顆按鈕 —— 一個沒被裁定的出口，做出來就是替別人決定了。",
-
-    // ── 對象 ──
-    searchTitle: "搜尋條件",
-    searchCatalogueWhy:
-      "這一欄本來要放對象目錄，已審核一群、未審核一群、已審核的排前面。沒有列對象目錄的路，所以這裡只能讓你自己打對象鍵。",
-    searchSubjectLabel: "對象鍵",
-    searchSubjectHint: "type:name，例如 repo:officraft。留空表示不限對象。",
-    searchQueryLabel: "關鍵字",
-    searchQueryHint:
-      "字面比對、不分大小寫，比的是名稱／短版／症狀。不是語意 —— 兩條講同一件事但用字不同的記錄，彼此找不到對方。",
-    searchSubmit: "搜尋",
-    searchBusy: "搜尋中…",
-    searchFailed: "搜尋失敗，這是伺服器回的：",
-
-    resultsTitle: "結果",
-    resultsEmpty: "這一組條件沒有撈到任何條目。",
-    resultsTotalLead: "符合 ",
-    resultsTotalTail: " 條",
-    resultsTruncated: "回傳的筆數被上限切過，下面看到的不是全部。",
-    unresolvedTitle: "這個對象鍵沒有指到任何東西",
-    unresolvedBody:
-      "這不是「這個對象底下沒有條目」，是「站上沒有這個對象」。伺服器把你打的鍵原樣回音在下面，所以打錯字看得見。",
-    unresolvedEcho: "回音的對象鍵",
-    appliedTitle: "伺服器實際套用的條件",
-    appliedWhy:
-      "分層沒有它的軸就會被讀成另一個意思，所以套用條件跟結果一起印，不是印在別的地方。",
-    appliedSubject: "對象",
-    appliedActions: "行為",
-    appliedQuery: "關鍵字",
-    appliedQueryMatch: "比對方式",
-    appliedLimit: "筆數上限",
-    appliedTieredBy: "分層依據",
-    appliedNone: "（無）",
-    appliedTieredByEmpty: "（沒有任何一條是跨著沒被問到的軸撈到的）",
-    unmappedActionsTitle: "信任表沒認得的行為名",
-    unmappedActionsBody:
-      "至少有一條是「認不得就往嚴格的方向倒」分類出來的。猜出來的類別不可以跟查表查出來的長得一樣。",
-
     entryNoLabel: "（這條沒有名字）",
-    entryTierLabel: "分層",
-    entryTierNoteLabel: "分層說明",
-    entryTrustScopeLabel: "信任類別",
-    entryTrustFellBack: "類別是猜的",
     entryDegraded: "證偽條件與實例都空",
     entryOriginLabel: "來自",
-    entrySubjectsLabel: "對象",
-    entryActionsLabel: "行為",
     entryOpen: "展開這一條",
     entryClose: "收起這一條",
     entryLoading: "讀取中…",
@@ -245,33 +137,6 @@ export const zh = {
     revisionFailed: "讀不到這一版，這是伺服器回的：",
     revisionsNote:
       "「被磨掉幾字」這一列是這個分頁最有價值的一格：條目被磨空的時候，條數一條都不會少，任何以「還剩幾條」為準的指標都不會動。",
-    metaTitle: "中繼資料",
-    metaWhy:
-      "撈到幾次、進候選但沒被選中幾次、被確認有用幾次、被回報過期幾次 —— 沒有任何一條路回得出這些。",
-    actionsTitle: "動作",
-    actionsWhy:
-      "回報幫倒忙、不再撈取、開一張「我認為這條是錯的」的卡，都要寫進去。這個分頁只接了讀的那三條路。",
-    scoreWhy:
-      "給分（審核之後給的權重，只影響排序、不擋任何東西）資料庫裡今天沒有這一格，要新增欄位才做得到：分數、誰給的、什麼時候給的。",
-
-    // ── 健康 ──
-    unhelpfulTitle: "沒幫助",
-    unhelpfulBody:
-      "從來沒被撈到的條目。「那個對象被查過、而這條沒被回傳」跟「那個對象從來沒人查過」不能合併成一欄 —— 前者是檢索的問題，後者可能只是最近沒人做那件事，合併就會刪掉好東西。",
-    unhelpfulWhy: "沒有任何一條路回得出撈取紀錄。",
-    helpfulTitle: "有幫助",
-    helpfulWeak: "弱訊號",
-    helpfulBody:
-      "刻意做成事件列表，不是比率：「這條記憶今天真的救了一次」比任何百分比有說服力。而它是 agent 自己按的，有偏差，所以標成弱訊號、不當權威。",
-    helpfulWhy: "要有地方記下「這一次真的救了誰」，今天沒有。",
-    harmfulTitle: "幫倒忙",
-    harmfulBody:
-      "這裡永遠不會顯示一個「幫倒忙」的件數。它依賴有人願意按 —— 沒人按的時候數字是零，而那看起來跟真的沒有幫倒忙一模一樣。這兩件事在畫面上長得不一樣，是這一格唯一的價值。",
-    erosionTitle: "侵蝕",
-    erosionBody:
-      "本週被改寫得更短的條目、合計磨掉幾個字、證偽條件與實例各被磨掉幾條 —— 這些要跨全部條目彙總，而搜尋回應不帶任何一版的字數。",
-    erosionWhere:
-      "今天唯一看得到侵蝕的地方在「對象」頁：打開一條，看它的版本時間軸。",
   },
   notifications: {
     dismiss: "關閉提示",
