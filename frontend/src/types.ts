@@ -977,3 +977,132 @@ export type BackupHealthStatus = "healthy" | "unhealthy" | "unknown";
 /** Which backup failure this is; "" while healthy (or while unknown — an
  * unevaluated watchdog names no failure). */
 export type BackupHealthCode = "" | "never_ran" | "stale" | "failed";
+
+// ── T-33 傳承 (lore) view models ───────────────────────────────────────────
+//
+// 🔴 WHAT IS NOT HERE IS THE POINT. There is no `score`, no `retrievedCount`,
+// no `approved` flag and no `pendingCount` on any of these types, because the
+// station serves no field that could fill one. An OPTIONAL field with no
+// producer reads as 「we looked and there was none」 on every screen that
+// renders it, which is exactly the lie this ticket exists to stop: the page
+// must be able to say 「尚無資料來源」, and it can only say that if the type
+// system never handed it a plausible zero to print instead.
+
+/** One retrieved entry, as `POST /api/lore/search` answers it. */
+export interface LoreEntrySummaryView {
+  entryId: string;
+  /** The entry's one-line NAME. May be empty — an entry can be written before
+   * it has been named, and an invented name looks exactly like a chosen one. */
+  label: string;
+  /** The compressed body — the only field that ever enters a boot context. */
+  short: string;
+  /** What you would be SEEING when this applies. Returned but NOT searchable
+   * (no table, no index, no parameter) — which is why de-duplication and
+   * conflict-finding cannot be done through this route yet. */
+  symptoms: string;
+  /** Subject keys (`repo:officraft`) this entry is filed under. */
+  subjects: string[];
+  actions: string[];
+  /** Whose knowledge this is (`human:Seth`, `agent:Kyle`). */
+  origin: string;
+  /** True when the entry carries NEITHER a falsifier NOR an instance. */
+  degraded: boolean;
+  /** `T1` matched every axis asked on; `T2` reached the caller across an axis
+   * that was NOT asked about. Meaningless without `tieredBy` — read together. */
+  tier: string;
+  tierNote: string;
+  /** `method` / `trust` / `cognitive`. */
+  trustScope: string;
+  /** True when the class was reached by FAILING CLOSED on an action name
+   * nothing recognised, rather than by the mapping table. A guessed class must
+   * not look identical to a known one. */
+  trustFellBack: boolean;
+}
+
+/** What the server ACTUALLY applied, echoed back. Required beside the tiers:
+ * a tier without its axes is read under a meaning it no longer has. */
+export interface LoreSearchAppliedView {
+  subject: string;
+  actions: string[];
+  query: string;
+  /** How `query` was matched. Today always `literal-substring`. */
+  queryMatch: string;
+  limit: number;
+  /** The axes the tier was computed over. Empty ⇒ nothing in the answer
+   * reached the caller across an axis it did not ask about. */
+  tieredBy: string[];
+}
+
+/** One search answer, with every honesty marker the wire carries. */
+export interface LoreSearchView {
+  entries: LoreEntrySummaryView[];
+  /** How many matched BEFORE the count cap — NOT `entries.length`. */
+  total: number;
+  /** True when the cap dropped some of them. */
+  truncated: boolean;
+  /** False ONLY when a `subject` was given and named nothing. 「this subject
+   * has no entries」 and 「this subject does not exist」 are different answers. */
+  subjectResolved: boolean;
+  /** The subject key that named nothing, echoed so a typo is visible. */
+  unresolvedSubject: string;
+  applied: LoreSearchAppliedView;
+  /** Action names the trust table did not recognise — non-empty means at least
+   * one entry was classified by failing closed. */
+  unmappedActions: string[];
+}
+
+/** One catalogue line of an entry's revision history — no text at all. */
+export interface LoreRevisionRowView {
+  revisionId: number;
+  createdTs: number;
+  actorId: string;
+  sha256: string;
+  /** How many characters this write REMOVED compared with the previous one.
+   * 🔴 The ONE place an entry being quietly hollowed out is visible: the entry
+   * count does not move when an entry is emptied. */
+  shrinkChars: number;
+}
+
+/** One entry in full, plus the original preserved beside it. */
+export interface LoreEntryDetailView {
+  entryId: string;
+  label: string;
+  symptoms: string;
+  short: string;
+  /** How to show this entry does NOT hold. May be empty — and an EMPTY one is
+   * rendered as an empty field with its name printed, never omitted: 「blank」
+   * and 「no such section」 must not look the same. */
+  falsify: string;
+  /** One case that really happened. May be empty, same rule. */
+  instance: string;
+  /** What this entry does NOT protect against. May be empty, same rule. */
+  residualRisk: string;
+  subjects: string[];
+  actions: string[];
+  origin: string;
+  /** `active`, `superseded`, `retired` or `underspecified`. */
+  status: string;
+  degraded: boolean;
+  /** The FULL text as last written, every named field including the blank
+   * ones. Empty ONLY for an entry written before the mechanism existed. */
+  original: string;
+  /** Digest of `original`, so a reader can tell it holds what was stored. */
+  sha256: string;
+  /** The entry this one took over from; empty when none. */
+  supersedes: string;
+  /** Who wrote the LATEST revision. */
+  writtenBy: string;
+  /** Oldest first, no text. */
+  revisions: LoreRevisionRowView[];
+}
+
+/** ONE revision's exact stored text. */
+export interface LoreRevisionView {
+  revisionId: number;
+  entryId: string;
+  body: string;
+  sha256: string;
+  createdTs: number;
+  actorId: string;
+  shrinkChars: number;
+}

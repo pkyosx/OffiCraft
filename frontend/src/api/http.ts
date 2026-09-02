@@ -25,6 +25,9 @@
 // no token query param) — it is pinned only by service/auth.py + these comments.
 
 import type {
+  LoreSearchView,
+  LoreEntryDetailView,
+  LoreRevisionView,
   Member,
   MonitoringView,
   VersionView,
@@ -100,6 +103,7 @@ import type {
   ThemeWriteReceipt,
   ThemeDeleteResult,
   SseConnectionState,
+  LoreSearchInput,
 } from "./adapter";
 import {
   toMember,
@@ -115,6 +119,9 @@ import {
   toBootDoc,
   toDocumentHistory,
   toDocumentHistoryEntry,
+  toLoreSearch,
+  toLoreEntryDetail,
+  toLoreRevision,
   toDocumentRevision,
   toDocumentSeed,
   toRoleDef,
@@ -2825,6 +2832,70 @@ export const httpApi: Api = {
         setSseState("idle");
       }
     };
+  },
+
+  // ── T-33 傳承 (lore), read side ────────────────────────────────────────
+  async searchLore(input: LoreSearchInput = {}): Promise<LoreSearchView> {
+    // POST /api/lore/search -> LoreSearchResultDTO.
+    //
+    // 🔴 A POST for a READ, and that is the contract, not a slip: every
+    // selection condition is a BODY key, because an undeclared body key is
+    // refused 422 BY NAME while an undeclared query parameter is silently
+    // ignored on every route this station serves. A mistyped condition on the
+    // query side would hand back a plausible answer to a question nobody
+    // asked, and nothing would report it.
+    //
+    // Only the fields the caller actually set are sent. `limit` is 1..100 and
+    // out of range is REFUSED rather than clamped, so passing a caller's 0
+    // through would turn "I did not choose" into a rejected request.
+    const body: {
+      subject?: string;
+      actions?: string[];
+      query?: string;
+      limit?: number;
+      force_trust_analogy?: boolean;
+    } = {};
+    if (input.subject !== undefined) body.subject = input.subject;
+    if (input.actions !== undefined) body.actions = input.actions;
+    if (input.query !== undefined) body.query = input.query;
+    if (input.limit !== undefined) body.limit = input.limit;
+    if (input.forceTrustAnalogy !== undefined) {
+      body.force_trust_analogy = input.forceTrustAnalogy;
+    }
+    const wire = unwrap(
+      await client.POST("/api/lore/search", { body }),
+    );
+    return toLoreSearch(wire);
+  },
+
+  async getLoreEntry(entryId: string): Promise<LoreEntryDetailView> {
+    // GET /api/lore/entries/{entry_id} -> LoreEntryDetailDTO. Addressing is
+    // ENTIRELY in the path and there are no query parameters, deliberately:
+    // `?revision=3` would otherwise have been a way to ask for one revision
+    // and quietly receive the latest. A wrong path is a 404, which is loud.
+    const wire = unwrap(
+      await client.GET("/api/lore/entries/{entry_id}", {
+        params: { path: { entry_id: entryId } },
+      }),
+    );
+    return toLoreEntryDetail(wire);
+  },
+
+  async getLoreRevision(
+    entryId: string,
+    revisionId: number,
+  ): Promise<LoreRevisionView> {
+    // GET /api/lore/entries/{entry_id}/revisions/{revision_id} ->
+    // LoreRevisionDTO. The entry id is a CONSTRAINT: revision ids are global,
+    // so a revision belonging to a DIFFERENT entry 404s here rather than
+    // being served — a mistyped entry id must not hand back somebody else's
+    // text with nothing to signal it.
+    const wire = unwrap(
+      await client.GET("/api/lore/entries/{entry_id}/revisions/{revision_id}", {
+        params: { path: { entry_id: entryId, revision_id: revisionId } },
+      }),
+    );
+    return toLoreRevision(wire);
   },
 
   subscribeConnection(

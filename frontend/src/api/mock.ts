@@ -85,6 +85,7 @@ import type {
   ThemeWriteReceipt,
   ThemeDeleteResult,
   SseConnectionState,
+  LoreSearchInput,
 } from "./adapter";
 import type {
   WireMember,

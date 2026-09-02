@@ -376,3 +376,34 @@ export type WireResumeMachines = components["schemas"]["ResumeMachinesDTO"];
  * `ai_pick`), EVERY circled index, the free text, and when. */
 export type WireChatInlineReplyCard =
   components["schemas"]["ChatInlineReplyCardDTO"];
+
+// ── T-33 傳承 (lore) ────────────────────────────────────────────────────────
+// The station serves SIX lore routes and no more (verified against
+// server/ocserverd/routes.go + ocapi_gen.go on this branch): write, search,
+// get-one, get-one-revision, retire, revive. There is NO route that lists
+// SUBJECTS, none that lists the subjects a write parked `pending`, and none
+// that approves or merges one — so the cockpit's subject directory, its
+// pending queue and its approval buttons have no wire to ride, and the page
+// says so rather than drawing a zero.
+
+/** Mirrors `LoreSearchResultDTO` — the retrieved entries plus everything that
+ * separates a real empty answer from a question that never got asked (`total`,
+ * `truncated`, `subject_resolved`, `applied`). */
+export type WireLoreSearchResult =
+  components["schemas"]["LoreSearchResultDTO"];
+
+/** Mirrors `LoreSearchHitDTO` — one retrieved entry plus WHY it is in the
+ * answer (`tier`, `tier_note`, `trust_scope`, `trust_fell_back`). */
+export type WireLoreSearchHit = components["schemas"]["LoreSearchHitDTO"];
+
+/** Mirrors `LoreEntryDetailDTO` — one entry in full, plus the preserved
+ * `original`, its `sha256` and the revision CATALOGUE (no text). */
+export type WireLoreEntryDetail = components["schemas"]["LoreEntryDetailDTO"];
+
+/** Mirrors `LoreRevisionRowDTO` — one catalogue line: who, when, and how many
+ * characters that write REMOVED. `shrink_chars` is the only place a rewrite
+ * that hollowed an entry out is visible at all; the entry count never moves. */
+export type WireLoreRevisionRow = components["schemas"]["LoreRevisionRowDTO"];
+
+/** Mirrors `LoreRevisionDTO` — ONE revision's exact stored text. */
+export type WireLoreRevision = components["schemas"]["LoreRevisionDTO"];
