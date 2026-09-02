@@ -1111,7 +1111,149 @@ def _check_lore_write(_ctx: HCtx, r: httpx.Response) -> None:
     assert d["superseded"] == "", d
 
 
+# ── T-33 lore 對象審核 (the review queue) ──────────────────────────────────────
+# Every subject key an agent writes and nothing recognises is MINTED pending, so
+# the write route IS the seam that fills this queue — these rows seed through it
+# rather than reaching for a fixture the wire does not offer. Each row gets its
+# OWN subject key, generated once per session: approving or merging is a state
+# change, and a row sharing a key with another would pass or fail on which one
+# pytest ran first.
+_LORE_QUEUE_SUBJECT = f"repo:conf-queue-{uuid.uuid4().hex[:8]}"
+_LORE_APPROVE_SUBJECT = f"repo:conf-approve-{uuid.uuid4().hex[:8]}"
+_LORE_MERGE_TARGET_SUBJECT = f"repo:conf-survivor-{uuid.uuid4().hex[:8]}"
+_LORE_MERGE_SOURCE_SUBJECT = f"repo:conf-folded-{uuid.uuid4().hex[:8]}"
+
+# The merge row's target id, learned by its path builder (which runs before the
+# body builder) and read by the body. It cannot be a constant: the id is minted
+# by the server on the seeding write.
+_LORE_MERGE_TARGET_ID: dict[str, str] = {}
+
+_LORE_SUGGESTIONS = {"", "approve", "merge"}
+
+
+def _lore_pending_entity(ctx: HCtx, subject: str) -> str:
+    """Write one entry under a subject key nothing carries and return the
+    entity id the write minted for it."""
+    r = ctx.client.post(
+        "/api/lore/entries",
+        headers=_auth(ctx.agent.token),
+        json={
+            "label": "conformance queue seed",
+            "symptoms": "a subject key is minted and no route can reach it",
+            "short": "an unreviewed name is invisible to every agent's boot",
+            "falsify": "the pending entity is listed before anyone approves it",
+            "instance": "the conformance suite seeding this very entity",
+            "origin": f"agent:{ctx.agent.member_id}",
+            "subjects": [subject],
+        },
+    )
+    assert r.status_code == 200, f"seed pending entity: {r.status_code} {r.text}"
+    minted = [e for e in r.json()["pending_entities"] if e["canonical"] == subject]
+    assert len(minted) == 1, f"{subject} was not minted pending: {r.json()}"
+    return minted[0]["entity_id"]
+
+
+def _lore_queue_path(ctx: HCtx) -> str:
+    """Seed one pending entity so the queue answers a row rather than `[]`. An
+    empty queue is a legal answer, so a list row with nothing in it would pass
+    against a handler that serves a constant."""
+    _lore_pending_entity(ctx, _LORE_QUEUE_SUBJECT)
+    return "/api/lore/entities/pending"
+
+
+def _check_lore_queue(_ctx: HCtx, r: httpx.Response) -> None:
+    rows = r.json()
+    assert isinstance(rows, list)
+    seeded = [row for row in rows if row["canonical"] == _LORE_QUEUE_SUBJECT]
+    assert len(seeded) == 1, f"the seeded pending entity is not in the queue: {rows}"
+    row = seeded[0]
+    # 🔴 THE HOMEWORK IS THE ROUTE'S REASON TO EXIST. A row carrying only the
+    # key sends the reviewer to two other screens to find out whether it is a
+    # typo, so the count and the sample travel WITH it.
+    assert row["entries"] >= 1, row
+    assert row["sample_short"], row
+    assert row["type"] == "repo" and row["name"], row
+    assert isinstance(row["similar"], list), row
+    # `suggestion` is a RULE with an empty answer, never a plausible default —
+    # so what is pinned is the closed vocabulary and the one thing that makes a
+    # `merge` suggestion actionable.
+    assert row["suggestion"] in _LORE_SUGGESTIONS, row
+    assert bool(row["merge_target"]) == (row["suggestion"] == "merge"), row
+
+
+def _lore_approve_path(ctx: HCtx) -> str:
+    return f"/api/lore/entities/{_lore_pending_entity(ctx, _LORE_APPROVE_SUBJECT)}/approve"
+
+
+def _check_lore_approve(ctx: HCtx, r: httpx.Response) -> None:
+    d = r.json()
+    assert d["canonical"] == _LORE_APPROVE_SUBJECT, d
+    assert d["kind"] == "entity-approve" and d["actor_id"], d
+    # 🔴 THE RECEIPT IS READ BACK, NOT ECHOED, so `pending: false` here is the
+    # state the entity is actually in — and leaving the queue is the whole act.
+    assert d["pending"] is False and d["merged_into"] == "", d
+    left = ctx.client.get(
+        "/api/lore/entities/pending", headers=_auth(ctx.owner_token)
+    )
+    assert left.status_code == 200, left.text
+    assert _LORE_APPROVE_SUBJECT not in [
+        row["canonical"] for row in left.json()
+    ], "an approved entity is still parked in the review queue"
+
+
+def _lore_merge_path(ctx: HCtx) -> str:
+    """A merge needs a survivor that is itself APPROVED — merging into a subject
+    the boot directory also hides is the refusal the route names, not the happy
+    face — so the target is minted and approved before the source is minted."""
+    target = _lore_pending_entity(ctx, _LORE_MERGE_TARGET_SUBJECT)
+    approved = ctx.client.post(
+        f"/api/lore/entities/{target}/approve",
+        headers=_auth(ctx.owner_token),
+        json={"reason": "conformance merge target"},
+    )
+    assert approved.status_code == 200, f"seed merge target: {approved.text}"
+    _LORE_MERGE_TARGET_ID["id"] = target
+    source = _lore_pending_entity(ctx, _LORE_MERGE_SOURCE_SUBJECT)
+    return f"/api/lore/entities/{source}/merge"
+
+
+def _check_lore_merge(ctx: HCtx, r: httpx.Response) -> None:
+    d = r.json()
+    assert d["canonical"] == _LORE_MERGE_SOURCE_SUBJECT, d
+    assert d["kind"] == "entity-merge" and d["actor_id"], d
+    # The source keeps existing — nothing in this schema deletes — but it stops
+    # being pending and now names its survivor.
+    assert d["pending"] is False, d
+    assert d["merged_into"] == _LORE_MERGE_TARGET_ID["id"], d
+    left = ctx.client.get(
+        "/api/lore/entities/pending", headers=_auth(ctx.owner_token)
+    )
+    assert left.status_code == 200, left.text
+    assert _LORE_MERGE_SOURCE_SUBJECT not in [
+        row["canonical"] for row in left.json()
+    ], "a merged-away entity is still parked in the review queue"
 HAPPY: dict[str, Happy] = {
+    # ── T-33 lore 對象審核 ─────────────────────────────────────────────────────
+    # The queue's three faces run as the owner: the floor is admin_agent (owner
+    # ruling rc-139a5ab99a19), and the owner is this file's lowest-friction
+    # identity at or above it.
+    "GET /api/lore/entities/pending": Happy(
+        path=_lore_queue_path,
+        check=_check_lore_queue,
+    ),
+    "POST /api/lore/entities/{entity_id}/approve": Happy(
+        path=_lore_approve_path,
+        body={"reason": "conformance happy approval"},
+        check=_check_lore_approve,
+    ),
+    "POST /api/lore/entities/{entity_id}/merge": Happy(
+        path=_lore_merge_path,
+        body=lambda _ctx: {
+            "into": _LORE_MERGE_TARGET_ID["id"],
+            "reason": "conformance happy merge",
+        },
+        check=_check_lore_merge,
+    ),
     # ── T-33 lore ────────────────────────────────────────────────────────────
     "POST /api/lore/entries": Happy(
         identity="agent",

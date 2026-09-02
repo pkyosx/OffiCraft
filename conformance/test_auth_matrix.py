@@ -1160,6 +1160,32 @@ MATRIX: dict[str, Route] = {
         ),
         body={"edits": [{"old": "", "new": "conformance patch probe"}]},
     ),
+    # ── T-33 lore 對象審核 ─────────────────────────────────────────────────────
+    # The review queue's three rows sit on the admin_agent floor (owner ruling
+    # rc-139a5ab99a19), so an ORDINARY AGENT IS 403 HERE while it is 200 on the
+    # lore rows below — that asymmetry is the whole point of these three cells
+    # and nothing else in the suite states it. Approving publishes a name into
+    # every agent's boot subject directory and merging rewrites which subject an
+    # entry belongs to; neither is an agent curating what it knows.
+    #
+    # The two acts aim at an entity id NOTHING carries, so every at-or-above-floor
+    # cell is a 404 and every below-floor cell is a derived 403 — which is the
+    # deny-first order being pinned: an agent must not learn from this route
+    # whether an entity exists. The 200 faces are in test_rest_happy.py, which is
+    # where a row may seed a pending entity first.
+    "GET /api/lore/entities/pending": Route(requires="admin_agent"),
+    "POST /api/lore/entities/{entity_id}/approve": Route(
+        requires="admin_agent",
+        path="/api/lore/entities/en-conf-no-such-entity/approve",
+        body={"reason": "conformance authz probe"},
+        overrides={"admin_agent": 404, "owner": 404},
+    ),
+    "POST /api/lore/entities/{entity_id}/merge": Route(
+        requires="admin_agent",
+        path="/api/lore/entities/en-conf-no-such-entity/merge",
+        body={"into": "en-conf-no-such-target"},
+        overrides={"admin_agent": 404, "owner": 404},
+    ),
     # ── T-33 lore ────────────────────────────────────────────────────────────
     # The two governance rows aim at an entry id NOTHING carries, so every
     # at-or-above-floor cell is a 404. That stays deliberate even now that a

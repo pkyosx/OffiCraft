@@ -1223,5 +1223,26 @@
     "method": "GET",
     "path": "/api/lore/entries/{entry_id}/revisions/{revision_id}",
     "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "list_pending_lore_entities",
+    "method": "GET",
+    "path": "/api/lore/entities/pending",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "approve_lore_entity",
+    "method": "POST",
+    "path": "/api/lore/entities/{entity_id}/approve",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "merge_lore_entity",
+    "method": "POST",
+    "path": "/api/lore/entities/{entity_id}/merge",
+    "requires": "admin_agent"
   }
 ]
