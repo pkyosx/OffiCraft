@@ -1245,6 +1245,45 @@ MATRIX: dict[str, Route] = {
             "owner": 404,
         },
     ),
+    # 🔴 THE TWO PROPOSAL ROWS AIM AT AN ENTRY NOTHING CARRIES, and the POST's
+    # body is deliberately WELL-FORMED: the shape checks run before the entry is
+    # looked up, so a body that would have been refused 422 would hide the floor
+    # behind a validation error and every cell would read the same whatever the
+    # floor said. With a valid body every at-or-above-floor cell is the 404 the
+    # lookup produces, which is what these rows pin.
+    #
+    # 🔴 WHAT THESE ROWS DO NOT COVER: the base-digest refusal (409) lives below
+    # the floor gate and behind an entry that has to exist, so it is invisible
+    # here. It is pinned in test_rest_happy.py
+    # (test_lore_proposal_refuses_a_base_digest_that_is_not_current) and in the
+    # server unit tests, against real HTTP requests.
+    "POST /api/lore/entries/{entry_id}/proposals": Route(
+        requires="agent",
+        path="/api/lore/entries/lore-conf-no-such-entry/proposals",
+        body={
+            "kind": "remove",
+            "base_sha256": "0" * 64,
+            "encountered": "the authz matrix is probing this row",
+            "fault": "stale",
+            "evidence": "this very row, run against every identity in the matrix",
+        },
+        overrides={
+            "agent_self": 404,
+            "agent_other": 404,
+            "admin_agent": 404,
+            "owner": 404,
+        },
+    ),
+    "GET /api/lore/entries/{entry_id}/proposals": Route(
+        requires="agent",
+        path="/api/lore/entries/lore-conf-no-such-entry/proposals",
+        overrides={
+            "agent_self": 404,
+            "agent_other": 404,
+            "admin_agent": 404,
+            "owner": 404,
+        },
+    ),
     # ── insight (T-3809) ─────────────────────────────────────────────────────
     # The role journal's third block. Its authz face is the lessons face with
     # the task_type axis removed — three rows, same three floors, same handler
