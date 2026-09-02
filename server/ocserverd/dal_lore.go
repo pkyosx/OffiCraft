@@ -447,6 +447,16 @@ type LoreRecall struct {
 	Hop       int
 	Returned  string
 	CreatedTS float64
+
+	// SessionBootTS and SessionState are the SESSION ANCHOR, stamped at the
+	// moment of the recall rather than joined back to later. member.session_boot_ts
+	// is a single cell that the actor's NEXT session overwrites, so a join from
+	// an old row answers about the wrong session or about none — see
+	// migrations/00067 for the whole argument, and loreRecallSession* for what
+	// the three states mean. Nothing in this struct is optional-by-omission: the
+	// zero value is `unrecorded`, which is a state and not a default.
+	SessionBootTS float64
+	SessionState  string
 }
 
 // InsertLoreRecall appends one row. It is APPEND-ONLY on purpose: the journal's
@@ -454,10 +464,16 @@ type LoreRecall struct {
 // here updates or de-duplicates. Two boots of the same member are two events,
 // not one event seen twice.
 func (d *DAL) InsertLoreRecall(r LoreRecall) error {
+	state := r.SessionState
+	if state == "" {
+		state = loreRecallSessionUnrecorded
+	}
 	_, err := d.wdb.Exec(`
 		INSERT INTO lore_recall_log
-			(actor_id, query, subject_id, hop, returned, created_ts)
-		VALUES (?, ?, ?, ?, ?, ?)`,
-		r.ActorID, r.Query, r.SubjectID, r.Hop, r.Returned, r.CreatedTS)
+			(actor_id, query, subject_id, hop, returned, created_ts,
+			 session_boot_ts, session_state)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.ActorID, r.Query, r.SubjectID, r.Hop, r.Returned, r.CreatedTS,
+		r.SessionBootTS, state)
 	return err
 }

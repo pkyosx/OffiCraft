@@ -1,0 +1,86 @@
+-- +goose Up
+-- T-33 — 每一次取用寫一列，而且那一列自己帶著當時的 session 錨.
+--
+-- WHAT WAS ACTUALLY IN THE JOURNAL BEFORE THIS. lore_recall_log had exactly one
+-- writer: recordLoreSurfacing, which files ONE row per boot for the whole 對象
+-- 目錄. An agent that afterwards searched, or opened a single entry, left NOTHING
+-- — measured, not assumed (TestLoreSearchRouteJournalsTheRetrieval and
+-- TestLoreEntryReadJournalsTheRetrieval were written against the old behaviour
+-- first and both saw zero rows). So the owner's question 「agent 到底有沒有用到
+-- 我們寫的記憶」 had no data behind it at all: the table said what was PUT IN
+-- FRONT of somebody at wake, never what anybody went back and READ.
+--
+-- 🔴 AND THAT HISTORY CANNOT BE BACKFILLED. Every lore read between the station
+-- going live and this column landing is gone for good — there is no other trace
+-- of it anywhere in the schema. That is why this is the half of the design that
+-- shipped first.
+--
+-- ── WHY THE ANCHOR IS A COLUMN HERE AND NOT A JOIN LATER ─────────────────────
+--
+-- The owner's own reasoning was 「他應該有開機時間，我們只需要他讀取的時間就可以
+-- 回推」 — recall time minus session start = 「開機後多久」. That works for the
+-- CURRENT session and only for it: member.session_boot_ts is ONE CELL, and the
+-- next session of the same member overwrites it (00051 is explicit about this,
+-- and clearSessionBootTS zeroes it at every spawn/stop boundary). Joining back
+-- to it from a row written last week answers with THIS week's session, or with
+-- 0. So the anchor is stamped into the row at the moment of the read, when it is
+-- still in hand — one cell, no join, and the only version of it that stays true.
+--
+-- ⚠️ THE FAILURE THAT MADE THIS URGENT IS A SILENT ONE. A row with an absolute
+-- timestamp and no anchor is indistinguishable, on any screen, from a read that
+-- was never recorded at all. Both render as "nothing to say about this session".
+--
+-- ── AND THE ANCHOR IS WHAT MAKES REPEATED READS READABLE ─────────────────────
+--
+-- Two entries in this table for the same lore entry are TWO OPPOSITE SIGNALS:
+--
+--   same actor, same session   the short form is not enough — that agent keeps
+--                              going back to the original. THE ENTRY IS BADLY
+--                              WRITTEN.
+--   different sessions/actors  independent people needed it. THE ENTRY CARRIES
+--                              WEIGHT.
+--
+-- On the raw rows those two look identical — several rows, one entry. The
+-- session anchor is the ONLY cell that separates them, which is why it is not
+-- optional and why 「先記時間，錨之後再想辦法」 would have produced a journal that
+-- cannot answer the question it was built for.
+--
+-- ── THE TWO COLUMNS, AND WHY 0 IS NOT ENOUGH ON ITS OWN ──────────────────────
+--
+-- session_boot_ts alone would have three meanings collapsed onto 0: a
+-- pre-column row, a row whose writer forgot, and a read that genuinely happened
+-- while no session was anchored. The third is a REAL and common case — a boot
+-- fold is assembled and dispatched BEFORE the new session's first SSE connect
+-- stamps its anchor, so every boot-fold row honestly has none. session_state
+-- says which of the three it is, in words:
+--
+--   'unrecorded'  nothing was recorded. Every pre-column row starts here, and
+--                 so does any future writer that reaches InsertLoreRecall
+--                 without going through recordLoreRecall — which is the point
+--                 of making it the DEFAULT rather than a value the writer must
+--                 choose.
+--   'anchored'    session_boot_ts > 0 is the actor's session anchor as it stood
+--                 when this read happened. created_ts - session_boot_ts is
+--                 「開機後多久」, and it stays true forever.
+--   'unanchored'  the actor had no anchor at that moment: a boot fold handed to
+--                 a session that has not connected yet, or an id the roster does
+--                 not know (the owner reading through the cockpit). Absence that
+--                 was OBSERVED, not absence that was never looked for.
+--
+-- 🔴 NO CHECK CONSTRAINT ON session_state, DELIBERATELY. SQLite cannot add one
+-- with ALTER TABLE ADD COLUMN without a full table rebuild, and rebuilding an
+-- append-only journal to gate a diagnostic column trades the thing for the
+-- record of the thing. The value set is enforced at the one writer.
+--
+-- 🔴 THE TABLE STAYS APPEND-ONLY AND STAYS UN-DE-DUPLICATED. Nothing below adds
+-- a unique index, and nothing must: 「同一個成員開機兩次是兩個事件，不是同一個事件
+-- 被看到兩次」 is the property the whole journal rests on, and it is doubly true
+-- now that repeated reads are the signal being measured.
+--
+-- Two constant-DEFAULT ADD COLUMNs (cheap metadata ops, no table rebuild).
+ALTER TABLE lore_recall_log ADD COLUMN session_boot_ts REAL NOT NULL DEFAULT 0;
+ALTER TABLE lore_recall_log ADD COLUMN session_state TEXT NOT NULL DEFAULT 'unrecorded';
+
+-- +goose Down
+ALTER TABLE lore_recall_log DROP COLUMN session_state;
+ALTER TABLE lore_recall_log DROP COLUMN session_boot_ts;

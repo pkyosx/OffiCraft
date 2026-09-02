@@ -124,6 +124,29 @@ func (s *apiServer) HandleSearchLoreEntriesApiLoreSearchPost(w http.ResponseWrit
 	if unmapped == nil {
 		unmapped = []string{}
 	}
+	// 🔴 JOURNALLED AFTER THE ANSWER IS BUILT AND BEFORE IT IS WRITTEN, and only
+	// on a search that really ran — every refusal above returned already. This is
+	// hop ② actually being USED, which until now left no trace anywhere: the
+	// journal recorded the boot directory being put in front of an agent and
+	// nothing about the agent going and looking something up. A search that
+	// resolved to no subject at all (`subject_resolved: false`) still files a
+	// row: 「我問了，這個對象不存在」 is a use of the memory and a signal about the
+	// ontology, and dropping it would make a typo'd subject look like a search
+	// nobody ran.
+	s.recordLoreRecall(LoreRecall{
+		ActorID:   currentActor(r),
+		Query:     loreRecallQuerySearch,
+		SubjectID: got.SubjectEntityID,
+		Returned: encodeLoreRecallReturned(loreRecallReturned{
+			Entries:   loreSearchHitIDs(got.Hits),
+			Query:     search.Query,
+			Subject:   search.SubjectKey,
+			Actions:   search.Actions,
+			Total:     got.Total,
+			Truncated: got.Truncated,
+		}),
+	}, loreAnchorFromRoster)
+
 	writeJSON(w, http.StatusOK, LoreSearchResultDTO{
 		Entries: entries,
 		Applied: LoreSearchAppliedDTO{
@@ -141,4 +164,16 @@ func (s *apiServer) HandleSearchLoreEntriesApiLoreSearchPost(w http.ResponseWrit
 		UnresolvedSubject: got.UnresolvedSubject,
 		UnmappedActions:   unmapped,
 	})
+}
+
+// loreSearchHitIDs is 「撈到哪幾條」 for the journal. It reads the ids off the
+// HITS that were actually assembled, not off the DTO slice built for the wire —
+// the two agree today, and reading the hits keeps them agreeing the day the wire
+// shape starts filtering or renaming anything.
+func loreSearchHitIDs(hits []LoreSearchHit) []string {
+	out := make([]string, 0, len(hits))
+	for _, h := range hits {
+		out = append(out, h.Entry.ID)
+	}
+	return out
 }

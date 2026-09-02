@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -23,13 +24,21 @@ import (
 // loreRecallRow is one journal row with `returned` already parsed, which is the
 // shape every assertion below wants.
 type loreRecallRow struct {
-	ActorID   string
-	Query     string
-	SubjectID string
-	Hop       int
-	CreatedTS float64
-	Subjects  []string `json:"subjects"`
-	Omitted   int      `json:"omitted"`
+	ActorID       string
+	Query         string
+	SubjectID     string
+	Hop           int
+	CreatedTS     float64
+	SessionBootTS float64
+	SessionState  string
+	Subjects      []string `json:"subjects"`
+	Omitted       int      `json:"omitted"`
+	Entries       []string `json:"entries"`
+	QueryText     string   `json:"query"`
+	SubjectKey    string   `json:"subject"`
+	Actions       []string `json:"actions"`
+	Total         int      `json:"total"`
+	Truncated     bool     `json:"truncated"`
 }
 
 // readLoreRecalls reads the whole journal, oldest first. It goes through raw
@@ -38,8 +47,17 @@ type loreRecallRow struct {
 // it about a column the schema never received.
 func readLoreRecalls(t *testing.T, s *apiServer) []loreRecallRow {
 	t.Helper()
-	rows, err := s.dal.rdb.Query(
-		`SELECT actor_id, query, subject_id, hop, returned, created_ts
+	return readLoreRecallsOf(t, s.dal)
+}
+
+// readLoreRecallsOf is the same read against a bare DAL, which is all the route
+// tests are handed (loreGovStack builds the wired stack and returns the store,
+// never the apiServer).
+func readLoreRecallsOf(t *testing.T, dal *DAL) []loreRecallRow {
+	t.Helper()
+	rows, err := dal.rdb.Query(
+		`SELECT actor_id, query, subject_id, hop, returned, created_ts,
+		        session_boot_ts, session_state
 		 FROM lore_recall_log ORDER BY id`)
 	if err != nil {
 		t.Fatalf("read lore_recall_log: %v", err)
@@ -50,7 +68,7 @@ func readLoreRecalls(t *testing.T, s *apiServer) []loreRecallRow {
 		var r loreRecallRow
 		var returned string
 		if err := rows.Scan(&r.ActorID, &r.Query, &r.SubjectID, &r.Hop,
-			&returned, &r.CreatedTS); err != nil {
+			&returned, &r.CreatedTS, &r.SessionBootTS, &r.SessionState); err != nil {
 			t.Fatalf("scan recall row: %v", err)
 		}
 		if err := json.Unmarshal([]byte(returned), &r); err != nil {
@@ -84,6 +102,16 @@ func assertBootFoldRow(t *testing.T, r loreRecallRow, wantActor string) {
 	}
 	if r.CreatedTS <= 0 {
 		t.Errorf("created_ts = %v — an unstamped row cannot be read as history", r.CreatedTS)
+	}
+	// 🔴 A BOOT FOLD IS 'unanchored', NEVER 'unrecorded' AND NEVER SOMEBODY
+	// ELSE'S ANCHOR. The document goes to a session that has not connected yet,
+	// so it genuinely has none — and this call sits one line before
+	// clearSessionBootTS in reconcileOne, so a writer that asked the roster
+	// would file the OUTGOING session's anchor here and it would look right.
+	if r.SessionState != loreRecallSessionUnanchored || r.SessionBootTS != 0 {
+		t.Errorf("session = %q/%v, want %q/0 — a boot fold has no anchor yet, and "+
+			"saying so is different from not having looked",
+			r.SessionState, r.SessionBootTS, loreRecallSessionUnanchored)
 	}
 }
 
@@ -382,5 +410,333 @@ func TestBootstrapWithoutASigningSecretJournalsNothing(t *testing.T) {
 	if rows := readLoreRecalls(t, s); len(rows) != 0 {
 		t.Fatalf("a bootstrap that minted no token filed %d recall row(s) — "+
 			"沒有人拿得到憑證，那份文件不會被任何 agent 讀到，這條紀錄是假的", len(rows))
+	}
+}
+
+// ── the retrieval half (T-33, 2026-09-02) ───────────────────────────────────
+//
+// 🔴 THE MEASUREMENT THESE TESTS REPLACED. Written against the code as it stood
+// before this round, all three of the "journals" tests below saw ZERO rows: a
+// search, an entry read and a revision read left the table exactly as they found
+// it. The only writer was the boot fold. That is the state the owner's question
+// 「agent 到底有沒有用到我們寫的記憶」 was being asked against, and it is why it
+// could not be answered.
+
+// loreRecallStack is loreGovStack plus a seeded entry and an ANCHORED session
+// for the agent, which is the state every retrieval assertion below needs: an
+// unanchored actor would make the anchor cells trivially right for the wrong
+// reason.
+func loreRecallStack(t *testing.T, bootTS float64) (url, tok string, dal *DAL, entryID string) {
+	t.Helper()
+	url, dal, tok, _, _ = loreGovStack(t)
+	entryID = loreSearchSeed(t, url, tok, "repo:officraft", "the fold happens in one place")
+	if err := dal.SetMemberSessionBootTS("m-lore-agent", bootTS); err != nil {
+		t.Fatalf("anchor the agent's session: %v", err)
+	}
+	// The seeding write must not itself have filed anything, or every count
+	// below is measuring the wrong thing.
+	if got := readLoreRecallsOf(t, dal); len(got) != 0 {
+		t.Fatalf("seeding wrote %d journal rows; the retrieval assertions need 0", len(got))
+	}
+	return url, tok, dal, entryID
+}
+
+// TestLoreSearchRouteJournalsTheRetrieval — hop ② is a use of the memory, so it
+// is one row: who, when, on what axes, and WHICH ENTRIES came back.
+func TestLoreSearchRouteJournalsTheRetrieval(t *testing.T) {
+	url, tok, dal, entryID := loreRecallStack(t, 4321)
+
+	st, body := rosterREST(t, url, tok, "POST", "/api/lore/search",
+		`{"subject":"repo:officraft","query":"fold","actions":["build"],"limit":5}`)
+	if st != 200 {
+		t.Fatalf("search: %d %s", st, body)
+	}
+	if got := loreSearchBody(t, body); len(got.Entries) != 1 {
+		t.Fatalf("the search returned %d entries — with no hit this test would "+
+			"pass on an empty journal row", len(got.Entries))
+	}
+
+	rows := readLoreRecallsOf(t, dal)
+	if len(rows) != 1 {
+		t.Fatalf("want exactly 1 journal row for 1 search, got %d", len(rows))
+	}
+	r := rows[0]
+	if r.ActorID != "m-lore-agent" || r.Query != loreRecallQuerySearch {
+		t.Errorf("actor/query = %q/%q, want %q/%q", r.ActorID, r.Query,
+			"m-lore-agent", loreRecallQuerySearch)
+	}
+	if len(r.Entries) != 1 || r.Entries[0] != entryID {
+		t.Errorf("entries = %v, want [%s] — 「撈到哪幾條」 is the whole point; a count "+
+			"could never answer whether ONE entry is ever used", r.Entries, entryID)
+	}
+	if r.QueryText != "fold" || r.SubjectKey != "repo:officraft" ||
+		len(r.Actions) != 1 || r.Actions[0] != "build" {
+		t.Errorf("asked-for axes = %q/%q/%v — a hit list nobody can interpret",
+			r.QueryText, r.SubjectKey, r.Actions)
+	}
+	if r.SubjectID == "" {
+		t.Errorf("subject_id is empty — the subject RESOLVED, and the entity it " +
+			"resolved onto is what makes two callers' searches comparable")
+	}
+	if r.Total != 1 || r.Truncated {
+		t.Errorf("total/truncated = %d/%v — without them a truncated retrieval "+
+			"reads as a complete one", r.Total, r.Truncated)
+	}
+	if r.SessionState != loreRecallSessionAnchored || r.SessionBootTS != 4321 {
+		t.Fatalf("session = %q/%v, want %q/4321", r.SessionState, r.SessionBootTS,
+			loreRecallSessionAnchored)
+	}
+}
+
+// A search whose subject names nothing is still a use of the memory, and the
+// row has to exist — otherwise a typo'd subject is indistinguishable from a
+// search nobody ever ran.
+func TestLoreSearchRouteJournalsASubjectThatResolvedToNothing(t *testing.T) {
+	url, tok, dal, _ := loreRecallStack(t, 4321)
+
+	st, body := rosterREST(t, url, tok, "POST", "/api/lore/search",
+		`{"subject":"repo:offcraft"}`)
+	if st != 200 {
+		t.Fatalf("search: %d %s", st, body)
+	}
+	if got := loreSearchBody(t, body); got.SubjectResolved {
+		t.Fatalf("the fixture subject resolved after all; this test proves nothing")
+	}
+	rows := readLoreRecallsOf(t, dal)
+	if len(rows) != 1 {
+		t.Fatalf("want 1 row for a search that ran and found no subject, got %d", len(rows))
+	}
+	if len(rows[0].Entries) != 0 || rows[0].SubjectKey != "repo:offcraft" {
+		t.Errorf("row = %v / %q — it must say WHAT was asked even though nothing "+
+			"came back", rows[0].Entries, rows[0].SubjectKey)
+	}
+	if rows[0].SubjectID != "" {
+		t.Errorf("subject_id = %q, want empty — nothing resolved, so naming an "+
+			"entity would be an invention", rows[0].SubjectID)
+	}
+}
+
+// TestLoreEntryReadJournalsTheRetrieval — 讀單條一次一列, and reading the same
+// entry three times is THREE rows.
+//
+// 🔴 THE REPETITION IS THE SIGNAL, NOT NOISE. Same actor + same session + same
+// entry, several times over, is the station's only evidence that an entry's
+// `short` form does not carry its weight — the agent keeps going back to the
+// original. De-duplicating here (or an upsert, or a counter) would delete
+// exactly that, and it would look like tidying.
+func TestLoreEntryReadJournalsTheRetrieval(t *testing.T) {
+	url, tok, dal, entryID := loreRecallStack(t, 999)
+
+	for i := 0; i < 3; i++ {
+		st, body := rosterREST(t, url, tok, "GET", "/api/lore/entries/"+entryID, "")
+		if st != 200 {
+			t.Fatalf("read %d: %d %s", i, st, body)
+		}
+	}
+	rows := readLoreRecallsOf(t, dal)
+	if len(rows) != 3 {
+		t.Fatalf("want 3 rows for 3 reads, got %d — the journal is append-only and "+
+			"repeated reads are the measurement", len(rows))
+	}
+	for i, r := range rows {
+		if r.Query != loreRecallQueryEntryRead {
+			t.Errorf("row %d query = %q, want %q", i, r.Query, loreRecallQueryEntryRead)
+		}
+		if len(r.Entries) != 1 || r.Entries[0] != entryID {
+			t.Errorf("row %d entries = %v, want [%s]", i, r.Entries, entryID)
+		}
+		if r.SessionState != loreRecallSessionAnchored || r.SessionBootTS != 999 {
+			t.Errorf("row %d session = %q/%v, want %q/999 — without the anchor these "+
+				"three rows cannot be told from three DIFFERENT sessions reading it "+
+				"once each, which is the opposite conclusion",
+				i, r.SessionState, r.SessionBootTS, loreRecallSessionAnchored)
+		}
+	}
+}
+
+// An entry id that names nothing files NOTHING. A 404 is not a use of the
+// memory, and a journal padded with reads that did not happen cannot be used to
+// argue that anything is unused.
+func TestLoreEntryReadDoesNotJournalA404(t *testing.T) {
+	url, tok, dal, _ := loreRecallStack(t, 999)
+
+	if st, _ := rosterREST(t, url, tok, "GET", "/api/lore/entries/le-nothing", ""); st != 404 {
+		t.Fatalf("want 404 for an unknown entry, got %d", st)
+	}
+	if rows := readLoreRecallsOf(t, dal); len(rows) != 0 {
+		t.Fatalf("a 404 filed %d rows, want 0", len(rows))
+	}
+}
+
+// Reading one REVISION is its own row kind: an agent working out what an entry
+// used to say is the strongest form of 「短版不夠用」 the journal can observe, and
+// folding it in with an ordinary entry read would hide it.
+func TestLoreRevisionReadJournalsTheRetrieval(t *testing.T) {
+	url, tok, dal, entryID := loreRecallStack(t, 77)
+
+	st, body := rosterREST(t, url, tok, "GET", "/api/lore/entries/"+entryID, "")
+	if st != 200 {
+		t.Fatalf("read entry: %d %s", st, body)
+	}
+	detail := struct {
+		Revisions []struct {
+			RevisionId int `json:"revision_id"`
+		} `json:"revisions"`
+	}{}
+	if err := json.Unmarshal([]byte(body), &detail); err != nil {
+		t.Fatalf("decode detail: %v", err)
+	}
+	if len(detail.Revisions) == 0 {
+		t.Fatalf("the seeded entry has no revision to read; this test proves nothing")
+	}
+	revID := detail.Revisions[0].RevisionId
+
+	st, body = rosterREST(t, url, tok, "GET",
+		"/api/lore/entries/"+entryID+"/revisions/"+strconv.Itoa(revID), "")
+	if st != 200 {
+		t.Fatalf("read revision: %d %s", st, body)
+	}
+
+	rows := readLoreRecallsOf(t, dal)
+	if len(rows) != 2 {
+		t.Fatalf("want 2 rows (one entry read, one revision read), got %d", len(rows))
+	}
+	if rows[0].Query != loreRecallQueryEntryRead ||
+		rows[1].Query != loreRecallQueryRevisionRead {
+		t.Fatalf("markers = %q, %q — the two doors must stay separable",
+			rows[0].Query, rows[1].Query)
+	}
+	if len(rows[1].Entries) != 1 || rows[1].Entries[0] != entryID {
+		t.Errorf("revision row entries = %v, want [%s] — the row names the ENTRY, "+
+			"which is the thing whose usefulness is being measured",
+			rows[1].Entries, entryID)
+	}
+	if rows[1].SessionState != loreRecallSessionAnchored || rows[1].SessionBootTS != 77 {
+		t.Errorf("session = %q/%v, want %q/77", rows[1].SessionState,
+			rows[1].SessionBootTS, loreRecallSessionAnchored)
+	}
+}
+
+// 🔴 THIS IS THE TEST THE WHOLE COLUMN EXISTS FOR. member.session_boot_ts is ONE
+// CELL: the actor's next session overwrites it. A row that only carried an
+// absolute timestamp, meaning to join the anchor back later, answers about
+// WHICHEVER session happens to be current when the question is asked — so the
+// first session's rows silently lose their basis and render exactly like rows
+// nobody ever wrote.
+//
+// Here the same actor reads once under anchor 100, the roster is re-anchored to
+// 500 (a new session), and the actor reads again. The first row must still say
+// 100. If it does not, 「開機後多久」 is unanswerable for every session but the
+// last one — which is the failure that has no error message.
+func TestLoreRecallKeepsTheAnchorTheReadActuallyHappenedUnder(t *testing.T) {
+	url, tok, dal, entryID := loreRecallStack(t, 100)
+
+	if st, body := rosterREST(t, url, tok, "GET", "/api/lore/entries/"+entryID, ""); st != 200 {
+		t.Fatalf("first read: %d %s", st, body)
+	}
+	if err := dal.SetMemberSessionBootTS("m-lore-agent", 500); err != nil {
+		t.Fatalf("re-anchor: %v", err)
+	}
+	if st, body := rosterREST(t, url, tok, "GET", "/api/lore/entries/"+entryID, ""); st != 200 {
+		t.Fatalf("second read: %d %s", st, body)
+	}
+
+	rows := readLoreRecallsOf(t, dal)
+	if len(rows) != 2 {
+		t.Fatalf("want 2 rows, got %d", len(rows))
+	}
+	if rows[0].SessionBootTS != 100 {
+		t.Errorf("the FIRST row's anchor = %v, want 100 — the previous session's "+
+			"basis was overwritten in `member`, and this row is the only place it "+
+			"still exists", rows[0].SessionBootTS)
+	}
+	if rows[1].SessionBootTS != 500 {
+		t.Errorf("the SECOND row's anchor = %v, want 500", rows[1].SessionBootTS)
+	}
+	if rows[0].SessionBootTS == rows[1].SessionBootTS {
+		t.Errorf("both rows carry the same anchor — 「同一任 session 內反覆讀同一條」" +
+			"(這條記憶寫得不好) and 「不同 session 反覆讀到」(這條記憶好) are opposite " +
+			"conclusions, and this cell is the only thing that separates them")
+	}
+}
+
+// An actor the roster does not know — the owner reading through the cockpit, a
+// warden, an id from a previous life — is 'unanchored', not 'unrecorded'. We
+// looked and there was nothing, which is a different fact from nobody looking,
+// and 'unrecorded' is reserved for the second so a future writer that forgets
+// the anchor is VISIBLE rather than indistinguishable from this.
+func TestLoreRecallSaysUnanchoredWhenTheActorHasNoSession(t *testing.T) {
+	url, dal, _, ownerTok, _ := loreGovStack(t)
+	entryID := loreSearchSeed(t, url, ownerTok, "repo:officraft", "the fold happens in one place")
+
+	if st, body := rosterREST(t, url, ownerTok, "GET", "/api/lore/entries/"+entryID, ""); st != 200 {
+		t.Fatalf("read: %d %s", st, body)
+	}
+	rows := readLoreRecallsOf(t, dal)
+	if len(rows) != 1 {
+		t.Fatalf("want 1 row, got %d", len(rows))
+	}
+	if rows[0].SessionState != loreRecallSessionUnanchored || rows[0].SessionBootTS != 0 {
+		t.Errorf("session = %q/%v, want %q/0", rows[0].SessionState,
+			rows[0].SessionBootTS, loreRecallSessionUnanchored)
+	}
+	if rows[0].SessionState == loreRecallSessionUnrecorded {
+		t.Errorf("'unrecorded' is reserved for a row nobody stamped at all")
+	}
+}
+
+// The DEFAULT is what protects the distinction above: a row that reaches the
+// table without going through recordLoreRecall says so in its own cell instead
+// of masquerading as a read that happened outside a session.
+func TestLoreRecallRowWrittenWithoutAnAnchorReadsAsUnrecorded(t *testing.T) {
+	_, dal, _, _, _ := loreGovStack(t)
+
+	if err := dal.InsertLoreRecall(LoreRecall{
+		ActorID: "m-lore-agent", Query: "hand-written", CreatedTS: 1, Returned: "{}",
+	}); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	rows := readLoreRecallsOf(t, dal)
+	if len(rows) != 1 || rows[0].SessionState != loreRecallSessionUnrecorded {
+		t.Fatalf("session_state = %+v, want %q", rows, loreRecallSessionUnrecorded)
+	}
+}
+
+// 🔴 THE ORDERING TRAP, PINNED. In reconcileOne the surfacing is journalled the
+// line BEFORE clearSessionBootTS, so at that instant member.session_boot_ts
+// still holds the OUTGOING session's anchor. A writer that simply asked the
+// roster would file that number as this boot's own — a plausible-looking anchor
+// belonging to a session that had already ended, and no error anywhere.
+//
+// ⚠️ MEASURED: without this test the trap is invisible. Switching the boot fold
+// to loreAnchorFromRoster left the entire lore + worker + migration selection
+// GREEN, because every other fixture dispatches a member whose anchor is already
+// 0 — the mutant and the correct code produce identical rows there.
+func TestBootFoldRowNeverCarriesTheOutgoingSessionsAnchor(t *testing.T) {
+	s := newReconcileTestServer(t)
+	connectOnline(t, s, ServerSelfHost)
+	seedManySubjects(t, s, 3)
+	m := wakeSeedAssistant(t, s)
+	// The member's PREVIOUS session, still stamped on the row at dispatch time.
+	if err := s.dal.SetMemberSessionBootTS(m.ID, 1700000000); err != nil {
+		t.Fatalf("stamp the outgoing session's anchor: %v", err)
+	}
+	if got, _ := s.dal.GetMember(m.ID); got == nil || got.SessionBootTS != 1700000000 {
+		t.Fatalf("the fixture did not take; this test would prove nothing")
+	}
+
+	decision := s.reconcileOne(m, reconcileState{}, 1000)
+	if decision.Command != reconcileCmdStart {
+		t.Fatalf("want a dispatched START, got %q (%s)", decision.Command, decision.Reason)
+	}
+	rows := readLoreRecalls(t, s)
+	if len(rows) != 1 {
+		t.Fatalf("want 1 boot-fold row, got %d", len(rows))
+	}
+	if rows[0].SessionBootTS != 0 || rows[0].SessionState != loreRecallSessionUnanchored {
+		t.Fatalf("the boot row carries %v/%q — that is the session that just ENDED. "+
+			"A boot fold goes to a session that has not connected yet, so its honest "+
+			"answer is %q/0", rows[0].SessionBootTS, rows[0].SessionState,
+			loreRecallSessionUnanchored)
 	}
 }
