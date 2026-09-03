@@ -1,8 +1,8 @@
 -- +goose Up
--- T-33 — 傳承（lore）的地基. Eleven tables: the three memory layers, the
--- two join tables that keep the retrieval axes apart, the ontology (entity /
--- entity_alias / entity_type), and the three journals (recall / feedback /
--- governance).
+-- T-33 — 傳承（lore）的地基. Twelve tables: the three memory layers, the
+-- events table that is the entry's fifth cell, the two join tables that keep the
+-- retrieval axes apart, the ontology (entity / entity_alias / entity_type), and
+-- the three journals (recall / feedback / governance).
 --
 -- 🔴 THE NAME IS `lore_*`, NOT `memory_*`. The detail design used
 -- `memory_*` as an explicit PLACEHOLDER pending a naming ruling ("暫且叫做");
@@ -100,33 +100,45 @@ CREATE INDEX idx_entity_alias_alias ON entity_alias (alias);
 
 CREATE TABLE lore_entry (
     id            TEXT PRIMARY KEY,
-    -- 🔴 THE SIX BODY FIELDS ARE FIXED, AND THERE IS DELIBERATELY NO FREE-FORM
-    -- COLUMN AMONG THEM. The owner looked at a sample of entries and said it
-    -- plainly: every card had grown its OWN differently-named sections, none of
-    -- them defined anywhere. He was right, and the fix is not a formatting
-    -- convention — it is these columns.
+    -- 🔴 五格，固定，而且刻意沒有自由欄位。負責人 2026-09-03 定案的格式是
+    -- 「什麼時候要記起來／內容／什麼時候不需要了／之前發生過什麼問題／相關的完整
+    -- 資訊」。前四格是下面這四個欄位；第五格不是欄位，是 lore_event 那張表（一條
+    -- 條目底下掛 0..N 筆事件），見本檔案 lore_entry 之後。
+    --
+    -- 🔴 這一版取代了原本的六格（label / symptoms / short / falsify / instance /
+    -- residual_risk）。00066 與 00069 都是這個分支自己引入、還沒進 main 的，線上
+    -- 零資料，所以是直接改欄位宣告，而不是疊一支 ALTER —— 疊 ALTER 會在一個從來
+    -- 沒有過舊欄位的資料庫上留下一段假的歷史。
     --
     -- 🔑 WHY THIS IS THE TICKET'S OWN SUBJECT, NOT A LAYOUT PREFERENCE: with the
-    -- fields fixed, "this entry got polished away" becomes VISIBLE. An entry
-    -- whose falsify and instance are both empty is, at a glance, a slogan. Free
-    -- form cannot do that — a missing section and a section the author never
-    -- wrote look identical, which is precisely the disease this ticket treats:
+    -- fields fixed, "this entry got polished away" becomes VISIBLE. Free form
+    -- cannot do that — a missing section and a section the author never wrote
+    -- look identical, which is precisely the disease this ticket treats:
     -- something disappeared and nothing reported it. See IsDegraded() in
     -- dal_lore.go, which is that check made cheap.
-    -- 🔴 `label` IS A NAME, NOT A SENTENCE, AND THAT IS WHY IT IS CAPPED. It is
-    -- what a reader scans a list by, and what a merge or a supersede POINTS AT.
-    -- A sentence invites the next author to tidy the wording — and when the name
-    -- changes, the thing pointing at it stops pointing at anything. The cap is
-    -- enforced as a REFUSAL in the DAL (not a truncation, not a warning): silently
-    -- shortening a name is the same silent loss this ticket exists to kill.
-    -- ⚠️ 40 是佔位數字，不是算出來的 — it is a placeholder, not a measured value,
-    -- and it has to be calibrated after the trial.
-    label         TEXT NOT NULL DEFAULT '',  -- one-line NAME, max 40 runes (see loreLabelMaxRunes)
-    symptoms      TEXT NOT NULL DEFAULT '',  -- what I would be SEEING; the situation, not a category name
-    short         TEXT NOT NULL DEFAULT '',  -- the compressed body: the mechanism and why
-    falsify       TEXT NOT NULL DEFAULT '',  -- how to show this entry does NOT hold
-    instance      TEXT NOT NULL DEFAULT '',  -- one case that really happened
-    residual_risk TEXT NOT NULL DEFAULT '',  -- what this entry does NOT protect against
+    --
+    -- 🔴 `trigger` 兼任這條條目的標題，而且沒有長度上限。舊的 `label`（一行名字、
+    -- 上限 40 runes）不見了：五格裡根本沒有「名字」這一格，而負責人自己示範的好
+    -- 例子就是把第一格當標題寫的 ——「【什麼時候要記起來】我要確認一個 OffiCraft
+    -- 前端畫面接的是真後端，還是假資料」—— 那一行遠遠超過 40 runes。留著上限就是
+    -- 讓示範用的寫法寫不進來。
+    -- ⚠️ 「第一格兼任標題、因此拿掉 label 與 40 runes 上限」是實作判斷，不是負責人
+    -- 的裁定。它被寫在這裡而不是默默做掉，就是為了讓下一個人看得見它可以被推翻。
+    --
+    -- 🔴 `trigger` 是唯一「空值必須被拒絕」的一格，而且拒絕發生在 DAL
+    -- （loreTriggerError，dal_lore.go）。這裡沒有 CHECK (trigger <> '') 是因為
+    -- SQLite 的 CHECK 訊息不能告訴呼叫者哪一格空了；欄位層的 NOT NULL 擋住 NULL，
+    -- 語意層的必填擋住空字串，兩者不是同一件事。
+    trigger       TEXT NOT NULL DEFAULT '',  -- 什麼時候要記起來；形狀是「我要做 X」。兼任標題，無長度上限
+    content       TEXT NOT NULL DEFAULT '',  -- 內容：唯一會進開機脈絡的一格
+    -- 🔴 `retire_when` 是自由文字，不是封閉值域，而且刻意沒有 CHECK。「什麼時候
+    -- 不需要了」可能是「等 X 上線」「等某人回答」「這個 repo 不再用 goose」——任何
+    -- 列舉都會在第一個沒想到的情況把寫入者逼去挑一個最接近的錯答案，而挑錯的跟
+    -- 挑對的長得一模一樣。
+    retire_when   TEXT NOT NULL DEFAULT '',  -- 什麼時候不需要了（選填，自由文字）
+    -- 🔴 `problem` 是選填，但它是主體：一條沒有問題撐著的條目就是一句口號。
+    -- 它同時是 IsDegraded() 目前的（暫定）判準，見 dal_lore.go。
+    problem       TEXT NOT NULL DEFAULT '',  -- 之前發生過什麼問題（選填）
     status        TEXT NOT NULL DEFAULT 'active'
                   CHECK (status IN ('active','superseded','retired','underspecified')),
     supersedes    TEXT NOT NULL DEFAULT '',
@@ -154,6 +166,46 @@ CREATE TABLE lore_entry (
 -- that matters — an empty column is a countable, queryable absence, whereas a
 -- section that was never written leaves nothing behind to count.
 CREATE INDEX idx_lore_entry_status ON lore_entry (status);
+
+-- ── 第五格：相關的完整資訊 ───────────────────────────────────────────────────
+--
+-- 🔴 這張表放在 00066 而不是另開一支新號碼，是刻意的，而且理由是流程性的：
+-- migration 號碼由 Kyle 統一發，我不能自己挑一個。00066 是這個分支自己引入、
+-- 還沒進 main 的一支，站上零資料，所以把 lore_entry 的第五格加在它自己的建表
+-- migration 裡沒有任何遷移成本，而且讀的人在同一個檔案裡就看得到完整的五格。
+--
+-- 🔴 一條條目掛 0..N 筆事件，所以它是一張表而不是欄位。第五格是「相關的完整
+-- 資訊」，一條條目可以是好幾次事件累積出來的；壓成一個欄位就等於要寫入者自己
+-- 發明一套分隔符號，而那正是這張票要治的病（每張卡各自長出自己的段落）。
+CREATE TABLE lore_event (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    entry_id    TEXT NOT NULL REFERENCES lore_entry(id),
+    -- 🔴 時 = 事件發生的時間，不是這一列被寫下的時間。這兩件事會差好幾天：
+    -- 一個 agent 今天回頭補記上週撞到的事，happened_ts 是上週。刻意沒有
+    -- created_ts 欄位——多一個時間欄位就多一個會被讀錯的時間，而目前沒有任何
+    -- 路徑需要「這一列什麼時候被寫下」。真的需要時再加，並且要說得出誰要讀它。
+    happened_ts REAL NOT NULL,
+    -- 🔴 事 = 一律主動語態，讓「人」永遠是動作者。「畫面被改成假資料」把動作者
+    -- 藏起來了，「Seth 把畫面改成假資料」沒有。這一層擋不了被動語態（沒有任何
+    -- 欄位擋得住），所以它是寫在這裡的規則，不是假裝成約束的東西。
+    what        TEXT NOT NULL,
+    -- 🔴 人／地／物：有才填，而且「空著」必須看得出來。
+    -- 這三格是 NOT NULL DEFAULT ''，空字串就是「這一格沒有東西」——不要用
+    -- 「未知」「n/a」「unknown」之類的字串把它填滿。「查不出是誰」跟「還沒有人
+    -- 去查」必須長得不一樣，而一旦有人往裡面塞了一個佔位字串，這兩件事就永遠
+    -- 分不開了。這是負責人明確要的。
+    actor       TEXT NOT NULL DEFAULT '',  -- 人：`human:` / `agent:` 前綴
+    place       TEXT NOT NULL DEFAULT '',  -- 地：`machine:` 前綴。語意＝這個動作在哪台機器上發生
+    object      TEXT NOT NULL DEFAULT ''   -- 物：`service:` 等前綴。語意＝被動到的是什麼
+);
+-- 🔴 沒有 CHECK 限制人／地／物的前綴，理由跟 origin 一模一樣：前綴的值域是
+-- entity_type 那張表，而那張表是會長出新列的。前綴的檢查在 DAL，讀 entity_type
+-- 做，而且只在該格「非空」時才做——空著是合法的，對空字串做前綴檢查就等於把
+-- 選填變成必填。
+--
+-- 讀取一律 ORDER BY (entry_id, happened_ts, id)：事件的順序是事情發生的順序，
+-- 不是誰先被寫進來的順序。id 只是同一個時刻的 tie-break。
+CREATE INDEX idx_lore_event_entry ON lore_event (entry_id, happened_ts, id);
 
 CREATE TABLE lore_revision (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -276,6 +328,7 @@ DROP TABLE lore_action;
 DROP TABLE lore_subject;
 DROP TABLE lore_meta;
 DROP TABLE lore_revision;
+DROP TABLE lore_event;
 DROP TABLE lore_entry;
 DROP TABLE entity_alias;
 DROP TABLE entity;

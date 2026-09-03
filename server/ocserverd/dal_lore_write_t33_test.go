@@ -12,16 +12,14 @@ import (
 
 func t33Write() LoreWrite {
 	return LoreWrite{
-		Label:        "boot context assembly",
-		Symptoms:     "two blocks disagree about the same fact",
-		Short:        "the fold happens in one place",
-		Falsify:      "a second assembler appears",
-		Instance:     "T-33 slot 3",
-		ResidualRisk: "says nothing about who may call the fold",
-		Origin:       "agent:O-197",
-		Subjects:     []string{"repo:officraft"},
-		Actions:      []string{"read-code"},
-		ActorID:      "ow-e27260b9ed05",
+		Trigger:    "我要確認開機脈絡是在哪裡組起來的",
+		Content:    "the fold happens in one place",
+		RetireWhen: "等組裝路徑不只一條",
+		Problem:    "T-33 slot 3：兩個區塊對同一件事說法不一樣",
+		Origin:     "agent:O-197",
+		Subjects:   []string{"repo:officraft"},
+		Actions:    []string{"read-code"},
+		ActorID:    "ow-e27260b9ed05",
 	}
 }
 
@@ -55,7 +53,7 @@ func TestLoreCreateWritesEntrySubjectsActionsAndOriginal(t *testing.T) {
 	if entry == nil {
 		t.Fatal("the entry the receipt names is not in the table")
 	}
-	if entry.Short != "the fold happens in one place" || entry.Status != "active" {
+	if entry.Content != "the fold happens in one place" || entry.Status != "active" {
 		t.Fatalf("entry came back wrong: %+v", *entry)
 	}
 	subjects, err := d.ListLoreSubjects(got.EntryID)
@@ -87,7 +85,7 @@ func TestLoreCreateWritesEntrySubjectsActionsAndOriginal(t *testing.T) {
 		t.Fatalf("the stored digest does not hash the stored body: %q", rev.SHA256)
 	}
 	if !strings.Contains(rev.Body, "the fold happens in one place") ||
-		!strings.Contains(rev.Body, "says nothing about who may call the fold") {
+		!strings.Contains(rev.Body, "等組裝路徑不只一條") {
 		t.Fatalf("the original does not carry the body it was written from:\n%s", rev.Body)
 	}
 	if rev.ActorID != "ow-e27260b9ed05" {
@@ -108,20 +106,37 @@ func TestLoreCreateWritesEntrySubjectsActionsAndOriginal(t *testing.T) {
 // Skipping blanks would hash the same bytes for "never written" and "deleted",
 // which is the collapse this ticket exists to prevent.
 func TestLoreRevisionBodyNamesEveryFieldEvenWhenBlank(t *testing.T) {
-	body := loreRevisionBody(LoreEntry{Short: "only this one is set"})
-	for _, name := range []string{"label", "symptoms", "short", "falsify", "instance", "residual_risk"} {
+	body := loreRevisionBody(LoreEntry{Content: "only this one is set"}, nil)
+	for _, name := range []string{"trigger", "content", "retire_when", "problem", "events"} {
 		if !strings.Contains(body, name+":\n") {
 			t.Fatalf("the rendered original drops the %q section:\n%s", name, body)
 		}
 	}
-	if loreSHA256(body) == loreSHA256(loreRevisionBody(LoreEntry{})) {
+	if loreSHA256(body) == loreSHA256(loreRevisionBody(LoreEntry{}, nil)) {
 		t.Fatal("an entry with a body and an entirely empty one hash the same")
+	}
+	// 🔴 第 5 格也在雜湊裡。少了這一條，事件可以被一次改寫整批弄掉而 digest
+	// 不動——L0 原文層就對第 5 格失效了，而且沒有任何東西會報。
+	withEvent := loreRevisionBody(LoreEntry{Content: "only this one is set"},
+		[]LoreEvent{{HappenedTS: 1700000000, What: "Seth 換掉了那個檔案"}})
+	if loreSHA256(withEvent) == loreSHA256(body) {
+		t.Fatal("加了一筆事件之後 digest 沒變 —— 第 5 格不在 L0 原文層裡")
+	}
+	// 同一組事件、不同送進來的順序，必須雜湊出同一串：否則 base_sha256 會因為
+	// 一個沒有人看得見的差異報「過期」。
+	a := loreRevisionBody(LoreEntry{}, []LoreEvent{
+		{HappenedTS: 2, What: "b"}, {HappenedTS: 1, What: "a"}})
+	bb := loreRevisionBody(LoreEntry{}, []LoreEvent{
+		{HappenedTS: 1, What: "a"}, {HappenedTS: 2, What: "b"}})
+	if loreSHA256(a) != loreSHA256(bb) {
+		t.Fatalf("事件的送入順序改變了 digest:\n%q\n%q", a, bb)
 	}
 }
 
-// 四格空白都被拒，而且每一格是它自己的具名錯誤——沒有哪一格會被折進別格的錯誤裡，
-// 不然寫的人只會知道「被擋了」而不知道要補哪一格。
-func TestLoreCreateRefusesTheFourFieldsWithoutWhichNothingIsReachable(t *testing.T) {
+// 🔴 兩格空白都被拒：第 1 格 trigger 與第 2 格 content，而且每一格是它自己的
+// 具名錯誤——沒有哪一格會被折進別格的錯誤裡，不然寫的人只會知道「被擋了」而不
+// 知道要補哪一格。
+func TestLoreCreateRefusesTheTwoCellsWithoutWhichNothingIsReachable(t *testing.T) {
 	d := newTestDAL(t)
 	t33Entity(t, d, "e-repo", "repo", "repo:officraft")
 
@@ -130,12 +145,10 @@ func TestLoreCreateRefusesTheFourFieldsWithoutWhichNothingIsReachable(t *testing
 		mangle func(*LoreWrite)
 		want   error
 	}{
-		{"blank symptoms", func(w *LoreWrite) { w.Symptoms = "   " }, ErrLoreSymptomsBlank},
-		{"blank short", func(w *LoreWrite) { w.Short = "" }, ErrLoreShortBlank},
-		{"blank falsify", func(w *LoreWrite) { w.Falsify = "" }, ErrLoreFalsifyBlank},
-		{"whitespace falsify", func(w *LoreWrite) { w.Falsify = "  \t " }, ErrLoreFalsifyBlank},
-		{"blank instance", func(w *LoreWrite) { w.Instance = "" }, ErrLoreInstanceBlank},
-		{"whitespace instance", func(w *LoreWrite) { w.Instance = "   " }, ErrLoreInstanceBlank},
+		{"blank trigger", func(w *LoreWrite) { w.Trigger = "" }, ErrLoreTriggerBlank},
+		{"whitespace trigger", func(w *LoreWrite) { w.Trigger = "  \t " }, ErrLoreTriggerBlank},
+		{"blank content", func(w *LoreWrite) { w.Content = "" }, ErrLoreContentBlank},
+		{"whitespace content", func(w *LoreWrite) { w.Content = "   " }, ErrLoreContentBlank},
 	} {
 		w := t33Write()
 		tc.mangle(&w)
@@ -148,12 +161,79 @@ func TestLoreCreateRefusesTheFourFieldsWithoutWhichNothingIsReachable(t *testing
 		t.Fatalf("a refused write left %d entries behind", n)
 	}
 
-	// 兩格都給的寫入照樣成功，而且不是 degraded。少了這一半，一個把每一筆寫入都
+	// 🔴 第 3 格與第 4 格是**選填**，空著必須寫得進去。少了這一半，一個把兩格
+	// 也變成必填的實作會讓上面全綠——而那就是擅自把選填改成必填。
+	optional := t33Write()
+	optional.RetireWhen = ""
+	optional.Problem = ""
+	if _, err := d.CreateLoreEntry(optional, 1000); err != nil {
+		t.Fatalf("第 3、4 格是選填，空著必須收: %v", err)
+	}
+
+	// 完整的寫入照樣成功，而且不是 degraded。少了這一半，一個把每一筆寫入都
 	// 拒掉的實作也會讓上面全綠。
 	got := t33Create(t, d, t33Write())
 	entry := t33Get(t, d, got.EntryID)
 	if entry == nil || entry.IsDegraded() {
 		t.Fatalf("a complete entry must land and must not be degraded: %+v", entry)
+	}
+}
+
+// 🔴 第 5 格：每一筆事件的**時**與**事**都必填，而且每一格是它自己的具名錯誤。
+// 一筆壞事件會讓整筆寫入被拒，條目本體一列都不留——事件跟條目是一起進去或一起
+// 不進去。
+func TestLoreCreateRefusesAnEventWithoutItsTimeOrItsWhat(t *testing.T) {
+	d := newTestDAL(t)
+	t33Entity(t, d, "e-repo", "repo", "repo:officraft")
+
+	good := LoreEvent{HappenedTS: 1700000000, What: "Seth 把畫面切成假資料"}
+	for _, tc := range []struct {
+		name string
+		ev   LoreEvent
+		want error
+	}{
+		{"no happened_ts", LoreEvent{What: "Seth 換掉了那個檔案"}, ErrLoreEventTimeMissing},
+		{"zero happened_ts", LoreEvent{HappenedTS: 0, What: "x"}, ErrLoreEventTimeMissing},
+		{"negative happened_ts", LoreEvent{HappenedTS: -1, What: "x"}, ErrLoreEventTimeMissing},
+		{"blank what", LoreEvent{HappenedTS: 1700000000}, ErrLoreEventWhatBlank},
+		{"whitespace what", LoreEvent{HappenedTS: 1700000000, What: "  \n"}, ErrLoreEventWhatBlank},
+	} {
+		w := t33Write()
+		w.Events = []LoreEvent{good, tc.ev}
+		_, err := d.CreateLoreEntry(w, 1000)
+		if !errors.Is(err, tc.want) {
+			t.Fatalf("%s: got %v, want %v", tc.name, err, tc.want)
+		}
+		if n := t33CountEntries(t, d); n != 0 {
+			t.Fatalf("%s: 一筆壞事件之後留下了 %d 條條目", tc.name, n)
+		}
+		var evs int
+		if err := d.rdb.QueryRow(`SELECT COUNT(*) FROM lore_event`).Scan(&evs); err != nil {
+			t.Fatalf("count events: %v", err)
+		}
+		if evs != 0 {
+			t.Fatalf("%s: 一筆壞事件之後留下了 %d 列事件", tc.name, evs)
+		}
+	}
+
+	// 🔴 反面：時＋事都給的事件必須收，人／地／物空著也必須收。少了這一半，一個
+	// 把所有事件都拒掉的實作也會讓上面全綠。
+	ok := t33Write()
+	ok.Events = []LoreEvent{good}
+	res, err := d.CreateLoreEntry(ok, 1000)
+	if err != nil {
+		t.Fatalf("一筆只有時與事的事件必須被接受: %v", err)
+	}
+	evs, err := d.ListLoreEvents(res.EntryID)
+	if err != nil || len(evs) != 1 || evs[0].What != good.What {
+		t.Fatalf("事件沒有落地: %+v %v", evs, err)
+	}
+
+	// 0 筆事件也是合法的：第 5 格是選填。
+	none := t33Write()
+	none.Events = nil
+	if _, err := d.CreateLoreEntry(none, 1000); err != nil {
+		t.Fatalf("0 筆事件是合法的: %v", err)
 	}
 }
 
@@ -165,7 +245,7 @@ func TestLoreEntriesWrittenBeforeTheRulingStillReadBackAsDegraded(t *testing.T) 
 	t33Entity(t, d, "e-repo", "repo", "repo:officraft")
 
 	legacy := LoreEntry{
-		ID: "lore-legacy-01", Label: "口號", Symptoms: "x", Short: "y",
+		ID: "lore-legacy-01", Trigger: "我要做某件事", Content: "y",
 		Origin: "agent:O-197", CreatedTS: 1000, UpdatedTS: 1000,
 	}
 	if err := d.PutLoreEntry(legacy); err != nil {
@@ -360,19 +440,23 @@ func TestLoreCreateRefusesToSupersedeAnEntryThatDoesNotExist(t *testing.T) {
 	}
 }
 
-// The label cap is a REFUSAL, never a truncation: a name that changes silently
-// breaks whatever was pointing at it.
-func TestLoreCreateRefusesAnOverlongLabelRatherThanTrimmingIt(t *testing.T) {
+// 🔴 舊的 TestLoreCreateRefusesAnOverlongLabelRatherThanTrimmingIt 沒了，跟著
+// `label` 與它的 40 runes 上限一起。取而代之的是反面：第 1 格**沒有上限**，
+// 一個很長的 trigger 必須整段寫進去，見這裡與 dal_lore_t33_test.go 的
+// TestLoreTriggerHasNoLengthCap。
+func TestLoreCreateAcceptsALongTriggerWholeRatherThanTrimmingIt(t *testing.T) {
 	d := newTestDAL(t)
 	t33Entity(t, d, "e-repo", "repo", "repo:officraft")
 	w := t33Write()
-	w.Label = strings.Repeat("字", loreLabelMaxRunes+1)
+	w.Trigger = strings.Repeat("字", 200)
 
-	if _, err := d.CreateLoreEntry(w, 1000); !errors.Is(err, ErrLoreLabelTooLong) {
-		t.Fatalf("overlong label: got %v", err)
+	res, err := d.CreateLoreEntry(w, 1000)
+	if err != nil {
+		t.Fatalf("a long trigger must be accepted: %v", err)
 	}
-	if n := t33CountEntries(t, d); n != 0 {
-		t.Fatalf("the refused write left %d entries behind", n)
+	entry := t33Get(t, d, res.EntryID)
+	if entry == nil || entry.Trigger != w.Trigger {
+		t.Fatalf("第 1 格被截斷或改寫了: %+v", entry)
 	}
 }
 
@@ -443,5 +527,41 @@ func TestLoreRevisionIdsNeverStartAtZero(t *testing.T) {
 	second := t33Create(t, d, t33Write())
 	if second.RevisionID <= first.RevisionID {
 		t.Fatalf("revision ids are not increasing: %d then %d", first.RevisionID, second.RevisionID)
+	}
+}
+
+// 🔴 人／地／物的前綴：**非空時**才檢查，空著永遠放行。
+//
+// ⚠️ 這道檢查是實作判斷，不是負責人的裁定——規格只說了這三格「有 `human:` /
+// `machine:` / `service:` 等前綴」。不檢查的話前綴就只是裝飾（`Seth` 跟
+// `human:Seth` 都會進來），檢查得太兇又會把「查不出是誰」逼成「編一個人出來」。
+// 這一條同時釘住兩邊：非空的壞前綴被拒，空的一律收。
+func TestLoreEventKeyPrefixesAreCheckedOnlyWhenTheCellIsFilled(t *testing.T) {
+	d := newTestDAL(t)
+	t33Entity(t, d, "e-repo", "repo", "repo:officraft")
+
+	for _, tc := range []struct {
+		name string
+		ev   LoreEvent
+		want error
+	}{
+		{"actor with no prefix", LoreEvent{HappenedTS: 1, What: "x", Actor: "Seth"}, ErrLoreEventKeyMalformed},
+		{"place with an empty name", LoreEvent{HappenedTS: 1, What: "x", Place: "machine:"}, ErrLoreEventKeyMalformed},
+		{"object with an unapproved type", LoreEvent{HappenedTS: 1, What: "x", Object: "vendor:acme"}, ErrLoreEventKeyUnknownType},
+	} {
+		w := t33Write()
+		w.Events = []LoreEvent{tc.ev}
+		if _, err := d.CreateLoreEntry(w, 1000); !errors.Is(err, tc.want) {
+			t.Fatalf("%s: got %v, want %v", tc.name, err, tc.want)
+		}
+	}
+
+	// 🔴 反面，而且它比上面重要：三格全空必須被接受。少了這一半，一個把選填
+	// 偷偷變成必填的實作也會讓上面全綠——而那正是「查不出是誰」被逼成「編一個」
+	// 的那條路。
+	ok := t33Write()
+	ok.Events = []LoreEvent{{HappenedTS: 1, What: "有人重開了前端"}}
+	if _, err := d.CreateLoreEntry(ok, 1000); err != nil {
+		t.Fatalf("人/地/物 全空的事件必須被接受: %v", err)
 	}
 }

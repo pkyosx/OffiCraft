@@ -14,9 +14,9 @@ package main
 //
 // 🔴 THE WHOLE POINT OF THE REVISION ROW. This ticket exists because compression
 // today leaves no trace: an entry gets tightened, the wording that explained it
-// is gone, and the number of entries does not move. `short` is what enters a
+// is gone, and the number of entries does not move. `content` is what enters a
 // context; lore_revision is what the agent reads when it stops believing the
-// short version. An entry written WITHOUT its revision row would look identical
+// compressed version. An entry written WITHOUT its revision row would look identical
 // in every context and every count, and the loss would only be discovered by
 // somebody going to look for the original and finding there never was one.
 // ⇒ The entry and its first revision are written in ONE transaction.
@@ -27,14 +27,20 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
 )
 
 var (
-	ErrLoreSymptomsBlank      = errors.New("lore: `symptoms` is blank")
-	ErrLoreShortBlank         = errors.New("lore: `short` is blank")
-	ErrLoreFalsifyBlank       = errors.New("lore: `falsify` is blank")
-	ErrLoreInstanceBlank      = errors.New("lore: `instance` is blank")
+	// 🔴 只剩兩格必填：第 1 格（trigger，錯誤在 dal_lore.go 的
+	// ErrLoreTriggerBlank）與第 2 格（content）。舊的 ErrLoreSymptomsBlank /
+	// ErrLoreShortBlank / ErrLoreFalsifyBlank / ErrLoreInstanceBlank 都沒了，
+	// 連同它們的欄位一起——五格裡沒有 falsify、沒有 instance。
+	// ⚠️ 2026-09-02 rc-714eea33c6ed 把 falsify / instance 變成必填的那道裁定，
+	// 因此在這一版**沒有對應的欄位可以套用**。它不是被推翻，是被格式改版讓它
+	// 沒有落點了。第 3、4 格是選填，第 5 格是 0..N。
+	ErrLoreContentBlank       = errors.New("lore: `content` is blank")
 	ErrLoreSubjectBlank       = errors.New("lore: a subject key is blank")
 	ErrLoreSubjectMalformed   = errors.New("lore: a subject key is not `type:name`")
 	ErrLoreSubjectUnknownType = errors.New("lore: a subject key names an unapproved type prefix")
@@ -54,8 +60,8 @@ var (
 // pointed it and WHEN.
 const LoreGovSupersede = "supersede"
 
-// LoreWrite is one request to create an entry — the six body fields, the axes
-// it is filed under, and the verified identity of whoever is writing.
+// LoreWrite is one request to create an entry — 五格（四個欄位 + 0..N 筆事件）、
+// the axes it is filed under, and the verified identity of whoever is writing.
 //
 // 🔴 ActorID IS NOT A BODY FIELD ANYWHERE ABOVE THIS. It comes from the verified
 // token subject. `Origin` is a different thing and IS caller-supplied: origin
@@ -64,12 +70,14 @@ const LoreGovSupersede = "supersede"
 // what a human told an agent, which is the origin class the assembler treats as
 // exempt from the count cap.
 type LoreWrite struct {
-	Label        string
-	Symptoms     string
-	Short        string
-	Falsify      string
-	Instance     string
-	ResidualRisk string
+	Trigger    string
+	Content    string
+	RetireWhen string
+	Problem    string
+
+	// Events 是第 5 格。0 筆是合法的，而且 0 筆跟「有事件但人／地／物空著」是
+	// 兩件完全不同的事，兩件都看得出來。
+	Events []LoreEvent
 
 	Origin     string
 	Supersedes string
@@ -104,41 +112,78 @@ type LoreWriteResult struct {
 	Superseded string
 }
 
-// loreRevisionBody renders the six body fields into the text the L0 journal
-// stores.
+// loreRevisionBody renders 五格 — the four cells AND the events — into the text
+// the L0 journal stores.
+//
+// 🔴 事件**在 body 裡面**，因此也在 sha256 裡面。少了它，第 5 格就不在 L0 原文
+// 層，而「agent 不再相信 content 那一版，回去看原本說了什麼」對事件就永遠問不到
+// 答案——那正是 L0 存在的理由。代價是 lore_proposal 目前提不動事件，見
+// dal_lore_proposal.go 裡 loreProposalEntry 呼叫處的說明。
 //
 // 🔴 WHAT "原文" MEANS HERE IS A READING, NOT A RULING — and it is flagged rather
 // than hidden. The design calls lore_revision the L0 原文層 and calls `body` 完整
 // 原文, but the write endpoint it specifies carries no separate raw-material
-// field. The only text that exists at write time is the six fields, so the
-// original this journal preserves is THE ENTRY AS IT WAS WRITTEN, in full,
-// against the one field (`short`) that later enters a context. That makes the
-// journal answer the question the design puts to it — "the agent stops believing
-// the short version, what did it originally say" — for every field, not just the
-// compressed one.
+// field. The only text that exists at write time is 五格, so the original this
+// journal preserves is THE ENTRY AS IT WAS WRITTEN, in full, against the one
+// cell (`content`) that later enters a context. That makes the journal answer
+// the question the design puts to it — "the agent stops believing the compressed
+// version, what did it originally say" — for every cell, not just that one.
 // ⚠️ The alternative reading is that L0 should hold the raw conversation the
 // entry was distilled from. That would need a request field the approved design
 // does not have, so it is NOT decided here.
 //
-// The rendering is stable and total: every field appears with its name, in a
-// fixed order, blank or not. A renderer that skipped blanks would hash the same
-// bytes for "the author never wrote a falsifier" and "the falsifier was deleted"
-// — the exact collapse this ticket is about.
-func loreRevisionBody(e LoreEntry) string {
+// The rendering is stable and total: every cell appears with its name, in a
+// fixed order, blank or not, and so does the `events:` block even when it is
+// empty. A renderer that skipped blanks would hash the same bytes for "the
+// author never wrote this cell" and "this cell was deleted" — the exact collapse
+// this ticket is about.
+func loreRevisionBody(e LoreEntry, events []LoreEvent) string {
 	var b strings.Builder
 	for _, f := range []struct{ name, value string }{
-		{"label", e.Label},
-		{"symptoms", e.Symptoms},
-		{"short", e.Short},
-		{"falsify", e.Falsify},
-		{"instance", e.Instance},
-		{"residual_risk", e.ResidualRisk},
+		{"trigger", e.Trigger},
+		{"content", e.Content},
+		{"retire_when", e.RetireWhen},
+		{"problem", e.Problem},
 	} {
 		b.WriteString(f.name)
 		b.WriteString(":\n")
 		b.WriteString(f.value)
 		b.WriteString("\n\n")
 	}
+	// 🔴 `events:` 這一行**永遠**印出來，即使一筆事件都沒有。理由跟上面四格
+	// 「空白也照印」是同一個：一條沒有事件的條目，跟一條事件被某次改寫弄丟的
+	// 條目，在渲染結果裡必須不一樣。跳過空區塊的渲染器會讓這兩者雜湊出同一串。
+	b.WriteString("events:\n")
+	// 🔴 排序是 (happened_ts, what, actor, place, object)，不是呼叫者給的順序。
+	// 同一組事件用不同順序送進來必須雜湊出同一串，否則 base_sha256 會因為
+	// 一個沒有人看得見的差異而報「過期」。id 不參與：新寫入時還沒有 id。
+	sorted := append([]LoreEvent(nil), events...)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		a, c := sorted[i], sorted[j]
+		if a.HappenedTS != c.HappenedTS {
+			return a.HappenedTS < c.HappenedTS
+		}
+		if a.What != c.What {
+			return a.What < c.What
+		}
+		if a.Actor != c.Actor {
+			return a.Actor < c.Actor
+		}
+		if a.Place != c.Place {
+			return a.Place < c.Place
+		}
+		return a.Object < c.Object
+	})
+	for _, ev := range sorted {
+		// 五欄一列，用 tab 分開，空著就是空著——**不填「未知」**。一列裡看到
+		// 兩個相鄰的 tab，就是「這一格沒有東西」，而那是要看得見的事實。
+		b.WriteString(strings.Join([]string{
+			strconv.FormatFloat(ev.HappenedTS, 'f', -1, 64),
+			ev.What, ev.Actor, ev.Place, ev.Object,
+		}, "\t"))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
 	return b.String()
 }
 
@@ -235,35 +280,31 @@ func loreResolveSubject(tx *sql.Tx, key, actorID string, nowTS float64) (string,
 // reach it by. Half of this write is not a smaller version of it; it is a row
 // that looks finished and is not.
 //
-// 🔴 四格都在空白時被拒：`symptoms`、`short`、`falsify`、`instance`。前兩格是
-// 「沒有它這一列誰都讀不到」——`short` 是唯一會進開機脈絡的一格，`symptoms` 是
-// 讀者找到它的那一軸。後兩格是負責人 2026-09-02 的裁定 rc-714eea33c6ed（純
-// required，不做逃生口，真的撞到再回來加），他知情地推翻了自己前一天「刻意選填」
-// 的裁定：他要的證據——一條真的填不出 falsify 的條目——在當時站上僅有的 5 條裡
-// 一條都不存在，5 條全都填了而且都站得住。
+// 🔴 兩格在空白時被拒：第 1 格 `trigger` 與第 2 格 `content`。理由是同一個——
+// 沒有它這一列誰都讀不到：`content` 是唯一會進開機脈絡的一格，`trigger`
+// （什麼時候要記起來）是讀者找到它的那一軸，而且兼任標題。
 //
-// ⚠️ 這裡有一個他知情接受、而且沒有解掉的代價，不要假裝它不存在：沒有逃生口
-// 之後，真的填不出來的人會硬掰一個，而硬掰的跟真的長得一模一樣，這一層分不出
-// 來。真的撞到再回來加逃生口是他的話——不要自己先加一個。
+// 🔴 第 3 格 `retire_when` 與第 4 格 `problem` 是**選填**，這一層不會替它們補
+// 任何東西。第 4 格「它是主體」是寫作上的重量，不是欄位上的必填——把它變成必填
+// 會把填不出來的人逼去掰一個問題，而掰的跟真的長得一模一樣。
+//
+// ⚠️ 2026-09-02 rc-714eea33c6ed（falsify / instance 純 required）在這一版**沒有
+// 落點**：五格裡這兩格都不存在。不要把它當成被推翻——它是被格式改版讓它沒有欄位
+// 可以套了，而「五格裡要不要有一格是那個意思」是負責人的事。
+//
+// 🔴 第 5 格的每一筆事件都要有**時**與**事**；人／地／物空著照收，而且不會被
+// 填滿。事件驗證在寫入 transaction **之前**跑完：一筆壞事件不該讓條目本體寫進
+// 去一半。
 func (d *DAL) CreateLoreEntry(w LoreWrite, nowTS float64) (LoreWriteResult, error) {
 	var out LoreWriteResult
 	if w.ActorID == "" {
 		return out, ErrLoreActorBlank
 	}
-	if strings.TrimSpace(w.Symptoms) == "" {
-		return out, ErrLoreSymptomsBlank
-	}
-	if strings.TrimSpace(w.Short) == "" {
-		return out, ErrLoreShortBlank
-	}
-	if strings.TrimSpace(w.Falsify) == "" {
-		return out, ErrLoreFalsifyBlank
-	}
-	if strings.TrimSpace(w.Instance) == "" {
-		return out, ErrLoreInstanceBlank
-	}
-	if err := loreLabelError(w.Label); err != nil {
+	if err := loreTriggerError(w.Trigger); err != nil {
 		return out, err
+	}
+	if strings.TrimSpace(w.Content) == "" {
+		return out, ErrLoreContentBlank
 	}
 	if err := d.loreOriginError(w.Origin); err != nil {
 		return out, err
@@ -276,36 +317,51 @@ func (d *DAL) CreateLoreEntry(w LoreWrite, nowTS float64) (LoreWriteResult, erro
 			return out, ErrLoreActionBlank
 		}
 	}
+	for _, ev := range w.Events {
+		if err := d.loreEventError(ev); err != nil {
+			return out, err
+		}
+	}
 
 	entry := LoreEntry{
-		ID:           "lore-" + newHexID(12),
-		Label:        w.Label,
-		Symptoms:     w.Symptoms,
-		Short:        w.Short,
-		Falsify:      w.Falsify,
-		Instance:     w.Instance,
-		ResidualRisk: w.ResidualRisk,
-		Status:       "active",
-		Supersedes:   w.Supersedes,
-		EditableBy:   "agent",
-		Origin:       w.Origin,
-		CreatedTS:    nowTS,
-		UpdatedTS:    nowTS,
+		ID:         "lore-" + newHexID(12),
+		Trigger:    w.Trigger,
+		Content:    w.Content,
+		RetireWhen: w.RetireWhen,
+		Problem:    w.Problem,
+		Status:     "active",
+		Supersedes: w.Supersedes,
+		EditableBy: "agent",
+		Origin:     w.Origin,
+		CreatedTS:  nowTS,
+		UpdatedTS:  nowTS,
 	}
 	if entry.Supersedes == entry.ID {
 		return out, ErrLoreSupersedesSelf
 	}
-	body := loreRevisionBody(entry)
+	body := loreRevisionBody(entry, w.Events)
 	sum := loreSHA256(body)
 
 	err := d.inTx(func(tx *sql.Tx) error {
 		if _, err := tx.Exec(`
 			INSERT INTO lore_entry (`+loreEntryColumns+`)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			entry.ID, entry.Label, entry.Symptoms, entry.Short, entry.Falsify,
-			entry.Instance, entry.ResidualRisk, entry.Status, entry.Supersedes,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			entry.ID, entry.Trigger, entry.Content, entry.RetireWhen, entry.Problem,
+			entry.Status, entry.Supersedes,
 			entry.EditableBy, entry.Origin, entry.CreatedTS, entry.UpdatedTS); err != nil {
 			return err
+		}
+
+		// 第 5 格：0..N 筆，寫在同一個 transaction 裡。事件跟條目一起進去或
+		// 一起不進去——一條有 content 卻掉了事件的條目，在任何畫面上都跟一條
+		// 本來就沒有事件的條目長得一模一樣。
+		for _, ev := range w.Events {
+			if _, err := tx.Exec(`
+				INSERT INTO lore_event (entry_id, happened_ts, what, actor, place, object)
+				VALUES (?, ?, ?, ?, ?, ?)`,
+				entry.ID, ev.HappenedTS, ev.What, ev.Actor, ev.Place, ev.Object); err != nil {
+				return err
+			}
 		}
 
 		filed := map[string]bool{}

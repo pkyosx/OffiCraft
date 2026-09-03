@@ -62,7 +62,7 @@ var (
 // 2026-09-02: 過時（當時對現在不對）／本來就錯／害他走錯路. They are three
 // different repairs — a stale entry wants rewriting against today, an entry that
 // was never true wants retiring with `falsified`, and one that MISLED wants its
-// symptoms fixed so it stops being retrieved for situations it does not describe
+// 第 1 格（trigger）fixed so it stops being retrieved for situations it does not describe
 // — so an undifferentiated 「這條不好」 tells a reviewer nothing about what to do.
 var (
 	loreProposalKinds  = map[string]bool{"update": true, "remove": true}
@@ -83,12 +83,14 @@ type LoreProposal struct {
 	Fault       string
 	Evidence    string
 
-	Label        string
-	Symptoms     string
-	Short        string
-	Falsify      string
-	Instance     string
-	ResidualRisk string
+	// 🔴 提案帶的是**完整的新版本**，但這一批只帶得動前四格。第 5 格（事件）
+	// 沒有對應的欄位，語意是「事件維持現狀」——見 CreateLoreProposal 裡渲染
+	// body 的地方，以及 migrations/00069 的說明。這是一個沒有解掉的缺口，
+	// 不是一個已經想清楚的設計。
+	Trigger    string
+	Content    string
+	RetireWhen string
+	Problem    string
 
 	ActorID string
 }
@@ -113,12 +115,10 @@ type LoreProposalRow struct {
 	Encountered    string
 	Fault          string
 	Evidence       string
-	Label          string
-	Symptoms       string
-	Short          string
-	Falsify        string
-	Instance       string
-	ResidualRisk   string
+	Trigger        string
+	Content        string
+	RetireWhen     string
+	Problem        string
 	Body           string
 	SHA256         string
 	ActorID        string
@@ -154,12 +154,10 @@ type LoreProposalList struct {
 // answerable question the moment the two drifted by one newline.
 func loreProposalEntry(p LoreProposal) LoreEntry {
 	return LoreEntry{
-		Label:        p.Label,
-		Symptoms:     p.Symptoms,
-		Short:        p.Short,
-		Falsify:      p.Falsify,
-		Instance:     p.Instance,
-		ResidualRisk: p.ResidualRisk,
+		Trigger:    p.Trigger,
+		Content:    p.Content,
+		RetireWhen: p.RetireWhen,
+		Problem:    p.Problem,
 	}
 }
 
@@ -194,7 +192,7 @@ func loreProposalShapeError(p LoreProposal) error {
 		// A removal proposes no new version. Carrying one would put a version on
 		// the reviewer's screen that no accept path would ever write — the
 		// description/result gap in miniature, inside the shape built to close it.
-		for _, f := range []string{p.Label, p.Symptoms, p.Short, p.Falsify, p.Instance, p.ResidualRisk} {
+		for _, f := range []string{p.Trigger, p.Content, p.RetireWhen, p.Problem} {
 			if strings.TrimSpace(f) != "" {
 				return ErrLoreProposalRemoveBody
 			}
@@ -206,19 +204,13 @@ func loreProposalShapeError(p LoreProposal) error {
 	// writing a version through the ordinary write path, so a proposal that path
 	// would refuse is a proposal that can never be accepted — and it would sit in
 	// the queue looking exactly like one that could.
-	if strings.TrimSpace(p.Symptoms) == "" {
-		return ErrLoreSymptomsBlank
+	if err := loreTriggerError(p.Trigger); err != nil {
+		return err
 	}
-	if strings.TrimSpace(p.Short) == "" {
-		return ErrLoreShortBlank
+	if strings.TrimSpace(p.Content) == "" {
+		return ErrLoreContentBlank
 	}
-	if strings.TrimSpace(p.Falsify) == "" {
-		return ErrLoreFalsifyBlank
-	}
-	if strings.TrimSpace(p.Instance) == "" {
-		return ErrLoreInstanceBlank
-	}
-	return loreLabelError(p.Label)
+	return nil
 }
 
 // CreateLoreProposal files one proposal against the version its author read.
@@ -260,7 +252,18 @@ func (d *DAL) CreateLoreProposal(p LoreProposal, nowTS float64) (LoreProposalRes
 
 	var body, sum string
 	if p.Kind == "update" {
-		body = loreRevisionBody(loreProposalEntry(p))
+		// 🔴 事件用**條目目前的事件**接上去，不是空的。
+		// loreRevisionBody 把第 5 格也算進 sha256（見 dal_lore_write.go），而
+		// 提案這一批帶不動事件。用空事件渲染的話，每一份 update 提案都會在
+		// 審核者完全看不見的地方主張「把所有事件刪掉」——正是這張表存在要消滅的
+		// 描述／結果落差。所以這裡的語意被固定成：**四格改成這樣，事件維持現狀**。
+		// ⚠️ 這是實作判斷，不是裁定。真正的解法是讓提案帶一份完整事件清單
+		//（lore_proposal_event），那需要負責人先回答「提案改不改得動事件」。
+		events, evErr := d.ListLoreEvents(p.EntryID)
+		if evErr != nil {
+			return out, evErr
+		}
+		body = loreRevisionBody(loreProposalEntry(p), events)
 		sum = loreSHA256(body)
 		// The digests are comparable because ONE renderer produced both — see
 		// loreProposalEntry. A proposal that changes nothing is refused rather
@@ -275,12 +278,12 @@ func (d *DAL) CreateLoreProposal(p LoreProposal, nowTS float64) (LoreProposalRes
 		INSERT INTO lore_proposal (
 			id, entry_id, kind, base_revision_id, base_sha256,
 			encountered, fault, evidence,
-			label, symptoms, short, falsify, instance, residual_risk,
+			trigger, content, retire_when, problem,
 			body, sha256, actor_id, created_ts)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		out.ProposalID, p.EntryID, p.Kind, base.ID, base.SHA256,
 		p.Encountered, p.Fault, p.Evidence,
-		p.Label, p.Symptoms, p.Short, p.Falsify, p.Instance, p.ResidualRisk,
+		p.Trigger, p.Content, p.RetireWhen, p.Problem,
 		body, sum, p.ActorID, nowTS)
 	if err != nil {
 		return LoreProposalResult{}, err
@@ -320,7 +323,7 @@ func (d *DAL) ListLoreProposals(entryID string) (LoreProposalList, error) {
 	rows, err := d.rdb.Query(`
 		SELECT id, entry_id, kind, base_revision_id, base_sha256,
 		       encountered, fault, evidence,
-		       label, symptoms, short, falsify, instance, residual_risk,
+		       trigger, content, retire_when, problem,
 		       body, sha256, actor_id, created_ts
 		FROM lore_proposal WHERE entry_id = ? ORDER BY created_ts DESC, id DESC`, entryID)
 	if err != nil {
@@ -332,7 +335,7 @@ func (d *DAL) ListLoreProposals(entryID string) (LoreProposalList, error) {
 		if err := rows.Scan(
 			&p.ID, &p.EntryID, &p.Kind, &p.BaseRevisionID, &p.BaseSHA256,
 			&p.Encountered, &p.Fault, &p.Evidence,
-			&p.Label, &p.Symptoms, &p.Short, &p.Falsify, &p.Instance, &p.ResidualRisk,
+			&p.Trigger, &p.Content, &p.RetireWhen, &p.Problem,
 			&p.Body, &p.SHA256, &p.ActorID, &p.CreatedTS,
 		); err != nil {
 			return LoreProposalList{}, err

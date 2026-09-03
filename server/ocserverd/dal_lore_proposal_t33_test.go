@@ -20,18 +20,16 @@ import (
 // cannot accidentally pass.
 func t33Propose(entryID string) LoreProposal {
 	return LoreProposal{
-		EntryID:      entryID,
-		Kind:         "update",
-		Encountered:  "T-33 slot 4, wiring the proposal route",
-		Fault:        "stale",
-		Evidence:     "the entry names dal_lore.go, and the function moved to dal_lore_write.go in 8282fdef",
-		Label:        "boot context assembly",
-		Symptoms:     "two blocks disagree about the same fact",
-		Short:        "the fold happens in one place, and that place is lore_fold.go",
-		Falsify:      "a second assembler appears",
-		Instance:     "T-33 slot 3",
-		ResidualRisk: "says nothing about who may call the fold",
-		ActorID:      "ow-e27260b9ed05",
+		EntryID:     entryID,
+		Kind:        "update",
+		Encountered: "T-33 slot 4, wiring the proposal route",
+		Fault:       "stale",
+		Evidence:    "the entry names dal_lore.go, and the function moved to dal_lore_write.go in 8282fdef",
+		Trigger:     "我要確認開機脈絡是在哪一個檔案組起來的",
+		Content:     "the fold happens in one place, and that place is lore_fold.go",
+		RetireWhen:  "等組裝路徑不只一條",
+		Problem:     "T-33 slot 3：條目指到 dal_lore.go，函式其實已經搬走",
+		ActorID:     "ow-e27260b9ed05",
 	}
 }
 
@@ -127,8 +125,8 @@ func TestLoreProposalGoesStaleWhenTheEntryMovesAfterItWasFiled(t *testing.T) {
 
 	// Somebody rewrites the entry.
 	moved := t33Entry(entryID)
-	moved.Short = "the fold happens in lore_fold.go, and the assembler cannot see L2"
-	body := loreRevisionBody(moved)
+	moved.Content = "the fold happens in lore_fold.go, and the assembler cannot see L2"
+	body := loreRevisionBody(moved, nil)
 	if _, err := d.wdb.Exec(`
 		INSERT INTO lore_revision (entry_id, body, sha256, actor_id, created_ts, shrink_chars)
 		VALUES (?, ?, ?, 'somebody-else', 3000, 0)`,
@@ -178,12 +176,19 @@ func TestLoreProposalStoresTheWholeVersionUnderTheSharedRenderer(t *testing.T) {
 	// test through the code under test on both sides of the comparison: a mapping
 	// that dropped a field would drop it in `want` too and the assertion would
 	// hold forever. Measured, not feared — that is exactly what the first version
-	// of this test did, and a mutant that blanked `residual_risk` in the mapping
-	// walked straight past it.
+	// of this test did, and a mutant that blanked a cell in the mapping walked
+	// straight past it.
+	//
+	// 🔴 第二個參數是條目**目前**的事件，不是 nil：提案帶不動第 5 格，語意是
+	// 「事件維持現狀」。用 nil 建期望值會讓「提案悄悄清空事件」變成通過的行為。
+	seededEvents, evErr := d.ListLoreEvents(entryID)
+	if evErr != nil {
+		t.Fatalf("list events: %v", evErr)
+	}
 	want := loreRevisionBody(LoreEntry{
-		Label: p.Label, Symptoms: p.Symptoms, Short: p.Short,
-		Falsify: p.Falsify, Instance: p.Instance, ResidualRisk: p.ResidualRisk,
-	})
+		Trigger: p.Trigger, Content: p.Content,
+		RetireWhen: p.RetireWhen, Problem: p.Problem,
+	}, seededEvents)
 	if row.Body != want {
 		t.Fatalf("stored body is not what the shared renderer produces:\n got %q\nwant %q", row.Body, want)
 	}
@@ -194,15 +199,14 @@ func TestLoreProposalStoresTheWholeVersionUnderTheSharedRenderer(t *testing.T) {
 	// satisfied by a renderer that printed six headings over six blanks — which
 	// is the shape a dropped field actually has.
 	for _, f := range []struct{ section, value string }{
-		{"label:", p.Label}, {"symptoms:", p.Symptoms}, {"short:", p.Short},
-		{"falsify:", p.Falsify}, {"instance:", p.Instance},
-		{"residual_risk:", p.ResidualRisk},
+		{"trigger:", p.Trigger}, {"content:", p.Content},
+		{"retire_when:", p.RetireWhen}, {"problem:", p.Problem},
 	} {
 		if !strings.Contains(row.Body, f.section+"\n"+f.value+"\n") {
 			t.Fatalf("the stored version drops the %q section or its value: %q", f.section, row.Body)
 		}
 	}
-	if row.Short != p.Short || row.Fault != "stale" || row.Encountered != p.Encountered ||
+	if row.Content != p.Content || row.Fault != "stale" || row.Encountered != p.Encountered ||
 		row.Evidence != p.Evidence || row.ActorID != p.ActorID {
 		t.Fatalf("the row is not what was proposed: %+v", row)
 	}
@@ -240,7 +244,7 @@ func TestLoreProposalRemoveCarriesNoVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	if row := list.Proposals[0]; row.Kind != "remove" || row.Body != "" || row.Short != "" {
+	if row := list.Proposals[0]; row.Kind != "remove" || row.Body != "" || row.Content != "" {
 		t.Fatalf("the stored removal carries a version: %+v", row)
 	}
 }
@@ -258,11 +262,8 @@ func TestLoreProposalUpdateIsHeldToTheWritePathsFieldRules(t *testing.T) {
 		edit func(*LoreProposal)
 		want error
 	}{
-		{"blank symptoms", func(p *LoreProposal) { p.Symptoms = " " }, ErrLoreSymptomsBlank},
-		{"blank short", func(p *LoreProposal) { p.Short = "" }, ErrLoreShortBlank},
-		{"blank falsify", func(p *LoreProposal) { p.Falsify = "" }, ErrLoreFalsifyBlank},
-		{"blank instance", func(p *LoreProposal) { p.Instance = "" }, ErrLoreInstanceBlank},
-		{"over-long label", func(p *LoreProposal) { p.Label = strings.Repeat("名", 41) }, ErrLoreLabelTooLong},
+		{"blank trigger", func(p *LoreProposal) { p.Trigger = " " }, ErrLoreTriggerBlank},
+		{"blank content", func(p *LoreProposal) { p.Content = "" }, ErrLoreContentBlank},
 		{"unknown kind", func(p *LoreProposal) { p.Kind = "patch" }, ErrLoreProposalKindUnknown},
 		{"unknown fault", func(p *LoreProposal) { p.Fault = "bad" }, ErrLoreProposalFaultUnknown},
 		{"blank encountered", func(p *LoreProposal) { p.Encountered = "" }, ErrLoreProposalEncountered},
@@ -295,8 +296,8 @@ func TestLoreProposalRefusesAVersionIdenticalToTheBase(t *testing.T) {
 	entry := t33Get(t, d, entryID)
 	same := t33Propose(entryID)
 	same.BaseSHA256 = sha
-	same.Label, same.Symptoms, same.Short = entry.Label, entry.Symptoms, entry.Short
-	same.Falsify, same.Instance, same.ResidualRisk = entry.Falsify, entry.Instance, entry.ResidualRisk
+	same.Trigger, same.Content = entry.Trigger, entry.Content
+	same.RetireWhen, same.Problem = entry.RetireWhen, entry.Problem
 	if _, err := d.CreateLoreProposal(same, 2000); !errors.Is(err, ErrLoreProposalNoChange) {
 		t.Fatalf("a proposal that changes nothing was filed: %v", err)
 	}
@@ -360,14 +361,14 @@ func TestLoreProposalListsNewestFirstWhenIdOrderContradictsTime(t *testing.T) {
 
 	older := t33Propose(entryID)
 	older.BaseSHA256 = sha
-	older.Short = "the fold happens in one place, and that place is lore_fold.go"
+	older.Content = "the fold happens in one place, and that place is lore_fold.go"
 	gotOlder, err := d.CreateLoreProposal(older, 1000)
 	if err != nil {
 		t.Fatalf("filing the older proposal: %v", err)
 	}
 	newer := t33Propose(entryID)
 	newer.BaseSHA256 = sha
-	newer.Short = "the fold happens in lore_fold.go, and nothing else may assemble one"
+	newer.Content = "the fold happens in lore_fold.go, and nothing else may assemble one"
 	gotNewer, err := d.CreateLoreProposal(newer, 2000)
 	if err != nil {
 		t.Fatalf("filing the newer proposal: %v", err)
@@ -400,5 +401,48 @@ func TestLoreProposalListsNewestFirstWhenIdOrderContradictsTime(t *testing.T) {
 	if list.Proposals[0].CreatedTS <= list.Proposals[1].CreatedTS {
 		t.Fatalf("the listing is not descending in time: %.0f then %.0f",
 			list.Proposals[0].CreatedTS, list.Proposals[1].CreatedTS)
+	}
+}
+
+// 🔴 提案帶不動第 5 格，而它的語意被固定成「事件維持現狀」，不是「事件被清空」。
+//
+// 這一條釘的是那個選擇本身。loreRevisionBody 把事件算進 sha256（否則 L0 原文層
+// 對第 5 格失效），所以一份用「空事件」渲染的提案，會在審核者完全看不見的地方
+// 主張刪掉所有事件——正是這張表存在要消滅的描述／結果落差。
+//
+// ⚠️ 這是實作判斷，不是負責人的裁定。真正的解法是讓提案帶一份完整事件清單
+// （lore_proposal_event）。這一條會在有人把語意改掉的那一刻變紅。
+func TestLoreProposalKeepsTheEntrysEventsRatherThanSilentlyClearingThem(t *testing.T) {
+	d := newTestDAL(t)
+	t33Entity(t, d, "e-repo", "repo", "repo:officraft")
+
+	w := t33Write()
+	w.Events = []LoreEvent{
+		{HappenedTS: 1700000000, What: "Seth 把畫面切成假資料", Actor: "human:Seth"},
+	}
+	seeded, err := d.CreateLoreEntry(w, 1000)
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	p := t33Propose(seeded.EntryID)
+	p.BaseSHA256 = seeded.SHA256
+	if _, err := d.CreateLoreProposal(p, 2000); err != nil {
+		t.Fatalf("file: %v", err)
+	}
+	list, err := d.ListLoreProposals(seeded.EntryID)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	body := list.Proposals[0].Body
+	if !strings.Contains(body, "Seth 把畫面切成假資料") {
+		t.Fatalf("提案的完整版本把條目現有的事件弄丟了 —— 審核者看到的 diff 會"+
+			"在沒有人主張過的情況下刪掉第 5 格:\n%s", body)
+	}
+	// 而且不是靠「事件根本不在 body 裡」蒙混過去的：拿掉事件的渲染必須不一樣。
+	if loreSHA256(body) == loreSHA256(loreRevisionBody(LoreEntry{
+		Trigger: p.Trigger, Content: p.Content, RetireWhen: p.RetireWhen, Problem: p.Problem,
+	}, nil)) {
+		t.Fatal("帶事件與不帶事件渲染出同一串 —— 第 5 格不在 digest 裡")
 	}
 }

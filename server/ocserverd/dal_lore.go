@@ -4,7 +4,8 @@ package main
 // 00063 introduces. Same convention as dal_tasks.go / dal_task_artifacts.go:
 // explicit per-table methods, no generic repository.
 //
-// 🔴 SCOPE: THIS IS THE L1 SEAM AND THE TWO JOIN TABLES, NOTHING MORE. The
+// 🔴 SCOPE: THIS IS THE L1 SEAM, THE TWO JOIN TABLES AND THE EVENTS TABLE
+// (第 5 格) THAT HANGS OFF L1, NOTHING MORE. The
 // revision journal (L0), the governance counters (L2), the recall log, feedback
 // and governance events all have tables in 00063 and NO functions here yet —
 // they belong to the rounds that write the paths that use them. An empty seam is
@@ -42,17 +43,17 @@ import (
 type LoreEntry struct {
 	ID string
 
-	// 🔴 THE SIX BODY FIELDS, FIXED. There is no free-form field here and none
-	// is to be added: the owner's complaint was that entries were each growing
-	// their own undefined sections, and an `extra` column would rebuild exactly
-	// that. Fixing the shape is what makes an eroded entry visible — see
-	// IsDegraded below.
-	Label        string // one-line title
-	Symptoms     string // what I would be SEEING; the situation, not a category name
-	Short        string // the compressed body: mechanism and why — THIS is what enters a context
-	Falsify      string // how to show this entry does NOT hold
-	Instance     string // one case that really happened
-	ResidualRisk string // what this entry does NOT protect against
+	// 🔴 前四格，固定。第五格（相關的完整資訊）不在這個 struct 裡，它是
+	// lore_event 的 0..N 列——見 LoreEvent / ListLoreEvents 底下。
+	//
+	// 🔴 這裡刻意沒有 Events []LoreEvent 欄位。LoreEntry 目前是可比較的
+	// （測試用 `*got != want` 一行比完整條目），加一個 slice 就會讓那些比較
+	// 編不過，而把它們改成 reflect.DeepEqual 會讓「多了一個欄位沒被比到」變成
+	// 一個編譯器再也抓不到的錯。事件由呼叫者明確地讀，這是刻意的。
+	Trigger    string // 什麼時候要記起來；形狀是「我要做 X」。兼任標題，無長度上限
+	Content    string // 內容 — THIS is what enters a context
+	RetireWhen string // 什麼時候不需要了（選填，自由文字，非封閉值域）
+	Problem    string // 之前發生過什麼問題（選填，但它是主體）
 
 	Status     string // 'active' | 'superseded' | 'retired' | 'underspecified'
 	Supersedes string // id of the entry this replaces; the replaced row is re-statused, never deleted
@@ -62,69 +63,148 @@ type LoreEntry struct {
 	UpdatedTS  float64
 }
 
-// IsDegraded reports an entry that has been eroded back into a slogan: both
-// Falsify and Instance are empty, so it asserts something while offering neither
-// a way to check it nor a case where it happened.
+// IsDegraded 目前回報「`problem` 是空的」的條目。
 //
-// 🔴 THIS FUNCTION IS ONLY EXPRESSIBLE BECAUSE THE BODY FIELDS ARE FIXED. Under
-// free-form prose, "the falsification section is gone" and "the author never
-// wrote one" are the same observation, so erosion is undetectable — which is the
-// silent loss this whole ticket is about. Two named columns turn it into a
-// boolean anyone can compute.
+// 🔴🔴 這個判準是**暫定的，還在等負責人裁定（卡 rc-1e32c690018d）**，不要把它
+// 當成已經定案的東西讀。
+//
+// 舊的定義是「`falsify` 與 `instance` 皆空」——五格裡這兩格都不存在了，所以那個
+// 定義沒了。它沒有被默默刪掉，也沒有被假裝成已經有新答案：函式留著、判準換成
+// 一個**明顯是佔位**的東西（第 4 格「之前發生過什麼問題」為空），並且在這裡說
+// 清楚它是佔位。
+//
+// 為什麼是 `problem`：五格裡它是唯一「選填、但它是主體」的一格——一條沒有問題
+// 撐著的條目就是一句口號，而「口號」正是這個函式原本要抓的東西。
+//
+// ⚠️ 但這個推理有一個它自己補不了的洞，說在前面：`falsify` 舊定義抓的是
+// 「這條沒有辦法被否證」，`problem` 空抓的是「這條沒有來歷」。**這兩件事不一樣**，
+// 而且第五格（lore_event）有沒有事件也可能才是更好的判準。要哪一個是負責人的事。
 //
 // ⚠️ IT IS DELIBERATELY NOT WIRED TO ANYTHING YET — no UI, no alert, no
 // retrieval filter. What to DO about a degraded entry is a later round's
 // decision, and hanging a behaviour off it now would decide that by accident.
-//
-// 🔴 2026-09-02 的裁定（rc-714eea33c6ed）把 `falsify` 與 `instance` 變成寫入必填
-// 之後，這個判斷仍然要留著，而且不會永遠是 false：那道裁定只擋新寫入，站上在它
-// 之前寫下的條目兩格可以都是空的，這個函式是唯一看得見它們的東西。
-//
-// It is BOTH fields, not either: an entry with a concrete instance but no
-// falsifier is thin, not empty, and calling it degraded would flag most honest
-// first drafts.
+// 判準還沒定案就更不能接行為上去：接了就等於用實作把裁定做掉。
 func (e LoreEntry) IsDegraded() bool {
-	return strings.TrimSpace(e.Falsify) == "" && strings.TrimSpace(e.Instance) == ""
+	return strings.TrimSpace(e.Problem) == ""
 }
 
-const loreEntryColumns = `id, label, symptoms, short, falsify, instance, residual_risk,
+const loreEntryColumns = `id, trigger, content, retire_when, problem,
 	status, supersedes, editable_by, origin,
 	created_ts, updated_ts`
 
 func scanLoreEntry(row interface{ Scan(...any) error }) (LoreEntry, error) {
 	var e LoreEntry
 	err := row.Scan(
-		&e.ID, &e.Label, &e.Symptoms, &e.Short, &e.Falsify, &e.Instance, &e.ResidualRisk,
+		&e.ID, &e.Trigger, &e.Content, &e.RetireWhen, &e.Problem,
 		&e.Status, &e.Supersedes, &e.EditableBy, &e.Origin,
 		&e.CreatedTS, &e.UpdatedTS,
 	)
 	return e, err
 }
 
-// loreLabelMaxRunes caps the label, in runes (the repo's length unit
-// everywhere else, and the only one under which a name in Chinese and a name in
-// English are counted the same way).
+// loreTriggerError enforces 第 1 格必填 —— 空值被拒絕，不是被補一個預設值。
 //
-// 🔴 THE CAP IS A REFUSAL, NEVER A TRUNCATION. `label` is a NAME: it is what a
-// reader scans a list by and what a merge or a supersede points at, so a name
-// that changes silently breaks whatever was pointing at it. Trimming an
-// over-long label to fit would be the system quietly editing an identifier —
-// the exact silent loss this ticket exists to make impossible.
+// 🔴 這一格取代了舊的 `label`，而且**沒有長度上限**。舊的 40 runes 上限跟著
+// `label` 一起走了：負責人自己示範的好例子是把第一格當標題寫的
+// （「【什麼時候要記起來】我要確認一個 OffiCraft 前端畫面接的是真後端，還是假
+// 資料」），那一行遠超過 40 runes。留著上限就是讓示範用的寫法寫不進來。
+// ⚠️ 「第一格兼任標題、因此拿掉 label 與上限」是實作判斷，不是負責人的裁定。
 //
-// ⚠️ 40 是佔位數字，不是算出來的. It is a placeholder, not a measured value; it
-// has to be calibrated after the trial.
-const loreLabelMaxRunes = 40
-
-// loreLabelError enforces that cap. A blank label is NOT refused
-// here: an entry can legitimately be written before it has been named, and
-// refusing that would push writers into inventing a name, which is worse than an
-// empty one — an invented name looks exactly like a chosen one.
-func loreLabelError(label string) error {
-	if n := len([]rune(label)); n > loreLabelMaxRunes {
-		return fmt.Errorf("%w: %d runes, max %d — a label is a NAME, put the sentence in `short`",
-			ErrLoreLabelTooLong, n, loreLabelMaxRunes)
+// 🔴 舊的 loreLabelError 對**空的** label 是放行的（「條目可以先寫下再命名」）。
+// 這裡相反：空的 trigger 是拒絕。差別是這一格不只是名字——「什麼時候要記起來」
+// 是這條條目唯一會被撈出來的那一軸，空著的話它躺在表裡，誰都撈不到，而且從外面
+// 看起來跟一條寫好的條目一模一樣。
+func loreTriggerError(trigger string) error {
+	if strings.TrimSpace(trigger) == "" {
+		return ErrLoreTriggerBlank
 	}
 	return nil
+}
+
+// LoreEvent 是第 5 格的一列：一條條目底下的一次事件。時／事／人／地／物。
+//
+// 🔴 人／地／物空著是合法的，而且「空著」必須看得出來。這三格是空字串，
+// **不要**用「未知」「n/a」「unknown」之類的字串把它填滿：「查不出是誰」跟
+// 「還沒有人去查」必須長得不一樣，而一旦有人塞了佔位字串進去，這兩件事就永遠
+// 分不開了。這一層做得到的是不去填它，而它就是不填。
+type LoreEvent struct {
+	ID      int64
+	EntryID string
+
+	// HappenedTS 是**事件發生的時間**，不是這一列被寫下的時間。這兩個會差好幾
+	// 天：一個 agent 今天回頭補記上週撞到的事，這裡是上週。
+	HappenedTS float64
+
+	// What 一律**主動語態**，讓「人」永遠是動作者。這一層擋不了被動語態——沒有
+	// 任何欄位擋得住——所以它是規則，不是約束，而且它被寫在這裡而不是假裝成
+	// 一個檢查。
+	What string
+
+	Actor  string // 人：`human:` / `agent:` 前綴。有才填
+	Place  string // 地：`machine:` 前綴。語意＝這個動作在哪台機器上發生。有才填
+	Object string // 物：`service:` 等前綴。語意＝被動到的是什麼。有才填
+}
+
+// loreEventError 驗證一列事件。
+//
+// 🔴 時與事必填；人／地／物只在**非空**時才檢查前綴。對空字串做前綴檢查就等於
+// 把選填變成必填，而那會把寫入者逼去編一個「人」出來——編出來的跟查出來的長得
+// 一模一樣，這正是第 5 格最不能出的錯。
+//
+// 🔴 前綴的值域讀 entity_type，跟 origin／subject 同一份清單。Go 裡再抄一份會在
+// 第一個新型別被核准的那天悄悄跟資料庫不一致。
+// ⚠️ 「人／地／物非空時必須是 `type:name` 且型別已核准」是實作判斷：規格只說了
+// 這三格「有前綴」。不檢查的話前綴就只是裝飾（`Seth` 跟 `human:Seth` 都會進來）。
+func (d *DAL) loreEventError(ev LoreEvent) error {
+	if ev.HappenedTS <= 0 {
+		return fmt.Errorf("%w: happened_ts=%v", ErrLoreEventTimeMissing, ev.HappenedTS)
+	}
+	if strings.TrimSpace(ev.What) == "" {
+		return ErrLoreEventWhatBlank
+	}
+	for _, cell := range []struct{ name, value string }{
+		{"actor", ev.Actor}, {"place", ev.Place}, {"object", ev.Object},
+	} {
+		if strings.TrimSpace(cell.value) == "" {
+			continue // 空著是合法的，而且不會被填滿
+		}
+		prefix, name, found := strings.Cut(cell.value, ":")
+		if !found || prefix == "" || strings.TrimSpace(name) == "" {
+			return fmt.Errorf("%w: %s=%q is not `type:name`", ErrLoreEventKeyMalformed, cell.name, cell.value)
+		}
+		var one int
+		err := d.rdb.QueryRow(`SELECT 1 FROM entity_type WHERE type = ?`, prefix).Scan(&one)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("%w: %s names %q", ErrLoreEventKeyUnknownType, cell.name, prefix)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ListLoreEvents 回傳一條條目的事件，**按事情發生的順序**（happened_ts，id 只是
+// 同一刻的 tie-break）。不是按誰先被寫進來的順序：補記的事件排在它真正發生的
+// 位置，否則第 5 格讀起來會是一份寫作順序的紀錄而不是一份事情的紀錄。
+func (d *DAL) ListLoreEvents(entryID string) ([]LoreEvent, error) {
+	rows, err := d.rdb.Query(`
+		SELECT id, entry_id, happened_ts, what, actor, place, object
+		FROM lore_event WHERE entry_id = ? ORDER BY happened_ts, id`, entryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []LoreEvent
+	for rows.Next() {
+		var ev LoreEvent
+		if err := rows.Scan(&ev.ID, &ev.EntryID, &ev.HappenedTS, &ev.What,
+			&ev.Actor, &ev.Place, &ev.Object); err != nil {
+			return nil, err
+		}
+		out = append(out, ev)
+	}
+	return out, rows.Err()
 }
 
 // loreOriginError validates an origin as a subject key.
@@ -163,11 +243,20 @@ func (d *DAL) loreOriginError(origin string) error {
 // into a 400 that says what is wrong, and matching on a driver's wording is
 // matching on something nobody promised to keep stable.
 var (
-	ErrLoreEntryIDBlank      = errors.New("lore: the entry id is blank")
-	ErrLoreLabelTooLong      = errors.New("lore: the label is too long")
-	ErrLoreOriginBlank       = errors.New("lore: the origin is blank")
-	ErrLoreOriginMalformed   = errors.New("lore: the origin is not a `type:name` subject key")
-	ErrLoreOriginUnknownType = errors.New("lore: the origin names an unapproved type prefix")
+	ErrLoreEntryIDBlank = errors.New("lore: the entry id is blank")
+	// 🔴 第 1 格必填。舊的 ErrLoreLabelTooLong 沒了：`label` 連同它的 40 runes
+	// 上限一起被移除，第 1 格兼任標題且不設上限。
+	ErrLoreTriggerBlank = errors.New(
+		"lore: `trigger` is blank — 什麼時候要記起來？沒有它，這條沒有任何人撈得到")
+	ErrLoreEventTimeMissing = errors.New(
+		"lore: an event has no `happened_ts` — 事件發生的時間（不是寫下的時間）")
+	ErrLoreEventWhatBlank = errors.New(
+		"lore: an event's `what` is blank — 主動語態，讓人永遠是動作者")
+	ErrLoreEventKeyMalformed   = errors.New("lore: an event's 人/地/物 is not a `type:name` key")
+	ErrLoreEventKeyUnknownType = errors.New("lore: an event's 人/地/物 names an unapproved type prefix")
+	ErrLoreOriginBlank         = errors.New("lore: the origin is blank")
+	ErrLoreOriginMalformed     = errors.New("lore: the origin is not a `type:name` subject key")
+	ErrLoreOriginUnknownType   = errors.New("lore: the origin names an unapproved type prefix")
 )
 
 // PutLoreEntry creates or replaces ONE entry.
@@ -188,7 +277,10 @@ func (d *DAL) PutLoreEntry(e LoreEntry) error {
 	if e.EditableBy == "" {
 		e.EditableBy = "agent"
 	}
-	if err := loreLabelError(e.Label); err != nil {
+	// 🔴 第 1 格的必填檢查在**這裡**，不只在 CreateLoreEntry 裡。這是原始的
+	// upsert 縫，任何繞過寫入路徑的呼叫者都會經過它；只擋在上層等於留一個側門，
+	// 而從側門進來的空 trigger 條目跟正門進來的長得一模一樣。
+	if err := loreTriggerError(e.Trigger); err != nil {
 		return err
 	}
 	if err := d.loreOriginError(e.Origin); err != nil {
@@ -196,15 +288,14 @@ func (d *DAL) PutLoreEntry(e LoreEntry) error {
 	}
 	_, err := d.wdb.Exec(`
 		INSERT INTO lore_entry (`+loreEntryColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
-			label = excluded.label, symptoms = excluded.symptoms,
-			short = excluded.short, falsify = excluded.falsify,
-			instance = excluded.instance, residual_risk = excluded.residual_risk,
+			trigger = excluded.trigger, content = excluded.content,
+			retire_when = excluded.retire_when, problem = excluded.problem,
 			status = excluded.status,
 			supersedes = excluded.supersedes, editable_by = excluded.editable_by,
 			origin = excluded.origin, updated_ts = excluded.updated_ts`,
-		e.ID, e.Label, e.Symptoms, e.Short, e.Falsify, e.Instance, e.ResidualRisk,
+		e.ID, e.Trigger, e.Content, e.RetireWhen, e.Problem,
 		e.Status, e.Supersedes, e.EditableBy, e.Origin,
 		e.CreatedTS, e.UpdatedTS)
 	return err
@@ -349,7 +440,7 @@ func (d *DAL) loreStrings(query string, args ...any) ([]string, error) {
 //
 // 🔴 THERE IS NO BODY FIELD ON THIS STRUCT, AND THAT IS THE POINT. The boot
 // context gets a DIRECTORY — "these subjects exist, this many entries each" —
-// and never a `short` / `symptoms` / `falsify` cell. Carrying a body field here
+// and never a `trigger` / `content` / `problem` cell. Carrying a body field here
 // would put the entries themselves one careless `+=` away from every boot
 // document in the fleet, which is a size decision nobody has made. An agent that
 // wants an entry reads it deliberately.

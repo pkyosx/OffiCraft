@@ -82,12 +82,23 @@ CREATE TABLE lore_proposal (
                      CHECK (fault IN ('stale','never-true','misled')),
     evidence         TEXT NOT NULL,  -- 他實際看到的東西
     -- ── the proposed version, in full (blank throughout on a 'remove') ───────
-    label            TEXT NOT NULL DEFAULT '',
-    symptoms         TEXT NOT NULL DEFAULT '',
-    short            TEXT NOT NULL DEFAULT '',
-    falsify          TEXT NOT NULL DEFAULT '',
-    instance         TEXT NOT NULL DEFAULT '',
-    residual_risk    TEXT NOT NULL DEFAULT '',
+    -- 🔴 這四格跟 lore_entry 的前四格一一對應，而且是同一次改格式改過來的：
+    -- 舊的 label / symptoms / short / falsify / instance / residual_risk 六格
+    -- 換成 trigger / content / retire_when / problem 四格 + lore_event 一張表。
+    --
+    -- ⚠️ 第五格（事件）**不在這張表裡**，而這是一個沒有解掉的缺口，說在前面：
+    -- 這一批的提案只提案得動前四格。CreateLoreProposal 在算 sha256 的時候，會把
+    -- 條目**目前**的事件原封不動接上去（dal_lore_proposal.go 的 loreProposalEntry
+    -- 呼叫處），所以一份提案的語意是「四格改成這樣，事件維持現狀」，不是「事件被
+    -- 清空」。這樣做的理由是：如果 body 不含事件，L0 原文就保不住事件；如果 body
+    -- 含事件但提案填不了，提案就會在審核者看不見的地方主張刪掉所有事件。兩個都
+    -- 比現在這個選擇差。
+    -- 🔴 真正的解法是 lore_proposal_event（或讓提案帶一份完整事件清單），那需要
+    -- 負責人裁定「提案改不改得動事件」。沒有裁定之前不做，比自己決定好。
+    trigger          TEXT NOT NULL DEFAULT '',
+    content          TEXT NOT NULL DEFAULT '',
+    retire_when      TEXT NOT NULL DEFAULT '',
+    problem          TEXT NOT NULL DEFAULT '',
     -- The rendered whole version and its digest. Stored rather than re-rendered
     -- on read for one reason: the digest a reviewer approved must be the digest
     -- of what was submitted, even if the renderer changes afterwards.

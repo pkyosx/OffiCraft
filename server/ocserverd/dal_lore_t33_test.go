@@ -18,16 +18,16 @@ func t33Entity(t *testing.T, d *DAL, id, typ, canonical string) {
 
 func t33Entry(id string) LoreEntry {
 	return LoreEntry{
-		ID:           id,
-		Label:        "boot context assembly",
-		Origin:       "agent:O-197",
-		Short:        "the fold happens in one place",
-		Symptoms:     "two blocks disagree about the same fact",
-		Falsify:      "a second assembler appears",
-		Instance:     "T-33 slot 3",
-		ResidualRisk: "it says nothing about who is allowed to call the fold",
-		CreatedTS:    100,
-		UpdatedTS:    100,
+		ID: id,
+		// 🔴 第 1 格照負責人示範的寫法：一整句「我要做 X」，遠超過舊的 40 runes
+		// 上限。它同時就是這條條目的標題。
+		Trigger:    "我要確認一個 OffiCraft 前端畫面接的是真後端，還是假資料",
+		Origin:     "agent:O-197",
+		Content:    "the fold happens in one place",
+		RetireWhen: "等前端不再有假資料模式",
+		Problem:    "T-33 slot 3：兩個區塊對同一件事說法不一樣",
+		CreatedTS:  100,
+		UpdatedTS:  100,
 	}
 }
 
@@ -158,29 +158,44 @@ func TestLoreOriginTypesComeFromTheEntityTypeTable(t *testing.T) {
 	}
 }
 
-// 🔴 The label is a NAME, and an over-long one is REFUSED — not truncated, not
-// warned about. Silently shortening a name is the system editing an identifier
-// that merges and supersedes point at.
-func TestLoreLabelOverTheCapIsRefusedNotTruncated(t *testing.T) {
+// 🔴 第 1 格必填，空值被拒絕——而且是在最底層的 upsert 縫就被拒絕，不是只在
+// 寫入路徑上。空的 trigger 條目躺在表裡誰都撈不到，而它從外面看起來跟一條寫好
+// 的條目一模一樣：那正是這張票要消滅的無聲損失。
+func TestLoreTriggerIsRequiredAndBlankIsRefusedAtTheRowSeam(t *testing.T) {
 	d := newTestDAL(t)
-	e := t33Entry("me-longlabel")
-	e.Label = strings.Repeat("x", loreLabelMaxRunes+1)
-	err := d.PutLoreEntry(e)
-	if !errors.Is(err, ErrLoreLabelTooLong) {
-		t.Fatalf("err = %v, want ErrLoreLabelTooLong", err)
+	for _, blank := range []string{"", "   ", "\n\t"} {
+		e := t33Entry("me-notrigger")
+		e.Trigger = blank
+		err := d.PutLoreEntry(e)
+		if !errors.Is(err, ErrLoreTriggerBlank) {
+			t.Fatalf("trigger = %q: err = %v, want ErrLoreTriggerBlank", blank, err)
+		}
+		if got := t33Get(t, d, "me-notrigger"); got != nil {
+			t.Fatalf("a refused write must not land, got %+v", got)
+		}
 	}
-	if got := t33Get(t, d, "me-longlabel"); got != nil {
-		t.Fatalf("a refused write must not land, got %+v", got)
-	}
+}
 
-	// Exactly at the cap is fine, and the length is counted in RUNES — a
-	// 40-character Chinese name is 40, not 120.
-	e.Label = strings.Repeat("界", loreLabelMaxRunes)
-	if err := d.PutLoreEntry(e); err != nil {
-		t.Fatalf("a label exactly at the cap must be accepted: %v", err)
+// 🔴 第 1 格**沒有長度上限**，而且這一條就是那個上限被拿掉的理由：負責人自己
+// 示範的好例子超過舊的 40 runes 很多。留著上限等於讓示範用的寫法寫不進來。
+func TestLoreTriggerHasNoLengthCap(t *testing.T) {
+	d := newTestDAL(t)
+	e := t33Entry("me-longtrigger")
+	e.Trigger = "【什麼時候要記起來】我要確認一個 OffiCraft 前端畫面接的是真後端，還是假資料"
+	if n := len([]rune(e.Trigger)); n <= 40 {
+		t.Fatalf("這一條要證明的是「超過 40 runes 也收」，但範例只有 %d runes", n)
 	}
-	if got := t33Get(t, d, "me-longlabel"); got == nil || got.Label != e.Label {
-		t.Fatalf("the accepted label must land unchanged, got %+v", got)
+	if err := d.PutLoreEntry(e); err != nil {
+		t.Fatalf("負責人示範的第 1 格寫法被拒絕了: %v", err)
+	}
+	got := t33Get(t, d, "me-longtrigger")
+	if got == nil || got.Trigger != e.Trigger {
+		t.Fatalf("第 1 格必須原封不動落地（不截斷）, got %+v", got)
+	}
+	// 更長也一樣：沒有「其實還是有一個上限」這種東西。
+	e.Trigger = strings.Repeat("界", 500)
+	if err := d.PutLoreEntry(e); err != nil {
+		t.Fatalf("500 runes 的第 1 格被拒絕了，表示還有一個沒說出來的上限: %v", err)
 	}
 }
 
@@ -214,13 +229,13 @@ func TestLorePutIsAnUpsertThatKeepsCreatedTS(t *testing.T) {
 	t33Put(t, d, t33Entry("me-ddd"))
 
 	edited := t33Entry("me-ddd")
-	edited.Short = "tightened"
+	edited.Content = "tightened"
 	edited.CreatedTS = 999
 	edited.UpdatedTS = 500
 	t33Put(t, d, edited)
 
 	got := t33Get(t, d, "me-ddd")
-	if got.Short != "tightened" || got.UpdatedTS != 500 {
+	if got.Content != "tightened" || got.UpdatedTS != 500 {
 		t.Fatalf("the edit did not land: %+v", got)
 	}
 	if got.CreatedTS != 100 {
@@ -381,66 +396,95 @@ func TestLoreCountAgreesWithList(t *testing.T) {
 	}
 }
 
-// 🔴 IsDegraded — the positive and negative cases the owner asked for.
+// 🔴 IsDegraded — 判準**暫定**，這個測試釘的是目前那個暫定值，不是一個裁定。
 //
-// The point of this pair is not the boolean; it is that the boolean CAN BE
-// COMPUTED. With the body fields fixed, an entry eroded back into a slogan is a
-// query. Under free form it is indistinguishable from an entry whose author
-// simply never wrote that section — which is the silent loss this ticket exists
-// to make visible.
-func TestLoreIsDegraded(t *testing.T) {
+// 舊定義（falsify 與 instance 皆空）在五格裡沒有欄位可以套了。目前的暫定判準是
+// 「第 4 格 problem 為空」，等負責人裁定（卡 rc-1e32c690018d）。這個測試存在的
+// 意義是：判準一改，它會紅，改的人就一定會看到這裡的說明，而不是默默換掉。
+func TestLoreIsDegradedIsTheProvisionalProblemEmptyRule(t *testing.T) {
 	full := t33Entry("me-full")
 	if full.IsDegraded() {
-		t.Fatalf("an entry with both a falsifier and an instance is not degraded: %+v", full)
+		t.Fatalf("一條寫了 problem 的條目不該是 degraded: %+v", full)
 	}
 
 	slogan := t33Entry("me-slogan")
-	slogan.Falsify = ""
-	slogan.Instance = ""
+	slogan.Problem = ""
 	if !slogan.IsDegraded() {
-		t.Fatalf("an entry with neither a falsifier nor an instance IS degraded: %+v", slogan)
+		t.Fatalf("一條沒有 problem 撐著的條目就是口號，應該是 degraded: %+v", slogan)
 	}
 
-	// Whitespace is not content — an entry padded back to "non-empty" with a
-	// space is exactly the erosion this is meant to catch.
+	// 空白不是內容——被一個空格墊回「非空」正是這個判斷要抓的侵蝕。
 	blank := t33Entry("me-blank")
-	blank.Falsify = "   "
-	blank.Instance = "\n"
+	blank.Problem = "   \n"
 	if !blank.IsDegraded() {
 		t.Fatalf("whitespace must not count as content: %+v", blank)
 	}
 
-	// Either field alone keeps it out: thin is not empty, and flagging thin
-	// entries would flag most honest first drafts.
-	for _, e := range []LoreEntry{
-		func() LoreEntry { e := t33Entry("x"); e.Falsify = ""; return e }(),
-		func() LoreEntry { e := t33Entry("x"); e.Instance = ""; return e }(),
-	} {
-		if e.IsDegraded() {
-			t.Fatalf("one of the two fields is still present; not degraded: %+v", e)
-		}
+	// 第 3 格空著不算 degraded：retire_when 是選填，而且很多條目本來就永遠不會
+	// 過期。把它算進去會讓大部分誠實的條目被標記。
+	noRetire := t33Entry("me-noretire")
+	noRetire.RetireWhen = ""
+	if noRetire.IsDegraded() {
+		t.Fatalf("第 3 格是選填，空著不該讓條目變成 degraded: %+v", noRetire)
 	}
 }
 
-// The six body fields survive a write and a read, by name. A column dropped from
-// the INSERT list or transposed in the scan would otherwise show up much later
-// as an entry that lost one section.
-func TestLoreSixBodyFieldsRoundTripByName(t *testing.T) {
+// 五格的前四格 survive a write and a read, by name. A column dropped from the
+// INSERT list or transposed in the scan would otherwise show up much later as an
+// entry that lost one cell.
+func TestLoreFiveCellsRoundTripByName(t *testing.T) {
 	d := newTestDAL(t)
 	e := LoreEntry{
-		ID:           "me-six",
-		Label:        "L",
-		Symptoms:     "SY",
-		Short:        "SH",
-		Falsify:      "F",
-		Instance:     "I",
-		ResidualRisk: "R",
-		Origin:       "agent:O-197",
+		ID:         "me-five",
+		Trigger:    "TR",
+		Content:    "CO",
+		RetireWhen: "RW",
+		Problem:    "PR",
+		Origin:     "agent:O-197",
 	}
 	t33Put(t, d, e)
-	got := t33Get(t, d, "me-six")
-	if got.Label != "L" || got.Symptoms != "SY" || got.Short != "SH" ||
-		got.Falsify != "F" || got.Instance != "I" || got.ResidualRisk != "R" {
-		t.Fatalf("a body field was lost or transposed: %+v", *got)
+	got := t33Get(t, d, "me-five")
+	if got.Trigger != "TR" || got.Content != "CO" ||
+		got.RetireWhen != "RW" || got.Problem != "PR" {
+		t.Fatalf("a body cell was lost or transposed: %+v", *got)
+	}
+}
+
+// 🔴 第 5 格：人／地／物空著是合法的，而且「空著」看得出來——不是「未知」。
+//
+// 這一條釘的是負責人明確要的那件事：「查不出是誰」跟「還沒有人去查」必須長得
+// 不一樣。只要有人在任何一層塞了佔位字串進去，這一條就會紅。
+func TestLoreEventEmptyCellsStayEmptyAndAreNotFilledIn(t *testing.T) {
+	d := newTestDAL(t)
+	t33Entity(t, d, "e-repo", "repo", "repo:officraft")
+	w := t33Write()
+	w.Events = []LoreEvent{
+		{HappenedTS: 1700000000, What: "Seth 把畫面切成假資料", Actor: "human:Seth",
+			Place: "machine:seth-m5", Object: "service:ocserverd"},
+		// 一筆只有時與事的事件：人／地／物都不知道。這是合法的。
+		{HappenedTS: 1700000100, What: "有人重開了前端"},
+	}
+	res, err := d.CreateLoreEntry(w, 1000)
+	if err != nil {
+		t.Fatalf("create with events: %v", err)
+	}
+	got, err := d.ListLoreEvents(res.EntryID)
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("want 2 events, got %+v", got)
+	}
+	// 順序是事情發生的順序。
+	if got[0].HappenedTS != 1700000000 || got[1].HappenedTS != 1700000100 {
+		t.Fatalf("events must come back in happened_ts order: %+v", got)
+	}
+	if got[0].Actor != "human:Seth" || got[0].Place != "machine:seth-m5" ||
+		got[0].Object != "service:ocserverd" {
+		t.Fatalf("人/地/物 did not survive the round trip: %+v", got[0])
+	}
+	if got[1].Actor != "" || got[1].Place != "" || got[1].Object != "" {
+		t.Fatalf("空著的人/地/物被填上了東西——「查不出是誰」跟「還沒有人去查」"+
+			"從此分不開了: %+v", got[1])
 	}
 }
