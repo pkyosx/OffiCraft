@@ -67,7 +67,7 @@ Server 是跨成員溝通與任務紀錄的唯一共用管道。terminal、本�
 
 使用 `post_chat` 傳送普通訊息。訊息正文要短到收件人一眼知道重點，建議控制在 1,000 個字元內；報告、規格、log、程式碼或長篇說明改用附件，需要呈現畫面或驗證結果時可附圖片。先用 `ocagent upload` 取得 attachment id，再在同一則 `post_chat` 的 `attachments` 引用；正文只留下摘要並說明附件用途，不要把完整內容重貼在 chat。
 
-要讓收件人看清楚「前後差在哪」時，不要用兩次 `ocagent upload` 各掛一份，改用 `ocagent diff <前> <後>`：它把兩份文件各自上傳，再鑄一個**只帶這兩份連結**的比較附件（內容不複製第二份），印出那個 attachment id；把它放進 `attachments`，收件人點開看到的就是前後對照的畫面。兩欄的標題預設用檔名，要另外命名就帶 `--label-before` / `--label-after`。這種附件在聊天附件、請示卡附件與任務產物三處都掛得上，兩份文件本身也仍然能各自單獨點開。
+要讓收件人看清楚「前後差在哪」時，不要用兩次 `ocagent upload` 各掛一份，改用 `ocagent diff <前> <後>`：它把**還沒有位址的那幾側**上傳，再鑄一個**只帶兩側位址**的比較附件（內容不複製第二份），印出那個 attachment id；把它放進 `attachments`，收件人點開看到的就是前後對照的畫面。兩欄的標題預設用檔名，要另外命名就帶 `--label-before` / `--label-after`。這種附件在聊天附件、請示卡附件與任務產物三處都掛得上，兩份文件本身也仍然能各自單獨點開。
 
 ```text
 // OffiCraft command: ocagent diff

@@ -732,6 +732,32 @@ describe("MarkdownPreviewOverlay 複製分享連結 (T-d10b)", () => {
       expect(screen.queryByText("alpha")).toBeNull();
     });
 
+    // The retention window is short and the server prunes on its own, so an
+    // attachment that named a revision WILL eventually point at nothing. That
+    // is the expiry the design accepted (rather than copying the text into a
+    // blob that nothing would ever collect), so it has to read as an honest
+    // absence rather than as a broken screen.
+    it("reports a side as gone when the revision has been pruned", async () => {
+      globalThis.fetch = serve({
+        "att-pair": docPair(
+          { doc: { kind: "lessons", key: "mira", at: "12", field: "text" } },
+          { attachment_id: "att-new" },
+        ),
+        "att-new": "alpha",
+      });
+      vi.spyOn(api, "getDocumentRevision").mockRejectedValue(new Error("http 404"));
+
+      openCompare();
+
+      await waitFor(() =>
+        expect(
+          screen.getByText("這個比較有一側已經不在了，畫不出來。"),
+        ).toBeTruthy(),
+      );
+      expect(screen.queryByTestId("md-preview-diff")).toBeNull();
+      expect(screen.queryByText("alpha")).toBeNull();
+    });
+
     // The server validates that the address is SAYABLE, never that the kind is
     // one this build knows — a kind list there would be a second enumeration
     // going stale silently. So the reader is where an unknown kind is caught,
