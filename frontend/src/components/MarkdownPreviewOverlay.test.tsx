@@ -619,11 +619,140 @@ describe("MarkdownPreviewOverlay 複製分享連結 (T-d10b)", () => {
 
       openCompare();
 
+      // The line names WHICH failure this is. "無法載入預覽" would be true of a
+      // document that simply would not load; a comparison missing one half is a
+      // different fact about a different object, and the reader can act on the
+      // difference (a pruned revision is not worth retrying).
       await waitFor(() =>
-        expect(screen.getByText("無法載入預覽")).toBeTruthy(),
+        expect(
+          screen.getByText("這個比較有一側已經不在了，畫不出來。"),
+        ).toBeTruthy(),
       );
       expect(screen.queryByTestId("md-preview-diff")).toBeNull();
+      // Nothing of the SURVIVING side reaches the screen. Drawing it alone
+      // marks every one of its lines as deleted — a confident wrong answer, not
+      // a partial one.
       expect(screen.queryByText("bravo")).toBeNull();
+      expect(screen.queryByText("alpha")).toBeNull();
+    });
+
+    // T-59 second round (owner on rc-8bf26b440e6e): a side may name ONE FIELD
+    // OF A DOCUMENT instead of a blob. Nothing is copied — the revision already
+    // has an address — so these sides are read through the same three faces the
+    // version-history screen uses, and `field` picks the same slice on each.
+    const docPair = (before: unknown, after: unknown) =>
+      JSON.stringify({ before, after });
+
+    it("compares a retained revision against the live document", async () => {
+      globalThis.fetch = serve({
+        "att-pair": docPair(
+          { doc: { kind: "lessons", key: "mira", at: "12", field: "text" } },
+          { doc: { kind: "lessons", key: "mira", at: "current", field: "text" } },
+        ),
+      });
+      vi.spyOn(api, "getDocumentRevision").mockResolvedValue({
+        id: 12,
+        content: { text: "alpha\nbravo" },
+      });
+      vi.spyOn(api, "getLessons").mockResolvedValue({
+        roleKey: "mira",
+        text: "alpha\nBRAVO",
+        capChars: 60000,
+      } as Awaited<ReturnType<typeof api.getLessons>>);
+
+      openCompare();
+
+      await waitFor(() => expect(screen.getByTestId("md-preview-diff")).toBeTruthy());
+      expect(screen.getByText("bravo")).toBeTruthy();
+      expect(screen.getByText("BRAVO")).toBeTruthy();
+      // The ADDRESS reached the reader intact: the revision was asked for by
+      // kind, key and id, not by some default this screen picked.
+      expect(api.getDocumentRevision).toHaveBeenCalledWith("lessons", "mira", 12);
+
+      // A side carrying no label of its own gets the reader's own heading — and
+      // the `current` side says it is LIVE, because the same attachment opened
+      // next month compares against a different document. Without this the two
+      // columns are indistinguishable and the reader cannot tell that one of
+      // them moves.
+      expect(screen.getByText("版本 #12")).toBeTruthy();
+      expect(
+        screen.getByText("目前存檔內容（此刻的內容，之後會不一樣）"),
+      ).toBeTruthy();
+    });
+
+    it("compares the shipped default against an uploaded file", async () => {
+      globalThis.fetch = serve({
+        "att-pair": docPair(
+          { doc: { kind: "global_context", key: "global", at: "seed", field: "text" } },
+          { attachment_id: "att-new", label: "我的版本" },
+        ),
+        "att-new": "alpha\nBRAVO",
+      });
+      vi.spyOn(api, "getDocumentSeed").mockResolvedValue({
+        kind: "global_context",
+        key: "global",
+        content: { text: "alpha\nbravo" },
+      });
+
+      openCompare();
+
+      await waitFor(() => expect(screen.getByTestId("md-preview-diff")).toBeTruthy());
+      // The two shapes are exclusive PER SIDE, not per attachment: an uploaded
+      // file compares against a document.
+      expect(screen.getByText("bravo")).toBeTruthy();
+      expect(screen.getByText("BRAVO")).toBeTruthy();
+      expect(screen.getByText("初始版本")).toBeTruthy();
+      expect(screen.getByText("我的版本")).toBeTruthy();
+    });
+
+    // A field the document does not carry is the same miss as a pruned
+    // revision: the address named something that is not there. It must NOT
+    // resolve to "" — that would draw every line of the other side as added.
+    it("reports a side as gone when the document has no such field", async () => {
+      globalThis.fetch = serve({
+        "att-pair": docPair(
+          { doc: { kind: "lessons", key: "mira", at: "12", field: "sop_md" } },
+          { attachment_id: "att-new" },
+        ),
+        "att-new": "alpha",
+      });
+      vi.spyOn(api, "getDocumentRevision").mockResolvedValue({
+        id: 12,
+        content: { text: "alpha\nbravo" },
+      });
+
+      openCompare();
+
+      await waitFor(() =>
+        expect(
+          screen.getByText("這個比較有一側已經不在了，畫不出來。"),
+        ).toBeTruthy(),
+      );
+      expect(screen.queryByTestId("md-preview-diff")).toBeNull();
+      expect(screen.queryByText("alpha")).toBeNull();
+    });
+
+    // The server validates that the address is SAYABLE, never that the kind is
+    // one this build knows — a kind list there would be a second enumeration
+    // going stale silently. So the reader is where an unknown kind is caught,
+    // and it is caught as "this side is gone", not as a crash.
+    it("reports a side as gone when the kind is not one this cockpit knows", async () => {
+      globalThis.fetch = serve({
+        "att-pair": docPair(
+          { doc: { kind: "some_future_kind", key: "x", at: "current", field: "text" } },
+          { attachment_id: "att-new" },
+        ),
+        "att-new": "alpha",
+      });
+
+      openCompare();
+
+      await waitFor(() =>
+        expect(
+          screen.getByText("這個比較有一側已經不在了，畫不出來。"),
+        ).toBeTruthy(),
+      );
+      expect(screen.queryByTestId("md-preview-diff")).toBeNull();
     });
 
     // The type is the MIME. A text file that happens to be NAMED like a diff is

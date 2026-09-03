@@ -221,7 +221,7 @@ func TestDiffAttachmentAcceptedAndTypedByItsMime(t *testing.T) {
 			// attachment, so an uploaded file compares against a document.
 			"an uploaded file against a document",
 			`{"before":{"attachment_id":"att-0123456789ab"},` +
-				`"after":{"doc":{"kind":"task_manual","key":"tm-05f7c776d6ff","at":"current",` +
+				`"after":{"doc":{"kind":"task_manual_sop","key":"tm-05f7c776d6ff","at":"current",` +
 				`"field":"sop_md"}}}`,
 		},
 	} {

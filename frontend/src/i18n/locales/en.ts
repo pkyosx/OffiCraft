@@ -799,6 +799,21 @@ export const en: Dict = {
       close: "Close preview",
       loading: "Loading preview…",
       error: "Could not load the preview",
+      // T-59 — a compare attachment whose side names a document. The default
+      // column headings for a side that carried no label of its own, plus the
+      // marker that says a side is LIVE: the same attachment opened next month
+      // shows a different comparison, and the reader has to be able to see that
+      // from the screen rather than infer it.
+      diffSideCurrent: "Current saved content",
+      diffSideSeed: "Shipped default",
+      diffSideRevision: (id: string) => `Revision #${id}`,
+      diffSideLive: (label: string) => `${label} (as of now — changes over time)`,
+      // The compare could not be drawn because ONE SIDE is no longer there: a
+      // reclaimed blob, or a revision pruned out of the retention window. Said
+      // plainly, because the alternative — drawing the surviving side alone —
+      // marks every one of its lines as deleted, which is a confident wrong
+      // answer rather than a missing one.
+      diffSideGone: "One side of this comparison is no longer there, so it cannot be drawn.",
       unavailable: "This file cannot be previewed. Please download it.",
       // T-36 — same "cannot be drawn here", but when the header's new-tab
       // button is present the line must point at THAT, not back at Download:

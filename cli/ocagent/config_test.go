@@ -103,7 +103,7 @@ subcommands:
   suicide         self-terminate: kill my own tmux session (OC_SESSION) → SSE drops → offline
   download        fetch a chat attachment blob to a local file (streaming; --out <dir>)
   upload          stream a local file into the attachment store (prints the att id; --mime <type>)
-  diff            upload two files and mint a compare attachment the owner can open (prints the att id)
+  diff            mint a compare attachment from two files or document versions (prints the att id)
   clean           get rid of a file or folder I made: quarantines it under my workdir (never rm)
   version         print this build's identity: build.sha, VCS stamp when present, self-hash
 `

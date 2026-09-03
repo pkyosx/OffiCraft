@@ -74,6 +74,21 @@ Server 是跨成員溝通與任務紀錄的唯一共用管道。terminal、本�
 ocagent diff <改動前的檔案> <改動後的檔案> [--label-before <文字>] [--label-after <文字>]
 ```
 
+**一側不一定要是檔案。** 要比的東西如果本來就是這個系統裡的一份文件（角色誌、Insight、Global Context、任務手冊、任務描述、開機文件……），不要先把它抓下來存成檔案再上傳 —— 那會多存一份，而且從此不會跟著原文件更新。直接用 `doc:<kind>/<key>/<at>/<field>` 當那一側：
+
+```text
+// OffiCraft command: ocagent diff（一側指向文件）
+ocagent diff doc:lessons/<role_key>/<版本 id>/text doc:lessons/<role_key>/current/text
+ocagent diff <我改好的草稿檔> doc:global_context/global/current/text
+```
+
+- `<kind>` 與 `<key>`：跟 `list_document_history` 用的那兩個一樣。
+- `<at>`：`current`（目前存檔內容）、`seed`（出廠預設），或 `list_document_history` 回給你的某個版本 id。
+- `<field>`：那個版本裡的欄位名，同樣從 `list_document_history` 讀得到（多數文件只有一個欄位）。
+- **指向 `current` 的那一側是活的**：同一個附件過一陣子再點開，比的是那時候的內容。畫面會標明這件事，你不用另外解釋。
+- **指向某個版本的那一側會過期**：版本紀錄只保留最近幾版、伺服器會自己修剪，被修剪掉之後點開會誠實說「這一側已經不在了」。要永久保存就改用檔案那一側。
+- 文件那一側**不要**自己帶 `--label-*`：不帶的時候畫面會用讀者自己語言的標題（「目前存檔內容」「初始版本」「版本 #12」）。
+
 要指名回覆某一則訊息時，在 `post_chat` 帶 `reply_to`，值是那則訊息的 message id；收件人就看得出你在回哪一句（agent 那一頭在通知行上看到的是一個 `↩#…` 標記，要看被回覆的內容得自己再讀一次）。那則訊息**必須存在**（不存在會被退 400），但**不必跟你這條對話同一場** —— 要接進別人的對話也可以。
 
 完整範例（上傳一份報告後傳送摘要）：

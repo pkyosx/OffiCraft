@@ -54,7 +54,7 @@ var planeASubcommands = []struct{ name, help string }{
 	{"suicide", "self-terminate: kill my own tmux session (OC_SESSION) → SSE drops → offline"},
 	{"download", "fetch a chat attachment blob to a local file (streaming; --out <dir>)"},
 	{"upload", "stream a local file into the attachment store (prints the att id; --mime <type>)"},
-	{"diff", "upload two files and mint a compare attachment the owner can open (prints the att id)"},
+	{"diff", "mint a compare attachment from two files or document versions (prints the att id)"},
 	{"clean", "get rid of a file or folder I made: quarantines it under my workdir (never rm)"},
 	// Listed because --help is where a person or an agent goes to ask "can this
 	// CLI tell me which build it is?". Kept out of the synopsis, `version` was
@@ -204,6 +204,8 @@ func realMain(argv []string, env func(string) string, in io.Reader, out io.Write
 		if len(args) < 2 || fs.NArg() != 0 {
 			fmt.Fprintln(out, "[ocagent] diff: exactly two arguments are required: <before> <after>")
 			fmt.Fprintln(out, "usage: ocagent diff <before> <after> [--label-before <text>] [--label-after <text>]")
+			fmt.Fprintln(out, "  each side is a FILE PATH, or doc:<kind>/<key>/<at>/<field> naming one field of")
+			fmt.Fprintln(out, "  a document, where <at> is current, seed or a version id from list_document_history")
 			return 2
 		}
 		return cmdDiff(newStreamingClient(), cfg, args[0], args[1],

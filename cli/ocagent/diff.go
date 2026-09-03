@@ -146,8 +146,59 @@ func uploadOneFile(
 	return ref, info.Size(), code
 }
 
-// cmdDiff implements `ocagent diff`. Three uploads: the two documents, then the
-// pair that names them.
+// docSidePrefix marks an argument as a DOCUMENT ADDRESS rather than a file
+// path: `doc:<kind>/<key>/<at>/<field>` (T-59 second round). Four segments,
+// split on "/" — the one character a kind, key, `at` or field may never contain
+// (the server's address charset excludes it precisely so a reader can splice
+// these into a URL path), which is what makes the split unambiguous.
+//
+// A prefix rather than a heuristic because the alternative is guessing, and the
+// guess would be silent when it is wrong. If a FILE of that literal name
+// exists, `diff` refuses instead of picking one meaning — see docSide.
+const docSidePrefix = "doc:"
+
+// docSide turns one argument into a side of the pair. It returns the side's
+// JSON object, or nil when the argument is an ordinary path the caller should
+// upload.
+//
+// The label is deliberately LEFT EMPTY for a document side, where a file side
+// defaults to its filename: the reader already has a better heading than
+// anything this process could write — 「目前存檔內容」/「初始版本」/「版本 #id」
+// in the reader's own language — and a label written here would override it in
+// English for everyone.
+func docSide(arg, givenLabel string, errOut io.Writer) (map[string]any, int, bool) {
+	if !strings.HasPrefix(arg, docSidePrefix) {
+		return nil, 0, false
+	}
+	if _, err := os.Stat(arg); err == nil {
+		fmt.Fprintf(errOut, "[ocagent] diff: %q is both a document address and a real file — "+
+			"pass ./%s to mean the file.\n", arg, arg)
+		return nil, 2, true
+	}
+	parts := strings.Split(strings.TrimPrefix(arg, docSidePrefix), "/")
+	if len(parts) != 4 {
+		fmt.Fprintf(errOut, "[ocagent] diff: %q is not a document address — "+
+			"it is doc:<kind>/<key>/<at>/<field>, where <at> is current, seed or a version id.\n", arg)
+		return nil, 2, true
+	}
+	for i, part := range parts {
+		if strings.TrimSpace(part) == "" {
+			fmt.Fprintf(errOut, "[ocagent] diff: %q leaves part %d of the document address empty.\n",
+				arg, i+1)
+			return nil, 2, true
+		}
+	}
+	side := map[string]any{"doc": map[string]string{
+		"kind": parts[0], "key": parts[1], "at": parts[2], "field": parts[3],
+	}}
+	if trimmed := strings.TrimSpace(givenLabel); trimmed != "" {
+		side["label"] = trimmed
+	}
+	return side, 0, true
+}
+
+// cmdDiff implements `ocagent diff`. Up to three uploads: each side that is a
+// FILE is uploaded, then the pair that names both.
 func cmdDiff(
 	client httpClient, cfg Config,
 	beforePath, afterPath, beforeLabel, afterLabel string,
@@ -158,44 +209,64 @@ func cmdDiff(
 		return 3
 	}
 
-	before, beforeSize, code := uploadOneFile(client, cfg, "diff", beforePath, "", errOut)
-	if code != 0 {
-		return code
-	}
-	after, afterSize, code := uploadOneFile(client, cfg, "diff", afterPath, "", errOut)
-	if code != 0 {
-		return code
-	}
-	fmt.Fprintf(errOut, "[ocagent] diff: %s (%d bytes) → %s, %s (%d bytes) → %s\n",
-		filepath.Base(beforePath), beforeSize, before.ID,
-		filepath.Base(afterPath), afterSize, after.ID)
-
-	// The label is what the compare screen writes above each column, so it
-	// defaults to the file's own name rather than to nothing: two unlabelled
-	// columns are the state the owner already complained about being unable to
-	// read.
+	// The label is what the compare screen writes above each column, so a FILE
+	// side defaults to the file's own name rather than to nothing: two
+	// unlabelled columns are the state the owner already complained about being
+	// unable to read.
 	label := func(given, path string) string {
 		if trimmed := strings.TrimSpace(given); trimmed != "" {
 			return trimmed
 		}
 		return filepath.Base(path)
 	}
-	pair, err := json.Marshal(map[string]any{
-		"before": map[string]string{
-			"attachment_id": before.ID,
-			"label":         label(beforeLabel, beforePath),
-		},
-		"after": map[string]string{
-			"attachment_id": after.ID,
-			"label":         label(afterLabel, afterPath),
-		},
-	})
+	// Both sides are resolved BEFORE anything is uploaded: a malformed document
+	// address on the second side must not leave the first side's bytes sitting
+	// in the store with nothing pointing at them (there is no GC yet).
+	beforeDoc, code, isDoc := docSide(beforePath, beforeLabel, errOut)
+	if isDoc && code != 0 {
+		return code
+	}
+	afterDoc, code, isAfterDoc := docSide(afterPath, afterLabel, errOut)
+	if isAfterDoc && code != 0 {
+		return code
+	}
+
+	uploadSide := func(path, given string) (map[string]any, int) {
+		ref, size, code := uploadOneFile(client, cfg, "diff", path, "", errOut)
+		if code != 0 {
+			return nil, code
+		}
+		fmt.Fprintf(errOut, "[ocagent] diff: %s (%d bytes) → %s\n",
+			filepath.Base(path), size, ref.ID)
+		return map[string]any{"attachment_id": ref.ID, "label": label(given, path)}, 0
+	}
+
+	beforeSide := beforeDoc
+	if beforeSide == nil {
+		if beforeSide, code = uploadSide(beforePath, beforeLabel); code != 0 {
+			return code
+		}
+	}
+	afterSide := afterDoc
+	if afterSide == nil {
+		if afterSide, code = uploadSide(afterPath, afterLabel); code != 0 {
+			return code
+		}
+	}
+
+	pair, err := json.Marshal(map[string]any{"before": beforeSide, "after": afterSide})
 	if err != nil {
 		fmt.Fprintf(errOut, "[ocagent] diff: cannot build the pair: %v\n", err)
 		return 1
 	}
 
-	name := filepath.Base(beforePath) + " → " + filepath.Base(afterPath)
+	sideName := func(arg string, isDoc bool) string {
+		if isDoc {
+			return strings.TrimPrefix(arg, docSidePrefix)
+		}
+		return filepath.Base(arg)
+	}
+	name := sideName(beforePath, beforeDoc != nil) + " → " + sideName(afterPath, afterDoc != nil)
 	ref, code := postAttachment(client, cfg, "diff",
 		bytes.NewReader(pair), int64(len(pair)), name, diffAttachmentMime, errOut)
 	if code != 0 {

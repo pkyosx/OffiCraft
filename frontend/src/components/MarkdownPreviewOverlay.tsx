@@ -56,6 +56,12 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
+import { api } from "../api";
+import {
+  DocLiveContentUnavailable,
+  isDocumentKind,
+  readLiveDocumentContent,
+} from "../lib/docLiveContent";
 import { authedAttachmentUrl } from "../api/http";
 import { attachmentShareLinkUrl, copyAttachmentShareLink } from "../lib/shareLink";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
@@ -185,6 +191,12 @@ export function MarkdownPreviewOverlay({
   // null = no link to offer (not minted yet, or the mint failed): the anchor is
   // then absent rather than pointing at a URL that would 404.
   const [shareHref, setShareHref] = useState<string | null>(null);
+  // A compare that could not be drawn because ONE SIDE is not there (a
+  // reclaimed blob, a pruned revision, a field the document no longer carries).
+  // Separate from `failed` so the screen can say which of the two happened —
+  // "this document would not load" and "one half of the comparison is gone" are
+  // different facts about different objects.
+  const [diffSideGone, setDiffSideGone] = useState(false);
   // The text to render. An inline source is authoritative and synchronous — it
   // never passes through the loading/error states, which only describe a fetch.
   const image = imageSrc !== undefined || (mime?.startsWith("image/") ?? false);
@@ -305,6 +317,7 @@ export function MarkdownPreviewOverlay({
     let alive = true;
     setDiffPair(null);
     setFailed(false);
+    setDiffSideGone(false);
     // encodeURIComponent, not concatenation: the id is data the pair carries,
     // and a blob stored before the server started checking the id's SHAPE can
     // still hold "att-/../../api/version". Concatenated, the browser normalises
@@ -318,29 +331,87 @@ export function MarkdownPreviewOverlay({
       if (!response.ok) throw new Error(`http ${response.status}`);
       return response.text();
     };
+    // One side, resolved to the text to compare and the heading to write above
+    // it. A side that names a DOCUMENT is read through the same three faces the
+    // version-history screen uses, and its content map is keyed by the field
+    // names a retained revision carries — so `field` picks the same slice on
+    // every one of the three.
+    const resolveSide = async (side: {
+      attachment_id?: string;
+      doc?: DiffAttachmentDoc;
+      label?: string;
+    }): Promise<{ text: string; label?: string }> => {
+      if (side.attachment_id !== undefined) {
+        return { text: await text(sideURL(side.attachment_id)), label: side.label };
+      }
+      const doc = side.doc!;
+      if (!isDocumentKind(doc.kind)) {
+        throw new DocLiveContentUnavailable(`unknown document kind ${doc.kind}`);
+      }
+      let content: Record<string, string>;
+      let fallbackLabel: string;
+      if (doc.at === DIFF_SIDE_AT_CURRENT) {
+        content = await readLiveDocumentContent(doc.kind, doc.key);
+        fallbackLabel = t.chat.mdPreview.diffSideCurrent;
+      } else if (doc.at === DIFF_SIDE_AT_SEED) {
+        content = (await api.getDocumentSeed(doc.kind, doc.key)).content;
+        fallbackLabel = t.chat.mdPreview.diffSideSeed;
+      } else {
+        content = (
+          await api.getDocumentRevision(doc.kind, doc.key, Number(doc.at))
+        ).content;
+        fallbackLabel = t.chat.mdPreview.diffSideRevision(doc.at);
+      }
+      const slice = content[doc.field];
+      // A field the document does not carry is the same kind of miss as a
+      // pruned revision: the address named something that is not there. Drawing
+      // "" against the other side would mark every one of its lines as added.
+      if (slice === undefined) {
+        throw new DocLiveContentUnavailable(
+          `${doc.kind}/${doc.key}@${doc.at} has no field ${doc.field}`
+        );
+      }
+      const label = side.label ?? fallbackLabel;
+      return {
+        text: slice,
+        // "current" is a LIVE pointer: the same attachment opened next month
+        // compares against a different document. The reader has to be able to
+        // see that on screen rather than infer it, and the column heading is
+        // where "what is this side" already lives — so it is marked there
+        // rather than in a new element the compare screen would have to grow.
+        label:
+          doc.at === DIFF_SIDE_AT_CURRENT ? t.chat.mdPreview.diffSideLive(label) : label,
+      };
+    };
     (async () => {
       const pair = parseDiffAttachment(await text(authedAttachmentUrl(url)));
       if (pair === null) throw new Error("not a compare attachment");
+      // Both sides land as ONE state: there must be no render where one side
+      // has text and the other is still null, because that draws every line of
+      // the survivor as deleted.
       const [before, after] = await Promise.all([
-        text(sideURL(pair.before.attachment_id!)),
-        text(sideURL(pair.after.attachment_id!)),
+        resolveSide(pair.before),
+        resolveSide(pair.after),
       ]);
       if (alive) {
         setDiffPair({
-          before,
-          after,
-          beforeLabel: pair.before.label,
-          afterLabel: pair.after.label,
+          before: before.text,
+          after: after.text,
+          beforeLabel: before.label,
+          afterLabel: after.label,
         });
       }
     })().catch((e) => {
-      if (alive) setFailed(true);
+      if (alive) {
+        setFailed(true);
+        setDiffSideGone(true);
+      }
       console.warn("MarkdownPreviewOverlay: compare load failed", e);
     });
     return () => {
       alive = false;
     };
-  }, [diff, url]);
+  }, [diff, url, t]);
 
   useEffect(() => {
     if (url === undefined || image || unavailable || diff) return;
@@ -939,7 +1010,9 @@ export function MarkdownPreviewOverlay({
                 : t.chat.mdPreview.unavailable}
             </div>
           ) : failed ? (
-            <div className="md-preview__status">{t.chat.mdPreview.error}</div>
+            <div className="md-preview__status">
+              {diffSideGone ? t.chat.mdPreview.diffSideGone : t.chat.mdPreview.error}
+            </div>
           ) : diff ? (
             /* The compare screen is DiffView and only DiffView — the same one
              * the document version history uses. A second diff renderer here
@@ -1051,10 +1124,59 @@ export function isDiffAttachment(mime: string): boolean {
   return mime.split(";")[0]!.trim().toLowerCase() === DIFF_ATTACHMENT_MIME;
 }
 
-/** One side of a compare attachment, as the server stores it. */
+/** A side that names ONE FIELD OF A DOCUMENT at one point in time, instead of
+ * a stored blob (T-59 second round, owner on rc-8bf26b440e6e). Nothing is
+ * copied: a retained revision already has an address of its own.
+ *
+ * `at` is one of three things and stays a single string — "current" (the live
+ * document, a LIVE pointer), "seed" (the shipped default) or a retained
+ * revision's id in decimal. `field` is required because a revision holds a MAP
+ * of fields, not one text; the kind→field table lives HERE, in the reader
+ * (`docHistoryFields.ts`, total over DocumentKind so a new kind fails to
+ * compile), which is why the server carries none. */
+interface DiffAttachmentDoc {
+  kind: string;
+  key: string;
+  at: string;
+  field: string;
+}
+
+/** One side of a compare attachment, as the server stores it: EITHER a stored
+ * blob or a document reference, never both and never neither. */
 interface DiffAttachmentSide {
   attachment_id?: string;
+  doc?: DiffAttachmentDoc;
   label?: string;
+}
+
+/** The reserved spellings of a document side's `at`. Same two words the server
+ * matches; a typo in either place is a side that silently falls through to
+ * "not a revision id". */
+export const DIFF_SIDE_AT_CURRENT = "current";
+export const DIFF_SIDE_AT_SEED = "seed";
+
+function parseDiffSide(side: unknown): DiffAttachmentSide | null {
+  if (typeof side !== "object" || side === null) return null;
+  const { attachment_id, doc, label } = side as DiffAttachmentSide;
+  // Exactly one of the two shapes — the same rule the server enforces at
+  // upload. Accepting both here would make one of the two a value the reader
+  // silently ignores, and which one is ignored would be invisible on screen.
+  if (attachment_id && doc) return null;
+  if (attachment_id) return { attachment_id, label };
+  if (
+    doc &&
+    typeof doc.kind === "string" &&
+    typeof doc.key === "string" &&
+    typeof doc.at === "string" &&
+    typeof doc.field === "string" &&
+    doc.kind !== "" &&
+    doc.key !== "" &&
+    doc.at !== "" &&
+    doc.field !== ""
+  ) {
+    return { doc, label };
+  }
+  return null;
 }
 
 /** Parse the pointer pair. Returns null for anything that is not one — the
@@ -1066,12 +1188,11 @@ export function parseDiffAttachment(
   try {
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed !== "object" || parsed === null) return null;
-    const { before, after } = parsed as {
-      before?: DiffAttachmentSide;
-      after?: DiffAttachmentSide;
-    };
-    if (!before?.attachment_id || !after?.attachment_id) return null;
-    return { before, after };
+    const { before, after } = parsed as { before?: unknown; after?: unknown };
+    const b = parseDiffSide(before);
+    const a = parseDiffSide(after);
+    if (b === null || a === null) return null;
+    return { before: b, after: a };
   } catch {
     return null;
   }
