@@ -454,6 +454,55 @@ func TestLoreCreateRefusesToSupersedeAnEntryThatDoesNotExist(t *testing.T) {
 	}
 }
 
+// 🔴 一條**已退休**的條目不准被 supersede，而這條規則不是為了整齊：supersede
+// 會把舊那筆的狀態改成 `superseded`，而 `superseded` 是讀取端**照樣會回傳**的
+// 狀態（dal_lore.go 自己寫明），`retired` 則是每一條讀取路徑都濾掉的。
+//
+// ⇒ 拿一條退休條目去 supersede，等於把它**弄回搜尋與每個人的開機目錄** ——
+// 而那正是 ReviveLoreEntry 只有 owner 能按的原因（見
+// TestLoreReviveIsOwnerOnlyAndBringsTheEntryBack）。任何一般 agent 用一次
+// 普通寫入就能達成，而且 journal 記下的是 `supersede` 不是 `revive`，所以
+// LatestLoreGovernanceEvent 事後連「它為什麼又活了」都答不出來。
+//
+// 2026-09-04 的陰性對照：把 CreateLoreEntry 的 `AND status <> 'retired'`
+// 拆掉，整套 `go test ./...` **rc=0** —— 這道閘當時一支測試都沒有。
+func TestLoreCreateWillNotSupersedeARetiredEntryBackIntoView(t *testing.T) {
+	d := newTestDAL(t)
+	t33Entity(t, d, "e-repo", "repo", "repo:officraft")
+
+	gone := t33Create(t, d, t33Write())
+	if err := d.RetireLoreEntry(gone.EntryID, LoreRetireFalsified, "owner", "", true, 500); err != nil {
+		t.Fatalf("retire: %v", err)
+	}
+
+	w := t33Write()
+	w.Supersedes = gone.EntryID
+	if _, err := d.CreateLoreEntry(w, 1000); !errors.Is(err, ErrLoreEntryUnknown) {
+		t.Fatalf("supersede a retired entry: got %v, want ErrLoreEntryUnknown", err)
+	}
+	// 🔴 最重要的一句：那條退休條目必須**還是** retired。它一旦變成
+	// superseded 就重新讀得到，而開那道門只有 owner 有權。
+	if got := t33Get(t, d, gone.EntryID); got == nil || got.Status != "retired" {
+		t.Fatalf("一次普通寫入把退休條目弄回來了: %+v", got)
+	}
+	// 整筆寫入回滾，不是「舊那筆沒動、新那筆照樣進去」。
+	if n := t33CountEntries(t, d); n != 1 {
+		t.Fatalf("被退回的寫入留下了東西：現在共 %d 筆，只該剩那條退休的", n)
+	}
+
+	// 🔑 陽性對照：同一段碼在對象**還活著**時必須成功。少了這一半，上面的
+	// 拒絕也可能只是因為 supersede 整條路壞掉了 —— 而那看起來一模一樣。
+	alive := t33Create(t, d, t33Write())
+	ok := t33Write()
+	ok.Supersedes = alive.EntryID
+	if _, err := d.CreateLoreEntry(ok, 1100); err != nil {
+		t.Fatalf("陽性對照：supersede 一筆還活著的條目應該要成功: %v", err)
+	}
+	if got := t33Get(t, d, alive.EntryID); got == nil || got.Status != "superseded" {
+		t.Fatalf("陽性對照：活著的那筆沒有被改成 superseded: %+v", got)
+	}
+}
+
 // 🔴 舊的 TestLoreCreateRefusesAnOverlongLabelRatherThanTrimmingIt 沒了，跟著
 // `label` 與它的 40 runes 上限一起。取而代之的是反面：第 1 格**沒有上限**，
 // 一個很長的 trigger 必須整段寫進去，見這裡與 dal_lore_t33_test.go 的
