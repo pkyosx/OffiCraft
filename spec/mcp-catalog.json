@@ -1294,8 +1294,8 @@
             "description": "How many rows to answer, 1..200 (default 60). Bounds ROWS, not bytes. Outside that range is a 422 rather than a silent clamp, which would read like the end of the list.",
             "type": "integer"
           },
-          "end_attachment_id": {
-            "description": "Window anchor: an ATTACHMENT id (a row's \"id\", not a message id \u2014 one message can carry several attachments). INCLUSIVE, walking towards the OLDEST: that row and the limit-1 that follow it, still newest\u2192oldest. Omit it to start at the newest row. An id naming no row of this member's gallery is a 404, never a silent empty list.",
+          "from_attachment_id": {
+            "description": "Window anchor: an ATTACHMENT id (a row's \"id\", not a message id \u2014 one message can carry several attachments). INCLUSIVE: the list RESUMES at that row — it and the limit-1 that follow it in whatever order this endpoint answers in (today newest\u2192oldest). It anchors on a row, not on a sort key. Omit it to start at the first row. An id naming no row of this member's gallery is a 404, never a silent empty list.",
             "type": "string"
           }
         },

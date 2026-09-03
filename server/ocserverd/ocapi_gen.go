@@ -3486,9 +3486,9 @@ type HandleListChatApiChatGetParams struct {
 
 // HandleListChatAttachmentsApiChatAttachmentsGetParams defines parameters for HandleListChatAttachmentsApiChatAttachmentsGet.
 type HandleListChatAttachmentsApiChatAttachmentsGetParams struct {
-	With            *string `form:"with,omitempty" json:"with,omitempty"`
-	Limit           *int    `form:"limit,omitempty" json:"limit,omitempty"`
-	EndAttachmentId *string `form:"end_attachment_id,omitempty" json:"end_attachment_id,omitempty"`
+	With             *string `form:"with,omitempty" json:"with,omitempty"`
+	Limit            *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	FromAttachmentId *string `form:"from_attachment_id,omitempty" json:"from_attachment_id,omitempty"`
 }
 
 // HandleUploadChatAttachmentApiChatAttachmentsPostParams defines parameters for HandleUploadChatAttachmentApiChatAttachmentsPost.
@@ -4998,15 +4998,15 @@ func (siw *ServerInterfaceWrapper) HandleListChatAttachmentsApiChatAttachmentsGe
 		return
 	}
 
-	// ------------- Optional query parameter "end_attachment_id" -------------
+	// ------------- Optional query parameter "from_attachment_id" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "end_attachment_id", r.URL.Query(), &params.EndAttachmentId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from_attachment_id", r.URL.Query(), &params.FromAttachmentId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
 		var requiredError *runtime.RequiredParameterError
 		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "end_attachment_id"})
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from_attachment_id"})
 		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "end_attachment_id", Err: err})
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from_attachment_id", Err: err})
 		}
 		return
 	}

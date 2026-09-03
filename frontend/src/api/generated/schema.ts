@@ -757,23 +757,26 @@ export interface paths {
          *     NOT advance any read watermark — opening the gallery is not reading the
          *     thread. A blank ``with`` is a 422 (the gallery is always per-member).
          *
-         *     WINDOWING (``limit`` + ``end_attachment_id``). It takes an ATTACHMENT id — the
+         *     WINDOWING (``limit`` + ``from_attachment_id``). It takes an ATTACHMENT id — the
          *     ``id`` of a row this endpoint returned, NOT a message id: one message can
          *     carry several attachments, so a message id cannot name a position inside
-         *     this list. It is INCLUSIVE and walks TOWARDS THE OLDEST: return that row and
-         *     the ``limit``-1 that follow it, still newest→oldest. A caller paging through
+         *     this list. It is INCLUSIVE and RESUMES THE LIST AT THAT ROW: that row and the
+         *     ``limit``-1 that FOLLOW IT IN WHATEVER ORDER THIS ENDPOINT ANSWERS IN
+         *     (today newest→oldest). It anchors on a ROW, not on a sort key, so an
+         *     ordering option added later needs no change here — which is why it is not
+         *     spelled as a time direction. A caller paging through
          *     the gallery therefore sees its anchor row twice and drops the duplicate —
          *     the same bargain ``GET /api/chat``'s ``start_id``/``end_id`` strike. This is
-         *     their SHAPE — one inclusive id anchor with an explicit direction — under a
-         *     name that says what it eats: those two take a MESSAGE id, and spelling this
-         *     one the same way would read as familiar and be wrong. There is no forward
-         *     anchor here either: this list is only ever walked from newest towards
-         *     oldest, and an anchor nobody walks forwards from would be surface with no
-         *     caller.
+         *     their SHAPE — one inclusive id anchor — under a name that says both what it
+         *     eats and what it does: those two take a MESSAGE id and are spelled as the
+         *     EDGES of a window, and this one is where the caller RESUMES. There is no
+         *     second anchor: this list is only ever walked one way from wherever the
+         *     caller resumed, and an anchor with no caller would be surface we could not
+         *     take back.
          *
          *     ``limit`` bounds ROWS, not bytes, and must be 1..200 (outside that range is
          *     a 422 — a silent clamp would let a client believe it had reached the end).
-         *     Omitting ``end_attachment_id`` starts at the newest row. An id naming no row of
+         *     Omitting ``from_attachment_id`` starts at the first row. An id naming no row of
          *     this member's gallery is a 404 that names it, never a silent empty list.
          *     Omitting BOTH is the pre-existing call and still answers every row, so no
          *     existing caller changes behaviour.
@@ -11356,7 +11359,7 @@ export interface operations {
             query?: {
                 with?: string;
                 limit?: number;
-                end_attachment_id?: string | null;
+                from_attachment_id?: string | null;
             };
             header?: never;
             path?: never;
