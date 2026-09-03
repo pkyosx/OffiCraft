@@ -146,6 +146,9 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
+        with:
+          # T-64 PROBE: does this make origin/main resolvable in this job?
+          fetch-depth: 0
       # Pinned to what the repo develops against (go.mod says 1.26.4).
       # check-latest:false + an exact version keeps the runner from silently
       # drifting ahead of the developer.
