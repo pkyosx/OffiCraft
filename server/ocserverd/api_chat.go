@@ -452,6 +452,8 @@ var diffAttachmentSideID = regexp.MustCompile(`^att-[0-9a-f]{12}$`)
 // (CLAUDE.md's rule against fixed enumerations in prose applies to code that
 // re-lists them too). An address that names no document is a 400/404 at read
 // time, which the compare screen reports as the honest "this side is gone".
+var diffAttachmentAddrSegment = regexp.MustCompile(`^[A-Za-z0-9._:@+-]+$`)
+
 // The two reserved values of a document side's `at`. They are constants rather
 // than literals because the reader matches the same two words, and a typo in
 // either place is a side that silently falls through to "not a revision id".
@@ -459,8 +461,6 @@ const (
 	diffAttachmentAtCurrent = "current"
 	diffAttachmentAtSeed    = "seed"
 )
-
-var diffAttachmentAddrSegment = regexp.MustCompile(`^[A-Za-z0-9._:@+-]+$`)
 
 // diffAttachmentRevision matches the third form of `at`: a retained revision's
 // id. The id is an int64 on the wire everywhere else (the route takes it as a

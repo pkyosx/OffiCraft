@@ -670,7 +670,7 @@ type ChatAttachmentDTO struct {
 // An unknown “id“ is a 400; carrying BOTH “id“ and “data_b64“ is a 400
 // (ambiguous intent). A “mime“ of “application/vnd.officraft.diff“ (the
 // COMPARE attachment, T-59) is content-checked here too — the decoded body
-// must parse as the pointer pair “{before, after}“ or it is a 400. It is
+// must parse as the pointer pair “{before, after}“, each side naming EXACTLY ONE of a stored blob (“attachment_id“) or a document version (“doc“), or it is a 400. It is
 // the SAME one validation the streaming upload runs, not a second. An item with neither “id“ nor “data_b64“ is a
 // 400 (T-e2b2: it used to be dropped silently, so a sender that named a file it
 // never sent got a success and the recipient got nothing). The reply-card ANSWER face is
