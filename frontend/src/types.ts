@@ -1068,7 +1068,14 @@ export interface LoreRevisionRowView {
  * 🔴 `actor` / `place` / `object` COME BACK EMPTY WHEN NOBODY KNEW THEM, and
  * they are never back-filled with 「未知」 — not on the wire and not on the
  * screen. 「查不出是誰」 and 「還沒有人去查」 have to stay distinguishable, and a
- * placeholder collapses them into one. */
+ * placeholder collapses them into one.
+ *
+ * ⚠️ Empty is the ONLY unconstrained value these three take. A NON-EMPTY one is
+ * validated on write (`loreEventError`): it must be shaped `type:name` and the
+ * prefix must be an approved entity type, or the WHOLE write is refused 422.
+ * So anything that arrives non-empty is a well-formed key — but this surface
+ * still must not derive a type badge from it, because 「no key」 carries no
+ * prefix to derive from and would need a placeholder to render. */
 export interface LoreEventView {
   /** When the event HAPPENED — not when anybody wrote it down. Required. */
   happenedTs: number;
