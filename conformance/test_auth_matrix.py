@@ -1225,16 +1225,21 @@ MATRIX: dict[str, Route] = {
     # because writing down what you just learned is an agent's own act — the
     # owner's ruling of 2026-09-01 was that review happens AFTER the write, and a
     # higher floor here would have put him back in front of every one of them.
-    # (That ruling stands. The one his 2026-09-02 ruling rc-714eea33c6ed
-    # overturned was a different one — `falsify`/`instance` being optional — which
-    # is why this body now carries both.)
+    # (That ruling stands. ⚠️ His 2026-09-02 ruling rc-714eea33c6ed — which made
+    # `falsify` and `instance` purely required — has NO LANDING PLACE in 五格:
+    # neither cell exists any more. It was not overturned; the 2026-09-03 format
+    # change left it with nothing to apply to.)
+    #
+    # 🔴 THE BODY MUST STAY WELL-FORMED FOR THIS ROW TO MEAN ANYTHING. 第 1、2 格
+    # are refused blank, and a 422 from a malformed body would read identically in
+    # every cell whatever the floor said — hiding the very thing this row pins.
     "POST /api/lore/entries": Route(
         requires="agent",
         body={
-            "symptoms": "the authz matrix is probing this row",
-            "short": "a floor is decided before the body is ever read",
-            "falsify": "a cell answers 200 without the floor ever being consulted",
-            "instance": "this very row, run against every identity in the matrix",
+            "trigger": "the authz matrix is probing this row",
+            "content": "a floor is decided before the body is ever read",
+            "retire_when": "a cell answers 200 without the floor ever being consulted",
+            "problem": "this very row, run against every identity in the matrix",
             "origin": "agent:conformance-authz",
             "subjects": ["agent:conformance-authz"],
         },

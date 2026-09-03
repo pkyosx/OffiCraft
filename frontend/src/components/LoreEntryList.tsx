@@ -77,7 +77,6 @@ export function LoreEntryList() {
   const [truncated, setTruncated] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
-  const [onlyFlagged, setOnlyFlagged] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -98,25 +97,27 @@ export function LoreEntryList() {
   }, []);
 
   const needle = filter.trim().toLowerCase();
-  // 「證偽條件與實例都沒有」的條目數。owner 2026-09-02:「lore 的品質優於數量」
-  // ⇒ 顯眼的位置給品質訊號,總條數退成小字。這個數只從已載入的條目算,所以拿滿
-  // 上限的那一刻它就不再是全站的數 —— 那時 truncated 那句話跟它同時出現。
-  const flagged = useMemo(
-    () => (entries ?? []).filter((e) => e.degraded).length,
-    [entries]
-  );
+  // 🔴 這裡本來還有一排「N 條沒有證偽條件、也沒有實例」的品質訊號,以及一顆
+  // 「只看這些」的過濾器。它們整個拿掉了,不是漏掉:owner 2026-09-03 裁定
+  // rc-1e32c690018d 把 degraded 這個概念**整個移除**(「第 1 格的硬擋就夠了,
+  // 不要第二層」),線上已經沒有這個欄位可讀。留一顆從別的欄位重算的近似品質
+  // 訊號會更糟 —— 它跟原本那個伺服器算的長得一模一樣,而它是猜的。
+  //
+  // ⚠️ 一起消失的是 owner 2026-09-02「lore 的品質優於數量」在這一頁的唯一表示。
+  // 那句話沒有被推翻,只是今天站上沒有任何一個欄位撐得起它。缺口留在票上。
+  //
+  // 篩選比對的是第 1、2 格與對象 —— 搜尋回應只帶得回這些,第 3、4、5 格要展開
+  // 那一條才讀得到,拿沒有的東西去篩會篩掉本來該中的。
   const shown = useMemo(
     () =>
       (entries ?? []).filter(
         (e) =>
-          (!onlyFlagged || e.degraded) &&
-          (needle === "" ||
-          e.label.toLowerCase().includes(needle) ||
-          e.short.toLowerCase().includes(needle) ||
-            e.symptoms.toLowerCase().includes(needle) ||
-            e.subjects.some((s) => s.toLowerCase().includes(needle)))
+          needle === "" ||
+          e.trigger.toLowerCase().includes(needle) ||
+          e.content.toLowerCase().includes(needle) ||
+          e.subjects.some((s) => s.toLowerCase().includes(needle))
       ),
-    [entries, needle, onlyFlagged]
+    [entries, needle]
   );
 
   // 一條可以掛在好幾個對象下,所以它會在好幾群裡各出現一次 —— 那是實話,不是
@@ -156,25 +157,6 @@ export function LoreEntryList() {
 
   return (
     <div className="lore-list">
-      {/* 品質訊號在最上面,總條數在它下面且是小字 —— owner:「lore 的品質優於
-          數量」。一份誇自己有幾百條的清單,對「這些東西幫得上忙嗎」沒有回答。 */}
-      {flagged > 0 && (
-        <div className="lore-list__quality" data-testid="lore-quality">
-          <span className="lore-list__quality-count">
-            {t.lore.qualityFlagged(flagged)}
-          </span>
-          <span className="lore__note">{t.lore.qualityWhy}</span>
-          <button
-            type="button"
-            className="lore-list__quality-toggle"
-            aria-pressed={onlyFlagged}
-            onClick={() => setOnlyFlagged(!onlyFlagged)}
-          >
-            {onlyFlagged ? t.lore.qualityShowAll : t.lore.qualityShowOnly}
-          </button>
-        </div>
-      )}
-
       <div className="lore-list__head">
         <span className="lore-list__count" data-testid="lore-entry-total">
           {t.lore.listCount(total)}
@@ -204,7 +186,7 @@ export function LoreEntryList() {
           subject={subject}
           entries={list}
           // 篩選中時全部攤開:一個篩完還要自己一群群點開的清單,等於沒篩。
-          forceOpen={needle !== "" || onlyFlagged}
+          forceOpen={needle !== ""}
           key={subject}
         />
       ))}

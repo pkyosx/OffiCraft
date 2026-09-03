@@ -1585,7 +1585,7 @@ type LoreWriteDTO struct {
 	// Origin REQUIRED. A subject key, `type:name`, naming WHOSE knowledge this is — `human:Seth` for something the owner told you, `agent:Kyle` for something a member worked out. It is NOT who is writing: the actor comes from your verified token. The distinction is load-bearing — a `human:` origin sorts ahead within its tier and is exempt from the boot-directory count cap. A blank origin, or a type prefix nothing has approved, is refused: there is no default author.
 	Origin string `json:"origin"`
 
-	// Problem 第 4 格「之前發生過什麼問題」— optional as a FIELD and yet the substance of the entry: one with no problem behind it is a slogan. It is deliberately not made required, because a hard requirement pushes a writer who genuinely has none into inventing one, and an invented case reads exactly like a real one. ⚠️ `degraded` currently reports 「this cell is empty」, and that criterion is a PLACEHOLDER awaiting an owner ruling (rc-1e32c690018d) — do not read it as settled.
+	// Problem 第 4 格「之前發生過什麼問題」— optional as a FIELD and yet the substance of the entry: one with no problem behind it is a slogan. It is deliberately not made required, because a hard requirement pushes a writer who genuinely has none into inventing one, and an invented case reads exactly like a real one. ⚠️ Nothing flags an entry for leaving this blank: the `degraded` mark that once reported 「this cell is empty」 was removed entirely by owner ruling rc-1e32c690018d (2026-09-03), so an empty 第 4 格 is visible only by reading the entry.
 	Problem *string `json:"problem,omitempty"`
 
 	// RetireWhen 第 3 格「什麼時候不需要了」— FREE TEXT, deliberately not a date and not a closed vocabulary: the honest answers run from 「這個 bug 修好之後」 to 「等負責人裁定 X」, and a closed field would force every one of them into a shape that loses what it meant. Optional; blank means nobody has said, which is NOT the same as 「永遠都需要」 and is never filled in for you.
@@ -1601,7 +1601,7 @@ type LoreWriteDTO struct {
 	Trigger string `json:"trigger"`
 }
 
-// LoreWriteReceiptDTO What the write actually did, read back from the tables rather than echoed from the request: the new entry's id, the digest of the original that was preserved beside it, the subjects it ended up filed against, any subject it had to mint, and whether it landed degraded.
+// LoreWriteReceiptDTO What the write actually did, read back from the tables rather than echoed from the request: the new entry's id, the digest of the original that was preserved beside it, the subjects it ended up filed against, and any subject it had to mint. ⚠️ There is no `degraded` field here any more — owner ruling rc-1e32c690018d (2026-09-03) removed the concept, because 第 1 格 is already refused blank at the door.
 type LoreWriteReceiptDTO struct {
 	// EntryId The id of the entry that was created.
 	EntryId string `json:"entry_id"`

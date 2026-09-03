@@ -997,11 +997,21 @@ def _lore_entry(ctx: HCtx) -> str:
         "/api/lore/entries",
         headers={"Authorization": f"Bearer {ctx.agent.token}"},
         json={
-            "label": "conformance happy entry",
-            "symptoms": "a route answers 200 and nothing was written",
-            "short": "the entry and its original are one transaction",
-            "falsify": "a second route turns out to write entries too",
-            "instance": "the conformance suite seeding this very entry",
+            "trigger": "a route answers 200 and nothing was written",
+            "content": "the entry and its original are one transaction",
+            "retire_when": "a second route turns out to write entries too",
+            "problem": "the conformance suite seeding this very entry",
+            # 🔴 ONE EVENT, AND ITS 人／地／物 ARE DELIBERATELY LEFT OFF. 第 5 格
+            # only says something if the wire can carry an event whose optional
+            # cells nobody knew — the row below asserts they come back EMPTY
+            # rather than back-filled, which is the one way this cell could be
+            # wrong while every response still validated against the schema.
+            "events": [
+                {
+                    "happened_ts": 1788330000,
+                    "what": "the conformance suite wrote this very entry",
+                }
+            ],
             "origin": f"agent:{ctx.agent.member_id}",
             "subjects": [f"agent:{ctx.agent.member_id}"],
         },
@@ -1049,15 +1059,36 @@ def _lore_revision_path(ctx: HCtx) -> str:
 
 def _check_lore_read(_ctx: HCtx, r: httpx.Response) -> None:
     d = r.json()
-    # 🔴 THE ORIGINAL. `short` is what enters a boot context and it is lossy on
-    # purpose; this field is the whole reason the ticket exists. An entry served
-    # with an empty one would look correct in every other respect.
+    # 🔴 THE ORIGINAL. `content` (第 2 格) is what enters a boot context and it is
+    # lossy on purpose; this field is the whole reason the ticket exists. An entry
+    # served with an empty one would look correct in every other respect.
     assert d["original"], f"the entry was served with NO original: {d}"
-    for field in ("label", "symptoms", "short", "falsify", "instance", "residual_risk"):
+    # 五格 as the owner ruled it on 2026-09-03. `label` / `falsify` /
+    # `residual_risk` are GONE — not renamed, removed — so this list is the four
+    # named cells plus the `events:` block, and it is the assertion that would
+    # fail first if the renderer ever quietly went back to the old shape.
+    for field in ("trigger", "content", "retire_when", "problem", "events"):
         assert f"{field}:" in d["original"], (
             f"the original drops the {field!r} section — a renderer that skips blanks "
             f"cannot tell 'never written' from 'deleted': {d['original']!r}"
         )
+    # 🔴 第 5 格 IS INSIDE THE ORIGINAL, therefore inside `sha256`. Without this
+    # the events could be served correctly on their own field while being absent
+    # from the one text an agent falls back to — and the fallback is the point.
+    assert "the conformance suite wrote this very entry" in d["original"], (
+        f"the events are not in the L0 original, so 第 5 格 is outside the digest "
+        f"an agent verifies against: {d['original']!r}"
+    )
+    # 🔴 人／地／物 NOBODY KNEW COME BACK EMPTY, NOT BACK-FILLED. A server that
+    # helpfully wrote 「未知」 would make 「could not find out who」 and 「nobody has
+    # looked yet」 indistinguishable from here on, in the digest as well as on
+    # screen, and nothing downstream could separate them again.
+    assert len(d["events"]) == 1, d
+    ev = d["events"][0]
+    assert ev["what"] and ev["happened_ts"] == 1788330000, ev
+    assert ev["actor"] == "" and ev["place"] == "" and ev["object"] == "", (
+        f"an event's unknown 人／地／物 came back filled in rather than empty: {ev}"
+    )
     assert len(d["sha256"]) == 64, d
     assert d["written_by"], d
     assert len(d["revisions"]) == 1, d
@@ -1104,10 +1135,12 @@ def _check_lore_write(_ctx: HCtx, r: httpx.Response) -> None:
         _LORE_FRESH_SUBJECT
     ], d
     assert d["subject_ids"] and all(d["subject_ids"]), d
-    # falsify and instance are both REQUIRED since the owner's 2026-09-02 ruling
-    # (rc-714eea33c6ed), so a write that lands can no longer be degraded. The
-    # flag itself stays: entries written BEFORE that ruling can carry neither.
-    assert d["degraded"] is False, f"a complete entry came back degraded: {d}"
+    # 🔴 `degraded` IS GONE FROM THIS RECEIPT AND THAT IS ASSERTED, not merely
+    # un-asserted. Owner ruling rc-1e32c690018d (2026-09-03) removed the concept:
+    # 第 1 格 is refused blank at the upsert seam, so a second, softer 「written but
+    # suspect」 flag sat behind a hard gate. An absent key and a key nobody looks
+    # at are the same to a reader of this file, so the absence is pinned here.
+    assert "degraded" not in d, f"the removed `degraded` flag is back on the wire: {d}"
     assert d["superseded"] == "", d
 
 
@@ -1137,11 +1170,10 @@ def _lore_pending_entity(ctx: HCtx, subject: str) -> str:
         "/api/lore/entries",
         headers=_auth(ctx.agent.token),
         json={
-            "label": "conformance queue seed",
-            "symptoms": "a subject key is minted and no route can reach it",
-            "short": "an unreviewed name is invisible to every agent's boot",
-            "falsify": "the pending entity is listed before anyone approves it",
-            "instance": "the conformance suite seeding this very entity",
+            "trigger": "a subject key is minted and no route can reach it",
+            "content": "an unreviewed name is invisible to every agent's boot",
+            "retire_when": "the pending entity is listed before anyone approves it",
+            "problem": "the conformance suite seeding this very entity",
             "origin": f"agent:{ctx.agent.member_id}",
             "subjects": [subject],
         },
@@ -1279,11 +1311,16 @@ def _lore_propose_body(ctx: HCtx) -> dict[str, str]:
         "encountered": "the conformance suite's own happy row",
         "fault": "stale",
         "evidence": "this entry names the transaction, and the transaction moved file",
-        "label": "conformance proposed name",
-        "symptoms": "a route answers 200 and nothing was written",
-        "short": "the entry, its original and its axes are ONE transaction",
-        "falsify": "an entry turns up with no revision behind it",
-        "instance": "the conformance suite proposing this very change",
+        # 🔴 A PROPOSAL CARRIES 四格 AND NO EVENTS **IN THIS ROUND**. 第 5 格 is
+        # not proposable yet, so the rendered version is digested against the
+        # entry's events AS THEY STAND. ⚠️ Owner ruling rc-e5c34500face
+        # (2026-09-03) says a proposal SHOULD carry its own events — this is a
+        # known-provisional semantics awaiting a table that does not exist yet,
+        # NOT a settled one. Do not read this row as pinning it down.
+        "trigger": "a route answers 200 and nothing was written",
+        "content": "the entry, its original and its axes are ONE transaction",
+        "retire_when": "an entry turns up with no revision behind it",
+        "problem": "the conformance suite proposing this very change",
     }
 
 
@@ -1331,7 +1368,7 @@ def _check_lore_proposal_list(ctx: HCtx, r: httpx.Response) -> None:
     assert row["stale"] is False, row
     # A removal proposes NO version: the body fields are empty, and that is the
     # difference between "he proposed nothing" and "he proposed a blank entry".
-    assert row["kind"] == "remove" and row["body"] == "" and row["short"] == "", row
+    assert row["kind"] == "remove" and row["body"] == "" and row["content"] == "", row
     assert row["fault"] == "misled" and row["encountered"] and row["evidence"], row
     assert row["actor_id"], row
 
@@ -1370,20 +1407,19 @@ HAPPY: dict[str, Happy] = {
         # rows ran before it is not pinning the server's behaviour, it is
         # pinning the order pytest happened to choose.
         body=lambda ctx: {
-            "label": "conformance happy write",
-            "symptoms": "a route answers 200 and nothing was written",
-            "short": "the entry and its original are one transaction",
-            "falsify": "a second route turns out to write entries too",
-            "instance": "the conformance suite writing this very row",
+            "trigger": "a route answers 200 and nothing was written",
+            "content": "the entry and its original are one transaction",
+            "retire_when": "a second route turns out to write entries too",
+            "problem": "the conformance suite writing this very row",
             "origin": f"agent:{ctx.agent.member_id}",
             "subjects": [_lore_fresh_subject(ctx)],
         },
         check=_check_lore_write,
     ),
     # 🔴 HOP ③ — the route the ticket was opened for. The assertion that matters
-    # is `original`: the entry's full text as written, which `short` is a lossy
-    # compression of. Without it, 「原始資訊可以保留」 is true of the database and
-    # false of every agent.
+    # is `original`: the entry's full text as written, which `content` (第 2 格) is
+    # a lossy compression of. Without it, 「原始資訊可以保留」 is true of the database
+    # and false of every agent.
     "GET /api/lore/entries/{entry_id}": Happy(
         identity="agent",
         path=lambda ctx: f"/api/lore/entries/{_lore_entry(ctx)}",

@@ -988,25 +988,25 @@ export type BackupHealthCode = "" | "never_ran" | "stale" | "failed";
 // must be able to say 「尚無資料來源」, and it can only say that if the type
 // system never handed it a plausible zero to print instead.
 
-/** One retrieved entry, as `POST /api/lore/search` answers it. */
+/** One retrieved entry, as `POST /api/lore/search` answers it.
+ *
+ * 🔴 A HIT CARRIES ONLY 第 1、2 格. 第 3、4、5 格 are reached with
+ * `getLoreEntry`, because a search answer is what you PICK from — putting every
+ * entry's events into the list would be a size decision nobody has made. */
 export interface LoreEntrySummaryView {
   entryId: string;
-  /** The entry's one-line NAME. May be empty — an entry can be written before
-   * it has been named, and an invented name looks exactly like a chosen one. */
-  label: string;
-  /** The compressed body — the only field that ever enters a boot context. */
-  short: string;
-  /** What you would be SEEING when this applies. Returned but NOT searchable
-   * (no table, no index, no parameter) — which is why de-duplication and
-   * conflict-finding cannot be done through this route yet. */
-  symptoms: string;
+  /** 第 1 格「什麼時候要記起來」— when you would want to remember this. It is
+   * REQUIRED on write, and it doubles as the entry's TITLE: 五格 has no `label`
+   * cell and this one carries no length cap. */
+  trigger: string;
+  /** 第 2 格「內容」— the compressed body, and the only cell that ever enters a
+   * boot context. Also required on write. */
+  content: string;
   /** Subject keys (`repo:officraft`) this entry is filed under. */
   subjects: string[];
   actions: string[];
   /** Whose knowledge this is (`human:Seth`, `agent:Kyle`). */
   origin: string;
-  /** True when the entry carries NEITHER a falsifier NOR an instance. */
-  degraded: boolean;
   /** `T1` matched every axis asked on; `T2` reached the caller across an axis
    * that was NOT asked about. Meaningless without `tieredBy` — read together. */
   tier: string;
@@ -1063,28 +1063,52 @@ export interface LoreRevisionRowView {
   shrinkChars: number;
 }
 
+/** 第 5 格「相關的完整資訊」— ONE event: 時／事／人／地／物.
+ *
+ * 🔴 `actor` / `place` / `object` COME BACK EMPTY WHEN NOBODY KNEW THEM, and
+ * they are never back-filled with 「未知」 — not on the wire and not on the
+ * screen. 「查不出是誰」 and 「還沒有人去查」 have to stay distinguishable, and a
+ * placeholder collapses them into one. */
+export interface LoreEventView {
+  /** When the event HAPPENED — not when anybody wrote it down. Required. */
+  happenedTs: number;
+  /** What happened, in the ACTIVE VOICE, so `actor` is always the one who did
+   * it rather than the one it happened to. Required. */
+  what: string;
+  /** 人 — who did it. May be empty; an act that never went through the API has
+   * nobody the server could stamp. */
+  actor: string;
+  /** 地 — which MACHINE it happened on. May be empty. */
+  place: string;
+  /** 物 — what was acted upon. May be empty. */
+  object: string;
+}
+
 /** One entry in full, plus the original preserved beside it. */
 export interface LoreEntryDetailView {
   entryId: string;
-  label: string;
-  symptoms: string;
-  short: string;
-  /** How to show this entry does NOT hold. May be empty — and an EMPTY one is
-   * rendered as an empty field with its name printed, never omitted: 「blank」
-   * and 「no such section」 must not look the same. */
-  falsify: string;
-  /** One case that really happened. May be empty, same rule. */
-  instance: string;
-  /** What this entry does NOT protect against. May be empty, same rule. */
-  residualRisk: string;
+  /** 第 1 格, required, and the entry's title. */
+  trigger: string;
+  /** 第 2 格, required — the only cell that enters a boot context. */
+  content: string;
+  /** 第 3 格「什麼時候不需要了」— free text, no closed value set. May be empty
+   * — and an EMPTY one is rendered as an empty field with its name printed,
+   * never omitted: 「blank」 and 「no such section」 must not look the same. */
+  retireWhen: string;
+  /** 第 4 格「之前發生過什麼問題」— optional as a field while being the
+   * substance of the entry. May be empty, same rendering rule. */
+  problem: string;
+  /** 第 5 格, IN THE ORDER THE EVENTS HAPPENED — empty array when the entry
+   * carries none, which the surface states rather than omits. */
+  events: LoreEventView[];
   subjects: string[];
   actions: string[];
   origin: string;
   /** `active`, `superseded`, `retired` or `underspecified`. */
   status: string;
-  degraded: boolean;
   /** The FULL text as last written, every named field including the blank
-   * ones. Empty ONLY for an entry written before the mechanism existed. */
+   * ones AND the `events:` block. Empty ONLY for an entry written before the
+   * mechanism existed. */
   original: string;
   /** Digest of `original`, so a reader can tell it holds what was stored. */
   sha256: string;
@@ -1138,7 +1162,10 @@ export interface LorePendingEntityView {
   /** `suggestion` 是 merge 時,建議併進哪一個。 */
   mergeTarget: string;
   similar: LoreEntitySimilarView[];
-  /** 這個對象底下第一條記憶的短版,截斷過。空 ⇒ 底下還沒有記憶。 */
+  /** 這個對象底下第一條記憶的**第 2 格 `content`**,截斷過。空 ⇒ 底下還沒有記憶。
+   * ⚠️ `sampleShort` / wire 上的 `sample_short` 是六格時代 `short` 留下的名字,
+   * 讀的欄位早就是 `content` 了。名字沒有跟著改是刻意的:它在線上、座艙讀它,
+   * 改名是一次 wire 變更,不順手夾帶。 */
   sampleShort: string;
 }
 

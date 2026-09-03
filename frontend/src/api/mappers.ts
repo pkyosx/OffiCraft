@@ -14,6 +14,7 @@ import type {
   LoreSearchView,
   LoreRevisionRowView,
   LoreEntryDetailView,
+  LoreEventView,
   LoreRevisionView,
   LorePendingEntityView,
   LoreEntityGovernanceView,
@@ -62,6 +63,7 @@ import type {
   WireLoreSearchResult,
   WireLoreSearchHit,
   WireLoreEntryDetail,
+  WireLoreEvent,
   WireLoreRevisionRow,
   WireLoreRevision,
   WireLorePendingEntity,
@@ -1808,13 +1810,11 @@ export function toLoreEntrySummary(
 ): LoreEntrySummaryView {
   return {
     entryId: w.entry_id,
-    label: w.label,
-    short: w.short,
-    symptoms: w.symptoms,
+    trigger: w.trigger,
+    content: w.content,
     subjects: [...w.subjects],
     actions: [...w.actions],
     origin: w.origin,
-    degraded: w.degraded,
     tier: w.tier,
     tierNote: w.tier_note,
     trustScope: w.trust_scope,
@@ -1864,34 +1864,50 @@ export function toLoreRevisionRow(
   };
 }
 
+/** Map one event → the view model. 人／地／物 are carried through EXACTLY as the
+ * wire sent them, empty string included: this is the seam where a placeholder
+ * would be cheapest to add and most damaging, because 「nobody could find out
+ * who」 and 「nobody has looked yet」 would render as the same word from here on
+ * and nothing downstream could tell them apart again. */
+export function toLoreEvent(w: WireLoreEvent): LoreEventView {
+  return {
+    happenedTs: w.happened_ts,
+    what: w.what,
+    actor: w.actor,
+    place: w.place,
+    object: w.object,
+  };
+}
+
 /** Map one entry detail → the view model.
  *
- * Every body field is mapped verbatim, empty string included. `residual_risk`
- * is still optional on a write; `falsify` and `instance` became REQUIRED on
- * 2026-09-02 (rc-714eea33c6ed), so a blank pair now only reaches this mapper
- * from an entry written BEFORE that ruling — which is precisely the entry a
- * reader needs to spot at a glance, and why the empty case is still mapped
- * rather than hidden.
+ * Every body cell is mapped verbatim, empty string included. 第 1、2 格
+ * (`trigger` / `content`) cannot be blank — the write path refuses them at the
+ * upsert seam — so a blank one here means the entry predates 五格. 第 3、4 格
+ * are optional and a blank one is ordinary, which is exactly why it is mapped
+ * rather than dropped.
  *
- * The surface prints an empty field WITH its name; substituting a placeholder
+ * The surface prints an empty cell WITH its name; substituting a placeholder
  * here would make 「the writer left this blank」 and 「this entry has no such
- * section」 render identically. */
+ * section」 render identically.
+ *
+ * 🔴 `events` is mapped in the order the wire sent it, which is the order the
+ * events HAPPENED. Re-sorting here (by write order, say) would silently answer
+ * a different question than the one the route answers. */
 export function toLoreEntryDetail(
   w: WireLoreEntryDetail
 ): LoreEntryDetailView {
   return {
     entryId: w.entry_id,
-    label: w.label,
-    symptoms: w.symptoms,
-    short: w.short,
-    falsify: w.falsify,
-    instance: w.instance,
-    residualRisk: w.residual_risk,
+    trigger: w.trigger,
+    content: w.content,
+    retireWhen: w.retire_when,
+    problem: w.problem,
+    events: w.events.map(toLoreEvent),
     subjects: [...w.subjects],
     actions: [...w.actions],
     origin: w.origin,
     status: w.status,
-    degraded: w.degraded,
     original: w.original,
     sha256: w.sha256,
     supersedes: w.supersedes,

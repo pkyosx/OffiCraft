@@ -406,6 +406,12 @@ export type WireLoreSearchHit = components["schemas"]["LoreSearchHitDTO"];
  * `original`, its `sha256` and the revision CATALOGUE (no text). */
 export type WireLoreEntryDetail = components["schemas"]["LoreEntryDetailDTO"];
 
+/** Mirrors `LoreEventDTO` — 第 5 格, ONE event of an entry: 時／事／人／地／物.
+ * 人／地／物 are plain strings that are EMPTY when nobody knew them; the wire
+ * does not distinguish 「unknown」 from 「not looked up」 with a sentinel, and
+ * nothing above this line may invent one. */
+export type WireLoreEvent = components["schemas"]["LoreEventDTO"];
+
 /** Mirrors `LoreRevisionRowDTO` — one catalogue line: who, when, and how many
  * characters that write REMOVED. `shrink_chars` is the only place a rewrite
  * that hollowed an entry out is visible at all; the entry count never moves. */

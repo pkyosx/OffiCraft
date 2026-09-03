@@ -1,9 +1,13 @@
 // 記憶清單 (T-33)。
 //
 // 這裡鎖的是 owner 2026-09-02 那幾句話變成的規則:清單一進來就看得到、對象是
-// 導覽(預設收合)、品質訊號比總條數醒目、篩選框只在清單長的時候才出現。
+// 導覽(預設收合)、篩選框只在清單長的時候才出現。
 // 「先想關鍵字再按搜尋」那一版被他否掉了(「殺雞用牛刀」「我無法一眼看出有哪些
 // 對象」),所以這裡也鎖住:畫面上不會再有送出型的搜尋。
+//
+// 🔴 「品質訊號比總條數醒目」那一條連同它的測試一起拿掉了:owner 2026-09-03
+// 裁定 rc-1e32c690018d 移除 degraded 整個概念,那一排訊號沒有欄位可以算。
+// 這裡改成鎖住「清單上不會再有那顆過濾器」,所以有人把它加回來會被擋下。
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -15,13 +19,11 @@ import { LoreEntryList } from "./LoreEntryList";
 function entry(over: Partial<LoreEntrySummaryView> = {}): LoreEntrySummaryView {
   return {
     entryId: "lore-1",
-    label: "綠燈的射程等於它看得到的範圍",
-    short: "綠燈只證明它看得到的那些東西沒問題。",
-    symptoms: "整套測試回 PASS，而我正要拿這個結果去說這一包沒問題。",
+    trigger: "整套測試回 PASS，而我正要拿這個結果去說這一包沒問題。",
+    content: "綠燈只證明它看得到的那些東西沒問題。",
     subjects: ["repo:officraft"],
     actions: [],
     origin: "agent:Kyle",
-    degraded: false,
     tier: "T1",
     tierNote: "",
     trustScope: "method",
@@ -78,7 +80,7 @@ describe("LoreEntryList", () => {
         entry({ entryId: "a", subjects: ["repo:officraft"] }),
         entry({
           entryId: "b",
-          label: "複製資料庫等於複製設定",
+          trigger: "複製資料庫等於複製設定",
           subjects: ["tool:sqlite"],
         }),
       ]),
@@ -113,7 +115,7 @@ describe("LoreEntryList", () => {
     const many = Array.from({ length: 20 }, (_, i) =>
       entry({
         entryId: `e${i}`,
-        label: i === 3 ? "複製資料庫等於複製設定" : `條目 ${i}`,
+        trigger: i === 3 ? "複製資料庫等於複製設定" : `條目 ${i}`,
         subjects: [i === 3 ? "tool:sqlite" : "repo:officraft"],
       }),
     );
@@ -132,21 +134,19 @@ describe("LoreEntryList", () => {
     expect(searchLore).toHaveBeenCalledTimes(1);
   });
 
-  it("品質訊號比總條數醒目，而且可以只看那些條目", async () => {
+  // 🔴 degraded 被 owner 裁定整個移除(rc-1e32c690018d)。這一條鎖的是「它沒有
+  // 回來」:那一排品質訊號跟「只看這些」那顆過濾器,今天沒有任何欄位撐得起來,
+  // 重新長出來的話一定是從別的東西猜的 —— 而猜的跟算的長得一模一樣。
+  it("清單上沒有品質訊號那一排，也沒有「只看這些」過濾器", async () => {
     searchLore.mockResolvedValue(
-      searchView([
-        entry({ entryId: "ok" }),
-        entry({ entryId: "bad", label: "沒有實例的口號", degraded: true }),
-      ]),
+      searchView([entry({ entryId: "ok" }), entry({ entryId: "b2" })]),
     );
     renderList();
 
-    const quality = await screen.findByTestId("lore-quality");
-    expect(quality.textContent).toContain(zh.lore.qualityFlagged(1));
-
-    fireEvent.click(screen.getByText(zh.lore.qualityShowOnly));
-    expect(screen.getByText("沒有實例的口號")).toBeTruthy();
-    expect(screen.queryByText("綠燈的射程等於它看得到的範圍")).toBeNull();
+    await screen.findByText("repo:officraft");
+    expect(screen.queryByTestId("lore-quality")).toBeNull();
+    expect(screen.queryByText("只看這些")).toBeNull();
+    expect(screen.queryByText("看全部")).toBeNull();
   });
 
   it("讀不到清單時說讀不到，不畫成一份空清單", async () => {

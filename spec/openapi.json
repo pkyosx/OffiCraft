@@ -2873,7 +2873,7 @@
             "type": "string"
           },
           "problem": {
-            "description": "第 4 格「之前發生過什麼問題」— optional as a FIELD and yet the substance of the entry: one with no problem behind it is a slogan. It is deliberately not made required, because a hard requirement pushes a writer who genuinely has none into inventing one, and an invented case reads exactly like a real one. ⚠️ `degraded` currently reports 「this cell is empty」, and that criterion is a PLACEHOLDER awaiting an owner ruling (rc-1e32c690018d) — do not read it as settled.",
+            "description": "第 4 格「之前發生過什麼問題」— optional as a FIELD and yet the substance of the entry: one with no problem behind it is a slogan. It is deliberately not made required, because a hard requirement pushes a writer who genuinely has none into inventing one, and an invented case reads exactly like a real one. ⚠️ Nothing flags an entry for leaving this blank: the `degraded` mark that once reported 「this cell is empty」 was removed entirely by owner ruling rc-1e32c690018d (2026-09-03), so an empty 第 4 格 is visible only by reading the entry.",
             "default": "",
             "title": "Problem",
             "type": "string"
@@ -2915,7 +2915,7 @@
         "type": "object"
       },
       "LoreWriteReceiptDTO": {
-        "description": "What the write actually did, read back from the tables rather than echoed from the request: the new entry's id, the digest of the original that was preserved beside it, the subjects it ended up filed against, any subject it had to mint, and whether it landed degraded.",
+        "description": "What the write actually did, read back from the tables rather than echoed from the request: the new entry's id, the digest of the original that was preserved beside it, the subjects it ended up filed against, and any subject it had to mint. ⚠️ There is no `degraded` field here any more — owner ruling rc-1e32c690018d (2026-09-03) removed the concept, because 第 1 格 is already refused blank at the door.",
         "properties": {
           "entry_id": {
             "description": "The id of the entry that was created.",

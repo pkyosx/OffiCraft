@@ -7,6 +7,7 @@
 
 import type {
   LoreEntryDetailView,
+  LoreEventView,
   LorePendingEntityView,
   LoreEntityGovernanceView,
   LoreEntrySummaryView,
@@ -2373,14 +2374,35 @@ let relocationDeferredNext = false;
 // shortcut: the write path those five went through never carried an action
 // name. So the mock cannot demonstrate action-axis tiering, and no screen may
 // pretend it can.
+//
+// 🔴 `events` (第 5 格) IS EMPTY ON EVERY ONE OF THEM FOR THE SAME REASON, and
+// this one is worth stating out loud because it is tempting to fix: these five
+// were written on 2026-09-01, against 六格, through a write path that had no
+// events at all. Inventing a plausible 時／事／人／地／物 for them would make the
+// events surface look exercised while proving nothing — and a fabricated event
+// reads exactly like a recorded one, which is the single failure this whole
+// ticket exists to prevent. The empty case still renders (the section prints
+// itself and says it is empty), so the surface is visible; what is not
+// demonstrable here is a POPULATED event list, and no screen may pretend it is.
+//
+// 🔴 The 六格 cells that 五格 dropped (`label` / `falsify` / `residual_risk`) are
+// GONE from this fixture rather than parked in an unused field: `symptoms` →
+// `trigger`, `short` → `content`, `instance` → `problem`, and `retire_when` is
+// a cell nobody had when these were written, so it is blank. Keeping the dropped
+// text around in a field no route serves would put words on a screen the station
+// cannot produce.
 interface MockLoreEntry {
   entryId: string;
-  label: string;
-  symptoms: string;
-  short: string;
-  falsify: string;
-  instance: string;
-  residualRisk: string;
+  /** 第 1 格, and the entry's title — no length cap. */
+  trigger: string;
+  /** 第 2 格 — the only cell that enters a boot context. */
+  content: string;
+  /** 第 3 格 — free text. Blank on all five: the cell did not exist yet. */
+  retireWhen: string;
+  /** 第 4 格. */
+  problem: string;
+  /** 第 5 格 — see the note above on why every one of these is empty. */
+  events: LoreEventView[];
   subjects: string[];
   actions: string[];
   origin: string;
@@ -2392,12 +2414,11 @@ interface MockLoreEntry {
 const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
   {
     entryId: "lore-31274bbb892c",
-    label: "綠燈的射程等於它看得到的範圍",
-    symptoms: "整套測試回 PASS／ok，而我正要拿這個結果去說「這一包沒問題」。",
-    short: "綠燈只證明「它看得到的那些東西沒問題」。go test -run 配一個匹配不到任何東西的正則，輸出跟真的全部通過逐字相同（唯一訊號 no tests to run 常被 grep 濾掉）。⇒ 跑完之後要問的是「這一次的量法，看得到的範圍是什麼」——而且要在跑過之後問，不是在寫的時候。",
-    falsify: "找到一次「量法涵蓋範圍為零，而輸出跟正確答案長得不一樣」的例子 —— 那表示這類錯誤會自己現形，這條就不成立。",
-    instance: "2026-09-01：-run 的正則打錯字，26 顆 mutant 一顆都沒跑，回報 PASS。分母改成可驗的做法是逐一 grep -c \"^func <name>(\"。",
-    residualRisk: "它擋不住「量法涵蓋範圍正確、但斷言本身是恆真的」那一類 —— 那要靠種 mutant，不是靠問射程。",
+    trigger: "整套測試回 PASS／ok，而我正要拿這個結果去說「這一包沒問題」。",
+    content: "綠燈只證明「它看得到的那些東西沒問題」。go test -run 配一個匹配不到任何東西的正則，輸出跟真的全部通過逐字相同（唯一訊號 no tests to run 常被 grep 濾掉）。⇒ 跑完之後要問的是「這一次的量法，看得到的範圍是什麼」——而且要在跑過之後問，不是在寫的時候。",
+    retireWhen: "",
+    problem: "2026-09-01：-run 的正則打錯字，26 顆 mutant 一顆都沒跑，回報 PASS。分母改成可驗的做法是逐一 grep -c \"^func <name>(\"。",
+    events: [],
     subjects: ["repo:officraft"],
     actions: [],
     origin: "agent:O-197",
@@ -2407,12 +2428,11 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
   },
   {
     entryId: "lore-3a8f02e14c10",
-    label: "有機制不等於這一次真的有",
-    symptoms: "我正要拿「它有自動備份／有守衛／有檢查」去對別人保證這一次是安全的。",
-    short: "機制存在只證明那條路上有那段碼，不證明這一次走的是那條路。實例：升級前備份只掛在 serve 開機那條路（backupBeforeMigrations 全樹一個呼叫者），而 bin/migrate 走的是沒有它的那條 ⇒ 用 migrate 升級的人沒有退路，而畫面上跟有退路一模一樣。⇒ 保證要講「這一次」，不是「有機制」。",
-    falsify: "找到一個機制，它的每一條呼叫路徑都被證明涵蓋，而且有東西在守「新增路徑時不會漏掉」——那這條就不成立。",
-    instance: "2026-09-01 分站換版：因此改成走 serve 開機而不是 migrate，並另外手拍一份驗過的備份。",
-    residualRisk: "它不告訴你「這一次真的有」要怎麼驗；那要另外找一個可觀察的訊號（檔案、log 行、時間順序）。",
+    trigger: "我正要拿「它有自動備份／有守衛／有檢查」去對別人保證這一次是安全的。",
+    content: "機制存在只證明那條路上有那段碼，不證明這一次走的是那條路。實例：升級前備份只掛在 serve 開機那條路（backupBeforeMigrations 全樹一個呼叫者），而 bin/migrate 走的是沒有它的那條 ⇒ 用 migrate 升級的人沒有退路，而畫面上跟有退路一模一樣。⇒ 保證要講「這一次」，不是「有機制」。",
+    retireWhen: "",
+    problem: "2026-09-01 分站換版：因此改成走 serve 開機而不是 migrate，並另外手拍一份驗過的備份。",
+    events: [],
     subjects: ["repo:officraft"],
     actions: [],
     origin: "agent:O-197",
@@ -2422,12 +2442,11 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
   },
   {
     entryId: "lore-b97ced3313a6",
-    label: "一次的綠燈只證明那一秒",
-    symptoms: "我剛驗完一台機器的狀態，正要把結果當成「現在就是這樣」回報出去。",
-    short: "對一台會自己動的機器（有更新器、有排程、有 KeepAlive），驗證是瞬時的而狀態不是。⇒ 驗完要多問一句「有什麼東西會在我不看的時候改變它」，並把答案變成可觀察的（掛一個定期查、或關掉那個會動的東西）。",
-    falsify: "驗完之後隔一段時間再查，狀態沒變，而且找不到任何會自動改變它的機制 —— 那這條在該情境不成立。",
-    instance: "2026-09-01：我回報 trial 站跑 feab5437，90 秒後它自己 [upgrade] 換成 v0.5.281。成因是我複製的 DB 帶著 updater.auto_update=true。",
-    residualRisk: "它擋不住「觀察期間剛好沒發生、觀察結束後才發生」——定期查只是把窗口變小，不是關掉它。",
+    trigger: "我剛驗完一台機器的狀態，正要把結果當成「現在就是這樣」回報出去。",
+    content: "對一台會自己動的機器（有更新器、有排程、有 KeepAlive），驗證是瞬時的而狀態不是。⇒ 驗完要多問一句「有什麼東西會在我不看的時候改變它」，並把答案變成可觀察的（掛一個定期查、或關掉那個會動的東西）。",
+    retireWhen: "",
+    problem: "2026-09-01：我回報 trial 站跑 feab5437，90 秒後它自己 [upgrade] 換成 v0.5.281。成因是我複製的 DB 帶著 updater.auto_update=true。",
+    events: [],
     subjects: ["repo:officraft"],
     actions: [],
     origin: "agent:O-197",
@@ -2437,12 +2456,11 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
   },
   {
     entryId: "lore-dab4e84475b4",
-    label: "複製資料庫等於複製設定",
-    symptoms: "我把一個站的 DB 複製到另一個站，然後預期新站會照我在新站上做的設定跑。",
-    short: "OffiCraft 的站台設定存在 DB 的 setting 表裡（updater.auto_update、receive_beta、JWT 簽章金鑰等），所以複製 DB 會一起搬過去。後果一：新站會照舊站的自動更新設定把你剛裝的 binary 換掉。後果二：舊站簽出來的 token 在新站也通。⇒ 複製 DB 之後、開機之前，先把那些跟「這台該怎麼行為」有關的設定改掉。",
-    falsify: "找到一個站台行為設定不存在 DB 而只存在 oc.toml 或環境變數 —— 那這條對那一格不成立（port 與 namespace 就是這樣，它們在 oc.toml）。",
-    instance: "2026-09-01：分站換版後 90 秒自己升級（auto_update 跟著 DB 過去）；另外我主站的 agent token 打分站 /api/members 回 200，改一個字元回 401 ⇒ 簽章金鑰也跟著過去了。",
-    residualRisk: "它沒有列出「哪些設定該改」的完整清單 —— 今天只知道 updater 那兩個與簽章金鑰。",
+    trigger: "我把一個站的 DB 複製到另一個站，然後預期新站會照我在新站上做的設定跑。",
+    content: "OffiCraft 的站台設定存在 DB 的 setting 表裡（updater.auto_update、receive_beta、JWT 簽章金鑰等），所以複製 DB 會一起搬過去。後果一：新站會照舊站的自動更新設定把你剛裝的 binary 換掉。後果二：舊站簽出來的 token 在新站也通。⇒ 複製 DB 之後、開機之前，先把那些跟「這台該怎麼行為」有關的設定改掉。",
+    retireWhen: "",
+    problem: "2026-09-01：分站換版後 90 秒自己升級（auto_update 跟著 DB 過去）；另外我主站的 agent token 打分站 /api/members 回 200，改一個字元回 401 ⇒ 簽章金鑰也跟著過去了。",
+    events: [],
     subjects: ["repo:officraft"],
     actions: [],
     origin: "agent:O-197",
@@ -2452,12 +2470,11 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
   },
   {
     entryId: "lore-76fba702e52a",
-    label: "更正有兩半，而且成本不對稱",
-    symptoms: "我剛說完「我收回那句話」，覺得這件事已經處理完了。",
-    short: "收回只對聽到的人生效，幾秒鐘；真正的工作是把那句話從每一個會被再讀一次的地方拔掉（記憶檔、步驟筆記、票面、已送出的卡、產物、PR 描述）。⇒ 真正會發生的失敗不是不願意更正，是只做了便宜的那一半，而做完那半的人主觀上覺得自己已經更正過了。",
-    falsify: "找到一次「只在對話裡收回、沒有去拔」而那句話後來也沒有再影響任何人 —— 那表示射程沒有外溢，這條在該情境不成立。",
-    instance: "2026-09-01：Kyle 收回一句關於部署路徑的錯誤結論，而那句話已經被我寫進步驟筆記（下一代開機第一件要讀的東西）。掃描結果：步驟筆記命中 1、卡零、產物零、waiting_reason 零。",
-    residualRisk: "它擋不住「我漏掉了某個會被再讀的地方」——所以掃描清單本身要被維護，而且零命中也要講出來。",
+    trigger: "我剛說完「我收回那句話」，覺得這件事已經處理完了。",
+    content: "收回只對聽到的人生效，幾秒鐘；真正的工作是把那句話從每一個會被再讀一次的地方拔掉（記憶檔、步驟筆記、票面、已送出的卡、產物、PR 描述）。⇒ 真正會發生的失敗不是不願意更正，是只做了便宜的那一半，而做完那半的人主觀上覺得自己已經更正過了。",
+    retireWhen: "",
+    problem: "2026-09-01：Kyle 收回一句關於部署路徑的錯誤結論，而那句話已經被我寫進步驟筆記（下一代開機第一件要讀的東西）。掃描結果：步驟筆記命中 1、卡零、產物零、waiting_reason 零。",
+    events: [],
     subjects: ["repo:officraft"],
     actions: [],
     origin: "agent:O-197",
@@ -2467,13 +2484,67 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
   },
 ];
 
-/** An entry is `degraded` when it carries NEITHER a falsifier NOR an instance
- * — the same rule the server applies, recomputed here so the mock cannot drift
- * into reporting a flag nothing derived. */
-function mockLoreDegraded(e: MockLoreEntry): boolean {
-  return e.falsify.trim() === "" && e.instance.trim() === "";
+
+/** Render one entry's L0 原文 — the mock's copy of the station's
+ * `loreRevisionBody` (server/ocserverd/dal_lore_write.go).
+ *
+ * 🔴 THIS IS A DELIBERATE SECOND COPY OF A RENDERER AND THE SHAPE HAS TO MATCH
+ * THE FIRST ONE BYTE FOR BYTE. The tab's whole point is that 原文 is what an
+ * agent falls back to when it stops believing 第 2 格; a mock that rendered its
+ * own convenient shape would let the 原文 pane look right in design mode while
+ * the real one looked nothing like it, and the difference is invisible on a
+ * screenshot. The station's shape is: each named cell as `name:\n<value>\n\n`
+ * in a FIXED order, then `events:` — printed even when there is not one event,
+ * because 「no events」 and 「the events were lost in a rewrite」 must not hash to
+ * the same bytes — then one tab-separated row per event and a closing newline.
+ *
+ * Events are sorted by (happened_ts, what, actor, place, object) rather than by
+ * the order they were handed in, the same as the station: the same set of
+ * events sent in a different order has to render identically, or `base_sha256`
+ * would report 「stale」 over a difference nobody can see.
+ *
+ * ⚠️ `sha256` is NOT computed from this. The mock has no digest of a real
+ * stored blob, so it serves an EMPTY digest rather than a plausible-looking hex
+ * string nothing derived — the surface says 「這份回應沒有帶摘要」 and that is
+ * the true statement here. */
+function mockLoreOriginal(e: MockLoreEntry): string {
+  let body = "";
+  for (const [name, value] of [
+    ["trigger", e.trigger],
+    ["content", e.content],
+    ["retire_when", e.retireWhen],
+    ["problem", e.problem],
+  ] as const) {
+    body += `${name}:\n${value}\n\n`;
+  }
+  body += "events:\n";
+  const sorted = [...e.events].sort(
+    (a, b) =>
+      a.happenedTs - b.happenedTs ||
+      cmp(a.what, b.what) ||
+      cmp(a.actor, b.actor) ||
+      cmp(a.place, b.place) ||
+      cmp(a.object, b.object)
+  );
+  for (const ev of sorted) {
+    // 人／地／物 empty stays empty: two adjacent tabs IS the record that
+    // nothing was known, and it must survive into the digested text.
+    body += [
+      String(ev.happenedTs),
+      ev.what,
+      ev.actor,
+      ev.place,
+      ev.object,
+    ].join("\t");
+    body += "\n";
+  }
+  body += "\n";
+  return body;
 }
 
+function cmp(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
 
 /** mock 的待審佇列。刻意做成兩種形狀都有:一個算得出建議的(大小寫折疊後跟既有
  * 的完全一樣 ⇒ 建議合併)、一個沒有任何相似對象的(⇒ 建議核可)、一個只有模糊
@@ -6107,10 +6178,13 @@ export const mockApi: Api = {
       : MOCK_LORE_ENTRIES.filter((e) => {
           if (subject !== "" && !e.subjects.includes(subject)) return false;
           if (needle === "") return true;
+          // The station's literal matcher scans 第 1、2 格 and nothing else
+          // (loreEntryMatchesLiteral). 第 3、4 格 are deliberately NOT scanned
+          // there, so scanning them here would make the mock answer a wider
+          // question than the route does.
           return (
-            e.label.toLowerCase().includes(needle) ||
-            e.short.toLowerCase().includes(needle) ||
-            e.symptoms.toLowerCase().includes(needle)
+            e.trigger.toLowerCase().includes(needle) ||
+            e.content.toLowerCase().includes(needle)
           );
         });
     const limit = input.limit ?? 20;
@@ -6118,13 +6192,14 @@ export const mockApi: Api = {
       .slice(0, limit)
       .map((e) => ({
         entryId: e.entryId,
-        label: e.label,
-        short: e.short,
-        symptoms: e.symptoms,
+        // 🔴 A hit carries 第 1、2 格 ONLY, exactly as the route serves it.
+        // 第 3、4、5 格 are reached with getLoreEntry — a mock that handed the
+        // list everything would let a screen render events it can never get.
+        trigger: e.trigger,
+        content: e.content,
         subjects: [...e.subjects],
         actions: [...e.actions],
         origin: e.origin,
-        degraded: mockLoreDegraded(e),
         // Every fixture entry matches on the axes actually asked about, so
         // nothing here reaches the caller across an axis it did not ask for.
         tier: "T1",
@@ -6161,31 +6236,18 @@ export const mockApi: Api = {
         "lore entry not found"
       );
     }
-    // `original` is the FULL text as written, every named field including the
-    // blank ones — rebuilt here in the same field order the writer used, so
-    // 「this section is blank」 and 「there is no such section」 stay different
-    // on screen. The mock has no digest of a real stored blob, so `sha256` is
-    // empty rather than a plausible-looking hex string nothing computed.
-    const original = [
-      `symptoms: ${e.symptoms}`,
-      `short: ${e.short}`,
-      `falsify: ${e.falsify}`,
-      `instance: ${e.instance}`,
-      `residual_risk: ${e.residualRisk}`,
-    ].join("\n");
+    const original = mockLoreOriginal(e);
     return {
       entryId: e.entryId,
-      label: e.label,
-      symptoms: e.symptoms,
-      short: e.short,
-      falsify: e.falsify,
-      instance: e.instance,
-      residualRisk: e.residualRisk,
+      trigger: e.trigger,
+      content: e.content,
+      retireWhen: e.retireWhen,
+      problem: e.problem,
+      events: e.events.map((ev) => ({ ...ev })),
       subjects: [...e.subjects],
       actions: [...e.actions],
       origin: e.origin,
       status: e.status,
-      degraded: mockLoreDegraded(e),
       original,
       sha256: "",
       supersedes: e.supersedes,
