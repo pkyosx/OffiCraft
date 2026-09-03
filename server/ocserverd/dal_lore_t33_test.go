@@ -396,39 +396,6 @@ func TestLoreCountAgreesWithList(t *testing.T) {
 	}
 }
 
-// 🔴 IsDegraded — 判準**暫定**，這個測試釘的是目前那個暫定值，不是一個裁定。
-//
-// 舊定義（falsify 與 instance 皆空）在五格裡沒有欄位可以套了。目前的暫定判準是
-// 「第 4 格 problem 為空」，等負責人裁定（卡 rc-1e32c690018d）。這個測試存在的
-// 意義是：判準一改，它會紅，改的人就一定會看到這裡的說明，而不是默默換掉。
-func TestLoreIsDegradedIsTheProvisionalProblemEmptyRule(t *testing.T) {
-	full := t33Entry("me-full")
-	if full.IsDegraded() {
-		t.Fatalf("一條寫了 problem 的條目不該是 degraded: %+v", full)
-	}
-
-	slogan := t33Entry("me-slogan")
-	slogan.Problem = ""
-	if !slogan.IsDegraded() {
-		t.Fatalf("一條沒有 problem 撐著的條目就是口號，應該是 degraded: %+v", slogan)
-	}
-
-	// 空白不是內容——被一個空格墊回「非空」正是這個判斷要抓的侵蝕。
-	blank := t33Entry("me-blank")
-	blank.Problem = "   \n"
-	if !blank.IsDegraded() {
-		t.Fatalf("whitespace must not count as content: %+v", blank)
-	}
-
-	// 第 3 格空著不算 degraded：retire_when 是選填，而且很多條目本來就永遠不會
-	// 過期。把它算進去會讓大部分誠實的條目被標記。
-	noRetire := t33Entry("me-noretire")
-	noRetire.RetireWhen = ""
-	if noRetire.IsDegraded() {
-		t.Fatalf("第 3 格是選填，空著不該讓條目變成 degraded: %+v", noRetire)
-	}
-}
-
 // 五格的前四格 survive a write and a read, by name. A column dropped from the
 // INSERT list or transposed in the scan would otherwise show up much later as an
 // entry that lost one cell.

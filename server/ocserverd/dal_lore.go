@@ -63,30 +63,19 @@ type LoreEntry struct {
 	UpdatedTS  float64
 }
 
-// IsDegraded 目前回報「`problem` 是空的」的條目。
+// 🔴 這裡曾經有一個 IsDegraded()，它被移除了，而它是被**裁定**掉的，不是被清掉的。
 //
-// 🔴🔴 這個判準是**暫定的，還在等負責人裁定（卡 rc-1e32c690018d）**，不要把它
-// 當成已經定案的東西讀。
+// 負責人 2026-09-03 在卡 rc-1e32c690018d 裁定「拿掉這個標記 —— 第 1 格的硬擋就夠
+// 了，不要第二層」。理由是入口已經有門：第 1 格填不出來的條目**根本寫不進來**
+// （loreTriggerError 擋在 PutLoreEntry 這個原始 upsert 縫上），所以再掛一個「寫進
+// 來了但品質可疑」的軟標記，是在一道硬擋後面再放一道軟擋。
 //
-// 舊的定義是「`falsify` 與 `instance` 皆空」——五格裡這兩格都不存在了，所以那個
-// 定義沒了。它沒有被默默刪掉，也沒有被假裝成已經有新答案：函式留著、判準換成
-// 一個**明顯是佔位**的東西（第 4 格「之前發生過什麼問題」為空），並且在這裡說
-// 清楚它是佔位。
+// 連帶移除的東西：LoreEntry.IsDegraded()、線上三個 `degraded` 欄位（entry detail /
+// write receipt / search hit）、以及它們在 spec/openapi.json 裡的宣告。
 //
-// 為什麼是 `problem`：五格裡它是唯一「選填、但它是主體」的一格——一條沒有問題
-// 撐著的條目就是一句口號，而「口號」正是這個函式原本要抓的東西。
-//
-// ⚠️ 但這個推理有一個它自己補不了的洞，說在前面：`falsify` 舊定義抓的是
-// 「這條沒有辦法被否證」，`problem` 空抓的是「這條沒有來歷」。**這兩件事不一樣**，
-// 而且第五格（lore_event）有沒有事件也可能才是更好的判準。要哪一個是負責人的事。
-//
-// ⚠️ IT IS DELIBERATELY NOT WIRED TO ANYTHING YET — no UI, no alert, no
-// retrieval filter. What to DO about a degraded entry is a later round's
-// decision, and hanging a behaviour off it now would decide that by accident.
-// 判準還沒定案就更不能接行為上去：接了就等於用實作把裁定做掉。
-func (e LoreEntry) IsDegraded() bool {
-	return strings.TrimSpace(e.Problem) == ""
-}
+// ⚠️ 不要「順手」把它加回來。它在六格時代的判準是「falsify 與 instance 皆空」，
+// 五格裡那兩格都不存在；曾經有過一個暫定判準（「problem 為空」），而那個暫定值
+// 正是這道裁定要收掉的東西。要有第二層品質訊號的話，那是一張新卡。
 
 const loreEntryColumns = `id, trigger, content, retire_when, problem,
 	status, supersedes, editable_by, origin,

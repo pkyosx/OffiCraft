@@ -81,6 +81,29 @@ func (s *apiServer) HandleGetLoreEntryApiLoreEntriesEntryIdGet(
 		actions = []string{}
 	}
 
+	// 🔴 第 5 格是一次**明確的**讀取，不是 GetLoreEntry 順手帶回來的。LoreEntry
+	// 裡刻意沒有 Events 欄位（見 dal_lore.go），所以每一個想要事件的呼叫者都必須
+	// 自己說一次要——包括這一條。
+	events, err := s.dal.ListLoreEvents(entryID)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	// 非 nil，讓線上是 `[]` 而不是 `null`：一個要把 null 跟空陣列當同一件事處理的
+	// 讀者，遲早會有一邊處理錯。
+	eventDTOs := make([]LoreEventDTO, 0, len(events))
+	for _, ev := range events {
+		// 人／地／物原樣送出。空的就是空的——這一層不會在渲染時補「未知」，
+		// 否則「查不出是誰」跟「還沒有人去查」在線上就再也分不開了。
+		eventDTOs = append(eventDTOs, LoreEventDTO{
+			HappenedTs: ev.HappenedTS,
+			What:       ev.What,
+			Actor:      ev.Actor,
+			Place:      ev.Place,
+			Object:     ev.Object,
+		})
+	}
+
 	// 🔴 THE ROW IS FILED HERE, AFTER THE 404s, AND THAT IS WHAT MAKES IT
 	// COUNTABLE. Above this line the entry may not exist; below it, the original
 	// is genuinely about to be handed over. A row for an id that named nothing
@@ -89,7 +112,7 @@ func (s *apiServer) HandleGetLoreEntryApiLoreEntriesEntryIdGet(
 	//
 	// One read is ONE ROW even when the same actor opens the same entry three
 	// times in a row. That repetition is the measurement, not a duplicate:
-	// inside one session it says the `short` form is not enough and the agent
+	// inside one session it says the `content` cell is not enough and the agent
 	// keeps coming back to the原文; across sessions it says the entry carries
 	// weight. The session anchor on the row is what tells those apart.
 	s.recordLoreRecall(LoreRecall{
@@ -101,23 +124,21 @@ func (s *apiServer) HandleGetLoreEntryApiLoreEntriesEntryIdGet(
 	}, loreAnchorFromRoster)
 
 	writeJSON(w, http.StatusOK, LoreEntryDetailDTO{
-		EntryId:      entry.ID,
-		Label:        entry.Label,
-		Symptoms:     entry.Symptoms,
-		Short:        entry.Short,
-		Falsify:      entry.Falsify,
-		Instance:     entry.Instance,
-		ResidualRisk: entry.ResidualRisk,
-		Status:       entry.Status,
-		Supersedes:   entry.Supersedes,
-		Origin:       entry.Origin,
-		Subjects:     subjects,
-		Actions:      actions,
-		Degraded:     entry.IsDegraded(),
-		Original:     original,
-		Sha256:       sha,
-		WrittenBy:    writtenBy,
-		Revisions:    revisions,
+		EntryId:    entry.ID,
+		Trigger:    entry.Trigger,
+		Content:    entry.Content,
+		RetireWhen: entry.RetireWhen,
+		Problem:    entry.Problem,
+		Events:     eventDTOs,
+		Status:     entry.Status,
+		Supersedes: entry.Supersedes,
+		Origin:     entry.Origin,
+		Subjects:   subjects,
+		Actions:    actions,
+		Original:   original,
+		Sha256:     sha,
+		WrittenBy:  writtenBy,
+		Revisions:  revisions,
 	})
 }
 

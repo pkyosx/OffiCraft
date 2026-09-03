@@ -106,10 +106,12 @@ func (s *apiServer) HandleSearchLoreEntriesApiLoreSearchPost(w http.ResponseWrit
 			actions = []string{}
 		}
 		entries = append(entries, LoreSearchHitDTO{
-			EntryId:       h.Entry.ID,
-			Label:         h.Entry.Label,
-			Short:         h.Entry.Short,
-			Symptoms:      h.Entry.Symptoms,
+			EntryId: h.Entry.ID,
+			// 🔴 一筆 hit 只帶第 1、2 格。第 3、4、5 格要用 get_lore_entry 讀——
+			// 搜尋的答案是拿來「挑」的，把每一條的事件整包塞進結果列表是一個沒有
+			// 人做過的大小決定。
+			Trigger:       h.Entry.Trigger,
+			Content:       h.Entry.Content,
 			Origin:        h.Entry.Origin,
 			Subjects:      subjects,
 			Actions:       actions,
@@ -117,7 +119,6 @@ func (s *apiServer) HandleSearchLoreEntriesApiLoreSearchPost(w http.ResponseWrit
 			TierNote:      h.TierNote,
 			TrustScope:    h.TrustScope,
 			TrustFellBack: h.TrustFellBack,
-			Degraded:      h.Entry.IsDegraded(),
 		})
 	}
 	unmapped := got.UnmappedActions

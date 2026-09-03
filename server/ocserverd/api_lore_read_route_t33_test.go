@@ -24,8 +24,8 @@ func loreDetail(t *testing.T, body string) LoreEntryDetailDTO {
 	return dto
 }
 
-// The whole point, over the wire: `short` is lossy, `original` is not.
-func TestLoreReadRouteHandsBackWhatShortCompressedAway(t *testing.T) {
+// The whole point, over the wire: 第 2 格 (`content`) is lossy, `original` is not.
+func TestLoreReadRouteHandsBackWhatContentCompressedAway(t *testing.T) {
 	url, _, agentTok, _, _ := loreGovStack(t)
 	id := loreSearchSeed(t, url, agentTok, "repo:officraft", "the fold happens in one place")
 
@@ -34,7 +34,7 @@ func TestLoreReadRouteHandsBackWhatShortCompressedAway(t *testing.T) {
 		t.Fatalf("read: %d %s", st, body)
 	}
 	got := loreDetail(t, body)
-	if got.EntryId != id || got.Short != "the fold happens in one place" {
+	if got.EntryId != id || got.Content != "the fold happens in one place" {
 		t.Fatalf("entry: %+v", got)
 	}
 	if got.Original == "" {
@@ -44,7 +44,9 @@ func TestLoreReadRouteHandsBackWhatShortCompressedAway(t *testing.T) {
 	// 🔴 EVERY SECTION IS NAMED, blank ones included: a renderer that skipped
 	// blanks would make "never written" and "deleted" the same bytes, which is
 	// the erosion this ticket exists to make visible.
-	for _, f := range []string{"label:", "symptoms:", "short:", "falsify:", "instance:", "residual_risk:"} {
+	// 五格：四個欄位 + `events:` 區塊。`events:` 也在這一行裡，因為一條沒有事件
+	// 的條目跟一條事件被改寫弄丟的條目在原文裡必須不一樣。
+	for _, f := range []string{"trigger:", "content:", "retire_when:", "problem:", "events:"} {
 		if !strings.Contains(got.Original, f) {
 			t.Fatalf("the original drops %q:\n%s", f, got.Original)
 		}

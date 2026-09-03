@@ -26,13 +26,17 @@ func loreWriteBody(t *testing.T, body string) LoreWriteReceiptDTO {
 	return dto
 }
 
+// 五格 over the wire, 第 5 格 included: a write body that carried only the four
+// columns would leave the event path untested by every test that seeds with it.
 const loreWriteJSON = `{
-	"label": "boot context assembly",
-	"symptoms": "two blocks disagree about the same fact",
-	"short": "the fold happens in one place",
-	"falsify": "a second assembler appears",
-	"instance": "T-33 slot 3",
-	"residual_risk": "says nothing about who may call the fold",
+	"trigger": "two blocks disagree about the same fact",
+	"content": "the fold happens in one place",
+	"retire_when": "等只剩一個組裝器",
+	"problem": "T-33 slot 3",
+	"events": [
+		{"happened_ts": 1756000000, "what": "Kyle 讀到兩個區塊互相矛盾",
+		 "actor": "agent:O-197", "place": "machine:seth-m5"}
+	],
 	"origin": "agent:O-197",
 	"subjects": ["repo:officraft"],
 	"actions": ["read-code"]
@@ -62,10 +66,6 @@ func TestLoreWriteRouteLetsAnAgentPutAnEntryWhereTheDirectoryFindsIt(t *testing.
 	if dto.EntryId == "" || dto.RevisionId == 0 || len(dto.Sha256) != 64 {
 		t.Fatalf("receipt is missing the entry or its original: %+v", dto)
 	}
-	if dto.Degraded {
-		t.Fatalf("an entry with both a falsifier and an instance came back degraded: %+v", dto)
-	}
-
 	entry, err := dal.GetLoreEntry(dto.EntryId)
 	if err != nil || entry == nil {
 		t.Fatalf("the entry the receipt names is not in the table: %v", err)
@@ -107,33 +107,26 @@ func TestLoreWriteRouteLetsAnAgentPutAnEntryWhereTheDirectoryFindsIt(t *testing.
 	}
 }
 
-// 🔴 負責人 2026-09-02 的裁定（rc-714eea33c6ed）在線上的樣子：兩格空著的條目
-// 進不來，而且拒絕會點名是哪一格。他知情接受的代價是有人會硬掰——這裡擋得住空
-// 白，擋不住硬掰，這一點不要在碼裡假裝相反。
-func TestLoreWriteRouteRefusesAThinEntryAndNamesTheMissingField(t *testing.T) {
+// 🔴 第 5 格在線上的拒絕。時（`happened_ts`）與事（`what`）必填；人／地／物
+// 空著合法，但**寫錯**要被指名。這一支取代了舊的 falsify / instance 必填測試：
+// 那道裁定（rc-714eea33c6ed）在五格裡沒有欄位可以套，不是被推翻，是沒有落點。
+//
+// 🔴 一筆壞事件拒絕的是**整筆寫入**。少了最後那個 count，一個「事件寫不進去但
+// 條目本體照寫」的實作會讓上面每一條斷言都是綠的。
+func TestLoreWriteRouteRefusesABadEventAndNamesTheCell(t *testing.T) {
 	url, dal, agentTok, _, _ := loreGovStack(t)
 
-	for _, tc := range []struct{ name, body, want string }{
-		{"no falsify at all", `{
-			"symptoms": "a rule exists and no tool implements it",
-			"short": "a capability nobody can reach reads like a capability",
-			"instance": "T-33 slot 3",
-			"origin": "agent:O-197", "subjects": ["repo:officraft"]
-		}`, "falsify"},
-		{"blank falsify", `{
-			"symptoms": "x", "short": "y", "falsify": "   ", "instance": "T-33 slot 3",
-			"origin": "agent:O-197", "subjects": ["repo:officraft"]
-		}`, "falsify"},
-		{"no instance at all", `{
-			"symptoms": "x", "short": "y", "falsify": "a second assembler appears",
-			"origin": "agent:O-197", "subjects": ["repo:officraft"]
-		}`, "instance"},
-		{"blank instance", `{
-			"symptoms": "x", "short": "y", "falsify": "a second assembler appears",
-			"instance": "  ", "origin": "agent:O-197", "subjects": ["repo:officraft"]
-		}`, "instance"},
+	const head = `{"trigger": "x", "content": "y", "origin": "agent:O-197",
+		"subjects": ["repo:officraft"], "events": [`
+	for _, tc := range []struct{ name, events, want string }{
+		{"no happened_ts", `{"what": "有人踩到了"}`, "happened_ts"},
+		{"happened_ts is zero", `{"happened_ts": 0, "what": "有人踩到了"}`, "happened_ts"},
+		{"blank what", `{"happened_ts": 1756000000, "what": "   "}`, "what"},
+		{"actor is not type:name", `{"happened_ts": 1756000000, "what": "有人踩到了", "actor": "Seth"}`, "actor"},
+		{"actor names an unapproved type", `{"happened_ts": 1756000000, "what": "有人踩到了", "actor": "vendor:acme"}`, "vendor"},
+		{"place is not type:name", `{"happened_ts": 1756000000, "what": "有人踩到了", "place": "seth-m5"}`, "place"},
 	} {
-		st, body := rosterREST(t, url, agentTok, "POST", "/api/lore/entries", tc.body)
+		st, body := rosterREST(t, url, agentTok, "POST", "/api/lore/entries", head+tc.events+`]}`)
 		if st != 422 {
 			t.Fatalf("%s: want 422, got %d %s", tc.name, st, body)
 		}
@@ -142,40 +135,27 @@ func TestLoreWriteRouteRefusesAThinEntryAndNamesTheMissingField(t *testing.T) {
 		}
 	}
 
+	// 🔴 POSITIVE CONTROL, and it is the half that says the refusals above
+	// discriminate: 人／地／物 ALL absent is legal, and it lands.
+	st, body := rosterREST(t, url, agentTok, "POST", "/api/lore/entries",
+		head+`{"happened_ts": 1756000000, "what": "有人踩到了"}]}`)
+	if st != 200 {
+		t.Fatalf("an event with 時 and 事 and nothing else must be legal: %d %s", st, body)
+	}
+
 	var n int
 	if err := dal.rdb.QueryRow(`SELECT COUNT(*) FROM lore_entry`).Scan(&n); err != nil {
 		t.Fatalf("count: %v", err)
 	}
-	if n != 0 {
-		t.Fatalf("a refused thin write left %d entries behind", n)
+	if n != 1 {
+		t.Fatalf("six refused writes and one accepted one left %d entries", n)
 	}
-}
-
-// 🔴 新規則只擋新寫入。那道裁定之前寫下的條目兩格可以都是空的，它們必須照樣讀得
-// 出來，而 `degraded` 必須照樣是 true——座艙上「N 條沒有證偽也沒有實例」那個品質
-// 訊號是唯一看得見它們的東西。
-func TestLoreEntriesWrittenBeforeTheRulingStayReadableAndDegradedOverTheWire(t *testing.T) {
-	url, dal, agentTok, _, _ := loreGovStack(t)
-
-	legacy := LoreEntry{
-		ID: "lore-legacy-01", Label: "口號", Symptoms: "兩個區塊對同一件事說法不一致",
-		Short: "the fold happens in one place", Origin: "agent:O-197",
-		CreatedTS: 1000, UpdatedTS: 1000,
+	var evs int
+	if err := dal.rdb.QueryRow(`SELECT COUNT(*) FROM lore_event`).Scan(&evs); err != nil {
+		t.Fatalf("count events: %v", err)
 	}
-	if err := dal.PutLoreEntry(legacy); err != nil {
-		t.Fatalf("seed a pre-ruling entry: %v", err)
-	}
-
-	st, body := rosterREST(t, url, agentTok, "GET", "/api/lore/entries/"+legacy.ID, "")
-	if st != 200 {
-		t.Fatalf("read a pre-ruling entry: want 200, got %d %s", st, body)
-	}
-	var dto LoreEntryDetailDTO
-	if err := json.Unmarshal([]byte(body), &dto); err != nil {
-		t.Fatalf("decode detail %q: %v", body, err)
-	}
-	if !dto.Degraded {
-		t.Fatalf("a pre-ruling entry with neither field stopped being reported degraded: %+v", dto)
+	if evs != 1 {
+		t.Fatalf("a refused write left %d events behind — a bad event must refuse the WHOLE write", evs)
 	}
 }
 
@@ -186,12 +166,12 @@ func TestLoreWriteRouteRefusesAnEntryNobodyCouldRead(t *testing.T) {
 	url, _, agentTok, _, _ := loreGovStack(t)
 
 	for _, tc := range []struct{ name, body, want string }{
-		{"blank symptoms", `{"symptoms":"  ","short":"x","falsify":"a second assembler appears","instance":"T-33 slot 3","origin":"agent:O-197","subjects":["repo:officraft"]}`, "symptoms"},
-		{"blank short", `{"symptoms":"x","short":"","falsify":"a second assembler appears","instance":"T-33 slot 3","origin":"agent:O-197","subjects":["repo:officraft"]}`, "short"},
-		{"no subject", `{"symptoms":"x","short":"y","falsify":"a second assembler appears","instance":"T-33 slot 3","origin":"agent:O-197","subjects":[]}`, "subject"},
-		{"unknown origin type", `{"symptoms":"x","short":"y","falsify":"a second assembler appears","instance":"T-33 slot 3","origin":"vendor:acme","subjects":["repo:officraft"]}`, "vendor"},
-		{"unknown subject type", `{"symptoms":"x","short":"y","falsify":"a second assembler appears","instance":"T-33 slot 3","origin":"agent:O-197","subjects":["vendor:acme"]}`, "vendor"},
-		{"malformed subject", `{"symptoms":"x","short":"y","falsify":"a second assembler appears","instance":"T-33 slot 3","origin":"agent:O-197","subjects":["officraft"]}`, "officraft"},
+		{"blank trigger", `{"trigger":"  ","content":"x","origin":"agent:O-197","subjects":["repo:officraft"]}`, "trigger"},
+		{"blank content", `{"trigger":"x","content":"","origin":"agent:O-197","subjects":["repo:officraft"]}`, "content"},
+		{"no subject", `{"trigger":"x","content":"y","origin":"agent:O-197","subjects":[]}`, "subject"},
+		{"unknown origin type", `{"trigger":"x","content":"y","origin":"vendor:acme","subjects":["repo:officraft"]}`, "vendor"},
+		{"unknown subject type", `{"trigger":"x","content":"y","origin":"agent:O-197","subjects":["vendor:acme"]}`, "vendor"},
+		{"malformed subject", `{"trigger":"x","content":"y","origin":"agent:O-197","subjects":["officraft"]}`, "officraft"},
 	} {
 		st, body := rosterREST(t, url, agentTok, "POST", "/api/lore/entries", tc.body)
 		if st != 422 {
@@ -205,13 +185,13 @@ func TestLoreWriteRouteRefusesAnEntryNobodyCouldRead(t *testing.T) {
 
 // A key the DTO does not declare is a 422, never a silent drop. This is the
 // house rule, asserted HERE because the field set being closed is what stops a
-// misspelled `short` from writing an entry with an empty body.
+// misspelled `content` from writing an entry with an empty body.
 func TestLoreWriteRouteRefusesAnUnknownFieldRatherThanDroppingIt(t *testing.T) {
 	url, dal, agentTok, _, _ := loreGovStack(t)
 
 	st, body := rosterREST(t, url, agentTok, "POST", "/api/lore/entries", `{
-		"symptoms": "x", "shortt": "the typo that empties the body",
-		"short": "y", "falsify": "a second assembler appears", "instance": "T-33 slot 3",
+		"trigger": "x", "contentt": "the typo that empties the body",
+		"content": "y",
 		"origin": "agent:O-197", "subjects": ["repo:officraft"]
 	}`)
 	if st != 422 {
@@ -239,8 +219,7 @@ func TestLoreWriteRouteSupersedesOnlyAnEntryThatExists(t *testing.T) {
 	first := loreWriteBody(t, body).EntryId
 
 	st, body = rosterREST(t, url, agentTok, "POST", "/api/lore/entries", `{
-		"symptoms": "x", "short": "y", "falsify": "a second assembler appears",
-		"instance": "T-33 slot 3", "origin": "agent:O-197",
+		"trigger": "x", "content": "y", "origin": "agent:O-197",
 		"subjects": ["repo:officraft"], "supersedes": "`+first+`"
 	}`)
 	if st != 200 {
@@ -263,8 +242,7 @@ func TestLoreWriteRouteSupersedesOnlyAnEntryThatExists(t *testing.T) {
 	}
 
 	st, body = rosterREST(t, url, agentTok, "POST", "/api/lore/entries", `{
-		"symptoms": "x", "short": "y", "falsify": "a second assembler appears",
-		"instance": "T-33 slot 3", "origin": "agent:O-197",
+		"trigger": "x", "content": "y", "origin": "agent:O-197",
 		"subjects": ["repo:officraft"], "supersedes": "lore-nope"
 	}`)
 	if st != 404 {

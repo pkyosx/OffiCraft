@@ -95,8 +95,8 @@ func TestDirectoryCarriesNoEntryBody(t *testing.T) {
 			t.Fatalf("%s boot context has no 對象目錄 — the checks below would be vacuous", name)
 		}
 		for field, text := range map[string]string{
-			"short": body.Short, "symptoms": body.Symptoms, "falsify": body.Falsify,
-			"instance": body.Instance, "residual_risk": body.ResidualRisk,
+			"trigger": body.Trigger, "content": body.Content,
+			"retire_when": body.RetireWhen, "problem": body.Problem,
 		} {
 			if strings.Contains(doc, text) {
 				t.Errorf("%s boot context leaks an entry's %s cell — 這一段只放目錄，"+

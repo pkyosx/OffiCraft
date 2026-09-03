@@ -17,7 +17,7 @@ package main
 //     A subject key that names nothing comes back as "unresolved", which is a
 //     different answer from "resolved, and it has no entries" — the owner ruled
 //     (rc-455a5d3c308c) that telling those two apart is the requirement.
-//   - It does not pretend the `symptoms` axis is searchable. It is returned and
+//   - It does not pretend 第 1 格 is a semantic axis. It is returned and
 //     it is not a query parameter, because it has no table and no index, and
 //     because two people writing the same symptom were measured to produce text
 //     with almost no words in common — a literal match over that column would
@@ -293,15 +293,24 @@ func (d *DAL) SearchLore(s LoreSearch) (LoreSearchResult, error) {
 }
 
 // loreEntryMatchesLiteral is the `query` filter, and it is a LITERAL,
-// case-insensitive substring over the three text fields a reader scans by.
+// case-insensitive substring over 第 1 格 (`trigger`) and 第 2 格 (`content`).
 //
 // 🔴 IT IS NOT SEMANTIC AND MUST NOT BE DESCRIBED AS SEARCH. Two entries about
-// the same thing were measured to write their `symptoms` with almost no words in
+// the same thing were measured to write their 第 1 格 with almost no words in
 // common, so a literal filter reports them as unrelated while looking exactly
 // like a filter that worked. The wire says which kind it is (`query_match`)
 // precisely so a caller never has to guess.
+//
+// 🔴 IT IS EXACTLY THE OLD THREE FIELDS' SUCCESSORS AND NOTHING MORE. 六格
+// scanned label / short / symptoms — a name, a body and an axis; in 五格 the
+// name and the axis are both `trigger` and the body is `content`, so the same
+// three readings map onto these two cells. 第 3、4 格 (`retire_when`, `problem`)
+// are deliberately NOT added: making them searchable would widen what `query`
+// answers, and 「要不要能搜到問題那一格」 is a decision nobody has made. Widening
+// it here would make it by accident, and the symptom would be extra hits that
+// look exactly like correct ones.
 func loreEntryMatchesLiteral(e LoreEntry, lowerNeedle string) bool {
-	for _, f := range []string{e.Label, e.Short, e.Symptoms} {
+	for _, f := range []string{e.Trigger, e.Content} {
 		if strings.Contains(strings.ToLower(f), lowerNeedle) {
 			return true
 		}

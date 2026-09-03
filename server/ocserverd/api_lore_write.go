@@ -29,16 +29,20 @@ import (
 // reporting it as one would send a writer off to edit a body that was fine.
 func writeLoreWriteError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, ErrLoreSymptomsBlank),
-		errors.Is(err, ErrLoreShortBlank),
-		errors.Is(err, ErrLoreFalsifyBlank),
-		errors.Is(err, ErrLoreInstanceBlank),
+	case errors.Is(err, ErrLoreTriggerBlank),
+		errors.Is(err, ErrLoreContentBlank),
+		// 第 5 格的四種拒絕。它們是 422 而不是 500：一筆事件缺時間、缺主動語態的
+		// 「事」，或人／地／物寫成不是 `type:name`／型別沒被核准，都是寫入者可以
+		// 自己修好的東西，而且錯誤訊息會指名是哪一格。
+		errors.Is(err, ErrLoreEventTimeMissing),
+		errors.Is(err, ErrLoreEventWhatBlank),
+		errors.Is(err, ErrLoreEventKeyMalformed),
+		errors.Is(err, ErrLoreEventKeyUnknownType),
 		errors.Is(err, ErrLoreSubjectsEmpty),
 		errors.Is(err, ErrLoreSubjectBlank),
 		errors.Is(err, ErrLoreSubjectMalformed),
 		errors.Is(err, ErrLoreSubjectUnknownType),
 		errors.Is(err, ErrLoreActionBlank),
-		errors.Is(err, ErrLoreLabelTooLong),
 		errors.Is(err, ErrLoreOriginBlank),
 		errors.Is(err, ErrLoreOriginMalformed),
 		errors.Is(err, ErrLoreOriginUnknownType),
@@ -67,23 +71,39 @@ func writeLoreWriteError(w http.ResponseWriter, err error) {
 // to be one subject.
 func (s *apiServer) HandleWriteLoreEntryApiLoreEntriesPost(w http.ResponseWriter, r *http.Request) {
 	var body LoreWriteDTO
-	if !decodeJSONBodyStrict(w, r, &body, "symptoms", "short", "falsify", "instance", "origin", "subjects") {
+	// 🔴 只有第 1、2 格在這裡被要求「必須出現」。第 3、4 格是選填，第 5 格是
+	// 0..N——把它們列進來會讓「這條沒有問題可以寫」變成一個送不出去的請求。
+	if !decodeJSONBodyStrict(w, r, &body, "trigger", "content", "origin", "subjects") {
 		return
 	}
 	write := LoreWrite{
-		Label:        strOrEmpty(body.Label),
-		Symptoms:     body.Symptoms,
-		Short:        body.Short,
-		Falsify:      body.Falsify,
-		Instance:     body.Instance,
-		ResidualRisk: strOrEmpty(body.ResidualRisk),
-		Origin:       body.Origin,
-		Supersedes:   strOrEmpty(body.Supersedes),
-		Subjects:     body.Subjects,
-		ActorID:      currentActor(r),
+		Trigger:    body.Trigger,
+		Content:    body.Content,
+		RetireWhen: strOrEmpty(body.RetireWhen),
+		Problem:    strOrEmpty(body.Problem),
+		Origin:     body.Origin,
+		Supersedes: strOrEmpty(body.Supersedes),
+		Subjects:   body.Subjects,
+		ActorID:    currentActor(r),
 	}
 	if body.Actions != nil {
 		write.Actions = *body.Actions
+	}
+	// 🔴 第 5 格。人／地／物用 strOrEmpty 折成空字串，而空字串在這一層以下就是
+	// 「沒有這一格」——**不會**被補成「未知」。省略一個 key 跟送一個空字串在這裡
+	// 刻意是同一件事：兩者都是「我不知道」，而讓它們變成兩種不同的狀態只會逼下游
+	// 去猜哪一種才算數。
+	if body.Events != nil {
+		write.Events = make([]LoreEvent, 0, len(*body.Events))
+		for _, ev := range *body.Events {
+			write.Events = append(write.Events, LoreEvent{
+				HappenedTS: ev.HappenedTs,
+				What:       ev.What,
+				Actor:      strOrEmpty(ev.Actor),
+				Place:      strOrEmpty(ev.Place),
+				Object:     strOrEmpty(ev.Object),
+			})
+		}
 	}
 	got, err := s.dal.CreateLoreEntry(write, nowSecs())
 	if err != nil {
@@ -91,15 +111,12 @@ func (s *apiServer) HandleWriteLoreEntryApiLoreEntriesPost(w http.ResponseWriter
 		return
 	}
 
-	// 🔴 `degraded` IS READ BACK OFF THE STORED ROW, not computed from the body
-	// that was sent. The two agree today; the point is that they will still agree
-	// the day the write seam starts normalising a field, because this asks the
-	// entry rather than the request.
-	//
-	// ⚠️ 2026-09-02 之後這條路徑上的 `degraded` 一律是 false——`falsify` 與
-	// `instance` 兩格空白已經在 CreateLoreEntry 被擋掉了。這個旗標不能因此拿掉：
-	// 站上還有那道裁定之前寫下的條目，兩格都是空的，而這個旗標是唯一看得見它們的
-	// 東西。
+	// 🔴 THE ROW IS READ BACK, AND IT IS NOT FOR A FIELD ON THE RECEIPT. It used
+	// to be read back for `degraded`; that flag is gone (owner ruling
+	// rc-1e32c690018d — see dal_lore.go). What is left is the post-condition
+	// below: a create that answered without an error and left no row is the ONE
+	// state the transaction exists to rule out, and reporting that as success is
+	// how it would stay hidden.
 	entry, err := s.dal.GetLoreEntry(got.EntryID)
 	if err != nil {
 		internalError(w, err)
@@ -133,6 +150,5 @@ func (s *apiServer) HandleWriteLoreEntryApiLoreEntriesPost(w http.ResponseWriter
 		SubjectIds:      subjects,
 		PendingEntities: pending,
 		Superseded:      got.Superseded,
-		Degraded:        entry.IsDegraded(),
 	})
 }

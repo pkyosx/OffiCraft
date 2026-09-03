@@ -15,10 +15,8 @@ import (
 func t33Mint(t *testing.T, d *DAL, subjects ...string) LoreWriteResult {
 	t.Helper()
 	got, err := d.CreateLoreEntry(LoreWrite{
-		Symptoms: "the queue is full and nothing reads it",
-		Short:    "the pending column had no exit",
-		Falsify:  "a second exit from the pending column turns up",
-		Instance: "T-33 slot 3",
+		Trigger:  "the queue is full and nothing reads it",
+		Content:  "the pending column had no exit",
 		Origin:   "agent:O-197",
 		Subjects: subjects,
 		ActorID:  "m-writer",
@@ -430,32 +428,35 @@ func TestPendingLoreEntityIgnoresSubjectsAReviewerCouldNotMergeInto(t *testing.T
 	}
 }
 
-// TestPendingLoreEntityCarriesTheFirstEntrysShortAsASample is the 「一眼就可以
+// TestPendingLoreEntityCarriesTheFirstEntrysContentAsASample is the 「一眼就可以
 // 判斷」 half: the reviewer sees what the name is about without opening it.
-func TestPendingLoreEntityCarriesTheFirstEntrysShortAsASample(t *testing.T) {
+//
+// ⚠️ The wire field is still called `sample_short` — see LorePendingEntity.
+// What it samples is 第 2 格 (`content`); `short` no longer exists.
+func TestPendingLoreEntityCarriesTheFirstEntrysContentAsASample(t *testing.T) {
 	d := newTestDAL(t)
 	first, err := d.CreateLoreEntry(LoreWrite{
-		Symptoms: "s", Short: "the fold happens in exactly one place",
-		Falsify: "f", Instance: "i", Origin: "agent:O-197", Subjects: []string{"repo:offcraft"}, ActorID: "m-writer",
+		Trigger: "t", Content: "the fold happens in exactly one place",
+		Origin: "agent:O-197", Subjects: []string{"repo:offcraft"}, ActorID: "m-writer",
 	}, 100)
 	if err != nil {
 		t.Fatalf("first write: %v", err)
 	}
 	if _, err := d.CreateLoreEntry(LoreWrite{
-		Symptoms: "s", Short: "a later entry that must NOT be the sample",
-		Falsify: "f", Instance: "i", Origin: "agent:O-197", Subjects: []string{"repo:offcraft"}, ActorID: "m-writer",
+		Trigger: "t", Content: "a later entry that must NOT be the sample",
+		Origin: "agent:O-197", Subjects: []string{"repo:offcraft"}, ActorID: "m-writer",
 	}, 200); err != nil {
 		t.Fatalf("second write: %v", err)
 	}
 	if row := t33PendingByKey(t, d, "repo:offcraft"); row.SampleShort != "the fold happens in exactly one place" {
-		t.Fatalf("sample = %q, want the FIRST entry's short (%s)", row.SampleShort, first.EntryID)
+		t.Fatalf("sample = %q, want the FIRST entry's content (%s)", row.SampleShort, first.EntryID)
 	}
 
 	// A long body is trimmed AND says so; a subject with no entry has no sample
 	// rather than a sentence invented here.
 	long := strings.Repeat("長", loreSampleShortRunes+40)
 	if _, err := d.CreateLoreEntry(LoreWrite{
-		Symptoms: "s", Short: long, Falsify: "f", Instance: "i", Origin: "agent:O-197",
+		Trigger: "t", Content: long, Origin: "agent:O-197",
 		Subjects: []string{"repo:verbose"}, ActorID: "m-writer",
 	}, 300); err != nil {
 		t.Fatalf("long write: %v", err)

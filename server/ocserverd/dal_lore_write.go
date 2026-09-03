@@ -117,8 +117,9 @@ type LoreWriteResult struct {
 //
 // 🔴 事件**在 body 裡面**，因此也在 sha256 裡面。少了它，第 5 格就不在 L0 原文
 // 層，而「agent 不再相信 content 那一版，回去看原本說了什麼」對事件就永遠問不到
-// 答案——那正是 L0 存在的理由。代價是 lore_proposal 目前提不動事件，見
-// dal_lore_proposal.go 裡 loreProposalEntry 呼叫處的說明。
+// 答案——那正是 L0 存在的理由。代價是 lore_proposal **目前**提不動事件（一個已經
+// 被裁定要補起來的缺口，卡 rc-e5c34500face），見 dal_lore_proposal.go 裡
+// loreProposalEntry 呼叫處的說明。
 //
 // 🔴 WHAT "原文" MEANS HERE IS A READING, NOT A RULING — and it is flagged rather
 // than hidden. The design calls lore_revision the L0 原文層 and calls `body` 完整

@@ -410,8 +410,12 @@ func TestLoreProposalListsNewestFirstWhenIdOrderContradictsTime(t *testing.T) {
 // 對第 5 格失效），所以一份用「空事件」渲染的提案，會在審核者完全看不見的地方
 // 主張刪掉所有事件——正是這張表存在要消滅的描述／結果落差。
 //
-// ⚠️ 這是實作判斷，不是負責人的裁定。真正的解法是讓提案帶一份完整事件清單
-// （lore_proposal_event）。這一條會在有人把語意改掉的那一刻變紅。
+// 🔴🔴 這一條釘的是**暫定行為，不是最終語意**。負責人 2026-09-03 在卡
+// rc-e5c34500face 裁定「改得動 —— 提案就該帶完整的新版本，包含所有事件」，
+// 所以正確的終局是讓提案自己帶一份完整事件清單（需要一張新表，另一批做）。
+// ⇒ 那一批來的時候，這一條**應該**被改寫或刪掉。它變紅不代表有人做錯了；
+//
+//	它變紅只代表暫定語意被換掉了，而那正是已經裁定要發生的事。
 func TestLoreProposalKeepsTheEntrysEventsRatherThanSilentlyClearingThem(t *testing.T) {
 	d := newTestDAL(t)
 	t33Entity(t, d, "e-repo", "repo", "repo:officraft")

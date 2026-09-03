@@ -26,11 +26,10 @@ import (
 func loreProposalSeed(t *testing.T, url, tok string) (string, string) {
 	t.Helper()
 	st, body := rosterREST(t, url, tok, "POST", "/api/lore/entries", `{
-		"label":"boot context assembly",
-		"symptoms":"two blocks disagree about the same fact",
-		"short":"the fold happens in one place",
-		"falsify":"a second assembler appears",
-		"instance":"T-33 slot 3",
+		"trigger":"two blocks disagree about the same fact",
+		"content":"the fold happens in one place",
+		"retire_when":"等只剩一個組裝器",
+		"problem":"T-33 slot 3",
 		"origin":"agent:O-197",
 		"subjects":["agent:O-197"]}`)
 	if st != 200 {
@@ -62,11 +61,10 @@ func loreProposalBody(base string) string {
 		"encountered":"T-33 slot 4, wiring the proposal route",
 		"fault":"stale",
 		"evidence":"the entry names a file that moved in 8282fdef",
-		"label":"boot context assembly",
-		"symptoms":"two blocks disagree about the same fact",
-		"short":"the fold happens in lore_fold.go and nowhere else",
-		"falsify":"a second assembler appears",
-		"instance":"T-33 slot 3"}`
+		"trigger":"two blocks disagree about the same fact",
+		"content":"the fold happens in lore_fold.go and nowhere else",
+		"retire_when":"等只剩一個組裝器",
+		"problem":"T-33 slot 3"}`
 }
 
 // 🔴 THE WIRE FACE OF THE DIGEST CHECK. A proposal against a version that is not
@@ -152,7 +150,7 @@ func TestLoreProposalRouteListServesTheWholeVersionAndItsStaleness(t *testing.T)
 	if row.Stale {
 		t.Fatalf("a proposal filed a moment ago reads as stale: %+v", row)
 	}
-	if row.Short != "the fold happens in lore_fold.go and nowhere else" || row.Body == "" {
+	if row.Content != "the fold happens in lore_fold.go and nowhere else" || row.Body == "" {
 		t.Fatalf("the proposed version did not reach the wire: %+v", row)
 	}
 	// The actor is the TOKEN's subject, never anything the body could assert.
@@ -167,7 +165,7 @@ func TestLoreProposalRouteListServesTheWholeVersionAndItsStaleness(t *testing.T)
 	// can do this yet — the accept path that will is not built — so the second
 	// revision is written directly, which is the whole reason the guard is in
 	// place before that path exists.
-	moved := loreRevisionBody(t33Entry(entryID))
+	moved := loreRevisionBody(t33Entry(entryID), nil)
 	if _, err := dal.wdb.Exec(`
 		INSERT INTO lore_revision (entry_id, body, sha256, actor_id, created_ts, shrink_chars)
 		VALUES (?, ?, ?, 'somebody-else', 3000, 0)`,

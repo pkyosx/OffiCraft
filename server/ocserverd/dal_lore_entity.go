@@ -93,7 +93,15 @@ type LorePendingEntity struct {
 	Suggestion  string
 	MergeTarget string // the entity Suggestion=="merge" points at; empty otherwise
 	Similar     []LoreEntitySimilar
-	SampleShort string // the FIRST entry's `short`, trimmed — a sample, never the field
+	// SampleShort is the FIRST entry's 第 2 格 (`content`), trimmed — a sample,
+	// never the field.
+	//
+	// ⚠️ THE NAME IS LEFT OVER FROM 六格. The column it reads is `content`;
+	// `short` no longer exists. It was NOT renamed in this round because
+	// `sample_short` is on the wire and the cockpit reads it — renaming it is a
+	// wire change that belongs with the frontend round, not a tidy-up smuggled
+	// into this one. It is named here rather than quietly tolerated.
+	SampleShort string
 }
 
 // ListPendingLoreEntities returns the whole review queue, oldest first.
@@ -130,7 +138,7 @@ func (d *DAL) ListPendingLoreEntities() ([]LorePendingEntity, error) {
 		       (SELECT COUNT(*) FROM lore_entry e
 		         JOIN lore_subject s ON s.entry_id = e.id
 		        WHERE s.entity_id = n.id AND e.status <> 'retired'),
-		       (SELECT e.short FROM lore_entry e
+		       (SELECT e.content FROM lore_entry e
 		         JOIN lore_subject s ON s.entry_id = e.id
 		        WHERE s.entity_id = n.id AND e.status <> 'retired'
 		        ORDER BY e.created_ts, e.id LIMIT 1)
@@ -458,7 +466,7 @@ const (
 // and `agent:Ax` are one edit apart and have nothing to do with each other, and
 // a queue full of those is a queue nobody reads.
 //
-// ⚠️ 3 是佔位數字，不是算出來的 — a placeholder, like loreLabelMaxRunes, to be
+// ⚠️ 3 是佔位數字，不是算出來的 — a placeholder, to be
 // calibrated once there is a real queue to calibrate against. same_normalized
 // is NOT subject to it: two names that fold to the same string are the same
 // name at any length.
@@ -466,12 +474,12 @@ const loreFuzzyMinRunes = 3
 
 // loreSampleShortRunes caps the sample body carried into the queue row.
 //
-// 🔴 THIS ONE IS A TRUNCATION AND IT ANNOUNCES ITSELF, which is the opposite of
-// the label rule two files over — and the difference is what the field IS. A
-// label is a NAME that other rows point at, so shortening it silently breaks
-// the pointer; this is a SAMPLE whose only job is to let a reviewer see what the
-// subject is about without opening it. A truncated sample ends in an ellipsis so
-// nobody mistakes it for the entry.
+// 🔴 THIS ONE IS A TRUNCATION AND IT ANNOUNCES ITSELF. A SAMPLE's only job is to
+// let a reviewer see what the subject is about without opening it, so trimming it
+// costs nothing — as long as the trim is visible. A truncated sample ends in an
+// ellipsis so nobody mistakes it for the entry.
+// ⚠️ 五格 has NO length cap on any cell (the old 40-rune `label` cap went away
+// with `label` itself), so this is the only truncation left in the lore surface.
 const loreSampleShortRunes = 120
 
 // LoreEntitySimilar is one existing subject that resembles a pending one, WITH
@@ -641,7 +649,7 @@ func loreSuggestionFor(similar []LoreEntitySimilar) (string, string) {
 	return LoreSuggestMerge, target
 }
 
-// loreSampleShort trims one entry's `short` to the sample cap, announcing the
+// loreSampleShort trims one entry's 第 2 格 (`content`) to the sample cap, announcing the
 // trim with an ellipsis so it cannot be mistaken for the whole field.
 func loreSampleShort(short string) string {
 	r := []rune(strings.TrimSpace(short))

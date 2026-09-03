@@ -20,12 +20,13 @@ func loreSearchBody(t *testing.T, body string) LoreSearchResultDTO {
 // loreSearchSeed writes one entry through the WRITE ROUTE (not the DAL) so the
 // two halves of this feature are exercised against each other: if the writer
 // files a subject the reader cannot resolve, this is where it shows.
-func loreSearchSeed(t *testing.T, url, tok, subject, short string) string {
+func loreSearchSeed(t *testing.T, url, tok, subject, content string) string {
 	t.Helper()
 	st, body := rosterREST(t, url, tok, "POST", "/api/lore/entries", `{
-		"label": "seeded", "symptoms": "something is visible",
-		"short": "`+short+`", "falsify": "a second assembler appears",
-		"instance": "T-33 slot 3", "origin": "agent:O-197",
+		"trigger": "something is visible",
+		"content": "`+content+`",
+		"retire_when": "等只剩一個組裝器", "problem": "T-33 slot 3",
+		"origin": "agent:O-197",
 		"subjects": ["`+subject+`"], "actions": ["build"]
 	}`)
 	if st != 200 {
@@ -160,8 +161,8 @@ func TestLoreSearchRouteRefusesAMachineAtTheDoor(t *testing.T) {
 func TestLoreSearchRouteSaysWhenAClassWasAGuess(t *testing.T) {
 	url, dal, agentTok, _, _ := loreGovStack(t)
 	st, body := rosterREST(t, url, agentTok, "POST", "/api/lore/entries", `{
-		"symptoms": "x", "short": "y", "falsify": "a second assembler appears",
-		"instance": "T-33 slot 3", "origin": "agent:O-197",
+		"trigger": "x", "content": "y", "problem": "T-33 slot 3",
+		"origin": "agent:O-197",
 		"subjects": ["repo:officraft"], "actions": ["zzz-not-in-the-table"]
 	}`)
 	if st != 200 {

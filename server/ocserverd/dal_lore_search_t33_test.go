@@ -189,17 +189,17 @@ func TestLoreSearchQueryIsLiteralAndSaysNothingAboutMeaning(t *testing.T) {
 	d := newTestDAL(t)
 	t33SearchSeed(t, d)
 	t33Filed(t, d, "lore-x", "e-repo", []string{"build"}, func(e *LoreEntry) {
-		e.Symptoms = "two blocks disagree about the same fact"
+		e.Trigger = "two blocks disagree about the same fact"
 	})
 	t33Filed(t, d, "lore-y", "e-repo", []string{"build"}, func(e *LoreEntry) {
-		e.Symptoms = "the assembler and the roster report different numbers"
+		e.Trigger = "the assembler and the roster report different numbers"
 	})
 
 	hit := t33Search(t, d, LoreSearch{Query: "DISAGREE"})
 	if ids := t33IDs(hit); len(ids) != 1 || ids[0] != "lore-x" {
 		t.Fatalf("case-insensitive literal match: %v", ids)
 	}
-	// 🔴 The two symptoms above describe the same situation. A literal filter
+	// 🔴 The two 第 1 格 above describe the same situation. A literal filter
 	// finds one and not the other, and that is the documented limit — if this
 	// assertion ever starts failing, somebody made the filter semantic and the
 	// wire's `query_match` value became a lie.

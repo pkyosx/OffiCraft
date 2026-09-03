@@ -170,12 +170,10 @@ func TestLoreCreateRefusesTheTwoCellsWithoutWhichNothingIsReachable(t *testing.T
 		t.Fatalf("第 3、4 格是選填，空著必須收: %v", err)
 	}
 
-	// 完整的寫入照樣成功，而且不是 degraded。少了這一半，一個把每一筆寫入都
-	// 拒掉的實作也會讓上面全綠。
+	// 完整的寫入照樣成功。少了這一半，一個把每一筆寫入都拒掉的實作也會讓上面全綠。
 	got := t33Create(t, d, t33Write())
-	entry := t33Get(t, d, got.EntryID)
-	if entry == nil || entry.IsDegraded() {
-		t.Fatalf("a complete entry must land and must not be degraded: %+v", entry)
+	if entry := t33Get(t, d, got.EntryID); entry == nil {
+		t.Fatal("a complete entry must land")
 	}
 }
 
@@ -237,10 +235,13 @@ func TestLoreCreateRefusesAnEventWithoutItsTimeOrItsWhat(t *testing.T) {
 	}
 }
 
-// 🔴 新規則只擋新寫入，不能回頭把舊資料變成讀不到的。2026-09-02 之前寫下的條目
-// 兩格可以都是空的；它們必須照樣讀得出來，而 `degraded` 必須照樣是 true——那個
-// 旗標是唯一看得見它們的東西。
-func TestLoreEntriesWrittenBeforeTheRulingStillReadBackAsDegraded(t *testing.T) {
+// 🔴 舊條目照樣讀得回來。五格的必填只擋**新寫入**，一列在必填出現以前寫下的
+// 條目不會因此變成讀不到。
+//
+// ⚠️ 這一支曾經是用 `degraded` 來斷言「舊條目還看得見」的。那個旗標已經被裁定
+// 拿掉（rc-1e32c690018d），所以斷言換成它本來就該是的東西：那一列讀得回來，而且
+// 讀回來的就是寫進去的。
+func TestLoreEntriesWrittenBeforeTheRequirementStillReadBack(t *testing.T) {
 	d := newTestDAL(t)
 	t33Entity(t, d, "e-repo", "repo", "repo:officraft")
 
@@ -249,14 +250,15 @@ func TestLoreEntriesWrittenBeforeTheRulingStillReadBackAsDegraded(t *testing.T) 
 		Origin: "agent:O-197", CreatedTS: 1000, UpdatedTS: 1000,
 	}
 	if err := d.PutLoreEntry(legacy); err != nil {
-		t.Fatalf("seed a pre-ruling entry: %v", err)
+		t.Fatalf("seed a pre-requirement entry: %v", err)
 	}
 	got := t33Get(t, d, legacy.ID)
 	if got == nil {
-		t.Fatal("an entry written before the ruling stopped being readable")
+		t.Fatal("an entry written before the requirement stopped being readable")
 	}
-	if !got.IsDegraded() {
-		t.Fatalf("the only thing that makes a pre-ruling entry visible stopped firing: %+v", got)
+	if got.Trigger != legacy.Trigger || got.Content != legacy.Content ||
+		got.RetireWhen != "" || got.Problem != "" {
+		t.Fatalf("a pre-requirement entry did not read back as written: %+v", got)
 	}
 }
 

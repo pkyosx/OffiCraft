@@ -84,9 +84,12 @@ type LoreProposal struct {
 	Evidence    string
 
 	// 🔴 提案帶的是**完整的新版本**，但這一批只帶得動前四格。第 5 格（事件）
-	// 沒有對應的欄位，語意是「事件維持現狀」——見 CreateLoreProposal 裡渲染
-	// body 的地方，以及 migrations/00069 的說明。這是一個沒有解掉的缺口，
-	// 不是一個已經想清楚的設計。
+	// 沒有對應的欄位，暫定語意是「事件維持現狀」——見 CreateLoreProposal 裡渲染
+	// body 的地方，以及 migrations/00069 的說明。
+	//
+	// 🔴 這是一個**已經被裁定要補起來**的缺口，不是一個想清楚的設計：負責人
+	// 2026-09-03 在卡 rc-e5c34500face 裁定提案應該帶完整事件。補它要一張新表，
+	// 由另一批做。
 	Trigger    string
 	Content    string
 	RetireWhen string
@@ -257,8 +260,11 @@ func (d *DAL) CreateLoreProposal(p LoreProposal, nowTS float64) (LoreProposalRes
 		// 提案這一批帶不動事件。用空事件渲染的話，每一份 update 提案都會在
 		// 審核者完全看不見的地方主張「把所有事件刪掉」——正是這張表存在要消滅的
 		// 描述／結果落差。所以這裡的語意被固定成：**四格改成這樣，事件維持現狀**。
-		// ⚠️ 這是實作判斷，不是裁定。真正的解法是讓提案帶一份完整事件清單
-		//（lore_proposal_event），那需要負責人先回答「提案改不改得動事件」。
+		// 🔴🔴 這個語意是**暫定的，而且已知是要被換掉的**。負責人 2026-09-03 在卡
+		// rc-e5c34500face 裁定「改得動 —— 提案就該帶完整的新版本，包含所有事件」，
+		// 也就是說正確的做法是讓提案自己帶一份完整事件清單（lore_proposal_event
+		// 之類的新表）。那不在這一批的範圍裡。
+		// ⇒ 底下這幾行是過渡，不是定案；改掉它不需要重新請示。
 		events, evErr := d.ListLoreEvents(p.EntryID)
 		if evErr != nil {
 			return out, evErr
