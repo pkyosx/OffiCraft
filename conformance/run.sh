@@ -131,12 +131,15 @@ fi
 # and test_catalog_hash_algorithm locks the mcp_tool rows to the digest the
 # server serves. test_openapi_covers_manifest is NOT that: both sides of it are
 # hand-written, so it catches a spec/manifest disagreement and nothing else.
-# The row set itself is pinned to the route table by
-# TestEveryServedRouteIsInThePermissionManifest (T-61), which is a Go test. An
-# unregistered route that IS on the MCP surface still reddens from in here —
-# catalog_hash moves and test_catalog_hash_algorithm catches it. The ones this
-# suite cannot see are the MCPExclude rows (mcp_tool: null): they are outside
-# that digest, and every check in here starts from the manifest.
+# The row set itself is held from BOTH sides and neither is in here: Go's
+# TestRouteTableCoversSpecSurface pins routes.go ≡ spec/openapi.json in both
+# directions, and test_openapi_covers_manifest is a symmetric equality, so
+# routes ≡ manifest follows. (TestEveryServedRouteIsInThePermissionManifest,
+# T-61, compares the two ends directly — one hop instead of two, in Go, phrased
+# as a permission problem. It is a shortcut, not the only guard.) From in HERE,
+# an unregistered MCP-visible route reddens on its own (catalog_hash moves);
+# the MCPExclude rows do not, because every check in here starts from the
+# manifest.
 
 # Leftover guard — never stomp whatever already listens on the port.
 if [[ "$CONF_PORT" != "0" ]] && lsof -nP -iTCP:"$CONF_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
