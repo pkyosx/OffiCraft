@@ -166,8 +166,20 @@ func TestLoreCreateRefusesTheTwoCellsWithoutWhichNothingIsReachable(t *testing.T
 	optional := t33Write()
 	optional.RetireWhen = ""
 	optional.Problem = ""
-	if _, err := d.CreateLoreEntry(optional, 1000); err != nil {
+	optRes, err := d.CreateLoreEntry(optional, 1000)
+	if err != nil {
 		t.Fatalf("第 3、4 格是選填，空著必須收: %v", err)
+	}
+	// 🔴 「收下了」不等於「原樣收下」。少了下面這幾行，一個把空的第 3、4 格
+	// 回填成「未知」的實作會讓上面全綠 —— 那是把「還沒有人去想」寫成「有人
+	// 想過、結論是未知」，而兩者從此分不開。這一段是 2026-09-04 的陰性對照
+	// 補上的：當時把回填塞進 CreateLoreEntry，整套測試 rc=0，一支都沒說話。
+	landed := t33Get(t, d, optRes.EntryID)
+	if landed == nil {
+		t.Fatal("第 3、4 格空著的條目沒有落地")
+	}
+	if landed.RetireWhen != "" || landed.Problem != "" {
+		t.Fatalf("空著的第 3、4 格被發明了預設值: retire_when=%q problem=%q", landed.RetireWhen, landed.Problem)
 	}
 
 	// 完整的寫入照樣成功。少了這一半，一個把每一筆寫入都拒掉的實作也會讓上面全綠。
