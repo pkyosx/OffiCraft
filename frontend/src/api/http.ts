@@ -911,7 +911,10 @@ export const httpApi: Api = {
       await client.PUT("/api/members/{member_id}/avatar", {
         params: {
           path: { member_id: id },
-          query: { filename: file.name || undefined, mime: file.type || undefined },
+          query: {
+            filename: file.name || undefined,
+            mime: file.type || undefined,
+          },
         },
         headers: { "Content-Type": "application/octet-stream" },
         // openapi-fetch defaults to JSON serialization. The spec types binary
@@ -1723,7 +1726,7 @@ export const httpApi: Api = {
       await client.POST("/api/tasks/{task_id}/reassign", {
         params: { path: { task_id: id } },
         body: fromTaskReassignInput(input),
-      })
+      }),
     );
     return toTask(wire);
   },
@@ -2287,16 +2290,23 @@ export const httpApi: Api = {
       display_theme?: string;
       display_language?: string;
       display_wide?: boolean;
+      lore_enabled?: boolean;
       onboarding_dismissed?: boolean;
     } = {};
-    if (patch.ownerTokenTtl !== undefined) body.owner_token_ttl = patch.ownerTokenTtl;
-    if (patch.agentTokenTtl !== undefined) body.agent_token_ttl = patch.agentTokenTtl;
+    if (patch.ownerTokenTtl !== undefined)
+      body.owner_token_ttl = patch.ownerTokenTtl;
+    if (patch.agentTokenTtl !== undefined)
+      body.agent_token_ttl = patch.agentTokenTtl;
     if (patch.handoverPct !== undefined) body.handover_pct = patch.handoverPct;
     if (patch.noticePct !== undefined) body.notice_pct = patch.noticePct;
-    if (patch.codexNoticeRound !== undefined) body.codex_notice_round = patch.codexNoticeRound;
-    if (patch.codexCompactionThreshold !== undefined) body.codex_compaction_threshold = patch.codexCompactionThreshold;
-    if (patch.monitoringRefreshSeconds !== undefined) body.monitoring_refresh_seconds = patch.monitoringRefreshSeconds;
-    if (patch.acceleratedGraceSecs !== undefined) body.accelerated_grace_secs = patch.acceleratedGraceSecs;
+    if (patch.codexNoticeRound !== undefined)
+      body.codex_notice_round = patch.codexNoticeRound;
+    if (patch.codexCompactionThreshold !== undefined)
+      body.codex_compaction_threshold = patch.codexCompactionThreshold;
+    if (patch.monitoringRefreshSeconds !== undefined)
+      body.monitoring_refresh_seconds = patch.monitoringRefreshSeconds;
+    if (patch.acceleratedGraceSecs !== undefined)
+      body.accelerated_grace_secs = patch.acceleratedGraceSecs;
     if (patch.outsourceMaxParallel !== undefined) {
       body.outsource_max_parallel = patch.outsourceMaxParallel;
     }
@@ -2316,7 +2326,8 @@ export const httpApi: Api = {
       body.doc_cap_chars_manual_learnings = patch.docCapCharsManualLearnings;
     }
     if (patch.docCapCharsSystemInteraction !== undefined) {
-      body.doc_cap_chars_system_interaction = patch.docCapCharsSystemInteraction;
+      body.doc_cap_chars_system_interaction =
+        patch.docCapCharsSystemInteraction;
     }
     if (patch.docCapCharsBootSequence !== undefined) {
       body.doc_cap_chars_boot_sequence = patch.docCapCharsBootSequence;
@@ -2338,13 +2349,18 @@ export const httpApi: Api = {
     }
     if (patch.orgName !== undefined) body.org_name = patch.orgName;
     if (patch.ownerName !== undefined) body.owner_name = patch.ownerName;
-    if (patch.pushContactEmail !== undefined) body.push_contact_email = patch.pushContactEmail;
-    if (patch.displayTheme !== undefined) body.display_theme = patch.displayTheme;
+    if (patch.pushContactEmail !== undefined)
+      body.push_contact_email = patch.pushContactEmail;
+    if (patch.displayTheme !== undefined)
+      body.display_theme = patch.displayTheme;
     if (patch.displayLanguage !== undefined) {
       body.display_language = patch.displayLanguage;
     }
     if (patch.displayWide !== undefined) {
       body.display_wide = patch.displayWide;
+    }
+    if (patch.loreEnabled !== undefined) {
+      body.lore_enabled = patch.loreEnabled;
     }
     if (patch.onboardingDismissed !== undefined) {
       body.onboarding_dismissed = patch.onboardingDismissed;
@@ -2363,7 +2379,9 @@ export const httpApi: Api = {
     // rule is the only one, and a stricter client rule would refuse links the
     // server accepts. 422 (bad url / too large / not a theme) and 502
     // (unreachable link) both throw via the client middleware.
-    const wire = unwrap(await client.POST("/api/theme/fetch", { body: { url } }));
+    const wire = unwrap(
+      await client.POST("/api/theme/fetch", { body: { url } }),
+    );
     return wire.content;
   },
 
@@ -2421,7 +2439,9 @@ export const httpApi: Api = {
     return wire.public_key;
   },
 
-  async savePushSubscription(subscription: PushSubscriptionInput): Promise<void> {
+  async savePushSubscription(
+    subscription: PushSubscriptionInput,
+  ): Promise<void> {
     unwrap(
       await client.POST("/api/push/subscription", {
         body: {
@@ -2434,7 +2454,9 @@ export const httpApi: Api = {
   },
 
   async removePushSubscription(endpoint: string): Promise<void> {
-    unwrap(await client.DELETE("/api/push/subscription", { body: { endpoint } }));
+    unwrap(
+      await client.DELETE("/api/push/subscription", { body: { endpoint } }),
+    );
   },
 
   async triggerUpgrade(): Promise<void> {
@@ -2783,7 +2805,7 @@ export const httpApi: Api = {
   },
 
   subscribeEvents(
-    onTopic: (topic: string, delta?: SseDelta) => void
+    onTopic: (topic: string, delta?: SseDelta) => void,
   ): () => void {
     // GET /api/events (SSE downlink). PERMANENTLY HAND-WRITTEN — an EventSource,
     // not a fetch, so no OpenAPI runtime client can generate it. EventSource
@@ -2827,7 +2849,10 @@ export const httpApi: Api = {
         // visibilitychange/focus never fans a resync onto an empty subscriber
         // set (and nothing leaks across a close→reopen cycle).
         if (sseVisibilityHandler && typeof document !== "undefined") {
-          document.removeEventListener("visibilitychange", sseVisibilityHandler);
+          document.removeEventListener(
+            "visibilitychange",
+            sseVisibilityHandler,
+          );
           if (typeof window !== "undefined") {
             window.removeEventListener("focus", sseVisibilityHandler);
           }
@@ -2918,7 +2943,7 @@ export const httpApi: Api = {
 
   async approveLoreEntity(
     entityId: string,
-    reason = ""
+    reason = "",
   ): Promise<LoreEntityGovernanceView> {
     // 回的是治理收據,不是 204:呼叫端要看得到它實際落在哪個狀態,而不是靠「沒
     // 有報錯」推論。
@@ -2934,7 +2959,7 @@ export const httpApi: Api = {
   async mergeLoreEntity(
     entityId: string,
     into: string,
-    reason = ""
+    reason = "",
   ): Promise<LoreEntityGovernanceView> {
     const wire = unwrap(
       await client.POST("/api/lore/entities/{entity_id}/merge", {
@@ -2946,7 +2971,7 @@ export const httpApi: Api = {
   },
 
   subscribeConnection(
-    onState: (state: SseConnectionState) => void
+    onState: (state: SseConnectionState) => void,
   ): () => void {
     // A thin re-export of the module-level downlink health (the shared-downlink
     // block above owns it). It is on the Api seam rather than imported straight

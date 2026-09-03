@@ -15,8 +15,26 @@ import (
 // It is used by the boot-context equality guard in worker_spawn_test.go as well
 // as by the tests below — one fixture, so "what a directory looks like" is not
 // re-invented per test.
+// enableLoreForTest turns the T-33 station-wide lore switch ON for one test
+// server. It exists as a NAMED helper rather than a bare field assignment so
+// every place that needs the feature on says the same sentence and is greppable
+// — the day the switch grows a second dimension (per-role, say) there is one
+// line to change, not fifteen.
+//
+// 🔴 THE DEFAULT IS OFF AND STAYS OFF. Nothing here weakens that: the shipped
+// default is what lore_toggle_t33_test.go asserts, with controls. Calling this
+// is a test SAYING OUT LOUD that it is about the feature's on-state.
+func enableLoreForTest(s *apiServer) {
+	s.settingsMu.Lock()
+	defer s.settingsMu.Unlock()
+	s.loreEnabled = true
+}
+
 func seedLoreDirectoryFixture(t *testing.T, s *apiServer) {
 	t.Helper()
+	// A station with a seeded directory and the feature switched off would fold
+	// to nothing, and every assertion downstream would be about that absence.
+	enableLoreForTest(s)
 	t33Entity(t, s.dal, "en-seth", "human", "human:Seth")
 	t33Entity(t, s.dal, "en-kyle", "agent", "agent:Kyle")
 	t33Entity(t, s.dal, "en-repo", "repo", "repo:officraft")
@@ -112,6 +130,7 @@ func TestDirectoryCarriesNoEntryBody(t *testing.T) {
 // thing the cap threw away.
 func seedManySubjects(t *testing.T, s *apiServer, n int) (humanCanonical string) {
 	t.Helper()
+	enableLoreForTest(s)
 	for i := 0; i < n; i++ {
 		id := fmt.Sprintf("en-bulk-%03d", i)
 		t33Entity(t, s.dal, id, "agent", fmt.Sprintf("agent:zz-bulk-%03d", i))

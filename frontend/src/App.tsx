@@ -27,6 +27,7 @@ import { OnboardingBanner } from "./components/OnboardingBanner";
 import { ConnectionBanner } from "./components/ConnectionBanner";
 import { InlineEdit } from "./components/InlineEdit";
 import { PushNotifications } from "./components/PushNotifications";
+import { loadServerSettings } from "./hooks/sharedServerSettings";
 import { useOrgName } from "./hooks/useOrgName";
 import { OwnerNameProvider, useOwnerName } from "./hooks/useOwnerName";
 import { useReplyCardCount } from "./hooks/useReplyCardCount";
@@ -59,10 +60,45 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   // in the URL hash — a refresh (incl. the top-bar reload button) restores the
   // same view, and every view is deep-linkable. See lib/hashRoute.ts.
   const [route, setRoute] = useHashRoute();
+  // 傳承 is behind a station-wide feature switch (T-33, settings `lore.enabled`,
+  // default OFF): the owner turns it on when the studio is ready to try it.
+  //
+  // 🔴 THE PRE-LOAD VALUE IS false, AND THE DIRECTION IS THE DECISION. Starting
+  // true would flash a tab that then vanishes on a station that has the feature
+  // off — and every request behind it would be refused meanwhile. Starting
+  // false costs a switched-ON station one render before the tab appears, which
+  // is the harmless half of the trade.
+  //
+  // 🔴 A FAILED LOAD IS NOT READ AS 「OFF」 IN THE LOG, ONLY IN THE RENDER. We
+  // keep the tab hidden (there is nothing else safe to do) but say so, because
+  // a station whose settings fetch is broken and one whose owner left the
+  // feature off look identical on screen and must not look identical to whoever
+  // is debugging it.
+  const [loreEnabled, setLoreEnabled] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    loadServerSettings()
+      .then((s) => {
+        if (alive) setLoreEnabled(s.loreEnabled);
+      })
+      .catch((e) => {
+        console.warn(
+          "App: lore feature switch load failed — 傳承 stays hidden",
+          e,
+        );
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
   const tab: Tab =
     route.page === "monitor"
       ? "monitor"
-      : route.page === "lore"
+      : // A #lore deep-link on a station with the feature OFF must not render a
+        // page whose every request is refused. It falls through to the default
+        // tab rather than to an error: the link is not wrong, the feature is
+        // simply not switched on here.
+        route.page === "lore" && loreEnabled
         ? "lore"
         : route.page === "guide"
           ? "guide"
@@ -118,141 +154,144 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     // say the same name the pill does (T-4e95 — he set 「韓立」 and the thread
     // was still printing the theme's default word for the human).
     <OwnerNameProvider value={userName}>
-    <div className="app">
-      <header className="topbar">
-        <div className="topbar__brand">
-          {/* The studio logo is the site-wide HOME link: clicking it clears the
+      <div className="app">
+        <header className="topbar">
+          <div className="topbar__brand">
+            {/* The studio logo is the site-wide HOME link: clicking it clears the
               hash back to root (default office view). The org NAME next to it
               stays an InlineEdit — only the mark itself navigates. */}
-          <button
-            type="button"
-            className="topbar__logo"
-            aria-label={t.nav.home}
-            title={t.nav.home}
-            onClick={() => setRoute({ page: "office" })}
-          >
-            <BrandLogo size={20} />
-          </button>
-          <InlineEdit
-            value={orgName}
-            onCommit={setOrgName}
-            placeholder={t.orgName}
-            ariaLabel={t.profile.rename}
-            displayClassName="topbar__org"
-          />
-          {/* No version chip here (T-e9d1 round 3, owner final): the topbar
+            <button
+              type="button"
+              className="topbar__logo"
+              aria-label={t.nav.home}
+              title={t.nav.home}
+              onClick={() => setRoute({ page: "office" })}
+            >
+              <BrandLogo size={20} />
+            </button>
+            <InlineEdit
+              value={orgName}
+              onCommit={setOrgName}
+              placeholder={t.orgName}
+              ariaLabel={t.profile.rename}
+              displayClassName="topbar__org"
+            />
+            {/* No version chip here (T-e9d1 round 3, owner final): the topbar
               shows no build identity — it lives in Settings › 系統更新與備份 only,
               as the unified v<yymmdd>-<hhmm>-<shortsha> label. */}
-        </div>
-
-        <div className="topbar__actions">
-          <button
-            className="icon-btn"
-            type="button"
-            aria-label="refresh"
-            onClick={() => window.location.reload()}
-          >
-            <RefreshIcon size={16} />
-          </button>
-          <PushNotifications />
-          <button
-            className={`icon-btn${settingsOpen ? " icon-btn--active" : ""}`}
-            type="button"
-            aria-label="settings"
-            aria-pressed={settingsOpen}
-            onClick={() => {
-              setRoute({ page: "settings" });
-              setSettingsNonce((n) => n + 1);
-            }}
-          >
-            <GearIcon size={16} />
-          </button>
-          <div className="profile-menu" ref={profileMenuRef}>
-            <button
-              className="profile-pill"
-              type="button"
-              aria-haspopup="menu"
-              aria-expanded={profileOpen}
-              onClick={() => setProfileOpen((o) => !o)}
-            >
-              <span className="profile-pill__avatar">
-                <Avatar size={20} kind="owner" />
-              </span>
-              <span className="profile-pill__name">{userName}</span>
-              <ChevronDownIcon size={15} className="profile-pill__chevron" />
-            </button>
-            <ProfileDropdown
-              open={profileOpen}
-              onClose={() => setProfileOpen(false)}
-              onLogout={onLogout}
-              userName={userName}
-              setOwnerName={setOwnerName}
-            />
           </div>
-        </div>
-      </header>
 
-      {/* T-ba62: the ONLY surface on which a fresh install can read WHY the
+          <div className="topbar__actions">
+            <button
+              className="icon-btn"
+              type="button"
+              aria-label="refresh"
+              onClick={() => window.location.reload()}
+            >
+              <RefreshIcon size={16} />
+            </button>
+            <PushNotifications />
+            <button
+              className={`icon-btn${settingsOpen ? " icon-btn--active" : ""}`}
+              type="button"
+              aria-label="settings"
+              aria-pressed={settingsOpen}
+              onClick={() => {
+                setRoute({ page: "settings" });
+                setSettingsNonce((n) => n + 1);
+              }}
+            >
+              <GearIcon size={16} />
+            </button>
+            <div className="profile-menu" ref={profileMenuRef}>
+              <button
+                className="profile-pill"
+                type="button"
+                aria-haspopup="menu"
+                aria-expanded={profileOpen}
+                onClick={() => setProfileOpen((o) => !o)}
+              >
+                <span className="profile-pill__avatar">
+                  <Avatar size={20} kind="owner" />
+                </span>
+                <span className="profile-pill__name">{userName}</span>
+                <ChevronDownIcon size={15} className="profile-pill__chevron" />
+              </button>
+              <ProfileDropdown
+                open={profileOpen}
+                onClose={() => setProfileOpen(false)}
+                onLogout={onLogout}
+                userName={userName}
+                setOwnerName={setOwnerName}
+              />
+            </div>
+          </div>
+        </header>
+
+        {/* T-ba62: the ONLY surface on which a fresh install can read WHY the
           automatic first-run setup did not produce a working studio. Renders
           nothing at all unless that run actually failed. */}
-      <OnboardingBanner />
+        <OnboardingBanner />
 
-      {/* T-b0bb: the ONE place the cockpit admits it has stopped receiving.
+        {/* T-b0bb: the ONE place the cockpit admits it has stopped receiving.
           Every view below this line is delta-driven, so a dead downlink and a
           quiet office render identically — without this bar a frozen page is
           indistinguishable from a calm one. Sits ABOVE the tabs so it is on
           screen whichever page the owner is on: the stall is app-wide, not a
           property of any one tab. Renders nothing while the stream is healthy. */}
-      <ConnectionBanner />
+        <ConnectionBanner />
 
-      <nav className="nav-tabs">
-        <div className="nav-tabs__seg">
-          <button
-            type="button"
-            className={`nav-tab${
-              !settingsOpen && tab === "office" ? " nav-tab--active" : ""
-            }`}
-            onClick={() => selectTab("office")}
-          >
-            <NavIcon tabKey="office" fallback={<OfficeIcon size={15} />} />
-            <span>{t.nav.office}</span>
-            {chatUnread > 0 && (
-              <span className="nav-tab__badge" data-testid="office-unread-badge">
-                {chatUnread > 99 ? "99+" : chatUnread}
-              </span>
-            )}
-          </button>
-          <button
-            type="button"
-            className={`nav-tab${
-              !settingsOpen && tab === "replies" ? " nav-tab--active" : ""
-            }`}
-            onClick={() => selectTab("replies")}
-          >
-            <NavIcon tabKey="replies" fallback={<InboxIcon size={15} />} />
-            <span>{t.nav.replies}</span>
-            {replyCount > 0 && (
-              <span className="nav-tab__badge" data-testid="replies-badge">
-                {replyCount > 99 ? "99+" : replyCount}
-              </span>
-            )}
-          </button>
-          <button
-            type="button"
-            className={`nav-tab${
-              !settingsOpen && tab === "tasks" ? " nav-tab--active" : ""
-            }`}
-            onClick={() => selectTab("tasks")}
-          >
-            <NavIcon tabKey="tasks" fallback={<TasksIcon size={15} />} />
-            <span>{t.nav.tasks}</span>
-            {taskCount > 0 && (
-              <span className="nav-tab__badge" data-testid="tasks-badge">
-                {taskCount > 99 ? "99+" : taskCount}
-              </span>
-            )}
-          </button>
-          {/* 傳承 — immediately right of 任務 (owner 2026-09-02, 逐字:
+        <nav className="nav-tabs">
+          <div className="nav-tabs__seg">
+            <button
+              type="button"
+              className={`nav-tab${
+                !settingsOpen && tab === "office" ? " nav-tab--active" : ""
+              }`}
+              onClick={() => selectTab("office")}
+            >
+              <NavIcon tabKey="office" fallback={<OfficeIcon size={15} />} />
+              <span>{t.nav.office}</span>
+              {chatUnread > 0 && (
+                <span
+                  className="nav-tab__badge"
+                  data-testid="office-unread-badge"
+                >
+                  {chatUnread > 99 ? "99+" : chatUnread}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              className={`nav-tab${
+                !settingsOpen && tab === "replies" ? " nav-tab--active" : ""
+              }`}
+              onClick={() => selectTab("replies")}
+            >
+              <NavIcon tabKey="replies" fallback={<InboxIcon size={15} />} />
+              <span>{t.nav.replies}</span>
+              {replyCount > 0 && (
+                <span className="nav-tab__badge" data-testid="replies-badge">
+                  {replyCount > 99 ? "99+" : replyCount}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              className={`nav-tab${
+                !settingsOpen && tab === "tasks" ? " nav-tab--active" : ""
+              }`}
+              onClick={() => selectTab("tasks")}
+            >
+              <NavIcon tabKey="tasks" fallback={<TasksIcon size={15} />} />
+              <span>{t.nav.tasks}</span>
+              {taskCount > 0 && (
+                <span className="nav-tab__badge" data-testid="tasks-badge">
+                  {taskCount > 99 ? "99+" : taskCount}
+                </span>
+              )}
+            </button>
+            {/* 傳承 — immediately right of 任務 (owner 2026-09-02, 逐字:
               「傳承應該放在案件右邊不是指南右邊」). 案件/指南 are what the
               ACTIVE THEME renames 任務/使用說明 to — read off the station's own
               `display.theme` wording, not guessed from the label in this file,
@@ -274,75 +313,83 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
               `lore` key here without its server twin would mean a bundle
               carrying it is 422'd by name. Making this tab themable is that
               cross-boundary change, not this ticket. */}
-          <button
-            type="button"
-            className={`nav-tab${
-              !settingsOpen && tab === "lore" ? " nav-tab--active" : ""
-            }`}
-            onClick={() => selectTab("lore")}
-          >
-            <BookIcon size={15} />
-            <span>{t.lore.title}</span>
-          </button>
-          <button
-            type="button"
-            className={`nav-tab${
-              !settingsOpen && tab === "monitor" ? " nav-tab--active" : ""
-            }`}
-            onClick={() => selectTab("monitor")}
-          >
-            <NavIcon tabKey="monitor" fallback={<MonitorIcon size={15} />} />
-            <span>{t.nav.monitor}</span>
-          </button>
-          {/* 使用說明 — LAST tab, immediately right of 監控 (owner 2026-07-22:
+            {/* T-33: the tab EXISTS ONLY WHILE THE FEATURE IS SWITCHED ON
+              (settings `lore.enabled`, default OFF — owner: 「打開的話 Lore 才
+              能被讀寫以及顯示在 UI 上」、「預設是關閉起來的」). It is removed
+              from the DOM rather than disabled or greyed: a visible-but-dead
+              tab advertises a feature the station does not serve, and every
+              request behind it is refused. */}
+            {loreEnabled && (
+              <button
+                type="button"
+                className={`nav-tab${
+                  !settingsOpen && tab === "lore" ? " nav-tab--active" : ""
+                }`}
+                onClick={() => selectTab("lore")}
+              >
+                <BookIcon size={15} />
+                <span>{t.lore.title}</span>
+              </button>
+            )}
+            <button
+              type="button"
+              className={`nav-tab${
+                !settingsOpen && tab === "monitor" ? " nav-tab--active" : ""
+              }`}
+              onClick={() => selectTab("monitor")}
+            >
+              <NavIcon tabKey="monitor" fallback={<MonitorIcon size={15} />} />
+              <span>{t.nav.monitor}</span>
+            </button>
+            {/* 使用說明 — LAST tab, immediately right of 監控 (owner 2026-07-22:
               「user guide 改放在 tab 中,監控的右邊,不要放在 settings 裡」).
               It used to be a settings sub-page; a first-run owner had to open
               the gear to find out how the product works, which is the wrong
               place for the one page that explains the product. No badge: the
               docs are baked into the binary, so there is no count to show. */}
-          <button
-            type="button"
-            className={`nav-tab${
-              !settingsOpen && tab === "guide" ? " nav-tab--active" : ""
-            }`}
-            onClick={() => selectTab("guide")}
-          >
-            <NavIcon tabKey="guide" fallback={<FileTextIcon size={15} />} />
-            <span>{t.nav.guide}</span>
-          </button>
-        </div>
-      </nav>
+            <button
+              type="button"
+              className={`nav-tab${
+                !settingsOpen && tab === "guide" ? " nav-tab--active" : ""
+              }`}
+              onClick={() => selectTab("guide")}
+            >
+              <NavIcon tabKey="guide" fallback={<FileTextIcon size={15} />} />
+              <span>{t.nav.guide}</span>
+            </button>
+          </div>
+        </nav>
 
-      <main className="app__main">
-        {settingsOpen ? (
-          // A #settings/manuals/<key> deep-link opens straight on that manual's
-          // hub (T-e987 任務類型 label 跳轉). Keyed on the manual key too so a
-          // deep-link navigation re-mounts SettingsPage on the right initial
-          // view; the gear's settingsNonce bump still returns to the landing.
-          <SettingsPage
-            key={`${settingsNonce}:${route.manualKey ?? ""}:${
-              route.settingsRoles ? "roles" : ""
-            }:${route.settingsRolesNew ? "new" : ""}:${route.roleKey ?? ""}`}
-            initialManualKey={route.manualKey}
-            initialRoles={route.settingsRoles}
-            initialRolesCreate={route.settingsRolesNew}
-            initialRoleKey={route.roleKey}
-          />
-        ) : tab === "office" ? (
-          <OfficePage />
-        ) : tab === "replies" ? (
-          <RepliesPage replyCardId={route.replyCardId} />
-        ) : tab === "tasks" ? (
-          <TasksPage />
-        ) : tab === "lore" ? (
-          <LorePage />
-        ) : tab === "guide" ? (
-          <GuidePage />
-        ) : (
-          <MonitorPage />
-        )}
-      </main>
-    </div>
+        <main className="app__main">
+          {settingsOpen ? (
+            // A #settings/manuals/<key> deep-link opens straight on that manual's
+            // hub (T-e987 任務類型 label 跳轉). Keyed on the manual key too so a
+            // deep-link navigation re-mounts SettingsPage on the right initial
+            // view; the gear's settingsNonce bump still returns to the landing.
+            <SettingsPage
+              key={`${settingsNonce}:${route.manualKey ?? ""}:${
+                route.settingsRoles ? "roles" : ""
+              }:${route.settingsRolesNew ? "new" : ""}:${route.roleKey ?? ""}`}
+              initialManualKey={route.manualKey}
+              initialRoles={route.settingsRoles}
+              initialRolesCreate={route.settingsRolesNew}
+              initialRoleKey={route.roleKey}
+            />
+          ) : tab === "office" ? (
+            <OfficePage />
+          ) : tab === "replies" ? (
+            <RepliesPage replyCardId={route.replyCardId} />
+          ) : tab === "tasks" ? (
+            <TasksPage />
+          ) : tab === "lore" ? (
+            <LorePage />
+          ) : tab === "guide" ? (
+            <GuidePage />
+          ) : (
+            <MonitorPage />
+          )}
+        </main>
+      </div>
     </OwnerNameProvider>
   );
 }

@@ -798,6 +798,26 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		}
 		s.displayWide = *body.DisplayWide
 	}
+	// lore.enabled (T-33) — the station-wide lore feature switch. Same
+	// store-as-text plain-bool shape as display.wide right above it, and it goes
+	// through the SAME owner/admin-gated PATCH as every other knob on this
+	// surface on purpose: 誰能切 was answered by the station's existing settings
+	// mechanism, not by a new permission invented for this one flag.
+	//
+	// 🔴 THE IN-MEMORY WRITE THREE LINES DOWN IS WHAT MAKES THE PROMISE TRUE.
+	// Every lore path reads loreEnabledSnapshot() per call, so the moment this
+	// assignment lands under settingsMu the next request sees the new value —
+	// no restart, no cache to expire. The one surface that cannot follow is a
+	// boot context, which is assembled once at wake.
+	if body.LoreEnabled != nil && *body.LoreEnabled != s.loreEnabled {
+		if err := s.dal.PutSetting(settingLoreEnabled,
+			strconv.FormatBool(*body.LoreEnabled)); err != nil {
+			s.settingsMu.Unlock()
+			internalError(w, err)
+			return
+		}
+		s.loreEnabled = *body.LoreEnabled
+	}
 	s.settingsMu.Unlock()
 	// onboarding_dismissed (T-0648) is written OUTSIDE settingsMu, and last:
 	// it does not live in the settings snapshot at all — it is a field on the
@@ -864,6 +884,7 @@ func (s *apiServer) settingsView() settingsDTO {
 		DisplayTheme:                 s.displayTheme,
 		DisplayLanguage:              s.displayLanguage,
 		DisplayWide:                  s.displayWide,
+		LoreEnabled:                  s.loreEnabled,
 		// Read from the DAL, NOT from the settings snapshot: onboarding runs in
 		// its own goroutine and finishes after this handler returned, so a
 		// boot-time snapshot would serve a permanently stale "running".

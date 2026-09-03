@@ -33,8 +33,23 @@ func newWorkerTestServer(t *testing.T) *apiServer {
 	if err := seedOutOfBox(dal); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	return newAPIServer(dal, NewHub(), []byte("worker-test-secret"), 3600,
+	api := newAPIServer(dal, NewHub(), []byte("worker-test-secret"), 3600,
 		assetRoot(t.TempDir()))
+	// T-33: the lore feature ships OFF (settings `lore.enabled`, default false),
+	// so a boot context assembled on a default server carries no 對象目錄 at all.
+	// Every directory test in this package would then be asserting against an
+	// absence and passing for the wrong reason — the exact shape of failure the
+	// switch's own tests exist to catch. This harness therefore turns the feature
+	// ON explicitly, which is also the honest statement of what these tests
+	// cover: the directory AS IT BEHAVES WHEN THE FEATURE IS ON.
+	//
+	// 🔴 THE OFF HALF IS NOT COVERED BY OMISSION HERE. It is covered by
+	// lore_toggle_t33_test.go, which turns the switch off deliberately and
+	// asserts the absences one at a time against a POSITIVE CONTROL on the same
+	// server — because 「correctly nothing」 and 「broken, therefore nothing」
+	// look exactly alike, and only the control tells them apart.
+	enableLoreForTest(api)
+	return api
 }
 
 func putWorkerFixture(t *testing.T, s *apiServer, w OutsourceWorker) OutsourceWorker {

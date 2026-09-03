@@ -956,6 +956,14 @@ export interface ServerSettingsView {
    * centred column, the shipped default. Same dual-layer contract as
    * displayTheme, but a plain bool — there is no "never set" third state. */
   displayWide: boolean;
+  /** Whether the LORE feature is switched on for this station (T-33;
+   * `lore.enabled`, default false = OFF). It is the ONE thing the cockpit
+   * needs from the server to decide whether the 傳承 tab exists at all.
+   *
+   * 🔴 A MISSING FIELD MAPS TO false, NOT true. An older server has no lore
+   * feature, and rendering a tab whose every request 404s or 403s is worse
+   * than not rendering it — see the mapper. */
+  loreEnabled: boolean;
   /** The automatic first-run onboarding report (T-ba62), or null when
    * onboarding never ran on this server (an install predating it, or a
    * database that already had a password). This is how the cockpit can say
@@ -1048,6 +1056,10 @@ export interface ServerSettingsPatch {
   /** Turn the WIDE cockpit layout on/off (T-756f). Omit to leave it
    * unchanged — a plain bool, so there is nothing to "clear" it to. */
   displayWide?: boolean;
+  /** Turn the LORE feature on/off for this station (T-33). Omit to leave it
+   * unchanged. Off never moves or deletes a stored entry — it only makes the
+   * feature unreachable. */
+  loreEnabled?: boolean;
   /** Dismiss (true) or un-dismiss (false) the first-run onboarding banner
    * (T-0648) — it stamps / clears `dismissedAt` on the ONE onboarding report,
    * so 「不再顯示」 outlives the tab it was pressed in. 409 when there is no
@@ -1528,7 +1540,8 @@ export interface SseDeltaNames {
  *   "live"         — open and delivering.
  *   "unauthorized" — the session is dead; retrying has STOPPED on purpose.
  */
-export type SseConnectionState = "idle" | "connecting" | "live" | "unauthorized";
+export type SseConnectionState =
+  "idle" | "connecting" | "live" | "unauthorized";
 
 export interface SseDelta {
   topic: string;
@@ -2271,7 +2284,7 @@ export interface Api {
   saveBootDoc(
     kind: BootDocKind,
     key: string,
-    body: string
+    body: string,
   ): Promise<BootDocView>;
   /**
    * Restore ONE boot-context block to its FACTORY version → the folded doc
@@ -2621,7 +2634,7 @@ export interface Api {
    * belonging to another entry 404s rather than handing over its text. */
   getLoreRevision(
     entryId: string,
-    revisionId: number
+    revisionId: number,
   ): Promise<LoreRevisionView>;
 
   // ── T-33 對象審核 ────────────────────────────────────────────────────────
@@ -2639,18 +2652,18 @@ export interface Api {
   /** 核可一個待審對象。 */
   approveLoreEntity(
     entityId: string,
-    reason?: string
+    reason?: string,
   ): Promise<LoreEntityGovernanceView>;
 
   /** 把待審對象併進一個既有對象;`into` 是存活那一個的 id。 */
   mergeLoreEntity(
     entityId: string,
     into: string,
-    reason?: string
+    reason?: string,
   ): Promise<LoreEntityGovernanceView>;
 
   subscribeEvents(
-    onTopic: (topic: string, delta?: SseDelta) => void
+    onTopic: (topic: string, delta?: SseDelta) => void,
   ): () => void;
   /**
    * Watch the health of the delta downlink (see `SseConnectionState`). Fires
@@ -2662,9 +2675,7 @@ export interface Api {
    * reports "live" once and never calls back — a subscriber must therefore work
    * from a single synchronous call and never wait for a second one.
    */
-  subscribeConnection(
-    onState: (state: SseConnectionState) => void
-  ): () => void;
+  subscribeConnection(onState: (state: SseConnectionState) => void): () => void;
 }
 
 /**

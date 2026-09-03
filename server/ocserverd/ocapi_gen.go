@@ -3076,6 +3076,9 @@ type SettingsDTO struct {
 	// HandoverPct The SECOND of the two offboard points: the FINAL notice, and the point the automatic handover itself fires. Must be 40..90 and strictly greater than notice_pct.
 	HandoverPct int `json:"handover_pct"`
 
+	// LoreEnabled Whether the LORE feature is ON for this station (T-33; DB `lore.enabled`, default false = OFF). 🔴 IT IS ONE SWITCH FOR THE WHOLE STATION, and OFF means the feature DOES NOT EXIST for an agent: every /api/lore/* route refuses 403 naming this setting, the wake boot context carries no 對象目錄 (subject directory) section, and the cockpit renders no 傳承 tab. 🔴 OFF DOES NOT MOVE ANY MEMORY ANYWHERE — nothing is copied into 長期筆記 / 教訓 and nothing is deleted. An agent that cannot write lore simply goes on using the learning / lesson tools it already had, which is the WHOLE of the fallback: there is no cross-store transfer, because a transfer can fail (the target has its own cap) and a half-moved memory is worse than one that stayed put. Turning it back on returns every stored entry untouched. Read LIVE on every call, so a change applies to the very next request with no restart — with ONE stated exception: a boot context is assembled once at wake, so an agent that already booted keeps the document it was handed until it boots again.
+	LoreEnabled *bool `json:"lore_enabled,omitempty"`
+
 	// MonitoringRefreshSeconds Minimum interval between monitoring and machine refreshes, in seconds (1 through 60).
 	MonitoringRefreshSeconds *int `json:"monitoring_refresh_seconds,omitempty"`
 
@@ -3176,6 +3179,9 @@ type SettingsUpdateDTO struct {
 
 	// HandoverPct The SECOND offboard point: the FINAL notice, and where the automatic handover fires. 40..90, and strictly greater than notice_pct (the pair is validated together against the POST-patch values, so either one may be sent alone).
 	HandoverPct *int `json:"handover_pct,omitempty"`
+
+	// LoreEnabled Turn the LORE feature on/off for this station (T-33). true = /api/lore/* answers, the boot context folds in the 對象目錄, the cockpit shows the 傳承 tab; false (the default) = every lore route refuses 403, no directory in the boot context, no tab. Omit the field to leave it unchanged. 🔴 Turning it OFF never moves or deletes a stored entry — it only stops the feature being reachable, and an agent then goes on using the learning / lesson tools it already had; turning it back on returns everything as it was.
+	LoreEnabled *bool `json:"lore_enabled,omitempty"`
 
 	// MonitoringRefreshSeconds Minimum interval between monitoring and machine refreshes, in seconds. Must be 1 through 60.
 	MonitoringRefreshSeconds *int `json:"monitoring_refresh_seconds,omitempty"`

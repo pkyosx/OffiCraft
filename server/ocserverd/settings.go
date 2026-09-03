@@ -240,6 +240,28 @@ const (
 	// localStorage the pre-auth cache. Stored like the updater toggles —
 	// strconv.FormatBool text, absent row = false. NOT an agent read path.
 	settingDisplayWide = "display.wide"
+	// settingLoreEnabled (T-33, bool, default FALSE) is the station-wide LORE
+	// feature switch — 一個站一個開關 (owner: 「我們可以在自己的 site 上打開
+	// 這個功能優先體驗一陣子」), and the default is OFF because the owner said so
+	// in as many words (「預設是關閉起來的」).
+	//
+	// 🔴 OFF MEANS THE FEATURE DOES NOT EXIST FOR AN AGENT, NOT THAT ITS DATA
+	// MOVES. Every /api/lore/* route refuses, the boot context folds in no
+	// 對象目錄, and the cockpit shows no 傳承 tab. Nothing is copied into
+	// 長期筆記 / 教訓 and nothing is deleted: an agent that cannot write lore
+	// simply goes on calling the learning / lesson tools it already had. That is
+	// the WHOLE of 「fallback 到原本的 learning / lesson」 — it is the agent
+	// walking its old path, never the station carrying a memory across stores.
+	//
+	// ⚠️ WHY A TRANSFER WOULD BE WORSE THAN NOTHING, stated so nobody adds one
+	// back: the target document has its own character cap, so the move can FAIL,
+	// and a failure mid-move leaves a memory that is in neither place while the
+	// write that triggered it has already returned. The problem set only exists
+	// if the transfer does.
+	//
+	// It is a plain bool with no "never set" state (absent row = false = OFF),
+	// stored as strconv.FormatBool text like the updater / display.wide toggles.
+	settingLoreEnabled = "lore.enabled"
 	// [T-16a1 P2 / T-83ef] `display.custom_themes` — the row that used to hold
 	// every saved theme as one JSON array — HAS NO CONSTANT HERE ANY MORE, and
 	// that is deliberate rather than an oversight:
@@ -330,6 +352,7 @@ type authSettings struct {
 	displayTheme                 string // display.theme ("" = never set → frontend cache/default)
 	displayLanguage              string // display.language ("" = never set → frontend cache/default)
 	displayWide                  bool   // display.wide (default false = the narrow centred column)
+	loreEnabled                  bool   // lore.enabled (T-33; default false = the whole lore feature is OFF)
 }
 
 // loadAuthSettings loads the snapshot from the migrated DB, running the
@@ -665,6 +688,9 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 		return out, err
 	}
 	if err := getBool(settingDisplayWide, &out.displayWide); err != nil {
+		return out, err
+	}
+	if err := getBool(settingLoreEnabled, &out.loreEnabled); err != nil {
 		return out, err
 	}
 	if v, err := d.GetSetting(settingOrgName); err != nil {

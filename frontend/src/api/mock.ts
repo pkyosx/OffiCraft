@@ -393,7 +393,6 @@ const mockClaudeInfo = new Map<
   ],
 ]);
 
-
 // ── Fixture: monitoring telemetry, in WIRE shape (mirrors /api/monitoring).
 // HONEST: one real session (Mira, offline) + one real machine (mbp5, 1 agent);
 // EVERY telemetry field is null (context/cost/tokens/hardware) and accounts is
@@ -668,7 +667,7 @@ function foldBootDoc(kind: BootDocKind, key: string): WireBootDoc {
     throw mockApiError(
       `http 404 for GET /api/boot-docs/${kind}/${key}`,
       404,
-      `boot document '${kind}/${key}' does not exist`
+      `boot document '${kind}/${key}' does not exist`,
     );
   }
   const overlay = bootDocOverlays.get(`${kind}/${key}`);
@@ -729,7 +728,7 @@ function bootDocCap(kind: BootDocKind): number {
 function refuseReadOnlyBootDoc(
   kind: BootDocKind,
   key: string,
-  suffix: string
+  suffix: string,
 ): void {
   if (!BOOT_DOC_READ_ONLY.has(`${kind}/${key}`)) return;
   throw mockApiError(
@@ -737,7 +736,7 @@ function refuseReadOnlyBootDoc(
     405,
     `the ${BOOT_DOC_NAMES[`${kind}/${key}`] ?? kind} is a read-only document — ` +
       "it is shown so you can see what agents are told, but no caller may edit " +
-      "it and there is no version of it other than the shipped one; nothing was written"
+      "it and there is no version of it other than the shipped one; nothing was written",
   );
 }
 
@@ -769,9 +768,30 @@ const customRoles = new Map<string, WireRoleDef>();
 // the server-side pool a no-name role create draws the founding member's name
 // from. Never "Mira" (the seed identity stays unmistakable).
 const MOCK_MEMBER_NAME_POOL = [
-  "Nova", "Kai", "Ravi", "Luna", "Iris", "Milo", "Zara", "Theo",
-  "Aria", "Ezra", "Vera", "Nico", "Suki", "Remy", "Isla", "Otis",
-  "Faye", "Juno", "Cleo", "Enzo", "Mika", "Wren", "Lyra", "Dax",
+  "Nova",
+  "Kai",
+  "Ravi",
+  "Luna",
+  "Iris",
+  "Milo",
+  "Zara",
+  "Theo",
+  "Aria",
+  "Ezra",
+  "Vera",
+  "Nico",
+  "Suki",
+  "Remy",
+  "Isla",
+  "Otis",
+  "Faye",
+  "Juno",
+  "Cleo",
+  "Enzo",
+  "Mika",
+  "Wren",
+  "Lyra",
+  "Dax",
 ] as const;
 
 /** Pick a fresh pool name, excluding every current roster name (case-
@@ -780,7 +800,7 @@ const MOCK_MEMBER_NAME_POOL = [
 function pickMockMemberName(): string {
   const taken = new Set(wireMembers.map((m) => m.name.trim().toLowerCase()));
   const available = MOCK_MEMBER_NAME_POOL.filter(
-    (n) => !taken.has(n.toLowerCase())
+    (n) => !taken.has(n.toLowerCase()),
   );
   if (available.length > 0) {
     return available[Math.floor(Math.random() * available.length)];
@@ -976,7 +996,7 @@ function validateReplyAnswer(card: ReplyCard, answer: ReplyCardAnswerInput) {
     throw mockApiError(
       `http 400 for answer /api/reply-cards/${card.id}/answer`,
       400,
-      "an answer needs an option, text, or attachments"
+      "an answer needs an option, text, or attachments",
     );
   }
   for (const idx of idxs) {
@@ -984,7 +1004,7 @@ function validateReplyAnswer(card: ReplyCard, answer: ReplyCardAnswerInput) {
       throw mockApiError(
         `http 400 for answer /api/reply-cards/${card.id}/answer`,
         400,
-        `option_idxs out of range: ${idx}`
+        `option_idxs out of range: ${idx}`,
       );
     }
   }
@@ -992,7 +1012,7 @@ function validateReplyAnswer(card: ReplyCard, answer: ReplyCardAnswerInput) {
     throw mockApiError(
       `http 400 for answer /api/reply-cards/${card.id}/answer`,
       400,
-      "this card takes at most one option"
+      "this card takes at most one option",
     );
   }
 }
@@ -1002,7 +1022,7 @@ function validateReplyAnswer(card: ReplyCard, answer: ReplyCardAnswerInput) {
  * postChat, so previews render identically in mock mode. */
 function toStoredReplyAnswer(
   answer: ReplyCardAnswerInput,
-  stamp: number
+  stamp: number,
 ): NonNullable<ReplyCard["answer"]> {
   const attachments: ChatAttachmentView[] = (answer.attachments ?? []).map(
     (att, i) => {
@@ -1017,7 +1037,7 @@ function toStoredReplyAnswer(
         mime,
         isImage: mime.startsWith("image/"),
       };
-    }
+    },
   );
   const idxs = answer.optionIdxs ?? [];
   return {
@@ -1033,7 +1053,7 @@ function findReplyCard(id: string): ReplyCard {
     throw mockApiError(
       `http 404 for /api/reply-cards/${id}`,
       404,
-      `reply card '${id}' not found`
+      `reply card '${id}' not found`,
     );
   }
   return card;
@@ -1044,7 +1064,7 @@ function findReplyCard(id: string): ReplyCard {
  * carries none (or the card is missing). Computed at read time — the mock,
  * like the server, never stores this on the message/step. */
 function mockReplyCardStatusOf(
-  replyCardId: string | null
+  replyCardId: string | null,
 ): "waiting" | "answered" | "expired" | null {
   if (!replyCardId) return null;
   const card = replyCards.find((c) => c.id === replyCardId);
@@ -1074,7 +1094,9 @@ const MOCK_REPLY_QUOTE_MAX_CHARS = 60;
  * disappears. Mock mode exists so an offline preview behaves like the real
  * thing; a mock that only sometimes attached the quote would preview a bug the
  * server does not have. */
-function mockReplyToChatOf(replyTo: string | null | undefined): ChatReplyQuote | null {
+function mockReplyToChatOf(
+  replyTo: string | null | undefined,
+): ChatReplyQuote | null {
   if (!replyTo) return null;
   const quoted = chatLog.find((m) => m.id === replyTo);
   if (!quoted) return null;
@@ -1177,7 +1199,7 @@ function findTaskManual(typeKey: string): TaskManualView {
     throw mockApiError(
       `http 404 for /api/task-manuals/${typeKey}`,
       404,
-      `task type '${typeKey}' not found`
+      `task type '${typeKey}' not found`,
     );
   }
   return m;
@@ -1189,18 +1211,26 @@ function findTask(id: string): TaskView {
     throw mockApiError(
       `http 404 for /api/tasks/${id}`,
       404,
-      `task '${id}' not found`
+      `task '${id}' not found`,
     );
   }
   return t;
 }
 
-function markRead(reader: string, peer: string, lastReadTs: number): ChatReadReceipt {
+function markRead(
+  reader: string,
+  peer: string,
+  lastReadTs: number,
+): ChatReadReceipt {
   const key = `${reader}::${peer}`;
   const prior = chatReads.get(key);
   // Monotonic: keep the higher watermark (a stale report never rewinds it).
   if (prior && prior.lastReadTs >= lastReadTs) return prior;
-  const receipt: ChatReadReceipt = { readerId: reader, peerId: peer, lastReadTs };
+  const receipt: ChatReadReceipt = {
+    readerId: reader,
+    peerId: peer,
+    lastReadTs,
+  };
   chatReads.set(key, receipt);
   return receipt;
 }
@@ -1214,10 +1244,9 @@ function markRead(reader: string, peer: string, lastReadTs: number): ChatReadRec
  * when a member→owner message really lands in the log (tests inject one via
  * __injectMockChat). */
 function unreadCountOf(peer: string): number {
-  const watermark =
-    chatReads.get(`${MOCK_OWNER_ID}::${peer}`)?.lastReadTs ?? 0;
+  const watermark = chatReads.get(`${MOCK_OWNER_ID}::${peer}`)?.lastReadTs ?? 0;
   return chatLog.filter(
-    (m) => m.to === MOCK_OWNER_ID && m.from === peer && m.ts > watermark
+    (m) => m.to === MOCK_OWNER_ID && m.from === peer && m.ts > watermark,
   ).length;
 }
 
@@ -1225,7 +1254,7 @@ function unreadCountOf(peer: string): number {
  * the caller can never mutate our state). Mirrors fold_user_context. */
 function foldGlobalContext(): WireGlobalContext {
   const folded = structuredClone(
-    globalContextOverlay ?? MOCK_WIRE_USER_CONTEXT_EMPTY
+    globalContextOverlay ?? MOCK_WIRE_USER_CONTEXT_EMPTY,
   );
   // The studio name is a settings-tier value the agent reads back here (T-d693);
   // stamp the live mock org name so mock global-context matches the server.
@@ -1245,7 +1274,7 @@ function roleSeed(key: string): WireRoleDef {
  * seed edit does. */
 function foldRole(key: string): WireRoleDef {
   const folded = structuredClone(
-    roleOverlays.get(key) ?? customRoles.get(key) ?? roleSeed(key)
+    roleOverlays.get(key) ?? customRoles.get(key) ?? roleSeed(key),
   );
   // T-ae38: size/cap are DERIVED from the folded text and the live setting, the
   // way the server derives them in foldRoleDefDTO — never carried along on the
@@ -1329,11 +1358,7 @@ const RETIRED_DOCUMENT_KIND_MSG =
 
 function refuseRetiredDocumentKind(kind: DocumentKind, call: string): void {
   if (kind !== "task_manual") return;
-  throw mockApiError(
-    `http 400 for ${call}`,
-    400,
-    RETIRED_DOCUMENT_KIND_MSG
-  );
+  throw mockApiError(`http 400 for ${call}`, 400, RETIRED_DOCUMENT_KIND_MSG);
 }
 
 // The overlay kinds whose document ROW exists only once something has been
@@ -1418,7 +1443,7 @@ function dropRoleInsightHistory(roleKey: string): void {
  * when there is no such document (the server 404s / no-ops there). */
 function snapshotDocument(
   kind: DocumentKind,
-  key: string
+  key: string,
 ): Record<string, string> | null {
   switch (kind) {
     case "global_context": {
@@ -1573,7 +1598,7 @@ function recordDocumentHistory(kind: DocumentKind, key: string): void {
 function applyDocumentHistory(
   kind: DocumentKind,
   key: string,
-  content: Record<string, string>
+  content: Record<string, string>,
 ): void {
   const tombstoned = content.tombstoned === "true";
   switch (kind) {
@@ -1769,7 +1794,7 @@ function findResumeSummaryTarget(memberId: string): void {
   throw mockApiError(
     `http 404 for /api/members/${memberId}/resume-summary`,
     404,
-    `member '${memberId}' not found`
+    `member '${memberId}' not found`,
   );
 }
 
@@ -1886,6 +1911,9 @@ const DEFAULT_MOCK_SETTINGS = {
   // Layout width (T-756f) — OFF out of the box, mirroring the server (the
   // cockpit ships with the narrow centred column).
   display_wide: false,
+  // T-33: the lore feature ships OFF, and the mock ships the same default so a
+  // cockpit developed against it sees what a fresh station shows.
+  lore_enabled: false,
   // The first-run onboarding report (T-ba62). Null in the mock and staying
   // that way: mock mode is a healthy studio, and a seeded FAILED report would
   // hang the "your studio is broken" banner over every mock page. Declared
@@ -1921,7 +1949,7 @@ function mockThemeIds(): Set<string> {
  * helper exists to keep honest. */
 function docSizeFields(
   text: string,
-  cap: "duty" | "insight" | "learning" | "manualSop" | "manualLearnings"
+  cap: "duty" | "insight" | "learning" | "manualSop" | "manualLearnings",
 ) {
   return {
     size_chars: [...text].length,
@@ -2048,7 +2076,7 @@ function mockWebhookToken(): string {
   return (
     "mock-" +
     Array.from({ length: 32 }, () =>
-      Math.floor(Math.random() * 36).toString(36)
+      Math.floor(Math.random() * 36).toString(36),
     ).join("")
   );
 }
@@ -2089,7 +2117,7 @@ function mockScheduleId(): string {
   return (
     "sch-" +
     Array.from({ length: 12 }, () =>
-      Math.floor(Math.random() * 16).toString(16)
+      Math.floor(Math.random() * 16).toString(16),
     ).join("")
   );
 }
@@ -2114,7 +2142,7 @@ function mockScheduleSlot(s: {
     // sv-SE renders as YYYY-MM-DD, so the zone's own calendar day comes out
     // without any hand-rolled formatting.
     day = new Intl.DateTimeFormat("sv-SE", { timeZone: s.timezone }).format(
-      new Date()
+      new Date(),
     );
   } catch {
     // unknown zone — the create path below already rejects it; fall back to the
@@ -2157,7 +2185,7 @@ function allMockMonths(): number[] {
 function resolveMockMonths(
   cadence: string,
   stored: number[],
-  sent: number[] | undefined
+  sent: number[] | undefined,
 ): number[] {
   if (sent !== undefined) return sent;
   if (cadence !== "custom") return stored;
@@ -2174,7 +2202,7 @@ function findScheduleRecipient(memberId: string): void {
   throw mockApiError(
     `http 404 for /api/members/${memberId}/scheduled-messages`,
     404,
-    `member '${memberId}' not found`
+    `member '${memberId}' not found`,
   );
 }
 
@@ -2197,13 +2225,13 @@ function validateSchedulePart(
   // The cadence the row ends up on. On create that is `part.cadence`; on patch
   // the stored one unless this request changes it. It matters because the
   // empty-set rule is cadence-scoped on the server — see below.
-  cadenceInEffect?: string
+  cadenceInEffect?: string,
 ): void {
   const bad = (detail: string) => {
     throw mockApiError(
       `http 422 for /api/members/${memberId}/scheduled-messages`,
       422,
-      detail
+      detail,
     );
   };
   if (part.body !== undefined && part.body.trim() === "")
@@ -2229,7 +2257,7 @@ function validateSchedulePart(
     values: number[] | undefined,
     lo: number,
     hi: number,
-    hint = ""
+    hint = "",
   ) => {
     if (values === undefined) return;
     if (values.length === 0 && cadence === "custom")
@@ -2247,7 +2275,7 @@ function validateSchedulePart(
     part.customMonths,
     1,
     12,
-    " (to mean every month, OMIT the field entirely rather than sending [])"
+    " (to mean every month, OMIT the field entirely rather than sending [])",
   );
   set("custom_days", part.customDays, 1, 31);
   set("custom_hours", part.customHours, 0, 23);
@@ -2288,11 +2316,11 @@ function validateSchedulePart(
 function requireAPossibleDate(
   memberId: string,
   months: number[],
-  days: number[]
+  days: number[],
 ): void {
   if (months.length === 0 || days.length === 0) return;
   const longest = Math.max(
-    ...months.map((m) => (m === 2 ? 29 : [4, 6, 9, 11].includes(m) ? 30 : 31))
+    ...months.map((m) => (m === 2 ? 29 : [4, 6, 9, 11].includes(m) ? 30 : 31)),
   );
   const earliest = Math.min(...days);
   if (earliest <= longest) return;
@@ -2303,7 +2331,7 @@ function requireAPossibleDate(
       `together, so this schedule could never fire: the longest of the chosen months has ` +
       `${longest} days, and the earliest day chosen is the ${earliest}. Pick a day one of ` +
       `these months actually has, or add a month that has this day. (February counts as 29 ` +
-      `days, so February with the 29th is allowed and fires in leap years only.)`
+      `days, so February with the 29th is allowed and fires in leap years only.)`,
   );
 }
 
@@ -2329,17 +2357,18 @@ function requireCadenceFields(
     customDays?: number[];
     customHours?: number[];
     customMinutes?: number[];
-  }
+  },
 ): void {
   const bad = (detail: string) => {
     throw mockApiError(
       `http 422 for /api/members/${memberId}/scheduled-messages`,
       422,
-      detail
+      detail,
     );
   };
   if (cadence === "custom") {
-    if (!have.customDays?.length) bad("custom_days is required for cadence custom");
+    if (!have.customDays?.length)
+      bad("custom_days is required for cadence custom");
     if (!have.customHours?.length)
       bad("custom_hours is required for cadence custom");
     if (!have.customMinutes?.length)
@@ -2347,7 +2376,8 @@ function requireCadenceFields(
     return;
   }
   if (have.hour === undefined) bad(`hour is required for cadence ${cadence}`);
-  if (have.minute === undefined) bad(`minute is required for cadence ${cadence}`);
+  if (have.minute === undefined)
+    bad(`minute is required for cadence ${cadence}`);
 }
 
 // T-7fa1 staged *_pending responses. The mock has no wardens, so it can never
@@ -2415,9 +2445,11 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
   {
     entryId: "lore-31274bbb892c",
     trigger: "整套測試回 PASS／ok，而我正要拿這個結果去說「這一包沒問題」。",
-    content: "綠燈只證明「它看得到的那些東西沒問題」。go test -run 配一個匹配不到任何東西的正則，輸出跟真的全部通過逐字相同（唯一訊號 no tests to run 常被 grep 濾掉）。⇒ 跑完之後要問的是「這一次的量法，看得到的範圍是什麼」——而且要在跑過之後問，不是在寫的時候。",
+    content:
+      "綠燈只證明「它看得到的那些東西沒問題」。go test -run 配一個匹配不到任何東西的正則，輸出跟真的全部通過逐字相同（唯一訊號 no tests to run 常被 grep 濾掉）。⇒ 跑完之後要問的是「這一次的量法，看得到的範圍是什麼」——而且要在跑過之後問，不是在寫的時候。",
     retireWhen: "",
-    problem: "2026-09-01：-run 的正則打錯字，26 顆 mutant 一顆都沒跑，回報 PASS。分母改成可驗的做法是逐一 grep -c \"^func <name>(\"。",
+    problem:
+      '2026-09-01：-run 的正則打錯字，26 顆 mutant 一顆都沒跑，回報 PASS。分母改成可驗的做法是逐一 grep -c "^func <name>("。',
     events: [],
     subjects: ["repo:officraft"],
     actions: [],
@@ -2428,10 +2460,13 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
   },
   {
     entryId: "lore-3a8f02e14c10",
-    trigger: "我正要拿「它有自動備份／有守衛／有檢查」去對別人保證這一次是安全的。",
-    content: "機制存在只證明那條路上有那段碼，不證明這一次走的是那條路。實例：升級前備份只掛在 serve 開機那條路（backupBeforeMigrations 全樹一個呼叫者），而 bin/migrate 走的是沒有它的那條 ⇒ 用 migrate 升級的人沒有退路，而畫面上跟有退路一模一樣。⇒ 保證要講「這一次」，不是「有機制」。",
+    trigger:
+      "我正要拿「它有自動備份／有守衛／有檢查」去對別人保證這一次是安全的。",
+    content:
+      "機制存在只證明那條路上有那段碼，不證明這一次走的是那條路。實例：升級前備份只掛在 serve 開機那條路（backupBeforeMigrations 全樹一個呼叫者），而 bin/migrate 走的是沒有它的那條 ⇒ 用 migrate 升級的人沒有退路，而畫面上跟有退路一模一樣。⇒ 保證要講「這一次」，不是「有機制」。",
     retireWhen: "",
-    problem: "2026-09-01 分站換版：因此改成走 serve 開機而不是 migrate，並另外手拍一份驗過的備份。",
+    problem:
+      "2026-09-01 分站換版：因此改成走 serve 開機而不是 migrate，並另外手拍一份驗過的備份。",
     events: [],
     subjects: ["repo:officraft"],
     actions: [],
@@ -2443,9 +2478,11 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
   {
     entryId: "lore-b97ced3313a6",
     trigger: "我剛驗完一台機器的狀態，正要把結果當成「現在就是這樣」回報出去。",
-    content: "對一台會自己動的機器（有更新器、有排程、有 KeepAlive），驗證是瞬時的而狀態不是。⇒ 驗完要多問一句「有什麼東西會在我不看的時候改變它」，並把答案變成可觀察的（掛一個定期查、或關掉那個會動的東西）。",
+    content:
+      "對一台會自己動的機器（有更新器、有排程、有 KeepAlive），驗證是瞬時的而狀態不是。⇒ 驗完要多問一句「有什麼東西會在我不看的時候改變它」，並把答案變成可觀察的（掛一個定期查、或關掉那個會動的東西）。",
     retireWhen: "",
-    problem: "2026-09-01：我回報 trial 站跑 feab5437，90 秒後它自己 [upgrade] 換成 v0.5.281。成因是我複製的 DB 帶著 updater.auto_update=true。",
+    problem:
+      "2026-09-01：我回報 trial 站跑 feab5437，90 秒後它自己 [upgrade] 換成 v0.5.281。成因是我複製的 DB 帶著 updater.auto_update=true。",
     events: [],
     subjects: ["repo:officraft"],
     actions: [],
@@ -2456,10 +2493,13 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
   },
   {
     entryId: "lore-dab4e84475b4",
-    trigger: "我把一個站的 DB 複製到另一個站，然後預期新站會照我在新站上做的設定跑。",
-    content: "OffiCraft 的站台設定存在 DB 的 setting 表裡（updater.auto_update、receive_beta、JWT 簽章金鑰等），所以複製 DB 會一起搬過去。後果一：新站會照舊站的自動更新設定把你剛裝的 binary 換掉。後果二：舊站簽出來的 token 在新站也通。⇒ 複製 DB 之後、開機之前，先把那些跟「這台該怎麼行為」有關的設定改掉。",
+    trigger:
+      "我把一個站的 DB 複製到另一個站，然後預期新站會照我在新站上做的設定跑。",
+    content:
+      "OffiCraft 的站台設定存在 DB 的 setting 表裡（updater.auto_update、receive_beta、JWT 簽章金鑰等），所以複製 DB 會一起搬過去。後果一：新站會照舊站的自動更新設定把你剛裝的 binary 換掉。後果二：舊站簽出來的 token 在新站也通。⇒ 複製 DB 之後、開機之前，先把那些跟「這台該怎麼行為」有關的設定改掉。",
     retireWhen: "",
-    problem: "2026-09-01：分站換版後 90 秒自己升級（auto_update 跟著 DB 過去）；另外我主站的 agent token 打分站 /api/members 回 200，改一個字元回 401 ⇒ 簽章金鑰也跟著過去了。",
+    problem:
+      "2026-09-01：分站換版後 90 秒自己升級（auto_update 跟著 DB 過去）；另外我主站的 agent token 打分站 /api/members 回 200，改一個字元回 401 ⇒ 簽章金鑰也跟著過去了。",
     events: [],
     subjects: ["repo:officraft"],
     actions: [],
@@ -2471,9 +2511,11 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
   {
     entryId: "lore-76fba702e52a",
     trigger: "我剛說完「我收回那句話」，覺得這件事已經處理完了。",
-    content: "收回只對聽到的人生效，幾秒鐘；真正的工作是把那句話從每一個會被再讀一次的地方拔掉（記憶檔、步驟筆記、票面、已送出的卡、產物、PR 描述）。⇒ 真正會發生的失敗不是不願意更正，是只做了便宜的那一半，而做完那半的人主觀上覺得自己已經更正過了。",
+    content:
+      "收回只對聽到的人生效，幾秒鐘；真正的工作是把那句話從每一個會被再讀一次的地方拔掉（記憶檔、步驟筆記、票面、已送出的卡、產物、PR 描述）。⇒ 真正會發生的失敗不是不願意更正，是只做了便宜的那一半，而做完那半的人主觀上覺得自己已經更正過了。",
     retireWhen: "",
-    problem: "2026-09-01：Kyle 收回一句關於部署路徑的錯誤結論，而那句話已經被我寫進步驟筆記（下一代開機第一件要讀的東西）。掃描結果：步驟筆記命中 1、卡零、產物零、waiting_reason 零。",
+    problem:
+      "2026-09-01：Kyle 收回一句關於部署路徑的錯誤結論，而那句話已經被我寫進步驟筆記（下一代開機第一件要讀的東西）。掃描結果：步驟筆記命中 1、卡零、產物零、waiting_reason 零。",
     events: [],
     subjects: ["repo:officraft"],
     actions: [],
@@ -2483,7 +2525,6 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
     writtenBy: "agent:O-197",
   },
 ];
-
 
 /** Render one entry's L0 原文 — the mock's copy of the station's
  * `loreRevisionBody` (server/ocserverd/dal_lore_write.go).
@@ -2524,7 +2565,7 @@ function mockLoreOriginal(e: MockLoreEntry): string {
       cmp(a.what, b.what) ||
       cmp(a.actor, b.actor) ||
       cmp(a.place, b.place) ||
-      cmp(a.object, b.object)
+      cmp(a.object, b.object),
   );
   for (const ev of sorted) {
     // 人／地／物 empty stays empty: two adjacent tabs IS the record that
@@ -2623,7 +2664,8 @@ export const mockApi: Api = {
   async getMember(id: string): Promise<Member> {
     // A removed member reads as 404 (mirror handle_get_member).
     const w = findWire(id);
-    if (w.roster_status === "removed") throw new Error(`mock: member removed: ${id}`);
+    if (w.roster_status === "removed")
+      throw new Error(`mock: member removed: ${id}`);
     // unread_count is COMPUTED here exactly as listMembers computes it — the Go
     // single-member handler runs the same `unreadCountsForRequest` as the list
     // (T-8115 review). Serving the static fixture value instead would make the
@@ -2782,7 +2824,7 @@ export const mockApi: Api = {
         throw mockApiError(
           `http 422 for PATCH /api/members/${id}`,
           422,
-          "effort must be one of ['high', 'low', 'max', 'medium']"
+          "effort must be one of ['high', 'low', 'max', 'medium']",
         );
       }
       w.effort = patch.effort;
@@ -2805,7 +2847,7 @@ export const mockApi: Api = {
 
   async createWebhook(
     memberId: string,
-    input: WebhookCreateInput
+    input: WebhookCreateInput,
   ): Promise<WebhookEndpoint> {
     findWire(memberId);
     const endpointId = input.endpointId.trim();
@@ -2814,7 +2856,7 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 422 for POST /api/members/${memberId}/webhooks`,
         422,
-        "endpoint id may contain only letters, digits, '_' and '-'"
+        "endpoint id may contain only letters, digits, '_' and '-'",
       );
     }
     const list = mockWebhooks.get(memberId) ?? [];
@@ -2822,7 +2864,7 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 409 for POST /api/members/${memberId}/webhooks`,
         409,
-        `a webhook endpoint '${endpointId}' already exists for this member`
+        `a webhook endpoint '${endpointId}' already exists for this member`,
       );
     }
     const platform = input.platform ?? "generic";
@@ -2832,7 +2874,7 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 422 for POST /api/members/${memberId}/webhooks`,
         422,
-        `signing_secret is required when platform is '${platform}'`
+        `signing_secret is required when platform is '${platform}'`,
       );
     }
     const hasSecret = platform !== "generic" && secret !== "";
@@ -2861,7 +2903,7 @@ export const mockApi: Api = {
   async updateWebhook(
     memberId: string,
     endpointId: string,
-    patch: WebhookUpdate
+    patch: WebhookUpdate,
   ): Promise<WebhookEndpoint> {
     const list = mockWebhooks.get(memberId) ?? [];
     const e = list.find((x) => x.endpointId === endpointId);
@@ -2869,7 +2911,7 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 404 for PATCH /api/members/${memberId}/webhooks/${endpointId}`,
         404,
-        `webhook endpoint '${endpointId}' not found`
+        `webhook endpoint '${endpointId}' not found`,
       );
     }
     if (patch.status !== undefined) e.status = patch.status;
@@ -2895,19 +2937,19 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 404 for DELETE /api/members/${memberId}/webhooks/${endpointId}`,
         404,
-        `webhook endpoint '${endpointId}' not found`
+        `webhook endpoint '${endpointId}' not found`,
       );
     }
     mockWebhooks.set(
       memberId,
-      list.filter((x) => x.endpointId !== endpointId)
+      list.filter((x) => x.endpointId !== endpointId),
     );
     mockWebhookSecrets.delete(secretKey(memberId, endpointId));
   },
 
   async listWebhookRequests(
     memberId: string,
-    endpointId: string
+    endpointId: string,
   ): Promise<WebhookRequestLog[]> {
     // Server parity: the last 5 raw /in requests, newest first. Endpoints
     // without simulated traffic honestly read empty.
@@ -2922,7 +2964,7 @@ export const mockApi: Api = {
 
   async createScheduledMessage(
     memberId: string,
-    input: ScheduledMessageCreateInput
+    input: ScheduledMessageCreateInput,
   ): Promise<ScheduledMessage> {
     findScheduleRecipient(memberId);
     // Months are resolved BEFORE anything judges them — a create has no prior
@@ -2986,7 +3028,7 @@ export const mockApi: Api = {
   async updateScheduledMessage(
     memberId: string,
     scheduleId: string,
-    patch: ScheduledMessageUpdate
+    patch: ScheduledMessageUpdate,
   ): Promise<ScheduledMessage> {
     const list = mockScheduledMessages.get(memberId) ?? [];
     const s = list.find((x) => x.id === scheduleId);
@@ -2994,7 +3036,7 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 404 for PATCH /api/members/${memberId}/scheduled-messages/${scheduleId}`,
         404,
-        `scheduled message '${scheduleId}' not found`
+        `scheduled message '${scheduleId}' not found`,
       );
     }
     // 🔴 Resolved against the cadence this row will HAVE, not the one it had:
@@ -3004,12 +3046,12 @@ export const mockApi: Api = {
     const months = resolveMockMonths(
       cadenceAfter,
       s.customMonths,
-      patch.customMonths
+      patch.customMonths,
     );
     validateSchedulePart(
       memberId,
       { ...patch, customMonths: months },
-      cadenceAfter
+      cadenceAfter,
     );
     // Switching TO custom must arrive with the four sets in the SAME request
     // unless the stored row already carries them — a cadence with no times for
@@ -3042,7 +3084,8 @@ export const mockApi: Api = {
     // `!== undefined` would drop the all-twelve default a switch-to-custom
     // depends on.
     s.customMonths = sortedSet(months);
-    if (patch.customDays !== undefined) s.customDays = sortedSet(patch.customDays);
+    if (patch.customDays !== undefined)
+      s.customDays = sortedSet(patch.customDays);
     if (patch.customHours !== undefined)
       s.customHours = sortedSet(patch.customHours);
     if (patch.customMinutes !== undefined)
@@ -3069,24 +3112,24 @@ export const mockApi: Api = {
 
   async deleteScheduledMessage(
     memberId: string,
-    scheduleId: string
+    scheduleId: string,
   ): Promise<void> {
     const list = mockScheduledMessages.get(memberId) ?? [];
     if (!list.some((x) => x.id === scheduleId)) {
       throw mockApiError(
         `http 404 for DELETE /api/members/${memberId}/scheduled-messages/${scheduleId}`,
         404,
-        `scheduled message '${scheduleId}' not found`
+        `scheduled message '${scheduleId}' not found`,
       );
     }
     mockScheduledMessages.set(
       memberId,
-      list.filter((x) => x.id !== scheduleId)
+      list.filter((x) => x.id !== scheduleId),
     );
   },
 
   async getMemberResumeSummary(
-    memberId: string
+    memberId: string,
   ): Promise<MemberResumeSummaryView> {
     // 404 parity: an unknown id throws — but an `ow-` id is NOT unknown here
     // (this is the one member verb released to workers). See
@@ -3117,7 +3160,10 @@ export const mockApi: Api = {
     // The cut point: whole messages this payload does NOT carry. TRUNCATION —
     // a different thing from a message that IS here with its body folded, and
     // the hint is the SERVER's own recovery instruction, carried verbatim.
-    const chatCut = chatAll.slice(0, Math.max(0, chatAll.length - RESUME_CHAT_N));
+    const chatCut = chatAll.slice(
+      0,
+      Math.max(0, chatAll.length - RESUME_CHAT_N),
+    );
     const chatWindow = chatAll.slice(-RESUME_CHAT_N);
     const oldestCarried = chatWindow[0];
     const chatEarlierOmitted = {
@@ -3169,11 +3215,10 @@ export const mockApi: Api = {
     // through above, keeping it would hand every worker an empty task list
     // while claiming to mirror the server.
     const openTasksAll = tasks.filter(
-      (t) =>
-        t.executorId === memberId && !TERMINAL_TASK_STATUSES.has(t.status)
+      (t) => t.executorId === memberId && !TERMINAL_TASK_STATUSES.has(t.status),
     );
     const openTasksSorted = [...openTasksAll].sort(
-      (a, b) => b.updatedTs - a.updatedTs
+      (a, b) => b.updatedTs - a.updatedTs,
     );
     const tasksOut: ResumeTaskView[] = openTasksSorted
       .slice(0, RESUME_TASKS_N)
@@ -3183,14 +3228,14 @@ export const mockApi: Api = {
         const step = t.steps.find((s) => !TERMINAL_STEP_STATUSES.has(s.status));
         const detailChars = t.steps.reduce(
           (sum, s) => sum + s.name.length + s.dod.length,
-          0
+          0,
         );
         const answeredCardSteps: ResumeAnsweredCardStepView[] = t.steps
           .filter(
             (s) =>
               s.status === "in_progress" &&
               s.replyCardId !== "" &&
-              mockReplyCardStatusOf(s.replyCardId) === "answered"
+              mockReplyCardStatusOf(s.replyCardId) === "answered",
           )
           .map((s) => ({
             stepId: s.id,
@@ -3223,7 +3268,7 @@ export const mockApi: Api = {
             .filter(
               (o) =>
                 !["completed", "terminated", "duplicated"].includes(o.status) &&
-                (o.deps ?? []).includes(t.id)
+                (o.deps ?? []).includes(t.id),
             )
             .map((o) => o.id),
         };
@@ -3234,10 +3279,10 @@ export const mockApi: Api = {
     const cardsForMember = replyCards.filter((c) => c.from === memberId);
     const dayAgoTs = Date.now() / 1000 - 86400;
     const cardsWaiting = cardsForMember.filter(
-      (c) => c.status === "waiting"
+      (c) => c.status === "waiting",
     ).length;
     const cardsAnsweredRecent = cardsForMember.filter(
-      (c) => c.status === "answered" && (c.answeredTs ?? 0) >= dayAgoTs
+      (c) => c.status === "answered" && (c.answeredTs ?? 0) >= dayAgoTs,
     ).length;
 
     // ── studio-floor blocks (T-1b09) ────────────────────────────────────────
@@ -3286,7 +3331,7 @@ export const mockApi: Api = {
     // host reports for itself). `youAreOn` is the subject's SERVER-RECORDED
     // binding — "" when it has none, never guessed from anything else.
     const machineRows = wireMembers.filter(
-      (m) => m.kind === "warden" && m.roster_status !== "removed"
+      (m) => m.kind === "warden" && m.roster_status !== "removed",
     );
     const machines: ResumeMachinesView = {
       list: machineRows.map((m) => ({
@@ -3316,13 +3361,17 @@ export const mockApi: Api = {
         // honesty contract the counts above already keep.
         rosterChars: roster.reduce(
           (sum, r) =>
-            sum + r.id.length + r.name.length + r.duty.length +
-            r.currentTask.length + r.roleName.length,
-          0
+            sum +
+            r.id.length +
+            r.name.length +
+            r.duty.length +
+            r.currentTask.length +
+            r.roleName.length,
+          0,
         ),
         machinesChars: machines.list.reduce(
           (sum: number, m) => sum + m.machineId.length + m.displayName.length,
-          0
+          0,
         ),
         stepsOnAnsweredCard: answeredCardSteps.length,
         stepsOnAnsweredCardChars: answeredCardSteps.reduce(
@@ -3331,22 +3380,21 @@ export const mockApi: Api = {
             [...s.stepId].length +
             [...s.stepName].length +
             [...s.cardId].length,
-          0
+          0,
         ),
       },
       generatedAt: mockTsDisplay(Math.floor(Date.now() / 1000)),
       chatEarlierOmitted,
       roster,
       machines,
-      note:
-        "BOUNDED snapshot — recent chat + open tasks only; page the rest with list_chat / list_tasks / get_task.",
+      note: "BOUNDED snapshot — recent chat + open tasks only; page the rest with list_chat / list_tasks / get_task.",
     };
   },
 
   async listChat(
     withId: string,
     limit?: number,
-    before?: ChatCursor
+    before?: ChatCursor,
   ): Promise<ChatMessage[]> {
     // The conversation with `withId`: messages to or from that member, ascending
     // by (ts, id) — the same total order the BE pages by, so equal-ts messages
@@ -3365,7 +3413,7 @@ export const mockApi: Api = {
       msgs = msgs.filter(
         (m) =>
           m.ts < before.beforeTs ||
-          (m.ts === before.beforeTs && m.id < before.beforeId)
+          (m.ts === before.beforeTs && m.id < before.beforeId),
       );
     }
     if (limit !== undefined && limit >= 0) {
@@ -3435,10 +3483,10 @@ export const mockApi: Api = {
         fromName:
           m.from === MOCK_OWNER_ID
             ? ""
-            : wireMembers.find((w) => w.id === m.from)?.name ?? "",
+            : (wireMembers.find((w) => w.id === m.from)?.name ?? ""),
         to: m.to,
         ts: m.ts,
-      }))
+      })),
     );
   },
 
@@ -3526,7 +3574,7 @@ export const mockApi: Api = {
   },
 
   async listReplyCards(
-    status: "waiting" | "answered" | "expired"
+    status: "waiting" | "answered" | "expired",
   ): Promise<ReplyCard[]> {
     // Mirror the server's list contract: waiting = longest-waiting first
     // (created asc); answered = last-24h window, newest answer first; expired
@@ -3536,19 +3584,15 @@ export const mockApi: Api = {
       return structuredClone(
         replyCards
           .filter((c) => c.status === "waiting")
-          .sort((a, b) => a.createdTs - b.createdTs)
+          .sort((a, b) => a.createdTs - b.createdTs),
       );
     }
     const cutoff = Date.now() / 1000 - 24 * 3600;
     if (status === "expired") {
       return structuredClone(
         replyCards
-          .filter(
-            (c) =>
-              c.status === "expired" &&
-              (c.expiredTs ?? 0) >= cutoff
-          )
-          .sort((a, b) => (b.expiredTs ?? 0) - (a.expiredTs ?? 0))
+          .filter((c) => c.status === "expired" && (c.expiredTs ?? 0) >= cutoff)
+          .sort((a, b) => (b.expiredTs ?? 0) - (a.expiredTs ?? 0)),
       );
     }
     return structuredClone(
@@ -3557,9 +3601,9 @@ export const mockApi: Api = {
           (c) =>
             c.status === "answered" &&
             c.answeredTs !== null &&
-            c.answeredTs >= cutoff
+            c.answeredTs >= cutoff,
         )
-        .sort((a, b) => (b.answeredTs ?? 0) - (a.answeredTs ?? 0))
+        .sort((a, b) => (b.answeredTs ?? 0) - (a.answeredTs ?? 0)),
     );
   },
 
@@ -3582,10 +3626,10 @@ export const mockApi: Api = {
         (c) =>
           c.status === "answered" &&
           c.answeredTs !== null &&
-          c.answeredTs >= cutoff
+          c.answeredTs >= cutoff,
       ).length,
       expired: replyCards.filter(
-        (c) => c.status === "expired" && (c.expiredTs ?? 0) >= cutoff
+        (c) => c.status === "expired" && (c.expiredTs ?? 0) >= cutoff,
       ).length,
     };
   },
@@ -3598,14 +3642,13 @@ export const mockApi: Api = {
     return chatLog.filter(
       (m) =>
         m.to === MOCK_OWNER_ID &&
-        m.ts >
-          (chatReads.get(`${MOCK_OWNER_ID}::${m.from}`)?.lastReadTs ?? 0)
+        m.ts > (chatReads.get(`${MOCK_OWNER_ID}::${m.from}`)?.lastReadTs ?? 0),
     ).length;
   },
 
   async answerReplyCard(
     id: string,
-    answer: ReplyCardAnswerInput
+    answer: ReplyCardAnswerInput,
   ): Promise<ReplyCard> {
     // The one-shot close (mirrors handle_answer_reply_card): only a WAITING
     // card is answerable — already answered → 409 (revise via re-answer);
@@ -3616,7 +3659,7 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 409 for POST /api/reply-cards/${id}/answer`,
         409,
-        `reply card '${id}' is already answered`
+        `reply card '${id}' is already answered`,
       );
     }
     validateReplyAnswer(card, answer);
@@ -3630,7 +3673,7 @@ export const mockApi: Api = {
 
   async reanswerReplyCard(
     id: string,
-    answer: ReplyCardAnswerInput
+    answer: ReplyCardAnswerInput,
   ): Promise<ReplyCard> {
     // 重新決定 (mirrors handle_reanswer_reply_card): only an ANSWERED card is
     // revisable (waiting → 409 — answer it first); the answer is replaced
@@ -3641,7 +3684,7 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 409 for PUT /api/reply-cards/${id}/answer`,
         409,
-        `reply card '${id}' is not answered yet`
+        `reply card '${id}' is not answered yet`,
       );
     }
     validateReplyAnswer(card, answer);
@@ -3670,7 +3713,7 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 409 for POST /api/reply-cards/${id}/expire`,
         409,
-        `reply card '${id}' is already ${card.status} — only a waiting card can expire`
+        `reply card '${id}' is already ${card.status} — only a waiting card can expire`,
       );
     }
     card.status = "expired";
@@ -3684,7 +3727,7 @@ export const mockApi: Api = {
         (c) =>
           c.id !== id &&
           c.status === "waiting" &&
-          task.steps.some((st) => st.replyCardId === c.id)
+          task.steps.some((st) => st.replyCardId === c.id),
       );
       if (task.status === "waiting_owner" && !anotherWaiting) {
         task.status = "in_progress";
@@ -3796,7 +3839,7 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 409 for POST /api/tasks/${id}/terminate`,
         409,
-        `task '${id}' is already closed`
+        `task '${id}' is already closed`,
       );
     }
     t.status = "terminated";
@@ -3815,16 +3858,12 @@ export const mockApi: Api = {
     // already be an original of another duplicate. Non-terminal only.
     const t = findTask(id);
     const conflict = (detail: string) =>
-      mockApiError(
-        `http 409 for POST /api/tasks/${id}/duplicate`,
-        409,
-        detail
-      );
+      mockApiError(`http 409 for POST /api/tasks/${id}/duplicate`, 409, detail);
     if (!duplicateOf.trim()) {
       throw mockApiError(
         `http 422 for POST /api/tasks/${id}/duplicate`,
         422,
-        "duplicate_of must not be blank"
+        "duplicate_of must not be blank",
       );
     }
     if (TERMINAL_TASK_STATUSES.has(t.status)) {
@@ -3838,19 +3877,19 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 404 for POST /api/tasks/${id}/duplicate`,
         404,
-        `duplicate_of task '${duplicateOf}' not found`
+        `duplicate_of task '${duplicateOf}' not found`,
       );
     }
     if (original.status === "duplicated") {
       throw conflict(
         `duplicate_of task '${duplicateOf}' is itself a duplicate; point at the ` +
-          `final original it duplicates (${original.duplicateOf})`
+          `final original it duplicates (${original.duplicateOf})`,
       );
     }
     if (tasks.some((x) => x.duplicateOf === id)) {
       throw conflict(
         `task '${id}' is already the original of another duplicate; it cannot ` +
-          `itself be marked duplicated`
+          `itself be marked duplicated`,
       );
     }
     t.status = "duplicated";
@@ -3866,7 +3905,7 @@ export const mockApi: Api = {
 
   async updateTaskDescription(
     id: string,
-    description: string
+    description: string,
   ): Promise<TaskView> {
     // Mirrors HandleUpdateTaskDescription... (T-e271) rule for rule, because a
     // mock that is more permissive than the server lets a component pass here
@@ -3925,7 +3964,7 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 400 for POST /api/tasks/${id}/title`,
         400,
-        "title must not be blank"
+        "title must not be blank",
       );
     }
     if (t.title === trimmed) return t;
@@ -3947,14 +3986,14 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 409 for POST /api/tasks/${id}/priority`,
         409,
-        `task '${id}' is closed`
+        `task '${id}' is closed`,
       );
     }
     if (!["high", "mid", "low", "frozen"].includes(priority)) {
       throw mockApiError(
         `http 422 for POST /api/tasks/${id}/priority`,
         422,
-        "priority must be one of ['frozen', 'high', 'low', 'mid']"
+        "priority must be one of ['frozen', 'high', 'low', 'mid']",
       );
     }
     t.priority = priority;
@@ -3970,16 +4009,12 @@ export const mockApi: Api = {
     // task back to in_progress — the mock never flips it here either.
     const t = findTask(id);
     const badRequest = (detail: string) =>
-      mockApiError(
-        `http 400 for POST /api/tasks/${id}/reassign`,
-        400,
-        detail
-      );
+      mockApiError(`http 400 for POST /api/tasks/${id}/reassign`, 400, detail);
     if (TERMINAL_TASK_STATUSES.has(t.status)) {
       throw mockApiError(
         `http 409 for POST /api/tasks/${id}/reassign`,
         409,
-        `task '${id}' is already closed (${t.status})`
+        `task '${id}' is already closed (${t.status})`,
       );
     }
     // 🔴 NO frozen guard here, mirroring the server (owner ruling 2026-08-11,
@@ -3998,19 +4033,19 @@ export const mockApi: Api = {
       const m = wireMembers.find((x) => x.id === target.memberId);
       if (!m || m.roster_status !== "active") {
         throw badRequest(
-          `target member '${target.memberId}' is not an active roster member`
+          `target member '${target.memberId}' is not an active roster member`,
         );
       }
       if (m.kind === "warden") {
         throw badRequest(
-          `target member '${target.memberId}' is a machine (warden) — machines never execute tasks`
+          `target member '${target.memberId}' is a machine (warden) — machines never execute tasks`,
         );
       }
       if (t.executorKind === "member" && t.executorId === target.memberId) {
         throw mockApiError(
           `http 409 for POST /api/tasks/${id}/reassign`,
           409,
-          `member '${target.memberId}' is already the task's executor`
+          `member '${target.memberId}' is already the task's executor`,
         );
       }
       newMember = m;
@@ -4025,7 +4060,7 @@ export const mockApi: Api = {
         id: `ow-mock-${Date.now().toString(16)}`,
         codename: deriveCodename(
           target.model.trim(),
-          outsourceWorkers.map((w) => w.codename)
+          outsourceWorkers.map((w) => w.codename),
         ),
         model: target.model.trim(),
         effort,
@@ -4179,7 +4214,7 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 409 for DELETE /api/tasks/${taskId}/artifact/${artifactId}`,
         409,
-        `task '${taskId}' is closed (${t.status}) — its deliverables are frozen`
+        `task '${taskId}' is closed (${t.status}) — its deliverables are frozen`,
       );
     }
     const arts = t.artifacts ?? [];
@@ -4188,7 +4223,7 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 404 for DELETE /api/tasks/${taskId}/artifact/${artifactId}`,
         404,
-        `artifact '${artifactId}' not found`
+        `artifact '${artifactId}' not found`,
       );
     }
     t.artifacts = arts.filter((a) => a.id !== artifactId);
@@ -4206,7 +4241,7 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 409 for POST /api/tasks/${id}/message`,
         409,
-        `task '${id}' has no executor yet`
+        `task '${id}' has no executor yet`,
       );
     }
     const trimmed = msg.body.trim();
@@ -4216,7 +4251,7 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 400 for POST /api/tasks/${id}/message`,
         400,
-        "a message needs a body or attachments"
+        "a message needs a body or attachments",
       );
     }
     const stamp = Date.now();
@@ -4255,7 +4290,7 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 404 for GET /api/outsource-workers/${id}`,
         404,
-        `outsource worker ${id} not found`
+        `outsource worker ${id} not found`,
       );
     }
     return {
@@ -4266,7 +4301,7 @@ export const mockApi: Api = {
 
   async relocateWorker(
     id: string,
-    machineId: string
+    machineId: string,
   ): Promise<OutsourceWorkerView> {
     // 改機器 (T-f190). The mock has no scheduler, so it models the SERVER's
     // observable outcome honestly: write the owner-pinned desired_machine_id and,
@@ -4280,13 +4315,13 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 404 for POST /api/outsource-workers/${id}/relocate`,
         404,
-        `outsource worker ${id} not found`
+        `outsource worker ${id} not found`,
       );
     }
     w.desiredMachineId = machineId;
     if (machineId !== "") {
       const m = wireMembers.find(
-        (x) => x.id === machineId && x.kind === "warden"
+        (x) => x.id === machineId && x.kind === "warden",
       );
       // A concrete pin the server would reject (unknown id) still 404s there;
       // here the picker only offers real online machines, so resolve honestly.
@@ -4316,19 +4351,22 @@ export const mockApi: Api = {
     if (!w || w.status === "released") {
       throw mockApiError(
         `http 404 for POST /api/outsource-workers/${id}/refocus`,
-        404, `outsource worker ${id} not found`
+        404,
+        `outsource worker ${id} not found`,
       );
     }
     if (w.desiredState === "offline") {
       throw mockApiError(
         `http 409 for POST /api/outsource-workers/${id}/refocus`,
-        409, "worker is stopped — restart it before refocusing"
+        409,
+        "worker is stopped — restart it before refocusing",
       );
     }
     if (w.presence !== "online") {
       throw mockApiError(
         `http 409 for POST /api/outsource-workers/${id}/refocus`,
-        409, "refocus requires the worker to be online"
+        409,
+        "refocus requires the worker to be online",
       );
     }
     w.refocusSince = Date.now() / 1000;
@@ -4349,7 +4387,8 @@ export const mockApi: Api = {
     if (!w || w.status === "released") {
       throw mockApiError(
         `http 404 for POST /api/outsource-workers/${id}/stop`,
-        404, `outsource worker ${id} not found`
+        404,
+        `outsource worker ${id} not found`,
       );
     }
     w.desiredState = "offline";
@@ -4372,7 +4411,8 @@ export const mockApi: Api = {
     if (!w || w.status === "released") {
       throw mockApiError(
         `http 404 for POST /api/outsource-workers/${id}/accelerated-stop`,
-        404, `outsource worker ${id} not found`
+        404,
+        `outsource worker ${id} not found`,
       );
     }
     const windingDown =
@@ -4381,7 +4421,8 @@ export const mockApi: Api = {
     if (w.presence !== "online" && w.presence !== "stopping") {
       throw mockApiError(
         `http 409 for POST /api/outsource-workers/${id}/accelerated-stop`,
-        409, "加速停止 requires the worker to be online (no live session to accelerate)"
+        409,
+        "加速停止 requires the worker to be online (no live session to accelerate)",
       );
     }
     if (!windingDown) {
@@ -4389,7 +4430,7 @@ export const mockApi: Api = {
         `http 409 for POST /api/outsource-workers/${id}/accelerated-stop`,
         409,
         "加速停止 escalates a wind-down that is already open — this worker has not " +
-          "been asked to stop. Press 停止 or 重新聚焦 first"
+          "been asked to stop. Press 停止 or 重新聚焦 first",
       );
     }
     w.refocusOp = "accelerated_stop";
@@ -4414,7 +4455,8 @@ export const mockApi: Api = {
     if (!w || w.status === "released") {
       throw mockApiError(
         `http 404 for POST /api/outsource-workers/${id}/force-stop`,
-        404, `outsource worker ${id} not found`
+        404,
+        `outsource worker ${id} not found`,
       );
     }
     w.desiredState = "offline";
@@ -4437,7 +4479,8 @@ export const mockApi: Api = {
     if (!w || w.status === "released") {
       throw mockApiError(
         `http 404 for POST /api/outsource-workers/${id}/restart`,
-        404, `outsource worker ${id} not found`
+        404,
+        `outsource worker ${id} not found`,
       );
     }
     // Mock ↔ http parity (T-ed79 #10, owner 2026-08-21 「往正職靠：外包也不擋」):
@@ -4470,7 +4513,7 @@ export const mockApi: Api = {
 
   async setWorkerModel(
     id: string,
-    patch: { model: string; effort?: string }
+    patch: { model: string; effort?: string },
   ): Promise<OutsourceWorkerView> {
     // 換 model (T-f190). Persist model/effort; the respawn-to-take-effect-now is
     // server-side (invisible here). unknown/released → 404.
@@ -4478,11 +4521,13 @@ export const mockApi: Api = {
     if (!w || w.status === "released") {
       throw mockApiError(
         `http 404 for POST /api/outsource-workers/${id}/model`,
-        404, `outsource worker ${id} not found`
+        404,
+        `outsource worker ${id} not found`,
       );
     }
     w.model = patch.model;
-    if (patch.effort !== undefined && patch.effort !== "") w.effort = patch.effort;
+    if (patch.effort !== undefined && patch.effort !== "")
+      w.effort = patch.effort;
     emitTopic("outsource_worker");
     return {
       ...withWorkerTaskJoin(structuredClone(w)),
@@ -4505,14 +4550,16 @@ export const mockApi: Api = {
     if (!w) {
       throw mockApiError(
         `http 404 for GET /api/outsource-workers/${id}/boot-context`,
-        404, `outsource worker ${id} not found`
+        404,
+        `outsource worker ${id} not found`,
       );
     }
     const task = tasks.find((x) => x.id === w.taskId);
     if (!task) {
       throw mockApiError(
         `http 404 for GET /api/outsource-workers/${id}/boot-context`,
-        404, `task ${w.taskId} not found`
+        404,
+        `task ${w.taskId} not found`,
       );
     }
     // The worker and its bound task are still resolved above, because the two
@@ -4554,7 +4601,7 @@ export const mockApi: Api = {
     // the server drops them — a mock that kept serving them would let the
     // manual sub-pages keep reading a list row and stay green.
     return taskManuals.map(({ sopMd: _sop, learnings: _learn, ...row }) =>
-      structuredClone(row)
+      structuredClone(row),
     );
   },
 
@@ -4573,12 +4620,12 @@ export const mockApi: Api = {
       throw mockApiError(
         "http 400 for POST /api/task-manuals",
         400,
-        "display_name must not be blank"
+        "display_name must not be blank",
       );
     }
     const manual: TaskManualView = {
       typeKey: `tm-${Array.from({ length: 12 }, () =>
-        "0123456789abcdef".charAt(Math.floor(Math.random() * 16))
+        "0123456789abcdef".charAt(Math.floor(Math.random() * 16)),
       ).join("")}`,
       displayName: name,
       purpose: "",
@@ -4595,7 +4642,7 @@ export const mockApi: Api = {
 
   async updateTaskManual(
     typeKey: string,
-    patch: TaskManualPatch
+    patch: TaskManualPatch,
   ): Promise<TaskManualView> {
     // Mirrors handle_update_task_manual: partial — only supplied fields
     // change; assignee is three-valued (omitted = unchanged, null = unset).
@@ -4632,13 +4679,13 @@ export const mockApi: Api = {
     // type block the delete with a 409 (spec §5.1 需先讓那些任務結束).
     findTaskManual(typeKey);
     const open = tasks.some(
-      (t) => t.typeKey === typeKey && !TERMINAL_TASK_STATUSES.has(t.status)
+      (t) => t.typeKey === typeKey && !TERMINAL_TASK_STATUSES.has(t.status),
     );
     if (open) {
       throw mockApiError(
         `http 409 for DELETE /api/task-manuals/${typeKey}`,
         409,
-        `task type '${typeKey}' still has open tasks`
+        `task type '${typeKey}' still has open tasks`,
       );
     }
     taskManuals = taskManuals.filter((m) => m.typeKey !== typeKey);
@@ -4658,7 +4705,7 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 404 for GET /api/docs/${slug}`,
         404,
-        `doc '${slug}' not found`
+        `doc '${slug}' not found`,
       );
     }
     return structuredClone(doc);
@@ -4679,10 +4726,10 @@ export const mockApi: Api = {
     // display_name = the warden's display name; online = derived from the warden
     // member's presence. HONEST: it mirrors the member — the mock never fabricates
     // a reachable machine (the seed warden is offline → the picker's 0-online path).
-    return wireMembers
-      .filter((m) => m.kind === "warden" && m.roster_status !== "removed")
-      .map(
-        (m): WireMachine => ({
+    return (
+      wireMembers
+        .filter((m) => m.kind === "warden" && m.roster_status !== "removed")
+        .map((m): WireMachine => ({
           machine_id: m.id,
           display_name: m.name,
           online: m.presence === "online",
@@ -4695,11 +4742,11 @@ export const mockApi: Api = {
           claude_version: mockClaudeInfo.get(m.id)?.version ?? null,
           claude_cred_source: mockClaudeInfo.get(m.id)?.cred_source ?? null,
           claude_sub_readable: mockClaudeInfo.get(m.id)?.sub_readable ?? null,
-        })
-      )
-      // The server-self row is ALWAYS first (stable sort keeps the rest in order).
-      .sort((a, b) => Number(b.is_self) - Number(a.is_self))
-      .map(toMachine);
+        }))
+        // The server-self row is ALWAYS first (stable sort keeps the rest in order).
+        .sort((a, b) => Number(b.is_self) - Number(a.is_self))
+        .map(toMachine)
+    );
   },
 
   async patchAccount(id: string, patch: AliasPatch): Promise<void> {
@@ -4721,7 +4768,7 @@ export const mockApi: Api = {
       const w = wireMembers.find((m) => m.id === id);
       if (w) w.name = patch.displayName;
       const m = wireMonitoring.machines.find(
-        (x) => x.machine === (w?.desired_machine_id ?? id)
+        (x) => x.machine === (w?.desired_machine_id ?? id),
       );
       if (m) m.display_name = patch.displayName;
     }
@@ -4729,7 +4776,7 @@ export const mockApi: Api = {
 
   async onboardMachine(
     displayName: string,
-    _opts?: OnboardOptions
+    _opts?: OnboardOptions,
   ): Promise<OnboardResultView> {
     // Fake onboard: the machine is created by DISPLAY NAME ONLY (no host) — the
     // server owns the opaque machine_id. We mint a stable id and push a warden
@@ -4803,7 +4850,7 @@ export const mockApi: Api = {
     wireMembers = wireMembers.filter((m) => m.id !== memberId);
     if (machineId) {
       wireMonitoring.machines = wireMonitoring.machines.filter(
-        (m) => m.machine !== machineId
+        (m) => m.machine !== machineId,
       );
     }
     const wire: WireDeleteResult = {
@@ -4866,7 +4913,7 @@ export const mockApi: Api = {
     wireMembers = wireMembers.filter((m) => m.id !== machineId);
     if (host) {
       wireMonitoring.machines = wireMonitoring.machines.filter(
-        (m) => m.machine !== host
+        (m) => m.machine !== host,
       );
     }
     return {
@@ -4915,14 +4962,14 @@ export const mockApi: Api = {
       throw mockApiError(
         "http 403 for POST /api/auth/mfa/enroll",
         403,
-        "the second factor is not enabled on this server"
+        "the second factor is not enabled on this server",
       );
     }
     if (mockMfaActive) {
       throw mockApiError(
         "http 409 for POST /api/auth/mfa/enroll",
         409,
-        "a second factor is already active; disable it first"
+        "a second factor is already active; disable it first",
       );
     }
     mockMfaPending = true;
@@ -4937,21 +4984,21 @@ export const mockApi: Api = {
       throw mockApiError(
         "http 403 for POST /api/auth/mfa/activate",
         403,
-        "the second factor is not enabled on this server"
+        "the second factor is not enabled on this server",
       );
     }
     if (mockMfaActive) {
       throw mockApiError(
         "http 409 for POST /api/auth/mfa/activate",
         409,
-        "a second factor is already active"
+        "a second factor is already active",
       );
     }
     if (!mockMfaPending) {
       throw mockApiError(
         "http 409 for POST /api/auth/mfa/activate",
         409,
-        "no pending enrolment; call /api/auth/mfa/enroll first"
+        "no pending enrolment; call /api/auth/mfa/enroll first",
       );
     }
     // BOTH factors, ONE indistinguishable refusal — the server's shape. The
@@ -4963,7 +5010,7 @@ export const mockApi: Api = {
       throw mockApiError(
         "http 401 for POST /api/auth/mfa/activate",
         401,
-        "invalid password or code"
+        "invalid password or code",
       );
     }
     mockMfaPending = false;
@@ -4975,7 +5022,7 @@ export const mockApi: Api = {
       throw mockApiError(
         "http 409 for POST /api/auth/mfa/disable",
         409,
-        "no second factor is active"
+        "no second factor is active",
       );
     }
     // BOTH factors, ONE indistinguishable refusal — the server's shape.
@@ -4986,7 +5033,7 @@ export const mockApi: Api = {
       throw mockApiError(
         "http 401 for POST /api/auth/mfa/disable",
         401,
-        "invalid password or code"
+        "invalid password or code",
       );
     }
     mockMfaActive = false;
@@ -5000,21 +5047,21 @@ export const mockApi: Api = {
       throw mockApiError(
         "http 409 for POST /api/auth/set-password",
         409,
-        "a password is already set"
+        "a password is already set",
       );
     }
     if (claimToken !== MOCK_CLAIM_TOKEN) {
       throw mockApiError(
         "http 401 for POST /api/auth/set-password",
         401,
-        "invalid claim token"
+        "invalid claim token",
       );
     }
     if (password.length < 8) {
       throw mockApiError(
         "http 422 for POST /api/auth/set-password",
         422,
-        "password must be at least 8 characters"
+        "password must be at least 8 characters",
       );
     }
     mockPasswordSet = true;
@@ -5023,20 +5070,20 @@ export const mockApi: Api = {
 
   async changePassword(
     currentPassword: string,
-    newPassword: string
+    newPassword: string,
   ): Promise<void> {
     if (newPassword.length < 8) {
       throw mockApiError(
         "http 422 for POST /api/auth/change-password",
         422,
-        "new_password must be at least 8 characters"
+        "new_password must be at least 8 characters",
       );
     }
     if (!mockPasswordSet || currentPassword !== mockPassword) {
       throw mockApiError(
         "http 401 for POST /api/auth/change-password",
         401,
-        "invalid password"
+        "invalid password",
       );
     }
     mockPassword = newPassword;
@@ -5059,14 +5106,14 @@ export const mockApi: Api = {
       throw mockApiError(
         "http 422 for POST /api/theme/fetch",
         422,
-        "url must be an absolute http:// or https:// link"
+        "url must be an absolute http:// or https:// link",
       );
     }
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
       throw mockApiError(
         "http 422 for POST /api/theme/fetch",
         422,
-        "url must be an absolute http:// or https:// link"
+        "url must be an absolute http:// or https:// link",
       );
     }
     return JSON.stringify(
@@ -5076,7 +5123,7 @@ export const mockApi: Api = {
         colors: { "--color-bg": "#101018", "--color-accent": "#785af0" },
       },
       null,
-      2
+      2,
     );
   },
 
@@ -5094,7 +5141,7 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 404 for GET /api/themes/${id}`,
         404,
-        "theme not found"
+        "theme not found",
       );
     }
     return structuredClone(found);
@@ -5110,7 +5157,7 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 422 for PUT /api/themes/${bundle?.id}`,
         422,
-        err
+        err,
       );
     }
     const existing = mockThemes.has(bundle.id);
@@ -5130,7 +5177,7 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 422 for PUT /api/themes/${bundle.id}`,
         422,
-        `at most ${MAX_CUSTOM_THEMES} custom themes may be saved — delete one first`
+        `at most ${MAX_CUSTOM_THEMES} custom themes may be saved — delete one first`,
       );
     }
     // Map.set on an EXISTING key keeps its insertion position — which is
@@ -5150,7 +5197,7 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 404 for DELETE /api/themes/${id}`,
         404,
-        "theme not found"
+        "theme not found",
       );
     }
     mockThemes.delete(id);
@@ -5168,18 +5215,28 @@ export const mockApi: Api = {
   },
 
   async patchServerSettings(
-    patch: ServerSettingsPatch
+    patch: ServerSettingsPatch,
   ): Promise<ServerSettingsView> {
     // Validate BOTH fields before writing anything (server parity).
-    if (patch.ownerTokenTtl !== undefined && !TOKEN_TTL_CHOICES.has(patch.ownerTokenTtl)) {
+    if (
+      patch.ownerTokenTtl !== undefined &&
+      !TOKEN_TTL_CHOICES.has(patch.ownerTokenTtl)
+    ) {
       throw mockApiError(
         "http 422 for PATCH /api/settings",
         422,
-        "owner_token_ttl must be one of 43200, 86400, 604800, 2592000 seconds"
+        "owner_token_ttl must be one of 43200, 86400, 604800, 2592000 seconds",
       );
     }
-    if (patch.agentTokenTtl !== undefined && !TOKEN_TTL_CHOICES.has(patch.agentTokenTtl)) {
-      throw mockApiError("http 422 for PATCH /api/settings", 422, "agent_token_ttl must be one of 43200, 86400, 604800, 2592000 seconds");
+    if (
+      patch.agentTokenTtl !== undefined &&
+      !TOKEN_TTL_CHOICES.has(patch.agentTokenTtl)
+    ) {
+      throw mockApiError(
+        "http 422 for PATCH /api/settings",
+        422,
+        "agent_token_ttl must be one of 43200, 86400, 604800, 2592000 seconds",
+      );
     }
     if (
       patch.handoverPct !== undefined &&
@@ -5188,17 +5245,39 @@ export const mockApi: Api = {
       throw mockApiError(
         "http 422 for PATCH /api/settings",
         422,
-        "handover_pct must be between 40 and 90"
+        "handover_pct must be between 40 and 90",
       );
     }
-    if (patch.codexCompactionThreshold !== undefined && (patch.codexCompactionThreshold < 1 || patch.codexCompactionThreshold > 10)) {
-      throw mockApiError("http 422 for PATCH /api/settings", 422, "codex_compaction_threshold must be between 1 and 10");
+    if (
+      patch.codexCompactionThreshold !== undefined &&
+      (patch.codexCompactionThreshold < 1 ||
+        patch.codexCompactionThreshold > 10)
+    ) {
+      throw mockApiError(
+        "http 422 for PATCH /api/settings",
+        422,
+        "codex_compaction_threshold must be between 1 and 10",
+      );
     }
-    if (patch.noticePct !== undefined && (patch.noticePct < 1 || patch.noticePct > 89)) {
-      throw mockApiError("http 422 for PATCH /api/settings", 422, "notice_pct must be between 1 and 89");
+    if (
+      patch.noticePct !== undefined &&
+      (patch.noticePct < 1 || patch.noticePct > 89)
+    ) {
+      throw mockApiError(
+        "http 422 for PATCH /api/settings",
+        422,
+        "notice_pct must be between 1 and 89",
+      );
     }
-    if (patch.codexNoticeRound !== undefined && (patch.codexNoticeRound < 1 || patch.codexNoticeRound > 10)) {
-      throw mockApiError("http 422 for PATCH /api/settings", 422, "codex_notice_round must be between 1 and 10");
+    if (
+      patch.codexNoticeRound !== undefined &&
+      (patch.codexNoticeRound < 1 || patch.codexNoticeRound > 10)
+    ) {
+      throw mockApiError(
+        "http 422 for PATCH /api/settings",
+        422,
+        "codex_notice_round must be between 1 and 10",
+      );
     }
     // The pair is checked against the POST-PATCH values, exactly like the
     // server: either number may be sent on its own, and what must hold is that
@@ -5207,22 +5286,45 @@ export const mockApi: Api = {
       const notice = patch.noticePct ?? mockServerSettings.notice_pct;
       const final = patch.handoverPct ?? mockServerSettings.handover_pct;
       if (notice >= final) {
-        throw mockApiError("http 422 for PATCH /api/settings", 422, "notice_pct must be strictly below handover_pct");
+        throw mockApiError(
+          "http 422 for PATCH /api/settings",
+          422,
+          "notice_pct must be strictly below handover_pct",
+        );
       }
-      const noticeRound = patch.codexNoticeRound ?? mockServerSettings.codex_notice_round;
-      const finalRound = patch.codexCompactionThreshold ?? mockServerSettings.codex_compaction_threshold;
+      const noticeRound =
+        patch.codexNoticeRound ?? mockServerSettings.codex_notice_round;
+      const finalRound =
+        patch.codexCompactionThreshold ??
+        mockServerSettings.codex_compaction_threshold;
       if (noticeRound >= finalRound) {
-        throw mockApiError("http 422 for PATCH /api/settings", 422, "codex_notice_round must be strictly below codex_compaction_threshold");
+        throw mockApiError(
+          "http 422 for PATCH /api/settings",
+          422,
+          "codex_notice_round must be strictly below codex_compaction_threshold",
+        );
       }
     }
     if (
       patch.acceleratedGraceSecs !== undefined &&
       (patch.acceleratedGraceSecs < 10 || patch.acceleratedGraceSecs > 3600)
     ) {
-      throw mockApiError("http 422 for PATCH /api/settings", 422, "accelerated_grace_secs must be between 10 and 3600 seconds");
+      throw mockApiError(
+        "http 422 for PATCH /api/settings",
+        422,
+        "accelerated_grace_secs must be between 10 and 3600 seconds",
+      );
     }
-    if (patch.monitoringRefreshSeconds !== undefined && (patch.monitoringRefreshSeconds < 1 || patch.monitoringRefreshSeconds > 60)) {
-      throw mockApiError("http 422 for PATCH /api/settings", 422, "monitoring_refresh_seconds must be between 1 and 60");
+    if (
+      patch.monitoringRefreshSeconds !== undefined &&
+      (patch.monitoringRefreshSeconds < 1 ||
+        patch.monitoringRefreshSeconds > 60)
+    ) {
+      throw mockApiError(
+        "http 422 for PATCH /api/settings",
+        422,
+        "monitoring_refresh_seconds must be between 1 and 60",
+      );
     }
     if (
       patch.outsourceMaxParallel !== undefined &&
@@ -5232,7 +5334,7 @@ export const mockApi: Api = {
       throw mockApiError(
         "http 422 for PATCH /api/settings",
         422,
-        "outsource_max_parallel must be between -1 and 20 (-1 = unlimited)"
+        "outsource_max_parallel must be between -1 and 20 (-1 = unlimited)",
       );
     }
     // Server parity (T-3aeb / T-ae38 / T-30f1): each floor IS that segment's
@@ -5241,7 +5343,11 @@ export const mockApi: Api = {
     // the owner's Duty default unreachable through this surface. The numbers
     // are read from DOC_CAP_CHARS_DEFAULTS, never restated.
     for (const [field, wire, min] of [
-      [patch.docCapCharsDuty, "doc_cap_chars_duty", DOC_CAP_CHARS_DEFAULTS.duty],
+      [
+        patch.docCapCharsDuty,
+        "doc_cap_chars_duty",
+        DOC_CAP_CHARS_DEFAULTS.duty,
+      ],
       [
         patch.docCapCharsInsight,
         "doc_cap_chars_insight",
@@ -5282,7 +5388,7 @@ export const mockApi: Api = {
         throw mockApiError(
           "http 422 for PATCH /api/settings",
           422,
-          `${wire} must be between ${min} and 100000 characters — the floor is the shipped default, so the document cap can only be raised, never lowered`
+          `${wire} must be between ${min} and 100000 characters — the floor is the shipped default, so the document cap can only be raised, never lowered`,
         );
       }
     }
@@ -5297,7 +5403,7 @@ export const mockApi: Api = {
       throw mockApiError(
         "http 422 for PATCH /api/settings",
         422,
-        `backup_retain must be between ${BACKUP_RETAIN_MIN} and ${BACKUP_RETAIN_MAX} backups per pool`
+        `backup_retain must be between ${BACKUP_RETAIN_MIN} and ${BACKUP_RETAIN_MAX} backups per pool`,
       );
     }
     // T-c9b4: checked on its own, NOT as a row above — it has its own ceiling,
@@ -5311,18 +5417,15 @@ export const mockApi: Api = {
       throw mockApiError(
         "http 422 for PATCH /api/settings",
         422,
-        `chat_budget_chars must be between ${CHAT_BUDGET_CHARS_MIN} and ${CHAT_BUDGET_CHARS_MAX} characters`
+        `chat_budget_chars must be between ${CHAT_BUDGET_CHARS_MIN} and ${CHAT_BUDGET_CHARS_MAX} characters`,
       );
     }
-    if (
-      patch.orgName !== undefined &&
-      [...patch.orgName.trim()].length > 80
-    ) {
+    if (patch.orgName !== undefined && [...patch.orgName.trim()].length > 80) {
       // Server parity: trimmed, capped at 80 runes (T-d693).
       throw mockApiError(
         "http 422 for PATCH /api/settings",
         422,
-        "org_name must be at most 80 characters"
+        "org_name must be at most 80 characters",
       );
     }
     if (
@@ -5333,7 +5436,7 @@ export const mockApi: Api = {
       throw mockApiError(
         "http 422 for PATCH /api/settings",
         422,
-        "owner_name must be at most 80 characters"
+        "owner_name must be at most 80 characters",
       );
     }
     // display_theme is validated against the THEME STORE: "" | a built-in | an
@@ -5347,7 +5450,7 @@ export const mockApi: Api = {
       throw mockApiError(
         "http 422 for PATCH /api/settings",
         422,
-        'display_theme must be "", office, or an existing custom theme id'
+        'display_theme must be "", office, or an existing custom theme id',
       );
     }
     if (
@@ -5359,7 +5462,7 @@ export const mockApi: Api = {
       throw mockApiError(
         "http 422 for PATCH /api/settings",
         422,
-        "display_language must be one of zh, en"
+        "display_language must be one of zh, en",
       );
     }
     if (patch.ownerTokenTtl !== undefined) {
@@ -5372,7 +5475,8 @@ export const mockApi: Api = {
       mockServerSettings.handover_pct = patch.handoverPct;
     }
     if (patch.codexCompactionThreshold !== undefined) {
-      mockServerSettings.codex_compaction_threshold = patch.codexCompactionThreshold;
+      mockServerSettings.codex_compaction_threshold =
+        patch.codexCompactionThreshold;
     }
     if (patch.noticePct !== undefined) {
       mockServerSettings.notice_pct = patch.noticePct;
@@ -5384,7 +5488,8 @@ export const mockApi: Api = {
       mockServerSettings.accelerated_grace_secs = patch.acceleratedGraceSecs;
     }
     if (patch.monitoringRefreshSeconds !== undefined) {
-      mockServerSettings.monitoring_refresh_seconds = patch.monitoringRefreshSeconds;
+      mockServerSettings.monitoring_refresh_seconds =
+        patch.monitoringRefreshSeconds;
     }
     if (patch.outsourceMaxParallel !== undefined) {
       mockServerSettings.outsource_max_parallel = patch.outsourceMaxParallel;
@@ -5436,8 +5541,16 @@ export const mockApi: Api = {
     }
     if (patch.pushContactEmail !== undefined) {
       const email = patch.pushContactEmail.trim();
-      if (email && (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || /\.(local|localhost|internal|test|invalid|example)$/i.test(email))) {
-        throw mockApiError("http 422 for PATCH /api/settings", 422, "push_contact_email must be a public email address");
+      if (
+        email &&
+        (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
+          /\.(local|localhost|internal|test|invalid|example)$/i.test(email))
+      ) {
+        throw mockApiError(
+          "http 422 for PATCH /api/settings",
+          422,
+          "push_contact_email must be a public email address",
+        );
       }
       mockServerSettings.push_contact_email = email;
     }
@@ -5467,6 +5580,9 @@ export const mockApi: Api = {
     // omitted field never changes it (PATCH semantics, server parity).
     if (patch.displayWide !== undefined) {
       mockServerSettings.display_wide = patch.displayWide;
+    }
+    if (patch.loreEnabled !== undefined) {
+      mockServerSettings.lore_enabled = patch.loreEnabled;
     }
     // onboarding_dismissed (T-0648) — server parity: the stamp lives ON the
     // report row, and only a `failed` report has a banner up to close. Every
@@ -5500,7 +5616,7 @@ export const mockApi: Api = {
         throw mockApiError(
           "http 409 for PATCH /api/settings",
           409,
-          "no onboarding banner is up to dismiss — the first-run report is absent or not in a failed state"
+          "no onboarding banner is up to dismiss — the first-run report is absent or not in a failed state",
         );
       }
       mockServerSettings.onboarding = {
@@ -5517,7 +5633,9 @@ export const mockApi: Api = {
     return "B" + "A".repeat(86);
   },
 
-  async savePushSubscription(_subscription: PushSubscriptionInput): Promise<void> {
+  async savePushSubscription(
+    _subscription: PushSubscriptionInput,
+  ): Promise<void> {
     // Mock mode intentionally has no push gateway or durable browser targets.
   },
 
@@ -5543,7 +5661,7 @@ export const mockApi: Api = {
     throw mockApiError(
       "http 409 for POST /api/update/upgrade",
       409,
-      "no newer release is known — the running build is the latest published on GitHub"
+      "no newer release is known — the running build is the latest published on GitHub",
     );
   },
 
@@ -5583,7 +5701,7 @@ export const mockApi: Api = {
   async saveBootDoc(
     kind: BootDocKind,
     key: string,
-    body: string
+    body: string,
   ): Promise<BootDocView> {
     // 404 BEFORE anything is written: foldBootDoc is the one place that knows
     // whether (kind, key) names a document, and a save that created a fourth
@@ -5608,7 +5726,7 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 400 for POST /api/boot-docs/${kind}/${key}`,
         400,
-        "this would replace the existing document with an empty one"
+        "this would replace the existing document with an empty one",
       );
     }
     // The server's floor, mirrored — and on the STORED document, which is what
@@ -5619,7 +5737,7 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 400 for POST /api/boot-docs/${kind}/${key}`,
         400,
-        `document is ${[...text].length} characters, over the ${before.cap_chars} character limit`
+        `document is ${[...text].length} characters, over the ${before.cap_chars} character limit`,
       );
     }
     // 🔴 Identical content retains NO version (owner ruling). Ten slots sound
@@ -5702,7 +5820,7 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 404 for POST /api/roles/${key}/reset`,
         404,
-        `role '${key}' not found`
+        `role '${key}' not found`,
       );
     }
     // Idempotent tombstone: drop the overlay → the folded read is the seed again.
@@ -5722,11 +5840,10 @@ export const mockApi: Api = {
       throw mockApiError(
         "http 422 for POST /api/roles",
         422,
-        "role requires a name"
+        "role requires a name",
       );
     }
-    const memberName =
-      (input.memberName ?? "").trim() || pickMockMemberName();
+    const memberName = (input.memberName ?? "").trim() || pickMockMemberName();
     const effort = input.effort ?? "medium";
     if (!["low", "medium", "high", "max"].includes(effort)) {
       // Byte-for-byte the server's message (ocserverd/api_roles.go:128-129):
@@ -5734,7 +5851,7 @@ export const mockApi: Api = {
       throw mockApiError(
         "http 422 for POST /api/roles",
         422,
-        `effort must be one of [high low max medium]; got '${effort}'`
+        `effort must be one of [high low max medium]; got '${effort}'`,
       );
     }
     const hex = () =>
@@ -5804,14 +5921,14 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 403 for DELETE /api/roles/${key}`,
         403,
-        `role '${key}' is a built-in seed role and cannot be deleted`
+        `role '${key}' is a built-in seed role and cannot be deleted`,
       );
     }
     if (!customRoles.has(key)) {
       throw mockApiError(
         `http 404 for DELETE /api/roles/${key}`,
         404,
-        `role '${key}' not found`
+        `role '${key}' not found`,
       );
     }
     const members = wireMembers.filter((m) => m.role_key === key);
@@ -5819,7 +5936,7 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 409 for DELETE /api/roles/${key}`,
         409,
-        `role '${key}' has online member(s) — stop them before deleting`
+        `role '${key}' has online member(s) — stop them before deleting`,
       );
     }
     const ids = new Set(members.map((m) => m.id));
@@ -6014,7 +6131,7 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 404 for POST /api/insight/${roleKey}/reset`,
         404,
-        `role '${roleKey}' has no factory insight to reset to`
+        `role '${roleKey}' has no factory insight to reset to`,
       );
     }
     // The discarded overlay is retained as a revision BEFORE it is dropped —
@@ -6028,7 +6145,7 @@ export const mockApi: Api = {
 
   async listDocumentHistory(
     kind: DocumentKind,
-    key: string
+    key: string,
   ): Promise<DocumentHistoryEntryView[]> {
     refuseRetiredDocumentKind(kind, `GET /api/document-history/${kind}/${key}`);
     // Newest first, at most DOCUMENT_HISTORY_CAP — the retention the server
@@ -6047,7 +6164,7 @@ export const mockApi: Api = {
   async getDocumentRevision(
     kind: DocumentKind,
     key: string,
-    id: number
+    id: number,
   ): Promise<DocumentRevisionView> {
     const route = `GET /api/document-history/${kind}/${key}/${id}`;
     refuseRetiredDocumentKind(kind, route);
@@ -6061,7 +6178,7 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 404 for ${route}`,
         404,
-        `document revision ${id} is no longer retained`
+        `document revision ${id} is no longer retained`,
       );
     }
     return { id: found.id, content: structuredClone(found.content) };
@@ -6069,7 +6186,7 @@ export const mockApi: Api = {
 
   async getDocumentSeed(
     kind: DocumentKind,
-    key: string
+    key: string,
   ): Promise<DocumentSeedView> {
     const route = `GET /api/document-history/${kind}/${key}/seed`;
     refuseRetiredDocumentKind(kind, route);
@@ -6109,7 +6226,11 @@ export const mockApi: Api = {
               ? { text: bootDocSeed(kind, key)!, tombstoned: "true" }
               : null;
     if (content === null) {
-      throw mockApiError(`http 404 for ${route}`, 404, `document '${kind}/${key}' has no shipped default to compare against`);
+      throw mockApiError(
+        `http 404 for ${route}`,
+        404,
+        `document '${kind}/${key}' has no shipped default to compare against`,
+      );
     }
     const wire: WireDocumentSeed = { kind, key, content };
     return toDocumentSeed(structuredClone(wire));
@@ -6118,11 +6239,11 @@ export const mockApi: Api = {
   async restoreDocumentHistory(
     kind: DocumentKind,
     key: string,
-    id: number
+    id: number,
   ): Promise<DocumentHistoryView> {
     refuseRetiredDocumentKind(
       kind,
-      `POST /api/document-history/${kind}/${key}/${id}/restore`
+      `POST /api/document-history/${kind}/${key}/${id}/restore`,
     );
     const slot = historySlot(kind, key);
     const found = (documentHistories.get(slot) ?? []).find((h) => h.id === id);
@@ -6130,7 +6251,7 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 404 for POST /api/document-history/${kind}/${key}/${id}/restore`,
         404,
-        "document history version not found"
+        "document history version not found",
       );
     }
     // The restore is itself a write: the state it overwrites becomes the
@@ -6160,15 +6281,13 @@ export const mockApi: Api = {
       throw mockApiError(
         "http 422 for /api/lore/search",
         422,
-        "limit must be between 1 and 100"
+        "limit must be between 1 and 100",
       );
     }
     const subject = input.subject ?? "";
     const query = input.query ?? "";
     const needle = query.toLowerCase();
-    const known = new Set(
-      MOCK_LORE_ENTRIES.flatMap((e) => e.subjects)
-    );
+    const known = new Set(MOCK_LORE_ENTRIES.flatMap((e) => e.subjects));
     // A subject key that names nothing is NOT an empty result: it comes back
     // unresolved with the key echoed, so a typo is visible instead of reading
     // as 「this subject has nothing filed under it」.
@@ -6233,7 +6352,7 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 404 for /api/lore/entries/${entryId}`,
         404,
-        "lore entry not found"
+        "lore entry not found",
       );
     }
     const original = mockLoreOriginal(e);
@@ -6269,7 +6388,7 @@ export const mockApi: Api = {
 
   async getLoreRevision(
     entryId: string,
-    revisionId: number
+    revisionId: number,
   ): Promise<LoreRevisionView> {
     const detail = await mockApi.getLoreEntry(entryId);
     const row = detail.revisions.find((r) => r.revisionId === revisionId);
@@ -6277,7 +6396,7 @@ export const mockApi: Api = {
       throw mockApiError(
         `http 404 for /api/lore/entries/${entryId}/revisions/${revisionId}`,
         404,
-        "lore revision not found"
+        "lore revision not found",
       );
     }
     return {
@@ -6301,19 +6420,19 @@ export const mockApi: Api = {
 
   async approveLoreEntity(
     entityId: string,
-    reason = ""
+    reason = "",
   ): Promise<LoreEntityGovernanceView> {
     const row = mockPendingEntities.find((e) => e.entityId === entityId);
     if (!row) {
       throw mockApiError(
         `http 404 for /api/lore/entities/${entityId}/approve`,
         404,
-        "lore entity not found"
+        "lore entity not found",
       );
     }
     // 核可之後它就不在佇列裡了 —— 佇列是待審的,不是全部對象的清單。
     mockPendingEntities = mockPendingEntities.filter(
-      (e) => e.entityId !== entityId
+      (e) => e.entityId !== entityId,
     );
     return {
       entityId: row.entityId,
@@ -6330,25 +6449,25 @@ export const mockApi: Api = {
   async mergeLoreEntity(
     entityId: string,
     into: string,
-    reason = ""
+    reason = "",
   ): Promise<LoreEntityGovernanceView> {
     const row = mockPendingEntities.find((e) => e.entityId === entityId);
     if (!row) {
       throw mockApiError(
         `http 404 for /api/lore/entities/${entityId}/merge`,
         404,
-        "lore entity not found"
+        "lore entity not found",
       );
     }
     if (into.trim() === "") {
       throw mockApiError(
         `http 422 for /api/lore/entities/${entityId}/merge`,
         422,
-        "into is required"
+        "into is required",
       );
     }
     mockPendingEntities = mockPendingEntities.filter(
-      (e) => e.entityId !== entityId
+      (e) => e.entityId !== entityId,
     );
     return {
       entityId: row.entityId,
@@ -6363,7 +6482,7 @@ export const mockApi: Api = {
   },
 
   subscribeConnection(
-    onState: (state: SseConnectionState) => void
+    onState: (state: SseConnectionState) => void,
   ): () => void {
     // The mock has no transport, so it has no transport to lose: report "live"
     // once and never call back. This is the honest answer, not a stub — there
@@ -6472,7 +6591,7 @@ export function __injectMockOutsourceWorker(w: OutsourceWorkerView): void {
 // this separate from __injectMockOutsourceWorker lets roster consumers test an
 // outsource worker arriving through the newly-inclusive member-list contract.
 export function __injectMockMember(
-  over: Partial<WireMember> & Pick<WireMember, "id" | "kind">
+  over: Partial<WireMember> & Pick<WireMember, "id" | "kind">,
 ): void {
   wireMembers.push({
     ...structuredClone(MOCK_WIRE_MEMBERS[1]),
@@ -6515,7 +6634,7 @@ export function __injectMockTaskManual(m: TaskManualView): void {
 // half the server comment calls the whole point — has nothing standing on it.
 // Cleared by __resetMock along with the rest of the settings blob.
 export function __injectMockOnboardingReport(
-  report: NonNullable<WireServerSettings["onboarding"]>
+  report: NonNullable<WireServerSettings["onboarding"]>,
 ): void {
   mockServerSettings.onboarding = structuredClone(report);
 }

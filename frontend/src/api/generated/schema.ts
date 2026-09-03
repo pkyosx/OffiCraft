@@ -9128,6 +9128,12 @@ export interface components {
              */
             display_wide: boolean;
             /**
+             * Lore Enabled
+             * @description Whether the LORE feature is ON for this station (T-33; DB `lore.enabled`, default false = OFF). 🔴 IT IS ONE SWITCH FOR THE WHOLE STATION, and OFF means the feature DOES NOT EXIST for an agent: every /api/lore/* route refuses 403 naming this setting, the wake boot context carries no 對象目錄 (subject directory) section, and the cockpit renders no 傳承 tab. 🔴 OFF DOES NOT MOVE ANY MEMORY ANYWHERE — nothing is copied into 長期筆記 / 教訓 and nothing is deleted. An agent that cannot write lore simply goes on using the learning / lesson tools it already had, which is the WHOLE of the fallback: there is no cross-store transfer, because a transfer can fail (the target has its own cap) and a half-moved memory is worse than one that stayed put. Turning it back on returns every stored entry untouched. Read LIVE on every call, so a change applies to the very next request with no restart — with ONE stated exception: a boot context is assembled once at wake, so an agent that already booted keeps the document it was handed until it boots again.
+             * @default false
+             */
+            lore_enabled: boolean;
+            /**
              * Backup Retain
              * @description How many database backup files rotation KEEPS — N. Everything past N is DELETED from disk, not moved aside: the retirement path used to be a move into `trash/` that nothing ever emptied, which is how this studio's trash reached 141.6 GiB / 278 files. Two things this number does NOT mean, both stated because both have already been misread: (1) N COUNTS VERSIONS, NOT DAYS — five is five FILES, and how much calendar that spans depends entirely on how busy the stretch was (this machine produced 19 backups on 2026-08-19 and 4 on 2026-08-24), so one N covers under three days on a busy day and over a week on a quiet one; (2) N IS PER POOL, NOT PER DIRECTORY — routine backups (scheduled + manual) and pre-migration backups hold separate quotas, so setting 5 keeps up to 10 files, not 5. The adjustable range is 1..20, and the ceiling is a disk budget rather than a round number (steady-state cost is 2 × N × one snapshot). Rotation only ever sees files it created itself (`officraft-`…`.db`), so hand-made snapshots, partial files and subdirectories are neither counted toward N nor deleted.
              * @default 5
@@ -9359,6 +9365,11 @@ export interface components {
              * @description Turn the WIDE cockpit layout on/off (T-756f) — true lifts the centred ~1040px content column (the side gutters stay), false restores it. A plain boolean with no unset state: omit the field to leave it unchanged.
              */
             display_wide?: boolean | null;
+            /**
+             * Lore Enabled
+             * @description Turn the LORE feature on/off for this station (T-33). true = /api/lore/* answers, the boot context folds in the 對象目錄, the cockpit shows the 傳承 tab; false (the default) = every lore route refuses 403, no directory in the boot context, no tab. Omit the field to leave it unchanged. 🔴 Turning it OFF never moves or deletes a stored entry — it only stops the feature being reachable, and an agent then goes on using the learning / lesson tools it already had; turning it back on returns everything as it was.
+             */
+            lore_enabled?: boolean | null;
             /**
              * Handover Pct
              * @description The SECOND offboard point: the FINAL notice, and where the automatic handover fires. 40..90, and strictly greater than notice_pct (the pair is validated together against the POST-patch values, so either one may be sent alone).

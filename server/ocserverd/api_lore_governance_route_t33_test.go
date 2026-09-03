@@ -31,7 +31,18 @@ import (
 // principalAgent) and the owner.
 func loreGovStack(t *testing.T) (srvURL string, dal *DAL, agentTok, ownerTok, wardenTok string) {
 	t.Helper()
-	srv, dal, secret := newLessonsTestServer(t)
+	srv, dal, secret, api := newLessonsTestServerAPI(t)
+	// T-33: the lore feature ships OFF, so every /api/lore/* row refuses 403 on a
+	// default station. All 34 uses of this stack test the routes' OWN behaviour
+	// (RBAC floors, 404s, 409s, body validation), which only exists downstream of
+	// the feature gate — leaving the switch off here would turn every one of them
+	// into an assertion about a 403 they do not mention.
+	//
+	// 🔴 THE SWITCH IS SET BEFORE THE FIRST REQUEST AND NEVER AGAIN. It is read
+	// live per request (loreFeatureGate), not captured when the table was built,
+	// so this assignment is what those requests see. The OFF behaviour of these
+	// same routes lives in lore_toggle_t33_test.go, with a control.
+	enableLoreForTest(api)
 	now := time.Now().Unix()
 
 	if err := dal.PutMember(Member{

@@ -28,7 +28,10 @@ import (
 // (role_key "assistant" — mira's class), and the owner.
 func loreEntityStack(t *testing.T) (srvURL string, dal *DAL, agentTok, adminTok, ownerTok string) {
 	t.Helper()
-	srv, dal, secret := newLessonsTestServer(t)
+	srv, dal, secret, api := newLessonsTestServerAPI(t)
+	// T-33: these tests are about the review queue's OWN behaviour, which only
+	// exists downstream of the station-wide lore switch. See loreGovStack.
+	enableLoreForTest(api)
 	now := time.Now().Unix()
 
 	for _, m := range []Member{

@@ -39,6 +39,15 @@ vi.mock("./components/SettingsPage", () => ({ SettingsPage: () => null }));
 vi.mock("./components/UserGuidePage", () => ({
   GuidePage: () => <div data-testid="guide-page" />,
 }));
+// 傳承 is behind the station-wide lore switch (T-33). This file is about the
+// ORDER of the strip, so it pins the switch ON — the tab has to exist for its
+// position to be assertable at all. Whether the switch itself works is
+// App.lore-toggle.test.tsx's job, and that file asserts BOTH states.
+vi.mock("./hooks/sharedServerSettings", () => ({
+  loadServerSettings: () => Promise.resolve({ loreEnabled: true }),
+  adoptServerSettings: () => {},
+  refreshServerSettings: () => Promise.resolve({ loreEnabled: true }),
+}));
 
 import App from "./App";
 
@@ -61,8 +70,10 @@ describe("主導覽分頁", () => {
     history.replaceState(null, "", window.location.pathname);
   });
 
-  it("傳承 sits right of 任務, and 使用說明 stays right of 監控", () => {
+  it("傳承 sits right of 任務, and 使用說明 stays right of 監控", async () => {
     renderApp();
+    // The lore switch is fetched, so the tab arrives one microtask after mount.
+    await screen.findByText(zh.lore.title);
     const labels = tabLabels();
     expect(labels).toEqual([
       zh.nav.office,

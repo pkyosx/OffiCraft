@@ -166,6 +166,35 @@ func (sur loreSurfacing) surfaced() bool { return len(sur.Subjects) > 0 }
 // handover is certain.
 func (s *apiServer) foldLoreSectionWithSurfacing(actorID string) (string, loreSurfacing, error) {
 	sur := loreSurfacing{ActorID: actorID}
+	// 🔴 THE FEATURE SWITCH IS CHECKED HERE, IN THE ONE SHARED ASSEMBLER, AND
+	// NOWHERE ELSE ON THE BOOT PATHS (T-33). This function already exists
+	// because 正職 (assets.go buildBootContext) and 外包
+	// (worker_spawn.go buildWorkerBootContextWithSurfacing) must not each own a
+	// copy of how this block is built — see the ONE FUNCTION, TWO CALLERS block
+	// at the top of this file. A switch tested in each caller instead would put
+	// the divergence back into the exact place it was just taken out of, and it
+	// would be a SILENT divergence: nobody reads the two boot contexts side by
+	// side, and 「off, so the section is absent」 looks identical to 「the fold
+	// broke, so the section is absent」.
+	//
+	// Returning the SAME zero values as an empty ontology is deliberate and not
+	// laziness: the callers' contract is already 「"" means this section does not
+	// exist」 (an orphan heading is forbidden — see foldLoreSection's comment),
+	// so an OFF station produces a boot document with no lore section at all
+	// rather than a heading explaining an absence. And the empty loreSurfacing
+	// means surfaced() is false, so recordLoreSurfacing files no journal row —
+	// a directory nobody was shown must not be recorded as shown.
+	//
+	// ⚠️ THIS IS THE ONE PLACE THE SWITCH IS NOT LIVE, AND IT CANNOT BE. A boot
+	// context is assembled ONCE at wake and handed over; an agent already
+	// running keeps the document it was given until it boots again. Flipping the
+	// switch on therefore reaches the routes immediately and this section only
+	// at the next boot. That side effect was stated to the owner rather than
+	// engineered around: re-reading the table per turn would mean the document
+	// an agent was told to trust changes under it mid-session.
+	if !s.loreEnabledSnapshot() {
+		return "", sur, nil
+	}
 	rows, err := s.dal.ListLoreSubjectRoster(actorID)
 	if err != nil {
 		return "", sur, err

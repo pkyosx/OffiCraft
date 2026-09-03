@@ -151,6 +151,11 @@ type settingsDTO struct {
 	// two prefs above this is a plain bool with no "never set" state — false IS
 	// the shipped narrow look, so an untouched install reads exactly right.
 	DisplayWide bool `json:"display_wide"`
+	// LoreEnabled is the station-wide LORE feature switch (lore.enabled; T-33).
+	// false (the default) = the feature is OFF: no /api/lore/* route answers, no
+	// 對象目錄 in a boot context, no 傳承 tab. It never moves stored memory —
+	// off only makes the feature unreachable.
+	LoreEnabled bool `json:"lore_enabled"`
 	// Onboarding (T-ba62) is the first-run onboarding report, or nil when
 	// onboarding never ran on this database. It rides the OWNER-GATED settings
 	// read on purpose: a failed step's Detail carries the raw `ocwarden install`
