@@ -1547,7 +1547,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List the change proposals filed against ONE lore entry, newest first, each carrying the WHOLE proposed version rather than a description of it — so what a reviewer compares is the bytes that would land. A proposal carries 四格 and no events **in this round**: 第 5 格 is not proposable yet, so each `body` was rendered against the entry's events AS THEY STOOD when it was filed. ⚠️ Owner ruling rc-e5c34500face (2026-09-03) says a proposal should carry its own events; that is a later round's work. `current_sha256` and `current_revision_id` say what the entry stands at RIGHT NOW, and every proposal carries the `base_sha256` it was written against. 🔴 `stale: true` MEANS THE ENTRY WAS REWRITTEN AFTER THIS PROPOSAL WAS FILED — its author argued against text that is no longer there, and applying it would discard whoever changed it in between. It is COMPUTED on every read by comparing the two digests, never stored: a stored flag would be right the day it was written and wrong every day after. The digest it was compared against travels in the same response so the comparison can be checked rather than trusted. 🔴 THIS ROUTE DECIDES NOTHING. There is no accept or decline here; a proposal is a request for review and the verdict is a separate act.
+         * List the change proposals filed against ONE lore entry, newest first, each carrying the WHOLE proposed version rather than a description of it — so what a reviewer compares is the bytes that would land. Each proposal carries 四格 AND its own 第 5 格, so each `body` was rendered against THE PROPOSAL'S events — the bytes that would actually land, since accepting replaces the entry's events wholesale (owner ruling rc-e5c34500face, 2026-09-03). 🔴 `events_added` / `events_removed` ON EVERY ROW SAY WHICH EVENTS THAT PROPOSAL MOVES, so a reviewer does not have to diff two lists by eye — and a deletion, which shows up only as an absence, is the half he would otherwise miss. Both sides are still on the wire (`events` per row, `current_events` on the response) so the difference can be recomputed rather than trusted; like `stale`, it is computed on every read and never stored. `current_sha256` and `current_revision_id` say what the entry stands at RIGHT NOW, and every proposal carries the `base_sha256` it was written against. 🔴 `stale: true` MEANS THE ENTRY WAS REWRITTEN AFTER THIS PROPOSAL WAS FILED — its author argued against text that is no longer there, and applying it would discard whoever changed it in between. It is COMPUTED on every read by comparing the two digests, never stored: a stored flag would be right the day it was written and wrong every day after. The digest it was compared against travels in the same response so the comparison can be checked rather than trusted. 🔴 THIS ROUTE DECIDES NOTHING. There is no accept or decline here; a proposal is a request for review and the verdict is a separate act.
          * @description Read the change proposals filed against one lore entry (T-33).
          *
          *     Each row carries the WHOLE proposed version, so a reviewer compares texts rather than reading a description of a change. `stale` is computed on every read by comparing the proposal's base digest with the entry's current one — never stored, because a stored flag is correct on the day it is written and wrong every day after, which is the second-truth failure this ticket exists to kill. The digest it was compared against is served alongside, so the comparison can be re-derived by whoever reads it.
@@ -1557,7 +1557,7 @@ export interface paths {
         get: operations["handle_list_lore_proposals_api_lore_entries__entry_id__proposals_get"];
         put?: never;
         /**
-         * Propose a change to ONE lore entry — a WHOLE replacement version, not a patch, plus the account of why. 🔴 YOU SEND THE FULL NEW VERSION AND THE DIFF IS COMPUTED FROM IT (owner ruling, 2026-09-02: 「讓 agent submit new full version 即可 / diff view 我們自己產出」). A patch would leave two artefacts — what you said you were changing and what applying it actually produces — and the gap between them looks completely normal to a reviewer. With a whole version there is no second artefact: the difference a reviewer reads is the bytes that would land. 🔴 `base_sha256` IS THE VERSION YOU ACTUALLY READ, taken from `sha256` on `GET /api/lore/entries/{entry_id}`, and it is REQUIRED. If the entry has been rewritten since you read it the proposal is refused 409 naming both digests — filing against the older text would silently discard whoever changed it, which is exactly the failure a stale pull request causes and it looks correct from every side. Re-read the entry and rebuild your version on what is there now. A proposal that was fine when filed and went stale AFTERWARDS is not refused — it comes back from the list route with `stale: true`, because at that point the reviewer, not you, is the one who has to know. 🔴 THE THREE ACCOUNT FIELDS ARE ALL REQUIRED, for the same reason a write refuses a blank cell instead of defaulting it: `encountered` says what you were doing when this entry reached you, `fault` says which of three things is wrong with it (`stale` — it was right and is not any more; `never-true` — the claim never held; `misled` — it is retrieved for situations it does not describe and it sent you the wrong way, so its `trigger` wants fixing), and `evidence` is what you actually SAW. ⚠️ The cost is the same one the write path accepts and has not solved: nothing here can tell a real account from an invented one; an empty cell is all it can refuse. `kind` is `update` (the FOUR body cells — `trigger`, `content`, `retire_when`, `problem` — carry the whole new version and are held to the SAME rules a write is, so a proposal nobody could ever accept is refused now rather than sitting in the queue looking acceptable) or `remove` (you are proposing this entry stop being retrieved and you send NO body cells; a removal that carried a version would put text on the reviewer's screen that no accept would ever write). 🔴 A PROPOSAL CANNOT MOVE 第 5 格. There is no `events` field here, and the semantics of an `update` are fixed as 「四格改成這樣，事件維持現狀」: your version is digested against the entry's CURRENT events, because rendering it against none would make every proposal silently assert 「把事件全刪了」. ⚠️ THAT SHAPE IS PROVISIONAL AND IS ALREADY KNOWN TO BE WRONG: owner ruling rc-e5c34500face (2026-09-03) says a proposal SHOULD carry the complete new version INCLUDING all its events. Carrying them needs a table this round does not have, so what is described here is what is implemented today, not what was decided — do not build on it, and do not treat changing it as needing a fresh ruling. Removal is not deletion — the existing act is `retire`, and `revive_lore_entry` undoes it. 🔴 NOTHING HERE ACCEPTS ANYTHING: this route files a proposal and no more.
+         * Propose a change to ONE lore entry — a WHOLE replacement version, not a patch, plus the account of why. 🔴 YOU SEND THE FULL NEW VERSION AND THE DIFF IS COMPUTED FROM IT (owner ruling, 2026-09-02: 「讓 agent submit new full version 即可 / diff view 我們自己產出」). A patch would leave two artefacts — what you said you were changing and what applying it actually produces — and the gap between them looks completely normal to a reviewer. With a whole version there is no second artefact: the difference a reviewer reads is the bytes that would land. 🔴 `base_sha256` IS THE VERSION YOU ACTUALLY READ, taken from `sha256` on `GET /api/lore/entries/{entry_id}`, and it is REQUIRED. If the entry has been rewritten since you read it the proposal is refused 409 naming both digests — filing against the older text would silently discard whoever changed it, which is exactly the failure a stale pull request causes and it looks correct from every side. Re-read the entry and rebuild your version on what is there now. A proposal that was fine when filed and went stale AFTERWARDS is not refused — it comes back from the list route with `stale: true`, because at that point the reviewer, not you, is the one who has to know. 🔴 THE THREE ACCOUNT FIELDS ARE ALL REQUIRED, for the same reason a write refuses a blank cell instead of defaulting it: `encountered` says what you were doing when this entry reached you, `fault` says which of three things is wrong with it (`stale` — it was right and is not any more; `never-true` — the claim never held; `misled` — it is retrieved for situations it does not describe and it sent you the wrong way, so its `trigger` wants fixing), and `evidence` is what you actually SAW. ⚠️ The cost is the same one the write path accepts and has not solved: nothing here can tell a real account from an invented one; an empty cell is all it can refuse. `kind` is `update` (the four body cells — `trigger`, `content`, `retire_when`, `problem` — PLUS `events` carry the whole new version and are held to the SAME rules a write is, so a proposal nobody could ever accept is refused now rather than sitting in the queue looking acceptable) or `remove` (you are proposing this entry stop being retrieved and you send NO body cells and NO events; a removal that carried a version would put text on the reviewer's screen that no accept would ever write). 🔴 A PROPOSAL CARRIES 第 5 格 TOO, AND `events` IS REQUIRED ON AN `update` — the WHOLE list as it should stand afterwards, not a set of additions, because accepting replaces the entry's events wholesale (owner ruling rc-e5c34500face, 2026-09-03: 「改得動 —— 提案就該帶完整的新版本，包含所有事件」). The reasoning he overturned was 「第 5 格是機器串出來的事實，提案只是意見」, and its hole is that WHEN THE MACHINE STRINGS IT TOGETHER WRONG NOTHING CAN REPAIR IT: re-deriving washes away whatever a person filled in by hand, so a proposal that moves events is the only road that repairs one. Send `[]` to claim the entry should carry no events; OMITTING the key is a 422, never a shorthand for 「維持現狀」 — one forgotten field must not clear 第 5 格 where no reviewer can see it. Each event is held to the same rules a write is (時 and 事 required; 人／地／物 checked only when non-empty), and the order you send them in does not change the digest. Removal is not deletion — the existing act is `retire`, and `revive_lore_entry` undoes it. 🔴 NOTHING HERE ACCEPTS ANYTHING: this route files a proposal and no more.
          * @description File one change proposal against a lore entry (T-33).
          *
          *     THE PROPOSAL IS A WHOLE VERSION, NOT A PATCH, and that is the owner's ruling of 2026-09-02 rather than a storage preference. A patch keeps two artefacts alive — the change as described and the change as applied — and a reviewer reading a plausible description has no way to see that they differ. Storing the whole version deletes the second artefact: the diff the cockpit renders is computed from the exact bytes an accept would write.
@@ -6599,7 +6599,7 @@ export interface components {
         };
         /**
          * LoreProposeDTO
-         * @description Propose one change to a lore entry: the account of what is wrong, and — for an `update` — the COMPLETE replacement version of 四格. 🔴 A PROPOSAL CANNOT CARRY 第 5 格: there is no `events` field here, and the semantics of an `update` are fixed as 「四格改成這樣，事件維持現狀」 — the proposed version is digested against the entry's CURRENT events. ⚠️ THAT SHAPE IS PROVISIONAL AND IS ALREADY KNOWN TO BE WRONG: owner ruling rc-e5c34500face (2026-09-03) says a proposal SHOULD carry the complete new version INCLUDING all its events. Carrying them needs a table this round does not have, so what is described here is what is implemented today, not what was decided — do not build on it, and do not treat changing it as needing a fresh ruling. The field set is CLOSED; an unknown key is a 422, never a silent drop.
+         * @description Propose one change to a lore entry: the account of what is wrong, and — for an `update` — the COMPLETE replacement version: 四格 AND 第 5 格, the whole event list. 🔴 A PROPOSAL CARRIES ITS OWN EVENTS, AND ACCEPTING IT REPLACES THE ENTRY'S WHOLESALE — not merged, not append-only. Owner ruling rc-e5c34500face (2026-09-03): 「改得動 —— 提案就該帶完整的新版本，包含所有事件」. The reasoning that ruling overturned was 「第 5 格是機器串出來的事實，提案只是意見，意見不該改得動事實」, and its hole is that WHEN THE MACHINE STRINGS IT TOGETHER WRONG NOTHING CAN REPAIR IT: re-deriving washes away whatever a person filled in by hand (an act that never went through the API cannot reach a recorder, so those cells can only be left empty), so a proposal that moves events is the only road that repairs one. 🔴 `events` IS REQUIRED ON AN `update` AND OMITTING IT IS A 422, NOT A SHORTHAND FOR 「維持現狀」: send `[]` to claim the entry should carry no events at all. If a missing key and an empty list meant the same thing, one forgotten field would clear 第 5 格 where no reviewer could see it — the exact description/result gap this whole shape exists to close. The field set is CLOSED; an unknown key is a 422, never a silent drop.
          */
         LoreProposeDTO: {
             /**
@@ -6609,7 +6609,7 @@ export interface components {
             base_sha256: string;
             /**
              * Content
-             * @description The proposed 第 2 格「內容」— the one cell that ever enters a boot context. REQUIRED on an `update`, blank is refused, exactly as on a write. Sent only on an `update`, where the four together are the whole new version; on a `remove` it must be absent or empty.
+             * @description The proposed 第 2 格「內容」— the one cell that ever enters a boot context. REQUIRED on an `update`, blank is refused, exactly as on a write. Sent only on an `update`, where the four together with `events` are the whole new version; on a `remove` it must be absent or empty.
              * @default
              */
             content: string;
@@ -6618,6 +6618,11 @@ export interface components {
              * @description REQUIRED. What you were DOING when this entry reached you — the ticket, the task, the bucket you were working out of. A reviewer cannot judge 「這條幫倒忙」 without knowing what it was supposed to help with.
              */
             encountered: string;
+            /**
+             * Events
+             * @description The COMPLETE proposed 第 5 格 — the whole event list as it should stand AFTER this proposal is accepted, NOT a set of additions. REQUIRED on an `update`: send `[]` to say 「這條不該有事件」; omitting the key is refused 422, because a forgotten field and a deliberate clear must never look the same. MUST be absent or empty on a `remove`, which proposes no version at all. Each event is held to the SAME rules a write is — 時 and 事 required, 人／地／物 validated only when non-empty — so a proposal nobody could ever accept is refused now instead of sitting in the queue looking acceptable. The order you send them in does not change the digest: the renderer sorts by (happened_ts, what, actor, place, object), so one set sent in two orders is one version.
+             */
+            events?: components["schemas"]["LoreEventInputDTO"][];
             /**
              * Evidence
              * @description REQUIRED. What you actually SAW — the output, the file, the failure — not what you think. ⚠️ Nothing at this layer can tell a real observation from an invented one; it refuses an empty cell, which is all a column can do.
@@ -6630,24 +6635,24 @@ export interface components {
             fault: string;
             /**
              * Kind
-             * @description REQUIRED. `update` — you are proposing the entry should say something else, and the four body cells below carry the whole new version (第 5 格 is not carried and is left exactly as it stands — provisional, see the schema description and owner ruling rc-e5c34500face). `remove` — you are proposing it stop being retrieved, and you send NO body cells at all; a removal carrying a version would put text on a reviewer's screen that no accept would ever write. Anything else is refused 422 with the value named. Note that a removal is not a deletion: the act it asks for is `retire_lore_entry`, and `revive_lore_entry` undoes it.
+             * @description REQUIRED. `update` — you are proposing the entry should say something else, and the four body cells below PLUS `events` carry the whole new version; accepting it replaces 第 5 格 wholesale with what you sent. `remove` — you are proposing it stop being retrieved, and you send NO body cells and NO events at all; a removal carrying a version would put text on a reviewer's screen that no accept would ever write. Anything else is refused 422 with the value named. Note that a removal is not a deletion: the act it asks for is `retire_lore_entry`, and `revive_lore_entry` undoes it.
              */
             kind: string;
             /**
              * Problem
-             * @description The proposed 第 4 格「之前發生過什麼問題」. Optional, exactly as on a write. Sent only on an `update`, where the four together are the whole new version; on a `remove` it must be absent or empty.
+             * @description The proposed 第 4 格「之前發生過什麼問題」. Optional, exactly as on a write. Sent only on an `update`, where the four together with `events` are the whole new version; on a `remove` it must be absent or empty.
              * @default
              */
             problem: string;
             /**
              * Retire When
-             * @description The proposed 第 3 格「什麼時候不需要了」— free text. Optional, exactly as on a write. Sent only on an `update`, where the four together are the whole new version; on a `remove` it must be absent or empty.
+             * @description The proposed 第 3 格「什麼時候不需要了」— free text. Optional, exactly as on a write. Sent only on an `update`, where the four together with `events` are the whole new version; on a `remove` it must be absent or empty.
              * @default
              */
             retire_when: string;
             /**
              * Trigger
-             * @description The proposed 第 1 格「什麼時候要記起來」— the axis a reader finds the entry by, doubling as its title. REQUIRED on an `update`, blank is refused, exactly as on a write — an `update` is held to the write's own field rules so that a proposal nobody could ever accept is refused now instead of sitting in the queue looking acceptable. Sent only on an `update`, where the four together are the whole new version; on a `remove` it must be absent or empty.
+             * @description The proposed 第 1 格「什麼時候要記起來」— the axis a reader finds the entry by, doubling as its title. REQUIRED on an `update`, blank is refused, exactly as on a write — an `update` is held to the write's own field rules so that a proposal nobody could ever accept is refused now instead of sitting in the queue looking acceptable. Sent only on an `update`, where the four together with `events` are the whole new version; on a `remove` it must be absent or empty.
              * @default
              */
             trigger: string;
@@ -6680,7 +6685,7 @@ export interface components {
         };
         /**
          * LoreProposalDTO
-         * @description ONE filed proposal, in full: why it was filed, which version it was written against, whether that version is still the current one, and — on an `update` — the complete proposed text of 四格. 🔴 A PROPOSAL CARRIES NO EVENTS **TODAY**: 第 5 格 is not proposable in this round, so `body` was rendered against the entry's events AS THEY STOOD when the proposal was filed. ⚠️ Owner ruling rc-e5c34500face (2026-09-03) says it SHOULD carry them; that is a later round's work and this shape is the interim one.
+         * @description ONE filed proposal, in full: why it was filed, which version it was written against, whether that version is still the current one, and — on an `update` — the complete proposed version: 四格 plus the whole of 第 5 格. 🔴 A PROPOSAL CARRIES ITS OWN EVENTS (Owner ruling rc-e5c34500face (2026-09-03): 「改得動 —— 提案就該帶完整的新版本，包含所有事件」.), so `body` was rendered against THE PROPOSAL'S events rather than the entry's, and accepting it replaces the entry's events wholesale. 🔴 `events_added` / `events_removed` ARE HOW A REVIEWER SEES WHICH EVENTS THIS PROPOSAL MOVES without diffing two lists by eye — and both lists are still on the wire (`events` here, `current_events` on the enclosing response), so the difference can be RECOMPUTED rather than trusted.
          */
         LoreProposalDTO: {
             /**
@@ -6700,7 +6705,7 @@ export interface components {
             base_sha256: string;
             /**
              * Body
-             * @description The complete proposed version as rendered text — every cell present with its name, blank or not, plus the `events:` block, so a deleted section and a never-written one do not hash the same. 🔴 The events in it are the ENTRY'S OWN, unchanged: a proposal cannot move them in this round, and rendering it with none would make every proposal silently assert 「把事件全刪了」. ⚠️ Provisional — owner ruling rc-e5c34500face says a proposal should carry its own events. Empty on a `remove`.
+             * @description The complete proposed version as rendered text — every cell present with its name, blank or not, plus the `events:` block, so a deleted section and a never-written one do not hash the same. 🔴 The events in it are THE PROPOSAL'S OWN, which is what makes this the bytes that would actually land: accepting replaces 第 5 格 with exactly this. Empty on a `remove`.
              */
             body: string;
             /**
@@ -6718,6 +6723,21 @@ export interface components {
              * @description What the proposer was doing when this entry reached them.
              */
             encountered: string;
+            /**
+             * Events
+             * @description The COMPLETE proposed 第 5 格 — the event list this proposal says the entry should carry once it is accepted, in the order things HAPPENED (`happened_ts`), never the order anybody typed them. Empty on a `remove`, which proposes no version, and empty on an `update` claiming the entry should carry no events at all; `kind` tells the two apart, and on an `update` `events_removed` shows what that claim would delete.
+             */
+            events: components["schemas"]["LoreEventDTO"][];
+            /**
+             * Events Added
+             * @description The events this proposal ADDS: present in `events`, absent from the enclosing response's `current_events`. COMPUTED on every read and never stored — a stored difference is right the day it is written and wrong every day after, and a reviewer would be reading it against a 現況 that has since moved. Identity is the event's own five cells (happened_ts, what, actor, place, object), never a row id: a proposal's events carry no `lore_event` id at all, and re-typing the same fact would earn a different one — an id comparison would report an untouched event as one deletion plus one addition, and that noise is what stops people reading a diff. Always `[]` on a `remove`.
+             */
+            events_added: components["schemas"]["LoreEventDTO"][];
+            /**
+             * Events Removed
+             * @description The events this proposal DELETES: present in the enclosing response's `current_events`, absent from `events`. 🔴 THIS IS THE HALF A REVIEWER WOULD OTHERWISE MISS — an addition shows up in the proposed list, a deletion shows up only as an absence. Same key and same computed-not-stored rule as `events_added`. Always `[]` on a `remove`, which deletes no events: the act it asks for is `retire_lore_entry`, and retiring does not touch 第 5 格.
+             */
+            events_removed: components["schemas"]["LoreEventDTO"][];
             /**
              * Evidence
              * @description What the proposer actually saw.
@@ -6766,9 +6786,14 @@ export interface components {
         };
         /**
          * LoreProposalListDTO
-         * @description An entry's proposals together with the version they are all being compared against. The current digest travels WITH the list on purpose: `stale` is a comparison, and a comparison served without the thing it compared against cannot be checked by whoever reads it.
+         * @description An entry's proposals together with the version they are all being compared against — both its digest and its CURRENT events. They travel WITH the list on purpose: `stale`, `events_added` and `events_removed` are all comparisons, and a comparison served without the thing it compared against cannot be checked by whoever reads it.
          */
         LoreProposalListDTO: {
+            /**
+             * Current Events
+             * @description The entry's 第 5 格 AS IT STANDS RIGHT NOW, in the order things happened — the other side of every proposal's `events_added` / `events_removed`. A reviewer holding both lists recomputes the difference instead of trusting it, which is the rule `current_sha256` already follows for `stale`.
+             */
+            current_events: components["schemas"]["LoreEventDTO"][];
             /**
              * Current Revision Id
              * @description The entry's latest L0 revision id, right now.

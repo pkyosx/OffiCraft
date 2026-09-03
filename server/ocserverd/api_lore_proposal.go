@@ -43,7 +43,19 @@ func writeLoreProposalError(w http.ResponseWriter, err error) {
 		errors.Is(err, ErrLoreProposalEvidence),
 		errors.Is(err, ErrLoreProposalBaseBlank),
 		errors.Is(err, ErrLoreProposalRemoveBody),
+		errors.Is(err, ErrLoreProposalRemoveEvents),
+		// 🔴 漏了 `events` 是 422，跟少了一格 `content` 同一個層級 —— 而它是
+		// 一個**很容易被讀成成功**的錯誤：不擋的話，一份沒提到第 5 格的提案會
+		// 主張把事件全刪掉，而那個主張沒有任何人寫下來過。
+		errors.Is(err, ErrLoreProposalEventsMissing),
 		errors.Is(err, ErrLoreProposalNoChange),
+		// 第 5 格逐列的四種拒絕，跟寫入路徑用**同一組**錯誤值：核可一份提案等於
+		// 走一次普通寫入，所以寫入會拒絕的事件在這裡就要被拒絕，否則它會躺在
+		// 佇列裡，看起來跟一份可以被核可的提案一模一樣。
+		errors.Is(err, ErrLoreEventTimeMissing),
+		errors.Is(err, ErrLoreEventWhatBlank),
+		errors.Is(err, ErrLoreEventKeyMalformed),
+		errors.Is(err, ErrLoreEventKeyUnknownType),
 		// 🔴 一份 `update` 被前兩格的**寫入路徑錯誤**擋下來，用的是寫入路徑自己的
 		// 錯誤值而不是提案專屬的新錯誤：接受一份提案等於走一次普通寫入，所以寫入
 		// 會拒絕的東西在這裡就要被拒絕，否則它會躺在佇列裡，看起來跟一份可以被
@@ -76,19 +88,13 @@ func (s *apiServer) HandleProposeLoreChangeApiLoreEntriesEntryIdProposalsPost(w 
 		Encountered: body.Encountered,
 		Fault:       body.Fault,
 		Evidence:    body.Evidence,
-		// 提案這一批帶得動的是**四格**。第 5 格沒有欄位可以帶：CreateLoreProposal
-		// 渲染 body 時接上條目**目前**的事件，暫定語意是「四格改成這樣，事件維持
-		// 現狀」。
-		//
-		// 🔴🔴 這個語意是**暫定的，而且已知是要被換掉的**：負責人 2026-09-03 在卡
-		// rc-e5c34500face 裁定「改得動 —— 提案就該帶完整的新版本，包含所有事件」。
-		// 這一批沒有做，因為帶事件需要一張新表（lore_proposal_event），範圍另計。
-		// ⇒ 不要在這一層自己補一個 events 欄位（沒有地方存），也不要讓其他邏輯去
-		//   假設「事件不會被提案改動」——那個假設已經知道是錯的。
+		// 提案帶的是**完整的新版本**：四格 + 第 5 格的整份事件清單（負責人
+		// 2026-09-03 裁定，卡 rc-e5c34500face）。
 		Trigger:    strOrEmpty(body.Trigger),
 		Content:    strOrEmpty(body.Content),
 		RetireWhen: strOrEmpty(body.RetireWhen),
 		Problem:    strOrEmpty(body.Problem),
+		Events:     loreProposeEvents(body.Events),
 		ActorID:    currentActor(r),
 	}, nowSecs())
 	if err != nil {
@@ -134,6 +140,7 @@ func (s *apiServer) HandleListLoreProposalsApiLoreEntriesEntryIdProposalsGet(w h
 		// to treat the two as the same thing eventually treats one wrongly.
 		Proposals: make([]LoreProposalDTO, 0, len(list.Proposals)),
 	}
+	out.CurrentEvents = loreEventDTOs(list.CurrentEvents)
 	for _, p := range list.Proposals {
 		out.Proposals = append(out.Proposals, LoreProposalDTO{
 			ProposalId:     p.ID,
@@ -148,6 +155,9 @@ func (s *apiServer) HandleListLoreProposalsApiLoreEntriesEntryIdProposalsGet(w h
 			Content:        p.Content,
 			RetireWhen:     p.RetireWhen,
 			Problem:        p.Problem,
+			Events:         loreEventDTOs(p.Events),
+			EventsAdded:    loreEventDTOs(p.EventsAdded),
+			EventsRemoved:  loreEventDTOs(p.EventsRemoved),
 			Body:           p.Body,
 			Sha256:         p.SHA256,
 			ActorId:        p.ActorID,
@@ -155,4 +165,54 @@ func (s *apiServer) HandleListLoreProposalsApiLoreEntriesEntryIdProposalsGet(w h
 		})
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// loreProposeEvents turns the wire's `events` into the seam's, KEEPING THE
+// DIFFERENCE BETWEEN 「沒送」 AND 「送了一個空陣列」.
+//
+// 🔴 nil in ⇒ nil out, and that is the whole point of this function existing
+// instead of a `range` at the call site. A missing key means the proposal never
+// said anything about 第 5 格, and CreateLoreProposal refuses an `update` like
+// that (ErrLoreProposalEventsMissing). An empty array is a CLAIM — 「這條不該有
+// 事件」 —— and it is accepted, with events_removed showing the reviewer exactly
+// what it would delete. Folding the two into one empty slice here would make a
+// forgotten field clear the fifth cell where nobody can see it.
+//
+// 人／地／物 用 strOrEmpty 折成空字串，跟寫入路徑同一條規則：省略一個 key 跟送
+// 一個空字串是同一件事（「我不知道」），而且**不會**被補成「未知」。
+func loreProposeEvents(in *[]LoreEventInputDTO) []LoreEvent {
+	if in == nil {
+		return nil
+	}
+	out := make([]LoreEvent, 0, len(*in))
+	for _, ev := range *in {
+		out = append(out, LoreEvent{
+			HappenedTS: ev.HappenedTs,
+			What:       ev.What,
+			Actor:      strOrEmpty(ev.Actor),
+			Place:      strOrEmpty(ev.Place),
+			Object:     strOrEmpty(ev.Object),
+		})
+	}
+	return out
+}
+
+// loreEventDTOs renders events onto the wire, non-nil so the JSON carries `[]`
+// rather than `null` — a reader that has to treat the two as the same thing
+// eventually treats one wrongly.
+//
+// 人／地／物 原樣送出。空的就是空的：這一層不會在渲染時補「未知」，否則
+// 「查不出是誰」跟「還沒有人去查」在線上就再也分不開了。
+func loreEventDTOs(evs []LoreEvent) []LoreEventDTO {
+	out := make([]LoreEventDTO, 0, len(evs))
+	for _, ev := range evs {
+		out = append(out, LoreEventDTO{
+			HappenedTs: ev.HappenedTS,
+			What:       ev.What,
+			Actor:      ev.Actor,
+			Place:      ev.Place,
+			Object:     ev.Object,
+		})
+	}
+	return out
 }

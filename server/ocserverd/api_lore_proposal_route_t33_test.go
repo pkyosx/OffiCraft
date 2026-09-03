@@ -64,7 +64,8 @@ func loreProposalBody(base string) string {
 		"trigger":"two blocks disagree about the same fact",
 		"content":"the fold happens in lore_fold.go and nowhere else",
 		"retire_when":"等只剩一個組裝器",
-		"problem":"T-33 slot 3"}`
+		"problem":"T-33 slot 3",
+		"events":[]}`
 }
 
 // 🔴 THE WIRE FACE OF THE DIGEST CHECK. A proposal against a version that is not
@@ -161,10 +162,11 @@ func TestLoreProposalRouteListServesTheWholeVersionAndItsStaleness(t *testing.T)
 		t.Fatalf("the two digests the reviewer compares are not both served: %+v %+v", row, list)
 	}
 
-	// Somebody rewrites the entry underneath the proposal. Nothing on the wire
-	// can do this yet — the accept path that will is not built — so the second
+	// Somebody rewrites the entry underneath the proposal. Nothing on the WIRE
+	// can do this yet — ApplyLoreProposal is a DAL seam with no route, because
+	// who may accept is arbitration policy nobody has ruled on — so the second
 	// revision is written directly, which is the whole reason the guard is in
-	// place before that path exists.
+	// place before that path is reachable.
 	moved := loreRevisionBody(t33Entry(entryID), nil)
 	if _, err := dal.wdb.Exec(`
 		INSERT INTO lore_revision (entry_id, body, sha256, actor_id, created_ts, shrink_chars)
@@ -245,5 +247,96 @@ func TestLoreProposalRouteRefusesAnUndeclaredBodyKey(t *testing.T) {
 		"/api/lore/entries/"+entryID+"/proposals", body)
 	if st != 422 || !strings.Contains(got, "base_revision_id") {
 		t.Fatalf("an undeclared key was not refused BY NAME: %d %s", st, got)
+	}
+}
+
+// 🔴 第 5 格在線上：提案帶得動它，而審核者從**同一個回應**就看得出它動了哪幾筆。
+//
+// 這一支是負責人裁定「提案改得動事件」之後必須配上的那一面。DAL 那一層已經有
+// 對應的斷言，但這裡問的是不一樣的問題：這些事實有沒有真的走到線上，還是只活在
+// 一個沒有人讀得到的 struct 欄位裡。
+func TestLoreProposalRouteCarriesEventsAndSaysWhichOnesMoved(t *testing.T) {
+	url, dal, agentTok, _, _ := loreGovStack(t)
+	entryID, _ := loreProposalSeed(t, url, agentTok)
+
+	// 條目本來有兩筆事件。它們透過 DAL 寫進去，因為這一批沒有「事後補一筆事件」
+	// 的路由——重點是提案面，不是補記面。條目的摘要因此改變，所以底下重讀一次。
+	if _, err := dal.wdb.Exec(`
+		INSERT INTO lore_event (entry_id, happened_ts, what, actor, place, object)
+		VALUES (?, 1700000000, '留著不動的那一筆', '', '', ''),
+		       (?, 1700000100, '機器串錯的那一筆', '', '', '')`,
+		entryID, entryID); err != nil {
+		t.Fatalf("seed events: %v", err)
+	}
+	events, err := dal.ListLoreEvents(entryID)
+	if err != nil {
+		t.Fatalf("events: %v", err)
+	}
+	entry, err := dal.GetLoreEntry(entryID)
+	if err != nil || entry == nil {
+		t.Fatalf("entry: %+v %v", entry, err)
+	}
+	moved := loreRevisionBody(*entry, events)
+	if _, err := dal.wdb.Exec(`
+		INSERT INTO lore_revision (entry_id, body, sha256, actor_id, created_ts, shrink_chars)
+		VALUES (?, ?, ?, 'seed', 1500, 0)`, entryID, moved, loreSHA256(moved)); err != nil {
+		t.Fatalf("revision: %v", err)
+	}
+	sha := loreSHA256(moved)
+
+	// 🔴 一份沒說第 5 格的 `update` 是 422 —— 在線上也是。少了這一條，一次漏填
+	// 會在審核者看不見的地方主張刪光所有事件，而核可是整批換掉的，那個主張會
+	// 真的落地。
+	if st, body := rosterREST(t, url, agentTok, "POST",
+		"/api/lore/entries/"+entryID+"/proposals", `{
+			"kind":"update","base_sha256":"`+sha+`",
+			"encountered":"讀到它的時候","fault":"stale","evidence":"第 5 格串錯了",
+			"trigger":"two blocks disagree about the same fact",
+			"content":"the fold happens in lore_fold.go and nowhere else"}`); st != 422 {
+		t.Fatalf("一份沒帶 events 的 update：want 422, got %d %s", st, body)
+	}
+
+	st, body := rosterREST(t, url, agentTok, "POST",
+		"/api/lore/entries/"+entryID+"/proposals", `{
+			"kind":"update","base_sha256":"`+sha+`",
+			"encountered":"讀到它的時候","fault":"stale","evidence":"第 5 格串錯了",
+			"trigger":"two blocks disagree about the same fact",
+			"content":"the fold happens in lore_fold.go and nowhere else",
+			"retire_when":"等只剩一個組裝器","problem":"T-33 slot 3",
+			"events":[
+				{"happened_ts":1700000000,"what":"留著不動的那一筆"},
+				{"happened_ts":1700000100,"what":"人工修好的那一筆"}]}`)
+	if st != 200 {
+		t.Fatalf("file with events: %d %s", st, body)
+	}
+
+	st, body = rosterREST(t, url, agentTok, "GET",
+		"/api/lore/entries/"+entryID+"/proposals", "")
+	if st != 200 {
+		t.Fatalf("list: %d %s", st, body)
+	}
+	var list LoreProposalListDTO
+	if err := json.Unmarshal([]byte(body), &list); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	row := list.Proposals[0]
+	if len(row.Events) != 2 {
+		t.Fatalf("提案自己的第 5 格沒有走到線上: %s", body)
+	}
+	if len(row.EventsAdded) != 1 || row.EventsAdded[0].What != "人工修好的那一筆" {
+		t.Fatalf("events_added 沒有說他加了哪一筆: %s", body)
+	}
+	if len(row.EventsRemoved) != 1 || row.EventsRemoved[0].What != "機器串錯的那一筆" {
+		t.Fatalf("events_removed 沒有說他刪了哪一筆 —— 刪除只表現成一個「不在」，"+
+			"審核者就是會漏掉這一半: %s", body)
+	}
+	// 🔴 被比較的另一邊也在同一個回應裡，所以審核者可以自己重算這個差異，而不是
+	// 只能相信它 —— 跟 `stale` 附上 current_sha256 是同一條規則。
+	if len(list.CurrentEvents) != 2 {
+		t.Fatalf("現況的第 5 格沒有跟差異一起送出來: %s", body)
+	}
+	// 空陣列而不是 null：一個要把兩者當同一件事處理的讀者，遲早會有一邊處理錯。
+	if !strings.Contains(body, `"events_removed":[`) || !strings.Contains(body, `"current_events":[`) {
+		t.Fatalf("事件欄位在線上是 null 而不是 []: %s", body)
 	}
 }

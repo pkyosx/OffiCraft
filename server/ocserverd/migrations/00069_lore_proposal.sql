@@ -86,15 +86,10 @@ CREATE TABLE lore_proposal (
     -- 舊的 label / symptoms / short / falsify / instance / residual_risk 六格
     -- 換成 trigger / content / retire_when / problem 四格 + lore_event 一張表。
     --
-    -- ⚠️ 第五格（事件）**不在這張表裡**，而這是一個沒有解掉的缺口，說在前面：
-    -- 這一批的提案只提案得動前四格。CreateLoreProposal 在算 sha256 的時候，會把
-    -- 條目**目前**的事件原封不動接上去（dal_lore_proposal.go 的 loreProposalEntry
-    -- 呼叫處），所以一份提案的語意是「四格改成這樣，事件維持現狀」，不是「事件被
-    -- 清空」。這樣做的理由是：如果 body 不含事件，L0 原文就保不住事件；如果 body
-    -- 含事件但提案填不了，提案就會在審核者看不見的地方主張刪掉所有事件。兩個都
-    -- 比現在這個選擇差。
-    -- 🔴 真正的解法是 lore_proposal_event（或讓提案帶一份完整事件清單），那需要
-    -- 負責人裁定「提案改不改得動事件」。沒有裁定之前不做，比自己決定好。
+    -- 🔴 第五格（事件）在 `lore_proposal_event` 那張表裡，見這支 migration 的
+    -- 下半段。一份 `update` 提案帶的是**完整的新版本，包含它自己的整份事件清單**
+    -- —— 負責人 2026-09-03 的裁定（卡 rc-e5c34500face）：「改得動 —— 提案就該帶
+    -- 完整的新版本，包含所有事件」。
     trigger          TEXT NOT NULL DEFAULT '',
     content          TEXT NOT NULL DEFAULT '',
     retire_when      TEXT NOT NULL DEFAULT '',
@@ -112,6 +107,44 @@ CREATE TABLE lore_proposal (
 -- same tie-break the query does so the two never disagree.
 CREATE INDEX idx_lore_proposal_entry ON lore_proposal (entry_id, created_ts DESC, id DESC);
 
+-- ── 第五格：一份提案自己的事件清單 ─────────────────────────────────────────
+--
+-- 🔴 為什麼提案必須帶得動事件 —— 負責人 2026-09-03 裁定（卡 rc-e5c34500face），
+-- 而他推翻的正是「第 5 格是機器串出來的事實，提案只是意見，意見不該改得動事實」
+-- 這個講法。那個講法有一個洞：**機器串錯的時候，沒有任何一條路修得了它**。
+-- 「重跑一次就好」不成立 —— 沒有經過 API 的動作蓋不到記錄者（負責人已裁定：那些
+-- 格只能空著），所以人工補上去的事件會被重跑一起沖掉。⇒ 提案改得動事件，才是
+-- 唯一修得了的路。
+--
+-- 🔴 它是一張表而不是一欄 JSON，理由跟 lore_event 一模一樣：一份提案掛 0..N 筆
+-- 事件，壓成一欄就要自己發明分隔符號。而且兩張表同形狀，是為了讓「核可時把
+-- lore_event 整批換成這一份」是一次欄位對欄位的搬運，不是一次格式翻譯。
+--
+-- 🔴 沒有 `id AUTOINCREMENT`，用 (proposal_id, seq)。lore_event 的 id 是全域的
+-- 因為它要被 ORDER BY 當 tie-break；提案的事件永遠只在一份提案裡面被讀，seq 是
+-- 送進來時的順序，只當同一個 happened_ts 的 tie-break 用。
+--
+-- ⚠️ 這張表**不驗證**人／地／物的前綴，跟 lore_event 一樣：值域在 entity_type，
+-- 而那張表會長出新列。檢查在 DAL（loreEventError），而且只在非空時做。
+--
+-- 🔴 「一份 update 提案沒有任何事件」是一個**合法而且看得見的主張**：它說
+-- 「這條條目不該有事件」。它跟「提案沒提到事件」不是同一件事 —— 後者在 API 層
+-- 就被拒絕了（events 在 update 上是必填），因為讓它們長得一樣，就等於讓一次
+-- 漏填在審核者看不見的地方清空第 5 格。
+CREATE TABLE lore_proposal_event (
+    proposal_id TEXT NOT NULL REFERENCES lore_proposal(id),
+    seq         INTEGER NOT NULL,
+    happened_ts REAL NOT NULL,
+    what        TEXT NOT NULL,
+    actor       TEXT NOT NULL DEFAULT '',
+    place       TEXT NOT NULL DEFAULT '',
+    object      TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (proposal_id, seq)
+);
+-- 讀取一律 ORDER BY (proposal_id, happened_ts, seq)：事件的順序是事情發生的
+-- 順序，不是誰先被送進來的順序。
+CREATE INDEX idx_lore_proposal_event ON lore_proposal_event (proposal_id, happened_ts, seq);
+
 -- +goose Down
 -- ⚠️ 有損，而且說在前面：every proposal filed while this table existed is gone.
 -- There is nowhere else in the schema that carries one, so a retreat past this
@@ -119,5 +152,7 @@ CREATE INDEX idx_lore_proposal_entry ON lore_proposal (entry_id, created_ts DESC
 -- at all because a Down that cannot run is worse than one whose cost is stated:
 -- the round trip is exercised in migration_00069_lore_proposal_test.go.
 -- The lore_entry and lore_revision rows a proposal pointed at are untouched.
+DROP INDEX idx_lore_proposal_event;
+DROP TABLE lore_proposal_event;
 DROP INDEX idx_lore_proposal_entry;
 DROP TABLE lore_proposal;

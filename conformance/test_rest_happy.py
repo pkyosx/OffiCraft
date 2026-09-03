@@ -1311,16 +1311,22 @@ def _lore_propose_body(ctx: HCtx) -> dict[str, str]:
         "encountered": "the conformance suite's own happy row",
         "fault": "stale",
         "evidence": "this entry names the transaction, and the transaction moved file",
-        # 🔴 A PROPOSAL CARRIES 四格 AND NO EVENTS **IN THIS ROUND**. 第 5 格 is
-        # not proposable yet, so the rendered version is digested against the
-        # entry's events AS THEY STAND. ⚠️ Owner ruling rc-e5c34500face
-        # (2026-09-03) says a proposal SHOULD carry its own events — this is a
-        # known-provisional semantics awaiting a table that does not exist yet,
-        # NOT a settled one. Do not read this row as pinning it down.
+        # 🔴 A PROPOSAL CARRIES 四格 AND ITS OWN 第 5 格 — the WHOLE event list
+        # as it should stand once accepted, because accepting replaces the
+        # entry's events wholesale (owner ruling rc-e5c34500face, 2026-09-03).
+        # `events` is REQUIRED on an `update`: omitting it is a 422, never a
+        # shorthand for 「維持現狀」, so that one forgotten field cannot clear
+        # 第 5 格 where no reviewer would see it.
         "trigger": "a route answers 200 and nothing was written",
         "content": "the entry, its original and its axes are ONE transaction",
         "retire_when": "an entry turns up with no revision behind it",
         "problem": "the conformance suite proposing this very change",
+        "events": [
+            {
+                "happened_ts": 1700000000.0,
+                "what": "the conformance suite proposed a whole new version",
+            }
+        ],
     }
 
 
@@ -1371,6 +1377,14 @@ def _check_lore_proposal_list(ctx: HCtx, r: httpx.Response) -> None:
     assert row["kind"] == "remove" and row["body"] == "" and row["content"] == "", row
     assert row["fault"] == "misled" and row["encountered"] and row["evidence"], row
     assert row["actor_id"], row
+    # 🔴 第 5 格 travels on BOTH sides so the reviewer can recompute the
+    # difference rather than trust it — the same rule `current_sha256` follows
+    # for `stale`. A `remove` proposes no version at all, so it moves no events:
+    # its two difference lists are empty, and that is not the same statement as
+    # 「這條不該有事件」, which an `update` makes by sending `events: []`.
+    assert isinstance(d["current_events"], list), d
+    assert row["events"] == [] and row["events_added"] == [], row
+    assert row["events_removed"] == [], row
 
 
 HAPPY: dict[str, Happy] = {
@@ -3329,6 +3343,90 @@ def test_lore_proposal_refuses_a_base_digest_that_is_not_current(hctx: HCtx) -> 
     assert ok.status_code == 200, (
         f"the SAME proposal against the current digest must land: "
         f"{ok.status_code} {ok.text[:300]}")
+
+
+def test_lore_proposal_carries_its_own_events_and_names_the_ones_it_moves(
+    hctx: HCtx,
+) -> None:
+    """T-33 — 提案帶得動第 5 格，而審核者看得出它動了哪幾筆.
+
+    Owner ruling rc-e5c34500face (2026-09-03): 「改得動 —— 提案就該帶完整的新版本，
+    包含所有事件」. Two things have to be true on the wire for that to be usable,
+    and each fails silently on its own:
+
+      * `events` is REQUIRED on an `update`. If omitting it meant 「維持現狀」,
+        one forgotten field would propose deleting every event — and accepting
+        replaces them wholesale, so the deletion would really land.
+      * the response says WHICH events move. An addition is visible in the
+        proposed list; a DELETION shows up only as an absence, and that is the
+        half a reviewer misses.
+
+    The 200 at the end is the positive control: without it, a route that refused
+    every proposal would satisfy the first assertion."""
+    head = {"Authorization": f"Bearer {hctx.agent.token}"}
+    r = hctx.client.post(
+        "/api/lore/entries",
+        headers=head,
+        json={
+            "trigger": "I am checking what a proposal may move",
+            "content": "a proposal carries the whole version, events included",
+            "origin": "agent:conformance",
+            "subjects": ["agent:conformance"],
+            "events": [
+                {"happened_ts": 1700000000.0, "what": "the derivation got this one right"},
+                {"happened_ts": 1700000100.0, "what": "the derivation got this one wrong"},
+            ],
+        },
+    )
+    assert r.status_code == 200, f"seed entry: {r.status_code} {r.text[:300]}"
+    entry_id = r.json()["entry_id"]
+    sha = hctx.client.get(f"/api/lore/entries/{entry_id}", headers=head).json()["sha256"]
+
+    body = {
+        "kind": "update",
+        "base_sha256": sha,
+        "encountered": "the conformance suite reading this entry",
+        "fault": "never-true",
+        "evidence": "the second event names a thing that did not happen",
+        "trigger": "I am checking what a proposal may move",
+        "content": "a proposal carries the whole version, events included",
+    }
+    missing = hctx.client.post(
+        f"/api/lore/entries/{entry_id}/proposals", headers=head, json=body)
+    assert missing.status_code == 422, (
+        f"an `update` that never mentions 第 5 格 must be refused 422 — otherwise a "
+        f"forgotten field silently proposes deleting every event: "
+        f"{missing.status_code} {missing.text[:300]}")
+
+    body["events"] = [
+        {"happened_ts": 1700000000.0, "what": "the derivation got this one right"},
+        {"happened_ts": 1700000100.0, "what": "a person repaired this one by hand"},
+    ]
+    ok = hctx.client.post(
+        f"/api/lore/entries/{entry_id}/proposals", headers=head, json=body)
+    assert ok.status_code == 200, f"file: {ok.status_code} {ok.text[:300]}"
+
+    d = hctx.client.get(
+        f"/api/lore/entries/{entry_id}/proposals", headers=head).json()
+    row = d["proposals"][0]
+    assert [e["what"] for e in row["events"]] == [
+        "the derivation got this one right",
+        "a person repaired this one by hand",
+    ], row
+    assert [e["what"] for e in row["events_added"]] == [
+        "a person repaired this one by hand"], row
+    assert [e["what"] for e in row["events_removed"]] == [
+        "the derivation got this one wrong"], row
+    # 🔴 The untouched event is in NEITHER list. An id-based comparison would
+    # report it as one deletion plus one addition, and that noise is what stops
+    # people reading a diff at all.
+    assert len(row["events_added"]) == 1 and len(row["events_removed"]) == 1, row
+    # Both sides of the comparison are served, so a reviewer recomputes it
+    # instead of trusting it — the rule `current_sha256` already follows.
+    assert [e["what"] for e in d["current_events"]] == [
+        "the derivation got this one right",
+        "the derivation got this one wrong",
+    ], d
 
 
 def test_lore_search_refuses_an_undeclared_condition(hctx: HCtx) -> None:
