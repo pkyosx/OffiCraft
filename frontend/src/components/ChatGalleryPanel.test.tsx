@@ -1,12 +1,11 @@
 // M2-3 member file & image gallery panel (batch-16 upgrade: member-perspective
 // scope + 圖片/檔案 tabs).
 //
-// Covers: the dedicated gallery fetch (listChatAttachments — the server
-// flattens + sender-labels the rows; no client aggregation), the 圖片/檔案 tab
-// split with per-tab honest empty states, inter-agent rows surfacing with their
-// server-resolved sender names, sender + time per row, the preview/download
-// split (previewable mime → open in a new tab; opaque binary → download), and
-// closing.
+// The panel's whole unit-level surface lives here — the gallery fetch, the
+// 圖片/檔案 split and its two honest empty states, the uploader filter, paging
+// the preview, and how rows are opened. This header used to carry a list of
+// them; it had gone stale twice over by the time anyone noticed, so read the
+// `it(...)` names instead — they are the inventory, and they cannot drift.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
@@ -163,6 +162,24 @@ describe("ChatGalleryPanel", () => {
     expect(itemsIn(container)[1].textContent).toContain("Mira");
     expect(container.textContent).not.toContain("m2");
     expect(container.textContent).not.toContain("shot.png");
+  });
+
+  it("defers every thumbnail's fetch instead of requesting the whole tab at once", async () => {
+    galleryRows = Array.from({ length: 30 }, (_, i) =>
+      row(`img${i}`, "image/png", "owner", "", 1000 - i, `shot-${i}.png`),
+    );
+    const { container } = renderPanel();
+    await waitFor(() => expect(itemsIn(container).length).toBe(30));
+    const thumbs = [
+      ...container.querySelectorAll<HTMLImageElement>("img.chat__gallery-thumb"),
+    ];
+    expect(thumbs.length).toBe(30);
+    // jsdom loads no images, so what is knowable here is the attribute that
+    // makes a real browser skip the ones below the fold. The request counts
+    // themselves are in the step note, measured in Chromium.
+    expect(thumbs.every((img) => img.getAttribute("loading") === "lazy")).toBe(
+      true,
+    );
   });
 
   it("opens every stored attachment in the shared modal", async () => {

@@ -510,6 +510,12 @@ export function ChatGalleryPanel({
                     className="chat__gallery-thumb"
                     src={href}
                     alt={e.filename || t.chat.imageAlt}
+                    /* Every thumbnail byte is a `chat_attachment.data` blob
+                     * read, so an eager row costs a DB round trip. Deferring
+                     * cuts that to what the browser decides it needs — which is
+                     * more than the visible rows (it prefetches ahead), not
+                     * only them. It does NOT reduce how many rows render. */
+                    loading="lazy"
                   />
                 ) : (
                   <span className="chat__gallery-fileicon" aria-hidden>
