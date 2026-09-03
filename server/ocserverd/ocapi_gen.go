@@ -3486,7 +3486,9 @@ type HandleListChatApiChatGetParams struct {
 
 // HandleListChatAttachmentsApiChatAttachmentsGetParams defines parameters for HandleListChatAttachmentsApiChatAttachmentsGet.
 type HandleListChatAttachmentsApiChatAttachmentsGetParams struct {
-	With *string `form:"with,omitempty" json:"with,omitempty"`
+	With            *string `form:"with,omitempty" json:"with,omitempty"`
+	Limit           *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	EndAttachmentId *string `form:"end_attachment_id,omitempty" json:"end_attachment_id,omitempty"`
 }
 
 // HandleUploadChatAttachmentApiChatAttachmentsPostParams defines parameters for HandleUploadChatAttachmentApiChatAttachmentsPost.
@@ -4979,6 +4981,32 @@ func (siw *ServerInterfaceWrapper) HandleListChatAttachmentsApiChatAttachmentsGe
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "with"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "with", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "end_attachment_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "end_attachment_id", r.URL.Query(), &params.EndAttachmentId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "end_attachment_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "end_attachment_id", Err: err})
 		}
 		return
 	}
