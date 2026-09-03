@@ -3331,6 +3331,65 @@ def test_upload_ref_rejections(hctx: HCtx) -> None:
     assert r.status_code == 400 and "20 MB" in r.text, f"{r.status_code} {r.text}"
 
 
+def test_compare_attachment_shape_is_enforced_at_the_upload_seam(hctx: HCtx) -> None:
+    """T-59: ``application/vnd.officraft.diff`` is the ONE declared mime whose
+    BODY is checked instead of taken on trust, so that "it was accepted" and
+    "it will draw" cannot come apart.
+
+    A side names EXACTLY ONE of a stored blob (``attachment_id``) or one field
+    of a document at one point in time (``doc``: kind/key/at/field, where ``at``
+    is ``current``, ``seed`` or a revision id). Only the SHAPE is judged —
+    whether an address still resolves is a read-time fact, the same posture the
+    blob side has always had.
+
+    Black-box on purpose: this pins the accepted wire, which is what a client
+    written against the spec is entitled to, and it is the face the in-process
+    Go tests cannot speak for.
+    """
+    headers = _auth(hctx.agent.token)
+    upload = "/api/chat/attachments?mime=application/vnd.officraft.diff&filename=c.diff"
+
+    def post(body: object) -> httpx.Response:
+        return hctx.client.post(upload, content=json.dumps(body).encode(), headers=headers)
+
+    blob = {"attachment_id": "att-0123456789ab"}
+    doc = {"kind": "lessons", "key": "mira", "at": "12", "field": "text"}
+
+    for name, pair in (
+        ("two blobs", {"before": blob, "after": {"attachment_id": "att-fedcba987654"}}),
+        ("a revision against the live document",
+         {"before": {"doc": doc}, "after": {"doc": {**doc, "at": "current"}}}),
+        ("the shipped default against a blob",
+         {"before": {"doc": {**doc, "at": "seed"}}, "after": blob}),
+    ):
+        r = post(pair)
+        assert r.status_code == 200, f"{name}: {r.status_code} {r.text}"
+
+    for name, pair in (
+        ("a side naming both shapes", {"before": {**blob, "doc": doc}, "after": blob}),
+        ("a side naming neither", {"before": {}, "after": blob}),
+        ("an at that is not a version", {"before": {"doc": {**doc, "at": "latest"}}, "after": blob}),
+        ("an address segment that traverses",
+         {"before": {"doc": {**doc, "key": "../../api/version"}}, "after": blob}),
+        # Whitespace is not invisible: the blob is stored verbatim, so a padded
+        # address is one the reader can never resolve.
+        ("a padded at", {"before": {"doc": {**doc, "at": " current "}}, "after": blob}),
+        ("a padded attachment_id",
+         {"before": {"attachment_id": " att-0123456789ab "}, "after": blob}),
+    ):
+        r = post(pair)
+        assert r.status_code == 400, f"{name}: {r.status_code} {r.text}"
+
+    # The check is keyed on the DECLARED type, never on what the bytes look
+    # like — an ordinary .json attachment must not be held to the diff shape.
+    r = hctx.client.post(
+        "/api/chat/attachments?mime=application/json&filename=c.json",
+        content=json.dumps({"before": {}}).encode(),
+        headers=headers,
+    )
+    assert r.status_code == 200, f"plain json: {r.status_code} {r.text}"
+
+
 def test_chat_scrollback_cursor_page_never_marks_read(hctx: HCtx) -> None:
     """T-bf82 scrollback: ``GET /api/chat?with=&before_ts=&before_id=`` serves
     the strictly-older history page (oldest→newest) and NEVER advances the

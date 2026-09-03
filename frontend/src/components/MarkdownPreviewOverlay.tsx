@@ -331,18 +331,40 @@ export function MarkdownPreviewOverlay({
       if (!response.ok) throw new Error(`http ${response.status}`);
       return response.text();
     };
+    // When the live side was read, in the reader's own locale. Minutes, not
+    // seconds: the point is "this was a moment, and it has passed", and a
+    // second-precision stamp would only invite someone to trust it as an
+    // identity for the content.
+    const readAt = () =>
+      new Date().toLocaleString(undefined, {
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
     // One side, resolved to the text to compare and the heading to write above
     // it. A side that names a DOCUMENT is read through the same three faces the
     // version-history screen uses, and its content map is keyed by the field
     // names a retained revision carries — so `field` picks the same slice on
     // every one of the three.
+    //
+    // EVERY failure in here — a reclaimed blob, a pruned revision, a missing
+    // field, a kind this build does not know — is rethrown as one type, because
+    // downstream they are one fact: this side is not there. Failures OUTSIDE
+    // here (the pair itself 404s, the blob is not a pointer pair) are
+    // deliberately NOT that type; see the catch below.
     const resolveSide = async (side: {
       attachment_id?: string;
       doc?: DiffAttachmentDoc;
       label?: string;
     }): Promise<{ text: string; label?: string }> => {
       if (side.attachment_id !== undefined) {
-        return { text: await text(sideURL(side.attachment_id)), label: side.label };
+        return {
+          text: await text(sideURL(side.attachment_id)).catch((e: unknown) => {
+            throw new DocLiveContentUnavailable(`before/after blob: ${String(e)}`);
+          }),
+          label: side.label,
+        };
       }
       const doc = side.doc!;
       if (!isDocumentKind(doc.kind)) {
@@ -350,16 +372,29 @@ export function MarkdownPreviewOverlay({
       }
       let content: Record<string, string>;
       let fallbackLabel: string;
+      const read = async <T,>(p: Promise<T>): Promise<T> =>
+        p.catch((e: unknown) => {
+          throw new DocLiveContentUnavailable(
+            `${doc.kind}/${doc.key}@${doc.at}: ${String(e)}`
+          );
+        });
       if (doc.at === DIFF_SIDE_AT_CURRENT) {
-        content = await readLiveDocumentContent(doc.kind, doc.key);
+        content = await read(readLiveDocumentContent(doc.kind, doc.key));
         fallbackLabel = t.chat.mdPreview.diffSideCurrent;
       } else if (doc.at === DIFF_SIDE_AT_SEED) {
-        content = (await api.getDocumentSeed(doc.kind, doc.key)).content;
+        content = (await read(api.getDocumentSeed(doc.kind, doc.key))).content;
         fallbackLabel = t.chat.mdPreview.diffSideSeed;
       } else {
-        content = (
-          await api.getDocumentRevision(doc.kind, doc.key, Number(doc.at))
-        ).content;
+        // The server accepts up to 19 digits (the id is an int64 on the wire);
+        // JS numbers stop being exact well before that, and an id silently
+        // rounded to a NEIGHBOUR is the one failure mode worse than not
+        // resolving at all — it would draw a real revision that is not the one
+        // the attachment names.
+        const id = Number(doc.at);
+        if (!Number.isSafeInteger(id)) {
+          throw new DocLiveContentUnavailable(`revision id out of exact range: ${doc.at}`);
+        }
+        content = (await read(api.getDocumentRevision(doc.kind, doc.key, id))).content;
         fallbackLabel = t.chat.mdPreview.diffSideRevision(doc.at);
       }
       const slice = content[doc.field];
@@ -379,8 +414,15 @@ export function MarkdownPreviewOverlay({
         // see that on screen rather than infer it, and the column heading is
         // where "what is this side" already lives — so it is marked there
         // rather than in a new element the compare screen would have to grow.
+        //
+        // The READ TIME rides along because the marker leaves this screen: a
+        // screenshot of the comparison, or a share link someone opens later,
+        // carries the heading but not the moment. "as of now" is only true
+        // while you are looking at it; a stamped time stays true afterwards.
         label:
-          doc.at === DIFF_SIDE_AT_CURRENT ? t.chat.mdPreview.diffSideLive(label) : label,
+          doc.at === DIFF_SIDE_AT_CURRENT
+            ? t.chat.mdPreview.diffSideLive(label, readAt())
+            : label,
       };
     };
     (async () => {
@@ -404,7 +446,12 @@ export function MarkdownPreviewOverlay({
     })().catch((e) => {
       if (alive) {
         setFailed(true);
-        setDiffSideGone(true);
+        // ONLY a side that could not be resolved earns the "one side is gone"
+        // sentence. The pointer pair failing to load, or a blob that is not a
+        // pointer pair at all, is "this document would not load" — a fact about
+        // a different object, and one the reader CAN act on differently (a
+        // pruned revision is not worth retrying; a network blip is).
+        setDiffSideGone(e instanceof DocLiveContentUnavailable);
       }
       console.warn("MarkdownPreviewOverlay: compare load failed", e);
     });

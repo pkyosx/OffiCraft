@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -157,6 +158,19 @@ func uploadOneFile(
 // exists, `diff` refuses instead of picking one meaning — see docSide.
 const docSidePrefix = "doc:"
 
+// The three reserved spellings and the address charset, mirroring the server's
+// validateDiffAttachmentSide. Kept in sync BY HAND and on purpose: see the
+// pre-flight note in docSide for why the CLI has to know this at all.
+const (
+	docAtCurrent = "current"
+	docAtSeed    = "seed"
+)
+
+var (
+	docAddrSegment = regexp.MustCompile(`^[A-Za-z0-9._:@+-]+$`)
+	docAtRevision  = regexp.MustCompile(`^[1-9][0-9]{0,18}$`)
+)
+
 // docSide turns one argument into a side of the pair. It returns the side's
 // JSON object, or nil when the argument is an ordinary path the caller should
 // upload.
@@ -187,6 +201,27 @@ func docSide(arg, givenLabel string, errOut io.Writer) (map[string]any, int, boo
 				arg, i+1)
 			return nil, 2, true
 		}
+	}
+	// The address is judged HERE, before a byte is uploaded, and that is the
+	// whole reason this duplicates a constraint the server also enforces.
+	// Deferring to the server means learning the address was bad only when the
+	// PAIR is posted — after both documents are already stored — and there is
+	// no blob GC, so every typo would leave a file nothing can ever reach and
+	// nothing will ever collect. The server stays the authority; this is a
+	// pre-flight whose only job is to keep the mint all-or-nothing.
+	for i, part := range []string{parts[0], parts[1], parts[3]} {
+		what := [...]string{"kind", "key", "field"}[i]
+		// "." and ".." contain no excluded character but traverse anyway.
+		if part == "." || part == ".." || !docAddrSegment.MatchString(part) {
+			fmt.Fprintf(errOut, "[ocagent] diff: %q has a %s that is not a usable "+
+				"address segment: %q\n", arg, what, part)
+			return nil, 2, true
+		}
+	}
+	if at := parts[2]; at != docAtCurrent && at != docAtSeed && !docAtRevision.MatchString(at) {
+		fmt.Fprintf(errOut, "[ocagent] diff: %q has an <at> of %q — it must be %s, %s, "+
+			"or a version id from list_document_history.\n", arg, at, docAtCurrent, docAtSeed)
+		return nil, 2, true
 	}
 	side := map[string]any{"doc": map[string]string{
 		"kind": parts[0], "key": parts[1], "at": parts[2], "field": parts[3],

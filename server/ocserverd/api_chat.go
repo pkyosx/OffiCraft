@@ -502,12 +502,21 @@ func validateDiffAttachment(raw []byte) error {
 // which one the reader should draw, and silently preferring one would make the
 // other a value nobody ever sees.
 func validateDiffAttachmentSide(name string, side diffAttachmentSide) error {
-	id := strings.TrimSpace(side.AttachmentID)
+	// EVERY match below is against the value AS STORED, never a trimmed copy.
+	// The blob is kept verbatim (the acceptance test pins the round-trip byte
+	// for byte), so validating a trimmed copy would judge a string the reader
+	// never sees: " att-0123456789ab " would be accepted here and then fetched
+	// with its spaces, and " lessons" would be a kind no reader can resolve —
+	// accepted and undrawable, which is the exact split this validator exists
+	// to prevent. TrimSpace survives ONLY in the "did you name anything at all"
+	// test, where an all-blank value and an absent one deserve the same
+	// sentence.
+	id := side.AttachmentID
 	switch {
-	case id == "" && side.Doc == nil:
+	case strings.TrimSpace(id) == "" && side.Doc == nil:
 		return chatBadRequest{"a diff attachment's " + name +
 			" side must name either an attachment_id or a doc"}
-	case id != "" && side.Doc != nil:
+	case strings.TrimSpace(id) != "" && side.Doc != nil:
 		return chatBadRequest{"a diff attachment's " + name +
 			" side names both an attachment_id and a doc — it must name exactly one"}
 	case side.Doc == nil:
@@ -522,22 +531,22 @@ func validateDiffAttachmentSide(name string, side diffAttachmentSide) error {
 	for _, part := range []struct{ what, value string }{
 		{"kind", doc.Kind}, {"key", doc.Key}, {"field", doc.Field},
 	} {
-		v := strings.TrimSpace(part.value)
-		if v == "" {
+		if strings.TrimSpace(part.value) == "" {
 			return chatBadRequest{"a diff attachment's " + name + " doc must name its " + part.what}
 		}
 		// "." and ".." pass the character set and traverse anyway, so they are
 		// refused by name rather than by pattern.
-		if v == "." || v == ".." || !diffAttachmentAddrSegment.MatchString(v) {
+		if part.value == "." || part.value == ".." ||
+			!diffAttachmentAddrSegment.MatchString(part.value) {
 			return chatBadRequest{"a diff attachment's " + name + " doc " + part.what +
-				" is not a usable address segment, got " + v}
+				" is not a usable address segment, got " + part.value}
 		}
 	}
-	if at := strings.TrimSpace(doc.At); at != diffAttachmentAtCurrent && at != diffAttachmentAtSeed &&
-		!diffAttachmentRevision.MatchString(at) {
+	if doc.At != diffAttachmentAtCurrent && doc.At != diffAttachmentAtSeed &&
+		!diffAttachmentRevision.MatchString(doc.At) {
 		return chatBadRequest{"a diff attachment's " + name + " doc at must be \"" +
 			diffAttachmentAtCurrent + "\", \"" + diffAttachmentAtSeed +
-			"\" or a retained revision id, got " + at}
+			"\" or a retained revision id, got " + doc.At}
 	}
 	return nil
 }

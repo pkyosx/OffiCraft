@@ -84,6 +84,7 @@ ocagent diff <我改好的草稿檔> doc:global_context/global/current/text
 
 - `<kind>` 與 `<key>`：跟 `list_document_history` 用的那兩個一樣。
 - `<at>`：`current`（目前存檔內容）、`seed`（出廠預設），或 `list_document_history` 回給你的某個版本 id。
+  ⚠️ **`seed` 只有「出廠就帶預設」的文件才有**（角色定義、Insight、Global Context、開機與生命週期文件）。角色的學習經驗、任務手冊、任務描述／標題**沒有出廠預設**，對它們用 `seed` 會變成「這一側已經不在了」。
 - `<field>`：那個版本裡的欄位名，同樣從 `list_document_history` 讀得到（多數文件只有一個欄位）。
 - **指向 `current` 的那一側是活的**：同一個附件過一陣子再點開，比的是那時候的內容。畫面會標明這件事，你不用另外解釋。
 - **指向某個版本的那一側會過期**：版本紀錄只保留最近幾版、伺服器會自己修剪，被修剪掉之後點開會誠實說「這一側已經不在了」。要永久保存就改用檔案那一側。

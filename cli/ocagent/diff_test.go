@@ -269,6 +269,15 @@ func TestDiffRejectsAMalformedDocumentAddressBeforeUploadingAnything(t *testing.
 		{"too few segments", "doc:lessons/mira/current"},
 		{"too many segments", "doc:lessons/mira/current/text/extra"},
 		{"an empty segment", "doc:lessons//current/text"},
+		// The three below are refused by the CHARSET, not by the segment count.
+		// Without that check the address only fails when the PAIR is posted —
+		// by which time the other side's bytes are already stored, and there is
+		// no blob GC to collect them.
+		{"a key that traverses", "doc:lessons/../current/text"},
+		{"a space inside a segment", "doc:lessons/mi ra/current/text"},
+		{"a percent inside a segment", "doc:lessons/mira/current/te%xt"},
+		{"an at that names no version", "doc:lessons/mira/latest/text"},
+		{"an at that is zero", "doc:lessons/mira/0/text"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			srv, seen := diffServer(t)

@@ -807,7 +807,7 @@ export const en: Dict = {
       diffSideCurrent: "Current saved content",
       diffSideSeed: "Shipped default",
       diffSideRevision: (id: string) => `Revision #${id}`,
-      diffSideLive: (label: string) => `${label} (as of now — changes over time)`,
+      diffSideLive: (label: string, at: string) => `${label} (read ${at} — changes over time)`,
       // The compare could not be drawn because ONE SIDE is no longer there: a
       // reclaimed blob, or a revision pruned out of the retention window. Said
       // plainly, because the alternative — drawing the surviving side alone —

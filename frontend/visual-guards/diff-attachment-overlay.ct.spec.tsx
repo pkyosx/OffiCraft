@@ -85,3 +85,42 @@ for (const width of [390, 1280]) {
     }
   });
 }
+
+// T-59 second round. Same geometry contract, but with the headings the reader
+// writes for itself when a side names a document and carries no label of its
+// own — 「目前存檔內容（讀取於 …，之後會不一樣）」 is several times wider than
+// 「改動前」, and it is the widest thing a column header will ever hold. The
+// claim this exists to convert into evidence is "the package added no CSS, so
+// there is no theme or layout risk": true about the stylesheet, and not by
+// itself an argument about a heading that did not exist before.
+for (const width of [390, 1280]) {
+  test(`width ${width}: the reader's own long headings do not burst the panel`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await page.route("**/api/chat/attachment/**", (route) =>
+      route.fulfill({ status: 200, contentType: "text/plain", body: BEFORE }),
+    );
+
+    await mount(<DiffAttachmentOverlayStory variant="docs" />);
+
+    const diff = page.getByTestId("md-preview-diff");
+    await expect(diff).toBeVisible();
+    // The live side is marked AND dated, in the real rendered DOM.
+    await expect(
+      page.getByText(/目前存檔內容（讀取於 .+，之後會不一樣）/),
+    ).toBeVisible();
+
+    const overflow = await page.evaluate(() => {
+      const de = document.documentElement;
+      const panel = document.querySelector(".md-preview__panel") as HTMLElement | null;
+      return {
+        page: de.scrollWidth - de.clientWidth,
+        panel: panel ? panel.scrollWidth - panel.clientWidth : -1,
+      };
+    });
+    expect(overflow.page, "the document must not scroll sideways").toBe(0);
+    expect(overflow.panel, "the panel must not scroll sideways").toBe(0);
+  });
+}

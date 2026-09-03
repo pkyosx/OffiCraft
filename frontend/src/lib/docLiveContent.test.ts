@@ -17,35 +17,61 @@ import {
 // together, and it is total over DocumentKind so a new kind cannot slip in
 // unpinned.
 
-const SENTINEL = "…";
-
-/** Every live read the table can make, answering the sentinel in each view's
- * own field names. Nothing here asserts — the assertion is what comes BACK. */
+/** Each stubbed read answers ITS OWN NAME. That is what makes the source
+ * observable: a field-name check alone passes just as happily when `insight`
+ * reads the LESSONS document, because both kinds carry a field called `text`.
+ * A wrong source is the worst failure this table has — it draws a confident,
+ * completely wrong comparison next to a 還原 button — so the assertion has to
+ * be able to see it. */
 function stubEveryLiveRead() {
   vi.spyOn(api, "getGlobalContext").mockResolvedValue({
-    text: SENTINEL,
+    text: "getGlobalContext",
   } as Awaited<ReturnType<typeof api.getGlobalContext>>);
   vi.spyOn(api, "getRole").mockResolvedValue({
-    definitionMd: SENTINEL,
+    definitionMd: "getRole",
   } as Awaited<ReturnType<typeof api.getRole>>);
   vi.spyOn(api, "getLessons").mockResolvedValue({
-    text: SENTINEL,
+    text: "getLessons",
   } as Awaited<ReturnType<typeof api.getLessons>>);
   vi.spyOn(api, "getInsight").mockResolvedValue({
-    text: SENTINEL,
+    text: "getInsight",
   } as Awaited<ReturnType<typeof api.getInsight>>);
   vi.spyOn(api, "getTaskManual").mockResolvedValue({
-    sopMd: SENTINEL,
-    learnings: SENTINEL,
+    sopMd: "getTaskManual",
+    learnings: "getTaskManual",
   } as Awaited<ReturnType<typeof api.getTaskManual>>);
   vi.spyOn(api, "getTask").mockResolvedValue({
-    description: SENTINEL,
-    title: SENTINEL,
+    description: "getTask",
+    title: "getTask",
   } as Awaited<ReturnType<typeof api.getTask>>);
   vi.spyOn(api, "getBootDoc").mockResolvedValue({
-    text: SENTINEL,
+    text: "getBootDoc",
   } as Awaited<ReturnType<typeof api.getBootDoc>>);
 }
+
+/** Which api method each kind MUST read. Written out by hand rather than
+ * derived from the table under test — a expectation computed from the thing it
+ * judges is true no matter what that thing says. */
+const SOURCE_OF: Record<DocumentKind, string> = {
+  global_context: "getGlobalContext",
+  role_definition: "getRole",
+  lessons: "getLessons",
+  insight: "getInsight",
+  task_manual: "",
+  task_manual_sop: "getTaskManual",
+  task_manual_learnings: "getTaskManual",
+  task_description: "getTask",
+  task_title: "getTask",
+  system_interaction: "getBootDoc",
+  boot_sequence: "getBootDoc",
+  offboard: "getBootDoc",
+  accelerated_stop: "getBootDoc",
+  task_closeout: "getBootDoc",
+  task_reassign_predecessor: "getBootDoc",
+  task_takeover_with_predecessor: "getBootDoc",
+  task_takeover_fresh: "getBootDoc",
+  task_unblocked: "getBootDoc",
+};
 
 /** The one kind with no live content to read: the whole-manual kind was split
  * into its two single-field siblings and every document-history face answers
@@ -69,13 +95,22 @@ describe("readLiveDocumentContent", () => {
     "reads %s in the field names a revision of it carries",
     async (kind) => {
       stubEveryLiveRead();
-      const content = await readLiveDocumentContent(kind, "some-key");
+      const key = kind === "global_context" ? "global" : "some-key";
+      const content = await readLiveDocumentContent(kind, key);
       expect(Object.keys(content).sort()).toEqual([...DOC_FIELD_ORDER[kind]].sort());
-      // Every field carries the document's own text, not an empty string a
-      // caller would have to distinguish from a genuinely empty document.
+      // WHICH DOCUMENT, not just which field names. Two kinds sharing a field
+      // called `text` are indistinguishable by shape alone.
       expect(Object.values(content)).toEqual(
-        DOC_FIELD_ORDER[kind].map(() => SENTINEL),
+        DOC_FIELD_ORDER[kind].map(() => SOURCE_OF[kind]),
       );
+      // And it must be asked for the key it was given — a kind that ignores its
+      // key silently answers about some other document entirely.
+      const source = SOURCE_OF[kind] as keyof typeof api;
+      if (kind !== "global_context") {
+        expect(api[source]).toHaveBeenCalledWith(
+          ...(SOURCE_OF[kind] === "getBootDoc" ? [kind, key] : [key]),
+        );
+      }
     },
   );
 
@@ -84,6 +119,27 @@ describe("readLiveDocumentContent", () => {
     await expect(readLiveDocumentContent(kind, "tm-1")).rejects.toBeInstanceOf(
       DocLiveContentUnavailable,
     );
+  });
+});
+
+describe("readLiveDocumentContent, the singleton's key", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("refuses a global_context key that is not the document's own", async () => {
+    // The other two faces (a revision id, /seed) 404 on a wrong key. Answering
+    // about the real document anyway would make a wrong address look right.
+    stubEveryLiveRead();
+    await expect(
+      readLiveDocumentContent("global_context", "not-global"),
+    ).rejects.toBeInstanceOf(DocLiveContentUnavailable);
+    expect(api.getGlobalContext).not.toHaveBeenCalled();
+  });
+
+  it("reads global_context under its own key", async () => {
+    stubEveryLiveRead();
+    expect(await readLiveDocumentContent("global_context", "global")).toEqual({
+      text: "getGlobalContext",
+    });
   });
 });
 

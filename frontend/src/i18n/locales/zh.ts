@@ -886,7 +886,7 @@ export const zh = {
       diffSideCurrent: "目前存檔內容",
       diffSideSeed: "初始版本",
       diffSideRevision: (id: string) => `版本 #${id}`,
-      diffSideLive: (label: string) => `${label}（此刻的內容，之後會不一樣）`,
+      diffSideLive: (label: string, at: string) => `${label}（讀取於 ${at}，之後會不一樣）`,
       // 比較畫不出來，因為**有一側已經不在了**：附件被回收，或版本已經被
       // 修剪掉。直說，因為另一條路——只畫倖存的那一側——會把它每一行都標成
       // 刪除，那不是「少了一半」，是一個很有自信的錯答案。

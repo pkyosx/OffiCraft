@@ -17,10 +17,12 @@
 //     a document that has never been edited they answer empty where the live
 //     reader answers the seed. A server-side `/current` would therefore be a
 //     NEW fold-dispatcher over every kind, not a wrapper over an existing one.
-//   * A server-side kind switch fails SILENTLY when a kind is added (they are
-//     switches on a plain string, and the wire's `kind` has no enum). This table
-//     is a `Record<DocumentKind, …>` — a kind added to the union without an
-//     entry here does not compile.
+//   * The server DOES carry kind switches (they live in
+//     `api_document_history.go`); the point is not that it has none, it is that
+//     they fail SILENTLY when a kind is added — they switch on a plain string
+//     and the wire's `kind` has no enum, so a missing case is a 404 nobody
+//     wrote. This table is a `Record<DocumentKind, …>`: a kind added to the
+//     union without an entry here does not compile.
 //
 // The field names are the ones `docHistoryFields.ts` declares, and
 // `docLiveContent.test.ts` pins the two tables against each other: a field
@@ -46,7 +48,16 @@ const LIVE_CONTENT: Record<
   DocumentKind,
   (key: string) => Promise<Record<string, string>>
 > = {
-  global_context: async () => ({ text: (await api.getGlobalContext()).text }),
+  // The one singleton: its live read takes no key. Refusing anything but the
+  // key the document actually has keeps this face honest with the other two —
+  // `/seed` and a revision id both 404 on a wrong key, and silently answering
+  // about the real document would make a wrong address look like a right one.
+  global_context: async (key) => {
+    if (key !== "global") {
+      throw new DocLiveContentUnavailable(`global_context has no key ${key}`);
+    }
+    return { text: (await api.getGlobalContext()).text };
+  },
   role_definition: async (key) => ({
     definition_md: (await api.getRole(key)).definitionMd,
   }),

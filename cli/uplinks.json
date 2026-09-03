@@ -71,18 +71,11 @@
       "seam_reason": "uploadOneFile: opens one path and hands the stream to the shared seam. The send it performs is ocagent-attachment-post, which is where the raw-bytes reason lives; naming the path adds no route."
     },
     {
-      "id": "ocagent-diff-before-hop",
+      "id": "ocagent-diff-side-hop",
       "source": "cli/ocagent/diff.go",
-      "callsite": "before, beforeSize, code := uploadOneFile(client, cfg, \"diff\", beforePath, \"\", errOut)",
+      "callsite": "ref, size, code := uploadOneFile(client, cfg, \"diff\", path, \"\", errOut)",
       "kind": "seam",
-      "seam_reason": "`diff` uploads the BEFORE document through the same seam as `upload`. Declared here rather than skipped so the three sends behind one subcommand stay countable — a transposed pair is the failure this ordering guards."
-    },
-    {
-      "id": "ocagent-diff-after-hop",
-      "source": "cli/ocagent/diff.go",
-      "callsite": "after, afterSize, code := uploadOneFile(client, cfg, \"diff\", afterPath, \"\", errOut)",
-      "kind": "seam",
-      "seam_reason": "The AFTER document, same seam as the row above."
+      "seam_reason": "`diff` uploads EACH SIDE THAT IS A FILE through the same seam as `upload`. One row, not two: since a side may instead name a document (T-59 second round) the two sides share one closure, so there is one callsite and the count of sends is 0, 1 or 2 depending on the pair — which is the point, a document side is a reference and uploads nothing. Declared rather than skipped so the sends behind one subcommand stay countable; a transposed pair is the failure this guards."
     },
     {
       "id": "ocagent-diff-pair-hop",

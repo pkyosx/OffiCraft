@@ -675,9 +675,12 @@ describe("MarkdownPreviewOverlay 複製分享連結 (T-d10b)", () => {
       // columns are indistinguishable and the reader cannot tell that one of
       // them moves.
       expect(screen.getByText("版本 #12")).toBeTruthy();
-      expect(
-        screen.getByText("目前存檔內容（此刻的內容，之後會不一樣）"),
-      ).toBeTruthy();
+      // The live side says so, AND says when it was read — a screenshot of this
+      // screen outlives the moment, so "現在" alone stops being true the second
+      // it is shared.
+      const live = screen.getByText(/^目前存檔內容（讀取於 .+，之後會不一樣）$/);
+      expect(live).toBeTruthy();
+      expect(live.textContent).not.toContain("讀取於，");
     });
 
     it("compares the shipped default against an uploaded file", async () => {
@@ -732,6 +735,33 @@ describe("MarkdownPreviewOverlay 複製分享連結 (T-d10b)", () => {
       expect(screen.queryByText("alpha")).toBeNull();
     });
 
+    // The OTHER arm. Without these two the distinction is undefended and will
+    // collapse back into one message: "this comparison lost a half" and "this
+    // file would not load" are facts about different objects, and only the
+    // second is worth retrying.
+    it("reports an ordinary load failure when the pointer pair itself is gone", async () => {
+      globalThis.fetch = serve({ "att-pair": null });
+
+      openCompare();
+
+      await waitFor(() => expect(screen.getByText("無法載入預覽")).toBeTruthy());
+      expect(
+        screen.queryByText("這個比較有一側已經不在了，畫不出來。"),
+      ).toBeNull();
+      expect(screen.queryByTestId("md-preview-diff")).toBeNull();
+    });
+
+    it("reports an ordinary load failure when the blob is not a pointer pair", async () => {
+      globalThis.fetch = serve({ "att-pair": "# just a document, typed as a diff" });
+
+      openCompare();
+
+      await waitFor(() => expect(screen.getByText("無法載入預覽")).toBeTruthy());
+      expect(
+        screen.queryByText("這個比較有一側已經不在了，畫不出來。"),
+      ).toBeNull();
+    });
+
     // The retention window is short and the server prunes on its own, so an
     // attachment that named a revision WILL eventually point at nothing. That
     // is the expiry the design accepted (rather than copying the text into a
@@ -756,6 +786,29 @@ describe("MarkdownPreviewOverlay 複製分享連結 (T-d10b)", () => {
       );
       expect(screen.queryByTestId("md-preview-diff")).toBeNull();
       expect(screen.queryByText("alpha")).toBeNull();
+    });
+
+    // The server takes an id up to 19 digits; JS loses exactness first. A
+    // rounded id would fetch a NEIGHBOURING revision — a real document, drawn
+    // confidently, that is not the one the attachment names.
+    it("reports a side as gone when the revision id is beyond exact range", async () => {
+      globalThis.fetch = serve({
+        "att-pair": docPair(
+          { doc: { kind: "lessons", key: "mira", at: "9007199254740993", field: "text" } },
+          { attachment_id: "att-new" },
+        ),
+        "att-new": "alpha",
+      });
+      const revision = vi.spyOn(api, "getDocumentRevision");
+
+      openCompare();
+
+      await waitFor(() =>
+        expect(
+          screen.getByText("這個比較有一側已經不在了，畫不出來。"),
+        ).toBeTruthy(),
+      );
+      expect(revision).not.toHaveBeenCalled();
     });
 
     // The server validates that the address is SAYABLE, never that the kind is
