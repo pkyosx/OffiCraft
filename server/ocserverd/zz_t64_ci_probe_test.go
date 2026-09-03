@@ -33,10 +33,10 @@ func TestT64CIProbeWhatCanWeSeeOfOriginMain(t *testing.T) {
 	t.Logf("PROBE 2 is-shallow: %s", t64run(t, "git", "rev-parse", "--is-shallow-repository"))
 	t.Logf("PROBE 3 rev-parse origin/main: %s", t64run(t, "git", "rev-parse", "origin/main"))
 	t.Logf("PROBE 4 remote refs: %s", t64run(t, "git", "for-each-ref", "--format=%(refname)", "refs/remotes"))
-	t.Logf("PROBE 5 ls-tree origin/main migrations: %s", t64run(t, "git", "ls-tree", "--name-only", "origin/main", "server/ocserverd/migrations/"))
+	t.Logf("PROBE 5 ls-tree origin/main migrations: %s", t64run(t, "git", "ls-tree", "--full-tree", "--name-only", "origin/main", "server/ocserverd/migrations/"))
 	t.Logf("PROBE 6 fetch depth1 origin main: %s", t64run(t, "git", "fetch", "--depth=1", "origin", "main"))
 	t.Logf("PROBE 7 after fetch, rev-parse FETCH_HEAD: %s", t64run(t, "git", "rev-parse", "FETCH_HEAD"))
-	t.Logf("PROBE 8 after fetch, ls-tree FETCH_HEAD migrations: %s", t64run(t, "git", "ls-tree", "--name-only", "FETCH_HEAD", "server/ocserverd/migrations/"))
+	t.Logf("PROBE 8 after fetch, ls-tree FETCH_HEAD migrations: %s", t64run(t, "git", "ls-tree", "--full-tree", "--name-only", "FETCH_HEAD", "server/ocserverd/migrations/"))
 	t.Logf("PROBE 9 git version: %s", t64run(t, "git", "--version"))
 	t.Fatal("T-64 probe: failing on purpose so the log above is printed")
 }
