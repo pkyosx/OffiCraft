@@ -2289,10 +2289,16 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		// still refused at the door — a warden has nothing to recall.
 		//
 		// ⚠️ WHAT THIS ROUTE CANNOT DO, said here because a summary is where
-		// people look: `symptoms` comes back and cannot be searched on. It has
-		// no table, no index and no parameter, and de-duplication and
-		// conflict-finding both run on that axis — so neither is reachable
-		// through this route today. That is a known gap, not an oversight.
+		// people look: 第 3、4、5 格 (`retire_when`, `problem` and the events)
+		// are NEITHER searched NOR returned on a hit — a hit carries `trigger`
+		// and `content`, and the rest is read with `get_lore_entry`. There is
+		// no table, no index and no parameter for them here, and
+		// de-duplication and conflict-finding both run on 第 4 格 (`problem`)
+		// — so neither is reachable through this route today. That is a known
+		// gap, not an oversight.
+		//
+		// ⚠️ This paragraph used to name `symptoms`, a 六格 cell that 五格
+		// removed. The cell is gone, the gap is not: it moved onto `problem`.
 		{
 			Method:    "POST",
 			Path:      "/api/lore/search",

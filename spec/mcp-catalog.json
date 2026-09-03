@@ -4337,7 +4337,7 @@
             },
             "query": {
               "default": "",
-              "description": "A LITERAL, case-insensitive substring matched against label, short and symptoms. Not semantic — `applied.query_match` reports which kind it was, so nothing has to guess.",
+              "description": "A LITERAL, case-insensitive substring over 第 1 格 (`trigger`) and 第 2 格 (`content`) — the two cells that took over the three 六格 scanned (label / short / symptoms), none of which exists any more. Not semantic — `applied.query_match` reports which kind it was, so nothing has to guess. 🔴 第 3、4 格 (`retire_when`, `problem`) are deliberately NOT searched: widening what `query` answers is a decision nobody has made, and the symptom would be extra hits that look exactly like correct ones.",
               "type": "string"
             },
             "subject": {

@@ -2692,9 +2692,11 @@ export interface LoreSearchInput {
    * NOT an empty result: the answer comes back `subjectResolved: false`. */
   subject?: string;
   actions?: string[];
-  /** A LITERAL, case-insensitive substring over label/short/symptoms. Not
-   * semantic — two entries describing the same situation in different words
-   * will not find each other. */
+  /** A LITERAL, case-insensitive substring over 第 1 格 (`trigger`) and 第 2 格
+   * (`content`) — the two cells that took over the three 六格 scanned
+   * (label/short/symptoms), none of which exists any more. Not semantic — two
+   * entries describing the same situation in different words will not find
+   * each other. */
   query?: string;
   limit?: number;
   /** Let `trust`-class entries appear in the analogy tier. */

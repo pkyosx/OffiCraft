@@ -1522,7 +1522,7 @@ type LoreSearchDTO struct {
 	// Limit How many entries to return, 1..100, default 20. Out of range is REFUSED, never clamped: a caller that asked for 500 and silently got 100 believes it has seen everything. Entries whose origin is a `human:` key do not count against it.
 	Limit *int `json:"limit,omitempty"`
 
-	// Query A LITERAL, case-insensitive substring matched against label, short and symptoms. Not semantic — `applied.query_match` reports which kind it was, so nothing has to guess.
+	// Query A LITERAL, case-insensitive substring over 第 1 格 (`trigger`) and 第 2 格 (`content`) — the two cells that took over the three 六格 scanned (label / short / symptoms), none of which exists any more. Not semantic — `applied.query_match` reports which kind it was, so nothing has to guess. 🔴 第 3、4 格 (`retire_when`, `problem`) are deliberately NOT searched: widening what `query` answers is a decision nobody has made, and the symptom would be extra hits that look exactly like correct ones.
 	Query *string `json:"query,omitempty"`
 
 	// Subject A subject key, `type:name`. An alias resolves onto its subject and a merged-away subject follows to the survivor. A key that names nothing is NOT an error and NOT an empty result: it comes back as `subject_resolved: false` with the key echoed.
