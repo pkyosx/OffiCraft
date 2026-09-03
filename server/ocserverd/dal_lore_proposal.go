@@ -71,10 +71,10 @@ var (
 			"省略它會讓一次漏填跟一次刪除長得一模一樣")
 	ErrLoreProposalNotUpdate = errors.New(
 		"lore: only an `update` proposal carries a version to apply — the act a `remove` asks for is retire_lore_entry")
-	ErrLoreProposalUnknown = errors.New("lore: no proposal carries that id")
-	ErrLoreProposalNoChange     = errors.New("lore: the proposed version is identical to the one it was written against — there is nothing to review")
-	ErrLoreProposalStale        = errors.New("lore: this entry changed while you were reviewing it")
-	ErrLoreEntryNoOriginal      = errors.New("lore: the entry has no preserved original to propose against")
+	ErrLoreProposalUnknown  = errors.New("lore: no proposal carries that id")
+	ErrLoreProposalNoChange = errors.New("lore: the proposed version is identical to the one it was written against — there is nothing to review")
+	ErrLoreProposalStale    = errors.New("lore: this entry changed while you were reviewing it")
+	ErrLoreEntryNoOriginal  = errors.New("lore: the entry has no preserved original to propose against")
 )
 
 // loreProposalKinds / loreProposalFaults are the two closed sets, declared once

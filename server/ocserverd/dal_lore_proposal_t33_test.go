@@ -25,7 +25,7 @@ import (
 // this baseline proposes exactly the fifth cell that is already there.
 func t33Propose(entryID string) LoreProposal {
 	return LoreProposal{
-		Events: []LoreEvent{},
+		Events:      []LoreEvent{},
 		EntryID:     entryID,
 		Kind:        "update",
 		Encountered: "T-33 slot 4, wiring the proposal route",
@@ -487,10 +487,10 @@ func TestLoreProposalThatOnlyMovesEventsIsNotNoChange(t *testing.T) {
 	p := LoreProposal{
 		EntryID: seeded.EntryID, Kind: "update", BaseSHA256: seeded.SHA256,
 		Encountered: "在讀這條的時候發現第 5 格串錯了", Fault: "never-true",
-		Evidence:    "那台機器當天根本沒有被碰過",
-		Trigger:     w.Trigger, Content: w.Content, RetireWhen: w.RetireWhen, Problem: w.Problem,
-		Events:      []LoreEvent{t33Event(1700000000, "人工修好的那一筆")},
-		ActorID:     "ow-e27260b9ed05",
+		Evidence: "那台機器當天根本沒有被碰過",
+		Trigger:  w.Trigger, Content: w.Content, RetireWhen: w.RetireWhen, Problem: w.Problem,
+		Events:  []LoreEvent{t33Event(1700000000, "人工修好的那一筆")},
+		ActorID: "ow-e27260b9ed05",
 	}
 	if _, err := d.CreateLoreProposal(p, 2000); err != nil {
 		t.Fatalf("一份只改第 5 格的提案被當成「什麼都沒改」擋掉了 —— "+
@@ -539,8 +539,8 @@ func TestLoreProposalRemoveCarriesNoEvents(t *testing.T) {
 	p := LoreProposal{
 		EntryID: entryID, Kind: "remove", BaseSHA256: sha,
 		Encountered: "讀到它的時候", Fault: "misled", Evidence: "它被撈出來的情境跟它講的不是同一件事",
-		Events:      []LoreEvent{t33Event(1700000000, "a version no accept would ever write")},
-		ActorID:     "ow-e27260b9ed05",
+		Events:  []LoreEvent{t33Event(1700000000, "a version no accept would ever write")},
+		ActorID: "ow-e27260b9ed05",
 	}
 	if _, err := d.CreateLoreProposal(p, 2000); !errors.Is(err, ErrLoreProposalRemoveEvents) {
 		t.Fatalf("一份 remove 帶著事件被收下了: %v", err)
@@ -755,7 +755,7 @@ func TestApplyLoreProposalRefusesARemoval(t *testing.T) {
 	filed, err := d.CreateLoreProposal(LoreProposal{
 		EntryID: entryID, Kind: "remove", BaseSHA256: sha,
 		Encountered: "讀到它的時候", Fault: "never-true", Evidence: "這件事沒有發生過",
-		ActorID:     "ow-e27260b9ed05",
+		ActorID: "ow-e27260b9ed05",
 	}, 2000)
 	if err != nil {
 		t.Fatalf("file: %v", err)
