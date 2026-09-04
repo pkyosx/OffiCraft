@@ -361,6 +361,11 @@ func TestAStationAtTheReleasedVersionCanUpgradeToThisTree(t *testing.T) {
 	//   the report names files and version numbers, so it is specific enough to
 	//   be believed. Measured 2026-09-04 by pointing the ref one month back:
 	//   five shipped migrations went red, all of them main's own history.
+	//   That count is a SNAPSHOT, not a constant: it is however many edits main
+	//   happened to make in that window, so it grows as main moves (re-measured
+	//   2026-09-05 at four separate one-month-back refs: six every time). The
+	//   number is not the load-bearing half — "all of them main's own history"
+	//   is, and that half has held at every ref anyone has pointed it at.
 	//
 	// So a reader of a failing run needs the date to know which world this verdict
 	// was reached in — a red here is not evidence on its own.
@@ -491,7 +496,8 @@ func TestAStationAtTheReleasedVersionCanUpgradeToThisTree(t *testing.T) {
 				diagnosis = fmt.Sprintf("THIS IS A COLLISION, not a rename: %s has NEVER "+
 					"existed in this tree's history, so this tree did not move it — another "+
 					"branch took version %d and landed first. FIX: renumber THIS tree's file "+
-					"(%s) to %d, the lowest number free of both this tree and main. DO NOT "+
+					"(%s) to %d — one ABOVE the highest version either side has used. Lower "+
+					"numbers may look free; they are holes, and a hole stays a hole. DO NOT "+
 					"put main's file 'back': it was never here, and writing your version of "+
 					"%d over a migration that has already shipped is the failure this whole "+
 					"check exists to prevent.", rm.path, v, tree[v].where, nextFree, v)
