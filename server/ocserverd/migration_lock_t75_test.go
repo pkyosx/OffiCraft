@@ -495,46 +495,91 @@ func migrationLockFindings(lockText string, tree []migrationLockEntry) []string 
 	// 🔴 Carried over from the T-64 upgrade-path guard (measured 2026-09-04),
 	// which is the file that used to say this and has been torn down. The two
 	// loops above have already reported the halves — the lock's path as
-	// [lock:extra], the tree's path as [lock:missing] — and those two findings
-	// are the SAME LISTING for two events that need OPPOSITE FIXES:
+	// [lock:extra], the tree's path as [lock:missing] — and for ONE of the two
+	// shapes below those two findings are the SAME LISTING for two events that
+	// need OPPOSITE FIXES:
 	//
 	//   RENAME — this tree once had the lock's file and moved it. goose
 	//   identifies a Go migration by the string passed to AddNamedMigration*
 	//   rather than by the filename, so a rename leaves the version declared
 	//   while the path the lock knows is gone. FIX: put the file back.
 	//
-	//   COLLISION — two branches independently took the same free number. The
-	//   lock's file was never in this tree at all; the other branch landed first.
-	//   FIX: renumber THIS tree's file upward.
+	//   COLLISION — two branches independently took the same free number. FIX:
+	//   renumber THIS tree's file upward.
 	//
 	// 🔴 THE COST OF GUESSING IS NOT SYMMETRIC. "Put the file back where the lock
 	// has it" told at a COLLISION is an instruction to overwrite a migration
 	// somebody else has already shipped — the exact failure this whole mechanism
-	// exists to prevent. Guessing the other way only wastes a round trip. So this
-	// judgement, which is pure and cannot ask git, prints BOTH and names the one
-	// command that tells them apart.
-	lockByVersion := map[int64]string{}
+	// exists to prevent. Guessing the other way only wastes a round trip.
+	//
+	// 🔴 SO THE FIRST JOB IS TO ASK WHETHER THE TWO ARE ACTUALLY AMBIGUOUS, AND
+	// USUALLY THEY ARE NOT. The discriminator is IS THE LOCK'S PATH STILL IN THE
+	// TREE?, and it is available right here without asking git:
+	//
+	//   lock's path IS in the tree  ⇒ nothing was moved, the file is sitting
+	//   right there. Both paths exist and both claim the number: this is a
+	//   COLLISION, stated flatly. No RENAME arm, because there is no rename.
+	//
+	//   lock's path is NOT in the tree ⇒ the file is gone from where the lock
+	//   says it is. NOW the two are genuinely indistinguishable from the listing
+	//   and both arms are printed, with the one command that separates them.
+	//
+	// ⚠️ MEASURED, and it is why the flat "print both" version of this was wrong:
+	// the reachable shape is a CROSS-SOURCE collision — main ships a Go migration
+	// at NNNNN, a branch that predates it adds a .sql at NNNNN, and the merge is
+	// CLEAN (a branch with no lock of its own takes main's as a new file, no
+	// conflict, nothing stops you). The tree then holds BOTH files and the lock
+	// lists only main's. "Print both arms" hands that reader a `git log` on main's
+	// Go file, which of course has commits, which reads as RENAME — i.e. as "put
+	// main's shipped migration back", the expensive wrong half.
+	//
+	// ⚠️ A version the lock lists MORE THAN ONCE is skipped here: [lock:dup] above
+	// already names both of its lines exactly, and a second finding built from a
+	// map that can only hold one path per version would pair the wrong two.
+	lockPathsByVersion := map[int64][]string{}
 	for _, e := range parsed.entries {
-		lockByVersion[e.version] = e.path
+		lockPathsByVersion[e.version] = append(lockPathsByVersion[e.version], e.path)
 	}
-	var movedVersions []int64
-	for _, te := range tree {
-		if lp, ok := lockByVersion[te.version]; ok && lp != te.path {
-			movedVersions = append(movedVersions, te.version)
+	nextFree := int64(0)
+	for _, e := range parsed.entries {
+		if e.version >= nextFree {
+			nextFree = e.version + 1
 		}
 	}
-	sort.Slice(movedVersions, func(i, j int) bool { return movedVersions[i] < movedVersions[j] })
-	for _, v := range movedVersions {
-		lp := lockByVersion[v]
-		tp := ""
-		for _, te := range tree {
-			if te.version == v {
-				tp = te.path
-			}
+	for _, e := range tree {
+		if e.version >= nextFree {
+			nextFree = e.version + 1
+		}
+	}
+	for _, p := range treePaths {
+		te := treeByPath[p]
+		lps := lockPathsByVersion[te.version]
+		if len(lps) != 1 || lps[0] == te.path {
+			continue // not claimed twice, or claimed by this very path
+		}
+		lp := lps[0]
+		if _, lockPathStillHere := treeByPath[lp]; lockPathStillHere {
+			findings = append(findings, fmt.Sprintf("%s version %d is claimed TWICE in this tree: "+
+				"%s lists it at %s, that file is STILL HERE, and %s claims the same number. THIS "+
+				"IS A COLLISION, not a rename — nothing was moved, both files exist. It is what "+
+				"two branches taking the same free number looks like after they meet, and the "+
+				"merge that produced it can be completely clean: a branch with no lock of its own "+
+				"takes the other side's lock as a NEW FILE, so git never conflicts and nothing "+
+				"makes you stop and look.\n"+
+				"  FIX: renumber THIS tree's newer file (%s) to %d — above every number either "+
+				"side declares — and then run bin/gen-migration-lock.\n"+
+				"  DO NOT touch %s to resolve this. It is what the lock already records, which "+
+				"means it is what has already shipped; goose writes one row per version and never "+
+				"revisits it, so editing or moving it reaches nobody who has already upgraded and "+
+				"silently forks the schema. Left alone, the pair is worse: goose PANICS on a "+
+				"duplicate version from inside goose.Up — on a station, during an upgrade, as a "+
+				"stack trace about two files nobody there wrote.",
+				findPathMoved, te.version, migrationLockFile, lp, te.path, te.path, nextFree, lp))
+			continue
 		}
 		findings = append(findings, fmt.Sprintf("%s version %d is at %s in %s and at %s in this "+
-			"tree. TWO DIFFERENT EVENTS LAND HERE AND THEY NEED OPPOSITE FIXES, so this does not "+
-			"name one of them and stop.\n"+
+			"tree, AND %s is not in this tree at all. TWO DIFFERENT EVENTS LOOK LIKE THIS AND "+
+			"THEY NEED OPPOSITE FIXES, so this does not name one of them and stop.\n"+
 			"  RENAME — this tree once had %s and moved it. goose identifies a Go migration by "+
 			"the string passed to AddNamedMigration* rather than by the filename, so a rename "+
 			"leaves the version declared while the path the lock knows is gone. FIX: put the file "+
@@ -542,17 +587,16 @@ func migrationLockFindings(lockText string, tree []migrationLockEntry) []string 
 			"genuinely has to change, that is a decision for a person, not something to route "+
 			"around here.\n"+
 			"  COLLISION — %s was NEVER in this tree: another branch took version %d and landed "+
-			"first. FIX: renumber THIS tree's file (%s) to the lowest number free of both this "+
-			"tree and main, then regenerate with bin/gen-migration-lock. DO NOT put %s 'back': it "+
-			"was never here, and writing your version of %d over a migration that has already "+
-			"shipped is the failure this whole check exists to prevent.\n"+
-			"  WHICH ONE THIS IS cannot be read off the file listing — both look like \"the lock "+
-			"has one path at version %d and this tree has another\". Tell them apart by hand, "+
-			"from the REPO ROOT (not this package dir, or every lookup silently finds nothing and "+
-			"every case reads as a collision): `git log HEAD -- %s`. Commits ⇒ RENAME. Nothing ⇒ "+
-			"COLLISION.",
-			findPathMoved, v, lp, migrationLockFile, tp, lp, lp, lp, v, tp, lp, v, v,
-			migrationLockPkgRepoPath+lp))
+			"first. FIX: renumber THIS tree's file (%s) to %d and regenerate with "+
+			"bin/gen-migration-lock. DO NOT put %s 'back': it was never here, and writing your "+
+			"version of %d over a migration that has already shipped is the failure this whole "+
+			"check exists to prevent.\n"+
+			"  WHICH ONE THIS IS cannot be read off the listing once the lock's file is gone. "+
+			"Tell them apart by hand, from the REPO ROOT (not this package dir, or every lookup "+
+			"silently finds nothing and every case reads as a collision): `git log HEAD -- %s`. "+
+			"Commits ⇒ RENAME. Nothing ⇒ COLLISION.",
+			findPathMoved, te.version, lp, migrationLockFile, te.path, lp, lp, lp, lp,
+			te.version, te.path, nextFree, lp, te.version, migrationLockPkgRepoPath+lp))
 	}
 	return findings
 }

@@ -71,6 +71,11 @@ func TestMigrationLockJudgementNamesEachDefect(t *testing.T) {
 		// wantIn must appear in the tagged finding, so the message names the
 		// thing a reader has to go and look at.
 		wantIn []string
+		// wantOut must NOT appear in the tagged finding. It is for the arms where
+		// the defect is the message SAYING TOO MUCH — an unreachable arm printed
+		// beside a reachable one is not extra safety, it is a wrong instruction
+		// the reader cannot rule out.
+		wantOut []string
 	}{
 		{
 			// ① A MIGRATION ADDED (or a file RENAMED) WITHOUT UPDATING THE LOCK.
@@ -107,6 +112,69 @@ func TestMigrationLockJudgementNamesEachDefect(t *testing.T) {
 			},
 			wantTag: findContent,
 			wantIn:  []string{"migrations/00002_two.sql", strings.Repeat("b", 64), strings.Repeat("f", 64)},
+		},
+		{
+			// ⑤ CROSS-SOURCE COLLISION — main ships a Go migration at NNNNN, a
+			// branch that predates it adds a .sql at NNNNN, the merge is CLEAN
+			// (a branch with no lock of its own takes the other side's as a new
+			// file), and the tree ends up holding BOTH while the lock lists only
+			// main's.
+			//
+			// 🔴 THIS ARM EXISTS BECAUSE THE FIRST VERSION OF THE [lock:path]
+			// FINDING GOT IT BACKWARDS, and expensively. It printed a RENAME arm
+			// alongside the COLLISION arm and told the reader to settle it with
+			// `git log` on the lock's path — which here is main's Go migration and
+			// of course HAS commits, so the reader is sent to "put the file back",
+			// i.e. to overwrite a migration that has already shipped. Measured on
+			// a real two-branch fixture, not reasoned. The discriminator is that
+			// the lock's path is STILL IN THE TREE, so nothing was renamed.
+			//
+			// wantOut is therefore load-bearing: this arm is about what the
+			// finding must NOT say.
+			name: "cross-source collision: both files are in the tree",
+			mutate: func() (string, []migrationLockEntry) {
+				lock := renderMigrationLock(lockFixture())
+				// The lock's own file (migration_00003_go.go) stays; a second
+				// claimant on version 3 arrives from the other source.
+				tree := append(copyEntries(lockFixture()), migrationLockEntry{
+					version: 3, path: "migrations/00003_other_branch.sql", sha: strings.Repeat("e", 64)})
+				return lock, tree
+			},
+			wantTag: findPathMoved,
+			wantIn: []string{
+				"THIS IS A COLLISION, not a rename",
+				"migration_00003_go.go",
+				"migrations/00003_other_branch.sql",
+				"renumber THIS tree's newer file",
+				"DO NOT touch migration_00003_go.go",
+			},
+			wantOut: []string{
+				"RENAME —",
+				"put the file back",
+				"git log HEAD",
+			},
+		},
+		{
+			// ⑥ THE AMBIGUOUS SHAPE, which must still print BOTH arms: the lock's
+			// path is GONE from the tree, so the listing alone genuinely cannot
+			// tell a rename from a collision and the reader is handed the command
+			// that can. Without this arm, a "fix" that simply deleted the RENAME
+			// arm everywhere would pass ⑤ and lose the case ⑤ is not about.
+			name: "lock's path is gone from the tree: both arms, plus the command",
+			mutate: func() (string, []migrationLockEntry) {
+				lock := renderMigrationLock(lockFixture())
+				tree := copyEntries(lockFixture())
+				tree[3].path = "migrations/00004_four_renamed.sql" // 00004 moved
+				return lock, tree
+			},
+			wantTag: findPathMoved,
+			wantIn: []string{
+				"RENAME —",
+				"COLLISION —",
+				"put the file back",
+				"git log HEAD -- server/ocserverd/migrations/00004_four.sql",
+				"Commits ⇒ RENAME. Nothing ⇒ COLLISION.",
+			},
 		},
 		{
 			// ④ TWO MIGRATIONS ON ONE NUMBER — what a clean merge of two branches
@@ -191,6 +259,14 @@ func TestMigrationLockJudgementNamesEachDefect(t *testing.T) {
 				if !strings.Contains(joined, want) {
 					t.Fatalf("the %s finding does not mention %q, so a reader cannot tell what to "+
 						"go and look at:\n%s", tc.wantTag, want, joined)
+				}
+			}
+			for _, unwanted := range tc.wantOut {
+				if strings.Contains(joined, unwanted) {
+					t.Fatalf("the %s finding still says %q. For this shape that arm is not just "+
+						"noise — it is the instruction that overwrites an already-shipped "+
+						"migration, and a reader with two arms in front of them cannot rule it "+
+						"out:\n%s", tc.wantTag, unwanted, joined)
 				}
 			}
 		})
