@@ -788,8 +788,22 @@ func TestMigrationLockGrowsOnlyAtItsTail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("this tree's %s does not parse: %v", migrationLockFile, err)
 	}
-	t.Logf("baseline: origin/main %s carries %d lock entries; this tree carries %d",
-		sha, len(mainParsed.lines), len(here.lines))
+	// The DATE, not just the sha. T-64 shipped this line without it, then shipped a
+	// note saying a stale baseline "can only make this check too permissive, never
+	// too strict", and be10ac8d had to correct BOTH: the skew goes both ways, and the
+	// direction that produces OUTPUT is the strict one. A reader looking at a red run
+	// cannot tell a real finding from a stale-ref artefact without knowing which world
+	// the verdict was reached in, and a sha alone does not say when.
+	when, _ := gitOut("show", "-s", "--format=%ci", "origin/main")
+	t.Logf("baseline: origin/main %s (%s) carries %d lock entries; this tree carries %d.\n"+
+		"If that date is older than main really is, `git fetch origin main` and re-run before "+
+		"believing anything below — a stale baseline skews this check BOTH WAYS, not one.\n"+
+		"  TOO PERMISSIVE, and silent: main's newer entries are simply absent from the "+
+		"baseline, so a prefix match succeeds against a shorter list than it should.\n"+
+		"  TOO STRICT, and loud: every entry main itself rewrote since that ref reads as THIS "+
+		"TREE having changed a shipped migration. That report names the line and the sha and "+
+		"is specific enough to be believed. Check the date FIRST.",
+		sha, when, len(mainParsed.lines), len(here.lines))
 	for _, f := range migrationLockPrefixFindings(mainParsed.lines, here.lines) {
 		t.Error(f)
 	}

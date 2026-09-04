@@ -212,6 +212,55 @@ func TestMigrationLockJudgementNamesEachDefect(t *testing.T) {
 			wantIn:  []string{"migrations/00003_gap.sql", "version 3 after version 4"},
 		},
 		{
+			// ⑧ A SHIPPED GO MIGRATION'S CONTENTS CHANGED — and the finding must
+			// carry the RENAME / FORMATTING fork.
+			//
+			// 🔴 THIS ARM EXISTS BECAUSE THAT WHOLE PARAGRAPH HAD NO GUARD. Its
+			// text was carried over from the torn-down T-64 guard word for word,
+			// and a mutant that short-circuits the `if !strings.HasSuffix(p,
+			// ".sql")` deletes every line of it while this package stays green:
+			// no judgement case fed a .go path whose sha had moved. That is
+			// exactly the shape 4a6a537a shipped — a paragraph a reader is meant
+			// to act on, with nothing standing on it.
+			//
+			// It matters more than most message text because ONE HALF OF IT HAS
+			// NO FIX. A formatting pass that reaches a shipped Go migration puts
+			// lint-go-fmt and this check in direct opposition, and the message is
+			// the only place anyone is told that reaching for a new migration is
+			// not the way out.
+			name: "a shipped Go migration's bytes moved: the finding must fork rename vs formatting",
+			mutate: func() (string, []migrationLockEntry) {
+				tree := copyEntries(lockFixture())
+				tree[2].sha = strings.Repeat("f", 64) // index 2 is migration_00003_go.go
+				return renderMigrationLock(lockFixture()), tree
+			},
+			wantTag: findContent,
+			wantIn: []string{
+				"migration_00003_go.go",
+				"This is a Go file",
+				"do NOT open a new migration",
+				"RENAME: keep the shipped file byte-for-byte",
+				"FORMATTING: there is no such out",
+				"a human has to break it",
+			},
+		},
+		{
+			// ⑨ THE SAME EVENT ON A .sql PATH must NOT carry that fork. Without
+			// this arm, "always print the paragraph" passes ⑧ and starts telling
+			// readers of a .sql finding to consider exempting the file from the Go
+			// formatter — advice that means nothing there. It is what pins the
+			// BRANCH rather than the string.
+			name: "a shipped .sql migration's bytes moved: no Go-formatting fork",
+			mutate: func() (string, []migrationLockEntry) {
+				tree := copyEntries(lockFixture())
+				tree[1].sha = strings.Repeat("f", 64) // index 1 is migrations/00002_two.sql
+				return renderMigrationLock(lockFixture()), tree
+			},
+			wantTag: findContent,
+			wantIn:  []string{"migrations/00002_two.sql", "the silent-schema-fork case"},
+			wantOut: []string{"This is a Go file", "FORMATTING: there is no such out"},
+		},
+		{
 			// ⑥ A LINE EDITED BY HAND (or half a merge resolution kept).
 			name: "an entry line hand-edited without regenerating the roll",
 			mutate: func() (string, []migrationLockEntry) {
