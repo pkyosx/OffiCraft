@@ -161,9 +161,17 @@ func (s *apiServer) startUpgradeNoticeDelivery(out io.Writer) {
 	case notice == nil:
 		// The overwhelmingly common boot. Nothing to say.
 	default:
+		// Arrange the delivery BEFORE announcing it, and go through the seam
+		// so a test can prove this line actually dispatches something. A boot
+		// that prints "delivering" without dispatching is worse than silence:
+		// it is the one sentence a reader would trust.
+		deliver := s.upgradeNoticeDeliver
+		if deliver == nil {
+			deliver = s.deliverPendingUpgradeNotice
+		}
+		go deliver()
 		fmt.Fprintf(out, "[upgrade-notice] pending notice for %s — delivering to the assistant in the background\n",
 			notice.ToVersion)
-		go s.deliverPendingUpgradeNotice()
 	}
 }
 
@@ -439,7 +447,11 @@ func upgradeNoticeBody(n pendingUpgradeNotice, files []string, truncated bool, c
 		if truncated {
 			tail = "，檔案數超過 GitHub 單次比對的上限（只回了 300 個），所以這句「未動到」只涵蓋回得來的那部分"
 		}
-		return "⚪ 站台換版：" + versions + "，**未動到 `seeds/`（共用層）或 `spec/`（工具面）**" + tail + "。多半不需要你做事；要自己看就點 " + link + "。"
+		tailLink := "要自己看就點 " + link + "。"
+		if !usableCommit(n.FromSHA) || !usableCommit(n.ToSHA) {
+			tailLink = link
+		}
+		return "⚪ 站台換版：" + versions + "，**未動到 `seeds/`（共用層）或 `spec/`（工具面）**" + tail + "。多半不需要你做事；" + tailLink
 	}
 
 	var b strings.Builder

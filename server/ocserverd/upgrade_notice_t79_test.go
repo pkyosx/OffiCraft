@@ -551,3 +551,40 @@ func TestUpgradeNoticeBody_AnEmptyDiffIsCalledOutRatherThanPrintedAsZero(t *test
 		t.Errorf("an empty diff was not flagged as unusual:\n%s", body)
 	}
 }
+
+// 🔴 The half of the wiring the first review round left uncovered: the two
+// call sites were pinned, but the `go deliver()` INSIDE the boot look could be
+// deleted and everything stayed green — while the boot line went on announcing
+// a delivery that never happened. A boot that lies is worse than a silent one.
+func TestServeActuallyDispatchesTheDeliveryItAnnounces(t *testing.T) {
+	s := t79Server(t)
+	s.processSHA = "aaaaaaaaaaaa"
+	s.recordPendingUpgradeNotice("v0.5.312", "cccccccccccc")
+
+	called := make(chan struct{}, 1)
+	s.upgradeNoticeDeliver = func() bool {
+		called <- struct{}{}
+		return true
+	}
+	var out strings.Builder
+	s.startUpgradeNoticeDelivery(&out)
+
+	if !strings.Contains(out.String(), "delivering to the assistant") {
+		t.Fatalf("precondition: the boot did not announce a delivery: %q", out.String())
+	}
+	select {
+	case <-called:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the boot announced a delivery it never dispatched — the message is never sent, " +
+			"and the boot line says otherwise")
+	}
+}
+
+// The quiet line must read as a sentence even when there is no link to offer.
+func TestUpgradeNoticeBody_TheQuietLineIsNotAMalformedSentenceWithoutALink(t *testing.T) {
+	n := pendingUpgradeNotice{FromVersion: "v0.5.311", FromSHA: "unknown", ToVersion: "v0.5.312", ToSHA: "unknown"}
+	body := upgradeNoticeBody(n, []string{"server/x.go"}, false, nil)
+	if strings.Contains(body, "點 （") {
+		t.Errorf("the quiet line tells the reader to click something that is not a link:\n%s", body)
+	}
+}

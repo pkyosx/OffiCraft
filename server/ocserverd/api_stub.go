@@ -101,8 +101,15 @@ type apiServer struct {
 	// means deliverPasswordExposedAlert. It exists so a test can prove the
 	// dispatch is asynchronous; see dispatchAuthAlert.
 	authAlertDeliver func(count int)
-	ownerTokenTTL    int64
-	agentTokenTTL    int64
+	// upgradeNoticeDeliver replaces the post-upgrade migration delivery
+	// (upgrade_notice.go). nil — the production value — means
+	// deliverPendingUpgradeNotice. It exists so a test can prove the boot
+	// actually DISPATCHES the delivery: without it, replacing the `go`
+	// statement with nothing leaves every test green while the boot line
+	// still announces a delivery that never happens.
+	upgradeNoticeDeliver func() bool
+	ownerTokenTTL        int64
+	agentTokenTTL        int64
 	// outsourceMaxParallel is the global cap on concurrently live outsource
 	// workers (DB task.outsource_max_parallel; M3 owner ruling ③) — read by
 	// the Phase 2 assignment scheduler.
