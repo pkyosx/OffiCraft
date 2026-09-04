@@ -385,7 +385,7 @@ func TestPendingLoreEntityWithholdsASuggestionOnTwoExactCandidates(t *testing.T)
 }
 
 // TestPendingLoreEntityDoesNotCompareAcrossTypes holds the comparison to one
-// type prefix, which is 00077's own ruling: 「Kyle being both the canonical of
+// type prefix, which is 00081's own ruling: 「Kyle being both the canonical of
 // agent:Kyle and an alias of human:KyleHsia is CORRECT, not a data error」.
 // Offering that as a merge candidate would push a reviewer to fold together two
 // things the schema says are two things.

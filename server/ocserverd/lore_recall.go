@@ -16,7 +16,7 @@ package main
 // at a moment in time, and a counter throws away the moments.
 //
 // 🔴 AND EVERY ROW CARRIES ITS OWN SESSION ANCHOR. The reasoning is set out at
-// length in migrations/00078; the short form is that member.session_boot_ts is a
+// length in migrations/00082; the short form is that member.session_boot_ts is a
 // single cell the actor's next session overwrites, so an anchor that is not
 // stamped INTO the row is an anchor that is gone by the time anybody asks. It is
 // in hand at write time. It is one cell. There is no reason to defer it and one
@@ -57,7 +57,7 @@ const (
 	loreRecallQueryRevisionRead = "revision-read"
 )
 
-// The three session states. See migrations/00078 for why 0 alone could not
+// The three session states. See migrations/00082 for why 0 alone could not
 // carry them: 'unrecorded' and 'unanchored' both have session_boot_ts == 0 and
 // mean opposite things — nobody looked, versus somebody looked and there was
 // none.
