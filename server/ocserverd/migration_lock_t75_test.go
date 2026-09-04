@@ -203,6 +203,32 @@ func migrationLockTreeEntries(t *testing.T) []migrationLockEntry {
 			"Go migrations since 00054, so a smaller answer means the scan went blind, not that "+
 			"they were removed", len(located), migrationLockMinGo)
 	}
+	// CORROBORATION, and it is not decoration. registrarLocations reads the
+	// SOURCE, so it can only see a registration whose name is a string literal;
+	// goose reads its own REGISTRY and sees every one. That gap is a measured
+	// escape hatch: register a Go migration as
+	// `goose.AddNamedMigrationContext(fmt.Sprintf(...), up, down)` and the parse
+	// misses it, the lock therefore never lists it, and — because
+	// migrationLockMinGo equals today's count — the floor above passes too. The
+	// version then exists for goose and not for this check, which is precisely
+	// the "two files, one number, discovered on a station during goose.Up" that
+	// the whole lock exists to prevent. Asking a SECOND, differently-derived
+	// source for the same count is what turns that silent omission into a red.
+	if goCount, refusal := gooseGoVersionCount(t, sqlFiles); refusal != "" {
+		t.Fatalf("goose refuses to enumerate this tree's migrations: %s\n"+
+			"That is goose's own duplicate-version panic, caught here instead of at goose.Up "+
+			"on a station. Two migrations share a version; find them and renumber the one that "+
+			"has NOT shipped, then run bin/gen-migration-lock.", refusal)
+	} else if goCount != len(located) {
+		t.Fatalf("goose holds %d Go migration(s), the AST scan located %d — they must agree.\n"+
+			"The likely cause is a registration whose name is COMPUTED rather than a literal "+
+			"(anything but a plain string as the first argument to AddNamedMigration*): goose "+
+			"sees it, this scan cannot, and so %s would never list it — the version would exist "+
+			"for goose and not for this check.\n"+
+			"FIX: pass a literal name. If a computed name is genuinely required, this check has "+
+			"to learn to read it; do not silence this by raising a floor.",
+			goCount, len(located), migrationLockFile)
+	}
 	for v, where := range located {
 		file := where
 		if i := strings.LastIndex(where, ":"); i >= 0 {
@@ -592,9 +618,14 @@ func migrationLockFindings(lockText string, tree []migrationLockEntry) []string 
 			"version of %d over a migration that has already shipped is the failure this whole "+
 			"check exists to prevent.\n"+
 			"  WHICH ONE THIS IS cannot be read off the listing once the lock's file is gone. "+
-			"Tell them apart by hand, from the REPO ROOT (not this package dir, or every lookup "+
-			"silently finds nothing and every case reads as a collision): `git log HEAD -- %s`. "+
-			"Commits ⇒ RENAME. Nothing ⇒ COLLISION.",
+			"Tell them apart by hand, from anywhere in the repo: `git log HEAD -- ':(top)%s'`. "+
+			"Commits ⇒ RENAME. Nothing ⇒ COLLISION.\n"+
+			"  The ':(top)' is LOAD-BEARING and the quotes are why it survives your shell. "+
+			"Without it git resolves the path against your CWD — and you are standing in this "+
+			"package's directory, because that is where this test just failed — so the lookup "+
+			"silently finds NOTHING and EVERY case reads as a COLLISION, renames included. That "+
+			"is not hypothetical: T-64 shipped exactly this bug (4a6a537a) and its rename arm "+
+			"reported that a file with two commits on it had NEVER existed in this tree.",
 			findPathMoved, te.version, lp, migrationLockFile, te.path, lp, lp, lp, lp,
 			te.version, te.path, nextFree, lp, te.version, migrationLockPkgRepoPath+lp))
 	}

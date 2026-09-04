@@ -172,7 +172,14 @@ func TestMigrationLockJudgementNamesEachDefect(t *testing.T) {
 				"RENAME —",
 				"COLLISION —",
 				"put the file back",
-				"git log HEAD -- server/ocserverd/migrations/00004_four.sql",
+				"git log HEAD -- ':(top)server/ocserverd/migrations/00004_four.sql'",
+				// The ':(top)' prefix is asserted CHARACTER BY CHARACTER on purpose.
+				// It is the whole difference between a command that answers and one
+				// that silently returns nothing from this package's own directory —
+				// which is where the reader of this message is standing. Dropping it
+				// is a one-token edit that changes no behaviour any other assertion
+				// here can see, so this line is the only thing guarding it (T-64
+				// 4a6a537a shipped the un-anchored version and mis-diagnosed a rename).
 				"Commits ⇒ RENAME. Nothing ⇒ COLLISION.",
 			},
 		},
