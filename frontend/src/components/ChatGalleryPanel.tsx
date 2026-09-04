@@ -55,7 +55,10 @@ export function isPreviewableMime(mime: string): boolean {
  * Could THIS ONE chat delta change what the gallery renders?
  *
  * 🔴 THE INVARIANT IT ENCODES. The gallery query
- * (`HandleListChatAttachmentsApiChatAttachmentsGet`, `server/ocserverd/api_chat.go`)
+ * (`DAL.ListChatAttachmentRefsFor`, `server/ocserverd/dal.go` — since T-51 it
+ * reads the `chat_attachment_ref` index, not `chat_message.meta`, and the
+ * predicate moved with it: `WHERE sender = ?` UNION `WHERE recipient = ? AND
+ * sender <> recipient`)
  * keeps a message when — and only when — `m.Sender == with || m.Recipient == with`,
  * where `with` is the member id this panel was opened on. Every row it returns is
  * an attachment of one of those messages. ⇒ a CHAT DELTA naming this member at
@@ -523,7 +526,16 @@ export function ChatGalleryPanel({
                      * read, so an eager row costs a DB round trip. Deferring
                      * cuts that to what the browser decides it needs — which is
                      * more than the visible rows (it prefetches ahead), not
-                     * only them. It does NOT reduce how many rows render. */
+                     * only them. It does NOT reduce how many rows render.
+                     *
+                     * How much it prefetches is the browser's call, so the
+                     * number is not portable: measured twice at 54 requests on
+                     * open (1440x900, 1,200 image rows, no scrolling), and an
+                     * independent reviewer got 57. #405's commit message says
+                     * 300 — that one could not be reproduced under any stated
+                     * conditions; treat it as wrong, not as a third data point.
+                     * Scrolling the whole list to the bottom does fetch all
+                     * 1,200, one request each, with none dropped. */
                     loading="lazy"
                   />
                 ) : (

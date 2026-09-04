@@ -14,7 +14,6 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -1195,28 +1194,28 @@ func (s *apiServer) HandleGetChatAttachmentShareLinkApiChatAttachmentsAttachment
 // every attachment of the member's conversations, newest→oldest, each row
 // carrying the message's sender identity. READ-ONLY (no watermark advance);
 // a blank with is 422.
+//
+// Reads chat_attachment_ref (migration 00074), NOT chat_message. Before that
+// index existed this handler pulled the WHOLE chat table into memory and
+// filtered, flattened and sorted it in Go — measured against the live site,
+// the whole-table read was ~25 ms of a 1.18 s response, so the index is not
+// what makes this endpoint fast; it is what stops the cost growing with the
+// table. The rows still all come back in one response (no paging in this
+// pass), which is where the remaining ~473 ms lives.
 func (s *apiServer) HandleListChatAttachmentsApiChatAttachmentsGet(w http.ResponseWriter, r *http.Request, params HandleListChatAttachmentsApiChatAttachmentsGetParams) {
 	peer := trimmedOrEmpty(params.With)
 	if peer == "" {
 		writeError(w, http.StatusUnprocessableEntity, "with is required")
 		return
 	}
-	msgs, err := s.dal.ListChat()
+	// newest→oldest, with equal-ts messages in ascending id order and a
+	// message's posted attachment order preserved — the same total order the
+	// pre-index handler produced with a stable sort, now served by the index.
+	refs, err := s.dal.ListChatAttachmentRefsFor(peer)
 	if err != nil {
 		internalError(w, err)
 		return
 	}
-	var involved []ChatMessage
-	for _, m := range msgs {
-		if m.Sender == peer || m.Recipient == peer {
-			involved = append(involved, m)
-		}
-	}
-	// newest→oldest, STABLE (equal-ts messages keep stream order; a message's
-	// posted attachment order is preserved).
-	sort.SliceStable(involved, func(i, j int) bool {
-		return involved[i].TS > involved[j].TS
-	})
 	members, err := s.dal.ListMembers()
 	if err != nil {
 		internalError(w, err)
@@ -1226,30 +1225,23 @@ func (s *apiServer) HandleListChatAttachmentsApiChatAttachmentsGet(w http.Respon
 	for _, m := range members { // ANY roster status — dismissed still reads by name
 		names[m.ID] = m.Name
 	}
+	// A ref with no id never reaches the index (both the backfill and the
+	// triggers drop it), so the "never fabricate a serve URL" guard the
+	// in-memory version carried lives in the migration now.
 	entries := []chatGalleryEntryDTO{}
-	for _, m := range involved {
-		refs, _ := m.Meta["attachments"].([]any)
-		for _, refAny := range refs {
-			ref, _ := refAny.(map[string]any)
-			attID, _ := ref["id"].(string)
-			if attID == "" {
-				continue // never fabricate a serve URL for a ref with no id
-			}
-			mimeType, _ := ref["mime"].(string)
-			filename, _ := ref["filename"].(string)
-			entries = append(entries, chatGalleryEntryDTO{
-				ID:        attID,
-				URL:       "/api/chat/attachment/" + attID,
-				Filename:  filename,
-				Mime:      mimeType,
-				IsImage:   strings.HasPrefix(mimeType, "image/"),
-				MessageID: m.ID,
-				From:      m.Sender,
-				FromName:  names[m.Sender],
-				To:        m.Recipient,
-				TS:        m.TS,
-			})
-		}
+	for _, r := range refs {
+		entries = append(entries, chatGalleryEntryDTO{
+			ID:        r.AttachmentID,
+			URL:       "/api/chat/attachment/" + r.AttachmentID,
+			Filename:  r.Filename,
+			Mime:      r.Mime,
+			IsImage:   strings.HasPrefix(r.Mime, "image/"),
+			MessageID: r.MessageID,
+			From:      r.Sender,
+			FromName:  names[r.Sender],
+			To:        r.Recipient,
+			TS:        r.TS,
+		})
 	}
 	writeJSON(w, http.StatusOK, entries)
 }

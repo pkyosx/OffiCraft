@@ -42,6 +42,19 @@ paths = [
   # gitleaks' generic JWT rule fingerprints any `eyJ...` literal; these are
   # reproducible test vectors, never real credentials.
   '''server/ocserverd/jwt_test\.go''',
+  # server/ocserverd/migration.lock — the GENERATED migration manifest (T-75).
+  # Every line is `NNNNN <path> sha256:<64 hex>` and the header is a rolling
+  # sha256 of all of them; gitleaks' generic-api-key rule fingerprints the
+  # `sha256:<high-entropy literal>` shape and fires on the content hashes.
+  #
+  # 🔴 Path-scoped here, against this file's own "content-scoped, never a path"
+  # preference, because the hashes CHANGE on every migration — there is no fixed
+  # literal to name. What replaces the scan is not trust, it is a mechanical
+  # guarantee: parseMigrationLock accepts ONLY that line shape and
+  # TestMigrationLockMatchesTheTree recomputes every hash from the tree, so a
+  # line carrying anything else — a pasted credential included — cannot be in
+  # this file and be green. Nothing else under server/ocserverd is exempt.
+  '''server/ocserverd/migration\.lock''',
 ]
 # Belt-and-suspenders: the literal fixture values, in case a future rule
 # fingerprints on content rather than path.

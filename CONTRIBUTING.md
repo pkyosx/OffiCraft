@@ -90,6 +90,24 @@ after a merge to `main`, which appear on a pull request with a conclusion of
 **no** conclusion at all is not a pass: it means that check never ran, which on
 screen looks exactly like a check that did not go red.
 
+### If your change adds a database migration
+
+Adding a migration touches `server/ocserverd/migration.lock`, a generated file
+whose whole job is to make two such branches conflict on purpose. Expect a
+conflict there whenever another migration lands before yours — **including when
+the two version numbers do not actually collide**. That is the designed cost,
+not a bug.
+
+Do not hand-merge that file. Renumber your own migration *file* if the numbers
+really did collide, then run `./bin/gen-migration-lock`, which rewrites the
+whole thing from the tree. The `roll sha256:` header line is computed; never
+edit it by hand. Then read the diff: your new migration must appear as lines
+**appended at the end**. A changed line in the middle means an already-released
+migration was edited or removed — stop and look, do not commit past it.
+
+Note also that a conflicted pull request gets **no checks at all**, and an
+absent conclusion is not a pass — see the paragraph above.
+
 ### Green can go stale
 
 A green tick on your pull request proves that *the workflow as it existed when

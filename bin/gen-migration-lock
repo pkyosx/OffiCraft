@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# Regenerate server/ocserverd/migration.lock — run this after adding, renaming or
+# (rarely, and only before it ships) editing a migration.
+#
+# ── WHY THIS IS A WRAPPER AND NOT THE GENERATOR ──────────────────────────────
+# The generator is TestWriteMigrationLock in package main
+# (server/ocserverd/migration_lock_t75_gen_test.go), and that is deliberate. The
+# lock's checker enumerates migrations by reading the go:embed FS the server
+# hands goose and by AST-walking this package for goose registrations; neither is
+# reachable from outside package main. A standalone generator would have to
+# re-implement both — and then the checker would be validating a DIFFERENT set of
+# migrations than the one that was written, while staying green. So there is one
+# enumeration function and both halves CALL it. This script is the human-facing
+# handle, nothing more.
+#
+# ── WHY IT GREPS FOR A MARKER INSTEAD OF TRUSTING rc ─────────────────────────
+# `go test -run <pattern>` that matches NOTHING prints `ok` and exits 0 — byte
+# for byte what a real pass looks like. A typo in the pattern, a renamed test, a
+# body replaced by t.Skip: all of them arrive here as a silent success and leave
+# the lock untouched while this script reports victory. So the generator prints
+# its own marker as its last act and this script requires it, the same posture
+# bin/run-checks.sh takes with the Makefile.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MARKER='[gen-migration-lock] wrote'
+
+# The package embeds seedsdist/docsdist/webdist/bindist; without them it does not
+# compile, and a fresh clone has none of them (they are gitignored).
+make -C "$ROOT" build-embed-assets >/dev/null
+
+LOG="$(mktemp -t oc-gen-migration-lock.XXXXXX)"
+trap 'rm -f "$LOG"' EXIT
+
+set +e
+( cd "$ROOT/server/ocserverd" && OC_WRITE_MIGRATION_LOCK=1 \
+    go test . -count=1 -v -run '^TestWriteMigrationLock$' ) 2>&1 | tee "$LOG"
+rc="${PIPESTATUS[0]}"
+set -e
+[[ "$rc" == "0" ]] || exit "$rc"
+
+if ! grep -qF -- "=== RUN   TestWriteMigrationLock" "$LOG"; then
+  echo "FAIL — go test exited 0 but TestWriteMigrationLock never started. A -run pattern that" >&2
+  echo "matches no test prints 'ok' and exits 0, which is exactly what you just saw." >&2
+  exit 1
+fi
+if ! grep -qF -- "$MARKER" "$LOG"; then
+  echo "FAIL — TestWriteMigrationLock ran but never reached its end marker ('$MARKER')." >&2
+  echo "It was skipped, or its body no longer writes the lock. The lock on disk is UNCHANGED." >&2
+  exit 1
+fi
+
+echo
+echo "[gen-migration-lock] server/ocserverd/migration.lock is up to date."
+echo "[gen-migration-lock] Review the diff: new migrations must appear as lines APPENDED at the"
+echo "[gen-migration-lock] END. A changed line in the middle means an already-released migration"
+echo "[gen-migration-lock] was edited or removed — see migration_lock_t75_test.go before pushing."

@@ -329,3 +329,61 @@ func TestDeleteChatInvolvingStillCollectsUnreferencedBlobs(t *testing.T) {
 		t.Fatalf("all 3 unreferenced blobs must be collected, got %d", atts)
 	}
 }
+
+// TestDeleteChatInvolvingIgnoresTheGalleryIndex is the third sentinel, and it
+// guards a rule that is otherwise only written in prose: chat_attachment_ref
+// (migration 00074) indexes exactly ONE of the five places a blob can be
+// referenced from, so it must NEVER vote in the liveness verdict. Wiring it
+// into collectSurvivingBlobRefs would re-open T-62a8 wearing a different
+// shape — and the migration's own header says so, which is exactly the kind
+// of distant guard the production comment on the avatar source warns about:
+// "the liveness verdict must not rely on a distant string guard".
+//
+// The index row is written DIRECTLY, naming a message that does not exist, so
+// the triggers cannot clear it when the real message is deleted. That is the
+// only way to reach the state this pins: a blob that is a deletion candidate
+// and that ONLY this table still points at.
+//
+// Discrimination was verified by the inverse mutant (adding the table as a
+// sixth source in collectSurvivingBlobRefs): this test, and only this test,
+// goes red.
+func TestDeleteChatInvolvingIgnoresTheGalleryIndex(t *testing.T) {
+	d := newTestDAL(t)
+	seedLivenessBlobs(t, d, "a-candidate")
+
+	if err := d.PutChat(ChatMessage{
+		ID: "c-1", Sender: "m-1", Recipient: "owner", TS: 1.0,
+		Meta: map[string]any{"attachments": []any{
+			map[string]any{"id": "a-candidate"},
+		}},
+	}); err != nil {
+		t.Fatalf("put chat: %v", err)
+	}
+	// A row nothing will clean up: c-ghost is not a message, so the AFTER
+	// DELETE trigger never fires for it.
+	if _, err := d.wdb.Exec(
+		`INSERT INTO chat_attachment_ref
+		   (message_id, ord, attachment_id, sender, recipient, ts, mime, filename)
+		 VALUES ('c-ghost', 0, 'a-candidate', 'm-1', 'owner', 1.0, '', '')`); err != nil {
+		t.Fatalf("seed index row: %v", err)
+	}
+
+	if _, _, err := d.DeleteChatInvolving("m-1"); err != nil {
+		t.Fatalf("delete chat involving: %v", err)
+	}
+
+	// The precondition this test rests on: the index row really did survive
+	// the delete, so "collected anyway" means the scan ignored it rather than
+	// never having seen it.
+	var left int
+	if err := d.rdb.QueryRow(
+		`SELECT count(*) FROM chat_attachment_ref WHERE attachment_id = 'a-candidate'`,
+	).Scan(&left); err != nil {
+		t.Fatalf("count index rows: %v", err)
+	}
+	if left != 1 {
+		t.Fatalf("this test only pins anything while the index row survives, got %d", left)
+	}
+	mustBlobGone(t, d, "a-candidate",
+		"chat_attachment_ref must not keep a blob alive")
+}
