@@ -20,6 +20,7 @@ const {
   hireMember,
   mintMemberToken,
   postChatAs,
+  blockWebFonts,
   bootAuthedSpa,
   uniqueName,
 } = require('../lib/fixtures');
@@ -471,6 +472,7 @@ test.describe('T-4e95 · reply-to — banner, wire, quote row, jump', () => {
     // stands. The assertion below is what makes that a checked fact rather than
     // an assumption: if this ever stops working the test says so instead of
     // quietly measuring the much narrower Chinese label.
+    await blockWebFonts(page);
     await page.goto('/');
     await page.evaluate((t) => {
       localStorage.setItem('oc_token', t);

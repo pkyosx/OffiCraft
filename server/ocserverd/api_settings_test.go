@@ -24,12 +24,12 @@ func newSettingsTestServer(t *testing.T, password string) (*apiServer, *httptest
 	if err != nil {
 		t.Fatalf("ensureFirstRunClaimToken: %v", err)
 	}
-	api := newAPIServer(d, NewHub(), auth.secret, auth.ownerTokenTTL, "../..")
+	api := newAPIServer(d, NewHub(), singleKeyring(auth.secret), auth.ownerTokenTTL, "../..")
 	api.agentTokenTTL = auth.agentTokenTTL
 	api.passwordHash = auth.passwordHash
 	api.passwordChangedAt = auth.passwordChangedAt
 	api.ctxhigh = auth.ctxhigh
-	h, err := buildHandler(specsFor(api), auth.secret, d.GetMember, api.authPasswordChangedAt)
+	h, err := buildHandler(specsFor(api), api.keys, d.GetMember, api.authPasswordChangedAt)
 	if err != nil {
 		t.Fatalf("buildHandler: %v", err)
 	}
@@ -133,11 +133,11 @@ func TestChangePasswordRevokesPreChangeOwnerTokens(t *testing.T) {
 	// An owner token and an agent token minted BEFORE the change (iat in the
 	// past — a same-second change must not mask the revocation).
 	past := time.Now().Unix() - 10
-	oldOwner, err := mintJWT(wireOwnerID, "owner", 86400, api.secret, past, "")
+	oldOwner, err := mintJWT(wireOwnerID, "owner", 86400, api.keys.signingSecret(), past, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	agentToken, err := mintJWT("kyle", "agent", 86400, api.secret, past, "")
+	agentToken, err := mintJWT("kyle", "agent", 86400, api.keys.signingSecret(), past, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +251,7 @@ func TestUpdateSettingsValidatesAndAppliesImmediately(t *testing.T) {
 	}
 	if minted, err := api.mintAgentToken("agent-test", "", api.agentTokenTTLValue()); err != nil {
 		t.Fatalf("agent mint: %v", err)
-	} else if claims, err := verifyJWT(minted, api.secret, time.Now().Unix()); err != nil || claims["exp"].(float64)-claims["iat"].(float64) != 2592000 {
+	} else if claims, err := verifyJWT(minted, api.keys.signingSecret(), time.Now().Unix()); err != nil || claims["exp"].(float64)-claims["iat"].(float64) != 2592000 {
 		t.Fatalf("agent mint must use patched agent TTL: %+v %v", claims, err)
 	}
 

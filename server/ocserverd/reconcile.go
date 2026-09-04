@@ -1031,7 +1031,7 @@ func (s *apiServer) buildStartFrame(m Member) ([]byte, loreSurfacing, bool) {
 	if m.RosterStatus != RosterStatusActive {
 		return nil, lore, false
 	}
-	if len(s.secret) == 0 {
+	if len(s.keys.signingSecret()) == 0 {
 		return nil, lore, false
 	}
 	boot, err := s.buildBootContext("", &m)
@@ -1293,6 +1293,11 @@ func (s *apiServer) resolveEmptyRuntimeForPlacement(m *Member, warden string) {
 // decision whose state is NOT advanced, so the next tick retries — the
 // producer never records a command it did not deliver.
 func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) reconcileDecision {
+	// 下線 → 重啟, spent (T-14 項目 7). BEFORE the observation is built, because
+	// flipping desired_state back to online is what makes this tick take the
+	// decideUp arm and START the member — the same tick the stop converged on,
+	// not the one after it. A no-op for every member with nothing queued.
+	s.consumeRestartAfterStop(&m, now)
 	obs := memberObservation{
 		MemberID:       m.ID,
 		Desired:        parseDesired(m.DesiredState),
@@ -1469,6 +1474,20 @@ func (s *apiServer) armDecidedHandover(memberID string, decision reconcileDecisi
 	if !s.armMemberOwnerOpHandover(fresh, decision.ArmHandoverOp) {
 		return // it logged which gate refused; the next tick re-decides
 	}
+	if err := s.persistMemberWindDownAnchors(*fresh); err != nil {
+		reconcileLog("%s: %s wind-down ANCHOR write failed, row write not attempted: %v",
+			memberID, decision.ArmHandoverOp, err)
+		// 🔴 THE RETURN IS THE POINT, and this site is the one that needed it
+		// spelled out: the four sibling sites are inside loops and `continue` on
+		// the same failure, so the guard there is structural. Here it is not.
+		// Falling through would run the whole-row write, which FANS THE MEMBER
+		// DELTA — and the recycle hook in cli/ocagent keys on that delta to go
+		// read refocus_since. It would read 0, conclude no wind-down was armed,
+		// and the arm would silently evaporate. The next tick re-decides, so
+		// bailing here costs one tick; fanning a delta for an epoch that is not
+		// on the row costs the arm.
+		return
+	}
 	if err := s.putMember(*fresh, triggerServer); err != nil {
 		reconcileLog("%s: %s wind-down arm persist failed: %v",
 			memberID, decision.ArmHandoverOp, err)
@@ -1507,20 +1526,37 @@ func (s *apiServer) armDecidedHandover(memberID string, decision reconcileDecisi
 //
 // To re-check, grep `LastOpOK` over non-test .go — the COLUMN name, because the
 // `&ok` spelling is incidental and the next writer is free to name its bool
-// anything. Over the tree this comment lives in that is 31 hits, 2 of them inside
-// this comment block (the recipe finds its own subject; the previous one did
-// not). It was 27 before T-39 added the two converged clears, two lines each. Of
-// the rest, the hits that WRITE the column are:
+// anything. Over the tree this comment lives in that is 41 hits, 3 of them
+// inside this comment block (the recipe finds its own subject).
+//
+// ⚠️ THE ARITHMETIC HISTORY THAT USED TO SIT HERE IS GONE ON PURPOSE. It said
+// 31; by the time anyone re-ran the grep it was 33, and it derived that figure
+// from a "two lines each" that was three. A remembered count is a claim nothing
+// re-checks: it decays silently while reading as precise, which is the exact
+// defect this ticket exists to remove. Re-run the grep. Do not trust the last
+// number anyone wrote down, this one included.
+//
+// Of the rest, the hits that WRITE the column are:
 //   - seven `stampOpReceipt(&….LastOpOK, …)` call sites — reconcile.go ×3,
 //     receipt_watch.go ×2, worker_spawn.go ×2: the refusal class, all of it here;
 //   - stampWakeObservability below — refusal class, standing apart, anchored;
 //   - api_monitoring.go ×2 — the agent-verdict class described above;
-//   - seven that stamp no receipt at all: dal.go's row scan, this file's copy of
-//     an already-stamped row onto a freshly re-read one, and FIVE lines that
-//     clear back to nil — worker_spawn.go's clearWorkerPlacementBlock, plus the
-//     two T-39 converged clears (stampWakeObservability below and
-//     worker_spawn.go's clearWorkerConvergedFailureReceipt), each of which reads
-//     the column to test for a FAILURE and then writes nil.
+//   - seven `dal.SetMemberOpReceipt(…, ….LastOpOK, …)` call sites (T-55) —
+//     worker_spawn.go ×3, api_monitoring.go, api_members.go, receipt_watch.go,
+//     api_outsource.go. NOT a fourth class of receipt: they are the PERSISTENCE
+//     of the three above, which used to be a whole-row write. The five columns
+//     left PutMember's DO UPDATE SET, so stamping onto a struct stores nothing
+//     by itself — every stamp above now ends in one of these, and a stamp that
+//     does not is a receipt nobody will ever read;
+//   - one line that COPIES an already-stamped receipt onto a freshly re-read
+//     row — stampWakeObservability's persist below. It writes the column
+//     without deciding anything, which is why it sits in neither the refusal
+//     class nor the agent-verdict one;
+//   - three lines that clear back to nil rather than stamping —
+//     worker_spawn.go's clearWorkerPlacementBlock and
+//     clearWorkerConvergedFailureReceipt, plus this file's
+//     clearMemberConvergedFailureReceipt: each reads the column to test for a
+//     FAILURE and then writes nil.
 //
 // 🔴 A CLEAR IS NOT A RECEIPT, and it must not be routed through this core: the
 // core always leaves a non-nil FALSE with a reason, the clears leave nil with
@@ -1568,10 +1604,20 @@ func stampOpReceipt(lastOp *string, lastOpOK **bool, lastOpLog, lastOpReason *st
 }
 
 // stampMemberOpReceipt writes one op receipt onto an IN-MEMORY member the caller
-// is about to persist itself. It exists so an HTTP handler's explanation and the
-// change it explains are ONE row write and ONE delta — the same reason
-// armRefocusEpoch mutates instead of persisting. The receipt itself is
-// stampOpReceipt's; this is the staff shell.
+// is about to persist itself — the same reason armRefocusEpoch mutates instead
+// of persisting. The receipt itself is stampOpReceipt's; this is the staff shell.
+//
+// ⚠️ IT NO LONGER MAKES THE EXPLANATION AND THE CHANGE ONE WRITE (T-55), which
+// is what this comment used to promise. The five receipt columns became
+// insert-only, so a caller's whole-row write carries the change
+// and a separate dal.SetMemberOpReceipt carries the explanation. STAMPING ALONE
+// STORES NOTHING — a caller that forgets the second write leaves a receipt that
+// exists only in memory, and nothing goes red.
+//
+// Where the two writes go relative to each other is a per-site decision with a
+// real failure mode behind it, not a style choice: see HandleUpdateMember, where
+// the receipt has to land BEFORE the launch-intent setters because the gate that
+// decides whether to stamp at all compares against the STORED value.
 func stampMemberOpReceipt(m *Member, reason string, now float64) {
 	stampOpReceipt(&m.LastOp, &m.LastOpOK, &m.LastOpLog, &m.LastOpReason, &m.LastOpAt,
 		reconcileCmdStart, reason, now)
@@ -1643,7 +1689,11 @@ func (s *apiServer) stampMemberOpBlocked(memberID, reason string, now float64) {
 	}
 	stampOpReceipt(&fresh.LastOp, &fresh.LastOpOK, &fresh.LastOpLog, &fresh.LastOpReason,
 		&fresh.LastOpAt, reconcileCmdStart, reason, now)
-	if err := s.putMember(*fresh, triggerServer); err != nil {
+	// SINGLE WRITE, not two (T-55): the re-read above changed nothing but the
+	// receipt, so this whole-row write existed only to carry those five columns.
+	// Replacing it outright means there is no window between two writes here at
+	// all — see the ticket's 2.1a.
+	if err := s.persistMemberOpReceipt(*fresh, triggerServer); err != nil {
 		reconcileLog("%s: op-blocked stamp persist failed: %v", memberID, err)
 	}
 }
@@ -1686,7 +1736,8 @@ func (s *apiServer) stampMemberPlacementBlocked(m *Member, now float64) {
 	}
 	stampOpReceipt(&fresh.LastOp, &fresh.LastOpOK, &fresh.LastOpLog, &fresh.LastOpReason,
 		&fresh.LastOpAt, reconcileCmdStart, reason, now)
-	if err := s.putMember(*fresh, triggerServer); err != nil {
+	// Single write — same reason as stampMemberOpBlocked above.
+	if err := s.persistMemberOpReceipt(*fresh, triggerServer); err != nil {
 		reconcileLog("%s: placement-blocked stamp persist failed: %v", m.ID, err)
 	}
 }
@@ -1817,8 +1868,23 @@ func (s *apiServer) stampWakeObservability(m *Member, decision reconcileDecision
 	fresh.LastOpLog = m.LastOpLog
 	fresh.LastOpReason = m.LastOpReason
 	fresh.LastOpAt = m.LastOpAt
+	// 🔴 SIX COLUMNS, NOT FIVE — and that is why this site is still two writes
+	// (T-55). waking_since travels with the receipt here, and it has NOT left
+	// PutMember's SET list, so the whole-row write stays for it while the five
+	// receipt columns go through their sole writer. When waking_since is migrated
+	// in its own batch, this becomes two single-column writes and the whole-row
+	// write disappears; until then, deleting either half loses a column.
+	//
+	// Order: the whole-row write first, the receipt second — both halves are
+	// recomputed and re-attempted by the next reconcile tick, so a failure
+	// between them is visible to a retry either way; this order simply matches
+	// the rest of the ticket.
 	if err := s.putMember(*fresh, triggerServer); err != nil {
 		reconcileLog("%s: wake observability persist failed: %v", m.ID, err)
+		return
+	}
+	if err := s.persistMemberOpReceipt(*fresh, triggerServer); err != nil {
+		reconcileLog("%s: wake observability receipt persist failed: %v", m.ID, err)
 	}
 }
 
@@ -1905,7 +1971,8 @@ func (s *apiServer) clearMemberConvergedFailureReceipt(memberID string, snapshot
 	fresh.LastOpLog = ""
 	fresh.LastOpReason = ""
 	fresh.LastOpAt = 0.0
-	if err := s.putMember(*fresh, triggerServer); err != nil {
+	// Single write — the clear touches nothing but these five.
+	if err := s.persistMemberOpReceipt(*fresh, triggerServer); err != nil {
 		reconcileLog("%s: converged receipt clear failed: %v", memberID, err)
 	}
 }
@@ -2307,6 +2374,10 @@ func (s *apiServer) stampContextHighRecycle(members []Member, now float64) {
 				"wind-down ladder backwards from %s", m.ID, op, m.RefocusOp)
 			continue
 		}
+		if err := s.persistMemberWindDownAnchors(*m); err != nil {
+			reconcileLog("recycle: auto-stamp ANCHOR write failed for %s: %v", m.ID, err)
+			continue
+		}
 		if err := s.putMember(*m, triggerServer); err != nil {
 			reconcileLog("recycle: auto-stamp persist failed for %s: %v", m.ID, err)
 			continue
@@ -2449,6 +2520,10 @@ func (s *apiServer) stampTokenExpiryWinddown(members []Member, now float64) {
 				"the wind-down ladder backwards from %s", m.ID, m.RefocusOp)
 			continue
 		}
+		if err := s.persistMemberWindDownAnchors(*m); err != nil {
+			reconcileLog("recycle: token-expiry ANCHOR write failed for %s: %v", m.ID, err)
+			continue
+		}
 		if err := s.putMember(*m, triggerServer); err != nil {
 			reconcileLog("recycle: token-expiry stamp persist failed for %s: %v", m.ID, err)
 			continue
@@ -2523,6 +2598,10 @@ func (s *apiServer) clearRecycleMarkersOnRespawn(members []Member) {
 		m.RefocusOp = ""
 		m.StoppedSince = 0.0
 		m.StoppingSince = 0.0
+		if err := s.persistMemberWindDownAnchors(*m); err != nil {
+			reconcileLog("recycle: loop-break ANCHOR write failed for %s: %v", m.ID, err)
+			continue
+		}
 		if err := s.putMember(*m, triggerServer); err != nil {
 			reconcileLog("recycle: loop-break persist failed for %s: %v", m.ID, err)
 			continue
@@ -2682,6 +2761,10 @@ func (s *apiServer) clearStaleStoppingOnOnline(members []Member, now float64) {
 			continue
 		}
 		m.StoppingSince = 0.0
+		if err := s.persistMemberWindDownAnchors(*m); err != nil {
+			reconcileLog("revive: stale-stopping ANCHOR write failed for %s: %v", m.ID, err)
+			continue
+		}
 		if err := s.putMember(*m, triggerServer); err != nil {
 			reconcileLog("revive: stale-stopping clear persist failed for %s: %v", m.ID, err)
 			continue
@@ -2715,6 +2798,17 @@ func (s *apiServer) runReconcileTick(now float64) {
 	}
 	var members []Member
 	for _, m := range all {
+		// WHICH HALF drives this row (lifecycle_roster.go), asked BEFORE the
+		// entry filter — "is this mine to decide" comes before "should it
+		// exist". 🔴 NOT a no-op any more: ListMembers' `WHERE kind !=
+		// 'outsource'` is GONE (T-14 項目 6), so `all` genuinely contains
+		// contractor rows and THIS LINE is the only thing keeping them out of the
+		// member FSM. Deleting it re-creates the measured double-drive recorded
+		// on lifecycleTickDriverFor: one row taking a `start` from both halves in
+		// the same tick.
+		if lifecycleTickDriverFor(m) != driverReconcile {
+			continue
+		}
 		// THE entry filter (lifecycle_roster.go). It used to be written out here
 		// by hand, and again in reconcileMemberNow, and a third time — in its
 		// outsource dialect — in runOutsourceTick. One question, one answer.
@@ -2769,6 +2863,26 @@ func (s *apiServer) reconcileMemberNow(memberID string) reconcileDecision {
 	defer s.reconcileMu.Unlock()
 	m, err := s.dal.GetMember(memberID)
 	if err != nil || m == nil {
+		return reconcileDecision{}
+	}
+	// WHICH HALF drives this row — the SAME question runReconcileTick asks at
+	// the head of its candidate loop, asked here too so that the answer is a
+	// property of THIS FUNCTION rather than a coincidence in its callers.
+	//
+	// This door reads GetMember, not ListMembers, so T-14 項目 6 did not widen
+	// it — but it never narrowed it either: every one of the seven non-test
+	// callers happens to hand it a staff row (api_members ×5 via
+	// resolveMember(…, staffOnly), api_machines via resolveMachine which demands
+	// kind==warden, onboarding with the seed assistant's own id), so the guard
+	// that keeps a contractor out of the member FSM on the EVENT-DRIVEN path
+	// lived in seven argument lists across two other files. That is not a
+	// no-op that can be deleted: it is a no-op that can be UNDONE by a future
+	// caller passing anyMember — and api_members.go:790 / api_machines.go:1280
+	// already do exactly that elsewhere, so the precedent for widening exists.
+	// With the clause gone, a contractor reaching here would take a `start`
+	// from the member FSM while the outsource half takes its own — the measured
+	// double-drive recorded on lifecycleTickDriverFor (lifecycle_roster.go).
+	if lifecycleTickDriverFor(*m) != driverReconcile {
 		return reconcileDecision{}
 	}
 	// THE entry filter, the same one the cadence asks (lifecycle_roster.go).

@@ -258,7 +258,7 @@ func (s *apiServer) resolveWorkerPlacement(w OutsourceWorker, preferred string, 
 		return "", placementReasonUnavailable + ": machine '" + preferred + "' " + detail +
 			"; no other machine is substituted"
 	}
-	members, err := s.dal.ListMembersIncludingOutsource()
+	members, err := s.dal.ListMembers()
 	if err != nil {
 		return unavailable("could not be looked up (server error)")
 	}
@@ -435,10 +435,18 @@ var spawnBlockedReasonCodes = []string{
 // failure is logged and never changes the dispatch decision — observability must
 // not be able to stall the control loop.
 // stampWorkerOpReceipt writes one receipt onto an IN-MEMORY worker the caller is
-// about to persist itself — the twin of stampMemberOpReceipt, and the reason it
-// exists is the same: an owner verb's explanation and the change it explains
-// must be ONE row write and ONE delta. stampWorkerPlacementBlocked is the other
-// half of the pair, for callers (the tick) that own no write of their own.
+// about to persist itself — the twin of stampMemberOpReceipt.
+// stampWorkerPlacementBlocked is the other half of the pair, for callers (the
+// tick) that own no write of their own.
+//
+// ⚠️ THE REASON IT USED TO GIVE — that an owner verb's explanation and the change
+// it explains must be ONE row write and ONE delta — STOPPED BEING TRUE IN T-55.
+// The five receipt columns left PutMember's DO UPDATE SET, so the caller's own
+// write no longer carries them and every stamp must be followed by
+// dal.SetMemberOpReceipt. What survives of that reason is narrower and still
+// worth keeping: the receipt is stamped onto the SAME struct the caller is
+// about to write, so the two land from one consistent snapshot rather than
+// from two reads of a row somebody else may have moved in between.
 //
 // "Twin" is now literal rather than descriptive: both shells hand the same five
 // columns to stampOpReceipt (reconcile.go), which is where the receipt is
@@ -559,7 +567,9 @@ func (s *apiServer) stampWorkerPlacementBlocked(w *OutsourceWorker, reason strin
 	}
 	stampOpReceipt(&fresh.LastOp, &fresh.LastOpOK, &fresh.LastOpLog, &fresh.LastOpReason,
 		&fresh.LastOpAt, reconcileCmdStart, reason, now)
-	if err := s.dal.PutOutsourceWorker(*fresh); err != nil {
+	// Single write (T-55): the re-read above moved nothing but the receipt.
+	if err := s.dal.SetMemberOpReceipt(fresh.ID, fresh.LastOp, fresh.LastOpOK, fresh.LastOpLog,
+		fresh.LastOpReason, fresh.LastOpAt); err != nil {
 		outsourceLog("spawn %s: placement-blocked stamp persist failed: %v", w.ID, err)
 		return
 	}
@@ -592,7 +602,17 @@ func (s *apiServer) clearWorkerPlacementBlock(workerID string) {
 	// FAILED start with nothing to explain it — a fresh blank of the same kind. nil
 	// is the honest "no receipt yet"; the warden's own receipt fills it in.
 	fresh.LastOpOK = nil
-	if err := s.dal.PutOutsourceWorker(*fresh); err != nil {
+	// 🔴 THREE COLUMNS CHANGE, FIVE ARE WRITTEN, AND last_op / last_op_at GO BACK
+	// IN CARRYING THE VALUES THEY ALREADY HELD — that is deliberate, not a
+	// forgotten clear (T-55). This function has always kept both: last_op_at is
+	// what separates "stalled an hour ago" from "stalled right now", which is the
+	// whole point of the paragraph above. The sole writer takes the receipt whole
+	// (a partial receipt is a verdict nobody wrote — see SetMemberOpReceipt), so
+	// "keep it" is now spelled "pass the current value" instead of "leave that
+	// field out of the UPDATE". Anyone who "tidies" these two into zeroes deletes
+	// the timestamp this function exists to preserve.
+	if err := s.dal.SetMemberOpReceipt(fresh.ID, fresh.LastOp, fresh.LastOpOK, fresh.LastOpLog,
+		fresh.LastOpReason, fresh.LastOpAt); err != nil {
 		outsourceLog("spawn %s: placement-block clear failed: %v", workerID, err)
 	}
 }
@@ -649,7 +669,9 @@ func (s *apiServer) clearWorkerConvergedFailureReceipt(workerID string, snapshot
 	fresh.LastOpLog = ""
 	fresh.LastOpReason = ""
 	fresh.LastOpAt = 0.0
-	if err := s.dal.PutOutsourceWorker(*fresh); err != nil {
+	// Single write (T-55): the clear touches nothing but these five.
+	if err := s.dal.SetMemberOpReceipt(fresh.ID, fresh.LastOp, fresh.LastOpOK, fresh.LastOpLog,
+		fresh.LastOpReason, fresh.LastOpAt); err != nil {
 		outsourceLog("%s: converged receipt clear failed: %v", workerID, err)
 		return
 	}
@@ -802,7 +824,7 @@ func (s *apiServer) notifyWorkerSpawn(w OutsourceWorker, now float64) bool {
 			": could not assemble the worker's boot context: "+err.Error(), now)
 		return false
 	}
-	if len(s.secret) == 0 {
+	if len(s.keys.signingSecret()) == 0 {
 		s.stampWorkerPlacementBlocked(&w, spawnReasonNoSecret+
 			": the server has no JWT signing secret, so no worker token can be minted", now)
 		return false
@@ -1584,9 +1606,33 @@ func (s *apiServer) relocateWorkerNow(w OutsourceWorker) ownerOpOutcome {
 // Callers hold s.outsourceMu.
 func (s *apiServer) respawnWorkerForOwnerOp(w OutsourceWorker, op string) ownerOpOutcome {
 	if w.DesiredState == DesiredStateOffline {
+		// 下線 → 重啟 (T-65 包②, owner 2026-08-30 rc-bc1b029a3aa2). The held-down
+		// arm no longer merely records a refusal: on a worker that HAS been asked
+		// to stop, the owner's verb is queued behind the stop and spent when it
+		// converges. Nothing is dispatched here either way — 「沿用強硬下線規則」 —
+		// so the branch this sits in is unchanged; only what it writes is.
+		//
+		// 🔴 重啟 CANNOT REACH THIS ARM, which is what keeps the queue from
+		// re-arming itself: its handler sets DesiredState = online on the row it
+		// passes here BY VALUE (the argument this line reads), so the only two ops
+		// that can queue an intent are 改機器 and 換 model — both 重啟 verbs.
+		//
+		// ⚠️ 換 model REACHES THIS ARM ONLY WHILE THE SESSION IS STILL UP. Its
+		// handler gates the call on `Status == active && hub.IsOnline`, so a
+		// CONVERGED stop skips the funnel entirely and queues through its own
+		// branch in api_outsource.go. Both are needed; neither covers the other.
+		now := nowSecs()
+		if s.queueWorkerRestartAfterStop(&w, op, now) {
+			if err := s.persistWorkerRestartIntent(w); err != nil {
+				outsourceLog("spawn %s: queued restart-after-stop persist failed: %v",
+					w.ID, err)
+			}
+			s.publishOutsourceWorker(w, triggerServer)
+			return ownerOpOutcome{HeldDown: true}
+		}
 		s.stampWorkerPlacementBlocked(&w, spawnReasonHeldDown+": the "+op+" was saved, "+
 			"but nothing was started — this worker is stopped; 重啟 it when you want it "+
-			"to run", nowSecs())
+			"to run", now)
 		return ownerOpOutcome{HeldDown: true}
 	}
 	// T-98f4 rule 2 — 「我建議所有換手都可以給他機會收尾」. All three verbs used to
@@ -1833,6 +1879,12 @@ func (s *apiServer) openOwnerOpHandover(w OutsourceWorker, op string) bool {
 	w.RefocusOp = proj.RefocusOp
 	w.StoppingSince = proj.StoppingSince
 	w.StoppedSince = proj.StoppedSince
+	if err := s.persistWorkerWindDownAnchors(w); err != nil {
+		outsourceLog("%s %s (%s): refocus ANCHOR write failed (%v) — falling back to an "+
+			"immediate respawn so the owner's action is not lost", op, w.ID, w.Codename, err)
+		s.respawnWorkerForOwnerOpNow(w, op)
+		return true
+	}
 	if err := s.dal.PutOutsourceWorker(w); err != nil {
 		outsourceLog("%s %s (%s): refocus stamp failed (%v) — falling back to an "+
 			"immediate respawn so the owner's action is not lost", op, w.ID, w.Codename, err)
@@ -2190,6 +2242,10 @@ func (s *apiServer) clearWorkerRefocus(id, reason string) {
 	fresh.RefocusOp = ""
 	fresh.StoppingSince = 0.0
 	fresh.StoppedSince = 0.0
+	if err := s.persistWorkerWindDownAnchors(*fresh); err != nil {
+		outsourceLog("refocus clear %s (%s): ANCHOR write failed: %v", id, reason, err)
+		return
+	}
 	if err := s.dal.PutOutsourceWorker(*fresh); err != nil {
 		outsourceLog("refocus clear %s (%s): persist failed: %v", id, reason, err)
 		return
@@ -2285,6 +2341,10 @@ func (s *apiServer) collectWorkerHandover(w OutsourceWorker, reason, trigger str
 	if w.StoppedSince <= 0.0 {
 		w.StoppedSince = nowSecs()
 	}
+	if err := s.persistWorkerWindDownAnchors(w); err != nil {
+		outsourceLog("handover collect %s (%s): stopped-latch ANCHOR write failed: %v", w.ID, reason, err)
+		return false
+	}
 	if err := s.putMember(memberFromWorker(w), trigger); err != nil {
 		outsourceLog("handover collect %s (%s): stopped latch failed: %v", w.ID, reason, err)
 		return false
@@ -2295,6 +2355,10 @@ func (s *apiServer) collectWorkerHandover(w OutsourceWorker, reason, trigger str
 			return false
 		}
 		w.StoppedSince = prior
+		if err := s.persistWorkerWindDownAnchors(w); err != nil {
+			outsourceLog("handover collect %s (%s): latch-rollback ANCHOR write failed: %v",
+				w.ID, reason, err)
+		}
 		if err := s.dal.PutOutsourceWorker(w); err != nil {
 			outsourceLog("handover collect %s (%s): latch rollback failed: %v",
 				w.ID, reason, err)
@@ -2319,6 +2383,10 @@ func (s *apiServer) collectWorkerHandover(w OutsourceWorker, reason, trigger str
 func (s *apiServer) collectWorkerStop(w OutsourceWorker, reason, trigger string) {
 	if w.StoppedSince <= 0.0 {
 		w.StoppedSince = nowSecs()
+	}
+	if err := s.persistWorkerWindDownAnchors(w); err != nil {
+		outsourceLog("stop collect %s (%s): stopped-latch ANCHOR write failed: %v", w.ID, reason, err)
+		return
 	}
 	if err := s.putMember(memberFromWorker(w), trigger); err != nil {
 		outsourceLog("stop collect %s (%s): stopped latch failed: %v", w.ID, reason, err)
@@ -2384,6 +2452,9 @@ func (s *apiServer) workerReportWaking(id string, model *string, trigger string)
 	if model != nil {
 		m.ActualModel = *model
 	}
+	if err := s.persistMemberWindDownAnchors(m); err != nil {
+		return nil, err
+	}
 	if err := s.putMember(m, trigger); err != nil {
 		return nil, err
 	}
@@ -2410,6 +2481,9 @@ func (s *apiServer) workerReportStopping(id, trigger string) (*Member, error) {
 		w.StoppingSince = nowSecs()
 	}
 	m := memberFromWorker(*w)
+	if err := s.persistMemberWindDownAnchors(m); err != nil {
+		return nil, err
+	}
 	if err := s.putMember(m, trigger); err != nil {
 		return nil, err
 	}
@@ -2461,6 +2535,9 @@ func (s *apiServer) workerReportStopped(id, trigger string) (*Member, error) {
 			// to prove only one kill goes out, and it is the same latency staff
 			// have.
 			w.StoppedSince = nowSecs()
+			if err := s.persistWorkerWindDownAnchors(*w); err != nil {
+				return nil, err
+			}
 			if err := s.putMember(memberFromWorker(*w), trigger); err != nil {
 				return nil, err
 			}
@@ -2482,6 +2559,9 @@ func (s *apiServer) workerReportStopped(id, trigger string) (*Member, error) {
 			return &m, nil
 		}
 		w.StoppedSince = nowSecs()
+		if err := s.persistWorkerWindDownAnchors(*w); err != nil {
+			return nil, err
+		}
 		if err := s.putMember(memberFromWorker(*w), trigger); err != nil {
 			return nil, err
 		}
@@ -2519,6 +2599,9 @@ func (s *apiServer) workerRestartSelf(id string, now float64, trigger string) (*
 	w.RefocusOp = proj.RefocusOp
 	w.StoppingSince = proj.StoppingSince
 	w.StoppedSince = proj.StoppedSince
+	if err := s.persistWorkerWindDownAnchors(*w); err != nil {
+		return nil, err
+	}
 	if err := s.dal.PutOutsourceWorker(*w); err != nil {
 		return nil, err
 	}
@@ -2542,7 +2625,7 @@ func (s *apiServer) reclaimWorkerSession(w OutsourceWorker) {
 	targets := []string{}
 	if t := s.workerSpawnTarget[w.ID]; t != "" && s.hub.IsOnline(t) {
 		targets = append(targets, t)
-	} else if members, err := s.dal.ListMembersIncludingOutsource(); err == nil {
+	} else if members, err := s.dal.ListMembers(); err == nil {
 		for _, m := range members {
 			if m.Kind == KindWarden && m.RosterStatus == RosterStatusActive &&
 				s.hub.IsOnline(m.ID) {

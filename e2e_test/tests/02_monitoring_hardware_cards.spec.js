@@ -20,6 +20,7 @@
 // that, the bug is fixed — DELETE the `test.fail()` marker to flip it to a
 // permanent green regression guard.
 const { test, expect } = require('@playwright/test');
+const { blockWebFonts } = require('../lib/fixtures');
 
 const BASE = process.env.OC_E2E_BASE || 'http://127.0.0.1:8791';
 const PASSWORD = process.env.OC_E2E_PASSWORD || 'joey-e2e-local-pw';
@@ -35,6 +36,7 @@ async function bootAuthed(page) {
   const { token } = await login.json();
   expect(token, 'login must return an owner token').toBeTruthy();
 
+  await blockWebFonts(page);
   // Must land on the origin before touching its localStorage.
   await page.goto('/');
   await page.evaluate((t) => localStorage.setItem('oc_token', t), token);

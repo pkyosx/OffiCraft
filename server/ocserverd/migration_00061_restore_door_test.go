@@ -49,7 +49,7 @@ func migration00061RestoreWorld(t *testing.T) (*apiServer, *sql.DB) {
 	if err := runMigrations(db); err != nil {
 		t.Fatalf("goose up: %v", err)
 	}
-	return newAPIServer(NewDAL(db), NewHub(), []byte("restore-door-secret"), 3600,
+	return newAPIServer(NewDAL(db), NewHub(), singleKeyring([]byte("restore-door-secret")), 3600,
 		assetRoot(t.TempDir())), db
 }
 

@@ -509,7 +509,7 @@ func (s *apiServer) machineSupportsRuntime(machineID, runtime string) bool {
 // GET /api/machines — one row per ACTIVE warden member; display name folds
 // the machine-alias overlay over the member name; server-self always FIRST.
 func (s *apiServer) HandleListMachinesApiMachinesGet(w http.ResponseWriter, r *http.Request) {
-	members, err := s.dal.ListMembersIncludingOutsource()
+	members, err := s.dal.ListMembers()
 	if err != nil {
 		internalError(w, err)
 		return

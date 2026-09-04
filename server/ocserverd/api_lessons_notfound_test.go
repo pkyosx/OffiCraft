@@ -48,13 +48,13 @@ func newLessonsTestServerAPI(t *testing.T) (*httptest.Server, *DAL, []byte, *api
 		t.Fatalf("seed: %v", err)
 	}
 	secret := []byte(interopSecret)
-	api := newAPIServer(dal, NewHub(), secret, 3600, "../..")
+	api := newAPIServer(dal, NewHub(), singleKeyring(secret), 3600, "../..")
 	phc, err := hashPassword("test-password")
 	if err != nil {
 		t.Fatalf("hashPassword: %v", err)
 	}
 	api.passwordHash = phc
-	h, err := buildHandler(specsFor(api), secret, dal.GetMember, nil)
+	h, err := buildHandler(specsFor(api), api.keys, dal.GetMember, nil)
 	if err != nil {
 		t.Fatalf("buildHandler: %v", err)
 	}

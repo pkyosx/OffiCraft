@@ -118,8 +118,8 @@ func (s *apiServer) writeTaskDescription(t *Task, actor, description string) (bo
 // 🔴 TERMINAL STATE — why this route has no TaskIsTerminal guard while its
 // neighbours do, stated as a difference in KIND and not as an exemption:
 //
-//	A closed task's ARTIFACT SET is frozen in both directions (add and remove,
-//	admin and owner included — see HandleRemoveTaskArtifact...). What that
+//	A closed task's ARTIFACT SET is frozen in every direction (add, remove and
+//	replace, admin and owner included — see HandleRemoveTaskArtifact...). What that
 //	freeze protects is the OUTCOME: the artifacts are the record of what this
 //	task actually produced, and a closed task's account of its own deliverables
 //	must stop moving, or "what did this task ship" has no answer that stays put.

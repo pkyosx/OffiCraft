@@ -38,6 +38,10 @@ func TestMemberDAL_ReportedColumnsRoundTrip(t *testing.T) {
 	if err := d.PutMember(want); err != nil {
 		t.Fatalf("put: %v", err)
 	}
+	if err := d.SetMemberWindDownAnchors(want.ID, want.StoppingSince,
+		want.StoppedSince, want.RefocusSince, want.RefocusOp); err != nil {
+		t.Fatalf("seed wind-down anchors: %v", err)
+	}
 	got, err := d.GetMember("m-rt")
 	if err != nil || got == nil {
 		t.Fatalf("get: %v %v", got, err)

@@ -202,12 +202,13 @@ func TestWakeTimeout_DoesNotStompTheWardensSessionAliveReceipt(t *testing.T) {
 	if err != nil || live == nil {
 		t.Fatalf("re-read worker: %v", err)
 	}
-	live.LastOp = reconcileCmdStart
+	// Seeded through the receipt's SOLE writer (T-55): the five last_op* columns
+	// left PutMember's DO UPDATE SET, so a whole-row write can no longer plant
+	// this fixture — it would land nothing and the test would then be asserting
+	// that a stamp did not erase a receipt that was never there.
 	no := false
-	live.LastOpOK = &no
-	live.LastOpReason = wardenReceipt
-	live.LastOpAt = base
-	if err := s.dal.PutOutsourceWorker(*live); err != nil {
+	if err := s.dal.SetMemberOpReceipt(live.ID, reconcileCmdStart, &no, "", wardenReceipt,
+		base); err != nil {
 		t.Fatalf("seed the warden receipt: %v", err)
 	}
 

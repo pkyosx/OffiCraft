@@ -113,6 +113,7 @@ func TestWorkerRefocusIsCollectedByNoClock_ButEveryOtherCauseStillIs(t *testing.
 		if err := api.dal.PutOutsourceWorker(*w); err != nil {
 			t.Fatalf("put worker: %v", err)
 		}
+		seedWorkerAnchors(t, api, *w)
 
 		workerTickPass(t, api, w.ID, w.RefocusSince+StoppingTimeoutSecs-1)
 		if got := len(api.hub.DrainWardenCommands(ServerSelfHost)); got != 0 {

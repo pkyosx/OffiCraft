@@ -45,7 +45,7 @@ func newEventProcServer(t *testing.T) *apiServer {
 	if err := seedOutOfBox(dal); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	return newAPIServer(dal, NewHub(), []byte(interopSecret), 3600, "../..")
+	return newAPIServer(dal, NewHub(), singleKeyring([]byte(interopSecret)), 3600, "../..")
 }
 
 // seedOf reads a spec's shipped seed, failing the test if it is not there.

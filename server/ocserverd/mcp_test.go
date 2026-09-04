@@ -262,7 +262,7 @@ func TestToolsCallLoopbackThroughTheWiredStack(t *testing.T) {
 func TestToolsCallWithoutLoopbackIsHonest32603(t *testing.T) {
 	// The dependency-free table (no loopback wired) must answer an honest
 	// internal error, never a fabricated result.
-	h, err := buildHandler(defaultRouteSpecs(), []byte(interopSecret), nil, nil)
+	h, err := buildHandler(defaultRouteSpecs(), singleKeyring([]byte(interopSecret)), nil, nil)
 	if err != nil {
 		t.Fatalf("buildHandler: %v", err)
 	}
@@ -352,7 +352,7 @@ func TestToolsCallRelocateMemberMovesWorker(t *testing.T) {
 	}
 
 	secret := []byte("tasks-test-secret")
-	h, err := buildHandler(specsFor(api), secret, api.dal.GetMember, nil)
+	h, err := buildHandler(specsFor(api), api.keys, api.dal.GetMember, nil)
 	if err != nil {
 		t.Fatalf("buildHandler: %v", err)
 	}

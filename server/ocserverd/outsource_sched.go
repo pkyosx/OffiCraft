@@ -344,10 +344,37 @@ func (s *apiServer) runOutsourceTick(now float64) {
 		outsourceLog("tick: task read failed: %v", err)
 		return
 	}
-	workers, err := s.dal.ListOutsourceWorkers()
+	all, err := s.dal.ListOutsourceWorkers()
 	if err != nil {
 		outsourceLog("tick: worker read failed: %v", err)
 		return
+	}
+	var workers []OutsourceWorker
+	for _, w := range all {
+		// WHICH HALF drives this row (lifecycle_roster.go) — the twin of the
+		// guard at the head of runReconcileTick's candidate loop, asked here for
+		// the same reason and in the SAME POSITION AS THAT ONE: at the head of
+		// this producer, on the raw roster read, before ANY pass or decision has
+		// looked at the row. It did not start out here — it sat below
+		// runWorkerLifecyclePasses, which had already run the entry filter, every
+		// shared formality and the four-field fold-back on rows this half might
+		// not own. That is harmless only while the guard is a no-op, and the whole
+		// reason this guard exists is the day it stops being one.
+		//
+		// A NO-OP TODAY, deliberately: ListOutsourceWorkers returns kind='outsource'
+		// rows only and the driver hands every one of them to this half. It is here
+		// so BOTH halves state their claim BY NAME, which is what lets the parity
+		// test assert the two claims never overlap and never both abstain — an
+		// invariant that today rests entirely on a SQL WHERE clause and would rest
+		// on nothing once that clause is merged.
+		//
+		// Filtering here rather than at the FSM loop also means the live-count /
+		// codename fold below counts only rows this half owns: a row driven by the
+		// other half must not consume this half's parallel cap.
+		if lifecycleTickDriverFor(memberFromWorker(w)) != driverOutsource {
+			continue
+		}
+		workers = append(workers, w)
 	}
 	manuals, err := s.dal.ListTaskManuals()
 	if err != nil {
@@ -411,9 +438,10 @@ func (s *apiServer) runOutsourceTick(now float64) {
 	// 🔴 T-170e: THREE staff passes ride this projection now, not one, and the
 	// reason the other two were missing is structural rather than an oversight
 	// anybody could have spotted by reading them. Every shared wind-down pass is
-	// reached from runReconcileTick, whose roster read is ListMembers — and
-	// ListMembers is `WHERE kind != 'outsource'` by construction (dal.go), so a
-	// worker is NEVER offered to any of them. A pass that guards staff and a pass
+	// reached from runReconcileTick, which never offers a worker to any of them —
+	// then because ListMembers was `WHERE kind != 'outsource'` (dal.go), now
+	// because that half's driver guard drops the row (T-14 項目 6 deleted the
+	// clause). Either way a worker is NEVER offered to any of them. A pass that guards staff and a pass
 	// that does not exist look identical from the worker's side, which is exactly
 	// how a worker ended up with no token-expiry lead and no survived-stop sweep
 	// while the code implementing both sat in the same package.
@@ -433,6 +461,26 @@ func (s *apiServer) runOutsourceTick(now float64) {
 	s.runWorkerLifecyclePasses(workers, now)
 
 	for _, w := range workers {
+		// `workers` is already the driver-filtered set (see the head of this
+		// function): every row here was claimed by driverOutsource before any
+		// formality ran, so there is no second driver question to ask at this
+		// point.
+		//
+		// 🔴 ABOVE THE SWITCH, AND THAT POSITION IS THE WHOLE POINT (T-65 包②).
+		// The queued 起來 an owner presses during a wind-down is spent here, at the
+		// converged-offline edge. Its staff twin lives inside reconcileOne, so the
+		// symmetric home would be reconcileWorkerLiveness — and that home is
+		// UNREACHABLE for the only population this can ever fire on: the assigned
+		// branch below `continue`s on `DesiredState == offline`, and the active
+		// branch gates its FSM call on `fresh.DesiredState != offline`. A stopped
+		// worker never reaches the FSM at all. Putting the consume behind either
+		// filter would leave the owner pressing a button that answers 200 and does
+		// nothing forever — which is the SAME shape as the bug this feature
+		// removes, one layer down.
+		//
+		// It mutates `w` in place, so the switch below sees desired_state=online on
+		// this very pass and dispatches the start now rather than a tick later.
+		s.consumeWorkerRestartAfterStop(&w, now)
 		// A refused live-worker kill (owner 停止/relocate toward a warden that
 		// dropped offline) is parked, never lost — re-fire it FIRST, before any
 		// branch below can re-spawn onto the same machine (P5a rework).

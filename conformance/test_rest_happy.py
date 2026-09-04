@@ -1,4 +1,4 @@
-"""REST happy-path face — every served route, minimum-viable identity, spec shape.
+"""REST happy-path face — every manifest row, minimum-viable identity, spec shape.
 
 Second conformance batch. The auth matrix (test_auth_matrix.py) pins WHO may
 call each route; this file pins WHAT a permitted call returns: for every row of
@@ -17,8 +17,11 @@ Coverage has the same teeth as the matrix: ``test_happy_covers_manifest``
 fails the run when a manifest row is neither in ``HAPPY`` nor in the explicit
 ``SKIPPED_HAPPY`` table (reason required), and
 ``test_openapi_covers_manifest`` pins the manifest row set to the frozen
-``spec/openapi.json`` operations — a new server route reddens BOTH snapshots
-before it can ship untested.
+``spec/openapi.json`` operations. Both of those compare the manifest to another
+hand-written list; what carries them back to the server is the Go test
+``TestRouteTableCoversSpecSurface``, which pins that same frozen spec against
+the route table the mux is built from — so a served route the manifest never
+learned about reddens there.
 
 Rows that serve non-JSON bytes (binaries, install.sh, chat attachment blob) or
 a non-OpenAPI protocol (MCP JSON-RPC) carry ``nonjson`` with a reason: status
@@ -197,6 +200,33 @@ class Happy:
     check: CheckFn | None = None
 
 
+def _check_cost_reset_receipt(_ctx: HCtx, r: httpx.Response) -> None:
+    """A fresh member has never reported telemetry and has banked nothing, so
+    the receipt honestly says NOTHING WAS DESTROYED — both halves null rather
+    than 0. That distinction is the wire contract (null = there was nothing to
+    clear; 0 would read as "zero was cleared"), and it is what lets the cockpit
+    fall back to the existing "both null -> dash" rule after a reset instead of
+    rendering $0."""
+    data = r.json()
+    assert data["member_id"], data
+    assert data["cleared_cost"] is None, data
+    assert data["cleared_banked_cost"] is None, data
+
+
+def _check_account_cost_reset_receipt(_ctx: HCtx, r: httpx.Response) -> None:
+    """Nobody has ever reported under a scratch account tag, so the receipt
+    honestly says NOTHING WAS DESTROYED — null rather than 0. Two contracts ride
+    on that: null means "there was nothing to clear" while 0 would read as "zero
+    was cleared" (the same null semantics as CostResetDTO), and an unknown tag is
+    a SUCCESS rather than a 404, because an account is a free telemetry string
+    with no roster row — "no such account" and "that account has nothing to
+    clear" are the same state. Without the second, the owner's second press —
+    the likely one, having just cleared it — would look like an error."""
+    data = r.json()
+    assert data["account"], data
+    assert data.get("cleared_cost") is None, data
+
+
 def _check_version(_ctx: HCtx, r: httpx.Response) -> None:
     data = r.json()
     assert data["version"] and data["catalog_hash"], data
@@ -205,6 +235,86 @@ def _check_version(_ctx: HCtx, r: httpx.Response) -> None:
 def _check_login(_ctx: HCtx, r: httpx.Response) -> None:
     data = r.json()
     assert data["token"] and data["token_type"] == "bearer", data
+
+
+def _check_signing_keys(_ctx: HCtx, r: httpx.Response) -> None:
+    """The ring as the outside may see it: ids, creation times, exactly one
+    signer — and NOTHING that could be key material.
+
+    The leak check is deliberately structural rather than a list of field names
+    to forbid: it walks every key object and asserts its key set is exactly the
+    three documented fields, so a future field carrying a fingerprint, a hash
+    prefix or the key itself reddens here without anyone having predicted its
+    name. (Why it matters: on an install predating the ring the signing key IS
+    SHA-256 over the owner password, so publishing any digest of it is an
+    offline dictionary attack on that password.)"""
+    data = r.json()
+    keys = data["keys"]
+    assert keys, data
+    assert sum(1 for k in keys if k["is_signing"]) == 1, data
+    for k in keys:
+        assert set(k) == {"key_id", "created_ts", "is_signing"}, k
+        assert isinstance(k["key_id"], str) and k["key_id"], k
+        assert isinstance(k["created_ts"], (int, float)), k
+
+
+def _check_signing_key_rotated(ctx: HCtx, r: httpx.Response) -> None:
+    """A rotation puts a BRAND-NEW key in charge: after the call the ring holds
+    at least two keys and the one signing is the newest by ``created_ts``.
+
+    ⚠️ What this row does NOT prove is that the rotation dropped nothing — that
+    needs a reading taken BEFORE the call, which a response-only check cannot
+    take. It is pinned where a before/after IS available:
+    TestT62_RotationTakesEffectWithoutRestart and
+    TestT62_RetiredKeyVerifiesButNeverSigns
+    (server/ocserverd/keyring_rotation_t62_test.go), which mint a token under the
+    outgoing key and require it to keep passing the live gate afterwards. Saying
+    so here rather than writing a check that cannot see it: a subset assertion
+    against a ring re-read after the fact would pass no matter what the route
+    did."""
+    _check_signing_keys(ctx, r)
+    keys = r.json()["keys"]
+    assert len(keys) >= 2, keys
+    signing = [k for k in keys if k["is_signing"]][0]
+    assert signing["created_ts"] == max(k["created_ts"] for k in keys), keys
+    assert signing["created_ts"] > 0, signing
+
+
+def _happy_signing_key_remove_path(ctx: HCtx) -> str:
+    """Aim the removal at a key that signed NOTHING anyone is holding.
+
+    Rotate twice: the key created by the first rotation signs only between the
+    two calls, and this harness mints no credential in that window. Removing THAT
+    key is the route's full semantics with none of the poisoning — removing the
+    ORIGINAL key would revoke the very token this request authenticates with,
+    and every row after it.
+
+    If the ring cannot produce such a key the row fails rather than silently
+    aiming somewhere harmless: a removal probe that never removes anything is
+    the failure mode this file exists to prevent."""
+    hdr = _auth(ctx.owner_token)
+    before = {
+        k["key_id"]
+        for k in ctx.client.get("/api/auth/signing-keys", headers=hdr).json()["keys"]
+    }
+    ctx.client.post("/api/auth/signing-keys/rotate", headers=hdr)
+    mid = [
+        k
+        for k in ctx.client.get("/api/auth/signing-keys", headers=hdr).json()["keys"]
+        if k["key_id"] not in before
+    ]
+    assert len(mid) == 1, mid
+    ctx.client.post("/api/auth/signing-keys/rotate", headers=hdr)
+    return f"/api/auth/signing-keys/{mid[0]['key_id']}/remove"
+
+
+def _check_signing_key_removed(ctx: HCtx, r: httpx.Response) -> None:
+    """The removed key is gone from the ring the call answers with, and the ring
+    still has a signer (a removal that left the server unable to mint would be a
+    far worse outcome than a refused one)."""
+    _check_signing_keys(ctx, r)
+    removed = r.request.url.path.split("/")[-2]
+    assert removed not in {k["key_id"] for k in r.json()["keys"]}, (removed, r.json())
 
 
 def _happy_mfa_enroll_path(ctx: HCtx) -> str:
@@ -585,6 +695,24 @@ def _happy_task_step(ctx: HCtx) -> tuple[str, str]:
     return task_id, step_id
 
 
+_HAPPY_STEP_NOTE = "conf happy single-step note — 做到哪、下一步接什麼"
+
+
+def _happy_step_with_note(ctx: HCtx) -> str:
+    """A fresh task+step whose note has been WRITTEN through the real write
+    face, so the single-step read has something non-empty to prove it serves
+    (T-66). Reading back a blank note would pass against a handler that never
+    looked at the column."""
+    task_id, step_id = _happy_task_step(ctx)
+    r = ctx.client.post(
+        f"/api/tasks/{task_id}/steps/{step_id}/note",
+        json={"note": _HAPPY_STEP_NOTE},
+        headers=_auth(ctx.agent.token),
+    )
+    assert r.status_code == 200, f"happy note seed failed: {r.status_code} {r.text}"
+    return f"/api/tasks/{task_id}/steps/{step_id}"
+
+
 def _happy_closed_task(ctx: HCtx) -> str:
     """A fresh DONE task the happy agent executed (close-out targets are
     terminal-only). Task status is DERIVED (T-9ca5): a one-step plan reported
@@ -629,6 +757,105 @@ def _happy_reassigning_task(ctx: HCtx) -> str:
     assert r.status_code == 200, f"happy reassign failed: {r.status_code} {r.text}"
     assert r.json()["lock"] == "reassigning", r.text
     return task_id
+
+
+# The artifact id the replace row was aimed at, stashed by its path builder so
+# the row's check can assert the write ANSWERED with the same id — a replace
+# that minted a new one would otherwise pass on shape alone.
+_REPLACE_TARGET: dict[str, str] = {}
+
+
+def _happy_replaceable_artifact(ctx: HCtx) -> tuple[str, str]:
+    """A fresh task with one link artifact pinned; (task_id, artifact_id) — the
+    replace target."""
+    task_id, artifact_id = _happy_task_artifact(ctx)
+    _REPLACE_TARGET["id"] = artifact_id
+    return task_id, artifact_id
+
+
+def _happy_replaced_artifact(ctx: HCtx) -> tuple[str, str]:
+    """The same, already replaced once — so its version list has exactly one
+    retained entry to list."""
+    task_id, artifact_id = _happy_task_artifact(ctx)
+    r = ctx.client.post(
+        f"/api/tasks/{task_id}/artifact/{artifact_id}/replace",
+        json={"url": "https://example.com/pr/2"},
+        headers=_auth(ctx.agent.token),
+    )
+    assert r.status_code == 200, f"happy replace failed: {r.status_code} {r.text}"
+    return task_id, artifact_id
+
+
+# The blob the FILE version row was replaced away from, stashed by its path
+# builder so the row's check can assert the version's url addresses THAT blob.
+_REPLACED_FILE: dict[str, str] = {}
+
+
+def _happy_replaced_file_artifact(ctx: HCtx) -> tuple[str, str]:
+    """A FILE deliverable, already replaced once — the shape the version list
+    actually holds (agent-written reports and logs), and the one whose wire the
+    row's own `url` column cannot serve: it is empty for file/image, so a version
+    projection that copied it left every retained report unreachable.
+
+    Uploaded as `application/octet-stream` under a .md name because that is what
+    the agent upload path produces for a report."""
+    blobs = []
+    for n in (1, 2):
+        r = ctx.client.post(
+            "/api/chat",
+            json={
+                "to": ctx.agent.member_id,
+                "body": f"conf artifact report {n}",
+                "attachments": [
+                    {
+                        "data_b64": base64.b64encode(
+                            f"# conf report {n}\n".encode()
+                        ).decode(),
+                        "filename": "report.md",
+                        "mime": "application/octet-stream",
+                    }
+                ],
+            },
+            headers=_auth(ctx.owner_token),
+        )
+        assert r.status_code == 200, f"happy report seed failed: {r.text}"
+        blobs.append(r.json()["attachments"][0]["id"])
+
+    task_id = _happy_task(ctx)
+    r = ctx.client.post(
+        f"/api/tasks/{task_id}/artifact",
+        json={"kind": "file", "attachment_id": blobs[0]},
+        headers=_auth(ctx.agent.token),
+    )
+    assert r.status_code == 200, f"happy file artifact failed: {r.text}"
+    artifact_id = r.json()["artifact_id"]
+    r = ctx.client.post(
+        f"/api/tasks/{task_id}/artifact/{artifact_id}/replace",
+        json={"attachment_id": blobs[1]},
+        headers=_auth(ctx.agent.token),
+    )
+    assert r.status_code == 200, f"happy file replace failed: {r.text}"
+    _REPLACED_FILE["attachment_id"] = blobs[0]
+
+    # The link shape stays covered on the real wire even though the row now
+    # checks a file: a link version's url IS the row's own external url, which
+    # is the control that stops the blob rewrite from applying to every kind.
+    link_task, link_art = _happy_replaced_artifact(ctx)
+    r = ctx.client.get(
+        f"/api/tasks/{link_task}/artifact/{link_art}/history",
+        headers=_auth(ctx.agent.token),
+    )
+    assert r.status_code == 200, f"link history failed: {r.text}"
+    link_versions = r.json()
+    assert (
+        len(link_versions) == 1
+        and link_versions[0]["kind"] == "link"
+        and link_versions[0]["url"] == "https://example.com/pr/1"
+        and link_versions[0]["mime"] == ""
+        and link_versions[0]["is_image"] is False
+    ), f"a link version keeps its external url and describes no blob: {link_versions}"
+
+    return task_id, artifact_id
 
 
 def _happy_task_artifact(ctx: HCtx) -> tuple[str, str]:
@@ -1602,6 +1829,12 @@ HAPPY: dict[str, Happy] = {
     "POST /api/auth/mfa/offer": Happy(
         body=lambda _ctx: {"offered": True}, check=_check_mfa_offer
     ),
+    "GET /api/auth/signing-keys": Happy(check=_check_signing_keys),
+    "POST /api/auth/signing-keys/rotate": Happy(check=_check_signing_key_rotated),
+    "POST /api/auth/signing-keys/{key_id}/remove": Happy(
+        path=_happy_signing_key_remove_path,
+        check=_check_signing_key_removed,
+    ),
     "POST /api/auth/mfa/enroll": Happy(
         path=_happy_mfa_enroll_path, check=_check_mfa_enroll
     ),
@@ -1738,6 +1971,14 @@ HAPPY: dict[str, Happy] = {
     ),
     "POST /api/members/{member_id}/force-stop": Happy(
         path=lambda ctx: f"/api/members/{ctx.fresh_member()}/force-stop",
+    ),
+    "POST /api/members/{member_id}/cost/reset": Happy(
+        path=lambda ctx: f"/api/members/{ctx.fresh_member()}/cost/reset",
+        check=_check_cost_reset_receipt,
+    ),
+    "POST /api/accounts/cost/reset": Happy(
+        body={"account": "conf-happy-untouched-account"},
+        check=_check_account_cost_reset_receipt,
     ),
     "DELETE /api/members/{member_id}": Happy(
         path=lambda ctx: f"/api/members/{ctx.fresh_member()}",
@@ -2540,6 +2781,23 @@ HAPPY: dict[str, Happy] = {
             and d["note"] == "conf happy note patch",
         ),
     ),
+    "GET /api/tasks/{task_id}/steps/{step_id}": Happy(
+        # T-66: the single-step read. The check is on the VALUE that came back,
+        # not on the shape: a note is written through the real write face first
+        # and this row asserts the same text comes out, plus the self-declared
+        # detail_level="full" that tells a caller this response is the whole
+        # step. A handler that answered the summary projection (no note) or
+        # forgot the marker cannot pass.
+        identity="agent",
+        path=_happy_step_with_note,
+        check=lambda _c, r: _expect(
+            r,
+            lambda d: d["detail_level"] == "full"
+            and d["note"] == _HAPPY_STEP_NOTE
+            and d["note_size_chars"] == len(_HAPPY_STEP_NOTE)
+            and d["note_cap_chars"] > 0,
+        ),
+    ),
     "POST /api/tasks/{task_id}/deps": Happy(
         identity="agent",
         path=lambda ctx: f"/api/tasks/{_happy_task(ctx)}/deps",
@@ -2583,6 +2841,69 @@ HAPPY: dict[str, Happy] = {
         path=lambda ctx: "/api/tasks/{}/artifact/{}".format(
             *_happy_task_artifact(ctx)),
         check=lambda _c, r: _expect(r, lambda d: d["artifact_count"] == 0),
+    ),
+    "GET /api/tasks/{task_id}/artifacts": Happy(
+        # T-66: the full-artifact read. The check is on the VALUES that came
+        # back, not on the shape — the artifact is pinned through the real write
+        # face first and this row asserts the same url/label/kind come out,
+        # plus the self-declared artifacts_detail_level="full" that tells a
+        # caller this response is the whole row. A handler that answered the
+        # id+label INDEX the task view carries (no url, no kind) cannot pass,
+        # and neither can one that forgot the marker.
+        identity="agent",
+        path=lambda ctx: "/api/tasks/{}/artifacts".format(
+            *_happy_task_artifact(ctx)),
+        check=lambda _c, r: _expect(
+            r,
+            lambda d: d["artifacts_detail_level"] == "full"
+            and len(d["artifacts"]) == 1
+            and d["artifacts"][0]["kind"] == "link"
+            and d["artifacts"][0]["url"] == "https://example.com/pr/1"
+            and d["artifacts"][0]["label"] == "conf PR"
+            and d["artifacts"][0]["created_ts"] > 0,
+        ),
+    ),
+    "POST /api/tasks/{task_id}/artifact/{artifact_id}/replace": Happy(
+        # T-60: the executing agent swaps a pinned deliverable's content while
+        # its id stays put. The check reads the id back out of the receipt and
+        # compares it with the one the fixture pinned — a replace that minted a
+        # new artifact (remove+add under another name) would pass a status check
+        # and fail here, which is the whole reason the verb exists.
+        identity="agent",
+        path=lambda ctx: "/api/tasks/{}/artifact/{}/replace".format(
+            *_happy_replaceable_artifact(ctx)),
+        body={"url": "https://example.com/pr/2", "label": "conf PR v2"},
+        check=lambda _c, r: _expect(
+            r,
+            lambda d: d["artifact_id"] == _REPLACE_TARGET["id"]
+            and d["artifact_count"] == 1
+            and d["version_count"] == 2,
+        ),
+    ),
+    "GET /api/tasks/{task_id}/artifact/{artifact_id}/history": Happy(
+        # T-60: the version list of an artifact that has just been replaced —
+        # exactly one retained version, carrying what the live row held before.
+        #
+        # The seed is a FILE deliverable on purpose. A link version's url is the
+        # row's own column and passes on a projection that copies the row; a
+        # file's is NOT — the column is empty for file/image, and the reachable
+        # address is the retained blob's serve path. Running this row against a
+        # link therefore proved nothing about the class this journal mostly
+        # holds, and every retained report read as gone on the real wire.
+        identity="agent",
+        path=lambda ctx: "/api/tasks/{}/artifact/{}/history".format(
+            *_happy_replaced_file_artifact(ctx)),
+        check=lambda _c, r: _expect(
+            r,
+            lambda d: len(d) == 1
+            and d[0]["kind"] == "file"
+            and d[0]["url"]
+            == f"/api/chat/attachment/{_REPLACED_FILE['attachment_id']}"
+            and d[0]["attachment_id"] == _REPLACED_FILE["attachment_id"]
+            and d[0]["mime"] == "application/octet-stream"
+            and d[0]["is_image"] is False
+            and d[0]["filename"] == "report.md",
+        ),
     ),
     # ── outsource panel (M3) ─────────────────────────────────────────────────
     "GET /api/outsource-workers": Happy(
@@ -4144,9 +4465,16 @@ def test_happy_covers_manifest(routes_manifest: list[dict[str, str]]) -> None:
 
 
 def test_openapi_covers_manifest(routes_manifest: list[dict[str, str]]) -> None:
-    """The frozen spec/openapi.json and the served route table must describe
-    the SAME operation set — a route added to the server without a spec
-    freeze update (or vice versa) reddens the run here."""
+    """The frozen spec/openapi.json and routes_manifest.json must describe the
+    SAME operation set — a spec freeze update without a manifest update (or
+    vice versa) reddens the run here.
+
+    Both sides of THIS comparison are hand-written, so it cannot tell you the
+    server serves either set: two lists agreeing prove they were typed the same
+    day. The leg that reaches the server is TestRouteTableCoversSpecSurface
+    (server/ocserverd/server_test.go), which pins the same frozen spec against
+    the route table the mux is built from — chained with this test, the
+    manifest and the served routes are held equal."""
     manifest_ops = {f"{r['method']} {r['path']}" for r in routes_manifest}
     spec_ops = {
         f"{m.upper()} {p}"

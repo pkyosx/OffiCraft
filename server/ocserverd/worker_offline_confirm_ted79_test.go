@@ -28,6 +28,7 @@ func stopWorkerFixture(t *testing.T, api *apiServer, now float64) string {
 	if err := api.dal.PutOutsourceWorker(*w); err != nil {
 		t.Fatalf("open the stop epoch: %v", err)
 	}
+	seedWorkerAnchors(t, api, *w)
 	api.hub.DrainWardenCommands(ServerSelfHost)
 	return workerID
 }
@@ -175,6 +176,7 @@ func TestWorkerHandover_ReconnectMidHandoverIsNotKilled_T72dd(t *testing.T) {
 	if err := api.dal.PutOutsourceWorker(*w); err != nil {
 		t.Fatalf("re-stamp op: %v", err)
 	}
+	seedWorkerAnchors(t, api, *w)
 	api.hub.DrainWardenCommands(ServerSelfHost)
 	dropWorkerSession(t, api, workerID)
 	tickHandover(t, api, workerID, now)

@@ -24,23 +24,56 @@ func TestWorkerRowTakesTheStaffWritePath_T72dd(t *testing.T) {
 	}
 
 	// ── THE WRITE, through the staff path.
+	//
+	// ⚠️ THE PROBE COLUMN MOVED (T-55 batch C). This used to prove the staff path
+	// reaches the worker row by writing the wind-down anchors through it — and
+	// those four have since left PutMember's DO UPDATE SET, so that write is now
+	// a no-op for them and the old form would have asserted the opposite of the
+	// truth. last_machine_id is the current choice because the whole-row write
+	// still carries it; the assertion below is what catches the day it stops
+	// being carried too. If you are here because that fired, pick another CARRIED
+	// column — never delete the check.
 	m := memberFromWorker(*pre)
 	m.RefocusSince = 1234.5
 	m.RefocusOp = refocusOpRefocus
 	m.StoppedSince = 777.25
+	m.LastMachineID = "m-t72dd-probe"
 	if err := api.putMember(m, "t72dd-probe"); err != nil {
 		t.Fatalf("putMember(memberFromWorker(w)): %v", err)
 	}
 
 	// ── THE READ, through the worker path (NOT the member path).
-	got, err := api.dal.GetOutsourceWorker(workerID)
-	if err != nil || got == nil {
+	mid, err := api.dal.GetOutsourceWorker(workerID)
+	if err != nil || mid == nil {
 		t.Fatalf("GetOutsourceWorker after the staff write: %v", err)
 	}
-	t.Logf("AFTER staff write, read via dal.GetOutsourceWorker: refocus_since=%v refocus_op=%q stopped_since=%v desired=%q",
-		got.RefocusSince, got.RefocusOp, got.StoppedSince, got.DesiredState)
+	t.Logf("AFTER staff write, read via dal.GetOutsourceWorker: last_machine_id=%q "+
+		"refocus_since=%v refocus_op=%q stopped_since=%v desired=%q",
+		mid.LastMachineID, mid.RefocusSince, mid.RefocusOp, mid.StoppedSince, mid.DesiredState)
+	if mid.LastMachineID != "m-t72dd-probe" {
+		t.Fatalf("the staff write did NOT land on the worker row: last_machine_id=%q",
+			mid.LastMachineID)
+	}
+	// 🔴 AND THE ANCHORS DID NOT RIDE IT. This half is new and it is the T-55
+	// invariant: a whole-row writer holding a stale snapshot must not be able to
+	// move these four, which is exactly what this staff-path write is.
+	if mid.RefocusSince != 0 || mid.RefocusOp != "" || mid.StoppedSince != 0 {
+		t.Fatalf("the wind-down anchors rode the whole-row write — since T-55 only "+
+			"SetMemberWindDownAnchors may move them: since=%v op=%q stopped=%v",
+			mid.RefocusSince, mid.RefocusOp, mid.StoppedSince)
+	}
+
+	// The epoch the rest of this test needs, planted through its sole writer.
+	if err := api.dal.SetMemberWindDownAnchors(workerID, m.StoppingSince,
+		m.StoppedSince, m.RefocusSince, m.RefocusOp); err != nil {
+		t.Fatalf("plant the epoch through its sole writer: %v", err)
+	}
+	got, err := api.dal.GetOutsourceWorker(workerID)
+	if err != nil || got == nil {
+		t.Fatalf("GetOutsourceWorker after the anchor write: %v", err)
+	}
 	if got.RefocusSince != 1234.5 || got.RefocusOp != refocusOpRefocus || got.StoppedSince != 777.25 {
-		t.Fatalf("the staff write did NOT land on the worker row: "+
+		t.Fatalf("the anchor write did NOT land on the worker row: "+
 			"since=%v op=%q stopped=%v", got.RefocusSince, got.RefocusOp, got.StoppedSince)
 	}
 

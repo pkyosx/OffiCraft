@@ -200,8 +200,14 @@ func extractToken(r *http.Request) string {
 
 // requireAuth wraps a GATED handler with the JWT gate: the extracted token
 // (header first, then the `?token=` query fallback — see extractToken)
-// verified against the single HS256 secret, claims stashed on the request
+// verified against the LIVE signing-key ring, claims stashed on the request
 // context, 401 deny-by-default on anything else.
+//
+// 🔴 keys is the ring itself, not a key copied out of it (T-62). Every gated
+// route closes over this same pointer, which is what makes a rotation take
+// effect on the next request instead of at the next restart. A token verifies
+// if ANY key still in the ring signed it; REMOVING a key is what revokes the
+// tokens it signed.
 //
 // ownerIatFloor (nil = no cut) is the change-password revocation seam
 // (lifecycle.md §1.3): an owner-scope token whose iat is EARLIER than the
@@ -218,9 +224,9 @@ func extractToken(r *http.Request) string {
 // signature verification — a forged token is still just "invalid token" and
 // never reaches a roster read. It also binds every exp-less credential to an
 // active warden row; no other signed JWT may become permanent.
-func requireAuth(secret []byte, ownerIatFloor func() int64, lookup func(id string) (*Member, error), next http.Handler) http.Handler {
+func requireAuth(keys *keyring, ownerIatFloor func() int64, lookup func(id string) (*Member, error), next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if len(secret) == 0 {
+		if keys == nil || len(keys.verifySecrets()) == 0 {
 			writeError(w, http.StatusUnauthorized, "auth not configured")
 			return
 		}
@@ -229,7 +235,7 @@ func requireAuth(secret []byte, ownerIatFloor func() int64, lookup func(id strin
 			writeError(w, http.StatusUnauthorized, "missing credentials")
 			return
 		}
-		claims, err := verifyJWT(token, secret, time.Now().Unix())
+		claims, err := verifyJWTAnyKey(keys, token, time.Now().Unix())
 		if err != nil {
 			writeError(w, http.StatusUnauthorized, "invalid token")
 			return
@@ -297,7 +303,7 @@ func requireAuth(secret []byte, ownerIatFloor func() int64, lookup func(id strin
 // sharesig.go) serves the RAW handler, which by construction reads only that
 // one blob; a bad sig is 401; no sig at all falls to the authed chain's
 // "missing credentials" 401.
-func shareSigGate(secret []byte, raw, authed http.Handler) http.Handler {
+func shareSigGate(keys *keyring, raw, authed http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if extractToken(r) != "" {
 			authed.ServeHTTP(w, r)
@@ -308,7 +314,7 @@ func shareSigGate(secret []byte, raw, authed http.Handler) http.Handler {
 			authed.ServeHTTP(w, r)
 			return
 		}
-		if len(secret) == 0 || !verifyShareSig(secret, r.PathValue("attachment_id"), sig) {
+		if keys == nil || !verifyShareSigAnyKey(keys, r.PathValue("attachment_id"), sig) {
 			writeError(w, http.StatusUnauthorized, "invalid signature")
 			return
 		}
@@ -318,12 +324,29 @@ func shareSigGate(secret []byte, raw, authed http.Handler) http.Handler {
 
 // ── app assembly ─────────────────────────────────────────────────────────────
 
+// buildAPIHandler is the PRODUCTION assembly seam: it is the only place that
+// decides which key ring the gate gets, and it always answers api.keys.
+//
+// 🔴 IT EXISTS SO THAT DECISION IS TESTABLE. buildHandler takes a ring as a
+// parameter because a handful of tests must hand it a DIFFERENT one (a nil ring
+// is how auth_refusal_exits_t14_test.go reaches the "auth not configured"
+// exit). That parameter is also how the gate and the mint could silently drift
+// apart: hand buildHandler a ring that is not api.keys and every rotation moves
+// the minting half while the verifying half stays behind — signed tokens the
+// server itself refuses, and nothing in the tree would have gone red. Wrapping
+// the one production call in a named function puts that line under test
+// (keyring_rotation_t62_test.go) instead of leaving it as an argument nobody
+// guards.
+func buildAPIHandler(api *apiServer, lookup func(id string) (*Member, error)) (http.Handler, error) {
+	return buildHandler(specsFor(api), api.keys, lookup, api.authPasswordChangedAt)
+}
+
 // buildHandler assembles the mux from the route table: boot assertions FIRST
 // (fail closed — a bad table is an error, never a served app), then each row
 // registered with its auth + RBAC chokes. Mirrors create_app + register_routes.
 // lookup is the roster read the principal resolver classifies agent-scoped
 // callers through (nil = token-only classification, the plumbing-test face).
-func buildHandler(specs []RouteSpec, secret []byte, lookup func(id string) (*Member, error), ownerIatFloor func() int64) (http.Handler, error) {
+func buildHandler(specs []RouteSpec, keys *keyring, lookup func(id string) (*Member, error), ownerIatFloor func() int64) (http.Handler, error) {
 	if err := assertAllRoutesLabelled(specs); err != nil {
 		return nil, err
 	}
@@ -340,9 +363,9 @@ func buildHandler(specs []RouteSpec, secret []byte, lookup func(id string) (*Mem
 			if spec.Requires != principalMachine {
 				h = requirePrincipalClass(spec.Requires, lookup, h)
 			}
-			h = requireAuth(secret, ownerIatFloor, lookup, h)
+			h = requireAuth(keys, ownerIatFloor, lookup, h)
 			if spec.ShareSig {
-				h = shareSigGate(secret, spec.Handler, h)
+				h = shareSigGate(keys, spec.Handler, h)
 			}
 		}
 		mux.Handle(spec.Method+" "+spec.Path, h)
@@ -393,7 +416,7 @@ func specsFor(s *apiServer) []RouteSpec {
 // (at process start) so the probes report the sha of the RUNNING code — an
 // autodeploy that pulls a new sha but fails to restart keeps reporting the
 // OLD sha (handlers._PROCESS_SHA contract).
-func newAPIServer(dal *DAL, hub *Hub, secret []byte, tokenTTL int64, root assetRoot) *apiServer {
+func newAPIServer(dal *DAL, hub *Hub, keys *keyring, tokenTTL int64, root assetRoot) *apiServer {
 	// T-66a2 L3: bind the durable warden-command queue and rehydrate the FIFO
 	// before anything can connect. Assembly is the RIGHT seam: an upgrade
 	// re-execs this process, so "the queue survives a restart" is exactly "a
@@ -417,7 +440,7 @@ func newAPIServer(dal *DAL, hub *Hub, secret []byte, tokenTTL int64, root assetR
 		telemetry:                    newMemStore(),
 		gauge:                        newMemStore(),
 		machineClaims:                newMachineClaimStore(),
-		secret:                       secret,
+		keys:                         keys,
 		ownerTokenTTL:                tokenTTL,
 		agentTokenTTL:                defaultAgentTokenTTL,
 		acceleratedGraceSecs:         acceleratedGraceSecsDefault,
@@ -585,7 +608,17 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 		fmt.Fprintf(out, "[ocserverd] FATAL: load settings: %v\n", err)
 		return 1
 	}
-	api := newAPIServer(dal, NewHub(), auth.secret, auth.ownerTokenTTL, ".")
+	// The signing-key ring, loaded ONCE and then shared BY POINTER with the
+	// handler tree below (T-62). auth.secret is this install's pre-ring key: it
+	// seeds the ring the first time this binary boots and is thereafter just
+	// the oldest key in it. Nothing downstream copies the key bytes out, which
+	// is why a rotation reaches every signer and verifier without a restart.
+	keys, err := loadKeyring(dal, auth.secret)
+	if err != nil {
+		fmt.Fprintf(out, "[ocserverd] FATAL: load signing keys: %v\n", err)
+		return 1
+	}
+	api := newAPIServer(dal, NewHub(), keys, auth.ownerTokenTTL, ".")
 	api.agentTokenTTL = auth.agentTokenTTL
 	api.passwordHash = auth.passwordHash
 	api.passwordChangedAt = auth.passwordChangedAt
@@ -651,7 +684,7 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 		fmt.Fprintf(out, "[ocserverd] FATAL: claim token: %v\n", err)
 		return 1
 	}
-	handler, err := buildHandler(specsFor(api), auth.secret, dal.GetMember, api.authPasswordChangedAt)
+	handler, err := buildAPIHandler(api, dal.GetMember)
 	if err != nil {
 		fmt.Fprintf(out, "[ocserverd] FATAL: %v\n", err)
 		return 1

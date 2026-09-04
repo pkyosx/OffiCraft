@@ -9,10 +9,19 @@ import (
 	"time"
 )
 
-// TestRelocateMember_PlacementOnly is the CORE contract: relocate writes the
-// owner-pinned desired_machine_id and NOTHING else. In particular desired_state
-// is left exactly as it was — the sharp contrast with activate (which force-
-// revives desired_state=online). An offline member relocated stays offline.
+// TestRelocateMember_PlacementOnly is the CORE contract, NARROWED by T-14 項目 7:
+// relocate writes the owner-pinned desired_machine_id and never flips
+// desired_state itself — the sharp contrast with activate, which force-revives.
+//
+// 🔴 WHAT THIS TEST NO LONGER COVERS, and did not notice it had stopped:
+// "an offline member relocated stays offline" is now true only of a member that
+// has NEVER been asked to stop, which is what this fixture happens to build
+// (testAgent leaves stopping_since at 0 — the shape of a new hire before its
+// first 活化). A member that was stopped and has since converged carries
+// stopping_since > 0 forever, and relocating it now queues a start. That is the
+// owner's 2026-08-30 ruling, and it is pinned NEXT DOOR — in
+// TestRelocateAfterAConvergedStopWakesTheMember — precisely so this test cannot
+// go on standing for a contract it stopped guarding.
 func TestRelocateMember_PlacementOnly(t *testing.T) {
 	s := newReconcileTestServer(t)
 	putWarden(t, s, "mach-new")
@@ -43,6 +52,77 @@ func TestRelocateMember_PlacementOnly(t *testing.T) {
 	if got.DesiredState != DesiredStateOffline {
 		t.Errorf("relocate must NOT touch desired_state: got %q, want offline (a relocate is not a wake)",
 			got.DesiredState)
+	}
+	if got.RestartAfterStop {
+		t.Error("a member nobody has ever asked to stop was queued for a start — " +
+			"editing a new hire's placement before its first 活化 must not boot it")
+	}
+	// The fixture assumption this test now rests on, asserted rather than assumed:
+	// if testAgent ever starts carrying a stop anchor, this test silently becomes
+	// a test of the OTHER branch and its name stops being true.
+	if got.StoppingSince != 0 {
+		t.Fatalf("fixture drifted: stopping_since=%v — this case is about a member "+
+			"that has NEVER been asked to stop", got.StoppingSince)
+	}
+}
+
+// TestRelocateAfterAConvergedStopWakesTheMember is the behaviour T-14 項目 7
+// CHANGED, on the row shape real data actually has.
+//
+// 🔴 THE FIXTURE IS THE POINT. decideDown's converged branch resets only the
+// in-memory reconcileState; member.stopping_since is cleared by 活化 and by the
+// queued-restart consumer and by nothing else. So a member stopped last week is
+// NOT a member with stopping_since == 0 — it is this row, and every test that
+// reached for testAgent() to mean "a stopped member" was testing the new-hire
+// case without saying so.
+//
+// Owner 2026-08-30 (rc-bc1b029a3aa2): 「change model / machine 只是帶起來的方式不
+// 一樣而已」 + 「最後一個動作是重啟 ⇒ 最終在線上」 — with no clause about how long
+// ago the 下線 was. So this member comes back up, and T-ed79's staff held_down
+// receipt no longer covers it.
+func TestRelocateAfterAConvergedStopWakesTheMember(t *testing.T) {
+	s := newReconcileTestServer(t)
+	putWarden(t, s, "mach-new")
+
+	// A member the owner stopped, whose session has long since gone: desired
+	// offline, stop anchor still on the row (nothing ever clears it), no live
+	// session, and the reconcile already at "offline: converged".
+	m := testAgent("m-longstopped")
+	m.DesiredState = DesiredStateOffline
+	m.DesiredMachineID = ServerSelfHost
+	m.StoppingSince = 9990
+	putTestMember(t, s, m)
+	if dec := s.reconcileOne(m, newReconcileState(), 100000); dec.Reason != "offline: converged" {
+		t.Fatalf("fixture: want a converged stop, tick decided %q", dec.Reason)
+	}
+	if got, _ := s.dal.GetMember("m-longstopped"); got.StoppingSince == 0 {
+		t.Fatal("fixture: convergence cleared stopping_since — the premise of this " +
+			"test (and of aStopWasEverAskedFor) would be gone")
+	}
+
+	rec := httptest.NewRecorder()
+	s.HandleRelocateMemberApiMembersMemberIdRelocatePost(rec,
+		taskReq(t, "POST", "/api/members/m-longstopped/relocate",
+			map[string]any{"machine_id": "mach-new"}, wireOwnerID, "owner"), "m-longstopped")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("relocate: %d %s", rec.Code, rec.Body.String())
+	}
+
+	got, _ := s.dal.GetMember("m-longstopped")
+	if got.DesiredMachineID != "mach-new" {
+		t.Errorf("desired_machine_id = %q, want mach-new", got.DesiredMachineID)
+	}
+	if got.DesiredState != DesiredStateOnline {
+		t.Fatalf("desired_state = %q — 改機器 on a stopped member is a 重啟 intent "+
+			"since T-14 項目 7 (「change model / machine 只是帶起來的方式不一樣而已」); "+
+			"the member must come back up on the new pin", got.DesiredState)
+	}
+	if got.RestartAfterStop {
+		t.Error("the queued start was not consumed — it would fire again after the next 下線")
+	}
+	if got.StoppingSince != 0 {
+		t.Errorf("stopping_since=%v survived the wake — the next 重啟 verb would read "+
+			"this member as still being stopped", got.StoppingSince)
 	}
 }
 

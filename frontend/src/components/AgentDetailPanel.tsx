@@ -3,6 +3,7 @@ import { useI18n } from "../i18n";
 import { effortText } from "../i18n/compose";
 import { formatCost } from "../lib/cost";
 import { Markdown } from "./Markdown";
+import { ConfirmModal } from "./ConfirmModal";
 import {
   CheckIcon,
   ChevronDownIcon,
@@ -116,6 +117,10 @@ export interface AgentDetailVM {
   contextPct: number | null;
   compactionCount?: number | null;
   cost: number | null;
+  /** 成本歸零. Optional so a panel that cannot offer it simply does not render
+   * the button — same posture as onRefocus. IRREVERSIBLE: the panel always
+   * confirms first, and the wrapper is what actually calls the endpoint. */
+  onResetCost?: () => Promise<void>;
   onRefocus?: () => Promise<void>;
   refocusSince: number | null;
   /** Which operation opened the in-flight wind-down ("" when none), and the
@@ -497,6 +502,30 @@ export function AgentDetailPanel({
     vm.runtime === "codex" && vm.compactionCount != null
       ? `${contextText} (${t.mp.compactionCount(vm.compactionCount)})`
       : contextText;
+  // 成本歸零 is IRREVERSIBLE — nothing is retained server-side and there is no
+  // undo route — so it is the one action on this panel that never fires from
+  // the click itself. The confirm is the whole safety mechanism.
+  const [costResetOpen, setCostResetOpen] = useState(false);
+  const [costResetPending, setCostResetPending] = useState(false);
+  const [costResetError, setCostResetError] = useState<string | null>(null);
+
+  async function handleCostReset() {
+    if (!vm.onResetCost) return;
+    setCostResetPending(true);
+    setCostResetError(null);
+    try {
+      await vm.onResetCost();
+      setCostResetOpen(false);
+    } catch {
+      // Keep the modal open and say so: a reset that silently failed looks
+      // exactly like one that worked, and the owner cannot tell them apart
+      // from the cell alone (both halves absent renders as the dash either way).
+      setCostResetError(t.mp.costResetError);
+    } finally {
+      setCostResetPending(false);
+    }
+  }
+
   const costText = vm.cost != null ? formatCost(vm.cost) : dash;
 
   return (
@@ -604,6 +633,23 @@ export function AgentDetailPanel({
           <div className="mp-cell">
             <div className="mp-cell__head">
               <span className="mp-cell__label">💲 {t.mp.estimatedCost}</span>
+              {vm.onResetCost && (
+                <button
+                  type="button"
+                  className="mp-cost-reset"
+                  data-testid={`${p}-cost-reset`}
+                  // Nothing measured ⇒ nothing to destroy. Offering an
+                  // irreversible-action prompt that would clear nothing is just
+                  // a confusing no-op, and vm.cost is null EXACTLY when both
+                  // halves are absent — the same condition the cell renders as
+                  // the dash, so the button and the value can never disagree.
+                  disabled={costResetPending || vm.cost == null}
+                  title={t.mp.costResetHint}
+                  onClick={() => setCostResetOpen(true)}
+                >
+                  {t.mp.costReset}
+                </button>
+              )}
             </div>
             <div className="mp-cell__value" data-testid={`${p}-cost`}>
               {costText}
@@ -774,6 +820,24 @@ export function AgentDetailPanel({
       )}
 
       {rendered.afterPromptCards}
+
+      {costResetOpen && (
+        <ConfirmModal
+          testId={`${p}-cost-reset-confirm`}
+          confirmTestId={`${p}-cost-reset-confirm-btn`}
+          body={msg.costResetConfirmBody(costText)}
+          error={costResetError}
+          cancelLabel={t.common.cancel}
+          confirmLabel={t.mp.costResetConfirm}
+          busy={costResetPending}
+          danger
+          onCancel={() => {
+            setCostResetOpen(false);
+            setCostResetError(null);
+          }}
+          onConfirm={() => void handleCostReset()}
+        />
+      )}
     </div>
   );
 }

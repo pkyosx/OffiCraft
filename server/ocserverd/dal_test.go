@@ -70,9 +70,17 @@ func TestMemberCRUDRoundTrip(t *testing.T) {
 
 	// Upsert: same id updates in place (no duplicate row).
 	want.Name = "Renamed"
-	want.LastOpOK = nil // and NULL round-trips as nil
 	if err := d.PutMember(want); err != nil {
 		t.Fatalf("upsert: %v", err)
+	}
+	// 🔴 last_op_ok is NOT set through the upsert any more (T-55): the five
+	// receipt columns left PutMember's SET list, so an upsert carrying a nil
+	// leaves whatever the row already holds. Clearing it here through the SOLE
+	// writer is what the assertion below needs — and it is also the point: a
+	// whole-row write can no longer move this column at all, which is what
+	// TestPutMemberNeverOverwritesSingleColumnOwnedFields exists to enforce.
+	if err := d.SetMemberOpReceipt("m-1", "", nil, "", "", 0); err != nil {
+		t.Fatalf("clear receipt: %v", err)
 	}
 	all, err := d.ListMembers()
 	if err != nil {

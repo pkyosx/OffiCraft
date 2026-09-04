@@ -233,13 +233,34 @@ func TestWorkerLiveness_ConvergedOnlineWorkerClearsStaleFailureReceipt_T39(t *te
 
 	now := 3_000_000.0
 	w := fsmWorkerFixture(t, s, "ow-back", WorkerStatusAssigned, now-500)
+	putWorkerFixture(t, s, w)
+	// 🔴 THE RECEIPT GOES IN THROUGH ITS SOLE WRITER (T-55), AND THIS TEST IS THE
+	// REASON THAT MATTERS. Planted the old way — five fields on the snapshot above
+	// — nothing would land, because the whole-row write no longer carries these
+	// columns. The clear under test is gated on receiptRendersAsFailure(fresh…),
+	// so a blank row makes it return having done nothing, and the assertion at
+	// the bottom (the panel block is hidden) passes on an empty row. The test
+	// would go GREEN while asserting nothing at all: deleting
+	// clearWorkerConvergedFailureReceipt outright would not have reddened it.
 	no := false
+	failureReason := spawnReasonWakeTimeout + ": the start window elapsed with no session"
+	if err := s.dal.SetMemberOpReceipt("ow-back", reconcileCmdStart, &no,
+		"boot.log: claude exited 1", failureReason, now-400); err != nil {
+		t.Fatalf("seed the failure receipt: %v", err)
+	}
 	w.LastOp = reconcileCmdStart
 	w.LastOpOK = &no
 	w.LastOpLog = "boot.log: claude exited 1"
-	w.LastOpReason = spawnReasonWakeTimeout + ": the start window elapsed with no session"
+	w.LastOpReason = failureReason
 	w.LastOpAt = now - 400
-	putWorkerFixture(t, s, w)
+	// SENTINEL, and not a formality: it is what stops this test going silent
+	// again the next time a column moves house. If the receipt is not on the row
+	// BEFORE the tick, there is nothing for the clear to rule on.
+	if seeded, _ := s.dal.GetOutsourceWorker("ow-back"); seeded == nil ||
+		!receiptRendersAsFailure(seeded.LastOp, seeded.LastOpAt, seeded.LastOpOK) {
+		t.Fatalf("fixture: the failure receipt must be ON THE ROW before the tick, "+
+			"or this test asserts nothing: %+v", seeded)
+	}
 	connectOnline(t, s, "ow-back") // the worker's own session came back
 
 	s.outsourceMu.Lock()
@@ -558,12 +579,20 @@ func TestWorkerLiveness_ConvergedClearRulesOnTheFreshRowNotTheSnapshot_T39(t *te
 	at := 9_000_000.0
 	yes := true
 	w := fsmWorkerFixture(t, s, "ow-race", WorkerStatusAssigned, at-500)
+	putWorkerFixture(t, s, w)
+	// The SUCCESS receipt this test is about goes in through its sole writer
+	// (T-55) — the whole-row fixture write above cannot carry the five last_op*
+	// columns any more. Planting it the old way left the row blank, which made
+	// the clear look correct while it was in fact ruling on nothing.
+	if err := s.dal.SetMemberOpReceipt("ow-race", reconcileCmdStart, &yes, "boot.log: ready",
+		"started cleanly", at); err != nil {
+		t.Fatalf("seed the success receipt: %v", err)
+	}
 	w.LastOp = reconcileCmdStart
 	w.LastOpOK = &yes
 	w.LastOpLog = "boot.log: ready"
 	w.LastOpReason = "started cleanly"
 	w.LastOpAt = at
-	putWorkerFixture(t, s, w)
 	connectOnline(t, s, "ow-race")
 
 	no := false

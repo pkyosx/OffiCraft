@@ -221,11 +221,11 @@ func TestTokenExpiry_DerivationMatchesTheTokenTheStartPathMints(t *testing.T) {
 	// wall-clock-dependent. This is mintMemberToken's own body (api_auth.go:
 	// mintMemberToken → mintAgentToken → mintJWT with the member's desired
 	// machine), with time.Now() pinned — the one thing that cannot be injected.
-	token, err := mintJWT(m.ID, "agent", ttl, s.secret, mintedAt, m.DesiredMachineID)
+	token, err := mintJWT(m.ID, "agent", ttl, s.keys.signingSecret(), mintedAt, m.DesiredMachineID)
 	if err != nil {
 		t.Fatalf("mint: %v", err)
 	}
-	claims, err := verifyJWT(token, s.secret, mintedAt)
+	claims, err := verifyJWT(token, s.keys.signingSecret(), mintedAt)
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}

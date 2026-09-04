@@ -1,7 +1,7 @@
 // T-2654 — the 移除 affordance disappears once a task closes.
 //
-// The server freezes a closed task's deliverable set in BOTH directions (add
-// AND remove 409). Before this, the card kept offering 移除 on closed cards, so
+// The server freezes a closed task's deliverable set in EVERY direction (add,
+// remove AND replace 409). Before this, the card kept offering 移除 on closed cards, so
 // the only thing standing between owner and a dead-end click was the API. The
 // mock made it worse: it had no terminal guard at all, so the fake cockpit
 // DELETED where production refuses — a UI change checked against the mock would
@@ -15,6 +15,19 @@ import { render, fireEvent, waitFor, screen } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { TaskCard } from "./TaskCard";
 import type { TaskView } from "../api/adapter";
+
+// T-66: the artifact rows come from the SERVER when the panel opens, not from
+// the card's `onHydrate` (the task read carries an id+label index now — owner
+// c-cd063427fb2f), so the fixture has to be handed in through this stub.
+const { listTaskArtifacts } = vi.hoisted(() => ({ listTaskArtifacts: vi.fn() }));
+vi.mock("../api", () => ({
+  api: {
+    subscribeEvents: () => () => {},
+    getChatAttachmentShareLink: vi.fn(),
+    getTaskStep: vi.fn(),
+    listTaskArtifacts,
+  },
+}));
 
 let seq = 0;
 
@@ -75,7 +88,7 @@ function renderCard(task: TaskView) {
         onSetPriority={NOOP as never}
         onReassign={NOOP as never}
         onSendMessage={NOOP as never}
-        onHydrate={(async () => ({ artifacts: [ARTIFACT] })) as never}
+        onHydrate={(async () => ({ artifacts: [{ id: ARTIFACT.id, label: ARTIFACT.label }] })) as never}
         onRemoveArtifact={NOOP as never}
       />
     </I18nProvider>
@@ -88,6 +101,8 @@ async function openArtifactPopover() {
 }
 
 beforeEach(() => {
+  listTaskArtifacts.mockReset();
+  listTaskArtifacts.mockResolvedValue([ARTIFACT]);
   seq = 0;
   window.location.hash = "";
 });

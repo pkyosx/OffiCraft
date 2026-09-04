@@ -12,8 +12,9 @@ import (
 //
 // The common cause is one shape: a worker row IS a member row
 // (memberFromWorker), but every shared wind-down pass is reached from
-// runReconcileTick, whose roster read is ListMembers — and ListMembers is
-// `WHERE kind != 'outsource'` by construction. So a pass that guards staff is
+// runReconcileTick, which no worker row reaches (then via ListMembers'
+// `WHERE kind != 'outsource'`, since T-14 項目 6 via that half's driver guard).
+// So a pass that guards staff is
 // simply never offered a worker unless runOutsourceTick projects one into it,
 // the way it already does for the context thresholds.
 
@@ -324,6 +325,7 @@ func TestStaleStopping_AnOnlineWorkerIsSweptToo(t *testing.T) {
 	if err := api.dal.PutOutsourceWorker(*w); err != nil {
 		t.Fatalf("put worker: %v", err)
 	}
+	seedWorkerAnchors(t, api, *w)
 
 	api.runOutsourceTick(now)
 
@@ -347,6 +349,7 @@ func TestStaleStopping_AnOnlineWorkerIsSweptToo(t *testing.T) {
 		if err := api.dal.PutOutsourceWorker(*w); err != nil {
 			t.Fatalf("put worker: %v", err)
 		}
+		seedWorkerAnchors(t, api, *w)
 		api.runOutsourceTick(now)
 		got, _ := api.dal.GetOutsourceWorker(id)
 		if got.StoppingSince == 0.0 {

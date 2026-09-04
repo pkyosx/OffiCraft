@@ -49,6 +49,11 @@ export interface Messages {
   taskMarkDuplicateBody: (taskNo: string) => string;
   taskDuplicateOf: (taskNo: string) => string;
   taskReassignTitle: (taskNo: string) => string;
+  // ── task artifact versions (T-60) ──
+  taskArtifactVersionCount: (n: number) => string;
+  taskArtifactVersionLabel: (when: string) => string;
+  taskArtifactVersionBy: (actorId: string) => string;
+  taskArtifactOpaque: (mime: string) => string;
   // ── login / the credential-attempt brake ──
   loginThrottled: (secs: number) => string;
   // ── replies ──
@@ -110,6 +115,11 @@ export interface Messages {
   machineUninstallConfirmBody: (name: string) => string;
   machineUninstallWarnBody: (name: string, count: number) => string;
   machineDeleteConfirmBody: (name: string) => string;
+  /** 成本歸零 confirm. Takes the RENDERED amount (already through formatCost, or
+   * the dash) rather than a number: the panel has it, and a second formatting
+   * site is a second place for the rounding rule to drift. */
+  costResetConfirmBody: (amount: string) => string;
+  accountCostResetConfirmBody: (amount: string) => string;
   // ── settings ──
   themeImportSkipped: (count: number, sample: string[]) => string;
   themeDeleteConfirm: (name: string) => string;
@@ -199,6 +209,24 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     // (「量於 3d 前」, with spaces). Caught in independent review.
     monitorMeasuredAgo: (age) =>
       `${mon.measuredAgoLead} ${age} ${mon.measuredAgoTail}`,
+    // 「3版」/「3 versions」 — the artifact row's versions entry (T-60). Only
+    // ever printed for n > 1 (one version is not a history), so the tail needs
+    // no singular twin.
+    taskArtifactVersionCount: (n) =>
+      `${n}${sp}${tasks.artifacts.versionsCountTail}`,
+    // Which version the `-` side of a comparison IS. Same reason the document
+    // reader names its own: two unlabelled columns do not say which is which.
+    taskArtifactVersionLabel: (when) =>
+      `${tasks.artifacts.versionsVersionLabel} ${when}`,
+    // The raw actor id, never a resolved display name — this panel holds no
+    // roster, and inventing a name for an id it cannot resolve would misname
+    // whoever replaced the deliverable.
+    taskArtifactVersionBy: (actorId) =>
+      `${tasks.artifacts.versionsByLabel} ${actorId}`,
+    // A file this panel can neither render nor compare. It names the mime the
+    // SERVER reported rather than calling the version empty.
+    taskArtifactOpaque: (mime) =>
+      `${tasks.artifacts.versionsOpaqueLead}${mime}${tasks.artifacts.versionsOpaqueTail}`,
     taskProgress: (done, total) =>
       `${tasks.progressLabel} ${done}/${total}`,
     // 「步驟 N/M · 已歷時 X」 is ONE visible string. Leaving elapsed as a template
@@ -407,6 +435,14 @@ export function makeMessages(t: Dict, language: Lang): Messages {
       `${mach.uninstallWarnBody1}${name}${mach.uninstallWarnBody2}${count}${mach.uninstallWarnBody3}`,
     machineDeleteConfirmBody: (name) =>
       `${mach.deleteConfirmBodyLead}${name}${mach.deleteConfirmBodyTail}`,
+    costResetConfirmBody: (amount) =>
+      `${t.mp.costResetConfirmBodyLead}${amount}${t.mp.costResetConfirmBodyTail}`,
+    // The ACCOUNT's own figure (T-53, owner ruling rc-5c5d7c7c6dcd). Its own
+    // pair of strings rather than the member one with a different noun: this
+    // sentence has to say that no member figure is touched, which is the whole
+    // difference the owner asked for and the thing he checks before pressing.
+    accountCostResetConfirmBody: (amount) =>
+      `${t.monitor.costResetConfirmBodyLead}${amount}${t.monitor.costResetConfirmBodyTail}`,
 
     // `sample` is the SHORT head of the skipped set, never the whole thing; the
     // count carries the rest and the trailing marker says it was cut.

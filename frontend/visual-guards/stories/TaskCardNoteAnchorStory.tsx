@@ -20,7 +20,7 @@
 import { useLayoutEffect } from "react";
 import { I18nProvider } from "../../src/i18n";
 import { TaskCard } from "../../src/components/TaskCard";
-import { mkTask, mkStep, MIRA, NOOP, WORKERS } from "./taskFixtures";
+import { mkTask, mkNoteStep, MIRA, NOOP, WORKERS } from "./taskFixtures";
 import { LIGHT_PACK } from "./ThemeContrastStory";
 
 const LONG_NOTE = (n: number) =>
@@ -50,15 +50,18 @@ const makeTask = (noteRepeat: number) =>
     progressDone: 3,
     progressTotal: 9,
     steps: Array.from({ length: 9 }, (_, i) =>
-      mkStep({
-        id: `s-${i + 1}`,
-        name: `節點 ${i + 1}`,
-        dod: `第 ${i + 1} 步的驗收標準。`,
-        status: i < 3 ? "done" : i === 3 ? "in_progress" : "pending",
-        note: Array.from({ length: noteRepeat }, () => LONG_NOTE(i + 1)).join(
-          "\n\n"
-        ),
-      })
+      // T-66: `mkNoteStep` sets the card's `noteSizeChars` AND registers the
+      // text for the per-step read the corner entry fires — a plain `note:`
+      // field is not on `TaskStepView` any more and draws no entry.
+      mkNoteStep(
+        {
+          id: `s-${i + 1}`,
+          name: `節點 ${i + 1}`,
+          dod: `第 ${i + 1} 步的驗收標準。`,
+          status: i < 3 ? "done" : i === 3 ? "in_progress" : "pending",
+        },
+        Array.from({ length: noteRepeat }, () => LONG_NOTE(i + 1)).join("\n\n")
+      )
     ),
   });
 

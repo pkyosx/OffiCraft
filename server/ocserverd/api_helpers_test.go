@@ -10,8 +10,9 @@ package main
 // value refuses instead of widening.
 //
 // 🔑 WHY OPENING THE ITEM DOOR GIVES NOTHING AWAY: GET /api/members already
-// LISTS outsource rows to the same principal (ListMembersIncludingOutsource,
-// the P7 convergence rc-2786636f30e5). The item door refusing what the list
+// LISTS outsource rows to the same principal (ListMembers, whose
+// `WHERE kind != 'outsource'` T-14 項目 6 removed; the P7 convergence
+// rc-2786636f30e5). The item door refusing what the list
 // door hands out was two doors onto one row disagreeing about who may open it —
 // and the cockpit paid for that disagreement with one guaranteed 404 plus one
 // whole-roster refetch on every contractor chat line.
@@ -274,6 +275,7 @@ func TestGetMember_WorkerSelfReadResolves(t *testing.T) {
 	if err := api.dal.PutOutsourceWorker(*w); err != nil {
 		t.Fatalf("stamp refocus: %v", err)
 	}
+	seedWorkerAnchors(t, api, *w)
 
 	rec := httptest.NewRecorder()
 	api.HandleGetMemberApiMembersMemberIdGet(rec,

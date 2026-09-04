@@ -4,10 +4,17 @@ package main
 // set of columns:
 //
 //	a column that has been migrated to a single-column writer must never
-//	reappear in PutMember's ON CONFLICT DO UPDATE SET list.
+//	become writable again by a whole-row write of the member row.
+//
+// The MECHANISM behind that sentence changed in T-63; the invariant did not.
+// There is no hand-written ON CONFLICT DO UPDATE SET list any more — which
+// columns a whole-row write lands on an EXISTING row is derived from each
+// column's insertOnly flag on its constructor in dal_member_patch.go. Every
+// assertion below asks the database what happened rather than reading the text
+// of the SQL, which is exactly why this file survived that refactor untouched.
 //
 // The migration is only half a fix. Writing SetMemberX / AddMemberX and leaving
-// the column in the whole-row SET list changes nothing at all: every stale
+// the column writable by a whole-row write changes nothing at all: every stale
 // snapshot still lands on it, and the suite stays green either way — which is
 // exactly how the handover claim nearly shipped broken (T-ffdf). Until this
 // file existed, the ONLY thing holding the second half in place was a comment
@@ -24,6 +31,44 @@ import (
 	"strings"
 	"testing"
 )
+
+// The op receipt is FIVE columns behind ONE writer (T-55), so its five registry
+// rows all stamp through this one call and then each check its own column. The
+// values are arbitrary but must be non-zero in every column at once: a row that
+// left one of them on its zero could not tell "the stale upsert clobbered it"
+// from "the stamp never wrote it".
+const (
+	probeReceiptOp     = "start"
+	probeReceiptLog    = "probe log"
+	probeReceiptReason = "probe reason"
+	probeReceiptAt     = float64(4243)
+)
+
+func stampProbeReceipt(d *DAL, id string) error {
+	ok := true
+	return d.SetMemberOpReceipt(id, probeReceiptOp, &ok, probeReceiptLog, probeReceiptReason,
+		probeReceiptAt)
+}
+
+// The four wind-down anchors move together through one writer, so they share a
+// stamp the way the receipt columns do.
+//
+// 🔴 EVERY VALUE HERE IS DIFFERENT, AND THAT IS THE POINT. These are anchors: a
+// writer that drops one of them leaves it at 0/"" — which is exactly what "was
+// never written" looks like — so a fixture that stamped the same number into two
+// of them would read green through a setter that transposed its parameters or
+// forgot a column. Distinct values make every one of those mistakes name itself.
+const (
+	probeStoppingSince = 7_001.0
+	probeStoppedSince  = 7_002.0
+	probeRefocusSince  = 7_003.0
+	probeRefocusOp     = "probe-refocus-op"
+)
+
+func stampProbeAnchors(d *DAL, id string) error {
+	return d.SetMemberWindDownAnchors(id, probeStoppingSince, probeStoppedSince,
+		probeRefocusSince, probeRefocusOp)
+}
 
 // singleColumnOwnedFields is the registry the guard iterates. Add the entry in
 // the SAME commit that removes a column from PutMember's SET list.
@@ -109,6 +154,59 @@ var singleColumnOwnedFields = []struct {
 		stale:  func(m *Member) { m.Effort = "" },
 	},
 	{
+		column: "last_op",
+		writer: "SetMemberOpReceipt",
+		stamp:  stampProbeReceipt,
+		want:   probeReceiptOp,
+		read:   func(m Member) any { return m.LastOp },
+		stale:  func(m *Member) { m.LastOp = "" },
+	},
+	{
+		// 🔴 read PROJECTS the *bool instead of returning it. want is compared
+		// with !=, and two pointers are equal only when they are the SAME
+		// pointer — a round-tripped row always carries a fresh one, so handing
+		// the pointer straight back would make this row report a clobber on
+		// every run, for a reason that has nothing to do with the column. The
+		// projection also keeps the THIRD state distinguishable: nil comes back
+		// as a string no bool can equal, so a stale upsert that blanks the
+		// verdict reddens rather than reading as `false`.
+		column: "last_op_ok",
+		writer: "SetMemberOpReceipt",
+		stamp:  stampProbeReceipt,
+		want:   true,
+		read: func(m Member) any {
+			if m.LastOpOK == nil {
+				return "nil"
+			}
+			return *m.LastOpOK
+		},
+		stale: func(m *Member) { m.LastOpOK = nil },
+	},
+	{
+		column: "last_op_log",
+		writer: "SetMemberOpReceipt",
+		stamp:  stampProbeReceipt,
+		want:   probeReceiptLog,
+		read:   func(m Member) any { return m.LastOpLog },
+		stale:  func(m *Member) { m.LastOpLog = "" },
+	},
+	{
+		column: "last_op_reason",
+		writer: "SetMemberOpReceipt",
+		stamp:  stampProbeReceipt,
+		want:   probeReceiptReason,
+		read:   func(m Member) any { return m.LastOpReason },
+		stale:  func(m *Member) { m.LastOpReason = "" },
+	},
+	{
+		column: "last_op_at",
+		writer: "SetMemberOpReceipt",
+		stamp:  stampProbeReceipt,
+		want:   probeReceiptAt,
+		read:   func(m Member) any { return m.LastOpAt },
+		stale:  func(m *Member) { m.LastOpAt = 0 },
+	},
+	{
 		// The OLDEST member of this class and the last one to be registered:
 		// avatar_attachment_id has been out of the SET list since T-c826, with
 		// ReplaceMemberAvatar / DeleteMemberAvatar as its only update seams —
@@ -128,20 +226,52 @@ var singleColumnOwnedFields = []struct {
 		read:  func(m Member) any { return m.AvatarAttachmentID },
 		stale: func(m *Member) { m.AvatarAttachmentID = "" },
 	},
+	{
+		column: "stopping_since",
+		writer: "SetMemberWindDownAnchors",
+		stamp:  stampProbeAnchors,
+		want:   probeStoppingSince,
+		read:   func(m Member) any { return m.StoppingSince },
+		stale:  func(m *Member) { m.StoppingSince = 0 },
+	},
+	{
+		column: "stopped_since",
+		writer: "SetMemberWindDownAnchors",
+		stamp:  stampProbeAnchors,
+		want:   probeStoppedSince,
+		read:   func(m Member) any { return m.StoppedSince },
+		stale:  func(m *Member) { m.StoppedSince = 0 },
+	},
+	{
+		column: "refocus_since",
+		writer: "SetMemberWindDownAnchors",
+		stamp:  stampProbeAnchors,
+		want:   probeRefocusSince,
+		read:   func(m Member) any { return m.RefocusSince },
+		stale:  func(m *Member) { m.RefocusSince = 0 },
+	},
+	{
+		column: "refocus_op",
+		writer: "SetMemberWindDownAnchors",
+		stamp:  stampProbeAnchors,
+		want:   probeRefocusOp,
+		read:   func(m Member) any { return m.RefocusOp },
+		stale:  func(m *Member) { m.RefocusOp = "" },
+	},
 }
 
 // TestPutMemberNeverOverwritesSingleColumnOwnedFields is the automatic guard.
 //
-// Mutant for any row: put `<column> = excluded.<column>` back into PutMember's
-// DO UPDATE SET and this test goes red NAMING that column.
+// Mutant for any row: clear `insertOnly` on that column's constructor in
+// dal_member_patch.go and this test goes red NAMING that column.
 func TestPutMemberNeverOverwritesSingleColumnOwnedFields(t *testing.T) {
 	// A deleted row is the one mutation the loop below cannot see: the guard
 	// would pass by iterating less. Bump this deliberately when the registry
 	// grows.
-	if len(singleColumnOwnedFields) != 8 {
-		t.Fatalf("singleColumnOwnedFields has %d entries, expected 8. Adding a "+
-			"column? Bump this number. REMOVING one? That means a column went "+
-			"BACK into PutMember's DO UPDATE SET — say why in the commit",
+	if len(singleColumnOwnedFields) != 17 {
+		t.Fatalf("singleColumnOwnedFields has %d entries, expected 17. Adding a "+
+			"column? Bump this number. REMOVING one? That means a column became "+
+			"writable by a whole-row write again — say why in the commit",
 			len(singleColumnOwnedFields))
 	}
 
@@ -179,10 +309,11 @@ func TestPutMemberNeverOverwritesSingleColumnOwnedFields(t *testing.T) {
 				// as `any` is STRICTER than the float64 it replaced, never
 				// looser — verified by seeding both of those pairs.
 				t.Fatalf("member.%s was clobbered by a whole-row upsert: %#v (%T) → %#v (%T).\n"+
-					"%s is the SOLE writer of this column; it must stay OUT of "+
-					"PutMember's ON CONFLICT DO UPDATE SET list (dal.go). If you "+
-					"just added `%s = excluded.%s` back, that is the line to remove.",
-					f.column, f.want, f.want, got, got, f.writer, f.column, f.column)
+					"%s is the SOLE writer of this column; a whole-row write must "+
+					"never land it on an existing row. If you just cleared "+
+					"`insertOnly` on this column's constructor in "+
+					"dal_member_patch.go, that is the line to restore.",
+					f.column, f.want, f.want, got, got, f.writer)
 			}
 			// Positive control: the upsert really ran, so the assertion above
 			// is not passing because nothing was written at all.
@@ -236,10 +367,10 @@ func TestAddMemberBankedCostAccumulatesAndIsRowScoped(t *testing.T) {
 	}
 }
 
-// notInTheSetListExceptions names the columns that are absent from — or exempt
-// within — PutMember's DO UPDATE SET for reasons that are NOT "a single-column
-// writer owns this", so the completeness guard below must not demand a registry
-// entry for them. Each one is a claim about the statement, so each one says why.
+// notInTheSetListExceptions names the columns a whole-row write leaves alone —
+// or handles specially — for reasons that are NOT "a single-column writer owns
+// this", so the completeness guard below must not demand a registry entry for
+// them. Each one is a claim about the write, so each one says why.
 var notInTheSetListExceptions = map[string]string{
 	// The conflict key. It is what the upsert matches ON; a SET list carrying
 	// it would be meaningless rather than dangerous.
@@ -256,12 +387,16 @@ var notInTheSetListExceptions = map[string]string{
 	// so max() keeps the sentinel and the column reads as "absent". The blind
 	// spot comes from a collation accident, not from the column's own design.
 	//
-	// ② SO NOTHING HERE WOULD STOP SOMEONE MIGRATING IT. dal.go warns that the
-	// single-column writer already on the tree, SetMemberForcedStopAt, is a
-	// plain assignment with NO max() — swap the upsert for it and the
-	// forward-only property is gone, silently, and this test stays green.
-	// Whoever proposes that migration has to argue it on the code; this guard
-	// will not argue back.
+	// ② SO NOTHING HERE WOULD STOP SOMEONE MIGRATING IT — but the REASON changed
+	// in T-63, and the reason this note used to give is now the opposite of the
+	// truth. It warned that the single-column writer already on the tree,
+	// SetMemberForcedStopAt, was a plain assignment with NO max(), so migrating
+	// the column to it would silently lose the forward-only property. That setter
+	// now goes through PatchMember and picks up the column's own forwardOnly
+	// declaration, so BOTH paths write max() and the property survives such a
+	// migration. What is still uncovered is only ①: this guard cannot see which
+	// side of the line the column is on. Whoever proposes that migration has to
+	// argue it on the code; this guard will not argue back.
 	"forced_stop_at": "carried under max(), forward-only — UNCOVERED by this guard, see above",
 }
 
@@ -319,7 +454,7 @@ func TestEveryColumnOutOfTheSetListIsRegistered(t *testing.T) {
 	sort.Strings(stale)
 
 	if len(unguarded) > 0 {
-		t.Fatalf("these columns are NOT in PutMember's DO UPDATE SET, so a stale "+
+		t.Fatalf("these columns are NOT landed by a whole-row write, so a stale "+
 			"whole-row upsert can no longer move them — but singleColumnOwnedFields "+
 			"has no entry for them, so nothing would notice if they went back in: %v.\n"+
 			"Add an entry (and bump the count in the guard above), or, if the column "+

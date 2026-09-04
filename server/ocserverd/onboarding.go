@@ -408,6 +408,14 @@ func (s *apiServer) wakeAssistantStep(
 	mira.StoppingSince = 0.0
 	mira.WakingSince = 0.0
 	mira.DesiredState = DesiredStateOnline
+	if err := s.persistMemberWindDownAnchors(*mira); err != nil {
+		steps = append(steps, onboardingStepDTO{
+			Name:   onboardingStepWakeAssistant,
+			Code:   onboardingCodeWakeNotRecorded,
+			Reason: "could not record the assistant's wind-down anchors: " + err.Error(),
+		})
+		return s.finishOnboarding(report, steps)
+	}
 	if err := s.putMember(*mira, triggerServer); err != nil {
 		steps = append(steps, onboardingStepDTO{
 			Name:   onboardingStepWakeAssistant,

@@ -38,7 +38,7 @@ func restartableNoticeServers(t *testing.T, memberID string) (*apiServer, *apiSe
 		if err := runMigrations(db); err != nil {
 			t.Fatalf("goose up: %v", err)
 		}
-		return newAPIServer(NewDAL(db), NewHub(), []byte("notice-restart-secret"), 3600,
+		return newAPIServer(NewDAL(db), NewHub(), singleKeyring([]byte("notice-restart-secret")), 3600,
 			assetRoot(t.TempDir()))
 	}
 	before := newServer()
@@ -117,7 +117,8 @@ func TestHandoverNotice_ClaimIsReleasedAtTheSessionBoundary(t *testing.T) {
 // TestHandoverNotice_ClaimSurvivesAWholeRowUpsert is the guard the design
 // decision needed and did not have (found by independent review, T-ffdf).
 //
-// The claim column is deliberately absent from PutMember's DO UPDATE SET, and
+// The claim column is deliberately insert-only — a whole-row write never lands
+// it on an existing row — and
 // until this test existed the ONLY thing enforcing that was a comment. Adding
 // `handover_noticed_ts = excluded.handover_noticed_ts` to that SET list left
 // the whole suite green — a change that reads like tidying up an oversight,
@@ -156,7 +157,8 @@ func TestHandoverNotice_ClaimSurvivesAWholeRowUpsert(t *testing.T) {
 	}
 	if after.HandoverNoticedTS != anchor {
 		t.Fatalf("a whole-row upsert must NOT move the notice claim: %v → %v. "+
-			"The column must stay out of PutMember's DO UPDATE SET; only "+
+			"The column must stay insert-only (its constructor in "+
+			"dal_member_patch.go); only "+
 			"SetMemberHandoverNoticedTS may move it",
 			anchor, after.HandoverNoticedTS)
 	}
@@ -218,7 +220,7 @@ func TestHandoverNotice_ADatabaseFailureFallsTowardSending(t *testing.T) {
 		if err := runMigrations(db); err != nil {
 			t.Fatalf("goose up: %v", err)
 		}
-		return newAPIServer(NewDAL(db), NewHub(), []byte("notice-dbfail-secret"), 3600,
+		return newAPIServer(NewDAL(db), NewHub(), singleKeyring([]byte("notice-dbfail-secret")), 3600,
 			assetRoot(t.TempDir())), db.Close
 	}
 

@@ -633,13 +633,27 @@ func TestRelocateAssignedWorker_X46(t *testing.T) {
 	}
 }
 
-// TestRelocateStoppedWorker_SavesPinWithoutReviving (owner ruling: placement is not
-// a start): a worker the owner explicitly STOPPED keeps its 停止 across a 改機器.
-// The pin is saved, nothing is dispatched, desired_state is untouched, and the row
-// says WHY nothing started — the tick has always honoured this
-// (TestStoppedWorker_TickNeverRevives); relocate used to be the one verb that
-// quietly overturned it.
-func TestRelocateStoppedWorker_SavesPinWithoutReviving(t *testing.T) {
+// TestRelocateNeverStoppedWorker_SavesPinWithoutReviving (owner ruling: placement is
+// not a start): a worker that is desired-offline but that NOBODY EVER ASKED TO STOP
+// keeps that state across a 改機器. The pin is saved, nothing is dispatched,
+// desired_state is untouched, and the row says WHY nothing started — the tick has
+// always honoured this (TestStoppedWorker_TickNeverRevives); relocate used to be the
+// one verb that quietly overturned it.
+//
+// 🔴 READ THE NAME CAREFULLY — it was renamed in T-65 包② and the old one
+// (…RelocateStoppedWorker…) was a lie by then. Since 包②, a relocate on a worker whose
+// stop is IN FLIGHT OR HAS LANDED does the opposite of what this test asserts: it
+// queues the start and the worker comes back up. What keeps THIS fixture on the old
+// path is the thing the fixture never does — it sets desired_state directly and never
+// writes a stopping_since anchor, so aStopWasEverAskedFor is false and
+// queueWorkerRestartAfterStop refuses. See member_ownerop_winddown.go:554 and
+// outsource_restart_after_stop_t65_test.go:90.
+//
+// ⇒ THIS TEST IS BLIND TO 包②, deliberately, and that means it is NOT a signal in
+// either direction about the queued-start feature. If it ever DOES go red, the reading
+// is 「the aStopWasEverAskedFor gate was removed and a single edit now boots workers
+// that never started」 — a bug report, not a spec flip. Do not 'fix' it by widening it.
+func TestRelocateNeverStoppedWorker_SavesPinWithoutReviving(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true
 	workerID := assignOneWorker(t, api)

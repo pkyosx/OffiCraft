@@ -215,7 +215,12 @@ func (s *apiServer) stampReceiptMissing(targetID string, p pendingReceipt, now f
 		stampOpReceipt(&m.LastOp, &m.LastOpOK, &m.LastOpLog, &m.LastOpReason,
 			&m.LastOpAt, p.RPC, reason, now)
 		reconcileLog("%s: %s", targetID, reason)
-		if err := s.putMember(*m, triggerServer); err != nil {
+		// SINGLE WRITE (T-55). Both arms of this function mutate the five receipt
+		// columns and NOTHING else, so the whole-row write they used to end on
+		// carried a snapshot of ~30 other columns purely as freight. Replacing it
+		// with the sole writer removes the clobber AND leaves no two-write window
+		// to order (ticket 2.1a) — this arm never had a second step to lose.
+		if err := s.persistMemberOpReceipt(*m, triggerServer); err != nil {
 			reconcileLog("%s: receipt-missing stamp persist failed: %v", targetID, err)
 		}
 		return
@@ -227,7 +232,14 @@ func (s *apiServer) stampReceiptMissing(targetID string, p pendingReceipt, now f
 	stampOpReceipt(&w.LastOp, &w.LastOpOK, &w.LastOpLog, &w.LastOpReason,
 		&w.LastOpAt, p.RPC, reason, now)
 	outsourceLog("%s: %s", targetID, reason)
-	if err := s.dal.PutOutsourceWorker(*w); err != nil {
+	// Single write, same as the member arm — and this is the one call site in the
+	// package that reaches a worker row WITHOUT holding s.outsourceMu (the sweep
+	// runs in the reconcile half; lifecycle_tick.go says so in as many words).
+	// Narrowing it from a whole-row upsert to five columns strictly shrinks what
+	// an interleaved HTTP write can lose here: it was the widest unlocked writer
+	// on this table and is now the narrowest.
+	if err := s.dal.SetMemberOpReceipt(w.ID, w.LastOp, w.LastOpOK, w.LastOpLog,
+		w.LastOpReason, w.LastOpAt); err != nil {
 		outsourceLog("%s: receipt-missing stamp persist failed: %v", targetID, err)
 		return
 	}

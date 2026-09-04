@@ -453,10 +453,44 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 		writeResolveError(w, errNotFound, "outsource worker", id)
 		return
 	}
+	// 🔴 THIS USED TO BE A FLAT 409 「refocus requires a live worker — this one is
+	// stopped (restart it first)」, and T-65 包② is where that refusal is paid off.
+	// Owner 2026-08-30 (rc-bc1b029a3aa2): 「一個重啟的 intention 遇上一個更強硬的
+	// 下線規則 他的方式是沿用強硬下線規則 但是附加上線規則」. The refocus STAMP
+	// genuinely would not reach the agent — there is no session to hand over —
+	// but that was never a reason to refuse the OWNER'S intent, only a reason not
+	// to write it as a refocus epoch. So the stop keeps its stage and all four of
+	// its anchors, and the only thing recorded is 「起來」.
+	//
+	// The 409 SURVIVES for the one case the queue cannot serve: a worker nobody
+	// has ever asked to stop (aStopWasEverAskedFor, inside the queue helper) has
+	// no 下線 for an 上線 rule to be added to.
 	if worker.DesiredState == DesiredStateOffline {
+		if !s.queueWorkerRestartAfterStop(worker, refocusOpRefocus, nowSecs()) {
+			s.outsourceMu.Unlock()
+			writeError(w, http.StatusConflict,
+				"refocus requires a live worker — this one is stopped and has never "+
+					"been asked to stop, so there is no wind-down for a 起來 to be "+
+					"queued behind (重啟 it when you want it to run)")
+			return
+		}
+		if err := s.persistWorkerRestartIntent(*worker); err != nil {
+			s.outsourceMu.Unlock()
+			internalError(w, err)
+			return
+		}
+		s.publishOutsourceWorker(*worker, requestTrigger(r))
 		s.outsourceMu.Unlock()
-		writeError(w, http.StatusConflict,
-			"refocus requires a live worker — this one is stopped (restart it first)")
+		// The worker may ALREADY be converged offline (a stop that landed before
+		// the owner pressed this), in which case the queued start is spendable on
+		// this very tick rather than up to a cadence later — the staff face's
+		// reconcileMemberNow, one population along. AFTER the unlock: the tick
+		// takes outsourceMu itself.
+		s.outsourceTickNow()
+		if fresh, ferr := s.dal.GetOutsourceWorker(id); ferr == nil && fresh != nil {
+			worker = fresh
+		}
+		s.writeWorkerProjection(w, r, *worker)
 		return
 	}
 	if worker.Status != WorkerStatusActive || !s.hub.IsOnline(worker.ID) {
@@ -493,6 +527,11 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 	worker.RefocusOp = proj.RefocusOp
 	worker.StoppingSince = proj.StoppingSince // a new epoch never inherits a stale latch
 	worker.StoppedSince = proj.StoppedSince
+	if err := s.persistWorkerWindDownAnchors(*worker); err != nil {
+		s.outsourceMu.Unlock()
+		internalError(w, err)
+		return
+	}
 	if err := s.dal.PutOutsourceWorker(*worker); err != nil {
 		s.outsourceMu.Unlock()
 		internalError(w, err)
@@ -586,6 +625,16 @@ func (s *apiServer) HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcc
 		return
 	}
 	worker.RefocusOp = refocusOpAcceleratedStop
+	// 後蓋前 (T-65 包②). 加速停止 is a 下線 verb, so it cancels a queued 起來 like
+	// the other two — and the ladder it advances is left alone, which is the split
+	// the owner's ruling turns on: 「下線用多強」 is a ratchet, 「要不要起來」 is
+	// last-writer-wins, and only the second is touched here.
+	clearWorkerRestartIntent(worker)
+	if err := s.persistWorkerWindDownAnchors(*worker); err != nil {
+		s.outsourceMu.Unlock()
+		internalError(w, err)
+		return
+	}
 	if err := s.dal.PutOutsourceWorker(*worker); err != nil {
 		s.outsourceMu.Unlock()
 		internalError(w, err)
@@ -674,11 +723,21 @@ func (s *apiServer) HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(w htt
 	worker.DesiredState = DesiredStateOffline // owner-explicit stop intent (member parity)
 	worker.RefocusSince = 0.0                 // see the 🔴 note above — mechanical, not semantic
 	worker.RefocusOp = ""                     // …and its cause goes with it
+	// 後蓋前 (T-65 包②): a 起來 queued by an earlier 重新聚焦 / 改機器 / 換 model
+	// is CANCELLED by this press. Without it the tick would bring the worker back
+	// up moments after this stop lands, which is the exact negative control the
+	// owner's ruling turns on.
+	clearWorkerRestartIntent(worker)
 	// The stop epoch's anchor. NOT "the member deactivate's rule verbatim" any
 	// more — it is that rule, the same function the staff deactivate calls
 	// (stopEpochAnchor, api_members.go), which is where the reason a forced
 	// epoch's anchor must not move is written down.
 	worker.StoppingSince = stopEpochAnchor(memberFromWorker(*worker), nowSecs())
+	if err := s.persistWorkerWindDownAnchors(*worker); err != nil {
+		s.outsourceMu.Unlock()
+		internalError(w, err)
+		return
+	}
 	if err := s.dal.PutOutsourceWorker(*worker); err != nil {
 		s.outsourceMu.Unlock()
 		internalError(w, err)
@@ -734,10 +793,16 @@ func (s *apiServer) HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStop
 	worker.DesiredState = DesiredStateOffline
 	worker.RefocusSince = 0.0 // nothing is being waited for any more
 	worker.RefocusOp = ""
+	clearWorkerRestartIntent(worker) // 後蓋前 — 重新聚焦 → 強制停止 ends DOWN (T-65 包②)
 	forcedAt := nowSecs()
 	worker.ForcedStopAt = forcedAt
 	if worker.StoppingSince <= 0.0 || worker.StoppingSince > forcedAt {
 		worker.StoppingSince = forcedAt
+	}
+	if err := s.persistWorkerWindDownAnchors(*worker); err != nil {
+		s.outsourceMu.Unlock()
+		internalError(w, err)
+		return
 	}
 	if err := s.dal.PutOutsourceWorker(*worker); err != nil {
 		s.outsourceMu.Unlock()
@@ -799,15 +864,15 @@ func (s *apiServer) HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost
 	// reason-code family instead — stamped only when it is TRUE of this worker,
 	// and cleared by the landed START (spawnBlockedReasonCodes) so it never
 	// outlives the restart it describes.
-	if s.hub.IsOnline(id) {
-		// Folded onto the row this handler is about to persist, not written
-		// through stampWorkerPlacementBlocked: that helper re-reads and writes on
-		// its own, and the whole-row PutOutsourceWorker below would then clobber
-		// it. One write, one delta — still true of THIS verb, whose columns
-		// (desired_state and the receipt) the whole-row write all still carries.
-		// ⚠️ It is NO LONGER the rule every owner verb here follows: since T-55
-		// the 換 model verb stores its three launch intents through their own
-		// setters, which run AFTER its whole-row write (see the 🔴 block there).
+	sessionAliveReceipt := s.hub.IsOnline(id)
+	if sessionAliveReceipt {
+		// Stamped onto the in-memory row rather than written through
+		// stampWorkerPlacementBlocked: that helper re-reads and writes on its own,
+		// and this handler's own write would then race it.
+		// ⚠️ NOT one write any more, and it is no longer the rule every owner verb
+		// here follows: since T-55 the receipt columns land through
+		// SetMemberOpReceipt below, and the 換 model verb stores its three launch
+		// intents through their own setters (see the 🔴 block there).
 		stampWorkerOpReceipt(worker, spawnReasonSessionAlive+
 			": this worker was still running — 重啟 is replacing that session, not "+
 			"starting a first one. If it does not come back, its previous session "+
@@ -852,10 +917,53 @@ func (s *apiServer) HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost
 	worker.RefocusOp = ""
 	worker.StoppingSince = 0.0
 	worker.StoppedSince = 0.0
+	// 後蓋前 (T-65 包②) — and here the reason is 「it is being spent RIGHT NOW」
+	// rather than 「it is cancelled」: this handler does the very thing a queued
+	// 起來 asks for. Leaving the flag armed would fire a SECOND start after the
+	// next 下線, one the owner never asked for.
+	clearWorkerRestartIntent(worker)
+	// The whole-row write still carries desired_state; WHICH columns it no longer
+	// carries is not restated here — this sentence has already gone stale twice as
+	// T-55 moved one batch after another, so the answer lives in exactly one place
+	// now: singleColumnOwnedFields, which is also what reddens if a column goes
+	// back. The four anchors above and the receipt each have their own writer, and
+	// both run before the row write.
+	//
+	// The receipt's order carries no convergence argument here (its gate is hub
+	// liveness, not a stored value). The ANCHORS' order does — see
+	// persistMemberWindDownAnchors.
+	if err := s.persistWorkerWindDownAnchors(*worker); err != nil {
+		s.outsourceMu.Unlock()
+		internalError(w, err)
+		return
+	}
 	if err := s.dal.PutOutsourceWorker(*worker); err != nil {
 		s.outsourceMu.Unlock()
 		internalError(w, err)
 		return
+	}
+	// 🔴 BEFORE THE RESPAWN, AND THE REASON IS STRONGER THAN "the response should
+	// see it". respawnWorkerForOwnerOp WRITES RECEIPTS OF ITS OWN — the held-down
+	// arm through stampWorkerPlacementBlocked, the deferred arm through
+	// respawnWorkerNow. Move this write after it and the handler's snapshot,
+	// taken at the top of the request, lands on top of the receipt the respawn
+	// just wrote: the owner is shown the older sentence, on a 200, with nothing
+	// red. Placing it first also happens to give the re-read below a row that
+	// already carries the receipt, which is the weaker reason this comment used
+	// to give on its own.
+	//
+	// ⚠️ NO TEST HOLDS THIS ORDER. An independent review moved the write past the
+	// respawn and the whole suite stayed green. Named gap, not a claim of safety.
+	//
+	// No publish of its own: the publishOutsourceWorker below fans the projection
+	// once, for both writes.
+	if sessionAliveReceipt {
+		if err := s.dal.SetMemberOpReceipt(worker.ID, worker.LastOp, worker.LastOpOK,
+			worker.LastOpLog, worker.LastOpReason, worker.LastOpAt); err != nil {
+			s.outsourceMu.Unlock()
+			internalError(w, err)
+			return
+		}
 	}
 	outcome := s.respawnWorkerForOwnerOp(*worker, ownerOpRestart)
 	if fresh, ferr := s.dal.GetOutsourceWorker(id); ferr == nil && fresh != nil {
@@ -971,6 +1079,28 @@ func (s *apiServer) HandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(
 	// Pinned by TestSetWorkerModel_ImmediateRespawnCarriesTheNewModel.
 	if launchIntentChanged && worker.Status == WorkerStatusActive && s.hub.IsOnline(worker.ID) {
 		s.respawnWorkerForOwnerOp(*worker, ownerOpModel)
+	} else if launchIntentChanged && worker.DesiredState == DesiredStateOffline {
+		// 🔴 THE FUNNEL IS UNREACHABLE FROM HERE FOR EXACTLY THE ROWS THIS BRANCH
+		// SERVES, which is why the T-65 包② stamp could not live in
+		// respawnWorkerForOwnerOp's held-down arm alone. The gate above additionally
+		// requires an ACTIVE worker with a LIVE session; a worker whose stop has
+		// CONVERGED has neither, so it never enters the funnel and the held-down arm
+		// never runs. 改機器 has no such gate (relocateWorkerNow is unconditional) —
+		// that is the whole asymmetry, and it is measured rather than assumed:
+		// TestSetModelOnStoppedAnchoredWorkerQueuesTheStart drives this branch with
+		// the session gone.
+		//
+		// Owner 2026-08-30: 「change model / machine 只是帶起來的方式不一樣而已」 —
+		// so the new value is not merely stored and forgotten; the worker comes back
+		// up on it. aStopWasEverAskedFor (inside the helper) keeps a worker nobody
+		// ever asked to stop from being booted by an edit.
+		if s.queueWorkerRestartAfterStop(worker, ownerOpModel, nowSecs()) {
+			if err := s.persistWorkerRestartIntent(*worker); err != nil {
+				s.outsourceMu.Unlock()
+				internalError(w, err)
+				return
+			}
+		}
 	}
 	// Same seam as the staff face (T-55): the three intents left PutMember's SET
 	// list, so PutOutsourceWorker no longer carries them and each one lands

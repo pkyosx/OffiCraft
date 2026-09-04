@@ -107,7 +107,7 @@ func TestTaskTitleNonExecutorIsRefusedAndNothingIsWritten(t *testing.T) {
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("creator status = %d, want 403: %s", rec.Code, rec.Body.String())
 	}
-	assertErrorEnvelope(t, rec, "forbidden", "caller is not the task's executor")
+	assertErrorEnvelope(t, rec, "forbidden", executorGuardRefusal)
 	if got := readTaskTitle(t, api, task.ID); got != standing {
 		t.Fatalf("refused write still landed: title = %q, want %q", got, standing)
 	}
@@ -118,7 +118,7 @@ func TestTaskTitleNonExecutorIsRefusedAndNothingIsWritten(t *testing.T) {
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("stranger status = %d, want 403", rec.Code)
 	}
-	assertErrorEnvelope(t, rec, "forbidden", "caller is not the task's executor")
+	assertErrorEnvelope(t, rec, "forbidden", executorGuardRefusal)
 	if got := readTaskTitle(t, api, task.ID); got != standing {
 		t.Fatalf("refused stranger write still landed: title = %q", got)
 	}
@@ -136,7 +136,7 @@ func TestTaskTitleNonExecutorIsRefusedAndNothingIsWritten(t *testing.T) {
 			t.Fatalf("non-executor blank %q status = %d, want 403 (the permission "+
 				"gate runs BEFORE the blank check): %s", blank, rec.Code, rec.Body.String())
 		}
-		assertErrorEnvelope(t, rec, "forbidden", "caller is not the task's executor")
+		assertErrorEnvelope(t, rec, "forbidden", executorGuardRefusal)
 		if got := readTaskTitle(t, api, task.ID); got != standing {
 			t.Fatalf("refused blank write still landed: title = %q", got)
 		}

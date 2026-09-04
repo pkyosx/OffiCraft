@@ -775,6 +775,16 @@ button.task-artifacts__chip:hover {
   color: var(--color-text-strong);
   border-color: color-mix(in srgb, var(--color-overlay) 25%, transparent);
 }
+/* The 「N版」 entry is a TEXT chip, not one of the 24px icon squares beside it —
+   it has to fit a number and a word without clipping either. */
+.task-artifacts__versions {
+  width: auto;
+  min-width: 24px;
+  padding: 0 7px;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+}
 .task-artifacts__remove:hover {
   color: var(--color-danger);
   border-color: color-mix(in srgb, var(--color-danger) 45%, transparent);

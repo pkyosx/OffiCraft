@@ -242,7 +242,7 @@ func newTasksTestServer(t *testing.T) *apiServer {
 	if err := runMigrations(db); err != nil {
 		t.Fatalf("goose up: %v", err)
 	}
-	return newAPIServer(NewDAL(db), NewHub(), []byte("tasks-test-secret"), 3600,
+	return newAPIServer(NewDAL(db), NewHub(), singleKeyring([]byte("tasks-test-secret")), 3600,
 		assetRoot(t.TempDir()))
 }
 
@@ -2929,7 +2929,7 @@ func TestSetTaskPriorityForeignAgentIs403(t *testing.T) {
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("foreign agent: want 403, got %d %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "caller is not the task's executor") {
+	if !strings.Contains(rec.Body.String(), executorGuardRefusal) {
 		t.Fatalf("wrong 403 face: %s", rec.Body.String())
 	}
 }

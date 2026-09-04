@@ -218,13 +218,22 @@ export function ChatGalleryPanel({
   onClose,
 }: {
   member: Member;
-  // ChatArea's nameOf: resolves an id the server left unnamed (an outsource
-  // sender, whose from_name is "") to the SAME codename label the thread
-  // bubbles show. Why from_name is blank: the gallery handler builds its names
-  // table from `dal.ListMembers` (api_chat.go), which is `WHERE kind !=
-  // 'outsource'` — so NO outsource sender is ever named there, live or
-  // released. That, not the GET /api/members roster, is the reason this
-  // resolver exists. Optional — absent keeps the raw-id fallback.
+  // ChatArea's nameOf: resolves an id the server left unnamed to the SAME
+  // codename label the thread bubbles show. Optional — absent keeps the raw-id
+  // fallback.
+  //
+  // ⚠️ THE REASON WRITTEN HERE WAS WRONG, AND HAD BEEN FOR A WHILE. It said the
+  // gallery handler's names table is `WHERE kind != 'outsource'` so no outsource
+  // sender is ever named. Two things falsify that: the handler
+  // (HandleListChatAttachments, api_chat.go) had ALREADY moved to the wider
+  // roster read before T-14 項目 6, and that ticket then deleted the narrow query
+  // altogether. The names table is keyed by member id and an outsource row IS a
+  // member row, so a contractor sender normally DOES arrive named.
+  //
+  // 🔴 DO NOT DELETE THIS PROP ON THAT BASIS. What it covers is now "the server
+  // left this id unnamed", whatever the cause — an id absent from the roster
+  // read, or a row whose name is empty — and nobody has re-measured how often
+  // that happens. Removing it re-prints raw ow- ids the moment it does.
   resolveSender?: (id: string) => string;
   onClose: () => void;
 }) {
@@ -510,6 +519,12 @@ export function ChatGalleryPanel({
                     className="chat__gallery-thumb"
                     src={href}
                     alt={e.filename || t.chat.imageAlt}
+                    /* Every thumbnail byte is a `chat_attachment.data` blob
+                     * read, so an eager row costs a DB round trip. Deferring
+                     * cuts that to what the browser decides it needs — which is
+                     * more than the visible rows (it prefetches ahead), not
+                     * only them. It does NOT reduce how many rows render. */
+                    loading="lazy"
                   />
                 ) : (
                   <span className="chat__gallery-fileicon" aria-hidden>

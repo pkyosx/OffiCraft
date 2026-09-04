@@ -33,7 +33,21 @@ func removeArtifact(t *testing.T, api *apiServer, taskID, artID, sub, scope stri
 	return rec
 }
 
-// getTaskView reads the full task view (folds the artifact set).
+// getTaskArtifacts reads one task's artifacts IN FULL through the T-66 read
+// face (GET /api/tasks/{task_id}/artifacts). The full row stopped riding
+// get_task on owner c-cd063427fb2f, so a metadata assertion belongs here.
+func getTaskArtifacts(t *testing.T, api *apiServer, taskID string) taskArtifactListDTO {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	api.HandleListTaskArtifactsApiTasksTaskIdArtifactsGet(rec,
+		taskReq(t, "GET", "/api/tasks/"+taskID+"/artifacts", nil, "owner", "owner"), taskID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list task artifacts: %d %s", rec.Code, rec.Body.String())
+	}
+	return decodeBody[taskArtifactListDTO](t, rec)
+}
+
+// getTaskView reads the full task view (folds the artifact INDEX since T-66).
 func getTaskView(t *testing.T, api *apiServer, taskID string) taskDTO {
 	t.Helper()
 	rec := httptest.NewRecorder()
@@ -65,7 +79,7 @@ func listItemFor(t *testing.T, api *apiServer, taskID string) taskListItemDTO {
 }
 
 func TestArtifactRouteRowsGatingAndMCP(t *testing.T) {
-	var add, rm *RouteSpec
+	var add, rm, replace, history *RouteSpec
 	for i := range defaultRouteSpecs() {
 		spec := defaultRouteSpecs()[i]
 		switch spec.Path {
@@ -75,6 +89,12 @@ func TestArtifactRouteRowsGatingAndMCP(t *testing.T) {
 		case "/api/tasks/{task_id}/artifact/{artifact_id}":
 			s := spec
 			rm = &s
+		case "/api/tasks/{task_id}/artifact/{artifact_id}/replace":
+			s := spec
+			replace = &s
+		case "/api/tasks/{task_id}/artifact/{artifact_id}/history":
+			s := spec
+			history = &s
 		}
 	}
 	if add == nil || add.Method != "POST" || add.Requires != principalAgent ||
@@ -85,6 +105,16 @@ func TestArtifactRouteRowsGatingAndMCP(t *testing.T) {
 	if rm == nil || rm.Method != "DELETE" || rm.Requires != principalAgent ||
 		rm.MCPExclude || rm.MCPTool != "remove_task_artifact" {
 		t.Fatalf("remove row must be DELETE + agent + MCP remove_task_artifact: %+v", rm)
+	}
+	// T-60 replace — the third verb, same model, same MCP surface.
+	if replace == nil || replace.Method != "POST" || replace.Requires != principalAgent ||
+		replace.MCPExclude || replace.MCPTool != "replace_task_artifact" {
+		t.Fatalf("replace row must be POST + agent + MCP replace_task_artifact: %+v", replace)
+	}
+	// The version list is cockpit-only by decision: same floor, off MCP.
+	if history == nil || history.Method != "GET" || history.Requires != principalAgent ||
+		!history.MCPExclude || history.MCPTool != "" {
+		t.Fatalf("history row must be GET + agent + MCPExclude: %+v", history)
 	}
 }
 
@@ -106,10 +136,16 @@ func TestAddLinkArtifact(t *testing.T) {
 	if len(view.Artifacts) != 1 {
 		t.Fatalf("expected 1 artifact, got %+v", view.Artifacts)
 	}
-	a := view.Artifacts[0]
-	if a.ID != receipt.ArtifactID {
-		t.Fatalf("receipt must name the artifact it pinned: %q vs %q", receipt.ArtifactID, a.ID)
+	if view.Artifacts[0].ID != receipt.ArtifactID {
+		t.Fatalf("receipt must name the artifact it pinned: %q vs %q",
+			receipt.ArtifactID, view.Artifacts[0].ID)
 	}
+	// The METADATA lives on the T-66 artifacts read, not on the task view.
+	full := getTaskArtifacts(t, api, task.ID)
+	if len(full.Artifacts) != 1 {
+		t.Fatalf("expected 1 full artifact, got %+v", full.Artifacts)
+	}
+	a := full.Artifacts[0]
 	if a.Kind != "link" || a.URL != "https://github.com/x/y/pull/123" ||
 		a.Label != "PR #123" || a.AttachmentID != "" || a.IsImage {
 		t.Fatalf("link artifact wrong shape: %+v", a)
@@ -144,11 +180,11 @@ func TestAddFileAndImageArtifactResolveBlobMetadata(t *testing.T) {
 		"m-exec", "agent"); rec.Code != http.StatusOK {
 		t.Fatalf("add file: %d %s", rec.Code, rec.Body.String())
 	}
-	view := getTaskView(t, api, task.ID)
-	if len(view.Artifacts) != 2 {
-		t.Fatalf("expected 2 artifacts, got %+v", view.Artifacts)
+	full := getTaskArtifacts(t, api, task.ID)
+	if len(full.Artifacts) != 2 {
+		t.Fatalf("expected 2 artifacts, got %+v", full.Artifacts)
 	}
-	img, file := view.Artifacts[0], view.Artifacts[1]
+	img, file := full.Artifacts[0], full.Artifacts[1]
 	if img.Kind != "image" || !img.IsImage || img.Mime != "image/png" ||
 		img.Filename != "diagram.png" || img.URL != "/api/chat/attachment/att-img1" {
 		t.Fatalf("image artifact metadata wrong: %+v", img)
@@ -218,7 +254,7 @@ func TestAddArtifactOnTerminalTaskIs409(t *testing.T) {
 
 // TestRemoveArtifactOnTerminalTaskIs409 is the symmetric twin of
 // TestAddArtifactOnTerminalTaskIs409 (owner ruling 2026-07-25, T-2654): a closed
-// task's deliverable set is frozen in BOTH directions. The add-only freeze made
+// task's deliverable set is frozen in EVERY direction. The add-only freeze made
 // un-pin an unrecoverable loss — a deliverable could be taken off a closed card
 // and never put back. The open-task remove below is the positive control, so a
 // mutant that freezes un-pin unconditionally reddens too.

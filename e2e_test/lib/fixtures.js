@@ -106,9 +106,44 @@ async function unreadCountOf(request, token, memberId) {
   return row.unread_count;
 }
 
+// ── the suite's ONE cross-origin dependency, closed off ─────────────────────
+// frontend/index.html loads Schibsted Grotesk + the Noto TC families from
+// Google Fonts. That is the only request in an SPA boot that leaves this
+// machine, and it is enough to redden an arbitrary spec: `page.goto` /
+// `page.reload` default to waitUntil:"load", playwright.config.js sets no
+// navigationTimeout, so a font subresource that never completes holds `load`
+// open until the 30s TEST timeout expires. Measured on CI run 33776940866
+// attempt 1 — every first-party asset done in ~2.4ms, the Google stylesheet
+// alone 3668ms, no fonts.gstatic.com entry at all, and
+// 19_user_operation_contracts:167 dead at exactly 30.1s inside bootAuthedSpa.
+// The re-run passed that spec and reddened a different one: the runner's
+// egress, not any spec's code.
+//
+// ABORTING THESE TWO HOSTS IS SAFE BECAUSE THEY DECIDE GLYPH SHAPES AND
+// NOTHING ELSE — every face here has a fallback in the stack, so the studio
+// still lays out, still wraps and still scrolls; what changes is which
+// typeface draws the characters, and no assertion in this suite asks.
+//
+// 🔴 EXACTLY THESE TWO HOSTS, NOT "cross-origin". A blanket block would starve
+// a future spec that legitimately needs an outside request, and it would do so
+// silently — an aborted request looks like a product that never asked.
+const WEBFONT_ORIGINS = [
+  'https://fonts.googleapis.com/**',
+  'https://fonts.gstatic.com/**',
+];
+
+// Call BEFORE the first navigation on `page` — a route added afterwards does
+// not retroactively cancel a request already in flight.
+async function blockWebFonts(page) {
+  for (const pattern of WEBFONT_ORIGINS) {
+    await page.route(pattern, (route) => route.abort());
+  }
+}
+
 // Boot the SPA already-authenticated: inject the owner token into localStorage
 // (key `oc_token`, see frontend api/auth.ts) and reload — no login UI.
 async function bootAuthedSpa(page, token) {
+  await blockWebFonts(page);
   await page.goto('/');
   await page.evaluate((t) => localStorage.setItem('oc_token', t), token);
   await page.reload();
@@ -127,5 +162,6 @@ module.exports = {
   postChatAs,
   listMembers,
   unreadCountOf,
+  blockWebFonts,
   bootAuthedSpa,
 };

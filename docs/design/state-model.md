@@ -19,6 +19,12 @@
 
 一刀切開所有狀態:
 
+- ⚠️ **`desired_state` 不再獨自表示「要不要在線上」**(T-14 項目 7,owner 2026-08-30
+  `rc-bc1b029a3aa2`)。它現在只表示「下線用多強」(停止 → 加速停止 → 強制停止,棘輪、只往上加);
+  「下線之後要不要起來」是另一欄 `restart_after_stop`,規則是**後蓋前**(最後一個動作說了算)。
+  下面把 `desired_state` 列為單一起停意圖的句子,要照這一段讀。**活化**仍是唯一直接取消下線的
+  動作(不是排隊,是取消),那是刻意的例外。
+
 - **intent(意圖 / 身分)= durable → 存 DB。** 人或系統「設定的意圖」與穩定身分:重啟後必須記得。例:`desired_state`(online/offline)、`desired_machine_id`(希望它在哪台)、`role_key`、`name`、`kind`、`model`、`effort`、`id`、`owner_id`、`banked_cost`(歷史累積)。(`core` 曾列於此;owner 2026-07-11 裁決該意圖已退役——全鏈路零讀者,seed 成員的保護實際 key 在 `role_key` 的 seed-role 判斷——migration 0028 已將欄位移除。)
 - **observed(當下實況)= volatile → 只活在記憶體、隨 SSE 生滅,絕不落 DB。** 「此刻的觀測值」,由即時來源重建、不需持久。例:**在不在線上**(`online`)、**實際在哪台機器**(以連線 token 的 machine claim 為準)、CPU / RAM 等 **telemetry**。
 - **為什麼 observed 不落 DB**:存一份到 DB 的唯一效果,是多一個「會跟即時真相不同步的副本」,除了製造 bug(讀到過期值當真相)沒有任何好處。observed 的真相**就是**即時來源本身(SSE 連線狀態 / telemetry push),不需要、也不該再存一份。
@@ -92,7 +98,8 @@
 
 **舊模型**:server 端 reconcile producer 每 30s tick 決定該起 / 停哪個 member(單純的 `desired_state → START/STOP` 決策),**並且**在 `observed_host ≠ desired_host` 時自動觸發 relocate(STOP 舊 host → START 新 host),為此在 DB 記 `current_machine_id` 並與 `desired_machine_id` 比對。
 
-本次**砍掉的是後者——自動 relocate 那套複雜機制 + 它賴以運作的 `current_machine_id` DB 副本**:它是三重死鎖的來源(phantom = START 記了但無 session、robust-stop 殺不掉 phantom、relocate 目標不可達),也是把 member online 跟 warden lifecycle 綁死、狀態來源不單一的元兇。**保留**前者——server 單純的 `desired_state → START/STOP` 決策迴圈(warden 仍是執行手)。member 換機器**目前是手動三步**(先下線→改機器→上線,見 §3);若日後要自動化,照原則 3 的 backlog 設計補 handshake 比對,不重建專門的 relocate routing。
+本次**砍掉的是後者——自動 relocate 那套複雜機制 + 它賴以運作的 `current_machine_id` DB 副本**:它是三重死鎖的來源(phantom = START 記了但無 session、robust-stop 殺不掉 phantom、relocate 目標不可達),也是把 member online 跟 warden lifecycle 綁死、狀態來源不單一的元兇。**保留**前者——server 單純的 `desired_state → START/STOP` 決策迴圈(warden 仍是執行手)。member 換機器**已經不是手動三步**(那句在 T-b6d9 就過期了,見 §「改機器」那段;T-14 項目 7 之後,
+下線進行中按改機器連「再上線」那一步也不用了);若日後要自動化,照原則 3 的 backlog 設計補 handshake 比對,不重建專門的 relocate routing。
 
 **code 對應(Go 實作,`server/ocserverd/`)**:
 - **online / 位置統一自證**:`hub.go`(SSE 連線註冊 = 判定 online 的依據,member 與 warden 同一套);member 無 `online` DB 欄,讀寫全走 hub 的連線狀態;實際位置從連線 listener 的 machine claim 推導,不落 DB。

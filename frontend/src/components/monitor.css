@@ -65,6 +65,12 @@
   font-weight: 600;
   color: var(--color-text-strong);
 }
+/* The 歸零 pill borrows the `mp-cost-reset` look wholesale (see MonitorPage's
+   import); `mon` owns only where it sits on the cost line. */
+.mon-acct__reset {
+  margin-left: 10px;
+  vertical-align: middle;
+}
 .mon-acct__cost {
   flex: none;
   font-size: 13px;

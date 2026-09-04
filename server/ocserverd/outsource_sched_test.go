@@ -479,8 +479,14 @@ func TestOutsourceTickCodenamesNeverReuse(t *testing.T) {
 
 	// P7d merged-storage shape: both workers are kind='outsource' MEMBER rows —
 	// the released one soft-removed (roster_status) with released_ts stamped,
-	// still feeding the codename fold above — while the STAFF surfaces stay
-	// blind to them (ListMembers excludes kind='outsource').
+	// still feeding the codename fold above.
+	//
+	// 🔴 The staff surfaces are NO LONGER blind to them. T-14 項目 6 deleted
+	// ListMembers' `WHERE kind != 'outsource'`, so it is now ONE roster read over
+	// the whole member table and the exclusion each caller wants (if any) is
+	// written at that caller. This block used to assert the SQL exclusion; it now
+	// asserts the storage shape that survived the merge — the contractor rows ARE
+	// in the roster read, carrying the roster_status the surfaces filter on.
 	var releasedRoster string
 	var releasedTS float64
 	if err := api.dal.rdb.QueryRow(`SELECT roster_status, released_ts FROM member
@@ -492,14 +498,23 @@ func TestOutsourceTickCodenamesNeverReuse(t *testing.T) {
 		t.Fatalf("released worker member row = (%q, %v), want removed + released_ts",
 			releasedRoster, releasedTS)
 	}
-	staff, err := api.dal.ListMembers()
+	roster, err := api.dal.ListMembers()
 	if err != nil {
 		t.Fatalf("list members: %v", err)
 	}
-	for _, m := range staff {
+	seen := map[string]string{}
+	for _, m := range roster {
 		if m.Kind == KindOutsource {
-			t.Fatalf("ListMembers must exclude outsource members, got %q", m.ID)
+			seen[m.Codename] = m.RosterStatus
 		}
+	}
+	if len(seen) != 2 {
+		t.Fatalf("ListMembers must return BOTH contractor rows since the merge, got %v", seen)
+	}
+	if seen["S-1"] != RosterStatusRemoved {
+		t.Errorf("released contractor S-1 roster_status = %q, want %q — the row is in "+
+			"the roster read, and roster_status is what a surface filters on",
+			seen["S-1"], RosterStatusRemoved)
 	}
 }
 

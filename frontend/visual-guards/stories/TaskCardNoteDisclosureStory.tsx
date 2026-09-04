@@ -14,7 +14,7 @@
 //     geometry (it is what the owner called 太長了).
 import { I18nProvider } from "../../src/i18n";
 import { TaskCard } from "../../src/components/TaskCard";
-import { mkTask, mkStep, MIRA, NOOP, WORKERS } from "./taskFixtures";
+import { mkTask, mkStep, mkNoteStep, MIRA, NOOP, WORKERS } from "./taskFixtures";
 
 const LONG_NOTE = [
   "第 4 步做到哪:handler 已完成,conformance 三份重生一致。",
@@ -35,12 +35,12 @@ const TASK = mkTask({
   progressTotal: 2,
   steps: [
     mkStep({ id: "s-nonote", name: "無備註節點", status: "done" }),
-    mkStep({
-      id: "s-note",
-      name: "有備註節點",
-      status: "in_progress",
-      note: LONG_NOTE,
-    }),
+    // T-66: the note is a SIZE on the card and TEXT behind the per-step read —
+    // `mkNoteStep` sets both. A plain `note:` here draws no entry at all.
+    mkNoteStep(
+      { id: "s-note", name: "有備註節點", status: "in_progress" },
+      LONG_NOTE
+    ),
   ],
 });
 

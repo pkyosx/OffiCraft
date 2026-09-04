@@ -16,30 +16,34 @@
 // guard measures is the geometry that ships.
 import { I18nProvider } from "../../src/i18n";
 import { TaskCard } from "../../src/components/TaskCard";
-import { mkTask, MIRA, NOOP, WORKERS } from "./taskFixtures";
+import { mkTask, serveArtifacts, MIRA, NOOP, WORKERS } from "./taskFixtures";
 
 // The owner's actual card: a link artifact whose label is a long, barely
 // breakable branch name.
-const OWNER_LINK = mkTask({
-  id: "t-23cf5291a001",
-  taskNo: "t-23cf5291a001",
-  title: "drop delegation whitelist",
-  artifactCount: 1,
-  artifacts: [
-    {
-      id: "ta-link",
-      kind: "link",
-      url: "https://github.com/x/officraft/tree/t-23cf-drop-delegation-whitelist",
-      label: "branch t-23cf-drop-delegation-whitelist-and-reconcile-the-gate",
-      filename: "",
-      mime: "",
-      isImage: false,
-      attachmentId: "",
-      createdTs: 0,
-      createdBy: "mira",
-    },
-  ],
-});
+// Served from the mock store: since T-66 the popover fetches its rows rather
+// than reading them off the card (see serveArtifacts).
+const OWNER_LINK = serveArtifacts(
+  mkTask({
+    id: "t-23cf5291a001",
+    taskNo: "t-23cf5291a001",
+    title: "drop delegation whitelist",
+    artifactCount: 1,
+    artifacts: [
+      {
+        id: "ta-link",
+        kind: "link",
+        url: "https://github.com/x/officraft/tree/t-23cf-drop-delegation-whitelist",
+        label: "branch t-23cf-drop-delegation-whitelist-and-reconcile-the-gate",
+        filename: "",
+        mime: "",
+        isImage: false,
+        attachmentId: "",
+        createdTs: 0,
+        createdBy: "mira",
+      },
+    ],
+  })
+);
 
 export function TaskArtifactsOverflowStory() {
   return (

@@ -483,9 +483,12 @@ func (s *apiServer) HandleEventsApiEventsGet(w http.ResponseWriter, r *http.Requ
 //     removal lifecycle is the one-shot uninstall intent, not this gate.
 //
 // Legit flows that stay untouched: a LIVE connection at deactivate time keeps
-// its stream (the wind-down nudge rides it); stop→start clears the anchors
-// and flips desired online in the SAME activate write, so the gate lifts
-// atomically; recycle/handover keeps desired online throughout. An unknown
+// its stream (the wind-down nudge rides it); stop→start clears the anchors and
+// flips desired online, and since T-55 that is TWO writes, not one — the anchors
+// through their sole writer first, desired_state with the row write after. The
+// gate keys on desired_state, so it lifts on the SECOND of the two and a failure
+// between them leaves the gate standing (refusing) rather than half-lifted, which
+// is the safe side; recycle/handover keeps desired online throughout. An unknown
 // sub (no roster row) is admitted unchanged.
 func (s *apiServer) sseStopGateRefusal(memberID string) string {
 	m, err := s.dal.GetMember(memberID)
@@ -896,6 +899,329 @@ func (s *apiServer) bankLiveCost(actorID string) {
 			fmt.Fprintf(os.Stderr, "[bank] cost bank failed for worker %q: %v\n", actorID, err)
 		}
 	}
+}
+
+// dropLiveCost removes the live telemetry cost from an actor's entry and
+// reports what it removed (nil when there was nothing there). It is the half of
+// a cost reset that bankLiveCost's pop() is the half of a bank: same key, same
+// read-modify-Set shape, so the two operations cannot drift apart on where the
+// live figure lives.
+//
+// 🔴 CALL IT AFTER THE DURABLE WRITE HAS SUCCEEDED, never before. It is not
+// undoable and its subject exists nowhere else, so calling it first turns any
+// durable-write failure into unrecoverable data loss on a request that then
+// answers 500. bankLiveCost pops BEFORE its write for the opposite reason
+// (exactly-once banking on an edge that will not be retried) — do not copy that
+// ordering here.
+func (s *apiServer) dropLiveCost(actorID string) *float64 {
+	entry := s.telemetry.Get(actorID)
+	if entry == nil {
+		return nil
+	}
+	cost, ok := entry["cost"].(float64)
+	if !ok {
+		return nil
+	}
+	delete(entry, "cost")
+	s.telemetry.Set(actorID, entry)
+	return &cost
+}
+
+// HandleResetCostApiMembersMemberIdCostResetPost — POST
+// /api/members/{member_id}/cost/reset, the cockpit's 成本歸零 button (owner
+// ruling rc-7dea0deefa63, option 0「最小、不可逆」).
+//
+// 🔴 BOTH HALVES OR NEITHER. The owner-visible 估計$ is two numbers added on the
+// client: the durable banked_cost column and the live in-memory telemetry
+// figure. Clearing only the durable half is not a smaller version of this
+// button — the live figure reappears on the very next cockpit read, which the
+// owner cannot tell apart from the button doing nothing at all. That is why the
+// live drop is not an optimisation here and why a test pins it.
+//
+// 🔴 IRREVERSIBLE, deliberately. No snapshot is kept and there is no undo route:
+// spend is stored as two accumulators with no per-charge ledger behind them, so
+// nothing else in this system holds the discarded figure. The response is
+// therefore a RECEIPT of what was destroyed — the two values as they stood
+// immediately before the write, which is the last moment they exist anywhere.
+// It is not an undo and must never grow into one without a fresh owner ruling.
+//
+// The actor is resolved the way bankLiveCost resolves it, so ONE route serves
+// both kinds: a staff member, or an outsource worker.
+//
+// 🔴 A RELEASED WORKER IS ACCEPTED, and it is the one outsource write door that
+// takes a removed roster row (owner ruling rc-1344cc76a24a, 2026-09-02:「連已經
+// 退場的也要能清（帳號卡才會真的歸零）」, overriding this route's earlier 404).
+// The reason it must differ from its neighbours: released is the STEADY STATE
+// for a worker — ReleaseWorkersForTask fires on every task close — and a
+// released worker's own 估計$ is still rendered, so refusing it here would
+// leave a figure on screen that the button next to it cannot clear. The other
+// outsource doors refuse released rows because they drive a LIVE session; this
+// one only edits a number that is still being displayed.
+//
+// ⚠️ THE REASON THE OWNER GAVE FOR THAT RULING NO LONGER FOLLOWS, while the
+// ruling itself stands. He asked for it so that「帳號卡才會真的歸零」 — true
+// under the model of that day, where the account card was a fold over its
+// actors. A day later rc-5c5d7c7c6dcd made the card an accumulator of its own,
+// so clearing actors (released or not) no longer moves it at all; the account
+// has its own button now. Kept as written rather than quietly re-motivated:
+// a stale rationale attached to a live ruling is how the next reader concludes
+// the ruling itself is stale.
+//
+// Staff are different and stay filtered: removing a member HARD-DELETES the row
+// AND its telemetry entry (api_roles.go, the repo's only telemetry.Delete), so
+// a removed member has no figure anywhere and there is nothing here to clear.
+func (s *apiServer) HandleResetCostApiMembersMemberIdCostResetPost(w http.ResponseWriter, r *http.Request, memberId string) {
+	// Staff first, mirroring bankLiveCost: an outsource member banks (and so
+	// resets) through the WORKER branch, never as a member patch.
+	if m, err := s.dal.GetMember(memberId); err == nil && m != nil &&
+		m.RosterStatus != RosterStatusRemoved && m.Kind != KindOutsource {
+		// 🔴 DURABLE FIRST, LIVE SECOND, and the order is the whole safety
+		// property (found by independent review, T-54). The live figure lives
+		// only in memory and this call is its executioner: drop it before the
+		// durable write and a failed write answers 500 having ALREADY destroyed
+		// half the number, with the receipt — the one record of what was
+		// destroyed — never reaching the caller. Nothing anywhere could
+		// reconstruct it. This way round, a failed write leaves BOTH halves
+		// exactly as they were, and the owner simply presses again.
+		//
+		// 🔴 AND IT IS A SINGLE-COLUMN WRITE, mirroring bankLiveCost: handing
+		// the whole row to putMember would write NOTHING, because banked_cost is
+		// deliberately insert-only — a whole-row write never lands it on an
+		// existing row (T-14 項目 6).
+		// The receipt comes back from the same transaction that destroys the
+		// figure, so it names what was actually destroyed.
+		clearedBankedFig, err := s.dal.ZeroMemberBankedCost(memberId)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		clearedBanked := nonZeroCost(clearedBankedFig)
+		// The member delta putMember used to fan for free — the same half
+		// bankLiveCost publishes by hand for the same reason.
+		m.BankedCost = 0
+		s.publishMemberPatch(*m, requestTrigger(r))
+		cleared := s.dropLiveCost(memberId)
+		s.publishMonitoringSignal(memberId, requestTrigger(r))
+		writeJSON(w, http.StatusOK, costResetDTO{
+			MemberID:          memberId,
+			ClearedCost:       cleared,
+			ClearedBankedCost: clearedBanked,
+		})
+		return
+	}
+	wk, err := s.dal.GetOutsourceWorker(memberId)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	// NO status filter: a released worker is reset like any other (see the
+	// ruling in this handler's doc). Only a genuinely unknown id is a 404.
+	if wk == nil {
+		writeError(w, http.StatusNotFound, "member '"+memberId+"' not found")
+		return
+	}
+	// Durable first, live second — the same ordering the member arm above
+	// explains, for the same reason. Both arms must fail the same way. And the
+	// same single-column seam: a worker's banked_cost IS member.banked_cost
+	// (P7d), so the whole-row writers cannot move it either.
+	clearedBankedFig, err := s.dal.ZeroMemberBankedCost(memberId)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	clearedBanked := nonZeroCost(clearedBankedFig)
+	wk.BankedCost = 0
+	cleared := s.dropLiveCost(memberId)
+	s.publishOutsourceWorker(*wk, requestTrigger(r))
+	s.publishMonitoringSignal(memberId, requestTrigger(r))
+	writeJSON(w, http.StatusOK, costResetDTO{
+		MemberID:          memberId,
+		ClearedCost:       cleared,
+		ClearedBankedCost: clearedBanked,
+	})
+}
+
+// accountSpendAccountedKey is the accumulator's own high-water mark on the
+// telemetry entry: the reported cost figure that has ALREADY been credited to
+// the account.
+//
+// 🔴 IT IS A SEPARATE KEY FROM "cost" ON PURPOSE, for two reasons and neither
+// is tidiness. First, "cost" is overwritten IN PLACE by the ingest before the
+// accrual runs, so by then the previous figure is simply gone — the baseline has
+// to be recorded somewhere of its own or there is no baseline at all. Second,
+// bankLiveCost DELETES "cost" at the end of a session (it moves the figure into
+// the actor's durable column); a baseline living there would vanish with it, and
+// the first report after a reconnect would read as a brand-new session and
+// credit its whole cumulative figure a SECOND time — a double-count this code
+// would have MANUFACTURED, on top of the reconnect bias the ticket already
+// documents and leaves alone. So banking must NOT clear this key: doing so turns
+// TestAccountSpend_BankingASessionDoesNotMakeTheNextReportCountTwice red (6
+// becomes 12), which is exactly what it is there for.
+const accountSpendAccountedKey = "cost_accounted"
+
+// accrueAccountSpend credits the NEW spend in one telemetry report to the
+// account it was reported under (T-53, owner ruling rc-5c5d7c7c6dcd
+// 「分開：帳號卡自己一份數字，清它不動成員」).
+//
+// It is called from the telemetry ingest and from nowhere else, because a
+// report arriving is the only moment new spend becomes visible. It never reads
+// or writes any ACTOR figure: that separation is the ruling.
+//
+// 🔴 HOW "THE NEW PART" IS COMPUTED, which is the whole correctness of this
+// function. An agent reports its session's CUMULATIVE cost, so the increase is
+// this report minus the last one credited. A report LOWER than the last is not
+// a refund and not a mistake — it is a NEW SESSION counting from zero — so its
+// whole value is new spend, and the baseline restarts there. The three
+// plausible-looking alternatives are all wrong in ways nothing would flag:
+// skipping a decrease loses everything the new session spends until it passes
+// the old figure; adding the difference makes the account figure go DOWN, which
+// is the silent-lie shape this design exists to avoid; and treating the report
+// as an absolute would erase the earlier sessions' spend. Pinned end-to-end by
+// TestAccountSpend_ASessionRestartCountsFromZeroRatherThanGoingBackwards.
+//
+// 🔴 THE BASELINE ADVANCES ONLY AFTER THE WRITE SUCCEEDS, and that ordering is
+// the difference between "one report was lost" and "that money is gone for
+// good" (found by independent review, T-56). A failed write is best-effort by
+// design — failing the ingest would turn a bookkeeping problem into a monitoring
+// outage — but best-effort only holds if the NEXT report can still see the
+// delta. Advance the baseline first and the failed increment is subtracted from
+// a report that was never credited: permanently missing, with a 200 on the way
+// out and nothing but a stderr line to say so.
+//
+// A NEW SESSION also resets the baseline explicitly, from the waking report —
+// see startAccountSpendSession. The decrease rule below is the fallback for a
+// session that never announced itself, and it is a KNOWN, ACCEPTED under-count,
+// not a complete substitute: see the boundary note on startAccountSpendSession.
+func (s *apiServer) accrueAccountSpend(entry map[string]any) {
+	account, _ := entry["account"].(string)
+	if account == "" {
+		return
+	}
+	cost, ok := entry["cost"].(float64)
+	if !ok {
+		return
+	}
+	accounted, seen := entry[accountSpendAccountedKey].(float64)
+	delta := cost
+	if seen && cost >= accounted {
+		delta = cost - accounted
+	}
+	if delta <= 0 {
+		// Nothing to credit, so nothing can be lost by moving the mark.
+		entry[accountSpendAccountedKey] = cost
+		return
+	}
+	if err := s.dal.AddAccountSpend(account, delta); err != nil {
+		// Leave the baseline where it was: the next report will carry this
+		// delta again, because its own increase is measured from the last
+		// figure that was actually banked.
+		fmt.Fprintf(os.Stderr, "[account] spend accrual failed for %q: %v\n", account, err)
+		return
+	}
+	entry[accountSpendAccountedKey] = cost
+}
+
+// startAccountSpendSession forgets the accrual baseline because a NEW SESSION is
+// starting: the next cost this actor reports is counted from zero, so its whole
+// figure is new spend rather than an increase over the previous session's.
+//
+// 🔴 WHY AN EXPLICIT BOUNDARY, when accrueAccountSpend already treats a DECREASE
+// as a restart (T-56): that fallback cannot see a restart whose first report
+// happens to land at or above the old figure — a short session followed by a
+// busier one — and it therefore under-credits the difference, silently. It also
+// cannot tell a session that CHANGED ACCOUNT apart from one that carried on: on
+// the wire those two look identical, and crediting the whole figure to the new
+// account would invent money that was already banked against the old one. The
+// waking report is the one place the server is TOLD a generation began, so it is
+// where the question stops being a guess.
+//
+// 🔴 THE RESIDUAL BOUNDARY, ACCEPTED AND NOT CLOSED (named at the request of
+// independent review, T-56): a reporter that never announces waking still has
+// only the decrease fallback, so a generation of its whose first report lands AT
+// OR ABOVE the previous one is credited the difference rather than its whole
+// figure. The account card then reads LOW, permanently, and nothing flags it.
+// This is accepted rather than fixed because the wire carries no other signal
+// that a generation began; every OffiCraft member calls report_waking as step 1
+// of its boot sequence, so the gap covers only a reporter outside that contract,
+// and closing it would mean guessing from the numbers again. Pinned — the low
+// number asserted deliberately — by
+// TestAccountSpend_AReporterThatNeverWakesUnderCountsAndThatIsAccepted.
+//
+// Best-effort and silent when there is nothing to forget: an actor with no
+// telemetry entry yet has no baseline to clear, which is the same state this
+// produces.
+func (s *apiServer) startAccountSpendSession(actorID string) {
+	entry := s.telemetry.Get(actorID)
+	if entry == nil {
+		return
+	}
+	if _, present := entry[accountSpendAccountedKey]; !present {
+		return
+	}
+	delete(entry, accountSpendAccountedKey)
+	s.telemetry.Set(actorID, entry)
+}
+
+// HandleResetAccountCostApiAccountsCostResetPost — POST /api/accounts/cost/reset,
+// the cockpit's 帳號歸零 button (owner ruling rc-5c5d7c7c6dcd, 2026-09-02).
+//
+// 🔴 IT TOUCHES NO ACTOR, and that is the entire point of the ruling: the owner
+// asked for the account figure and the per-member figure to be clearable
+// independently, because what he watches is spend per account. Pressing this
+// leaves every member's and worker's 估計$ exactly as it was.
+//
+// IRREVERSIBLE: no snapshot, no undo route, and no per-charge ledger behind the
+// accumulator, so the response is a receipt of the figure as it stood
+// immediately before the write — the last moment it exists anywhere.
+//
+// An unknown account tag is NOT a 404. An account is a free telemetry string
+// with no roster row, so 「沒有這個帳號」 and 「這個帳號沒東西可清」 are the same
+// state: 200, cleared_cost null. That also makes the second press honest rather
+// than an error, and the second press is the likely one.
+func (s *apiServer) HandleResetAccountCostApiAccountsCostResetPost(w http.ResponseWriter, r *http.Request) {
+	var body AccountCostResetRequestDTO
+	if !decodeJSONBody(w, r, &body) {
+		return
+	}
+	account := trimString(body.Account)
+	if account == "" {
+		writeError(w, http.StatusUnprocessableEntity, "account cannot be blank")
+		return
+	}
+	had, err := s.dal.ZeroAccountSpend(account)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	// The cockpit's account card is folded from the monitoring read, so the
+	// signal is what makes the zero appear without a manual refresh.
+	s.publishMonitoringSignal(account, requestTrigger(r))
+	writeJSON(w, http.StatusOK, accountCostResetDTO{
+		Account: account,
+		// nonZeroCost, so "there was nothing to clear" reads as absent rather
+		// than as "zero was cleared" — the same null semantics as the per-actor
+		// receipt and as the read side.
+		ClearedCost: nonZeroCost(had),
+	})
+}
+
+// nonZeroCost mirrors foldActorRuntime's rule for the banked figure: 0 is not
+// put on the wire. On this receipt that reads as "there was nothing banked to
+// clear" rather than "zero was cleared", and it keeps the reset's two fields
+// field-for-field identical to the read side so a client reuses one summing
+// rule instead of growing a second one.
+func nonZeroCost(v float64) *float64 {
+	if v == 0 {
+		return nil
+	}
+	return &v
+}
+
+// publishMonitoringSignal fans the same owner-only cockpit invalidation the
+// telemetry ingest fans, so a reset converges the 估計$ cell without waiting for
+// the next sample. No agent consumes it.
+func (s *apiServer) publishMonitoringSignal(actorID, trigger string) {
+	s.hub.Publish("monitoring", "signal", "monitoring", actorID, nil, audienceOwnerOnly(), trigger)
 }
 
 // ── POST /api/mcp ────────────────────────────────────────────────────────────

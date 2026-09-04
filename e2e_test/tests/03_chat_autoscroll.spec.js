@@ -18,6 +18,7 @@
 // Playwright reports "expected to fail but passed". When you see that, DELETE the
 // `test.fail()` marker to flip this into a permanent green regression guard.
 const { test, expect } = require('@playwright/test');
+const { blockWebFonts } = require('../lib/fixtures');
 
 const BASE = process.env.OC_E2E_BASE || 'http://127.0.0.1:8791';
 const PASSWORD = process.env.OC_E2E_PASSWORD || 'joey-e2e-local-pw';
@@ -95,6 +96,7 @@ test.describe('B6 · chat — thread autoscrolls to the newest message', () => {
 
     // Inject the token into localStorage (key `oc_token`, see api/auth.ts) and
     // boot the SPA already-authenticated — no login UI.
+    await blockWebFonts(page);
     await page.goto('/');
     await page.evaluate((t) => localStorage.setItem('oc_token', t), token);
     await page.reload();

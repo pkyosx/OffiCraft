@@ -11,6 +11,7 @@ import { api, type ServerSettingsView, type ServerSettingsPatch } from "../api";
 import { ApiError } from "../api/errors";
 import { useVersion } from "../hooks/useVersion";
 import { useBackupHealth } from "../hooks/useBackupHealth";
+import { SigningKeysCard } from "./SigningKeysCard";
 import {
   backupIndicatorState,
   backupStatusLabel,
@@ -1970,6 +1971,12 @@ function SoftwareUpdate({
           HERE, under 系統更新與備份, and nowhere else: it used to sit on the
           monitor page plus a topbar light, which the owner did not want. */}
       <BackupHealthCard />
+
+      {/* ── 簽章金鑰 (T-62) ── the ring, and the two buttons that move it.
+          It sits under 系統更新與備份 rather than in its own section for the
+          same reason 備份健康 does: it is an operational posture the owner
+          checks, not a parameter that is tuned. */}
+      <SigningKeysCard />
     </div>
   );
 }
@@ -2071,6 +2078,7 @@ function BackupHealthCard() {
     </>
   );
 }
+
 
 // ── 全域情境 (T-a241) ───────────────────────────────────────────────────────
 /**

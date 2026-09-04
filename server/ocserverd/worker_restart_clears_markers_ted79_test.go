@@ -30,6 +30,7 @@ func workerCarryingAStaleEpoch(t *testing.T, api *apiServer, workerID string) {
 	if err := api.dal.PutOutsourceWorker(*w); err != nil {
 		t.Fatalf("seed the stale epoch: %v", err)
 	}
+	seedWorkerAnchors(t, api, *w)
 }
 
 func TestRestartWorkerClearsThePreviousSessionsAnchors(t *testing.T) {

@@ -122,10 +122,13 @@ func (s *apiServer) HandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPos
 	if !ok {
 		return
 	}
-	// get_task, not get_lessons: the anchor-miss message tells the caller where
-	// to look next, and a step note is read back through the task view (the
-	// reason ApplyDocEdits takes the tool name as a parameter).
-	next, applied, err := ApplyDocEdits(step.Note, edits, "get_task")
+	// get_task_step, not get_lessons and — since T-66 — no longer get_task: the
+	// anchor-miss message tells the caller where to look next, and get_task
+	// stopped carrying the note TEXT. Sending a caller to a read that reports
+	// only the note's SIZE is the exact misdirection ApplyDocEdits takes this
+	// parameter to prevent — it would re-anchor against nothing and miss again,
+	// silently.
+	next, applied, err := ApplyDocEdits(step.Note, edits, "get_task_step")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -210,8 +213,17 @@ func (s *apiServer) resolveStepForNoteWrite(w http.ResponseWriter, r *http.Reque
 	// taken its executor rights away. Every OTHER task-driving write keeps
 	// callerMayDriveTask verbatim (owner ruled the narrow version, not the wide
 	// one) — see callerMayWriteHandover.
-	if !s.callerMayWriteHandover(r, *t) {
-		writeError(w, http.StatusForbidden, "caller is not the task's executor")
+	// T-52 rides alongside: while a task has NO executor at all its creator
+	// counts as one for the text-only doors, and the step note is one of them.
+	// ⚠️ THE TWO EXCEPTIONS CAN BE OPEN AT ONCE and that is not a mistake: a
+	// reassign TO OUTSOURCE lands the task executor-less AND under the
+	// `reassigning` lock, so during that window the stamped predecessor (writing
+	// its handover) and the creator (fixing the brief) may both write this note.
+	// Neither is an 執行者 driving the work — the predecessor lost its executor
+	// rights in the same transaction and the creator never had any — so 全域脈絡
+	// §3.4 is untouched; what they share is one text field, last write wins.
+	if !s.callerMayWriteHandover(r, *t) && !s.callerMayEditTaskText(r, *t) {
+		writeError(w, http.StatusForbidden, executorGuardRefusal)
 		return nil, nil, false
 	}
 	if TaskIsTerminal(t.Status) {

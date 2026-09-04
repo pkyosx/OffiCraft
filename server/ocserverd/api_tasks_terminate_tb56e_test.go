@@ -56,7 +56,7 @@ func TestTerminateRefusesAMemberOnSomeoneElsesTask(t *testing.T) {
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("stranger terminate = %d, want 403: %s", rec.Code, rec.Body.String())
 	}
-	assertErrorEnvelope(t, rec, "forbidden", "caller is not the task's executor")
+	assertErrorEnvelope(t, rec, "forbidden", executorGuardRefusal)
 	if after := readTask(t, api, task.ID); after.Status == TaskStatusTerminated {
 		t.Fatal("refused terminate still closed the task")
 	}
@@ -145,7 +145,7 @@ func TestTerminateDeniesBeforeItProbesTerminalState(t *testing.T) {
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("stranger on a closed task = %d, want 403: %s", rec.Code, rec.Body.String())
 	}
-	assertErrorEnvelope(t, rec, "forbidden", "caller is not the task's executor")
+	assertErrorEnvelope(t, rec, "forbidden", executorGuardRefusal)
 }
 
 // The row is GONE — and that is not the same as the lookup failing. DAL
@@ -184,7 +184,7 @@ func TestTerminateRefusesACallerWhoseRosterRowIsGone(t *testing.T) {
 	if got.Code != http.StatusForbidden {
 		t.Fatalf("caller with no roster row = %d, want 403: %s", got.Code, got.Body.String())
 	}
-	assertErrorEnvelope(t, got, "forbidden", "caller is not the task's executor")
+	assertErrorEnvelope(t, got, "forbidden", executorGuardRefusal)
 	if after := readTask(t, api, task.ID); after.Status == TaskStatusTerminated {
 		t.Fatal("a caller with no roster row still closed the task")
 	}

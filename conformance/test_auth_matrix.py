@@ -1,4 +1,4 @@
-"""Auth matrix — every served route × {none, owner, admin_agent, warden, agents}.
+"""Auth matrix — every manifest row × {none, owner, admin_agent, warden, agents}.
 
 The first conformance batch: a TABLE-DRIVEN status assertion per (route,
 identity) cell, mechanically tied to the committed ``routes_manifest.json``
@@ -530,6 +530,25 @@ MATRIX: dict[str, Route] = {
         overrides={"owner": 409},
         body={"password": "conf-wrong-current", "code": "000000"},
     ),
+    # ── Signing-key ring (T-62) ─────────────────────────────────────────────
+    # The read is a plain owner-gated GET: ids and timestamps, never key bytes.
+    "GET /api/auth/signing-keys": Route(requires="owner"),
+    # 🔑 The owner face here REALLY ROTATES, and that is safe rather than
+    # reckless: a rotation ADDS a key and moves the signing mark, leaving every
+    # existing key in the ring. Every credential this harness is holding was
+    # signed by a key that is still there, so every later row in the run keeps
+    # authenticating. (If this row ever starts poisoning the run, the thing that
+    # broke is the transition guarantee itself — which is the point of firing it
+    # for real instead of degrading it.)
+    "POST /api/auth/signing-keys/rotate": Route(requires="owner"),
+    # 404 by design — see DEGRADED. A real target would be a key in the ring,
+    # and removing one revokes every credential it signed, this harness's
+    # included.
+    "POST /api/auth/signing-keys/{key_id}/remove": Route(
+        requires="owner",
+        path="/api/auth/signing-keys/k-no-such-key-t62/remove",
+        overrides={"owner": 404},
+    ),
     "GET /api/settings": Route(requires="admin_agent"),
     "GET /api/push/public-key": Route(requires="owner"),
     "POST /api/push/subscription": Route(
@@ -661,6 +680,26 @@ MATRIX: dict[str, Route] = {
     "POST /api/members/{member_id}/force-stop": Route(
         requires="admin_agent",
         path=_member_path("/api/members/{member_id}/force-stop"),
+    ),
+    "POST /api/members/{member_id}/cost/reset": Route(
+        # OWNER floor, alone among the member action rows — the neighbours
+        # control a member, this one destroys the owner's own spend record with
+        # nothing else in the system holding a copy (T-53). The admin_agent cell
+        # is therefore a DERIVED 403 here while it is 200 for every row above,
+        # which is the whole point of pinning it.
+        requires="owner",
+        path=_member_path("/api/members/{member_id}/cost/reset"),
+    ),
+    "POST /api/accounts/cost/reset": Route(
+        # Same OWNER floor as the per-actor reset above. It clears the ACCOUNT's
+        # own figure and no member's (owner ruling rc-5c5d7c7c6dcd), but the
+        # floor is the same for the same reason: destroying the owner's spend
+        # record is not something an agent does on his behalf. The body names a
+        # tag nobody has reported under, so the positive faces clear nothing —
+        # this row pins WHO MAY PRESS IT, not what it clears (that is
+        # test_rest_happy's row and the Go tests).
+        requires="owner",
+        body={"account": "conf-authz-untouched-account"},
     ),
     "POST /api/members/{member_id}/accelerated-stop": Route(
         # positive faces: 409 — the fresh target has no live session, and
@@ -1581,6 +1620,16 @@ MATRIX: dict[str, Route] = {
             *_matrix_task_step(ctx)),
         body={"edits": [{"old": "", "new": "conf matrix note patch"}]},
     ),
+    "GET /api/tasks/{task_id}/steps/{step_id}": Route(
+        # T-66. A READ, so it carries GET /api/tasks/{task_id}'s floor and NOT
+        # the agent write gate the three POSTs on this same path segment carry:
+        # there is no executor guard, so no `agent_other` override — a second
+        # agent reading somebody else's step is a 200, exactly as it already is
+        # through get_task. If that is ever wrong it is wrong for both reads.
+        requires="machine",
+        path=lambda ctx, _i: "/api/tasks/{}/steps/{}".format(
+            *_matrix_task_step(ctx)),
+    ),
     "POST /api/tasks/{task_id}/deps": Route(
         requires="agent",
         overrides={"agent_other": 403},
@@ -1644,6 +1693,41 @@ MATRIX: dict[str, Route] = {
         requires="agent",
         overrides={"agent_other": 403},
         path=lambda ctx, _i: "/api/tasks/{}/artifact/{}".format(
+            *_matrix_task_artifact(ctx)),
+    ),
+    "GET /api/tasks/{task_id}/artifacts": Route(
+        # T-66. A READ, so it carries GET /api/tasks/{task_id}'s floor and NOT
+        # the agent write gate the two artifact WRITES on the neighbouring path
+        # carry: there is no executor guard, so no `agent_other` override — a
+        # second agent reading somebody else's artifacts is a 200, exactly as it
+        # already was through get_task before this ticket moved the full rows
+        # here. No field this serves was behind a stricter door before, so a
+        # tighter floor here would close nothing.
+        requires="machine",
+        path=lambda ctx, _i: f"/api/tasks/{_matrix_task(ctx)}/artifacts",
+    ),
+    "POST /api/tasks/{task_id}/artifact/{artifact_id}/replace": Route(
+        # T-60: the third verb on the same set carries the same model as add and
+        # remove — the executing agent replaces its own task's deliverables
+        # (agent B on agent A's task → 403); admin capability drives any task.
+        # A link replacement needs no upload, so every at-floor face lands on a
+        # FRESH scratch artifact.
+        requires="agent",
+        overrides={"agent_other": 403},
+        path=lambda ctx, _i: "/api/tasks/{}/artifact/{}/replace".format(
+            *_matrix_task_artifact(ctx)),
+        body={"url": "https://example.com/pr/2", "label": "conf PR v2"},
+    ),
+    "GET /api/tasks/{task_id}/artifact/{artifact_id}/history": Route(
+        # T-60: the version list is cockpit-only (off MCP) and, unlike the three
+        # write verbs on the same set, carries NO executor guard — agent B reads
+        # agent A's version list (200). Owner ruling: GET /api/tasks/{task_id}
+        # makes no caller distinction at all and its response already carries the
+        # artifact set, so gating the history would leave one door refusing what
+        # the other hands over. The route floor (agent) is unchanged, so the
+        # below-floor cells are still the derived 403.
+        requires="agent",
+        path=lambda ctx, _i: "/api/tasks/{}/artifact/{}/history".format(
             *_matrix_task_artifact(ctx)),
     ),
     # ── outsource panel (M3) ────────────────────────────────────────────────
@@ -1889,6 +1973,15 @@ DEGRADED: dict[str, str] = {
         "armed factor plus a live code, which is the same shared-credential "
         "poisoning. Pinned in the server unit tests instead."
     ),
+    "POST /api/auth/signing-keys/{key_id}/remove": (
+        "owner face uses an UNKNOWN key id (expects 404): a real target would be "
+        "a key in the live ring, and removing one revokes every token signed by "
+        "it — including the credentials this harness authenticates with, which "
+        "would poison every row after it. The authz faces are fully asserted. "
+        "The removal's own semantics (its tokens refused at the live gate, the "
+        "signing key itself refused with 409) are pinned in the server unit "
+        "tests (keyring_rotation_t62_test.go, api_signing_keys_t62_test.go)."
+    ),
     "GET /api/docs/assets/{name}": (
         "probed with a missing asset name (404 across authenticated identities); "
         "the machine-floor authz face passes, the asset lookup 404s. The "
@@ -1989,8 +2082,10 @@ def test_matrix_requires_match_manifest(
 ) -> None:
     """Mechanical tie to the RBAC table: each matrix row's ``requires`` label —
     the value the whole expectation row is DERIVED from — must equal the
-    server's committed route-table requires. A server requires change reddens
-    this before any cell can silently pass on stale semantics."""
+    ``requires`` the manifest declares. Both sides are committed text, so this
+    catches a manifest edit the matrix did not follow; what catches a
+    ``requires`` change in routes.go is the live cells below, which fire real
+    requests."""
     declared = {
         f"{r['method']} {r['path']}": r["requires"] for r in routes_manifest
     }

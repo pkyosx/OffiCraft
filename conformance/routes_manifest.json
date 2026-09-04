@@ -79,6 +79,27 @@
   {
     "auth": "gated",
     "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/auth/signing-keys",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/auth/signing-keys/rotate",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/auth/signing-keys/{key_id}/remove",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
     "method": "POST",
     "path": "/api/auth/mfa/enroll",
     "requires": "owner"
@@ -236,6 +257,20 @@
     "method": "POST",
     "path": "/api/members/{member_id}/force-stop",
     "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/accounts/cost/reset",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/members/{member_id}/cost/reset",
+    "requires": "owner"
   },
   {
     "auth": "gated",
@@ -848,6 +883,13 @@
   },
   {
     "auth": "gated",
+    "mcp_tool": "get_task_step",
+    "method": "GET",
+    "path": "/api/tasks/{task_id}/steps/{step_id}",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
     "mcp_tool": "set_task_deps",
     "method": "POST",
     "path": "/api/tasks/{task_id}/deps",
@@ -886,6 +928,20 @@
     "mcp_tool": "remove_task_artifact",
     "method": "DELETE",
     "path": "/api/tasks/{task_id}/artifact/{artifact_id}",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "list_task_artifacts",
+    "method": "GET",
+    "path": "/api/tasks/{task_id}/artifacts",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/tasks/{task_id}/artifact/{artifact_id}/history",
     "requires": "agent"
   },
   {
@@ -1181,6 +1237,13 @@
     "method": "POST",
     "path": "/api/outsource-workers/{id}/force-stop",
     "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "replace_task_artifact",
+    "method": "POST",
+    "path": "/api/tasks/{task_id}/artifact/{artifact_id}/replace",
+    "requires": "agent"
   },
   {
     "auth": "gated",

@@ -332,6 +332,7 @@ func TestSecondHandoverIsNotSwallowedByTheFirstsStopAnchor_T72dd(t *testing.T) {
 		if err := s.dal.PutOutsourceWorker(*w); err != nil {
 			t.Fatalf("%s: stamp: %v", label, err)
 		}
+		seedWorkerAnchors(t, s, *w)
 		// boot_ts stays BEFORE the epoch so the loop-break cannot close it first.
 		s.gauge.Set("ow-2e", map[string]any{"boot_ts": now - 50_000})
 		s.workerSpawnTarget["ow-2e"] = ServerSelfHost

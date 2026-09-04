@@ -706,7 +706,7 @@ func (s *apiServer) requireLessonsAddressableRole(w http.ResponseWriter, roleKey
 	if roleDTO != nil {
 		return true
 	}
-	members, err := s.dal.ListMembersIncludingOutsource()
+	members, err := s.dal.ListMembers()
 	if err != nil {
 		internalError(w, err)
 		return false

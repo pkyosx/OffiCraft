@@ -132,6 +132,40 @@ func t6020AllOpenedRows() map[[2]string]string {
 // a way to escalate past its own owner. Off the MCP surface entirely for the
 // same reason the password is: arming or disarming the owner's second factor is
 // never something an agent does on the owner's behalf.
+//
+// 成本歸零 (POST .../cost/reset) joins on its OWN ruling, not T-6020's:
+// rc-7dea0deefa63 (2026-09-02), where the owner chose the minimal irreversible
+// button. It destroys his accumulated spend figure — a number no ledger backs
+// and no route restores — so an admin_agent deciding that on his behalf is not
+// something he asked for, and an agent has nothing legitimate to do with it.
+//
+// 帳號整包歸零 (POST /api/accounts/cost/reset) is the SAME reasoning under a
+// SECOND ruling of its own, rc-efae958cef40 (2026-09-02): the owner asked for
+// one press that empties a whole account, released workers included, because
+// the per-actor button alone could never drive that card to absent. Everything
+// that makes the per-actor row owner-only holds here with a larger blast
+// radius, so it would have been strange for this one to sit lower.
+//
+// 簽章金鑰 (the three /api/auth/signing-keys* rows, T-62) sit here under a ruling
+// of their own: rc-498f5793fb7f (2026-09-03), where the owner was shown the
+// choice between owner-only and letting an admin_agent at least READ the ring,
+// and chose owner-only for all three. The reasoning put to him, which he
+// accepted, is the /api/auth/mfa* argument one step further along:
+// change-password and
+// the MFA rows decide how the owner authenticates; these decide how EVERYONE
+// does, the calling agent included. An admin_agent that could reach them could
+// rotate the key that signs its own credential, or remove the key that
+// credential is signed under — self-escalation and self-destruction from the
+// same door. Off the MCP surface for the reason the password is: governing the
+// key that authenticates the office is never something the office does on the
+// owner's behalf.
+//
+// ⚠️ This note said "DERIVED, not a new ruling of the owner's" for exactly one
+// commit — the window between the governance gate refusing the unexplained rows
+// and the owner answering. It is recorded because the distinction is the whole
+// point of this table: a derivation and a ruling look identical once written
+// down, and the only defence is that whoever writes the row says which it is at
+// the time.
 var t6020Withheld = [][2]string{
 	{"POST", "/api/mint"},
 	{"POST", "/api/auth/change-password"},
@@ -145,6 +179,11 @@ var t6020Withheld = [][2]string{
 	{"DELETE", "/api/push/subscription"},
 	{"PUT", "/api/members/{member_id}/avatar"},
 	{"DELETE", "/api/members/{member_id}/avatar"},
+	{"POST", "/api/members/{member_id}/cost/reset"},
+	{"POST", "/api/accounts/cost/reset"},
+	{"GET", "/api/auth/signing-keys"},
+	{"POST", "/api/auth/signing-keys/rotate"},
+	{"POST", "/api/auth/signing-keys/{key_id}/remove"},
 }
 
 // ownerFloorAfterT6020 is the SECOND list, and it exists because t6020Withheld
@@ -307,17 +346,21 @@ func TestT6020OpenedToolsAreInTheFrozenCatalog(t *testing.T) {
 
 func TestT6020WithheldRoutesStayOwnerOnlyAndOffTheMCPSurface(t *testing.T) {
 	// 7 from the original rulings + the 5 second-factor rows (see the table's
-	// note) = 12. The arithmetic is spelled out because it was WRONG here —
-	// "7 + the 3 second-factor rows" against a literal of 12, in the one file
-	// whose entire job is to make this count deliberate. The rows are
-	// GET /api/auth/mfa and POST offer/enroll/activate/disable: five, not three.
-	// The literal is kept so ADDING an owner-only row stays a deliberate act
-	// with a reason attached.
-	if len(t6020Withheld) != 12 {
-		t.Fatalf("this table must list 12 owner-only routes and lists %d — 7 from the "+
-			"owner rulings plus the 5 /api/auth/mfa* rows added by the MFA change "+
-			"(see the note on the table). Do not read the 12 as an owner ruling: the "+
-			"owner ruled on 7.", len(t6020Withheld))
+	// note) = 12, plus the per-actor 成本歸零 row (rc-7dea0deefa63) = 13, plus the
+	// account-wide one (rc-efae958cef40) = 14. The arithmetic is spelled out
+	// because it was WRONG here — "7 + the 3 second-factor rows" against a
+	// literal of 12, in the one file whose entire job is to make this count
+	// deliberate. The rows are GET /api/auth/mfa and POST
+	// offer/enroll/activate/disable: five, not three. The literal is kept so
+	// ADDING an owner-only row stays a deliberate act with a reason attached.
+	if len(t6020Withheld) != 17 {
+		t.Fatalf("this table must list 17 owner-only routes and lists %d — 7 from the "+
+			"owner rulings, plus the 5 /api/auth/mfa* rows added by the MFA change, "+
+			"plus 成本歸零 from rc-7dea0deefa63 and 帳號整包歸零 from rc-efae958cef40, "+
+			"plus the 3 /api/auth/signing-keys* rows from T-62 "+
+			"(see the note on the table). Do not read the 17 as one owner ruling: "+
+			"the T-6020 ruling covered 7.",
+			len(t6020Withheld))
 	}
 	index := t6020RouteIndex(t)
 	// Scan the tool index by ROUTE (not by name): a withheld row that grew a

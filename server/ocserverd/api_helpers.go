@@ -274,12 +274,14 @@ var errWindDownLadderBackwards = errors.New("wind-down ladder may not move backw
 // lifecycle rides the outsource routes / the relocate fallback, and an ow- id
 // on a member endpoint stays an honest 404, exactly as before the merge.
 //
-// ⚠️ This 404 coexists with dal.ListMembersIncludingOutsource, which DOES put
-// ow- rows in the GET /api/members response. So a caller can see a worker in
-// the roster list and still get a 404 from every member verb — deliberately.
-// Anything that reads "it is in members, therefore I may call member verbs on
-// it" is wrong at runtime; the two halves are only consistent when read
-// together (see the twin note on ListMembersIncludingOutsource in dal.go).
+// ⚠️ This 404 coexists with dal.ListMembers, which DOES put ow- rows in the
+// GET /api/members response (since T-14 項目 6 removed its
+// `WHERE kind != 'outsource'` there is no second, wider query — this is the
+// only one). So a caller can see a worker in the roster list and still get a
+// 404 from every member verb — deliberately. Anything that reads "it is in
+// members, therefore I may call member verbs on it" is wrong at runtime; the
+// two halves are only consistent when read together (see the note on
+// ListMembers in dal.go).
 // memberScope is the second argument every member lookup must carry: whether
 // this door serves the WHOLE roster or staff only.
 //
@@ -586,7 +588,7 @@ func (s *apiServer) newMemberDTO(m Member, roleName, observedMachine string, unr
 // is left HONEST-EMPTY: not computed here, so a light consumer must not read
 // it. last_op* is likewise dropped (row text the identity view never shows),
 // which is where most of the per-member byte weight goes. Kind remains present
-// for outsource rows returned by ListMembersIncludingOutsource.
+// for outsource rows returned by ListMembers.
 func (s *apiServer) newMemberLightDTO(m Member, roleName string) memberDTO {
 	return memberDTO{
 		ID:            m.ID,

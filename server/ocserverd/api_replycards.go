@@ -454,7 +454,7 @@ func (s *apiServer) HandleCreateReplyCardApiReplyCardsPost(w http.ResponseWriter
 			return
 		}
 		if !s.callerMayDriveTask(r, *t) {
-			writeError(w, http.StatusForbidden, "caller is not the task's executor")
+			writeError(w, http.StatusForbidden, executorGuardRefusal)
 			return
 		}
 		if t.Status != TaskStatusInProgress && t.Status != TaskStatusWaitingOwner {

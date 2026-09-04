@@ -53,6 +53,13 @@ func TestWorkerStopArm_OnlyZombieTakeoverBenchesTheMachine_T72dd(t *testing.T) {
 		w.LastOp = reconcileCmdStart
 		w.LastOpReason = spawnClobberReasonPrefix + ": live session refused clobber"
 		putWorkerFixture(t, s, w)
+		// Same as the two zombie-takeover fixtures in worker_spawn_test.go: the
+		// value carries the receipt into the code under test, the row is planted
+		// through the sole writer so it does not silently hold nothing (T-55).
+		if err := s.dal.SetMemberOpReceipt("ow-zb", w.LastOp, w.LastOpOK, w.LastOpLog,
+			w.LastOpReason, w.LastOpAt); err != nil {
+			t.Fatalf("seed the clobber receipt: %v", err)
+		}
 
 		s.outsourceMu.Lock()
 		s.workerSpawnTarget["ow-zb"] = ServerSelfHost

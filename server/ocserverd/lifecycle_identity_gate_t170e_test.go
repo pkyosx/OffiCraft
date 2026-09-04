@@ -23,9 +23,10 @@ package main
 // 🔴 AND THAT IS THE SHAPE BOTH REAL FAILURES HAD. Neither the missing
 // token-expiry lead nor the missing survived-stop sweep was a listed pass that
 // somebody narrowed. Nobody wrote `Kind != KindOutsource` anywhere. The staff
-// pass simply ran inside runReconcileTick, whose roster read is ListMembers, and
-// ListMembers is `WHERE kind != 'outsource'` BY CONSTRUCTION (dal.go) — so the
-// staff-only-ness was a property of the DATA SOURCE and appeared in no
+// pass simply ran inside runReconcileTick, which no worker row reaches — then
+// because ListMembers was `WHERE kind != 'outsource'` (dal.go), now because that
+// half's driver guard drops the row (T-14 項目 6 deleted the clause). Either way
+// the staff-only-ness is a property of the ROSTER PLUMBING, not of any
 // expression a kind-scan could ever see. A guard that only hunts for `Kind ==`
 // would have caught neither of them.
 //
@@ -231,6 +232,17 @@ var identityKindFieldsNotOverloaded = map[string]bool{
 // name matching nothing would not fail loudly, it would just shrink the scan.
 var identitySeamFuncs = map[string]bool{
 	"isOutsourceMember": true,
+	// 🔴 T-14 項目 6. lifecycleTickDriverFor answers "which half of the merged
+	// lifecycle tick drives this row" — a population question, answered on the
+	// caller's behalf, with no comparison and no kind constant at the call site.
+	// Shapes A–C all walk straight past `if lifecycleTickDriverFor(m) !=
+	// driverReconcile`, which is why the PR that introduced the function shipped
+	// with a parity test that guards the FUNCTION and nothing that could notice
+	// either CALLER disappearing: both guards were deleted by hand and the whole
+	// suite stayed green (measured by review, 2026-09-03). Listing the function
+	// here puts each call site in the ledger, so deleting one turns its entry
+	// into a stale key and the gate names it.
+	"lifecycleTickDriverFor": true,
 }
 
 // ── the exclusion list ──────────────────────────────────────────────────────
@@ -494,6 +506,25 @@ var identityGateExpectedCount = map[string]int{
 // 還是不是未完成狀態」. Anything else is either a different axis (machine vs
 // person, task-executor vs member), a genuine wire/storage projection, or a
 // divergence that needs a ruling. Say which, in the reason.
+// 🔑 AN ORDINARY REFACTOR IS ENOUGH TO MAKE A REGISTRATION LIE, and it did on
+// 2026-09-03: a T-60 refactor lifted `a.Kind != ArtifactKindLink` out of
+// newTaskArtifactDTO into an artifactBlobFacts helper that took a BARE `kind`
+// string. The scanners recognise a `.Kind` SELECTOR and are blind to a bare
+// ident, so the predicate vanished from this ledger's view entirely — and the
+// entry naming it was DELETED to keep the stale check below green. The gate
+// went quiet by going blind, which is the one outcome its own header forbids.
+//
+// ⚠️ An earlier draft of this comment claimed this ledger HAS NO "every entry is
+// still scanned" tooth. That was false, and the tooth is in this very file:
+// TestIdentityGatesAreEachOnTheRecord's `stale` pass (search "A STALE entry is a
+// finding too") errors on any entry the scan no longer finds. Nothing went
+// stale here BECAUSE the entry was deleted rather than left behind — which is
+// why the tooth stayed green while coverage shrank.
+//
+// 🔴 So the tooth that is genuinely missing is the OTHER direction: nothing
+// fails when an entry is DELETED alongside the reshape that hid its predicate.
+// The fix applied here was to put the predicate back where the scanners can see
+// it (at each call site) and re-register it, not to widen the scanners.
 var identityGateLedger = map[string]string{
 
 	// ── the ONE slot the 正職／外包 difference is allowed to live in ──────────
@@ -507,6 +538,73 @@ var identityGateLedger = map[string]string{
 		"spawn/stop candidate, it is the thing that EXECUTES them — unless it is being " +
 		"uninstalled, which is the one case the reconcile tick must still drive. A " +
 		"machine-vs-person axis, not the 正職／外包 one.",
+	"lifecycle_roster.go :: lifecycleTickDriverFor :: m.Kind == KindOutsource": "" +
+		"WHICH HALF of the merged tick drives the row — NOT whether the row is treated " +
+		"differently. This is the 正職／外包 split that USED to be written down nowhere: " +
+		"it was a side effect of dal.ListMembers being `WHERE kind != 'outsource'`, " +
+		"which was then the only thing keeping one row out of both FSMs in a single " +
+		"tick. 🔴 T-14 項目 6 HAS NOW DELETED THAT CLAUSE, so this expression is not a " +
+		"stand-in for a query any more — it IS the split, load-bearing today, and the " +
+		"invariant is falsifiable " +
+		"(TestLifecycleTickDriver_EveryRowHasExactlyOneDriver) instead of implicit. It " +
+		"adds no differentiated TREATMENT — both halves run the same shared formalities " +
+		"and the same entry filter — so the owner's 2026-08-26 question is answered by: " +
+		"this branch is the routing that the two-executor split needs while it exists, " +
+		"and deleting it is the follow-up card (retire the outsource half), not this " +
+		"step.",
+	"reconcile.go :: runReconcileTick :: lifecycleTickDriverFor(m)": "" +
+		"the staff half ASKING the driver question — 「這一列是不是我的」 — at the head " +
+		"of its candidate loop, before the entry filter and before any formality. It " +
+		"introduces no differentiated TREATMENT: every row it keeps then runs the same " +
+		"shared entry filter and the same shared pass list a worker runs. It is on the " +
+		"record as a seam CALL rather than as a kind comparison because that is what " +
+		"it is — the kind branch itself lives once, in lifecycleTickDriverFor, and this " +
+		"entry is the record that this half asks it. 🔴 THIS ENTRY IS ALSO THE TOOTH: " +
+		"deleting the guard makes this key stale and the gate fails by name, which is " +
+		"the property the PR text claimed and the parity test could not deliver (it " +
+		"guards the predicate, not its callers).",
+	"reconcile.go :: reconcileMemberNow :: lifecycleTickDriverFor(*m)": "" +
+		"the staff half asking the SAME driver question on its EVENT-DRIVEN door " +
+		"(activate / deactivate / relocate / refocus / accelerated-stop / uninstall) " +
+		"that runReconcileTick asks on the cadence door. Same predicate, same " +
+		"population, no differentiated TREATMENT: a row it keeps then runs the same " +
+		"shared entry filter and the same shared passes. It is on the record as a seam " +
+		"CALL, not a kind comparison, because the kind branch lives exactly once — in " +
+		"lifecycleTickDriverFor. 🔴 WHY IT IS NOT REDUNDANT WITH THE CADENCE ENTRY: " +
+		"this door reads GetMember, so it was never narrowed by ListMembers' " +
+		"`WHERE kind != 'outsource'` and T-14 項目 6 did not widen it. What it had " +
+		"instead was seven callers that each happen to hand it a staff row " +
+		"(api_members ×5 via resolveMember(…, staffOnly); api_machines via " +
+		"resolveMachine, which demands kind==warden; onboarding with the seed " +
+		"assistant's own id) — the guard lived in seven argument lists across two " +
+		"other files, and api_members.go:790 / api_machines.go:1280 already pass " +
+		"anyMember elsewhere, so the precedent for a future caller widening it exists. " +
+		"This entry turns 「呼叫者剛好都傳正職」 into a property of the function. On " +
+		"today's reachable paths it is a no-op, which is the point: it is a no-op that " +
+		"cannot be UNDONE from another file. Pinned by " +
+		"TestReconcileMemberNow_AContractorIsNotDrivenByTheMemberFSM.",
+	"api_monitoring.go :: HandleGetMonitoringApiMonitoringGet :: lifecycleTickDriverFor(m)": "" +
+		"NOT a lifecycle guard — a DE-DUPLICATION guard, and the only reason the " +
+		"cockpit's agent count is right. This handler folds `members ∪ workers`; since " +
+		"T-14 項目 6 its roster read is the whole member table, so every live contractor " +
+		"also arrives off ListOutsourceWorkers and both branches resolve the host " +
+		"through the same expression. Without this `continue` one contractor enters " +
+		"`actors` twice on one host key (machines[].agents reads N+1) and `sources` " +
+		"twice under one id (two sessions rows, same id and name, different presence " +
+		"expressions — a first-match join then picks by loop order). Asked by NAME " +
+		"rather than as `m.Kind != KindOutsource` so the definition PR ① unified is not " +
+		"re-forked, and so this handler is on this ledger at all. Pinned behaviourally " +
+		"by TestGetMonitoring_LiveContractorCountsAsOneAgentNotTwo (verified 2 with the " +
+		"guard, 3 without).",
+	"outsource_sched.go :: runOutsourceTick :: lifecycleTickDriverFor(memberFromWorker(w))": "" +
+		"the outsource half asking the same driver question about the same population, " +
+		"through memberFromWorker — the worker row IS a member row, so both halves ask " +
+		"ONE predicate rather than each spelling its own kind test. Asked on the raw " +
+		"roster read, at the head of the producer, so that a row this half does not own " +
+		"is dropped before runWorkerLifecyclePasses stamps it and before it can consume " +
+		"the parallel cap; the guard used to sit below those, which was harmless only " +
+		"while it was a no-op. Same tooth as the reconcile entry above: delete the " +
+		"guard and this key goes stale.",
 	"lifecycle_roster.go :: lifecycleRosterPasses :: m.Kind != KindOutsource": "" +
 		"recycle_loop_break's AppliesTo — THE one declared staff-only formality, and " +
 		"the mechanism working as designed: a worker already has a loop-break in " +
@@ -731,6 +829,16 @@ var identityGateLedger = map[string]string{
 		"topic for workers (pre-fold wire parity, owner-only visibility). The AMOUNT " +
 		"banked is identical; only the topic differs.",
 
+	"api_infra.go :: HandleResetCostApiMembersMemberIdCostResetPost :: m.Kind != KindOutsource": "" +
+		"T-53 成本歸零 is the INVERSE of the fold above and splits for the same reason " +
+		"and in the same place: the durable figure lives on member.banked_cost for " +
+		"staff and on the worker row for an outsource member, so the branch is about " +
+		"WHERE the number is kept, not about the two kinds deserving different " +
+		"treatment. Both arms clear both halves and answer the same receipt — the " +
+		"difference is the row written and the topic fanned, exactly as bankLiveCost " +
+		"already differs. Folding the two arms means folding the two storage " +
+		"locations, which is migration 00025's remaining half and not this ticket.",
+
 	// ── chat / roster projection ────────────────────────────────────────────
 	"api_chat.go :: resolveChatRecipient :: m.Kind != KindAssistant": "" +
 		"a chat recipient must be a person — staff or worker, explicitly BOTH. Written " +
@@ -924,6 +1032,12 @@ var identityGateLedger = map[string]string{
 		"NOT an identity gate — the wire twin of the reply-card kind copy above.",
 	"wire.go :: newTaskArtifactDTO :: Kind: a.Kind": "" +
 		"NOT an identity gate — ARTIFACT kind (file / image / link), copied to the DTO.",
+	"wire.go :: newTaskArtifactVersionDTO :: Kind: h.Kind": "" +
+		"NOT an identity gate — the same artifact kind copied onto a retained VERSION's " +
+		"DTO (T-60). Kind is immutable across versions, so this is a carry, not a choice.",
+	"api_tasks.go :: HandleReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplacePost :: Kind: art.Kind": "" +
+		"NOT an identity gate — the replacement row carries the pinned artifact's own " +
+		"kind forward verbatim; that carry IS the immutability rule, not a population.",
 	"api_lore_governance.go :: writeLoreGovernanceReceipt :: Kind: event.Kind": "" +
 		"NOT an identity gate — LORE GOVERNANCE kind (`retire` / `revive`), the journal " +
 		"row's own vocabulary, copied to the receipt. Nothing here reads a member.",
@@ -952,8 +1066,23 @@ var identityGateLedger = map[string]string{
 	"api_tasks.go :: taskArtifactDTOs :: a.Kind != ArtifactKindLink": "" +
 		"NOT an identity gate — ARTIFACT kind (file / image / link). Same overloaded " +
 		"field name, same reason for keeping it visible.",
+	"api_tasks.go :: HandleListTaskArtifactHistoryApiTasksTaskIdArtifactArtifactIdHistoryGet :: v.Kind != ArtifactKindLink": "" +
+		"NOT an identity gate — the same artifact kind read off a RETAINED VERSION row " +
+		"(T-60 history), deciding whether that version has a blob to resolve a filename " +
+		"from. Kept listed rather than filtered out of the scan.",
+	"api_tasks.go :: HandleReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplacePost :: kind != art.Kind": "" +
+		"NOT an identity gate — the artifact kind a replace body asked for versus the " +
+		"pinned artifact's own, which is the T-60 immutability rule. No population is " +
+		"on either side.",
+	"api_tasks.go :: HandleReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplacePost :: art.Kind == ArtifactKindLink": "" +
+		"NOT an identity gate — the same artifact kind picking which content rules apply " +
+		"(a link carries a url, a file carries an attachment).",
 	"wire.go :: newTaskArtifactDTO :: a.Kind != ArtifactKindLink": "" +
 		"NOT an identity gate — the wire twin of the artifact-kind test above.",
+	"wire.go :: newTaskArtifactVersionDTO :: h.Kind != ArtifactKindLink": "" +
+		"NOT an identity gate — the same artifact kind read off a RETAINED VERSION " +
+		"row (T-60), deciding whether that version has a blob whose filename and mime " +
+		"the reader can resolve. The wire twin of the history handler's entry above.",
 	"dal_lore_proposal.go :: loreProposalShapeError :: p.Kind == \"remove\"": "" +
 		"NOT an identity gate — LORE PROPOSAL kind again, deciding whether a whole " +
 		"replacement version is expected. Reads no member.",
@@ -1312,8 +1441,9 @@ func TestIdentityScanExclusionsEachNameALiveFile(t *testing.T) {
 //
 // The historical failures — a worker with no token-expiry lead, a worker with no
 // survived-stop sweep — contained NO kind expression at all. The staff-only-ness
-// came from runReconcileTick's roster read being ListMembers, which is
-// `WHERE kind != 'outsource'` by construction. So the next instance of that
+// came from no worker row reaching runReconcileTick at all — first via
+// ListMembers' `WHERE kind != 'outsource'`, and since T-14 項目 6 via that half's
+// driver guard. So the next instance of that
 // mistake is a plain `for … range members { … }` written inline in one of the
 // two producers, with nothing in it for a kind-scanner to find.
 //
@@ -1516,11 +1646,23 @@ var lifecycleProducerLoopRulings = map[string]producerLoopRuling{
 			"candidate filter had been overlooked. That is the mechanism working, and " +
 			"it is the reason the count is part of the ruling rather than a bare key.",
 	},
+	"runOutsourceTick :: for _, w := range all": {
+		Count: 1,
+		Why: "THE driver filter (T-14 項目 6): which half of the merged lifecycle tick " +
+			"owns each row, asked on the raw ListOutsourceWorkers read before any pass " +
+			"or decision touches it — the twin of runReconcileTick's `for _, m := range " +
+			"all`. It builds the candidate set and does not touch rows; it stamps " +
+			"nothing and is not a formality. A no-op while ListOutsourceWorkers is " +
+			"kind='outsource'-only, and the wall that keeps the split falsifiable once " +
+			"that WHERE clause is merged away.",
+	},
 	"runOutsourceTick :: for _, w := range workers": {
 		Count: 2,
 		Why: "two passes over the worker snapshot: the live-count/codename fold (read " +
 			"only, feeds the parallel cap), and the per-worker FSM dispatch AFTER " +
-			"runWorkerLifecyclePasses. The second is this producer's terminal loop, the " +
+			"runWorkerLifecyclePasses — both now run over the DRIVER-FILTERED set " +
+			"built by `for _, w := range all` above. The second is this producer's " +
+			"terminal loop, the " +
 			"twin of runReconcileTick's decide pass. 🔴 If you are about to add a stamp " +
 			"to either of them, it is a pre-decide formality and belongs in " +
 			"lifecycleRosterPasses so 正職 gets it too.",
@@ -1653,8 +1795,9 @@ func TestTickProducersHaveNoUndeclaredRosterLoop(t *testing.T) {
 			"🔴 THIS IS THE SHAPE OF BOTH HISTORICAL FAILURES. A worker got no "+
 			"token-expiry lead and no survived-stop sweep, and NEITHER of them "+
 			"contained a `Kind ==` anywhere: the staff pass simply ran inline in "+
-			"runReconcileTick, whose roster read is ListMembers — `WHERE kind != "+
-			"'outsource'` by construction (dal.go). From a worker's side, a formality "+
+			"runReconcileTick, which no worker row reaches (first via ListMembers' "+
+			"`WHERE kind != 'outsource'`, since T-14 項目 6 via that half's driver "+
+			"guard). From a worker's side, a formality "+
 			"that guards only 正職 and a formality that does not exist are "+
 			"indistinguishable.\n"+
 			"So, for the loop above:\n"+

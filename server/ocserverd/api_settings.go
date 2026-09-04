@@ -271,7 +271,9 @@ func (s *apiServer) HandleSetPasswordApiAuthSetPasswordPost(w http.ResponseWrite
 // minted BEFORE the change is refused at the auth gate from now on. The
 // response carries a fresh owner token (iat = the stamp) so the current
 // session survives its own change. Agent/warden tokens are untouched — the
-// signing secret never rotates here (B1 zero-invalidation).
+// signing key never rotates HERE (B1 zero-invalidation). Rotating one is its
+// own owner action (api_signing_keys.go); a password change is not one, and
+// must not become one by accident.
 //
 // It deliberately does NOT also demand a TOTP code, unlike mfa/disable. While a
 // factor is armed, holding a live owner session already implies having passed
@@ -361,11 +363,11 @@ func (s *apiServer) HandleChangePasswordApiAuthChangePasswordPost(w http.Respons
 // settingsMu (they pass the ttl they read under it) — the mint itself touches
 // no guarded state.
 func (s *apiServer) writeOwnerToken(w http.ResponseWriter, ttl, now int64) {
-	if len(s.secret) == 0 {
+	if len(s.keys.signingSecret()) == 0 {
 		writeError(w, http.StatusUnauthorized, "auth not configured")
 		return
 	}
-	token, err := mintJWT(wireOwnerID, "owner", ttl, s.secret, now, "")
+	token, err := mintJWT(wireOwnerID, "owner", ttl, s.keys.signingSecret(), now, "")
 	if err != nil {
 		internalError(w, err)
 		return

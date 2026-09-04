@@ -174,7 +174,7 @@ func TestTaskDescriptionCreatorIsNotTheEditor(t *testing.T) {
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("creator status = %d, want 403: %s", rec.Code, rec.Body.String())
 	}
-	assertErrorEnvelope(t, rec, "forbidden", "caller is not the task's executor")
+	assertErrorEnvelope(t, rec, "forbidden", executorGuardRefusal)
 	if got := readTaskDescription(t, api, task.ID); got != "" {
 		t.Fatalf("refused write still landed: %q", got)
 	}
@@ -187,7 +187,7 @@ func TestTaskDescriptionCreatorIsNotTheEditor(t *testing.T) {
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("stranger status = %d, want 403", rec.Code)
 	}
-	assertErrorEnvelope(t, rec, "forbidden", "caller is not the task's executor")
+	assertErrorEnvelope(t, rec, "forbidden", executorGuardRefusal)
 
 	// Positive controls: the route is not simply broken for everyone.
 	if got := writeTaskDescription(t, api, task.ID, "m-exec", "agent",

@@ -1,4 +1,8 @@
-// lib/shareLink.ts — copy ONE chat attachment's permanent share link.
+// lib/shareLink.ts — copy ONE chat attachment's share link.
+//
+// "permanent" used to end that sentence and no longer can: since T-62 the sig
+// is derived from a key in the signing-key ring, so it lasts exactly as long as
+// that key stays in the ring and dies with it.
 //
 // The server mints the link (`GET /api/chat/attachments/{id}/share-link`) as a
 // SERVER-RELATIVE path carrying the ?sig= file-level HMAC credential; only the

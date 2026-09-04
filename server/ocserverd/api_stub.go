@@ -39,7 +39,12 @@ type apiServer struct {
 	// only, like the observation stores — a restart voids them, which reads
 	// exactly like expiry).
 	machineClaims *machineClaimStore
-	secret        []byte
+	// keys is the LIVE signing-key ring (keyring.go). It is a POINTER on
+	// purpose: buildHandler hands this same ring to every gated route, so a
+	// rotation is visible to every signer and verifier in the process without a
+	// restart. Read through keys.signingSecret() per mint — never cache the
+	// []byte it returns across requests.
+	keys *keyring
 	// settingsMu guards the LIVE settings snapshot below (passwordHash /
 	// passwordChangedAt / ownerTokenTTL / agentTokenTTL / ctxhigh): the boot-time DB snapshot is
 	// updated IN PLACE by the B3 owner endpoints (set-password /

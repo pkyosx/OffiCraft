@@ -33,7 +33,7 @@ func newWorkerTestServer(t *testing.T) *apiServer {
 	if err := seedOutOfBox(dal); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	api := newAPIServer(dal, NewHub(), []byte("worker-test-secret"), 3600,
+	api := newAPIServer(dal, NewHub(), singleKeyring([]byte("worker-test-secret")), 3600,
 		assetRoot(t.TempDir()))
 	// T-33: the lore feature ships OFF (settings `lore.enabled`, default false),
 	// so a boot context assembled on a default server carries no 對象目錄 at all.
@@ -52,10 +52,18 @@ func newWorkerTestServer(t *testing.T) *apiServer {
 	return api
 }
 
+// putWorkerFixture seeds a worker row so that the ROW ENDS UP LOOKING LIKE `w`.
+// The second write is the wind-down anchors, for putTestMember's reason (T-55) —
+// a worker row IS a member row (PutOutsourceWorker is PutMember of the
+// projection), so it drops exactly the same four columns on an existing row.
 func putWorkerFixture(t *testing.T, s *apiServer, w OutsourceWorker) OutsourceWorker {
 	t.Helper()
 	if err := s.dal.PutOutsourceWorker(w); err != nil {
 		t.Fatalf("put worker: %v", err)
+	}
+	if err := s.dal.SetMemberWindDownAnchors(w.ID, w.StoppingSince, w.StoppedSince,
+		w.RefocusSince, w.RefocusOp); err != nil {
+		t.Fatalf("seed wind-down anchors for %s: %v", w.ID, err)
 	}
 	return w
 }
@@ -1155,8 +1163,14 @@ func TestStampWorkerPlacementBlocked_ReReadsTheRowBeforeWriting(t *testing.T) {
 	// to explain, and writing the snapshot back would resurrect it as assigned.
 	released := readWorker(t, s, "ow-stale")
 	released.Status = WorkerStatusReleased
-	released.LastOp, released.LastOpReason, released.LastOpAt = "", "", 0
 	putWorkerFixture(t, s, released)
+	// Clear the receipt through its SOLE writer (T-55) — the whole-row fixture
+	// write above can no longer move these columns, so zeroing them on the
+	// snapshot would leave the FIRST stamp's receipt in place and the assertion
+	// below would pass or fail on that instead of on the second stamp.
+	if err := s.dal.SetMemberOpReceipt("ow-stale", "", nil, "", "", 0); err != nil {
+		t.Fatalf("clear receipt: %v", err)
+	}
 
 	s.outsourceMu.Lock()
 	s.notifyWorkerSpawn(stale, now+workerSpawnRetrySecs+1)
@@ -1439,6 +1453,14 @@ func TestReconcileWorkerLiveness_ClobberedStartZombieTakeover(t *testing.T) {
 	w.LastOp = reconcileCmdStart
 	w.LastOpReason = "session_already_exists: live session refused clobber"
 	putWorkerFixture(t, s, w)
+	// The receipt reaches the code under test in the VALUE passed below, not off
+	// the row — but the row carried it before T-55 and still should, or the
+	// fixture reads as writing something it does not write. Planted through the
+	// sole writer so the two agree.
+	if err := s.dal.SetMemberOpReceipt("ow-g", w.LastOp, w.LastOpOK, w.LastOpLog,
+		w.LastOpReason, w.LastOpAt); err != nil {
+		t.Fatalf("seed the clobber receipt: %v", err)
+	}
 
 	s.outsourceMu.Lock()
 	s.workerSpawnAt["ow-g"] = now - 5 // recently paced (must not block the reap path)
@@ -1559,6 +1581,14 @@ func TestReconcileWorkerLiveness_LegacyWorkerStartReceiptStillDetectsZombie(t *t
 	w.LastOp = legacyWardenCmdWorkerStart
 	w.LastOpReason = "session_already_exists: live session refused clobber"
 	putWorkerFixture(t, s, w)
+	// The receipt reaches the code under test in the VALUE passed below, not off
+	// the row — but the row carried it before T-55 and still should, or the
+	// fixture reads as writing something it does not write. Planted through the
+	// sole writer so the two agree.
+	if err := s.dal.SetMemberOpReceipt("ow-l", w.LastOp, w.LastOpOK, w.LastOpLog,
+		w.LastOpReason, w.LastOpAt); err != nil {
+		t.Fatalf("seed the clobber receipt: %v", err)
+	}
 	s.outsourceMu.Lock()
 	s.workerSpawnTarget["ow-l"] = ServerSelfHost
 	s.workerReconcileStates["ow-l"] = reconcileState{
@@ -1924,7 +1954,7 @@ func TestReconcileWorkerLiveness_UnknownTargetNamesNoMachine(t *testing.T) {
 // with nothing at all explaining why it never booted.
 func TestNotifyWorkerSpawn_NoSigningSecret_LeavesReceipt(t *testing.T) {
 	s := newWorkerTestServer(t)
-	s.secret = nil
+	s.keys = singleKeyring(nil)
 	connectWarden(t, s, ServerSelfHost)
 	seedMachine(t, s, ServerSelfHost)
 	task := putTaskFixture(t, s, Task{

@@ -952,6 +952,24 @@ export interface MfaEnrollView {
  * sentence is derived from `code` via i18n; `detail` is the server's English
  * diagnostic string and is only ever shown as SECONDARY text.
  */
+/** ONE signing key as the cockpit may know it (T-62).
+ *
+ * 🔴 There is no field for key material, and there is not meant to be: the wire
+ * carries none (SigningKeyDTO), because on an install predating the key ring
+ * the signing key IS a SHA-256 of the owner password, so even a fingerprint of
+ * it would be an offline dictionary attack on that password. */
+export interface SigningKeyView {
+  keyId: string;
+  /** When this key was made (epoch seconds), or null for the key an install has
+   * been using since before the ring existed — its creation time was never
+   * recorded. The wire says that with a 0, which the mapper narrows to null so
+   * no component can render it as 1970. */
+  createdTs: number | null;
+  /** Exactly one key in a ring carries this: the one that SIGNS new tokens.
+   * Every other key still verifies until someone removes it. */
+  isSigning: boolean;
+}
+
 export interface BackupHealthView {
   status: BackupHealthStatus;
   code: BackupHealthCode;

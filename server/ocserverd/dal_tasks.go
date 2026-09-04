@@ -646,6 +646,52 @@ func (d *DAL) AllTaskStepProgress() (map[string]TaskStepProgress, error) {
 	return out, rows.Err()
 }
 
+// TaskCurrentStep is the (id, name) of a task's CURRENT step — the light task
+// list's pointer at the working node. Deliberately just the two display fields:
+// the list projection must never load the steps' fat dod text (that is what
+// get_task is for), so this carries no more of the row than the card prints.
+type TaskCurrentStep struct {
+	ID   string
+	Name string
+}
+
+// AllTaskCurrentStep returns every task's CURRENT step in ONE grouped query —
+// the light-list twin of domain.CurrentStep (keep them agreeing), and the same
+// shape as AllTaskStepProgress: one statement for the whole population, so a
+// list request stays a CONSTANT number of queries no matter how many tasks come
+// back. A per-task ListTaskSteps here would be an N+1 on an UNCAPPED endpoint.
+//
+// "Current" = the first non-TERMINAL step in timeline order (order_idx, id);
+// the `status != done AND status != superseded` filter is StepIsTerminal in
+// SQL. Tasks whose plan is empty — or whose steps have all reached a terminal
+// state — are simply ABSENT from the map, which the caller reads as the zero
+// value ("", ""), matching domain.CurrentStep on []. Only id and name are
+// selected: the dod text never enters the light list.
+func (d *DAL) AllTaskCurrentStep() (map[string]TaskCurrentStep, error) {
+	rows, err := d.rdb.Query(`
+		SELECT task_id, id, name FROM (
+		  SELECT task_id, id, name,
+		         ROW_NUMBER() OVER (
+		           PARTITION BY task_id ORDER BY order_idx, id) AS rn
+		    FROM task_step
+		   WHERE status != ? AND status != ?
+		) WHERE rn = 1`, StepStatusDone, StepStatusSuperseded)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]TaskCurrentStep{}
+	for rows.Next() {
+		var taskID string
+		var cur TaskCurrentStep
+		if err := rows.Scan(&taskID, &cur.ID, &cur.Name); err != nil {
+			return nil, err
+		}
+		out[taskID] = cur
+	}
+	return out, rows.Err()
+}
+
 // GetTaskStep returns one step by id, or nil if absent.
 func (d *DAL) GetTaskStep(id string) (*TaskStep, error) {
 	row := d.rdb.QueryRow(
@@ -1094,6 +1140,27 @@ type OutsourceWorker struct {
 	// offline projects spawn_state "stopped". Replaces the earlier bespoke
 	// stopped_since marker with the member value domain (owner: 外包＝系統代管的正職員工).
 	DesiredState string
+	// RestartAfterStop is the SECOND owner intent (T-14 項目 7, migrations/00070),
+	// a DIRECT mirror of member.restart_after_stop: 「這一輪下線收口之後，把它帶
+	// 起來」. The 下線 verbs clear it, the 重啟 verbs (重新聚焦 / 改機器 / 換 model
+	// on a stopped worker) set it, and consumeWorkerRestartAfterStop spends it at
+	// the converged-offline edge of the outsource tick.
+	//
+	// 🔴 IT HAS TO BE CARRIED HERE, and this is the field that made T-65 包② a
+	// two-commit change rather than a one-commit one. restart_after_stop is one of
+	// the FEW owner-intent columns that is deliberately NOT insertOnly
+	// (mfRestartAfterStop, dal_member_patch.go), so memberWholeRow carries it into
+	// PutMember's SET list — which means every PutOutsourceWorker is a write of
+	// this column. While the projection did not carry it, memberFromWorker rebuilt
+	// the Member with the zero value and EVERY non-test PutOutsourceWorker call
+	// site wrote restart_after_stop=0 over whatever was there. (Do not trust a
+	// count in a comment — this sentence said "13" and was wrong in both
+	// directions: 12 before this package, 14 after. Count them.) A handler
+	// stamping the intent would have had it erased by the very next worker write,
+	// with NOTHING going red: the owner presses 重新聚焦 on a stopped worker, gets
+	// a 200, and the worker never comes up.
+	// Pinned by TestOutsourceProjectionCarriesRestartAfterStop.
+	RestartAfterStop bool
 	// BankedCost is the persistent historical cumulative cost (T-ba6b,
 	// migrations/00021), the worker twin of member.BankedCost: the live
 	// telemetry cost folds in here (bankLiveCost — the SAME helper the member
@@ -1157,6 +1224,7 @@ func workerFromMember(m Member) OutsourceWorker {
 		WakingSince:        m.WakingSince,
 		ForcedStopAt:       m.ForcedStopAt,
 		DesiredState:       m.DesiredState,
+		RestartAfterStop:   m.RestartAfterStop,
 		BankedCost:         m.BankedCost,
 		AvatarAttachmentID: m.AvatarAttachmentID,
 	}
@@ -1213,10 +1281,19 @@ func memberFromWorker(w OutsourceWorker) Member {
 		// the spawn dispatch stamps it exactly where the staff arm does
 		// (stampWakeObservability), and PresenceState is the ONE reader for both.
 		//
-		// PutMember's ON CONFLICT SET includes waking_since, so this line is what
-		// decides whether a mid-wake anchor survives the next worker write. Dropping
-		// it back to a constant re-opens the exact bug.
-		WakingSince:        w.WakingSince,
+		// waking_since is NOT insertOnly, so a whole-row write does land it on an
+		// existing row — which makes this line what decides whether a mid-wake
+		// anchor survives the next worker write. Dropping it back to a constant
+		// re-opens the exact bug.
+		WakingSince: w.WakingSince,
+		// 🔴 CARRIED, NOT ZEROED (T-65 包②) — and unlike WakingSince above, this one
+		// is load-bearing on a column the whole-row upsert ACTIVELY WRITES rather
+		// than merely fails to refresh. mfRestartAfterStop is not insertOnly, so
+		// dropping this line back to the zero value does not leave the stored intent
+		// alone: it CLEARS it, on every single worker write. That is a silent
+		// erasure — no error, no red test that does not look for it specifically —
+		// so it has its own mutant in the T-65 包② DoD.
+		RestartAfterStop:   w.RestartAfterStop,
 		BankedCost:         w.BankedCost,
 		LastOp:             w.LastOp,
 		LastOpOK:           w.LastOpOK,

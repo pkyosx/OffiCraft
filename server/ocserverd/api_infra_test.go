@@ -45,10 +45,20 @@ func newGateTestAPI(t *testing.T) (*apiServer, *DAL) {
 		t.Fatalf("goose up: %v", err)
 	}
 	dal := NewDAL(db)
-	api := newAPIServer(dal, NewHub(), []byte(interopSecret), 3600, "../..")
+	api := newAPIServer(dal, NewHub(), singleKeyring([]byte(interopSecret)), 3600, "../..")
 	return api, dal
 }
 
+// putGateMember seeds a member row so the ROW ENDS UP LOOKING LIKE `m` — the
+// third helper of this shape, beside putTestMember and putWorkerFixture.
+//
+// 🔴 THE ANCHOR WRITE IS NOT REDUNDANT (T-55). The four wind-down anchors left
+// PutMember's DO UPDATE SET, so on a row that ALREADY EXISTS the upsert above
+// silently drops them. This helper's callers re-seed the same id to move a
+// member between gate states — including the stop→start case that clears the
+// anchors — and without this second write that re-seed plants nothing while
+// still reading like it did. The test then passes on the half it can still
+// satisfy and stops exercising the half it was written for.
 func putGateMember(t *testing.T, dal *DAL, m Member) {
 	t.Helper()
 	if m.RosterStatus == "" {
@@ -56,6 +66,10 @@ func putGateMember(t *testing.T, dal *DAL, m Member) {
 	}
 	if err := dal.PutMember(m); err != nil {
 		t.Fatalf("PutMember(%s): %v", m.ID, err)
+	}
+	if err := dal.SetMemberWindDownAnchors(m.ID, m.StoppingSince, m.StoppedSince,
+		m.RefocusSince, m.RefocusOp); err != nil {
+		t.Fatalf("seed wind-down anchors for %s: %v", m.ID, err)
 	}
 }
 

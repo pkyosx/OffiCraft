@@ -56,6 +56,10 @@ const OWNED_SHEETS = [
   // view, one entry card, the 尚無資料來源 block) and only the page shell is
   // reachable from App — the other three would free-ride on its import.
   "lore.css",
+  // T-60: the artifact version reader. Mounted from TaskArtifactsPopover, which
+  // draws the `.task-artifacts*` block out of tasks.css — so this sheet would
+  // free-ride on whatever the task page happens to import.
+  "task-artifact-versions.css",
 ] as const;
 
 /** Sheets whose BEM block is not just the filename. `member-detail.css` owns the
@@ -69,7 +73,10 @@ const OWNED_SHEETS = [
  * literal `mp__` found exactly one file and left the four real consumers
  * unchecked — non-empty, and still nearly vacuous. Corpus size is not the same
  * question as corpus coverage. */
-const BLOCK_OVERRIDES: Record<string, string> = { "member-detail.css": "mp" };
+const BLOCK_OVERRIDES: Record<string, string> = {
+  "member-detail.css": "mp",
+  "task-artifact-versions.css": "ta-versions",
+};
 
 function blockOf(sheet: string): string {
   return BLOCK_OVERRIDES[sheet] ?? sheet.replace(/\.css$/, "");

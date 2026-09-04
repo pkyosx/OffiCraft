@@ -154,6 +154,10 @@ export interface AgentDetailVmInput {
   liveCost: number | null | undefined;
   bankedCost: number | null | undefined;
   onRefocus?: () => void | Promise<unknown>;
+  /** 成本歸零. Absent ⇒ the panel renders no button at all, which is how a
+   * surface that must not offer it opts out. It is allowed to REJECT — the
+   * panel keeps its confirm open and shows the failure rather than pretending. */
+  onResetCost?: () => void | Promise<unknown>;
   refocusSince: number | null | undefined;
   refocusOp: string | undefined;
   refocusDeadline: number | null | undefined;
@@ -242,6 +246,9 @@ export function buildAgentDetailVm(input: AgentDetailVmInput): AgentDetailVM {
     cost: totalCostOf(input.liveCost, input.bankedCost),
     onRefocus: input.onRefocus
       ? async () => void (await input.onRefocus!())
+      : undefined,
+    onResetCost: input.onResetCost
+      ? async () => void (await input.onResetCost!())
       : undefined,
     refocusSince: input.refocusSince ?? null,
     refocusOp: input.refocusOp,

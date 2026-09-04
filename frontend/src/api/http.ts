@@ -35,6 +35,7 @@ import type {
   VersionView,
   ReleaseCheckView,
   BackupHealthView,
+  SigningKeyView,
   AuthStatusView,
   MfaEnrollView,
   MfaStateView,
@@ -88,6 +89,8 @@ import type {
   OutsourceWorkerView,
   TaskTypeView,
   TaskCountView,
+  TaskStepDetailView,
+  TaskArtifactView,
   TaskManualSummaryView,
   TaskManualView,
   TaskManualPatch,
@@ -106,6 +109,9 @@ import type {
   ThemeDeleteResult,
   SseConnectionState,
   LoreSearchInput,
+  AccountCostResetReceipt,
+  CostResetReceipt,
+  TaskArtifactVersionView,
 } from "./adapter";
 import {
   toMember,
@@ -117,9 +123,11 @@ import {
   toVersion,
   toReleaseCheck,
   toBackupHealth,
+  toSigningKeys,
   toGlobalContext,
   toBootDoc,
   toDocumentHistory,
+  toTaskArtifactVersion,
   toDocumentHistoryEntry,
   toLoreSearch,
   toLoreEntryDetail,
@@ -142,6 +150,8 @@ import {
   toServerSettings,
   toTask,
   toTaskListItem,
+  toTaskStepDetail,
+  toTaskArtifact,
   toOutsourceWorker,
   toTaskType,
   toTaskManual,
@@ -1004,6 +1014,50 @@ export const httpApi: Api = {
     });
   },
 
+  async resetMemberCost(id: string): Promise<CostResetReceipt> {
+    // POST /api/members/{id}/cost/reset -> CostResetDTO. Clears BOTH halves of
+    // the actor's estimated spend (durable banked figure + live telemetry
+    // figure) — clearing one would let the number reappear on the next read.
+    // Takes no body. IRREVERSIBLE: nothing is retained server-side and there is
+    // no undo route, so callers gate it behind a confirm.
+    //
+    // The receipt carries the PRE-reset figures: that response is the last
+    // moment they exist anywhere. Nulls are passed through unchanged (null =
+    // nothing was there to clear, not zero cleared). Caller refetches; the
+    // 估計$ cell falls back to the dash on its own.
+    const { data } = await client.POST("/api/members/{member_id}/cost/reset", {
+      params: { path: { member_id: id } },
+    });
+    return {
+      memberId: data?.member_id ?? id,
+      clearedCost: data?.cleared_cost ?? null,
+      clearedBankedCost: data?.cleared_banked_cost ?? null,
+    };
+  },
+
+  async resetAccountCost(account: string): Promise<AccountCostResetReceipt> {
+    // POST /api/accounts/cost/reset {account} -> AccountCostResetDTO. Zeroes the
+    // ACCOUNT's own accumulated spend and NO member figure (owner ruling
+    // rc-5c5d7c7c6dcd) — the two are separate numbers and separate buttons.
+    //
+    // The account key rides in the BODY, not the path: a real key contains "/"
+    // and "@", and an encoded slash a proxy decodes would silently retarget an
+    // irreversible call.
+    //
+    // IRREVERSIBLE, so callers gate it behind a confirm. The receipt carries the
+    // PRE-reset figure — the last moment it exists — and null is passed through
+    // unchanged (null = nothing was there to clear, not zero cleared). An
+    // account nobody has reported under answers the same 200 with null rather
+    // than a 404. Caller refetches monitoring; the card is folded from that read.
+    const { data } = await client.POST("/api/accounts/cost/reset", {
+      body: { account },
+    });
+    return {
+      account: data?.account ?? account,
+      clearedCost: data?.cleared_cost ?? null,
+    };
+  },
+
   async forceStopMember(id: string): Promise<void> {
     // POST /api/members/{id}/force-stop -> MemberDTO. Escalates a *stopping* member
     // to an IMMEDIATE kill: the server dispatches the robust STOP straight to the
@@ -1386,8 +1440,9 @@ export const httpApi: Api = {
 
   async getChatAttachmentShareLink(attachmentId: string): Promise<string> {
     // GET /api/chat/attachments/{attachment_id}/share-link -> {url}: the
-    // blob's serve path + its permanent ?sig= HMAC credential (grants reading
-    // exactly that one blob; no expiry). The caller absolutizes with the page
+    // blob's serve path + its ?sig= HMAC credential (grants reading exactly
+    // that one blob; no expiry, but voided when the signing key it was made
+    // under leaves the ring — T-62). The caller absolutizes with the page
     // origin — the server never knows its public host.
     const wire = unwrap(
       await client.GET("/api/chat/attachments/{attachment_id}/share-link", {
@@ -1621,6 +1676,34 @@ export const httpApi: Api = {
     return toTask(wire);
   },
 
+  async getTaskStep(taskId: string, stepId: string): Promise<TaskStepDetailView> {
+    // GET /api/tasks/{task_id}/steps/{step_id} -> TaskStepDetailDTO (T-66).
+    // The ONE read that carries a step note's text: getTask reports each step's
+    // note_size_chars and stopped carrying the note itself, so the card opens
+    // this on demand. A step that belongs to another task 404s through the
+    // client middleware as an ApiError.
+    const wire = unwrap(
+      await client.GET("/api/tasks/{task_id}/steps/{step_id}", {
+        params: { path: { task_id: taskId, step_id: stepId } },
+      }),
+    );
+    return toTaskStepDetail(wire);
+  },
+
+  async listTaskArtifacts(taskId: string): Promise<TaskArtifactView[]> {
+    // GET /api/tasks/{task_id}/artifacts -> TaskArtifactListDTO (T-66). The ONE
+    // read that carries an artifact's url/filename/mime/kind/is_image: getTask
+    // carries an id+label INDEX and stopped carrying the rest, so anything that
+    // DRAWS an artifact opens this. One call answers the whole ticket; an
+    // unknown task 404s through the client middleware as an ApiError.
+    const wire = unwrap(
+      await client.GET("/api/tasks/{task_id}/artifacts", {
+        params: { path: { task_id: taskId } },
+      }),
+    );
+    return (wire.artifacts ?? []).map(toTaskArtifact);
+  },
+
   async getTaskCount(): Promise<TaskCountView> {
     // GET /api/tasks/count -> {open, total}. The nav badge's cheap count path
     // (refetched on every "task" SSE delta without pulling the list); `total`
@@ -1736,12 +1819,33 @@ export const httpApi: Api = {
     // TaskArtifactReceiptDTO. The owner/admin un-pin (T-3dc5); unknown
     // task/artifact → 404, wrong-task → 400 (both throw via the client
     // middleware). The write answers with a bounded receipt (T-a98d), not the
-    // task; the caller refetches. The blob itself is left intact.
+    // task; the caller refetches. The live blob is left intact, but the artifact's
+    // retained versions (and the blobs only they referenced) are deleted with it.
     unwrap(
       await client.DELETE("/api/tasks/{task_id}/artifact/{artifact_id}", {
         params: { path: { task_id: taskId, artifact_id: artifactId } },
       }),
     );
+  },
+
+  async listTaskArtifactVersions(
+    taskId: string,
+    artifactId: string,
+  ): Promise<TaskArtifactVersionView[]> {
+    // GET /api/tasks/{task_id}/artifact/{artifact_id}/history ->
+    // TaskArtifactVersionDTO[], newest first, at most the retained depth (the
+    // server trims). Cockpit-only (T-60): the agent that just replaced a
+    // deliverable already knows what it replaced. Read-only — there is no
+    // restore verb to pair with it. An artifact that was never replaced answers
+    // [] rather than 404; unknown task/artifact → 404, wrong-task → 400 (all
+    // throw through the client middleware).
+    const wire = unwrap(
+      await client.GET(
+        "/api/tasks/{task_id}/artifact/{artifact_id}/history",
+        { params: { path: { task_id: taskId, artifact_id: artifactId } } },
+      ),
+    );
+    return wire.map(toTaskArtifactVersion);
   },
 
   async postTaskMessage(id: string, msg: TaskMessageInput): Promise<void> {
@@ -2160,6 +2264,31 @@ export const httpApi: Api = {
     // app-wide, and monitoring re-fetches on every telemetry event.
     const wire = unwrap(await client.GET("/api/backup-health"));
     return toBackupHealth(wire);
+  },
+
+  async getSigningKeys(): Promise<SigningKeyView[]> {
+    // GET /api/auth/signing-keys -> SigningKeysDTO (T-62). Owner-gated and off
+    // the MCP surface: it describes the key that authenticates every caller.
+    const wire = unwrap(await client.GET("/api/auth/signing-keys"));
+    return toSigningKeys(wire);
+  },
+
+  async rotateSigningKey(): Promise<SigningKeyView[]> {
+    // POST /api/auth/signing-keys/rotate -> the ring AFTER the rotation.
+    const wire = unwrap(await client.POST("/api/auth/signing-keys/rotate"));
+    return toSigningKeys(wire);
+  },
+
+  async removeSigningKey(keyId: string): Promise<SigningKeyView[]> {
+    // POST /api/auth/signing-keys/{key_id}/remove -> the ring AFTER the
+    // removal. 409 when the key is still signing, 404 when the id is unknown;
+    // both surface as a rejected promise the card renders as its own message.
+    const wire = unwrap(
+      await client.POST("/api/auth/signing-keys/{key_id}/remove", {
+        params: { path: { key_id: keyId } },
+      }),
+    );
+    return toSigningKeys(wire);
   },
 
   async getAuthStatus(): Promise<AuthStatusView> {

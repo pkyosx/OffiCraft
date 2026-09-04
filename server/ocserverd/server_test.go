@@ -22,7 +22,7 @@ func okHandler(w http.ResponseWriter, r *http.Request) {
 // ── probes: byte-level parity with the Python responses ─────────────────────
 
 func TestHealthProbeBytesMatchPython(t *testing.T) {
-	h, err := buildHandler(defaultRouteSpecs(), []byte(interopSecret), nil, nil)
+	h, err := buildHandler(defaultRouteSpecs(), singleKeyring([]byte(interopSecret)), nil, nil)
 	if err != nil {
 		t.Fatalf("buildHandler: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestHealthProbeBytesMatchPython(t *testing.T) {
 }
 
 func TestVersionProbeShapeMatchesPython(t *testing.T) {
-	h, err := buildHandler(defaultRouteSpecs(), []byte(interopSecret), nil, nil)
+	h, err := buildHandler(defaultRouteSpecs(), singleKeyring([]byte(interopSecret)), nil, nil)
 	if err != nil {
 		t.Fatalf("buildHandler: %v", err)
 	}
@@ -222,7 +222,7 @@ func get(t *testing.T, url, token string) (int, string) {
 
 func TestGatedRoutesFailClosed(t *testing.T) {
 	secret := []byte(interopSecret)
-	h, err := buildHandler(gatedSpecs(), secret, nil, nil)
+	h, err := buildHandler(gatedSpecs(), singleKeyring(secret), nil, nil)
 	if err != nil {
 		t.Fatalf("buildHandler: %v", err)
 	}
@@ -281,14 +281,14 @@ func TestGatedRoutesFailClosed(t *testing.T) {
 
 func TestBootRefusesUndeclaredRequires(t *testing.T) {
 	specs := []RouteSpec{{Method: "GET", Path: "/api/naked", Handler: okHandler, Auth: authGated}}
-	if _, err := buildHandler(specs, []byte(interopSecret), nil, nil); err == nil {
+	if _, err := buildHandler(specs, singleKeyring([]byte(interopSecret)), nil, nil); err == nil {
 		t.Fatal("a gated route with no requires declaration must refuse to boot")
 	}
 }
 
 func TestBootRefusesUnknownRequires(t *testing.T) {
 	specs := []RouteSpec{{Method: "GET", Path: "/api/x", Handler: okHandler, Auth: authGated, Requires: "superuser"}}
-	if _, err := buildHandler(specs, []byte(interopSecret), nil, nil); err == nil {
+	if _, err := buildHandler(specs, singleKeyring([]byte(interopSecret)), nil, nil); err == nil {
 		t.Fatal("an unknown requires class must refuse to boot")
 	}
 }
@@ -300,7 +300,7 @@ func TestBootRefusesAuthRequiresDisagreement(t *testing.T) {
 		{{Method: "GET", Path: "/api/b", Handler: okHandler, Auth: authGated, Requires: requiresPublic}},
 	}
 	for i, specs := range bad {
-		if _, err := buildHandler(specs, []byte(interopSecret), nil, nil); err == nil {
+		if _, err := buildHandler(specs, singleKeyring([]byte(interopSecret)), nil, nil); err == nil {
 			t.Fatalf("case %d: auth/requires disagreement must refuse to boot", i)
 		}
 	}
@@ -308,7 +308,7 @@ func TestBootRefusesAuthRequiresDisagreement(t *testing.T) {
 
 func TestBootRefusesUnlabelledRoute(t *testing.T) {
 	specs := []RouteSpec{{Method: "GET", Path: "/api/x", Handler: okHandler, Auth: "internal", Requires: principalOwner}}
-	if _, err := buildHandler(specs, []byte(interopSecret), nil, nil); err == nil {
+	if _, err := buildHandler(specs, singleKeyring([]byte(interopSecret)), nil, nil); err == nil {
 		t.Fatal("an unknown auth label must refuse to boot")
 	}
 }
@@ -375,13 +375,13 @@ func newWiredTestServer(t *testing.T) (*httptest.Server, []byte, *Hub) {
 	}
 	secret := []byte(interopSecret)
 	hub := NewHub()
-	api := newAPIServer(dal, hub, secret, 3600, "../..")
+	api := newAPIServer(dal, hub, singleKeyring(secret), 3600, "../..")
 	phc, err := hashPassword("test-password")
 	if err != nil {
 		t.Fatalf("hashPassword: %v", err)
 	}
 	api.passwordHash = phc
-	h, err := buildHandler(specsFor(api), secret, dal.GetMember, nil)
+	h, err := buildHandler(specsFor(api), api.keys, dal.GetMember, nil)
 	if err != nil {
 		t.Fatalf("buildHandler: %v", err)
 	}
@@ -521,7 +521,7 @@ func TestMarkChatReadFansDeltaOnlyWhenWatermarkAdvances(t *testing.T) {
 }
 
 func TestBareVersionProbeShapeMatchesPython(t *testing.T) {
-	h, err := buildHandler(defaultRouteSpecs(), []byte(interopSecret), nil, nil)
+	h, err := buildHandler(defaultRouteSpecs(), singleKeyring([]byte(interopSecret)), nil, nil)
 	if err != nil {
 		t.Fatalf("buildHandler: %v", err)
 	}

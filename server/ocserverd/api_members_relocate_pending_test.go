@@ -188,6 +188,27 @@ func TestRelocateMember_OfflineRelocateIsNotPending(t *testing.T) {
 		t.Fatalf("re-pinning a member with no session is not a pending move, got %v (%s)",
 			*body.RelocationPending, rec.Body.String())
 	}
+	// The flag alone cannot tell this arm apart from one that moved the member
+	// or queued a start: assert the row it left behind. testAgent carries no
+	// stop anchor, so this is the never-活化'd new hire — the half that is still
+	// waiting on the owner.
+	got, err := s.dal.GetMember("m-parked")
+	if err != nil || got == nil {
+		t.Fatalf("re-read m-parked: %v", err)
+	}
+	if got.DesiredMachineID != "mach-new" {
+		t.Errorf("the pin is the only thing this verb does and it was not stored: "+
+			"desired_machine_id = %q", got.DesiredMachineID)
+	}
+	if got.DesiredState != DesiredStateOffline || got.RestartAfterStop {
+		t.Errorf("re-pinning a member nobody ever asked to stop must not start it: "+
+			"desired=%q restart_after_stop=%v", got.DesiredState, got.RestartAfterStop)
+	}
+	if want := memberHeldDownReceipt(memberOpRelocate); got.LastOpReason != want {
+		t.Errorf("last_op_reason = %q, want %q — the pin was stored and nothing was "+
+			"moved, and this member is the one the owner still has to 活化",
+			got.LastOpReason, want)
+	}
 }
 
 // T-927a: `relocation_pending` is true for TWO unrelated situations, and the

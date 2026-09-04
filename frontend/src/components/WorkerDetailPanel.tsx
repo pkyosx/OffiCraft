@@ -56,6 +56,8 @@ interface WorkerDetailPanelProps {
   /** Refocus (換手 — T-32e1): kill+respawn the session onto the SAME task. The
    * worker twin of the member refocus. Undefined ⇒ the affordance is hidden. */
   onRefocus?: () => Promise<void>;
+  /** 成本歸零 (owner-only, irreversible). Absent ⇒ no button. */
+  onResetCost?: () => Promise<void>;
   /** Stop (停止 — T-f190; a GRACEFUL close-out since T-ed79): hold the worker
    * down and show it the 〈停止〉; the 收口 is its own report_stopped. The FIRST
    * rung of 停止 → 加速停止 → 強制停止. */
@@ -108,6 +110,7 @@ export function WorkerDetailPanel({
   onOpenTask,
   onRelocate,
   onRefocus,
+  onResetCost,
   onStop,
   onAcceleratedStop,
   onForceStop,
@@ -856,6 +859,7 @@ export function WorkerDetailPanel({
         liveCost: worker.cost,
         bankedCost: worker.bankedCost,
         onRefocus,
+        onResetCost,
         refocusSince: worker.refocusSince,
         refocusOp: worker.refocusOp,
         refocusDeadline: worker.refocusDeadline,

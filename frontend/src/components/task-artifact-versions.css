@@ -1,0 +1,252 @@
+/* task-artifact-versions.css — the pinned deliverable's version reader
+ * (`.ta-versions*`, T-60).
+ *
+ * Same shell language as doc-hist-modal / md-preview: fixed scrim, centred
+ * card, header with the title left and the controls right, a scrolling body.
+ * Its own sheet because the component that draws these classes must be the one
+ * that imports them (styleOwnership.test.ts).
+ *
+ * TWO PANES, and the split is where the narrow width bites: side by side above
+ * 720px, stacked below it — a 200px version list beside a diff on a 360px
+ * screen leaves neither readable. The BODY is the only vertical scroller in the
+ * wide layout so the panel can never outgrow the scrim; the list gets its own
+ * scroller for the same reason.
+ *
+ * Colours are theme tokens only — this surface ships in every theme. */
+.ta-versions {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: color-mix(in srgb, var(--color-backdrop) 75%, transparent);
+}
+.ta-versions__panel {
+  display: flex;
+  flex-direction: column;
+  width: min(880px, 100%);
+  max-height: 100%;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
+  border-radius: 14px;
+  background: var(--color-card);
+  box-shadow: 0 20px 48px color-mix(in srgb, var(--color-shadow) 50%, transparent);
+  overflow: hidden;
+}
+.ta-versions__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
+  flex: none;
+}
+.ta-versions__title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.ta-versions__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.ta-versions__tabs,
+.ta-versions__side-tabs {
+  display: inline-flex;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
+  overflow: hidden;
+}
+.ta-versions__tab,
+.ta-versions__side-tab {
+  padding: 5px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  /* A version label can be long (a filename, a url); the toggle must not
+   * stretch the panel sideways. */
+  max-width: 45vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ta-versions__tab:hover,
+.ta-versions__side-tab:hover {
+  color: var(--color-text);
+}
+/* The selected pane is marked by FILL and WEIGHT, not by colour alone. */
+.ta-versions__tab--on,
+.ta-versions__side-tab--on {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+.ta-versions__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.ta-versions__close:hover {
+  color: var(--color-text);
+}
+.ta-versions__split {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.ta-versions__list {
+  flex: none;
+  width: 220px;
+  margin: 0;
+  padding: 8px;
+  list-style: none;
+  overflow-y: auto;
+  border-right: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ta-versions__row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+.ta-versions__row:hover {
+  background: color-mix(in srgb, var(--color-overlay) 5%, transparent);
+}
+.ta-versions__row--on {
+  background: var(--color-accent-soft);
+  border-color: color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+.ta-versions__row-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+  /* A version's name is a filename or a url — an unbreakable token must wrap
+   * inside the row, never widen it (the long-token rule, T-d451). */
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.ta-versions__row--on .ta-versions__row-name {
+  color: var(--color-accent);
+}
+.ta-versions__row-meta {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.ta-versions__body {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-y: auto;
+  /* An unbreakable token belongs to the diff's own horizontal scroller or to
+   * `overflow-wrap` on the text block — never to this box. */
+  overflow-x: hidden;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ta-versions__notice,
+.ta-versions__diff-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+.ta-versions__text {
+  margin: 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.ta-versions__image {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  align-self: flex-start;
+}
+.ta-versions__urls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ta-versions__url-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.ta-versions__url-side {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.ta-versions__url {
+  font-size: 12.5px;
+  color: var(--color-accent);
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.ta-versions__sides {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* NARROW: the two panes stack, and the version list becomes a short scroller
+ * across the top instead of a 220px column that would leave the content pane
+ * ~140px wide. The PANEL is then the vertical scroller. */
+@media (max-width: 720px) {
+  .ta-versions {
+    padding: 12px;
+  }
+  .ta-versions__split {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .ta-versions__list {
+    width: auto;
+    max-height: 34vh;
+    border-right: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
+  }
+  .ta-versions__body {
+    overflow-y: visible;
+  }
+  .ta-versions__tab,
+  .ta-versions__side-tab {
+    max-width: 32vw;
+  }
+}

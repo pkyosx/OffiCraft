@@ -116,7 +116,7 @@ func TestBootstrapHere_ChildEnvGoesThroughTheAllowlist(t *testing.T) {
 	pollutedParentEnv(t)
 	runs := withRecordedOcwarden(t, 0)
 
-	s := &apiServer{dal: newTestDAL(t), hub: NewHub(), secret: []byte("test-secret")}
+	s := &apiServer{dal: newTestDAL(t), hub: NewHub(), keys: singleKeyring([]byte("test-secret"))}
 	m := Member{ID: "m-here", Kind: KindWarden}
 	res, err := s.runWardenInstallHere(m, "/fake/ocwarden", "http://127.0.0.1:7755")
 	if err != nil {
@@ -166,7 +166,7 @@ func TestBootstrapHere_NamespacedServerSendsItsOwnNamespace(t *testing.T) {
 	pollutedParentEnv(t)
 	runs := withRecordedOcwarden(t, 0)
 
-	s := &apiServer{dal: newTestDAL(t), hub: NewHub(), secret: []byte("test-secret"), namespace: "lab"}
+	s := &apiServer{dal: newTestDAL(t), hub: NewHub(), keys: singleKeyring([]byte("test-secret")), namespace: "lab"}
 	if _, err := s.runWardenInstallHere(Member{ID: "m-here", Kind: KindWarden}, "/fake/ocwarden", "http://127.0.0.1:7756"); err != nil {
 		t.Fatalf("runWardenInstallHere: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestTeardownHere_ChildEnvGoesThroughTheAllowlist(t *testing.T) {
 	pollutedParentEnv(t)
 	runs := withRecordedOcwarden(t, 0)
 
-	s := &apiServer{dal: newTestDAL(t), hub: NewHub(), secret: []byte("test-secret")}
+	s := &apiServer{dal: newTestDAL(t), hub: NewHub(), keys: singleKeyring([]byte("test-secret"))}
 	exit, _, timedOut := s.runWardenTeardownHere("/fake/ocwarden")
 	if exit != 0 || timedOut {
 		t.Fatalf("fake child: exit=%d timedOut=%v", exit, timedOut)

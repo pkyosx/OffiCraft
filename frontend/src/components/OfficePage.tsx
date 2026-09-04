@@ -335,6 +335,12 @@ export function OfficePage() {
         onRefocus={async () => {
           await api.refocusWorker(workerDetail.id);
         }}
+        // 成本歸零 (T-53, owner-only + irreversible; the panel confirms first).
+        // Refetch is what returns the cell to the dash: the reset clears both
+        // halves server-side, so the next read has nothing to render.
+        onResetCost={async () => {
+          await api.resetMemberCost(workerDetail.id);
+        }}
         // The escalation ladder, same three verbs and same order as 正職
         // (T-ed79). 停止 no longer kills: it asks the worker to work its
         // 〈停止〉 and waits for its own report_stopped.
@@ -448,6 +454,11 @@ export function OfficePage() {
         }}
         onRefocus={async () => {
           await api.refocusMember(detail.id);
+          await refetch();
+        }}
+        // 成本歸零 (T-53, owner-only + irreversible; the panel confirms first).
+        onResetCost={async () => {
+          await api.resetMemberCost(detail.id);
           await refetch();
         }}
         onRename={async (name) => {

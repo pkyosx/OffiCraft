@@ -1557,6 +1557,26 @@ func TaskProgress(steps []TaskStep) (done, total int) {
 	return done, total
 }
 
+// CurrentStep is the ONE definition of "which step is the task on now": the
+// FIRST step, in timeline order (order_idx, id — dal.ListTaskSteps' order),
+// that is not TERMINAL. A superseded row is frozen replan history and a done
+// row is finished, so neither can ever be the working node (T-1aea,
+// StepIsTerminal). Returns "", "" when the plan is empty or every step has
+// reached a terminal state — an honest "there is no current step" that must
+// never be laundered into the first row of the plan.
+//
+// 🔴 This exists so the rule lives in exactly one place. Both the wake snapshot
+// (resumeTasksFor) and the light task list read it; dal.AllTaskCurrentStep is
+// the SQL twin for the list's one grouped query — keep the three agreeing.
+func CurrentStep(steps []TaskStep) (id, name string) {
+	for _, st := range steps {
+		if !StepIsTerminal(st.Status) {
+			return st.ID, st.Name
+		}
+	}
+	return "", ""
+}
+
 // DeriveTaskStatus computes a task's status PURELY from its steps — the single
 // rule, zero exceptions (owner T-9ca5: "任務狀態要照實呈現，不應該有例外"). It
 // returns ONLY the five derived work states; it never returns a lock

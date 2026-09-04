@@ -22,6 +22,7 @@ import type {
   VersionView,
   ReleaseCheckView,
   BackupHealthView,
+  SigningKeyView,
   AuthStatusView,
   MfaEnrollView,
   MfaStateView,
@@ -391,19 +392,40 @@ export interface TaskStepView {
    * waiting step's reason. OPTIONAL so hand-built fixtures stay valid (the
    * replyCardStatus precedent); the mapper always sets it. */
   waitingReason?: string;
-  /** The step's free-text working note — what it got to and what comes next
-   * (T-cc3e). The field the handover SOP means by "把還在進行中的工作寫回 task
-   * step note"; unlike `waitingReason` it is bound to no status, so it carries
-   * progress at whatever moment a handover lands. OPTIONAL so hand-built
-   * fixtures stay valid (the replyCardStatus precedent); the mapper always
-   * sets it. */
-  note?: string;
+  /** How many characters of working note this step has ON THE SERVER (T-66).
+   *
+   * 🔴 THE NOTE TEXT IS NOT ON THIS VIEW MODEL, and that is the whole shape of
+   * the ticket (owner rc-4c8065fb30a5:「整個拿掉…座艙改成點開才抓」). The task
+   * read no longer carries it, so this number is what the card has to work
+   * from: `> 0` draws the 備註 entry, `0` draws nothing because the step
+   * genuinely has none. The text arrives from `getTaskStep` when someone opens
+   * it. A component that wants to SHOW a note and finds only this number is
+   * being told, correctly, to go and fetch it.
+   *
+   * OPTIONAL so hand-built fixtures stay valid (the replyCardStatus
+   * precedent); the mapper always sets it. */
+  noteSizeChars?: number;
   /** Non-empty ⇒ this leaf runs inside a parallel stage (同時進行 · N 項並行);
    * consecutive steps sharing the group render as one parallel block. */
   parallelGroup: string;
   orderIdx: number;
   startedTs: number;
   finishedTs: number;
+}
+
+/** ONE step in FULL (T-66) — what `getTaskStep` answers, and the only place the
+ * cockpit ever holds a step note's text. Everything a `TaskStepView` carries,
+ * plus the `note` itself and the two size numbers.
+ *
+ * `detailLevel` is carried across from the wire rather than dropped: it is the
+ * payload's own statement that this is the whole step, the mirror of the task
+ * view's `"summary"`. Keeping it means a caller that somehow received the wrong
+ * projection can say so instead of silently rendering a blank note. */
+export interface TaskStepDetailView extends TaskStepView {
+  detailLevel: string;
+  note: string;
+  noteSizeChars: number;
+  noteCapChars: number;
 }
 
 /**
@@ -511,18 +533,40 @@ export interface TaskView {
   progressDone: number;
   progressTotal: number;
   steps: TaskStepView[];
-  /** The task's curated deliverable set (T-3dc5), oldest→newest. Only the FULL
-   * task (getTask) carries these; the LIGHT list leaves it [] (it carries only
-   * `artifactCount` for the collapsed card's 「產物 N」 badge). The popover
-   * hydrates the full task to render them. OPTIONAL so hand-built test fixtures
-   * stay valid (the replyCardStatus precedent); the mapper always sets it. */
-  artifacts?: TaskArtifactView[];
+  /** The task's curated deliverable set (T-3dc5), oldest→newest, as an INDEX:
+   * each entry is `{ id, label }` and NOTHING else.
+   *
+   * 🔴 THE ARTIFACT DETAIL IS NOT ON THIS VIEW MODEL (T-66, owner
+   * c-cd063427fb2f:「我覺得任務產物，只需要預設給標題跟ID, 有需要再透過另一隻去
+   * 拿就好了」). url / filename / mime / kind / isImage / attachmentId /
+   * createdTs / createdBy arrive from `listTaskArtifacts`, one call for the
+   * whole ticket. A component that wants to RENDER an artifact and finds only
+   * these two fields is being told, correctly, to go and fetch it.
+   *
+   * Only the FULL task (getTask) carries even the index; the LIGHT list leaves
+   * it [] (it carries only `artifactCount` for the collapsed card's 「產物 N」
+   * badge). OPTIONAL so hand-built test fixtures stay valid (the
+   * replyCardStatus precedent); the mapper always sets it. */
+  artifacts?: TaskArtifactRefView[];
   /** Number of pinned deliverables — the collapsed card's 「產物 N」 badge (0 ⇒
    * badge hidden). On the light list it is the SERVER count (`artifact_count`);
    * on a hydrated full task it equals `artifacts.length` (kept consistent so a
    * post-hydrate card keeps the same badge). OPTIONAL so hand-built fixtures
    * stay valid; the mapper always sets it. */
   artifactCount?: number;
+}
+
+/** ONE pinned deliverable as an INDEX ROW (T-66): which one it is and what it
+ * is called, and nothing that would need a second read. This is what a
+ * `TaskView.artifacts` entry is.
+ *
+ * `label` is honest-empty when the deliverable was pinned without one — it is
+ * NOT backfilled from a filename or a url here, because those live on the full
+ * row. Deciding what to SHOW for a nameless artifact is the renderer's job, on
+ * the full row it fetched. */
+export interface TaskArtifactRefView {
+  id: string;
+  label: string;
 }
 
 /** ONE pinned deliverable on a task's artifact set (T-3dc5), in view-model
@@ -534,6 +578,38 @@ export interface TaskView {
  * filename override). Honest passthrough — never fabricated. */
 export interface TaskArtifactView {
   id: string;
+  kind: "file" | "image" | "link";
+  url: string;
+  label: string;
+  filename: string;
+  mime: string;
+  isImage: boolean;
+  attachmentId: string;
+  createdTs: number;
+  createdBy: string;
+  /** How many versions this deliverable has, the LIVE one INCLUDED (T-60) — 1
+   * for one that has never been replaced, and bounded above because only the
+   * most recent few replaced versions are retained.
+   *
+   * 0 is NOT "no versions": it is what an older server that never sends the
+   * field reads as (the wire default). Both readings say the same thing to the
+   * screen — there is nothing to list — so the versions entry keys on `> 1`,
+   * never on `!== 1`. */
+  versionCount: number;
+}
+
+/** ONE retained PREVIOUS version of a pinned deliverable (T-60), in view-model
+ * form — what the artifact pointed at before a replace, newest first.
+ *
+ * It carries the version WHOLE (a blob id or a url, plus a label); `id` is the
+ * version's own row id and `kind` always equals the live artifact's, which
+ * cannot change across versions. `url`, `mime`, `filename` and `isImage` are
+ * that version's OWN facts, resolved by the server from the retained blob the
+ * same way the live artifact's are — a file/image version's `url` is the blob
+ * serve path (never empty while the blob is alive), and the mime is this
+ * version's, never the live row's. */
+export interface TaskArtifactVersionView {
+  id: number;
   kind: "file" | "image" | "link";
   url: string;
   label: string;
@@ -1540,8 +1616,34 @@ export interface SseDeltaNames {
  *   "live"         — open and delivering.
  *   "unauthorized" — the session is dead; retrying has STOPPED on purpose.
  */
-export type SseConnectionState =
-  "idle" | "connecting" | "live" | "unauthorized";
+/**
+ * What a 成本歸零 destroyed, as the server read it immediately before the write.
+ *
+ * Null on a half means there was nothing to clear there — NOT that zero was
+ * cleared. The distinction matters because it is the same null semantics the
+ * cost READ side uses, so a caller keeps one rule for both.
+ */
+export type CostResetReceipt = {
+  memberId: string;
+  clearedCost: number | null;
+  clearedBankedCost: number | null;
+};
+
+/**
+ * What an ACCOUNT 歸零 destroyed: the account's OWN accumulated spend as it
+ * stood immediately before the write.
+ *
+ * Nothing about any member appears here because nothing about any member
+ * changed — the account figure and the per-member figures are cleared
+ * independently (owner ruling rc-5c5d7c7c6dcd). Null means there was nothing to
+ * clear, NOT that zero was cleared, the same rule the read side uses.
+ */
+export type AccountCostResetReceipt = {
+  account: string;
+  clearedCost: number | null;
+};
+
+export type SseConnectionState = "idle" | "connecting" | "live" | "unauthorized";
 
 export interface SseDelta {
   topic: string;
@@ -1635,6 +1737,48 @@ export interface Api {
    * surfaces stopped.
    */
   forceStopMember(id: string): Promise<void>;
+  /**
+   * 成本歸零: POST /api/members/{id}/cost/reset → clear ONE actor's estimated
+   * spend, both halves at once (the durable banked figure AND the live
+   * telemetry figure). Serves staff and outsource workers alike, a RELEASED
+   * worker included (owner ruling rc-1344cc76a24a) — a worker that has left
+   * still has a figure on screen, and the button beside it has to be able to
+   * clear it. Only an id that resolves to nobody is a 404.
+   *
+   * It does NOT move the account card: since rc-5c5d7c7c6dcd that figure is an
+   * accumulator of its own with its own button (resetAccountCost), which is why
+   * the ruling above reads as being about account totals — that was true of the
+   * model it was written under, one day earlier.
+   *
+   * 🔴 IRREVERSIBLE (owner ruling rc-7dea0deefa63). Nothing is retained and
+   * there is no undo route — call it behind a confirm, never optimistically.
+   *
+   * Resolves with a RECEIPT of what was destroyed, read immediately before the
+   * write, because that response is the last moment those numbers exist
+   * anywhere. Null on a half means there was nothing to clear there, NOT that
+   * zero was cleared — the same null semantics the read side uses, so the
+   * caller reuses one summing rule. After the reset the 估計$ cell falls back
+   * to the dash on its own; the caller refetches.
+   */
+  resetMemberCost(id: string): Promise<CostResetReceipt>;
+  /**
+   * 帳號歸零: POST /api/accounts/cost/reset → set ONE account's own accumulated
+   * spend back to 0 (owner ruling rc-5c5d7c7c6dcd「分開：帳號卡自己一份數字，清它
+   * 不動成員」).
+   *
+   * 🔴 It touches NO member or worker figure. Since that ruling the account card
+   * is not a fold over the actors on the account — it is an accumulator of its
+   * own, fed by the increase each telemetry report brings — so this clears the
+   * card and leaves every 估計$ underneath it exactly where it was.
+   *
+   * IRREVERSIBLE: nothing is retained and there is no undo route, so call it
+   * behind a confirm. Resolves with a RECEIPT of the figure destroyed, which is
+   * the last moment it exists; null means there was nothing to clear. An account
+   * nobody has reported under is not an error — the same 200 with null — so a
+   * second press reads as honest rather than broken. Refetch monitoring after
+   * it: the card is folded from that read.
+   */
+  resetAccountCost(account: string): Promise<AccountCostResetReceipt>;
   /**
    * 加速停止 (accelerated stop): POST /api/members/{id}/accelerated-stop → put a
    * wind-down that is ALREADY OPEN on the server's stop.accelerated_grace_secs
@@ -1777,12 +1921,14 @@ export interface Api {
    * row carrying the sender id + server-resolved display name + send time.
    * READ-ONLY (no read-watermark side effect, unlike listChat's auto-mark). */
   listChatAttachments(withId: string): Promise<GalleryAttachment[]>;
-  /** Mint the PERMANENT share link for one attachment
+  /** Mint the share link for one attachment
    * (`GET /api/chat/attachments/{id}/share-link`): resolves to the blob's
    * server-relative serve path carrying its `?sig=` file-level HMAC credential
    * — anyone holding the URL may read exactly this one blob, nothing else, no
-   * expiry. Callers prefix the page origin to form the absolute, sendable URL.
-   * Unknown id → 404 (throws). */
+   * expiry. It is NOT permanent: the sig is derived from the key that signs at
+   * mint time, so removing that key from the signing-key ring voids it, along
+   * with every other link that key signed (T-62). Callers prefix the page
+   * origin to form the absolute, sendable URL. Unknown id → 404 (throws). */
   getChatAttachmentShareLink(attachmentId: string): Promise<string>;
   /** Post a chat message. May carry text and/or MULTIPLE generic `attachments`
    * (pasted images AND/OR uploaded files, mixed), sent to the server as the
@@ -1908,6 +2054,36 @@ export interface Api {
    * updatedTs moves while expanded) to hydrate the workflow timeline.
    */
   getTask(id: string): Promise<TaskView>;
+  /**
+   * Fetch ONE step in full (`GET /api/tasks/{task_id}/steps/{step_id}`, T-66) —
+   * the only read that carries a step's working-note TEXT.
+   *
+   * 🔴 It exists because `getTask` stopped carrying it. The task read reports
+   * each step's `noteSizeChars` and nothing else, so the 任務卡 draws the 備註
+   * entry from that number and calls this ONLY when the reader opens one —
+   * owner rc-4c8065fb30a5:「座艙改成點開才抓」. Do not call it per step while
+   * rendering a timeline; that is the cost the split removed.
+   *
+   * A step id that belongs to a different task is a 404 (ApiError), not another
+   * task's step.
+   */
+  getTaskStep(taskId: string, stepId: string): Promise<TaskStepDetailView>;
+  /**
+   * Fetch ONE task's pinned deliverables in full
+   * (`GET /api/tasks/{task_id}/artifacts`, T-66) — the only read that carries
+   * an artifact's url / filename / mime / kind / isImage / attachmentId /
+   * createdTs / createdBy.
+   *
+   * 🔴 It exists because `getTask` stopped carrying them: a task's `artifacts`
+   * are an id+label INDEX now (owner c-cd063427fb2f), so anything that DRAWS an
+   * artifact calls this. ONE call answers the WHOLE ticket — there is
+   * deliberately no per-artifact read (owner c-f2d0fecb1168:「應該是指名任務？」),
+   * because the cockpit's deliverables panel opens onto the entire set and a
+   * per-artifact door would cost one call per row.
+   *
+   * An unknown task id is a 404 (ApiError); a task with nothing pinned is [].
+   */
+  listTaskArtifacts(taskId: string): Promise<TaskArtifactView[]>;
   /** The task counts behind the nav badge (`GET /api/tasks/count`) — a cheap
    * dedicated endpoint so the badge can refetch on every "task" SSE delta
    * without pulling the list. `open` = non-terminal (the badge). `total` = every
@@ -2022,9 +2198,28 @@ export interface Api {
    * agent PINS via MCP but does not remove). The write answers with a bounded
    * receipt (T-a98d), so nothing is returned here — refetch, or take the SSE
    * delta. Unknown task/artifact → 404, wrong-task → 400 (both throw
-   * ApiError). The referenced blob is left intact.
+   * ApiError). The live blob is left intact, but every retained version of the
+   * artifact is deleted with it, along with the blobs only those versions used.
    */
   removeTaskArtifact(taskId: string, artifactId: string): Promise<void>;
+
+  /**
+   * List the retained PREVIOUS versions of one pinned deliverable, newest
+   * first (`GET /api/tasks/{taskId}/artifact/{artifactId}/history`, T-60) —
+   * cockpit-only, and deliberately not an MCP tool.
+   *
+   * READ-ONLY BY DESIGN: there is no restore face anywhere on this seam. An
+   * older version comes back by replacing FORWARD with it, which is the
+   * executing agent's write, not the cockpit's.
+   *
+   * An artifact that has never been replaced answers with an empty list — the
+   * honest "nothing has been replaced here". Unknown task/artifact → 404,
+   * wrong-task → 400 (both throw through the shared envelope).
+   */
+  listTaskArtifactVersions(
+    taskId: string,
+    artifactId: string,
+  ): Promise<TaskArtifactVersionView[]>;
   /**
    * The task-card message box (`POST /api/tasks/{id}/message`): the server
    * posts ONE ordinary chat message owner → the task's executor with the task
@@ -2246,6 +2441,15 @@ export interface Api {
    * `healthy`.
    */
   getBackupHealth(): Promise<BackupHealthView>;
+  /** GET /api/auth/signing-keys — the ring, oldest first (T-62, owner-gated). */
+  getSigningKeys(): Promise<SigningKeyView[]>;
+  /** POST /api/auth/signing-keys/rotate — add a key and hand signing to it.
+   * Nothing is revoked; every existing key keeps verifying. Answers the ring
+   * AFTER the rotation, so no caller re-fetches to learn where it stands. */
+  rotateSigningKey(): Promise<SigningKeyView[]>;
+  /** POST /api/auth/signing-keys/{keyId}/remove — REVOKE everything that key
+   * signed. No undo, no grace period. Answers the ring after the removal. */
+  removeSigningKey(keyId: string): Promise<SigningKeyView[]>;
   /** The folded global-context doc (owner overlay ⊕ file seed). */
   getGlobalContext(): Promise<GlobalContextView>;
   /** Whole-doc replace of the global context → returns the folded doc

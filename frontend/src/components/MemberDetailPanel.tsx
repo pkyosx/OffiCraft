@@ -100,6 +100,8 @@ interface MemberDetailPanelProps {
   /** Manual wake (online) / refocus context → refocusMember. May be async so
    * the panel can surface an in-flight / done / error state. */
   onRefocus?: () => void | Promise<void>;
+  /** 成本歸零 (owner-only, irreversible). Absent ⇒ no button. */
+  onResetCost?: () => void | Promise<void>;
   /** Commit a rename → patchMember({ name }). */
   onRename?: (name: string) => void;
   onUpdateAvatar?: (file: File) => Promise<void>;
@@ -115,6 +117,7 @@ export function MemberDetailPanel({
   onAcceleratedStop,
   onForceStop,
   onRefocus,
+  onResetCost,
   onRename,
   onUpdateAvatar,
   onRemoveAvatar,
@@ -1650,6 +1653,7 @@ export function MemberDetailPanel({
         liveCost: member.estimatedCost,
         bankedCost: member.bankedCost,
         onRefocus,
+        onResetCost,
         refocusSince: member.refocusSince,
         refocusOp: member.refocusOp,
         refocusDeadline: member.refocusDeadline,

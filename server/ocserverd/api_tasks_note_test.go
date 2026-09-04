@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // ── T-cc3e 步驟備註欄 guards ─────────────────────────────────────────────────
@@ -13,7 +14,9 @@ import (
 // declared: the ticket exists because a documented note field turned out not to
 // exist, and a test that only reads the schema would have passed just as
 // happily against that nothing. Every case below writes a distinctive string
-// and reads it back through the real read path (get_task's step view).
+// and reads it back through the real read path — which since T-66 is
+// get_task_step, the single-step read; get_task reports each step's note SIZE
+// and no longer its text.
 
 // writeStepNote posts one note write as the given caller and returns the
 // recorder, so each case asserts its own status code.
@@ -27,23 +30,42 @@ func writeStepNote(t *testing.T, api *apiServer, taskID, stepID, caller, note st
 	return rec
 }
 
-// readStepNote re-reads one step through the task view — the path a successor
-// session actually uses (get_task), not the DAL.
+// readStepNote re-reads one step through the REAL READ PATH — which since T-66
+// is get_task_step, not get_task. Every case in this file (and in the three
+// other files that share this helper) exists to prove that what a handover
+// WRITES is what the next session READS, so the helper has to keep going
+// through the door a successor session actually opens. get_task no longer
+// carries the note text at all, so a helper still looping over its step rows
+// would read "" for every case and prove nothing.
+//
+// It is deliberately STRICTER than its predecessor rather than looser: the
+// single-step read is asked to identify itself (detail_level "full"), to be the
+// step that was asked for, and to agree with its own reported size. A response
+// that came back with the summary projection, with a different step, or with a
+// size that disagrees with the text now fails HERE instead of passing quietly
+// into whichever case is calling.
 func readStepNote(t *testing.T, api *apiServer, taskID, stepID string) string {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	api.HandleGetTaskApiTasksTaskIdGet(rec,
-		taskReq(t, "GET", "/api/tasks/"+taskID, nil, "m-exec", "agent"), taskID)
+	api.HandleGetTaskStepApiTasksTaskIdStepsStepIdGet(rec,
+		taskReq(t, "GET", "/api/tasks/"+taskID+"/steps/"+stepID, nil, "m-exec", "agent"),
+		taskID, stepID)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("get task: %d %s", rec.Code, rec.Body.String())
+		t.Fatalf("get task step: %d %s", rec.Code, rec.Body.String())
 	}
-	for _, st := range decodeBody[taskDTO](t, rec).Steps {
-		if st.ID == stepID {
-			return st.Note
-		}
+	got := decodeBody[taskStepDetailDTO](t, rec)
+	if got.DetailLevel != "full" {
+		t.Fatalf("single-step read must declare detail_level=full, got %q", got.DetailLevel)
 	}
-	t.Fatalf("step %s missing from the task view", stepID)
-	return ""
+	if got.ID != stepID || got.TaskID != taskID {
+		t.Fatalf("single-step read answered step %q of task %q, asked for %q of %q",
+			got.ID, got.TaskID, stepID, taskID)
+	}
+	if got.NoteSizeChars != utf8.RuneCountInString(got.Note) {
+		t.Fatalf("note_size_chars %d disagrees with the %d runes it served",
+			got.NoteSizeChars, utf8.RuneCountInString(got.Note))
+	}
+	return got.Note
 }
 
 // TestStepNoteRoundTripsThroughTheTaskView is the核心 assertion: what a

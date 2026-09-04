@@ -1741,3 +1741,80 @@
   border-radius: 6px;
   background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
 }
+
+/* ── 簽章金鑰 (T-62) ───────────────────────────────────────────────────────────
+   Every colour here is a theme token, never a literal: the card renders under
+   whatever theme the cockpit is wearing, and a hard-coded hex would be correct
+   in exactly one of them. */
+/* .param-card supplies no padding of its own — in every other card that lives
+   in .param-row, which this one does not use. Without this the whole card
+   rendered flush to its border, and the CT overflow guard could not see it:
+   zero padding makes a spill LESS likely, so the guard was green on the defect.
+   16px/18px is .param-row's own padding, kept identical so this card lines up
+   with the rest of the page. */
+.signing-keys {
+  padding: 16px 18px;
+}
+.signing-keys__hint {
+  color: var(--color-text-muted);
+}
+.signing-keys__loading {
+  color: var(--color-text-muted);
+}
+.signing-keys__count {
+  color: var(--color-text-muted);
+  margin-bottom: 0.4rem;
+}
+.signing-keys__list {
+  list-style: none;
+  margin: 0 0 0.6rem;
+  padding: 0;
+}
+.signing-keys__row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.signing-keys__row:last-child {
+  border-bottom: none;
+}
+.signing-keys__id {
+  font-family: var(--font-mono, monospace);
+}
+.signing-keys__badge {
+  font-size: 0.85em;
+  padding: 0.05rem 0.4rem;
+  border-radius: 0.6rem;
+  border: 1px solid var(--color-border);
+}
+/* The signing key is the one fact someone scans this list for, so it is the one
+   thing that carries an accent; the retired rows stay muted rather than being
+   coloured as a second kind of alarm. */
+.signing-keys__badge--signing {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.signing-keys__badge--retired {
+  color: var(--color-text-muted);
+}
+.signing-keys__created {
+  color: var(--color-text-muted);
+  font-size: 0.9em;
+}
+.signing-keys__remove {
+  margin-left: auto;
+}
+.signing-keys__actions {
+  margin-top: 0.5rem;
+}
+.signing-keys__confirm-title {
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+}
+.signing-keys__confirm-warn {
+  margin-top: 0.5rem;
+  color: var(--color-danger);
+}

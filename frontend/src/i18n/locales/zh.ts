@@ -275,6 +275,13 @@ export const zh = {
     // 收起時的字面留著「備註」兩字是刻意的 —— 有備註的步驟與沒備註的步驟,
     // 在收起狀態下就靠這顆按鈕在不在分辨。
     stepNoteExpand: "展開備註",
+    // T-66:備註全文改成「點開才抓」(owner rc-4c8065fb30a5:「座艙改成點開才抓」)。
+    // 卡片上只有大小(note_size_chars),全文要打一次 get_task_step —— 所以按下去
+    // 到文字出現之間有一段真實的空窗,而且它會失敗。這兩句就是那兩個狀態:
+    // 沒有它們,抓失敗的 overlay 會是一片空白,讀起來像「這一步的備註是空的」,
+    // 而那正是卡片上的入口已經否定過的事(入口只在有備註時才畫)。
+    stepNoteLoading: "讀取備註中…",
+    stepNoteFailed: "讀取備註失敗,請關閉後再試一次。",
     // deps:「等 <任務編號>」chip 可多筆(mockup 樣式,owner 2026-07-13)
     blockedByLabel: "等",
     // T-1d82:dep 指向的任務查不到(已刪 / 壞 id)。保留原始 id(那是僅剩的線索),
@@ -363,9 +370,34 @@ export const zh = {
       empty: "還沒有產物",
       close: "關閉產物",
       remove: "移除產物",
-      removeConfirm: "從任務卡移除這個產物?(不會刪除檔案本身)",
+      removeConfirm:
+        "從任務卡移除這個產物？目前指向的檔案會保留，但這個產物若曾被取代，保留下來的每個舊版本都會連同檔案一起永久刪除。",
+      loading: "載入產物中…",
+      loadFailed: "產物讀取失敗,請關掉再打開試試",
       downloadHint: "下載",
       openLinkHint: "開啟連結",
+      // ── T-60: a pinned deliverable can be REPLACED, keeping its id. The row
+      // gets a versions entry only when there is more than one version to look
+      // at; the reader behind it is read-only (there is no restore verb).
+      versionsEntry: "查看版本",
+      versionsCountTail: "版",
+      versionsTitle: "產物版本",
+      versionsClose: "關閉版本",
+      versionsPaneLabel: "檢視",
+      versionsPaneContent: "內容",
+      versionsPaneDiff: "差異",
+      versionsCurrent: "目前版本",
+      versionsVersionLabel: "版本",
+      versionsByLabel: "修改者",
+      versionsEmpty: "沒有更早的版本",
+      versionsLoading: "載入中…",
+      versionsLoadError: "讀不到版本紀錄",
+      versionsContentError: "讀不到這個版本的內容",
+      versionsContentGone: "這個版本沒有指向任何內容",
+      versionsUnnamed: "未命名",
+      versionsUnpinned: "這個產物已經不在任務上了",
+      versionsOpaqueLead: "這不是文字檔(",
+      versionsOpaqueTail: "),只能切換前後各看一次。",
     },
   },
   // ── 請示頁(M2 回覆卡 B2)──
@@ -781,7 +813,7 @@ export const zh = {
     themeImportLinkWorking: "抓取中…",
     themeImportLinkFailed: "抓不到那條連結",
     themeImportLinkShareNote:
-      "分享連結沒有身分、永久有效、撤不回來——連得到這台站又拿到連結的人都讀得到這套主題,包含裡面的私人圖片。",
+      "分享連結沒有身分、也不會過期——連得到這台站又拿到連結的人都讀得到這套主題,包含裡面的私人圖片。單一條連結收不回來;要作廢只有一個很粗的辦法:到〈設定 › 簽章金鑰〉移除當初簽它的那把金鑰,那會讓同一把金鑰簽過的所有連結一起失效。",
     themeImportDup: "已有相同 id 的自訂主題",
     themeImportReadFailed: "讀取檔案失敗",
     themeLimitReached: "自訂主題數量已達上限",
@@ -947,7 +979,8 @@ export const zh = {
     galleryClose: "關閉檔案庫",
     galleryPreviewHint: "開新分頁預覽",
     galleryDownloadHint: "下載",
-    // 檔案級永久分享連結(?sig= HMAC)— 複製到剪貼簿。
+    // 檔案級分享連結(?sig= HMAC)— 複製到剪貼簿。不會過期,但不是永久:
+    // 它跟著簽章金鑰環走,移除當初簽它的那把金鑰就會讓它失效(T-62)。
     copyShareLink: "複製分享連結",
     shareLinkCopied: "已複製連結",
     shareLinkCopyFailed: "複製連結失敗",
@@ -1096,6 +1129,13 @@ export const zh = {
     lastOpFail: "失敗",
     lastOpLogLabel: "查看記錄",
     estimatedCost: "估計$",
+    costReset: "歸零",
+    costResetHint: "把這個成員的累計估計花費歸零。按下去救不回來。",
+    costResetConfirm: "確定歸零",
+    costResetError: "歸零失敗，數字沒有被清掉。",
+    costResetConfirmBodyLead: "這會把目前累計的 ",
+    costResetConfirmBodyTail:
+      " 歸零，從 0 重新開始累積。這個數字沒有留在任何其他地方，清掉就回不來了。",
     terminal: "終端 · TMUX",
     copyCommand: "複製指令",
     copied: "已複製",
@@ -1385,6 +1425,15 @@ export const zh = {
     renameError: "改名失敗",
     // §1 account cards
     accountsEmpty: "尚無帳號用量資料",
+    // 帳號歸零 (T-53, owner ruling rc-5c5d7c7c6dcd) — the ACCOUNT's own figure,
+    // cleared without touching any member's.
+    costReset: "歸零",
+    costResetHint: "把這個帳號的累計花費歸零。不會動到底下任何成員的數字。按下去救不回來。",
+    costResetConfirm: "確定歸零",
+    costResetError: "歸零失敗，數字沒有被清掉。",
+    costResetConfirmBodyLead: "這會把這個帳號累計的 ",
+    costResetConfirmBodyTail:
+      " 歸零，從 0 重新開始累積。底下成員各自的數字不會被動到。這個數字沒有留在任何其他地方，清掉就回不來了。",
     estimate: "估計",
     fiveHour: "5 小時窗",
     sevenDay: "7 天窗",
@@ -1577,6 +1626,32 @@ export const zh = {
   // 兩個面共用這一組字:topbar 常駐指示燈與監控頁的備份卡。**主要句子一律由
   // `code` 推導**(下面的 reason*),伺服器的 `detail` 只當次要診斷字串顯示——
   // 它是英文、給工程師看的,不是使用者面的那句話。
+  // 簽章金鑰輪替 (T-62)
+  signingKeys: {
+    title: "簽章金鑰",
+    intro:
+      "伺服器用簽章金鑰簽發登入憑證。可以同時存在多把：只有一把在簽，其餘的仍然驗得過 —— 這是換金鑰的過渡期。",
+    loading: "讀取中…",
+    signingBadge: "正在簽",
+    retiredBadge: "只驗不簽",
+    createdLabel: "產生於",
+    createdUnknown: "此站啟用以來（時間未記錄）",
+    countLabel: (n: number) => `目前有 ${n} 把金鑰`,
+    rotateButton: "產生新金鑰",
+    rotateHint:
+      "產生一把新的並讓它接手簽章。既有的登入不會被踢掉：舊金鑰留著繼續驗，只是不再簽新的。立刻生效，不必重啟。",
+    removeButton: "移除",
+    // 🔴 這兩句是這張卡最重要的文字。移除沒有復原，而它的射程比人直覺的大。
+    removeConfirmTitle: "移除這把金鑰？",
+    removeConfirmBody:
+      "這把金鑰簽過的東西會當場全部失效，沒有緩衝期，也不會通知任何人：用它簽的登入憑證會被拒絕，用它產生的檔案分享連結也會一起壞掉。",
+    removeConfirmWarden:
+      "⚠️ 機器（warden）的憑證沒有到期時間，不會自己過期。要判斷現在能不能移除，看的是「所有機器都重新連過了嗎」，不是「等了幾天」。",
+    removeConfirmCancel: "取消",
+    removeConfirmOk: "確定移除",
+    actionFailed: "這個動作沒有成功，伺服器沒有說明原因。",
+    emptyState: "讀不到金鑰。",
+  },
   backupHealth: {
     title: "備份健康",
     // 三個 status 的短標。unknown 不是比較安靜的 healthy:它是「判斷不出來」,

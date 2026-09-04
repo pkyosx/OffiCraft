@@ -240,7 +240,7 @@ func errMessage(data map[string]any) string {
 // IDEMPOTENT: exactly one title in the assembled context, always.
 func TestBootContextLessonsTitleInjectionIsIdempotent(t *testing.T) {
 	_, dal, _ := newLessonsTestServer(t)
-	api := newAPIServer(dal, NewHub(), []byte(interopSecret), 3600, "../..")
+	api := newAPIServer(dal, NewHub(), singleKeyring([]byte(interopSecret)), 3600, "../..")
 	title := "# Lessons (assistant)"
 
 	countTitle := func(doc string) int {
@@ -305,7 +305,7 @@ func TestBootContextLessonsTitleInjectionIsIdempotent(t *testing.T) {
 // from the strip has to turn red.
 func TestBootContextStripsThePreT2LessonsTitle(t *testing.T) {
 	_, dal, _ := newLessonsTestServer(t)
-	api := newAPIServer(dal, NewHub(), []byte(interopSecret), 3600, "../..")
+	api := newAPIServer(dal, NewHub(), singleKeyring([]byte(interopSecret)), 3600, "../..")
 	const title = "# Lessons (assistant)"
 	const legacy = "# Lessons (assistant / general)"
 

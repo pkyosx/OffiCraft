@@ -83,7 +83,7 @@ func TestReceiptReporter_PremiseWardenSubIsTheMachineID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("mint warden token: %v", err)
 	}
-	claims, err := verifyJWT(tok, s.secret, 0)
+	claims, err := verifyJWT(tok, s.keys.signingSecret(), 0)
 	if err != nil {
 		t.Fatalf("verify warden token: %v", err)
 	}

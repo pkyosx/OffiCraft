@@ -24,7 +24,7 @@ const invalidCredentialsMsg = "invalid password or code"
 // (omitted when empty). Members bind their durable desired machine; workers
 // bind the warden actually picked at dispatch time.
 func (s *apiServer) mintAgentToken(sub, machineID string, ttl int64) (string, error) {
-	return mintJWT(sub, "agent", ttl, s.secret, time.Now().Unix(), machineID)
+	return mintJWT(sub, "agent", ttl, s.keys.signingSecret(), time.Now().Unix(), machineID)
 }
 
 // mintMemberToken mints a member's boot JWT (service.boot.mint_member_token):
@@ -41,7 +41,7 @@ func (s *apiServer) mintWardenToken(m Member) (string, error) {
 	if m.Kind != machineKind {
 		return "", fmt.Errorf("%w: permanent credentials are warden-only", errInvalidToken)
 	}
-	return mintJWTWithoutExpiry(m.ID, "agent", s.secret, time.Now().Unix(), "")
+	return mintJWTWithoutExpiry(m.ID, "agent", s.keys.signingSecret(), time.Now().Unix(), "")
 }
 
 // POST /api/login — exchange the owner password (and, once enrolled, a TOTP
@@ -81,7 +81,7 @@ func (s *apiServer) HandleLoginApiLoginPost(w http.ResponseWriter, r *http.Reque
 	// verification, which made it a distinguishable refusal reached THROUGH the
 	// credential path; settling it here makes it a fact about the SERVER, which
 	// GET /api/auth/status already tells anyone who asks.
-	if len(s.secret) == 0 {
+	if len(s.keys.signingSecret()) == 0 {
 		writeError(w, http.StatusUnauthorized, "auth not configured")
 		return
 	}
@@ -133,7 +133,7 @@ func (s *apiServer) HandleLoginApiLoginPost(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	ttl := s.ownerTokenTTLValue()
-	token, err := mintJWT(wireOwnerID, "owner", ttl, s.secret, time.Now().Unix(), "")
+	token, err := mintJWT(wireOwnerID, "owner", ttl, s.keys.signingSecret(), time.Now().Unix(), "")
 	if err != nil {
 		// A mint failure is a SERVER fault, not a credential one, so it spends no
 		// floor and raises no alert: nothing was guessed wrong here. The TOTP
@@ -172,7 +172,7 @@ func (s *apiServer) HandleMintApiMintPost(w http.ResponseWriter, r *http.Request
 	}
 	// The mint here deliberately carries NO machine_id claim (lifecycle.md
 	// §1.3 mint table: /api/mint — machine_id "none").
-	token, err := mintJWT(m.ID, "agent", ttl, s.secret, time.Now().Unix(), "")
+	token, err := mintJWT(m.ID, "agent", ttl, s.keys.signingSecret(), time.Now().Unix(), "")
 	if err != nil {
 		internalError(w, err)
 		return
@@ -213,7 +213,7 @@ func (s *apiServer) HandleBootstrapApiBootstrapPost(w http.ResponseWriter, r *ht
 		return
 	}
 	var token *string
-	if member != nil && len(s.secret) > 0 {
+	if member != nil && len(s.keys.signingSecret()) > 0 {
 		minted, err := s.mintMemberToken(*member, s.agentTokenTTLValue())
 		if err != nil {
 			internalError(w, err)

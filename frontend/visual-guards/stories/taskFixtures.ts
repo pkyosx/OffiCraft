@@ -2,9 +2,13 @@
 // jsdom suite (TaskCard.progress-bar.test.tsx) already pins, so the guards test
 // the SAME cards — only in a real browser where layout is observable.
 import type { Member } from "../../src/types";
+import { api } from "../../src/api";
+import { __injectMockTask } from "../../src/api/mock";
+import type { MockTaskRow } from "../../src/api/mock";
 import type {
   TaskView,
   TaskStepView,
+  TaskStepDetailView,
   OutsourceWorkerView,
 } from "../../src/api/adapter";
 
@@ -26,7 +30,79 @@ export function mkStep(over: Partial<TaskStepView>): TaskStepView {
   };
 }
 
-export function mkTask(over: Partial<TaskView>): TaskView {
+// ── 步驟備註 ───────────────────────────────────────────────────────────────
+//
+// 🔴 A GUARD FIXTURE CANNOT CARRY NOTE TEXT ANY MORE, and that is why this
+// exists. T-66 split the step note in two: the card payload (`TaskStepView`)
+// keeps only `noteSizeChars`, and the text is fetched on click through
+// `api.getTaskStep`. A fixture that still sets `note:` on a step therefore does
+// NOTHING — the field is not on the type any more and the card draws the 備註
+// entry from `(step.noteSizeChars ?? 0) > 0`, so no entry is drawn and every
+// note guard fails on a locator that never appears.
+//
+// 🔴 AND TYPESCRIPT WILL NOT TELL YOU. This whole directory is outside every
+// tsconfig `include` (tsconfig.json takes only `src`; tsconfig.guards.json
+// takes `paint-guards` plus the two playwright configs), so `npm run typecheck`
+// stays green over a stale `note:` here — that is exactly how these guards were
+// left red by a change that type-checked. The only thing that checks this file
+// is RUNNING it: `npx playwright test -c playwright-ct.config.ts <spec>`.
+//
+// So a note-carrying fixture has to say it in the two places the product now
+// says it: a SIZE on the step, and TEXT behind the per-step read.
+const STEP_NOTES = new Map<string, { step: TaskStepView; note: string }>();
+
+/** A step that CARRIES A NOTE, in T-66's two halves: `noteSizeChars` on the
+ * card payload (what draws the 右下角 備註 entry) and the text registered for
+ * the per-step read that entry fires. Pass an explicit `id` — it is the key. */
+export function mkNoteStep(
+  over: Partial<TaskStepView>,
+  note: string
+): TaskStepView {
+  const step = mkStep({ ...over, noteSizeChars: [...note].length });
+  STEP_NOTES.set(step.id, { step, note });
+  return step;
+}
+
+// The per-step read the note entry fires, answered from the registry above.
+//
+// This patches the `api` object (the SoftwareUpdateStory precedent) rather than
+// landing the task in the mock store, because the mock's own `getTaskStep`
+// answers `note: ""` by construction: a stored step is a `TaskStepView` and
+// that type has no text field, so there is nothing for it to return. A step
+// this registry does not know answers "" — the same honest empty.
+api.getTaskStep = async (
+  _taskId: string,
+  stepId: string
+): Promise<TaskStepDetailView> => {
+  const hit = STEP_NOTES.get(stepId);
+  const note = hit?.note ?? "";
+  return {
+    ...(hit?.step ?? mkStep({ id: stepId })),
+    detailLevel: "full",
+    note,
+    noteSizeChars: [...note].length,
+    noteCapChars: 4000,
+  };
+};
+
+// ── 產物 ──────────────────────────────────────────────────────────────────
+//
+// 🔴 THE POPOVER FETCHES ITS ROWS (T-66) — it does not read them off the card,
+// which since this ticket carries only an id+label index. So a story that wants
+// a populated panel has to land its task in the MOCK STORE, which is what `api`
+// resolves to under CT (playwright-ct.config.ts sets no VITE_USE_MOCK, so
+// src/api/index.ts hands out mockApi). A fixture the store does not know makes
+// `listTaskArtifacts` a 404 and the panel opens on its failure state while the
+// badge still says N.
+//
+// Every task passed here needs its OWN id: the store is keyed by it and
+// `findTask` answers the first match.
+export function serveArtifacts<T extends MockTaskRow>(task: T): T {
+  __injectMockTask(task);
+  return task;
+}
+
+export function mkTask(over: Partial<MockTaskRow>): MockTaskRow {
   return {
     id: "t-ad215291a016",
     taskNo: "t-ad215291a016",
@@ -112,7 +188,9 @@ export const WORKERS: OutsourceWorkerView[] = [];
 // T-3dc5 artifact-set fixtures. WITH_ARTIFACTS carries all three kinds so the
 // popover's 檔案/圖片/連結 tabs each have a row; NO_ARTIFACTS asserts the
 // empty-set case (count 0 ⇒ the badge must NOT render at all).
-export const WITH_ARTIFACTS: TaskView = mkTask({
+export const WITH_ARTIFACTS: MockTaskRow = serveArtifacts(mkTask({
+  id: "t-3dc55291a020",
+  taskNo: "t-3dc55291a020",
   artifactCount: 3,
   artifacts: [
     {
@@ -152,9 +230,16 @@ export const WITH_ARTIFACTS: TaskView = mkTask({
       createdBy: "mira",
     },
   ],
-});
+}));
 
-export const NO_ARTIFACTS: TaskView = mkTask({ artifactCount: 0, artifacts: [] });
+export const NO_ARTIFACTS: MockTaskRow = serveArtifacts(
+  mkTask({
+    id: "t-3dc55291a021",
+    taskNo: "t-3dc55291a021",
+    artifactCount: 0,
+    artifacts: [],
+  })
+);
 
 // T-90df ragged-row fixture (owner 2026-07-20): the reported bug was that the
 // 檔案 tab's chips sized to their filenames, so a short name and a long one
@@ -163,7 +248,9 @@ export const NO_ARTIFACTS: TaskView = mkTask({ artifactCount: 0, artifacts: [] }
 // the only shape that can prove equal chip widths and a single action column
 // in real layout (jsdom computes none). One image + one link ride along so the
 // cross-tab shape can be checked too.
-export const RAGGED_ARTIFACTS: TaskView = mkTask({
+export const RAGGED_ARTIFACTS: MockTaskRow = serveArtifacts(mkTask({
+  id: "t-90df5291a022",
+  taskNo: "t-90df5291a022",
   artifactCount: 4,
   artifacts: [
     {
@@ -216,7 +303,7 @@ export const RAGGED_ARTIFACTS: TaskView = mkTask({
       createdBy: "mira",
     },
   ],
-});
+}));
 
 // T-6338 (owner 2026-07-20 report): two artifacts pinned under the IDENTICAL
 // filename — the exact shape from the owner's screenshot (`DEMO-CUST_demo.mp4`
@@ -226,7 +313,9 @@ export const RAGGED_ARTIFACTS: TaskView = mkTask({
 // exactly the failure mode the ticket calls out ("兩個時間剛好相近或格式讓人
 // 看不出差異"). Only `id` differs, which is what the per-row ref tag must
 // fall back on to keep the two rows provably distinct.
-export const SAME_NAME_ARTIFACTS: TaskView = mkTask({
+export const SAME_NAME_ARTIFACTS: MockTaskRow = serveArtifacts(mkTask({
+  id: "t-63385291a023",
+  taskNo: "t-63385291a023",
   artifactCount: 2,
   artifacts: [
     {
@@ -254,7 +343,7 @@ export const SAME_NAME_ARTIFACTS: TaskView = mkTask({
       createdBy: "mira",
     },
   ],
-});
+}));
 
 // The 負責人 + 轉派 icon stress fixture (owner 2026-07-18): a live card whose
 // assignee display name is long enough to force the chip to ellipse at 390px.

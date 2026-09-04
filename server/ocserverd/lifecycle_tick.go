@@ -34,8 +34,13 @@ const lifecycleCadenceSecs = 30.0
 //
 // 🔴 THE HALVES SHARE NO LOCALS AND NO LOCKS — AND THERE IS EXACTLY ONE SHARED
 // ROW SET, WHICH IS NAMED HERE. Their ROSTER READS are disjoint: the reconcile
-// half reads ListMembers, which is `WHERE kind != 'outsource'` by construction
-// (dal.go); the outsource half reads tasks/workers/manuals/deps. No value
+// half reads ListMembers and drops every row lifecycleTickDriverFor sends to the
+// other half; the outsource half reads tasks/workers/manuals/deps. ⚠️ THE
+// DISJOINTNESS IS NO LONGER A PROPERTY OF THE QUERY. ListMembers used to be
+// `WHERE kind != 'outsource'` and is now the whole member table (T-14 項目 6), so
+// what keeps these two reads disjoint is the driver guard at the head of
+// runReconcileTick's candidate loop — delete it and the halves stop being
+// disjoint at all, which is the measured double-drive on lifecycleTickDriverFor. No value
 // computed by one half is read by the other — both work entirely in their own
 // locals, and the only thing passed between them is `now` (see runLifecycleTick
 // below).

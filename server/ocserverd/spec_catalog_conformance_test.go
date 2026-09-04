@@ -236,7 +236,10 @@ var knownToolDescriptionDrift = map[string]map[string]string{
 		"openapi_summary": "Mark a waiting card expired (its author, the owner, or an admin agent; not an answer; terminal).",
 	},
 	"refocus_outsource_worker": {
-		"openapi_summary": "Refocus (換手) an outsource worker's context (owner/admin agent, online-only else 409).",
+		// T-65 包②: the openapi summary is the SHORT owner-facing line and the
+		// x-mcp description is the long one an agent needs, so these two stay
+		// deliberately different — the baseline records that, not a bug.
+		"openapi_summary": "Refocus (換手) an outsource worker's context; on a STOPPED worker it queues the 起來 instead of refusing (owner/admin agent).",
 	},
 	"update_settings": {
 		"route_summary": "Edit settings (owner and agent token TTLs / handover threshold); live immediately.",

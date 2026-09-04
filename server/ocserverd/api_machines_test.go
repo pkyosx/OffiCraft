@@ -36,7 +36,7 @@ func newMachinesTestServer(t *testing.T) *apiServer {
 	if err := seedOutOfBox(dal); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	return newAPIServer(dal, NewHub(), []byte("machines-test-secret"), 3600,
+	return newAPIServer(dal, NewHub(), singleKeyring([]byte("machines-test-secret")), 3600,
 		assetRoot(t.TempDir()))
 }
 
@@ -453,7 +453,7 @@ func TestHandleClaimMachineTokenApiMachinesClaimPost(t *testing.T) {
 // credential itself still expired.
 func assertPermanentWardenToken(t *testing.T, s *apiServer, token, wantMachineID string) {
 	t.Helper()
-	claims, err := verifyJWT(token, s.secret, time.Now().AddDate(100, 0, 0).Unix())
+	claims, err := verifyJWT(token, s.keys.signingSecret(), time.Now().AddDate(100, 0, 0).Unix())
 	if err != nil {
 		t.Fatalf("permanent warden token must verify a century later: %v", err)
 	}
@@ -574,14 +574,14 @@ func TestNonWardenTokensStillExpireAndKeepThe400DayClamp(t *testing.T) {
 	if minted.ExpiresIn != maxAgentTTLSecs {
 		t.Fatalf("non-warden mint expires_in = %d, want 400-day cap %d", minted.ExpiresIn, maxAgentTTLSecs)
 	}
-	claims, err := verifyJWT(minted.Token, s.secret, time.Now().Unix())
+	claims, err := verifyJWT(minted.Token, s.keys.signingSecret(), time.Now().Unix())
 	if err != nil {
 		t.Fatalf("capped agent token must verify before expiry: %v", err)
 	}
 	if _, hasExpiry := claims["exp"]; !hasExpiry {
 		t.Fatalf("agent token must retain exp: %v", claims)
 	}
-	if _, err := verifyJWT(minted.Token, s.secret, time.Now().Add(401*24*time.Hour).Unix()); !errors.Is(err, errExpiredToken) {
+	if _, err := verifyJWT(minted.Token, s.keys.signingSecret(), time.Now().Add(401*24*time.Hour).Unix()); !errors.Is(err, errExpiredToken) {
 		t.Fatalf("capped agent token must expire after the cap, got %v", err)
 	}
 
@@ -591,7 +591,7 @@ func TestNonWardenTokensStillExpireAndKeepThe400DayClamp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("mint worker token: %v", err)
 	}
-	if _, err := verifyJWT(workerToken, s.secret, time.Now().Add(61*time.Second).Unix()); !errors.Is(err, errExpiredToken) {
+	if _, err := verifyJWT(workerToken, s.keys.signingSecret(), time.Now().Add(61*time.Second).Unix()); !errors.Is(err, errExpiredToken) {
 		t.Fatalf("worker token must remain expiring, got %v", err)
 	}
 }

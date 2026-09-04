@@ -247,7 +247,7 @@ func TestTaskStepNoteRaceGuardHasTeeth(t *testing.T) {
 // until this transaction commits. That split needs the REAL two-pool wiring;
 // NewDAL's single handle would block the reads too.
 func TestNoOpPatchStepNoteStillCatchesAConcurrentStepDeletion(t *testing.T) {
-	api := newAPIServer(newSplitPoolDAL(t), NewHub(), []byte("tasks-test-secret"),
+	api := newAPIServer(newSplitPoolDAL(t), NewHub(), singleKeyring([]byte("tasks-test-secret")),
 		3600, assetRoot(t.TempDir()))
 	const seeded = "做到哪：改到一半\n下一步：待補"
 	taskID, stepID := seedStepWithNote(t, api, seeded)

@@ -167,10 +167,18 @@ func TestMemberOwnerOp_OfflineTakesEffectImmediately(t *testing.T) {
 	}
 }
 
-// row 2 — an explicit 停止 dominates. desired_state=offline means the owner
-// already said stop; stamping a refocus epoch would park a marker the agent's
-// own gate (desired_state=online) will never read.
-func TestMemberOwnerOp_StoppedMemberIsNotRevived(t *testing.T) {
+// row 2 — an explicit 停止 dominates: stamping a refocus epoch would park a
+// marker the agent's own gate (desired_state=online) will never read.
+//
+// 🔴 NARROWED BY T-14 項目 7, and the old header did not notice. desired_state=
+// offline is no longer one state for this purpose: on a member that has been
+// ASKED to stop (stopping_since > 0 — what a real 停止 leaves behind, forever)
+// 換 model now queues 「起來」 and the member comes back up. This fixture is the
+// OTHER half — testAgent leaves stopping_since at 0, the shape of a new hire
+// before its first 活化 — so what stays pinned here is that editing such a
+// member's model must not boot it. The converged-stop half is pinned by
+// TestRelocateAndModelChangeAfterAStopBringTheMemberBackUp.
+func TestMemberOwnerOp_NeverActivatedNewHireIsNotRevived(t *testing.T) {
 	s := newReconcileTestServer(t)
 	putWarden(t, s, "mach-a")
 
@@ -198,6 +206,15 @@ func TestMemberOwnerOp_StoppedMemberIsNotRevived(t *testing.T) {
 	}
 	if got.DesiredState != DesiredStateOffline {
 		t.Fatalf("no owner verb may quietly overturn 停止: %q", got.DesiredState)
+	}
+	if got.RestartAfterStop {
+		t.Error("a member nobody has ever asked to stop was queued for a start — " +
+			"editing a new hire's model before its first 活化 must not boot it")
+	}
+	if got.StoppingSince != 0 {
+		t.Fatalf("fixture drifted: stopping_since=%v — this row is meant to be the "+
+			"never-活化'd half, and with an anchor it silently becomes a test of the "+
+			"queueing branch while keeping this name", got.StoppingSince)
 	}
 }
 

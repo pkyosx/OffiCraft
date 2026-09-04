@@ -293,6 +293,33 @@
   font-weight: 700;
   color: var(--color-text-strong);
 }
+/* 成本歸零 (T-53). Same 28px pill as .mp-refocus — it sits in the sibling cell
+   head and the two must line up — but carried in --color-danger rather than the
+   accent, because pressing it destroys a figure nothing else in the system
+   holds. Disabled is the honest state when there is nothing measured to clear. */
+.mp-cost-reset {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 35%, transparent);
+  background: transparent;
+  color: var(--color-danger);
+  font-size: 12.5px;
+  font-weight: 500;
+  transition: background 0.15s, opacity 0.15s;
+}
+.mp-cost-reset:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+}
+.mp-cost-reset:disabled {
+  color: var(--color-text-muted);
+  border-color: color-mix(in srgb, var(--color-text-muted) 20%, transparent);
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .mp-refocus {
   display: inline-flex;
   align-items: center;

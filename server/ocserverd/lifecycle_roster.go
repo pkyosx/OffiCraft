@@ -14,8 +14,9 @@ package main
 // The failure that shape produces is not hypothetical and is not a coding
 // mistake anybody could have caught by reading either list: a formality added
 // to the staff list is INVISIBLE from the worker side, because the worker
-// roster never passes through runReconcileTick at all (ListMembers is
-// `WHERE kind != 'outsource'` by construction, dal.go). A pass that guards
+// roster never passes through runReconcileTick at all — then because ListMembers
+// was `WHERE kind != 'outsource'` (dal.go), now because that half's driver guard
+// drops the row (T-14 項目 6 deleted the clause). A pass that guards
 // staff and a pass that does not exist look identical to a worker. That is how
 // a worker ended up with no token-expiry lead and no survived-stop sweep while
 // the code implementing both sat in the same package (fixed in stage 1).
@@ -135,6 +136,72 @@ func lifecyclePolicyFor(m Member) LifecyclePolicy {
 		}
 		return true
 	}}
+}
+
+// ── WHICH HALF drives one row ────────────────────────────────────────────────
+
+// lifecycleDriver names ONE of the two halves of the merged lifecycle tick
+// (lifecycle_tick.go runs runReconcileTick first, then runOutsourceTick). The
+// value IS the producer's own function name, so a parity failure can print the
+// half by the name a reader can grep for rather than as "half 0" / "half 1".
+type lifecycleDriver string
+
+const (
+	driverReconcile lifecycleDriver = "runReconcileTick"
+	driverOutsource lifecycleDriver = "runOutsourceTick"
+	// driverNone is not a legitimate answer for any row. It exists so that a
+	// future non-exhaustive edit to lifecycleTickDriverFor fails LOUDLY as
+	// "claimed by NEITHER half" in the parity test, instead of quietly
+	// defaulting the row into whichever half the zero value happens to name.
+	driverNone lifecycleDriver = ""
+)
+
+// lifecycleTickDriverFor answers WHICH HALF of the merged lifecycle tick drives
+// ONE row. Exactly one half, for every row, always.
+//
+// 🔴 WHY THIS FUNCTION EXISTS — it encodes nothing new, and that is the point.
+//
+// The answer USED TO BE written down nowhere. It was a side effect of a SQL
+// string: DAL.ListMembers was `FROM member WHERE kind != 'outsource'` (dal.go),
+// so runReconcileTick's roster read simply never saw a worker row, while
+// runOutsourceTick's read (ListOutsourceWorkers) never saw anything else. That
+// WHERE clause was the ONE AND ONLY thing keeping the same row out of both FSMs
+// in a single tick.
+//
+// 🔴 THAT CLAUSE IS NOW GONE (T-14 項目 6, the commit that merged the two roster
+// queries into one). THIS FUNCTION IS WHAT REPLACED IT — it is load-bearing
+// TODAY, not a stand-in for a future step. Delete it, or let a lifecycle fold
+// stop asking it, and the harm is not hypothetical: with the clause lifted and
+// no driver guard, one ACTIVE desired-online worker row was MEASURED taking a
+// `start` from enqueueWardenFrame AND a `start` from notifyWorkerSpawn in the
+// SAME tick, leaving an entry in reconcileStates and in workerReconcileStates at
+// once. An already-ONLINE worker emits no second frame but still books that
+// second state entry — so counting dispatched frames alone under-reports the
+// overlap by half.
+//
+// The split therefore no longer lives in a query. It lives in this named, TOTAL
+// predicate that both halves ask by name, so "exactly one half owns a row" is a
+// sentence a test can falsify cell by cell
+// (TestLifecycleTickDriver_EveryRowHasExactlyOneDriver) rather than a property a
+// reader has to infer from a SQL string in another file.
+//
+// 🔴 IT IS DELIBERATELY NOT NARROWER THAN THE SQL IT REPLACED. The re-siting was
+// a pure move of the existing split and stayed behaviour-identical:
+// EVERY kind='outsource' row belongs to the outsource half — assigned, active
+// and released, held down or not — because that is exactly the population
+// ListOutsourceWorkers hands runOutsourceTick today. Rows that half then
+// declines (a released row inside its reclaim grace, a desired-offline assigned
+// row) are declined INSIDE it, by its own switch; they must never fall through
+// to the reconcile half, and this function is what stops them.
+//
+// This is NOT the entry filter. lifecyclePolicyFor answers "should this row
+// still have an instance at all?"; this answers the question BEFORE it, "whose
+// question is that to ask?". Both halves ask both, driver first.
+func lifecycleTickDriverFor(m Member) lifecycleDriver {
+	if m.Kind == KindOutsource {
+		return driverOutsource
+	}
+	return driverReconcile
 }
 
 // ── the formalities ──────────────────────────────────────────────────────────

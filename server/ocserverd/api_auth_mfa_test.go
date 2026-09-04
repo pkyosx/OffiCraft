@@ -40,7 +40,7 @@ func mfaAPI(t *testing.T) *apiServer {
 	if err := seedOutOfBox(dal); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	api := newAPIServer(dal, NewHub(), []byte(interopSecret), 3600, "../..")
+	api := newAPIServer(dal, NewHub(), singleKeyring([]byte(interopSecret)), 3600, "../..")
 	phc, err := hashPassword(mfaTestPassword)
 	if err != nil {
 		t.Fatalf("hash: %v", err)
@@ -1184,7 +1184,7 @@ func occupyThrottleSlots(t *testing.T, api *apiServer) {
 func TestLoginUnconfiguredSecretIsNotACredentialFailure(t *testing.T) {
 	api := mfaAPI(t)
 	api.credentialFailureFloor = 0 // the production floor — it must go unspent
-	api.secret = nil
+	api.keys = singleKeyring(nil)
 
 	start := time.Now()
 	rec := callJSON(api.HandleLoginApiLoginPost, loginBody(mfaTestPassword, ""))

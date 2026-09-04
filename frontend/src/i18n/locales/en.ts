@@ -247,6 +247,13 @@ export const en: Dict = {
     // the collapsed label on purpose — it is the only thing that tells a step
     // WITH a note apart from one without while both are closed.
     stepNoteExpand: "Show note",
+    // T-66: the note text is fetched ON OPEN (owner rc-4c8065fb30a5). The card
+    // carries only its size, so there is a real gap between the click and the
+    // text — and the fetch can fail. Without these two the failed overlay is
+    // blank, which reads as "this step's note is empty" — exactly what the
+    // entry control already denied by being there at all.
+    stepNoteLoading: "Loading note…",
+    stepNoteFailed: "Could not load the note. Close and try again.",
     blockedByLabel: "Waiting on",
     // T-1d82: a dep row whose task cannot be resolved (deleted / bad id). Keeps
     // the raw id — it is the only handle left — but says plainly that there is
@@ -328,9 +335,31 @@ export const en: Dict = {
       empty: "No artifacts yet",
       close: "Close artifacts",
       remove: "Remove artifact",
-      removeConfirm: "Remove this artifact from the task card? (The file itself is kept.)",
+      removeConfirm:
+        "Remove this artifact from the task card? The file it points at NOW is kept, but if this artifact was ever replaced, every earlier version kept behind it is deleted for good — those files included.",
+      loading: "Loading artifacts…",
+      loadFailed: "Could not load artifacts — close and reopen to retry",
       downloadHint: "Download",
       openLinkHint: "Open link",
+      versionsEntry: "View versions",
+      versionsCountTail: "versions",
+      versionsTitle: "Artifact versions",
+      versionsClose: "Close versions",
+      versionsPaneLabel: "View",
+      versionsPaneContent: "Content",
+      versionsPaneDiff: "Diff",
+      versionsCurrent: "Current version",
+      versionsVersionLabel: "Version",
+      versionsByLabel: "by",
+      versionsEmpty: "No earlier versions",
+      versionsLoading: "Loading…",
+      versionsLoadError: "The version history could not be read",
+      versionsContentError: "This version's content could not be read",
+      versionsContentGone: "This version points at nothing",
+      versionsUnnamed: "Untitled",
+      versionsUnpinned: "This artifact is no longer pinned on the task",
+      versionsOpaqueLead: "Not a text file (",
+      versionsOpaqueTail: ") — look at the two versions one at a time instead.",
     },
   },
   // ── Awaiting-reply page (M2 reply cards, B2) ──
@@ -695,7 +724,7 @@ export const en: Dict = {
     themeImportLinkWorking: "Fetching…",
     themeImportLinkFailed: "Could not fetch that link",
     themeImportLinkShareNote:
-      "A share link carries no identity, never expires and cannot be revoked — anyone who can reach this studio and has the link can read the theme, including any private images inside it.",
+      "A share link carries no identity and never expires — anyone who can reach this studio and has the link can read the theme, including any private images inside it. A single link cannot be withdrawn; the only way to void one is coarse: remove the key that signed it under Settings › Signing keys, which voids every link that key signed at once.",
     themeImportDup: "A custom theme with that id already exists",
     themeImportReadFailed: "Could not read that file",
     themeLimitReached: "You've reached the custom-theme limit",
@@ -867,7 +896,10 @@ export const en: Dict = {
     galleryClose: "Close gallery",
     galleryPreviewHint: "Preview in a new tab",
     galleryDownloadHint: "Download",
-    // Permanent single-file share link (?sig= HMAC) — copied to the clipboard.
+    // Single-file share link (?sig= HMAC) — copied to the clipboard. No expiry,
+    // but not permanent: it follows the signing-key ring, so removing the key
+    // that signed it voids it (T-62). Kept in step with its Chinese twin in
+    // zh.ts — the first pass fixed one and not the other.
     copyShareLink: "Copy share link",
     shareLinkCopied: "Link copied",
     shareLinkCopyFailed: "Failed to copy link",
@@ -1028,6 +1060,13 @@ export const en: Dict = {
     lastOpFail: "failed",
     lastOpLogLabel: "View log",
     estimatedCost: "est. $",
+    costReset: "Reset",
+    costResetHint: "Reset this member's accumulated estimated spend to zero. This cannot be undone.",
+    costResetConfirm: "Reset to zero",
+    costResetError: "Reset failed — the figure was not cleared.",
+    costResetConfirmBodyLead: "This resets the accumulated ",
+    costResetConfirmBodyTail:
+      " to zero and starts counting again from 0. The figure is not kept anywhere else, so it cannot be recovered.",
     terminal: "Terminal · TMUX",
     copyCommand: "Copy command",
     copied: "Copied",
@@ -1321,6 +1360,15 @@ export const en: Dict = {
     renamePlaceholder: "Enter display name",
     renameError: "Rename failed",
     accountsEmpty: "No account usage data yet",
+    // 帳號歸零 (T-53, owner ruling rc-5c5d7c7c6dcd) — the ACCOUNT's own figure,
+    // cleared without touching any member's.
+    costReset: "Reset",
+    costResetHint: "Reset this account's accumulated spend to zero. No member's figure is touched. This cannot be undone.",
+    costResetConfirm: "Reset to zero",
+    costResetError: "Reset failed — the figure was not cleared.",
+    costResetConfirmBodyLead: "This resets the account's accumulated ",
+    costResetConfirmBodyTail:
+      " to zero and starts counting again from 0. No member's own figure is touched. The figure is not kept anywhere else, so it cannot be recovered.",
     estimate: "est.",
     fiveHour: "5-hour window",
     sevenDay: "7-day window",
@@ -1536,6 +1584,31 @@ export const en: Dict = {
   // indicator and the monitor page's card. The PRIMARY sentence is always
   // derived from `code` (the reason* keys below); the server's `detail` is
   // shown only as secondary diagnostic text.
+  // Signing-key rotation (T-62)
+  signingKeys: {
+    title: "Signing keys",
+    intro:
+      "The server signs login credentials with a signing key. Several can exist at once: only one signs, the rest still verify — that is the transition window when a key is being replaced.",
+    loading: "Loading…",
+    signingBadge: "signing",
+    retiredBadge: "verify only",
+    createdLabel: "Created",
+    createdUnknown: "In use since before this was recorded",
+    countLabel: (n: number) => `${n} key${n === 1 ? "" : "s"} in the ring`,
+    rotateButton: "Create a new key",
+    rotateHint:
+      "Mints a new key and hands signing over to it. Nobody is logged out: the old key stays and keeps verifying, it just never signs again. Takes effect immediately — no restart.",
+    removeButton: "Remove",
+    removeConfirmTitle: "Remove this key?",
+    removeConfirmBody:
+      "Everything this key signed stops working the moment you confirm, with no grace period and no notice to anyone: credentials signed by it are refused, and file share links produced under it break too.",
+    removeConfirmWarden:
+      "⚠️ Machine (warden) credentials carry no expiry and never lapse on their own. What decides whether this is safe is whether every machine has reconnected — not how many days have passed.",
+    removeConfirmCancel: "Cancel",
+    removeConfirmOk: "Remove it",
+    actionFailed: "That action did not go through, and the server gave no reason.",
+    emptyState: "The keys could not be read.",
+  },
   backupHealth: {
     title: "Backup health",
     // `unknown` is not a quieter `healthy` — it means "we cannot tell", and

@@ -47,7 +47,7 @@ func persistTestDAL(t *testing.T) *DAL {
 // Calling it twice is the restart.
 func bootServer(t *testing.T, dal *DAL) *apiServer {
 	t.Helper()
-	return newAPIServer(dal, NewHub(), []byte(interopSecret), 3600, "../..")
+	return newAPIServer(dal, NewHub(), singleKeyring([]byte(interopSecret)), 3600, "../..")
 }
 
 // alwaysWrites is a ResponseWriter whose writes never fail — the healthy

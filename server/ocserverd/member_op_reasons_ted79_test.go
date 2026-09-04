@@ -21,11 +21,28 @@ import (
 	"testing"
 )
 
+// heldDownMember is desired-offline WITHOUT a stop anchor — since T-14 項目 7
+// that is one specific member, not "a member the owner stopped": a new hire
+// before its first 活化. A real 停止 leaves stopping_since behind forever
+// (nothing but 活化 and the queued-restart consumer clears it), and on that row
+// an owner verb queues a start instead of parking a held_down receipt. Use
+// stoppedMember for that half.
 func heldDownMember(t *testing.T, s *apiServer, id string) {
 	t.Helper()
 	m := testAgent(id)
-	m.DesiredState = DesiredStateOffline // the owner pressed 停止
+	m.DesiredState = DesiredStateOffline
 	m.DesiredMachineID = "mach-a"
+	putTestMember(t, s, m)
+}
+
+// stoppedMember is the row shape a converged 停止 actually leaves: desired
+// offline AND the anchor still on the row.
+func stoppedMember(t *testing.T, s *apiServer, id string) {
+	t.Helper()
+	m := testAgent(id)
+	m.DesiredState = DesiredStateOffline
+	m.DesiredMachineID = "mach-a"
+	m.StoppingSince = 9990
 	putTestMember(t, s, m)
 }
 
@@ -61,6 +78,28 @@ func TestUpdateMemberOnAHeldDownMemberLeavesAReceipt(t *testing.T) {
 			"one clean 200. The worker face has written this receipt since the "+
 			"reason-code family landed.", got, spawnReasonHeldDown)
 	}
+	if !strings.Contains(got, askForActivate) {
+		t.Errorf("last_op_reason = %q dropped 「%s」 — a member nobody has ever asked "+
+			"to stop is still waiting on the owner", got, askForActivate)
+	}
+
+	// 🔴 THE OTHER HALF, since T-14 項目 7 — same held_down: prefix, opposite
+	// instruction. Unlike relocate, PATCH runs no reconcile, so this row does
+	// still carry memberRestartQueuedReceipt verbatim.
+	stoppedMember(t, s, "m-stopped")
+	rec = httptest.NewRecorder()
+	s.HandleUpdateMemberApiMembersMemberIdPatch(rec,
+		taskReq(t, "PATCH", "/api/members/m-stopped",
+			map[string]any{"model": "claude-opus-4-9"}, wireOwnerID, "owner"), "m-stopped")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update: %d %s", rec.Code, rec.Body.String())
+	}
+	if got, want := reasonOf(t, s, "m-stopped"), memberRestartQueuedReceipt(memberOpModel); got != want {
+		t.Errorf("the PATCH /api/members/{id} receipt call site (api_members.go, the "+
+			"memberOpModel gate) wrote last_op_reason = %q, want %q: 換 model on a "+
+			"stopped member is the 重啟, so the owner is told it will come back up "+
+			"rather than to 活化 it", got, want)
+	}
 }
 
 // ── #4 / G2: a 改機器 on a member the owner is holding down ──────────────────
@@ -83,7 +122,63 @@ func TestRelocateAHeldDownMemberLeavesAReceipt(t *testing.T) {
 			"nothing was moved, and the row says nothing about which of those two "+
 			"halves happened", got, spawnReasonHeldDown)
 	}
+	if got := reasonOf(t, s, "m-heldmove"); !strings.Contains(got, askForActivate) {
+		t.Errorf("last_op_reason = %q dropped 「%s」 — a member nobody has ever asked "+
+			"to stop is still waiting on the owner", got, askForActivate)
+	}
+
+	// 🔴 THE OTHER HALF, since T-14 項目 7. Every receipt in this family opens with
+	// the SAME held_down: prefix, so the assertion above cannot tell them apart
+	// and would stay green if the two branches were swapped. What separates them
+	// is the one clause the owner acts on.
+	//
+	// 🔴 WHICH RECEIPT LANDS HERE IS NOT memberRestartQueuedReceipt, and that is
+	// the handler, not the test: relocate runs the event-driven reconcile before
+	// it returns, the member is already converged (no session, anchor set), so
+	// consumeRestartAfterStop spends the intent and overwrites the receipt in the
+	// same request. memberRestartQueuedReceipt(relocate) is only ever READ on a
+	// member whose stop is still landing. Asserting the exact sentence would pin
+	// that race; asserting the clause pins what the owner is told either way.
+	stoppedMember(t, s, "m-stoppedmove")
+	rec = httptest.NewRecorder()
+	s.HandleRelocateMemberApiMembersMemberIdRelocatePost(rec,
+		taskReq(t, "POST", "/api/members/m-stoppedmove/relocate",
+			map[string]any{"machine_id": "mach-b"}, wireOwnerID, "owner"), "m-stoppedmove")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("relocate: %d %s", rec.Code, rec.Body.String())
+	}
+	if got := reasonOf(t, s, "m-stoppedmove"); strings.Contains(got, askForActivate) {
+		t.Errorf("last_op_reason = %q still tells the owner to 活化. Since T-14 項目 7 "+
+			"改機器 on a stopped member IS the 重啟 — nothing more is needed from him", got)
+	}
+
+	// …and the row the queued sentence is actually READ on: a stop still
+	// landing. The converged row above has its receipt overwritten by
+	// consumeRestartAfterStop inside the same request, so it can only ever pin
+	// the clause; with a live session the intent is not spendable yet and the
+	// relocate call site's own sentence survives to be observed verbatim.
+	// Without this row that call site is pinned by nothing.
+	stoppedMember(t, s, "m-stoplanding")
+	connectOnlineMachine(t, s, "m-stoplanding", "mach-a")
+	rec = httptest.NewRecorder()
+	s.HandleRelocateMemberApiMembersMemberIdRelocatePost(rec,
+		taskReq(t, "POST", "/api/members/m-stoplanding/relocate",
+			map[string]any{"machine_id": "mach-b"}, wireOwnerID, "owner"), "m-stoplanding")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("relocate: %d %s", rec.Code, rec.Body.String())
+	}
+	if got, want := reasonOf(t, s, "m-stoplanding"), memberRestartQueuedReceipt(memberOpRelocate); got != want {
+		t.Errorf("the POST /api/members/{id}/relocate receipt call site (api_members.go, "+
+			"the memberOpRelocate gate) wrote last_op_reason = %q, want %q: the stop is "+
+			"still landing, so the owner is told it is honoured as-is and the member "+
+			"comes back up — not to 活化 it himself", got, want)
+	}
 }
+
+// askForActivate is the T-ed79 clause this ticket makes conditional: it is the
+// whole owner-facing difference between the two held_down receipts, which are
+// otherwise prefix-identical.
+const askForActivate = "活化 it when you want it to run"
 
 // ── #14 / G3: activation_pending must say WHICH pending ─────────────────────
 

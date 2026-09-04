@@ -388,7 +388,7 @@ func TestJournalWriteFailureDoesNotBlockTheBoot(t *testing.T) {
 func TestBootstrapWithoutASigningSecretJournalsNothing(t *testing.T) {
 	s := newWorkerTestServer(t)
 	seedLoreDirectoryFixture(t, s)
-	s.secret = nil
+	s.keys = singleKeyring(nil)
 
 	rec := httptest.NewRecorder()
 	s.HandleBootstrapApiBootstrapPost(rec, taskReq(t, "POST", "/api/bootstrap",

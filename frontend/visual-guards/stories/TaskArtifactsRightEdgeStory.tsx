@@ -28,9 +28,11 @@ export function TaskArtifactsRightEdgeStory() {
                   right on a single line — its anchor is pinned at the right
                   edge, the condition that made the old popover overflow. */}
               <span style={{ flex: 1 }} />
+              {/* T-66 took `onHydrate` off this component: the panel fetches
+                  its own rows through `api.listTaskArtifacts`, so the fixture
+                  is served from the mock store instead (see serveArtifacts). */}
               <TaskArtifactsBadge
                 task={WITH_ARTIFACTS}
-                onHydrate={(async () => WITH_ARTIFACTS) as never}
                 onRemoveArtifact={undefined}
               />
             </div>

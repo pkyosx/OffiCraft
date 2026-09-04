@@ -28,8 +28,15 @@ const (
 	// settingPasswordHash is the argon2id PHC hash of the owner password
 	// (password.go). Absent = password not yet set (first-run flow, B3).
 	settingPasswordHash = "auth.password_hash"
-	// settingJWTSecret is the HS256 signing secret, base64url of the raw key
-	// bytes. Always present after first boot (migrated or minted).
+	// settingJWTSecret is the PRE-RING HS256 signing key, base64url of the raw
+	// key bytes. Always present after first boot (migrated or minted).
+	//
+	// Since T-62 the live key set is the ring in keyring.go
+	// (auth.jwt_keys / auth.jwt_active_key_id) and THAT is what signs and
+	// verifies. This row is not deleted and not updated by a rotation: it is
+	// what loadKeyring adopts as the ring's first key on an install that has
+	// never rotated, and it is the key every token issued before the ring
+	// existed is signed with.
 	settingJWTSecret = "auth.jwt_secret"
 	// settingPasswordChangedAt (epoch seconds, default 0) is written by
 	// change-password (B3); owner-scope tokens with iat before it are refused

@@ -187,6 +187,10 @@ func TestHandoverNoticeBand_SaysNothingToAMemberAlreadyWindingDown(t *testing.T)
 	if err := dal.PutMember(*m); err != nil {
 		t.Fatalf("park member in 加速停止: %v", err)
 	}
+	if err := dal.SetMemberWindDownAnchors(m.ID, m.StoppingSince,
+		m.StoppedSince, m.RefocusSince, m.RefocusOp); err != nil {
+		t.Fatalf("seed wind-down anchors: %v", err)
+	}
 
 	if _, ok := s.handoverNoticeTick(seedMiraID, RuntimeClaude, notice); ok {
 		t.Error("the band sent a 停止 notice to a member already in 加速停止 — " +
@@ -201,6 +205,10 @@ func TestHandoverNoticeBand_SaysNothingToAMemberAlreadyWindingDown(t *testing.T)
 	m.RefocusOp = ""
 	if err := dal.PutMember(*m); err != nil {
 		t.Fatalf("clear the wind-down: %v", err)
+	}
+	if err := dal.SetMemberWindDownAnchors(m.ID, m.StoppingSince,
+		m.StoppedSince, m.RefocusSince, m.RefocusOp); err != nil {
+		t.Fatalf("seed wind-down anchors: %v", err)
 	}
 	if _, ok := s.handoverNoticeTick(seedMiraID, RuntimeClaude, notice); !ok {
 		t.Error("after the wind-down cleared, the notice never came — the quiet " +

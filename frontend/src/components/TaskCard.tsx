@@ -68,6 +68,7 @@ import type {
   TaskReassignInput,
   OutsourceWorkerView,
 } from "../api/adapter";
+import { api } from "../api";
 import { formatDuration } from "../lib/duration";
 import { copyText } from "../lib/clipboard";
 import { resolveStepBadge } from "../lib/stepBadge";
@@ -630,8 +631,18 @@ export function TaskCard({
   // 步驟備註 (T-e5b1 → T-6630 ④): the note is no longer disclosed INSIDE the
   // step. One step's note at a time is opened in the full-view overlay, so the
   // state is the note being read, not a per-step open/closed map.
+  // T-66 (owner rc-4c8065fb30a5:「座艙改成點開才抓」): the note TEXT is no longer
+  // on the task read, so opening the reader starts a fetch. The state therefore
+  // carries a PHASE as well as the text — a reader that showed an empty body
+  // while loading, or after a failure, would say "this step's note is empty",
+  // which is precisely what the entry control being there has already denied.
+  // stepId rides along so a late response for a note the reader has since
+  // closed (or replaced with another step's) is dropped instead of overwriting
+  // what is on screen.
   const [noteModal, setNoteModal] = useState<{
+    stepId: string;
     name: string;
+    phase: "loading" | "ready" | "failed";
     note: string;
   } | null>(null);
   // 🔴 NO SCROLL CORRECTION FOR THE NOTE, BY OWNER RULING (2026-08-15, T-6630
@@ -695,6 +706,32 @@ export function TaskCard({
     } catch (e) {
       console.warn("TaskCard: priority change failed", e);
       setActionError(t.tasks.actionError);
+    }
+  }
+
+  // 步驟備註 (T-66) — 點開才抓. The card holds only `noteSizeChars`, so the text
+  // is fetched HERE, on the click, and the reader opens immediately in its
+  // loading phase rather than after the round trip: an entry that visibly does
+  // nothing for a moment is the thing this replaces.
+  //
+  // The stepId guard on both settles is not defensive noise. The reader is a
+  // single slot: open step A, close it, open step B, and A's response can still
+  // land — without the guard it would replace B's text with A's, under B's
+  // title, and nothing would look wrong.
+  async function openStepNote(step: TaskStepView) {
+    setNoteModal({ stepId: step.id, name: step.name, phase: "loading", note: "" });
+    try {
+      const detail = await api.getTaskStep(task.id, step.id);
+      setNoteModal((cur) =>
+        cur && cur.stepId === step.id
+          ? { ...cur, phase: "ready", note: detail.note }
+          : cur,
+      );
+    } catch (e) {
+      console.warn("TaskCard: step note fetch failed", e);
+      setNoteModal((cur) =>
+        cur && cur.stepId === step.id ? { ...cur, phase: "failed", note: "" } : cur,
+      );
     }
   }
 
@@ -930,7 +967,14 @@ export function TaskCard({
             description. Absent note ⇒ nothing rendered, no empty shell. Agent
             free text → <Markdown>, same treatment as the DoD and the waiting
             reason. */}
-        {step.note && (
+        {/* T-66: the ENTRY is drawn from the SIZE, not from the text — the
+            text is not on this payload any more. `> 0` means the server is
+            holding a note for this step; 0 means the step genuinely has none,
+            so nothing is drawn and there is still no empty shell. This is the
+            one signal that separates "nobody wrote anything" from "someone
+            wrote something you have not opened", exactly as it was when the
+            text rode along. */}
+        {(step.noteSizeChars ?? 0) > 0 && (
           <div className="task-step__note-actions">
             {/* 🔴 T-6630 ④ (owner 2026-08-16, second acceptance round):「我覺得
                 備註不是很常按,可以放在 step 的右下角,點開再跳出另一個 Modal 打
@@ -962,9 +1006,7 @@ export function TaskCard({
               data-testid="step-note-open"
               aria-label={t.tasks.stepNoteExpand}
               title={t.tasks.stepNoteExpand}
-              onClick={() =>
-                setNoteModal({ name: step.name, note: step.note ?? "" })
-              }
+              onClick={() => void openStepNote(step)}
             >
               <FileTextIcon size={15} />
               <span>{t.tasks.stepNoteLabel}</span>
@@ -1310,9 +1352,11 @@ export function TaskCard({
                 directions (the server 409s un-pin exactly like add), so drop
                 the 移除 affordance instead of letting the click fail. Gating
                 here rather than at the call site covers every caller at once. */}
+            {/* T-66: no hydrate seam any more. The task read carries an
+                id+label INDEX of the artifacts (owner c-cd063427fb2f), so the
+                popover fetches the full rows itself when it opens. */}
             <TaskArtifactsBadge
               task={view}
-              onHydrate={onHydrate}
               onRemoveArtifact={
                 TERMINAL.has(view.status) ? undefined : onRemoveArtifact
               }
@@ -2029,7 +2073,13 @@ export function TaskCard({
       {noteModal && (
         <MarkdownPreviewOverlay
           title={`${t.tasks.stepNoteLabel} · ${noteModal.name}`}
-          source={noteModal.note}
+          source={
+            noteModal.phase === "ready"
+              ? noteModal.note
+              : noteModal.phase === "loading"
+                ? t.tasks.stepNoteLoading
+                : t.tasks.stepNoteFailed
+          }
           onClose={() => setNoteModal(null)}
         />
       )}

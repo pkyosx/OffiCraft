@@ -65,8 +65,14 @@ func refusalExitStack(t *testing.T, secret []byte, ownerIatFloor func() int64) (
 	if err := seedOutOfBox(dal); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	api := newAPIServer(dal, NewHub(), []byte(interopSecret), 3600, "../..")
-	h, err := buildHandler(specsFor(api), secret, dal.GetMember, ownerIatFloor)
+	api := newAPIServer(dal, NewHub(), singleKeyring([]byte(interopSecret)), 3600, "../..")
+	// 🔴 The GATE deliberately gets a ring built from the `secret` PARAMETER,
+	// not api.keys: passing nil is how this fixture reaches requireAuth's "auth
+	// not configured" exit, which no token on a configured station can reach.
+	// Handing the gate api.keys instead makes that exit unreachable and the
+	// probe for it silently un-run — which is exactly what the positive control
+	// below caught when the T-62 keyring sweep did it.
+	h, err := buildHandler(specsFor(api), singleKeyring(secret), dal.GetMember, ownerIatFloor)
 	if err != nil {
 		t.Fatalf("buildHandler: %v", err)
 	}
