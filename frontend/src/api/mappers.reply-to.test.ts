@@ -2,7 +2,7 @@
 //
 // `toChatMessage` is the ONLY place the reply link crosses from the real
 // server's JSON into the view model, and every real read goes through it:
-// listChat, peekChat, postChat and the wake snapshot alike. Turn
+// listChat, postChat and the wake snapshot alike. Turn
 // that one line into `replyTo: null` and the whole feature is gone in the real
 // app — every quote row, every banner, every jump.
 //

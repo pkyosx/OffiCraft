@@ -146,7 +146,7 @@ func seedMembersWithChat(t *testing.T, s *apiServer) {
 	ok := true
 	for _, id := range []string{"m-1", "m-2"} {
 		if err := s.dal.PutMember(Member{
-			ID: id, Name: "Name " + id, Kind: "assistant", RoleKey: "assistant",
+			ID: id, Name: "Name " + id, Kind: "staff", RoleKey: "assistant",
 			Model: "opus", Effort: "high", DesiredState: DesiredStateOnline,
 			DesiredMachineID: "m-host", RosterStatus: RosterStatusActive,
 			LastOp: "start", LastOpOK: &ok, LastOpLog: "a long operator log line",

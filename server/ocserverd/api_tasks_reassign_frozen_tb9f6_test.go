@@ -182,8 +182,8 @@ func TestReassignFrozenTask_SuccessorNoticeCarriesNoFrozenCaveat(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			api := newTasksTestServer(t)
 			for _, m := range []Member{
-				{ID: "m-old", Name: "Ken", Kind: "assistant", RosterStatus: RosterStatusActive},
-				{ID: "m-new", Name: "Rei", Kind: "assistant", RosterStatus: RosterStatusActive},
+				{ID: "m-old", Name: "Ken", Kind: "staff", RosterStatus: RosterStatusActive},
+				{ID: "m-new", Name: "Rei", Kind: "staff", RosterStatus: RosterStatusActive},
 			} {
 				if err := api.dal.PutMember(m); err != nil {
 					t.Fatalf("seed member: %v", err)

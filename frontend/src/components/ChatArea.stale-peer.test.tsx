@@ -62,7 +62,6 @@ vi.mock("../api", () => ({
       }
       return all.slice(-page);
     },
-    peekChat: async (withId: string) => threadOf(withId).slice(-30),
     listChatReads: async () => [],
     markChatRead: async () => {},
     postChat: async (m: { to: string; body: string }) => {
@@ -132,9 +131,8 @@ beforeEach(() => {
   holdPeer = "";
   localStorage.clear();
   Element.prototype.scrollIntoView = vi.fn();
-  // useChat takes the read-marking listChat path only while the window is
-  // active; jsdom reports the document as unfocused, which would send every
-  // load down peekChat instead.
+  // ChatArea marks the thread read only while the window is active, and jsdom
+  // reports the document as unfocused.
   document.hasFocus = () => true;
   log.push(
     {

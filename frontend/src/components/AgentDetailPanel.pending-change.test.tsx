@@ -64,7 +64,7 @@ function mkSettled(over: Partial<Member> = {}): Member {
     actualModel: "opus",
     effort: "medium",
     actualEffort: "medium",
-    kind: "assistant",
+    kind: "staff",
     desiredMachineId: "mach-a",
     machine: "mach-a",
     actualMachine: "mach-a",

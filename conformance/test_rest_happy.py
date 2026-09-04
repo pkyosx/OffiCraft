@@ -510,6 +510,27 @@ def _nonempty_list(_ctx: HCtx, r: httpx.Response) -> None:
     assert isinstance(r.json(), list) and r.json(), "expected a non-empty list"
 
 
+def chat_messages(r: httpx.Response) -> list:
+    """The rows out of a ``GET /api/chat`` response.
+
+    That route answers an OBJECT since T-48 — ``{messages, next_cursor}`` — on
+    EVERY parameter combination, because a bare array had nowhere to say
+    "there is more in this direction". Reading the body through here rather
+    than indexing it directly means the envelope is re-asserted by every chat
+    test in the suite, and a regression to the bare array fails all of them
+    with one sentence instead of an IndexError.
+    """
+    body = r.json()
+    assert isinstance(body, dict), f"GET /api/chat must answer an object: {r.text}"
+    msgs = body.get("messages")
+    assert isinstance(msgs, list), f"the envelope must carry `messages`: {r.text}"
+    return msgs
+
+
+def _nonempty_chat_page(_ctx: HCtx, r: httpx.Response) -> None:
+    assert chat_messages(r), "expected a non-empty chat page"
+
+
 def test_list_answers_carry_sizes_but_never_the_documents(client, owner_token):
     """The three list endpoints answer a DIRECTORY, not the documents (T-1170).
 
@@ -2170,7 +2191,7 @@ HAPPY: dict[str, Happy] = {
         ),
     ),
     "GET /api/chat": Happy(
-        path=_seeded_chat_path("/api/chat"), check=_nonempty_list
+        path=_seeded_chat_path("/api/chat"), check=_nonempty_chat_page
     ),
     "GET /api/chat/attachment/{attachment_id}": Happy(
         path=lambda ctx: f"/api/chat/attachment/{ctx.attachment()[0]}",
@@ -4256,11 +4277,11 @@ def test_chat_reply_to_is_the_servers_link_not_the_callers(hctx: HCtx) -> None:
         f"/api/chat?ids={reply.json()['id']}", headers=_auth(hctx.agent.token)
     )
     assert served.status_code == 200, served.text
-    assert served.json()[0]["reply_to"] == quoted_id
+    assert chat_messages(served)[0]["reply_to"] == quoted_id
     # …and the QUOTE came with it, built by the server on this read. This is the
     # half that makes the link usable: without it the browser would have to go
     # and fetch what the id names, which is the design this replaced.
-    quote = served.json()[0].get("reply_to_chat")
+    quote = chat_messages(served)[0].get("reply_to_chat")
     assert quote is not None, f"every read must carry the quote: {served.text}"
     assert quote["id"] == quoted_id
     assert quote["from"] == "owner"
@@ -4348,8 +4369,8 @@ def test_chat_reply_to_is_the_servers_link_not_the_callers(hctx: HCtx) -> None:
         f"/api/chat?ids={quoted_id}", headers=_auth(hctx.agent.token)
     )
     assert plain.status_code == 200, plain.text
-    assert plain.json()[0]["reply_to"] == ""
-    assert plain.json()[0].get("reply_to_chat") is None, (
+    assert chat_messages(plain)[0]["reply_to"] == ""
+    assert chat_messages(plain)[0].get("reply_to_chat") is None, (
         "a message that answers nothing must carry no quote: " + plain.text
     )
     assert "reply_to" not in forged.json()["meta"]
@@ -4371,7 +4392,7 @@ def test_chat_recipient_validation_preserves_offline_mailbox(hctx: HCtx) -> None
         "/api/chat?with=owner&limit=-1", headers=_auth(hctx.agent.token)
     )
     assert mailbox.status_code == 200, mailbox.text
-    assert any(m["body"] == "offline-mailbox-probe" for m in mailbox.json())
+    assert any(m["body"] == "offline-mailbox-probe" for m in chat_messages(mailbox))
 
     rejected = hctx.client.post(
         "/api/chat",
@@ -4389,7 +4410,9 @@ def test_chat_recipient_validation_preserves_offline_mailbox(hctx: HCtx) -> None
         "/api/chat?with=m-conformance-typo&limit=-1", headers=_auth(hctx.owner_token)
     )
     assert missing_mailbox.status_code == 200, missing_mailbox.text
-    assert all(m["body"] != "must-not-land" for m in missing_mailbox.json())
+    assert all(
+        m["body"] != "must-not-land" for m in chat_messages(missing_mailbox)
+    )
 
 
 def test_upload_ref_rejections(hctx: HCtx) -> None:
@@ -4424,11 +4447,230 @@ def test_upload_ref_rejections(hctx: HCtx) -> None:
     assert r.status_code == 400 and "20 MB" in r.text, f"{r.status_code} {r.text}"
 
 
+def test_chat_answers_the_envelope_and_pages_by_opaque_cursor(hctx: HCtx) -> None:
+    """T-48: EVERY path of ``GET /api/chat`` answers ``{messages, next_cursor}``,
+    and ``next_cursor`` is the ONLY end-of-walk signal.
+
+    The bare array this replaced had nowhere to say "there is more in this
+    direction": a caller could only infer exhaustion from a short page, and a
+    page is short for reasons that have nothing to do with exhaustion. The three
+    paths that name their own set (``ids``, ``start_id``, ``end_id``) carry NO
+    cursor, because there is no defined direction to continue in.
+    """
+    peer = hctx.agent.member_id
+    sent = []
+    for i in range(4):
+        r = hctx.client.post(
+            "/api/chat",
+            json={"to": peer, "body": f"envelope seed {uuid.uuid4().hex[:6]} {i}"},
+            headers=_auth(hctx.owner_token),
+        )
+        assert r.status_code == 200, r.text
+        sent.append(r.json())
+
+    def page(params: dict) -> tuple[list, str]:
+        r = hctx.client.get("/api/chat", params=params, headers=_auth(hctx.owner_token))
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert isinstance(body, dict), f"must be an object, got {r.text[:200]}"
+        assert isinstance(body.get("messages"), list), r.text[:200]
+        return body["messages"], body.get("next_cursor", "")
+
+    # The three set-naming paths carry no cursor.
+    for params in (
+        {"ids": sent[0]["id"]},
+        {"start_id": sent[0]["id"], "limit": 2},
+        {"end_id": sent[-1]["id"], "limit": 2},
+    ):
+        msgs, cursor = page(params)
+        assert msgs, f"{params} returned nothing"
+        assert cursor == "", f"{params} must carry no next_cursor, got {cursor!r}"
+
+    # The newest page DOES, and walking it back reaches every seeded message
+    # exactly once. Not asserted as "the whole stream": this suite shares one
+    # server, so the only rows this test owns are the ones it posted.
+    msgs, cursor = page({"with": peer, "limit": 2})
+    assert cursor, "four messages exist behind a limit of 2 — expected a cursor"
+    seen = [m["id"] for m in msgs]
+    rounds = 0
+    while cursor:
+        rounds += 1
+        assert rounds < 200, "the cursor walk did not terminate"
+        prev = cursor
+        msgs, cursor = page({"with": peer, "limit": 2, "cursor": prev})
+        assert cursor != prev, f"next_cursor did not advance: {cursor!r}"
+        seen = [m["id"] for m in msgs] + seen
+    assert len(seen) == len(set(seen)), f"the walk re-served a message: {seen}"
+    for m in sent:
+        assert m["id"] in seen, f"the walk skipped {m['id']}"
+
+    # An opaque token is opaque: one this API never minted is a 422 that says so,
+    # rather than a 200 answering from some guessed position.
+    r = hctx.client.get(
+        "/api/chat", params={"with": peer, "cursor": "not-a-cursor"},
+        headers=_auth(hctx.owner_token),
+    )
+    assert r.status_code == 422, f"{r.status_code} {r.text}"
+    assert "next_cursor" in r.text, r.text
+
+
+def test_chat_unread_is_per_sender_and_marks_nothing_read(hctx: HCtx) -> None:
+    """T-48 ``?unread=true``: the caller's own unread, judged against the
+    watermark FOR EACH SENDER, oldest first, and still writing nothing.
+
+    🔴 The per-sender rule is the load-bearing half. Two senders write to the
+    agent; the agent marks ONE of them read up to its newest message. Everything
+    from the OTHER sender must survive — including messages OLDER than the
+    watermark that was just written — because that watermark belongs to a
+    different conversation. Folding the two into one number would drop them, and
+    would drop them silently: the answer is a shorter page, which is exactly what
+    an empty inbox looks like.
+    """
+    tag = uuid.uuid4().hex[:8]
+    reader, reader_tok = hctx.agent.member_id, hctx.agent.token
+    other = hctx.fresh_member()
+    other_tok = mint_member_token(hctx.client, hctx.owner_token, other)
+
+    def post(token: str, body: str) -> dict:
+        r = hctx.client.post(
+            "/api/chat", json={"to": reader, "body": body}, headers=_auth(token)
+        )
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    # Interleaved on purpose: `other`'s message is OLDER than the watermark the
+    # owner's line is about to get, so a single global watermark would hide it.
+    from_other = post(other_tok, f"unread-other-{tag}")
+    from_owner = post(hctx.owner_token, f"unread-owner-{tag}")
+    assert from_other["ts"] <= from_owner["ts"]
+
+    r = hctx.client.post(
+        "/api/chat/mark-read",
+        json={"peer": "owner", "last_read_ts": from_owner["ts"]},
+        headers=_auth(reader_tok),
+    )
+    assert r.status_code == 200, r.text
+
+    r = hctx.client.get(
+        "/api/chat", params={"unread": "true", "limit": -1}, headers=_auth(reader_tok)
+    )
+    assert r.status_code == 200, r.text
+    unread = {m["id"]: m for m in chat_messages(r)}
+    assert from_other["id"] in unread, (
+        "the OTHER sender has no watermark at all, so its message is unread even "
+        f"though it is older than the one just marked read: {sorted(unread)}"
+    )
+    assert from_owner["id"] not in unread, (
+        "the owner's line was marked read up to this message"
+    )
+    assert all(m["to"] == reader for m in unread.values()), (
+        "unread must only carry messages addressed to the caller"
+    )
+    assert all(m["from"] != reader for m in unread.values()), (
+        "your own messages are never your unread"
+    )
+    ts = [m["ts"] for m in unread.values()]
+    assert ts == sorted(ts), "unread is answered OLDEST FIRST"
+
+    # 🔴 READING IT CLEARS NOTHING. The full backlog is still there afterwards.
+    r2 = hctx.client.get(
+        "/api/chat", params={"unread": "true", "limit": -1}, headers=_auth(reader_tok)
+    )
+    assert r2.status_code == 200, r2.text
+    assert {m["id"] for m in chat_messages(r2)} == set(unread), (
+        "paging unread must not advance any watermark — the backlog is unchanged"
+    )
+
+    # `unread` names a set defined by watermarks; the stream-position cursors
+    # name a place in the whole stream. Both at once is a 422, not a guess.
+    for extra in ({"before_ts": 1, "before_id": "x"}, {"start_id": from_other["id"]}):
+        r = hctx.client.get(
+            "/api/chat", params={"unread": "true", **extra}, headers=_auth(reader_tok)
+        )
+        assert r.status_code == 422, f"{extra}: {r.status_code} {r.text}"
+
+
+def test_chat_refuses_a_query_parameter_it_does_not_declare(hctx: HCtx) -> None:
+    """T-48 (owner ruling, THIS ROUTE ONLY): an undeclared query parameter is a
+    400 that NAMES it, rather than being silently ignored.
+
+    ``caller_only`` is the case that made this worth having: it was removed in
+    the same change, and a caller still sending it would otherwise have received
+    a 200 carrying an UNNARROWED listing with nothing said. Now it is told.
+    """
+    for name, value in (("caller_only", "true"), ("peek", "true"), ("wiht", "owner")):
+        r = hctx.client.get(
+            "/api/chat",
+            params={"with": hctx.agent.member_id, name: value},
+            headers=_auth(hctx.owner_token),
+        )
+        assert r.status_code == 400, f"{name}: {r.status_code} {r.text}"
+        assert name in r.text, f"the refusal must name {name}: {r.text}"
+
+    # The scope of that rule is exactly one route: everything else still ignores
+    # what it does not know. Without this arm the test would pass just as well
+    # against a server that had grown the refusal everywhere.
+    r = hctx.client.get(
+        "/api/members", params={"wiht": "owner"}, headers=_auth(hctx.owner_token)
+    )
+    assert r.status_code == 200, (
+        f"only GET /api/chat refuses unknown parameters: {r.status_code} {r.text}"
+    )
+
+    # …and the `?token=` transport credential is not a typo: it is how a client
+    # that cannot set a header authenticates, and it must still be accepted here.
+    r = hctx.client.get(
+        "/api/chat",
+        params={"with": hctx.agent.member_id, "token": hctx.owner_token},
+    )
+    assert r.status_code == 200, f"?token= must be accepted: {r.status_code} {r.text}"
+
+
+def test_chat_sender_and_recipient_narrow_one_side_each(hctx: HCtx) -> None:
+    """T-48: ``sender``/``recipient`` filter ONE side each and AND together,
+    which pins one direction of one line — something ``with`` cannot express,
+    because it matches either side."""
+    tag = uuid.uuid4().hex[:8]
+    peer = hctx.agent.member_id
+    outbound = hctx.client.post(
+        "/api/chat", json={"to": peer, "body": f"one-sided-out-{tag}"},
+        headers=_auth(hctx.owner_token),
+    )
+    assert outbound.status_code == 200, outbound.text
+    inbound = hctx.client.post(
+        "/api/chat", json={"to": "owner", "body": f"one-sided-in-{tag}"},
+        headers=_auth(hctx.agent.token),
+    )
+    assert inbound.status_code == 200, inbound.text
+
+    r = hctx.client.get(
+        "/api/chat",
+        params={"sender": "owner", "recipient": peer, "limit": -1},
+        headers=_auth(hctx.owner_token),
+    )
+    assert r.status_code == 200, r.text
+    ids = {m["id"] for m in chat_messages(r)}
+    assert outbound.json()["id"] in ids
+    assert inbound.json()["id"] not in ids, (
+        "sender+recipient pins ONE direction; the reply travels the other way"
+    )
+    assert all(
+        m["from"] == "owner" and m["to"] == peer for m in chat_messages(r)
+    ), "every row must match both filters"
+
+
 def test_chat_scrollback_cursor_page_never_marks_read(hctx: HCtx) -> None:
     """T-bf82 scrollback: ``GET /api/chat?with=&before_ts=&before_id=`` serves
     the strictly-older history page (oldest→newest) and NEVER advances the
-    caller's read watermark; the cursorless list still auto-marks (unchanged);
-    a partial cursor is a 422."""
+    caller's read watermark; a partial cursor is a 422.
+
+    T-48 flipped the last clause of this pin. The cursorless list used to
+    auto-mark, and this test asserted it did. It does not any more, on ANY path:
+    owner ruled that reading a list must not be able to claim a conversation was
+    read (「get_chat 不應該可以標示已讀未讀，這應該要另一隻 API 明確表示有這個
+    意圖」), because a member that had only attached its listener — never woken,
+    never shown a line — grew a watermark for messages nobody had looked at.
+    Marking read is POST /api/chat/mark-read and nothing else."""
     peer = hctx.agent.member_id
     sent = []
     for i in range(3):
@@ -4468,7 +4710,7 @@ def test_chat_scrollback_cursor_page_never_marks_read(hctx: HCtx) -> None:
         headers=_auth(hctx.agent.token),
     )
     assert r.status_code == 200, r.text
-    page = r.json()
+    page = chat_messages(r)
     ids = [m["id"] for m in page]
     assert newest["id"] not in ids, "a history page must exclude the cursor row"
     assert ids[-2:] == [sent[0]["id"], sent[1]["id"]], (
@@ -4491,15 +4733,19 @@ def test_chat_scrollback_cursor_page_never_marks_read(hctx: HCtx) -> None:
         )
         assert r.status_code == 422, f"partial cursor: {r.status_code} {r.text}"
 
-    # The cursorless list is untouched: it still auto-marks to the newest ts.
+    # The cursorless list does not mark either (T-48). This is the arm that
+    # changed, so it is asserted against the watermark captured BEFORE any read
+    # in this test — "unchanged", not merely "below the newest ts", which would
+    # also pass if the write happened and landed low.
     r = hctx.client.get(
         "/api/chat",
         params={"with": "owner"},
         headers=_auth(hctx.agent.token),
     )
     assert r.status_code == 200, r.text
-    assert agent_watermark() >= newest["ts"], (
-        "the cursorless list must keep the auto read-receipt behavior"
+    assert agent_watermark() == marked_before, (
+        "a cursorless list must not advance the watermark either — marking a "
+        "conversation read is POST /api/chat/mark-read and nothing else"
     )
 
 

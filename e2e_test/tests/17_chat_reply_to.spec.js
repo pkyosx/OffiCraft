@@ -170,8 +170,7 @@ test.describe('T-4e95 · reply-to — banner, wire, quote row, jump', () => {
           const res = await request.get(`${BASE}/api/chat?with=${M.id}&limit=100`, {
             headers: authHeaders(token),
           });
-          const payload = await res.json();
-          rows = Array.isArray(payload) ? payload : payload.messages;
+          rows = (await res.json()).messages;
           return rows.some((m) => m.body === ANSWER);
         },
         { message: 'the reply must have been stored', timeout: 15_000 },

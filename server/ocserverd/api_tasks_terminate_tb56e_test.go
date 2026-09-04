@@ -30,7 +30,7 @@ func terminateAs(t *testing.T, api *apiServer, taskID, sub, scope string) *httpt
 func TestTerminateAdmitsTheTasksOwnMemberExecutor(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true
-	putActiveMember(t, api, "m-exec", "Executor", KindAssistant)
+	putActiveMember(t, api, "m-exec", "Executor", KindStaff)
 
 	task := createAdHocTask(t, api, "m-exec")
 	rec := terminateAs(t, api, task.ID, "m-exec", "agent")
@@ -48,8 +48,8 @@ func TestTerminateAdmitsTheTasksOwnMemberExecutor(t *testing.T) {
 func TestTerminateRefusesAMemberOnSomeoneElsesTask(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true
-	putActiveMember(t, api, "m-exec", "Executor", KindAssistant)
-	putActiveMember(t, api, "m-stranger", "Stranger", KindAssistant)
+	putActiveMember(t, api, "m-exec", "Executor", KindStaff)
+	putActiveMember(t, api, "m-stranger", "Stranger", KindStaff)
 
 	task := createAdHocTask(t, api, "m-exec")
 	rec := terminateAs(t, api, task.ID, "m-stranger", "agent")
@@ -109,8 +109,8 @@ func TestTerminateRefusesAnOutsourceWorkerOnItsOwnTask(t *testing.T) {
 func TestTerminateStillAdmitsOwnerAndAdminAgent(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true
-	putActiveMember(t, api, "m-exec", "Executor", KindAssistant)
-	putMemberRow(t, api, "m-mira", KindAssistant, adminRoleKey)
+	putActiveMember(t, api, "m-exec", "Executor", KindStaff)
+	putMemberRow(t, api, "m-mira", KindStaff, adminRoleKey)
 
 	byOwner := createAdHocTask(t, api, "m-exec")
 	if rec := terminateAs(t, api, byOwner.ID, "owner", "owner"); rec.Code != http.StatusOK {
@@ -129,8 +129,8 @@ func TestTerminateStillAdmitsOwnerAndAdminAgent(t *testing.T) {
 func TestTerminateDeniesBeforeItProbesTerminalState(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true
-	putActiveMember(t, api, "m-exec", "Executor", KindAssistant)
-	putActiveMember(t, api, "m-stranger", "Stranger", KindAssistant)
+	putActiveMember(t, api, "m-exec", "Executor", KindStaff)
+	putActiveMember(t, api, "m-stranger", "Stranger", KindStaff)
 
 	task := createAdHocTask(t, api, "m-exec")
 	if rec := terminateAs(t, api, task.ID, "m-exec", "agent"); rec.Code != http.StatusOK {

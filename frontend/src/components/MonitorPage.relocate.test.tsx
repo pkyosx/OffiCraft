@@ -41,7 +41,7 @@ const mkMember = (over: Partial<Member> = {}): Member => ({
   lifecycle: "online",
   model: "opus-4.8",
   effort: "medium",
-  kind: "assistant",
+  kind: "staff",
   // An unpinned online member defaults the unified Change dialog to the one
   // available machine, making this a real placement change.
   desiredMachineId: "",

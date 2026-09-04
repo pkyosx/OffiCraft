@@ -106,6 +106,7 @@ REGEN_PAIR_GATE = $(P) \
   lint-go-naming lint-go-fmt lint-go-vet lint-uplink-contract lint-effort-vocab \
   lint-shadow-claim lint-user-operation-contract \
   lint-conformance-blackbox lint-ts lint-css-tokens lint-css-token-roles \
+  lint-async-landing lint-chat-area-key lint-chat-pushdown \
   build-embed-assets build-go build-frontend-deps \
   test-e2e-isolation-guard test-bin-guards test-go test-system-interaction-examples \
   test-frontend-unit \
@@ -373,6 +374,41 @@ lint-css-token-roles: build-frontend-deps
 	NPM="$$(oc_npm)"; \
 	echo "[lint-css-token-roles] the T-081b splits stay split"; \
 	(cd frontend && "$$NPM" run --silent lint:token-roles); \
+	$(DONE)
+
+# The chat listing and the unread count stay pushed down into SQL, and unread
+# counting keeps ONE entry point (T-48). Both rules used to be `_test.go`
+# functions that `os.ReadFile`d production Go and matched strings — extracting a
+# handler body into a helper flipped them without changing any behaviour, which
+# is the definition of a lint rule living in the wrong house (R13-6).
+lint-chat-pushdown:
+	@$(P) \
+	echo "[lint-chat-pushdown] the chat page stays pushed down; unread counting has one entry point"; \
+	python3 bin/chat-pushdown-guard.py; \
+	python3 bin/tests/chat-pushdown-guard-selftest.py; \
+	$(DONE)
+
+# The chat surface's async-landing census (T-48). It reads source text — which
+# is what the whole `lint-*` family here does — so it lives with them rather
+# than among the behaviour tests, where "the census is stale" and "the chat
+# window is broken" were the same colour of red.
+lint-async-landing: build-frontend-deps
+	@$(P) \
+	NPM="$$(oc_npm)"; \
+	echo "[lint-async-landing] every async landing point reachable from ChatArea carries a verdict"; \
+	(cd frontend && "$$NPM" run --silent lint:async-landing); \
+	$(DONE)
+
+# `<ChatArea>` must be mounted under a `key` (T-48 R13-5). Without it React
+# reuses ONE instance across conversations and every piece of per-conversation
+# state survives into the next room — the defect family that took twelve review
+# rounds. Nothing else goes red when the key is deleted, which is why this is a
+# gate of its own.
+lint-chat-area-key: build-frontend-deps
+	@$(P) \
+	NPM="$$(oc_npm)"; \
+	echo "[lint-chat-area-key] <ChatArea> is mounted per conversation"; \
+	(cd frontend && "$$NPM" run --silent lint:chat-area-key); \
 	$(DONE)
 
 # ===========================================================================

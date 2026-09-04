@@ -45,7 +45,7 @@ func TestDeleteRole_ACustomRoleCascadeCannotReachAContractor(t *testing.T) {
 	// not take this one, a surviving contractor proves nothing — it would just
 	// mean the cascade did not run.
 	if err := api.dal.PutMember(Member{
-		ID: "m-wearer", Name: "wearer", Kind: KindAssistant, RoleKey: role,
+		ID: "m-wearer", Name: "wearer", Kind: KindStaff, RoleKey: role,
 		RosterStatus: RosterStatusActive, DesiredState: DesiredStateOffline,
 	}); err != nil {
 		t.Fatalf("seed staff wearer: %v", err)

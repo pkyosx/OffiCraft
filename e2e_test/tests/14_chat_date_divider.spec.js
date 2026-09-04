@@ -117,7 +117,7 @@ test.describe('C1 · chat day divider — cross-day thread renders 今天/昨天
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(listRes.status(), 'listing the seeded thread must succeed').toBe(200);
-    const listed = await listRes.json();
+    const listed = (await listRes.json()).messages;
     const bodies = listed.map((m) => m.body);
     expect(bodies, 'the yesterday seed must be listed').toContain(yesterdayBody);
     expect(bodies, 'the today seed must be listed').toContain(todayBody);

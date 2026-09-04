@@ -8,6 +8,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, fireEvent, waitFor, screen } from "@testing-library/react";
+import { api } from "../api";
 import { I18nProvider } from "../i18n";
 import { ChatArea } from "./ChatArea";
 import { TOKEN_KEY } from "../api/auth";
@@ -19,7 +20,6 @@ let messages: ChatMessage[] = [];
 vi.mock("../hooks/useChat", () => ({
   useChat: () => ({
     messages,
-    messagesPeer: "m1",
     peerLastReadTs: 0,
     send: vi.fn(() => Promise.resolve()),
     markRead: vi.fn(() => Promise.resolve()),
@@ -44,23 +44,23 @@ vi.mock("../api", () => ({
   },
 }));
 
-function mkMember(): Member {
+function mkMember(id = "m1", name = "Mira"): Member {
   return {
-    id: "m1",
-    name: "Mira",
+    id,
+    name,
     role: "assistant",
     status: "online",
     lifecycle: "online",
     model: "opus",
     effort: "medium",
-    kind: "assistant",
+    kind: "staff",
     desiredMachineId: "",
     machine: null,
     account: null,
     contextPct: null,
     estimatedCost: null,
     bankedCost: null,
-    tmuxSession: "member-m1",
+    tmuxSession: `member-${id}`,
     refocusSince: null,
     lastOp: "",
     lastOpOk: null,
@@ -96,6 +96,45 @@ describe("ChatArea gallery toggle (M2-3)", () => {
     expect(await screen.findByRole("dialog")).toBeTruthy();
     fireEvent.click(toggle);
     expect(container.querySelector(".chat__gallery")).toBeNull();
+  });
+
+  it("closes on a conversation switch, so no room shows another room's files", async () => {
+    // §2.4 used to exempt this panel as an overlay whose backdrop blocks the
+    // switch gesture. `.chat__gallery` has no backdrop: it is a 340px side
+    // panel inside the chat column, and the roster beside it stays clickable.
+    // Driven the way `OfficePage` drives it — `key={peerId}` (R13-5) — so the
+    // switch is the unmount it is in the app.
+    vi.mocked(api.listChatAttachments).mockResolvedValueOnce([
+      {
+        id: "att-1",
+        url: "/api/chat/attachments/att-1",
+        filename: "A-的機密.png",
+        mime: "image/png",
+        isImage: true,
+        messageId: "c-1",
+        from: "m1",
+        fromName: "Mira",
+        to: "owner",
+        ts: 1,
+      },
+    ]);
+    const mira = mkMember();
+    const view = render(
+      <I18nProvider>
+        <ChatArea key={mira.id} member={mira} />
+      </I18nProvider>,
+    );
+    fireEvent.click(view.container.querySelector(".chat__gallery-toggle")!);
+    expect(await screen.findByText("A-的機密.png")).toBeTruthy();
+
+    const bruno = mkMember("m2", "Bruno");
+    view.rerender(
+      <I18nProvider>
+        <ChatArea key={bruno.id} member={bruno} />
+      </I18nProvider>,
+    );
+    expect(view.container.querySelector(".chat__gallery")).toBeNull();
+    expect(screen.queryByText("A-的機密.png")).toBeNull();
   });
 
   it("does NOT bubble the toggle click into the clickable header (open detail)", () => {

@@ -23,7 +23,6 @@ const send = vi.fn<(b: string) => Promise<void>>();
 vi.mock("../hooks/useChat", () => ({
   useChat: () => ({
     messages,
-    messagesPeer: "m1",
     peerLastReadTs: 0,
     send,
     markRead: vi.fn(() => Promise.resolve()),
@@ -33,7 +32,7 @@ vi.mock("../hooks/useChat", () => ({
 function mkMember(id: string, name: string): Member {
   return {
     id, name, role: "assistant", status: "online", lifecycle: "online",
-    model: "opus", effort: "medium", kind: "assistant", desiredMachineId: "",
+    model: "opus", effort: "medium", kind: "staff", desiredMachineId: "",
     machine: null, account: null, contextPct: null, estimatedCost: null,
     bankedCost: null, tmuxSession: `member-${id}`, refocusSince: null,
     lastOp: "", lastOpOk: null, lastOpLog: "", lastOpAt: null, unreadCount: 0,

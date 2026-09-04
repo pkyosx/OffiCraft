@@ -1005,7 +1005,7 @@ function AssigneeCard({
   onSave: (patch: TaskManualPatch) => Promise<unknown>;
 }) {
   const { t } = useI18n();
-  const roster = members.filter((m) => m.kind === "assistant");
+  const roster = members.filter((m) => m.kind === "staff");
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [saveError, setSaveError] = useState(false);

@@ -51,7 +51,7 @@ func seedHandoffTask(t *testing.T, api *apiServer, id, creator, executor string,
 func seedActiveMember(t *testing.T, api *apiServer, id string) {
 	t.Helper()
 	if err := api.dal.PutMember(Member{
-		ID: id, Name: id, Kind: "assistant", RoleKey: "dev",
+		ID: id, Name: id, Kind: "staff", RoleKey: "dev",
 		RosterStatus: RosterStatusActive,
 	}); err != nil {
 		t.Fatalf("seed member %s: %v", id, err)

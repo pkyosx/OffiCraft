@@ -1304,7 +1304,7 @@ func TestTerminatingATaskOverAWaitingCardRetiresIt(t *testing.T) {
 func TestDismissingAMemberRetiresItsWaitingCards(t *testing.T) {
 	api := newTasksTestServer(t)
 	if err := api.dal.PutMember(Member{
-		ID: "m-leaver", Name: "Leaver", Kind: KindAssistant,
+		ID: "m-leaver", Name: "Leaver", Kind: KindStaff,
 		RoleKey: "assistant", RosterStatus: RosterStatusActive,
 	}); err != nil {
 		t.Fatalf("seed member: %v", err)

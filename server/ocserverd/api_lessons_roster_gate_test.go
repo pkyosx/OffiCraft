@@ -214,7 +214,7 @@ func TestLessonsRosterGateDoesNotDisplaceAuthz(t *testing.T) {
 		t.Fatalf("PutRoleDef: %v", err)
 	}
 	if err := dal.PutMember(Member{
-		ID: "joey", Kind: KindAssistant, RoleKey: plainRole,
+		ID: "joey", Kind: KindStaff, RoleKey: plainRole,
 		DesiredState: DesiredStateOnline, RosterStatus: RosterStatusActive,
 	}); err != nil {
 		t.Fatalf("PutMember: %v", err)
@@ -285,7 +285,7 @@ func TestMemberCarriedRoleIsAddressableEvenThoughItCannotBoot(t *testing.T) {
 
 	const offRoster = "conf-shaped-role-naming-no-role"
 	status, body := rosterREST(t, srv.URL, ownerTok, "POST", "/api/members",
-		`{"name":"Off Roster Agent","kind":"assistant","role_key":"`+offRoster+`"}`)
+		`{"name":"Off Roster Agent","kind":"staff","role_key":"`+offRoster+`"}`)
 	if status != http.StatusOK {
 		t.Fatalf("hire through the production route failed: %d %s", status, body)
 	}

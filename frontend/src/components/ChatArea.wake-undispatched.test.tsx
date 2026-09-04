@@ -26,7 +26,6 @@ import type { Member, MemberActivateResult } from "../types";
 vi.mock("../hooks/useChat", () => ({
   useChat: () => ({
     messages: [],
-    messagesPeer: "m1",
     peerLastReadTs: 0,
     send: vi.fn(() => Promise.resolve()),
     markRead: vi.fn(() => Promise.resolve()),
@@ -46,7 +45,7 @@ function makeMember(over: Partial<Member> = {}): Member {
     lifecycle: "offline",
     model: "opus",
     effort: "medium",
-    kind: "assistant",
+    kind: "staff",
     desiredMachineId: "",
     machine: null,
     account: null,
@@ -69,7 +68,7 @@ function renderChat(
 ) {
   const utils = render(
     <I18nProvider>
-      <ChatArea member={makeMember()} onWake={onWake} />
+      <ChatArea key="m1" member={makeMember()} onWake={onWake} />
     </I18nProvider>,
   );
   const wakeBtn = () => {
@@ -114,12 +113,12 @@ describe("ChatArea · in-chat wake that was never dispatched (T-7fa1)", () => {
   });
 
   it("does NOT follow the owner onto a different peer (review r1 SHOULD-1)", async () => {
-    // 🔴 Found by the reviewer, not by me. OfficePage renders <ChatArea> with no
-    // `key` and frontend/CLAUDE.md states it is NOT remounted when the peer
-    // changes; the reset effect keyed only on a boolean that stays true→true
-    // when BOTH peers are offline. The residue is a sentence about peer B that
-    // the owner never caused — the same class of on-screen lie this ticket
-    // exists to delete.
+    // 🔴 Found by the reviewer, not by me. `OfficePage` used to render
+    // <ChatArea> with no `key`, so it was NOT remounted when the peer changed,
+    // and the reset effect keyed only on a boolean that stays true→true when
+    // BOTH peers are offline. The residue was a sentence about peer B that the
+    // owner never caused — the same class of on-screen lie this ticket exists to
+    // delete. The room is a mount now (R13-5); this pins the outcome.
     const onWake = vi.fn(async () => ({ activationPending: true }));
     const { wakeBtn, queryByTestId, rerender } = renderChat(onWake);
 
@@ -131,6 +130,7 @@ describe("ChatArea · in-chat wake that was never dispatched (T-7fa1)", () => {
     rerender(
       <I18nProvider>
         <ChatArea
+          key="m2"
           member={makeMember({ id: "m2", name: "Kyle" })}
           onWake={onWake}
         />
@@ -163,6 +163,7 @@ describe("ChatArea · in-chat wake that was never dispatched (T-7fa1)", () => {
     rerender(
       <I18nProvider>
         <ChatArea
+          key="m2"
           member={makeMember({ id: "m2", name: "Kyle" })}
           onWake={onWake}
         />
@@ -172,6 +173,42 @@ describe("ChatArea · in-chat wake that was never dispatched (T-7fa1)", () => {
     resolveWake({ activationPending: true });
     await new Promise((r) => setTimeout(r, 0));
     expect(queryByTestId("chat-wake-undispatched")).toBeNull();
+  });
+
+  it("an IN-FLIGHT wake's verdict never lands on the NEXT VISIT to the same peer (R6-1)", async () => {
+    // 🔴 第六輪 R6-1,第七個實例。當時這一對 state 用的是 plain `useState` ＋
+    // 手寫的 effect 重置 ＋ 一句 `peerIdRef.current !== firedFor` —— 三樣東西比的
+    // 都是**「是哪一個人」**。A→B→**A** 回到同一個人時字串相等:重置不觸發,
+    // 守衛放行,上一趟的裁決直接寫進這一趟。兩位 member 都是 offline,所以
+    // lifecycle 那條路也不會救。
+    // 🔴 A→B→A 是三次 mount(R13-5),所以下面用 key 驅動。
+    let resolveWake: (r: MemberActivateResult) => void = () => {};
+    const onWake = vi.fn(
+      () =>
+        new Promise<MemberActivateResult>((res) => {
+          resolveWake = res;
+        }),
+    );
+    const { wakeBtn, queryByTestId, rerender } = renderChat(onWake);
+
+    fireEvent.click(wakeBtn());
+    await waitFor(() => expect(onWake).toHaveBeenCalledTimes(1));
+
+    const show = (id: string, name: string) =>
+      rerender(
+        <I18nProvider>
+          <ChatArea key={id} member={makeMember({ id, name })} onWake={onWake} />
+        </I18nProvider>,
+      );
+    show("m2", "Kyle");
+    show("m1", "Mira");
+
+    resolveWake({ activationPending: true });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(
+      queryByTestId("chat-wake-undispatched"),
+      "回到同一個人的這一趟,不該收到上一趟的喚醒裁決",
+    ).toBeNull();
   });
 
   it("a RETRY clears the previous verdict (mutant MC)", async () => {

@@ -13,7 +13,7 @@ package main
 //     intent only (no online column), so the Python legacy `m.online`
 //     fallback parameter has no Go counterpart;
 //   - kind is a CLOSED set; the Python bare hire's kind="" folds to
-//     "assistant" at the ingest seam (CanonicalKind).
+//     "staff" at the ingest seam (CanonicalKind).
 
 import (
 	"encoding/json"
@@ -35,7 +35,7 @@ import (
 // Mirrors the authz literals (adminRoleKey / machineKind) — same vocabulary,
 // different concern.
 const (
-	KindAssistant = "assistant"
+	KindStaff     = "staff"
 	KindWarden    = "warden"
 	KindOutsource = "outsource"
 )
@@ -43,16 +43,29 @@ const (
 // CanonicalKind folds an incoming kind onto the closed set. The Python side's
 // bare hire writes kind="" (a free-form presentation string there); the Go
 // schema requires a legal kind, so blank maps to the default colleague kind
-// "assistant". Anything else outside the closed set is refused.
+// "staff". Anything else outside the closed set is refused.
 func CanonicalKind(kind string) (string, error) {
 	switch kind {
 	case "":
-		return KindAssistant, nil
-	case KindAssistant, KindWarden, KindOutsource:
+		return KindStaff, nil
+	case KindStaff, KindWarden, KindOutsource:
 		return kind, nil
 	}
+	// A caller sending the PRE-RENAME value gets told it was renamed, not just
+	// that it is invalid (T-48). Without this, an older client's request fails
+	// with a message that lists three values and never says "the one you sent
+	// used to be one of them" — the reader's next move is to guess.
+	// 🔑 The legacy value is built from runes ON PURPOSE. Spelled as a literal it
+	// would be swept up by the very repo-wide "assistant"→"staff" replacement it
+	// exists to explain, and this branch would silently start comparing the new
+	// value against itself — unreachable, and nothing would fail.
+	if kind == string([]rune{'a', 's', 's', 'i', 's', 't', 'a', 'n', 't'}) {
+		return "", fmt.Errorf(
+			"member kind %q was renamed to %q (T-48); the closed set is {%q, %q, %q}",
+			kind, KindStaff, KindStaff, KindWarden, KindOutsource)
+	}
 	return "", fmt.Errorf("member kind %q not in {%q, %q, %q}",
-		kind, KindAssistant, KindWarden, KindOutsource)
+		kind, KindStaff, KindWarden, KindOutsource)
 }
 
 // ── member: desired-state vocabulary (owner intent) ──────────────────────────
@@ -313,9 +326,9 @@ func ValidateMember(m Member) error {
 	if m.ID == "" {
 		return errors.New("member requires a non-empty id")
 	}
-	if m.Kind != KindAssistant && m.Kind != KindWarden && m.Kind != KindOutsource {
+	if m.Kind != KindStaff && m.Kind != KindWarden && m.Kind != KindOutsource {
 		return fmt.Errorf("member %s: kind %q not in {%q, %q, %q}",
-			m.ID, m.Kind, KindAssistant, KindWarden, KindOutsource)
+			m.ID, m.Kind, KindStaff, KindWarden, KindOutsource)
 	}
 	if !ValidRuntime(NormalizeRuntime(m.Runtime)) {
 		return fmt.Errorf("member %s: runtime %q not in {%q, %q}",

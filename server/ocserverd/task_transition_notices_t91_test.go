@@ -36,8 +36,8 @@ import (
 // having made the call itself). Returns the re-read task row.
 func t91Reassigned(t *testing.T, api *apiServer) Task {
 	t.Helper()
-	putActiveMember(t, api, "m-old", "Old", KindAssistant)
-	putActiveMember(t, api, "m-new", "New", KindAssistant)
+	putActiveMember(t, api, "m-old", "Old", KindStaff)
+	putActiveMember(t, api, "m-new", "New", KindStaff)
 	task := createAdHocTask(t, api, "m-old")
 	rec := reassign(t, api, task.ID, memberTarget("m-new"), wireOwnerID, "owner")
 	if rec.Code != http.StatusOK {
@@ -419,7 +419,7 @@ func TestTheHandoverDoorAdmitsOnlyTheStampedPredecessor(t *testing.T) {
 	api := newTasksTestServer(t)
 	task := t91Reassigned(t, api)
 	step := t91StepOf(t, api, task.ID, "m-new")
-	putActiveMember(t, api, "m-stranger", "Stranger", KindAssistant)
+	putActiveMember(t, api, "m-stranger", "Stranger", KindStaff)
 
 	if rec := t91WriteNote(t, api, task.ID, step, "m-stranger", "路過"); rec.Code != http.StatusForbidden {
 		t.Fatalf("the reassigning lock must open the note door for the STAMPED "+
@@ -446,8 +446,8 @@ func t91Block(t *testing.T, api *apiServer, blocked, blocker, executor string) {
 // queued behind was told nothing, by any route.
 func TestBlockerTicketNamesTheTasksWaitingOnIt(t *testing.T) {
 	api := newTasksTestServer(t)
-	putActiveMember(t, api, "m-blocker", "Blocker", KindAssistant)
-	putActiveMember(t, api, "m-waiter", "Waiter", KindAssistant)
+	putActiveMember(t, api, "m-blocker", "Blocker", KindStaff)
+	putActiveMember(t, api, "m-waiter", "Waiter", KindStaff)
 	blocker := createAdHocTask(t, api, "m-blocker")
 	waiter := createAdHocTask(t, api, "m-waiter")
 	t91Block(t, api, waiter.ID, blocker.ID, "m-waiter")
@@ -486,8 +486,8 @@ func TestBlockerTicketNamesTheTasksWaitingOnIt(t *testing.T) {
 // because Q3's ruling means nothing is sent.
 func TestResumeSummaryCarriesTheBlockingIds(t *testing.T) {
 	api := newTasksTestServer(t)
-	putActiveMember(t, api, "m-blocker", "Blocker", KindAssistant)
-	putActiveMember(t, api, "m-waiter", "Waiter", KindAssistant)
+	putActiveMember(t, api, "m-blocker", "Blocker", KindStaff)
+	putActiveMember(t, api, "m-waiter", "Waiter", KindStaff)
 	blocker := createAdHocTask(t, api, "m-blocker")
 	waiter := createAdHocTask(t, api, "m-waiter")
 	t91Block(t, api, waiter.ID, blocker.ID, "m-waiter")
@@ -521,8 +521,8 @@ func TestResumeSummaryCarriesTheBlockingIds(t *testing.T) {
 // for the agent at 開機盤點.
 func TestBlockingSkipsWaitersThatHaveAlreadyClosed(t *testing.T) {
 	api := newTasksTestServer(t)
-	putActiveMember(t, api, "m-blocker", "Blocker", KindAssistant)
-	putActiveMember(t, api, "m-waiter", "Waiter", KindAssistant)
+	putActiveMember(t, api, "m-blocker", "Blocker", KindStaff)
+	putActiveMember(t, api, "m-waiter", "Waiter", KindStaff)
 	blocker := createAdHocTask(t, api, "m-blocker")
 	live := createAdHocTask(t, api, "m-waiter")
 	dead := createAdHocTask(t, api, "m-waiter")
@@ -586,8 +586,8 @@ func TestBlockingSkipsWaitersThatHaveAlreadyClosed(t *testing.T) {
 // here is reversing a decision, not filling a gap.
 func TestBindingADependencySendsTheBlockerExecutorNothing(t *testing.T) {
 	api := newTasksTestServer(t)
-	putActiveMember(t, api, "m-blocker", "Blocker", KindAssistant)
-	putActiveMember(t, api, "m-waiter", "Waiter", KindAssistant)
+	putActiveMember(t, api, "m-blocker", "Blocker", KindStaff)
+	putActiveMember(t, api, "m-waiter", "Waiter", KindStaff)
 	blocker := createAdHocTask(t, api, "m-blocker")
 	waiter := createAdHocTask(t, api, "m-waiter")
 
@@ -641,7 +641,7 @@ func TestCloseNudgeNoLongerSkipsDuplicateOrAdHocTasks(t *testing.T) {
 // wake. Nothing here connects an SSE client, which is the point.
 func TestTaskCloseNudgeIsADurableChatRowTheExecutorReadsAtItsNextWake(t *testing.T) {
 	api := newTasksTestServer(t)
-	putActiveMember(t, api, "m-exec", "Exec", KindAssistant)
+	putActiveMember(t, api, "m-exec", "Exec", KindStaff)
 	task := createAdHocTask(t, api, "m-exec")
 
 	rec := httptest.NewRecorder()
@@ -713,7 +713,7 @@ func mustResumeChat(t *testing.T, api *apiServer, actor string) []ChatMessage {
 // owner-editable — this asserts the value is carried and filled, not the words.
 func TestTaskCloseNudgeNamesWhoClosedIt(t *testing.T) {
 	api := newTasksTestServer(t)
-	putActiveMember(t, api, "m-exec", "Exec", KindAssistant)
+	putActiveMember(t, api, "m-exec", "Exec", KindStaff)
 	task := createAdHocTask(t, api, "m-exec")
 
 	rec := httptest.NewRecorder()

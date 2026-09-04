@@ -30,7 +30,7 @@ badge 的三個色槽要分清 danger badge、on-danger 文字與 ring；ring �
 
 ## 未讀
 
-未讀數一律使用 server member.unreadCount；0 不畫，超過 99 畫 99+。只由 member→owner 的 server watermark 決定，前端不得用訊息數自行計算。讀取聊天清 watermark；目前選取中的聊天且視窗 active 時壓掉 badge；mock 必須同規則。
+未讀數一律使用 server member.unreadCount；0 不畫，超過 99 畫 99+。只由 member→owner 的 server watermark 決定，前端不得用訊息數自行計算。清 watermark 只由明確的 mark-read 呼叫做（T-48：讀取聊天本身不再標已讀，任何路徑都不會）；目前選取中的聊天且視窗 active 時壓掉 badge；mock 必須同規則。
 
 ## 自報值與設定值
 

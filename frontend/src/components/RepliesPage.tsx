@@ -207,7 +207,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // outsource asker through #office/worker/<id> (workerId) — OfficePage
   // self-heals to the plain roster view if the id doesn't resolve (e.g. a
   // released worker), so this never dead-ends. The split below keys on
-  // `kind === "assistant"`, NOT on absence from `members`: GET /api/members
+  // `kind === "staff"`, NOT on absence from `members`: GET /api/members
   // carries kind='outsource' rows, so a live worker is present in the list
   // and only its kind tells the two panels apart.
   //
@@ -219,7 +219,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // OfficePage's 返回 to land back on THIS page instead.
   function openProfile(card: ReplyCard) {
     const isRosterMember = members.some(
-      (m) => m.id === card.from && m.kind === "assistant",
+      (m) => m.id === card.from && m.kind === "staff",
     );
     setRoute(
       isRosterMember

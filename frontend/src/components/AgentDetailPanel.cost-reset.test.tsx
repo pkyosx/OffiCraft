@@ -45,7 +45,7 @@ function mkMember(over: Partial<Member> = {}): Member {
     actualModel: "opus",
     effort: "medium",
     actualEffort: "medium",
-    kind: "assistant",
+    kind: "staff",
     desiredMachineId: "",
     machine: "",
     actualMachine: "",

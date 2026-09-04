@@ -92,6 +92,18 @@ export function ChevronDownIcon({ size = 16, className }: IconProps) {
   );
 }
 
+/** T-48: the jump-to-latest arrow. A full arrow (shaft + head), not the bare
+ * chevron above — inside a 32px circle a lone chevron reads as "expand", which
+ * is what every other chevron in this cockpit means. */
+export function ArrowDownIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M12 5v14" />
+      <path d="m19 12-7 7-7-7" />
+    </svg>
+  );
+}
+
 export function ChevronRightIcon({ size = 16, className }: IconProps) {
   return (
     <svg {...base(size)} className={className}>

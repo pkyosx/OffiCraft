@@ -23,7 +23,7 @@ func fullMember(id string) Member {
 	return Member{
 		ID:               id,
 		Name:             "Mira",
-		Kind:             "assistant",
+		Kind:             "staff",
 		RoleKey:          "assistant",
 		Runtime:          RuntimeClaude,
 		Model:            "opus",
@@ -93,7 +93,7 @@ func TestMemberCRUDRoundTrip(t *testing.T) {
 
 func TestMemberKindCheckRejectsNonClosedSetValues(t *testing.T) {
 	d := newTestDAL(t)
-	for _, kind := range []string{"", "robot", "Assistant"} {
+	for _, kind := range []string{"", "robot", "Staff", "assistant"} {
 		m := fullMember("m-bad")
 		m.Kind = kind
 		if err := d.PutMember(m); err == nil {

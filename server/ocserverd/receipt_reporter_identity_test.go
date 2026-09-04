@@ -327,7 +327,7 @@ func TestReceiptReporter_ClaimBearingTokenIsNotTheMachineItRunsOn(t *testing.T) 
 	putWardenFixture(t, s, "m-dark")
 	// The agent living ON m-dark: its own roster id, pinned to that machine.
 	putTestMember(t, s, Member{
-		ID: "m-onbox", Name: "Onbox", Kind: KindAssistant, Effort: "medium",
+		ID: "m-onbox", Name: "Onbox", Kind: KindStaff, Effort: "medium",
 		DesiredState: DesiredStateOffline, RosterStatus: RosterStatusActive,
 	})
 	putWorkerFixture(t, s, OutsourceWorker{

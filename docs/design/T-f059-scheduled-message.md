@@ -396,7 +396,7 @@ tick 就送」。倒推法看得到那個舊槽 ⇒ 升級後第一個 tick 會�
 ⚠️ **不要用 `resolveMember`**（`api_helpers.go`）：它**明確排除 `kind == outsource`**，
 所以今天 webhook 端點根本綁不到 `ow-` worker。
 
-聊天可以送給外包（`resolveChatRecipient` 同時允許 `KindAssistant` 與 `KindOutsource`），
+聊天可以送給外包（`resolveChatRecipient` 同時允許 `KindStaff` 與 `KindOutsource`），
 而定期訊息就是一則聊天訊息 ⇒ **用聊天那一套的收件者判準**。
 
 ⚠️ **一句實話**：外包 worker 綁一張任務、任務結束就作廢。掛在外包身上的排程

@@ -206,7 +206,7 @@ func TestPatchLessonsMCPIdentityDefaults(t *testing.T) {
 	now := time.Now().Unix()
 	const customRole = "r-25debddcf5dd"
 	if err := dal.PutMember(Member{
-		ID: "joey", Kind: KindAssistant, RoleKey: customRole,
+		ID: "joey", Kind: KindStaff, RoleKey: customRole,
 		DesiredState: DesiredStateOnline,
 	}); err != nil {
 		t.Fatalf("PutMember: %v", err)

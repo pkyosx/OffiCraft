@@ -22,7 +22,7 @@ func wardenOnline(t *testing.T, api *apiServer, dal *DAL, id string) func() {
 func TestIdentitySweepReapsResidualOnOtherMachinesOnly(t *testing.T) {
 	api, dal := newGateTestAPI(t)
 	// The 正身 is desired online on w-desired; two other wardens are online.
-	putGateMember(t, dal, Member{ID: "m-1", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "m-1", Kind: KindStaff,
 		DesiredState: DesiredStateOnline, DesiredMachineID: "w-desired"})
 	defer wardenOnline(t, api, dal, "w-desired")()
 	defer wardenOnline(t, api, dal, "w-other-a")()
@@ -48,7 +48,7 @@ func TestIdentitySweepDoesNotFireForWanderer(t *testing.T) {
 	api, dal := newGateTestAPI(t)
 	// Desired machine is w-desired, but this connection's claim is w-other (an
 	// old instance from before a relocate) — it is a sweep TARGET, not initiator.
-	putGateMember(t, dal, Member{ID: "m-2", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "m-2", Kind: KindStaff,
 		DesiredState: DesiredStateOnline, DesiredMachineID: "w-desired"})
 	defer wardenOnline(t, api, dal, "w-desired")()
 	defer wardenOnline(t, api, dal, "w-other")()
@@ -65,7 +65,7 @@ func TestIdentitySweepDoesNotFireForWanderer(t *testing.T) {
 func TestIdentitySweepSkipsWhenDesiredOffline(t *testing.T) {
 	api, dal := newGateTestAPI(t)
 	// desired_state offline → no 正身 to establish, no sweep.
-	putGateMember(t, dal, Member{ID: "m-3", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "m-3", Kind: KindStaff,
 		DesiredState: DesiredStateOffline, DesiredMachineID: "w-desired"})
 	defer wardenOnline(t, api, dal, "w-desired")()
 	defer wardenOnline(t, api, dal, "w-other")()
@@ -79,7 +79,7 @@ func TestIdentitySweepSkipsWhenDesiredOffline(t *testing.T) {
 
 func TestIdentitySweepDedupesWithinWindow(t *testing.T) {
 	api, dal := newGateTestAPI(t)
-	putGateMember(t, dal, Member{ID: "m-4", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "m-4", Kind: KindStaff,
 		DesiredState: DesiredStateOnline, DesiredMachineID: "w-desired"})
 	defer wardenOnline(t, api, dal, "w-desired")()
 	defer wardenOnline(t, api, dal, "w-other")()
@@ -161,7 +161,7 @@ func TestIdentitySweepReapsOutsourceResidual_AutoPlacement(t *testing.T) {
 func TestIdentitySweepGatedByNoReconcile(t *testing.T) {
 	api, dal := newGateTestAPI(t)
 	api.noReconcile = true
-	putGateMember(t, dal, Member{ID: "m-5", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "m-5", Kind: KindStaff,
 		DesiredState: DesiredStateOnline, DesiredMachineID: "w-desired"})
 	defer wardenOnline(t, api, dal, "w-desired")()
 	defer wardenOnline(t, api, dal, "w-other")()
@@ -206,7 +206,7 @@ func TestIdentitySweepGatedByNoReconcile(t *testing.T) {
 // FIRST, so a broken fixture fails as a fixture rather than as a fake pass.
 func TestIdentitySweepNeverTargetsAContractorRow(t *testing.T) {
 	api, dal := newGateTestAPI(t)
-	putGateMember(t, dal, Member{ID: "m-sweep-kind", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "m-sweep-kind", Kind: KindStaff,
 		DesiredState: DesiredStateOnline, DesiredMachineID: "w-desired"})
 	defer wardenOnline(t, api, dal, "w-desired")()
 	defer wardenOnline(t, api, dal, "w-other")() // positive control

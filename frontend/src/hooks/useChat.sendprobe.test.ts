@@ -16,7 +16,6 @@ import type { ChatMessage, SseDelta } from "../api/adapter";
 
 const h = vi.hoisted(() => ({
   listChat: vi.fn<(w: string, limit?: number) => Promise<unknown[]>>(),
-  peekChat: vi.fn<(w: string, limit?: number) => Promise<unknown[]>>(),
   listChatReads: vi.fn(async () => [] as unknown[]),
   markChatRead: vi.fn(async () => ({}) as unknown),
   postChat: vi.fn<(m: unknown) => Promise<unknown>>(),
@@ -26,7 +25,6 @@ const h = vi.hoisted(() => ({
 vi.mock("../api", () => ({
   api: {
     listChat: h.listChat,
-    peekChat: h.peekChat,
     listChatReads: h.listChatReads,
     markChatRead: h.markChatRead,
     postChat: h.postChat,
@@ -53,7 +51,6 @@ let warnSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
   h.listChat.mockReset().mockResolvedValue([]);
-  h.peekChat.mockReset().mockResolvedValue([]);
   h.postChat.mockReset().mockResolvedValue(SENT);
   h.listChatReads.mockClear();
   h.sseHandler = null;

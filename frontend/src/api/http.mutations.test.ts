@@ -158,20 +158,71 @@ describe("httpApi · owner avatar mutations", () => {
 });
 
 describe("httpApi · perf-light query contracts (T-2b9d/cf91/ec2c)", () => {
-  it("peekChat pulls the filtered+capped read-only window (peek=true), NOT the whole history", async () => {
-    fetchMock.mockImplementation(async () => jsonResponse([]));
-    await httpApi.peekChat("m-1");
+  it("listChat pulls the peer's window and sends NO peek parameter (T-48), NOT the whole history", async () => {
+    fetchMock.mockImplementation(async () => jsonResponse({ messages: [] }));
+    await httpApi.listChat("m-1");
     const { url, method } = await lastRequest();
     const q = new URLSearchParams(url.split("?")[1] ?? "");
     expect(method).toBe("GET");
     expect(url.split("?")[0]).toBe("/api/chat");
-    // LOAD-BEARING: read-only (peek), scoped to the peer, capped — and NEVER
-    // the old whole-company `limit=-1` pull. MUTANT: revert peekChat to
-    // `{ limit: -1 }` and these go red.
-    expect(q.get("peek")).toBe("true");
+    // LOAD-BEARING: scoped to the peer, and the recent window is the SERVER's
+    // default (no `limit` on the wire) — never the old whole-company
+    // `limit=-1` pull. MUTANT: give this call `{ limit: -1 }` and these go red.
     expect(q.get("with")).toBe("m-1");
-    expect(q.get("limit")).toBe("30");
-    expect(q.get("limit")).not.toBe("-1");
+    expect(q.get("limit")).toBeNull();
+    // T-48 removed ?peek= from the wire: GET /api/chat marks nothing read on
+    // any path, so the opt-out has nothing to opt out of — which is also why
+    // the `peekChat` twin of this method is gone. Asserting the parameter's
+    // ABSENCE rather than deleting the check keeps a re-added parameter —
+    // which would now be silently ignored by the server — from going unnoticed.
+    expect(q.get("peek")).toBeNull();
+    // caller_only went the same way with T-48 (owner ruling rc-09f6d801b2b8),
+    // and this route now REFUSES a parameter it does not declare with a 400
+    // naming it — so a re-added one would break the cockpit rather than be
+    // quietly ignored. Asserting its absence here is what catches that before
+    // a user does.
+    expect(q.get("caller_only")).toBeNull();
+  });
+
+  it("listChat reads `messages` out of the T-48 envelope and ignores next_cursor", async () => {
+    // The wire answers an OBJECT since T-48. This pins that the adapter reads
+    // the envelope rather than the old bare array — and that a next_cursor it
+    // does not use cannot leak into the rows. MUTANT: `return wire.messages`
+    // →`return wire` and the shape assertion below goes red.
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({
+        messages: [
+          {
+            id: "c-9",
+            from: "m-1",
+            from_name: "",
+            to: "owner",
+            to_name: "",
+            body: "hi",
+            ts: 1,
+            ts_display: "",
+            meta: {},
+            reply_card_id: "",
+            reply_card_status: "",
+            reply_to: "",
+            body_omitted_chars: 0,
+          },
+        ],
+        next_cursor: "b3wAMQBjLTk",
+      }),
+    );
+    const got = await httpApi.listChat("m-1");
+    expect(got.map((m) => m.id)).toEqual(["c-9"]);
+  });
+
+  it("listChat(-1) still asks for the WHOLE history (the gallery path)", async () => {
+    fetchMock.mockImplementation(async () => jsonResponse({ messages: [] }));
+    await httpApi.listChat("m-1", -1);
+    const q = new URLSearchParams(
+      (await lastRequest()).url.split("?")[1] ?? "",
+    );
+    expect(q.get("with")).toBe("m-1");
+    expect(q.get("limit")).toBe("-1");
   });
 
   it("listMembers({light}) sends fields=light; default omits it", async () => {

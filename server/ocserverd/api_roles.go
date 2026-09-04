@@ -219,7 +219,7 @@ func (s *apiServer) HandleCreateRoleApiRolesPost(w http.ResponseWriter, r *http.
 	member := Member{
 		ID:               "m-" + newHexID(12),
 		Name:             memberName,
-		Kind:             KindAssistant,
+		Kind:             KindStaff,
 		RoleKey:          roleKey,
 		Runtime:          runtime,
 		Model:            trimmedOrEmpty(body.Model),

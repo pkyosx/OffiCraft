@@ -3,8 +3,15 @@
 // 等我回覆 reply cards, B3's inline chat card) stages uploads identically:
 // same size/count caps, same paste/pick funnels, same preview shape.
 
-import { useState } from "react";
+import { useCallback, useState, useSyncExternalStore } from "react";
 import { useI18n } from "../i18n";
+import {
+  getChatAttachError,
+  getChatDraftAttachments,
+  setChatAttachError,
+  subscribeChatDraft,
+  updateChatDraftAttachments,
+} from "../lib/chatDraftStore";
 
 // Client-side size guards — mirror the backend (handlers): an image/*
 // attachment is capped at 20 MB, any other file at 100 MB. We fail fast in the
@@ -15,7 +22,7 @@ const CHAT_FILE_MAX_BYTES = 100 * 1024 * 1024;
 // _CHAT_ATTACHMENTS_MAX_COUNT (a safety default, not a product decision). Over
 // the cap → the extra files are refused with a visible notice; the ones that
 // fit stay staged.
-const CHAT_MAX_ATTACHMENTS = 10;
+export const CHAT_MAX_ATTACHMENTS = 10;
 
 /** `accept` for the file picker: images plus common office/doc/text/archive
  * types (an allow-anything wildcard is avoided — an explicit list is
@@ -29,7 +36,13 @@ export const ATTACH_ACCEPT =
  * mixed) and are sent together on the SAME message. `dataUri` is a
  * `data:<mime>;base64,…` string (what FileReader.readAsDataURL yields), `size`
  * is the raw decoded byte estimate, `key` is a client-side list identity (for
- * React keys + per-item removal — duplicate filenames are legal). */
+ * React keys + per-item removal — duplicate filenames are legal).
+ *
+ * ⚠️ THERE IS NO `target` FIELD ANY MORE, AND THAT IS THE POINT (T-48, R13-2).
+ * A row used to be stamped with the room it was picked for, because every room's
+ * rows shared one list and the composer had to filter. Rows now live IN the room
+ * they were picked for — a peer's slice of `chatDraftStore` — so "whose file is
+ * this?" is answered by where it is, not by a field somebody has to compare. */
 export interface PendingAttachment {
   key: string;
   dataUri: string;
@@ -56,9 +69,37 @@ export function formatAttachmentSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** WHOSE staging this is — REQUIRED and FIRST, because it names the SLOT the
+ * files are written into, not a label they are compared against.
+ *
+ * 🔴 THIS HOOK HAS NO `await`, AND THAT IS WHY THE SLOT HAD TO BE DURABLE.
+ * `stageFile` hands the file to `FileReader` and returns; the commit happens
+ * later, inside `reader.onload`. Reading a 100 MB drop or a large pasted
+ * screenshot takes SECONDS, and the surface that picked it can be gone by then
+ * — a different conversation on screen, or no conversation at all because the
+ * page was left. The measured results of putting that list in component state
+ * were a file appearing in the wrong room's composer (R9-1), a file destroyed
+ * by an unmount nobody was watching for (R10-4), and a file filed into a draft
+ * that the composer then overwrote (R11-2).
+ *
+ * The commit now names its slot: `updateChatDraftAttachments(pickedFor, …)`.
+ * It does not consult the screen, it does not consult React, and it works the
+ * same whether a composer is mounted, mounted on another room, or gone.
+ *
+ * A caller mounted under a key that changes with the thing it stages for
+ * (`TaskCard` under `key={task.id}`, `ReplyComposer` under `key={card.id}`)
+ * passes this constant instead, and gets an EPHEMERAL slot that dies with the
+ * mount — which is the honest description of those surfaces: a card torn down
+ * mid-read has no room to come back to. Since R13-5 `ChatArea` is one of these
+ * by mounting (`OfficePage` gives it `key={peerId}`), but NOT by staging: its
+ * files outlive the visit on purpose, because the draft does. */
+export const STAGING_TARGET_PER_MOUNT = "remounts-per-conversation";
+
 export interface AttachmentStaging {
+  /** The staged files for this slot. */
   pendingAttachments: PendingAttachment[];
-  /** Transient rejection reason (too large / too many); null when none. */
+  /** Transient rejection reason (too large / too many) raised in THIS slot;
+   * null when none. */
   attachError: string | null;
   /** The ONE multi-file funnel: paste, picker and drag-drop all go through
    * here, one FileReader per file. */
@@ -70,26 +111,112 @@ export interface AttachmentStaging {
    * input's value so picking the SAME file again still fires onChange. */
   onPickFile: (e: React.ChangeEvent<HTMLInputElement>) => void;
   removeAttachment: (key: string) => void;
+  /** Clear this slot's staged files and its visible error. */
   clearAttachments: () => void;
-  /** Send-failure restore: put a snapshot back UNLESS the user already staged
-   * new content while the send was in flight (never clobber fresh work). */
-  restoreAttachments: (snapshot: PendingAttachment[]) => void;
 }
 
-export function useAttachmentStaging(): AttachmentStaging {
+/** Where one surface's staged rows live. Two implementations, chosen by the
+ * `target` overload the caller picked: a peer's slice of `chatDraftStore`, or a
+ * list that dies with the mount. */
+interface StagingSlot {
+  attachments: PendingAttachment[];
+  error: string | null;
+  update: (fn: (prev: PendingAttachment[]) => PendingAttachment[]) => void;
+  setError: (message: string | null) => void;
+}
+
+const NO_UNSUBSCRIBE = () => {};
+const NO_ROWS: PendingAttachment[] = [];
+
+/** The DURABLE slot: a chat peer's own attachments, in the draft store. Reads
+ * are a subscription, so a row written by a read that finished while nobody was
+ * looking shows up the moment somebody is.
+ *
+ * `peerId === null` means the caller took the ephemeral slot instead. The hooks
+ * still run — they must, the count cannot change over a mount — but they are
+ * wired to nothing: no store key is subscribed and no snapshot is read, so this
+ * slot is inert rather than quietly attached to a key nobody writes. */
+function useDraftStoreSlot(peerId: string | null): StagingSlot {
+  const subscribe = useCallback(
+    (cb: () => void): (() => void) =>
+      peerId === null ? NO_UNSUBSCRIBE : subscribeChatDraft(peerId, cb),
+    [peerId],
+  );
+  const attachments = useSyncExternalStore(
+    subscribe,
+    useCallback(
+      () => (peerId === null ? NO_ROWS : getChatDraftAttachments(peerId)),
+      [peerId],
+    ),
+  );
+  const error = useSyncExternalStore(
+    subscribe,
+    useCallback(
+      () => (peerId === null ? null : getChatAttachError(peerId)),
+      [peerId],
+    ),
+  );
+  return {
+    attachments,
+    error,
+    update: (fn) => {
+      if (peerId !== null) updateChatDraftAttachments(peerId, fn);
+    },
+    setError: (message) => {
+      if (peerId !== null) setChatAttachError(peerId, message);
+    },
+  };
+}
+
+/** The EPHEMERAL slot: component state, gone on unmount. Correct for a surface
+ * that is torn down together with the thing it stages for — a landing after its
+ * unmount has no surface left to return to either. */
+function useEphemeralSlot(): StagingSlot {
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  return {
+    attachments,
+    error,
+    update: (fn) => setAttachments((prev) => fn(prev)),
+    setError,
+  };
+}
+
+/** 🔴 THE TYPE ASKS THE QUESTION BACK (T-48, R11-8, kept through R13-2).
+ * `target: string` alone compiles for every caller and every mistake: pass a
+ * task id where a peer id belongs and the files land in a room nobody will look
+ * in. The two overloads put the choice back where the caller must answer it —
+ *
+ *   · a surface that is REMOUNTED with the thing it stages for says exactly
+ *     that, by passing `STAGING_TARGET_PER_MOUNT`, and accepts that its staged
+ *     files die with it;
+ *   · a chat composer names the PEER, and its files are that peer's draft. */
+export function useAttachmentStaging(
+  target: typeof STAGING_TARGET_PER_MOUNT,
+): AttachmentStaging;
+export function useAttachmentStaging(target: string): AttachmentStaging;
+export function useAttachmentStaging(target: string): AttachmentStaging {
   const { t } = useI18n();
-  const [pendingAttachments, setPendingAttachments] = useState<
-    PendingAttachment[]
-  >([]);
-  const [attachError, setAttachError] = useState<string | null>(null);
+  // Both slots are built every render and one is used. `target` does not change
+  // over a mount's life at either kind of call site (the per-mount callers pass
+  // a literal; `ChatArea` is mounted under `key={peerId}`), so the choice is a
+  // constant and no hook is ever skipped.
+  const perMount = target === STAGING_TARGET_PER_MOUNT;
+  const ephemeral = useEphemeralSlot();
+  const stored = useDraftStoreSlot(perMount ? null : target);
+  const slot = perMount ? ephemeral : stored;
 
   // Read a File → data-URI, size-check (image ≤ 20 MB, other ≤ 100 MB, mirroring
   // the backend), and APPEND it to the staged attachments. Over-size → surface
   // an error, skip the file; over the COUNT cap → surface an error, drop the
   // overflow (the ones that fit stay). The count guard lives INSIDE the
-  // functional setState because FileReader completions land asynchronously —
+  // functional update because FileReader completions land asynchronously —
   // checking a stale snapshot would race a multi-file batch past the cap.
   function stageFile(file: File) {
+    // Captured at PICK time: this is the slot the owner was composing into when
+    // they chose the file, and the commit below writes into THAT slot whatever
+    // is on screen when the read finishes.
+    const pickedInto = slot;
     const reader = new FileReader();
     reader.onload = () => {
       const dataUri = typeof reader.result === "string" ? reader.result : "";
@@ -99,33 +226,34 @@ export function useAttachmentStaging(): AttachmentStaging {
       const size = estimateDataUriBytes(dataUri);
       const limit = isImage ? CHAT_IMAGE_MAX_BYTES : CHAT_FILE_MAX_BYTES;
       if (size > limit) {
-        setAttachError(
+        pickedInto.setError(
           isImage
             ? t.chat.imageTooLarge
-            : t.chat.attachTooLarge(Math.round(limit / (1024 * 1024)))
+            : t.chat.attachTooLarge(Math.round(limit / (1024 * 1024))),
         );
         return;
       }
-      setPendingAttachments((prev) => {
+      const attachment: PendingAttachment = {
+        key: `pa-${++pendingAttachmentSeq}`,
+        // A pasted screenshot has no filename — leave it empty and let the
+        // backend default it; a picked file keeps its real name.
+        filename: file.name || "",
+        dataUri,
+        mime,
+        size,
+        isImage,
+      };
+      let refused = false;
+      pickedInto.update((prev) => {
         if (prev.length >= CHAT_MAX_ATTACHMENTS) {
-          setAttachError(t.chat.attachTooMany(CHAT_MAX_ATTACHMENTS));
+          refused = true;
           return prev;
         }
-        setAttachError(null);
-        return [
-          ...prev,
-          {
-            key: `pa-${++pendingAttachmentSeq}`,
-            dataUri,
-            // A pasted screenshot has no filename — leave it empty and let the
-            // backend default it; a picked file keeps its real name.
-            filename: file.name || "",
-            mime,
-            size,
-            isImage,
-          },
-        ];
+        return [...prev, attachment];
       });
+      pickedInto.setError(
+        refused ? t.chat.attachTooMany(CHAT_MAX_ATTACHMENTS) : null,
+      );
     };
     reader.readAsDataURL(file);
   }
@@ -151,28 +279,22 @@ export function useAttachmentStaging(): AttachmentStaging {
   }
 
   function removeAttachment(key: string) {
-    setPendingAttachments((prev) => prev.filter((a) => a.key !== key));
-    setAttachError(null);
+    slot.update((prev) => prev.filter((a) => a.key !== key));
+    slot.setError(null);
   }
 
   function clearAttachments() {
-    setPendingAttachments([]);
-    setAttachError(null);
-  }
-
-  function restoreAttachments(snapshot: PendingAttachment[]) {
-    if (snapshot.length === 0) return;
-    setPendingAttachments((cur) => (cur.length > 0 ? cur : snapshot));
+    slot.update((prev) => (prev.length === 0 ? prev : []));
+    slot.setError(null);
   }
 
   return {
-    pendingAttachments,
-    attachError,
+    pendingAttachments: slot.attachments,
+    attachError: slot.error,
     stageFiles,
     onPaste,
     onPickFile,
     removeAttachment,
     clearAttachments,
-    restoreAttachments,
   };
 }

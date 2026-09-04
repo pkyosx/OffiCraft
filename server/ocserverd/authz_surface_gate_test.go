@@ -125,7 +125,7 @@ var authzIdents = map[string]bool{
 	"principalOwner": true, "principalAdminAgent": true,
 	"principalAgent": true, "principalMachine": true,
 	"adminRoleKey": true, "machineKind": true,
-	"KindAssistant": true, "KindOutsource": true,
+	"KindStaff": true, "KindOutsource": true,
 	"KindWarden": true, "KindHuman": true,
 	// comparing an id against the owner's wire id IS a privilege test.
 	"wireOwnerID": true,
@@ -427,8 +427,8 @@ var authzOutsideRouteTable = map[string]string{
 	// ── the hire self-promotion seam (root CLAUDE.md §4, owner ruling) ────────
 	"api_members.go :: HandleHireMemberApiMembersPost :: principalAtLeast(s.principalOfRequest(r), principalAdminAgent)": "" +
 		"§4 閉環: hiring is at the machine floor, but hiring WITH kind/role_key is " +
-		"privilege-bearing (an agent could otherwise hire itself an 'assistant' and " +
-		"walk up the ladder). The floor cannot express 'this FIELD needs admin', so the " +
+		"privilege-bearing (an agent could otherwise hire itself a 'staff' colleague " +
+		"and walk up the ladder). The floor cannot express 'this FIELD needs admin', so the " +
 		"choke is necessarily in the handler. See the machine-floor ruling for " +
 		"POST /api/members below — the two halves are one decision.",
 	"api_members.go :: HandleHireMemberApiMembersPost :: trimmedOrEmpty(body.Kind) != \"\"": "" +
@@ -848,7 +848,7 @@ var machineFloorWriteRulings = map[string]machineFloorRuling{
 		Ruling: "root CLAUDE.md §4 閉環",
 		Why: "hiring is floor-level, but hiring WITH kind/role_key is admin-gated INSIDE " +
 			"the handler (see the HandleHireMember entries in authzOutsideRouteTable) — " +
-			"otherwise an agent hires itself an 'assistant' and walks up the ladder. The " +
+			"otherwise an agent hires itself a 'staff' colleague and walks up the ladder. The " +
 			"floor here is half of a two-part decision, not an unguarded route.",
 	},
 	"POST /api/machines/renew-credential": {

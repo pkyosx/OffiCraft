@@ -65,7 +65,7 @@ func loreToggleStack(t *testing.T) (srvURL string, dal *DAL, api *apiServer, age
 	srv, dal, secret, api := newLessonsTestServerAPI(t)
 	now := time.Now().Unix()
 	if err := dal.PutMember(Member{
-		ID: "m-lore-agent", Name: "lore-agent", Kind: KindAssistant, Effort: "medium",
+		ID: "m-lore-agent", Name: "lore-agent", Kind: KindStaff, Effort: "medium",
 		DesiredState: DesiredStateOffline, RosterStatus: RosterStatusActive,
 	}); err != nil {
 		t.Fatalf("put agent member: %v", err)
@@ -381,7 +381,7 @@ func TestLoreOffKeepsTheSubjectListOutOfResumeSummary(t *testing.T) {
 	s := newTasksTestServer(t)
 	seedMachine(t, s, "m-host-one")
 	if err := s.dal.PutMember(Member{ID: "m-reader", Name: "Reader",
-		Kind: KindAssistant, Runtime: RuntimeClaude,
+		Kind: KindStaff, Runtime: RuntimeClaude,
 		DesiredState: DesiredStateOnline, RosterStatus: RosterStatusActive}); err != nil {
 		t.Fatalf("put member: %v", err)
 	}

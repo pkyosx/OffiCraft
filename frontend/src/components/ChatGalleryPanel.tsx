@@ -15,8 +15,9 @@
 // (`GET /api/chat/attachments?with=`) — the server flattens the rows and
 // resolves each sender's display name from the roster (any status, so a
 // dismissed sender still reads by name), so this component does no roster
-// lookup and no client-side aggregation. READ-ONLY: unlike the thread's
-// listChat, opening the gallery never advances a read watermark.
+// lookup and no client-side aggregation. READ-ONLY: opening the gallery never
+// advances a read watermark — which since T-48 is true of every read door on
+// this API, so this is no longer a contrast with the thread's own listing.
 //
 // OPEN BEHAVIOR (preview/download split, mirroring the server's disposition
 // table on the server): a previewable mime
@@ -284,6 +285,16 @@ export function ChatGalleryPanel({
     // below cannot catch it (it only drops ids absent from EVERY row, and 「我」
     // is in plenty of B's rows — just not B's images).
     setSenderSelByTab({ images: new Set(), files: new Set() });
+    // T-48 R10-7: THIS PANEL'S OWN INVARIANT, not a fix for an observed
+    // symptom. A key minted for one member's row would still resolve against
+    // the rows on screen until the new member's fetch replaced them — but from
+    // the one caller in the tree that cannot happen: `galleryOpen` is keyed on
+    // the visit, so the switching render closes the panel and unmounts it
+    // before this effect could ever run with a changed `member.id`. It is kept
+    // as defence for the day somebody renders this panel outside that gate;
+    // removing it reddens `ChatGalleryPanel.test.tsx` and nothing else, and
+    // that is the honest extent of what it holds.
+    setPreviewKey(null);
   }, [member.id]);
 
   useEffect(() => {

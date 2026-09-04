@@ -93,7 +93,7 @@ func NewDALPools(w, r *sql.DB) *DAL {
 type Member struct {
 	ID          string
 	Name        string
-	Kind        string // closed set: "assistant" | "warden" | "outsource" (schema CHECK)
+	Kind        string // closed set: "staff" | "warden" | "outsource" (schema CHECK)
 	RoleKey     string
 	Runtime     string
 	Model       string
@@ -483,9 +483,10 @@ func (d *DAL) PutMember(m Member) error {
 // AddMemberBankedCost adds delta to ONLY member.banked_cost (T-14 項目 6) — the
 // durable cumulative spend of a staff member OR an outsource worker, since P7d
 // made both a row of the same table (outsource_worker.banked_cost is this
-// column). It is the SOLE writer that moves it: a whole-row write carries the
-// column on INSERT but never onto an existing row (mfBankedCost declares it
-// insertOnly).
+// column). A whole-row write carries the column on INSERT but never onto an
+// existing row (mfBankedCost declares it insertOnly), so no whole-row write can
+// move it. This function and ZeroMemberBankedCost (T-53, just below) are its
+// two writers, and they are two by design: one accumulates, one resets.
 //
 // ACCUMULATES IN SQL, not in Go, for the reason SetMemberAgentIatFloor uses
 // max() in SQL: a read-modify-write in Go loses to whichever caller writes
@@ -864,6 +865,44 @@ func (d *DAL) ListChat() ([]ChatMessage, error) {
 	return out, rows.Err()
 }
 
+// chatListFilter is the set of participant-side narrowings every LISTING path
+// of GET /api/chat shares: `with` (either side of a message) and the T-48
+// one-sided `sender` / `recipient`. They AND; a blank field is no filter at all.
+//
+// It is ONE type rather than three parameters passed around because the listing
+// queries must narrow IDENTICALLY. A filter honoured by the newest page and
+// forgotten by the page after it does not fail — it hands the caller rows it
+// promised to withhold, one page in, and nothing says so.
+//
+// The `caller_only` boolean used to be a fourth field here (owner ruling
+// rc-09f6d801b2b8 removed it from the wire). `sender`/`recipient` naming the
+// caller's own id is the replacement, and it is strictly more expressive: the
+// flag matched EITHER side, so "only mine" could not say which.
+type chatListFilter struct {
+	participant string // ?with= — matches EITHER side
+	sender      string // ?sender= — one side only
+	recipient   string // ?recipient= — one side only
+}
+
+// appendSQL appends this filter's conjuncts to a WHERE clause that already ends
+// in a condition. `col` prefixes the column names: "" for the single-table
+// reads, "m." for the unread read, which joins chat_read and must say which
+// table it means.
+func (f chatListFilter) appendSQL(query *string, args *[]any, col string) {
+	if f.participant != "" {
+		*query += ` AND (` + col + `sender = ? OR ` + col + `recipient = ?)`
+		*args = append(*args, f.participant, f.participant)
+	}
+	if f.sender != "" {
+		*query += ` AND ` + col + `sender = ?`
+		*args = append(*args, f.sender)
+	}
+	if f.recipient != "" {
+		*query += ` AND ` + col + `recipient = ?`
+		*args = append(*args, f.recipient)
+	}
+}
+
 // ListChatBefore returns the most recent `limit` messages strictly OLDER than
 // the (beforeTS, beforeID) keyset cursor, optionally filtered to a
 // participant (sender OR recipient; "" = no filter), oldest→newest — the
@@ -873,10 +912,10 @@ func (d *DAL) ListChat() ([]ChatMessage, error) {
 // so a cursor stays valid forever. The LIMIT lives in SQL (never a full-table
 // pull). A NEGATIVE limit disables the cap; limit 0 reads nothing.
 func (d *DAL) ListChatBefore(participant string, beforeTS float64, beforeID string, limit int) ([]ChatMessage, error) {
-	return d.listChatBefore(participant, "", beforeTS, beforeID, limit)
+	return d.listChatBefore(chatListFilter{participant: participant}, beforeTS, beforeID, limit)
 }
 
-func (d *DAL) listChatBefore(participant, caller string, beforeTS float64, beforeID string, limit int) ([]ChatMessage, error) {
+func (d *DAL) listChatBefore(f chatListFilter, beforeTS float64, beforeID string, limit int) ([]ChatMessage, error) {
 	if limit == 0 {
 		return nil, nil
 	}
@@ -884,14 +923,7 @@ func (d *DAL) listChatBefore(participant, caller string, beforeTS float64, befor
 		SELECT id, sender, recipient, body, ts, meta FROM chat_message
 		WHERE (ts < ? OR (ts = ? AND id < ?))`
 	args := []any{beforeTS, beforeTS, beforeID}
-	if participant != "" {
-		query += ` AND (sender = ? OR recipient = ?)`
-		args = append(args, participant, participant)
-	}
-	if caller != "" {
-		query += ` AND (sender = ? OR recipient = ?)`
-		args = append(args, caller, caller)
-	}
+	f.appendSQL(&query, &args, "")
 	query += ` ORDER BY ts DESC, id DESC`
 	if limit > 0 {
 		query += ` LIMIT ?`
@@ -920,6 +952,261 @@ func (d *DAL) listChatBefore(participant, caller string, beforeTS float64, befor
 		out[len(newestFirst)-1-i] = m
 	}
 	return out, nil
+}
+
+// chatAnchor is one endpoint of a start_id/end_id window: the (ts, id) pair of
+// a real message, resolved before any row is read so an unknown id can be
+// refused by name rather than answered as an empty page. The pair — not the id
+// alone — is what the window is expressed in, because the stream's order is
+// (ts, id) and comparing on id alone would order nothing.
+type chatAnchor struct {
+	TS float64
+	ID string
+}
+
+// newerThan reports whether a comes strictly after b in the stream's total
+// (ts, id) order — the SAME comparison listChatBefore pages by, so "start is
+// past end" here means exactly what "older than the cursor" means there.
+func (a chatAnchor) newerThan(b chatAnchor) bool {
+	if a.TS != b.TS {
+		return a.TS > b.TS
+	}
+	return a.ID > b.ID
+}
+
+// listChatWindow answers the T-48 start_id/end_id window: the messages between
+// the two anchors INCLUSIVE, oldest→newest, capped at `limit`.
+//
+// Either anchor may be nil, and which one is nil decides which END the cap eats
+// from — that is the whole difference between the two parameters:
+//
+//   - start only  — the anchor and the limit-1 messages AFTER it. Ascending
+//     LIMIT: the far (newest) end is what gets cut.
+//   - end only    — the anchor and the limit-1 messages BEFORE it. Descending
+//     LIMIT then reversed: the far (oldest) end is what gets cut, which is the
+//     same walk listChatBefore does, only inclusive of the anchor.
+//   - both        — one bounded window, anchored at END: descending LIMIT then
+//     reversed, so an over-wide window keeps end_id and loses rows at the
+//     start_id (older) side. This is spec's own wording — "a window wider than
+//     200 rows is truncated from the `start_id` end" — and that sentence is the
+//     ONLY place the both-anchors case is specified. The `start_id` paragraph
+//     ("this message and the limit-1 that follow it") describes the start-only
+//     window and says nothing about this case; reading it as a rule for both
+//     was the mistake, and spec now carries a pointer saying so.
+//     🔑 Either truncation falsifies one anchor's INCLUSIVE label. Spec already
+//     chose which one; this code does not get to re-choose.
+//
+// A window with no anchor at all is not this function's business — the handler
+// only reaches here once at least one was sent, and the anchorless request is
+// the legacy path, which must not change.
+//
+// `limit` arrives already validated to 1..200 by the handler; this function
+// still guards limit <= 0 as "read nothing" so it cannot be turned into an
+// unbounded scan by a future caller that forgets.
+func (d *DAL) listChatWindow(f chatListFilter, start, end *chatAnchor, limit int) ([]ChatMessage, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	query := `
+		SELECT id, sender, recipient, body, ts, meta FROM chat_message
+		WHERE 1=1`
+	var args []any
+	if start != nil {
+		query += ` AND (ts > ? OR (ts = ? AND id >= ?))`
+		args = append(args, start.TS, start.TS, start.ID)
+	}
+	if end != nil {
+		query += ` AND (ts < ? OR (ts = ? AND id <= ?))`
+		args = append(args, end.TS, end.TS, end.ID)
+	}
+	f.appendSQL(&query, &args, "")
+	// end present ⇒ anchor there and walk backwards (descending LIMIT, then
+	// reversed) so truncation eats the start_id/older side, which is what spec
+	// specifies for the both-anchors case. start-only ⇒ walk forwards.
+	descending := end != nil
+	if descending {
+		query += ` ORDER BY ts DESC, id DESC LIMIT ?`
+	} else {
+		query += ` ORDER BY ts, id LIMIT ?`
+	}
+	args = append(args, limit)
+	rows, err := d.rdb.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var got []ChatMessage
+	for rows.Next() {
+		m, err := scanChat(rows)
+		if err != nil {
+			return nil, err
+		}
+		got = append(got, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if !descending {
+		return got, nil
+	}
+	out := make([]ChatMessage, len(got))
+	for i, m := range got {
+		out[len(got)-1-i] = m
+	}
+	return out, nil
+}
+
+// ListChatLatest returns the most recent `limit` messages, oldest→newest —
+// the CURSORLESS page GET /api/chat serves. `participant` narrows to a
+// conversation line (sender OR recipient); "" disables the filter. limit 0 reads
+// nothing, a NEGATIVE limit disables the cap.
+//
+// It replaces "ListChat() then filter and slice in Go": that pulled every row
+// of chat_message into memory to hand back at most 30 of them (68.115ms on a
+// measured 48,153-row table, against 0.697ms here). The result is IDENTICAL,
+// not merely equivalent — "the newest N of the stream's total (ts, id) order"
+// is the same set whether you take the last N ascending or the first N
+// descending-then-reverse, which is exactly what the two paths do.
+//
+// 🔴 DELIBERATELY NO SINGLE-COLUMN INDEX on (sender, recipient) or (ts):
+// measured on the same real table, adding one made the scrollback page
+// (listChatBefore) 23× SLOWER, and ANALYZE changed nothing. This scan is the
+// cheap side of that trade.
+//
+// ⚠️ T-48: a COMPOSITE index on (recipient, sender, ts) DOES now exist
+// (migration 00075) — do not read the paragraph above as "this table carries no
+// index". It is a different shape, added for a different query: it COVERS the
+// unread count (2.7× there) and leaves this path untouched, because the
+// scrollback query cannot use it at all and the planner keeps
+// idx_chat_message_ts. The two statements are about two different indexes; the
+// 23× result above still stands for the single-column one.
+// 🔑 The 00075 numbers are SYNTHETIC (owner ruled it in on that basis, knowingly
+// — rc-6b67aa1a331c). The 23× above is from a real-data copy. Do not quote them
+// as if they came from the same measurement.
+func (d *DAL) ListChatLatest(participant string, limit int) ([]ChatMessage, error) {
+	return d.listChatLatest(chatListFilter{participant: participant}, limit)
+}
+
+func (d *DAL) listChatLatest(f chatListFilter, limit int) ([]ChatMessage, error) {
+	if limit == 0 {
+		return nil, nil
+	}
+	query := `SELECT id, sender, recipient, body, ts, meta FROM chat_message WHERE 1=1`
+	var args []any
+	f.appendSQL(&query, &args, "")
+	if limit < 0 {
+		// Uncapped: no need for the DESC walk + reverse, ask for the order the
+		// caller wants directly.
+		rows, err := d.rdb.Query(query+` ORDER BY ts, id`, args...)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var out []ChatMessage
+		for rows.Next() {
+			m, err := scanChat(rows)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, m)
+		}
+		return out, rows.Err()
+	}
+	rows, err := d.rdb.Query(query+` ORDER BY ts DESC, id DESC LIMIT ?`,
+		append(args, limit)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var newestFirst []ChatMessage
+	for rows.Next() {
+		m, err := scanChat(rows)
+		if err != nil {
+			return nil, err
+		}
+		newestFirst = append(newestFirst, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]ChatMessage, len(newestFirst))
+	for i, m := range newestFirst {
+		out[len(newestFirst)-1-i] = m
+	}
+	return out, nil
+}
+
+// listChatUnread answers `GET /api/chat?unread=true`: the messages `reader` has
+// not read yet, OLDEST FIRST, optionally continued from `after` (exclusive).
+//
+// 🔴 THE WATERMARK IS PER (reader, sender), AND THAT IS THE WHOLE POINT.
+// chat_read holds one row per (reader_id, peer_id) pair, so each message is
+// compared against ITS OWN sender's row — the LEFT JOIN is pinned on
+// `r.peer_id = m.sender` in the ON clause, exactly as UnreadCountsFor pins it.
+// Comparing every message against ONE watermark instead (the reader's newest
+// row, say, or a single scalar) is the mutant this shape exists to refuse: a
+// reader who is current with A and has never opened B would have B's whole
+// history judged against A's high-water mark and silently dropped. The failure
+// is a SHORT PAGE, which is indistinguishable from having nothing unread — no
+// error, no count, nothing to notice.
+//
+// 🔴 COALESCE(..., 0) IS THE MISSING-ROW DEFAULT, and it must stay on a LEFT
+// join: an INNER join would drop exactly the senders the reader has never
+// opened, which are the ones whose unread matters most.
+//
+// 🔴 YOUR OWN MESSAGES ARE NOT EXCLUDED HERE, AND THAT IS AN OWNER RULING, NOT
+// AN OVERSIGHT (rc-dccab860be32). This predicate used to carry `sender <> reader`.
+// The owner's objection was about WHERE the rule lives: this function answers one
+// mechanical question — is it newer than my watermark for whoever sent it — and
+// "I do not need to be shown my own note" is a decision about PRINTING, not about
+// reading. So a message you addressed to yourself comes back here as unread, and
+// the drain is what declines to print it (and files the receipt anyway, which is
+// the one place in T-48 where something is marked read without being shown; see
+// cli/ocagent's note).
+//
+// ⚠️ `recipient = ?` already keeps out everything you sent to SOMEBODY ELSE, so
+// the only messages this concerns are the ones you sent to yourself.
+//
+// 🔴 THIS FUNCTION WRITES NOTHING. Reading unread does not clear unread; that is
+// PutChatRead's job, reached only from POST /api/chat/mark-read.
+//
+// `limit` keeps GET /api/chat's legacy semantics rather than the window path's
+// 1..200 bound: 0 reads nothing and a NEGATIVE limit is uncapped. A blank reader
+// reads nothing — an unauthenticated caller has no watermarks, and answering
+// "every message addressed to nobody" would be a different question.
+func (d *DAL) listChatUnread(reader string, f chatListFilter, after *chatAnchor, limit int) ([]ChatMessage, error) {
+	if reader == "" || limit == 0 {
+		return nil, nil
+	}
+	query := `
+		SELECT m.id, m.sender, m.recipient, m.body, m.ts, m.meta FROM chat_message m
+		LEFT JOIN chat_read r ON r.reader_id = ? AND r.peer_id = m.sender
+		WHERE m.recipient = ? AND m.ts > COALESCE(r.last_read_ts, 0)`
+	args := []any{reader, reader}
+	if after != nil {
+		query += ` AND (m.ts > ? OR (m.ts = ? AND m.id > ?))`
+		args = append(args, after.TS, after.TS, after.ID)
+	}
+	f.appendSQL(&query, &args, "m.")
+	query += ` ORDER BY m.ts, m.id`
+	if limit > 0 {
+		query += ` LIMIT ?`
+		args = append(args, limit)
+	}
+	rows, err := d.rdb.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ChatMessage
+	for rows.Next() {
+		m, err := scanChat(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
 }
 
 // ListChatByIDs returns the messages carrying the given ids, oldest→newest in
@@ -1758,6 +2045,46 @@ func (d *DAL) ListChatReads(reader, peer string) ([]ChatRead, error) {
 			return nil, err
 		}
 		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// UnreadCountsFor is UnreadCounts (domain.go) computed BY THE DATABASE: for
+// `reader`, the number of messages addressed to them, per sender, that are
+// newer than that sender's read watermark. Senders with nothing unread are
+// absent from the map — same shape the Go fold produces.
+//
+// It exists because both call sites (unreadCountsForRequest and the
+// unread-count endpoint) used to read the WHOLE chat_message table and the
+// reader's whole chat_read set into Go just to fold them down to a handful of
+// integers: 69.098ms on the measured real table, against 22.303ms here.
+//
+// 🔴 The LEFT JOIN + COALESCE(..., 0) IS the Go zero-value default: "no receipt
+// ⇒ watermark 0 ⇒ every addressed message counts". An INNER JOIN would silently
+// drop exactly the peers a reader has never opened — the ones whose unread
+// matters most. The join is pinned to `reader` in the ON clause (not the WHERE)
+// so a missing receipt still yields the row.
+//
+// domain.UnreadCounts is NOT dead: it is the pure fold this must agree with,
+// and the equivalence test drives both over the same fixtures.
+func (d *DAL) UnreadCountsFor(reader string) (map[string]int, error) {
+	rows, err := d.rdb.Query(`
+		SELECT m.sender, COUNT(*) FROM chat_message m
+		LEFT JOIN chat_read r ON r.reader_id = ? AND r.peer_id = m.sender
+		WHERE m.recipient = ? AND m.ts > COALESCE(r.last_read_ts, 0)
+		GROUP BY m.sender`, reader, reader)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var sender string
+		var n int
+		if err := rows.Scan(&sender, &n); err != nil {
+			return nil, err
+		}
+		out[sender] = n
 	}
 	return out, rows.Err()
 }

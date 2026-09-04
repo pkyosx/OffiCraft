@@ -600,7 +600,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List the chat stream (?with=<id>&limit=<n>; oldest→newest). History paging: before_ts + before_id (both together) return the limit messages strictly OLDER than that keyset cursor — a history page NEVER advances the read watermark. Re-read specific messages by id: ids=<id>&ids=<id> returns those messages in full without a peer and without a cursor; the ids schema states who may read what, the per-call limit, and what an unknown id does.
+         * List the chat stream (?with=<id>&limit=<n>; oldest→newest). Answers an OBJECT {messages, next_cursor}, never a bare array: next_cursor is opaque, send it back as cursor= for the next page, and its ABSENCE — not a short page — is the only 'nothing more' signal. Your unread backfill: unread=true returns the OLDEST unread addressed to you, judged against the per-sender watermark, and still marks nothing read. Narrow either side with sender= / recipient=. Window by message id: start_id walks TOWARDS THE NEWEST, end_id TOWARDS THE OLDEST, both inclusive. The older before_ts + before_id cursor still works but is deprecated. Re-read specific messages by id: ids=<id>&ids=<id>. THIS ROUTE NEVER MARKS ANYTHING READ (T-48) — to mark a conversation read, call mark_read explicitly.
          * @description List the owner's chat stream oldest→newest, capped to the most recent
          *     ``limit`` (default 30; §3.4 #17). ``?with=<id>`` filters to messages a
          *     participant is in (``sender == id`` OR ``recipient == id``); the limit is
@@ -609,23 +609,121 @@ export interface paths {
          *     gallery moved OFF this path to the flattened ``GET /api/chat/attachments``
          *     — see ``handle_list_chat_attachments``).
          *
+         *     RESPONSE ENVELOPE (T-48): every path on this route answers ONE OBJECT —
+         *     ``{"messages": [...], "next_cursor": "<opaque>"}`` — never a bare array.
+         *     ``messages`` carries exactly the rows, in exactly the order, the bare array
+         *     carried before, on every parameter combination. ``next_cursor`` is an OPAQUE
+         *     continuation token: hand it back VERBATIM as ``?cursor=`` to get the next
+         *     page. It is ABSENT (or empty) when there is nothing more IN THAT DIRECTION,
+         *     and that absence is the ONLY end-of-walk signal — a page shorter than
+         *     ``limit`` is NOT one, because a filter can shorten a page while rows still
+         *     wait behind it.
+         *
+         *     WHICH DIRECTION a ``next_cursor`` continues in belongs to the path that
+         *     minted it, because each path has exactly one direction that means anything:
+         *     * the default newest-page listing — TOWARDS THE OLDER (the same walk
+         *       ``before_ts``/``before_id`` does, packed into one string).
+         *     * ``?unread=true`` — TOWARDS THE NEWER, because that path serves the OLDEST
+         *       unread first.
+         *     * ``?ids=``, ``?start_id=``, ``?end_id=`` — NO ``next_cursor`` AT ALL. Those
+         *       three answer a set the caller named and have no defined direction to
+         *       continue in; the field is omitted rather than guessed.
+         *     🔴 THE TOKEN IS OPAQUE and encodes a ``(ts, id)`` POSITION — never an offset
+         *     and never a row count, so a message landing mid-walk cannot shift a page
+         *     boundary. Do not parse one, do not construct one, and do not carry one from
+         *     one direction to the other: an unread cursor sent to a plain listing (or the
+         *     reverse) is 422, not a silently wrong page. ``cursor`` alongside
+         *     ``before_ts``/``before_id`` or ``start_id``/``end_id`` is 422 for the same
+         *     reason the two older cursor families already refuse each other.
+         *
          *     HISTORY PAGING (scrollback): ``?before_ts=<ts>&before_id=<id>`` — a composite
          *     keyset cursor (both together, else 422) — returns the ``limit`` messages
          *     strictly OLDER than the cursor (``ts < before_ts`` OR ``ts == before_ts AND
          *     id < before_id``; equal-ts collisions tie-break on id, matching the stream's
          *     ``ts, id`` order), still oldest→newest. A page shorter than ``limit`` means
-         *     the history is exhausted. A HISTORY PAGE NEVER ADVANCES THE READ WATERMARK
-         *     — reading old context is not reading the conversation's newest messages, so
-         *     the auto read-receipt below fires only on a cursorless list.
+         *     the history is exhausted.
+         *     These two cursors are DEPRECATED as of T-48 — see ``start_id``/``end_id``
+         *     below, which supersede them.
          *
-         *     AUTO READ-RECEIPT: when a specific conversation is requested (``?with=<peer>``)
-         *     WITHOUT a cursor, listing it IS reading it — the caller (``actor``, the
-         *     verified JWT ``sub``) has
-         *     now seen every returned message, so we advance its read watermark for that
-         *     conversation to the newest returned message ts (monotonic upsert; a no-op when
-         *     the conversation is empty or nothing newer landed). This is the agent-side
-         *     automatic already-read core: an agent that lists a conversation is marked as
-         *     having read it, with no extra call.
+         *     WINDOW BY MESSAGE ID (T-48): ``?start_id=<id>`` returns the ``limit`` messages
+         *     running from that message TOWARDS THE NEWEST, and ``?end_id=<id>`` the ``limit``
+         *     messages running from it TOWARDS THE OLDEST; BOTH ENDPOINTS ARE INCLUSIVE, and
+         *     both still answer oldest→newest. They exist because ``before_ts``/``before_id``
+         *     can only walk BACKWARDS: a caller told to jump to one specific message could
+         *     reach it but could not then load what came AFTER it.
+         *
+         *     GUARDRAILS on that path, each with the code it answers:
+         *     * NEITHER given — this route behaves EXACTLY as it does today, byte for byte.
+         *       Every rule below applies only when at least one of them is sent.
+         *     * ``start_id`` AND ``end_id`` given together and inconsistent (``start_id``
+         *       strictly newer than ``end_id`` in the stream's ``(ts, id)`` order) — 422.
+         *       Deliberately NOT an empty array: an empty page is what a real but empty
+         *       window returns, so a contradictory request would be indistinguishable from
+         *       a legitimate one that found nothing.
+         *     * an id no message carries — 404, naming it. Same reason as ``ids``.
+         *     * sent together with the deprecated ``before_ts``/``before_id`` — 422. The two
+         *       cursor families disagree about direction; honouring one and dropping the
+         *       other silently is how a caller ends up reading the wrong end of the stream.
+         *     * ``limit`` outside 1..200 — 422, ON THIS PATH ONLY. The legacy paths keep
+         *       today's semantics unchanged (a NEGATIVE limit still disables the cap, 0
+         *       still returns an empty list); the committed callers that pass ``limit=-1``
+         *       are not asked to pay for a window they do not open.
+         *       ⚠️ THE CAP BOUNDS ROWS, NOT BYTES. 200 rows has been measured at 687 KB.
+         *       Nothing here bounds the payload size.
+         *
+         *     UNREAD BACKFILL (T-48): ``?unread=true`` answers YOUR UNREAD ONLY —
+         *     messages whose ``recipient`` is the verified caller, whose ``sender`` is
+         *     somebody else, and whose ``ts`` is newer than the caller's read watermark
+         *     FOR THAT SENDER. OLDEST FIRST, and ``limit`` takes the OLDEST batch — the
+         *     opposite end from the default listing, because a backfill has to be re-read
+         *     in the order it was said.
+         *     🔴 THE WATERMARK IS PER ``(reader, sender)``. ``chat_read`` holds one row per
+         *     pair, so a message is unread against ITS OWN sender's row and never against
+         *     a single global high-water mark. A caller who has read everything from A and
+         *     nothing from B must still be shown B's older messages; folding the two into
+         *     one number hides exactly those, and hides them SILENTLY — the answer is a
+         *     short page, which is indistinguishable from having nothing unread.
+         *     🔴 YOUR OWN MESSAGES ARE NEVER UNREAD (owner ruling), the ones you addressed
+         *     to yourself included: ``sender == caller`` is excluded outright rather than
+         *     compared against a watermark.
+         *     🔴 AND STILL NO WATERMARK WRITE. Reading your unread does not clear it: page
+         *     through the whole backlog and every line of it is still unread afterwards.
+         *     ``POST /api/chat/mark-read`` is the only thing that clears it.
+         *     ``limit`` keeps this route's LEGACY semantics here, not the window path's
+         *     1..200 bound: 0 is an empty page and a NEGATIVE limit is uncapped (and then
+         *     carries no ``next_cursor``, because everything is already in the answer).
+         *     Any value other than the string ``true`` reads as NOT SENT, matching the
+         *     string-flag convention this route already used. Sent together with
+         *     ``before_ts``/``before_id`` or ``start_id``/``end_id`` it is 422: those name a
+         *     position in the whole stream, this names a set defined by your watermarks,
+         *     and there is no honest way to serve both at once.
+         *
+         *     PARTICIPANT-SIDE FILTERS (T-48): ``?sender=<id>`` keeps only what that id
+         *     SENT and ``?recipient=<id>`` only what was addressed to it; given together
+         *     they AND, which pins ONE DIRECTION of one line — something ``with`` cannot
+         *     express, because ``with`` matches EITHER side. They compose with ``with``,
+         *     and like every filter here they answer an empty page rather than an error
+         *     when nothing matches.
+         *     They also REPLACE the removed ``caller_only`` flag: "only my own" is
+         *     ``?sender=<me>`` or ``?recipient=<me>``, which says WHICH SIDE — something
+         *     the boolean could not, since it matched either.
+         *
+         *     THIS ROUTE NEVER WRITES A READ WATERMARK (owner ruling, 2026-09-02: 「get_chat
+         *     不應該可以標示已讀未讀，這應該要另一隻 API 明確表示有這個意圖」). It used to:
+         *     a cursorless ``?with=<peer>`` list advanced the caller's watermark for that
+         *     conversation, on the theory that listing a conversation IS reading it. It is
+         *     not. Measured in an isolated station (T-48 report ``ta-ab9c8e1ba74e``): a
+         *     member whose ONLY action was holding the SSE downlink open — never woken, no
+         *     task, transcript one line long — had ``chat_read`` written with
+         *     ``last_read_ts`` equal to a message nobody had looked at, and the owner's read
+         *     tick went 0→1. The receipt measured that the listener process was alive, not
+         *     that anyone had read anything.
+         *
+         *     Marking a conversation read is now ONLY ``POST /api/chat/mark-read`` — an
+         *     existing route, stating the intent explicitly. The ``peek`` parameter, which
+         *     existed solely to OPT OUT of the receipt this route no longer fires, is
+         *     REMOVED rather than kept and ignored: a parameter with no effect reads to the
+         *     next caller like a protection that is there.
          */
         get: operations["handle_list_chat_api_chat_get"];
         put?: never;
@@ -2362,8 +2460,8 @@ export interface paths {
          *     last-read watermark for that conversation
          *     (``domain.chat_read.unread_counts``). Reusing the same receipt the read-✓
          *     badge reads means read/unread can never disagree; clearing is the EXISTING
-         *     chokes (``handle_list_chat`` auto-mark on entering a conversation +
-         *     ``POST /api/chat/mark-read``), no parallel mechanism. It is independent of
+         *     choke (``POST /api/chat/mark-read`` — the ONLY writer since T-48; reading a
+         *     list no longer marks anything), no parallel mechanism. It is independent of
          *     presence — an offline member can be unread.
          */
         get: operations["handle_list_members_api_members_get"];
@@ -5649,6 +5747,24 @@ export interface components {
             options?: components["schemas"]["ReplyCardOptionDTO"][];
         };
         /**
+         * ChatListDTO
+         * @description One page of the chat stream plus its continuation token — what EVERY path of ``GET /api/chat`` answers since T-48.
+         *
+         *     It replaced a bare ``ChatMessageDTO`` array, which had nowhere to say "there is more in this direction". A caller could only infer exhaustion from a short page, and a page is short for reasons that have nothing to do with exhaustion — a participant filter, a ``caller_only`` narrowing, an unread set spread across senders. The envelope moves that answer from inference to statement.
+         */
+        ChatListDTO: {
+            /**
+             * Messages
+             * @description The page, oldest→newest on every path — the SAME rows in the SAME order the bare array carried before T-48. An empty array is a real answer (a filter that matched nothing, or the end of a walk), never an error.
+             */
+            messages: components["schemas"]["ChatMessageDTO"][];
+            /**
+             * Next Cursor
+             * @description Opaque continuation token for the next page IN THIS PATH'S DIRECTION, ABSENT (or empty) when there is none. Feed it back verbatim as ``?cursor=``. Its absence is the ONLY end-of-walk signal — a page shorter than ``limit`` is not one. It encodes a ``(ts, id)`` position and never an offset, so pages cannot shift under a concurrent post; do not parse or construct one. The default listing continues TOWARDS THE OLDER and ``unread=true`` TOWARDS THE NEWER; ``ids``, ``start_id`` and ``end_id`` never carry one.
+             */
+            next_cursor?: string;
+        };
+        /**
          * ChatMessageDTO
          * @description API representation of one ``domain.ChatMessage``. The wire uses ``from`` /
          *     ``to``; ``from`` is a Python reserved word so the field is ``from_`` carrying
@@ -5686,7 +5802,7 @@ export interface components {
             };
             /**
              * Reply Card Status
-             * @description Read-time join: the CURRENT status (``waiting`` | ``answered``) of the reply card this message carries (``meta.reply_card_id``); ``""`` when the message carries no card. Lets the inline chat card (ChatReplyCard) decide AT MOUNT whether to load eagerly (waiting — show the answer composer) or lazily (answered — collapse, fetch the full card only when the owner expands it) WITHOUT a per-card GET. NOT stored — computed each read from the card's live status (the stored ``meta`` only ever holds the id, stamped ``waiting`` at open and never updated on answer).
+             * @description Read-time join: the CURRENT status (``waiting`` | ``answered``) of the reply card this message carries (``meta.reply_card_id``); ``""`` when the message carries no card. Lets the inline chat card (ChatReplyCard) label its COLLAPSED row (待回覆 / 已回覆 / 已過期) WITHOUT a per-card GET. Since T-48 (owner ruling on card rc-d8844e709f42) every chat card mounts COLLAPSED regardless of status and fetches the full card only on expand, so this field no longer decides eager-vs-lazy — it decides what the row SAYS while nothing has been fetched. TaskStepDTO.reply_card_status is UNCHANGED: the task-embedded card still decides eager-vs-lazy at mount. NOT stored — computed each read from the card's live status (the stored ``meta`` only ever holds the id, stamped ``waiting`` at open and never updated on answer).
              * @default
              */
             reply_card_status: string;
@@ -12867,19 +12983,36 @@ export interface operations {
             query?: {
                 with?: string | null;
                 limit?: number;
+                /**
+                 * @deprecated
+                 * @description DEPRECATED (T-48) — superseded by ``start_id``/``end_id``, which take a message id instead of a composite keyset cursor and can walk FORWARDS as well as back. Still honoured, still a matched pair (one without the other is 422), still never combined with the new parameters (422). Kept because the agent-side ``get_chat`` and the cockpit scrollback both still send it.
+                 */
                 before_ts?: number | null;
+                /**
+                 * @deprecated
+                 * @description DEPRECATED (T-48) — superseded by ``start_id``/``end_id``, which take a message id instead of a composite keyset cursor and can walk FORWARDS as well as back. Still honoured, still a matched pair (one without the other is 422), still never combined with the new parameters (422). Kept because the agent-side ``get_chat`` and the cockpit scrollback both still send it.
+                 */
                 before_id?: string | null;
-                peek?: string | null;
-                /** @description When true, return only messages involving both the verified caller and the optional `with` participant. Omitted or false preserves the existing participant-wide result. */
-                caller_only?: boolean;
+                /** @description Window anchor, INCLUSIVE, walking TOWARDS THE NEWEST: return this message and the ``limit``-1 that follow it, oldest→newest. This is the direction ``before_ts``/``before_id`` cannot express — those only ever walk back, so a caller that jumped to one specific message could not load what came after it. An id no message carries is 404, not an empty page: an empty page is what a real window at the end of the stream returns, and the two must not be indistinguishable. Sending it alongside ``before_ts``/``before_id`` is 422. Sending it with an ``end_id`` that is strictly OLDER than it is 422. On this path ``limit`` must be 1..200 or the call is 422 — the legacy paths keep their own semantics. This paragraph describes the window when ``start_id`` is given ALONE; when both anchors are given together, the window rule is the one stated under ``end_id``. */
+                start_id?: string | null;
+                /** @description Window anchor, INCLUSIVE, walking TOWARDS THE OLDEST: return this message and the ``limit``-1 that precede it, still answered oldest→newest. Same guardrails as ``start_id`` (404 on an unknown id, 422 when combined with ``before_ts``/``before_id``, 422 when the pair contradicts, ``limit`` bounded to 1..200 on this path). Given TOGETHER with ``start_id`` the two bound one window and ``limit`` still caps it, so a window wider than 200 rows is truncated from the ``start_id`` end rather than silently returning everything. */
+                end_id?: string | null;
+                /** @description Opaque continuation token — copy the previous response's ``next_cursor`` back VERBATIM. It encodes a ``(ts, id)`` POSITION in the stream, not an offset and not a row count, so a message posted while you are paging can neither displace a row you have not read yet nor hide one. The DIRECTION it continues in belongs to the path that minted it — TOWARDS THE OLDER for the default listing, TOWARDS THE NEWER for ``unread=true`` — and sending one to the other path is 422 rather than a silently wrong page. Sending it with ``before_ts``/``before_id`` is 422 (one keyset walk per request), and so is sending it with ``start_id``/``end_id``, which mint no cursor at all. Never construct or edit one; an unreadable token is 422, naming the parameter. */
+                cursor?: string | null;
+                /** @description ``true`` (the STRING) selects the unread backfill: only messages addressed to the verified caller, newer than the caller's read watermark FOR THAT SENDER. ``chat_read`` is per ``(reader, peer)``, and this path compares each message against ITS OWN sender's row — never against one global watermark, which would silently drop everything older from a peer you have never opened. Answered OLDEST FIRST and ``limit`` takes the OLDEST batch, because a backfill is re-read in the order it was said; ``next_cursor`` therefore continues TOWARDS THE NEWER. What you sent to SOMEBODY ELSE is not here — ``recipient`` decides that, and it is the caller. What you addressed to YOURSELF is: it is a message sitting in your own inbox, and whether a reader wants to be shown its own note is a question about printing, answered by the reader (``ocagent`` declines to print it and files the receipt anyway). This door only answers one question: newer than my watermark for whoever sent it. Reading this CLEARS NOTHING — no path on this route writes a watermark; ``POST /api/chat/mark-read`` does. Refused with 422 alongside ``before_ts``/``before_id`` or ``start_id``/``end_id``. Any other value reads as not sent. ``limit`` keeps this route's legacy semantics on this path — 0 is an empty page, a NEGATIVE limit is uncapped and mints no cursor — not the window path's 1..200 bound. */
+                unread?: string | null;
+                /** @description Keep only messages this id SENT. Narrower than ``with``, which matches EITHER side of a message; the two compose (``?with=a&sender=b`` is b's half of the a-line). It is also how a caller narrows a listing to itself now that the ``caller_only`` flag is gone — and it says WHICH SIDE, which that flag could not. Not consulted on the ``ids`` path. An id nobody sent under is not an error — it answers 200 with an empty page, like any filter that matches nothing. */
+                sender?: string | null;
+                /** @description Keep only messages ADDRESSED TO this id. Given together with ``sender`` the two AND, which pins one DIRECTION of one line — ``with`` alone cannot express that, because it matches either side. Not consulted on the ``ids`` path; an id nothing was addressed to answers 200 with an empty page. */
+                recipient?: string | null;
                 /**
                  * @description RE-READ SPECIFIC MESSAGES BY ID — repeatable (``?ids=<id>&ids=<id>``), returning those messages IN FULL (whole body, attachment refs and all), oldest→newest.
                  *
                  *     This is what makes the wake snapshot's fold marker honest (T-a828). ``ChatMessageDTO.body_omitted_chars`` > 0 says THIS message is here with part of its text folded away and tells the reader to re-read it with get_chat — but until this parameter existed get_chat took only a peer plus a paging cursor, so there was NO WAY TO NAME THE FOLDED MESSAGE. The promise beside the fold was not keepable, which made folding a silent drop.
                  *
-                 *     ANSWERED ON ITS OWN: when ``ids`` is present, ``with``, ``limit``, ``before_ts``/``before_id`` and ``peek`` are NOT consulted, and a by-ids read NEVER advances a read watermark — re-reading a message you were already shown is not reading the conversation. Blank entries are dropped and duplicates collapse; an all-blank or empty set behaves exactly as if the parameter had not been sent.
+                 *     ANSWERED ON ITS OWN: when ``ids`` is present, ``with``, ``limit``, ``before_ts``/``before_id``, ``start_id``/``end_id``, ``cursor``, ``unread``, ``sender`` and ``recipient`` are NOT consulted, the answer carries no ``next_cursor``, and a by-ids read returns them untouched — as of T-48 NO read on this route advances a watermark at all. Blank entries are dropped and duplicates collapse; an all-blank or empty set behaves exactly as if the parameter had not been sent.
                  *
-                 *     SAME REACH AS THE ORDINARY LISTING (T-4e95, owner ruling). A by-ids read is NOT narrowed to the caller's own conversations. It used to refuse with 403 any id whose ``sender`` and ``recipient`` were both someone else — and that bound guarded nothing, because the ordinary listing filters on ``with`` — a PARTICIPANT — not on the caller, so the very same message was already readable by asking for that peer's line (designed behaviour; ``caller_only`` is what narrows a listing to the caller). What the stricter rule actually produced was two doors onto the same rows disagreeing about who may open them, which cost an honest caller the ability to follow a ``reply_to`` while costing a dishonest one nothing. This door now states the listing's rule rather than a stricter one of its own; ``caller_only`` remains the way to narrow a read to yourself.
+                 *     SAME REACH AS THE ORDINARY LISTING (T-4e95, owner ruling). A by-ids read is NOT narrowed to the caller's own conversations. It used to refuse with 403 any id whose ``sender`` and ``recipient`` were both someone else — and that bound guarded nothing, because the ordinary listing filters on ``with`` — a PARTICIPANT — not on the caller, so the very same message was already readable by asking for that peer's line (designed behaviour, not a leak). What the stricter rule actually produced was two doors onto the same rows disagreeing about who may open them, which cost an honest caller the ability to follow a ``reply_to`` while costing a dishonest one nothing. This door now states the listing's rule rather than a stricter one of its own. Narrowing a read to yourself is ``sender``/``recipient`` naming your own id — the ``caller_only`` flag that used to do it is gone, and unlike the flag those two say WHICH SIDE.
                  *
                  *     ALL OR NOTHING ON AN UNKNOWN ID: an id no message carries refuses the WHOLE call with 404 and names it. Deliberately not 'skip it and return the rest': a short array is indistinguishable from the fold this parameter exists to undo, so a caller could not tell a deleted message from one it simply did not ask for.
                  *
@@ -12899,7 +13032,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChatMessageDTO"][];
+                    "application/json": components["schemas"]["ChatListDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

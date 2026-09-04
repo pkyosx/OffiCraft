@@ -28,7 +28,7 @@ function mkWireMember(over: Partial<WireMember>): WireMember {
     name: "Mira",
     role_key: "assistant",
     role_name: "助理",
-    kind: "assistant",
+    kind: "staff",
     model: "Opus 4.6",
     actual_model: "",
     actual_runtime: "",

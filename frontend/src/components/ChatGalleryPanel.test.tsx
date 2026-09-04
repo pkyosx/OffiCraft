@@ -55,16 +55,16 @@ async function refetchBurst() {
   });
 }
 
-function mkMember(): Member {
+function mkMember(id = "m1", name = "Mira"): Member {
   return {
-    id: "m1",
-    name: "Mira",
+    id,
+    name,
     role: "assistant",
     status: "online",
     lifecycle: "online",
     model: "opus",
     effort: "medium",
-    kind: "assistant",
+    kind: "staff",
     desiredMachineId: "",
     machine: null,
     account: null,
@@ -622,6 +622,29 @@ describe("ChatGalleryPanel", () => {
       (screen.getByRole("button", { name: "上一個" }) as HTMLButtonElement)
         .disabled,
     ).toBe(false);
+  });
+
+  it("closes an open preview when the member changes, never over the new gallery", async () => {
+    // The panel is re-rendered with a new `member` rather than remounted, so a
+    // key minted for the previous member's row is still on screen — and it
+    // still resolves against the rows underneath until the new fetch replaces
+    // them (T-48, R9-2).
+    galleryRows = [row("a1", "image/png", "m1", "Mira", 100, "A-的機密.png")];
+    const view = render(
+      <I18nProvider>
+        <ChatGalleryPanel member={mkMember()} onClose={() => {}} />
+      </I18nProvider>,
+    );
+    await waitFor(() => expect(itemsIn(view.container).length).toBe(1));
+    fireEvent.click(itemsIn(view.container)[0]);
+    expect(await screen.findByRole("dialog", { name: "A-的機密.png" })).toBeTruthy();
+
+    view.rerender(
+      <I18nProvider>
+        <ChatGalleryPanel member={mkMember("m2", "Bruno")} onClose={() => {}} />
+      </I18nProvider>,
+    );
+    expect(screen.queryByRole("dialog", { name: "A-的機密.png" })).toBeNull();
   });
 
   it("keeps gallery rows free of a duplicate share control", async () => {

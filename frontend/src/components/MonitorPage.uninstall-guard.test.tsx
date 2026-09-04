@@ -103,7 +103,7 @@ describe("MonitorPage uninstall members guard", () => {
       member({ id: "w-2", kind: "warden", desiredMachineId: "m-2", name: "warden-2" }),
       member({
         id: "mira",
-        kind: "assistant",
+        kind: "staff",
         desiredMachineId: "m-1",
         machine: "m-1",
         status: "online",
@@ -121,7 +121,7 @@ describe("MonitorPage uninstall members guard", () => {
       }),
       member({
         id: "bob",
-        kind: "assistant",
+        kind: "staff",
         desiredMachineId: "m-2",
         machine: null,
         status: "offline",

@@ -5,10 +5,10 @@ package main
 // real HandleListChatApiChatGet through httptest against a temp DAL, using the
 // helpers api_chat_peek_test.go already defines. It starts no server.
 //
-// Three of these are GUARDS for the fix; one is a CHARACTERIZATION of behaviour
-// the fix works AROUND and cannot change from the client. They are labelled
-// individually, because a reader who mistakes the fourth for a guard would
-// think the read-watermark problem was solved. It is not.
+// All four are GUARDS. The fourth was a CHARACTERIZATION of behaviour T-b0bb
+// worked AROUND and could not change from the client — the listing marking
+// messages read that no response had carried. T-48 removed that write, so it
+// is now a guard like the rest, asserting the opposite of what it recorded.
 
 import (
 	"fmt"
@@ -45,21 +45,27 @@ func seedChatN(t *testing.T, s *apiServer, peer, prefix string, n int, tsFrom fl
 // GREEN.
 //
 // The case with teeth is the BACKGROUNDED WINDOW. When the tab is not focused
-// the client loads through ?peek=true precisely so the unread badge keeps
-// counting; if that load finds a seam, the backfill still goes out on the
-// CURSOR door. So the cursor door must not mark either — otherwise backfilling
-// in the background silently eats the unread state that peek exists to
-// preserve. Here the watermark starts at 0 and the page carries HIGH ts values,
-// so monotonicity hides nothing.
+// the client still loads the thread so the unread badge keeps counting; if that
+// load finds a seam, the backfill goes out on the CURSOR door. So the cursor
+// door must not mark — otherwise backfilling in the background silently eats
+// the unread state. Here the watermark starts at 0 and the page carries HIGH ts
+// values, so monotonicity hides nothing.
+//
+// T-48 made this true of EVERY door on GET /api/chat, not just this one (the
+// cursorless list used to mark, and ?peek=true was how the background window
+// opted out; both are gone). This test stays because it pins the cursor branch
+// specifically, at the numbers the frontend backfill uses.
 func TestChatBeforeCursorPageDoesNotAdvanceWatermark(t *testing.T) {
-	// Positive control on its own server: the marking door really does mark,
-	// so a green result below cannot come from a dead endpoint or a bad helper.
+	// Positive control on its own server: the ONE door that still marks really
+	// does mark (POST /api/chat/mark-read), so a green result below cannot come
+	// from a dead watermark table or a bad helper.
 	sCtl := &apiServer{dal: newTestDAL(t), hub: NewHub()}
 	seedChatN(t, sCtl, "m-1", "a", 40, 1)
-	withCtl := "m-1"
-	chatGetRec(sCtl, "owner", HandleListChatApiChatGetParams{With: &withCtl})
+	if rec := markReadRec(sCtl, "owner", "m-1", 40); rec.Code != 200 {
+		t.Fatalf("control: mark-read → %d: %s", rec.Code, rec.Body.String())
+	}
 	if wm := ownerWatermark(t, sCtl, "m-1"); wm != 40 {
-		t.Fatalf("control: cursorless list must advance the watermark to 40, got %v", wm)
+		t.Fatalf("control: mark-read must advance the watermark to 40, got %v", wm)
 	}
 
 	s := &apiServer{dal: newTestDAL(t), hub: NewHub()}
@@ -84,7 +90,7 @@ func TestChatBeforeCursorPageDoesNotAdvanceWatermark(t *testing.T) {
 	if wm := ownerWatermark(t, s, peer); wm != 0 {
 		t.Fatalf("a before-cursor page MUST NOT advance the read watermark "+
 			"(the T-b0bb backfill pages backwards on this door, and it runs while "+
-			"the window is backgrounded behind ?peek=true): 0 -> %v", wm)
+			"the window is backgrounded): 0 -> %v", wm)
 	}
 }
 
@@ -151,20 +157,23 @@ func TestChatWindowShapesTheClientSimulatorAssumes(t *testing.T) {
 	}
 }
 
-// ── CHARACTERIZATION, NOT A GUARD ────────────────────────────────────────────
+// ── GUARD 4 (was a CHARACTERIZATION until T-48) ──────────────────────────────
 //
-// 🔴 THIS DOCUMENTS A PROBLEM THAT IS STILL THERE. The client fix stops the
-// thread from losing messages; it does NOT stop the server from marking them
-// read on the way past. The watermark advances to the newest ts of the page it
-// served, regardless of what the caller has actually been shown, so a caller
-// that misses a window has those messages counted as read.
+// This used to document a problem that WAS still there: the cursorless list
+// advanced the watermark to the newest ts of the page it served, regardless of
+// what the caller had actually been shown, so a caller that missed a window had
+// those messages counted as read. It was the reason the client could not rely
+// on unread state to notice a hole (the justification for gapSuspected), and it
+// said in so many words that if someone fixed it later this test should be
+// REWRITTEN, not deleted.
 //
-// It is here because that is precisely why the client CANNOT rely on unread
-// state to notice a hole — the justification for gapSuspected existing at all.
-// Changing it means changing the read endpoint's contract, which was explicitly
-// out of scope for T-b0bb. If someone fixes it later, this test goes red and
-// should be rewritten, not deleted.
-func TestChatWatermarkAdvancesPastMessagesTheCallerNeverReceived(t *testing.T) {
+// T-48 fixed it, by removing the write rather than narrowing it: no path on
+// GET /api/chat marks anything read any more (owner ruling 2026-09-02 —
+// marking read is POST /api/chat/mark-read's job, stated explicitly). So the
+// same scenario is now asserted in the other direction: the 10 messages no
+// response ever carried are STILL UNREAD, and so is everything else the
+// listing merely walked past.
+func TestChatListNeverMarksMessagesTheCallerNeverReceived(t *testing.T) {
 	s := &apiServer{dal: newTestDAL(t), hub: NewHub()}
 	peer := "m-1"
 	with := peer
@@ -197,10 +206,10 @@ func TestChatWatermarkAdvancesPastMessagesTheCallerNeverReceived(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reads: %v", err)
 	}
-	if n := UnreadCounts(all, reads, "owner")[peer]; n != 0 {
-		t.Fatalf("characterization drifted: unread is %d, was 0 — the server no "+
-			"longer marks undelivered messages read. Re-read the T-b0bb notes in "+
-			"frontend/src/hooks/useChat.ts before changing the client.", n)
+	if n := UnreadCounts(all, reads, "owner")[peer]; n != len(all) {
+		t.Fatalf("listing must leave every message unread (T-48): unread is %d, "+
+			"want %d — including the %d rows no response ever carried. A listing "+
+			"that marks again puts the T-b0bb hole back: the client could not see "+
+			"a gap it had already been told it had read.", n, len(all), len(never))
 	}
-	t.Logf("characterized: %d messages never delivered, unread reported as 0", len(never))
 }

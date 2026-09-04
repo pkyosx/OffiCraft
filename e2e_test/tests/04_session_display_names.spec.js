@@ -50,7 +50,7 @@ test.describe('B2/B3 · monitoring session — machine/account friendly names', 
     const members = await (
       await request.get(`${BASE}/api/members`, { headers: auth })
     ).json();
-    const member = members.find((m) => m.kind === 'assistant' && m.roster_status !== 'removed');
+    const member = members.find((m) => m.kind === 'staff' && m.roster_status !== 'removed');
     expect(member, 'a seed assistant must exist to own a session row').toBeTruthy();
     const host = member.machine || member.desired_machine_id;
     expect(host, 'the seed assistant must name a machine id (observed, else its pin)').toBeTruthy();

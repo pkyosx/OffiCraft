@@ -876,7 +876,7 @@ describe("TasksPage", () => {
     // The executor's chat message carries the task's display number so it is
     // self-identifying (owner 2026-07-14).
     await waitFor(async () => {
-      const thread = await api.peekChat("mira");
+      const thread = await api.listChat("mira");
       expect(thread.map((m) => m.body)).toContain(`[${task.taskNo}] 先做 P0 的部分`);
     });
     // Sent → the box clears (retry keeps content only on failure).

@@ -50,7 +50,7 @@ func doDeactivateMember(api *apiServer, id string) *httptest.ResponseRecorder {
 func TestStopEpochAnchor_AStaffDeactivateDoesNotRestampALiveForcedEpoch(t *testing.T) {
 	api, dal := newGateTestAPI(t)
 	const opened = 1_000.0
-	putGateMember(t, dal, Member{ID: "m-170e-forced", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "m-170e-forced", Kind: KindStaff,
 		DesiredState: DesiredStateOffline, StoppingSince: opened, ForcedStopAt: opened})
 
 	if rec := doDeactivateMember(api, "m-170e-forced"); rec.Code != http.StatusOK {
@@ -71,7 +71,7 @@ func TestStopEpochAnchor_AStaffDeactivateDoesNotRestampALiveForcedEpoch(t *testi
 	// POSITIVE CONTROL: an ORDINARY 下線 must still stamp, or this guard has
 	// simply broken the stop epoch instead of protecting one.
 	t.Run("an ordinary stop still opens its epoch", func(t *testing.T) {
-		putGateMember(t, dal, Member{ID: "m-170e-plain", Kind: KindAssistant,
+		putGateMember(t, dal, Member{ID: "m-170e-plain", Kind: KindStaff,
 			DesiredState: DesiredStateOnline})
 		if rec := doDeactivateMember(api, "m-170e-plain"); rec.Code != http.StatusOK {
 			t.Fatalf("deactivate: %d %s", rec.Code, rec.Body.String())

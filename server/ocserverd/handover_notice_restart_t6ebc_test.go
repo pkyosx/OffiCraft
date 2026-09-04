@@ -45,7 +45,7 @@ func restartableNoticeServers(t *testing.T, memberID string) (*apiServer, *apiSe
 	// The agent has a member row — that is what makes the claim durable at all,
 	// and every real agent has one.
 	if err := before.dal.PutMember(Member{
-		ID: memberID, Name: "restart-probe", Kind: KindAssistant,
+		ID: memberID, Name: "restart-probe", Kind: KindStaff,
 		DesiredState: DesiredStateOnline, RosterStatus: RosterStatusActive,
 	}); err != nil {
 		t.Fatalf("seed member: %v", err)
@@ -226,7 +226,7 @@ func TestHandoverNotice_ADatabaseFailureFallsTowardSending(t *testing.T) {
 
 	before, closeBefore := open()
 	if err := before.dal.PutMember(Member{
-		ID: "m-1", Name: "dbfail-probe", Kind: KindAssistant,
+		ID: "m-1", Name: "dbfail-probe", Kind: KindStaff,
 		DesiredState: DesiredStateOnline, RosterStatus: RosterStatusActive,
 	}); err != nil {
 		t.Fatalf("seed member: %v", err)

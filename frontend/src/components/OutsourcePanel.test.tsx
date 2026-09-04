@@ -351,7 +351,7 @@ describe("OutsourcePanel", () => {
       expect(badge.textContent).toBe("2");
 
       // Opening the worker's chat suppresses the badge on the open, watched
-      // row (member-card parity — the open thread's auto-mark consumes reads,
+      // row (member-card parity — the open, focused thread marks arrivals read,
       // so the badge must never accumulate there).
       fireEvent.click(await findByTestId("outsource-row-ow-u"));
       await waitFor(() =>

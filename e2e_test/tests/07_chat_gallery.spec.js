@@ -5,8 +5,10 @@
 //     unrelated conversation, resolves `from_name` server-side (owner = honest
 //     ""), orders newest→oldest, and 422s on a blank `with`.
 //   • API: the endpoint is READ-ONLY — it must NOT advance the read watermark
-//     (contrast: GET /api/chat?with= IS "list 即讀"). ⚠ the unread_count sample
-//     MUST be taken BEFORE anything lists A's thread — order is the assertion.
+//     (contrast: POST /api/chat/mark-read, the ONE door that does; since
+//     8cd4fff9 GET /api/chat?with= is a pure read too). ⚠ the unread_count
+//     sample MUST still be taken BEFORE anything reports A's thread read —
+//     order is the assertion.
 //   • browser: gallery panel opens from the chat header, 圖片/檔案 tabs split
 //     by is_image, the uploader filter (全部 / a checkbox per sender, T-51 ②)
 //     stacks with the tabs. (The over-filtered empty state is NOT exercised
@@ -21,6 +23,7 @@ const {
   hireMember,
   mintMemberToken,
   postChatAs,
+  markChatRead,
   unreadCountOf,
   bootAuthedSpa,
   uniqueName,
@@ -61,8 +64,8 @@ test.describe('B8 · chat gallery — scope, sender labels, tabs + uploader filt
       { data_b64: PNG_1x1_B64, filename: 'c-pic.png', mime: 'image/png' },
     ]);
 
-    // ⚠ READ-ONLY watermark sample — taken BEFORE anything lists A's thread
-    // (GET /api/chat?with=A auto-marks read; order IS the assertion here).
+    // ⚠ READ-ONLY watermark sample — taken BEFORE anything reports A's thread
+    // read (the markChatRead below does; order IS the assertion here).
     const unreadBefore = await unreadCountOf(request, token, A.id);
     expect(
       unreadBefore,
@@ -106,13 +109,25 @@ test.describe('B8 · chat gallery — scope, sender labels, tabs + uploader filt
       unreadAfterGallery,
       'opening the gallery must not mark the thread read (READ-ONLY endpoint)',
     ).toBe(unreadBefore);
-    // …while the thread list IS "list 即讀" (the contrast that proves the
-    // sample order above was meaningful, not a trivial 0 == 0).
+    // …and the contrast that proves the sample above was meaningful rather than
+    // a trivial 0 == 0: reporting the read explicitly DOES clear it.
+    //
+    // 🔴 THE CONTRAST USED TO BE THE THREAD LISTING ITSELF ("list 即讀"). Commit
+    // 8cd4fff9 removed that write from every path — `GET /api/chat?with=` is a
+    // pure read now, exactly like the gallery — so the listing can no longer
+    // play the "this one DOES mark read" half of the comparison. The endpoint
+    // the cockpit actually reports reading with can.
     const list = await request.get(`${BASE}/api/chat?with=${A.id}`, { headers: auth });
     expect(list.status()).toBe(200);
     expect(
       await unreadCountOf(request, token, A.id),
-      'listing the thread (GET /api/chat?with=) must clear the unread count',
+      'listing the thread must NOT clear the unread count either (8cd4fff9)',
+    ).toBe(unreadBefore);
+    const newest = (await list.json()).messages.at(-1);
+    await markChatRead(request, token, A.id, newest.ts);
+    expect(
+      await unreadCountOf(request, token, A.id),
+      'reporting the read must clear the unread count',
     ).toBe(0);
 
     // ── browser: tabs + the uploader filter (stacking) + honest empty state ──

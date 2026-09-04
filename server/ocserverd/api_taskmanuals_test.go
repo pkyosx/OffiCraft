@@ -284,7 +284,7 @@ func TestOwnerAssigneeOnCreateIsValidatedAndApplied(t *testing.T) {
 func TestAdminAgentAssigneeIsAppliedOnCreateAndEdit(t *testing.T) {
 	api := newTasksTestServer(t)
 	if err := api.dal.PutMember(Member{
-		ID: "m-admin", Kind: KindAssistant, RoleKey: adminRoleKey,
+		ID: "m-admin", Kind: KindStaff, RoleKey: adminRoleKey,
 	}); err != nil {
 		t.Fatalf("PutMember: %v", err)
 	}

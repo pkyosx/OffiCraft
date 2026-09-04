@@ -525,17 +525,29 @@ func (s *apiServer) observedHost(m Member) string {
 // member and zeroed the badge the delta was announcing). The outsource
 // single-item handler was already doing it the right way; this makes members
 // match. NOT a wire change: MemberDTO has always declared unread_count.
+//
+// 🔴 THE AGGREGATE IS THE DATABASE'S, AND THIS IS THE ONLY DOOR TO IT (T-48).
+// Everything that shows an unread number comes through here: the member roster
+// and single-member GET, the cockpit's red dot
+// (HandleChatUnreadCountApiChatUnreadCountGet), and all three contractor faces
+// in api_outsource.go. It is the ONLY function in the codebase that may call
+// s.dal.UnreadCountsFor — pinned by a test, because a shared DAL method is not
+// the same thing as a shared entry point: six handlers each reaching past this
+// one into the DAL would be six places to fix the next time the rule moves, and
+// that is exactly how this ended up with five copies of a whole-table fold.
+//
+// 🔴 WHAT DOES *NOT* BELONG HERE: what each surface then DOES with the map. The
+// red dot filters out removed members and released workers before summing; the
+// roster binds a per-member number into a DTO; the contractor faces index by
+// worker id. Those differences are real — they are the surfaces disagreeing
+// about their own audience, not about the algorithm — and folding them in here
+// would be the wrong kind of sharing. This returns the raw per-peer map and
+// stops.
+//
+// Before T-48 this was a whole-chat_message table read plus a Go fold, and there
+// were FIVE copies of it (here, the red dot, and three in api_outsource.go).
 func (s *apiServer) unreadCountsForRequest(r *http.Request) (map[string]int, error) {
-	actor := currentActor(r)
-	messages, err := s.dal.ListChat()
-	if err != nil {
-		return nil, err
-	}
-	receipts, err := s.dal.ListChatReads(actor, "")
-	if err != nil {
-		return nil, err
-	}
-	return UnreadCounts(messages, receipts, actor), nil
+	return s.dal.UnreadCountsFor(currentActor(r))
 }
 
 func (s *apiServer) newMemberDTO(m Member, roleName, observedMachine string, unreadCount int) memberDTO {

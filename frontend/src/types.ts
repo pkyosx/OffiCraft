@@ -63,8 +63,8 @@ export interface Member {
   actualEffort?: string;
   model: string;
   effort: Effort;
-  // The member's kind (e.g. "assistant" | "warden"). The office roster shows
-  // ONLY real AI assistants; machine-layer kinds (warden) are filtered out.
+  // The member's kind (e.g. "staff" | "warden"). The office roster shows
+  // ONLY real AI colleagues; machine-layer kinds (warden) are filtered out.
   kind: string;
   // The machine this member is bound to run on (wire `desired_machine_id`). Direct
   // passthrough — used to resolve the warden member behind a monitoring machine row

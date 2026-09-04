@@ -15,6 +15,7 @@ import { enterShouldSend } from "../lib/composerKeys";
 import {
   ATTACH_ACCEPT,
   useAttachmentStaging,
+  STAGING_TARGET_PER_MOUNT,
 } from "../hooks/useAttachmentStaging";
 import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { PaperclipIcon, SendIcon } from "./icons";
@@ -58,7 +59,11 @@ export function ReplyComposer({
     onPickFile,
     removeAttachment,
     clearAttachments,
-  } = useAttachmentStaging();
+  } = useAttachmentStaging(
+    // Mounted under a key that changes with the card/task it belongs to, so a
+    // switch UNMOUNTS this surface and nothing can outlive it (T-48, R9-1).
+    STAGING_TARGET_PER_MOUNT,
+  );
   const fileInputRef = useRef<HTMLInputElement>(null);
   const draftRef = useRef<HTMLTextAreaElement>(null);
   // IME composition guard — same belt-and-braces as the chat composer: an

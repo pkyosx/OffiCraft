@@ -561,7 +561,7 @@
   display: grid;
   place-items: center;
   padding: 24px;
-  /* Anchor for the floating "有新訊息" chip (absolute, bottom-center). */
+  /* Anchor for the floating 回到最新訊息 arrow (absolute, bottom-right). */
   position: relative;
   /* 🔴 T-7fa1 手機高度字疊字: this pane is the ONLY flex item of `.chat` allowed
    * to shrink (`flex:1; min-height:0`), so every pixel the composer GAINS is a
@@ -588,27 +588,133 @@
   overflow-y: auto;
   overflow-x: hidden;
 }
-/* ① M2 batch 19: floating "有新訊息" chip — surfaces when a new inbound message
- * lands while the owner is scrolled up. Low-emphasis grey pill (card surface,
- * NOT the accent CTA), floating just above the composer edge; click jumps to
- * the first unseen message; dismissed on reaching the bottom. */
-.chat__new-msg-chip {
+/* ① T-48 回到最新訊息: the round arrow floating over the bottom-RIGHT of the
+ * message pane, just above the composer. It surfaces whenever the newest
+ * message is not in the viewport, and hands its place to the new-message
+ * preview strip (below) whenever one is up — the two are mutually exclusive.
+ *
+ * 🔴 THE VISUAL LANGUAGE IS THE RETIRED 「有新訊息」 PILL'S, ON PURPOSE (owner
+ * c-7ecbaac9c1c1: 「跟現在的風格差不多」): card surface, hairline border, soft
+ * shadow, and NOT ONE HARD-CODED COLOUR — every value is a theme token, because
+ * this element floats over the thread in every theme the owner can install.
+ * What changed from the pill is the SHAPE (a 34px circle) and the SIDE. */
+.chat__jump-latest {
   position: absolute;
+  right: 12px;
   bottom: 12px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 6px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
   border: 1px solid var(--color-border);
   border-radius: 999px;
   background: var(--color-card);
   color: var(--color-text);
-  font-size: 12px;
-  line-height: 1;
   cursor: pointer;
   box-shadow: 0 4px 14px color-mix(in srgb, var(--color-shadow) 35%, transparent);
 }
-.chat__new-msg-chip:hover {
+.chat__jump-latest:hover,
+.chat__jump-latest:focus-visible {
   border-color: var(--color-text-muted);
+}
+
+/* ② T-48 新訊息預覽列: one strip above the composer — sender on one line, the
+ * message on the next — replacing the 「有新訊息」 pill. It sits ABOVE the
+ * 「正在回覆」 banner (ChatArea renders it first inside `.chat__composer`), and
+ * a lighter ground than the banner's accent wash keeps the answer-target the
+ * louder of the two.
+ *
+ * 🔴 FIXED HEIGHT, TWO CLIPPED LINES — the reply banner's rule, and here it
+ * matters MORE. The banner's text changes only when the owner aims at another
+ * message; this one changes on its own, every time somebody writes. Letting it
+ * wrap would move the input box out from under the owner's hands mid-sentence.
+ * `white-space: nowrap` on the column + `text-overflow: ellipsis` per line is
+ * the same mechanism, deliberately copied rather than re-invented. */
+.chat__new-msg {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding: 5px 6px 5px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-card) 60%, transparent);
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--color-text-muted);
+}
+/* The strip IS the jump target (owner screenshot: no separate control), so it
+ * is a full-width button — but a button that must look like the strip, not like
+ * a button. */
+.chat__new-msg__hit {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.chat__new-msg__text {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+/* One per line, each ellipsised on its own — same shape as
+ * `.chat__reply-banner__who` / `__body`, for the same reason.
+ *
+ * 🔴 `min-height` IS THE OTHER HALF OF "FIXED HEIGHT", and the reply banner
+ * does not need it while this strip does. The banner always has a quoted
+ * sentence; this strip previews whatever arrived, and an ATTACHMENT-ONLY
+ * message has an EMPTY body — an empty line box is 0px tall, so the strip
+ * measured 36px against 44px for every other message and the composer jumped by
+ * 8px the moment somebody sent a picture. Measured in the CT harness at both
+ * 390 and 1280. One line's worth of height, reserved whether or not there is
+ * anything to put in it. */
+.chat__new-msg__who,
+.chat__new-msg__body {
+  flex: none;
+  min-width: 0;
+  min-height: 1.35em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chat__new-msg__who {
+  font-weight: 600;
+  color: var(--color-text);
+}
+/* The x, sized to the same 24px touch box the reply banner's uses and pinned to
+ * the far edge so it never moves as the previewed message changes length. */
+.chat__new-msg__x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  margin-left: auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    background-color 0.15s;
+}
+.chat__new-msg__x:hover,
+.chat__new-msg__x:focus-visible {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-overlay) 8%, transparent);
 }
 /* ② M2 batch 19: the "以下是未讀訊息" divider above the first message that was
  * unread at conversation entry — a thin low-emphasis rule, same visual language
@@ -735,6 +841,52 @@
   gap: 8px;
   color: var(--color-text-muted);
   font-size: 13.5px;
+}
+
+/* 🔴 「這條對話的內容還沒到」 (T-48 fix12). Same silhouette as `.chat__empty`
+   deliberately: they occupy the same slot in the body and one replaces the
+   other, so a difference in placement would read as the pane jumping.
+
+   Every colour is a THEME TOKEN. The ring is drawn from `--color-border` with
+   one quadrant in `--color-accent`, so it inherits each theme's own contrast
+   instead of carrying a hard-coded grey that goes invisible on half of them. */
+.chat__loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-muted);
+  font-size: 13.5px;
+}
+.chat__loading-spinner {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-accent);
+  animation: chat-loading-spin 0.7s linear infinite;
+}
+/* Motion is the whole affordance here, so the reduced-motion fallback is not
+   「no animation」 (that leaves a static ring that says nothing) — it is a
+   pulse, which carries 「still working」 without rotation. */
+@media (prefers-reduced-motion: reduce) {
+  .chat__loading-spinner {
+    animation: chat-loading-pulse 1.4s ease-in-out infinite;
+  }
+}
+@keyframes chat-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes chat-loading-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 /* Message thread (rendered when the conversation has ≥1 message). Overrides the
@@ -1591,17 +1743,43 @@
 /* An image attachment renders INSIDE the message bubble (below the text, in
  * the attachment stack); capped width, a slightly tighter radius so it nests
  * cleanly inside the bubble's 12px corners. */
+/* 🔴 THE BOX IS A FIXED SIZE, AND THE IMAGE IS FITTED INTO IT (T-48, owner
+ * rc-7a6a159a102f 「圖片我們在聊天視窗是不是可以給固定的尺寸？我們要看還是會點開
+ * 來看」). This used to be `width/height: auto` under a 300x320 cap, which means
+ * the row had NO height at all until the bytes decoded and then jumped to the
+ * image's real one — measured +46.7 to +318px per image, and that reflow is the
+ * main source of 「跳轉之後上方的圖片把目標擠走」 (measured +418.69px on a 433px
+ * viewport, a whole screen). A reserved box removes the reflow at its source
+ * rather than compensating for it afterwards.
+ *
+ * HEIGHT 220px, and the number is chosen against what the common case renders
+ * at TODAY: a 4:3 photo or screenshot filled the old 300px width at 225px tall,
+ * so it now renders 293x220 — a ~5px change for the aspect most chat images
+ * actually have. It is also strictly under the old 320px cap, so no thumbnail
+ * gets TALLER than it could before; the tallest (portrait) ones get shorter.
+ *
+ * `scale-down`, NOT `cover` and NOT `contain`: the whole image is shown,
+ * letterboxed — wide images get bars left/right, tall ones top/bottom. The owner
+ * asked for the picture to stay legible as a thumbnail and to be opened for
+ * detail; cropping it here would take away the "what is this" the thumbnail
+ * exists to answer. `scale-down` renders as whichever of `none` and `contain` is
+ * SMALLER, so anything bigger than the box behaves exactly as `contain` did,
+ * while a small image — a 60x40 icon, a small pasted screenshot — is drawn at
+ * its natural size, centred, instead of being blown up ~3.7x into a soft, blurry
+ * 293x220. `contain` upscales; that is the one thing it does that nobody asked
+ * for. Fixed height, whole image, no crop all survive the swap — the box is
+ * unchanged, so the zero-reflow property is untouched.
+ *
+ * The WIDTH keeps the behaviour it had — capped at 300px, shrinking with a
+ * narrow bubble so a phone never overflows — it is only the height that stopped
+ * being decided by the image. */
 .chat__msg-image {
   display: block;
-  /* The thumbnail obeys both its desktop cap and the bubble's available
-   * inline size. A fixed 300px cap overflows a narrow mobile bubble. */
-  max-width: min(300px, 100%);
-  max-height: 320px;
-  width: auto;
-  height: auto;
+  width: min(300px, 100%);
+  height: 220px;
   border-radius: 8px;
   border: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
-  object-fit: contain;
+  object-fit: scale-down;
 }
 /* A clickable image (thread + composer preview) opens the shared full-view
  * overlay (md-preview.css). T-f014 retired the separate `chat__lightbox`
@@ -2131,6 +2309,57 @@ button.chat__msg-file {
   color: var(--color-text-muted);
   font: inherit;
   font-size: 14px;
+}
+
+/* 🔴 T-48 jump miss — "that message isn't there". Warn tokens, the same as
+ * .chat__gap-notice above, because it is the same class of statement: the app
+ * saying what it could NOT do, in a place the reader would otherwise read as
+ * success. Sits above the composer, so it survives the fallback scroll to the
+ * bottom that follows the miss. */
+.chat__jump-miss {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--color-warn-border);
+  border-radius: 8px;
+  background: var(--color-warn-bg);
+  color: var(--color-warn-fg);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.chat__jump-miss span {
+  flex: 1;
+  min-width: 0;
+}
+.chat__jump-miss__retry {
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid var(--color-warn-border);
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.chat__jump-miss__retry:hover {
+  background: var(--color-warn-border);
+}
+.chat__jump-miss__x {
+  flex: none;
+  border: none;
+  background: none;
+  padding: 0 2px;
+  color: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.chat__jump-miss__x:hover {
+  opacity: 1;
 }
 
 /* ---- T-94c1 wake row: offline/stopped queue notice + in-place wake ---- */

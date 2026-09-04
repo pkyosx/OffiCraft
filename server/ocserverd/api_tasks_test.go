@@ -871,9 +871,9 @@ func TestCreateTypedTaskAssignedToMemberIsThatMembersAlone(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed manual: %v", err)
 	}
-	putMemberRow(t, api, "m-exec", KindAssistant, "")           // the assignee (seeded for the 發包 gate)
-	putMemberRow(t, api, "m-y", KindAssistant, "")              // another 正職 WITH a member row: the 發包 gate would ADMIT it, so only rule 3 blocks the override
-	putMemberRow(t, api, "m-mira", KindAssistant, adminRoleKey) // an admin_agent
+	putMemberRow(t, api, "m-exec", KindStaff, "")           // the assignee (seeded for the 發包 gate)
+	putMemberRow(t, api, "m-y", KindStaff, "")              // another 正職 WITH a member row: the 發包 gate would ADMIT it, so only rule 3 blocks the override
+	putMemberRow(t, api, "m-mira", KindStaff, adminRoleKey) // an admin_agent
 	body := func(pr string, extra map[string]any) map[string]any {
 		b := map[string]any{"title": "review " + pr, "type_key": "review",
 			"inputs": map[string]any{"pr": pr}}
@@ -937,7 +937,7 @@ func TestCreateTypedTaskWithOutsourceAssigneeAdmitsAny正職(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed manual: %v", err)
 	}
-	putMemberRow(t, api, "m-x", KindAssistant, "") // a plain 正職 with a member row
+	putMemberRow(t, api, "m-x", KindStaff, "") // a plain 正職 with a member row
 	// (d) rule 4 is untouched by the F1 fix: a manual OUTSOURCE assignee has no
 	// member subject (manualAssigneeMember==""), so any 正職 may create it — with
 	// OR without an explicit target.kind=outsource override.
@@ -972,8 +972,8 @@ func TestCreateTypedTaskWithOutsourceAssigneeAdmitsAny正職(t *testing.T) {
 func TestCreateAdHocMemberExecutorIsSelfOnlyForPlain正職(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true
-	putMemberRow(t, api, "m-self", KindAssistant, "")
-	putMemberRow(t, api, "m-mira", KindAssistant, adminRoleKey)
+	putMemberRow(t, api, "m-self", KindStaff, "")
+	putMemberRow(t, api, "m-mira", KindStaff, adminRoleKey)
 
 	// A 一般正職 pointing the executor at ANOTHER member → 403.
 	if rec := createTaskAs(t, api, map[string]any{
@@ -1144,7 +1144,7 @@ func TestInheritDispatchSpec_SharedRules(t *testing.T) {
 func TestCreateTaskDispatchTargetMachineMustResolve(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true
-	putMemberRow(t, api, "m-disp", KindAssistant, "")
+	putMemberRow(t, api, "m-disp", KindStaff, "")
 	seedMachine(t, api, "m-real")
 
 	dispatch := func(title, machine string) *httptest.ResponseRecorder {
@@ -1181,7 +1181,7 @@ func dispatchInheritanceServer(t *testing.T) *apiServer {
 	seedMachine(t, api, "m-disp-box")
 	seedMachine(t, api, "m-explicit-box")
 	if err := api.dal.PutMember(Member{
-		ID: "m-disp", Name: "Dispatcher", Kind: KindAssistant,
+		ID: "m-disp", Name: "Dispatcher", Kind: KindStaff,
 		Runtime: RuntimeCodex, Model: "gpt-5-codex", Effort: "low",
 		DesiredMachineID: "m-disp-box", RosterStatus: RosterStatusActive,
 	}); err != nil {
@@ -1233,7 +1233,7 @@ func TestCreateTypedTaskDispatchInheritsTheManual(t *testing.T) {
 	}
 
 	// An explicit runtime that differs from the manual drops the inherited model.
-	putMemberRow(t, api, "m-bare", KindAssistant, "")
+	putMemberRow(t, api, "m-bare", KindStaff, "")
 	got = storedTaskFor(t, api, createTaskAs(t, api, map[string]any{
 		"title": "runtime mismatch", "type_key": "typed",
 		"target": map[string]any{"kind": "outsource", "runtime": "codex"}},
@@ -1270,7 +1270,7 @@ func TestCreateAdHocTaskDispatchInheritsTheDispatcher(t *testing.T) {
 
 	// SENTINEL against over-inheriting: a dispatcher that names NO machine must
 	// leave it empty rather than borrowing one from anywhere else.
-	putMemberRow(t, api, "m-bare", KindAssistant, "")
+	putMemberRow(t, api, "m-bare", KindStaff, "")
 	got = storedTaskFor(t, api, createTaskAs(t, api, map[string]any{
 		"title":  "no machine anywhere",
 		"target": map[string]any{"kind": "outsource"}}, "m-bare", "agent"))
@@ -1294,7 +1294,7 @@ func TestCreateTypedTaskWithManualOutsourceAssigneeIsNotADispatch(t *testing.T) 
 	api := newTasksTestServer(t)
 	api.noOutsource = true
 	seedMachine(t, api, "m-manual-box")
-	putMemberRow(t, api, "m-disp", KindAssistant, "")
+	putMemberRow(t, api, "m-disp", KindStaff, "")
 	if err := api.dal.PutTaskManual(TaskManual{
 		TypeKey: "typed", Fields: "[]",
 		Assignee: `{"kind":"outsource","runtime":"claude","model":"opus","effort":"high","machine":"m-manual-box"}`,
@@ -2856,7 +2856,7 @@ func TestSetTaskPriorityExecutorFreezesAndUnfreezesSymmetrically(t *testing.T) {
 func TestSetTaskPriorityFrozenByNamesWhoFroze(t *testing.T) {
 	api := newTasksTestServer(t)
 	if err := api.dal.PutMember(Member{
-		ID: "m-admin", Kind: KindAssistant, RoleKey: adminRoleKey,
+		ID: "m-admin", Kind: KindStaff, RoleKey: adminRoleKey,
 	}); err != nil {
 		t.Fatalf("PutMember: %v", err)
 	}
@@ -2941,7 +2941,7 @@ func TestSetTaskPriorityForeignAgentIs403(t *testing.T) {
 func TestSetTaskPriorityAdminAgentMayRetuneAndFreeze(t *testing.T) {
 	api := newTasksTestServer(t)
 	if err := api.dal.PutMember(Member{
-		ID: "m-admin", Kind: KindAssistant, RoleKey: adminRoleKey,
+		ID: "m-admin", Kind: KindStaff, RoleKey: adminRoleKey,
 	}); err != nil {
 		t.Fatalf("PutMember: %v", err)
 	}

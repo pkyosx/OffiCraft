@@ -63,7 +63,7 @@ func TestCodexBootConnectWakesOnceAndIsNotAlsoForwarded(t *testing.T) {
 	var turns []string
 	st := &codexListenerState{}
 	feed := func(line string) {
-		st.handleListenerLine(line, func() {}, func(text string) { turns = append(turns, text) })
+		st.handleListenerLine(line, func() {}, func(text string) { turns = append(turns, text) }, nil)
 	}
 
 	feed(connectedLineFixture)
@@ -116,7 +116,9 @@ func TestListenerNoticesReallyReachTheModel(t *testing.T) {
 	pane := &bytes.Buffer{}
 	session := &codexSession{in: wire, threadID: "th-1", effort: "medium", out: pane}
 	st := &codexListenerState{}
-	feed := func(line string) { st.handleListenerLine(line, func() {}, session.openListenerTurn) }
+	feed := func(line string) {
+		st.handleListenerLine(line, func() {}, session.openListenerTurn, session.closeBatch)
+	}
 
 	feed(connectedLineFixture) // boot: the post-boot wake is the turn that goes out
 	feed(disconnected)

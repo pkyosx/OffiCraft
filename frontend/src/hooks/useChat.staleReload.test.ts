@@ -39,7 +39,6 @@ import type { ChatMessage, SseDelta } from "../api/adapter";
 
 const h = vi.hoisted(() => ({
   listChat: vi.fn<(withId: string, limit?: number) => Promise<unknown[]>>(),
-  peekChat: vi.fn<(withId: string, limit?: number) => Promise<unknown[]>>(),
   listChatReads: vi.fn(async () => [] as unknown[]),
   markChatRead: vi.fn(async () => ({})) as unknown as ReturnType<typeof vi.fn>,
   postChat: vi.fn(async () => ({}) as unknown),
@@ -49,7 +48,6 @@ const h = vi.hoisted(() => ({
 vi.mock("../api", () => ({
   api: {
     listChat: h.listChat,
-    peekChat: h.peekChat,
     listChatReads: h.listChatReads,
     markChatRead: h.markChatRead,
     postChat: h.postChat,
@@ -92,9 +90,10 @@ const elsewhere: SseDelta = {
 };
 
 // A read receipt naming a THIRD party as its reader, in a burst that carries NO
-// `chat` topic at all. This is what the owner opening any OTHER conversation
-// fans at this client (GET /api/chat?with= advances a watermark and echoes a
-// `chat_read`), so it is an ordinary — and common — recovery channel.
+// `chat` topic at all. This is what the owner LOOKING at any OTHER conversation
+// fans at this client (that window's ChatArea posts /api/chat/mark-read, which
+// advances a watermark and echoes a `chat_read` — since T-48 merely OPENING the
+// conversation no longer does it), so it is an ordinary recovery channel.
 const foreignRead: SseDelta = {
   topic: "chat_read",
   names: { reader: "x", peer: "y" },
@@ -105,7 +104,6 @@ let hasFocusSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
   h.listChat.mockReset().mockResolvedValue([]);
-  h.peekChat.mockReset().mockResolvedValue([]);
   h.listChatReads.mockClear();
   h.sseHandler = null;
   hasFocusSpy = vi.spyOn(document, "hasFocus").mockReturnValue(true);
@@ -167,7 +165,6 @@ describe("useChat: a failed load is marked and paid on the next relevant event",
     await waitFor(() =>
       expect(result.current.messages.map((m) => m.id)).toEqual(["c9"]),
     );
-    expect(result.current.messagesPeer).toBe("b");
   });
 
   it("once the catch-up load lands, the mark is cleared — the next foreign delta is skipped again", async () => {
@@ -183,8 +180,11 @@ describe("useChat: a failed load is marked and paid on the next relevant event",
 
     // The debt is paid. A foreign delta is once again none of our business —
     // this is the guard against "fix" = delete the per-conversation filter,
-    // which would resurrect the T-8115 self-drive (a marking listChat fans a
-    // chat_read echo straight back at us, once per chat line company-wide).
+    // which would resurrect the T-8115 self-drive. That listChat no longer
+    // marks anything (T-48 removed the write), but the echo did not go away —
+    // it moved to ChatArea's POST /api/chat/mark-read, so an unfiltered reload
+    // still fans a chat_read echo straight back at us once per chat line
+    // company-wide.
     await emit(elsewhere);
     expect(h.listChat).toHaveBeenCalledTimes(3);
   });
@@ -195,7 +195,6 @@ describe("useChat: a failed load is marked and paid on the next relevant event",
 
     await emit(elsewhere);
     expect(h.listChat).toHaveBeenCalledTimes(1);
-    expect(h.peekChat).not.toHaveBeenCalled();
   });
 
   it("a burst carrying ONLY chat_read pays the debt — the mark is not narrowed to chat lines", async () => {
@@ -225,47 +224,45 @@ describe("useChat: a failed load is marked and paid on the next relevant event",
   });
 
   it("a peer switch does not inherit the previous conversation's debt", async () => {
+    // 🔴 A SWITCH IS A REMOUNT (T-48, R13-5): `ChatArea` is rendered under
+    // `key={peerId}`, so the new room gets its own hook, its own latches and its
+    // own debt record. Driven that way here rather than by handing a live
+    // instance a different `withId`, which is not a thing the app does.
     h.listChat.mockImplementation(async (withId: string) =>
       withId === "b" ? [mkMsg("c1", "b", "owner", 1000)] : [],
     );
-    const { result, rerender } = renderHook(
-      ({ id }: { id: string }) => useChat(id),
-      { initialProps: { id: "b" } },
-    );
-    await waitFor(() => expect(result.current.messages).toHaveLength(1));
+    const inB = renderHook(() => useChat("b"));
+    await waitFor(() => expect(inB.result.current.messages).toHaveLength(1));
 
     h.listChat.mockRejectedValueOnce(new Error("network"));
     await emit(inThisThread);
+    inB.unmount();
 
-    // Switching peers re-runs the effect, which loads unconditionally — the new
-    // conversation starts square. (The mark is reset in the effect's SETUP
-    // body, which is also what keeps it alive under StrictMode.)
-    rerender({ id: "z" });
-    await waitFor(() => expect(result.current.messagesPeer).toBe("z"));
+    // The new conversation starts square.
+    const inZ = renderHook(() => useChat("z"));
+    await waitFor(() => expect(h.listChat).toHaveBeenCalled());
     const afterSwitch = h.listChat.mock.calls.length;
 
     // "z" owes nothing, so a foreign delta must be skipped, not loaded.
     await emit(elsewhere);
     expect(h.listChat).toHaveBeenCalledTimes(afterSwitch);
+    expect(inZ.result.current.messages).toEqual([]);
   });
 
   it("the PREVIOUS peer's load rejecting AFTER the switch writes no debt onto the new conversation", async () => {
-    // The case above rejects BEFORE the switch, so the successor's setup body
-    // clears the mark afterwards and the leak cannot show. Here the rejection
-    // lands AFTER that setup body has already run: without an `alive` guard on
-    // the catch arm, a dead effect instance's failure marks its SUCCESSOR as
-    // owing a page it never lost — and "z" then pays a debt that was "b"'s,
-    // firing a load for traffic that is none of its business (exactly the
-    // T-8115 self-drive the per-conversation filter exists to prevent).
+    // The case above rejects BEFORE the switch, so the successor never sees the
+    // mark at all. Here the rejection lands AFTER the new room is up: a debt
+    // record shared between rooms would mark the SUCCESSOR as owing a page it
+    // never lost, and "z" would then fire a load for traffic that is none of its
+    // business (exactly the T-8115 self-drive the per-conversation filter exists
+    // to prevent). The record is built once per mount, so there is nothing for
+    // the dead room's failure to reach.
     let rejectB!: (e: unknown) => void;
     const stuck = new Promise<unknown[]>((_, reject) => {
       rejectB = reject;
     });
 
-    const { result, rerender } = renderHook(
-      ({ id }: { id: string }) => useChat(id),
-      { initialProps: { id: "b" } },
-    );
+    const inB = renderHook(() => useChat("b"));
     await waitFor(() => expect(h.listChat).toHaveBeenCalledTimes(1));
 
     // "b" fires a load that neither resolves nor rejects yet.
@@ -273,9 +270,10 @@ describe("useChat: a failed load is marked and paid on the next relevant event",
     await emit(inThisThread);
     expect(h.listChat).toHaveBeenCalledTimes(2);
 
-    // Switch peers while that load is still in flight. "z" loads once, cleanly.
-    rerender({ id: "z" });
-    await waitFor(() => expect(result.current.messagesPeer).toBe("z"));
+    // Switch rooms while that load is still in flight. "z" loads once, cleanly.
+    inB.unmount();
+    const inZ = renderHook(() => useChat("z"));
+    await waitFor(() => expect(h.listChat).toHaveBeenCalledTimes(3));
     const afterSwitch = h.listChat.mock.calls.length;
 
     // NOW the dead instance's load fails.
@@ -288,19 +286,25 @@ describe("useChat: a failed load is marked and paid on the next relevant event",
     // "z" never lost a page, so a foreign delta is still none of its business.
     await emit(elsewhere);
     expect(h.listChat).toHaveBeenCalledTimes(afterSwitch);
-    expect(result.current.messagesPeer).toBe("z");
+    expect(inZ.result.current.messages).toEqual([]);
   });
+
   it("a torn-down instance's load RESOLVING late writes neither its page nor its paid-off mark onto the live conversation", async () => {
-    // The mirror image of the case above, and the one nothing in this package
-    // covered: the dead instance's load SUCCEEDS. Without the `.then` arm's
-    // `if (!alive) return;` its landed page runs the else-arm of setThread
-    // (`prev.peer` is the LIVE peer, `withId` is the dead closure's) and
-    // re-registers the OLD peer as the thread's owner while showing the OLD
-    // peer's messages under the new conversation — plus it clears
-    // `loadStaleRef`, cancelling a debt the live instance really owes.
-    // StrictMode is how main.tsx mounts the app and is what keeps the ref
-    // SHARED between the torn-down instance and its successor; two renderHook
-    // calls would be two components with two refs and could not show this.
+    // The mirror image of the case above: the dead instance's load SUCCEEDS.
+    // Two things must not happen — its page must not be painted under the live
+    // room, and it must not clear a "still owed a page" mark the live room
+    // really holds.
+    //
+    // ⚠️ WHAT MAKES THAT TRUE CHANGED (T-48, R13-5), so read the assertions and
+    // not the old rationale. This used to be driven by handing ONE live hook a
+    // different `withId`, which kept the debt ref shared between the dead
+    // closure and its successor and made the leak reachable; the effect's
+    // `if (!alive) return;` was the only thing stopping it. Rooms are separate
+    // MOUNTS now, so the record the dead load reaches is its own and its
+    // commit lands in a component React has discarded. This case therefore
+    // pins the property rather than one guard: it reddens if the debt or the
+    // thread is ever hoisted somewhere the two rooms share. StrictMode is kept
+    // because it is how main.tsx mounts the app.
     let resolveB!: (v: ChatMessage[]) => void;
     const stuck = new Promise<ChatMessage[]>((res) => {
       resolveB = res;
@@ -309,18 +313,17 @@ describe("useChat: a failed load is marked and paid on the next relevant event",
       withId === "b" ? stuck : Promise.resolve([]),
     );
 
-    const { result, rerender } = renderHook(
-      ({ id }: { id: string }) => useChat(id),
-      {
-        initialProps: { id: "b" },
-        wrapper: ({ children }) => createElement(StrictMode, null, children),
-      },
-    );
+    const strict = {
+      wrapper: ({ children }: { children: React.ReactNode }) =>
+        createElement(StrictMode, null, children),
+    };
+    const inB = renderHook(() => useChat("b"), strict);
     await waitFor(() => expect(h.listChat).toHaveBeenCalled());
 
-    // Switch peers while "b"'s load is still in flight; "z" loads cleanly.
-    rerender({ id: "z" });
-    await waitFor(() => expect(result.current.messagesPeer).toBe("z"));
+    // Switch rooms while "b"'s load is still in flight; "z" loads cleanly.
+    inB.unmount();
+    const inZ = renderHook(() => useChat("z"), strict);
+    await waitFor(() => expect(inZ.result.current.messages).toEqual([]));
 
     // "z" then loses a load of its own, so it is genuinely owed a page.
     h.listChat.mockImplementationOnce(() =>
@@ -340,10 +343,9 @@ describe("useChat: a failed load is marked and paid on the next relevant event",
       await Promise.resolve();
     });
 
-    // (a) the late page is dropped: the live thread keeps ITS peer and ITS
-    //     (empty) messages — no cross-conversation write.
-    expect(result.current.messages).toEqual([]);
-    expect(result.current.messagesPeer).toBe("z");
+    // (a) the late page is dropped: the live thread keeps ITS (empty) messages
+    //     — no cross-conversation write.
+    expect(inZ.result.current.messages).toEqual([]);
 
     // (b) the live instance's debt survives: the next foreign delta — which the
     //     per-conversation filter would skip — still forces the missing page
@@ -356,8 +358,7 @@ describe("useChat: a failed load is marked and paid on the next relevant event",
       expect(h.listChat).toHaveBeenCalledTimes(afterDebt + 1),
     );
     await waitFor(() =>
-      expect(result.current.messages.map((m) => m.id)).toEqual(["c9"]),
+      expect(inZ.result.current.messages.map((m) => m.id)).toEqual(["c9"]),
     );
-    expect(result.current.messagesPeer).toBe("z");
   });
 });

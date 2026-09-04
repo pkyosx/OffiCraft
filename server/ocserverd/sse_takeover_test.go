@@ -118,7 +118,7 @@ func waitOnline(t *testing.T, api *apiServer, member string) {
 // only input here is hub.IsOnline, asserted continuously true).
 func TestEventsTakeoverReleasesZombieHandler(t *testing.T) {
 	api, dal := newGateTestAPI(t)
-	putGateMember(t, dal, Member{ID: "tk-1", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "tk-1", Kind: KindStaff,
 		DesiredState: DesiredStateOnline})
 
 	wOld := newSinkWriter()
@@ -181,7 +181,7 @@ func TestEventsTakeoverReleasesZombieHandler(t *testing.T) {
 // exactly once.
 func TestEventsTakeoverEdgeHooksGated(t *testing.T) {
 	api, dal := newGateTestAPI(t)
-	putGateMember(t, dal, Member{ID: "tk-2", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "tk-2", Kind: KindStaff,
 		DesiredState: DesiredStateOnline})
 
 	doneOld := startEventsHandler(api, newSinkWriter(),
@@ -231,7 +231,7 @@ func TestEventsTakeoverEdgeHooksGated(t *testing.T) {
 // incumbent keeps its stream.
 func TestEventsTakeoverThrottled409(t *testing.T) {
 	api, dal := newGateTestAPI(t)
-	putGateMember(t, dal, Member{ID: "tk-3", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "tk-3", Kind: KindStaff,
 		DesiredState: DesiredStateOnline})
 
 	var cancels []context.CancelFunc
@@ -299,7 +299,7 @@ func TestEventsStopGateOutranksTakeover(t *testing.T) {
 	// the handler stops answering 409 and enters the stream loop, which never
 	// returns, so the whole package dies on the 10m panic timeout with this
 	// test named as the one still running. That is how it was found.
-	putGateMember(t, dal, Member{ID: "tk-4", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "tk-4", Kind: KindStaff,
 		DesiredState: DesiredStateOffline, StoppingSince: 1.0, ForcedStopAt: 2.0})
 
 	incumbent, err := api.hub.Connect("tk-4", "")
@@ -335,7 +335,7 @@ func TestEventsStopGateOutranksTakeover(t *testing.T) {
 // also reclaims the tunnel stream in prod.
 func TestEventsTakeoverHalfOpenRealTCP(t *testing.T) {
 	api, dal := newGateTestAPI(t)
-	putGateMember(t, dal, Member{ID: "tk-5", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "tk-5", Kind: KindStaff,
 		DesiredState: DesiredStateOnline})
 
 	var calls int32

@@ -210,7 +210,13 @@ jobs:
           go-version: '1.26.4'
           check-latest: false
           cache-dependency-path: server/ocserverd/go.sum
-      - run: bash bin/run-checks.sh lint-ts lint-css-tokens lint-css-token-roles test-frontend-unit
+      # ⚠️ lint-async-landing / lint-chat-area-key were added to bin/ci.sh by T-48
+      # and to no cell here — so for a while they ran on a developer's machine and
+      # on NOTHING in the merge path. That gap is worse than having no guard at
+      # all: ChatArea's own comments name `check-chat-area-key.mjs` as THE thing
+      # holding a latent cross-room bug shut, so a PR that deleted the key would
+      # have gone green and the next reader would have stopped suspecting it.
+      - run: bash bin/run-checks.sh lint-ts lint-css-tokens lint-css-token-roles lint-async-landing lint-chat-area-key test-frontend-unit
 
   # ---------------------------------------------------------------------------
   # frontend-ct — real-browser layout + paint guards. Separate from

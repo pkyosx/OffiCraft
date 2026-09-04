@@ -52,7 +52,7 @@ function Harness({
   windowMsgs: ChatMessage[];
   targetId: string;
 }) {
-  const quoted = useQuotedMessageOverlay();
+  const quoted = useQuotedMessageOverlay(undefined);
   return (
     <div>
       {windowMsgs.map((m) => (
@@ -170,6 +170,60 @@ describe("useQuotedMessageOverlay", () => {
     });
 
     expect(get).toHaveBeenCalledTimes(1);
+  });
+
+  it("切走再切回,上一趟點開的引用原文不准蓋在這一趟的房間上", async () => {
+    // 🔴 T-48 R8-3。在 A 按下「看原訊息」、讀取慢、切到 B,讀取落地時不准把 A
+    // 的那則訊息以全螢幕 overlay 蓋在 B 的房間上,也不准把焦點交給一顆已經隨 A
+    // 的列消失的按鈕。「overlay 蓋住整頁所以切不了對話」這個豁免在這裡不成立:
+    // 讀取期間 overlay 根本還沒開,roster 完全點得動。
+    //
+    // 🔴 換房就是換一份 hook(R13-5):`ChatArea` 掛在 `key={peerId}` 底下,所以
+    // 下面用 key 換掉整個 Harness 來驅動,跟 app 走同一條路。這支 hook 以前為此
+    // 收一個 visit token 參數,那個參數隨著 remount 一起退場。
+    let land!: (m: ChatMessage) => void;
+    vi.spyOn(api, "getChatMessage").mockReturnValue(
+      new Promise<ChatMessage>((r) => {
+        land = r;
+      }),
+    );
+
+    const { getByText, rerender } = render(
+      <I18nProvider>
+        <Harness key="visit-1" windowMsgs={[]} targetId="c-1" />
+      </I18nProvider>,
+    );
+    act(() => {
+      fireEvent.click(getByText("看原訊息"));
+    });
+    expect(
+      document.querySelector(".md-preview"),
+      "前提:讀取還在路上,overlay 還沒開,切換手勢是暢通的",
+    ).toBeNull();
+
+    rerender(
+      <I18nProvider>
+        <Harness key="visit-2" windowMsgs={[]} targetId="c-1" />
+      </I18nProvider>,
+    );
+    await act(async () => {
+      land(mkMsg({ id: "c-1", body: "上一趟點開的原文" }));
+      await Promise.resolve();
+    });
+
+    expect(
+      document.querySelector(".md-preview"),
+      "上一趟的引用原文不准蓋在這一趟的房間上",
+    ).toBeNull();
+
+    // …而這一趟自己按的那一次照樣開得起來(換房沒有把這條路整個關掉)。
+    vi.spyOn(api, "getChatMessage").mockResolvedValue(
+      mkMsg({ id: "c-1", body: "這一趟自己按的原文" }),
+    );
+    await act(async () => {
+      fireEvent.click(getByText("看原訊息"));
+    });
+    expect(document.querySelector(".md-preview")).not.toBeNull();
   });
 
   // 🔴 THE ANTI-SECOND-COPY CLAUSE. Behaviour tests cannot see a duplicate:

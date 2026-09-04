@@ -66,6 +66,7 @@ import type { ThemeBundle } from "../lib/themeBundle";
 import type {
   Api,
   ChatCursor,
+  ChatAnchor,
   ChatMessage,
   ChatReadReceipt,
   ChatAttachmentInput,
@@ -1367,9 +1368,22 @@ export const httpApi: Api = {
     // server's recent window (default 30); -1 → the whole history (the M2-3
     // gallery's full-history path). `before` (T-bf82 scrollback) rides as the
     // composite keyset cursor — the server then serves the strictly-older
-    // history page and NEVER advances the read watermark. Undefined params
-    // are dropped from the query by the client's serializer, so the
-    // cursorless wire shape is unchanged.
+    // history page. Undefined params are dropped from the query by the
+    // client's serializer, so the cursorless wire shape is unchanged.
+    //
+    // THE WIRE ANSWERS AN OBJECT (T-48): `{messages, next_cursor}`. This method
+    // reads `messages` and DROPS `next_cursor` on purpose — the cockpit pages
+    // with the deprecated-but-supported `before_ts`/`before_id` pair it derives
+    // from the oldest row it holds, and taking the token as well would leave two
+    // cursors in play with nothing saying which one wins. Moving the scrollback
+    // onto `?cursor=` is its own change, with its own test surface.
+    //
+    // READ-ONLY on every path (T-48): GET /api/chat advances no read
+    // watermark, cursor or not. Marking a conversation read is
+    // POST /api/chat/mark-read only. A `peekChat` twin of this method existed
+    // until T-48 to opt out of an auto-mark that no longer exists; it was
+    // merged back in here rather than left standing as a second name for the
+    // same request.
     const wire = unwrap(
       await client.GET("/api/chat", {
         params: {
@@ -1382,7 +1396,39 @@ export const httpApi: Api = {
         },
       }),
     );
-    return wire.map(toChatMessage);
+    return wire.messages.map(toChatMessage);
+  },
+
+  async listChatWindow(
+    withId: string,
+    anchor: ChatAnchor,
+    limit: number,
+  ): Promise<ChatMessage[]> {
+    // GET /api/chat?with=<id>&limit=<n>[&start_id=][&end_id=] ->
+    // ChatMessageDTO[], oldest→newest, both anchors INCLUSIVE. The undefined
+    // half is dropped by the client's serializer, so sending one end alone is
+    // one parameter on the wire, not an empty one.
+    //
+    // `limit` is REQUIRED here and is bounded 1..200 server-side on this path
+    // (422 outside it) — unlike the legacy paths, which keep their own
+    // "omitted = the recent window, -1 = everything" semantics. There is no
+    // sensible "the whole history" reading of an anchor window, so the
+    // signature does not offer one.
+    //
+    // READ-ONLY, like every read door on this route since T-48.
+    const wire = unwrap(
+      await client.GET("/api/chat", {
+        params: {
+          query: {
+            with: withId,
+            limit,
+            start_id: anchor.startId,
+            end_id: anchor.endId,
+          },
+        },
+      }),
+    );
+    return wire.messages.map(toChatMessage);
   },
 
   async getChatMessage(id: string): Promise<ChatMessage> {
@@ -1399,7 +1445,7 @@ export const httpApi: Api = {
     const wire = unwrap(
       await client.GET("/api/chat", { params: { query: { ids: [id] } } }),
     );
-    const first = wire[0];
+    const first = wire.messages[0];
     if (!first) {
       // Defensive: the server answers 404 rather than an empty array for an
       // unknown id, so this is unreachable today. It is a throw and not a null
@@ -1410,29 +1456,13 @@ export const httpApi: Api = {
     return toChatMessage(first);
   },
 
-  async peekChat(withId: string, limit = 30): Promise<ChatMessage[]> {
-    // READ-ONLY conversation view (no "list 即讀" watermark side effect): the
-    // server ?peek=true (T-cf91) filters by ?with= and caps by limit EXACTLY
-    // like the marking path, but does not advance the read watermark. Replaces
-    // the old workaround of pulling the WHOLE company stream (limit=-1) and
-    // filtering client-side just to dodge the ?with= auto-mark — that payload
-    // was the entire chat history and grew without bound. Default 30 mirrors
-    // the server default; the server applies the filter BEFORE the cap, so the
-    // thread is never starved.
-    const wire = unwrap(
-      await client.GET("/api/chat", {
-        params: { query: { with: withId, limit, peek: "true" } },
-      }),
-    );
-    return wire.map(toChatMessage);
-  },
-
   async listChatAttachments(withId: string): Promise<GalleryAttachment[]> {
     // GET /api/chat/attachments?with=<memberId> -> ChatGalleryEntryDTO[]. The
     // M2 gallery query: the member's WHOLE attachment perspective (owner↔member
     // both directions + inter-agent threads), flattened newest→oldest with the
     // sender id + server-resolved display name per row. READ-ONLY — no
-    // read-watermark side effect (unlike listChat's ?with= auto-mark).
+    // read-watermark side effect — as with listChat, which marks nothing
+    // read either.
     const wire = unwrap(
       await client.GET("/api/chat/attachments", {
         params: { query: { with: withId } },

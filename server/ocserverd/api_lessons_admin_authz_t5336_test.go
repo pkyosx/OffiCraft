@@ -71,7 +71,7 @@ func t5336Fixture(t *testing.T) (string, string, string, string) {
 	seedLessonsOverlay(t, dal, foreignRole, "foreign role baseline\n")
 
 	if err := dal.PutMember(Member{
-		ID: "mira-t5336", Kind: KindAssistant, RoleKey: adminRoleKey,
+		ID: "mira-t5336", Kind: KindStaff, RoleKey: adminRoleKey,
 		DesiredState: DesiredStateOnline, RosterStatus: RosterStatusActive,
 	}); err != nil {
 		t.Fatalf("PutMember(admin): %v", err)
@@ -85,7 +85,7 @@ func t5336Fixture(t *testing.T) (string, string, string, string) {
 		t.Fatalf("PutRoleDef(plain): %v", err)
 	}
 	if err := dal.PutMember(Member{
-		ID: "plain-t5336", Kind: KindAssistant, RoleKey: "r-t5336plain",
+		ID: "plain-t5336", Kind: KindStaff, RoleKey: "r-t5336plain",
 		DesiredState: DesiredStateOnline, RosterStatus: RosterStatusActive,
 	}); err != nil {
 		t.Fatalf("PutMember(plain): %v", err)

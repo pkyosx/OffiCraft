@@ -48,6 +48,7 @@ import type {
 import type {
   Api,
   ChatCursor,
+  ChatAnchor,
   ChatMessage,
   ChatReplyQuote,
   ChatReadReceipt,
@@ -254,7 +255,7 @@ const MOCK_WIRE_MEMBERS: WireMember[] = [
   {
     id: "mira",
     name: "Mira",
-    kind: "assistant", // mirror the real seed (dal/seed.py: Mira kind="assistant")
+    kind: "staff", // mirror the real seed (dbseed.go: Mira kind=KindStaff)
     role_key: "assistant",
     role_name: "",
     runtime: "claude",
@@ -339,7 +340,7 @@ const MOCK_WIRE_MEMBERS: WireMember[] = [
   // this row is what keeps a future re-narrowing from being silent here.
   //
   // The office roster, the task assignee picker and the reassign dialog all
-  // filter `kind === "assistant"`, so this row changes no panel — it changes
+  // filter `kind === "staff"`, so this row changes no panel — it changes
   // what the DATA looks like, which is the point.
   {
     id: "ow-7d8ad859dd9b",
@@ -902,12 +903,11 @@ let chatLog: ChatMessage[] = [];
 let mockChatSeq = 0;
 
 // In-memory read receipts, keyed `{reader}::{peer}` → the monotonic last-read
-// watermark. Mirrors the BE chat_read table. In mock mode the OWNER reads its own
-// messages back and marks them read (via listChat / markChatRead), and — since the
-// mock never fabricates a member reply — a message the owner sends to a member is
-// marked read by that member ONLY if listChat(withId) is called as that member,
-// which the single-owner mock UI never does. So the mock's "read ✓" is honest: it
-// reflects only real recorded watermarks, never a fabricated peer read.
+// watermark. Mirrors the BE chat_read table. In mock mode the OWNER marks its own
+// messages read through markChatRead, and — since the mock never fabricates a
+// member reply — a message the owner sends to a member is never marked read by
+// that member at all. So the mock's "read ✓" is honest: it reflects only real
+// recorded watermarks, never a fabricated peer read.
 const chatReads = new Map<string, ChatReadReceipt>();
 
 // In-memory reply cards (等我回覆卡). HONEST HARD LINE (same as chatLog): the
@@ -3252,8 +3252,8 @@ export const mockApi: Api = {
     // rows, most recently updated first), and an overview computed FROM those
     // two lists — never a separately-fabricated count, so it cannot drift from
     // what the lists actually carry (same honesty contract the real endpoint's
-    // shared assembly gives). READ-ONLY: unlike listChat, this never advances a
-    // read watermark.
+    // shared assembly gives). READ-ONLY: this never advances a read watermark —
+    // true of every read door here since T-48, listChat included.
     //
     // The T-1b09 studio-floor blocks (roster / machines) ARE mocked now, and
     // so are their roster_chars / machines_chars sizes — see below. They used
@@ -3529,18 +3529,64 @@ export const mockApi: Api = {
     if (limit !== undefined && limit >= 0) {
       msgs = limit === 0 ? [] : msgs.slice(-limit);
     }
-    // AUTO READ-RECEIPT: listing a conversation IS reading it — advance the
-    // OWNER's watermark for this peer to the newest message ts (mirrors the BE
-    // handle_list_chat auto-mark; the mock caller is always the owner).
-    // A HISTORY PAGE (cursor present) NEVER advances the watermark (BE
-    // parity): reading old context is not reading the newest messages.
-    if (!before && msgs.length > 0) {
-      const newest = Math.max(...msgs.map((m) => m.ts));
-      markRead(MOCK_OWNER_ID, withId, newest);
-    }
+    // NO READ RECEIPT (T-48, BE parity): listing a conversation is NOT reading
+    // it. GET /api/chat used to advance the owner's watermark on a cursorless
+    // list; the owner ruled that marking read must be an explicit intent, so
+    // the write moved out of this door entirely. The mock mirrors that — the
+    // only thing that marks anything read here is markChatRead().
     // Read-time joins (server parity) — a copy per message so callers never
     // mutate the log.
     return msgs.map(mockServedChatMessage);
+  },
+
+  async listChatWindow(
+    withId: string,
+    anchor: ChatAnchor,
+    limit: number,
+  ): Promise<ChatMessage[]> {
+    // Mock twin of the T-48 anchor window (`?start_id=` / `?end_id=`). Same
+    // total order the BE pages by, both ends INCLUSIVE, answered oldest→newest.
+    //
+    // THROWS on an id this conversation does not carry, matching the server's
+    // 404 — an unknown anchor must never look like "a real window that happens
+    // to be empty", which is the exact confusion the whole feature exists to
+    // remove.
+    const msgs = chatLog
+      .filter((m) => m.from === withId || m.to === withId)
+      .sort((a, b) => a.ts - b.ts || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const indexOf = (id: string) => {
+      const i = msgs.findIndex((m) => m.id === id);
+      // A REAL 404, not a bare Error (T-48): the cockpit now tells "no such
+      // message" apart from "the read failed" by the status, and a statusless
+      // throw here would make the offline cockpit say 「現在讀不到,可以再試」 about
+      // an id that genuinely does not exist.
+      if (i < 0)
+        throw mockApiError(
+          `http 404 for GET /api/chat?with=${withId}`,
+          404,
+          `no message carries id ${id}`,
+        );
+      return i;
+    };
+    let lo = 0;
+    let hi = msgs.length - 1;
+    if (anchor.startId !== undefined) lo = indexOf(anchor.startId);
+    if (anchor.endId !== undefined) hi = indexOf(anchor.endId);
+    if (lo > hi)
+      throw mockApiError(
+        `http 422 for GET /api/chat?with=${withId}`,
+        422,
+        "start_id is newer than end_id",
+      );
+    let window = msgs.slice(lo, hi + 1);
+    // Truncate at the START (older) end when both anchors are given — the
+    // window stays anchored on `end_id`. With only `start_id` the anchor is the
+    // OLD end, so the cap keeps the FIRST `limit`.
+    window =
+      anchor.endId !== undefined
+        ? window.slice(-limit)
+        : window.slice(0, limit);
+    return window.map(mockServedChatMessage);
   },
 
   async getChatMessage(id: string): Promise<ChatMessage> {
@@ -3558,29 +3604,14 @@ export const mockApi: Api = {
     return mockServedChatMessage(found);
   },
 
-  async peekChat(withId: string, limit = 30): Promise<ChatMessage[]> {
-    // READ-ONLY twin of listChat: SAME filter/order/window, but NEVER advances
-    // the owner's read watermark (mirrors the BE ?peek=true — filter+cap by
-    // ?with= with no auto-mark). Used while the owner is not actually looking
-    // (backgrounded window) so the unread badge keeps counting. Default 30
-    // mirrors the http adapter (and the server default) so mock and http return
-    // the same window for a bare peekChat(withId).
-    let msgs = chatLog
-      .filter((m) => m.from === withId || m.to === withId)
-      .sort((a, b) => a.ts - b.ts);
-    if (limit >= 0) {
-      msgs = limit === 0 ? [] : msgs.slice(-limit);
-    }
-    return msgs.map(mockServedChatMessage);
-  },
-
   async listChatAttachments(withId: string): Promise<GalleryAttachment[]> {
     // Mirrors the BE gallery query (handle_list_chat_attachments): flatten the
     // attachments of EVERY logged message the member participates in
     // (owner↔member both directions + inter-agent threads), newest→oldest,
     // each row carrying the sender id + the roster-resolved display name
-    // ("" for the owner — the UI renders its own 「我」 label). READ-ONLY:
-    // unlike listChat this never advances a read watermark. HONEST: derived
+    // ("" for the owner — the UI renders its own 「我」 label). READ-ONLY: this
+    // never advances a read watermark, as no read door here has since T-48.
+    // HONEST: derived
     // solely from real logged messages — never a fabricated entry.
     const involved = chatLog
       .filter((m) => m.from === withId || m.to === withId)
@@ -6838,7 +6869,7 @@ export function __setMockFirstRun(): string {
 // Test-only hook: land an INBOUND message (e.g. member → owner) in the mock log,
 // the way a real agent reply would arrive server-side. The mock UI itself never
 // fabricates one (see the chatLog note) — this exists so tests can exercise the
-// unread/read seam (unreadCountOf ↔ listChat auto-mark) against real log entries.
+// unread/read seam (unreadCountOf ↔ markChatRead) against real log entries.
 export function __injectMockChat(msg: ChatMessage): void {
   chatLog.push(msg);
 }

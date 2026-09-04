@@ -292,7 +292,7 @@ func TestDecideTokenExpirySignalRepeatsUntilRestart(t *testing.T) {
 	const now int64 = 20_000
 	claims := map[string]any{"exp": float64(now + tokenExpiryWarningWindow)}
 	oldSession := map[string]any{"boot_ts": float64(now - int64(minSelfRestartSecs) - 1)}
-	member := &Member{ID: "m-expiry", Kind: KindAssistant}
+	member := &Member{ID: "m-expiry", Kind: KindStaff}
 
 	signal, last := decideTokenExpirySignal("m-expiry", claims, member, oldSession, now, 0)
 	if signal == nil {

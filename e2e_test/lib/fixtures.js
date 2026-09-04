@@ -21,6 +21,61 @@ const PNG_1x1_B64 =
 // unzip-able archive, NOT previewable (forces the download disposition path).
 const ZIP_EMPTY_B64 = 'UEsFBgAAAAAAAAAAAAAAAAAAAAAAAA==';
 
+// A real PNG of a GIVEN SIZE, generated rather than pasted (3KB of base64 in
+// this file buys nothing a `zlib` call does not).
+//
+// 🔴 WHY A BIG ONE EXISTS AT ALL. It has to be real bytes that take real time
+// to arrive and decode: PNG_1x1_B64 lands in one segment, so a spec that wants
+// to hold an image OPEN in the undecoded state has nothing to hold.
+// ⚠️ It no longer reproduces a REFLOW. It used to — `.chat__msg-image` was
+// width/height:auto, so an undecoded image was a zero-height row that grew to
+// its real height later, and that was the whole mechanism behind 「上方晚載入
+// 的內容把目標擠走」. Since T-48 gave the thumbnail a fixed 220px box the row
+// is its final height before the bytes arrive, and the growth is 0px.
+function pngOfSize(w, h) {
+  const zlib = require('zlib');
+  const chunk = (type, data) => {
+    const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(zlib.crc32 ? zlib.crc32(body) >>> 0 : crc32(body));
+    return Buffer.concat([len, body, crc]);
+  };
+  // Node <20.12 has no zlib.crc32 — carry the table rather than depend on it.
+  function crc32(buf) {
+    let c = ~0;
+    for (const b of buf) {
+      c ^= b;
+      for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
+    }
+    return ~c >>> 0;
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0);
+  ihdr.writeUInt32BE(h, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 2; // truecolour
+  // Non-uniform pixels on purpose: a solid colour compresses to a few hundred
+  // bytes and can land in one TCP segment, which makes "still decoding" hard to
+  // hold open.
+  const rows = [];
+  for (let y = 0; y < h; y++) {
+    const row = Buffer.alloc(w * 3 + 1);
+    for (let x = 0; x < w * 3; x++) row[x + 1] = (x * 7 + y * 3) % 256;
+    rows.push(row);
+  }
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', ihdr),
+    chunk('IDAT', zlib.deflateSync(Buffer.concat(rows), { level: 9 })),
+    chunk('IEND', Buffer.alloc(0)),
+  ]).toString('base64');
+}
+
+/** 400x300 — drawn 293x220 inside `.chat__msg-image`'s fixed box. */
+const PNG_400x300_B64 = pngOfSize(400, 300);
+
 // A per-call unique display name. run_all always starts from a FRESH DB, but
 // specs must stay idempotent under re-runs against a still-warm server (dev
 // iteration) — a duplicated display name would make name-scoped UI locators
@@ -47,14 +102,14 @@ async function ownerToken(request) {
   return token;
 }
 
-// Hire a fresh roster member (kind=assistant so it surfaces on the office
+// Hire a fresh roster member (kind=staff so it surfaces on the office
 // roster). Returns the full MemberDTO. Each spec hires its OWN members (specs
 // run in parallel workers against the one shared isolated server — never
 // mutate another spec's fixtures, and never dismiss the seed `mira`).
 async function hireMember(request, token, name) {
   const res = await request.post(`${BASE}/api/members`, {
     headers: authHeaders(token),
-    data: { name, kind: 'assistant' },
+    data: { name, kind: 'staff' },
   });
   expect(res.status(), `hiring member "${name}" must succeed`).toBe(200);
   return res.json();
@@ -86,6 +141,25 @@ async function postChatAs(request, token, to, body, attachments) {
     },
   });
   expect(res.status(), `posting chat to ${to} must succeed`).toBe(200);
+  return res.json();
+}
+
+// Mark a conversation read up to `lastReadTs`, as the token's identity.
+//
+// 🔴 THIS REPLACED "list 即讀" IN THE FIXTURES. `GET /api/chat?with=` used to
+// advance the reader's watermark as a side effect, and every spec that needed a
+// READ thread produced one by listing it. Commit 8cd4fff9
+// (「GET /api/chat 不再寫已讀水位」) removed that write from every path — a
+// listing is now a pure read — so a fixture built on it silently produces an
+// UNREAD thread and the spec fails somewhere far away, on an unread count it
+// never mentions. Reading is now reported explicitly, by the same endpoint the
+// cockpit itself calls (useChat's markRead → POST /api/chat/mark-read).
+async function markChatRead(request, token, peer, lastReadTs) {
+  const res = await request.post(`${BASE}/api/chat/mark-read`, {
+    headers: authHeaders(token),
+    data: { peer, last_read_ts: lastReadTs },
+  });
+  expect(res.status(), `marking ${peer} read must succeed`).toBe(200);
   return res.json();
 }
 
@@ -158,12 +232,15 @@ module.exports = {
   PASSWORD,
   uniqueName,
   PNG_1x1_B64,
+  PNG_400x300_B64,
+  pngOfSize,
   ZIP_EMPTY_B64,
   authHeaders,
   ownerToken,
   hireMember,
   mintMemberToken,
   postChatAs,
+  markChatRead,
   listMembers,
   unreadCountOf,
   blockWebFonts,

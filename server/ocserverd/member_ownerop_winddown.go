@@ -218,7 +218,7 @@ func (s *apiServer) memberHasStateToFlush(m Member) bool {
 	// than a property of the resolver, which is exactly why this guard is not
 	// redundant: it refuses here rather than relying on every future caller
 	// making the same choice.
-	if m.Kind != KindAssistant {
+	if m.Kind != KindStaff {
 		return false
 	}
 	if !aRefocusStampWouldReachTheAgent(m) {

@@ -84,7 +84,7 @@ func (c *blockedWriteConn) Write(p []byte) (int, error) {
 func TestEventsHandlerWriteDeadlineReapsStuckConsumer(t *testing.T) {
 	reapWithin := func(t *testing.T, writeTimeout time.Duration) bool {
 		api, dal := newGateTestAPI(t)
-		putGateMember(t, dal, Member{ID: "h-1", Kind: KindAssistant,
+		putGateMember(t, dal, Member{ID: "h-1", Kind: KindStaff,
 			DesiredState: DesiredStateOnline})
 
 		prev := sseWriteTimeout

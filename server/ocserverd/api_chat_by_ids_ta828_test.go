@@ -84,7 +84,7 @@ func TestChatByIDs_YourOwnMessagesComeBackWhole(t *testing.T) {
 			URL string `json:"url"`
 		} `json:"attachments"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil {
+	if err := json.Unmarshal(chatEnvelopeMessages(t, rec.Body.Bytes()), &rows); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if len(rows) != 2 {

@@ -2432,7 +2432,7 @@ const tokenExpiryLeadSecs = 3600.0
 // mintJWTWithoutExpiry, with NO exp claim at all, so it never expires and asking
 // this question about one would invent a deadline that does not exist.
 //
-// 🔴 This gate used to read `Kind != KindAssistant`, which swept OUTSOURCE in
+// 🔴 This gate used to read `Kind != KindStaff`, which swept OUTSOURCE in
 // with warden while the comment explained only the warden half — the classic
 // shape of an exemption that is wider than its own justification. An outsource
 // worker's session token is minted by mintAgentToken with s.agentTokenTTLValue()
@@ -3018,7 +3018,7 @@ func (s *apiServer) dispatchIdentitySweepNow(memberID, keepWarden string, now fl
 // the real 正身's sweep from the correct machine (§1 wanderer case).
 //
 // The expected machine per kind:
-//   - staff (kind=assistant): the owner-pinned desired_machine_id;
+//   - staff (kind=staff): the owner-pinned desired_machine_id;
 //   - outsource (A案 P6 — the former KindOutsource exclusion is REMOVED now the
 //     P5b naming convergence lets a member-verb stop target member-<ow-id>):
 //     the owner pin when concrete, else the machine the server ACTUALLY
@@ -3123,7 +3123,7 @@ func (s *apiServer) identitySweepOnConnect(memberID, machineClaim string) {
 // authority? machineClaim is server-minted and unforgeable, so the whole test is
 // whether it equals the machine the server EXPECTED this member on:
 //
-//   - staff (kind=assistant): the owner-pinned desired_machine_id;
+//   - staff (kind=staff): the owner-pinned desired_machine_id;
 //   - outsource: the owner pin when concrete, else the machine the server
 //     ACTUALLY dispatched the last start to (workerSpawnTarget — a task-level or
 //     manual placement leaves no durable pin on the worker row).

@@ -195,8 +195,16 @@ func extractToken(r *http.Request) string {
 		}
 		return header
 	}
-	return r.URL.Query().Get("token")
+	return r.URL.Query().Get(authTokenQueryParam)
 }
+
+// authTokenQueryParam is the header-less credential extractToken accepts above.
+// Named here rather than typed at each use because it is not only read: GET
+// /api/chat refuses query parameters it does not declare (unknownChatQueryParams)
+// and has to know that this one is a credential rather than a typo — a second
+// spelling of it there would deny every EventSource and <img src> that carries
+// its token this way, and would deny them only in production.
+const authTokenQueryParam = "token"
 
 // requireAuth wraps a GATED handler with the JWT gate: the extracted token
 // (header first, then the `?token=` query fallback — see extractToken)

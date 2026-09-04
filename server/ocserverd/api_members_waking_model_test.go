@@ -16,7 +16,7 @@ func reportWaking(t *testing.T, api *apiServer, sub, model string) *httptest.Res
 
 func TestReportWakingMemberStoresReportedModelSeparately(t *testing.T) {
 	api, dal := newGateTestAPI(t)
-	putGateMember(t, dal, Member{ID: "wake-member", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "wake-member", Kind: KindStaff,
 		Model: "owner-selected", DesiredState: DesiredStateOnline,
 		RefocusSince: 1, StoppingSince: 2, StoppedSince: 3})
 

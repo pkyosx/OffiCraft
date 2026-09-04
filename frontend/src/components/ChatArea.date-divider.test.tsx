@@ -18,7 +18,6 @@ let messages: ChatMessage[] = [];
 vi.mock("../hooks/useChat", () => ({
   useChat: () => ({
     messages,
-    messagesPeer: "b",
     peerLastReadTs: 0,
     send: vi.fn(() => Promise.resolve()),
     markRead: vi.fn(() => Promise.resolve()),
@@ -34,7 +33,7 @@ function mkMember(id = "b", name = "Beto"): Member {
     lifecycle: "online",
     model: "opus",
     effort: "medium",
-    kind: "assistant",
+    kind: "staff",
     desiredMachineId: "",
     machine: null,
     account: null,

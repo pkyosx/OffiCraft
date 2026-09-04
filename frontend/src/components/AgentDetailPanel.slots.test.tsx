@@ -210,7 +210,7 @@ describe("AgentDetailPanel slot map", () => {
       actualModel: "",
       effort: "medium",
       actualEffort: "",
-      kind: "assistant",
+      kind: "staff",
       desiredMachineId: "",
       machine: "",
       actualMachine: "",

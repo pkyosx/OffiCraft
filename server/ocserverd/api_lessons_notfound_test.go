@@ -106,7 +106,7 @@ func TestLessonsMCPDefaultsCloseTheLearningLoop(t *testing.T) {
 		t.Fatalf("PutRoleDef: %v", err)
 	}
 	if err := dal.PutMember(Member{
-		ID: "joey", Kind: KindAssistant, RoleKey: customRole,
+		ID: "joey", Kind: KindStaff, RoleKey: customRole,
 		DesiredState: DesiredStateOnline,
 	}); err != nil {
 		t.Fatalf("PutMember: %v", err)

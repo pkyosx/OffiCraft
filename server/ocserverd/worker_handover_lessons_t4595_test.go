@@ -101,7 +101,7 @@ func TestStaffCanStillWriteLessonsTheHandoverSOPPrescribes(t *testing.T) {
 	const staffRole = "r-t4595staff"
 	seedLessonsOverlay(t, dal, staffRole, "staff baseline\n")
 	if err := dal.PutMember(Member{
-		ID: staffID, Kind: KindAssistant, RoleKey: staffRole,
+		ID: staffID, Kind: KindStaff, RoleKey: staffRole,
 		DesiredState: DesiredStateOnline, RosterStatus: RosterStatusActive,
 	}); err != nil {
 		t.Fatalf("PutMember(staff): %v", err)

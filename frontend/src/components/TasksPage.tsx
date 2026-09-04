@@ -198,7 +198,7 @@ export function TasksPage() {
 
   // Executor options: 外包 / 未指派 / 各成員 (real AI members only — machine-
   // layer wardens are not executors). An empty set = 所有人.
-  const memberOptions = members.filter((m) => m.kind === "assistant");
+  const memberOptions = members.filter((m) => m.kind === "staff");
   // Type options: 各手冊類型 (the manuals list) ∪ any type present on a task
   // (covers a type whose manual was since deleted — closed tasks keep it).
   const typeOptions = [

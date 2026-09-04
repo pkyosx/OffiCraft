@@ -434,13 +434,13 @@ func TestRevocationRefusalUnitTable(t *testing.T) {
 		"m-live": {ID: "m-live", Kind: KindWarden, RosterStatus: RosterStatusActive},
 		"ow-released": {ID: "ow-released", Kind: KindOutsource,
 			RosterStatus: RosterStatusRemoved, DesiredMachineID: "m-live"},
-		"m-dismissed": {ID: "m-dismissed", Kind: KindAssistant,
+		"m-dismissed": {ID: "m-dismissed", Kind: KindStaff,
 			RosterStatus: RosterStatusRemoved, DesiredMachineID: "m-live"},
-		"m-onbox": {ID: "m-onbox", Kind: KindAssistant,
+		"m-onbox": {ID: "m-onbox", Kind: KindStaff,
 			RosterStatus: RosterStatusActive, DesiredMachineID: "m-dead"},
-		"m-relocated": {ID: "m-relocated", Kind: KindAssistant,
+		"m-relocated": {ID: "m-relocated", Kind: KindStaff,
 			RosterStatus: RosterStatusActive, DesiredMachineID: "m-live"},
-		"m-unpinned": {ID: "m-unpinned", Kind: KindAssistant,
+		"m-unpinned": {ID: "m-unpinned", Kind: KindStaff,
 			RosterStatus: RosterStatusActive},
 	}
 	lookup := func(id string) (*Member, error) {
@@ -650,7 +650,7 @@ func TestTeardownHereRefusesAnOrdinaryMachineToo(t *testing.T) {
 //
 // WHY IT IS PINNED HERE: conformance's `test_dismissed_member_reconnect_refused`
 // asserts a roster-removed member's reconnect is a **409** with code "conflict".
-// That test hires a plain member (kind=assistant), so the kind restriction keeps
+// That test hires a plain member (kind=staff), so the kind restriction keeps
 // it on the old path and it still passes — checked, not assumed. But the moment
 // someone widens this gate to every removed row, that conformance test flips to
 // 401 and fails in a suite this package does not run. This test makes the

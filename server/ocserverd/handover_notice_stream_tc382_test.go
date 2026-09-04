@@ -49,7 +49,7 @@ func TestHandoverNoticeStreamOncePerSessionAcrossReconnect(t *testing.T) {
 	// notice point (default handover 50 → notice at 40) and a pct reported after
 	// the anchor, so the stale guard lets it drive the decision.
 	anchor := nowSecs() - 600
-	putGateMember(t, dal, Member{ID: id, Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: id, Kind: KindStaff,
 		Runtime: RuntimeClaude, DesiredState: DesiredStateOnline,
 		SessionBootTS: anchor})
 	api.gauge.Set(id, map[string]any{
@@ -107,7 +107,7 @@ func TestHandoverNoticeClearedAtSessionBoundary(t *testing.T) {
 	api, dal := newGateTestAPI(t)
 	const id = "hn-boundary"
 	anchor := nowSecs() - 600
-	putGateMember(t, dal, Member{ID: id, Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: id, Kind: KindStaff,
 		DesiredState: DesiredStateOnline, SessionBootTS: anchor})
 	if !api.claimHandoverNotice(id, map[string]any{"boot_ts": anchor}) {
 		t.Fatal("the first claim of a session must succeed")

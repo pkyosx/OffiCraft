@@ -144,8 +144,8 @@ func TestTaskDescriptionRoundTripsThroughTheTaskView(t *testing.T) {
 func TestTaskDescriptionCreatorIsNotTheEditor(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true
-	putActiveMember(t, api, "m-creator", "Creator", KindAssistant)
-	putActiveMember(t, api, "m-exec", "Executor", KindAssistant)
+	putActiveMember(t, api, "m-creator", "Creator", KindStaff)
+	putActiveMember(t, api, "m-exec", "Executor", KindStaff)
 
 	task := createAdHocTask(t, api, "m-creator")
 	// The OWNER performs the handover: a plain 正職 may not reassign to another
@@ -181,7 +181,7 @@ func TestTaskDescriptionCreatorIsNotTheEditor(t *testing.T) {
 
 	// A member who is NEITHER creator nor executor is refused the same way —
 	// so the 403 above is not an artefact of some creator-specific branch.
-	putActiveMember(t, api, "m-stranger", "Stranger", KindAssistant)
+	putActiveMember(t, api, "m-stranger", "Stranger", KindStaff)
 	rec = writeTaskDescription(t, api, task.ID, "m-stranger", "agent",
 		map[string]any{"description": "stranger rewrite"})
 	if rec.Code != http.StatusForbidden {
@@ -194,7 +194,7 @@ func TestTaskDescriptionCreatorIsNotTheEditor(t *testing.T) {
 		map[string]any{"description": "executor rewrite"}).Code; got != http.StatusOK {
 		t.Fatalf("executor status = %d, want 200", got)
 	}
-	putMemberRow(t, api, "m-mira", KindAssistant, adminRoleKey)
+	putMemberRow(t, api, "m-mira", KindStaff, adminRoleKey)
 	if got := writeTaskDescription(t, api, task.ID, "m-mira", "agent",
 		map[string]any{"description": "admin rewrite"}).Code; got != http.StatusOK {
 		t.Fatalf("admin status = %d, want 200", got)
@@ -411,8 +411,8 @@ func TestTaskDescriptionUnknownKeyIsRefused(t *testing.T) {
 // any agent put text back onto a task it may not edit.
 func TestTaskDescriptionRestoreIsGatedLikeTheEdit(t *testing.T) {
 	api := newTasksTestServer(t)
-	putMemberRow(t, api, "m-exec", KindAssistant, "")
-	putMemberRow(t, api, "m-other", KindAssistant, "")
+	putMemberRow(t, api, "m-exec", KindStaff, "")
+	putMemberRow(t, api, "m-other", KindStaff, "")
 	task := createAdHocTask(t, api, "m-exec")
 	for _, text := range []string{"original wording", "replacement wording"} {
 		if got := writeTaskDescription(t, api, task.ID, "m-exec", "agent",

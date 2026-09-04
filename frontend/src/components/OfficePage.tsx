@@ -9,6 +9,7 @@ import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { joinSessionRuntime, findSessionFor } from "../lib/runtime";
 import { useHashRoute } from "../lib/hashRoute";
+import { openChatAttachErrorScope } from "../lib/chatDraftStore";
 import { updateCachedWorkerAvatar } from "../hooks/useWorkerCodenames";
 import { MemberCard } from "./MemberCard";
 import { ChatArea } from "./ChatArea";
@@ -76,6 +77,25 @@ export function OfficePage() {
   // (releasedPeer) instead; a stale detailId/workerId still self-heals to the
   // roster below (there is no conversation to preserve there).
   const [route, setRoute] = useHashRoute();
+  // 🔴 THE STAGING REFUSAL IS THIS PAGE'S, THE DRAFT IS NOT (T-48, R14-2.1).
+  // 「圖片太大」/「最多 10 個檔案」 lives in the same module-level table as the
+  // draft so that a read finishing while the owner is in another room can still
+  // put its sentence where they will see it. That table outlives this page too,
+  // which is one lifetime too many: leave for 任務, come back ten minutes later
+  // and the red line is still describing a drop from ten minutes ago. It was
+  // component state before the table existed, so leaving took it with it. This
+  // is that lifetime, written down instead of inherited — and it clears the
+  // NOTICES only: the drafts and their staged files must survive the
+  // navigation, which is the whole reason they were moved out of the composer.
+  //
+  // 🔴 IT IS A SCOPE, NOT AN UNMOUNT CLEAR (R16 D-2). `<StrictMode>` runs this
+  // effect setup → cleanup → setup on the first mount, and the clear it used to
+  // call drops EVERY peer's notice — including one raised before this mount.
+  // That destroyed exactly the notice this table exists to carry (a `FileReader`
+  // refusal that finished while the owner was on 任務), in dev only, so dev and
+  // prod disagreed about something the owner can see. The store counts open
+  // scopes and defers the close past StrictMode's synchronous remount.
+  useEffect(() => openChatAttachErrorScope(), []);
   const selectedId = route.chatId ?? "";
   const detailId = route.detailId ?? null;
   const workerDetailId = route.workerId ?? null;
@@ -134,7 +154,7 @@ export function OfficePage() {
   // "warden", the telemetry collector) belong to the monitoring/machine view,
   // never the office roster (Seth once mistook a warden row for an intruder).
   const roster = members
-    .filter((m) => m.kind === "assistant")
+    .filter((m) => m.kind === "staff")
     // 助理(seed assistant 角色)置頂;其餘接在後面。sort 穩定 → 各組內維持
     // ListMembers 已排好的字母序(不必再排一次名字)。
     .sort(
@@ -225,7 +245,9 @@ export function OfficePage() {
         lifecycle: "online",
         model: workerPeer.model,
         avatarUrl: workerPeer.avatarUrl,
-        // ChatArea snapshots this before listChat marks the room read.  The
+        // ChatArea snapshots this before its own mark-read clears the room
+        // (T-48: the LISTING stopped writing a watermark; the clearer is
+        // ChatArea's explicit POST /api/chat/mark-read).  The
         // live worker's server-computed badge is therefore part of the same
         // entry contract as a regular member's unreadCount.
         unreadCount: workerPeer.unreadCount ?? 0,
@@ -265,7 +287,7 @@ export function OfficePage() {
           isReleasedWorkerId
             ? t.office.outsource.releasedTitle
             : t.office.chatUnavailableTitle,
-          isReleasedWorkerId ? "outsource" : "assistant",
+          isReleasedWorkerId ? "outsource" : "staff",
         )
       : undefined;
   const rosterDetail = detailId
@@ -582,6 +604,26 @@ export function OfficePage() {
         </aside>
       )}
 
+      {/* 🔴 ONE MOUNTED ChatArea PER CONVERSATION, AND THE `key` IS THE WHOLE OF
+          IT (T-48, R13-5). All three branches below sit in the same position of
+          the same conditional expression, so without a key React reuses ONE
+          component instance and a conversation switch is just a prop change —
+          every piece of per-conversation state, every in-flight read and every
+          latch inside `ChatArea` and `useChat` then survives into a room it does
+          not belong to. Twelve reviews found twelve instances of that, and each
+          was answered by re-implementing `key` a little further inside: a visit
+          token, a keyed-state hook, a keyed-record hook, a machine-checked
+          census of everything that had to be keyed.
+
+          Keying the mount is the same statement, made once, by React. A switch
+          unmounts: the state goes, the DOM refs go, the setters land in a
+          discarded component, and nothing has to be enumerated. What survives on
+          purpose survives because it lives OUTSIDE the component — the draft and
+          its staged files, in `lib/chatDraftStore`, which is where a returning
+          composer reads them from anyway.
+
+          ⚠️ Removing a key here does not break a test that names it; it silently
+          reopens all twelve. `lint-chat-area-key` is what goes red instead. */}
       {showChat && (workerMember || releasedPeer || selected) && (
         <section className="office__chat">
           {isMobile && (
@@ -603,6 +645,7 @@ export function OfficePage() {
             // NO onOpenDetail (there is no live detail to open → composer stays
             // the plain locked notice). jumpToMsgId still locates the ask.
             <ChatArea
+              key={releasedPeer.id}
               member={releasedPeer}
               members={members}
               workers={outsource.workers}
@@ -621,7 +664,7 @@ export function OfficePage() {
             />
           ) : workerMember && workerPeer ? (
             // M3 §4.2 outsource chat: the SAME ChatArea as a member chat
-            // (打字/附檔/看回覆), keyed on the worker id as the chat peer.
+            // (打字/附檔/看回覆), mounted on the worker id as the chat peer.
             // Header title = 「外包 · 代號」; the subtitle is the SAME task
             // line the rail's outsource row shows — [clickable task-id chip →
             // task type], the shared OutsourceTaskLine (owner 2026-07-16:
@@ -634,6 +677,7 @@ export function OfficePage() {
             // #office/worker/<id>. The chip's stopPropagation keeps the task
             // jump from also opening that detail.
             <ChatArea
+              key={workerPeer.id}
               member={workerMember}
               members={members}
               workers={outsource.workers}
@@ -658,6 +702,7 @@ export function OfficePage() {
           ) : (
             selected && (
               <ChatArea
+                key={selected.id}
                 member={selected}
                 // The full roster resolves an inter-agent message's sender id →
                 // name (the sender may be a THIRD agent, not the window's peer).
@@ -665,7 +710,7 @@ export function OfficePage() {
                 // The live worker list, so an ow- sender `members` did not
                 // resolve still gets the codename the left rail shows. Note
                 // `members` is the UNFILTERED roster (not `roster`, which is
-                // kind==='assistant' only), and GET /api/members does carry
+                // kind==='staff' only), and GET /api/members does carry
                 // kind='outsource' rows — so this list is a fallback, not the
                 // only outsource label source. Released workers are in
                 // neither; ChatArea's useWorkerCodenames covers those.

@@ -891,8 +891,8 @@ func TestTaskTakeoverNotice_AValueNothingSuppliesEmptiesTheNoticeAndTheSuccessor
 	// declared name is supplied there, and the day one is not, this is what the
 	// successor gets.
 	api := newTasksTestServer(t)
-	putActiveMember(t, api, "m-old", "Ken", KindAssistant)
-	putActiveMember(t, api, "m-new", "Rei", KindAssistant)
+	putActiveMember(t, api, "m-old", "Ken", KindStaff)
+	putActiveMember(t, api, "m-new", "Rei", KindStaff)
 	spec := api.mustBootDocSpec(docKindTaskTakeoverWithPredecessor, bootDocSingletonKey)
 	seed, _, err := api.root.seedBlockMD(spec.SeedFile)
 	if err != nil {

@@ -81,8 +81,10 @@ describe("ChatReplyCard — one owner action costs one card refetch", () => {
     __injectMockReplyCard(mkCard());
 
     const { container } = renderCard("rc-inline");
-    // Wait for the eager mount load, so the count below is the cost of the
-    // answer alone.
+    // EVERY card mounts collapsed now (owner 2026-09-04), waiting included —
+    // expanding is what loads it. Wait for that load, so the count below is the
+    // cost of the answer alone.
+    fireEvent.click(container.querySelector(".reply-card__collapsed-row")!);
     await waitFor(() =>
       expect(container.querySelector(".reply-option")).toBeTruthy(),
     );

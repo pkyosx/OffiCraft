@@ -34,7 +34,6 @@ vi.mock("../hooks/useWorkerCodenames", () => ({
 vi.mock("../hooks/useChat", () => ({
   useChat: () => ({
     messages,
-    messagesPeer: "b",
     peerLastReadTs: 0,
     send: vi.fn(() => Promise.resolve()),
     markRead: vi.fn(() => Promise.resolve()),
@@ -50,7 +49,7 @@ function mkMember(id: string, name: string): Member {
     lifecycle: "online",
     model: "opus",
     effort: "medium",
-    kind: "assistant",
+    kind: "staff",
     desiredMachineId: "",
     machine: null,
     account: null,
@@ -81,7 +80,7 @@ const workerX1: OutsourceWorkerView = {
 function renderChat() {
   return render(
     <I18nProvider>
-      <ChatArea member={beto} members={[beto, alma]} workers={[workerX1]} />
+      <ChatArea key={beto.id} member={beto} members={[beto, alma]} workers={[workerX1]} />
     </I18nProvider>,
   );
 }
@@ -119,6 +118,37 @@ describe("ChatArea inter-agent thread", () => {
     ).map((n) => n.textContent);
     expect(names).toContain("Alma → Beto");
     expect(names).toContain("Beto → Alma");
+  });
+
+  it("collapses an expanded run again when the room is re-entered", () => {
+    // 🔴 T-48 R11-9. The expanded set held MESSAGE IDS OF OTHER ROOMS and
+    // survived every conversation switch untouched, growing forever, with
+    // nothing but the global uniqueness of message ids between it and a block
+    // that opens itself in a room nobody opened it in. The room is a MOUNT now
+    // (`key={peerId}`, R13-5), so the set dies with it, like every other view
+    // state here.
+    messages = [
+      { id: "c1", from: "a", to: "b", body: "hey Beto", ts: 1000, attachments: [], replyCardId: null },
+      { id: "c2", from: "b", to: "a", body: "hi Alma", ts: 1001, attachments: [], replyCardId: null },
+    ];
+    const { container, rerender } = renderChat();
+    fireEvent.click(container.querySelector(".chat__inter-toggle") as HTMLElement);
+    expect(container.querySelectorAll(".chat__msg-bubble").length).toBe(2);
+
+    const kye = mkMember("k", "Kye");
+    for (const who of [kye, beto]) {
+      rerender(
+        <I18nProvider>
+          <ChatArea key={who.id} member={who} members={[beto, alma, kye]} workers={[workerX1]} />
+        </I18nProvider>,
+      );
+    }
+    expect(container.querySelectorAll(".chat__msg-bubble").length).toBe(0);
+    expect(
+      container
+        .querySelector(".chat__inter-toggle")
+        ?.getAttribute("aria-expanded"),
+    ).toBe("false");
   });
 
   it("labels a message to the owner with the plain sender name (no arrow)", () => {

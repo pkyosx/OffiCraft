@@ -197,7 +197,7 @@ def test_full_task_loop(client, owner_token, executor):
     # The card rides the chat stream (the M2 companion message).
     msgs = client.get(
         f"/api/chat?with={executor.member_id}&limit=-1",
-        headers=_auth(owner_token)).json()
+        headers=_auth(owner_token)).json()["messages"]
     companion = {m["id"]: m for m in msgs}.get(card["chat_message_id"])
     assert companion and companion["meta"].get("reply_card_id") == card["id"]
     # And the waiting pane lists it WITH the task reference.
@@ -934,7 +934,7 @@ def test_task_message_rides_chat_with_task_context(client, owner_token, executor
     assert msg["body"] == f"[{task['task_no']}] how is it going?"
     # It IS an ordinary chat message — the stream lists it.
     msgs = client.get(f"/api/chat?with={executor.member_id}&limit=-1",
-                      headers=_auth(owner_token)).json()
+                      headers=_auth(owner_token)).json()["messages"]
     assert any(m["id"] == msg["id"] for m in msgs)
     # An empty message is refused.
     assert client.post(f"/api/tasks/{task['id']}/message", json={},
@@ -2061,7 +2061,7 @@ def test_reassign_hands_over_to_a_member_and_only_they_take_over(
     # The server-authored handover message teaches the NEW executor the claim
     # action — never the removed task-status report (T-8449).
     msgs = client.get(f"/api/chat?with={new_id}&limit=-1",
-                      headers=_auth(owner_token)).json()
+                      headers=_auth(owner_token)).json()["messages"]
     # 🔴 SELECTED STRUCTURALLY, NOT BY ITS WORDING (T-6f44). This used to look
     # for the Chinese substring 「你接手了任務」, which made a suite about BEHAVIOUR
     # fail the day the owner edited the sentence — the notice was posted, the

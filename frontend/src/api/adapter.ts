@@ -72,9 +72,16 @@ export interface ChatMessage {
   replyCardId: string | null;
   /** Read-time join of the carried card's CURRENT status (`reply_card_status`):
    * `"waiting"` | `"answered"` | `"expired"`, or null when the message carries no card. Lets
-   * the inline ChatReplyCard decide AT MOUNT whether to load eagerly (waiting)
-   * or lazily (answered — collapse, fetch only on expand) WITHOUT a per-card
-   * GET. OPTIONAL so hand-built test fixtures stay valid (same precedent as
+   * the inline ChatReplyCard label its COLLAPSED row (待回覆 / 已回覆 / 已過期)
+   * WITHOUT a per-card GET.
+   *
+   * ⚠️ It used to say this field decides AT MOUNT whether to load eagerly
+   * (waiting) or lazily (answered). It does not any more: since T-48
+   * (`rc-d8844e709f42`) EVERY chat card mounts collapsed regardless of status
+   * and fetches only on expand, so what this field decides is what the row SAYS
+   * while nothing has been fetched. `TaskReplyCard` is unchanged.
+   *
+   * OPTIONAL so hand-built test fixtures stay valid (same precedent as
    * `ReplyCard.task`); the mapper always sets it (null when the wire carries
    * ""). */
   replyCardStatus?: "waiting" | "answered" | "expired" | null;
@@ -238,6 +245,26 @@ export interface ChatReadReceipt {
 export interface ChatCursor {
   beforeTs: number;
   beforeId: string;
+}
+
+/** The T-48 anchor window: locate ONE message by its id and page outwards from
+ * it. Both ends are INCLUSIVE and both take a message id (not a (ts, id)
+ * keyset), which is what makes them usable from a link that only carries an id.
+ *
+ * `startId` walks TOWARDS THE NEWEST — the anchor plus the `limit`-1 messages
+ * that FOLLOW it. That direction is the one `before_ts`/`before_id` cannot
+ * express at all, and its absence is why "跳到原訊息" used to have to guess.
+ * `endId` walks TOWARDS THE OLDEST — the anchor plus the `limit`-1 before it.
+ * Either answer still comes back oldest→newest.
+ *
+ * Given TOGETHER the pair bounds one window; `limit` still caps it and the
+ * truncation happens at the `startId` (older) end, i.e. the window stays
+ * anchored on `endId`. Contradictory pairs, an unknown id, mixing these with
+ * `before_ts`/`before_id`, and a `limit` outside 1..200 are all errors on the
+ * server — never a quietly empty page. */
+export interface ChatAnchor {
+  startId?: string;
+  endId?: string;
 }
 
 /** A staged attachment carried on a posted chat message (a pasted image OR an
@@ -1871,24 +1898,40 @@ export interface Api {
    * `before` (T-bf82 scrollback) is the composite keyset cursor
    * (`?before_ts=&before_id=`, both together): the page becomes the `limit`
    * messages strictly OLDER than that (ts, id) point, still oldest→newest.
-   * A page shorter than `limit` means the history is exhausted. A HISTORY
-   * PAGE NEVER ADVANCES THE READ WATERMARK — the "list 即讀" auto-mark fires
-   * only on a cursorless list of the newest window. */
+   * A page shorter than `limit` means the history is exhausted.
+   *
+   * READ-ONLY ON EVERY PATH (T-48): listing a conversation advances NO read
+   * watermark — not the newest window, not a history page. Marking a
+   * conversation read is `markChatRead` and nothing else, so a caller that
+   * must keep the thread fresh WITHOUT consuming the unread badge (a
+   * backgrounded window) just calls this. The `peekChat` twin that used to
+   * carry that case was merged into this method in T-48. */
   listChat(
     withId: string,
     limit?: number,
     before?: ChatCursor,
   ): Promise<ChatMessage[]>;
-  /** READ-ONLY view of the same conversation: identical shape/order/window as
-   * `listChat`, but WITHOUT the "list 即讀" read-watermark side effect. Used
-   * when the thread must stay fresh while the owner is NOT actually looking
-   * (window backgrounded / tab hidden) — the unread badge must keep counting
-   * until the owner really reads. Rides the EXISTING wire surface only:
-   * `GET /api/chat` with NO `?with=` never advances a watermark (the server's
-   * auto-mark fires only when a specific conversation is requested), so the
-   * http adapter fetches the unfiltered stream (`limit=-1`) and applies the
-   * same participant filter + recent-window cap client-side. */
-  peekChat(withId: string, limit?: number): Promise<ChatMessage[]>;
+  /** One ANCHOR WINDOW of the conversation (`?start_id=` / `?end_id=`,
+   * T-48 ③), oldest→newest, READ-ONLY like every other read door here.
+   *
+   * 🔴 WHY THIS EXISTS AND `listChat` COULD NOT DO IT. "跳到原訊息" is handed a
+   * message id and nothing else. The only cursor this API used to have walks
+   * BACKWARDS from a (ts, id) the caller must already hold, so a target older
+   * than the loaded window was unreachable: the cockpit looked for the row in
+   * the DOM, did not find it, and scrolled to the bottom — which is exactly
+   * what a successful jump to a recent message looks like. The two ends here
+   * are the two halves of that jump: `endId` fetches the context ABOVE the
+   * target, `startId` the context BELOW it, and neither pulls the whole
+   * history to get there.
+   *
+   * REJECTS on an id no message carries (404 — deliberately NOT an empty page,
+   * because an empty page is what a real window at the end of the stream
+   * returns and the two must stay distinguishable). See {@link ChatAnchor}. */
+  listChatWindow(
+    withId: string,
+    anchor: ChatAnchor,
+    limit: number,
+  ): Promise<ChatMessage[]>;
   /** Read back ONE named message in full (`GET /api/chat?ids=<id>`), with NO
    * read-watermark side effect. Rejects when the id names nothing (the server
    * refuses the whole call) and when the read fails.
@@ -1921,7 +1964,8 @@ export interface Api {
    * attachment of the member's conversations, flattened newest→oldest —
    * owner↔member BOTH directions AND the member's inter-agent threads — each
    * row carrying the sender id + server-resolved display name + send time.
-   * READ-ONLY (no read-watermark side effect, unlike listChat's auto-mark). */
+   * READ-ONLY, like every read door on this API since T-48 — the only thing
+   * that advances a read watermark is `markChatRead`. */
   listChatAttachments(withId: string): Promise<GalleryAttachment[]>;
   /** Mint the share link for one attachment
    * (`GET /api/chat/attachments/{id}/share-link`): resolves to the blob's

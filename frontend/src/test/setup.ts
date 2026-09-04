@@ -69,11 +69,13 @@ for (const name of ["localStorage", "sessionStorage"] as const) {
 }
 
 // jsdom implements neither ResizeObserver nor the layout that would make it
-// fire, so ChatArea's jump-to-origin re-center observer (ChatArea.tsx) throws
+// fire, so ChatArea's `latestInView` observer (ChatArea.tsx) throws
 // `ResizeObserver is not defined`. A no-op stub is the faithful test double:
-// the tests pin the synchronous center-scroll + highlight and the one-shot
-// "never re-scrolls" contract, none of which depend on the observer callback
-// (a firing callback would inject scroll calls the one-shot test forbids).
+// that observer only re-answers a geometry question, and jsdom has no geometry
+// to answer it from — every rect is 0 — so a firing callback would write a
+// verdict nothing in this layer can measure. The tests pin the synchronous
+// center-scroll + highlight and the one-shot "never re-scrolls" contract,
+// none of which depend on the callback.
 if (typeof globalThis.ResizeObserver === "undefined") {
   globalThis.ResizeObserver = class ResizeObserver {
     observe(): void {}

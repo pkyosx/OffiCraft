@@ -72,7 +72,7 @@ describe("task card message box — multi-line input", () => {
       fireEvent.keyDown(input, { key: "Enter" });
     });
     await waitFor(async () => {
-      const thread = await api.peekChat("mira");
+      const thread = await api.listChat("mira");
       expect(thread.some((m) => m.body.includes("開始吧"))).toBe(true);
     });
   });
@@ -87,7 +87,7 @@ describe("task card message box — multi-line input", () => {
       shiftKey: true,
     });
     expect(notPrevented).toBe(true);
-    const thread = await api.peekChat("mira");
+    const thread = await api.listChat("mira");
     expect(thread.some((m) => m.body.includes("第一行"))).toBe(false);
   });
 
@@ -100,7 +100,7 @@ describe("task card message box — multi-line input", () => {
       fireEvent.keyDown(input, { key: "Enter" });
     });
     await waitFor(async () => {
-      const thread = await api.peekChat("mira");
+      const thread = await api.listChat("mira");
       expect(thread.some((m) => m.body.includes("第一行\n第二行"))).toBe(true);
     });
   });
@@ -138,7 +138,7 @@ describe("task card message box — phone viewport", () => {
     fireEvent.change(input, { target: { value: "開始吧" } });
     const notPrevented = fireEvent.keyDown(input, { key: "Enter" });
     expect(notPrevented).toBe(true);
-    const thread = await api.peekChat("mira");
+    const thread = await api.listChat("mira");
     expect(thread.some((m) => m.body.includes("開始吧"))).toBe(false);
   });
 
@@ -152,7 +152,7 @@ describe("task card message box — phone viewport", () => {
       fireEvent.click(await findByTestId("task-msg-send"));
     });
     await waitFor(async () => {
-      const thread = await api.peekChat("mira");
+      const thread = await api.listChat("mira");
       expect(thread.some((m) => m.body.includes("開始吧"))).toBe(true);
     });
   });

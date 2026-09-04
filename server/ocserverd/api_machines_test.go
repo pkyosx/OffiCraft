@@ -550,7 +550,7 @@ func TestWardenCredentialsNeverExpireAcrossAllMachineMintPaths(t *testing.T) {
 
 func TestNonWardenTokensStillExpireAndKeepThe400DayClamp(t *testing.T) {
 	s := newMachinesTestServer(t)
-	agent := Member{ID: "m-expiring-agent", Name: "agent", Kind: KindAssistant,
+	agent := Member{ID: "m-expiring-agent", Name: "agent", Kind: KindStaff,
 		Effort: "medium", RosterStatus: RosterStatusActive}
 	putTestMember(t, s, agent)
 	if _, err := s.mintWardenToken(agent); err == nil {

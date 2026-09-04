@@ -5,10 +5,13 @@
 //
 //   1. only messages ADDRESSED TO the owner count — an agent↔agent message
 //      never counts (AC #1);
-//   2. entering the conversation (listChat, the FE's open-thread call) advances
-//      the owner watermark past EVERY message → the count clears to 0 (AC #2);
-//   3. a new message while the owner is in the thread is covered by the same
-//      auto-mark on the refetch → never reported unread (AC #3, adapter side);
+//   2. NOTHING about reading clears the count any more (T-48): entering the
+//      conversation (listChat) leaves the watermark alone, and the
+//      ONLY thing that advances it is the explicit markChatRead choke — the
+//      mock mirrors the BE, where GET /api/chat stopped writing a watermark on
+//      every path (owner ruling 2026-09-02);
+//   3. once marked, the count clears past EVERY message at or below the mark
+//      (AC #2), and a message that lands AFTER the mark counts again (AC #3);
 //   4. the count is presence-independent — the mock's members are all OFFLINE
 //      and still carry a count (AC #4);
 //   5. the count is PER MESSAGE — three waiting messages read as 3, not "some".
@@ -59,21 +62,30 @@ describe("mock adapter unread parity", () => {
     expect((await miraUnread()).unreadCount).toBe(0);
   });
 
-  it("counts per message and clears ALL on entering the conversation (AC #2/#5)", async () => {
+  it("counts per message; listing does NOT clear, mark-read clears ALL (AC #2/#5)", async () => {
     inbound("mira", MOCK_OWNER_ID, 1000);
     inbound("mira", MOCK_OWNER_ID, 1001);
     inbound("mira", MOCK_OWNER_ID, 1002);
     expect((await miraUnread()).unreadCount).toBe(3);
-    await mockApi.listChat("mira"); // the FE's open-thread call (auto-mark)
+    // T-48: the FE's open-thread call no longer marks anything read. This used
+    // to assert 0 here; asserting 3 is what makes the removal load-bearing.
+    // listChat is the ONLY read door — the `peekChat` twin that used to exist
+    // for exactly this "look without consuming" case was merged into it.
+    const listed = await mockApi.listChat("mira");
+    expect(listed).toHaveLength(3);
+    expect((await miraUnread()).unreadCount).toBe(3);
+    await mockApi.markChatRead({ peer: "mira", lastReadTs: 1002 });
     expect((await miraUnread()).unreadCount).toBe(0);
   });
 
-  it("a new message while in the thread reads on the refetch (AC #3)", async () => {
+  it("a new message after the mark counts again; a refetch does not swallow it (AC #3)", async () => {
     inbound("mira", MOCK_OWNER_ID, 1000);
-    await mockApi.listChat("mira"); // owner is in the room
+    await mockApi.markChatRead({ peer: "mira", lastReadTs: 1000 });
+    expect((await miraUnread()).unreadCount).toBe(0);
     inbound("mira", MOCK_OWNER_ID, 2000); // new message lands
     await mockApi.listChat("mira"); // the SSE-driven refetch
-    expect((await miraUnread()).unreadCount).toBe(0);
+    // T-48: the refetch used to consume this silently. It must not.
+    expect((await miraUnread()).unreadCount).toBe(1);
   });
 
   it("the explicit mark-read choke clears identically", async () => {
@@ -82,20 +94,6 @@ describe("mock adapter unread parity", () => {
     expect((await miraUnread()).unreadCount).toBe(0);
   });
 
-  it("peekChat returns the SAME thread but never clears the count (read-only)", async () => {
-    // Badge-flash fix seam: the background-window path fetches through
-    // peekChat, which must deliver the identical thread WITHOUT the
-    // "list 即讀" watermark side effect — the unread count survives.
-    inbound("mira", MOCK_OWNER_ID, 1000);
-    inbound("mira", MOCK_OWNER_ID, 1001);
-    const peeked = await mockApi.peekChat("mira");
-    expect(peeked).toHaveLength(2);
-    expect((await miraUnread()).unreadCount).toBe(2); // still unread
-    // The marking list then clears — same messages, different contract.
-    const listed = await mockApi.listChat("mira");
-    expect(listed.map((m) => m.id)).toEqual(peeked.map((m) => m.id));
-    expect((await miraUnread()).unreadCount).toBe(0);
-  });
 });
 
 describe("mock adapter getChatUnreadCount (the office red-dot signal)", () => {
@@ -115,10 +113,12 @@ describe("mock adapter getChatUnreadCount (the office red-dot signal)", () => {
     expect(await mockApi.getChatUnreadCount()).toBe(3);
   });
 
-  it("clears a peer's share on entering that conversation", async () => {
+  it("clears one peer's share on an explicit mark-read, and only that peer's", async () => {
     inbound("mira", MOCK_OWNER_ID, 1000);
     inbound("joey", MOCK_OWNER_ID, 1001);
-    await mockApi.listChat("mira"); // owner reads mira's thread
+    await mockApi.listChat("mira"); // reading is not marking (T-48)
+    expect(await mockApi.getChatUnreadCount()).toBe(2);
+    await mockApi.markChatRead({ peer: "mira", lastReadTs: 1000 });
     expect(await mockApi.getChatUnreadCount()).toBe(1); // joey still unread
   });
 });
@@ -174,7 +174,7 @@ describe("mock adapter scrollback cursor parity (T-bf82)", () => {
     expect(capped.map((m) => m.id)).toEqual(["t-a", "t-b"]);
   });
 
-  it("a HISTORY page never advances the read watermark (unread keeps counting)", async () => {
+  it("NO page — cursored or not — advances the read watermark (T-48)", async () => {
     inbound("mira", MOCK_OWNER_ID, 1000);
     inbound("mira", MOCK_OWNER_ID, 2000);
     expect((await miraUnread()).unreadCount).toBe(2);
@@ -183,8 +183,50 @@ describe("mock adapter scrollback cursor parity (T-bf82)", () => {
     await mockApi.listChat("mira", 30, { beforeTs: 2000, beforeId: "zzz" });
     expect((await miraUnread()).unreadCount).toBe(2);
 
-    // …while the cursorless open-thread list still auto-marks (unchanged).
+    // …and neither does the cursorless open-thread list. It used to auto-mark;
+    // that is the write T-48 removed, here and on the server.
     await mockApi.listChat("mira");
-    expect((await miraUnread()).unreadCount).toBe(0);
+    expect((await miraUnread()).unreadCount).toBe(2);
+
+    // …nor the anchor window behind 跳到原訊息, which is a read door like the
+    // rest of them.
+    await mockApi.listChatWindow("mira", { endId: "t-mira-2000" }, 30);
+    expect((await miraUnread()).unreadCount).toBe(2);
+  });
+
+  it("the anchor window walks BOTH ways from one id, both ends inclusive, and refuses an id it does not carry", async () => {
+    for (const ts of [1000, 2000, 3000, 4000])
+      inbound("mira", MOCK_OWNER_ID, ts);
+
+    // `end_id` — the anchor and what precedes it.
+    expect(
+      (await mockApi.listChatWindow("mira", { endId: "t-mira-3000" }, 30)).map(
+        (m) => m.id,
+      ),
+    ).toEqual(["t-mira-1000", "t-mira-2000", "t-mira-3000"]);
+    // `start_id` — the anchor and what follows it. This is the direction the
+    // keyset cursor cannot express at all.
+    expect(
+      (
+        await mockApi.listChatWindow("mira", { startId: "t-mira-3000" }, 30)
+      ).map((m) => m.id),
+    ).toEqual(["t-mira-3000", "t-mira-4000"]);
+    // A window wider than `limit` is truncated at the START (older) end — the
+    // window stays anchored on `end_id`.
+    expect(
+      (
+        await mockApi.listChatWindow(
+          "mira",
+          { startId: "t-mira-1000", endId: "t-mira-4000" },
+          2,
+        )
+      ).map((m) => m.id),
+    ).toEqual(["t-mira-3000", "t-mira-4000"]);
+    // 🔴 An unknown anchor REJECTS. An empty array is what a real window at the
+    // end of the stream returns, and "no such message" must never be dressed as
+    // one — that confusion is the entire defect 跳到原訊息 had.
+    await expect(
+      mockApi.listChatWindow("mira", { endId: "t-nope" }, 30),
+    ).rejects.toThrow();
   });
 });

@@ -16,7 +16,7 @@ import type { Member } from "../types";
 // Enter keydown, without standing up the whole api adapter.
 const send = vi.fn(() => Promise.resolve());
 vi.mock("../hooks/useChat", () => ({
-  useChat: () => ({ messages: [], messagesPeer: "m1", send }),
+  useChat: () => ({ messages: [], send }),
 }));
 
 const member: Member = {
@@ -27,7 +27,7 @@ const member: Member = {
   lifecycle: "online",
   model: "opus",
   effort: "medium",
-  kind: "assistant",
+  kind: "staff",
   desiredMachineId: "",
   machine: null,
   account: null,

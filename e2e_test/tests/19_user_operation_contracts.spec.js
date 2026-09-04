@@ -150,6 +150,10 @@ test.describe('user-operation contract · single card draft preservation', () =>
       `[data-testid="chat-reply-card"][data-reply-card-id="${card.id}"]`,
     );
     await expect(chatCard).toBeVisible();
+    // A chat card mounts COLLAPSED since owner c-6f054c1cb481 (2026-09-04) —
+    // the composer this contract is about only exists once it is opened. The
+    // 請示 page and the task-page embed above/below did NOT change.
+    await chatCard.getByTestId('chat-reply-card-expand').click();
     await chatCard.locator('.chat__input').fill(draft);
     await chip(chatCard, 1).click();
 

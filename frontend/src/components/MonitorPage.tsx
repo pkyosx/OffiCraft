@@ -367,7 +367,7 @@ export function MonitorPage() {
   const membersOnMachine = (machineId: string) =>
     members.filter(
       (m) =>
-        m.kind === "assistant" && m.status === "online" && m.machine === machineId
+        m.kind === "staff" && m.status === "online" && m.machine === machineId
     );
 
   // Machine mid-uninstall (①): the warden member still carries the one-shot

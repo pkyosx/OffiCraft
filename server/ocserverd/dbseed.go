@@ -30,7 +30,7 @@ func seedOutOfBox(d *DAL) error {
 		if err := d.PutMember(Member{
 			ID:               seedMiraID,
 			Name:             "Mira",
-			Kind:             KindAssistant,
+			Kind:             KindStaff,
 			RoleKey:          seedRoleAssistant,
 			Effort:           "medium",
 			DesiredState:     DesiredStateOffline,

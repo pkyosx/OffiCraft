@@ -18,7 +18,7 @@
 // read at exec time, never the argv (see buildLaunchCommand).
 //
 // DELIBERATELY NOT here (server owns these in v2, or later warden phases):
-//   - roster poll / placement / over-spawn guard / is_assistant_kind spawn
+//   - roster poll / placement / over-spawn guard / is_staff_kind spawn
 //     decision / reconcile loop / cross-tick state  → server (T2.1)
 //   - kill / force-kill                             → Phase 3
 //   - token minting (/api/bootstrap)                → server (A4: mint归server)

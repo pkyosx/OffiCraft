@@ -52,7 +52,7 @@ func miraChatBodies(t *testing.T, baseURL, token string) []map[string]any {
 		t.Fatalf("list chat: want 200, got %d %s", status, body)
 	}
 	var msgs []map[string]any
-	if err := json.Unmarshal([]byte(body), &msgs); err != nil {
+	if err := json.Unmarshal(chatEnvelopeMessages(t, []byte(body)), &msgs); err != nil {
 		t.Fatalf("chat list not JSON array: %v %s", err, body)
 	}
 	return msgs

@@ -201,9 +201,17 @@ func mfDesiredMachineID(v string) memberField {
 // figure would silently REFUND spend the owner already saw — and the worker half
 // is worse, because memberFromWorker rebuilds the row from an OutsourceWorker
 // read at the same stale moment. The INSERT still carries it so a new row starts
-// at whatever it was born with; AddMemberBankedCost is the only writer that
-// moves it, and it accumulates in SQL so two concurrent banking edges cannot
-// lose each other's contribution.
+// at whatever it was born with; after that it moves only through a single-column
+// writer, and there are TWO of them by design — AddMemberBankedCost accumulates
+// (`banked_cost + ?`, in SQL, so two concurrent banking edges cannot lose each
+// other's contribution) and ZeroMemberBankedCost resets (`banked_cost = 0`, T-53).
+//
+// 🔴 THIS SENTENCE SAID "the only writer" AND THAT WAS FALSE — twice, in two
+// files, from two different branches. It is the shape that keeps coming back:
+// "sole writer" reads like a property of the column, but it is a claim about a
+// POPULATION, and a population grows. The reset arrived after the accumulator and
+// nothing anywhere went red. Whatever the count is when you read this, do not
+// trust it — `grep 'banked_cost' *.go` is the answer, and it is cheap.
 func mfBankedCost(v float64) memberField {
 	return memberField{col: "banked_cost", val: v, insertOnly: true}
 }

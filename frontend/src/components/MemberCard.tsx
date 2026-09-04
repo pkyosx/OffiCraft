@@ -99,12 +99,11 @@ export function MemberCard({
        * renders "99+").
        * count 0 → not rendered at all. Suppressed while THIS member's chat is
        * open (`selected`) AND the owner is actually looking (`windowActive`):
-       * in the open, watched conversation a new message is read immediately
-       * (listChat auto-mark), so the badge never accumulates. A BACKGROUNDED
-       * window is different — the open thread stops consuming reads there
-       * (useChat peeks read-only), unread genuinely accumulates, and the badge
-       * must show it even on the selected card; returning to the foreground
-       * re-marks and clears it (badge-flash fix).
+       * in the open, watched conversation ChatArea marks each new message read
+       * as it lands, so the badge never accumulates. A BACKGROUNDED window is
+       * different — nothing marks anything read there, unread genuinely
+       * accumulates, and the badge must show it even on the selected card;
+       * returning to the foreground marks and clears it (badge-flash fix).
        * INDEPENDENT of the PresenceBadge — an offline member can be unread.
        * No handler of its own: the badge sits inside the row (= the chat
        * entry), so tapping it IS tapping the row = opening the chat. */}

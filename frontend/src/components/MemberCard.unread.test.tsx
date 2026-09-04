@@ -8,8 +8,8 @@
 //      messages; > 99 clamps to "99+".
 //   3. SUPPRESSED IN THE OPEN CONVERSATION: while THIS member's chat is open
 //      (`selected`), the badge never shows — in the open thread a new message is
-//      read immediately (listChat auto-mark), so it must not accumulate (AC #3,
-//      the UI-side guarantee).
+//      read immediately (ChatArea marks read on arrival while the window is
+//      focused), so it must not accumulate (AC #3, the UI-side guarantee).
 //   4. count 0 → NOT RENDERED at all (no empty pill, no leftover dot).
 
 import { describe, it, expect, vi } from "vitest";
@@ -27,7 +27,7 @@ function mkMember(over: Partial<Member>): Member {
     lifecycle: "offline",
     model: "opus",
     effort: "medium",
-    kind: "assistant",
+    kind: "staff",
     desiredMachineId: "",
     machine: null,
     account: null,
@@ -98,10 +98,10 @@ describe("MemberCard unread count badge", () => {
 
   it("a SELECTED card still shows the badge while the window is BACKGROUNDED", () => {
     // Badge-flash fix: suppression assumes the open conversation is being
-    // WATCHED (its auto-mark consumes new messages instantly). With the window
-    // backgrounded the open thread stops consuming reads (useChat peeks
-    // read-only), unread genuinely accumulates — the selected card must show
-    // it, or the owner returns to a red dot that silently died.
+    // WATCHED (ChatArea marks each new message read as it lands). With the
+    // window backgrounded nothing marks anything read, unread genuinely
+    // accumulates — the selected card must show it, or the owner returns to a
+    // red dot that silently died.
     const spy = vi.spyOn(document, "hasFocus").mockReturnValue(false);
     try {
       const { getByTestId } = renderCard(mkMember({ unreadCount: 4 }), true);

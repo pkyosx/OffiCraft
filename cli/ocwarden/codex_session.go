@@ -118,6 +118,47 @@ type codexSession struct {
 	// idempotent. Replayed notifications must not look like fresh context
 	// compactions and accidentally recycle a just-booted agent.
 	completedCompactions map[string]struct{}
+
+	// ── delivery bookkeeping (T-48) ──────────────────────────────────────────
+	// pending is every turn/start and turn/steer this sidecar has sent and not
+	// yet heard back about. Before T-48 the id `send` returned was DROPPED on
+	// the floor and the loop skipped every response it saw, so a refused
+	// turn/steer — the expectedTurnId goes stale the moment turn/completed is
+	// in flight and the loop has not read it yet — produced exactly nothing:
+	// no retry, no line in the pane, and a listener that had already marked the
+	// message read. The message was gone and every party thought it had landed.
+	pending map[int]*codexDelivery
+	// batch is the delivery group currently being collected: everything
+	// forwarded since the listener's last `batch <token>` marker.
+	batch *codexBatch
+	// ackTo is the listener's stdin. nil ⇒ no listener yet (or none possible),
+	// and then a batch verdict has nowhere to go and is dropped.
+	ackTo io.Writer
+}
+
+// codexDelivery is ONE in-flight attempt to put a piece of text into the
+// model's conversation, kept so the App Server's answer can be judged instead
+// of discarded.
+type codexDelivery struct {
+	method string // "turn/start" or "turn/steer"
+	text   string
+	batch  *codexBatch // the group this delivery answers for; nil ⇒ none
+}
+
+// codexBatch is the set of deliveries the listener printed under one batch
+// token. The listener is BLOCKED on this verdict: until it arrives it files no
+// read receipt and records nothing as seen, so a batch that never lands is
+// printed again on the next drain rather than lost.
+//
+// The verdict is deliberately group-wide and pessimistic: one failed delivery
+// nacks the whole batch, which costs a re-print — the safe direction — while
+// the alternative costs a message nobody will ever see again.
+type codexBatch struct {
+	token       string
+	closed      bool // the marker arrived; no more deliveries join
+	outstanding int  // deliveries still waiting for an App Server answer
+	failed      bool
+	answered    bool
 }
 
 const codexTelemetryThrottle = 30 * time.Second
@@ -354,30 +395,193 @@ func (s *codexSession) waitResponse(id int) (appServerMessage, error) {
 	}
 }
 
-func (s *codexSession) startTurn(text string) {
+// startTurn opens a fresh turn carrying `text` and REGISTERS the request, so
+// the answer that comes back can be judged. `batch` is the delivery group this
+// turn answers for (nil for the boot turn and anything else nobody is waiting
+// on).
+func (s *codexSession) startTurn(text string, batch *codexBatch) {
 	s.activity("turn started")
 	params := map[string]any{
 		"threadId": s.threadID,
 		"input":    []any{map[string]any{"type": "text", "text": text}},
 		"effort":   s.effort,
 	}
-	s.send("turn/start", params)
+	s.track(s.send("turn/start", params), &codexDelivery{
+		method: "turn/start", text: text, batch: batch,
+	})
 }
 
-func (s *codexSession) steerOrStart(text string) {
+func (s *codexSession) steerOrStart(text string, batch *codexBatch) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return
 	}
 	if s.active && s.turnID != "" {
 		s.activity("turn steered by OffiCraft event")
-		s.send("turn/steer", map[string]any{
+		s.track(s.send("turn/steer", map[string]any{
 			"threadId": s.threadID, "expectedTurnId": s.turnID,
 			"input": []any{map[string]any{"type": "text", "text": text}},
-		})
+		}), &codexDelivery{method: "turn/steer", text: text, batch: batch})
 		return
 	}
-	s.startTurn(text)
+	s.startTurn(text, batch)
+}
+
+// ---------------------------------------------------------------------------
+// delivery confirmation (T-48) — from "we wrote some JSON" to "it landed".
+// ---------------------------------------------------------------------------
+
+// track remembers one in-flight request and counts it into its batch.
+func (s *codexSession) track(id int, d *codexDelivery) {
+	if id == 0 {
+		return
+	}
+	if s.pending == nil {
+		s.pending = map[int]*codexDelivery{}
+	}
+	s.pending[id] = d
+	if d.batch != nil {
+		d.batch.outstanding++
+	}
+}
+
+// resolveResponse judges an App Server answer to something WE sent. An id this
+// sidecar is not tracking (anything the boot handshake already consumed) is
+// skipped exactly as the loop always skipped it.
+//
+// ⚠️ RESIDUE, RECORDED RATHER THAN CLOSED — the same one this file already
+// carries for handleListenerLine. THREE WIRINGS INSIDE runCodexSession's select
+// loop are held up by nothing: the call to this method, `s.ackTo = ackPipe`, and
+// `listenerCmd.Env = codexListenerEnv(...)`. Delete any of them and every test
+// here stays green while the protocol silently degrades — no acks would ever be
+// written (every drain blocks forever), or the listener would never enter ack
+// mode at all. Driving that loop needs a real App Server; what is pinned instead
+// is everything the loop calls, one seam down.
+//
+// NO ERROR ⇒ delivered. ERROR ⇒ not delivered, and a refused turn/steer gets ONE
+// second chance as a fresh turn: the common refusal is a stale expectedTurnId
+// (turn/completed is in flight and this loop has not read it yet), and the same
+// text opened as a new turn is exactly what the session would have done had it
+// read that notification first.
+func (s *codexSession) resolveResponse(id int, msg appServerMessage) {
+	d, ok := s.pending[id]
+	if !ok {
+		return
+	}
+	delete(s.pending, id)
+	if d.batch != nil {
+		d.batch.outstanding--
+	}
+	problem, failed := msg["error"].(map[string]any)
+	if !failed {
+		s.confirmDelivered(d)
+		return
+	}
+	detail := strings.TrimSpace(fmt.Sprintf("%v", problem["message"]))
+	if d.method == "turn/steer" {
+		s.activity("turn/steer 被拒（%s）— 改開新的一輪重送同一段內容", detail)
+		s.startTurn(d.text, d.batch)
+		return
+	}
+	s.activity("⚠️ 送不進去（%s）：%s — 這段內容沒有進到 agent 的對話，"+
+		"agent 不會知道有人說過這句話", detail, codexDeliveryLabel(d.text))
+	if d.batch != nil {
+		d.batch.failed = true
+	}
+	s.settleBatch(d.batch)
+}
+
+// confirmStartedTurn resolves the pending turn/start that the App Server has
+// just announced it began.
+//
+// 🔴 WHY A SECOND PIECE OF EVIDENCE AT ALL. The listener BLOCKS on this
+// sidecar's verdict, so anything that delays the verdict makes the member deaf
+// for that long. If turn/start's response only comes back when the turn ENDS,
+// waiting for it alone would keep the listener silent for the whole turn — no
+// steering, no chat, for minutes. `turn/started` is the App Server saying it
+// accepted the turn, which is all "it reached the conversation" needs; whichever
+// evidence arrives first settles the delivery and the other is then a response
+// for an id nobody is tracking, which the loop skips as it always has.
+func (s *codexSession) confirmStartedTurn() {
+	oldest := 0
+	for id, d := range s.pending {
+		if d.method != "turn/start" {
+			continue
+		}
+		if oldest == 0 || id < oldest {
+			oldest = id
+		}
+	}
+	if oldest == 0 {
+		return
+	}
+	d := s.pending[oldest]
+	delete(s.pending, oldest)
+	if d.batch != nil {
+		d.batch.outstanding--
+	}
+	s.confirmDelivered(d)
+}
+
+func (s *codexSession) confirmDelivered(d *codexDelivery) {
+	s.activity("已送進對話：%s", codexDeliveryLabel(d.text))
+	s.settleBatch(d.batch)
+}
+
+// codexDeliveryLabel keeps the pane line one line long. The pane is a lifecycle
+// log, not a transcript copy.
+func codexDeliveryLabel(text string) string {
+	text = strings.TrimSpace(text)
+	if i := strings.IndexByte(text, '\n'); i >= 0 {
+		text = text[:i]
+	}
+	if runes := []rune(text); len(runes) > 80 {
+		return string(runes[:80]) + "…"
+	}
+	return text
+}
+
+// closeBatch is the listener's `batch <token>` marker: no more deliveries join
+// this group, and the moment the last one is answered the verdict goes back.
+func (s *codexSession) closeBatch(token string) {
+	group := s.batch
+	s.batch = nil
+	if group == nil {
+		// The marker closed a batch that forwarded nothing. There is nothing
+		// that could have been lost, so it is confirmed rather than left open —
+		// the listener is blocked on this line.
+		group = &codexBatch{}
+	}
+	group.token = token
+	group.closed = true
+	s.settleBatch(group)
+}
+
+// currentBatch is the group a listener-driven delivery joins.
+func (s *codexSession) currentBatch() *codexBatch {
+	if s.batch == nil {
+		s.batch = &codexBatch{}
+	}
+	return s.batch
+}
+
+// settleBatch writes the verdict once the group is closed and quiet.
+func (s *codexSession) settleBatch(group *codexBatch) {
+	if group == nil || !group.closed || group.answered || group.outstanding > 0 {
+		return
+	}
+	group.answered = true
+	verb := "ack"
+	if group.failed {
+		verb = "nack"
+	}
+	if group.failed {
+		s.activity("批次 %s 沒能送進對話 — 已告訴 listener 不要標已讀，下一輪會重印", group.token)
+	}
+	if s.ackTo == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(s.ackTo, "%s %s\n", verb, group.token)
 }
 
 func codexAppReader(r io.Reader) <-chan appServerMessage {
@@ -633,8 +837,18 @@ type codexListenerState struct{ wakeSent bool }
 // Recorded rather than closed: closing it properly needs a test that drives the
 // real loop, and the review (T-99a6) judged the residue non-blocking.
 func (st *codexListenerState) handleListenerLine(
-	line string, onConnect func(), openTurn func(string),
+	line string, onConnect func(), openTurn func(string), onBatch func(string),
 ) {
+	// The batch marker is PROTOCOL, addressed to this sidecar and to nobody
+	// else. It is handled before anything else and never reaches the model —
+	// codexListenerActions independently agrees (it wears the transport head the
+	// blanket filter swallows), so the two cannot disagree about it.
+	if token, ok := codexBatchToken(line); ok {
+		if onBatch != nil {
+			onBatch(token)
+		}
+		return
+	}
 	wake, forward := codexListenerActions(line, st.wakeSent)
 	if strings.HasPrefix(strings.TrimSpace(line), noticeConnectedPrefix) {
 		onConnect()
@@ -677,7 +891,38 @@ func (s *codexSession) openListenerTurn(text string) {
 	} else {
 		s.activity("OffiCraft event: %s", text)
 	}
-	s.steerOrStart(text)
+	// Everything the listener printed since its last marker belongs to the same
+	// batch, whatever it was about: if any of it failed to land, the safe answer
+	// to the listener is "do not mark this window read".
+	s.steerOrStart(text, s.currentBatch())
+}
+
+// codexListenerEnv is the environment the sidecar hands its ocagent child. It
+// adds exactly one thing: the flag that puts the listener into ack mode, so it
+// stops treating a printed line as a delivered one and waits for this sidecar to
+// say the batch really reached the model's conversation.
+//
+// It is a function so a test can see the flag without running a real listener —
+// a child started without it looks completely healthy and loses mail silently.
+func codexListenerEnv(base []string) []string {
+	return append(append([]string{}, base...), listenAckEnv+"=1")
+}
+
+// codexBatchToken reads the listener's end-of-batch marker
+// (`[ocagent] listen: batch <token>`). The token is opaque here — it is echoed
+// back verbatim, so its shape is the listener's business.
+func codexBatchToken(line string) (string, bool) {
+	rest, ok := strings.CutPrefix(strings.TrimSpace(line), noticeBatchPrefix)
+	if !ok {
+		return "", false
+	}
+	// The listener stamps every transcript line with a trailing `[ts=… local]`,
+	// so the token is the FIRST field of the remainder, not the whole of it.
+	fields := strings.Fields(rest)
+	if len(fields) == 0 {
+		return "", false
+	}
+	return fields[0], true
 }
 
 func codexListenerActions(line string, wakeAlreadySent bool) (wake, forward bool) {
@@ -725,6 +970,24 @@ const (
 	noticeDisconnectedPrefix = "[ocagent] listen: disconnected"
 	noticeConnectedPrefix    = "[ocagent] listen: connected"
 	noticeGivingUpPrefix     = "[ocagent] listen: giving up"
+
+	// noticeBatchPrefix is the ack protocol's end-of-batch marker (T-48). It is
+	// NOT on listenerNoticePrefixes and must never be: it is a line the two
+	// processes say to each other, and forwarding it would put protocol noise in
+	// the model's transcript. It wears the same transport head precisely so the
+	// blanket filter below swallows it by default — a marker that reached the
+	// agent would be a bug in this file, not in the listener.
+	noticeBatchPrefix = "[ocagent] listen: batch "
+
+	// listenAckEnv is the OTHER half of the same protocol and the same physical
+	// two-copy problem: the listener reads this name from its environment
+	// (cli/ocagent/listen.go's listenAckEnv) and this module writes it onto the
+	// child. Rename it on one side only and the listener silently goes back to
+	// "printed means delivered" — no error, no line, and every message that
+	// fails to reach the model marked read anyway, which is the exact bug this
+	// protocol exists to close. cli/ocagent/listen_notice_contract_test.go reads
+	// this file and requires this declaration to still be here.
+	listenAckEnv = "OC_LISTEN_ACK"
 
 	// 🔴 THE FOURTH COPY, AND FOR A LONG TIME THE ONLY UNPINNED ONE. This is the
 	// head of the blanket filter below — the bytes that decide whether a line is
@@ -874,7 +1137,7 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 		return 1
 	}
 	s.activity("thread ready · booting agent")
-	s.startTurn("開始。")
+	s.startTurn("開始。", nil)
 
 	listenerLines := make(chan string, 32)
 	listenerStarted := false
@@ -909,7 +1172,7 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 					s.requestRateLimits()
 					identityHeartbeat.Reset(codexTelemetryThrottle)
 				},
-				s.openListenerTurn)
+				s.openListenerTurn, s.closeBatch)
 		case msg, ok := <-s.messages:
 			if !ok {
 				s.messages = nil
@@ -925,7 +1188,12 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 			if _, hasID := msg["id"]; hasID {
 				if _, hasMethod := msg["method"]; hasMethod {
 					s.handleServerRequest(msg)
+					continue
 				}
+				// A response to something WE sent. Until T-48 this arm skipped
+				// every one of them, so a refused turn/steer was indistinguishable
+				// from a delivered one and the message it carried was gone.
+				s.resolveResponse(messageID(msg), msg)
 				continue
 			}
 			method, _ := msg["method"].(string)
@@ -934,6 +1202,9 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 			case "turn/started":
 				s.active = true
 				s.turnID = nestedString(params, "turn", "id")
+				// The App Server accepted our turn/start: the text is in the
+				// conversation, whenever the response itself decides to arrive.
+				s.confirmStartedTurn()
 			case "turn/completed":
 				s.active = false
 				s.turnID = ""
@@ -943,11 +1214,25 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 					listenerCmd = exec.Command(filepath.Join(*workdir, "ocagent"), "listen")
 					listenerCmd.Dir = *workdir
 					listenerCmd.Stderr = out
+					// THE ONE RUNTIME SIGNAL that this listener's stdout is not an
+					// agent's transcript (T-48). The listener cannot work this out
+					// for itself — every guess available to it (a tty check, the
+					// parent's name, the shape of OC_ID) is wrong in some real
+					// configuration — and the direction a wrong guess goes is a
+					// drain that waits forever for an ack nobody will send. So the
+					// party that knows says it out loud.
+					listenerCmd.Env = codexListenerEnv(os.Environ())
 					pipe, pipeErr := listenerCmd.StdoutPipe()
 					if pipeErr != nil {
 						fmt.Fprintf(out, "codex-session: ocagent listen stdout: %v\n", pipeErr)
 						return 1
 					}
+					ackPipe, ackErr := listenerCmd.StdinPipe()
+					if ackErr != nil {
+						fmt.Fprintf(out, "codex-session: ocagent listen stdin: %v\n", ackErr)
+						return 1
+					}
+					s.ackTo = ackPipe
 					if startErr := listenerCmd.Start(); startErr != nil {
 						fmt.Fprintf(out, "codex-session: start ocagent listen: %v\n", startErr)
 						return 1

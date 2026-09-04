@@ -367,7 +367,7 @@ func TestListenerLoopOpensTheWakeTurnExactlyOnce(t *testing.T) {
 	feed := func(line string) {
 		st.handleListenerLine(line, func() { connects++ }, func(text string) {
 			turns = append(turns, text)
-		})
+		}, nil)
 	}
 
 	feed(connected)
@@ -406,7 +406,7 @@ func TestListenerLoopStillWakesAfterAnEarlierEvent(t *testing.T) {
 	var turns []string
 	st := &codexListenerState{}
 	feed := func(line string) {
-		st.handleListenerLine(line, func() {}, func(text string) { turns = append(turns, text) })
+		st.handleListenerLine(line, func() {}, func(text string) { turns = append(turns, text) }, nil)
 	}
 
 	feed("[ocagent] task T-1 updated · by owner")
@@ -740,5 +740,184 @@ func TestCodexAccountKeyHandlesMissingOrUnreadableAuthFile(t *testing.T) {
 	}
 	if got := codexAccountKeyForHome(home2); got != "" {
 		t.Fatalf("unreadable auth.json must yield no key, got %q", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// DELIVERY CONFIRMATION (T-48). Sending JSON is not delivering a message.
+//
+// The id `send` returns used to be dropped and the loop skipped every response,
+// so a REFUSED turn/steer — the ordinary case, because expectedTurnId goes stale
+// the moment turn/completed is in flight and this loop has not read it yet —
+// did nothing at all: no retry, no line in the pane, and a listener that had
+// already marked the message read. The message was gone and every party thought
+// it had landed.
+// ---------------------------------------------------------------------------
+
+// ackSession builds a session whose App Server bytes and ack replies are both
+// readable, with a batch already open on it.
+func ackSession() (*codexSession, *bufferWriteCloser, *bytes.Buffer, *bytes.Buffer) {
+	wire := &bufferWriteCloser{}
+	pane := &bytes.Buffer{}
+	acks := &bytes.Buffer{}
+	return &codexSession{
+		in: wire, threadID: "th-1", effort: "medium", out: pane, ackTo: acks,
+	}, wire, pane, acks
+}
+
+func TestSteerRefusalIsRetriedAsAFreshTurnAndOnlyThenAcked(t *testing.T) {
+	session, wire, pane, acks := ackSession()
+	session.active = true
+	session.turnID = "turn-stale"
+
+	const line = "[ocagent] chat from owner (#c-1, 1s ago): 這句不能不見"
+	session.openListenerTurn(line)
+	steerID := session.nextID
+	session.closeBatch("7")
+
+	if acks.Len() != 0 {
+		t.Fatalf("the batch was answered before the App Server said anything: %q", acks.String())
+	}
+
+	// The App Server refuses the steer: the turn it was aimed at is over.
+	session.resolveResponse(steerID, appServerMessage{
+		"id": float64(steerID), "error": map[string]any{"message": "expectedTurnId is stale"},
+	})
+
+	if acks.Len() != 0 {
+		t.Fatalf("a refused steer got a final verdict (%q) instead of a second chance "+
+			"as a fresh turn — an ack here marks a message read that never reached "+
+			"the model, and a nack costs a re-print the retry would have avoided",
+			acks.String())
+	}
+	if !strings.Contains(wire.String(), `"turn/start"`) {
+		t.Fatalf("a refused steer must be re-sent as a fresh turn; wire:\n%s", wire.String())
+	}
+	var resent bool
+	for _, raw := range strings.Split(strings.TrimSpace(wire.String()), "\n") {
+		var msg map[string]any
+		if json.Unmarshal([]byte(raw), &msg) != nil {
+			continue
+		}
+		if method, _ := msg["method"].(string); method != "turn/start" {
+			continue
+		}
+		params, _ := msg["params"].(map[string]any)
+		input, _ := params["input"].([]any)
+		item, _ := input[0].(map[string]any)
+		if text, _ := item["text"].(string); text == line {
+			resent = true
+		}
+	}
+	if !resent {
+		t.Fatalf("the retry carried something other than the refused text; wire:\n%s", wire.String())
+	}
+
+	// The retry lands.
+	session.resolveResponse(session.nextID, appServerMessage{"id": float64(session.nextID)})
+	if got := strings.TrimSpace(acks.String()); got != "ack 7" {
+		t.Fatalf("acks = %q, want %q once the retry landed", got, "ack 7")
+	}
+	if !strings.Contains(pane.String(), "turn/steer 被拒") {
+		t.Errorf("the refusal never reached the pane; the operator sees a healthy "+
+			"session: %q", pane.String())
+	}
+}
+
+func TestFailedTurnStartNacksTheBatchAndSaysTheContentNeverLanded(t *testing.T) {
+	session, _, pane, acks := ackSession()
+
+	session.openListenerTurn("[ocagent] chat from owner (#c-2, 1s ago): 這句掉了")
+	startID := session.nextID
+	session.closeBatch("3")
+	session.resolveResponse(startID, appServerMessage{
+		"id": float64(startID), "error": map[string]any{"message": "thread is gone"},
+	})
+
+	if got := strings.TrimSpace(acks.String()); got != "nack 3" {
+		t.Fatalf("acks = %q, want %q — an unanswered or wrongly acked batch is a "+
+			"message marked read that nobody was ever shown", got, "nack 3")
+	}
+	if !strings.Contains(pane.String(), "沒有進到 agent 的對話") {
+		t.Errorf("a failed delivery must say plainly that the content never reached "+
+			"the conversation; pane = %q", pane.String())
+	}
+}
+
+// The listener BLOCKS on the verdict, so a turn/start whose response only comes
+// back when the turn ENDS would leave the member deaf for the whole turn. The
+// App Server announcing the turn is enough evidence that the text is in.
+func TestTurnStartedConfirmsTheDeliveryWithoutWaitingForTheResponse(t *testing.T) {
+	session, _, _, acks := ackSession()
+
+	session.openListenerTurn("[ocagent] chat from owner (#c-3, 1s ago): hi")
+	session.closeBatch("4")
+	session.confirmStartedTurn()
+
+	if got := strings.TrimSpace(acks.String()); got != "ack 4" {
+		t.Fatalf("acks = %q, want %q — waiting for the response alone would keep the "+
+			"listener blocked for the entire turn", got, "ack 4")
+	}
+}
+
+// The marker is protocol between two processes. It must never become a turn, and
+// it must never consume the once-only boot wake.
+func TestBatchMarkerIsProtocolAndNeverReachesTheModel(t *testing.T) {
+	const marker = "[ocagent] listen: batch 12 [ts=1756900000.000 local]"
+
+	if wake, forward := codexListenerActions(marker, false); wake || forward {
+		t.Errorf("the batch marker decided wake=%v forward=%v, want false/false — it "+
+			"is a line the two processes say to each other", wake, forward)
+	}
+
+	var turns []string
+	var batches []string
+	st := &codexListenerState{}
+	st.handleListenerLine(marker,
+		func() { t.Error("a batch marker announced a connection") },
+		func(text string) { turns = append(turns, text) },
+		func(token string) { batches = append(batches, token) })
+
+	if len(turns) != 0 {
+		t.Errorf("the marker was forwarded to the model: %q", turns)
+	}
+	if len(batches) != 1 || batches[0] != "12" {
+		t.Fatalf("the marker must close batch 12 (the trailing stamp is not part of "+
+			"the token); batches=%q", batches)
+	}
+
+	// The wake is still owed to the connect line that follows.
+	st.handleListenerLine(connectedLineFixture, func() {},
+		func(text string) { turns = append(turns, text) }, nil)
+	if len(turns) != 1 || turns[0] != codexPostBootWake {
+		t.Fatalf("a marker consumed the once-only boot wake; turns=%q", turns)
+	}
+}
+
+// A batch that forwarded nothing still has a listener blocked on it.
+func TestEmptyBatchIsAnsweredRatherThanLeftHanging(t *testing.T) {
+	session, _, _, acks := ackSession()
+	session.closeBatch("9")
+	if got := strings.TrimSpace(acks.String()); got != "ack 9" {
+		t.Fatalf("acks = %q, want %q — the listener waits for this line", got, "ack 9")
+	}
+}
+
+// The child cannot work out for itself that its stdout is being carried by this
+// sidecar; a listener started without the flag looks perfectly healthy and loses
+// mail silently.
+func TestCodexListenerChildIsToldToWaitForAcks(t *testing.T) {
+	env := codexListenerEnv([]string{"PATH=/usr/bin", "OC_ID=m-1"})
+	var found bool
+	for _, kv := range env {
+		if kv == listenAckEnv+"=1" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the listener child was not put into ack mode: %q", env)
+	}
+	if len(env) != 3 || env[0] != "PATH=/usr/bin" || env[1] != "OC_ID=m-1" {
+		t.Fatalf("the inherited environment must survive intact: %q", env)
 	}
 }

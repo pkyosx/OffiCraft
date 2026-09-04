@@ -323,7 +323,11 @@ FR_DEADLINE=$(( $(date +%s) + $OC_SG_FRICTION_WAIT ))
 ANSWERS=""
 while [[ "$(date +%s)" -lt "$FR_DEADLINE" ]]; do
   sleep 15
-  ANSWERS="$(sg_http GET "/api/chat?member_id=$AGENT" | python3 -c '
+  # `with=`, not `member_id=`: that name was never a parameter this route
+  # declares, and since T-48 GET /api/chat REFUSES an undeclared parameter with
+  # a 400 naming it rather than ignoring it. The read had been silently
+  # unfiltered all along; it is now filtered, which is what was meant.
+  ANSWERS="$(sg_http GET "/api/chat?with=$AGENT" | python3 -c '
 import sys, json
 d = json.load(sys.stdin)
 rows = d if isinstance(d, list) else d.get("messages", d.get("chat", []))

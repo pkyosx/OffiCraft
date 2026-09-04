@@ -79,7 +79,7 @@ func TestCreateTaskOutsourceDispatchLandsUnassignedTask(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true // the scheduler is pinned separately — assert the landing
 	if err := api.dal.PutMember(Member{
-		ID: "m-dev", Name: "Dev", Kind: KindAssistant, RoleKey: "dev",
+		ID: "m-dev", Name: "Dev", Kind: KindStaff, RoleKey: "dev",
 		RosterStatus: RosterStatusActive,
 	}); err != nil {
 		t.Fatalf("seed initiator: %v", err)

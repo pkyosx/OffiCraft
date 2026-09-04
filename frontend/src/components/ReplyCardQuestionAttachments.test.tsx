@@ -130,7 +130,9 @@ describe("reply-card question attachments", () => {
         <ChatReplyCard replyCardId="rc-1" fallbackSummary="(summary)" />
       </I18nProvider>
     );
-    await findByTestId("chat-reply-card");
+    // The inline card mounts collapsed (owner 2026-09-04); the strip is part of
+    // the open card.
+    fireEvent.click(await findByTestId("chat-reply-card-expand"));
     await waitFor(() => {
       expect(
         container.querySelector(".reply-card__question-atts img")

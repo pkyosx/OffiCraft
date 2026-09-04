@@ -235,7 +235,9 @@ test.describe('B11 · attachment/content fidelity — owner⇄agent round-trip',
       headers: authHeaders(memberTok),
     });
     expect(listRes.status()).toBe(200);
-    const seen = (await listRes.json()).find((m) => m.id === sent.id);
+    // GET /api/chat answers the T-48 envelope {messages, next_cursor} on every
+    // path — never a bare array.
+    const seen = (await listRes.json()).messages.find((m) => m.id === sent.id);
     expect(seen, 'the agent must see the owner message in its thread').toBeTruthy();
     expect(seen.attachments[0].id).toBe(ref.id);
     const dl = await request.get(`${BASE}${seen.attachments[0].url}`, {

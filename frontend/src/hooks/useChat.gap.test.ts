@@ -37,7 +37,6 @@ const h = vi.hoisted(() => ({
     vi.fn<
       (w: string, limit?: number, before?: ChatCursor) => Promise<unknown[]>
     >(),
-  peekChat: vi.fn<(w: string, limit?: number) => Promise<unknown[]>>(),
   listChatReads: vi.fn(async () => [] as unknown[]),
   markChatRead: vi.fn(async () => ({}) as unknown),
   postChat: vi.fn(async () => ({}) as unknown),
@@ -47,7 +46,6 @@ const h = vi.hoisted(() => ({
 vi.mock("../api", () => ({
   api: {
     listChat: h.listChat,
-    peekChat: h.peekChat,
     listChatReads: h.listChatReads,
     markChatRead: h.markChatRead,
     postChat: h.postChat,
@@ -108,7 +106,6 @@ beforeEach(() => {
     }
     return serve(limit, before);
   });
-  h.peekChat.mockReset().mockResolvedValue([]);
   h.listChatReads.mockClear();
   h.sseHandler = null;
   hasFocusSpy = vi.spyOn(document, "hasFocus").mockReturnValue(true);
@@ -289,19 +286,20 @@ describe("useChat: giving up on a seam is NEVER silent", () => {
   });
 
   it("switching peers clears the flag (it describes ONE conversation)", async () => {
+    // A switch is a REMOUNT (T-48, R13-5) — `ChatArea` is rendered under
+    // `key={peerId}` — so the new room's flag starts where a fresh hook's does.
     push("a", 30);
-    const { result, rerender } = renderHook(({ p }) => useChat(p), {
-      initialProps: { p: "b" },
-    });
-    await waitFor(() => expect(result.current.messages).toHaveLength(30));
+    const inB = renderHook(() => useChat("b"));
+    await waitFor(() => expect(inB.result.current.messages).toHaveLength(30));
     push("x", 900);
     await emit();
-    await waitFor(() => expect(result.current.gapSuspected).toBe(true));
+    await waitFor(() => expect(inB.result.current.gapSuspected).toBe(true));
+    inB.unmount();
 
     server = [];
-    rerender({ p: "c" });
-    await waitFor(() => expect(result.current.messagesPeer).toBe("c"));
-    expect(result.current.gapSuspected).toBe(false);
+    const inC = renderHook(() => useChat("c"));
+    await waitFor(() => expect(inC.result.current.messages).toEqual([]));
+    expect(inC.result.current.gapSuspected).toBe(false);
   });
 });
 
@@ -380,8 +378,8 @@ describe("useChat: a seam that takes MORE THAN ONE backfill page", () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // OVERLAPPING LOADS (review B2). The backfill turned a load from "fetch, then
-// setThread with nothing in between" into "fetch, up to 6 round-trips, THEN
-// setThread" — and it opens that window only during a burst, i.e. exactly when
+// commit with nothing in between" into "fetch, up to 6 round-trips, THEN
+// commit" — and it opens that window only during a burst, i.e. exactly when
 // the peer is still talking and another load is most likely to start and finish
 // inside it. Measured on the unguarded code: 75 rows, none missing, none
 // duplicated, and the newest 5 rendered at the TOP of the conversation.

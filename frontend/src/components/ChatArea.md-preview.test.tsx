@@ -14,33 +14,35 @@ import type { ChatMessage } from "../api/adapter";
 
 let messages: ChatMessage[] = [];
 
+// The stand-in answers PER ROOM, like the real hook: one instance of `useChat`
+// belongs to one peer (T-48, R13-5), so another room's thread is empty here
+// rather than being the same array under a different header.
 vi.mock("../hooks/useChat", () => ({
-  useChat: () => ({
-    messages,
-    messagesPeer: "m1",
+  useChat: (withId: string) => ({
+    messages: withId === "m1" ? messages : [],
     peerLastReadTs: 0,
     send: vi.fn(() => Promise.resolve()),
     markRead: vi.fn(() => Promise.resolve()),
   }),
 }));
 
-function mkMember(): Member {
+function mkMember(id = "m1", name = "Mira"): Member {
   return {
-    id: "m1",
-    name: "Mira",
+    id,
+    name,
     role: "assistant",
     status: "online",
     lifecycle: "online",
     model: "opus",
     effort: "medium",
-    kind: "assistant",
+    kind: "staff",
     desiredMachineId: "",
     machine: null,
     account: null,
     contextPct: null,
     estimatedCost: null,
     bankedCost: null,
-    tmuxSession: "member-m1",
+    tmuxSession: `member-${id}`,
     refocusSince: null,
     lastOp: "",
     lastOpOk: null,
@@ -105,6 +107,54 @@ describe("chat .md preview action (T-a1c4 / T-7bc2)", () => {
     // Preview and download are separate: the overlay carries its own 下載 link.
     const dl = document.body.querySelector("a.md-preview__download") as HTMLAnchorElement;
     expect(dl.getAttribute("download")).toBe("design.md");
+  });
+
+  it("an open document preview does not survive the room it was opened in", async () => {
+    // 🔴 R10-1 / R11-1 — the leak the tenth review MEASURED, on the overlay that
+    // actually opens it. `ChatArea` used to be reused across conversations while
+    // `useChat` swapped its thread one commit later, so there was a paintable
+    // frame with Bruno's header over Alice's messages, and the file chip's
+    // overlay (AttachmentStrip's own state, NOT ChatArea.mdPreview) sat on top
+    // of it still showing Alice's filename and Alice's content.
+    //
+    // 🔴 WHAT CLOSES IT NOW IS THE MOUNT (T-48, R13-5). The room is entered by
+    // mounting under `key={peerId}`, so leaving it unmounts the whole subtree —
+    // chip, strip and overlay. The previous fix was a render-time filter
+    // (`shownMessages`) that refused to paint another room's messages; it went
+    // with the frame it existed for. Driven here the way `OfficePage` drives it.
+    //
+    // ⚠️ THIS TEST SUPPLIES ITS OWN KEY, so it cannot see a key removed from
+    // `OfficePage` — `lint-chat-area-key` is what goes red for that. What it
+    // still catches is an overlay that outlives whatever opened it.
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      text: async () => "# 機密",
+    })) as unknown as typeof fetch;
+    messages = [
+      msgWith([
+        { id: "a-md", url: "/api/chat/attachment/a-md", filename: "A的機密.md", mime: "text/markdown", isImage: false },
+      ]),
+    ];
+    const mira = mkMember();
+    const { container, rerender } = render(
+      <I18nProvider>
+        <ChatArea key={mira.id} member={mira} />
+      </I18nProvider>,
+    );
+    fireEvent.click(container.querySelector("button.chat__msg-file")!);
+    await waitFor(() =>
+      expect(document.body.querySelector(".md-preview")).toBeTruthy(),
+    );
+
+    // Walk into Bruno's room.
+    const bruno = mkMember("m2", "Bruno");
+    rerender(
+      <I18nProvider>
+        <ChatArea key={bruno.id} member={bruno} />
+      </I18nProvider>,
+    );
+    expect(document.body.querySelector(".md-preview")).toBeNull();
+    expect(document.body.textContent).not.toContain("A的機密.md");
   });
 
   it("carries a 複製分享連結 button that mints THIS attachment's share link", async () => {

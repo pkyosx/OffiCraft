@@ -65,7 +65,7 @@ import (
 // "looks online" and "should be online" disagree.
 func deactivatedButStillConnected(id string) Member {
 	return Member{
-		ID: id, Name: id, Kind: KindAssistant, Effort: "medium",
+		ID: id, Name: id, Kind: KindStaff, Effort: "medium",
 		DesiredState:     DesiredStateOffline,
 		DesiredMachineID: ServerSelfHost,
 		RosterStatus:     RosterStatusActive,

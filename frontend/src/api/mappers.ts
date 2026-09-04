@@ -240,7 +240,7 @@ export function toMember(w: WireMember): Member {
     actualEffort: w.actual_effort || "",
     model: w.model, // direct
     effort: (w.effort || "medium") as Effort, // direct (narrowed to union)
-    kind: w.kind, // "assistant" | "warden" | … — office roster keeps assistants only
+    kind: w.kind, // "staff" | "warden" | … — office roster keeps staff only
     desiredMachineId: w.desired_machine_id, // direct passthrough — warden↔machine resolution for teardown
     // The owner's lifecycle intent — a warden carrying "uninstall" drives the
     // machines panel's "uninstalling…" transitional state. Direct passthrough.

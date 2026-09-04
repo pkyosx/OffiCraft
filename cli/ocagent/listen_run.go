@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"os/signal"
 	"strings"
 	"syscall"
@@ -61,10 +62,24 @@ type listener struct {
 	cursorPath string
 	winddown   *windDownHook
 	recycle    *recycleHook
-	seen       *chatSeen           // persisted id-keyed unread cursor for drain_chat
-	replySeen  *replyCardSeen      // persisted answered-card dedup (drain + live delta)
-	taskSnaps  map[string]taskSnap // per-task last-seen state (the "what moved" diff)
-	once       bool                // single-connect test hook (mirrors --once)
+	// drainWarn holds the drain's two DIFFERENT latches — a mark-read receipt
+	// that did not land (once per PROCESS) and a total fetch fault (once per
+	// OUTAGE, with a line when it clears). The field was called markWarn back
+	// when there was only the first one; the second arrived and the name did
+	// not follow, which is how a reader ends up believing there is one latch
+	// with one lifetime. There are two, and their lifetimes differ on purpose —
+	// see warnMarkReadFailed and noteChatFetchFault for which is which and why.
+	//
+	// It is NOT a chat ledger: what this listener has already surfaced is the
+	// server's unread set and nothing else (T-48, rc-224dee5770dd).
+	drainWarn *drainWarner
+	// ack is the delivery gate for chat batches: non-nil ONLY when the parent
+	// asked for acks (the codex sidecar). nil ⇒ a printed line counts as
+	// delivered, which is the claude path and must stay byte-for-byte as it was.
+	ack       *ackGate
+	replySeen *replyCardSeen      // persisted answered-card dedup (drain + live delta)
+	taskSnaps map[string]taskSnap // per-task last-seen state (the "what moved" diff)
+	once      bool                // single-connect test hook (mirrors --once)
 }
 
 // newSSEStreamClient builds the long-lived HTTP client for the SSE downlink. Timeout
@@ -105,6 +120,16 @@ const (
 	noticeDisconnected = "listen: disconnected"
 	noticeConnected    = "listen: connected"
 	noticeGivingUp     = "listen: giving up"
+
+	// noticeBatch is the END-OF-BATCH marker of the ack protocol (T-48), and it
+	// is deliberately spelled with the same `listen:` head as the three notices
+	// above — for the OPPOSITE reason. Those are carved OUT of the sidecar's
+	// blanket transport filter so they reach the agent; this one must be
+	// swallowed BY it, because it is a line the two processes say to each other
+	// and not a line anybody should read. The head is what guarantees that: any
+	// `[ocagent] listen: …` line the sidecar does not recognise is dropped, so a
+	// marker can never become a turn on the model.
+	noticeBatch = "listen: batch"
 )
 
 func (l *listener) logf(format string, args ...any) {
@@ -273,11 +298,31 @@ func stationVerdict(prev, cur string, firstConnect bool) string {
 // this session just DID — drop it silently. Owner-/server-/other-member-triggered
 // frames always process; a blank/absent trigger processes too (fail-open — an older
 // server or an unknown actor must not lose wakes). Directed band frames carry no
-// trigger and are untouched by construction. EXEMPTION (spec §2.3): the `member`
-// topic is never suppressed — a member delta naming self is a lifecycle NUDGE for the
-// hooks below (prints nothing by itself), and the self-requested recycle
-// (restart_self, T-4c71) rides a SELF-triggered member delta whose recycle wake
-// must still land.
+// trigger and are untouched by construction.
+//
+// EXEMPTION ① (spec §2.3): the `member` topic is never suppressed — a member delta
+// naming self is a lifecycle NUDGE for the hooks below (prints nothing by itself),
+// and the self-requested recycle (restart_self, T-4c71) rides a SELF-triggered
+// member delta whose recycle wake must still land.
+//
+// EXEMPTION ② — `chat` (c-75113935a255, ruled by the owner). A self-triggered chat
+// delta now DOES drive the refetch. It still prints nothing: drainChat drops
+// `sender == self` rows, so what this buys is not a line but a RECEIPT — the
+// self-addressed note (in practice a hand-off a member writes to itself) is marked
+// read at the moment it is written, on the same path as everybody else's mail,
+// instead of waiting for whatever reconnect happens next.
+//
+// 🔴 ITS PRICE, PAID KNOWINGLY: every message this member sends to ITSELF now costs
+// one extra GET /api/chat, which usually comes back empty or holding only that one
+// row. One post fans exactly one chat frame to this listener (the audience is a
+// SET, and self-send collapses sender and recipient into one member), so it is one
+// refetch per self-sent message and not a multiple; the read receipt this drain
+// files fans a `chat_read` frame, which this switch has no case for, so nothing
+// cascades. The owner chose consistency between the two paths over that request.
+//
+// Suppression is unchanged for every OTHER topic, and that matters: without it a
+// member starts receiving a delta for every reply card it answers and every task it
+// moves — its own work read back to it, one line at a time.
 func (l *listener) dispatch(payload []byte) {
 	frame, _ := safeJSON(string(payload)).(map[string]any)
 	// Every line printed below belongs to THIS frame, so it reports the
@@ -287,14 +332,21 @@ func (l *listener) dispatch(payload []byte) {
 	defer l.stamp.enter(frame)()
 	topic, _ := frame["topic"].(string)
 	trigger := frameTrigger(frame)
-	if isSelfEcho(trigger, l.cfg.ID) && topic != memberTopic {
+	if isSelfEcho(trigger, l.cfg.ID) && topic != memberTopic && topic != chatTopic {
 		return // my own echo — recipient==self ∧ actor==self (spec §2.3)
 	}
 	switch topic {
-	case "chat":
+	case chatTopic:
 		// R7 HARD CONSTRAINT: the chat delta payload is convenience — NEVER merged.
 		// The delta is a pure NUDGE ⇒ REFETCH /api/chat and print the unread-for-me.
-		drainChat(l.api, l.cfg, l.seen, l.out, false)
+		//
+		// Same entrance as the connect drain, and there is nothing left to
+		// decide at either: the drain prints the server's unread set, so a delta
+		// that arrives while the connect drain is still in flight can at worst
+		// print the same window twice — and it cannot even do that, because the
+		// first of them receipts what it printed and takes it out of the unread
+		// set.
+		l.drainChatNow()
 	case replyCardTopic:
 		// R7 again: the payload ({id, from, status}) only routes — the printed
 		// answer comes from a refetch of GET /api/reply-cards/{id}.
@@ -511,11 +563,28 @@ func (l *listener) connectOnce(ctx context.Context) (opened, activity, selfExit 
 	l.logf(noticeConnected+" — streaming %s%s (⇒ online while held)%s%s%s",
 		l.cfg.Base, eventsPath, verdict, station, agent)
 
-	// Boot/reconnect drain: /api/events has no replay, so any reply_card delta
+	// Connect drain: /api/events has no replay, so any reply_card delta
 	// fanned while this listener held no stream is lost — catch up from the
 	// answered-pane authority NOW, before the live stream takes over (the
 	// shared seen state collapses a drain/delta race to one printed line).
 	drainReplyCards(l.api, l.cfg, l.replySeen, l.out)
+	// …and CHAT, for exactly the same reason. A chat message fanned during the
+	// outage window is gone from the stream too, and the only thing that used to
+	// surface it was the NEXT chat delta — so if nobody spoke again, the agent
+	// was never told anyone had called. Draining here, before the live stream
+	// takes over, is what makes "reconnected" mean "caught up".
+	//
+	// 🔴 THIS IS THE ONLY SCHEDULED CHAT DRAIN — there is none at process start
+	// (owner, 2026-09-02). Including the FIRST one of the process: a virgin
+	// machine's very first backfill happens right here, and it PRINTS (T-48 —
+	// the old silent baseline is gone with the local ledger). Tying it to the
+	// connect is what keeps an inbox from being printed into a session that is
+	// about to receive no events at all.
+	//
+	// This cannot re-print history: whichever drain surfaced a line receipted it,
+	// which took it out of the server's unread set, so a re-drain of the same
+	// window fetches nothing.
+	l.drainChatNow()
 
 	onAct := func() { activity = true }
 	if l.idleReadTimeout > 0 {
@@ -536,33 +605,48 @@ func (l *listener) connectOnce(ctx context.Context) (opened, activity, selfExit 
 	return true, activity, false, err
 }
 
+// drainChatNow is THE way this listener drains chat. Both entrances go through
+// it: every connect/reconnect (connectOnce, before the live stream takes over)
+// and every inbound chat delta (dispatch). There is deliberately no third one at
+// process start — see run().
+//
+// 🔴 NOBODY DECIDES SILENCE ANY MORE, BECAUSE THERE IS NOTHING TO DECIDE. The
+// old drain took a `silent` flag fed from a persisted local ledger, so that a
+// machine's first listen swallowed the whole inbox without printing it. That
+// ledger is gone (owner, rc-224dee5770dd): the server's unread set is the only
+// answer to "have I seen this", the drain prints everything in it, and the read
+// receipt is the only thing that takes a row out of it. A caller therefore has
+// no answer left to pass in and no way to get it wrong.
+func (l *listener) drainChatNow() int {
+	if l.drainWarn == nil {
+		l.drainWarn = &drainWarner{}
+	}
+	return drainChat(l.api, l.cfg, l.out, l.drainWarn, l.ack)
+}
+
 // run is the always-online listen loop. It blocks until ctx is cancelled or a self-exit
 // fires, re-dialing whenever the stream drops (exponential + jittered backoff, floor
 // reset when a healthy connection dropped). Returns the process exit code (always 0 —
 // listen degrades gracefully; a mis-wire / self-exit / signal is a clean 0). Mirrors
 // cmd_listen.
 func (l *listener) run(ctx context.Context) int {
-	// Boot BASELINE **or** BACKFILL — which one is decided by the PERSISTED unread
-	// cursor (chatSeen), not by the fact that this is a fresh process:
+	// 🔴 NOTHING IS DRAINED HERE. Chat catch-up hangs off the CONNECT, not off
+	// process start (owner, 2026-09-02:「啟動的時候好像不用做，就連上 SSE 的
+	// 時候統一做就好，包含 codex 應該也是類似的機制」).
 	//
-	//   - no persisted cursor (first listen for this member on this machine, or a
-	//     corrupt/unreadable file) ⇒ SILENT: advance the cursor to 'now' without
-	//     printing, so a brand-new session is not washed out by history that
-	//     predates it. This is the original behaviour, now scoped to the one case
-	//     that actually needs it.
-	//   - a persisted cursor exists ⇒ PRINT the messages that arrived since it
-	//     (bounded by chatBacklogPrintCap). /api/events has no replay, so this is
-	//     the ONLY path that can recover a message fanned while this agent held no
-	//     stream — a cold boot or a listener restarted mid-life.
+	// A boot drain runs in exactly one state the connect drain does not cover:
+	// the API answers but the stream will not open. That state is BROKEN, and
+	// printing an inbox into a session that is about to receive no events is not
+	// a rescue — it makes a machine that cannot hear anything look like one that
+	// is working, which is the failure this codebase keeps paying for. The one
+	// window a boot drain legitimately covered (messages fanned while this agent
+	// held no stream) is covered by the connect drain anyway, moments later and
+	// only once the session can actually act on what follows.
 	//
-	// Either way this runs ONCE per process, BEFORE the connect loop: a re-dial
-	// never re-enters here, and every id already surfaced is in the cursor, so a
-	// reconnect can never re-print history.
-	if l.seen == nil {
-		l.seen = loadChatSeen(chatSeenPath(l.cfg))
-	}
-	drainChat(l.api, l.cfg, l.seen, l.out, !l.seen.primed)
-
+	// Everything the boot drain used to be responsible for now happens in
+	// connectOnce: the connect drain fetches the server's unread set and prints
+	// all of it, so a listener that never got a stream also never reads — and
+	// never receipts — a single line.
 	backoff := l.backoffStart
 	for {
 		if ctx.Err() != nil {
@@ -688,7 +772,8 @@ func cmdListen(cfg Config, env func(string) string, once bool, out io.Writer) in
 		cursorPath:       cursorPath(cfg),
 		winddown:         newWindDownHook(api, cfg, out),
 		recycle:          newRecycleHook(api, cfg, out),
-		seen:             loadChatSeen(chatSeenPath(cfg)),
+		drainWarn:        &drainWarner{},
+		ack:              newAckGate(env, os.Stdin),
 		replySeen:        loadReplyCardSeen(replyCardSeenPath(cfg)),
 		taskSnaps:        map[string]taskSnap{},
 		once:             once,

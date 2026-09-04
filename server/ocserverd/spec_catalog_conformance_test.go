@@ -58,6 +58,14 @@ import (
 //	update_task_manual.display_name → HandleCreateTaskManualApiTaskManualsPost + HandleUpdateTaskManualApiTaskManualsTypeKeyPost
 //	ingest_telemetry.binaries/claude → HandleIngestTelemetryApiMonitoringTelemetryPost (the asObject reads)
 //
+// ⚠️ ONE OF THE SIX ENTRIES ABOVE IS HISTORY TWICE OVER: get_chat.peek. T-48
+// deleted the parameter outright (GET /api/chat writes no watermark on ANY
+// path, so there is nothing left to opt out of) — the handler no longer reads
+// a params.Peek, openapi no longer accepts it, and the catalog advertises no
+// such lever. The row is kept because the traced-read verdict is what the
+// repair was argued from; it is NOT a live drift entry, and the "repaid = now
+// advertised" sentence below does not apply to it.
+//
 // The last one deserves a note because it was initially GUESSED to be
 // CLI-only: binaries and claude are read in the same handler, by the same
 // asObject calls, as hardware and self_update — and those two ARE already in

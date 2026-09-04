@@ -115,7 +115,7 @@ func driverExpectedByPopulation(kind string) lifecycleDriver {
 }
 
 func lifecycleDriverCells() []lifecycleDriverCell {
-	kinds := []string{KindAssistant, KindWarden, KindOutsource}
+	kinds := []string{KindStaff, KindWarden, KindOutsource}
 	rosters := []string{RosterStatusActive, RosterStatusRemoved}
 	desireds := []string{DesiredStateOnline, DesiredStateOffline, DesiredStateUninstall}
 	activateds := []float64{0.0, 1_700_000_000.0}
@@ -197,7 +197,7 @@ func TestLifecycleTickDriver_EveryRowHasExactlyOneDriver(t *testing.T) {
 // answers for the vocabulary itself, so a new kind cannot silently inherit
 // whichever half the fall-through happens to name without somebody deciding.
 func TestLifecycleTickDriver_IsTotalOverTheKindVocabulary(t *testing.T) {
-	vocabulary := []string{KindAssistant, KindWarden, KindOutsource}
+	vocabulary := []string{KindStaff, KindWarden, KindOutsource}
 	for _, k := range vocabulary {
 		got := lifecycleTickDriverFor(Member{ID: "m-total", Kind: k})
 		if got != driverReconcile && got != driverOutsource {

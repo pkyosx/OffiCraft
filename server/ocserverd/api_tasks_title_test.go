@@ -88,8 +88,8 @@ func TestTaskTitleRoundTripsThroughTheTaskView(t *testing.T) {
 func TestTaskTitleNonExecutorIsRefusedAndNothingIsWritten(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true
-	putActiveMember(t, api, "m-creator", "Creator", KindAssistant)
-	putActiveMember(t, api, "m-exec", "Executor", KindAssistant)
+	putActiveMember(t, api, "m-creator", "Creator", KindStaff)
+	putActiveMember(t, api, "m-exec", "Executor", KindStaff)
 
 	task := createAdHocTask(t, api, "m-creator")
 	if rec := reassign(t, api, task.ID, memberTarget("m-exec"),
@@ -112,7 +112,7 @@ func TestTaskTitleNonExecutorIsRefusedAndNothingIsWritten(t *testing.T) {
 		t.Fatalf("refused write still landed: title = %q, want %q", got, standing)
 	}
 
-	putActiveMember(t, api, "m-stranger", "Stranger", KindAssistant)
+	putActiveMember(t, api, "m-stranger", "Stranger", KindStaff)
 	rec = postTaskTitle(t, api, task.ID, "m-stranger", "agent",
 		map[string]any{"title": "stranger rewrite"})
 	if rec.Code != http.StatusForbidden {
@@ -147,7 +147,7 @@ func TestTaskTitleNonExecutorIsRefusedAndNothingIsWritten(t *testing.T) {
 		map[string]any{"title": "executor rewrite"}).Code; got != http.StatusOK {
 		t.Fatalf("executor status = %d, want 200", got)
 	}
-	putMemberRow(t, api, "m-mira", KindAssistant, adminRoleKey)
+	putMemberRow(t, api, "m-mira", KindStaff, adminRoleKey)
 	if got := postTaskTitle(t, api, task.ID, "m-mira", "agent",
 		map[string]any{"title": "admin rewrite"}).Code; got != http.StatusOK {
 		t.Fatalf("admin status = %d, want 200", got)
@@ -365,8 +365,8 @@ func TestTaskTitleHistoryRetainsAndRestoresThePreviousTitle(t *testing.T) {
 // may not edit.
 func TestTaskTitleRestoreIsGatedLikeTheEdit(t *testing.T) {
 	api := newTasksTestServer(t)
-	putMemberRow(t, api, "m-exec", KindAssistant, "")
-	putMemberRow(t, api, "m-other", KindAssistant, "")
+	putMemberRow(t, api, "m-exec", KindStaff, "")
+	putMemberRow(t, api, "m-other", KindStaff, "")
 	task := createAdHocTask(t, api, "m-exec")
 	for _, title := range []string{"original wording", "replacement wording"} {
 		if got := postTaskTitle(t, api, task.ID, "m-exec", "agent",

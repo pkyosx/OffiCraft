@@ -326,6 +326,9 @@ describe("reply-card writes reconcile without any event stream", () => {
         />
       </I18nProvider>
     );
+    // Every inline card mounts collapsed (owner 2026-09-04); open it so there
+    // are chips for the stale read to try to put back.
+    fireEvent.click(container.querySelector(".reply-card__collapsed-row")!);
     await waitFor(() =>
       expect(container.querySelector(".reply-option")).toBeTruthy()
     );
@@ -551,6 +554,8 @@ describe("reply-card writes reconcile without any event stream", () => {
         />
       </I18nProvider>
     );
+    // Every inline card mounts collapsed (owner 2026-09-04); open it.
+    fireEvent.click(container.querySelector(".reply-card__collapsed-row")!);
     await waitFor(() =>
       expect(container.querySelector(".reply-option")).toBeTruthy()
     );

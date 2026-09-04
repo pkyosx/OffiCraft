@@ -196,13 +196,13 @@ test.describe('C1 · machine onboarding → agent spawn → warden-log START', (
       // ---- STEP 4: hire an assistant --------------------------------------
       const hire = await request.post(`${BASE}/api/members`, {
         headers: auth,
-        data: { name: AGENT_NAME, kind: 'assistant', model: MODEL },
+        data: { name: AGENT_NAME, kind: 'staff', model: MODEL },
       });
       expect(hire.status(), 'hire assistant must succeed').toBe(200);
       const hBody = await hire.json();
       agentId = hBody.id;
       expect(agentId, 'assistant id must be minted (m- prefix)').toMatch(/^m-/);
-      expect(hBody.kind).toBe('assistant');
+      expect(hBody.kind).toBe('staff');
 
       // ---- STEP 5: activate the assistant onto the machine ----------------
       const activate = await request.post(
@@ -404,7 +404,7 @@ test.describe('C1 · machine onboarding → agent spawn → warden-log START', (
         { headers: auth },
       );
       expect(chatRes.status(), 'chat read must succeed').toBe(200);
-      const chat = await chatRes.json();
+      const chat = (await chatRes.json()).messages;
       const frictionHits = (Array.isArray(chat) ? chat : [])
         .filter((msg) => msg && typeof msg.body === 'string' && FRICTION_RX.test(msg.body))
         .map((msg) => `ts=${msg.ts} ${msg.from}->${msg.to}: ${msg.body}`);

@@ -14,7 +14,7 @@ import "testing"
 // stamps a fresh boot_ts.
 func TestOnFirstConnectStampsBootTSWhenAbsent(t *testing.T) {
 	api, dal := newGateTestAPI(t)
-	putGateMember(t, dal, Member{ID: "bt-new", Kind: KindAssistant})
+	putGateMember(t, dal, Member{ID: "bt-new", Kind: KindStaff})
 
 	api.onFirstConnect("bt-new")
 
@@ -29,7 +29,7 @@ func TestOnFirstConnectStampsBootTSWhenAbsent(t *testing.T) {
 // unchanged so the session age keeps growing.
 func TestOnFirstConnectDoesNotResetBootTSOnReconnect(t *testing.T) {
 	api, dal := newGateTestAPI(t)
-	putGateMember(t, dal, Member{ID: "bt-flap", Kind: KindAssistant})
+	putGateMember(t, dal, Member{ID: "bt-flap", Kind: KindStaff})
 
 	// A session that connected well in the past.
 	orig := nowSecs() - 500
@@ -51,7 +51,7 @@ func TestOnFirstConnectDoesNotResetBootTSOnReconnect(t *testing.T) {
 // anchor, so the NEXT connect (a genuinely new session) re-stamps fresh.
 func TestClearSessionBootTSThenReconnectReStamps(t *testing.T) {
 	api, dal := newGateTestAPI(t)
-	putGateMember(t, dal, Member{ID: "bt-respawn", Kind: KindAssistant})
+	putGateMember(t, dal, Member{ID: "bt-respawn", Kind: KindStaff})
 
 	orig := nowSecs() - 500
 	api.gauge.Set("bt-respawn", map[string]any{"boot_ts": orig})
@@ -108,7 +108,7 @@ func TestClearSessionBootTSPreservesOtherGaugeFields(t *testing.T) {
 // the respawn's first connect re-stamps.
 func TestDispatchRobustStopClearsBootTS(t *testing.T) {
 	api, dal := newGateTestAPI(t)
-	putGateMember(t, dal, Member{ID: "bt-stop", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "bt-stop", Kind: KindStaff,
 		DesiredState: DesiredStateOnline, DesiredMachineID: "m1"})
 	api.gauge.Set("bt-stop", map[string]any{"boot_ts": nowSecs() - 500})
 

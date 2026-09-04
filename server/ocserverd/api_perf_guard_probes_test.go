@@ -49,18 +49,9 @@ func TestProbeOpenKeepsUnknownNonTerminalStatus(t *testing.T) {
 	}
 }
 
-// PROBE 2 (peek literal-true guard, mirrors TestTasksOpenParamOnlyLiteralTrueFilters):
-// only the literal "true" activates peek. Any other value must behave like the
-// plain marking list (advance the watermark).
-func TestProbePeekOnlyLiteralTrueSkipsMark(t *testing.T) {
-	for _, v := range []string{"false", "1", "TRUE", "yes"} {
-		s := &apiServer{dal: newTestDAL(t), hub: NewHub()}
-		seedTwoConversations(t, s)
-		with := "m-1"
-		peek := v
-		chatGetRec(s, "owner", HandleListChatApiChatGetParams{With: &with, Peek: &peek})
-		if wm := ownerWatermark(t, s, "m-1"); wm != 3.0 {
-			t.Fatalf("peek=%q must NOT be treated as peek (watermark should advance to 3.0), got %v", v, wm)
-		}
-	}
-}
+// PROBE 2 was the peek literal-"true" guard: only that exact string activated
+// the read-only view, anything else fell through to the marking list. T-48
+// removed both the marking list and the parameter (owner ruling, 2026-09-02),
+// so there is no string to parse and no watermark write to skip. The stronger
+// replacement — this route never writes a watermark on ANY path — lives in
+// api_chat_peek_test.go (TestChatListNeverAdvancesWatermark).

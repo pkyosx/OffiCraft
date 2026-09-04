@@ -238,7 +238,7 @@ func TestLessonsMCPGetStillServesOverTheQueryPath(t *testing.T) {
 	now := time.Now().Unix()
 	ownerTok, _ := mintJWT("owner", "owner", 300, secret, now, "")
 	if err := dal.PutMember(Member{
-		ID: "joey", Kind: KindAssistant, RoleKey: "assistant",
+		ID: "joey", Kind: KindStaff, RoleKey: "assistant",
 		DesiredState: DesiredStateOnline,
 	}); err != nil {
 		t.Fatalf("PutMember: %v", err)

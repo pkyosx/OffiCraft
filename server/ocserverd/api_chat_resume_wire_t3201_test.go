@@ -88,7 +88,7 @@ func TestResumeFacesCarryNoDocumentCapacityBlock(t *testing.T) {
 	s := newTasksTestServer(t)
 	seedMachine(t, s, "m-host-one")
 	if err := s.dal.PutMember(Member{ID: "m-reader", Name: "Reader",
-		Kind: KindAssistant, RoleKey: "r-t3201", Runtime: RuntimeClaude,
+		Kind: KindStaff, RoleKey: "r-t3201", Runtime: RuntimeClaude,
 		DesiredState: DesiredStateOnline, RosterStatus: RosterStatusActive}); err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +148,7 @@ func TestPeekTotalIsTheFiveBlocksThePayloadCarries(t *testing.T) {
 	s := newTasksTestServer(t)
 	seedMachine(t, s, "m-host-one")
 	if err := s.dal.PutMember(Member{ID: "m-reader", Name: "Reader",
-		Kind: KindAssistant, RoleKey: "r-t3201", Runtime: RuntimeClaude,
+		Kind: KindStaff, RoleKey: "r-t3201", Runtime: RuntimeClaude,
 		DesiredState: DesiredStateOnline, RosterStatus: RosterStatusActive}); err != nil {
 		t.Fatal(err)
 	}

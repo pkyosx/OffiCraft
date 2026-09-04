@@ -181,6 +181,9 @@ describe("請示卡的任務資訊 (ChatReplyCard)", () => {
         <ChatReplyCard replyCardId="rc-chat" fallbackSummary="…" />
       </I18nProvider>
     );
+    // The inline card mounts collapsed (owner 2026-09-04); the shared task row
+    // is part of the open card.
+    fireEvent.click(await findByTestId("chat-reply-card-expand"));
     const ref = await findByTestId("reply-task-ref");
     // Both surfaces render the one shared row, so the chip's removal has to
     // hold here too — asserted on this surface rather than assumed from it.
@@ -208,6 +211,7 @@ describe("請示卡的任務資訊 (ChatReplyCard)", () => {
         <ChatReplyCard replyCardId="rc-chat-order" fallbackSummary="…" />
       </I18nProvider>
     );
+    fireEvent.click(await findByTestId("chat-reply-card-expand"));
     const ref = await findByTestId("reply-task-ref");
     const card = await findByTestId("chat-reply-card");
     const summary = card.querySelector(".reply-card__summary")!;

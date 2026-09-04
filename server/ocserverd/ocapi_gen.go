@@ -765,6 +765,17 @@ type ChatInlineReplyCardDTO struct {
 	Options *[]ReplyCardOptionDTO `json:"options,omitempty"`
 }
 
+// ChatListDTO One page of the chat stream plus its continuation token — what EVERY path of “GET /api/chat“ answers since T-48.
+//
+// It replaced a bare “ChatMessageDTO“ array, which had nowhere to say "there is more in this direction". A caller could only infer exhaustion from a short page, and a page is short for reasons that have nothing to do with exhaustion — a participant filter, a “caller_only“ narrowing, an unread set spread across senders. The envelope moves that answer from inference to statement.
+type ChatListDTO struct {
+	// Messages The page, oldest→newest on every path — the SAME rows in the SAME order the bare array carried before T-48. An empty array is a real answer (a filter that matched nothing, or the end of a walk), never an error.
+	Messages []ChatMessageDTO `json:"messages"`
+
+	// NextCursor Opaque continuation token for the next page IN THIS PATH'S DIRECTION, ABSENT (or empty) when there is none. Feed it back verbatim as ``?cursor=``. Its absence is the ONLY end-of-walk signal — a page shorter than ``limit`` is not one. It encodes a ``(ts, id)`` position and never an offset, so pages cannot shift under a concurrent post; do not parse or construct one. The default listing continues TOWARDS THE OLDER and ``unread=true`` TOWARDS THE NEWER; ``ids``, ``start_id`` and ``end_id`` never carry one.
+	NextCursor *string `json:"next_cursor,omitempty"`
+}
+
 // ChatMessageDTO API representation of one “domain.ChatMessage“. The wire uses “from“ /
 // “to“; “from“ is a Python reserved word so the field is “from_“ carrying
 // the alias “from“ (FastAPI serialises by alias).
@@ -784,7 +795,7 @@ type ChatMessageDTO struct {
 	Id       string                  `json:"id"`
 	Meta     *map[string]interface{} `json:"meta,omitempty"`
 
-	// ReplyCardStatus Read-time join: the CURRENT status (``waiting`` | ``answered``) of the reply card this message carries (``meta.reply_card_id``); ``""`` when the message carries no card. Lets the inline chat card (ChatReplyCard) decide AT MOUNT whether to load eagerly (waiting — show the answer composer) or lazily (answered — collapse, fetch the full card only when the owner expands it) WITHOUT a per-card GET. NOT stored — computed each read from the card's live status (the stored ``meta`` only ever holds the id, stamped ``waiting`` at open and never updated on answer).
+	// ReplyCardStatus Read-time join: the CURRENT status (``waiting`` | ``answered``) of the reply card this message carries (``meta.reply_card_id``); ``""`` when the message carries no card. Lets the inline chat card (ChatReplyCard) label its COLLAPSED row (待回覆 / 已回覆 / 已過期) WITHOUT a per-card GET. Since T-48 (owner ruling on card rc-d8844e709f42) every chat card mounts COLLAPSED regardless of status and fetches the full card only on expand, so this field no longer decides eager-vs-lazy — it decides what the row SAYS while nothing has been fetched. TaskStepDTO.reply_card_status is UNCHANGED: the task-embedded card still decides eager-vs-lazy at mount. NOT stored — computed each read from the card's live status (the stored ``meta`` only ever holds the id, stamped ``waiting`` at open and never updated on answer).
 	ReplyCardStatus *string `json:"reply_card_status,omitempty"`
 
 	// ReplyTo The id of the message this one is REPLYING TO; ``""`` when it replies to nothing. Stamped at post time from ``ChatPostDTO.reply_to`` and never changed afterwards. IT IS THE ONLY FACT ABOUT WHETHER THIS MESSAGE IS A REPLY — non-empty means yes, and it never disappears.
@@ -4162,22 +4173,40 @@ type WorkerBootContextDTO struct {
 
 // HandleListChatApiChatGetParams defines parameters for HandleListChatApiChatGet.
 type HandleListChatApiChatGetParams struct {
-	With     *string  `form:"with,omitempty" json:"with,omitempty"`
-	Limit    *int     `form:"limit,omitempty" json:"limit,omitempty"`
-	BeforeTs *float64 `form:"before_ts,omitempty" json:"before_ts,omitempty"`
-	BeforeId *string  `form:"before_id,omitempty" json:"before_id,omitempty"`
-	Peek     *string  `form:"peek,omitempty" json:"peek,omitempty"`
+	With  *string `form:"with,omitempty" json:"with,omitempty"`
+	Limit *int    `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// CallerOnly When true, return only messages involving both the verified caller and the optional `with` participant. Omitted or false preserves the existing participant-wide result.
-	CallerOnly *bool `form:"caller_only,omitempty" json:"caller_only,omitempty"`
+	// BeforeTs DEPRECATED (T-48) — superseded by ``start_id``/``end_id``, which take a message id instead of a composite keyset cursor and can walk FORWARDS as well as back. Still honoured, still a matched pair (one without the other is 422), still never combined with the new parameters (422). Kept because the agent-side ``get_chat`` and the cockpit scrollback both still send it.
+	BeforeTs *float64 `form:"before_ts,omitempty" json:"before_ts,omitempty"`
+
+	// BeforeId DEPRECATED (T-48) — superseded by ``start_id``/``end_id``, which take a message id instead of a composite keyset cursor and can walk FORWARDS as well as back. Still honoured, still a matched pair (one without the other is 422), still never combined with the new parameters (422). Kept because the agent-side ``get_chat`` and the cockpit scrollback both still send it.
+	BeforeId *string `form:"before_id,omitempty" json:"before_id,omitempty"`
+
+	// StartId Window anchor, INCLUSIVE, walking TOWARDS THE NEWEST: return this message and the ``limit``-1 that follow it, oldest→newest. This is the direction ``before_ts``/``before_id`` cannot express — those only ever walk back, so a caller that jumped to one specific message could not load what came after it. An id no message carries is 404, not an empty page: an empty page is what a real window at the end of the stream returns, and the two must not be indistinguishable. Sending it alongside ``before_ts``/``before_id`` is 422. Sending it with an ``end_id`` that is strictly OLDER than it is 422. On this path ``limit`` must be 1..200 or the call is 422 — the legacy paths keep their own semantics. This paragraph describes the window when ``start_id`` is given ALONE; when both anchors are given together, the window rule is the one stated under ``end_id``.
+	StartId *string `form:"start_id,omitempty" json:"start_id,omitempty"`
+
+	// EndId Window anchor, INCLUSIVE, walking TOWARDS THE OLDEST: return this message and the ``limit``-1 that precede it, still answered oldest→newest. Same guardrails as ``start_id`` (404 on an unknown id, 422 when combined with ``before_ts``/``before_id``, 422 when the pair contradicts, ``limit`` bounded to 1..200 on this path). Given TOGETHER with ``start_id`` the two bound one window and ``limit`` still caps it, so a window wider than 200 rows is truncated from the ``start_id`` end rather than silently returning everything.
+	EndId *string `form:"end_id,omitempty" json:"end_id,omitempty"`
+
+	// Cursor Opaque continuation token — copy the previous response's ``next_cursor`` back VERBATIM. It encodes a ``(ts, id)`` POSITION in the stream, not an offset and not a row count, so a message posted while you are paging can neither displace a row you have not read yet nor hide one. The DIRECTION it continues in belongs to the path that minted it — TOWARDS THE OLDER for the default listing, TOWARDS THE NEWER for ``unread=true`` — and sending one to the other path is 422 rather than a silently wrong page. Sending it with ``before_ts``/``before_id`` is 422 (one keyset walk per request), and so is sending it with ``start_id``/``end_id``, which mint no cursor at all. Never construct or edit one; an unreadable token is 422, naming the parameter.
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Unread ``true`` (the STRING) selects the unread backfill: only messages addressed to the verified caller, newer than the caller's read watermark FOR THAT SENDER. ``chat_read`` is per ``(reader, peer)``, and this path compares each message against ITS OWN sender's row — never against one global watermark, which would silently drop everything older from a peer you have never opened. Answered OLDEST FIRST and ``limit`` takes the OLDEST batch, because a backfill is re-read in the order it was said; ``next_cursor`` therefore continues TOWARDS THE NEWER. What you sent to SOMEBODY ELSE is not here — ``recipient`` decides that, and it is the caller. What you addressed to YOURSELF is: it is a message sitting in your own inbox, and whether a reader wants to be shown its own note is a question about printing, answered by the reader (``ocagent`` declines to print it and files the receipt anyway). This door only answers one question: newer than my watermark for whoever sent it. Reading this CLEARS NOTHING — no path on this route writes a watermark; ``POST /api/chat/mark-read`` does. Refused with 422 alongside ``before_ts``/``before_id`` or ``start_id``/``end_id``. Any other value reads as not sent. ``limit`` keeps this route's legacy semantics on this path — 0 is an empty page, a NEGATIVE limit is uncapped and mints no cursor — not the window path's 1..200 bound.
+	Unread *string `form:"unread,omitempty" json:"unread,omitempty"`
+
+	// Sender Keep only messages this id SENT. Narrower than ``with``, which matches EITHER side of a message; the two compose (``?with=a&sender=b`` is b's half of the a-line). It is also how a caller narrows a listing to itself now that the ``caller_only`` flag is gone — and it says WHICH SIDE, which that flag could not. Not consulted on the ``ids`` path. An id nobody sent under is not an error — it answers 200 with an empty page, like any filter that matches nothing.
+	Sender *string `form:"sender,omitempty" json:"sender,omitempty"`
+
+	// Recipient Keep only messages ADDRESSED TO this id. Given together with ``sender`` the two AND, which pins one DIRECTION of one line — ``with`` alone cannot express that, because it matches either side. Not consulted on the ``ids`` path; an id nothing was addressed to answers 200 with an empty page.
+	Recipient *string `form:"recipient,omitempty" json:"recipient,omitempty"`
 
 	// Ids RE-READ SPECIFIC MESSAGES BY ID — repeatable (``?ids=<id>&ids=<id>``), returning those messages IN FULL (whole body, attachment refs and all), oldest→newest.
 	//
 	// This is what makes the wake snapshot's fold marker honest (T-a828). ``ChatMessageDTO.body_omitted_chars`` > 0 says THIS message is here with part of its text folded away and tells the reader to re-read it with get_chat — but until this parameter existed get_chat took only a peer plus a paging cursor, so there was NO WAY TO NAME THE FOLDED MESSAGE. The promise beside the fold was not keepable, which made folding a silent drop.
 	//
-	// ANSWERED ON ITS OWN: when ``ids`` is present, ``with``, ``limit``, ``before_ts``/``before_id`` and ``peek`` are NOT consulted, and a by-ids read NEVER advances a read watermark — re-reading a message you were already shown is not reading the conversation. Blank entries are dropped and duplicates collapse; an all-blank or empty set behaves exactly as if the parameter had not been sent.
+	// ANSWERED ON ITS OWN: when ``ids`` is present, ``with``, ``limit``, ``before_ts``/``before_id``, ``start_id``/``end_id``, ``cursor``, ``unread``, ``sender`` and ``recipient`` are NOT consulted, the answer carries no ``next_cursor``, and a by-ids read returns them untouched — as of T-48 NO read on this route advances a watermark at all. Blank entries are dropped and duplicates collapse; an all-blank or empty set behaves exactly as if the parameter had not been sent.
 	//
-	// SAME REACH AS THE ORDINARY LISTING (T-4e95, owner ruling). A by-ids read is NOT narrowed to the caller's own conversations. It used to refuse with 403 any id whose ``sender`` and ``recipient`` were both someone else — and that bound guarded nothing, because the ordinary listing filters on ``with`` — a PARTICIPANT — not on the caller, so the very same message was already readable by asking for that peer's line (designed behaviour; ``caller_only`` is what narrows a listing to the caller). What the stricter rule actually produced was two doors onto the same rows disagreeing about who may open them, which cost an honest caller the ability to follow a ``reply_to`` while costing a dishonest one nothing. This door now states the listing's rule rather than a stricter one of its own; ``caller_only`` remains the way to narrow a read to yourself.
+	// SAME REACH AS THE ORDINARY LISTING (T-4e95, owner ruling). A by-ids read is NOT narrowed to the caller's own conversations. It used to refuse with 403 any id whose ``sender`` and ``recipient`` were both someone else — and that bound guarded nothing, because the ordinary listing filters on ``with`` — a PARTICIPANT — not on the caller, so the very same message was already readable by asking for that peer's line (designed behaviour, not a leak). What the stricter rule actually produced was two doors onto the same rows disagreeing about who may open them, which cost an honest caller the ability to follow a ``reply_to`` while costing a dishonest one nothing. This door now states the listing's rule rather than a stricter one of its own. Narrowing a read to yourself is ``sender``/``recipient`` naming your own id — the ``caller_only`` flag that used to do it is gone, and unlike the flag those two say WHICH SIDE.
 	//
 	// ALL OR NOTHING ON AN UNKNOWN ID: an id no message carries refuses the WHOLE call with 404 and names it. Deliberately not 'skip it and return the rest': a short array is indistinguishable from the fold this parameter exists to undo, so a caller could not tell a deleted message from one it simply did not ask for.
 	//
@@ -4627,7 +4656,7 @@ type ServerInterface interface {
 	// Assemble an agent boot context + mint the member JWT (spawn seam).
 	// (POST /api/bootstrap)
 	HandleBootstrapApiBootstrapPost(w http.ResponseWriter, r *http.Request)
-	// List the chat stream (?with=<id>&limit=<n>; oldest→newest). History paging: before_ts + before_id (both together) return the limit messages strictly OLDER than that keyset cursor — a history page NEVER advances the read watermark. Re-read specific messages by id: ids=<id>&ids=<id> returns those messages in full without a peer and without a cursor; the ids schema states who may read what, the per-call limit, and what an unknown id does.
+	// List the chat stream (?with=<id>&limit=<n>; oldest→newest). Answers an OBJECT {messages, next_cursor}, never a bare array: next_cursor is opaque, send it back as cursor= for the next page, and its ABSENCE — not a short page — is the only 'nothing more' signal. Your unread backfill: unread=true returns the OLDEST unread addressed to you, judged against the per-sender watermark, and still marks nothing read. Narrow either side with sender= / recipient=. Window by message id: start_id walks TOWARDS THE NEWEST, end_id TOWARDS THE OLDEST, both inclusive. The older before_ts + before_id cursor still works but is deprecated. Re-read specific messages by id: ids=<id>&ids=<id>. THIS ROUTE NEVER MARKS ANYTHING READ (T-48) — to mark a conversation read, call mark_read explicitly.
 	// (GET /api/chat)
 	HandleListChatApiChatGet(w http.ResponseWriter, r *http.Request, params HandleListChatApiChatGetParams)
 	// Post a chat message (sender = verified JWT sub; auto SSE fan-out). “to“ must name the owner or an active AI member; unknown, removed, and machine ids are rejected. Presence is not a gate: an offline member keeps its durable mailbox.
@@ -5667,28 +5696,80 @@ func (siw *ServerInterfaceWrapper) HandleListChatApiChatGet(w http.ResponseWrite
 		return
 	}
 
-	// ------------- Optional query parameter "peek" -------------
+	// ------------- Optional query parameter "start_id" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "peek", r.URL.Query(), &params.Peek, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "start_id", r.URL.Query(), &params.StartId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
 		var requiredError *runtime.RequiredParameterError
 		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "peek"})
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "start_id"})
 		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "peek", Err: err})
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "start_id", Err: err})
 		}
 		return
 	}
 
-	// ------------- Optional query parameter "caller_only" -------------
+	// ------------- Optional query parameter "end_id" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "caller_only", r.URL.Query(), &params.CallerOnly, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "end_id", r.URL.Query(), &params.EndId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
 		var requiredError *runtime.RequiredParameterError
 		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "caller_only"})
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "end_id"})
 		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "caller_only", Err: err})
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "end_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "unread" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "unread", r.URL.Query(), &params.Unread, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "unread"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "unread", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "sender" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "sender", r.URL.Query(), &params.Sender, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "sender"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sender", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "recipient" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "recipient", r.URL.Query(), &params.Recipient, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "recipient"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "recipient", Err: err})
 		}
 		return
 	}

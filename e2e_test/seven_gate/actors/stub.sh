@@ -149,7 +149,7 @@ if ! skipped peer_message; then
   if [[ -z "$PEER" || -z "$PEER_NONCE" ]]; then
     say "🔴 ⑦ cannot run: run.sh seated no peer (OC_SG_PEER/OC_SG_PEER_NONCE empty)."
   else
-    INBOX="$(sg_http GET "/api/chat?with=$AGENT&peek=true&limit=200")"
+    INBOX="$(sg_http GET "/api/chat?with=$AGENT&limit=200")"
     if ! printf '%s' "$INBOX" | grep -qF "$PEER_NONCE"; then
       say "WARNING: the peer's message is NOT in the agent's chat. The plant and"
       say "the read have drifted apart — ⑦ would go red for a harness reason."
@@ -206,7 +206,7 @@ if ! skipped image_answer; then
   if [[ -z "$ANS" ]]; then
     say "🔴 ⑨ cannot run: run.sh planted no image (OC_SG_IMAGE_ANSWER empty)."
   else
-    ATT="$(sg_http GET "/api/chat?with=$AGENT&peek=true&limit=200" | python3 -c '
+    ATT="$(sg_http GET "/api/chat?with=$AGENT&limit=200" | python3 -c '
 import sys, json
 d = json.load(sys.stdin)
 rows = d if isinstance(d, list) else d.get("messages", d.get("chat", []))

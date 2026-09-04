@@ -46,9 +46,9 @@ func loreAcceptStack(t *testing.T) (srvURL string, dal *DAL, agentTok, adminTok,
 	now := time.Now().Unix()
 
 	for _, m := range []Member{
-		{ID: "m-accept-agent", Name: "accept-agent", Kind: KindAssistant, Effort: "medium",
+		{ID: "m-accept-agent", Name: "accept-agent", Kind: KindStaff, Effort: "medium",
 			DesiredState: DesiredStateOffline, RosterStatus: RosterStatusActive},
-		{ID: "m-accept-mira", Name: "accept-mira", Kind: KindAssistant, RoleKey: adminRoleKey,
+		{ID: "m-accept-mira", Name: "accept-mira", Kind: KindStaff, RoleKey: adminRoleKey,
 			Effort: "medium", DesiredState: DesiredStateOffline, RosterStatus: RosterStatusActive},
 		{ID: "m-accept-box", Name: "accept-box", Kind: KindWarden, Effort: "medium",
 			DesiredState: DesiredStateOffline, RosterStatus: RosterStatusActive},

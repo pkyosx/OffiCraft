@@ -69,7 +69,23 @@ export function AttachmentStrip({
   renderMeta?: (att: ChatAttachmentView) => ReactNode;
 }) {
   const { t } = useI18n();
-  const [preview, setPreview] = useState<ChatAttachmentView | null>(null);
+  // 🔴 THE OPEN PREVIEW IS AN ITEM OF THE LIST ON SCREEN, NOT A REMEMBERED
+  // OBJECT (T-48, R11-1). This used to hold the `ChatAttachmentView` itself, so
+  // the overlay outlived the list it was opened from: hand this strip another
+  // room's / another task's / another card's attachments and it kept rendering
+  // the old file's name and the old file's bytes over the new owner's screen.
+  // The tenth review measured exactly that in chat and the fix landed on
+  // `ChatArea.mdPreview`, which is a DIFFERENT overlay — the chip has always
+  // opened this one.
+  //
+  // Storing the id and looking it up makes the answer a derivation instead of a
+  // remembered fact: the preview exists only while its row is still in
+  // `attachments`, on the SAME render, with no effect to fire and no guard for
+  // anybody to forget. It also needs no notion of a "visit", which is right —
+  // three of this component's four mount points (the two reply-card strips and
+  // the task-artifacts popover) do not live in a conversation at all.
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const preview = attachments.find((a) => a.id === previewId) ?? null;
   const [shareCopiedId, setShareCopiedId] = useState<string | null>(null);
 
   if (attachments.length === 0) return null;
@@ -100,11 +116,11 @@ export function AttachmentStrip({
         role: "button",
         tabIndex: 0,
         "aria-label": t.chat.viewImageLabel,
-        onClick: () => setPreview(att),
+        onClick: () => setPreviewId(att.id),
         onKeyDown: (e: React.KeyboardEvent) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            setPreview(att);
+            setPreviewId(att.id);
           }
         },
       };
@@ -149,7 +165,7 @@ export function AttachmentStrip({
         key={itemClassName ? undefined : att.id}
         className={fileChipClassName}
         title={fullName}
-        onClick={() => setPreview(att)}
+        onClick={() => setPreviewId(att.id)}
       >
         {content}
       </button>
@@ -171,7 +187,7 @@ export function AttachmentStrip({
         )
       )}
     </div>
-    {preview && <MarkdownPreviewOverlay title={preview.filename || t.chat.downloadAttachment} url={preview.url} attachmentId={preview.backingAttachmentId ?? preview.id} mime={preview.mime} onClose={() => setPreview(null)} />}
+    {preview && <MarkdownPreviewOverlay title={preview.filename || t.chat.downloadAttachment} url={preview.url} attachmentId={preview.backingAttachmentId ?? preview.id} mime={preview.mime} onClose={() => setPreviewId(null)} />}
     </>
   );
 }

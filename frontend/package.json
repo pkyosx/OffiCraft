@@ -13,6 +13,8 @@
     "gen:msgkeys": "node scripts/gen-message-keys.mjs",
     "lint:tokens": "node scripts/check-css-tokens.mjs",
     "lint:token-roles": "node scripts/check-token-roles.mjs",
+    "lint:async-landing": "node scripts/check-async-landing-points.mjs",
+    "lint:chat-area-key": "node scripts/check-chat-area-key.mjs",
     "test": "vitest run",
     "test:ct": "playwright test -c playwright-ct.config.ts && npm run test:paint",
     "build:paint-guard": "VITE_USE_MOCK=false vite build --logLevel warn",

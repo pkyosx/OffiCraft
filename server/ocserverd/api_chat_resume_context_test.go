@@ -37,7 +37,7 @@ func resumeCtxServer(t *testing.T) *apiServer {
 		"m-quiet": "安靜",
 	} {
 		if err := api.dal.PutMember(Member{
-			ID: id, Name: name, Kind: "assistant", RosterStatus: RosterStatusActive,
+			ID: id, Name: name, Kind: "staff", RosterStatus: RosterStatusActive,
 		}); err != nil {
 			t.Fatalf("seed member %s: %v", id, err)
 		}

@@ -40,7 +40,7 @@ deltaSink 每個 burst 只做一次同步決策；coalesce 留在決策層，不
 - task 不可按單筆更新：清單列有 dep_tasks，TaskDTO 沒有；TaskCard 的依賴 chip 以清單列為準。
 - useChatUnread 只代表總聊天未讀；只有 chat 與 chat_read 都無持有項目時可跳過，其餘 topic 仍全量。
 
-GET /api/chat?with= 會前進 watermark 並回 chat_read echo；chat 用 from/to 判斷 peer，chat_read 用 reader 判斷 peer。沒有 peer 名稱時走全量路徑。
+GET /api/chat 在任何路徑都不會前進 watermark（T-48 owner 裁定：標已讀要由明確表達該意圖的 API 做，改為 POST /api/chat/mark-read；原本用來閃避這個副作用的 peek 參數同批刪除）；chat 用 from/to 判斷 peer，chat_read 用 reader 判斷 peer。沒有 peer 名稱時走全量路徑。
 
 owner unread 只由共享的 lib/ownerUnread.ts 判定：chat.to 或 chat_read.reader 指向 owner 才能改 owner badge（此述詞只回答「什麼能改 server 上的那個數字」；consumer 要據此跳過 refetch，還要自己持有的數字不是舊的——上一次 fetch 失敗過就不算，見 useChatUnread 的 staleRef）；owner 不算 roster member。每個 burst 有兩個以上候選時一律全量，單筆也不能只看事件數猜測；一則 agent↔agent 加一則給 owner 的事件會在同一 microtask 形成混合 burst，若逐則跳過會吃掉真正需要更新的那一半。
 

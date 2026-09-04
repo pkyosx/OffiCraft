@@ -152,7 +152,7 @@ func TestChatGalleryRowCarriesTheWholeSnapshotNotJustTheID(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(
-		`INSERT INTO member (id, name, kind) VALUES ('owner', 'Owner', 'assistant')`); err != nil {
+		`INSERT INTO member (id, name, kind) VALUES ('owner', 'Owner', 'staff')`); err != nil {
 		t.Fatal(err)
 	}
 	// Asymmetric on purpose: mira is the RECIPIENT here, so a swap is visible.

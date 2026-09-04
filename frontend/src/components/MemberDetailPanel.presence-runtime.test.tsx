@@ -42,7 +42,7 @@ function mkMember(over: Partial<Member> = {}): Member {
     lifecycle: "offline",
     model: "opus",
     effort: "medium",
-    kind: "assistant",
+    kind: "staff",
     desiredMachineId: "seth-m5",
     machine: "seth-m5",
     account: "eva-claude",

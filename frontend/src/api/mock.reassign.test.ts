@@ -142,7 +142,7 @@ describe("mock reassign — member target", () => {
 
     // The NEW executor is told who its predecessor is and to claim the task
     // itself. A system message, never an owner DM (T-ba04).
-    const inbox = await mockApi.peekChat("mira");
+    const inbox = await mockApi.listChat("mira");
     expect(inbox.some((m) => m.from === "system")).toBe(true);
     const notice = inbox.map((m) => m.body).join("\n");
     expect(notice).toContain(task.taskNo);
@@ -162,7 +162,7 @@ describe("mock reassign — member target", () => {
     // 🔴 IT DOES NOT NAME THE SUCCESSOR (owner 2026-08-24: 「讓他自己去查」「不管
     // 是不是 outsource」) — an outsource successor is minted later, so naming one
     // forced a fabricated placeholder into a person's grammatical slot.
-    const old = await mockApi.peekChat("someone-else");
+    const old = await mockApi.listChat("someone-else");
     expect(old.some((m) => m.from === "system")).toBe(true);
     const oldNotice = old.map((m) => m.body).join("\n");
     expect(oldNotice).toContain("此任務已轉派給新的接手人");
@@ -258,12 +258,12 @@ describe("mock reassign — outsource target", () => {
 
     // The OLD outsource worker (now kept live) is told to hand over — a system
     // message, not an owner DM.
-    const old = await mockApi.peekChat("ow-old");
+    const old = await mockApi.listChat("ow-old");
     expect(old.some((m) => m.from === "system")).toBe(true);
     expect(old.map((m) => m.body).join("\n")).toContain("此任務已轉派給");
     // The freshly-minted worker gets its OWN pairing message (it used to get
     // none) naming its predecessor + the self-flip protocol.
-    const mintedInbox = await mockApi.peekChat(minted.id);
+    const mintedInbox = await mockApi.listChat(minted.id);
     const mintedNotice = mintedInbox.map((m) => m.body).join("\n");
     expect(mintedInbox.some((m) => m.from === "system")).toBe(true);
     expect(mintedNotice).toContain("你的前任是");

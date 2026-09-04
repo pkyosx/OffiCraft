@@ -58,7 +58,7 @@ func decodeReplyQuote(t *testing.T, raw string) replyQuoteView {
 func decodeReplyQuotes(t *testing.T, raw string) map[string]replyQuoteView {
 	t.Helper()
 	var rows []replyQuoteView
-	if err := json.Unmarshal([]byte(raw), &rows); err != nil {
+	if err := json.Unmarshal(chatEnvelopeMessages(t, []byte(raw)), &rows); err != nil {
 		t.Fatalf("decode message list: %v — %s", err, raw)
 	}
 	out := map[string]replyQuoteView{}

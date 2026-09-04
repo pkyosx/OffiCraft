@@ -30,7 +30,7 @@ func newReconcileTestServer(t *testing.T) *apiServer {
 
 func testAgent(id string) Member {
 	return Member{
-		ID: id, Name: id, Kind: KindAssistant, Effort: "medium",
+		ID: id, Name: id, Kind: KindStaff, Effort: "medium",
 		DesiredState:     DesiredStateOnline,
 		DesiredMachineID: ServerSelfHost,
 		RosterStatus:     RosterStatusActive,

@@ -109,21 +109,17 @@ func (s *apiServer) workerDelegatedName(task *Task) string {
 
 // GET /api/outsource-workers — live workers (assigned + active), each with
 // its bound task's title and status, plus the CALLER's unread chat count for
-// that worker's conversation (the same UnreadCounts watermark inverse the
-// member roster serves — owner report 2026-07-14: 外包列也要有未讀紅點).
+// that worker's conversation (the same watermark inverse the member roster
+// serves — owner report 2026-07-14: 外包列也要有未讀紅點).
+//
+// 🔴 The unread number comes from s.unreadCountsForRequest — the ONE entry point
+// every unread face shares (api_helpers.go), which is the only thing allowed to
+// reach the DAL aggregate. All three unread sites in this file used to read the
+// WHOLE chat_message table plus the caller's whole chat_read set into Go and
+// fold them with domain.UnreadCounts (T-48). This one is the cockpit's
+// contractor panel: the owner pays it on every single cockpit open.
 func (s *apiServer) HandleListOutsourceWorkersApiOutsourceWorkersGet(w http.ResponseWriter, r *http.Request) {
-	actor := currentActor(r)
 	workers, err := s.dal.ListOutsourceWorkers()
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	messages, err := s.dal.ListChat()
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	receipts, err := s.dal.ListChatReads(actor, "")
 	if err != nil {
 		internalError(w, err)
 		return
@@ -133,7 +129,11 @@ func (s *apiServer) HandleListOutsourceWorkersApiOutsourceWorkersGet(w http.Resp
 		internalError(w, err)
 		return
 	}
-	unread := UnreadCounts(messages, receipts, actor)
+	unread, err := s.unreadCountsForRequest(r)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
 	// Runtime facts fold from the SAME per-actor maps the member session loop
 	// reads (api_monitoring.go): telemetry (account/cost) + gauge (context_pct),
 	// snapshot once for the whole list.
@@ -166,7 +166,6 @@ func (s *apiServer) HandleListOutsourceWorkersApiOutsourceWorkersGet(w http.Resp
 // the worker id is unknown (a released row still reads — the panel that reached
 // it via a stale route renders 「已釋放」, never a blank).
 func (s *apiServer) HandleGetOutsourceWorkerApiOutsourceWorkersIdGet(w http.ResponseWriter, r *http.Request, id string) {
-	actor := currentActor(r)
 	worker, err := s.dal.GetOutsourceWorker(id)
 	if err != nil {
 		internalError(w, err)
@@ -174,16 +173,6 @@ func (s *apiServer) HandleGetOutsourceWorkerApiOutsourceWorkersIdGet(w http.Resp
 	}
 	if worker == nil {
 		writeResolveError(w, errNotFound, "outsource worker", id)
-		return
-	}
-	messages, err := s.dal.ListChat()
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	receipts, err := s.dal.ListChatReads(actor, "")
-	if err != nil {
-		internalError(w, err)
 		return
 	}
 	machineNames, err := s.dal.MachineDisplayNames()
@@ -196,7 +185,11 @@ func (s *apiServer) HandleGetOutsourceWorkerApiOutsourceWorkersIdGet(w http.Resp
 		internalError(w, err)
 		return
 	}
-	unread := UnreadCounts(messages, receipts, actor)
+	unread, err := s.unreadCountsForRequest(r)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
 	tele := s.telemetry.Snapshot()
 	gauge := s.gauge.Snapshot()
 	accountDisplay, err := s.accountDisplayFold(r, tele)
@@ -396,18 +389,11 @@ func (s *apiServer) writeWorkerProjectionWith(w http.ResponseWriter, r *http.Req
 		internalError(w, err)
 		return
 	}
-	actor := currentActor(r)
-	messages, err := s.dal.ListChat()
+	unread, err := s.unreadCountsForRequest(r)
 	if err != nil {
 		internalError(w, err)
 		return
 	}
-	receipts, err := s.dal.ListChatReads(actor, "")
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	unread := UnreadCounts(messages, receipts, actor)
 	tele := s.telemetry.Snapshot()
 	accountDisplay, err := s.accountDisplayFold(r, tele)
 	if err != nil {

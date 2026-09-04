@@ -64,7 +64,9 @@ test.describe('T-bf82 · scrollback — top-of-thread history paging', () => {
     await expect(thread.locator('.chat__history-start')).toHaveCount(0);
     await expect(rows.first()).toContainText('history 11');
 
-    // Entering the room already marked read to the newest ts (list 即讀).
+    // Entering the room already marked read to the newest ts — ChatArea's entry
+    // read receipt (POST /api/chat/mark-read), not the listing, which since
+    // 8cd4fff9 writes no watermark on any path.
     // Snapshot the settled watermark — the history load below must not move it.
     let settled = 0;
     await expect

@@ -144,6 +144,7 @@ OC_ROUND=(
   lint-effort-vocab
   lint-shadow-claim
   lint-user-operation-contract
+  lint-chat-pushdown
   drift-ocapi
   drift-mcp-catalog
   lint-conformance-blackbox
@@ -154,6 +155,8 @@ OC_ROUND=(
   lint-ts
   lint-css-tokens
   lint-css-token-roles
+  lint-async-landing
+  lint-chat-area-key
   drift-theme-tokens
   drift-message-keys
   drift-fonts

@@ -11,7 +11,7 @@ import { ChatArea } from "./ChatArea";
 import type { Member } from "../types";
 
 vi.mock("../hooks/useChat", () => ({
-  useChat: () => ({ messages: [], messagesPeer: "m1", send: vi.fn() }),
+  useChat: () => ({ messages: [], send: vi.fn() }),
 }));
 
 const member: Member = {
@@ -22,7 +22,7 @@ const member: Member = {
   lifecycle: "online",
   model: "opus",
   effort: "medium",
-  kind: "assistant",
+  kind: "staff",
   desiredMachineId: "",
   machine: null,
   account: null,

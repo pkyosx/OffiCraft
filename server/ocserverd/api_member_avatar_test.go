@@ -324,7 +324,7 @@ func TestMemberAvatarPublishesKindSpecificSSETopic(t *testing.T) {
 		kind  string
 		topic string
 	}{
-		{name: "staff", kind: KindAssistant, topic: "member"},
+		{name: "staff", kind: KindStaff, topic: "member"},
 		{name: "outsource", kind: KindOutsource, topic: "outsource_worker"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

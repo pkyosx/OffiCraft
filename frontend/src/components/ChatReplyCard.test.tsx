@@ -13,6 +13,9 @@
 //   4. Two-way sync: an answer landing through the OTHER entry point (the
 //      等我回覆 page / another window → a reply_card delta) flips the inline
 //      card to answered without any local action.
+//   5. EVERY card in the thread — waiting ones included — mounts COLLAPSED and
+//      fetches NOTHING until it is expanded (owner 2026-09-04). 1–3 above are
+//      claims about the card once it is OPEN, so those tests expand first.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, fireEvent, waitFor, act } from "@testing-library/react";
@@ -31,7 +34,6 @@ let messages: ChatMessage[] = [];
 vi.mock("../hooks/useChat", () => ({
   useChat: () => ({
     messages,
-    messagesPeer: "mira",
     peerLastReadTs: 0,
     send: vi.fn(() => Promise.resolve()),
     markRead: vi.fn(() => Promise.resolve()),
@@ -68,7 +70,7 @@ function mkMember(): Member {
     lifecycle: "online",
     model: "opus",
     effort: "medium",
-    kind: "assistant",
+    kind: "staff",
     desiredMachineId: "",
     machine: null,
     account: null,
@@ -91,6 +93,15 @@ function renderCard(id = "rc-1") {
       <ChatReplyCard replyCardId={id} fallbackSummary="(summary)" />
     </I18nProvider>
   );
+}
+
+/** Renders a card and OPENS it — every card now mounts collapsed, and the
+ * chips/composer/answer claims below are all about the open card. The expand is
+ * the interaction, not a workaround: the assertions after it are unchanged. */
+async function renderOpenCard(id = "rc-1") {
+  const r = renderCard(id);
+  fireEvent.click(await r.findByTestId("chat-reply-card-expand"));
+  return r;
 }
 
 beforeEach(() => {
@@ -143,6 +154,11 @@ describe("ChatReplyCard", () => {
     expect(row.querySelector('[data-testid="chat-reply-card"]')).not.toBeNull();
     expect(row.querySelector(".chat__msg-bubble")).toBeNull();
 
+    // …collapsed, as every card in the thread now is. Open it: the chips and
+    // the composer are what the OPEN card owes the reader.
+    fireEvent.click(
+      row.querySelector('[data-testid="chat-reply-card-expand"]')!,
+    );
     await findAllByText("寄出");
     // Each chip WHOLE: its 1/2 ordinal, its wording and exactly the tags it
     // earned. mkCard puts ai_pick on the SECOND option, so the AI tag rides that
@@ -161,7 +177,7 @@ describe("ChatReplyCard", () => {
   // — that phrasing survives a return to the two-step interaction.
   it("one tap on a chip flips the inline card to answered (你選的 + AI 建議) and drops the waiting count", async () => {
     __injectMockReplyCard(mkCard({}));
-    const { container, findAllByText, findByTestId } = renderCard();
+    const { container, findAllByText, findByTestId } = await renderOpenCard();
     await findAllByText("寄出");
 
     // A SINGLE card (mkCard's default) answers on the CLICK — no send button
@@ -180,7 +196,8 @@ describe("ChatReplyCard", () => {
 
   it("answering via the typed composer closes the card with the free text", async () => {
     __injectMockReplyCard(mkCard({}));
-    const { getByPlaceholderText, findAllByText, findByTestId } = renderCard();
+    const { getByPlaceholderText, findAllByText, findByTestId } =
+      await renderOpenCard();
     await findAllByText("寄出");
 
     const input = getByPlaceholderText("輸入回覆…");
@@ -200,7 +217,7 @@ describe("ChatReplyCard", () => {
       })
     );
     const { container, getByText, getByPlaceholderText, findByTestId } =
-      renderCard();
+      await renderOpenCard();
     await findByTestId("final-answer");
 
     fireEvent.click(getByText("查看當初選項"));
@@ -235,7 +252,7 @@ describe("ChatReplyCard", () => {
       })
     );
     const { container, getByText, queryByPlaceholderText, findByTestId } =
-      renderCard();
+      await renderOpenCard();
     await findByTestId("final-answer");
 
     fireEvent.click(getByText("查看當初選項"));
@@ -251,7 +268,7 @@ describe("ChatReplyCard", () => {
 
   it("an answer landing through the OTHER entry point flips the inline card (reply_card delta sync)", async () => {
     __injectMockReplyCard(mkCard({}));
-    const { container, findAllByText, findByTestId } = renderCard();
+    const { container, findAllByText, findByTestId } = await renderOpenCard();
     await findAllByText("寄出");
     expect(container.querySelector(".reply-composer")).not.toBeNull();
 
@@ -275,8 +292,8 @@ describe("ChatReplyCard", () => {
     );
     const fireDelta = captureSseCallback();
     const getSpy = vi.spyOn(api, "getReplyCard");
-    const { findByTestId } = renderCard();
-    // Mount does its one unconditional refetch (initial card shape).
+    const { findByTestId } = await renderOpenCard();
+    // The expand does its one read (initial card shape).
     await findByTestId("final-answer");
     expect(getSpy).toHaveBeenCalledTimes(1);
 
@@ -292,8 +309,8 @@ describe("ChatReplyCard", () => {
     __injectMockReplyCard(mkCard({}));
     const fireDelta = captureSseCallback();
     const getSpy = vi.spyOn(api, "getReplyCard");
-    const { findAllByText } = renderCard();
-    // Mount's unconditional refetch.
+    const { findAllByText } = await renderOpenCard();
+    // The expand's one read.
     await findAllByText("寄出");
     expect(getSpy).toHaveBeenCalledTimes(1);
 
@@ -305,8 +322,8 @@ describe("ChatReplyCard", () => {
     await waitFor(() => expect(getSpy).toHaveBeenCalledTimes(2));
   });
 
-  // ── lazy-load: answered cards default NOT loaded (owner 已回覆卡預設不載) ──────
-  function renderHinted(initialStatus: "waiting" | "answered") {
+  // ── lazy-load: EVERY card defaults NOT loaded (owner 2026-09-04) ────────────
+  function renderHinted(initialStatus: "waiting" | "answered" | "expired") {
     return render(
       <I18nProvider>
         <ChatReplyCard
@@ -358,13 +375,125 @@ describe("ChatReplyCard", () => {
     expect(getSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("a WAITING-hinted card still loads eagerly on mount (waiting 卡照常)", async () => {
+  it("a WAITING-hinted card is COLLAPSED too, tagged 待回覆, and fetches nothing", async () => {
+    // 🔴 THE OWNER RULING ITSELF (2026-09-04): 待回覆的卡也跟已回覆一樣先收合.
+    // Both halves are load-bearing — the row is one line high on its first
+    // frame (so nothing below it moves), and it costs no read, which is what
+    // turns a history of dozens of cards into zero `getReplyCard`s.
     __injectMockReplyCard(mkCard({}));
     const getSpy = vi.spyOn(api, "getReplyCard");
-    const { findAllByText } = renderHinted("waiting");
+    const { findByTestId, queryByTestId, queryByPlaceholderText, container } =
+      renderHinted("waiting");
+
+    const stub = await findByTestId("chat-reply-card-expand");
+    expect(stub.textContent).toContain("待回覆");
+    expect(stub.textContent).toContain("要幫你寄出這封信嗎？");
+    expect(
+      getSpy,
+      "a waiting card read itself on mount — the collapsed row is paying for a card nobody opened",
+    ).not.toHaveBeenCalled();
+    // Nothing actionable is on screen: no chips, no composer.
+    expect(container.querySelectorAll(".reply-option")).toHaveLength(0);
+    expect(queryByPlaceholderText("輸入回覆…")).toBeNull();
+    expect(queryByTestId("final-answer")).toBeNull();
+  });
+
+  it("expanding a WAITING-hinted card fetches it once and shows the chips", async () => {
+    __injectMockReplyCard(mkCard({}));
+    const getSpy = vi.spyOn(api, "getReplyCard");
+    const { findByTestId, findAllByText, container } = renderHinted("waiting");
+
+    fireEvent.click(await findByTestId("chat-reply-card-expand"));
 
     await findAllByText("寄出");
+    expect(
+      [...container.querySelectorAll(".reply-option")].map((e) => e.textContent),
+    ).toEqual(["1寄出", "2先不要AI 建議"]);
     expect(getSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("a COLLAPSED waiting card answered elsewhere flips its tag 待回覆 → 已回覆 in place", async () => {
+    // 🔴 DELIBERATELY KEPT WHEN THE TERMINAL CARDS' SSE IMMUNITY WAS NOT. A
+    // collapsed waiting card still refetches on a reply_card delta, because the
+    // 等我回覆 page (or another window) answering it must be visible here
+    // WITHOUT the owner opening the row — the stub is the only thing on screen
+    // and a stale 待回覆 on it is a lie.
+    __injectMockReplyCard(mkCard({}));
+    const { findByTestId, container } = renderHinted("waiting");
+    const stub = await findByTestId("chat-reply-card-expand");
+    expect(stub.textContent).toContain("待回覆");
+
+    await act(async () => {
+      await api.answerReplyCard("rc-1", { optionIdxs: [0] });
+    });
+
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-testid="chat-reply-card-expand"]')
+          ?.textContent,
+      ).toContain("已回覆"),
+    );
+    // Still collapsed — the flip is a relabel, not an auto-expand.
+    expect(
+      container.querySelector("[data-reply-card-status]")
+        ?.getAttribute("data-reply-card-status"),
+    ).toBe("answered");
+    expect(container.querySelector(".reply-composer")).toBeNull();
+  });
+
+  it("an EXPIRED-hinted card is collapsed, tagged 已過期, and fetches nothing", async () => {
+    __injectMockReplyCard(mkCard({ status: "expired" }));
+    const getSpy = vi.spyOn(api, "getReplyCard");
+    const { findByTestId } = renderHinted("expired");
+
+    const stub = await findByTestId("chat-reply-card-expand");
+    expect(stub.textContent).toContain("已過期");
+    expect(getSpy).not.toHaveBeenCalled();
+  });
+
+  it("an ANSWERED-hinted card paints nothing actionable while its expand read is in flight", async () => {
+    // 🔴 THE FRAMES BETWEEN THE EXPAND AND THE RESPONSE, HELD ON PURPOSE. This
+    // used to be the seed test: a prefill cache could hand this card its
+    // PRE-ANSWER copy and the row painted option chips and a composer over an
+    // already-answered card, one click from POSTing to it. The cache is gone
+    // (owner 2026-09-04) and there is nothing left to paint from — which is
+    // what this pins, in the window where it is measurable rather than after
+    // the read has landed (every implementation passes that).
+    const mockAnswered = mkCard({
+      status: "answered",
+      answeredTs: Date.now() / 1000 - 60,
+      answer: { optionIdxs: [1], text: "", attachments: [] },
+    });
+    __injectMockReplyCard(mockAnswered);
+    const getSpy = vi.spyOn(api, "getReplyCard");
+    let release: () => void = () => {};
+    getSpy.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve(mockAnswered);
+        }),
+    );
+    const { container, findByTestId, queryByPlaceholderText } =
+      renderHinted("answered");
+
+    fireEvent.click(await findByTestId("chat-reply-card-expand"));
+
+    expect(
+      container.querySelectorAll(".reply-option"),
+      "chips were painted over an already-answered card — one click from POSTing to it",
+    ).toHaveLength(0);
+    expect(queryByPlaceholderText("輸入回覆…")).toBeNull();
+
+    await act(async () => {
+      release();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    const final = await findByTestId("final-answer");
+    expect(final.textContent).toBe("你選的AI 建議先不要");
+    expect(getSpy).toHaveBeenCalledTimes(1);
+    expect(container.querySelectorAll(".reply-option")).toHaveLength(0);
+    expect(queryByPlaceholderText("輸入回覆…")).toBeNull();
   });
 
   it("a collapsed ANSWERED-hinted card ignores an unrelated reply_card SSE delta WITHOUT fetching (seeded statusRef — T-cdf4 extended)", async () => {

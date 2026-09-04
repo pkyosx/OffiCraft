@@ -66,11 +66,11 @@
 #
 # PARAMS (env, overridable):
 #   TARGET_AGENT     seeded agent member id to zombify (default mira — the only
-#                    out-of-box spawnable KindAssistant seed; see dbseed.go).
+#                    out-of-box spawnable KindStaff seed; see dbseed.go).
 #   CONTROL_NAME     display name for the freshly-HIRED control member (default
 #                    "a1-control"). The DB seeds ONLY mira + m-server-self, so
 #                    the healthy control is created via POST /api/members (a bare
-#                    hire folds to KindAssistant — same kind as mira — and is NOT
+#                    hire folds to KindStaff — same kind as mira — and is NOT
 #                    privilege-bearing, so the owner token suffices).
 #   OWNER_PASSWORD   deterministic owner password to seed (default: random uuid).
 #   OC_A1_ZOMBIE_YES=1   REQUIRED — acknowledges this run is destructive.
@@ -357,14 +357,14 @@ log "activated TARGET $TARGET_AGENT on $SERVER_SELF_ID"
 
 # 4b. CONTROL: HIRE a fresh healthy member (the DB seeds only mira + server-self,
 #     so the control must be created). A bare hire (name only, no kind/role_key)
-#     folds to KindAssistant and is NOT privilege-bearing → owner token suffices;
+#     folds to KindStaff and is NOT privilege-bearing → owner token suffices;
 #     the server mints its id (m-<hex12>) and returns the DTO.
 HIRE_JSON="$(api_post_logged /api/members "$(py -c '
 import json,sys; print(json.dumps({"name": sys.argv[1]}))' "$CONTROL_NAME")" || echo '{}')"
 CONTROL_AGENT="$(printf '%s' "$HIRE_JSON" | json_field id)"
 [[ -n "$CONTROL_AGENT" && "$CONTROL_AGENT" != "$TARGET_AGENT" ]] \
   || fail_stage "hire control '$CONTROL_NAME' returned no distinct member id (got '$CONTROL_AGENT') — cannot run the control leg"
-log "hired CONTROL member id=$CONTROL_AGENT (name='$CONTROL_NAME', kind folds to assistant)"
+log "hired CONTROL member id=$CONTROL_AGENT (name='$CONTROL_NAME', kind folds to staff)"
 ACT2_JSON="$(api_post_logged "/api/members/$CONTROL_AGENT/activate" "{\"machine_id\":\"$SERVER_SELF_ID\"}" || echo '{}')"
 [[ -n "$(printf '%s' "$ACT2_JSON" | json_field id)" ]] \
   || fail_stage "activate control $CONTROL_AGENT on $SERVER_SELF_ID returned no member DTO"

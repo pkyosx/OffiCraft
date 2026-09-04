@@ -32,19 +32,22 @@ let loadOlderCalls = 0;
 // Optional test hook run inside loadOlder BEFORE the prepend commits (used to
 // grow the fake scrollHeight so the compensation math is observable).
 let onLoadOlder: (() => void) | null = null;
+// When true, loadOlder never settles — the hung `GET /api/chat?before=` the
+// fourth review measured (the data API has no timeout and no AbortController).
+let hangLoadOlder = false;
 
 vi.mock("../hooks/useChat", () => ({
   useChat: () => {
     const [msgs, setMsgs] = useState<ChatMessage[]>(() => initialMessages);
     return {
       messages: msgs,
-      messagesPeer: "b",
       peerLastReadTs: 0,
       send: vi.fn(() => Promise.resolve()),
       markRead: vi.fn(() => Promise.resolve()),
       hasMore,
       loadOlder: async () => {
         loadOlderCalls += 1;
+        if (hangLoadOlder) return new Promise<void>(() => {});
         onLoadOlder?.();
         setMsgs((prev) => [...olderPage, ...prev]);
       },
@@ -61,7 +64,7 @@ function mkMember(id = "b", name = "Beto"): Member {
     lifecycle: "online",
     model: "opus",
     effort: "medium",
-    kind: "assistant",
+    kind: "staff",
     desiredMachineId: "",
     machine: null,
     account: null,
@@ -109,12 +112,13 @@ function setScrollGeometry(
   });
 }
 
+const BETO = mkMember();
+const ALMA = mkMember("a", "Alma");
+
 function renderChat() {
-  const beto = mkMember();
-  const alma = mkMember("a", "Alma");
   return render(
     <I18nProvider>
-      <ChatArea member={beto} members={[beto, alma]} />
+      <ChatArea member={BETO} members={[BETO, ALMA]} />
     </I18nProvider>,
   );
 }
@@ -127,6 +131,7 @@ beforeEach(() => {
   hasMore = true;
   loadOlderCalls = 0;
   onLoadOlder = null;
+  hangLoadOlder = false;
 });
 
 describe("scroll-top history loading", () => {
@@ -184,8 +189,10 @@ describe("scroll-top history loading", () => {
     });
 
     expect(loadOlderCalls).toBe(1);
-    // History is not fresh: no chip, no unread divider.
-    expect(container.querySelector(".chat__new-msg-chip")).toBeNull();
+    // History is not fresh: no new-message preview strip, no unread divider.
+    expect(
+      container.querySelector("[data-testid='chat-new-msg-preview']"),
+    ).toBeNull();
     expect(container.querySelector(".chat__unread-divider")).toBeNull();
   });
 
@@ -262,5 +269,58 @@ describe("收折 × 分頁 — expanded inter-agent block survives a prepend", (
         .querySelector(".chat__inter-toggle")!
         .getAttribute("aria-expanded"),
     ).toBe("false");
+  });
+});
+
+describe("loadOlderAnchored", () => {
+  // 🔴 R4-3. The UI-side in-flight lock used to be a plain ref, i.e. CROSS-PEER,
+  // and the reason recorded for leaving it that way was "the try/finally
+  // releases it after one request either way". `api.listChat` has no timeout
+  // and no AbortController, so a GET that never answers held that lock for the
+  // whole session: scrollback silently stopped working in EVERY conversation,
+  // with no spinner and no error. The lock now lives in the per-conversation
+  // record, so a hung request strands only the conversation it was started on
+  // — and since R13-5 that record is built per MOUNT, which is what a room is.
+  it("上一條對話卡住的往上捲載入,不准把切過去的那一間也鎖住", async () => {
+    initialMessages = [
+      mkMsg("c2", "b", "owner", 2000),
+      mkMsg("c3", "b", "owner", 2001),
+    ];
+    hangLoadOlder = true;
+    const { container, rerender } = render(
+      <I18nProvider>
+        <ChatArea key={BETO.id} member={BETO} members={[BETO, ALMA]} />
+      </I18nProvider>,
+    );
+    const list = container.querySelector(".chat__messages")!;
+    setScrollGeometry(list, {
+      scrollHeight: 1000,
+      clientHeight: 200,
+      scrollTop: 100,
+    });
+    await act(async () => {
+      fireEvent.scroll(list);
+    });
+    expect(loadOlderCalls).toBe(1);
+
+    // Beto's page is still in the air — nothing will ever settle it.
+    await act(async () => {
+      rerender(
+        <I18nProvider>
+          <ChatArea key={ALMA.id} member={ALMA} members={[BETO, ALMA]} />
+        </I18nProvider>,
+      );
+    });
+    const almaList = container.querySelector(".chat__messages")!;
+    setScrollGeometry(almaList, {
+      scrollHeight: 1000,
+      clientHeight: 200,
+      scrollTop: 100,
+    });
+    await act(async () => {
+      fireEvent.scroll(almaList);
+    });
+
+    expect(loadOlderCalls).toBe(2);
   });
 });

@@ -233,7 +233,7 @@ func TestSticky_ConnectStampsTheLandingFromTheTokenClaim(t *testing.T) {
 	// from one that has. For staff the anchor is purely observational; the
 	// placement chain still reads it for outsource only (TestSticky_* below).
 	if err := s.dal.PutMember(Member{ID: "g-staff", Name: "staff",
-		Kind: KindAssistant, DesiredState: DesiredStateOnline,
+		Kind: KindStaff, DesiredState: DesiredStateOnline,
 		RosterStatus: RosterStatusActive}); err != nil {
 		t.Fatalf("put staff: %v", err)
 	}
@@ -259,7 +259,7 @@ func TestSticky_ConnectStampsTheLandingFromTheTokenClaim(t *testing.T) {
 	// …and an UNCORROBORATED staff claim still writes nothing: the 正身 gate is
 	// what keeps a wanderer from rewriting where a member lives, and widening
 	// the kind scope must not have widened that too.
-	staff2 := Member{ID: "g-staff2", Name: "staff2", Kind: KindAssistant,
+	staff2 := Member{ID: "g-staff2", Name: "staff2", Kind: KindStaff,
 		DesiredState: DesiredStateOnline, RosterStatus: RosterStatusActive}
 	if err := s.dal.PutMember(staff2); err != nil {
 		t.Fatalf("put staff2: %v", err)

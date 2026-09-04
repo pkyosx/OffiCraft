@@ -6,6 +6,8 @@ paths:
   - "src/components/TaskReplyCard*"
   - "src/components/TaskCardMessageBox*"
   - "src/components/ScheduledMessagesCard*"
+  - "visual-guards/chat-*"
+  - "visual-guards/stories/Chat*"
   - "src/components/replies.css"
   - "src/hooks/useChat*"
   - "src/hooks/useReplyCard*"
@@ -54,7 +56,7 @@ custom 不讀 hour、minute、day_of_week、day_of_month，也不把自己摘要
 
 ## 聊天與 composer
 
-進房時先在 render 同步 snapshot member.unreadCount，再由 listChat 清 watermark；第一則未讀是對方送給 owner 的未讀訊息中最早的一則，顯示 divider 並保留於本 session。房內新訊息只有在 owner 不在 near-bottom 時顯示浮條；點擊只跳到第一則，必須真的捲到底才清除。
+進房時先在 render 同步 snapshot member.unreadCount，再由明確的 mark-read 清 watermark（listChat 不再有這個副作用，T-48）；第一則未讀是對方送給 owner 的未讀訊息中最早的一則，顯示 divider 並保留於本 session。房內新訊息只有在 owner 不在 near-bottom 時顯示 LINE 式預覽列（寄件者＋一行內容），點擊落在**最新那一則**（T-48 前是落在第一則未見，下面還壓著沒看到的訊息）；落點**不做事後校正**（T-48 owner rc-6c27f486ef9d 具名接受「上方晚載入的內容把目標擠走」，`scrollToLatest` 只捲一次），但那句裁定點名的圖片與請示卡今天都在**來源**擋掉了——縮圖有固定框，請示卡則是**一律先收合成一列**（T-48，owner 2026-09-04 `c-6f054c1cb481`：待回覆的卡也跟已回覆一樣先不展開），那一列要顯示的東西訊息本身就帶著（summary＝訊息正文、狀態＝`reply_card_status` 提示），所以它不撈任何東西、第一幀就是最終高度；被接受的是其餘晚到內容的位移；必須真的捲到底才清除。**最新那一則不在視野內**且**沒有**新訊息時顯示回到最新箭頭，兩者不同時出現（箭頭讓位給預覽列，owner rc-72054864ff88）。⚠️ 判準量的是**最新那一列的底邊**（`lib/scrollToLatest` 的 `isLatestRowInView`），不是「容器捲到底了沒」：`.chat__messages` 是 gap 的 flex 欄且最後一列下面還有零高哨兵，所以容器底部永遠在最新那一列底下一個 gap，用容器問會在最新訊息完整可見時答「不在」（T-48：按了箭頭它不會消失，每一次）。任何把它換回 `scrollHeight - scrollTop - clientHeight <= 某個常數` 的寫法都會把那個 bug 帶回來，而且 gap 一改就沒有人會紅。
 
 ChatArea、ReplyComposer、TaskCard 訊息框都是 textarea，送出決策只由 lib/composerKeys.ts 的 enterShouldSend 提供：桌面 Enter 送出、Shift+Enter 換行；手機 Enter 換行、按鈕送出；IME composing 永不送出。autosize 上限 132px，超出由 textarea 自己捲動。
 
@@ -89,7 +91,7 @@ single 點第二個取代第一個、multi toggle,再點同一個一律取消(�
 「已選」** —— 這和上面「引文有不只一個渲染面」是同一張卡上的同一個陷阱,而且它已經
 發生過一次。顯示「你選的」的面共五個:最終答案列、「目前」標記(這兩面由三個 wrapper
 共用同一份 `ReplyCardBody`)、`TaskReplyCard` 的收合一行、`ResumeSummaryCard` 履歷卡;
-第五個 `ChatReplyCard` 收合列只印 summary,不讀答案。
+第五個 `ChatReplyCard` 收合列只印 summary,不讀答案 —— 而它現在是**每一張卡的預設樣子**,不再只有已回覆/已過期那兩種。
 
 🔴 **前端這半沒有任何機械保護**(2026-08-31 配陽性對照確認):`api/dtoParity.ts`
 不含 ReplyCard、style ownership 的 `OWNED_SHEETS` 不含 `replies.css`、payload
@@ -102,7 +104,33 @@ class 名 `.reply-tag--ai` / `.reply-option--ai` **不要改**:`TaskReplyCard` �
 
 view=full 只在 HTTP list seam 表示整個 pane 的一次請求，不上提到 adapter，也不向 agent 的 MCP tools/list 宣傳；否則 agent 會拿到一次拉整個 pane 的昂貴把手，抵消輕量摘要契約。light/default 行為不變、未知 view 回 400。等待卡的 expire 規則以 server 為準：owner/admin 或卡片作者可過期自己的 waiting 卡；其他人 403，已回答 409。
 
-hash route #office/chat/<id>/msg/<msgId> 只做一次定位與 highlight；若訊息不在最近窗口就誠實落到底。產生它的是「請示」頁的**跳到原訊息**與任務卡內嵌回覆卡的**在聊天室回覆**（外加使用者自己留存的舊 URL）；聊天氣泡引用列的**看原訊息**不走這條，它撈那一則開覆蓋層（見下方「看原訊息」一節）。⚠️ T-0b78 曾把那兩顆也改成覆蓋層，owner 2026-08-29 裁定「1 跟 2 變回去原本那樣」，**知情接受**「目標不在已載入視窗時會靜默落在最新那一則」這個代價，並把修法另案（「無法跳回去很久以前訊息的問題我們改天再說」）—— 所以不要順手替這兩顆補往回分頁、補提示或改走覆蓋層。回覆卡的 red badge 與聊天未讀互不清除；任務關聯卡共用卡身，只顯示任務標題與查看詳情連結。
+hash route #office/chat/<id>/msg/<msgId> 只做一次定位與 highlight。產生它的是「請示」頁的**跳到原訊息**與任務卡內嵌回覆卡的**在聊天室回覆**（外加使用者自己留存的舊 URL）；聊天氣泡引用列的**看原訊息**不走這條，它撈那一則開覆蓋層（見下方「看原訊息」一節）。⚠️ T-0b78 曾把那兩顆也改成覆蓋層，owner 2026-08-29 裁定「1 跟 2 變回去原本那樣」—— 所以不要順手把它們改回覆蓋層。
+
+**目標不在最近視窗時是撈，不是落到底（T-48，取代上面那一段原本的「知情接受」）。** owner 後來把那個暫緩解掉了（「都可以正確定位到該訊息」），所以這條路現在是：**進房當下就以那個 id 開窗**——`useChat(peer, jumpToMsgId)` 收到 anchor 就**完全不載最新那一頁**，ChatArea 的 jump reactor 從一個空 thread 直接打 `loadAround`（`?end_id=` 往舊、`?start_id=` 往新，兩端都含，兩頁而已，不是整條歷史）。⚠️ 這條鏈有一個**沒有機械保護的不變量**：anchor 被指定時**一定要有人真的去撈**，否則房間永遠空白；今天唯一的撈家是那個 reactor，它的 miss 分支再退回 `resetToLatest`。
+
+`loadAround` 回的是一組具名結果（`JumpOutcome`），不是 bool：`found` / `missing`（404、失敗、或**存在但屬於別條對話**——server 解析錨點不套 participant 過濾，那種 id 兩個請求都回 200＋空陣列，採用它會把聊天室寫成空白）/ `superseded`（被更晚的載入超車，**訊息還在**）/ `cancelled`（這一趟被叫停 —— 房間走了，或更晚的一次跳轉取代了它；見下面走訪那一段）。**不要把 superseded 併回 missing**：那會對著一則還在的訊息說「可能已經被清掉了」，而且跳轉閂已經用掉，沒有重試也沒有按鈕。**也不要把 cancelled 併回 superseded**：前者要 caller 什麼都不做，後者要它重排一次。畫面語言只屬於前三者（`chat.jumpTargetMissing` / `chat.jumpTargetInterrupted`），重排有上限；`cancelled` 沒有畫面語言，因為它不對讀的人說話。
+
+🔴 **跳轉是一路撈到活尾巴，而且撈完才 render（T-48 fix12，owner `rc-e1fb80065f8f`「可以直接在這票做，並且一次撈100則撈完」＋ `c-6a973512ed77`「我是指整個訊息撈完才 render」）。** `loadAround` 開完錨點窗之後，如果往新那一頁**滿了**（`CHAT_WALK_PAGE_SIZE = 100`，window 路徑的 `limit` 上限是 server 的 `chatWindowMaxLimit = 200`），就用 `fetchToLatest` 在**記憶體裡**一頁一頁往前收，直到某頁回不滿 100 為止，然後**一次** `commit`。畫面上沒有任何中間狀態。
+
+⚠️ **這一段取代了先前的「一次手勢一頁」，而那一整套機關已經刪除**：`loadNewer` 的 `human` 參數、`HUMAN_RETRY_MIN_MS` 400ms 節流、被吞手勢的 trailing 補送、`pageUnseenIdRef` 視覺閘、`lastServedAnchorRef`、`blockedInFlightRef`、`forwardExhaustedRef`、`ChatArea` 的 `session.lastScrollTop` 方向判準與 `readerAtBottom` 探針，以及護欄 `visual-guards/chat-forward-walk.ct.spec.tsx`（含它的 story／fixtures）。**它們守的問題已經不存在**（沒有人在用手勢買頁），不要因為「這段註解寫得很仔細」就把它們搬回來。
+
+`fetchToLatest` 有**兩道停**，而且都不是「界」而是終止證明：短頁（＝到尾巴）；以及**滿頁卻一列新的都沒有**（server 在自我矛盾，錨點沒有前進 ⇒ 下一通會問一模一樣的問題 ⇒ 忙迴圈）。⚠️ 這兩道只在「尾巴長得比走訪慢」的前提下才是終止證明，那個前提今天沒有被守 —— 要不要加列數／頁數上限是另一張還沒裁的卡，**不要順手加界**。它**永不 reject**：某一頁失敗就把手上收到的照樣交出去。
+
+🔴 **但它可以被叫停。** 走訪是一個對著網路跑的 `for(;;)`，所以它拿 `loadAround` 給的 `isCurrent()`——`alive`（房間／對話沒了）＋**世代票**（更晚的一次跳轉取代了它）——並且在**每一頁之前與之後**各問一次。被叫停時它回 `cancelled: true`，`loadAround` 就**什麼都不 commit**、回傳 `JumpOutcome` 的第五態 `cancelled`。⚠️ **`cancelled` 不是 `superseded`**：`superseded` 要 caller 重排一次，`cancelled` 要 caller **什麼都不做**（取代它的那一趟已經在撈了），把兩者併起來會讓讀的人早就放棄的目標又被撈一次。釘在 `useChat.scrollback.test.ts` 的「走訪途中離開房間」與「新的跳轉取代舊的」。
+
+🔴 **失敗照樣 commit，並且用 `hasNewer` 說實話。** 一次 commit 的代價是「不 commit ＝ 讀的人盯著空房間」，所以撈到一半失敗時仍然把手上有的貼上去，`hasNewer` 留 `true` —— 於是 `回到最新` 箭頭留在畫面上（唯一的出口，因為捲到極限的箱子連 scroll 事件都送不出來）、`load()` 繼續讓開、已讀水位繼續不准動。**`hasNewer` 因此變成例外狀態而不是常態，但它一行都不能刪。**
+
+🔴 **已讀水位的守衛換人了，這是 fix12 自己造出來的風險。** 以前擋 mark-read 的是 `hasNewer`，而它成立是因為讓 `hasNewer` 變 false 的每一步都是讀的人親手捲出來的 ——「握得到活尾巴」和「看過活尾巴」剛好是同一件事。現在走訪自己撈完，`hasNewer` 落地就是 false 而讀的人還停在半年前那一則上，而 `ChatArea` 那支 mark-read effect **完全不看視窗位置**。所以守衛是 `ChatArea` 的 **`tailSeen`**（讀的人有沒有真的到過這條線的底部）：跳轉開始抓時設 false，**捲進底部帶／按下回到最新或預覽列／跳轉沒中而退回底部**三者之一才設回 true。`mayMarkRead = !hasNewer && !jumpPending && tailSeen`。⚠️ **送訊息不解除它** —— 停在歷史裡送一句話不代表看過中間那幾百則。釘在 `ChatArea.anchor-entry.test.tsx` 的「走訪把中間幾百則載進來,一則都不准被標成已讀」（真 ChatArea ＋ 真 useChat，量 `markChatRead` 的 ts）與 e2e `20_chat_jump_to_origin.spec.js`（量 server 端未讀數）。
+
+錨點視窗期間（也就是走訪還沒完成、或走訪失敗停在半路）`hasNewer=true`，這時**不標已讀**、**不跑週期性/SSE 的最新頁載入**（把活尾巴併進歷史視窗會造出一段沒人撈過卻被畫成相鄰的縫），而且捲動位置反應器**不 auto-follow**（`if (!hasNewer) endRef.scrollIntoView()`）—— 不跟的條件是 `hasNewer`，**其他 auto-follow（活尾巴新訊息、自己剛送出、進房定位）一律不動**。
+
+🔴 **載入指示是一個狀態，不是每個入口各一份（owner `c-de666642e77b`「不管是進聊天室，或點選元訊息都是這樣」＋ `c-d24ebd7f8d78`「照理說應該只有改一個地方吧？」）。** `useChat` 對外的 **`initialLoading`**＝「這條對話的內容還沒到」**或**「正在走訪」，兩件事在那**一個**推導裡 OR 起來，`ChatArea` 只有**一處** render `<ChatThreadLoading />`，而且那一處問在 `messages.length` **之前**。⚠️ **順序不是格式問題**：問在後面的話，「起跳時畫面上已經有內容」的等待永遠走不到那個分支 —— 而那正是**同一間房的第二次跳到原訊息**（`OfficePage` 的 key 是 `peerId`，只換 `route.msgId` 不會 remount：第二次跳轉、瀏覽器上一頁、留存的舊連結），也正是這個功能**最長**的一段等待。⚠️ 走訪那半的旗標必須在 **commit 之前**放下，不能放在 `finally`：轉圈是**取代**訊息區的，commit 落在還是轉圈的那一幀時，ChatArea 的 jump reactor 查不到那一列，跳轉就沒有人捲。三條路（一般進房／第一次跳轉／同房第二次跳轉）由 `ChatArea.anchor-entry.test.tsx`「轉圈是一個狀態,三條路都要有」一支釘住，三個斷言刻意用 `expect.soft`，好讓「只紅一條」與「三條都紅」在輸出上分得出來。轉圈**延遲 150ms 才出現**（`CHAT_LOADING_DELAY_MS`）：快的時候完全不出現，因為閃一下比不出現更糟；那是**延遲**不是最短顯示時間，內容一到立刻消失。顏色全部走 theme token（`--color-border` / `--color-accent`），`prefers-reduced-motion` 換成脈動而不是靜止。護欄 `visual-guards/chat-thread-loading.ct.spec.tsx`（兩個入口 × 窄寬兩寬，加「一次落地」「快的時候不閃」）。
+
+📏 **成本量過了，數字在 `work/T-48-docs/fix11-render-cost.md`**（真 Chromium，附原始輸出）：`ChatArea` 沒有 virtualization，8,000 列一次載進畫面 0.58 秒 / 49 MB heap / 156k DOM 節點；**一頁一頁 commit 則是 12.4 秒**（二次式，因為每次 commit 都重跑整條）。這就是「撈完才 render」不只是偏好的原因。⚠️ 舊註解裡那句「8,000 則約兩分鐘、2.6 GB」**沒有任何產物支撐，而且重量之後不成立**，已經從 e2e spec 20 移除。
+
+回到活尾巴的路只剩一條：**`resetToLatest`**（`回到最新` 箭頭／預覽列）——**取代**不是合併，並且負責解除 anchor 的載入 hold-off（不解除的話那間房從此不再刷新）。往下捲那條走訪已經沒有對外的把手了。
+
+回覆卡的 red badge 與聊天未讀互不清除；任務關聯卡共用卡身，只顯示任務標題與查看詳情連結。
 
 ## 「回覆這則」（T-4e95，owner 2026-08-21 改設計）
 

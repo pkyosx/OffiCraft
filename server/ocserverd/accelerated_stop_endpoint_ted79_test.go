@@ -68,7 +68,7 @@ func TestAcceleratedStop_RefusesAMemberNobodyHasAskedToStop(t *testing.T) {
 	api, dal := newGateTestAPI(t)
 
 	t.Run("online, nothing winding down", func(t *testing.T) {
-		putGateMember(t, dal, Member{ID: "as-idle", Kind: KindAssistant,
+		putGateMember(t, dal, Member{ID: "as-idle", Kind: KindStaff,
 			DesiredState: DesiredStateOnline})
 		defer online(t, api, "as-idle")()
 
@@ -84,7 +84,7 @@ func TestAcceleratedStop_RefusesAMemberNobodyHasAskedToStop(t *testing.T) {
 	})
 
 	t.Run("no live session", func(t *testing.T) {
-		putGateMember(t, dal, Member{ID: "as-offline", Kind: KindAssistant,
+		putGateMember(t, dal, Member{ID: "as-offline", Kind: KindStaff,
 			DesiredState: DesiredStateOffline, StoppingSince: 1000})
 		if rec := doAcceleratedStop(api, "as-offline"); rec.Code != http.StatusConflict {
 			t.Fatalf("want 409, got %d — a countdown nobody is connected to hear is "+
@@ -93,7 +93,7 @@ func TestAcceleratedStop_RefusesAMemberNobodyHasAskedToStop(t *testing.T) {
 	})
 
 	t.Run("already cut off by 強制停止", func(t *testing.T) {
-		putGateMember(t, dal, Member{ID: "as-forced", Kind: KindAssistant,
+		putGateMember(t, dal, Member{ID: "as-forced", Kind: KindStaff,
 			DesiredState: DesiredStateOffline, StoppingSince: 1000, ForcedStopAt: 1000})
 		defer online(t, api, "as-forced")()
 		if rec := doAcceleratedStop(api, "as-forced"); rec.Code != http.StatusConflict {
@@ -108,7 +108,7 @@ func TestAcceleratedStop_RefusesAMemberNobodyHasAskedToStop(t *testing.T) {
 // below is new and all of them have to be the same number.
 func TestAcceleratedStop_下線Arm_ClockAndSentenceAreOneNumber(t *testing.T) {
 	api, dal := newGateTestAPI(t)
-	putGateMember(t, dal, Member{ID: "as-soft", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "as-soft", Kind: KindStaff,
 		DesiredState: DesiredStateOffline, StoppingSince: 1000})
 	defer online(t, api, "as-soft")()
 
@@ -171,7 +171,7 @@ func TestAcceleratedStop_下線Arm_ClockAndSentenceAreOneNumber(t *testing.T) {
 func TestAcceleratedStop_換手Arm_RestampsSoTheDeadlineIsNotAlreadyGone(t *testing.T) {
 	api, dal := newGateTestAPI(t)
 	long := nowSecs() - 10_000
-	putGateMember(t, dal, Member{ID: "as-recycle", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "as-recycle", Kind: KindStaff,
 		DesiredState: DesiredStateOnline, RefocusSince: long, RefocusOp: refocusOpRefocus})
 	defer online(t, api, "as-recycle")()
 
@@ -207,7 +207,7 @@ func TestAcceleratedStop_ReadsTheSameGraceTheSecondContextThresholdDoes(t *testi
 	api.acceleratedGraceSecs = changed
 	api.settingsMu.Unlock()
 
-	putGateMember(t, dal, Member{ID: "as-grace", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "as-grace", Kind: KindStaff,
 		DesiredState: DesiredStateOffline, StoppingSince: 1000})
 	defer online(t, api, "as-grace")()
 	if rec := doAcceleratedStop(api, "as-grace"); rec.Code != 200 {

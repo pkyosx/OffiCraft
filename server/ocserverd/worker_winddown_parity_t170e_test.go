@@ -253,7 +253,7 @@ func TestWorkerWindDownLadder_RestartSelfMayNotUndoAnAcceleratedStopEither(t *te
 // with the SAME agent_token_ttl as a staff member's (worker_spawn.go), so it
 // dies exactly the same way — and every step of the close-out is an MCP call on
 // that token. tokenExpiryOf refused to answer for anything that was not
-// KindAssistant, which silently swept outsource in with warden.
+// KindStaff, which silently swept outsource in with warden.
 func TestTokenExpiry_AnOutsourceSessionIsDerivableToo(t *testing.T) {
 	s := newReconcileTestServer(t)
 	ttl := s.agentTokenTTLValue()

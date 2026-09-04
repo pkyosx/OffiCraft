@@ -423,13 +423,6 @@
       "skip_reason": "GET: reads this member's row back through getJSON — no request body"
     },
     {
-      "id": "ocagent-run-1",
-      "source": "cli/ocagent/listen_run.go",
-      "callsite": "drainChat(l.api, l.cfg, l.seen, l.out, false)",
-      "kind": "seam",
-      "seam_reason": "hop: drains the chat backlog through fetchChat — a GET. No POST below it. (It used to add 'the presence POST is reached from the wind-down hook' — that POST and that hook's sends are both gone since T-a9d6.)"
-    },
-    {
       "id": "ocagent-run-2",
       "source": "cli/ocagent/listen_run.go",
       "callsite": "handleReplyCard(l.api, l.cfg, frame, l.replySeen, trigger, l.out)",
@@ -453,9 +446,9 @@
     {
       "id": "ocagent-run-6",
       "source": "cli/ocagent/listen_run.go",
-      "callsite": "drainChat(l.api, l.cfg, l.seen, l.out, !l.seen.primed)",
+      "callsite": "drainChat(l.api, l.cfg, l.out, l.drainWarn, l.ack)",
       "kind": "seam",
-      "seam_reason": "hop: drains the chat backlog through fetchChat — a GET. No POST below it. (It used to add 'the presence POST is reached from the wind-down hook' — that POST and that hook's sends are both gone since T-a9d6.)"
+      "seam_reason": "hop: the ONE place chat is drained since T-48 — both entrances (every connect and a chat delta) call l.drainChatNow(), which calls this. It is a GET (fetchChat), and since T-48 there IS a POST below it: the read receipt filed after the lines are printed. That POST is claimed by ocagent-chat-mark-read; this row stays a seam because the body is built there, not here."
     },
     {
       "id": "ocagent-run-7",
@@ -509,7 +502,7 @@
     {
       "id": "codex-hop-4",
       "source": "cli/ocwarden/codex_session.go",
-      "callsite": "s.reportIdentity()\n\t\t\t\t\ts.requestRateLimits()\n\t\t\t\t\tidentityHeartbeat.Reset(codexTelemetryThrottle)\n\t\t\t\t},\n\t\t\t\ts.openListenerTurn)",
+      "callsite": "s.reportIdentity()\n\t\t\t\t\ts.requestRateLimits()\n\t\t\t\t\tidentityHeartbeat.Reset(codexTelemetryThrottle)\n\t\t\t\t},\n\t\t\t\ts.openListenerTurn, s.closeBatch)",
       "kind": "seam",
       "seam_reason": "hop to the codex identity POST declared by codex-identity. The anchor deliberately runs to the CLOSING argument of handleListenerLine rather than stopping at requestRateLimits: independent review swapped that third argument for a no-op `func(string) {}` and every codex member went permanently silent — no notice, no chat event, no task event ever became a turn — with all three Go suites AND this guard green. Deleting the whole call was already caught here by accident (the reportIdentity/requestRateLimits pair lives in the closure); replacing one argument was caught by nothing. Pinning `s.openListenerTurn)` inside the anchor is what makes that swap red."
     },
@@ -814,6 +807,38 @@
       "callsite": "w.verify, w.writeTok",
       "kind": "seam",
       "seam_reason": "The other half of the same copy: the probe seam read OUT of the wiring struct. One row per send is why the two sides of one assignment are two rows."
+    },
+    {
+      "id": "ocagent-chat-mark-read-seam",
+      "source": "cli/ocagent/listen.go",
+      "callsite": "reportChatRead(client, cfg, show, warn, out)",
+      "kind": "seam",
+      "seam_reason": "Hands drainChat's just-printed lines to the read-receipt reporter and puts nothing on the wire itself — the grouping by sender and the send both happen inside reportChatRead, whose postJSON call is declared as ocagent-chat-mark-read."
+    },
+    {
+      "id": "ocagent-chat-mark-read",
+      "source": "cli/ocagent/listen.go",
+      "callsite": "postJSON(client, cfg, markReadPath, map[string]any{",
+      "kind": "json",
+      "method": "post",
+      "path": "/api/chat/mark-read",
+      "request_schema": "#/components/schemas/MarkChatReadDTO",
+      "wire_test": "cli/ocagent/listen_markread_test.go",
+      "wire_needle": "if bad := schemaViolations(body, declared); len(bad) > 0 {"
+    },
+    {
+      "id": "ocagent-run-1",
+      "source": "cli/ocagent/listen_run.go",
+      "callsite": "l.drainChatNow()\n\tcase replyCardTopic:",
+      "kind": "seam",
+      "seam_reason": "chat delta arrives — hop: one of the two entrances to l.drainChatNow() (T-48 centralised them). The body-bearing send below it is the read receipt, claimed by ocagent-chat-mark-read; the wire GET is claimed by ocagent-run-6. This line itself puts nothing on the wire."
+    },
+    {
+      "id": "ocagent-run-9",
+      "source": "cli/ocagent/listen_run.go",
+      "callsite": "l.drainChatNow()\n\n\tonAct := func() { activity = true }",
+      "kind": "seam",
+      "seam_reason": "every connect/reconnect (T-48: closes the outage gap) — hop: one of the two entrances to l.drainChatNow() (T-48 centralised them). The body-bearing send below it is the read receipt, claimed by ocagent-chat-mark-read; the wire GET is claimed by ocagent-run-6. This line itself puts nothing on the wire."
     }
   ]
 }

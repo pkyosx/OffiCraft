@@ -44,7 +44,7 @@ func online(t *testing.T, api *apiServer, id string) func() {
 
 func TestRestartSelfStampsRefocusWhenOnlineAndPastLivenessFloor(t *testing.T) {
 	api, dal := newGateTestAPI(t)
-	putGateMember(t, dal, Member{ID: "rs-ok", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "rs-ok", Kind: KindStaff,
 		DesiredState: DesiredStateOnline})
 	defer online(t, api, "rs-ok")()
 	// A session that connected well before the liveness floor.
@@ -65,7 +65,7 @@ func TestRestartSelfStampsRefocusWhenOnlineAndPastLivenessFloor(t *testing.T) {
 
 func TestRestartSelfRefusesWithinLivenessFloor(t *testing.T) {
 	api, dal := newGateTestAPI(t)
-	putGateMember(t, dal, Member{ID: "rs-fresh", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "rs-fresh", Kind: KindStaff,
 		DesiredState: DesiredStateOnline})
 	defer online(t, api, "rs-fresh")()
 	// A session that connected 1 minute ago — inside the 10-minute floor.
@@ -83,7 +83,7 @@ func TestRestartSelfRefusesWithinLivenessFloor(t *testing.T) {
 
 func TestRestartSelfRefusesWhenOffline(t *testing.T) {
 	api, dal := newGateTestAPI(t)
-	putGateMember(t, dal, Member{ID: "rs-off", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "rs-off", Kind: KindStaff,
 		DesiredState: DesiredStateOnline})
 	// No hub connection → not online. boot_ts old enough that the liveness
 	// floor would pass, proving the 409 is the ONLINE gate, not the floor.
@@ -101,7 +101,7 @@ func TestRestartSelfRefusesWhenOffline(t *testing.T) {
 
 func TestRestartSelfMissingBootTsFailsOpen(t *testing.T) {
 	api, dal := newGateTestAPI(t)
-	putGateMember(t, dal, Member{ID: "rs-noboot", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "rs-noboot", Kind: KindStaff,
 		DesiredState: DesiredStateOnline})
 	defer online(t, api, "rs-noboot")()
 	// No gauge entry → no boot_ts (server-restart amnesia): the liveness guard

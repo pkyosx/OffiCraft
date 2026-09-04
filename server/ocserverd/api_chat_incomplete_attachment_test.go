@@ -71,7 +71,7 @@ func TestIncompleteAttachmentIsRefusedOnEveryFace(t *testing.T) {
 		t.Fatalf("read back the stream: %d %s", status, resp)
 	}
 	var stream []map[string]any
-	if err := json.Unmarshal([]byte(resp), &stream); err != nil {
+	if err := json.Unmarshal(chatEnvelopeMessages(t, []byte(resp)), &stream); err != nil {
 		t.Fatalf("chat stream is not a list: %v (%s)", err, resp)
 	}
 	if len(stream) != 0 {

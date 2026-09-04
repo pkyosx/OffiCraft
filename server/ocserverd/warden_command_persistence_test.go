@@ -256,7 +256,7 @@ func TestWardenCommandQueue_ReDecidableVerbsStayVolatile(t *testing.T) {
 	// Real roster rows so the whole-database scan below has cells to inspect —
 	// a canary over an empty schema proves nothing.
 	putGateMember(t, dal, Member{ID: "mach-a", Kind: KindWarden})
-	putGateMember(t, dal, Member{ID: "m-1", Kind: KindAssistant})
+	putGateMember(t, dal, Member{ID: "m-1", Kind: KindStaff})
 	api := bootServer(t, dal)
 
 	start, err := directedFrameText(wardenCommandTopic, wardenCommandFrame{

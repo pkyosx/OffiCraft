@@ -44,11 +44,17 @@
 //           cannot express. So the multi leg ticks, ASSERTS THE CARD IS STILL
 //           WAITING, and only then sends.
 //
-//   (3) THE CHIP'S LEADING MARK IS THE CARD KIND, WORDLESSLY. The 1/2/3/4
-//       ordinal is gone: a multi card's options carry tick boxes, a single
-//       card's carry radios (owner: 「那個1, 2, 3, 4直接變成打勾的嗎」), and a
-//       line above the options says what a press will DO — the only thing
-//       standing between "I tapped to see" and an answer that is one-shot.
+//   (3) THE CHIP'S LEADING MARK IS THE CARD KIND, WORDLESSLY. A multi card's
+//       options carry TICK BOXES (owner: 「那個1, 2, 3, 4直接變成打勾的嗎」);
+//       a single card's keep the 1/2/3/4 ORDINAL. ⚠️ This paragraph used to say
+//       the ordinal was gone and that a single card carried radios — owner
+//       reverted that on 2026-08-31 (「單選可以跟之前一樣顯示 1, 2, 3, 4 就好嘛?」,
+//       see ReplyCardBody's note: the radio's selected ring was a state a
+//       one-tap card can never be seen in), and this file's own assertions
+//       (「a single-select card numbers its options again」 / 「and no ordinals」)
+//       have pinned it ever since. A line above the
+//       options says what a press will DO — the only thing standing between
+//       "I tapped to see" and an answer that is one-shot.
 //
 // ⚠ HISTORY (found while writing this spec; FIXED since): the http adapter's
 // subscribeEvents() used to open its OWN EventSource per subscriber — App
@@ -172,6 +178,14 @@ async function stage(scope, idx) {
 // not look at any POST: the owner's question is 「我點了一下，事情有沒有成？」.
 async function tapOption(scope, idx) {
   await chip(scope, idx).click();
+}
+
+// CHAT SURFACE ONLY. Since owner c-6f054c1cb481 (2026-09-04) every card in a
+// chat thread mounts COLLAPSED — one row, no options, no composer — so the
+// reader opens it before there is anything to press. The 請示 page and the
+// task-page embed did NOT change; do not call this on those.
+async function expandChatCard(chatCard) {
+  await chatCard.getByTestId('chat-reply-card-expand').click();
 }
 
 // The card's ONE send button (ReplyComposer). `scope` must already be narrowed
@@ -397,6 +411,7 @@ test.describe('B13 · reply cards — SPEC full loop over real UI + API', () => 
     const chatCardB = chatCardOf(page, cardB);
     await expect(chatCardB).toBeVisible();
     await expect(chatCardB).toContainText(summaryB);
+    await expandChatCard(chatCardB);
     await expect(chatCardB.getByTestId('reply-option')).toHaveCount(1);
     await expect(chip(chatCardB, 0)).toContainText('AI 建議');
     const counterQuestion = '哪一台伺服器?先給我主機名稱。';
@@ -433,6 +448,9 @@ test.describe('B13 · reply cards — SPEC full loop over real UI + API', () => 
       chatCardC,
       'a card opened mid-conversation must appear inline live (SSE)',
     ).toBeVisible({ timeout: 15_000 });
+    // Opened BEFORE the answer POST below, on purpose: the flip this leg pins
+    // has to happen on a card the owner is already looking at.
+    await expandChatCard(chatCardC);
     await expectBadge(page, baseWaiting + 1); // the badge follows live too
     const answerRes = await request.post(
       `${BASE}/api/reply-cards/${cardC.id}/answer`,
@@ -616,6 +634,10 @@ test.describe('B13 · reply cards — SPEC full loop over real UI + API', () => 
     const chatCard2 = chatCardOf(page, card2);
     await expect(chatCard1, 'card 1 must mount inline').toBeVisible();
     await expect(chatCard2, 'card 2 must mount inline ALONGSIDE card 1').toBeVisible();
+    // BOTH opened before either is answered — the pool bug this guards needs
+    // two live card subscribers mounted at the same time.
+    await expandChatCard(chatCard1);
+    await expandChatCard(chatCard2);
 
     // Answer card 1 with ONE tap on a chip — the POST must complete, not hang.
     await tapOption(chatCard1, 0);

@@ -48,7 +48,7 @@ func reExec(api *apiServer) {
 // the agent has reconnected.
 func TestSessionAnchorSurvivesAServerReExec(t *testing.T) {
 	api, dal := newGateTestAPI(t)
-	putGateMember(t, dal, Member{ID: "sa-live", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "sa-live", Kind: KindStaff,
 		DesiredState: DesiredStateOnline})
 
 	// A session that booted hours ago.
@@ -94,7 +94,7 @@ func TestSessionAnchorSurvivesAServerReExec(t *testing.T) {
 // take effect for a session that was ALREADY RUNNING when the station upgraded.
 func TestRestartSelfIsAllowedForASessionThatSurvivedAReExec(t *testing.T) {
 	api, dal := newGateTestAPI(t)
-	putGateMember(t, dal, Member{ID: "sa-rs", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "sa-rs", Kind: KindStaff,
 		DesiredState: DesiredStateOnline})
 
 	// The session booted well before the floor — the three reporters were
@@ -139,7 +139,7 @@ func TestContextHighAutoRecycleIsNotSuppressedAfterAReExec(t *testing.T) {
 	if ctxhigh.MinBootSecs <= 0 {
 		t.Skip("boot-storm guard disabled by config — nothing to suppress")
 	}
-	putGateMember(t, dal, Member{ID: "sa-ch", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "sa-ch", Kind: KindStaff,
 		DesiredState: DesiredStateOnline, Runtime: RuntimeClaude})
 	m, _ := dal.GetMember("sa-ch")
 	m.SessionBootTS = now - (ctxhigh.MinBootSecs + 3600)
@@ -223,7 +223,7 @@ func TestWorkerAutoHandoverIsNotSuppressedAfterAReExec(t *testing.T) {
 // may make a real respawn storm possible.
 func TestGenuinelyFreshSessionIsStillRefused(t *testing.T) {
 	api, dal := newGateTestAPI(t)
-	putGateMember(t, dal, Member{ID: "sa-fresh", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "sa-fresh", Kind: KindStaff,
 		DesiredState: DesiredStateOnline})
 	defer online(t, api, "sa-fresh")()
 
@@ -246,7 +246,7 @@ func TestGenuinelyFreshSessionIsStillRefused(t *testing.T) {
 // used to hide this by wiping the gauge, and it no longer does.
 func TestSessionBoundaryClearsTheDurableAnchorSoARebirthIsNotWavedThrough(t *testing.T) {
 	api, dal := newGateTestAPI(t)
-	putGateMember(t, dal, Member{ID: "sa-reborn", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "sa-reborn", Kind: KindStaff,
 		DesiredState: DesiredStateOnline})
 
 	// An hours-old session.
@@ -283,7 +283,7 @@ func TestSessionBoundaryClearsTheDurableAnchorSoARebirthIsNotWavedThrough(t *tes
 // crossed must leave the anchor exactly where it is, in BOTH stores.
 func TestMidSessionFlapStillDoesNotMoveTheAnchor(t *testing.T) {
 	api, dal := newGateTestAPI(t)
-	putGateMember(t, dal, Member{ID: "sa-flap", Kind: KindAssistant})
+	putGateMember(t, dal, Member{ID: "sa-flap", Kind: KindStaff})
 
 	api.onFirstConnect("sa-flap")
 	orig := mustMember(t, dal, "sa-flap").SessionBootTS
@@ -308,7 +308,7 @@ func TestMidSessionFlapStillDoesNotMoveTheAnchor(t *testing.T) {
 // never forwards — forwards is the defect.
 func TestAPreExistingGaugeAnchorIsAdoptedNotOverwritten(t *testing.T) {
 	api, dal := newGateTestAPI(t)
-	putGateMember(t, dal, Member{ID: "sa-adopt", Kind: KindAssistant})
+	putGateMember(t, dal, Member{ID: "sa-adopt", Kind: KindStaff})
 
 	orig := nowSecs() - 5000
 	api.gauge.Set("sa-adopt", map[string]any{"boot_ts": orig})
@@ -361,7 +361,7 @@ func TestAnchorRoundTripsThroughTheWorkerProjection(t *testing.T) {
 // reason.
 func TestSessionAnchorIsWiredIntoTheRealConnectEdge(t *testing.T) {
 	api, dal := newGateTestAPI(t)
-	putGateMember(t, dal, Member{ID: "sa-wire", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "sa-wire", Kind: KindStaff,
 		DesiredState: DesiredStateOnline})
 
 	// Drive GET /api/events with an already-cancelled context: the handler runs

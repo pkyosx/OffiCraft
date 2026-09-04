@@ -105,7 +105,7 @@ func TestRenewIsRefusedToEveryCallerThatIsNotAnActiveMachine(t *testing.T) {
 		DesiredState: DesiredStateOffline, RosterStatus: RosterStatusActive,
 	})
 	putTestMember(t, api, Member{
-		ID: "m-person", Name: "a member", Kind: KindAssistant, Effort: "medium",
+		ID: "m-person", Name: "a member", Kind: KindStaff, Effort: "medium",
 		DesiredState: DesiredStateOffline, RosterStatus: RosterStatusActive,
 	})
 

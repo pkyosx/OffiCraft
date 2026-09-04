@@ -470,7 +470,7 @@ func wakeTimedOutMember(t *testing.T, dal *DAL, id string) {
 	t.Helper()
 	no := false
 	putGateMember(t, dal, Member{
-		ID: id, Kind: KindAssistant, DesiredState: DesiredStateOnline,
+		ID: id, Kind: KindStaff, DesiredState: DesiredStateOnline,
 		LastOp: reconcileCmdStart, LastOpOK: &no, LastOpAt: 1000,
 		LastOpReason: wakeTimeoutReasonCode + ": the START never reached machine " +
 			"\"mach-a\" — its SSE stream failed mid-delivery",
@@ -560,7 +560,7 @@ func TestFoldCommandResult_OrdinaryReceiptUnchanged(t *testing.T) {
 	api, dal := newGateTestAPI(t)
 	no := false
 	putGateMember(t, dal, Member{
-		ID: "m-1", Kind: KindAssistant, DesiredState: DesiredStateOnline,
+		ID: "m-1", Kind: KindStaff, DesiredState: DesiredStateOnline,
 		LastOp: "start", LastOpOK: &no, LastOpAt: 1000,
 		LastOpReason: "spawn_failed: earlier failure", LastOpLog: "earlier log",
 	})

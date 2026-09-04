@@ -123,7 +123,7 @@ def test_card_opens_waiting_and_rides_the_chat_stream(client, owner_token, asker
         f"/api/chat?with={asker.member_id}&limit=-1", headers=_auth(owner_token)
     )
     assert r.status_code == 200, r.text
-    msgs = {m["id"]: m for m in r.json()}
+    msgs = {m["id"]: m for m in r.json()["messages"]}
     msg = msgs.get(card["chat_message_id"])
     assert msg, f"card's chat message missing: {card['chat_message_id']}"
     assert msg["from"] == asker.member_id and msg["to"] == "owner"

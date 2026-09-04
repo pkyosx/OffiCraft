@@ -8,9 +8,12 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -328,23 +331,28 @@ func TestStrOrEmpty(t *testing.T) {
 // fetch_chat / drain_chat over httptest — R7 refetch downlink.
 // ---------------------------------------------------------------------------
 
-func chatServer(t *testing.T, list string) (*httptest.Server, *string) {
+func chatServer(t *testing.T, list string) (*httptest.Server, *url.Values) {
 	t.Helper()
-	var gotWith string
+	var gotQuery url.Values
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/chat") {
-			gotWith = r.URL.Query().Get("with")
+		if r.URL.Path == markReadPath {
 			w.WriteHeader(200)
-			_, _ = w.Write([]byte(list))
+			_, _ = w.Write([]byte(`{}`))
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/chat") {
+			gotQuery = r.URL.Query()
+			w.WriteHeader(200)
+			_, _ = w.Write([]byte(chatBody(list)))
 			return
 		}
 		w.WriteHeader(404)
 	}))
 	t.Cleanup(srv.Close)
-	return srv, &gotWith
+	return srv, &gotQuery
 }
 
-func TestDrainChat_UnreadForMeOnly_AdvancesSeen(t *testing.T) {
+func TestDrainChat_UnreadForMeOnly(t *testing.T) {
 	// ts is 130s in the past ⇒ the printed age is "2m" (minute-truncated, and far
 	// enough from the 120s/180s edges that test wall-time cannot flip it).
 	list := fmt.Sprintf(`[
@@ -352,50 +360,36 @@ func TestDrainChat_UnreadForMeOnly_AdvancesSeen(t *testing.T) {
 	  {"id":"m2","from":"kyle","to":"boss","body":"mine-to-someone","ts":%d},
 	  {"id":"m3","from":"peer","to":"other","body":"not-for-me","ts":%d}
 	]`, time.Now().Unix()-130, time.Now().Unix(), time.Now().Unix())
-	srv, gotWith := chatServer(t, list)
+	srv, gotQuery := chatServer(t, list)
 	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	seen := loadChatSeen("")
 	var out bytes.Buffer
 
-	n := drainChat(srv.Client(), cfg, seen, &out, false)
+	n := drainChat(srv.Client(), cfg, &out, nil, nil)
 	if n != 1 {
 		t.Fatalf("unread-for-me count = %d want 1", n)
 	}
-	if *gotWith != "kyle" {
-		t.Fatalf("with= param = %q want kyle", *gotWith)
+	if got := gotQuery.Get("recipient"); got != "kyle" {
+		t.Fatalf("recipient= param = %q want kyle", got)
 	}
 	if got := out.String(); got != "[ocagent] chat from boss (#m1, 2m ago): hello\n" {
 		t.Fatalf("drain out = %q", got)
 	}
-	if !seen.m["m1"] {
-		t.Fatal("m1 must be marked seen")
-	}
-	// Second drain: m1 already seen ⇒ nothing new, nothing printed.
-	out.Reset()
-	if n2 := drainChat(srv.Client(), cfg, seen, &out, false); n2 != 0 || out.Len() != 0 {
-		t.Fatalf("second drain n=%d out=%q, want 0 and empty", n2, out.String())
-	}
-}
-
-func TestDrainChat_SilentAdvancesWithoutPrint(t *testing.T) {
-	srv, _ := chatServer(t, `[{"id":"m1","from":"boss","to":"kyle","body":"hi"}]`)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	seen := loadChatSeen("")
-	var out bytes.Buffer
-	n := drainChat(srv.Client(), cfg, seen, &out, true) // silent baseline
-	if n != 1 || out.Len() != 0 {
-		t.Fatalf("silent drain n=%d out=%q, want count 1 and NO print", n, out.String())
-	}
-	if !seen.m["m1"] {
-		t.Fatal("silent drain must still advance the seen cursor")
-	}
+	// ⚠️ WHAT USED TO BE HERE: an assertion that m1 landed in the local seen
+	// ledger, and a second drain that printed nothing because of it. Both are
+	// gone with the ledger (T-48, rc-224dee5770dd) — this canned server answers
+	// the same list every time and knows nothing about receipts, so a second
+	// drain against it now prints m1 again, correctly. "Printed once, then never
+	// again" is now a property of the SERVER's unread set, and it is pinned
+	// against a server that actually implements it in
+	// TestDrainChat_PrintedLineIsReceiptedAndDoesNotComeBack
+	// (listen_markread_test.go). Nothing about it is asserted here any more.
 }
 
 func TestDrainChat_MissingTsPrintsIdTagOnly(t *testing.T) {
 	srv, _ := chatServer(t, `[{"id":"m1","from":"boss","to":"kyle","body":"hi"}]`)
 	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
 	var out bytes.Buffer
-	drainChat(srv.Client(), cfg, loadChatSeen(""), &out, false)
+	drainChat(srv.Client(), cfg, &out, nil, nil)
 	if got := out.String(); got != "[ocagent] chat from boss (#m1): hi\n" {
 		t.Fatalf("no-ts drain out = %q", got)
 	}
@@ -407,7 +401,7 @@ func TestDrainChat_NoIdNoTsDropsTheTagEntirely(t *testing.T) {
 	srv, _ := chatServer(t, `[{"from":"boss","to":"kyle","body":"hi"}]`)
 	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
 	var out bytes.Buffer
-	drainChat(srv.Client(), cfg, loadChatSeen(""), &out, false)
+	drainChat(srv.Client(), cfg, &out, nil, nil)
 	if got := out.String(); got != "[ocagent] chat from boss: hi\n" {
 		t.Fatalf("id-less drain out = %q", got)
 	}
@@ -423,7 +417,7 @@ func TestDrainChat_ImageAttachmentAppendsBadge(t *testing.T) {
 		"attachments":[{"id":"a1","mime":"image/png","is_image":true,"filename":"x.png"}]}]`)
 	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
 	var out bytes.Buffer
-	drainChat(srv.Client(), cfg, loadChatSeen(""), &out, false)
+	drainChat(srv.Client(), cfg, &out, nil, nil)
 	got := out.String()
 	if !strings.Contains(got, "#"+wireID) {
 		t.Errorf("notification must name the message id %q so the agent can get_chat it: %q",
@@ -442,7 +436,7 @@ func TestDrainChat_EmptyBodyWithAttachmentsPrintsBadgeOnly(t *testing.T) {
 		"attachments":[{"id":"a1","is_image":true},{"id":"a2","is_image":true}]}]`)
 	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
 	var out bytes.Buffer
-	drainChat(srv.Client(), cfg, loadChatSeen(""), &out, false)
+	drainChat(srv.Client(), cfg, &out, nil, nil)
 	if got := out.String(); got != "[ocagent] chat from boss (#m1): 📎2圖\n" {
 		t.Fatalf("empty-body attachment drain out = %q", got)
 	}
@@ -455,7 +449,7 @@ func TestDrainChat_MixedAttachmentsCountsImagesAndFiles(t *testing.T) {
 		{"id":"a3","is_image":false,"mime":"text/plain"}]}]`)
 	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
 	var out bytes.Buffer
-	drainChat(srv.Client(), cfg, loadChatSeen(""), &out, false)
+	drainChat(srv.Client(), cfg, &out, nil, nil)
 	if got := out.String(); got != "[ocagent] chat from boss (#m1): 附件 📎1圖 2檔\n" {
 		t.Fatalf("mixed attachment drain out = %q", got)
 	}
@@ -472,7 +466,7 @@ func TestDrainChat_NoAttachmentsPrintsIdWithoutBadge(t *testing.T) {
 	srv, _ := chatServer(t, `[{"id":"`+wireID+`","from":"boss","to":"kyle","body":"hi","attachments":[]}]`)
 	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
 	var out bytes.Buffer
-	drainChat(srv.Client(), cfg, loadChatSeen(""), &out, false)
+	drainChat(srv.Client(), cfg, &out, nil, nil)
 	got := out.String()
 	if !strings.Contains(got, "#"+wireID) {
 		t.Errorf("an attachment-less notification must still name the message id %q: %q",
@@ -500,7 +494,7 @@ func TestDrainChat_ReplyToPrintsMarkerNamingTheTarget(t *testing.T) {
 		fmt.Sprint(time.Now().Unix()-130)+`}]`)
 	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
 	var out bytes.Buffer
-	drainChat(srv.Client(), cfg, loadChatSeen(""), &out, false)
+	drainChat(srv.Client(), cfg, &out, nil, nil)
 	got := out.String()
 	if !strings.Contains(got, "↩#"+targetID) {
 		t.Errorf("the notification must mark that this message replies to %q, "+
@@ -533,7 +527,7 @@ func TestDrainChat_NoReplyToOmitsTheMarkerEntirely(t *testing.T) {
 			srv, _ := chatServer(t, "["+tc.wire+"]")
 			cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
 			var out bytes.Buffer
-			drainChat(srv.Client(), cfg, loadChatSeen(""), &out, false)
+			drainChat(srv.Client(), cfg, &out, nil, nil)
 			got := out.String()
 			if strings.Contains(got, "↩") {
 				t.Errorf("no reply target ⇒ NO marker, got %q", got)
@@ -551,25 +545,24 @@ func TestDrainChat_NoReplyToOmitsTheMarkerEntirely(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // A message this agent sent to ITSELF (the handover baton of persona §8b) must
-// never print — and must still advance the seen cursor. Advancing is the whole
-// fix: the live dispatch gate (listen_run.go, isSelfEcho on the frame trigger)
-// drops the self-triggered chat delta WITHOUT running drainChat, so such a
-// message was never marked seen and sat in the unread window indefinitely.
-func TestDrainChat_SelfSentToSelfIsSuppressedAndMarkedSeen(t *testing.T) {
+// never print.
+//
+// ⚠️ It must also not stay unread for ever — but that half is no longer visible
+// from here: it used to be an assertion on the local seen ledger, and it now
+// lives entirely in the mark-read receipt, pinned against a server that tracks
+// its own unread set by
+// TestDrainChat_SelfSentMessage_IsStillMarkedReadSoItDoesNotComeBack
+// (listen_markread_test.go). This test guards the PRINT half only.
+func TestDrainChat_SelfSentToSelfIsSuppressed(t *testing.T) {
 	srv, _ := chatServer(t, `[{"id":"m-self","from":"kyle","to":"kyle","body":"baton for the next me"}]`)
 	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	seen := loadChatSeen("")
 	var out bytes.Buffer
 
-	if n := drainChat(srv.Client(), cfg, seen, &out, false); n != 0 {
+	if n := drainChat(srv.Client(), cfg, &out, nil, nil); n != 0 {
 		t.Fatalf("self-sent message counted as unread: n=%d want 0", n)
 	}
 	if out.Len() != 0 {
 		t.Fatalf("self-sent message must NOT print, got %q", out.String())
-	}
-	if !seen.m["m-self"] {
-		t.Fatal("self-sent message must still advance the seen cursor — " +
-			"leaving it unread is what lets it pile up and ride out on someone else's delta")
 	}
 }
 
@@ -585,19 +578,13 @@ func TestDrainChat_SelfEchoBacklogNeverCrowdsOutRealMessages(t *testing.T) {
 	  {"id":"m-new","from":"hook:slack-hook","to":"kyle","body":"加到 todo"}
 	]`)
 	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	seen := loadChatSeen("")
 	var out bytes.Buffer
 
-	if n := drainChat(srv.Client(), cfg, seen, &out, false); n != 1 {
+	if n := drainChat(srv.Client(), cfg, &out, nil, nil); n != 1 {
 		t.Fatalf("unread-for-me count = %d want 1 (only the hook message)", n)
 	}
 	if got, want := out.String(), "[ocagent] chat from hook:slack-hook (#m-new): 加到 todo\n"; got != want {
 		t.Fatalf("drain must print ONLY the real message:\n got %q\nwant %q", got, want)
-	}
-	for _, id := range []string{"m-old1", "m-old2", "m-new"} {
-		if !seen.m[id] {
-			t.Fatalf("%s must be marked seen after the drain", id)
-		}
 	}
 }
 
@@ -607,7 +594,7 @@ func TestDrainChat_SelfEchoIsCaseInsensitive(t *testing.T) {
 	srv, _ := chatServer(t, `[{"id":"m1","from":"KYLE","to":"kyle","body":"mine"}]`)
 	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
 	var out bytes.Buffer
-	if n := drainChat(srv.Client(), cfg, loadChatSeen(""), &out, false); n != 0 || out.Len() != 0 {
+	if n := drainChat(srv.Client(), cfg, &out, nil, nil); n != 0 || out.Len() != 0 {
 		t.Fatalf("case-different self id must still suppress: n=%d out=%q", n, out.String())
 	}
 }
@@ -617,13 +604,9 @@ func TestDrainChat_SelfEchoIsCaseInsensitive(t *testing.T) {
 func TestDrainChat_SelfEchoIgnoresSurroundingWhitespace(t *testing.T) {
 	srv, _ := chatServer(t, `[{"id":"m1","from":"  kyle  ","to":"kyle","body":"mine"}]`)
 	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	seen := loadChatSeen("")
 	var out bytes.Buffer
-	if n := drainChat(srv.Client(), cfg, seen, &out, false); n != 0 || out.Len() != 0 {
+	if n := drainChat(srv.Client(), cfg, &out, nil, nil); n != 0 || out.Len() != 0 {
 		t.Fatalf("padded self id must still suppress: n=%d out=%q", n, out.String())
-	}
-	if !seen.m["m1"] {
-		t.Fatal("a padded self-sent message must still advance the seen cursor")
 	}
 }
 
@@ -633,27 +616,11 @@ func TestDrainChat_BlankFromIsNeverAnEcho(t *testing.T) {
 	srv, _ := chatServer(t, `[{"id":"m1","from":"","to":"kyle","body":"who sent this"}]`)
 	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
 	var out bytes.Buffer
-	if n := drainChat(srv.Client(), cfg, loadChatSeen(""), &out, false); n != 1 {
+	if n := drainChat(srv.Client(), cfg, &out, nil, nil); n != 1 {
 		t.Fatalf("blank sender must fail OPEN (print), n=%d", n)
 	}
 	if got := out.String(); got != "[ocagent] chat from  (#m1): who sent this\n" {
 		t.Fatalf("blank-sender line = %q", got)
-	}
-}
-
-// The silent boot baseline keeps its contract for self-sent messages too:
-// nothing prints, and the cursor still advances.
-func TestDrainChat_SilentBaselineAlsoConsumesSelfSent(t *testing.T) {
-	srv, _ := chatServer(t, `[{"id":"m-self","from":"kyle","to":"kyle","body":"baton"}]`)
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	seen := loadChatSeen("")
-	var out bytes.Buffer
-	drainChat(srv.Client(), cfg, seen, &out, true)
-	if out.Len() != 0 {
-		t.Fatalf("silent baseline must print nothing, got %q", out.String())
-	}
-	if !seen.m["m-self"] {
-		t.Fatal("silent baseline must advance the cursor past a self-sent message")
 	}
 }
 
@@ -1036,10 +1003,10 @@ func TestDrainReplyCards_FirstRunPrimesSilently_ThenNextProcessPrintsNewAnswer(t
 		t.Fatalf("first-run drain must baseline silently: n=%d out=%q", n, out.String())
 	}
 	// A new answer lands while the agent is DEAD; a fresh process (reload from
-	// the same file) drains it — and only it — on boot.
+	// the same file) drains it — and only it — on its next connect.
 	list = `[` + answeredCardJSON("rc-b", 200, "new?") + `,` + answeredCardJSON("rc-a", 100, "old?") + `]`
 	if n := drainReplyCards(srv.Client(), cfg, loadReplyCardSeen(path), &out); n != 1 {
-		t.Fatalf("boot drain must print exactly the offline-answered card, n=%d out=%q", n, out.String())
+		t.Fatalf("the connect drain must print exactly the offline-answered card, n=%d out=%q", n, out.String())
 	}
 	if got := out.String(); got != "[ocagent] reply-card rc-b answered: picked [0] \"ok\" | asked: new?\n" {
 		t.Fatalf("drain line = %q", got)
@@ -1234,13 +1201,130 @@ func TestLoadReplyCardSeen_MissingOrCorruptStartsUnprimed(t *testing.T) {
 }
 
 func TestFetchChat_NonListOrErrorYieldsNil(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(500)
-	}))
-	defer srv.Close()
-	cfg := Config{Base: srv.URL, Token: "t", ID: "kyle"}
-	if got := fetchChat(srv.Client(), cfg, "kyle"); got != nil {
-		t.Fatalf("a non-200 must yield nil, got %v", got)
+	for _, tc := range []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{"non-200", 500, ""},
+		{"a bare array — the shape before the T-48 envelope", 200, `[{"id":"m1"}]`},
+		{"an envelope with no messages key", 200, `{"next_cursor":"c1"}`},
+		{"messages is not an array", 200, `{"messages":{"id":"m1"}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newMarkReadServer(t, "[]")
+			srv.serveChat(func(url.Values, int) (int, string) { return tc.status, tc.body })
+			got := fetchChat(srv.Client(), markCfg(srv.URL, t.TempDir()), "kyle")
+			if got.rows != nil {
+				t.Fatalf("a fault must answer nil rows — 'zero messages' is a "+
+					"DIFFERENT answer and would drain a quiet inbox instead; got %v", got.rows)
+			}
+		})
+	}
+}
+
+// The query is the contract: this listener asks for ITS OWN UNREAD, and asks for
+// nothing it does not need. `with=` in particular is gone — recipient=<self>
+// already pins this member as a participant, and the server's unread index leads
+// with recipient.
+func TestFetchChat_AsksForItsOwnUnreadAndNothingElse(t *testing.T) {
+	srv := newMarkReadServer(t, "[]")
+	srv.serveChat(func(url.Values, int) (int, string) { return 200, chatPage("") })
+
+	fetchChat(srv.Client(), markCfg(srv.URL, t.TempDir()), "M-Kyle")
+
+	qs := srv.chatQueries()
+	if len(qs) != 1 {
+		t.Fatalf("a one-page walk made %d requests, want 1", len(qs))
+	}
+	q := qs[0]
+	if got := q.Get("recipient"); got != "M-Kyle" {
+		t.Errorf("recipient = %q, want the caller's own id", got)
+	}
+	if got := q.Get("unread"); got != "true" {
+		t.Errorf("unread = %q — without it this is the whole conversation, not the "+
+			"backlog", got)
+	}
+	if got, want := q.Get("limit"), strconv.Itoa(chatUnreadPageLimit); got != want {
+		t.Errorf("limit = %q, want %q", got, want)
+	}
+	if _, sent := q["with"]; sent {
+		t.Errorf("with= is still on the wire (%v) — recipient= already says the "+
+			"caller is a participant, so this only narrows the server off its index", q)
+	}
+	if _, sent := q["cursor"]; sent {
+		t.Errorf("the FIRST page must carry no cursor; got %v", q)
+	}
+}
+
+// The whole point of the rewrite: one drain sees the WHOLE backlog, however many
+// pages it takes, in order.
+func TestFetchChat_PagesUntilTheServerStopsIssuingACursor(t *testing.T) {
+	pages := []string{
+		chatPage("c1", tsMsg("m1", "boss", "kyle", 1), tsMsg("m2", "boss", "kyle", 2)),
+		chatPage("c2", tsMsg("m3", "boss", "kyle", 3), tsMsg("m4", "boss", "kyle", 4)),
+		chatPage("", tsMsg("m5", "boss", "kyle", 5)),
+	}
+	wantCursor := []string{"", "c1", "c2"}
+	srv := newMarkReadServer(t, "[]")
+	srv.serveChat(func(q url.Values, nth int) (int, string) {
+		if nth > len(pages) {
+			t.Errorf("asked for page %d — the walk should have ended at %d", nth, len(pages))
+			return 200, chatPage("")
+		}
+		if got := q.Get("cursor"); got != wantCursor[nth-1] {
+			t.Errorf("page %d asked with cursor=%q, want %q — a page that does not "+
+				"carry the previous next_cursor re-reads the same rows forever",
+				nth, got, wantCursor[nth-1])
+		}
+		return 200, pages[nth-1]
+	})
+
+	var got chatFetch
+	mustReturn(t, "fetchChat over a three-page walk", func() {
+		got = fetchChat(srv.Client(), markCfg(srv.URL, t.TempDir()), "kyle")
+	})
+
+	if got.stop != "" {
+		t.Errorf("a walk the SERVER ended must not warn about anything: %q", got.stop)
+	}
+	var ids []string
+	for _, m := range got.rows {
+		ids = append(ids, strOrEmpty(m["id"]))
+	}
+	if want := []string{"m1", "m2", "m3", "m4", "m5"}; !slices.Equal(ids, want) {
+		t.Fatalf("walked ids = %v, want %v (oldest first, every page)", ids, want)
+	}
+	if n := len(srv.chatQueries()); n != len(pages) {
+		t.Errorf("the walk made %d requests, want %d", n, len(pages))
+	}
+}
+
+// A page that faults mid-walk keeps what is already in hand. Unread is served
+// oldest-first, so a partial walk holds a contiguous run from the oldest — the
+// next drain resumes exactly where this one stopped — and the shortfall is said
+// out loud rather than passing for a finished backfill.
+func TestFetchChat_FaultOnALaterPage_KeepsTheEarlierPagesAndSaysSo(t *testing.T) {
+	srv := newMarkReadServer(t, "[]")
+	srv.serveChat(func(q url.Values, nth int) (int, string) {
+		if nth == 1 {
+			return 200, chatPage("c1", tsMsg("m1", "boss", "kyle", 1), tsMsg("m2", "boss", "kyle", 2))
+		}
+		return 503, ""
+	})
+
+	var got chatFetch
+	mustReturn(t, "fetchChat over a walk that faults on page 2", func() {
+		got = fetchChat(srv.Client(), markCfg(srv.URL, t.TempDir()), "kyle")
+	})
+
+	if len(got.rows) != 2 {
+		t.Fatalf("a mid-walk fault kept %d rows, want the 2 page 1 already answered",
+			len(got.rows))
+	}
+	if !strings.Contains(got.stop, "第 2 頁") || !strings.Contains(got.stop, "get_chat") {
+		t.Errorf("a walk that ended short must name where it stopped and what to do "+
+			"about it; got %q", got.stop)
 	}
 }
 
@@ -1544,9 +1628,10 @@ func eventsServer(frames []string, chatList string, gotLastEventID *string, conn
 		if strings.HasPrefix(r.URL.Path, "/api/chat") {
 			w.WriteHeader(200)
 			if atomic.AddInt32(&chatCalls, 1) == 1 {
-				_, _ = w.Write([]byte("[]")) // silent baseline sees no history
+				// silent baseline sees no history
+				_, _ = w.Write([]byte(chatBody("[]")))
 			} else {
-				_, _ = w.Write([]byte(chatList))
+				_, _ = w.Write([]byte(chatBody(chatList)))
 			}
 			return
 		}
@@ -1614,7 +1699,7 @@ func newTestListener(srv *httptest.Server, cfg Config, out io.Writer) *listener 
 		probeUnknownSpan: probeUnknownGrace,
 		refusalGraceSpan: sseRefusalGrace,
 		cursorPath:       filepath.Join(cfgTempDir, "cursor"),
-		seen:             loadChatSeen(""),
+		drainWarn:        &drainWarner{},
 		replySeen:        loadReplyCardSeen(filepath.Join(cfgTempDir, "replycards-seen")),
 	}
 }
@@ -1677,7 +1762,7 @@ func TestListener_ReconnectsAfterDrop(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/chat") || strings.HasPrefix(r.URL.Path, "/api/reply-cards") {
 			w.WriteHeader(200)
-			_, _ = w.Write([]byte("[]"))
+			_, _ = w.Write([]byte(emptyChatOrList(r.URL.Path)))
 			return
 		}
 		atomic.AddInt32(&conns, 1)
@@ -1715,7 +1800,7 @@ func TestListener_WatchdogReconnectsSilentStream(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/chat") || strings.HasPrefix(r.URL.Path, "/api/reply-cards") {
 			w.WriteHeader(200)
-			_, _ = w.Write([]byte("[]"))
+			_, _ = w.Write([]byte(emptyChatOrList(r.URL.Path)))
 			return
 		}
 		atomic.AddInt32(&conns, 1)
@@ -1760,7 +1845,7 @@ func TestListener_ReconnectDrainPrintsOfflineAnswerOnce(t *testing.T) {
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/api/chat"):
 			w.WriteHeader(200)
-			_, _ = w.Write([]byte("[]"))
+			_, _ = w.Write([]byte(chatBody("[]")))
 		case r.URL.Path == "/api/reply-cards":
 			w.WriteHeader(200)
 			if r.URL.Query().Get("status") != "answered" {
@@ -1931,7 +2016,7 @@ func TestListener_SelfExitsOnHeartbeatWhenSessionGone(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/chat") || strings.HasPrefix(r.URL.Path, "/api/reply-cards") {
 			w.WriteHeader(200)
-			_, _ = w.Write([]byte("[]"))
+			_, _ = w.Write([]byte(emptyChatOrList(r.URL.Path)))
 			return
 		}
 		atomic.AddInt32(&conns, 1)
@@ -2213,10 +2298,14 @@ func dispatchFrame(t *testing.T, topic, trigger string, payload map[string]any) 
 }
 
 func TestDispatch_SelfTriggeredEchoSuppressed(t *testing.T) {
-	// The three owner-mandated acceptance cases, client side:
+	// The owner-mandated acceptance cases, client side:
 	//   1. my own trigger  → NOTHING printed, NO refetch (echo dropped);
 	//   2. owner trigger   → processed as before;
 	//   3. server trigger  → processed as before.
+	// The self-echo cases ride the TASK topic, because chat is now exempt
+	// (c-75113935a255) — see TestDispatch_SelfTriggeredChatDelta below. Task is
+	// the case that must stay suppressed: without it a member is told about every
+	// task it moves itself.
 	var hits int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&hits, 1)
@@ -2227,36 +2316,65 @@ func TestDispatch_SelfTriggeredEchoSuppressed(t *testing.T) {
 	var out bytes.Buffer
 	l := newTestListener(srv, Config{Base: srv.URL, Token: "tok", ID: "kyle"}, &out)
 
-	// 1. self echo: a chat delta I triggered must not even refetch.
-	l.dispatch(dispatchFrame(t, "chat", "kyle", nil))
+	// 1. self echo: a task delta I triggered must not even refetch.
+	l.dispatch(dispatchFrame(t, taskTopic, "kyle", map[string]any{"id": "t-1"}))
 	if atomic.LoadInt32(&hits) != 0 || out.String() != "" {
 		t.Fatalf("self-triggered delta must be dropped without refetch/print: hits=%d out=%q",
 			hits, out.String())
 	}
 	// case-insensitive: config casing drift must not defeat the gate.
-	l.dispatch(dispatchFrame(t, "chat", "KYLE", nil))
+	l.dispatch(dispatchFrame(t, taskTopic, "KYLE", map[string]any{"id": "t-1"}))
 	if atomic.LoadInt32(&hits) != 0 {
 		t.Fatal("case-drifted self trigger must still suppress")
 	}
+	// …and the same for a reply card I answered myself.
+	l.dispatch(dispatchFrame(t, replyCardTopic, "kyle",
+		map[string]any{"id": "rc-1", "from": "kyle", "status": "answered"}))
+	if atomic.LoadInt32(&hits) != 0 {
+		t.Fatalf("a reply-card delta I triggered must not refetch: hits=%d", hits)
+	}
 
 	// 2. owner-triggered → refetch happens (chat drain runs).
-	l.dispatch(dispatchFrame(t, "chat", "owner", nil))
+	l.dispatch(dispatchFrame(t, chatTopic, "owner", nil))
 	if atomic.LoadInt32(&hits) == 0 {
 		t.Fatal("an owner-triggered delta must be processed")
 	}
 
 	// 3. server-triggered → refetch happens too.
 	before := atomic.LoadInt32(&hits)
-	l.dispatch(dispatchFrame(t, "chat", "server", nil))
+	l.dispatch(dispatchFrame(t, chatTopic, "server", nil))
 	if atomic.LoadInt32(&hits) == before {
 		t.Fatal("a server-triggered delta must be processed")
 	}
 
 	// 4. blank trigger (older producer) → fail-open, processed.
 	before = atomic.LoadInt32(&hits)
-	l.dispatch(dispatchFrame(t, "chat", "", nil))
+	l.dispatch(dispatchFrame(t, chatTopic, "", nil))
 	if atomic.LoadInt32(&hits) == before {
 		t.Fatal("a trigger-less delta must be processed (fail-open)")
+	}
+}
+
+// 🔴 c-75113935a255: the CHAT topic is exempt from echo suppression. A note this
+// member writes to itself is drained on the spot — fetched and RECEIPTED like
+// anyone else's mail — and still printed nowhere, because drainChat drops
+// `sender == self`. The gate used to drop the frame outright, which left the note
+// unread until whatever reconnect happened next.
+func TestDispatch_SelfTriggeredChatDelta_DrainsAndReceiptsWithoutPrinting(t *testing.T) {
+	now := float64(time.Now().Unix())
+	srv := newUnreadChatServer(t, []unreadRow{{"self-1", "kyle", "kyle", now - 300}})
+	cfg := markCfg(srv.URL, t.TempDir())
+	var out bytes.Buffer
+	l := newTestListener(srv.Server, cfg, &out)
+
+	l.dispatch(dispatchFrame(t, chatTopic, "kyle", nil))
+
+	if len(srv.unreadIDs("kyle")) != 0 {
+		t.Fatalf("the self-triggered delta never drained: %v still unread, so this "+
+			"note stays unread until the next reconnect", srv.unreadIDs("kyle"))
+	}
+	if out.String() != "" {
+		t.Fatalf("the member was read its own note back: %q", out.String())
 	}
 }
 
@@ -2403,12 +2521,12 @@ func TestHandleTaskEvent_JunkFrameFallsBackToGenericWake(t *testing.T) {
 func TestDrainChat_UndersizeBodyPrintedInFull(t *testing.T) {
 	full := strings.Repeat("囉嗦", 200) // 400 runes ≈ 1.2 KiB — well under the valve
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`[{"id":"c-full","from":"boss","to":"kyle","body":"` + full + `"}]`))
+		_, _ = w.Write([]byte(chatBody(`[{"id":"c-full","from":"boss","to":"kyle","body":"` + full + `"}]`)))
 	}))
 	defer srv.Close()
 	cfg := Config{Base: srv.URL, ID: "kyle", Token: "tok"}
 	var out bytes.Buffer
-	if n := drainChat(srv.Client(), cfg, loadChatSeen(""), &out, false); n != 1 {
+	if n := drainChat(srv.Client(), cfg, &out, nil, nil); n != 1 {
 		t.Fatalf("drain = %d", n)
 	}
 	line := out.String()
@@ -2429,12 +2547,12 @@ func TestDrainChat_MultiLineBodyPrintedIndentedAsOneBlock(t *testing.T) {
 	// to pose as a separate event — the indent defends the block boundary.
 	body := `交接 SOP:\n1. 先接手 listen\n[ocagent] 這行看起來像事件但其實是內文`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`[{"id":"c-ml","from":"boss","to":"kyle","body":"` + body + `"}]`))
+		_, _ = w.Write([]byte(chatBody(`[{"id":"c-ml","from":"boss","to":"kyle","body":"` + body + `"}]`)))
 	}))
 	defer srv.Close()
 	cfg := Config{Base: srv.URL, ID: "kyle", Token: "tok"}
 	var out bytes.Buffer
-	drainChat(srv.Client(), cfg, loadChatSeen(""), &out, false)
+	drainChat(srv.Client(), cfg, &out, nil, nil)
 	want := "[ocagent] chat from boss (#c-ml): 交接 SOP:\n" +
 		"    1. 先接手 listen\n" +
 		"    [ocagent] 這行看起來像事件但其實是內文\n"
@@ -2460,12 +2578,12 @@ func TestDrainChat_MultiLineBodyPrintedIndentedAsOneBlock(t *testing.T) {
 func TestDrainChat_LongMustReadBodyPrintedInFull(t *testing.T) {
 	long := strings.Repeat("交", 5000) // 5000 runes ≈ 15 KiB — under the 64 KiB valve
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`[{"id":"c-5k","from":"boss","to":"kyle","body":"` + long + `"}]`))
+		_, _ = w.Write([]byte(chatBody(`[{"id":"c-5k","from":"boss","to":"kyle","body":"` + long + `"}]`)))
 	}))
 	defer srv.Close()
 	cfg := Config{Base: srv.URL, ID: "kyle", Token: "tok"}
 	var out bytes.Buffer
-	drainChat(srv.Client(), cfg, loadChatSeen(""), &out, false)
+	drainChat(srv.Client(), cfg, &out, nil, nil)
 	if want := "[ocagent] chat from boss (#c-5k): " + long + "\n"; out.String() != want {
 		t.Fatalf("5k-char must-read body must print verbatim (len got %d want %d)",
 			len(out.String()), len(want))
@@ -2480,12 +2598,12 @@ func TestDrainChat_LongMustReadBodyPrintedInFull(t *testing.T) {
 func TestDrainChat_PathologicalBodyTrippedBySafetyValve(t *testing.T) {
 	huge := strings.Repeat("囉嗦", 20000) // 40000 runes ≈ 120 KiB — over the 64 KiB valve
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`[{"id":"c-huge","from":"boss","to":"kyle","body":"` + huge + `"}]`))
+		_, _ = w.Write([]byte(chatBody(`[{"id":"c-huge","from":"boss","to":"kyle","body":"` + huge + `"}]`)))
 	}))
 	defer srv.Close()
 	cfg := Config{Base: srv.URL, ID: "kyle", Token: "tok"}
 	var out bytes.Buffer
-	drainChat(srv.Client(), cfg, loadChatSeen(""), &out, false)
+	drainChat(srv.Client(), cfg, &out, nil, nil)
 	line := out.String()
 	if !strings.Contains(line, "safety valve") || !strings.Contains(line, "get_chat") {
 		t.Fatalf("valve trip must point at get_chat: %q", line[:min(len(line), 200)])

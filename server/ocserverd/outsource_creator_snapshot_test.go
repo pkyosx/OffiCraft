@@ -28,7 +28,7 @@ import (
 func snapshotCreator(t *testing.T, api *apiServer, machine string) {
 	t.Helper()
 	if err := api.dal.PutMember(Member{
-		ID: "m-disp", Name: "Dispatcher", Kind: KindAssistant, RoleKey: "dev",
+		ID: "m-disp", Name: "Dispatcher", Kind: KindStaff, RoleKey: "dev",
 		Runtime: RuntimeClaude, Model: "opus", Effort: "low",
 		DesiredMachineID: machine, RosterStatus: RosterStatusActive,
 	}); err != nil {
@@ -367,7 +367,7 @@ func TestCreateTypedManualDrivenCodexCreatorStillFailsClosed(t *testing.T) {
 		t.Fatalf("ingest telemetry: %d %s", rec.Code, rec.Body.String())
 	}
 	if err := api.dal.PutMember(Member{
-		ID: "m-disp", Name: "Codex dev", Kind: KindAssistant, RoleKey: "dev",
+		ID: "m-disp", Name: "Codex dev", Kind: KindStaff, RoleKey: "dev",
 		Runtime: RuntimeCodex, Model: "gpt-5-codex", Effort: "high",
 		DesiredMachineID: "m-codex-box", RosterStatus: RosterStatusActive,
 	}); err != nil {

@@ -654,9 +654,10 @@ func (s *apiServer) HandleDeleteMemberAvatarApiMembersMemberIdAvatarDelete(
 //
 // ?fields=light (T-cf91) is the ADDITIVE identity-only projection for surfaces
 // that render ONLY a member's name + role (the 請示卡頁 attributes each card to
-// its asker and needs nothing else). It SKIPS the whole-chat scan +
-// per-member chat_read watermark math (UnreadCounts over ListChat) and the
-// per-member presence / observed-host derivation (hub + telemetry lookups) —
+// its asker and needs nothing else). It SKIPS the per-member unread count
+// (UnreadCountsFor — one SQL aggregate since T-48, a whole-table scan folded in
+// Go before that) and the per-member presence / observed-host derivation
+// (hub + telemetry lookups) —
 // none of which the name/role view reads. The light DTO keeps the SAME
 // memberDTO wire shape (no new response schema — additive), but the fields
 // those skipped computations feed are HONEST-EMPTY: unread_count 0, presence
@@ -675,9 +676,10 @@ func (s *apiServer) HandleListMembersApiMembersGet(w http.ResponseWriter, r *htt
 	}
 	light := trimmedOrEmpty(params.Fields) == "light"
 
-	// unread rides the caller's chat_read watermark over the whole chat stream —
-	// the single most expensive part of this handler and exactly what the light
-	// projection exists to avoid. Only compute it on the full path.
+	// unread compares each sender's messages against the caller's chat_read
+	// watermark — one SQL aggregate (T-48; it used to be the whole chat table
+	// folded in Go), and still the most expensive part of this handler, which is
+	// exactly what the light projection exists to avoid. Only on the full path.
 	var unread map[string]int
 	if !light {
 		var err error
@@ -749,7 +751,7 @@ func (s *apiServer) HandleHireMemberApiMembersPost(w http.ResponseWriter, r *htt
 		}
 	}
 	// The Go kind is a CLOSED set: the Python bare hire's kind="" folds to
-	// "assistant" at this ingest seam (CanonicalKind — owner-approved mapping);
+	// "staff" at this ingest seam (CanonicalKind — owner-approved mapping);
 	// a kind outside the closed set is refused.
 	kind, err := CanonicalKind(strOrEmpty(body.Kind))
 	if err != nil {

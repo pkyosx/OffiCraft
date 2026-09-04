@@ -77,9 +77,12 @@ var singleColumnOwnedFields = []struct {
 	// print — a reader who breaks this needs to be told WHICH column, not that
 	// "a member upsert regressed".
 	column string
-	// writer names the sole writer, so the message says where the fix lives.
+	// writer names the single-column writer this row stamps through, so the
+	// message says where the fix lives. It is not necessarily the column's ONLY
+	// writer (banked_cost has two: one accumulates, one resets); what the
+	// invariant below forbids is the WHOLE-ROW upsert carrying the column.
 	writer string
-	// stamp moves the column off its zero through that sole writer.
+	// stamp moves the column off its zero through that writer.
 	stamp func(*DAL, string) error
 	// want is the value stamp must have left behind. `any` rather than a
 	// number because the registry outgrew the numeric anchors it started on —
@@ -289,7 +292,7 @@ func TestPutMemberNeverOverwritesSingleColumnOwnedFields(t *testing.T) {
 			}
 
 			// The whole-row writer: a snapshot taken BEFORE the stamp, which is
-			// every snapshot, since nothing but the sole writer moves the value.
+			// every snapshot, since nothing but a single-column writer moves it.
 			stale := seed
 			f.stale(&stale)
 			stale.Name = "renamed by an unrelated write"
@@ -309,9 +312,9 @@ func TestPutMemberNeverOverwritesSingleColumnOwnedFields(t *testing.T) {
 				// as `any` is STRICTER than the float64 it replaced, never
 				// looser — verified by seeding both of those pairs.
 				t.Fatalf("member.%s was clobbered by a whole-row upsert: %#v (%T) → %#v (%T).\n"+
-					"%s is the SOLE writer of this column; a whole-row write must "+
-					"never land it on an existing row. If you just cleared "+
-					"`insertOnly` on this column's constructor in "+
+					"%s writes this column one column at a time; a whole-row "+
+					"write must never land it on an existing row. If you just "+
+					"cleared `insertOnly` on this column's constructor in "+
 					"dal_member_patch.go, that is the line to restore.",
 					f.column, f.want, f.want, got, got, f.writer)
 			}
@@ -473,7 +476,7 @@ func TestEveryColumnOutOfTheSetListIsRegistered(t *testing.T) {
 // asking for one — so a newly constrained column cannot slip past the guard by
 // being unprobeable. The value only has to DIFFER from what fullMember seeds.
 var probeOverrides = map[string]string{
-	"kind": KindWarden, // CHECK kind IN ('assistant','warden','outsource'); fullMember seeds "assistant"
+	"kind": KindWarden, // CHECK kind IN ('staff','warden','outsource'); fullMember seeds "staff"
 }
 
 // survivesAStaleWholeRowUpsert writes a probe value straight into one column,

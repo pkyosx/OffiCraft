@@ -1219,6 +1219,25 @@ type replyCardCountDTO struct {
 	Expired  int `json:"expired"`
 }
 
+// chatListDTO is the envelope EVERY path of GET /api/chat answers (T-48).
+//
+// It replaced a bare []chatMessageDTO. The array had nowhere to say "there is
+// more in this direction": a caller could only infer exhaustion from a page
+// shorter than `limit`, and a page is short for reasons that have nothing to do
+// with exhaustion — a participant filter, `caller_only`, an unread set spread
+// across senders. The inference was wrong exactly when it mattered, and wrong
+// silently.
+//
+// NextCursor is OPAQUE (see encodeChatCursor) and omitted when the walk has
+// ended — `omitempty`, so "no more" is the ABSENCE of the field rather than a
+// value a client has to remember to compare against. Messages is never null:
+// an empty page is `[]`, because a client that has to handle both null and []
+// for the same fact will eventually handle only one.
+type chatListDTO struct {
+	Messages   []chatMessageDTO `json:"messages"`
+	NextCursor string           `json:"next_cursor,omitempty"`
+}
+
 type chatUnreadCountDTO struct {
 	Unread int `json:"unread"`
 }

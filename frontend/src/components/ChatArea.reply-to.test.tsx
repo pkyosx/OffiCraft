@@ -46,7 +46,8 @@ import type { ChatMessage } from "../api/adapter";
 import {
   resetChatDrafts,
   getChatDraft,
-  saveChatDraft,
+  saveChatDraftText,
+  updateChatDraftAttachments,
 } from "../lib/chatDraftStore";
 // The ACTIVE dictionary, not a copy of its strings. These tests assert on the
 // i18n VALUE — a literal "回覆這則" here would go red the day someone re-words
@@ -73,7 +74,6 @@ vi.mock("../hooks/useWorkerCodenames", () => ({
 vi.mock("../hooks/useChat", () => ({
   useChat: () => ({
     messages,
-    messagesPeer: "m1",
     peerLastReadTs: 0,
     send,
     markRead: vi.fn(() => Promise.resolve()),
@@ -89,7 +89,7 @@ function mkMember(id: string, name: string): Member {
     lifecycle: "online",
     model: "opus",
     effort: "medium",
-    kind: "assistant",
+    kind: "staff",
     desiredMachineId: "",
     machine: null,
     account: null,
@@ -142,7 +142,7 @@ const m2 = mkMember("m2", "Kyle");
 function renderChat() {
   return render(
     <I18nProvider>
-      <ChatArea member={m1} />
+      <ChatArea key={m1.id} member={m1} />
     </I18nProvider>,
   );
 }
@@ -778,10 +778,12 @@ describe("ChatArea 回覆這則", () => {
   // which is the general case that swallowed it.
 
   it("does not spill a failed send into whichever room is on screen when it fails", async () => {
-    // The restore runs after an await and this component is REUSED across
-    // peers. Reviewed and reproduced: the previous room's text AND its reply
-    // target were restored into the next room and persisted into that room's
-    // draft. The target half is worse than untidy, and it got worse on
+    // The restore runs after an await, and the owner can leave in the meantime.
+    // Reviewed and reproduced back when this component was REUSED across peers:
+    // the previous room's text AND its reply target were restored into the next
+    // room and persisted into that room's draft. Leaving now unmounts the room
+    // (`key={peerId}`, R13-5), so what this pins is the other half — that the
+    // words are still SOMEWHERE. The target half is worse than untidy, and it got worse on
     // 2026-08-21: the server's cross-conversation refusal was deleted, so a
     // target belonging to another room is no longer 400'd on send — it is
     // ACCEPTED, and the message goes out to the new peer quoting a sentence from
@@ -795,7 +797,7 @@ describe("ChatArea 回覆這則", () => {
 
     const { container, rerender } = render(
       <I18nProvider>
-        <ChatArea member={m1} />
+        <ChatArea key={m1.id} member={m1} />
       </I18nProvider>,
     );
     fireEvent.click(rowOf(container, "c-1").querySelector(".chat__msg-reply")!);
@@ -814,7 +816,7 @@ describe("ChatArea 回覆這則", () => {
 
     rerender(
       <I18nProvider>
-        <ChatArea member={m2} />
+        <ChatArea key={m2.id} member={m2} />
       </I18nProvider>,
     );
     await act(async () => {
@@ -848,6 +850,13 @@ describe("ChatArea 回覆這則", () => {
     // never restoring the composer — and all 129 tests stayed green, because
     // every one of them switched rooms or unmounted first. This is the case
     // nothing was standing on.
+    //
+    // 🔴 ALL THREE HALVES, INCLUDING THE FILE (T-48, R13-2). The staged rows
+    // come back by a DIFFERENT route from the text now — the text is component
+    // state and is set here, the files are the room's draft slice and come back
+    // because the composer subscribes to it. A restore that put the words back
+    // and dropped the attachment would satisfy every other assertion in this
+    // file, which is exactly the shape this ticket has shipped twice.
     messages = [mkMsg({ id: "c-1", from: "m1", to: "owner", body: "他說的" })];
     let reject: (e: Error) => void = () => {};
     send.mockImplementationOnce(
@@ -856,10 +865,21 @@ describe("ChatArea 回覆這則", () => {
 
     const { container } = renderChat();
     fireEvent.click(rowOf(container, "c-1").querySelector(".chat__msg-reply")!);
+    fireEvent.change(
+      container.querySelector(".chat__file-input") as HTMLInputElement,
+      { target: { files: [pngFile("p.png")] } },
+    );
+    await waitFor(() =>
+      expect(container.querySelectorAll(".chat__preview-thumb").length).toBe(1),
+    );
     fireEvent.change(input(container), { target: { value: "給 m1 的" } });
     fireEvent.keyDown(input(container), { key: "Enter" });
 
     expect(input(container).value, "optimistically cleared").toBe("");
+    expect(
+      container.querySelectorAll(".chat__preview-thumb").length,
+      "the staged file is optimistically cleared too",
+    ).toBe(0);
 
     await act(async () => {
       reject(new Error("nope"));
@@ -868,6 +888,12 @@ describe("ChatArea 回覆這則", () => {
 
     expect(input(container).value).toBe("給 m1 的");
     expect(banner(container), "still aimed at what it was answering").not.toBeNull();
+    await waitFor(() =>
+      expect(
+        container.querySelectorAll(".chat__preview-thumb").length,
+        "and the file is back in the composer it vanished from",
+      ).toBe(1),
+    );
   });
 
   it("fills only what the room does not already hold, field by field", async () => {
@@ -883,7 +909,7 @@ describe("ChatArea 回覆這則", () => {
 
     const { container, rerender } = render(
       <I18nProvider>
-        <ChatArea member={m1} />
+        <ChatArea key={m1.id} member={m1} />
       </I18nProvider>,
     );
     fireEvent.click(rowOf(container, "c-1").querySelector(".chat__msg-reply")!);
@@ -892,11 +918,11 @@ describe("ChatArea 回覆這則", () => {
 
     rerender(
       <I18nProvider>
-        <ChatArea member={m2} />
+        <ChatArea key={m2.id} member={m2} />
       </I18nProvider>,
     );
     // m1 is not empty any more — but what it holds is only TEXT.
-    saveChatDraft("m1", { text: "我後來又打的", attachments: [] });
+    saveChatDraftText("m1", "我後來又打的");
 
     await act(async () => {
       reject(new Error("nope"));
@@ -926,7 +952,7 @@ describe("ChatArea 回覆這則", () => {
 
     const { container, rerender } = render(
       <I18nProvider>
-        <ChatArea member={m1} />
+        <ChatArea key={m1.id} member={m1} />
       </I18nProvider>,
     );
     fireEvent.click(rowOf(container, "c-1").querySelector(".chat__msg-reply")!);
@@ -935,23 +961,20 @@ describe("ChatArea 回覆這則", () => {
 
     rerender(
       <I18nProvider>
-        <ChatArea member={m2} />
+        <ChatArea key={m2.id} member={m2} />
       </I18nProvider>,
     );
     // Back in m1 the owner staged a picture and typed nothing.
-    saveChatDraft("m1", {
-      text: "",
-      attachments: [
-        {
-          key: "k-theirs",
-          dataUri: "data:image/png;base64,AAAA",
-          filename: "後來貼的.png",
-          mime: "image/png",
-          size: 4,
-          isImage: true,
-        },
-      ],
-    });
+    updateChatDraftAttachments("m1", () => [
+      {
+        key: "k-theirs",
+        dataUri: "data:image/png;base64,AAAA",
+        filename: "後來貼的.png",
+        mime: "image/png",
+        size: 4,
+        isImage: true,
+      },
+    ]);
 
     await act(async () => {
       reject(new Error("nope"));
@@ -982,7 +1005,7 @@ describe("ChatArea 回覆這則", () => {
 
     const { container, rerender } = render(
       <I18nProvider>
-        <ChatArea member={m1} />
+        <ChatArea key={m1.id} member={m1} />
       </I18nProvider>,
     );
     fireEvent.click(rowOf(container, "c-1").querySelector(".chat__msg-reply")!);
@@ -991,15 +1014,11 @@ describe("ChatArea 回覆這則", () => {
 
     rerender(
       <I18nProvider>
-        <ChatArea member={m2} />
+        <ChatArea key={m2.id} member={m2} />
       </I18nProvider>,
     );
     // Back in m1 the owner aimed at a DIFFERENT message and typed something.
-    saveChatDraft("m1", {
-      text: "我後來又打的",
-      attachments: [],
-      replyTo: "c-2",
-    });
+    saveChatDraftText("m1", "我後來又打的", "c-2");
 
     await act(async () => {
       reject(new Error("nope"));
@@ -1084,7 +1103,7 @@ describe("ChatArea 回覆這則", () => {
 
     const { container, unmount } = render(
       <I18nProvider>
-        <ChatArea member={m1} />
+        <ChatArea key={m1.id} member={m1} />
       </I18nProvider>,
     );
     fireEvent.click(rowOf(container, "c-1").querySelector(".chat__msg-reply")!);
@@ -1167,7 +1186,7 @@ describe("ChatArea 回覆這則", () => {
     // loaded window does not contain. There is no 「…」 phase on the way — nothing
     // is being waited for, so the banner is in its final state on frame one.
     messages = [mkMsg({ id: "c-1", from: "m1", to: "owner", body: "他說的" })];
-    saveChatDraft("m1", { text: "", attachments: [], replyTo: "c-longgone" });
+    saveChatDraftText("m1", "", "c-longgone");
     const { container } = renderChat();
 
     const b = banner(container)!;
@@ -1284,7 +1303,7 @@ describe("ChatArea 回覆這則", () => {
     messages = [mkMsg({ id: "c-1", from: "m1", to: "owner", body: "他說的" })];
     const { container, rerender } = render(
       <I18nProvider>
-        <ChatArea member={m1} />
+        <ChatArea key={m1.id} member={m1} />
       </I18nProvider>,
     );
     fireEvent.click(rowOf(container, "c-1").querySelector(".chat__msg-reply")!);
@@ -1292,7 +1311,7 @@ describe("ChatArea 回覆這則", () => {
 
     rerender(
       <I18nProvider>
-        <ChatArea member={m2} />
+        <ChatArea key={m2.id} member={m2} />
       </I18nProvider>,
     );
     expect(banner(container), "m2 inherits nothing").toBeNull();
@@ -1301,7 +1320,7 @@ describe("ChatArea 回覆這則", () => {
     // always" would pass this test too.
     rerender(
       <I18nProvider>
-        <ChatArea member={m1} />
+        <ChatArea key={m1.id} member={m1} />
       </I18nProvider>,
     );
     expect(banner(container), "m1 keeps its own").not.toBeNull();
@@ -1348,7 +1367,7 @@ describe("ChatArea 回覆這則", () => {
     // quote rather than off the window.
     const { container } = render(
       <I18nProvider>
-        <ChatArea member={m1} members={[m1, m2]} />
+        <ChatArea key={m1.id} member={m1} members={[m1, m2]} />
       </I18nProvider>,
     );
 
@@ -1402,7 +1421,7 @@ describe("ChatArea 回覆這則", () => {
       const { container } = render(
         <I18nProvider>
           <OwnerNameProvider value="韓立">
-            <ChatArea member={m1} />
+            <ChatArea key={m1.id} member={m1} />
           </OwnerNameProvider>
         </I18nProvider>,
       );

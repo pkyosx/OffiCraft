@@ -362,8 +362,9 @@ export const zh = {
     // 審批持久標記:曾經開過卡/標過 gate 的 step,做完後仍看得出(owner
     // 2026-07-14:不消失的標記)
     gateMark: "審批",
-    // 已回覆卡收合成一行摘要(可展開)
+    // 卡片一律收合成一行摘要(可展開),標籤說明它現在的狀態
     replyAnsweredTag: "已回覆",
+    replyWaitingTag: "待回覆",
     expandReply: "展開回覆卡",
     collapseReply: "收合回覆卡",
     // 產物集(T-3dc5):任務卡上釘的交付物(檔案/圖片/連結)。徽章「產物 N」
@@ -913,6 +914,7 @@ export const zh = {
     wakeButton: "喚醒",
     wakePending: "喚醒中…",
     emptyRange: "這個範圍還沒有訊息",
+    threadLoading: "正在載入對話…",
     inputPlaceholder: (name: string) => `回覆 ${name}…`,
     // M2-4 composer lock: shown IN PLACE OF the reply input while the member
     // is not online (offline / stopped / waking / stopping).
@@ -932,9 +934,12 @@ export const zh = {
     removeAttachmentLabel: "移除附件",
     downloadAttachment: "下載",
     read: "已讀",
-    // M2 批次 19 未讀跳轉:往上滾時收到新訊息 → 視窗下方浮出的提示 chip;
-    // 帶未讀進房時,第一則未讀訊息上方的細分隔線。
-    newMessages: "有新訊息",
+    // T-48:最新一則不在視窗內時右下角浮出的圓形箭頭;以及取代它的新訊息
+    // 預覽列上的關閉鈕。(舊的「有新訊息」藥丸連同它的固定句子一起退場——
+    // 預覽列直接寫出寄件者與那一行內容。)
+    jumpToLatest: "回到最新訊息",
+    newMsgPreviewDismiss: "關閉新訊息預覽",
+    // M2 批次 19 未讀跳轉:帶未讀進房時,第一則未讀訊息上方的細分隔線。
     unreadBelow: "以下為尚未閱讀的訊息",
     // T-bf82 往上捲載入更多:歷史撈完(hasMore=false)時,訊息串頂端的
     // 「已到最早訊息」標記。
@@ -945,6 +950,15 @@ export const zh = {
     // 幾則標成已讀了,所以未讀數不會透露、畫面也不會有任何異狀 ——
     // 不說出來就等於沒發生。
     gapSuspected: "這條對話可能缺了一段訊息(沒能補齊)",
+    // 🔴 T-48:跳到原訊息(或別人留著的連結)指向的那一則,server 說沒有這
+    // 一則(開窗請求 404,不是空白頁)。畫面會退回底部 —— 光是這樣就正好是
+    // 這張票剛拿掉的那個安靜的謊:跟跳成功長得一模一樣。所以要在畫面上說
+    // 出來。
+    jumpTargetMissing: "找不到那則訊息,可能已經被清掉了",
+    jumpTargetInterrupted: "定位被較新的訊息打斷了,那則訊息還在",
+    jumpTargetUnreachable: "現在讀不到那則訊息,連線好像卡了一下",
+    jumpTargetRetry: "再試一次",
+    jumpTargetMissingDismiss: "關閉這則提示",
     // 訊息流的 LINE 式日期分隔線(跨日處置中 pill;捲動時 sticky 浮在頂端)。
     // weekday 0=週日 … 6=週六;非今年才帶年份(LINE 慣例)。
     dateToday: "今天",

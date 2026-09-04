@@ -383,6 +383,15 @@
   border: 1px solid color-mix(in srgb, var(--color-answered) 45%, transparent);
   flex-shrink: 0;
 }
+/* 待回覆 on a collapsed chat stub (T-48, owner 2026-09-04 — every card starts
+ * collapsed now, so a card still waiting needs a tag of its own). It reuses the
+ * SAME token the waiting_owner task badge uses (--color-dot-waking): "this one
+ * is on you" already has a colour in this app and a second one would drift. */
+.reply-tag--waiting {
+  color: var(--color-dot-waking);
+  border: 1px solid color-mix(in srgb, var(--color-dot-waking) 45%, transparent);
+  flex-shrink: 0;
+}
 /* The expired terminal (T-1aa4): a grey tag — deliberately NOT green (an
  * expiry is not an answer) — shared by the 近期已處理 pane row and the inline
  * chat/task collapsed stubs. */

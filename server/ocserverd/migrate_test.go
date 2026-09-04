@@ -992,7 +992,7 @@ func TestMemberAvatarMigrationRollback(t *testing.T) {
 	}
 	if _, err := db.Exec(`INSERT INTO member
 		(id, name, kind, avatar_attachment_id)
-		VALUES ('m-avatar-mig', 'Avatar', 'assistant', 'ava-owned')`); err != nil {
+		VALUES ('m-avatar-mig', 'Avatar', 'staff', 'ava-owned')`); err != nil {
 		t.Fatalf("seed member: %v", err)
 	}
 

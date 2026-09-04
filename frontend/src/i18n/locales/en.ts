@@ -331,6 +331,7 @@ export const en: Dict = {
     replyInChat: "Reply in chat",
     gateMark: "Approval",
     replyAnsweredTag: "Answered",
+    replyWaitingTag: "Pending",
     expandReply: "Expand reply card",
     collapseReply: "Collapse reply card",
     // Artifact set (T-3dc5): the deliverables (file/image/link) pinned onto a
@@ -832,6 +833,7 @@ export const en: Dict = {
     wakeButton: "Wake",
     wakePending: "Waking…",
     emptyRange: "No messages in this range yet",
+    threadLoading: "Loading conversation…",
     inputPlaceholder: (name: string) => `Reply to ${name}…`,
     // M2-4 composer lock: shown IN PLACE OF the reply input while the member
     // is not online (offline / stopped / waking / stopping).
@@ -849,9 +851,15 @@ export const en: Dict = {
     removeAttachmentLabel: "Remove attachment",
     downloadAttachment: "Download",
     read: "Read",
-    // M2 batch 19 unread jump: the floating chip shown when a new message lands
-    // while scrolled up; the thin divider above the first unread message on entry.
-    newMessages: "New messages",
+    // T-48: the round arrow that surfaces whenever the NEWEST message is not in
+    // the viewport, and the x on the new-message preview strip that replaces it
+    // while unseen arrivals are waiting. (`newMessages`, the old 「有新訊息」
+    // pill's label, went with the pill — the strip names the sender and quotes
+    // the line instead, so a fixed sentence has nothing left to say.)
+    jumpToLatest: "Jump to the latest message",
+    newMsgPreviewDismiss: "Dismiss the new-message preview",
+    // M2 batch 19 unread jump: the thin divider above the first unread message
+    // on entry.
     unreadBelow: "Unread messages below",
     // T-bf82 scrollback: the top-of-thread marker once the history is
     // exhausted (hasMore=false).
@@ -862,6 +870,29 @@ export const en: Dict = {
     // server has already marked those messages read: the unread count will not
     // betray it and nothing else on screen looks wrong.
     gapSuspected: "Some messages may be missing from this conversation (could not be recovered)",
+    // 🔴 T-48: the jump (跳到原訊息 / a kept link) asked for a message the
+    // server has no record of — a 404 on the anchor-window fetch, not an empty
+    // page. The thread falls back to the bottom, which on its own is EXACTLY
+    // the silent lie this ticket removed: indistinguishable from a jump that
+    // worked. So it is said out loud, on screen, in the reader's language.
+    jumpTargetMissing: "Couldn't find that message — it may have been cleared already.",
+    // 🔴 T-48 F3: a DIFFERENT fact, and it must not borrow the sentence above.
+    // The anchor fetch was overtaken by a newer load often enough to give up
+    // retrying; the message is still there and claiming it was cleared would be
+    // a lie with a dead end behind it. Say what happened — and let the RETRY
+    // BUTTON beside it be the next step. It used to say "open the link again",
+    // which cannot work: the jump latch is spent and the hash has not changed,
+    // so the same link fires no hashchange and no re-render (T-48, R3-5).
+    jumpTargetInterrupted:
+      "The jump was interrupted by newer messages — the message is still there.",
+    // 🔴 T-48: the read FAILED — a 5xx, a dropped connection, a timeout. The
+    // message is almost certainly still there, so this may not borrow either
+    // sentence above: "cleared already" ends the matter and nobody retries a
+    // message that is gone. Say what happened, and offer the retry.
+    jumpTargetUnreachable:
+      "Couldn't load that message just now — the connection to the office had a hiccup.",
+    jumpTargetRetry: "Try again",
+    jumpTargetMissingDismiss: "Dismiss this notice",
     // LINE-style day dividers in the message stream (centered pill at each day
     // crossing; sticky at the top while scrolling). weekday 0=Sun … 6=Sat; the
     // year only appears when it isn't the current year (LINE convention).

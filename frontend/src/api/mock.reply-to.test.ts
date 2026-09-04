@@ -45,7 +45,7 @@ describe("mock 回覆這則 — server parity", () => {
     });
     expect(reply.replyTo).toBe(quoted.id);
 
-    const thread = await mockApi.peekChat("mira");
+    const thread = await mockApi.listChat("mira");
     expect(thread.find((m) => m.id === reply.id)?.replyTo).toBe(quoted.id);
   });
 
@@ -69,7 +69,7 @@ describe("mock 回覆這則 — server parity", () => {
     ).rejects.toThrow(/mock-nosuch/);
 
     // …and the refused message is not in the thread afterwards.
-    const thread = await mockApi.peekChat("mira");
+    const thread = await mockApi.listChat("mira");
     expect(thread.some((m) => m.body === "孤兒")).toBe(false);
   });
 
@@ -114,22 +114,17 @@ describe("mock 回覆這則 — server parity", () => {
       toName: "",
       content: "被引用的那句",
     });
-    // ② the listing, and ③ the read-only peek — both doors, both unconditional,
-    // and note the quoted message is IN both windows: "it is already here" is
-    // not a reason to skip it.
-    for (const [door, rows] of [
-      ["listChat", await mockApi.listChat("mira")],
-      ["peekChat", await mockApi.peekChat("mira")],
-    ] as const) {
-      const row = rows.find((m) => m.id === reply.id)!;
-      expect(row, `${door} must carry the reply`).toBeTruthy();
-      expect(row.replyToChat?.content, `${door} must carry the quote`).toBe(
-        "被引用的那句",
-      );
-      // …and a message that replies to nothing claims no quote, or a mock that
-      // stamped every row would pass the line above.
-      expect(rows.find((m) => m.id === quoted.id)?.replyToChat ?? null).toBeNull();
-    }
+    // ② the listing — unconditional, and note the quoted message is IN the
+    // window too: "it is already here" is not a reason to skip it.
+    const rows = await mockApi.listChat("mira");
+    const row = rows.find((m) => m.id === reply.id)!;
+    expect(row, "listChat must carry the reply").toBeTruthy();
+    expect(row.replyToChat?.content, "listChat must carry the quote").toBe(
+      "被引用的那句",
+    );
+    // …and a message that replies to nothing claims no quote, or a mock that
+    // stamped every row would pass the line above.
+    expect(rows.find((m) => m.id === quoted.id)?.replyToChat ?? null).toBeNull();
   });
 
   it("carries the quote on the WAKE SNAPSHOT too, and it is the read that fills its names", async () => {

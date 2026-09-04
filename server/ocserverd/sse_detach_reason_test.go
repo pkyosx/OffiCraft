@@ -131,7 +131,7 @@ func waitDone(t *testing.T, done <-chan struct{}, what string) {
 // station-shutdown makes this exact-field assertion red.
 func TestSSEDetachReasonPeerClosed(t *testing.T) {
 	api, dal := newGateTestAPI(t)
-	putGateMember(t, dal, Member{ID: "detach-peer", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "detach-peer", Kind: KindStaff,
 		DesiredState: DesiredStateOnline})
 
 	logText := captureSSEStderr(t, func() {
@@ -147,7 +147,7 @@ func TestSSEDetachReasonPeerClosed(t *testing.T) {
 // peer-closed makes this exact-field assertion red.
 func TestSSEDetachReasonTakeover(t *testing.T) {
 	api, dal := newGateTestAPI(t)
-	putGateMember(t, dal, Member{ID: "detach-takeover", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "detach-takeover", Kind: KindStaff,
 		DesiredState: DesiredStateOnline})
 
 	logText := captureSSEStderr(t, func() {
@@ -171,7 +171,7 @@ func TestSSEDetachReasonTakeover(t *testing.T) {
 // makes this exact-field assertion red.
 func TestSSEDetachReasonWriteFailed(t *testing.T) {
 	api, dal := newGateTestAPI(t)
-	putGateMember(t, dal, Member{ID: "detach-write", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "detach-write", Kind: KindStaff,
 		DesiredState: DesiredStateOnline})
 
 	logText := captureSSEStderr(t, func() {
@@ -191,7 +191,7 @@ func TestSSEDetachReasonWriteFailed(t *testing.T) {
 // assertion red.
 func TestSSEDetachReasonStationShutdown(t *testing.T) {
 	api, dal := newGateTestAPI(t)
-	putGateMember(t, dal, Member{ID: "detach-station", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "detach-station", Kind: KindStaff,
 		DesiredState: DesiredStateOnline})
 
 	logText := captureSSEStderr(t, func() {
@@ -220,7 +220,7 @@ func TestSSEDetachReasonStationShutdown(t *testing.T) {
 // test is the only thing that turns red.
 func TestSSEDetachReasonStationShutdownWithoutContextCancel(t *testing.T) {
 	api, dal := newGateTestAPI(t)
-	putGateMember(t, dal, Member{ID: "detach-upgrade", Kind: KindAssistant,
+	putGateMember(t, dal, Member{ID: "detach-upgrade", Kind: KindStaff,
 		DesiredState: DesiredStateOnline})
 
 	logText := captureSSEStderr(t, func() {

@@ -1,17 +1,27 @@
 // ChatReplyCard — a reply card (等我回覆卡) rendered INLINE in the chat thread
 // (SPEC §3, B3 聊天整合). The carrying message only holds `replyCardId`
-// (meta.reply_card_id), so this component refetches the SINGLE card for its
-// full shape (options / status / answer), and again on every `reply_card` SSE
-// delta — that refetch IS the two-way sync: answering on the 等我回覆 page (or
-// another window) flips this card to answered in place, and answering here
-// fans the same topic so the page's lists + nav badge update.
+// (meta.reply_card_id), so this component fetches the SINGLE card for its full
+// shape (options / status / answer). Two things have since carved exceptions
+// out of that "always fetches on mount", and both are load-bearing:
+//   · EVERY card mounts COLLAPSED and fetches only on expand (owner
+//     2026-09-04 `c-6f054c1cb481`: 待回覆的卡也跟已回覆一樣先不展開). The stub
+//     needs nothing this component has to go and get — the summary is the
+//     carrying message's own body and the status is its hint — so the row's
+//     first painted frame is already its final height, for every card, and a
+//     chat history of dozens of cards fires zero `getReplyCard`s.
+// Every `reply_card` SSE delta still refetches a non-terminal card, and that
+// refetch IS the two-way sync: answering on the 等我回覆 page (or another
+// window) flips this card to answered in place, and answering here fans the
+// same topic so the page's lists + nav badge update.
 //
 // The card interiors are the SHARED ReplyCardBody blocks (same chips / tags /
 // composer / 重新決定 flow as RepliesPage — one implementation, zero drift).
 // No extra banner: the card IS the message bubble (spec: 直接出現在訊息串中).
 // Answering never touches the chat unread red dot — that clears only by being
-// IN the conversation (the existing listChat watermark), which is exactly
-// where this card lives.
+// IN the conversation (ChatArea's explicit mark-read, which fires while the
+// owner is actually looking at the thread), which is exactly where this card
+// lives. Until T-48 the clearer was a side effect of the listing itself; the
+// dot's rule did not change when the mechanism did.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
@@ -40,12 +50,10 @@ export function ChatReplyCard({
    * fails, so the ask is never a blank bubble; also the collapsed-stub label
    * for a not-yet-expanded answered card (no card fetched yet). */
   fallbackSummary: string;
-  /** The carrying message's read-time `reply_card_status` hint. When it says
-   * ANSWERED or EXPIRED (both terminal) the card mounts COLLAPSED and does NOT
-   * fetch — owner rule 已回覆卡預設不載: the full card loads only when the
-   * owner expands it, so a chat history of dozens of settled cards no longer
-   * fires one getReplyCard each. A waiting hint (or null/undefined — unknown)
-   * loads eagerly, exactly as before this prop existed. */
+  /** The carrying message's read-time `reply_card_status` hint — what the
+   * collapsed stub labels itself with (待回覆 / 已回覆 / 已過期) before any card
+   * has been fetched. Null/undefined (unknown) is treated as 待回覆; the first
+   * expand replaces it with the card's own status. */
   initialStatus?: ReplyCard["status"] | null;
 }) {
   const { t } = useI18n();
@@ -53,19 +61,24 @@ export function ChatReplyCard({
   const [card, setCard] = useState<ReplyCard | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  // Lazy-load gate: a terminal-hinted card (answered/expired) starts COLLAPSED
-  // (no fetch) and loads its full shape only on expand; every other case
-  // starts expanded and loads eagerly.
-  const lazyTerminal =
-    initialStatus === "answered" || initialStatus === "expired";
-  const [expanded, setExpanded] = useState(!lazyTerminal);
-  // Latest card status, read inside the SSE callback WITHOUT re-subscribing.
-  // SEEDED from the hint so a collapsed terminal card (not yet fetched) also
+  // 🔴 EVERY CARD MOUNTS COLLAPSED, AND THAT IS WHAT REMOVED THE SHIFT (T-48,
+  // owner 2026-09-04). It used to be only the terminal-hinted ones: a waiting
+  // card mounted EXPANDED and empty, painted at its collapsed height, fetched,
+  // and then GREW — pushing everything below it down after the scroll had
+  // already landed (measured +254px at 1280 wide, +200px at 390). The fix used
+  // to be a prefill cache the thread had to await before any message could
+  // reach the view; collapsing the row instead makes the first painted frame
+  // its final height WITHOUT fetching anything, so the cache, the await and the
+  // module that enforced the await are all gone.
+  const [expanded, setExpanded] = useState(false);
+  // Latest known status, read inside the SSE callback WITHOUT re-subscribing.
+  // SEEDED from the message hint so a collapsed, never-fetched TERMINAL card
   // satisfies the T-cdf4 guard below — an unrelated reply_card fan-out must NOT
-  // wake it into a fetch, or lazy-load is defeated on the first SSE delta.
-  const statusRef = useRef<ReplyCard["status"] | null>(
-    lazyTerminal ? initialStatus : null
-  );
+  // wake it into a fetch, or lazy-load is defeated on the first SSE delta. A
+  // collapsed WAITING card deliberately does not carry that immunity: it still
+  // refetches on a delta, which is how its stub flips 待回覆 → 已回覆 in place
+  // when the card is answered from another surface.
+  const statusRef = useRef<ReplyCard["status"] | null>(initialStatus ?? null);
 
   // 🔴 READ GENERATION. Every read of this card takes a ticket and only commits
   // if the ticket is still current; adopting a write takes one too (`adopt`
@@ -104,9 +117,10 @@ export function ChatReplyCard({
     setLoadError(false);
   }, [replyCardId]);
 
-  // Load the card once expanded — eager on mount for a waiting/unknown card,
-  // deferred to the expand click for an answered one.
   useEffect(() => {
+    // The card is fetched on EXPAND and only on expand — a collapsed row shows
+    // what the carrying message already said, so there is nothing to load until
+    // somebody opens it.
     if (!expanded) return;
     let alive = true;
     refetch().catch((e) => {
@@ -208,17 +222,29 @@ export function ChatReplyCard({
     }
   }
 
-  // Collapsed stub for a not-yet-expanded terminal card (owner 已回覆卡預設
-  // 不載): the ask's summary (the carrying message body — no card fetched yet)
-  // + the 已回覆/已過期 tag on one clickable row; expanding fetches the full
-  // card and renders the shared terminal interior below.
+  // Collapsed stub — what EVERY card shows until it is opened (owner
+  // 2026-09-04): the ask's summary (the carrying message's own body) + a
+  // 待回覆／已回覆／已過期 tag on one clickable row. Nothing here is fetched, so
+  // the row is its final height on the first frame. A waiting card that gets
+  // answered elsewhere refetches on the SSE delta, which is why the tag reads
+  // `card` first and the message hint only until then.
   if (!expanded) {
-    const expiredStub = statusRef.current === "expired";
+    const stubStatus = card?.status ?? initialStatus ?? "waiting";
+    const stubTag =
+      stubStatus === "expired"
+        ? { cls: "reply-tag reply-tag--expired", label: t.replies.expiredTag }
+        : stubStatus === "answered"
+          ? {
+              cls: "reply-tag reply-tag--answered",
+              label: t.tasks.replyAnsweredTag,
+            }
+          : { cls: "reply-tag reply-tag--waiting", label: t.tasks.replyWaitingTag };
     return (
       <div
         className="reply-card reply-card--chat reply-card--collapsed"
         data-testid="chat-reply-card"
         data-reply-card-id={replyCardId}
+        data-reply-card-status={stubStatus}
       >
         <button
           type="button"
@@ -230,15 +256,7 @@ export function ChatReplyCard({
           onClick={() => setExpanded(true)}
         >
           <ChevronRightIcon size={12} className="reply-card__caret" />
-          <span
-            className={
-              expiredStub
-                ? "reply-tag reply-tag--expired"
-                : "reply-tag reply-tag--answered"
-            }
-          >
-            {expiredStub ? t.replies.expiredTag : t.tasks.replyAnsweredTag}
-          </span>
+          <span className={stubTag.cls}>{stubTag.label}</span>
           <span className="reply-card__collapsed-summary">
             {fallbackSummary}
           </span>

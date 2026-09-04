@@ -572,7 +572,7 @@ describe("RepliesPage", () => {
   // Same field, different path (a staff member's card binds to its own step),
   // so it gets its own assertion rather than riding on the contractor one.
   it("names the task a staff member's ask belongs to", async () => {
-    __injectMockMember({ id: "m-dev", name: "Kyle", kind: "assistant" });
+    __injectMockMember({ id: "m-dev", name: "Kyle", kind: "staff" });
     __injectMockReplyCard(
       mkCard({
         from: "m-dev",

@@ -51,7 +51,7 @@ const mkMember = (over: Partial<Member> = {}): Member => ({
   lifecycle: detailOnline ? "online" : "offline",
   model: "opus-4.8",
   effort: "medium",
-  kind: "assistant",
+  kind: "staff",
   desiredMachineId: detailDesiredMachineId,
   // 🔴 machine (WHERE IT IS) must differ from desiredMachineId (WHERE IT WAS
   // PINNED) for a relocate to be pending at all — equal means the move already

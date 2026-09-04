@@ -257,7 +257,7 @@ func createOutsourceTask(t *testing.T, api *apiServer, typeKey, title string) ta
 	// (for its delegated_by name) keeps its own row.
 	if m, _ := api.dal.GetMember("m-front"); m == nil {
 		if err := api.dal.PutMember(Member{
-			ID: "m-front", Name: "小前", Kind: "assistant", RoleKey: adminRoleKey,
+			ID: "m-front", Name: "小前", Kind: "staff", RoleKey: adminRoleKey,
 			RosterStatus: RosterStatusActive,
 		}); err != nil {
 			t.Fatalf("seed approver creator: %v", err)
@@ -626,7 +626,7 @@ func TestOutsourceTickDoesNotReGateExplicitTargetByCreator(t *testing.T) {
 	api.noOutsource = true
 	// A plain subordinate creator.
 	if err := api.dal.PutMember(Member{
-		ID: "m-plain", Name: "Plain", Kind: KindAssistant, RoleKey: "dev",
+		ID: "m-plain", Name: "Plain", Kind: KindStaff, RoleKey: "dev",
 		RosterStatus: RosterStatusActive,
 	}); err != nil {
 		t.Fatalf("seed creator: %v", err)

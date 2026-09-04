@@ -154,6 +154,11 @@ for (const viewport of LEAD_WIDTHS) {
     const cmp = await mount(<ReplyCardLeadRowStory />);
 
     const card = cmp.getByTestId("chat-reply-card");
+    // Every chat card mounts COLLAPSED since T-48 (owner 2026-09-04), so the
+    // interior this test is about only exists once it is opened. Expanding is
+    // the reader's own action here, not a workaround: what is under test is
+    // where the 任務資訊 row sits INSIDE the card.
+    await cmp.getByTestId("chat-reply-card-expand").click();
     const row = cmp.getByTestId("reply-task-ref");
     const summary = card.locator(".reply-card__summary");
     await expect(row).toBeVisible();

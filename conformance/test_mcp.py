@@ -289,9 +289,12 @@ def test_call_get_route_query_split(client, owner_token, agent_a) -> None:
         client, owner_token, "get_chat", {"with": agent_a.member_id, "limit": None}
     )
     assert result["isError"] is False, result
-    messages = json.loads(_text(result))
-    assert isinstance(messages, list), messages
-    assert any(m.get("body") == marker for m in messages), (
+    page = json.loads(_text(result))
+    # get_chat answers the T-48 envelope, so the tool result is an OBJECT: the
+    # MCP loopback hands the route's body through untouched, and asserting the
+    # shape here is what proves it did not quietly reshape it.
+    assert isinstance(page, dict) and isinstance(page.get("messages"), list), page
+    assert any(m.get("body") == marker for m in page["messages"]), (
         "query param `with` was not honoured by the argument split"
     )
 

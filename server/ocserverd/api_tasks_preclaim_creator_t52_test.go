@@ -29,7 +29,7 @@ import (
 func unboundOutsourceTask(t *testing.T, api *apiServer, creator string) taskDTO {
 	t.Helper()
 	api.noOutsource = true
-	putMemberRow(t, api, creator, KindAssistant, "")
+	putMemberRow(t, api, creator, KindStaff, "")
 	if err := api.dal.PutTaskManual(TaskManual{
 		TypeKey:  "t52-brief",
 		Fields:   "[]",
@@ -243,7 +243,7 @@ func TestUnassignedTaskStillRefusesAThirdParty(t *testing.T) {
 		t.Run(door.name, func(t *testing.T) {
 			api := newTasksTestServer(t)
 			task := unboundOutsourceTask(t, api, "m-creator")
-			putMemberRow(t, api, "m-stranger", KindAssistant, "")
+			putMemberRow(t, api, "m-stranger", KindStaff, "")
 			seedStep(t, api, task.ID, "st-1")
 			seedTextHistory(t, api, task.ID)
 			rec := door.call(t, api, task, "st-1", "m-stranger")

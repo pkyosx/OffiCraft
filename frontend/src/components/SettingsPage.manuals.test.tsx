@@ -779,7 +779,7 @@ describe("設定 › 任務手冊 — detail", () => {
     fireEvent.click(getByTestId("manual-assignee-kind-member"));
     // The roster pick rows list the real assistants (mock Mira) — pick her.
     const members = await api.listMembers();
-    const mira = members.find((m) => m.kind === "assistant")!;
+    const mira = members.find((m) => m.kind === "staff")!;
     fireEvent.click(await findByTestId(`manual-assignee-member-${mira.id}`));
     fireEvent.click(getByTestId("manual-assignee-done"));
 
@@ -801,7 +801,7 @@ describe("設定 › 任務手冊 — detail", () => {
     // Mock Mira carries role_key "assistant" → the row's role label resolves
     // through the shared order (i18n seed label first) to 特助.
     const members = await api.listMembers();
-    const mira = members.find((m) => m.kind === "assistant")!;
+    const mira = members.find((m) => m.kind === "staff")!;
     const row = await findByTestId(`manual-assignee-member-${mira.id}`);
     expect(row.textContent).toContain(mira.name);
     expect(

@@ -74,12 +74,12 @@ func rosterRow(t *testing.T, rows []resumeRosterMemberDTO, id string) resumeRost
 // a contractor is still someone whose work you may be about to duplicate.
 //
 // MUTANT: filter the roster loop to online members only (or to
-// KindAssistant only) — the offline member / the contractor disappears and
+// KindStaff only) — the offline member / the contractor disappears and
 // this test goes red on the exact row it names.
 func TestResumeRosterCarriesEveryMemberAndContractor(t *testing.T) {
 	s := floorTestServer(t)
-	putFloorMember(t, s, Member{ID: "m-alpha", Name: "Alpha", Kind: KindAssistant, RoleKey: "assistant"})
-	putFloorMember(t, s, Member{ID: "m-bravo", Name: "Bravo", Kind: KindAssistant, RoleKey: "assistant"})
+	putFloorMember(t, s, Member{ID: "m-alpha", Name: "Alpha", Kind: KindStaff, RoleKey: "assistant"})
+	putFloorMember(t, s, Member{ID: "m-bravo", Name: "Bravo", Kind: KindStaff, RoleKey: "assistant"})
 	putFloorMember(t, s, Member{ID: "ow-charlie", Name: "O-77", Kind: KindOutsource})
 
 	got := resumeFor(t, s, "m-alpha")
@@ -105,7 +105,7 @@ func TestResumeRosterCarriesEveryMemberAndContractor(t *testing.T) {
 // roster grows to 5 and the machine block empties; both halves go red.
 func TestResumeRosterExcludesMachineRows(t *testing.T) {
 	s := floorTestServer(t)
-	putFloorMember(t, s, Member{ID: "m-alpha", Name: "Alpha", Kind: KindAssistant, RoleKey: "assistant"})
+	putFloorMember(t, s, Member{ID: "m-alpha", Name: "Alpha", Kind: KindStaff, RoleKey: "assistant"})
 
 	got := resumeFor(t, s, "m-alpha")
 	if len(got.Roster) != 1 {
@@ -146,7 +146,7 @@ func TestResumeRosterExcludesMachineRows(t *testing.T) {
 // the key set gains unread_count / last_op_* / desired_* and this goes red.
 func TestResumeRosterOmitsInsightAndOperationalFields(t *testing.T) {
 	s := floorTestServer(t)
-	putFloorMember(t, s, Member{ID: "m-alpha", Name: "Alpha", Kind: KindAssistant, RoleKey: "assistant"})
+	putFloorMember(t, s, Member{ID: "m-alpha", Name: "Alpha", Kind: KindStaff, RoleKey: "assistant"})
 	// Unread chat exists in this fixture. The full member path would count it;
 	// this payload must not even carry a field for it.
 	if err := s.dal.PutChat(ChatMessage{ID: "c-floor-1", Sender: "m-alpha", Recipient: "owner", Body: "hi", TS: 10}); err != nil {
@@ -198,8 +198,8 @@ func TestResumeDutyIsCappedAndMarked(t *testing.T) {
 	if err := s.dal.PutRoleDef(RoleDef{RoleKey: "r-terse", Name: "Terse Role", DefinitionMD: "接電話"}); err != nil {
 		t.Fatal(err)
 	}
-	putFloorMember(t, s, Member{ID: "m-alpha", Name: "Alpha", Kind: KindAssistant, RoleKey: "r-verbose"})
-	putFloorMember(t, s, Member{ID: "m-bravo", Name: "Bravo", Kind: KindAssistant, RoleKey: "r-terse"})
+	putFloorMember(t, s, Member{ID: "m-alpha", Name: "Alpha", Kind: KindStaff, RoleKey: "r-verbose"})
+	putFloorMember(t, s, Member{ID: "m-bravo", Name: "Bravo", Kind: KindStaff, RoleKey: "r-terse"})
 
 	got := resumeFor(t, s, "m-alpha")
 	verbose := rosterRow(t, got.Roster, "m-alpha").Duty
@@ -249,9 +249,9 @@ func TestResumeDutyDropsItsOwnTitleOnly(t *testing.T) {
 		DefinitionMD: "#1 順位庚\n\n然後辛"}); err != nil {
 		t.Fatal(err)
 	}
-	putFloorMember(t, s, Member{ID: "m-alpha", Name: "Alpha", Kind: KindAssistant, RoleKey: "r-titled"})
-	putFloorMember(t, s, Member{ID: "m-charlie", Name: "Charlie", Kind: KindAssistant, RoleKey: "r-onlytitle"})
-	putFloorMember(t, s, Member{ID: "m-delta", Name: "Delta", Kind: KindAssistant, RoleKey: "r-hash"})
+	putFloorMember(t, s, Member{ID: "m-alpha", Name: "Alpha", Kind: KindStaff, RoleKey: "r-titled"})
+	putFloorMember(t, s, Member{ID: "m-charlie", Name: "Charlie", Kind: KindStaff, RoleKey: "r-onlytitle"})
+	putFloorMember(t, s, Member{ID: "m-delta", Name: "Delta", Kind: KindStaff, RoleKey: "r-hash"})
 
 	got := resumeFor(t, s, "m-alpha")
 	titled := rosterRow(t, got.Roster, "m-alpha").Duty
@@ -293,7 +293,7 @@ func TestResumeDutyStripsBeforeCapping(t *testing.T) {
 		DefinitionMD: "# 標題壬\n\n" + body}); err != nil {
 		t.Fatal(err)
 	}
-	putFloorMember(t, s, Member{ID: "m-alpha", Name: "Alpha", Kind: KindAssistant, RoleKey: "r-longtitled"})
+	putFloorMember(t, s, Member{ID: "m-alpha", Name: "Alpha", Kind: KindStaff, RoleKey: "r-longtitled"})
 
 	duty := rosterRow(t, resumeFor(t, s, "m-alpha").Roster, "m-alpha").Duty
 	// The full budget must be spent on BODY: cap + the ellipsis, with no title
@@ -366,7 +366,7 @@ func TestResumeContractorCarriesTaskTitleAndMemberDoesNot(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	putFloorMember(t, s, Member{ID: "m-alpha", Name: "Alpha", Kind: KindAssistant,
+	putFloorMember(t, s, Member{ID: "m-alpha", Name: "Alpha", Kind: KindStaff,
 		RoleKey: "assistant", LinkedTaskID: &memberTaskID})
 
 	got := resumeFor(t, s, "m-alpha")
@@ -425,7 +425,7 @@ func TestResumeContractorCarriesTaskTitleAndMemberDoesNot(t *testing.T) {
 func TestResumeContractorZeroProgressSeparatesNoStepsFromNoTask(t *testing.T) {
 	s := floorTestServer(t)
 	s.noOutsource = true // no scheduler spawn: this fixture binds its worker by hand
-	putFloorMember(t, s, Member{ID: "m-alpha", Name: "Alpha", Kind: KindAssistant, RoleKey: "assistant"})
+	putFloorMember(t, s, Member{ID: "m-alpha", Name: "Alpha", Kind: KindStaff, RoleKey: "assistant"})
 
 	rec := createTaskAs(t, s, map[string]any{
 		"title":  "尚未排步驟的外包任務",
@@ -493,7 +493,7 @@ func TestResumeContractorZeroProgressSeparatesNoStepsFromNoTask(t *testing.T) {
 func TestResumeYouAreOnSurvivesTheRosterFilters(t *testing.T) {
 	s := floorTestServer(t)
 	putFloorMember(t, s, Member{
-		ID: "m-bravo", Name: "Bravo", Kind: KindAssistant, RoleKey: "assistant",
+		ID: "m-bravo", Name: "Bravo", Kind: KindStaff, RoleKey: "assistant",
 		RosterStatus: RosterStatusRemoved, LastMachineID: "m-host-two",
 	})
 	s.telemetry.Set("m-bravo", map[string]any{"machine": "m-host-two"})
@@ -519,7 +519,7 @@ func TestResumeYouAreOnSurvivesTheRosterFilters(t *testing.T) {
 func TestResumeMachinesYouAreOnIsTheServerBinding(t *testing.T) {
 	s := floorTestServer(t)
 	putFloorMember(t, s, Member{
-		ID: "m-alpha", Name: "Alpha", Kind: KindAssistant, RoleKey: "assistant",
+		ID: "m-alpha", Name: "Alpha", Kind: KindStaff, RoleKey: "assistant",
 		LastMachineID: "m-host-two",
 	})
 	s.telemetry.Set("m-alpha", map[string]any{"machine": "m-host-two"})
@@ -553,7 +553,7 @@ func TestResumePeekReportsTheFloorItWouldCarry(t *testing.T) {
 		DefinitionMD: strings.Repeat("職", resumeDutyPreview+250)}); err != nil {
 		t.Fatal(err)
 	}
-	putFloorMember(t, s, Member{ID: "m-alpha", Name: "Alpha", Kind: KindAssistant, RoleKey: "r-verbose"})
+	putFloorMember(t, s, Member{ID: "m-alpha", Name: "Alpha", Kind: KindStaff, RoleKey: "r-verbose"})
 
 	full := resumeFor(t, s, "m-alpha")
 	if full.Overview.RosterChars != rosterChars(full.Roster) {

@@ -139,7 +139,7 @@ export function TaskReassignDialog({
   // 409; pre-filtering keeps the picker honest, the dupCandidates precedent).
   const roster = members.filter(
     (m) =>
-      m.kind === "assistant" &&
+      m.kind === "staff" &&
       !(task.executorKind === "member" && m.id === task.executorId)
   );
 

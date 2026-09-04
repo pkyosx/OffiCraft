@@ -46,7 +46,7 @@ func loreGovStack(t *testing.T) (srvURL string, dal *DAL, agentTok, ownerTok, wa
 	now := time.Now().Unix()
 
 	if err := dal.PutMember(Member{
-		ID: "m-lore-agent", Name: "lore-agent", Kind: KindAssistant, Effort: "medium",
+		ID: "m-lore-agent", Name: "lore-agent", Kind: KindStaff, Effort: "medium",
 		DesiredState: DesiredStateOffline, RosterStatus: RosterStatusActive,
 	}); err != nil {
 		t.Fatalf("put agent member: %v", err)

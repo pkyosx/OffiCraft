@@ -133,7 +133,7 @@ func TestChatIDs_TheSnapshotTheNotificationAndTheReReadNameTheSameMessage(t *tes
 	// ── ② the field the NOTIFICATION LINE reads, taken from the CLI source ───
 	key := notificationIDField(t)
 	var served []map[string]any
-	if err := json.Unmarshal(get("/api/chat?with=m-2"), &served); err != nil {
+	if err := json.Unmarshal(chatEnvelopeMessages(t, get("/api/chat?with=m-2")), &served); err != nil {
 		t.Fatalf("decode chat: %v", err)
 	}
 	var row map[string]any
@@ -161,7 +161,7 @@ func TestChatIDs_TheSnapshotTheNotificationAndTheReReadNameTheSameMessage(t *tes
 		ID   string `json:"id"`
 		Body string `json:"body"`
 	}
-	if err := json.Unmarshal(get("/api/chat?ids="+fromSnapshot), &reread); err != nil {
+	if err := json.Unmarshal(chatEnvelopeMessages(t, get("/api/chat?ids="+fromSnapshot)), &reread); err != nil {
 		t.Fatalf("decode by-id read: %v", err)
 	}
 	if len(reread) != 1 {

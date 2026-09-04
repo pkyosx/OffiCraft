@@ -1,0 +1,101 @@
+-- +goose Up
+-- 🔴 TWO SEPARATE CONSTRAINTS HANG ON THIS NUMBER, AND THEY ARE WRITTEN APART
+-- ON PURPOSE. Both end as a server that does not start, but they have different
+-- causes and different defences -- merging them into one paragraph is the same
+-- as writing neither. Renumbered 00072 -> 00075 on 2026-09-04.
+--
+-- ⇒ ① COLLISION -- has somebody else already claimed this number?
+--      RE-SCAN BEFORE THE FINAL PUSH, and scan BOTH sources -- migrations/*.sql
+--      AND AddNamedMigrationContext("NNNNN -- across ALL remote branches, not
+--      just origin/main, which cannot see numbers held by branches in flight.
+--      At the 2026-09-04 scan: main's max was 00070, the highest in use
+--      anywhere was 00074, and 00075/00076 were free.
+--
+-- ⇒ ② LANDING ORDER -- THIS PACKAGE MUST LAND *LAST*.
+--      These numbers are HIGHER than the in-flight 00071 (#400) and 00074
+--      (#407). goose runs with allowMissing=false, so if this package lands
+--      first and the server reaches version 76, those two then arrive with
+--      SMALLER numbers and the server refuses to start:
+--      `found N missing migrations before current version 76`.
+--      Renumbering cannot fix this. Whatever number we take, as long as 00071
+--      and 00074 are still in flight, ANY higher number landing first does it
+--      to them -- it is a landing-order problem, not a numbering one. The order
+--      the staff engineer has fixed, and writes on every merge card:
+--
+--          #404 -> #400 -> #407 -> #394        (this package is #394, last)
+--
+--      which also happens to match readiness: #394 is the least ready, having
+--      just taken the race fix and this renumber.
+--
+-- 🔑 AND THIS IS MEASURED, NOT REASONED -- which is the sentence that decides
+--    whether the next reader re-opens the question or trusts it. Kyle
+--    demonstrated the failure on 2026-09-04 with TWO BINARIES against ONE
+--    throwaway DB, with a positive control and a reverse control. Nobody
+--    inferred it from reading goose's source.
+--
+-- ⚠️ 00075 AND 00076 ARE INDEPENDENT OF EACH OTHER, and this block used to say
+--    the flat opposite: "KEEP THIS FILE BELOW ITS SIBLING. The index created
+--    here is destroyed by the member rebuild's DROP TABLE in 00076 and rebuilt
+--    there. The pair is order-dependent; swapping them is a data bug." Every
+--    clause of that was false. The index created here is on `chat_message`;
+--    00076 drops `member`; `DROP TABLE member` cannot touch a `chat_message`
+--    index; and 00076 rebuilds idx_member_codename, which is not this index.
+--    Swapping the two is not a data bug. 00076 DOES have a real order
+--    dependence -- on any lower-numbered migration that ADDS A MEMBER COLUMN
+--    (#387's 00070) -- and that half is stated correctly in its own header.
+--
+--    🔴 IT SURVIVED PRECISELY *BECAUSE* A COMMIT REWROTE THIS BLOCK. d21db160
+--    announced that it was replacing the old "temporary number" text with "the
+--    expiring truth", and carried the falsehood through untouched. A rewrite
+--    that says "I am fixing this section" lends its own fresh credibility to
+--    whatever it leaves behind. So when you rewrite this block again: re-derive
+--    every sentence against the schema. Do not keep one because it was in the
+--    version you are replacing.
+--
+-- T-48: one composite index so the UNREAD COUNT stops scanning the chat table.
+--
+-- owner ruling 2026-09-02 (rc-6b67aa1a331c, option 1: 「放進這包，現在就加這個複合
+-- 索引（接受多一支 migration）」) — chosen AGAINST the proposer's own
+-- recommendation of "另開票, measure on real data first". So the numbers below
+-- are SYNTHETIC and he took them knowing that; see the caveats at the bottom.
+--
+-- Measured by the T-48 contractor on a 48,153-row synthetic chat_message:
+--
+--   query            | today (ts index only) | this index
+--   -----------------+-----------------------+------------
+--   scrollback       | 0.014 ms              | 0.014 ms   (unchanged)
+--   unread count     | 9.24 ms               | 3.47 ms    (2.7x)
+--
+-- The plan line becomes `SEARCH m USING COVERING INDEX` and the
+-- `USE TEMP B-TREE FOR GROUP BY` disappears: the three columns cover everything
+-- the unread query reads, so it never returns to the table.
+--
+-- 🔴 WHY THIS SHAPE AND NOT THE OBVIOUS ONES. Two cheaper-looking arrangements
+-- were measured and BOTH made scrollback 250-500x slower while barely moving
+-- the unread count:
+--
+--   two single-column indexes  | scrollback 7.1 ms | unread 10.1 ms
+--   (sender,ts) + (recipient,ts)| scrollback 3.9 ms | unread 10.2 ms
+--
+-- Scrollback is untouched by THIS index only because its query cannot use it at
+-- all, so the planner keeps choosing idx_chat_message_ts. That is a property of
+-- the current scrollback query, not a promise about future ones.
+--
+-- ⚠️ An earlier generation recorded "adding an index makes scrollback 23x
+-- slower" as a property OF INDEXES. It is not: that measurement was of the
+-- single-column arrangement above. Do not cite it against a composite index.
+--
+-- ⚠️ WHAT NOBODY HAS MEASURED (owner was told, and accepted):
+--   · real data — every number here is synthetic
+--   · the write-side cost (every INSERT into chat_message now maintains a
+--     second index) and the disk it takes
+--   · this index is shaped for ONE query. Reword that query and the covering
+--     property can vanish silently — nothing here will say so.
+CREATE INDEX idx_chat_message_recipient_sender_ts
+    ON chat_message (recipient, sender, ts);
+
+-- +goose Down
+-- Additive and losslessly reversible: an index carries no data of its own, so
+-- dropping it restores the previous plans exactly. Unlike 00065, nothing here
+-- is lossy — rolling back costs only the speed.
+DROP INDEX IF EXISTS idx_chat_message_recipient_sender_ts;

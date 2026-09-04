@@ -35,9 +35,9 @@ func loreEntityStack(t *testing.T) (srvURL string, dal *DAL, agentTok, adminTok,
 	now := time.Now().Unix()
 
 	for _, m := range []Member{
-		{ID: "m-lore-agent", Name: "lore-agent", Kind: KindAssistant, Effort: "medium",
+		{ID: "m-lore-agent", Name: "lore-agent", Kind: KindStaff, Effort: "medium",
 			DesiredState: DesiredStateOffline, RosterStatus: RosterStatusActive},
-		{ID: "m-lore-mira", Name: "lore-mira", Kind: KindAssistant, RoleKey: adminRoleKey,
+		{ID: "m-lore-mira", Name: "lore-mira", Kind: KindStaff, RoleKey: adminRoleKey,
 			Effort: "medium", DesiredState: DesiredStateOffline, RosterStatus: RosterStatusActive},
 	} {
 		if err := dal.PutMember(m); err != nil {

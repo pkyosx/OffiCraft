@@ -10,6 +10,10 @@ import { I18nProvider } from "../i18n";
 import { ChatArea } from "./ChatArea";
 import type { Member } from "../types";
 import type { ChatMessage } from "../api/adapter";
+import {
+  resetChatDrafts,
+  updateChatDraftAttachments,
+} from "../lib/chatDraftStore";
 
 let messages: ChatMessage[] = [];
 const send = vi.fn(() => Promise.resolve());
@@ -17,7 +21,6 @@ const send = vi.fn(() => Promise.resolve());
 vi.mock("../hooks/useChat", () => ({
   useChat: () => ({
     messages,
-    messagesPeer: "m1",
     peerLastReadTs: 0,
     send,
     markRead: vi.fn(() => Promise.resolve()),
@@ -33,7 +36,7 @@ function mkMember(lifecycle: Member["lifecycle"]): Member {
     lifecycle,
     model: "opus",
     effort: "medium",
-    kind: "assistant",
+    kind: "staff",
     desiredMachineId: "",
     machine: null,
     account: null,
@@ -175,6 +178,45 @@ describe("ChatArea multi-attachment composer", () => {
     const err = container.querySelector(".chat__preview-error");
     expect(err).toBeTruthy();
     expect(err?.textContent).toContain("10");
+  });
+
+  it("refuses to SEND an over-cap draft, and says why (R11-3)", async () => {
+    // A draft is allowed over the cap — a file already read is data somebody is
+    // holding, not a rule to enforce (R10-3). What that used to buy was worse
+    // than the loss it replaced: the send button was lit, the server 400'd the
+    // send, and this app has no toast, no error row and no rejection reporter,
+    // so every press did nothing with nothing on screen to explain it.
+    resetChatDrafts();
+    updateChatDraftAttachments("m1", () =>
+      Array.from({ length: 12 }, (_, i) => ({
+        key: `k${i}`,
+        dataUri: "data:text/plain;base64,aGk=",
+        filename: `f${i}.txt`,
+        mime: "text/plain",
+        size: 2,
+        isImage: false,
+      })),
+    );
+    const { container } = renderChat();
+
+    // Every file the owner left is still there — nothing was destroyed.
+    await waitFor(() => expect(previewCount(container)).toBe(12));
+    expect(
+      (container.querySelector(".chat__send") as HTMLButtonElement).disabled,
+    ).toBe(true);
+    const err = container.querySelector(".chat__preview-error");
+    expect(err?.textContent).toContain("10");
+
+    // Removing the overflow makes it sendable again — the notice is a way out,
+    // not a dead end.
+    const removes = container.querySelectorAll(".chat__preview-remove");
+    fireEvent.click(removes[0]);
+    fireEvent.click(removes[1]);
+    await waitFor(() => expect(previewCount(container)).toBe(10));
+    expect(
+      (container.querySelector(".chat__send") as HTMLButtonElement).disabled,
+    ).toBe(false);
+    expect(container.querySelector(".chat__preview-error")).toBeNull();
   });
 
   it("stages dropped files (drag-drop onto the chat window)", async () => {

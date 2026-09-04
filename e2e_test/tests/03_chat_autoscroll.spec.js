@@ -35,24 +35,24 @@ async function ownerToken(page) {
   return token;
 }
 
-// Ensure exactly one assistant member exists to chat with (the office roster
-// filters kind === "assistant", and on desktop the chat pane auto-opens
-// roster[0]). Reuse an existing assistant if one is already seeded so re-runs stay
+// Ensure exactly one staff member exists to chat with (the office roster
+// filters kind === "staff", and on desktop the chat pane auto-opens
+// roster[0]). Reuse an existing staff member if one is already seeded so re-runs stay
 // idempotent; otherwise hire "Mira".
 async function ensureAssistant(page, token) {
   const auth = { Authorization: `Bearer ${token}` };
   const listRes = await page.request.get(`${BASE}/api/members`, { headers: auth });
   const members = await listRes.json();
   const existing = members.find(
-    (m) => m.kind === 'assistant' && m.roster_status !== 'removed',
+    (m) => m.kind === 'staff' && m.roster_status !== 'removed',
   );
   if (existing) return existing.id;
 
   const hireRes = await page.request.post(`${BASE}/api/members`, {
     headers: auth,
-    data: { name: 'Mira', kind: 'assistant' },
+    data: { name: 'Mira', kind: 'staff' },
   });
-  expect(hireRes.status(), 'hiring an assistant must succeed').toBe(200);
+  expect(hireRes.status(), 'hiring a staff member must succeed').toBe(200);
   return (await hireRes.json()).id;
 }
 
@@ -67,7 +67,7 @@ async function seedChat(page, token, memberId) {
       { headers: auth },
     )
   ).json();
-  for (let i = before.length; i < SEED_COUNT; i++) {
+  for (let i = before.messages.length; i < SEED_COUNT; i++) {
     const res = await page.request.post(`${BASE}/api/chat`, {
       headers: auth,
       data: {
@@ -102,7 +102,7 @@ test.describe('B6 · chat — thread autoscrolls to the newest message', () => {
     await page.reload();
 
     // The office tab is the default; on desktop the chat pane auto-opens the
-    // roster[0] assistant (OfficePage.tsx: `selected = ... ?? roster[0]`). Wait
+    // roster[0] staff member (OfficePage.tsx: `selected = ... ?? roster[0]`). Wait
     // for the seeded messages to render into `.chat__messages`.
     const thread = page.locator('.chat__messages');
     await expect(thread, 'the chat message thread must render').toBeVisible();

@@ -69,8 +69,8 @@ func TestReassignRouteRowIsAgentGatedAndMCPExposed(t *testing.T) {
 // TestReassignMemberToMemberHandsOver.)
 func TestReassignPlainAgentMayNotHandToAnotherMember(t *testing.T) {
 	api := newTasksTestServer(t)
-	putActiveMember(t, api, "m-new", "Rei", KindAssistant)
-	putActiveMember(t, api, "m-exec", "Exec", KindAssistant) // a 一般正職 (no RoleKey)
+	putActiveMember(t, api, "m-new", "Rei", KindStaff)
+	putActiveMember(t, api, "m-exec", "Exec", KindStaff) // a 一般正職 (no RoleKey)
 	task := createAdHocTask(t, api, "m-exec")
 
 	// A DIFFERENT agent (not the executor) is forbidden by the executor guard.
@@ -102,7 +102,7 @@ func TestReassignPlainAgentMayNotHandToAnotherMember(t *testing.T) {
 func TestReassignToOutsourceByPlainExecutorAdmits(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true
-	putActiveMember(t, api, "m-exec", "Exec", KindAssistant) // plain agent (no RoleKey)
+	putActiveMember(t, api, "m-exec", "Exec", KindStaff) // plain agent (no RoleKey)
 	task := createAdHocTask(t, api, "m-exec")
 
 	rec := reassign(t, api, task.ID, map[string]any{
@@ -135,7 +135,7 @@ func TestReassignToOutsourceByPlainExecutorAdmits(t *testing.T) {
 func TestReassignOutsourceCallerIsForbidden(t *testing.T) {
 	api := newTasksTestServer(t)
 	putActiveMember(t, api, "ow-exec", "S-exec", KindOutsource)
-	putActiveMember(t, api, "m-new", "Rei", KindAssistant)
+	putActiveMember(t, api, "m-new", "Rei", KindStaff)
 	now := nowSecs()
 	if err := api.dal.PutTask(Task{
 		ID: "t-owx", Title: "owned by outsource", Status: TaskStatusNotStarted,
@@ -160,8 +160,8 @@ func TestReassignOutsourceCallerIsForbidden(t *testing.T) {
 // TestReassignMemberToMemberHandsOver; this pins Mira.
 func TestReassignAdminAgentMayHandToAnyMember(t *testing.T) {
 	api := newTasksTestServer(t)
-	putMemberRow(t, api, "m-mira", KindAssistant, adminRoleKey)
-	putActiveMember(t, api, "m-new", "Rei", KindAssistant)
+	putMemberRow(t, api, "m-mira", KindStaff, adminRoleKey)
+	putActiveMember(t, api, "m-new", "Rei", KindStaff)
 	task := createAdHocTask(t, api, "m-old")
 	rec := reassign(t, api, task.ID, memberTarget("m-new"), "m-mira", "agent")
 	if rec.Code != http.StatusOK {
@@ -175,8 +175,8 @@ func TestReassignAdminAgentMayHandToAnyMember(t *testing.T) {
 
 func TestReassignMemberToMemberHandsOver(t *testing.T) {
 	api := newTasksTestServer(t)
-	putActiveMember(t, api, "m-old", "Ken", KindAssistant)
-	putActiveMember(t, api, "m-new", "Rei", KindAssistant)
+	putActiveMember(t, api, "m-old", "Ken", KindStaff)
+	putActiveMember(t, api, "m-new", "Rei", KindStaff)
 	task := createAdHocTask(t, api, "m-old")
 	view := submitPlan(t, api, task.ID, "m-old", []map[string]any{
 		{"name": "done step", "dod": "d"},
@@ -366,7 +366,7 @@ func TestReassignMemberToMemberHandsOver(t *testing.T) {
 func TestReassignToOutsourceLandsUnassignedTarget(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true // hold the scheduler — assert the landing, then tick by hand
-	putActiveMember(t, api, "m-old", "Ken", KindAssistant)
+	putActiveMember(t, api, "m-old", "Ken", KindStaff)
 	task := createAdHocTask(t, api, "m-old")
 	seedMachine(t, api, "m-box")
 
@@ -435,7 +435,7 @@ func TestReassignToOutsourceLandsUnassignedTarget(t *testing.T) {
 func TestReassignInProgressTaskToOutsourceMintsSuccessorUnderReassigningLock(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true // hold the scheduler — reassign, then tick by hand
-	putActiveMember(t, api, "m-old", "Ken", KindAssistant)
+	putActiveMember(t, api, "m-old", "Ken", KindStaff)
 	task := createAdHocTask(t, api, "m-old")
 	view := submitPlan(t, api, task.ID, "m-old", []map[string]any{
 		{"name": "done step", "dod": "d"},
@@ -521,8 +521,8 @@ func bindOutsourceExecutor(t *testing.T, api *apiServer, taskID, workerID, coden
 // hand over with.
 func TestReassignDefersOutsourceSourceDismissUntilTakeover(t *testing.T) {
 	api := newTasksTestServer(t)
-	putActiveMember(t, api, "m-new", "Rei", KindAssistant)
-	putActiveMember(t, api, "m-old", "Ken", KindAssistant)
+	putActiveMember(t, api, "m-new", "Rei", KindStaff)
+	putActiveMember(t, api, "m-old", "Ken", KindStaff)
 	task := createAdHocTask(t, api, "m-old")
 	bindOutsourceExecutor(t, api, task.ID, "ow-live", "S-1")
 
@@ -566,7 +566,7 @@ func TestReassignDefersOutsourceSourceDismissUntilTakeover(t *testing.T) {
 func TestReassignOutsourceToOutsourceTakeoverSparesTheNewWorker(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true // mint the successor by an explicit tick
-	putActiveMember(t, api, "m-old", "Ken", KindAssistant)
+	putActiveMember(t, api, "m-old", "Ken", KindStaff)
 	task := createAdHocTask(t, api, "m-old")
 	bindOutsourceExecutor(t, api, task.ID, "ow-old", "S-1")
 
@@ -612,7 +612,7 @@ func TestReassignOutsourceToOutsourceTakeoverSparesTheNewWorker(t *testing.T) {
 func TestReassignToOutsourcePostsPredecessorHandoverNotice(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true
-	putActiveMember(t, api, "m-old", "Ken", KindAssistant)
+	putActiveMember(t, api, "m-old", "Ken", KindStaff)
 	task := createAdHocTask(t, api, "m-old")
 
 	rec := reassign(t, api, task.ID, map[string]any{
@@ -645,8 +645,8 @@ func TestReassignToOutsourcePostsPredecessorHandoverNotice(t *testing.T) {
 
 func TestReassignTakeoverIsTheNewExecutorsAlone(t *testing.T) {
 	api := newTasksTestServer(t)
-	putActiveMember(t, api, "m-old", "Ken", KindAssistant)
-	putActiveMember(t, api, "m-new", "Rei", KindAssistant)
+	putActiveMember(t, api, "m-old", "Ken", KindStaff)
+	putActiveMember(t, api, "m-new", "Rei", KindStaff)
 	task := createAdHocTask(t, api, "m-old")
 	if rec := reassign(t, api, task.ID, memberTarget("m-new"),
 		"owner", "owner"); rec.Code != http.StatusOK {
@@ -690,7 +690,7 @@ func TestReassignTakeoverIsTheNewExecutorsAlone(t *testing.T) {
 func TestReassignOutsourceSuccessorClaimsOnWakingThenTakesOver(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true
-	putActiveMember(t, api, "m-old", "Ken", KindAssistant)
+	putActiveMember(t, api, "m-old", "Ken", KindStaff)
 	task := createAdHocTask(t, api, "m-old")
 	note := strings.Repeat("交接", 1250)
 
@@ -751,8 +751,8 @@ func TestReassignOutsourceSuccessorClaimsOnWakingThenTakesOver(t *testing.T) {
 
 func TestReassignPreservesHandoverNoteWhenLaterReassignOmitsNote(t *testing.T) {
 	api := newTasksTestServer(t)
-	putActiveMember(t, api, "m-old", "Ken", KindAssistant)
-	putActiveMember(t, api, "m-new", "Rei", KindAssistant)
+	putActiveMember(t, api, "m-old", "Ken", KindStaff)
+	putActiveMember(t, api, "m-new", "Rei", KindStaff)
 	task := createAdHocTask(t, api, "m-old")
 
 	if rec := reassign(t, api, task.ID, map[string]any{
@@ -783,8 +783,8 @@ func TestReassignPreservesHandoverNoteWhenLaterReassignOmitsNote(t *testing.T) {
 
 func TestReassignRejectsHandoverNoteOverRuneLimit(t *testing.T) {
 	api := newTasksTestServer(t)
-	putActiveMember(t, api, "m-old", "Ken", KindAssistant)
-	putActiveMember(t, api, "m-new", "Rei", KindAssistant)
+	putActiveMember(t, api, "m-old", "Ken", KindStaff)
+	putActiveMember(t, api, "m-new", "Rei", KindStaff)
 	task := createAdHocTask(t, api, "m-old")
 
 	rec := reassign(t, api, task.ID, map[string]any{
@@ -802,8 +802,8 @@ func TestReassignRejectsHandoverNoteOverRuneLimit(t *testing.T) {
 
 func TestReassignClearsTheWaitingExternalReason(t *testing.T) {
 	api := newTasksTestServer(t)
-	putActiveMember(t, api, "m-old", "Ken", KindAssistant)
-	putActiveMember(t, api, "m-new", "Rei", KindAssistant)
+	putActiveMember(t, api, "m-old", "Ken", KindStaff)
+	putActiveMember(t, api, "m-new", "Rei", KindStaff)
 	task := createAdHocTask(t, api, "m-old")
 	view := submitPlan(t, api, task.ID, "m-old", []map[string]any{
 		{"name": "integrate", "dod": "d"},
@@ -833,8 +833,8 @@ func TestReassignClearsTheWaitingExternalReason(t *testing.T) {
 // same never-started reset; terminal rows keep their history untouched.
 func TestReassignResetsStepBirthmarksWithPending(t *testing.T) {
 	api := newTasksTestServer(t)
-	putActiveMember(t, api, "m-old", "Ken", KindAssistant)
-	putActiveMember(t, api, "m-new", "Rei", KindAssistant)
+	putActiveMember(t, api, "m-old", "Ken", KindStaff)
+	putActiveMember(t, api, "m-new", "Rei", KindStaff)
 	task := createAdHocTask(t, api, "m-old")
 	view := submitPlan(t, api, task.ID, "m-old", []map[string]any{
 		{"name": "done step", "dod": "d"},
@@ -919,7 +919,7 @@ func TestReassignResetsStepBirthmarksWithPending(t *testing.T) {
 // same "pending but started_ts>0" dirt.
 func TestSubmitPlanFreshStepsAreBornNeverStarted(t *testing.T) {
 	api := newTasksTestServer(t)
-	putActiveMember(t, api, "m-exec", "Ken", KindAssistant)
+	putActiveMember(t, api, "m-exec", "Ken", KindStaff)
 	task := createAdHocTask(t, api, "m-exec")
 	view := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
 		{"name": "old step", "dod": "d"},
@@ -955,7 +955,7 @@ func TestSubmitPlanFreshStepsAreBornNeverStarted(t *testing.T) {
 func TestReassignOutsourceTargetMachineMustResolve(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true
-	putActiveMember(t, api, "m-old", "Ken", KindAssistant)
+	putActiveMember(t, api, "m-old", "Ken", KindStaff)
 	seedMachine(t, api, "m-real")
 	task := createAdHocTask(t, api, "m-old")
 
@@ -984,12 +984,12 @@ func TestReassignOutsourceTargetMachineMustResolve(t *testing.T) {
 
 func TestReassignGuards(t *testing.T) {
 	api := newTasksTestServer(t)
-	putActiveMember(t, api, "m-old", "Ken", KindAssistant)
-	putActiveMember(t, api, "m-new", "Rei", KindAssistant)
+	putActiveMember(t, api, "m-old", "Ken", KindStaff)
+	putActiveMember(t, api, "m-new", "Rei", KindStaff)
 	putActiveMember(t, api, "m-warden", "box", KindWarden)
-	putActiveMember(t, api, "m-gone", "Gone", KindAssistant)
+	putActiveMember(t, api, "m-gone", "Gone", KindStaff)
 	if err := api.dal.PutMember(Member{
-		ID: "m-gone", Name: "Gone", Kind: KindAssistant, Effort: "medium",
+		ID: "m-gone", Name: "Gone", Kind: KindStaff, Effort: "medium",
 		RosterStatus: RosterStatusRemoved,
 	}); err != nil {
 		t.Fatalf("dismiss m-gone: %v", err)
