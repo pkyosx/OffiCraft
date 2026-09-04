@@ -146,6 +146,15 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
+        with:
+          # LOAD-BEARING (T-64). The default shallow checkout leaves this job
+          # with exactly one ref — refs/remotes/pull/N/merge — and
+          # `git rev-parse origin/main` exits 128, measured on this workflow
+          # rather than inferred. TestAStationAtTheReleasedVersionCanUpgradeToThisTree
+          # reads the ALREADY-RELEASED migration versions out of origin/main, so
+          # without this the one check that knows whether a running station can
+          # still boot has no baseline and stands down.
+          fetch-depth: 0
       # Pinned to what the repo develops against (go.mod says 1.26.4).
       # check-latest:false + an exact version keeps the runner from silently
       # drifting ahead of the developer.
