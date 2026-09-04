@@ -18,6 +18,7 @@ import {
   isMarkdownAttachment,
 } from "./MarkdownPreviewOverlay";
 import { AlertTriangleIcon } from "./icons";
+import { zh } from "../i18n/locales/zh";
 
 describe("isMarkdownAttachment", () => {
   it("accepts markdown mimes and .md/.markdown filenames", () => {
@@ -540,5 +541,91 @@ describe("MarkdownPreviewOverlay 複製分享連結 (T-d10b)", () => {
     expect(failed.innerHTML).not.toBe(idleGlyph);
     const { container: warning } = render(<AlertTriangleIcon size={14} />);
     expect(failed.innerHTML).toBe(warning.innerHTML);
+  });
+
+  // T-59 — the COMPARE mode. A comparison stopped being an attachment the day
+  // it became a url, so this overlay no longer resolves anything for it: it
+  // hosts `DiffScreen` (which owns the read and its own tests) and, because
+  // there is no blob involved, offers none of the blob actions.
+  describe("compare mode", () => {
+    const params = { before: "att-0123456789ab", after: "att-fedcba987654" };
+
+    it("hosts the compare screen and offers no blob actions with it", async () => {
+      globalThis.fetch = vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          before: { text: "alpha\nbravo", label: "改動前", gone: false },
+          after: { text: "alpha\nBRAVO", label: "改動後", gone: false },
+        }),
+      })) as unknown as typeof fetch;
+
+      render(
+        <I18nProvider>
+          <MarkdownPreviewOverlay
+            title="逐行比對"
+            diffParams={params}
+            onClose={() => {}}
+          />
+        </I18nProvider>,
+      );
+
+      await waitFor(() => expect(screen.getByTestId("diff-screen")).toBeTruthy());
+      // No blob, so nothing to download and no FILE-level share link to mint —
+      // one here would point at a file that does not exist.
+      expect(screen.queryByText(zh.chat.mdPreview.download)).toBeNull();
+      expect(screen.queryByLabelText(zh.chat.copyShareLink)).toBeNull();
+      expect(screen.queryByText(zh.chat.mdPreview.openInNewTab)).toBeNull();
+    });
+
+    // T-59 — the comparison's OWN external link. This is the studio host of
+    // that control: the owner is looking at the comparison and wants to hand it
+    // to someone outside, which until now was a CLI action only.
+    it("offers the comparison's external link as an icon in the header actions", async () => {
+      const mint = vi
+        .spyOn(api, "getDiffShareLink")
+        .mockResolvedValue("/diff?before=att-0123456789ab&after=att-fedcba987654&sig=minted");
+      const writeText = vi.fn(async () => {});
+      Object.defineProperty(navigator, "clipboard", {
+        value: { writeText },
+        configurable: true,
+      });
+      globalThis.fetch = vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          before: { text: "alpha", label: "改動前", gone: false },
+          after: { text: "beta", label: "改動後", gone: false },
+        }),
+      })) as unknown as typeof fetch;
+
+      render(
+        <I18nProvider>
+          <MarkdownPreviewOverlay
+            title="逐行比對"
+            diffParams={params}
+            onClose={() => {}}
+          />
+        </I18nProvider>,
+      );
+
+      await waitFor(() => expect(screen.getByTestId("diff-screen")).toBeTruthy());
+      const button = screen.getByRole("button", { name: zh.diff.copyShareLink });
+      // It lives in the header action row, beside the close button — the same
+      // slot the file-level share control occupies, not a second place to look.
+      expect(
+        document.body
+          .querySelector(".md-preview__actions")!
+          .contains(button),
+      ).toBe(true);
+      // Icon-only (owner 2026-09-03「1. 用圖示」).
+      expect(button.textContent).toBe("");
+
+      fireEvent.click(button);
+      await waitFor(() => expect(mint).toHaveBeenCalledWith(params));
+      await waitFor(() =>
+        expect(writeText).toHaveBeenCalledWith(
+          `${window.location.origin}/diff?before=att-0123456789ab&after=att-fedcba987654&sig=minted`,
+        ),
+      );
+    });
   });
 });

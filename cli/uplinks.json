@@ -50,18 +50,46 @@
       "seam_reason": "The send half of the same shared builder above."
     },
     {
-      "id": "ocagent-attachment-upload",
+      "id": "ocagent-attachment-post",
       "source": "cli/ocagent/upload.go",
       "callsite": "req, err := http.NewRequest(http.MethodPost, reqURL, f)",
       "kind": "skip",
-      "skip_reason": "Streams raw file bytes, not JSON — there is no request schema for a wire test to compare a body against."
+      "skip_reason": "Streams a raw body, not JSON — there is no request schema for a wire test to compare a body against. It is cmdUpload's own send: T-59 had extracted it into a shared postAttachment for `diff`, then `diff` stopped uploading at all (a comparison is a URL, not a stored blob) and the seam was folded back into its one caller."
     },
     {
-      "id": "ocagent-attachment-upload-do",
+      "id": "ocagent-attachment-post-do",
       "source": "cli/ocagent/upload.go",
       "callsite": "resp, err := client.Do(req)",
       "kind": "skip",
       "skip_reason": "The send half of the raw-bytes upload above."
+    },
+    {
+      "id": "ocagent-diff-external-hop",
+      "source": "cli/ocagent/diff.go",
+      "callsite": "return mintExternalDiffLink(client, cfg, before, after,",
+      "kind": "seam",
+      "seam_reason": "cmdDiff's ONE conditional hop: reached only when --external asks for the signed link, and the request it performs is ocagent-diff-share-link-mint below. The default flavour returns before this line without touching the network at all."
+    },
+    {
+      "id": "ocagent-diff-share-link-mint",
+      "source": "cli/ocagent/diff.go",
+      "callsite": "req, err := http.NewRequest(http.MethodGet, reqURL, nil)",
+      "kind": "skip",
+      "skip_reason": "GET with a nil body — nothing goes out. It asks GET /api/diff/share-link to mint the EXTERNAL comparison link, and it is the ONE request `diff` can make: only the server holds the signing key, so the default (internal) link is a pure local computation and this is what --external costs."
+    },
+    {
+      "id": "ocagent-diff-share-link-mint-do",
+      "source": "cli/ocagent/diff.go",
+      "callsite": "resp, err := client.Do(req)",
+      "kind": "skip",
+      "skip_reason": "The send half of the bodyless mint GET above."
+    },
+    {
+      "id": "ocagent-diff-dispatch-hop",
+      "source": "cli/ocagent/main.go",
+      "callsite": "return cmdDiff(newStreamingClient(), cfg, args[0], args[1],",
+      "kind": "seam",
+      "seam_reason": "Dispatch into cmdDiff. It sends NOTHING by default — the internal link is a pure function of the two addresses — and exactly one GET when --external asks the server to mint the signed one (ocagent-diff-share-link-mint below)."
     },
     {
       "id": "ocagent-attachment-download",

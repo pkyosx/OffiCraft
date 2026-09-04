@@ -30,6 +30,14 @@ import (
 // seam (OC_TOKEN / OC_BASE), the same clean-identity contract as every other
 // subcommand.
 //
+// ⚠️ ONE FUNCTION ON PURPOSE. This used to be cmdUpload → uploadOneFile →
+// postAttachment, a three-step split whose only reason was a second caller:
+// the OLD `diff`, which uploaded the two files it compared. A comparison is a
+// URL now (T-59) and nothing else in the CLI turns a path into stored bytes,
+// so the seams had one caller each, the `verb` they threaded through was
+// always "upload", and postAttachment's in-memory-body branch had no caller at
+// all. Splitting it again is what a SECOND sender would justify, not this one.
+//
 // Naming/typing: the file's BASENAME rides ?filename= (the server stores it
 // and serves it back via Content-Disposition on download); --mime rides
 // ?mime= when given, else the server sniffs (image magic bytes, fallback
@@ -49,7 +57,19 @@ import (
 //   4 rejected (400 — over the size cap, empty file)
 //   5 any other unexpected HTTP status
 
-// cmdUpload implements `ocagent upload`. On success stdout carries the minted
+// uploadedRef is the light ref the attachments route mints for a stored blob.
+type uploadedRef struct {
+	ID       string `json:"id"`
+	Mime     string `json:"mime"`
+	Filename string `json:"filename"`
+	// The response body verbatim — stdout line 2 is the SERVER's JSON, not a
+	// re-serialisation of the three fields above, so a field this build does not
+	// know about still reaches whoever is reading the output.
+	raw string
+}
+
+// cmdUpload implements `ocagent upload`: it opens one path and streams its
+// bytes into POST /api/chat/attachments. On success stdout carries the minted
 // attachment id then the server's light-ref JSON; diagnostics go to `errOut`.
 func cmdUpload(client httpClient, cfg Config, path, mimeType string, out, errOut io.Writer) int {
 	if cfg.Token == "" {
@@ -75,20 +95,21 @@ func cmdUpload(client httpClient, cfg Config, path, mimeType string, out, errOut
 		return 1
 	}
 
+	filename := filepath.Base(path)
 	query := url.Values{}
-	if name := filepath.Base(path); name != "" && name != "." && name != string(filepath.Separator) {
+	if name := strings.TrimSpace(filename); name != "" && name != "." && name != string(filepath.Separator) {
 		query.Set("filename", name)
 	}
-	if strings.TrimSpace(mimeType) != "" {
-		query.Set("mime", strings.TrimSpace(mimeType))
+	if declared := strings.TrimSpace(mimeType); declared != "" {
+		query.Set("mime", declared)
 	}
+	// url.Values.Encode escapes the media type, which matters: a `+` reaches the
+	// server as a SPACE when a query is pasted together by hand.
 	reqURL := cfg.Base + "/api/chat/attachments?" + query.Encode()
 
-	// An *os.File body streams: the transport reads from disk chunk by chunk
-	// and stamps Content-Length from the explicit ContentLength below.
 	req, err := http.NewRequest(http.MethodPost, reqURL, f)
 	if err != nil {
-		fmt.Fprintf(errOut, "[ocagent] upload: bad request for %q: %v\n", path, err)
+		fmt.Fprintf(errOut, "[ocagent] upload: bad request for %q: %v\n", filename, err)
 		return 1
 	}
 	req.ContentLength = info.Size()
@@ -103,39 +124,35 @@ func cmdUpload(client httpClient, cfg Config, path, mimeType string, out, errOut
 	}
 	defer resp.Body.Close()
 
-	// The response is a small JSON ref either way — bounded read for hygiene.
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	detail := strings.TrimSpace(string(raw))
 
-	switch {
-	case resp.StatusCode == http.StatusOK:
-		// fall through to the success path below
-	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusUnauthorized, http.StatusForbidden:
 		fmt.Fprintf(errOut, "[ocagent] upload: auth rejected (HTTP %d) for %q: %s\n",
-			resp.StatusCode, path, detail)
+			resp.StatusCode, filename, detail)
 		return 3
-	case resp.StatusCode == http.StatusBadRequest:
+	case http.StatusBadRequest:
 		fmt.Fprintf(errOut, "[ocagent] upload: server rejected %q (HTTP 400): %s\n",
-			path, detail)
+			filename, detail)
 		return 4
 	default:
 		fmt.Fprintf(errOut, "[ocagent] upload: unexpected HTTP %d for %q: %s\n",
-			resp.StatusCode, path, detail)
+			resp.StatusCode, filename, detail)
 		return 5
 	}
 
-	var ref struct {
-		ID       string `json:"id"`
-		Mime     string `json:"mime"`
-		Filename string `json:"filename"`
-	}
+	var ref uploadedRef
 	if err := json.Unmarshal(raw, &ref); err != nil || ref.ID == "" {
 		fmt.Fprintf(errOut, "[ocagent] upload: 200 but unparseable ref body: %s\n", detail)
 		return 5
 	}
+	ref.raw = detail
+
 	fmt.Fprintf(errOut, "[ocagent] upload: %s (%d bytes, %s) → %s\n",
 		ref.Filename, info.Size(), ref.Mime, ref.ID)
 	fmt.Fprintln(out, ref.ID)
-	fmt.Fprintln(out, detail)
+	fmt.Fprintln(out, ref.raw)
 	return 0
 }

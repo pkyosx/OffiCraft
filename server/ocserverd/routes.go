@@ -57,11 +57,38 @@ type RouteSpec struct {
 	// row carrying this flag with ONE gate, so a new lore row inherits it by
 	// declaring the flag and cannot inherit it by accident anywhere else.
 	LoreGated bool
-	// ShareSig admits the ?sig= file-level share credential (sharesig.go) as a
-	// third auth path on THIS row only (precedence: Authorization header →
-	// ?token= → ?sig=). Every other row never consults sigs — a sig grants
-	// exactly one blob read, nothing else.
-	ShareSig bool
+	// ShareSig admits a ?sig= share credential (sharesig.go) as a third auth
+	// path on THIS row only (precedence: Authorization header → ?token= →
+	// ?sig=), and IS the verifier: it reads its own subject out of the request
+	// and checks it against its own domain-separated key. nil = this row never
+	// consults sigs, which is every row but the two below.
+	ShareSig shareSigVerifier
+}
+
+// shareSigVerifier answers "does this sig authorize THIS request", for one row.
+// A row's subject is whatever decides what the response says: the attachment
+// blob GET's is the path's attachment_id, GET /api/diff's is both addresses and
+// both column labels — the whole of what one answer depends on, so a recipient
+// cannot swap an address or relabel a column and still hold a minted signature.
+//
+// It takes the whole signing-key RING, not one key: a sig names no key, so
+// every verifier accepts one made under ANY key still in the ring and dies with
+// the key that made it (sharesig.go).
+type shareSigVerifier func(keys *keyring, r *http.Request, sig string) bool
+
+// verifyAttachmentShareSig is the attachment blob GET's subject: exactly the
+// one blob id in the path.
+func verifyAttachmentShareSig(keys *keyring, r *http.Request, sig string) bool {
+	return verifyShareSigAnyKey(keys, r.PathValue("attachment_id"), sig)
+}
+
+// verifyDiffShareSig is GET /api/diff's subject: both addresses and both
+// labels, read RAW (never trimmed — a padded address is a different address).
+func verifyDiffShareSig(keys *keyring, r *http.Request, sig string) bool {
+	q := r.URL.Query()
+	return verifyDiffSigAnyKey(keys,
+		q.Get(diffParamBefore), q.Get(diffParamAfter),
+		q.Get(diffParamLabelBefor), q.Get(diffParamLabelAfter), sig)
 }
 
 // routeSpecs builds the route table over the generated wrapper (which binds
@@ -776,7 +803,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary:    "Serve a chat attachment blob (owner-gated; raw bytes + stored mime).",
 			MCPExclude: true,
 			MCPTool:    "get_chat_attachment",
-			ShareSig:   true,
+			ShareSig:   verifyAttachmentShareSig,
 		},
 		{
 			Method:   "GET",
@@ -875,6 +902,36 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Requires:   principalMachine,
 			Summary:    "Total chat unread count (the 辦公室 nav red dot).",
 			MCPExclude: true, // a UI badge convenience, not an agent tool
+		},
+		// ── Comparisons: a URL, not an attachment (T-59) ─────────────────────
+		{
+			Method:   "GET",
+			Path:     "/api/diff",
+			Handler:  w.HandleGetDiffApiDiffGet,
+			Auth:     authGated,
+			Requires: principalMachine,
+			Summary:  "Resolve both sides of one comparison (?before=&after=; optional labels and ?sig=). Each side carries its text, its column heading, and an honest gone marker when the address resolves to nothing.",
+			// The DATA seam behind the /diff page, like the attachment blob GET
+			// it sits beside — an agent hands over a LINK, it does not fetch the
+			// pair and re-narrate it.
+			MCPExclude: true,
+			// The unauthenticated path, and the ONLY one: a credential-less
+			// request may present ?sig=, verified over both addresses and both
+			// labels (verifyDiffShareSig). There is no second bypass anywhere.
+			ShareSig: verifyDiffShareSig,
+		},
+		{
+			Method:   "GET",
+			Path:     "/api/diff/share-link",
+			Handler:  w.HandleGetDiffShareLinkApiDiffShareLinkGet,
+			Auth:     authGated,
+			Requires: principalMachine,
+			Summary:  "Mint the EXTERNAL link to one before/after comparison (?sig= HMAC over both addresses AND both column labels). Returns {url} as a SERVER-RELATIVE path — prefix it with the origin you reach this server on to get a link you can paste to someone. The sig carries NO identity and NO expiry: whoever holds the link sees that one comparison without signing in, for as long as the key that signed it is still in the server's signing-key ring. No single link can be withdrawn; the only way to void one is to remove that key (POST /api/auth/signing-keys/{key_id}/remove), which voids every comparison link and every file link it signed at once. YOU USUALLY DO NOT NEED THIS: the INTERNAL link is the same /diff?before=…&after=… page with no sig, any signed-in reader opens it, and `ocagent diff` prints it without asking the server anything. Mint this one only for a reader who has no account. A side is a stored attachment id (att-…) or doc:<kind>/<key>/<at>/<field> — `ocagent diff --help` is the authority on the spelling.",
+			// On the agent surface for the same reason the attachment share
+			// link is: an agent that produces a comparison can otherwise only
+			// hand it to someone who can already sign in. Minting is where the
+			// permanence lives — read sharesig.go before widening this.
+			MCPTool: "get_diff_share_link",
 		},
 		{
 			Method:   "GET",

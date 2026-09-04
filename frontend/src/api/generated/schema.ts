@@ -904,6 +904,107 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/diff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Resolve both sides of one comparison (?before=&after=; optional labels and ?sig=). Each side carries its text, its column heading, and an honest gone marker when the address resolves to nothing.
+         * @description Resolve BOTH sides of one comparison (``GET /api/diff?before=&after=``) — the
+         *     data behind the ``/diff`` page.
+         *
+         *     A side is EITHER a stored attachment id (``att-`` plus 12 hex digits, what
+         *     ``ocagent upload`` prints and what a task artifact already is) OR one field
+         *     of a system document at one point in time, written
+         *     ``doc:<kind>/<key>/<at>/<field>`` where ``<at>`` is ``current``, ``seed`` or
+         *     a revision id from list_document_history.
+         *
+         *     ONE ROUTE FOR THE PAIR, never one per side: the ``?sig=`` credential signs
+         *     exactly what one request returns, so a recipient cannot swap an address or
+         *     relabel a column and still hold a server-minted signature.
+         *
+         *     ``label_before`` / ``label_after`` are the column headings, echoed back on the
+         *     side they head. Omit them and the side carries no label, which is what a
+         *     document side wants: the reader names it in its own language.
+         *
+         *     AN ADDRESS THAT RESOLVES TO NOTHING IS NOT AN ERROR. A pruned revision, a blob
+         *     that is no longer stored, a document this station does not have — each comes
+         *     back as that side's ``gone: true`` plus a reason, and the other side still
+         *     draws. Only an UNSAYABLE address is refused (422): the shape rules above are
+         *     the whole of what is judged up front.
+         *
+         *     AUTH — two ways in, and only two. A normal authenticated caller (any principal)
+         *     reads it with no ``sig`` at all; that is the INTERNAL flavour, and it grants
+         *     nothing the caller could not already read one side at a time. A caller with NO
+         *     credential at all may present ``?sig=`` — an HMAC over both addresses AND both
+         *     labels under a key derived apart from the attachment share key, so the two can
+         *     never be replayed for each other. The sig carries NO EXPIRY and cannot be withdrawn one link at a time (owner
+         *     ruling, matching the attachment share link) — but it is not unconditional: it is
+         *     derived from whichever key was signing when it was minted, so it stops
+         *     verifying the moment an owner removes that key from the signing-key ring,
+         *     together with every other link and token that key signed. A
+         *     present-but-invalid bearer credential stays a 401 and never falls through to
+         *     the sig.
+         */
+        get: operations["handle_get_diff_api_diff_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/diff/share-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Mint the EXTERNAL link to one before/after comparison (?sig= HMAC over both addresses AND both column labels). Returns {url} as a SERVER-RELATIVE path — prefix it with the origin you reach this server on to get a link you can paste to someone. The sig carries NO identity and NO expiry: whoever holds the link sees that one comparison without signing in, for as long as the key that signed it is still in the server's signing-key ring. No single link can be withdrawn; the only way to void one is to remove that key (POST /api/auth/signing-keys/{key_id}/remove), which voids every comparison link and every file link it signed at once. YOU USUALLY DO NOT NEED THIS: the INTERNAL link is the same /diff?before=…&after=… page with no sig, any signed-in reader opens it, and `ocagent diff` prints it without asking the server anything. Mint this one only for a reader who has no account. A side is a stored attachment id (att-…) or doc:<kind>/<key>/<at>/<field> — `ocagent diff --help` is the authority on the spelling.
+         * @description Mint the permanent external share link for ONE comparison
+         *     (``GET /api/diff/share-link?before=&after=``). GATED like every other route
+         *     here (any authenticated principal); an unsayable address is a 422.
+         *
+         *     A side is EITHER a stored attachment id (``att-`` plus 12 hex digits, what
+         *     ``ocagent upload`` prints and what a task artifact already is) OR one field
+         *     of a system document at one point in time, written
+         *     ``doc:<kind>/<key>/<at>/<field>`` where ``<at>`` is ``current``, ``seed`` or
+         *     a revision id from list_document_history.
+         *
+         *     Returns ``{url}`` — the ``/diff`` page path carrying the same four parameters
+         *     plus a ``?sig=`` HMAC-SHA256 over the CANONICAL form of all four (sorted,
+         *     percent-encoded), signed with a key derived apart from the attachment share
+         *     key so neither signature can be replayed as the other. Server-relative: the
+         *     caller prefixes its own origin, exactly as it does for the attachment share
+         *     link.
+         *
+         *     The sig is PERMANENT — no expiry, no revocation (owner ruling, matching the
+         *     attachment share link). Nothing is stored: verification recomputes.
+         *
+         *     SHAPE ONLY — and that is a DELIBERATE DIVERGENCE from
+         *     ``/api/chat/attachments/{attachment_id}/share-link``, which 404s so a
+         *     caller cannot mint a link into the void. Here there is no void to mint
+         *     into: a ``current`` side is a LIVE pointer whose content is whatever the
+         *     document holds when the link is opened, and either side can legitimately
+         *     stop resolving later (a pruned revision, a collected blob). The pair
+         *     route reports that as the side's honest ``gone`` marker, so a link to a
+         *     side that is not there today still says something true.
+         */
+        get: operations["handle_get_diff_share_link_api_diff_share_link_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/doc-sizes": {
         parameters: {
             query?: never;
@@ -4643,6 +4744,40 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
+         * @description Response of ``GET /api/diff``: BOTH sides of one comparison in a single answer.
+         *
+         *     One route for the pair, never one per side, and that is the security shape rather than a convenience: the ``?sig=`` credential signs exactly what one request returns, so a holder of an external link cannot swap an address or relabel a column and still present a server-minted signature.
+         */
+        DiffPairDTO: {
+            after: components["schemas"]["DiffSideDTO"];
+            before: components["schemas"]["DiffSideDTO"];
+        };
+        /**
+         * @description Response of ``GET /api/diff/share-link``: the server-relative page URL for ONE comparison carrying its ``?sig=`` credential. The client prefixes its own origin to form the absolute link, exactly as it does for ChatAttachmentShareLinkDTO.
+         *
+         *     The signature has NO expiry and no single link can be withdrawn — but it is not unrevocable (T-62): it is derived from whichever signing key minted it, so removing that key from the ring voids every link that key signed, at the same instant it voids that key's tokens and file links. Coarse, and a person's decision rather than a timer's.
+         */
+        DiffShareLinkDTO: {
+            url: string;
+        };
+        /**
+         * @description ONE column of a comparison: the address that was asked for, the heading to put above it, and the text to draw.
+         *
+         *     ``gone`` is the honest answer for an address that resolves to nothing — a pruned revision, a blob that is no longer stored, a document or field this station does not have. It is NOT an error: the address was sayable, and whether it still resolves is a read-time fact. When ``gone`` is true, ``text`` is absent and ``gone_reason`` says which of those happened.
+         *
+         *     ``label`` is empty when the caller supplied none. That is deliberate for a document side: the reader already has a better heading than anything a minting process could write (「目前存檔內容」/「初始版本」/「版本 #12」 in the reader's own language), and a label written at mint time would override it in one language for everyone.
+         *
+         *     ``mime`` is the stored media type of a blob side, absent for a document side. A side whose bytes are not text is still returned verbatim; the reader decides what it can draw.
+         */
+        DiffSideDTO: {
+            address: string;
+            gone: boolean;
+            gone_reason?: string;
+            label?: string;
+            mime?: string;
+            text?: string;
+        };
+        /**
          * @description ONE retained revision of an editable document as a CATALOGUE ROW: which revision it is, when it was retained and by whom, whether it was a tombstone, and HOW LONG each of its fields was — never the text. A version list is how a reader CHOOSES a revision, and choosing does not need the prose: one list_document_history answer had a structural ceiling in the hundreds of thousands of characters and no narrowing of any kind. The body of a chosen revision is fetched one at a time (get_document_version).
          *
          *     ``field_chars`` is a MAP because the field names differ by kind (``text`` / ``definition_md`` / ``description`` / ``title``) — the same keys that revision's ``content`` carries, MINUS ``tombstoned``, which is served as its own boolean rather than as a stringly-typed entry with a character count.
@@ -5383,9 +5518,13 @@ export interface components {
         /**
          * ChatAttachmentShareLinkDTO
          * @description Response of ``GET /api/chat/attachments/{attachment_id}/share-link``: the
-         *     server-relative serve URL for ONE attachment carrying its permanent
-         *     ``?sig=`` file-level HMAC credential (see the attachment GET's SHARE-SIG
+         *     server-relative serve URL for ONE attachment carrying its ``?sig=``
+         *     file-level HMAC credential (see the attachment GET's SHARE-SIG
          *     paragraph). The client prefixes its own origin to form the absolute link.
+         *
+         *     The signature has NO expiry and no single link can be withdrawn — but it
+         *     is not unrevocable (T-62): it is derived from whichever signing key minted
+         *     it, so removing that key from the ring voids every link that key signed.
          */
         ChatAttachmentShareLinkDTO: {
             /** Url */
@@ -13160,6 +13299,111 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChatUnreadCountDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_get_diff_api_diff_get: {
+        parameters: {
+            query: {
+                before: string;
+                after: string;
+                label_before?: string;
+                label_after?: string;
+                sig?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiffPairDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_get_diff_share_link_api_diff_share_link_get: {
+        parameters: {
+            query: {
+                before: string;
+                after: string;
+                label_before?: string;
+                label_after?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiffShareLinkDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

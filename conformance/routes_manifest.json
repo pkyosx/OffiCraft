@@ -477,6 +477,20 @@
   },
   {
     "auth": "gated",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/diff",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "get_diff_share_link",
+    "method": "GET",
+    "path": "/api/diff/share-link",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
     "mcp_tool": "get_reply_card",
     "method": "GET",
     "path": "/api/reply-cards/{card_id}",

@@ -45,6 +45,14 @@ const NBSP = "\u00a0";
 const NUMBERED = (count: number) =>
   Array.from({ length: count }, (_, i) => `line ${i + 1}`).join("\n");
 
+/** A pair sharing NOTHING at either end. `diffLines` trims the common head and
+ * tail before it measures the remainder against `maxLines`, so two runs of the
+ * SAME lines — which is what `NUMBERED` gives you — no longer reach the refusal
+ * however long they are: only the part that still has to be compared counts.
+ * Any fixture that means to exercise the refusal has to differ throughout. */
+const UNRELATED = (count: number, tag: string) =>
+  Array.from({ length: count }, (_, i) => `${tag} ${i + 1}`).join("\n");
+
 describe("DiffView", () => {
   beforeEach(() => localStorage.clear());
 
@@ -252,8 +260,8 @@ describe("DiffView", () => {
 
   it("says the comparison was REFUSED for size, never that the versions match", () => {
     const { container, getByTestId, queryByTestId } = renderDiff(
-      NUMBERED(5),
-      NUMBERED(6),
+      UNRELATED(5, "old"),
+      UNRELATED(6, "new"),
       { maxLines: 2 }
     );
     // The longer side's count is named — a bare "too long" leaves the owner
@@ -281,7 +289,7 @@ describe("DiffView", () => {
     );
     identical.unmount();
 
-    const refused = renderDiff(NUMBERED(5), NUMBERED(6), { maxLines: 2 });
+    const refused = renderDiff(UNRELATED(5, "old"), UNRELATED(6, "new"), { maxLines: 2 });
     expect(refused.getByTestId("diff-view-too-large").textContent).toBe(
       `${dict.diff.tooLargeLead}6${dict.diff.tooLargeTail}`
     );
@@ -335,5 +343,80 @@ describe("DiffView", () => {
     expect(
       labelled.container.querySelector(".diff-view__label--after")?.textContent
     ).toBe("+現在");
+  });
+  /* 兩側標題可以點 (owner 2026-09-03, c-944088dceab0「兩份應該都要是連結」).
+   *
+   * The affordance is OPTIONAL on purpose, and that is the part worth pinning:
+   * the document-history screen is already looking at the document both sides
+   * belong to, so a link there would go nowhere. A heading must therefore be a
+   * button exactly when the host handed over somewhere to go — never a button
+   * that does nothing, which is the failure this whole round started from (a
+   * mode switch that looked live and wasn't). */
+  it("leaves the side headings as plain text when the host cannot open a side", () => {
+    const { container } = renderDiff("alpha", "ALPHA");
+    expect(container.querySelector("button.diff-view__label--link")).toBeNull();
+    expect(
+      container.querySelector(".diff-view__label--before")?.tagName
+    ).toBe("SPAN");
+  });
+
+  it("turns each side heading into a button that opens THAT side", () => {
+    const opened: string[] = [];
+    const { getByTestId } = render(
+      <I18nProvider>
+        <DiffView
+          before="alpha"
+          after="ALPHA"
+          beforeLabel="版本 #1"
+          afterLabel="目前存檔內容"
+          onOpenSide={(side) => opened.push(side)}
+        />
+      </I18nProvider>
+    );
+
+    const before = getByTestId("diff-view-side-before");
+    const after = getByTestId("diff-view-side-after");
+    expect(before.tagName).toBe("BUTTON");
+    expect(after.tagName).toBe("BUTTON");
+    // The label the reader reads is what the tooltip names — a heading that
+    // says 「版本 #1」 must not offer to open something else.
+    expect(before.getAttribute("title")).toBe(zh.diff.openSide("版本 #1"));
+    expect(after.getAttribute("title")).toBe(zh.diff.openSide("目前存檔內容"));
+
+    fireEvent.click(before);
+    fireEvent.click(after);
+    // Order matters: clicking the RED heading must not open the green side.
+    expect(opened).toEqual(["before", "after"]);
+  });
+  /* Controlled means the HOST decides: the click is reported, and nothing moves
+   * until the host says so.
+   *
+   * MUTANTS, both run: making the component read its own state INSTEAD of the
+   * prop (and keep writing it) goes red here — `expected 'split' to be
+   * 'unified'`. Leaving the stray local write in place ON ITS OWN does NOT, and
+   * that is worth stating rather than hiding: while the prop is supplied the
+   * shadow copy is never read, so it is a shape problem, not an observable one.
+   * This guard pins what a reader can see. */
+  it("does not change layout on its own while the host controls the mode", () => {
+    const seen: string[] = [];
+    const { getByTestId, container } = render(
+      <I18nProvider>
+        <DiffView
+          before={"alpha\nbravo"}
+          after={"alpha\nBRAVO"}
+          mode="unified"
+          onModeChange={(m) => seen.push(m)}
+        />
+      </I18nProvider>
+    );
+
+    fireEvent.click(getByTestId("diff-view-mode-split"));
+    // The host heard about it…
+    expect(seen).toEqual(["split"]);
+    // …and nothing moved until the host says so.
+    expect(container.querySelector(".diff-view")?.getAttribute("data-mode")).toBe(
+      "unified"
+    );
+    expect(container.querySelector(".diff-view__row--split")).toBeNull();
   });
 });

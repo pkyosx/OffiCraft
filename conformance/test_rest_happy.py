@@ -38,6 +38,7 @@ import os
 import pathlib
 import struct
 import time
+import urllib.parse
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -447,6 +448,54 @@ def _check_share_link_shape(ctx: HCtx, r: httpx.Response) -> None:
     assert url.startswith(f"/api/chat/attachment/{att_id}?sig="), url
     sig = url.split("sig=", 1)[1]
     assert sig and "&" not in sig, f"malformed sig segment: {url}"
+
+
+def _diff_pair_path(ctx: HCtx) -> str:
+    att_id, _payload = ctx.attachment()
+    return "/api/diff?" + urllib.parse.urlencode({"before": att_id, "after": att_id})
+
+
+def _check_diff_pair(ctx: HCtx, r: httpx.Response) -> None:
+    att_id, _payload = ctx.attachment()
+    d = r.json()
+    for name in ("before", "after"):
+        side = d[name]
+        assert side["address"] == att_id, side
+        assert side["gone"] is False, side
+        # The side carries the RESOLVED content and the stored mime — not a
+        # second address the reader would have to fetch. (The fixture is a PNG,
+        # so `text` is those bytes as a string; what is pinned here is that the
+        # field is present and the mime came along, not the bytes.)
+        assert isinstance(side["text"], str) and side["text"], side
+        assert side["mime"] == "image/png", side
+
+
+def _check_diff_share_link(ctx: HCtx, r: httpx.Response) -> None:
+    """The minted link is SERVER-RELATIVE, carries the same four parameters, and
+    reads the pair with NO credential at all — the whole point of the external
+    flavour."""
+    att_id, _payload = ctx.attachment()
+    url = r.json()["url"]
+    assert url.startswith("/diff?"), url
+    query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+    assert query["before"] == [att_id] and query["after"] == [att_id], query
+    assert query.get("sig") and query["sig"][0], f"no signature on the external link: {url}"
+
+    signed = "/api/diff?" + urllib.parse.urlparse(url).query
+    anon = ctx.client.get(signed)
+    assert anon.status_code == 200, f"credential-less read failed: {anon.status_code} {anon.text}"
+    assert anon.json()["before"]["address"] == att_id, anon.text
+
+    # Replacing the last base64url character has to CHANGE it: when the
+    # signature already ends in "X" the "tampered" url is the original, the
+    # server answers 200 and a healthy build fails the assertion below about
+    # once in every 64 runs. The Go twin (api_diff_test.go) handles the same
+    # collision; this copy did not.
+    sig = query["sig"][0]
+    tampered_sig = sig[:-1] + ("Y" if sig.endswith("X") else "X")
+    tampered = signed.replace("sig=" + sig, "sig=" + tampered_sig)
+    bad = ctx.client.get(tampered)
+    assert bad.status_code == 401, f"a tampered sig must be 401: {bad.status_code} {bad.text}"
 
 
 def _seeded_chat_path(template: str) -> Callable[[HCtx], str]:
@@ -2134,6 +2183,11 @@ HAPPY: dict[str, Happy] = {
     ),
     "GET /api/chat/attachments": Happy(
         path=_seeded_chat_path("/api/chat/attachments"), check=_nonempty_list
+    ),
+    "GET /api/diff": Happy(path=_diff_pair_path, check=_check_diff_pair),
+    "GET /api/diff/share-link": Happy(
+        path=lambda ctx: _diff_pair_path(ctx).replace("/api/diff?", "/api/diff/share-link?", 1),
+        check=_check_diff_share_link,
     ),
     "POST /api/chat/attachments": Happy(
         identity="agent",

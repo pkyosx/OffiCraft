@@ -122,7 +122,11 @@ async function unreadCountOf(request, token, memberId) {
 // ABORTING THESE TWO HOSTS IS SAFE BECAUSE THEY DECIDE GLYPH SHAPES AND
 // NOTHING ELSE — every face here has a fallback in the stack, so the studio
 // still lays out, still wraps and still scrolls; what changes is which
-// typeface draws the characters, and no assertion in this suite asks.
+// typeface draws the characters. The layout-sensitive specs here measure CJK
+// padding characters, which are em-wide in BOTH stacks, so the wrap points are
+// identical. (Measured on the real specs by O-203, not re-verified here — the
+// earlier wording, "no assertion in this suite asks", claimed more than anyone
+// had checked: not asking ABOUT a font is not the same as not DEPENDING on one.)
 //
 // 🔴 EXACTLY THESE TWO HOSTS, NOT "cross-origin". A blanket block would starve
 // a future spec that legitimately needs an outside request, and it would do so

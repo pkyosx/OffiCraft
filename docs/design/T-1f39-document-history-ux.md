@@ -10,6 +10,8 @@
 >    `doc-history-seed-confirm` / `doc-history-seed-confirm-btn` 兩個 testid **已不存在**，改走
 >    `doc-history-modal-restore` → `doc-history-restore-confirm`。
 > 2. **差異呈現的摺疊（`@@` 分隔列、`diff-view-skip`、`collapseUnchanged`）已從畫面上移除**——現在整份顯示。
+> 3. **`lineDiff.ts` 的核心已經不是 LCS（T-59，2026-09-03）**——換成 Myers 線性空間：記憶體從「兩側行數相乘」降成「相加」的量級，每側上限從 2,000 提到 20,000。
+>    本檔多處（§5 理由 2、§5「不引入新套件」、§8 前言、§E1）仍寫著「LCS」，那是 T-1f39 當時的實作，**照原樣保留不改**；要知道現在怎麼算的，讀 `lineDiff.ts` 的檔頭與 T-59。
 >    `lib/lineDiff.ts` 的 collapse 機制本體仍在（那是該模組自己的 API，仍有測試），只是 `DiffView` 永不要求它，
 >    所以本檔 §E / L2 那些提到 `diff-view-skip` 與 `collapse()` mutant 的段落**描述的是當時的呈現層**，不是現況。
 >
@@ -297,6 +299,8 @@ scratchpad `before.sha`）。CSS 版面的三支 mutant（`position: fixed`／`o
 `src/components/SettingsPage.document-history.test.tsx`（僅 vitest，未跑全量 CI）。
 
 #### E1. `lib/lineDiff.ts` — LCS 行級 diff
+
+> ⚠️ **本節標題的「LCS」已經不是現況**（T-59 換成 Myers 線性空間，見文首補記 3）。本節與下面的 mutant 表記的是 T-1f39 當時的實作，照原樣保留。
 
 測試：`src/lib/lineDiff.test.ts`。
 

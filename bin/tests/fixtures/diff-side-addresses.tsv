@@ -1,0 +1,84 @@
+# diff-side-addresses.tsv — THE confrontation table for how ONE side of a
+# comparison is spelled.
+#
+# WHY THIS FILE EXISTS
+# --------------------
+# A comparison is a URL naming two SIDES, and a side is either a stored blob id
+# (att- + 12 lowercase hex) or a document address
+# (doc:<kind>/<key>/<at>/<field>). THREE places judge that spelling:
+#
+#   server/ocserverd/diffaddr.go   THE AUTHORITY. GET /api/diff and
+#                                  GET /api/diff/share-link refuse an unsayable
+#                                  address; everything else reads what it says.
+#   cli/ocagent/diff.go            a PRE-FLIGHT copy, so a mistyped side costs
+#                                  one local sentence naming WHICH argument is
+#                                  wrong instead of a round trip that cannot.
+#                                  The plain (unsigned) flavour makes no request
+#                                  at all, so without this copy that flavour
+#                                  would be judged by nobody.
+#   frontend/                      a READER of the contract: it parses the same
+#                                  address out of the page URL to draw each
+#                                  column. When it disagrees, the server wins.
+#
+# NONE of the three can be derived from another: the two Go copies live in
+# separate modules with no import path between them, and the cockpit is a
+# different language entirely. So each is confronted against THIS TABLE instead
+# of against its neighbour, which is what makes a drift name the copy that
+# drifted rather than merely reporting that two copies differ:
+#
+#   server/ocserverd/diffaddr_mirror_test.go   (go test ./server/ocserverd/)
+#   cli/ocagent/diff_mirror_test.go            (go test ./cli/ocagent/)
+#   frontend/src/lib/diffLink.mirror.test.ts   (the cockpit's test runner)
+#
+# All THREE copies are driven from this table. Add a row and every copy that
+# disagrees with it goes red by name — which is the whole reason the cases live
+# here as data rather than inside any one implementation's test code.
+#
+# WHAT "SAYABLE" MEANS, AND WHAT IT DOES NOT
+# ------------------------------------------
+# A row marked `ok` promises the address is SAYABLE — never that it resolves.
+# Whether a blob is still stored or a revision still retained is a read-time
+# fact, answered by that side's honest "this side is gone", not by a refusal.
+#
+# FORMAT (tab-separated; '#' comments and blank lines ignored)
+#   address <TAB> ok|bad <TAB> what this row is about
+# The literal token <space> stands for one space character. Padded addresses are
+# the rows whose exactness matters most (they are refused, because the value is
+# matched AS GIVEN and a padded address resolves to nothing), and a bare space
+# between two tabs is too easy for an editor to eat.
+
+att-0123456789ab	ok	a stored blob id: att- plus exactly 12 lowercase hex
+att-ba9876543210	ok	the same shape, different digits
+att-	bad	the easiest typo of all — an id copied without its tail
+att-0123456789a	bad	eleven digits is not twelve
+att-0123456789abc	bad	thirteen digits is not twelve
+att-0123456789AB	bad	uppercase hex is not the shape the mint prints
+att-0123456789ag	bad	'g' is not a hex digit
+att-/../../api/version	bad	traversal: a reader that concatenates would fetch another endpoint
+<space>att-0123456789ab	bad	a leading space — matched as given, so it names nothing
+att-0123456789ab<space>	bad	a trailing space, for the same reason
+0123456789ab	bad	no att- prefix
+./before.md	bad	a file path: diff uploads nothing, upload it first
+doc:lessons/mira/current/text	ok	the live content of a document
+doc:lessons/mira/seed/text	ok	the shipped default
+doc:lessons/mira/12/text	ok	a retained revision, addressed by its id
+doc:task_manual_sop/deploy/current/sop_md	ok	one field of a multi-field document
+doc:role_definition/mira/current/definition_md	ok	a kind whose field is not called text
+doc:not_a_kind/x/current/text	ok	SAYABLE but unresolvable: kinds are not enumerated here, and a kind this station lacks is a gone side at read time, not a refusal
+doc:lessons/mira/current	bad	three segments — the address is kind/key/at/field
+doc:lessons/mira/current/text/extra	bad	five segments
+doc:lessons//current/text	bad	an empty key
+doc:lessons/mira/current/	bad	an empty field
+doc:/mira/current/text	bad	an empty kind
+doc:lessons/../current/text	bad	'..' traverses without containing an excluded character
+doc:lessons/./current/text	bad	'.' likewise
+doc:lessons/mi%2Fra/current/text	bad	'%' is excluded: a reader splicing this into a URL would re-decode it
+doc:lessons/mi?ra/current/text	bad	'?' would end the path and start a query
+doc:lessons/mi#ra/current/text	bad	'#' would end the URL
+doc:lessons/mira/latest/text	bad	'latest' is not one of current, seed or a revision id
+doc:lessons/mira/0/text	bad	a revision id never starts at zero
+doc:lessons/mira/01/text	bad	a leading zero is not the decimal spelling of an id
+doc:lessons/mira/<space>current<space>/text	bad	a padded at — matched as given
+doc:lessons/mira/current/te xt	bad	a space inside a field name
+doc:	bad	the prefix alone names nothing
+<space>	bad	whitespace only

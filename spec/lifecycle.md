@@ -57,9 +57,10 @@ Two operator actions, and no timer anywhere:
 - **rotate** mints a key, appends it and moves the signing mark. Every existing key stays,
   so nothing already issued stops working. The outgoing key never signs again.
 - **remove** drops a retired key, and refuses to touch the one that is signing. THIS is
-  the revocation: every token — and every attachment share-link `?sig=` credential, which
-  OpenAPI documents as "derived from the server signing secret" and which is therefore
-  governed by this ring too — produced under that key stops verifying the instant the call returns,
+  the revocation: every token — and every `?sig=` share credential, both the attachment
+  share-link one and the comparison one (`GET /api/diff`), which OpenAPI documents as
+  "derived from the server signing secret" and which are therefore governed by this ring
+  too — produced under that key stops verifying the instant the call returns,
   with no grace period. It is a human's decision precisely because it has no undo.
   ⚠️ Warden credentials carry no `exp` (see "Mint surfaces and TTL semantics" below), so
   "wait for the old tokens to expire" is not a strategy for them: they are valid until

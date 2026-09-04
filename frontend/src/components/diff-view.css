@@ -197,3 +197,76 @@
 .diff-view__row--split[data-right-kind="added"] > td:nth-child(4) {
   background: color-mix(in srgb, var(--color-success) 32%, transparent);
 }
+
+/* ── 兩欄對照的欄寬 (owner 2026-09-03, c-f56f272e19e2) ──────────────────────
+ * The bug this fixes: the table is `width: max-content` so a single long line
+ * makes it wider than the panel, and in 兩欄對照 the RIGHT half is what gets
+ * pushed past the edge — measured at 5024px of table inside a 1332px box, the
+ * right column starting at x=2566. Nothing was broken and nothing said so; the
+ * mode button simply looked like it did nothing, which is exactly how the owner
+ * found it. A wider screen does not help: the overlay has a max-width of its
+ * own.
+ *
+ * `table-layout: fixed` + `width: 100%` is what makes the two halves SHARE the
+ * panel instead of queueing behind each other, and it is scoped to split so
+ * unified keeps its horizontal scroll unchanged.
+ *
+ * The text cells switch to `pre-wrap` HERE ONLY. That does not reopen the
+ * alignment problem the `pre` comment above guards: in split both halves of one
+ * line live in the SAME <tr>, so a wrapped line grows the row for both sides at
+ * once and the two number gutters stay level. It is also not folding — every
+ * line is still rendered in full (owner ⑥); a wrapped line is shown, a folded
+ * one is not. */
+.diff-view__table--split {
+  table-layout: fixed;
+  width: 100%;
+  min-width: 0;
+}
+/* Fixed layout takes column widths from the first row, so the gutters need real
+ * values rather than the `width: 1%` shrink-to-fit trick auto layout used.
+ * 4.5em holds five digits of the 12.5px mono face — past the 20,000-line ceiling
+ * lineDiff refuses at. */
+.diff-view__table--split .diff-view__ln {
+  width: 4.5em;
+}
+.diff-view__table--split .diff-view__marker {
+  width: 1.6em;
+}
+.diff-view__table--split .diff-view__text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* 🔴 NOT `overflow-x: hidden`, and the difference is a phone.
+ *
+ * `table-layout: fixed` makes the two halves share the panel, but the four
+ * gutters are fixed at ~152px together — so on a 240px box the two text columns
+ * get 21px each, and hiding the overflow would leave the reader pressed against
+ * an unreadable screen with no way out. That is the SAME failure this fix is
+ * for (a 兩欄對照 that cannot be read), delivered by squeezing instead of by
+ * pushing off-screen, and it would break the rule this repo already wrote for
+ * itself: when the table is wider than its box, scrolling that box must
+ * actually move it.
+ *
+ * So: the columns get a floor, and below that floor the panel scrolls. Wide
+ * screens never reach the floor and see no scrollbar at all. */
+.diff-view__table--split {
+  min-width: 36em;
+}
+
+/* A side heading that CAN be opened on its own is a real button. It keeps the
+ * heading's colour (that colour is how the reader tells the two sides apart);
+ * what it adds is the underline and the pointer, so the affordance is visible
+ * without a second colour competing with the red/green one. */
+.diff-view__label--link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.diff-view__label--link:hover {
+  text-decoration-thickness: 2px;
+}

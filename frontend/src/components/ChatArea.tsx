@@ -409,6 +409,15 @@ export function ChatArea({
         title: string;
         url: string;
         attachmentId: string;
+        // Carried even though NOTHING constructs this variant today (no setter
+        // in this file builds kind:"attachment"; the two that exist build
+        // "message" and "staged-image"). It is here so that reviving the branch
+        // cannot silently lose the attachment's TYPE: without a mime the
+        // overlay falls back to markdown, and a file whose type matters would
+        // be drawn as the wrong thing — with nothing going red. Keeping the
+        // field costs one line; discovering the
+        // omission costs a reader believing a wrong screen.
+        mime?: string;
       }
     | { kind: "message"; title: string; source: string }
     | { kind: "staged-image"; title: string; imageSrc: string }
@@ -1988,6 +1997,7 @@ export function ChatArea({
             title={mdPreview.title}
             url={mdPreview.url}
             attachmentId={mdPreview.attachmentId}
+            mime={mdPreview.mime}
             onClose={() => setMdPreview(null)}
           />
         ) : mdPreview.kind === "staged-image" ? (

@@ -31,6 +31,7 @@ import type {
   DocumentHistoryView,
   DocumentRevisionView,
   DocumentSeedView,
+  DiffPairView,
   RoleSummaryView,
   RoleDefView,
   BootstrapView,
@@ -181,6 +182,26 @@ import {
   SEED_TASK_UNBLOCKED_MD,
 } from "./seeds";
 import { mockApiError } from "./errorCodes";
+import { formatDiffUrl, type DiffParams } from "../lib/diffLink";
+
+/** The offline cockpit's compare fixture — two texts that differ by one edited
+ * line and one added line, so both the line-level rows and the character-level
+ * tint have something real to draw. */
+const MOCK_DIFF_BEFORE = [
+  "# 專案說明",
+  "",
+  "第一段沒有改。",
+  "這一行的用字改過了。",
+  "最後一段沒有改。",
+].join("\n");
+const MOCK_DIFF_AFTER = [
+  "# 專案說明",
+  "",
+  "第一段沒有改。",
+  "這一行的措辭改過了。",
+  "新增的一行。",
+  "最後一段沒有改。",
+].join("\n");
 import {
   validateThemeBundle,
   isValidDisplayTheme,
@@ -6410,6 +6431,45 @@ export const mockApi: Api = {
       );
     }
     return { id: found.id, content: structuredClone(found.content) };
+  },
+
+  async getDiff(params: DiffParams): Promise<DiffPairView> {
+    // A FIXTURE, and it says so: the mock cockpit has no blob store to read a
+    // side out of and no signature to check, so it answers a small, obviously
+    // synthetic pair rather than pretending to resolve an address. What it DOES
+    // reproduce faithfully is the shape the screen branches on — a heading per
+    // side, and the `missing` marker, which is the one state a fixture that
+    // always succeeds would leave permanently unreachable offline.
+    //
+    // The reserved address `att-000000000000` is how the offline cockpit
+    // reaches that state; every other address resolves.
+    //
+    // The labels are ECHOED, never invented: a side the url gave no heading
+    // comes back with none, exactly as the server answers it, so the reader's
+    // own 「目前存檔內容」/「初始版本」/「版本 #12」 path is reachable offline too.
+    const side = (address: string, label: string | undefined, text: string) =>
+      address === "att-000000000000"
+        ? { address, text: "", label, gone: true, goneReason: "mock: reserved gone address" }
+        : { address, text, label, gone: false };
+    return {
+      before: side(params.before, params.labelBefore, MOCK_DIFF_BEFORE),
+      after: side(params.after, params.labelAfter, MOCK_DIFF_AFTER),
+    };
+  },
+
+  async getDiffShareLink(params: DiffParams): Promise<string> {
+    // Mock face: the same URL SHAPE as the BE (the /diff page path + ?sig=)
+    // with a deterministic fake sig — never a verifiable credential (no secret
+    // in mock mode; the copy-link UI just needs a resolvable string). Any sig
+    // the caller happened to be holding is dropped, exactly as the real route
+    // drops it: the signature is what this call MINTS.
+    return formatDiffUrl({
+      before: params.before,
+      after: params.after,
+      labelBefore: params.labelBefore,
+      labelAfter: params.labelAfter,
+      sig: "mock-diff-share-sig",
+    });
   },
 
   async getDocumentSeed(

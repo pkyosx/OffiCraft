@@ -28,8 +28,17 @@ export const en: Dict = {
     viewUnified: "Single column",
     viewSplit: "Side by side",
     wholeDocNote: "Whole document (nothing folded)",
+    // The heading over one side, when the host can show that side on its own.
+    openSide: (label: string) => `Open "${label}" on its own`,
     tooLargeLead: "Too long to compare line by line (",
     tooLargeTail: " lines).",
+    // The external, server-signed link to THIS comparison. Icon-only control
+    // (owner 2026-09-03: 「1. 用圖示」), so these three strings are the whole
+    // accessible name — and the failure one has to exist, because a copy that
+    // did not happen must never look like one that did.
+    copyShareLink: "Copy external link",
+    shareLinkCopied: "External link copied",
+    shareLinkCopyFailed: "Could not copy the link",
   },
   connection: {
     lostTitle: "Live updates disconnected",
@@ -911,6 +920,25 @@ export const en: Dict = {
       close: "Close preview",
       loading: "Loading preview…",
       error: "Could not load the preview",
+      // T-59 — a comparison whose side names a document. The default
+      // column headings for a side that carried no label of its own, plus the
+      // marker that says a side is LIVE: the same link opened next month
+      // shows a different comparison, and the reader has to be able to see that
+      // from the screen rather than infer it.
+      diffSideCurrent: "Current saved content",
+      diffSideSeed: "Shipped default",
+      diffSideRevision: (id: string) => `Revision #${id}`,
+      diffSideLive: (label: string, at: string) => `${label} (read ${at} — changes over time)`,
+      // The compare could not be drawn because ONE SIDE is no longer there: a
+      // reclaimed blob, or a revision pruned out of the retention window. Said
+      // plainly, because the alternative — drawing the surviving side alone —
+      // marks every one of its lines as deleted, which is a confident wrong
+      // answer rather than a missing one.
+      diffSideGone: "One side of this comparison is no longer there, so it cannot be drawn.",
+      // Shown while ONE side is open on its own; takes the reader back to the
+      // comparison rather than closing the overlay, because they got here from
+      // inside it.
+      diffSideBack: "Back to comparison",
       unavailable: "This file cannot be previewed. Please download it.",
       // T-36 — same "cannot be drawn here", but when the header's new-tab
       // button is present the line must point at THAT, not back at Download:
@@ -1601,7 +1629,7 @@ export const en: Dict = {
     removeButton: "Remove",
     removeConfirmTitle: "Remove this key?",
     removeConfirmBody:
-      "Everything this key signed stops working the moment you confirm, with no grace period and no notice to anyone: credentials signed by it are refused, and file share links produced under it break too.",
+      "Everything this key signed stops working the moment you confirm, with no grace period and no notice to anyone: credentials signed by it are refused, and the share links produced under it — file links and comparison links alike — break too.",
     removeConfirmWarden:
       "⚠️ Machine (warden) credentials carry no expiry and never lapse on their own. What decides whether this is safe is whether every machine has reconnected — not how many days have passed.",
     removeConfirmCancel: "Cancel",

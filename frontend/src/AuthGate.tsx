@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import App from "./App";
 import { LoginPage } from "./components/LoginPage";
 import { FirstRunPage } from "./components/FirstRunPage";
@@ -22,7 +23,7 @@ type Wall = "checking" | "firstrun" | "login" | "app";
  * unreachable/failing probe falls back to the login wall (the login itself
  * will surface the real failure).
  */
-export function AuthGate() {
+export function AuthGate({ authed }: { authed?: ReactNode } = {}) {
   const [wall, setWall] = useState<Wall>(() =>
     USE_MOCK || hasToken() ? "app" : "checking"
   );
@@ -111,6 +112,15 @@ export function AuthGate() {
       />
     );
   }
+
+  // T-59 — the wall is the same wall; what is BEHIND it is not always the
+  // studio. An internal compare url (`/diff?…` with no signature) is a page the
+  // owner has to be logged in for, so it comes through here and is rendered
+  // INSTEAD of App: same probe, same first-run/login/MFA behaviour, and none of
+  // App's session-shaped chrome (nav, unread badges, reply-card polling) around
+  // a page whose whole job is one comparison. A SIGNED compare url never
+  // reaches this component at all — see main.tsx.
+  if (authed !== undefined) return <>{authed}</>;
 
   // ReplyCardsProvider is mounted here — ABOVE the nav badge AND the 等我回覆
   // page — so the badge count and the page list share ONE waiting snapshot and

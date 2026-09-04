@@ -47,6 +47,7 @@ import type {
   DocumentHistoryView,
   DocumentRevisionView,
   DocumentSeedView,
+  DiffPairView,
   RoleSummaryView,
   RoleDefView,
   BootstrapView,
@@ -173,6 +174,8 @@ import {
 import type { WireLoreSearchRequest, WireReplyCard } from "./wire";
 import { ownerToken, setToken } from "./auth";
 import { ApiError, parseRetryAfter } from "./errors";
+import { fetchDiffPair } from "./diff";
+import type { DiffParams } from "../lib/diffLink";
 import { client, handleUnauthorized } from "./client";
 
 // Auth is cross-cutting and lives in ONE place each: owner-JWT sourcing
@@ -2750,6 +2753,40 @@ export const httpApi: Api = {
       }),
     );
     return toDocumentSeed(wire);
+  },
+
+  async getDiff(params: DiffParams): Promise<DiffPairView> {
+    // GET /api/diff?before=&after=[&label_before=][&label_after=][&sig=] — the
+    // whole comparison in one answer. Hand-written rather than routed through
+    // the typed client, because the signed flavour is answered with NO session
+    // and must not be able to log the owner out; api/diff.ts owns that reason
+    // and the response shape.
+    return fetchDiffPair(params);
+  },
+
+  async getDiffShareLink(params: DiffParams): Promise<string> {
+    // GET /api/diff/share-link?before=&after=[&label_before=][&label_after=]
+    // -> {url}: the /diff page path carrying the server's ?sig= HMAC over all
+    // four values. Unlike getDiff this one DOES ride the typed client — it is
+    // answered only for a session, so a 401 here really is a dead session and
+    // the middleware's reading of it is the right one.
+    //
+    // `params.sig` is deliberately not forwarded: the signature is the OUTPUT.
+    // Sending one back would ask the server to sign a query that includes a
+    // signature, which is not a query this route declares.
+    const wire = unwrap(
+      await client.GET("/api/diff/share-link", {
+        params: {
+          query: {
+            before: params.before,
+            after: params.after,
+            ...(params.labelBefore ? { label_before: params.labelBefore } : {}),
+            ...(params.labelAfter ? { label_after: params.labelAfter } : {}),
+          },
+        },
+      }),
+    );
+    return wire.url;
   },
 
   async restoreDocumentHistory(

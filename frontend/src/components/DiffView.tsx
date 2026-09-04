@@ -131,6 +131,9 @@ export function DiffView({
   beforeLabel,
   afterLabel,
   options,
+  onOpenSide,
+  mode: modeProp,
+  onModeChange,
   testId = "diff-view",
 }: {
   /** The historical version — the `-` side. */
@@ -140,10 +143,36 @@ export function DiffView({
   beforeLabel?: string;
   afterLabel?: string;
   options?: DiffViewOptions;
+  /** Open ONE side on its own (owner 2026-09-03, c-944088dceab0: 「兩份應該都
+   * 要是連結」). Optional because the two hosts differ: the attachment overlay
+   * holds both sides' text and can show either alone, while the document
+   * history screen is already looking at the document the sides belong to —
+   * there is nowhere for it to go. Omitted, the headings stay plain text, which
+   * is what every existing call site gets. */
+  onOpenSide?: (side: "before" | "after") => void;
+  /** 單欄 / 兩欄對照, HOISTED. Uncontrolled by default — every existing call site
+   * keeps its own state and its own 單欄 default (owner ①).
+   *
+   * The overlay controls it for ONE reason, found by measuring: opening a side
+   * on its own unmounts this component, so an uncontrolled mode came back as
+   * 單欄 and the reader who was in 兩欄對照 got silently moved. Nothing warned
+   * them, and "the button I pressed stopped being pressed" is the same class of
+   * quiet wrongness as the off-screen column this round started with. */
+  mode?: DiffMode;
+  onModeChange?: (mode: DiffMode) => void;
   testId?: string;
 }) {
   const { t, msg } = useI18n();
-  const [mode, setMode] = useState<DiffMode>("unified");
+  const [uncontrolledMode, setUncontrolledMode] = useState<DiffMode>("unified");
+  const mode = modeProp ?? uncontrolledMode;
+  /* Controlled means CONTROLLED: when the host owns `mode`, this writes nothing
+   * of its own. Keeping a shadow copy would leave two answers to "which layout
+   * am I in" that agree only while the host happens to echo every change back —
+   * exactly the half-truth this component is being fixed for. */
+  const setMode = (next: DiffMode) => {
+    if (modeProp === undefined) setUncontrolledMode(next);
+    onModeChange?.(next);
+  };
   const { maxLines } = options ?? {};
   const result = useMemo(
     // owner ⑥. Says what this surface wants and skips building hunks nobody
@@ -201,6 +230,38 @@ export function DiffView({
   const addedCount = result.rows.filter((r) => r.kind === "added").length;
   const removedCount = result.rows.filter((r) => r.kind === "removed").length;
 
+  /* The heading over one side. A BUTTON when the host gave us somewhere to go,
+   * a plain span otherwise — never a button that does nothing, which is the
+   * failure this whole round is about (a mode switch that looked live and
+   * wasn't). Same text either way: the affordance changes, the wording does
+   * not. */
+  const sideHeading = (side: "before" | "after", label: string) => {
+    const className = `diff-view__label diff-view__label--${side}`;
+    const glyph = (
+      <span aria-hidden="true">{side === "before" ? MARKER.removed : MARKER.added}</span>
+    );
+    if (onOpenSide === undefined) {
+      return (
+        <span className={className} data-testid={`diff-view-side-${side}`}>
+          {glyph}
+          {label}
+        </span>
+      );
+    }
+    return (
+      <button
+        type="button"
+        className={`${className} diff-view__label--link`}
+        data-testid={`diff-view-side-${side}`}
+        title={t.diff.openSide(label)}
+        onClick={() => onOpenSide(side)}
+      >
+        {glyph}
+        {label}
+      </button>
+    );
+  };
+
   const numberCell = (row: DiffRow | undefined, side: "before" | "after") => (
     <td className="diff-view__ln">
       {(side === "before" ? row?.beforeLine : row?.afterLine) ?? ""}
@@ -233,14 +294,8 @@ export function DiffView({
   return (
     <div className="diff-view" data-testid={testId} data-mode={mode}>
       <div className="diff-view__head">
-        <span className="diff-view__label diff-view__label--before">
-          <span aria-hidden="true">{MARKER.removed}</span>
-          {beforeLabel ?? t.diff.beforeLabel}
-        </span>
-        <span className="diff-view__label diff-view__label--after">
-          <span aria-hidden="true">{MARKER.added}</span>
-          {afterLabel ?? t.diff.afterLabel}
-        </span>
+        {sideHeading("before", beforeLabel ?? t.diff.beforeLabel)}
+        {sideHeading("after", afterLabel ?? t.diff.afterLabel)}
         <span className="diff-view__stats">
           <span
             className="diff-view__stat diff-view__stat--added"
@@ -283,7 +338,10 @@ export function DiffView({
         </div>
       </div>
       <div className="diff-view__scroll">
-        <table className="diff-view__table" aria-label={t.diff.ariaLabel}>
+        <table
+          className={`diff-view__table${mode === "split" ? " diff-view__table--split" : ""}`}
+          aria-label={t.diff.ariaLabel}
+        >
           <tbody>
             {mode === "unified"
               ? result.rows.map((row, index) => (

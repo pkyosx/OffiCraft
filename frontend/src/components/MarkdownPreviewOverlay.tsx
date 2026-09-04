@@ -10,7 +10,7 @@
 // serve url + display title. Shared by the chat attachment strip AND the task
 // artifact popover — one preview surface, not two.
 //
-// THREE SOURCE MODES (one surface, still not three):
+// FOUR SOURCE MODES (one surface, still not four):
 //   - `url`      — a stored blob, fetched as text (or rendered as an image when
 //                  its mime says so). It carries a REQUIRED `attachmentId`, so
 //                  the header keeps both blob actions: the copyable share link
@@ -26,6 +26,14 @@
 //                  real file, so 下載 is honest — but it has no blob id yet, so
 //                  there is nothing for a share link to point at and none is
 //                  rendered.
+//   - `diffParams` — a COMPARISON, named by the two addresses a /diff url spells
+//                  (T-59). No blob, so no 下載 and no FILE-level share link —
+//                  there is no blob for one to point at. What it does carry is
+//                  the comparison's OWN external link, minted by
+//                  `GET /api/diff/share-link` and copied by the same icon
+//                  control the file uses (DiffShareLinkButton). The body is
+//                  `DiffScreen` — the same compare screen the standalone /diff
+//                  page draws.
 //
 // T-7e68 — ZOOM MUST AFFECT LAYOUT. A `transform: scale()` on the <img> paints
 // bigger pixels but leaves the layout box the original size, so the wrap's
@@ -58,7 +66,10 @@ import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import { authedAttachmentUrl } from "../api/http";
 import { attachmentShareLinkUrl, copyAttachmentShareLink } from "../lib/shareLink";
+import type { DiffParams } from "../lib/diffLink";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
+import { DiffScreen } from "./DiffScreen";
+import { DiffShareLinkButton } from "./DiffShareLinkButton";
 import { Markdown } from "./Markdown";
 import "./md-preview.css";
 import {
@@ -129,6 +140,7 @@ type MarkdownPreviewOverlayProps = {
       mime?: string;
       source?: never;
       imageSrc?: never;
+      diffParams?: never;
     }
   | {
       /** Markdown text the caller already holds — rendered as-is, no fetch. */
@@ -138,6 +150,7 @@ type MarkdownPreviewOverlayProps = {
       attachmentId?: never;
       mime?: never;
       imageSrc?: never;
+      diffParams?: never;
     }
   | {
       /** Image bytes the caller already holds (`data:` URI) — a staged composer
@@ -148,6 +161,21 @@ type MarkdownPreviewOverlayProps = {
       attachmentId?: never;
       mime?: never;
       source?: never;
+      diffParams?: never;
+    }
+  | {
+      /** A COMPARISON, addressed by the two sides the compare url named (T-59).
+       * There is no blob here at all — a comparison stopped being a file the
+       * day it became a url — so there is nothing to download and no
+       * FILE-level share link to mint. The comparison's own external link is
+       * a different thing and IS offered, by DiffShareLinkButton. The body is
+       * `DiffScreen`, the same compare screen the standalone page draws. */
+      diffParams: DiffParams;
+      url?: never;
+      attachmentId?: never;
+      mime?: never;
+      source?: never;
+      imageSrc?: never;
     }
 );
 
@@ -158,6 +186,7 @@ export function MarkdownPreviewOverlay({
   attachmentId,
   mime,
   imageSrc,
+  diffParams,
   source: inlineSource,
   onClose,
 }: MarkdownPreviewOverlayProps) {
@@ -179,6 +208,11 @@ export function MarkdownPreviewOverlay({
   // never passes through the loading/error states, which only describe a fetch.
   const image = imageSrc !== undefined || (mime?.startsWith("image/") ?? false);
   const previewableText = isPreviewableTextAttachment(mime ?? "text/markdown", title);
+  // A comparison is not a stored blob at all — it carries no `url`, so none of
+  // the blob branches below (fetch, download, share link, "open in a tab") can
+  // fire for it, and it must not fall into `unavailable`, which is the "this
+  // overlay cannot draw these bytes" state.
+  const diff = diffParams !== undefined;
   const unavailable = url !== undefined && !image && !previewableText;
   // T-36 — WHOSE CALL IS "opens in a tab"? THE SERVER'S. This mirrors
   // api_chat.go's isPreviewableMime, which is what decides between
@@ -301,7 +335,7 @@ export function MarkdownPreviewOverlay({
     return () => {
       alive = false;
     };
-  }, [url, image, unavailable]);
+  }, [url, image, unavailable, diff]);
 
   // Mint the share link for the tab anchor. Only for an attachment the browser
   // would actually DISPLAY — a downloadable one gets no anchor, so it needs no
@@ -578,6 +612,11 @@ export function MarkdownPreviewOverlay({
   // layer for exactly its lifetime; whatever opened it (a popover, a gallery,
   // a chat thread) sits below and does not see the key.
   const rootRef = useRef<HTMLDivElement>(null);
+  /* A comparison reading ONE of its sides on its own answers Esc itself, with a
+   * layer NESTED inside this one (DiffScreen) — Esc there goes back to the
+   * comparison rather than out of the overlay, and this handler never sees the
+   * key while that pane is open. That is escapeLayers' whole job; neither side
+   * has to know about the other. */
   useEscapeLayer(onClose, rootRef);
 
   // 🔴 A DIALOG THE KEYBOARD NEVER ENTERS IS NOT A DIALOG. Measured before this
@@ -666,6 +705,27 @@ export function MarkdownPreviewOverlay({
             </span>
           )}
           <div className="md-preview__actions">
+            {/* T-59 — the EXTERNAL link to this comparison, in the same slot
+             * and the same skin as the file-level share control below. The
+             * owner is looking at the comparison here and wants to hand it to
+             * someone outside the studio; until now that was a CLI action only.
+             *
+             * 🔴 A SESSION IS STRUCTURAL HERE. This overlay is only ever
+             * mounted with `diffParams` by DiffModalHost, and DiffModalHost is
+             * only mounted inside the studio, behind AuthGate. The standalone
+             * page (DiffPage) never mounts this overlay at all, so the
+             * unauthenticated reader of a ?sig= link cannot reach this button
+             * — no runtime gate can regress into offering it to them.
+             *
+             * The `sig` the clicked link may have carried rides along in
+             * `diffParams` and is dropped by the mint; the server signs the
+             * addresses and labels, never a signature. */}
+            {diffParams !== undefined && (
+              <DiffShareLinkButton
+                params={diffParams}
+                className="md-preview__download md-preview__share"
+              />
+            )}
             {/* Share needs a STORED blob id. Download only needs bytes, so it
              * also serves a staged `imageSrc`. An inline text source has
              * neither — nothing is fabricated for it. */}
@@ -879,6 +939,13 @@ export function MarkdownPreviewOverlay({
             </div>
           ) : failed ? (
             <div className="md-preview__status">{t.chat.mdPreview.error}</div>
+          ) : diff ? (
+            /* The compare screen is DiffScreen and only DiffScreen — the
+             * same one the standalone /diff page draws, which is in turn
+             * DiffView and only DiffView. A second compare renderer here would
+             * be a second authority on the owner's six 2026-07-31 rulings, and
+             * the two would start to drift. */
+            <DiffScreen params={diffParams} />
           ) : source === null ? (
             <div className="md-preview__status">{t.chat.mdPreview.loading}</div>
           ) : (

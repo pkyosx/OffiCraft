@@ -12,6 +12,12 @@ paths:
   - "src/components/SettingsPage*"
   - "src/components/DiffView*"
   - "src/components/diff-view.css"
+  - "src/components/DiffScreen*"
+  - "src/components/DiffPage*"
+  - "src/components/DiffModalHost*"
+  - "src/components/DiffShareLinkButton*"
+  - "src/components/diff-screen.css"
+  - "src/lib/diffLink.ts"
   - "src/components/DocumentHistory*"
   - "src/components/TaskArtifactVersions*"
   - "src/components/task-artifact-versions.css"
@@ -55,6 +61,14 @@ DocCard 是設定頁可編輯長文件的共用外殼：標題、字數、版本
 lineDiff 只負責行結構，wordDiff 只負責相鄰取代列的 token，DiffView 只負責畫面。DiffView 永遠 render 完整 result.rows，不讀 hunks、不畫 @@；options 只暴露它真正擁有的 maxLines。相同版本與過大版本要是兩種不同空態，過大態要報行數。
 
 token 標亮只在兩側有共同非空白 token 時做，每側有上限；顏色由真瀏覽器守衛驗，jsdom 只驗 tint 的結構位置。
+
+## 比較的對外連結
+
+一份比較有兩種網址：沒有簽章的內部連結要登入才打得開，帶 `?sig=` 的對外連結誰都打得開。簽章只由 server 現鑄（`GET /api/diff/share-link`），回的是 server-relative path，由瀏覽器補 origin——跟附件分享連結同一套 `lib/shareLink.ts`。呼叫端手上原本的 `sig` 一律不回送：簽章是這個呼叫的產出，不是輸入。
+
+複製這條連結的控制項是 `DiffShareLinkButton`，圖示、沒有可見文字，三種狀態三個圖示；成功才說成功，鑄造或剪貼簿失敗要畫成看得出來的失敗，不可以退回閒置圖示。
+
+**這個控制項只畫在「確定有 session」的地方**，因為 mint route 跟其他 route 一樣要授權：studio 裡的 modal 是結構性的（`DiffModalHost` 在 AuthGate 內，獨立頁不掛這個 overlay）；獨立頁以 `params.sig === undefined` 當閘——main.tsx 把帶簽章的網址掛在 AuthGate 之前，那位讀者可能根本沒有帳號，不能給他一個按了會失敗、又能重鑄連結的按鈕。
 
 ## 產物版本閱讀器
 

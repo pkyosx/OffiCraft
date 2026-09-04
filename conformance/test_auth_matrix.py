@@ -876,6 +876,19 @@ MATRIX: dict[str, Route] = {
         requires="machine",
         overrides={i: 400 for i in _IDENTITY_RANK},
     ),
+    # Both comparison rows probe with a SAYABLE address that resolves to
+    # nothing, which is deliberately still a 200: the pair route answers a
+    # missing side with that side's `gone` marker, and the mint judges shape
+    # only. The sig SEMANTICS (credential-less read, tampered sig 401) are
+    # pinned in test_rest_happy.py, where the attachment fixture lives.
+    "GET /api/diff": Route(
+        requires="machine",
+        path="/api/diff?before=att-000000000000&after=att-000000000000",
+    ),
+    "GET /api/diff/share-link": Route(
+        requires="machine",
+        path="/api/diff/share-link?before=att-000000000000&after=att-000000000000",
+    ),
     "POST /api/chat/mark-read": Route(
         requires="machine",
         body={"peer": "owner", "last_read_ts": 1.0},

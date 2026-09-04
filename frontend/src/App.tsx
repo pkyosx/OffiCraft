@@ -24,6 +24,7 @@ import { GuidePage } from "./components/UserGuidePage";
 import { SettingsPage } from "./components/SettingsPage";
 import { ProfileDropdown } from "./components/ProfileDropdown";
 import { OnboardingBanner } from "./components/OnboardingBanner";
+import { DiffModalHost } from "./components/DiffModalHost";
 import { ConnectionBanner } from "./components/ConnectionBanner";
 import { InlineEdit } from "./components/InlineEdit";
 import { PushNotifications } from "./components/PushNotifications";
@@ -154,10 +155,16 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     // say the same name the pill does (T-4e95 — he set 「韓立」 and the thread
     // was still printing the theme's default word for the human).
     <OwnerNameProvider value={userName}>
-      <div className="app">
-        <header className="topbar">
-          <div className="topbar__brand">
-            {/* The studio logo is the site-wide HOME link: clicking it clears the
+    {/* A compare link anywhere in the studio's markdown opens the comparison
+        IN PLACE, over whatever the reader was reading (T-59). Mounted at the
+        root because the links live in chat bubbles, reply cards, task cards and
+        manuals alike — one place to say it, instead of a prop threaded through
+        every surface that renders markdown. */}
+    <DiffModalHost>
+    <div className="app">
+      <header className="topbar">
+        <div className="topbar__brand">
+          {/* The studio logo is the site-wide HOME link: clicking it clears the
               hash back to root (default office view). The org NAME next to it
               stays an InlineEdit — only the mark itself navigates. */}
             <button
@@ -360,36 +367,37 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           </div>
         </nav>
 
-        <main className="app__main">
-          {settingsOpen ? (
-            // A #settings/manuals/<key> deep-link opens straight on that manual's
-            // hub (T-e987 任務類型 label 跳轉). Keyed on the manual key too so a
-            // deep-link navigation re-mounts SettingsPage on the right initial
-            // view; the gear's settingsNonce bump still returns to the landing.
-            <SettingsPage
-              key={`${settingsNonce}:${route.manualKey ?? ""}:${
-                route.settingsRoles ? "roles" : ""
-              }:${route.settingsRolesNew ? "new" : ""}:${route.roleKey ?? ""}`}
-              initialManualKey={route.manualKey}
-              initialRoles={route.settingsRoles}
-              initialRolesCreate={route.settingsRolesNew}
-              initialRoleKey={route.roleKey}
-            />
-          ) : tab === "office" ? (
-            <OfficePage />
-          ) : tab === "replies" ? (
-            <RepliesPage replyCardId={route.replyCardId} />
-          ) : tab === "tasks" ? (
-            <TasksPage />
-          ) : tab === "lore" ? (
-            <LorePage />
-          ) : tab === "guide" ? (
-            <GuidePage />
-          ) : (
-            <MonitorPage />
-          )}
-        </main>
-      </div>
+      <main className="app__main">
+        {settingsOpen ? (
+          // A #settings/manuals/<key> deep-link opens straight on that manual's
+          // hub (T-e987 任務類型 label 跳轉). Keyed on the manual key too so a
+          // deep-link navigation re-mounts SettingsPage on the right initial
+          // view; the gear's settingsNonce bump still returns to the landing.
+          <SettingsPage
+            key={`${settingsNonce}:${route.manualKey ?? ""}:${
+              route.settingsRoles ? "roles" : ""
+            }:${route.settingsRolesNew ? "new" : ""}:${route.roleKey ?? ""}`}
+            initialManualKey={route.manualKey}
+            initialRoles={route.settingsRoles}
+            initialRolesCreate={route.settingsRolesNew}
+            initialRoleKey={route.roleKey}
+          />
+        ) : tab === "office" ? (
+          <OfficePage />
+        ) : tab === "replies" ? (
+          <RepliesPage replyCardId={route.replyCardId} />
+        ) : tab === "tasks" ? (
+          <TasksPage />
+        ) : tab === "lore" ? (
+          <LorePage />
+        ) : tab === "guide" ? (
+          <GuidePage />
+        ) : (
+          <MonitorPage />
+        )}
+      </main>
+    </div>
+    </DiffModalHost>
     </OwnerNameProvider>
   );
 }

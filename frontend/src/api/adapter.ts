@@ -7,6 +7,7 @@
 // All methods return view-model shapes (`Member` / `ChatMessage`), never wire
 // DTOs: the wire→view mapping is the adapter's job (see mappers.ts).
 
+import type { DiffParams } from "../lib/diffLink";
 import type { ThemeBundle } from "../lib/themeBundle";
 import type {
   LoreSearchView,
@@ -34,6 +35,7 @@ import type {
   DocumentHistoryView,
   DocumentRevisionView,
   DocumentSeedView,
+  DiffPairView,
   RoleSummaryView,
   RoleDefView,
   BootstrapView,
@@ -2626,6 +2628,38 @@ export interface Api {
    * reset the server 404s, and the same ones whose 初始版本 row is not drawn.
    */
   getDocumentSeed(kind: DocumentKind, key: string): Promise<DocumentSeedView>;
+  /**
+   * BOTH SIDES of one comparison, in ONE answer (`GET /api/diff`, T-59).
+   *
+   * The compare screen is addressed by a URL now, not by an attachment, and
+   * this is the read behind it: hand it the two addresses the URL spelled and
+   * it answers each side's text, the heading for its column, and whether the
+   * address resolved to nothing at all.
+   *
+   * ONE call, not two, and no per-side resolution on this side of the wire:
+   * a reader that resolved "current" itself would be a second authority on
+   * what a side IS, and the two would drift.
+   *
+   * `params.sig` is the server-minted signature the EXTERNAL flavour of the URL
+   * carries; with it the call is answered with no session at all, which is why
+   * its 401 must not be read as an expired login (see api/diff.ts).
+   */
+  getDiff(params: DiffParams): Promise<DiffPairView>;
+  /**
+   * Mint the EXTERNAL link to one comparison (`GET /api/diff/share-link`,
+   * T-59) — the same `/diff` page url plus the server's `?sig=`, which opens it
+   * for a reader who has no account at all.
+   *
+   * Server-RELATIVE, exactly like `getChatAttachmentShareLink`: only the
+   * browser knows the public origin, so the caller absolutizes
+   * (`lib/shareLink.ts`).
+   *
+   * `params.sig` is IGNORED — a signature is what this call produces, never an
+   * input to it. Requires a session: it is gated like every other route here,
+   * which is why the control that calls it is only ever drawn where one is
+   * certain (see components/DiffShareLinkButton.tsx).
+   */
+  getDiffShareLink(params: DiffParams): Promise<string>;
   /**
    * Restore ONE retained revision over the LIVE document (destructive — the
    * current text becomes just another retained revision). Returns the restored

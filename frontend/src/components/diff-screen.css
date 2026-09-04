@@ -1,0 +1,108 @@
+/* components/diff-screen.css — the compare BODY's own styling (T-59).
+ *
+ * Owns only what DiffScreen.tsx draws AROUND the comparison: the three status
+ * lines, and the pane that shows one side on its own. The comparison itself is
+ * DiffView's, styled by diff-view.css — nothing here reaches into it.
+ *
+ * These rules used to sit in md-preview.css, when a comparison was an
+ * attachment and the preview overlay was its only host. It has two hosts now
+ * (the in-studio modal and the standalone page), so the CSS moved with the
+ * markup rather than making the page import the overlay's stylesheet. */
+.diff-screen__status {
+  display: grid;
+  place-items: center;
+  padding: 40px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+/* ── 單獨看比較的某一側 (owner 2026-09-03, c-944088dceab0) ──────────────────
+ * The reader got here from INSIDE the comparison, so the way out is back to it,
+ * not out of the host — closing would make them re-open the link and find the
+ * layout they were in again. */
+.diff-screen__side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.diff-screen__side-back {
+  align-self: flex-start;
+  padding: 4px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill, 999px);
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.diff-screen__side-back:hover {
+  border-color: var(--color-accent);
+}
+.diff-screen__side-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+.diff-screen__text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font:
+    13px/1.55 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+}
+
+/* ── The standalone page (components/DiffPage.tsx) ──────────────────────────
+ * Deliberately plain: this page is opened by someone who may have no session
+ * and no idea what this studio is, so it carries the comparison and nothing
+ * else — no nav, no badges, nothing that would need a login to draw. */
+.diff-page {
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 24px 20px 48px;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+.diff-page__frame {
+  max-width: 1180px;
+  margin: 0 auto;
+  min-width: 0;
+}
+
+/* ── 這份比較的對外連結 (T-59, owner 2026-09-03「1. 用圖示」) ───────────────
+ * Drawn ONLY on the internal flavour of this page — see DiffPage.tsx for why
+ * the signature is the gate. The look is the preview overlay's icon control
+ * (.md-preview__download), re-stated in this stylesheet rather than borrowed
+ * from md-preview.css: this page deliberately does not import the overlay's
+ * CSS, and it is the only page in the cockpit that has to draw for a reader
+ * with no session. */
+.diff-page__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+.diff-page__share {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+.diff-page__share:hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}

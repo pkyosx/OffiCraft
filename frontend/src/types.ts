@@ -836,6 +836,44 @@ export interface DocumentHistoryView {
 }
 
 /**
+ * ONE SIDE of a comparison, as `GET /api/diff` resolved it (T-59).
+ *
+ * `gone` is the load-bearing field and it is NOT the same as an empty text:
+ * an address that resolved to nothing (a reclaimed blob, a pruned revision, a
+ * field the document no longer carries) must be SAID, because the other way to
+ * draw it — the surviving side against "" — marks every one of its lines as
+ * added, which is a confident wrong answer to "what changed".
+ *
+ * `label` is the heading for that side's column WHEN THE LINK CARRIED ONE.
+ * Absent is the normal case for a document side, and deliberately so: 「目前存檔
+ * 內容」/「初始版本」/「版本 #12」 belong in the reader's own language, and a
+ * label written once at mint time would impose one language on everyone. The
+ * reader writes those from the address; a blob side with no label falls back to
+ * the diff's own 先前版本／目前內容 words.
+ */
+export interface DiffSideView {
+  /** The address this side was asked for, echoed back. The reader needs it to
+   * write a DOCUMENT side's own heading — see `label`. */
+  address: string;
+  text: string;
+  label?: string;
+  gone: boolean;
+  /** Which of those happened, in the server's words. Not drawn on screen — the
+   * reader is told one sentence, and "a pruned revision" and "a reclaimed blob"
+   * are the same fact to them — but it is what a console warning can say when
+   * someone asks why a comparison would not draw. */
+  goneReason?: string;
+}
+
+/** Both sides of one comparison, in the single answer the compare screen asks
+ * for. Held as ONE value so there is no state in which one side has arrived and
+ * the other has not — that renders as a diff against nothing. */
+export interface DiffPairView {
+  before: DiffSideView;
+  after: DiffSideView;
+}
+
+/**
  * The document's SHIPPED DEFAULT — the 初始版本 row of the version list
  * (`GET /api/document-history/{kind}/{key}/seed`, T-40f0).
  *
