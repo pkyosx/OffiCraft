@@ -1,12 +1,12 @@
 package main
 
-// migration_00067_lore_recall_session_anchor_test.go — the round trip, and what
+// migration_00078_lore_recall_session_anchor_test.go — the round trip, and what
 // the rows that were already in the table become.
 //
 // 🔴 THE OLD ROWS ARE THE POINT OF THIS FILE. Every lore_recall_log row a live
 // station carries today was written by the boot fold — one row per wake for the
 // whole subject directory — and NONE of them carries a session anchor, because
-// nothing recorded one. After 00067 they have the two new cells at their
+// nothing recorded one. After 00078 they have the two new cells at their
 // defaults, and the question that matters is whether a reader can tell those
 // rows apart from a row whose read genuinely happened outside any session. If it
 // cannot, 「這一列沒有錨」 and 「那一次沒記到」 render identically, which is the
@@ -20,7 +20,7 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
-func m67Goose(t *testing.T) {
+func m78Goose(t *testing.T) {
 	t.Helper()
 	goose.SetBaseFS(embeddedMigrations)
 	if err := goose.SetDialect("sqlite3"); err != nil {
@@ -28,15 +28,15 @@ func m67Goose(t *testing.T) {
 	}
 }
 
-func m67UpTo(t *testing.T, db *sql.DB, v int64) {
+func m78UpTo(t *testing.T, db *sql.DB, v int64) {
 	t.Helper()
-	m67Goose(t)
+	m78Goose(t)
 	if err := goose.UpTo(db, "migrations", v); err != nil {
 		t.Fatalf("goose up to %d: %v", v, err)
 	}
 }
 
-func m67Columns(t *testing.T, db *sql.DB) map[string]bool {
+func m78Columns(t *testing.T, db *sql.DB) map[string]bool {
 	t.Helper()
 	rows, err := db.Query(`PRAGMA table_info(lore_recall_log)`)
 	if err != nil {
@@ -56,22 +56,22 @@ func m67Columns(t *testing.T, db *sql.DB) map[string]bool {
 	return out
 }
 
-// TestMigration00067CarriesTheOldBootRowsForwardAsUnrecorded is the whole
+// TestMigration00078CarriesTheOldBootRowsForwardAsUnrecorded is the whole
 // question in one test: a row written by the OLD writer (the only writer there
 // was), carried across the migration, must come out saying 'unrecorded' — and
 // must be distinguishable from a row written by the NEW writer for an actor with
 // no session, which says 'unanchored'.
-func TestMigration00067CarriesTheOldBootRowsForwardAsUnrecorded(t *testing.T) {
-	db, err := openSQLite(filepath.Join(t.TempDir(), "m67-legacy.db"))
+func TestMigration00078CarriesTheOldBootRowsForwardAsUnrecorded(t *testing.T) {
+	db, err := openSQLite(filepath.Join(t.TempDir(), "m78-legacy.db"))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
 	defer db.Close()
 
-	// ── the station as it stands TODAY: schema 66, one boot-fold row ─────────
-	m67UpTo(t, db, 66)
-	if cols := m67Columns(t, db); cols["session_boot_ts"] || cols["session_state"] {
-		t.Fatalf("00066 already has the anchor columns; this test would prove nothing")
+	// ── the station as it stands TODAY: schema 77, one boot-fold row ─────────
+	m78UpTo(t, db, 77)
+	if cols := m78Columns(t, db); cols["session_boot_ts"] || cols["session_state"] {
+		t.Fatalf("00077 already has the anchor columns; this test would prove nothing")
 	}
 	// Written through the OLD column list on purpose. A row inserted through
 	// today's DAL would carry the new cells and could not be the legacy shape.
@@ -82,9 +82,9 @@ func TestMigration00067CarriesTheOldBootRowsForwardAsUnrecorded(t *testing.T) {
 		t.Fatalf("seed legacy row: %v", err)
 	}
 
-	// ── UP 66 → 67 ──────────────────────────────────────────────────────────
-	m67UpTo(t, db, 67)
-	cols := m67Columns(t, db)
+	// ── UP 77 → 78 ──────────────────────────────────────────────────────────
+	m78UpTo(t, db, 78)
+	cols := m78Columns(t, db)
 	if !cols["session_boot_ts"] || !cols["session_state"] {
 		t.Fatalf("the anchor columns did not arrive: %v", cols)
 	}
@@ -151,7 +151,7 @@ func TestMigration00067CarriesTheOldBootRowsForwardAsUnrecorded(t *testing.T) {
 	}
 }
 
-// TestMigration00067DownIsReversibleAndKeepsTheRows exercises the Down block,
+// TestMigration00078DownIsReversibleAndKeepsTheRows exercises the Down block,
 // which — as 00047's round-trip test says of its own — has no execution path in
 // the product at all (`ocserverd` has no `migrate down` subcommand). This test is
 // its only executor.
@@ -162,13 +162,13 @@ func TestMigration00067CarriesTheOldBootRowsForwardAsUnrecorded(t *testing.T) {
 // ROWS themselves must survive: this journal is append-only ground truth, and a
 // Down that took the history with it would make retreating the code cost the
 // data.
-func TestMigration00067DownIsReversibleAndKeepsTheRows(t *testing.T) {
-	db, err := openSQLite(filepath.Join(t.TempDir(), "m67-down.db"))
+func TestMigration00078DownIsReversibleAndKeepsTheRows(t *testing.T) {
+	db, err := openSQLite(filepath.Join(t.TempDir(), "m78-down.db"))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
 	defer db.Close()
-	m67UpTo(t, db, 67)
+	m78UpTo(t, db, 78)
 
 	dal := &DAL{rdb: db, wdb: db}
 	if err := dal.InsertLoreRecall(LoreRecall{
@@ -179,18 +179,18 @@ func TestMigration00067DownIsReversibleAndKeepsTheRows(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	m67Goose(t)
-	if err := goose.DownTo(db, "migrations", 66); err != nil {
-		t.Fatalf("goose down to 66: %v", err)
+	m78Goose(t)
+	if err := goose.DownTo(db, "migrations", 77); err != nil {
+		t.Fatalf("goose down to 77: %v", err)
 	}
 	var version int64
 	if err := db.QueryRow(`SELECT MAX(version_id) FROM goose_db_version`).Scan(&version); err != nil {
 		t.Fatalf("version: %v", err)
 	}
-	if version != 66 {
-		t.Fatalf("version after down = %d, want 66", version)
+	if version != 77 {
+		t.Fatalf("version after down = %d, want 77", version)
 	}
-	if cols := m67Columns(t, db); cols["session_boot_ts"] || cols["session_state"] {
+	if cols := m78Columns(t, db); cols["session_boot_ts"] || cols["session_state"] {
 		t.Fatalf("down left the columns behind: %v", cols)
 	}
 	var actor, returned string
@@ -207,7 +207,7 @@ func TestMigration00067DownIsReversibleAndKeepsTheRows(t *testing.T) {
 	// UP again: the columns come back at their defaults, and the row that lived
 	// through the retreat honestly reads as 'unrecorded' — its anchor is gone
 	// and the cell says so instead of implying one was observed.
-	m67UpTo(t, db, 67)
+	m78UpTo(t, db, 78)
 	var state string
 	var boot float64
 	if err := db.QueryRow(

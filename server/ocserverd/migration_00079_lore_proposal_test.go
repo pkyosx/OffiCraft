@@ -1,15 +1,28 @@
 package main
 
-// migration_00069_lore_proposal_test.go — the round trip, and the two things a
+// migration_00079_lore_proposal_test.go — the round trip, and the two things a
 // migration test most easily stops proving.
 //
 // 🔴 NOT ONE VERSION NUMBER IS WRITTEN DOWN IN THIS FILE, AND THAT IS THE POINT.
-// 00069 is PROVISIONAL: t-48/spec-chat-api already holds 00067 and 00068 as a
-// pair, so this branch almost certainly gets renumbered before it lands. The
-// failure that renumbering causes is not the obvious one —
+// These three migrations were RENUMBERED on 2026-09-04 by O-197: 00066 / 00067 /
+// 00069 became 00077 / 00078 / 00079, relative order unchanged. The old numbers
+// had been taken or overtaken on main — main carries a DIFFERENT
+// 00069_account_spend plus 00070 — and goose will not start on either shape: a
+// duplicate version panics, and a version BELOW the database's current one is a
+// 「missing migration」 that plain `goose.Up` (no allow-missing) returns an error
+// for. The new numbers came from scanning EVERY remote branch through both
+// sources a migration version can come from — `server/ocserverd/migrations/*.sql`
+// and `AddNamedMigrationContext("NNNNN` — where the highest number in use was
+// 00076.
 //
-//   改號時最容易漏的不是新號，是舊號. Change 「up to 69」 and forget 「down to
-//   67」 and the test still passes; it has just stopped verifying 「退掉我這一支」
+// 🔴 THAT SCAN IS GOOD FOR HOURS, NOT DAYS. Unpushed and just-pushed branches are
+// invisible to it, so 00076 is a FLOOR, not a fact: main cannot see the numbers
+// still in flight. RESCAN BOTH SOURCES ACROSS ALL REMOTE BRANCHES IMMEDIATELY
+// BEFORE THIS LANDS, and renumber again if anything at or above 00077 has since
+// appeared. And the failure renumbering causes is not the obvious one —
+//
+//   改號時最容易漏的不是新號，是舊號. Change 「up to 79」 and forget 「down to
+//   78」 and the test still passes; it has just stopped verifying 「退掉我這一支」
 //   and started verifying 「退掉好幾支」. The green light is still there and the
 //   proof is gone.
 //
@@ -18,11 +31,14 @@ package main
 // version immediately before it IN THIS TREE. Renumbering the file renumbers
 // both, together, with nothing to forget.
 //
-// ⚠️ AND `prev` IS NOT `mine-1`. On this branch the tree holds …65, 66, 67 and
-// then this one at 69: 68 exists only on t-48 and is invisible from here, so the
-// numbers are deliberately not contiguous. Anything that assumed 「前一號」 would
-// try to descend to a version that does not exist. That gap is the same shape
-// this file is guarding against: 號碼看起來連續 ≠ 它真的是前一階.
+// ⚠️ AND `prev` IS NOT `mine-1` — it merely happens to be, right now. This
+// renumbering landed the three on 77, 78, 79, which are contiguous, but that is
+// an accident of which numbers were free and not a property this file may lean
+// on; the next renumbering can reopen a gap the way 68 (t-48 only, invisible
+// from here) once did. So `prev` is READ OUT OF THE TREE, never computed.
+// Anything that assumed 「前一號」 would try to descend to a version that may not
+// exist. That is the same shape this file is guarding against: 號碼看起來連續 ≠
+// 它真的是前一階.
 //
 // 🔴 AND A VERSION NUMBER ALONE IS NOT EVIDENCE. `MAX(version_id) == prev` is
 // something goose sets; it would read the same for a Down that dropped half the
@@ -42,9 +58,9 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
-// m69Bounds derives this migration's version and the one immediately before it
+// m79Bounds derives this migration's version and the one immediately before it
 // from the embedded migration set — never from a literal.
-func m69Bounds(t *testing.T) (mine, prev int64) {
+func m79Bounds(t *testing.T) (mine, prev int64) {
 	t.Helper()
 	entries, err := fs.ReadDir(embeddedMigrations, "migrations")
 	if err != nil {
@@ -89,7 +105,7 @@ func m69Bounds(t *testing.T) (mine, prev int64) {
 	return mine, prev
 }
 
-func m69Goose(t *testing.T) {
+func m79Goose(t *testing.T) {
 	t.Helper()
 	goose.SetBaseFS(embeddedMigrations)
 	if err := goose.SetDialect("sqlite3"); err != nil {
@@ -97,15 +113,15 @@ func m69Goose(t *testing.T) {
 	}
 }
 
-func m69UpTo(t *testing.T, db *sql.DB, v int64) {
+func m79UpTo(t *testing.T, db *sql.DB, v int64) {
 	t.Helper()
-	m69Goose(t)
+	m79Goose(t)
 	if err := goose.UpTo(db, "migrations", v); err != nil {
 		t.Fatalf("goose up to %d: %v", v, err)
 	}
 }
 
-func m69HasTable(t *testing.T, db *sql.DB, name string) bool {
+func m79HasTable(t *testing.T, db *sql.DB, name string) bool {
 	t.Helper()
 	var n int
 	if err := db.QueryRow(
@@ -116,7 +132,7 @@ func m69HasTable(t *testing.T, db *sql.DB, name string) bool {
 	return n > 0
 }
 
-func m69HasColumn(t *testing.T, db *sql.DB, table, column string) bool {
+func m79HasColumn(t *testing.T, db *sql.DB, table, column string) bool {
 	t.Helper()
 	rows, err := db.Query(`SELECT name FROM pragma_table_info(?)`, table)
 	if err != nil {
@@ -135,7 +151,7 @@ func m69HasColumn(t *testing.T, db *sql.DB, table, column string) bool {
 	return false
 }
 
-func m69Version(t *testing.T, db *sql.DB) int64 {
+func m79Version(t *testing.T, db *sql.DB) int64 {
 	t.Helper()
 	var v int64
 	if err := db.QueryRow(`SELECT MAX(version_id) FROM goose_db_version`).Scan(&v); err != nil {
@@ -144,7 +160,7 @@ func m69Version(t *testing.T, db *sql.DB) int64 {
 	return v
 }
 
-// TestMigration00069DownRetreatsExactlyOneStage is the renumbering guard.
+// TestMigration00079DownRetreatsExactlyOneStage is the renumbering guard.
 //
 // 🔴 THE THREE ASSERTIONS AFTER THE DOWN HAVE TO BE READ TOGETHER, because no one
 // of them is worth much alone:
@@ -154,29 +170,29 @@ func m69Version(t *testing.T, db *sql.DB) int64 {
 //	lore_recall_log.session_state is STILL THERE     — and nothing else did
 //
 // The third is the one a forgotten old number breaks: descending two stages
-// instead of one would take 00067's columns with it, and the first assertion
+// instead of one would take 00078's columns with it, and the first assertion
 // would happily agree with whatever number it landed on if that number were
 // written down instead of derived.
-func TestMigration00069DownRetreatsExactlyOneStage(t *testing.T) {
-	mine, prev := m69Bounds(t)
+func TestMigration00079DownRetreatsExactlyOneStage(t *testing.T) {
+	mine, prev := m79Bounds(t)
 	if mine <= prev {
 		t.Fatalf("derived a previous stage %d that is not before %d", prev, mine)
 	}
-	db, err := openSQLite(filepath.Join(t.TempDir(), "m69-down.db"))
+	db, err := openSQLite(filepath.Join(t.TempDir(), "m79-down.db"))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
 	defer db.Close()
 
 	// ── the station as it stands at the stage BEFORE this one ────────────────
-	m69UpTo(t, db, prev)
-	if m69HasTable(t, db, "lore_proposal") {
+	m79UpTo(t, db, prev)
+	if m79HasTable(t, db, "lore_proposal") {
 		t.Fatalf("stage %d already has lore_proposal; this test would prove nothing", prev)
 	}
 	// The previous stage's OWN artefact, named rather than numbered. If a
 	// renumbering ever makes something else the previous stage, this line fails
 	// loudly instead of quietly measuring a different retreat.
-	if !m69HasColumn(t, db, "lore_recall_log", "session_state") {
+	if !m79HasColumn(t, db, "lore_recall_log", "session_state") {
 		t.Fatalf("stage %d is not the lore recall-anchor stage — the retreat this "+
 			"test measures is no longer the one it describes", prev)
 	}
@@ -195,8 +211,8 @@ func TestMigration00069DownRetreatsExactlyOneStage(t *testing.T) {
 	// ── UP: the table arrives, and an entry that predates it can be proposed
 	// against. That is the old-data question for this change: lore_proposal is
 	// new and empty, but the rows it POINTS AT are older than it is.
-	m69UpTo(t, db, mine)
-	if !m69HasTable(t, db, "lore_proposal") {
+	m79UpTo(t, db, mine)
+	if !m79HasTable(t, db, "lore_proposal") {
 		t.Fatal("the lore_proposal table did not arrive")
 	}
 	p := t33Propose(written.EntryID)
@@ -214,17 +230,17 @@ func TestMigration00069DownRetreatsExactlyOneStage(t *testing.T) {
 	}
 
 	// ── DOWN: exactly one stage ──────────────────────────────────────────────
-	m69Goose(t)
+	m79Goose(t)
 	if err := goose.DownTo(db, "migrations", prev); err != nil {
 		t.Fatalf("goose down to %d: %v", prev, err)
 	}
-	if got := m69Version(t, db); got != prev {
+	if got := m79Version(t, db); got != prev {
 		t.Fatalf("version after down = %d, want the derived previous stage %d", got, prev)
 	}
-	if m69HasTable(t, db, "lore_proposal") {
+	if m79HasTable(t, db, "lore_proposal") {
 		t.Fatalf("down left lore_proposal behind — the retreat did not undo this stage")
 	}
-	if !m69HasColumn(t, db, "lore_recall_log", "session_state") {
+	if !m79HasColumn(t, db, "lore_recall_log", "session_state") {
 		t.Fatalf("down took the PREVIOUS stage's columns with it: it retreated further " +
 			"than one stage, which is exactly what a forgotten old number looks like")
 	}
@@ -242,7 +258,7 @@ func TestMigration00069DownRetreatsExactlyOneStage(t *testing.T) {
 	// ── UP again: the table comes back EMPTY, and that loss is the stated cost
 	// of the Down rather than a surprise. Asserting it is what keeps 「有損」 an
 	// observed fact instead of a sentence in a comment.
-	m69UpTo(t, db, mine)
+	m79UpTo(t, db, mine)
 	after, err := dal.ListLoreProposals(written.EntryID)
 	if err != nil {
 		t.Fatalf("list after re-up: %v", err)

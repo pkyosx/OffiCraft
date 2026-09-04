@@ -1,7 +1,7 @@
 -- +goose Up
 -- T-33 — 提案有地方存了：一份完整的新版本，而不是一段描述.
 --
--- 🔴 WHAT WAS ACTUALLY MISSING. `lore_feedback` (00066) exists and holds
+-- 🔴 WHAT WAS ACTUALLY MISSING. `lore_feedback` (00077) exists and holds
 -- `entry_id / verdict / shape / actor_id / note / created_ts`. That is enough to
 -- say 「這條幫倒忙」 plus one sentence, and it is NOT enough to hold a proposal:
 -- there is nowhere to put WHAT the agent thinks it should say instead, and
@@ -50,7 +50,7 @@
 -- Accepting or declining a proposal is 仲裁, which is a different piece of work
 -- and is NOT in this change. A status column added now could only ever hold one
 -- value, which is a column no test can distinguish from a correct one. When the
--- arbitration path arrives, `lore_governance_event` (00066: kind / target /
+-- arbitration path arrives, `lore_governance_event` (00077: kind / target /
 -- actor_id / reason / replaced_by) is already the right shape for recording the
 -- verdict, so this table may well need no new column at all.
 --
@@ -150,7 +150,7 @@ CREATE INDEX idx_lore_proposal_event ON lore_proposal_event (proposal_id, happen
 -- There is nowhere else in the schema that carries one, so a retreat past this
 -- migration loses them for good. It is written this way rather than not written
 -- at all because a Down that cannot run is worse than one whose cost is stated:
--- the round trip is exercised in migration_00069_lore_proposal_test.go.
+-- the round trip is exercised in migration_00079_lore_proposal_test.go.
 -- The lore_entry and lore_revision rows a proposal pointed at are untouched.
 DROP INDEX idx_lore_proposal_event;
 DROP TABLE lore_proposal_event;

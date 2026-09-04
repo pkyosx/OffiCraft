@@ -11,7 +11,7 @@ package main
 // in this tree where WHO is asking changes whether the write is allowed.
 //
 // 🔴 NO MIGRATION IS NEEDED FOR ANY OF THIS, AND THAT IS ON PURPOSE. `status`
-// already accepts 'retired' (00066) and `lore_governance_event` already carries
+// already accepts 'retired' (00077) and `lore_governance_event` already carries
 // the four columns a retirement has to answer — who, when, why, replaced by
 // what. The retirement REASON therefore lives in the journal, not on the entry:
 // an entry can be retired, revived and retired again for a different reason, and

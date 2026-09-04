@@ -87,7 +87,7 @@ var (
 )
 
 // loreProposalKinds / loreProposalFaults are the two closed sets, declared once
-// here and mirrored by a CHECK constraint in 00069. The CHECK is the backstop;
+// here and mirrored by a CHECK constraint in 00079. The CHECK is the backstop;
 // this is what produces an error a caller can read.
 //
 // 🔴 `fault` IS THE OWNER'S THREE, NOT lore_feedback's `shape`. He named them on

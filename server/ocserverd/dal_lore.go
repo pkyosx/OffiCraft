@@ -532,7 +532,7 @@ type LoreRecall struct {
 	// moment of the recall rather than joined back to later. member.session_boot_ts
 	// is a single cell that the actor's NEXT session overwrites, so a join from
 	// an old row answers about the wrong session or about none — see
-	// migrations/00067 for the whole argument, and loreRecallSession* for what
+	// migrations/00078 for the whole argument, and loreRecallSession* for what
 	// the three states mean. Nothing in this struct is optional-by-omission: the
 	// zero value is `unrecorded`, which is a state and not a default.
 	SessionBootTS float64
