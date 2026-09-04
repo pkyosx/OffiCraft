@@ -160,25 +160,74 @@ func (k *keyring) signingSecret() []byte {
 	return nil
 }
 
-// verifySecrets returns every key that may verify a token, the SIGNING key
+// verifyCandidates returns every key that may verify a token, the SIGNING key
 // first (the common case costs one HMAC). Removing a key from the ring is what
 // makes tokens signed by it stop verifying — that is the entire revocation
 // mechanism, so nothing here may fall back to a key the ring no longer holds.
-func (k *keyring) verifySecrets() [][]byte {
+//
+// It hands back the signingKey VALUES rather than bare bytes because a verifier
+// that succeeds has learned something the caller cannot recover afterwards:
+// WHICH key it was. T-80 needs that answer (verifyJWTAnyKey reports the id of
+// the key that actually verified, so the station can record which key each
+// machine's credential is still signed by), and the only place it exists is
+// here, inside the loop.
+//
+// 🔴 THE ORDER IS THE CONTRACT, AND THERE IS EXACTLY ONE COPY OF IT. verifySecrets
+// below is DERIVED from this — it is not a second implementation that happens to
+// agree today. Two orderings of the same ring is precisely the "same fact, two
+// implementations" shape this repo has already been bitten by: they would drift
+// silently, because both would still verify every token and only the reported id
+// would be wrong.
+//
+// ⚠️ The returned slice carries KEY MATERIAL (signingKey.Key is the raw HMAC
+// key). It has the same handling rules as signingSecret(): call per use, never
+// cache, never let it reach a response, a log or an error message. Only the ID
+// half is outside-safe.
+func (k *keyring) verifyCandidates() []signingKey {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
-	out := make([][]byte, 0, len(k.keys))
+	out := make([]signingKey, 0, len(k.keys))
 	for _, key := range k.keys {
 		if key.ID == k.activeID {
-			out = append(out, key.Key)
+			out = append(out, key)
 		}
 	}
 	for _, key := range k.keys {
 		if key.ID != k.activeID {
-			out = append(out, key.Key)
+			out = append(out, key)
 		}
 	}
 	return out
+}
+
+// verifySecrets is the bytes-only projection of verifyCandidates, kept because
+// sharesig.go and several tests want the keys and have no use for the ids. Its
+// signature, its order and its behaviour are unchanged; what changed is that the
+// ordering rule now lives in exactly one function.
+//
+// It takes NO lock of its own — verifyCandidates already took it. sync.RWMutex
+// is not reentrant, and a second RLock here could deadlock against a waiting
+// writer (rotate / remove hold the write lock across a DB write).
+func (k *keyring) verifySecrets() [][]byte {
+	candidates := k.verifyCandidates()
+	out := make([][]byte, 0, len(candidates))
+	for _, key := range candidates {
+		out = append(out, key.Key)
+	}
+	return out
+}
+
+// activeKeyID names the key that SIGNS right now, "" when the ring is empty.
+//
+// It is the outside-safe half of signingSecret(): an id, never key material (see
+// the file header on why ids are random and therefore safe to publish). Read it
+// PER USE like every other accessor here — a value cached across a rotation
+// answers for a key that is no longer the signing one, which is the exact
+// question T-80 asks it ("is this machine still on the current key?").
+func (k *keyring) activeKeyID() string {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	return k.activeID
 }
 
 // snapshot is the outside-safe listing: ids, creation times, which one signs.

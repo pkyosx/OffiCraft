@@ -42,7 +42,7 @@ func stagedClaudeEnv(t *testing.T) func(string) string {
 // under test never executes and every assertion below would pass vacuously.
 func claudeCapability(t *testing.T, probe map[string]any) map[string]any {
 	t.Helper()
-	got := collectRuntimeCapabilities(stagedClaudeEnv(t), runtimeProbeRunner{}, probe)
+	got := collectRuntimeCapabilities(stagedClaudeEnv(t), runtimeProbeRunner{}, probe, nil)
 	capability, ok := got["claude"].(map[string]any)
 	if !ok {
 		t.Fatalf("collector emitted no claude entry: %#v", got)

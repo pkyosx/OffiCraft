@@ -121,6 +121,22 @@ var singleColumnOwnedFields = []struct {
 		stale:  func(m *Member) { m.AgentIatFloor = 0 },
 	},
 	{
+		// T-80. "" is what "this station has never verified a credential of
+		// this member's" looks like, so a stale whole-row write that blanks the
+		// column turns a machine the owner has SEEN back into one he has not —
+		// and the whole point of the column is to tell him whether it is safe to
+		// remove the outgoing signing key. Under-counting the migrated fleet is
+		// the direction that keeps him from ever pressing it.
+		column: "token_key_id",
+		writer: "SetMemberTokenKeyID",
+		stamp: func(d *DAL, id string) error {
+			return d.SetMemberTokenKeyID(id, "k-observed")
+		},
+		want:  "k-observed",
+		read:  func(m Member) any { return m.TokenKeyID },
+		stale: func(m *Member) { m.TokenKeyID = "" },
+	},
+	{
 		column: "desired_machine_id",
 		writer: "SetMemberDesiredMachineID",
 		stamp: func(d *DAL, id string) error {
@@ -271,8 +287,8 @@ func TestPutMemberNeverOverwritesSingleColumnOwnedFields(t *testing.T) {
 	// A deleted row is the one mutation the loop below cannot see: the guard
 	// would pass by iterating less. Bump this deliberately when the registry
 	// grows.
-	if len(singleColumnOwnedFields) != 17 {
-		t.Fatalf("singleColumnOwnedFields has %d entries, expected 17. Adding a "+
+	if len(singleColumnOwnedFields) != 18 {
+		t.Fatalf("singleColumnOwnedFields has %d entries, expected 18. Adding a "+
 			"column? Bump this number. REMOVING one? That means a column became "+
 			"writable by a whole-row write again — say why in the commit",
 			len(singleColumnOwnedFields))

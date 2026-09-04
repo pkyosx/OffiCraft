@@ -3707,6 +3707,30 @@
             "title": "Runtime Capabilities",
             "type": "object"
           },
+          "token_key_current": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether ``token_key_id`` is the key that is signing RIGHT NOW, i.e. whether this machine has already come back on the current signing key. null = never observed (the same condition as a null ``token_key_id``). Computed server-side against the live ring rather than left to the client, for ``hardware_stale``'s reason: a client comparing ids would need the active key id on the wire as well, and that is a second home for the same fact that can disagree with this one. It is a projection of an OBSERVATION, so it is only ever as fresh as the last time that machine opened its stream \u2014 false means \"has not been seen on the current key\", never \"is broken\".",
+            "title": "Token Key Current"
+          },
+          "token_key_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Which signing key the station last VERIFIED a credential of this machine's with; null = it has never verified one. This is the station's OWN observation, taken from the key whose HMAC actually matched \u2014 a machine cannot CHOOSE THE VALUE, and there is deliberately no wire field through which it could report one. What a machine CAN still influence is WHICH CREDENTIAL IT PRESENTS: `renew-credential` is zero-argument self-service, so a warden can mint a fresh credential and present it once without ever writing it to disk. That is why the observation is taken at SSE connect \u2014 the credential the process is actually RUNNING ON \u2014 and not on every gated route, where presenting one once would have been enough to read as converged. It exists to answer the one question standing before a key REMOVAL, which is immediate and has no grace period: has every machine come back on the new key yet. A machine that has not opened a stream since a rotation keeps its previous value, which reads correctly as \"nothing has proved this one moved\". Key ids are random and carry no key material (they are never derived from the key), so publishing one is safe by construction.",
+            "title": "Token Key Id"
+          },
           "warden_shape": {
             "anyOf": [
               {
@@ -10990,7 +11014,7 @@
     },
     "/api/auth/signing-keys/{key_id}/remove": {
       "post": {
-        "description": "Remove a retired signing key \u2014 THIS is the revocation, and it has no undo (owner-gated).\n\nThe moment this returns, every token signed by that key is refused, and every attachment share link produced under it stops working: a share `?sig=` is an HMAC under a key derived from the signing key, so it is governed by the ring too (owner ruling, card rc-cf9c27c07442). There is no grace period and holders are not notified \u2014 which is why the timing is a person's decision and never a timer's.\n\n\u26a0\ufe0f Warden credentials carry NO `exp`, so \"wait for the old tokens to expire\" is not a strategy for them: they are valid until their key leaves the ring. The question to answer before calling this is whether every machine has reconnected, not how many days have passed.\n\nThe key that is currently SIGNING cannot be removed (409) \u2014 rotate first, then remove the one that stepped down. An unknown `key_id` is a 404.",
+        "description": "Remove a retired signing key \u2014 THIS is the revocation, and it has no undo (owner-gated).\n\nThe moment this returns, every token signed by that key is refused, and every attachment share link produced under it stops working: a share `?sig=` is an HMAC under a key derived from the signing key, so it is governed by the ring too (owner ruling, card rc-cf9c27c07442). There is no grace period and holders are not notified \u2014 which is why the timing is a person's decision and never a timer's.\n\n\u26a0\ufe0f Warden credentials carry NO `exp`, so \"wait for the old tokens to expire\" is not a strategy for them: they are valid until their key leaves the ring. The question to answer before calling this is whether every machine has come back ON THE CURRENT KEY (`token_key_current` on GET /api/machines), not how many days have passed and not merely whether it reconnected: a machine that reconnected while still holding a credential this key signed drops off the moment this returns.\n\nThe key that is currently SIGNING cannot be removed (409) \u2014 rotate first, then remove the one that stepped down. An unknown `key_id` is a 404.",
         "operationId": "handle_signing_key_remove_api_auth_signing_keys_key_id_remove_post",
         "parameters": [
           {

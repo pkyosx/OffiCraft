@@ -1662,7 +1662,7 @@ export const en: Dict = {
     removeConfirmBody:
       "Everything this key signed stops working the moment you confirm, with no grace period and no notice to anyone: credentials signed by it are refused, and the share links produced under it — file links and comparison links alike — break too.",
     removeConfirmWarden:
-      "⚠️ Machine (warden) credentials carry no expiry and never lapse on their own. What decides whether this is safe is whether every machine has reconnected — not how many days have passed.",
+      "⚠️ Machine (warden) credentials carry no expiry and never lapse on their own. What decides whether this is safe is whether every machine has moved ONTO THE CURRENT KEY — not how many days have passed, and not merely whether it reconnected: a machine that came back still holding a credential signed by this key drops off the moment you press remove. A machine that is offline cannot move until it comes back.",
     removeConfirmCancel: "Cancel",
     removeConfirmOk: "Remove it",
     actionFailed: "That action did not go through, and the server gave no reason.",

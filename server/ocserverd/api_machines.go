@@ -533,6 +533,28 @@ func (s *apiServer) machineSupportsRuntime(machineID, runtime string) bool {
 	return capability.LoggedIn == nil || *capability.LoggedIn
 }
 
+// machineTokenKey projects the T-80 observation onto the wire: WHICH signing key
+// this station last verified that machine's credential with, and whether that is
+// the key signing right now.
+//
+// Both answers are nil together — "" in the column means this station has never
+// verified a credential of that machine's, and there is no true-or-false to give
+// for a machine nobody has seen. Collapsing that into `false` would put a
+// machine that has never checked in and a machine that is genuinely still on the
+// old key in the same bucket, and they need opposite actions from the owner.
+//
+// The comparison reads the LIVE ring per call (keyring.activeKeyID) rather than
+// a value captured anywhere: a rotation must move every row's verdict on the
+// very next request, which is the same property the gate itself relies on.
+func (s *apiServer) machineTokenKey(m Member) (*string, *bool) {
+	if m.TokenKeyID == "" {
+		return nil, nil
+	}
+	id := m.TokenKeyID
+	current := s.keys != nil && s.keys.activeKeyID() == id
+	return &id, &current
+}
+
 // GET /api/machines — one row per ACTIVE warden member; display name folds
 // the machine-alias overlay over the member name; server-self always FIRST.
 func (s *apiServer) HandleListMachinesApiMachinesGet(w http.ResponseWriter, r *http.Request) {
@@ -556,6 +578,7 @@ func (s *apiServer) HandleListMachinesApiMachinesGet(w http.ResponseWriter, r *h
 			display = m.Name
 		}
 		claudeVersion, claudeCredSource, claudeSubReadable := s.machineClaudeInfo(m.ID)
+		tokenKeyID, tokenKeyCurrent := s.machineTokenKey(m)
 		rows = append(rows, machineDTO{
 			MachineID:           m.ID,
 			DisplayName:         display,
@@ -568,6 +591,8 @@ func (s *apiServer) HandleListMachinesApiMachinesGet(w http.ResponseWriter, r *h
 			RuntimeCapabilities: s.machineRuntimeCapabilities(m.ID),
 			WardenShape:         s.machineWardenShape(m.ID),
 			CutoverEffect:       s.machineCutoverEffect(m.ID),
+			TokenKeyID:          tokenKeyID,
+			TokenKeyCurrent:     tokenKeyCurrent,
 		})
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].IsSelf && !rows[j].IsSelf })

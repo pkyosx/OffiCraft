@@ -190,8 +190,30 @@ func (u *updater) maybeRenewCredential() bool {
 			"restart of this warden.", u.tokfilePath)
 		return false
 	}
-	if !credentialDueForRenewal(u.token, u.clock()) {
+	// TWO INDEPENDENT REASONS TO RENEW, and they are asked in this order because
+	// only one of them is free. The expiry question is local arithmetic over a
+	// token already in memory; the demand is a flag the SSE reader raised. Both
+	// are cheap, but the demand is the one that must not be missed, so it is read
+	// with `||` rather than folded into credentialDueForRenewal — that function
+	// answers "is this credential running out", which is a property of the token,
+	// and the station's demand is not a property of the token at all.
+	//
+	// 🔴 THE DEMAND EXISTS BECAUSE THE EXPIRY QUESTION CANNOT ANSWER THIS ONE. A
+	// credential signed by a key the station has retired is not expiring — it may
+	// have no expiry at all (mintWardenToken mints without one) — and it is
+	// perfectly valid right up until somebody removes that key, at which instant
+	// it is worthless and this machine is unreachable. Nothing this process can
+	// read off its own token says which key signed it (the JWT header is a
+	// constant; there is no kid), so the station, which knows because it verified
+	// it, is the only party that can raise this.
+	demanded := u.renewDemanded.Load()
+	if !demanded && !credentialDueForRenewal(u.token, u.clock()) {
 		return false
+	}
+	if demanded {
+		u.logf("[ocwarden] renew: the station has asked this machine to replace its " +
+			"credential (it is signed by a key that is no longer the signing key) — " +
+			"renewing now.")
 	}
 
 	// 🔴 THE INFINITE-EXEC TRAP. execSelf passes os.Environ() through, so an
@@ -328,6 +350,13 @@ func (u *updater) maybeRenewCredential() bool {
 	// has not picked it up yet. Set before any of the return paths below so every
 	// one of them leaves the same state behind (see the field on updater).
 	u.renewedAwaitingRestart = true
+	// The station's demand is satisfied by a credential HAVING BEEN WRITTEN, not
+	// by having tried: cleared here and nowhere else, so every failure above
+	// leaves it standing and the next poll tries again. It is cleared even when
+	// the exec below is skipped — the replacement is on disk either way, and the
+	// station will stop asking as soon as it observes the new key id, which the
+	// next start makes it do.
+	u.renewDemanded.Store(false)
 	u.logf("[ocwarden] renew: wrote a fresh credential to %s", u.tokfilePath)
 
 	// A replacement that is ALREADY due is not worth an exec, and exec'ing on it is

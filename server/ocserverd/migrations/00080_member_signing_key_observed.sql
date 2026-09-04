@@ -1,0 +1,78 @@
+-- +goose Up
+-- T-80 — member.token_key_id: WHICH signing key this station last VERIFIED a
+-- credential of this member's with. "" (the default) = never observed.
+--
+-- WHY THE COLUMN EXISTS. The signing keys are a ring (keyring.go): `rotate`
+-- appends a key and moves the signing mark, every older key keeps verifying, and
+-- `remove` is the actual revocation — immediate, with no grace period. So the
+-- only question standing between the owner and pressing remove is "has every
+-- machine come back on the new key yet", and today NOTHING in the system can
+-- answer it: the JWT header is a constant with no `kid`, and the server kept no
+-- per-machine record of which key verified. This column is that record.
+--
+-- 🔴 IT IS AN OBSERVATION, NOT A REPORT. The value is taken from the key that
+-- actually produced a matching HMAC (verifyJWTAnyKey), at ONE call site: the
+-- SSE handler, after hub.Connect. No machine can assert the VALUE. That is
+-- deliberate: an answer a machine could assert is an answer a stale,
+-- misconfigured or hostile machine could assert, and this value's only job is to
+-- make a DESTRUCTIVE, immediate action safe to press.
+--
+-- 🔴 WHY THE STREAM AND NOT THE AUTH GATE (it was the auth gate, and that was
+-- wrong). A machine cannot choose the value, but it CAN choose which credential
+-- it presents: renew-credential is zero-argument self-service, so on any gated
+-- route a warden could mint a fresh credential, present it once, and be recorded
+-- as converged while still RUNNING on the outgoing one with nothing written to
+-- disk. The owner would then read SAFE and press remove, and that machine drops
+-- off — the exact failure this column exists to prevent. Observing only the
+-- stream narrows "presented it" to "is running on it". A machine that has not
+-- connected since the rotation leaves its old value here, which reads correctly
+-- as "nothing has proved this one moved".
+--
+-- 🔴 NUMBER: 00080, and it is deliberately NOT one of the gaps below it.
+-- Taken 2026-09-04 by the OffiCraft developer, who swept BOTH sources
+-- (migrations/*.sql AND goose.AddNamedMigrationContext) across main and EVERY
+-- open PR rather than the ones anybody remembered: main was at 00074, #394 held
+-- 00075/00076, #389 held 00077-00079, so 00080 is the smallest safe number.
+--
+-- 📌 THAT PARAGRAPH IS A DATED SNAPSHOT, AND TWO OF ITS THREE FACTS HAVE SINCE
+-- MOVED (2026-09-05): #394 landed, so 00075/00076 are in main now; and #389 was
+-- renumbered to 00081-00083 to land AFTER this file. 00080 is still the right
+-- number — it is recorded here so a later reader does not re-derive from the
+-- 2026-09-04 line and conclude #389 still holds 00077-00079. Sweep both sources
+-- yourself rather than trusting either paragraph.
+--
+-- ⚠️ MAIN'S NUMBERS ARE NOT CONTIGUOUS — there are seven gaps below this file
+-- (00026->00028, 00037->00039, 00053->00055, 00058->00060, 00063->00065,
+-- 00065->00069, 00071->00074). DO NOT take one of them. A number picked out of a
+-- gap sorts perfectly into the middle, so only the lock's APPEND ORDER can see
+-- it, and migration_lock_t75_judgement_test.go judges exactly that as a defect
+-- ("version 3 after version 4"). Always take max+1 or higher; leaving gaps is
+-- normal and nothing goes red for them.
+--
+-- 🔴 A COLLISION IS NOT THE ONLY ORDERING HAZARD HERE. #394 rebuilds the WHOLE
+-- member table (00076_member_kind_assistant_to_staff.sql: CREATE TABLE
+-- member_rebuild ... / INSERT ... SELECT with a HAND-WRITTEN COLUMN LIST / DROP
+-- TABLE member / RENAME). That list does not mention token_key_id and cannot,
+-- because it was written before this column existed. This file's number sits
+-- ABOVE that rebuild, which is what makes the hazard structurally impossible:
+-- the column is added AFTER the table is rebuilt. If anyone ever renumbers this
+-- file BELOW that rebuild, it drops this column for every existing row —
+-- silently, with no merge conflict, both branches CI-green in isolation.
+--
+-- 🔴 THE FILENAME DELIBERATELY AVOIDS THE SUBSTRING "token". The repo's
+-- .gitignore carries a secrets denylist line `*_token*` (line 18), so a file
+-- named after this column is SILENTLY UNTRACKED — no error, no warning, it just
+-- never gets committed. Measured, not guessed: `git check-ignore -v` named that
+-- line. The COLUMN is still token_key_id; the ignore rule only looks at paths.
+-- The rule stays as it is on purpose (2026-09-04): narrowing a secrets denylist
+-- is the asymmetric direction — the day it lets a real credential file through,
+-- nobody hits an error either.
+--
+-- Renumbering this file would touch: this filename, the Member.TokenKeyID doc
+-- comment in dal.go, the mfTokenKeyID comment in dal_member_patch.go, and
+-- migration.lock (regenerate with ./bin/gen-migration-lock — never hand-edit).
+-- No test pins this version or its prior version.
+ALTER TABLE member ADD COLUMN token_key_id TEXT NOT NULL DEFAULT '';
+
+-- +goose Down
+ALTER TABLE member DROP COLUMN token_key_id;

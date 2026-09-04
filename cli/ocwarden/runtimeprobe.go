@@ -6,7 +6,7 @@ import "strings"
 // credential material. Claude reuses its existing presence-only probe; Codex
 // uses the CLI's non-interactive login status command.
 func collectRuntimeCapabilities(env func(string) string, runner CmdRunner,
-	claude map[string]any) map[string]any {
+	claude map[string]any, logf func(string, ...any)) map[string]any {
 	out := map[string]any{}
 	claudeBin := resolveClaudeBin(env)
 	claudeCap := map[string]any{"installed": claudeBin != ""}
@@ -69,6 +69,37 @@ func collectRuntimeCapabilities(env func(string) string, runner CmdRunner,
 		}
 		_, err := runner.Run(codexBin, "login", "status")
 		codexCap["logged_in"] = err == nil
+		// KEEP THE ERROR (2026-09-05 codex-probe incident). Until now this line was the whole of it —
+		// `logged_in = err == nil` — and the err itself reached nowhere at all.
+		// That is not a cosmetic gap: `err` here collapses FOUR different
+		// worlds into one false — the host is signed out, the probe TIMED OUT
+		// (execRunner's 5s subprocessBudget), codex crashed, or codex is not
+		// where we think it is. The server's placement gate
+		// (machineSupportsRuntime) then fail-closes on that false, so every
+		// codex member on the host stops being placeable, permanently and
+		// with no field anywhere saying which of the four it was.
+		//
+		// MEASURED, 2026-09-05 on the server host: `codex login status` exits 0
+		// in every context we could construct — the warden's own 14 env vars
+		// replayed under `env -i`, cwd /, stdin closed, no TTY, five concurrent
+		// runs, 0.02s each, well inside the 5s budget — and the heartbeat kept
+		// reporting logged_in:false every round. Two agents reached that same
+		// dead end independently. Nobody could get further because THE ONE
+		// THING NOBODY HAD EVER SEEN was this err. Five members sat unstartable
+		// while we argued about which hypothesis to test next.
+		//
+		// WHY THE TEXT GOES TO THE LOG AND NOT INTO THE REPORTED MAP: this
+		// function's contract, first line of the doc comment, is that it
+		// reports readiness "without exposing any credential material", and
+		// this string is the subprocess's stderr — content we do not control
+		// and cannot promise is credential-free. The warden's own log is a
+		// local file on the host that already ran the command; the capability
+		// map is published to the server and rendered in the cockpit. Only one
+		// of those two is a safe home for unvetted text.
+		if err != nil && logf != nil {
+			logf("[ocwarden runtimeprobe] codex login status failed (bin=%s): %v",
+				codexBin, err)
+		}
 	}
 	out["codex"] = codexCap
 	return out

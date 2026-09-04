@@ -728,6 +728,41 @@ func waitGraceful(wg *sync.WaitGroup, grace time.Duration) {
 // cli (mirrors warden/cli.py)
 // ---------------------------------------------------------------------------
 
+// wireUpdaterSeams connects the SSE side to the self-updater: the three places a
+// wake can come from, in one function so they can be asserted.
+//
+// 🔴 IT IS A FUNCTION RATHER THAN THREE LINES IN realMain BECAUSE THE THREE LINES
+// WERE UNREACHABLE. They live in the long-running serve branch, which no test
+// enters (`run --once` returns before it), so deleting any of them left the whole
+// package green — and each deletion is silent in production too: a warden that
+// never self-updates and one that does look identical until a release day, and a
+// warden that never renews looks identical until somebody removes a signing key.
+// That is the shape this repo has already been bitten by (a handler's one wiring
+// line deleted, 2716 tests green). Here the seams are reachable, and
+// renew_verb_t80_test.go CALLS what this handed over rather than checking it
+// is non-nil — a seam wired to the wrong producer is still non-nil. (Measured:
+// wiring Renew to Kick compiles and leaves the seam non-nil, and
+// TestWireUpdaterSeams_RenewRaisesTheDemandOnTheUpdaterItWasGiven goes red.)
+//
+// WHY renew IS NOT Kick. `update` and a reconnect are two producers of the same
+// coalesced self-update wake, so both are Kick. `renew` is not: a bare Kick wakes
+// a cycle that finds nothing to do, because a warden credential carries no expiry
+// and the renewal check therefore answers "not due" (renewapply.go). RenewNow
+// raises the demand first. Wiring Renew to Kick would compile, run, log nothing
+// and renew nothing.
+func wireUpdaterSeams(transport *sseTransport, up *updater) {
+	// 方案A (T-c93d): every successful (re)connect triggers an immediate
+	// self-update check — a server redeploy drops the stream, the warden
+	// reconnects within ~1s, and the fresh binary propagates in seconds instead of
+	// up to the 15m poll. The 15m timer stays as the backstop.
+	transport.onConnect = up.Kick
+	// T-5f01: the `update` warden-command verb (owner's one-click upgrade).
+	transport.deps.Update = up.Kick
+	// T-80: the `renew` warden-command verb (the station has observed this machine
+	// still presenting a credential signed by a retired key).
+	transport.deps.Renew = up.RenewNow
+}
+
 func realMain(argv []string, env func(string) string, out io.Writer) int {
 	// Subcommand dispatch. `run` is the telemetry/command producer (below). `install`
 	// and `teardown` own the launchd job lifecycle (the Go replacement of the retired
@@ -929,18 +964,9 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 		// it is not a comment's worth of work, so it is named here rather than faked.
 		up := newSelfUpdater(cfg, rawEnv{lookup: env}, logf)
 
-		// 方案A (T-c93d): wire the SSE transport's connect hook to the updater's Kick
-		// so every successful (re)connect triggers an immediate self-update check —
-		// a server redeploy drops the stream, the warden reconnects within ~1s, and
-		// the fresh binary propagates in seconds instead of up to the 15m poll. The
-		// 15m timer stays as the backstop. MUST be set BEFORE transport.run starts
-		// (connectOnce reads onConnect from its own goroutine — no post-start race).
-		transport.onConnect = up.Kick
-
-		// T-5f01: the `update` warden-command verb (owner's one-click upgrade)
-		// dispatches through the SAME Kick — an owner click and a reconnect are
-		// just two producers of the one coalesced self-update wake.
-		transport.deps.Update = up.Kick
+		// MUST happen BEFORE transport.run starts (connectOnce reads onConnect from
+		// its own goroutine — no post-start race). See wireUpdaterSeams.
+		wireUpdaterSeams(transport, up)
 
 		wg.Add(1)
 		go func() { defer wg.Done(); transport.run(ctx) }()
@@ -952,7 +978,7 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 	}
 
 	runtimeProbe := func() map[string]any {
-		return collectRuntimeCapabilities(env, runner, claudeProbe.collect())
+		return collectRuntimeCapabilities(env, runner, claudeProbe.collect(), logf)
 	}
 	rc := run(ctx, cfg, collect, machine, post, fingerprints.collect, claudeProbe.collect,
 		wardenShapeOf, cutoverEffectOf, sleepUntil, iters, out, runtimeProbe)
