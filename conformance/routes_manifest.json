@@ -1258,5 +1258,12 @@
     "method": "GET",
     "path": "/api/lore/entries/{entry_id}/proposals",
     "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "accept_lore_proposal",
+    "method": "POST",
+    "path": "/api/lore/entries/{entry_id}/proposals/{proposal_id}/accept",
+    "requires": "admin_agent"
   }
 ]

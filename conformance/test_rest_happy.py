@@ -1387,6 +1387,87 @@ def _check_lore_proposal_list(ctx: HCtx, r: httpx.Response) -> None:
     assert row["events_removed"] == [], row
 
 
+# ── T-33 lore 提案的核可 ───────────────────────────────────────────────────────
+# 🔴 THE ACCEPT ROW SEEDS ITS OWN ENTRY AND ITS OWN PROPOSAL, deliberately NOT
+# reusing the "post"/"get" slots above. Accepting REWRITES the entry and bumps
+# its digest, so sharing a seed with the propose row would make that row's
+# `base_sha256` assertion depend on which of the two pytest happened to run
+# first — and the 409 that produced would look exactly like a real staleness
+# refusal.
+_LORE_ACCEPT: dict[str, str] = {}
+
+
+def _lore_accept_path(ctx: HCtx) -> str:
+    """Write an entry as the agent, file an `update` proposal against it, and
+    address the acceptance. The proposer is the AGENT and the accepter will be
+    the owner — which is what lets the check below tell the two apart."""
+    entry_id, sha = _lore_proposal_target(ctx, "accept")
+    r = ctx.client.post(
+        f"/api/lore/entries/{entry_id}/proposals",
+        headers=_auth(ctx.agent.token),
+        json={
+            "kind": "update",
+            "base_sha256": sha,
+            "encountered": "the conformance suite's own acceptance row",
+            "fault": "misled",
+            "evidence": "the entry is retrieved for a situation it does not describe",
+            "trigger": "a proposal is accepted and the entry does not move",
+            "content": "accepting writes the proposal's own bytes onto the entry",
+            "retire_when": "an accept route turns out to re-render the version",
+            "problem": "the conformance suite accepting this very proposal",
+            # 🔴 第 5 格 IS REPLACED WHOLESALE, so this ONE event is the entry's
+            # whole event list afterwards — the seeded entry carried one of its
+            # own, with different text. `events_after` being 1 is therefore not
+            # a sum, and the check below reads the entry back to prove which
+            # event survived.
+            "events": [
+                {
+                    "happened_ts": 1788440000,
+                    "what": "the conformance suite proposed the version it then accepted",
+                }
+            ],
+        },
+    )
+    assert r.status_code == 200, f"seed proposal to accept: {r.status_code} {r.text}"
+    _LORE_ACCEPT["proposal_id"] = r.json()["proposal_id"]
+    _LORE_ACCEPT["sha256"] = r.json()["sha256"]
+    _LORE_ACCEPT["entry_id"] = entry_id
+    return f"/api/lore/entries/{entry_id}/proposals/{_LORE_ACCEPT['proposal_id']}/accept"
+
+
+def _check_lore_accept(ctx: HCtx, r: httpx.Response) -> None:
+    d = r.json()
+    assert d["proposal_id"] == _LORE_ACCEPT["proposal_id"], d
+    assert d["entry_id"] == _LORE_ACCEPT["entry_id"], d
+    assert d["revision_id"] > 0, d
+    # 🔴 THE BYTES THAT LANDED ARE THE PROPOSAL'S OWN, not a fresh rendering:
+    # the receipt's digest is the one the submission receipt already carried.
+    assert d["sha256"] == _LORE_ACCEPT["sha256"], d
+    assert d["events_after"] == 1, d
+
+    # Read the entry back: the acceptance has to be visible on the READ face,
+    # not only in its own receipt.
+    e = ctx.client.get(
+        f"/api/lore/entries/{_LORE_ACCEPT['entry_id']}",
+        headers=_auth(ctx.agent.token),
+    )
+    assert e.status_code == 200, f"read back accepted entry: {e.status_code} {e.text}"
+    entry = e.json()
+    assert entry["sha256"] == d["sha256"], entry
+    assert entry["content"] == "accepting writes the proposal's own bytes onto the entry", entry
+    # 第 5 格 was replaced wholesale — the seeded entry's own event is GONE.
+    assert [ev["what"] for ev in entry["events"]] == [
+        "the conformance suite proposed the version it then accepted"
+    ], entry
+    # 🔴 THE ACCEPTER SIGNS IT, NOT THE PROPOSER. This row ran as the owner and
+    # the proposal was filed by the scratch agent; a revision carrying the
+    # proposer's id would mean the only record of the verdict names the wrong
+    # person.
+    newest = max(entry["revisions"], key=lambda row: row["revision_id"])
+    assert newest["revision_id"] == d["revision_id"], entry["revisions"]
+    assert newest["actor_id"] and newest["actor_id"] != ctx.agent.member_id, entry["revisions"]
+
+
 HAPPY: dict[str, Happy] = {
     # ── T-33 lore 對象審核 ─────────────────────────────────────────────────────
     # The queue's three faces run as the owner: the floor is admin_agent (owner
@@ -1481,6 +1562,12 @@ HAPPY: dict[str, Happy] = {
         identity="agent",
         path=_lore_proposal_list_path,
         check=_check_lore_proposal_list,
+    ),
+    # Runs as the OWNER: the floor is admin_agent (owner ruling rc-a896af93d4f9)
+    # and the owner is this file's lowest-friction identity at or above it.
+    "POST /api/lore/entries/{entry_id}/proposals/{proposal_id}/accept": Happy(
+        path=_lore_accept_path,
+        check=_check_lore_accept,
     ),
     "POST /api/lore/entries/{entry_id}/revive": Happy(
         path=lambda ctx: f"/api/lore/entries/{_lore_retired_entry(ctx)}/revive",

@@ -2400,5 +2400,43 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Summary:   "List the change proposals filed against ONE lore entry, newest first, each carrying the WHOLE proposed version rather than a description of it — so what a reviewer compares is the bytes that would land. Each proposal carries 四格 AND its own 第 5 格, so each `body` was rendered against THE PROPOSAL'S events — the bytes that would actually land, since accepting replaces the entry's events wholesale (owner ruling rc-e5c34500face, 2026-09-03). 🔴 `events_added` / `events_removed` ON EVERY ROW SAY WHICH EVENTS THAT PROPOSAL MOVES, so a reviewer does not have to diff two lists by eye — and a deletion, which shows up only as an absence, is the half he would otherwise miss. Both sides are still on the wire (`events` per row, `current_events` on the response) so the difference can be recomputed rather than trusted; like `stale`, it is computed on every read and never stored. `current_sha256` and `current_revision_id` say what the entry stands at RIGHT NOW, and every proposal carries the `base_sha256` it was written against. 🔴 `stale: true` MEANS THE ENTRY WAS REWRITTEN AFTER THIS PROPOSAL WAS FILED — its author argued against text that is no longer there, and applying it would discard whoever changed it in between. It is COMPUTED on every read by comparing the two digests, never stored: a stored flag would be right the day it was written and wrong every day after. The digest it was compared against travels in the same response so the comparison can be checked rather than trusted. 🔴 THIS ROUTE DECIDES NOTHING. There is no accept or decline here; a proposal is a request for review and the verdict is a separate act.",
 			MCPTool:   "list_lore_proposals",
 		},
+		// ── T-33 lore 提案的核可 ───────────────────────────────────────────────
+		// 🔴 THIS ROW IS THE RULING ARRIVING, AND IT IS WHY THE PAIR ABOVE SAYS
+		// 「NOTHING HERE DECIDES ANYTHING」 AND THIS ONE DOES. ApplyLoreProposal
+		// has been able to land a proposal since the DAL shipped, with a full test
+		// suite and NO route — deliberately, because 「誰有資格核可」 is a policy
+		// and the DAL is not where a policy can be written. The owner closed that
+		// on rc-a896af93d4f9 by choosing 「你 ＋ 銀月（沿用現有前例）」, and
+		// principalAdminAgent below is that sentence: the owner outranks
+		// admin_agent on the ladder, so one row says both halves of it.
+		//
+		// 🔴 THE PRECEDENT HE 沿用 IS THE ENTITY REVIEW QUEUE (rc-139a5ab99a19),
+		// three blocks up. That is the same shape of act — a reviewer publishing
+		// something into what every agent reads — and accepting is the stronger
+		// of the two: it REWRITES an entry another agent wrote, and replaces 第 5
+		// 格 wholesale. An agent floor here would mean any member could rewrite
+		// any other member's memory by filing a proposal and accepting it himself.
+		//
+		// 🔴 THE FLOOR IS ABOVE THE PROPOSE/LIST PAIR, AND THAT ASYMMETRY IS THE
+		// WHOLE DESIGN. 提案 stays at principalAgent because asking changes
+		// nothing; 核可 is the act, and the two floors are what makes 「先寫入、
+		// 審核事後」 a review rather than a formality.
+		//
+		// 🔴 THERE IS NO DECLINE ROW AND NO 裁決紀錄, and both absences are
+		// deliberate in exactly the way the entity block's missing reject row is:
+		// the owner has ruled on WHO may accept and on nothing else. What a 退回
+		// looks like, and whether a verdict earns a journal row of its own, are
+		// still his to decide — shipping either here would decide it, in the
+		// direction that destroys somebody's filed proposal.
+		{
+			Method:    "POST",
+			Path:      "/api/lore/entries/{entry_id}/proposals/{proposal_id}/accept",
+			LoreGated: true,
+			Handler:   w.HandleAcceptLoreProposalApiLoreEntriesEntryIdProposalsProposalIdAcceptPost,
+			Auth:      authGated,
+			Requires:  principalAdminAgent,
+			Summary:   "Accept ONE filed proposal and write it onto its lore entry — owner or admin agent only (owner ruling rc-a896af93d4f9: 「你 ＋ 銀月（沿用現有前例）」, the same floor the subject-entity review queue already carries). The four cells are replaced, 第 5 格 is replaced WHOLESALE by the events the proposal carried — not merged, because a merge would let a proposal add events and never remove one, and repairing an event the machine strung together wrongly is the reason this road exists — and ONE new revision is written carrying the EXACT BYTES the proposal stored rather than a fresh rendering, with `actor_id` = YOU, the accepter, not the proposer. 🔴 THE ADDRESS IS THE WHOLE PAIR AND BOTH HALVES ARE CHECKED: proposal ids are global, so a proposal that belongs to a DIFFERENT entry is a 404 saying so by name rather than being applied through this address — a mistyped entry id must not rewrite somebody else's entry with nothing to signal it. 404 when no proposal carries that id, and 404 when it carries it under another entry. 409 when the proposal is a `remove` — it proposes no version to write at all, and the act it asks for is `retire_lore_entry`. 409, naming BOTH digests, when the entry was rewritten after the proposal was filed: accepting then would discard whoever changed it in between, silently, and the fix is to re-read the entry and have the version rebuilt on what is there now. That check is made HERE, at the moment you press accept, not only when the list was read — the entry can move between the two. 422 when the proposed version is identical to the one it was written against, because there is nothing to review. 🔴 THERE IS DELIBERATELY NO DECLINE ROUTE BESIDE THIS ONE, AND NO ARBITRATION RECORD BEYOND THAT NEW REVISION'S `actor_id`: the owner has ruled on WHO may accept and on nothing else, so inventing a 退回 exit or a verdict journal here would decide for him what he has not decided.",
+			MCPTool:   "accept_lore_proposal",
+		},
 	}
 }

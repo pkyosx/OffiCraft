@@ -1304,6 +1304,24 @@ type LorePendingEntityRowDTO struct {
 	Type string `json:"type"`
 }
 
+// LoreProposalAppliedDTO What an acceptance actually wrote: which proposal landed, on which entry, the ONE revision it produced, the digest of the version that is now current, and how many events 第 5 格 carries afterwards. 🔴 THE REVISION IS THE WHOLE RECORD OF THE VERDICT — its actor_id is the accepter — because nothing else is written down; there is no arbitration journal and none has been ruled on.
+type LoreProposalAppliedDTO struct {
+	// EntryId The entry the version was written onto. It is the entry the proposal was filed against — a proposal reached through another entry's address is a 404, never applied.
+	EntryId string `json:"entry_id"`
+
+	// EventsAfter How many events 第 5 格 carries NOW. The list was replaced wholesale by the proposal's own, so this is that proposal's count rather than a sum — a smaller number than before means the acceptance removed events, which is exactly what a merge could never do.
+	EventsAfter int `json:"events_after"`
+
+	// ProposalId The proposal that was applied.
+	ProposalId string `json:"proposal_id"`
+
+	// RevisionId The L0 revision this acceptance appended. Its `actor_id` is YOU, the accepter, not the proposer — and that row is the only record the station keeps of who approved this.
+	RevisionId int `json:"revision_id"`
+
+	// Sha256 The digest of the version that landed: the proposal's OWN digest, stored when it was filed and written back unchanged rather than re-rendered here, so 「what the reviewer approved」 and 「what was written」 are the same bytes rather than two renderings that can drift.
+	Sha256 string `json:"sha256"`
+}
+
 // LoreProposalDTO ONE filed proposal, in full: why it was filed, which version it was written against, whether that version is still the current one, and — on an `update` — the complete proposed version: 四格 plus the whole of 第 5 格. 🔴 A PROPOSAL CARRIES ITS OWN EVENTS (Owner ruling rc-e5c34500face (2026-09-03): 「改得動 —— 提案就該帶完整的新版本，包含所有事件」.), so `body` was rendered against THE PROPOSAL'S events rather than the entry's, and accepting it replaces the entry's events wholesale. 🔴 `events_added` / `events_removed` ARE HOW A REVIEWER SEES WHICH EVENTS THIS PROPOSAL MOVES without diffing two lists by eye — and both lists are still on the wire (`events` here, `current_events` on the enclosing response), so the difference can be RECOMPUTED rather than trusted.
 type LoreProposalDTO struct {
 	// ActorId Who filed it — the verified token subject at the time.
@@ -4501,6 +4519,9 @@ type ServerInterface interface {
 	// Propose a change to ONE lore entry — a WHOLE replacement version, not a patch, plus the account of why. 🔴 YOU SEND THE FULL NEW VERSION AND THE DIFF IS COMPUTED FROM IT (owner ruling, 2026-09-02: 「讓 agent submit new full version 即可 / diff view 我們自己產出」). A patch would leave two artefacts — what you said you were changing and what applying it actually produces — and the gap between them looks completely normal to a reviewer. With a whole version there is no second artefact: the difference a reviewer reads is the bytes that would land. 🔴 `base_sha256` IS THE VERSION YOU ACTUALLY READ, taken from `sha256` on `GET /api/lore/entries/{entry_id}`, and it is REQUIRED. If the entry has been rewritten since you read it the proposal is refused 409 naming both digests — filing against the older text would silently discard whoever changed it, which is exactly the failure a stale pull request causes and it looks correct from every side. Re-read the entry and rebuild your version on what is there now. A proposal that was fine when filed and went stale AFTERWARDS is not refused — it comes back from the list route with `stale: true`, because at that point the reviewer, not you, is the one who has to know. 🔴 THE THREE ACCOUNT FIELDS ARE ALL REQUIRED, for the same reason a write refuses a blank cell instead of defaulting it: `encountered` says what you were doing when this entry reached you, `fault` says which of three things is wrong with it (`stale` — it was right and is not any more; `never-true` — the claim never held; `misled` — it is retrieved for situations it does not describe and it sent you the wrong way, so its `trigger` wants fixing), and `evidence` is what you actually SAW. ⚠️ The cost is the same one the write path accepts and has not solved: nothing here can tell a real account from an invented one; an empty cell is all it can refuse. `kind` is `update` (the four body cells — `trigger`, `content`, `retire_when`, `problem` — PLUS `events` carry the whole new version and are held to the SAME rules a write is, so a proposal nobody could ever accept is refused now rather than sitting in the queue looking acceptable) or `remove` (you are proposing this entry stop being retrieved and you send NO body cells and NO events; a removal that carried a version would put text on the reviewer's screen that no accept would ever write). 🔴 A PROPOSAL CARRIES 第 5 格 TOO, AND `events` IS REQUIRED ON AN `update` — the WHOLE list as it should stand afterwards, not a set of additions, because accepting replaces the entry's events wholesale (owner ruling rc-e5c34500face, 2026-09-03: 「改得動 —— 提案就該帶完整的新版本，包含所有事件」). The reasoning he overturned was 「第 5 格是機器串出來的事實，提案只是意見」, and its hole is that WHEN THE MACHINE STRINGS IT TOGETHER WRONG NOTHING CAN REPAIR IT: re-deriving washes away whatever a person filled in by hand, so a proposal that moves events is the only road that repairs one. Send `[]` to claim the entry should carry no events; OMITTING the key is a 422, never a shorthand for 「維持現狀」 — one forgotten field must not clear 第 5 格 where no reviewer can see it. Each event is held to the same rules a write is (時 and 事 required; 人／地／物 checked only when non-empty), and the order you send them in does not change the digest. Removal is not deletion — the existing act is `retire`, and `revive_lore_entry` undoes it. 🔴 NOTHING HERE ACCEPTS ANYTHING: this route files a proposal and no more.
 	// (POST /api/lore/entries/{entry_id}/proposals)
 	HandleProposeLoreChangeApiLoreEntriesEntryIdProposalsPost(w http.ResponseWriter, r *http.Request, entryId string)
+	// Accept ONE filed proposal and write it onto its lore entry — owner or admin agent only (owner ruling rc-a896af93d4f9: 「你 ＋ 銀月（沿用現有前例）」, the same floor the subject-entity review queue already carries). The four cells are replaced, 第 5 格 is replaced WHOLESALE by the events the proposal carried — not merged, because a merge would let a proposal add events and never remove one, and repairing an event the machine strung together wrongly is the reason this road exists — and ONE new revision is written carrying the EXACT BYTES the proposal stored rather than a fresh rendering, with `actor_id` = YOU, the accepter, not the proposer. 🔴 THE ADDRESS IS THE WHOLE PAIR AND BOTH HALVES ARE CHECKED: proposal ids are global, so a proposal that belongs to a DIFFERENT entry is a 404 saying so by name rather than being applied through this address — a mistyped entry id must not rewrite somebody else's entry with nothing to signal it. 404 when no proposal carries that id, and 404 when it carries it under another entry. 409 when the proposal is a `remove` — it proposes no version to write at all, and the act it asks for is `retire_lore_entry`. 409, naming BOTH digests, when the entry was rewritten after the proposal was filed: accepting then would discard whoever changed it in between, silently, and the fix is to re-read the entry and have the version rebuilt on what is there now. That check is made HERE, at the moment you press accept, not only when the list was read — the entry can move between the two. 422 when the proposed version is identical to the one it was written against, because there is nothing to review. 🔴 THERE IS DELIBERATELY NO DECLINE ROUTE BESIDE THIS ONE, AND NO ARBITRATION RECORD BEYOND THAT NEW REVISION'S `actor_id`: the owner has ruled on WHO may accept and on nothing else, so inventing a 退回 exit or a verdict journal here would decide for him what he has not decided.
+	// (POST /api/lore/entries/{entry_id}/proposals/{proposal_id}/accept)
+	HandleAcceptLoreProposalApiLoreEntriesEntryIdProposalsProposalIdAcceptPost(w http.ResponseWriter, r *http.Request, entryId string, proposalId string)
 	// Stop retrieving one lore entry and record WHY. Retirement is NOT a delete — the row stays and `revive_lore_entry` brings it back. `reason` is one of `expired` (the situation changed; it may come back), `merged` (folded into another entry — name it in `replaced_by`) or `falsified` (the claim was never true; it should not come back). An ordinary agent may file `expired` and `merged` itself; `falsified` is a judgement about truth and is refused 403 for anyone but the owner. An unrecognised reason is refused 422 rather than defaulted, so a typo cannot retire an entry as if it were merely stale. The reason is written to the governance journal, never onto the entry, because one entry can be retired, revived and retired again for a different reason and a column would only ever remember the last one.
 	// (POST /api/lore/entries/{entry_id}/retire)
 	HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePost(w http.ResponseWriter, r *http.Request, entryId string)
@@ -6231,6 +6252,41 @@ func (siw *ServerInterfaceWrapper) HandleProposeLoreChangeApiLoreEntriesEntryIdP
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleProposeLoreChangeApiLoreEntriesEntryIdProposalsPost(w, r, entryId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleAcceptLoreProposalApiLoreEntriesEntryIdProposalsProposalIdAcceptPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleAcceptLoreProposalApiLoreEntriesEntryIdProposalsProposalIdAcceptPost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "entry_id" -------------
+	var entryId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entry_id", r.PathValue("entry_id"), &entryId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entry_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "proposal_id" -------------
+	var proposalId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "proposal_id", r.PathValue("proposal_id"), &proposalId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "proposal_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleAcceptLoreProposalApiLoreEntriesEntryIdProposalsProposalIdAcceptPost(w, r, entryId, proposalId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -9357,6 +9413,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/lore/entries/{entry_id}", wrapper.HandleGetLoreEntryApiLoreEntriesEntryIdGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/lore/entries/{entry_id}/proposals", wrapper.HandleListLoreProposalsApiLoreEntriesEntryIdProposalsGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/entries/{entry_id}/proposals", wrapper.HandleProposeLoreChangeApiLoreEntriesEntryIdProposalsPost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/entries/{entry_id}/proposals/{proposal_id}/accept", wrapper.HandleAcceptLoreProposalApiLoreEntriesEntryIdProposalsProposalIdAcceptPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/entries/{entry_id}/retire", wrapper.HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/lore/entries/{entry_id}/revisions/{revision_id}", wrapper.HandleGetLoreRevisionApiLoreEntriesEntryIdRevisionsRevisionIdGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/entries/{entry_id}/revive", wrapper.HandleReviveLoreEntryApiLoreEntriesEntryIdRevivePost)

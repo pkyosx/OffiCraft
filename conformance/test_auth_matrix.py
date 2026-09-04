@@ -1315,6 +1315,31 @@ MATRIX: dict[str, Route] = {
             "owner": 404,
         },
     ),
+    # 🔴 THE ONE LORE PROPOSAL ROW WHOSE FLOOR IS admin_agent, AND THAT
+    # ASYMMETRY WITH THE TWO ROWS ABOVE IS THE POINT OF THIS CELL. Filing a
+    # proposal changes nothing, so it sits at the agent floor; ACCEPTING one
+    # rewrites an entry somebody else wrote and replaces 第 5 格 wholesale.
+    # The owner ruled the floor on rc-a896af93d4f9 (「你 ＋ 銀月（沿用現有
+    # 前例）」, the precedent being the entity review queue), and the route
+    # table is the only place that ruling is written down — so an ordinary
+    # agent's 403 here is the ruling itself, not a detail. If this row ever
+    # goes green at "agent", any member can rewrite any other member's memory
+    # by filing a proposal and accepting it himself.
+    #
+    # The at-or-above cells are 404s: the proposal id names nothing, and the
+    # lookup runs AFTER the class gate — which is exactly what makes a 404
+    # here proof that the gate let them through.
+    "POST /api/lore/entries/{entry_id}/proposals/{proposal_id}/accept": Route(
+        requires="admin_agent",
+        path=(
+            "/api/lore/entries/lore-conf-no-such-entry/proposals/"
+            "lp-conf-no-such-proposal/accept"
+        ),
+        overrides={
+            "admin_agent": 404,
+            "owner": 404,
+        },
+    ),
     # ── insight (T-3809) ─────────────────────────────────────────────────────
     # The role journal's third block. Its authz face is the lessons face with
     # the task_type axis removed — three rows, same three floors, same handler

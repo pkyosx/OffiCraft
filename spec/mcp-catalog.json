@@ -4570,6 +4570,28 @@
           "type": "object"
         },
         "name": "list_lore_proposals"
+      },
+    {
+        "description": "Accept ONE filed proposal and write it onto its lore entry — owner or admin agent only (owner ruling rc-a896af93d4f9: 「你 ＋ 銀月（沿用現有前例）」, the same floor the subject-entity review queue already carries). The four cells are replaced, 第 5 格 is replaced WHOLESALE by the events the proposal carried — not merged, because a merge would let a proposal add events and never remove one, and repairing an event the machine strung together wrongly is the reason this road exists — and ONE new revision is written carrying the EXACT BYTES the proposal stored rather than a fresh rendering, with `actor_id` = YOU, the accepter, not the proposer. 🔴 THE ADDRESS IS THE WHOLE PAIR AND BOTH HALVES ARE CHECKED: proposal ids are global, so a proposal that belongs to a DIFFERENT entry is a 404 saying so by name rather than being applied through this address — a mistyped entry id must not rewrite somebody else's entry with nothing to signal it. 404 when no proposal carries that id, and 404 when it carries it under another entry. 409 when the proposal is a `remove` — it proposes no version to write at all, and the act it asks for is `retire_lore_entry`. 409, naming BOTH digests, when the entry was rewritten after the proposal was filed: accepting then would discard whoever changed it in between, silently, and the fix is to re-read the entry and have the version rebuilt on what is there now. That check is made HERE, at the moment you press accept, not only when the list was read — the entry can move between the two. 422 when the proposed version is identical to the one it was written against, because there is nothing to review. 🔴 THERE IS DELIBERATELY NO DECLINE ROUTE BESIDE THIS ONE, AND NO ARBITRATION RECORD BEYOND THAT NEW REVISION'S `actor_id`: the owner has ruled on WHO may accept and on nothing else, so inventing a 退回 exit or a verdict journal here would decide for him what he has not decided.",
+        "inputSchema": {
+          "properties": {
+            "entry_id": {
+              "description": "The lore entry the proposal must belong to. 🔴 IT IS A CONSTRAINT, NOT DECORATION: proposal ids are global, so a proposal filed against a DIFFERENT entry is refused 404 by name rather than applied through this address.",
+              "type": "string"
+            },
+            "proposal_id": {
+              "description": "The proposal's id, exactly as `list_lore_proposals` reported it. It is not checked for shape — an id nothing carries is a flat 404, never a silent no-op.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "entry_id",
+            "proposal_id"
+          ],
+          "additionalProperties": false,
+          "type": "object"
+        },
+        "name": "accept_lore_proposal"
       }
   ]
 }

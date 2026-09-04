@@ -37,6 +37,15 @@ func writeLoreProposalError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, ErrLoreActorBlank):
 		writeError(w, http.StatusForbidden, err.Error())
+	// 🔴 一份 `remove` 提案沒有版本可以寫，這是**那份提案的狀態**不對，不是請求
+	// 本身壞掉 —— 所以是 409，不是 422。422 對呼叫者說「你的 body 有問題」，而他
+	// 改 body 改一輩子也不會讓這份提案變成可以核可的：他要走的是 retire_lore_entry。
+	// 這跟核可對象審核那條路遇到「這個 entity 不是 pending」時回 409 是同一句話。
+	case errors.Is(err, ErrLoreProposalNotUpdate):
+		writeError(w, http.StatusConflict, err.Error())
+	// 沒有這份提案，跟沒有這條條目一樣是 404：兩者都是「你指的東西不存在」。
+	case errors.Is(err, ErrLoreProposalUnknown):
+		writeError(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, ErrLoreProposalKindUnknown),
 		errors.Is(err, ErrLoreProposalFaultUnknown),
 		errors.Is(err, ErrLoreProposalEncountered),
@@ -165,6 +174,75 @@ func (s *apiServer) HandleListLoreProposalsApiLoreEntriesEntryIdProposalsGet(w h
 		})
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// HandleAcceptLoreProposalApiLoreEntriesEntryIdProposalsProposalIdAcceptPost —
+// POST /api/lore/entries/{entry_id}/proposals/{proposal_id}/accept.
+//
+// 🔑 THIS IS THE RULING ARRIVING. ApplyLoreProposal has been able to land a
+// proposal since the DAL shipped, and nothing could reach it: the mechanism was
+// complete and 「誰可以按」 was open, so the whole feature was unreachable rather
+// than half-built. The owner closed that on rc-a896af93d4f9 — 「你 ＋ 銀月（沿用
+// 現有前例）」 — and this route is that sentence, spelled principalAdminAgent in
+// the route table and nowhere else.
+//
+// 🔴 THE CLASS GATE IS NOT RE-DERIVED HERE, for the same reason the entity
+// review routes do not re-derive theirs: `Requires` is where the ruling is
+// written down, and a second copy in this function would be a second answer that
+// drifts the first time one of them is edited. What this layer supplies is the
+// one fact only it can know — WHO is asking, from the VERIFIED token — and the
+// mapping of the seam's named errors onto status codes.
+//
+// 🔴 actorID COMES FROM THE TOKEN AND CAN NEVER COME FROM A BODY. This route has
+// no body at all, and that is deliberate rather than minimal: the one record an
+// acceptance leaves is the new revision's actor_id, so a body field that could
+// name somebody else would be a forged signature on the only evidence there is.
+//
+// 🔴 BOTH HALVES OF THE ADDRESS ARE CHECKED, AND THE MISMATCH IS NAMED. Proposal
+// ids are global, so ignoring `entry_id` would make
+// `/entries/<anything>/proposals/<real id>/accept` rewrite the entry the proposal
+// actually belongs to while the path said otherwise — the same failure the
+// revision route's entry scoping exists to prevent, except this one WRITES. The
+// refusal says which entry the proposal is really filed against; a silent 404
+// would leave a reviewer re-typing the id he already had right.
+//
+// ⚠️ WHAT IS NOT HERE, AND WHY. There is no decline/退回 exit and no arbitration
+// journal: the owner ruled on WHO may accept and on nothing else, so both would
+// be this layer deciding for him. The whole record of a verdict is the new
+// lore_revision row, whose actor_id is the accepter.
+func (s *apiServer) HandleAcceptLoreProposalApiLoreEntriesEntryIdProposalsProposalIdAcceptPost(
+	w http.ResponseWriter, r *http.Request, entryID, proposalID string,
+) {
+	p, err := s.dal.GetLoreProposal(proposalID)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	if p == nil {
+		writeError(w, http.StatusNotFound,
+			"lore: no proposal carries the id '"+proposalID+"'")
+		return
+	}
+	if p.EntryID != entryID {
+		writeError(w, http.StatusNotFound,
+			"lore: proposal '"+proposalID+"' is filed against entry '"+p.EntryID+
+				"', not '"+entryID+"' — the entry id in the path is a CONSTRAINT, not "+
+				"decoration: proposal ids are global, so accepting it through this "+
+				"address would rewrite an entry the path does not name")
+		return
+	}
+	applied, err := s.dal.ApplyLoreProposal(proposalID, currentActor(r), nowSecs())
+	if err != nil {
+		writeLoreProposalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, LoreProposalAppliedDTO{
+		ProposalId:  applied.ProposalID,
+		EntryId:     applied.EntryID,
+		RevisionId:  int(applied.RevisionID),
+		Sha256:      applied.SHA256,
+		EventsAfter: applied.EventsAfter,
+	})
 }
 
 // loreProposeEvents turns the wire's `events` into the seam's, KEEPING THE

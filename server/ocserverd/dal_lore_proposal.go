@@ -23,10 +23,19 @@ package main
 // 🔴 WHAT THIS FILE DOES AND DOES NOT DO ABOUT ACCEPTING, said plainly because a
 // reader will look for it. ApplyLoreProposal (檔案末尾) is the MECHANISM: 核可
 // 一份提案時，四格被寫上去、lore_event 被**整批**換成提案帶的那一份、L0 多一列
-// 記著審核者核可的那串位元組。它**不判斷誰可以核可**，也不寫裁決紀錄，而且
-// 沒有 HTTP 路由 —— 誰有資格核可、退回長什麼樣，是仲裁的政策，負責人還沒裁定。
-// 機制先做好、政策留白，是刻意的：反過來（先接一條路由再回頭補語意）等於自己
-// 替負責人決定誰可以改別人的記憶。
+// 記著審核者核可的那串位元組。它**不判斷誰可以核可**，也不寫裁決紀錄。
+//
+// 誰有資格核可這一格**已經裁定了**：負責人於 rc-a896af93d4f9 圈選「你 ＋ 銀月
+// （沿用現有前例）」，也就是 owner 與 admin agent；那道裁定寫在路由表的
+// `Requires: principalAdminAgent` 上，路由是
+// POST /api/lore/entries/{entry_id}/proposals/{proposal_id}/accept
+// （handler 在 api_lore_proposal.go）。這一層還是不判斷 —— 政策只寫在路由表
+// 那一行，這裡寫第二份就會有兩個會各自漂移的答案。
+//
+// ⚠️ 仍然**沒有裁定**的還有兩件，所以兩件都沒有實作：退回（decline）長什麼樣，
+// 以及要不要留一列裁決紀錄。落地時唯一的紀錄還是新的 lore_revision 那一列的
+// actor_id ＝ 核可的人。先做機制、政策留白仍然是刻意的：替負責人補上他沒說過的
+// 那兩件，等於自己決定誰可以丟掉別人的提案。
 //
 // 🔴 過期提案是跟 PR 一模一樣的坑, and it is the whole reason `base_sha256`
 // exists. A proposal written on Monday, reviewed on Friday, with the entry
@@ -599,11 +608,18 @@ func (d *DAL) GetLoreProposal(proposalID string) (*LoreProposalRow, error) {
 // 被改掉。少了這一次檢查，這條路就會安靜地把中間那個人的修改丟掉 —— 正是
 // base_sha256 這整套機制存在要擋的那件事。
 //
-// ⚠️ 這一層**不判斷誰可以核可**，也不寫 lore_governance_event。誰有資格核可、
-// 退回長什麼樣、要不要留一列裁決紀錄，都是仲裁（arbitration）的政策，而負責人
-// 還沒裁定過。這個函式提供的是「核可時會發生什麼」這個機制，不是「誰可以核可」
-// 這個政策；因此它**還沒有任何 HTTP 路由**。要接路由的人必須先拿到那道裁定。
-// 落地時唯一留下的紀錄是新的 lore_revision 那一列的 actor_id ＝ 核可的人。
+// ⚠️ 這一層**不判斷誰可以核可**，也不寫 lore_governance_event。這個函式提供的是
+// 「核可時會發生什麼」這個機制，不是「誰可以核可」這個政策。
+//
+// 那道政策現在有了：負責人於 rc-a896af93d4f9 裁定 owner 與 admin agent 可以核可
+// （「你 ＋ 銀月（沿用現有前例）」），寫在路由
+// POST /api/lore/entries/{entry_id}/proposals/{proposal_id}/accept 的
+// `Requires: principalAdminAgent` 上，並且只寫在那裡 —— 這個函式仍然不看呼叫者
+// 是誰，因為同一條規則寫兩份就會有兩個各自漂移的答案。
+//
+// ⚠️ 退回（decline）長什麼樣、要不要留一列裁決紀錄，**都還沒有裁定**，所以兩者
+// 都不存在。落地時唯一留下的紀錄是新的 lore_revision 那一列的 actor_id ＝
+// 核可的人。
 func (d *DAL) ApplyLoreProposal(proposalID, actorID string, nowTS float64) (LoreProposalApplied, error) {
 	var out LoreProposalApplied
 	if actorID == "" {

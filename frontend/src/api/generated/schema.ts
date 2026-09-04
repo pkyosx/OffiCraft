@@ -1573,6 +1573,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/lore/entries/{entry_id}/proposals/{proposal_id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept ONE filed proposal and write it onto its lore entry — owner or admin agent only (owner ruling rc-a896af93d4f9: 「你 ＋ 銀月（沿用現有前例）」, the same floor the subject-entity review queue already carries). The four cells are replaced, 第 5 格 is replaced WHOLESALE by the events the proposal carried — not merged, because a merge would let a proposal add events and never remove one, and repairing an event the machine strung together wrongly is the reason this road exists — and ONE new revision is written carrying the EXACT BYTES the proposal stored rather than a fresh rendering, with `actor_id` = YOU, the accepter, not the proposer. 🔴 THE ADDRESS IS THE WHOLE PAIR AND BOTH HALVES ARE CHECKED: proposal ids are global, so a proposal that belongs to a DIFFERENT entry is a 404 saying so by name rather than being applied through this address — a mistyped entry id must not rewrite somebody else's entry with nothing to signal it. 404 when no proposal carries that id, and 404 when it carries it under another entry. 409 when the proposal is a `remove` — it proposes no version to write at all, and the act it asks for is `retire_lore_entry`. 409, naming BOTH digests, when the entry was rewritten after the proposal was filed: accepting then would discard whoever changed it in between, silently, and the fix is to re-read the entry and have the version rebuilt on what is there now. That check is made HERE, at the moment you press accept, not only when the list was read — the entry can move between the two. 422 when the proposed version is identical to the one it was written against, because there is nothing to review. 🔴 THERE IS DELIBERATELY NO DECLINE ROUTE BESIDE THIS ONE, AND NO ARBITRATION RECORD BEYOND THAT NEW REVISION'S `actor_id`: the owner has ruled on WHO may accept and on nothing else, so inventing a 退回 exit or a verdict journal here would decide for him what he has not decided.
+         * @description Accept ONE filed change proposal onto its lore entry (T-33, owner ruling rc-a896af93d4f9).
+         *
+         *     🔴 THIS LAYER HOLDS THE POLICY AND THE DAL HOLDS THE MECHANISM. ApplyLoreProposal has always known what happens when a proposal lands; who is allowed to make it land is a principal class, and the route table is the only place that can be said. The floor is admin_agent — the owner and the admin agents — which is the same floor the subject-entity review queue carries, and the owner chose it by that precedent.
+         *
+         *     🔴 THE STALENESS COMPARISON HAPPENS AT THE MOMENT OF ACCEPTANCE. It was made at submit and it is recomputed on every read, but neither of those is the instant the reviewer presses the button, and the entry can be rewritten in between. 409 with both digests is the answer; a proposer's version has to be rebuilt on what is there now.
+         *
+         *     🔴 NEITHER A DECLINE NOR AN ARBITRATION JOURNAL SHIPS BESIDE THIS. What a 退回 looks like, and whether a verdict deserves a row of its own, have not been ruled on; the whole record of an acceptance is the new revision's actor_id.
+         */
+        post: operations["handle_accept_lore_proposal_api_lore_entries__entry_id__proposals__proposal_id__accept_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/lore/search": {
         parameters: {
             query?: never;
@@ -6680,6 +6706,37 @@ export interface components {
             /**
              * Sha256
              * @description The digest of the version you proposed, rendered by the SAME renderer the L0 journal uses — which is what makes it comparable with a revision's digest at all. Empty on a `remove`, which proposes no version.
+             */
+            sha256: string;
+        };
+        /**
+         * LoreProposalAppliedDTO
+         * @description What an acceptance actually wrote: which proposal landed, on which entry, the ONE revision it produced, the digest of the version that is now current, and how many events 第 5 格 carries afterwards. 🔴 THE REVISION IS THE WHOLE RECORD OF THE VERDICT — its actor_id is the accepter — because nothing else is written down; there is no arbitration journal and none has been ruled on.
+         */
+        LoreProposalAppliedDTO: {
+            /**
+             * Entry Id
+             * @description The entry the version was written onto. It is the entry the proposal was filed against — a proposal reached through another entry's address is a 404, never applied.
+             */
+            entry_id: string;
+            /**
+             * Events After
+             * @description How many events 第 5 格 carries NOW. The list was replaced wholesale by the proposal's own, so this is that proposal's count rather than a sum — a smaller number than before means the acceptance removed events, which is exactly what a merge could never do.
+             */
+            events_after: number;
+            /**
+             * Proposal Id
+             * @description The proposal that was applied.
+             */
+            proposal_id: string;
+            /**
+             * Revision Id
+             * @description The L0 revision this acceptance appended. Its `actor_id` is YOU, the accepter, not the proposer — and that row is the only record the station keeps of who approved this.
+             */
+            revision_id: number;
+            /**
+             * Sha256
+             * @description The digest of the version that landed: the proposal's OWN digest, stored when it was filed and written back unchanged rather than re-rendered here, so 「what the reviewer approved」 and 「what was written」 are the same bytes rather than two renderings that can drift.
              */
             sha256: string;
         };
@@ -13737,6 +13794,56 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LoreProposalReceiptDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_accept_lore_proposal_api_lore_entries__entry_id__proposals__proposal_id__accept_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreProposalAppliedDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

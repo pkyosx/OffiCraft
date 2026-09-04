@@ -126,7 +126,7 @@ func TestLoreShipsOffAndTheDefaultIsNotAnAccident(t *testing.T) {
 // out BY HAND. It is deliberately not derived from the route table: a list
 // computed from the thing under test would follow the table into whatever
 // mistake the table made, and 「the gate covers everything the table flags」 is
-// a tautology while 「the gate covers these eleven addresses」 is a claim.
+// a tautology while 「the gate covers these twelve addresses」 is a claim.
 // TestEveryLoreRouteCarriesTheFeatureFlag confronts this list with the table.
 var loreGatedRoutes = []struct{ method, path string }{
 	{"GET", "/api/lore/entities/pending"},
@@ -140,6 +140,7 @@ var loreGatedRoutes = []struct{ method, path string }{
 	{"GET", "/api/lore/entries/e-nope/revisions/1"},
 	{"POST", "/api/lore/entries/e-nope/proposals"},
 	{"GET", "/api/lore/entries/e-nope/proposals"},
+	{"POST", "/api/lore/entries/e-nope/proposals/lp-nope/accept"},
 }
 
 // TestLoreOffRefusesEveryLoreRouteAndSaysWhy is the 寫 row of the behaviour
