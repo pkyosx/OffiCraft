@@ -161,10 +161,15 @@ func (s *apiServer) startUpgradeNoticeDelivery(out io.Writer) {
 	case notice == nil:
 		// The overwhelmingly common boot. Nothing to say.
 	default:
-		// Arrange the delivery BEFORE announcing it, and go through the seam
-		// so a test can prove this line actually dispatches something. A boot
-		// that prints "delivering" without dispatching is worse than silence:
-		// it is the one sentence a reader would trust.
+		// Go through the seam so a test can prove this line actually
+		// dispatches something. A boot that prints "delivering" without
+		// dispatching is worse than silence: it is the one sentence a reader
+		// would trust, and without the seam the `go` statement could be
+		// deleted with every test still green.
+		// ⚠️ The dispatch is written before the announcement as a matter of
+		// intent, NOT because anything enforces it: swap the two and the
+		// tests stay green. What is guarded is that a dispatch happens at
+		// all. Do not read the order as protected.
 		deliver := s.upgradeNoticeDeliver
 		if deliver == nil {
 			deliver = s.deliverPendingUpgradeNotice
