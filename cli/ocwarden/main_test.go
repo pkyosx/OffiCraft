@@ -748,8 +748,12 @@ func TestLoadConfig_JWTSubFallback(t *testing.T) {
 	if cfg.ID != "jwt-sub-id" {
 		t.Errorf("id = %q, want jwt-sub-id (from jwt sub)", cfg.ID)
 	}
-	if cfg.Base != "http://x" {
-		t.Errorf("base = %q, want trailing slash stripped", cfg.Base)
+	// ⚠️ The SCHEME here moved http→https (T-78): "x" is not loopback, and the
+	// stored scheme is no longer believed. What this test pins did NOT move —
+	// the id still falls back to the JWT sub, and the trailing slash is still
+	// stripped.
+	if cfg.Base != "https://x" {
+		t.Errorf("base = %q, want https://x (host decides the scheme; trailing slash stripped)", cfg.Base)
 	}
 }
 

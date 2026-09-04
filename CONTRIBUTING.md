@@ -93,10 +93,18 @@ screen looks exactly like a check that did not go red.
 ### If your change adds a database migration
 
 Adding a migration touches `server/ocserverd/migration.lock`, a generated file
-whose whole job is to make two such branches conflict on purpose. Expect a
-conflict there whenever another migration lands before yours — **including when
-the two version numbers do not actually collide**. That is the designed cost,
-not a bug.
+whose whole job is to stop two such branches from landing on top of each other.
+When your branch already carries the lock, that shows up as a **conflict** on
+that file whenever another migration lands before yours — **including when the
+two version numbers do not actually collide**. That is the designed cost, not a
+bug.
+
+**But a conflict is not the only way it stops you, and the quiet case is the one
+to watch.** If your branch is older than the lock file, git takes the lock as a
+plain *added* file when you merge — clean, no conflict, nothing asking you to
+look. Your migration is then in the tree but not in the list, and CI fails with
+`[lock:missing]` instead. So treat **"run `./bin/gen-migration-lock` after
+merging main"** as unconditional; do not wait for a conflict to remind you.
 
 Do not hand-merge that file. Renumber your own migration *file* if the numbers
 really did collide, then run `./bin/gen-migration-lock`, which rewrites the

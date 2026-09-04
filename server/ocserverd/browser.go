@@ -22,8 +22,18 @@ const firstRunBrowserDelay = 500 * time.Millisecond
 // firstRunSetupURL carries the one-shot claim code to the SPA's FirstRunPage
 // (which reads ?code= — hash routing keeps the query segment free). Claim
 // tokens are base64url (settings.go), query-safe verbatim.
+//
+// The scheme goes through schemeForHost (base_scheme_t78.go) rather than being
+// written here. It resolves to http today and every day this URL is used: addr
+// is the listener's own bound address and the bind is hardwired to loopback. So
+// this is not a behaviour change — it is the removal of a FOURTH place that
+// decided a scheme on its own, outside the canonical block and outside the
+// mirror guard that keeps the other three honest. It was found by grepping the
+// tree for non-loopback "http://" while auditing T-78, and it was correct only
+// by coincidence: nothing here asserted that addr is loopback, and nothing
+// would have gone red if that ever stopped being true.
 func firstRunSetupURL(addr, claimToken string) string {
-	return fmt.Sprintf("http://%s/?code=%s", addr, claimToken)
+	return fmt.Sprintf("%s://%s/?code=%s", schemeForHost(addr), addr, claimToken)
 }
 
 // browserOpener picks the platform opener command; run is the exec seam for

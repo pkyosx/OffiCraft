@@ -141,7 +141,16 @@ func TestBootstrapHere_NamingAnotherMachineIsRefused(t *testing.T) {
 // hand a remote machine a curl of 127.0.0.1.
 func TestRemoteInstallSurfacesStillUseTheRequestHost(t *testing.T) {
 	const host = "officraft.example.com"
-	const wantBase = "http://" + host
+
+	// ⚠️ THE SCHEME HERE MOVED http→https (T-78, owner 2026-09-04). What this
+	// test exists to pin did NOT move: these surfaces must still take the HOST
+	// from the request, not from s.selfBase — a "fix" that routed them through
+	// selfBase would hand a remote machine a curl of 127.0.0.1, which is the
+	// bug T-ce3d was written for. Only the scheme half is different now, and it
+	// is no longer read off r.TLS at all (requestBaseURL → baseURLForHost):
+	// behind a TLS-terminating proxy r.TLS is nil for every caller, so the old
+	// expectation encoded a value this server should never hand out again.
+	const wantBase = "https://" + host
 
 	t.Run("GET boot-command", func(t *testing.T) {
 		s := ocwardenInstallBaseServer(t)

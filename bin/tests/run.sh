@@ -230,6 +230,30 @@ else
   bad "bin/tests/namespace-mirror-guard.sh is missing"
 fi
 
+# ── http/https rule mirrored across three Go modules (T-78) ────────────────
+# The rule that decides http vs https lives in THREE copies — server/ocserverd,
+# cli/ocwarden, cli/ocagent — because those are three separate Go modules with
+# no module in common. Each copy is exercised only by its own module's suite, so
+# a rule changed in two places out of three leaves every suite green: MEASURED
+# 2026-09-04, a one-word drift inside the block left both `go test` runs at ok
+# while the copies had diverged. The maintained file list and the three planted
+# mutants are in the header of base-scheme-mirror-guard.sh.
+#
+# The consequence of drift is not a cosmetic mismatch: the server hands a new
+# machine one base, the agent on that machine believes another, and the machine
+# cannot call home — discovered hours later, on someone else's computer.
+SCHEMEMIRROR="$HERE/base-scheme-mirror-guard.sh"
+echo
+if [[ -f "$SCHEMEMIRROR" ]]; then
+  if run_guard "$SCHEMEMIRROR"; then
+    ok "http/https rule identical across the three Go modules"
+  else
+    bad "http/https rule MIRROR DRIFT (see output above)"
+  fi
+else
+  bad "bin/tests/base-scheme-mirror-guard.sh is missing"
+fi
+
 # ── install.sh EXIT-time stdin drain (T-fa39) ──────────────────────────────
 # Own file, own temp HOME + fake label + launchctl shim. Guards the cosmetic
 # half of the same defect the --uninstall rewrite fixed: `curl … | bash` exits

@@ -70,7 +70,7 @@ type Config struct {
 // loadConfig resolves OC_* env into a Config. Base is stripped of a trailing
 // slash; ID defaults to the JWT `sub` claim of the token.
 func loadConfig(env func(string) string) Config {
-	base := env("OC_BASE")
+	base := normalizeBase(env("OC_BASE")) // T-78: keep the host, re-decide the scheme
 	if base == "" {
 		base = defaultBase
 	}

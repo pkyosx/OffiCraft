@@ -819,7 +819,7 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 	}()
 	s := &codexSession{
 		in: stdin, messages: codexAppReader(stdout), nextID: 0,
-		base: env("OC_BASE"), token: env("OC_TOKEN"), workdir: *workdir,
+		base: normalizeBase(env("OC_BASE")), token: env("OC_TOKEN"), workdir: *workdir,
 		model: *model, effort: normalizeCodexEffort(*effort), account: codexAccountKey(), out: out,
 	}
 	s.activity("App Server started · model %s", func() string {

@@ -759,7 +759,17 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 	// the kernel-assigned address, so use it for both the announcement and
 	// in-process URLs rather than retaining the requested :0 placeholder.
 	boundAddr := ln.Addr().String()
-	api.selfBase = "http://" + boundAddr
+	// The scheme comes from schemeForHost (base_scheme_t78.go), not from a
+	// literal. It resolves to http today and every day: boundAddr is this
+	// listener's own address and defaultHost is hardwired to 127.0.0.1. So this
+	// is not a behaviour change — it is the FIFTH place that decided a scheme on
+	// its own, and the most load-bearing of them: selfBase is written into a real
+	// machine's OC_BASE by runWardenInstallHere (api_machines.go) and by the
+	// first-run onboarding path, i.e. into a launchd plist that nothing ever
+	// re-derives. Found by the independent reviewer, who noted it is the same
+	// "correct by coincidence" this ticket already fixed once in browser.go and
+	// asked why that reasoning stopped one file short.
+	api.selfBase = schemeForHost(boundAddr) + "://" + boundAddr
 	fmt.Fprintf(out, "ocserverd serving on http://%s\n", boundAddr)
 	if claimToken != "" {
 		setupURL := firstRunSetupURL(boundAddr, claimToken)

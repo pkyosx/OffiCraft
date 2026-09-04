@@ -96,12 +96,39 @@ func (st *machineClaimStore) take(code string, now time.Time) (string, bool) {
 
 // requestBaseURL rebuilds the request base ("scheme://host", no trailing
 // slash) — the Python str(request.base_url).rstrip("/").
+//
+// 🔴 THE SCHEME COMES FROM THE HOST, NOT FROM r.TLS (T-78, owner ruling
+// 2026-09-04: 「localhost / 127.0.0.1 就是 http。其餘都是 https，不用額外的
+// 設定來判定」).
+//
+// WHY r.TLS IS THE WRONG QUESTION HERE. r.TLS answers "was THIS hop
+// encrypted", and this deployment terminates TLS at Cloudflare — so the
+// request that reaches this process is plaintext ALWAYS, and the old code
+// answered "http" for every caller including the browser that typed https.
+// That is not a rare edge: it was 100% of production traffic. The value goes
+// on to be BAKED INTO an installed machine (buildInstallScript →
+// OC_BASE=… → the launchd plist), so one wrong answer here pins a machine to
+// a plaintext base for the rest of its life — the warden binary download, the
+// one-time-code→token exchange and every later call.
+//
+// X-Forwarded-Proto is the other obvious answer and is deliberately NOT used:
+// it is attacker-suppliable, so trusting it correctly means also carrying a
+// list of proxies you trust — a second thing to configure and get wrong. The
+// host is not attacker-CHOSEN in the same way (it is what the operator typed,
+// and a forged Host already misdirects the install regardless of scheme), and
+// it needs no configuration at all.
+//
+// ⚠️ WHAT THIS STILL DOES NOT FIX, so nobody reads more into it: r.Host itself
+// is still whatever the caller sent. A machine already installed keeps the
+// base it was given at install time — nothing re-derives it later — so this
+// only corrects what is handed out FROM NOW ON.
 func requestBaseURL(r *http.Request) string {
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
-	return scheme + "://" + r.Host
+	return baseURLForHost(r.Host)
+}
+
+// baseURLForHost applies the T-78 rule (base_scheme_t78.go) to a Host header.
+func baseURLForHost(host string) string {
+	return schemeForHost(host) + "://" + host
 }
 
 // buildBootCommand is the copy-paste one-liner an EMPTY machine runs

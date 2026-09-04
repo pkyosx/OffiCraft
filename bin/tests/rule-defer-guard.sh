@@ -24,7 +24,7 @@ RULE_END="使用請示卡時，先依你需要負責人做的事選擇種類："
 
 # Update this only after a human has re-read every listed restatement against
 # the changed canonical paragraph.
-REVIEWED_RULE_HASH="950c25d6a923126a20e3fa6b9fb6ff46e1a481245ac70e42be119b6fb4c07afd"
+REVIEWED_RULE_HASH="9f11cb39088a535a90ecf83cdfa7e9988a782d94eb203390d6bed7ff77a0104d"
 
 required_sites=(
   "CLAUDE.md"

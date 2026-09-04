@@ -387,7 +387,7 @@ func resolvePaths(env func(string) string, exe string, uid int) (wardenPaths, er
 	// installed warden must survive deletion of the copy `exe` was launched from.
 	root := officraftRootFor(home, ns)
 
-	ocBase := env("OC_BASE")
+	ocBase := normalizeBase(env("OC_BASE")) // T-78: what we WRITE into the plist is normalised too
 	if ocBase == "" {
 		ocBase = defaultBase
 	}
