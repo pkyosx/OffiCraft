@@ -15,6 +15,8 @@
 - self-update 用 content-hash swap oracle，先 verify 新 binary 可執行才 swap。warden 必須 exec-in-place（同 PID、argv、env），不可依賴 launchd 的 KeepAlive 把 self-update 後退出的 warden 拉回來；agent 是獨立 process，warden restart 不應讓 agent 掉出 online。
 - repo 已移除 code-signing 機制；不要重新引入 sign／identity knob，也不要把它和 root 規則保留的 TCC 身分錨點混為一談。binary identity 的現行證據是 bytes/hash 與 exec probe。
 - 15 分鐘輪詢是 update backstop；SSE reconnect 與 server `update` command 都可 `updater.Kick()`，buffered-1 去抖。舊 warden 對未知 update verb 要安全 log+skip，不可因不認識新動詞而誤執行。
+- **同一條 poll loop 有兩種醒法，而第三個生產者不是 `Kick`。** `renew` command 走 `updater.RenewNow`：先舉起換發需求、再 `Kick`。接成 `Kick` 會編譯、會跑、什麼都不換 —— warden 憑證沒有 `exp`，被叫醒的那一輪問「快到期了嗎」得到否定就結束了。這三條接線在 `wireUpdaterSeams`，因為原本它們在 realMain 的長駐分支裡、沒有任何測試進得去。
+- **換發需求只在替換憑證真的寫下去之後才清除。** 站台不可達、探測被拒、寫檔失敗都保留需求、下一輪再試：進入時就消耗掉，一次失敗就會讓那台機器停在已退役的金鑰上，而從站台看它跟「還沒輪到」一模一樣。
 - 30 秒心跳的 `warden_shape` 是從實際父行程 executable 判斷 `anchor`／`legacy`／`unknown`；每輪重讀，不看磁碟上「有沒有 anchor 檔」。省略與 `unknown` 不同：前者代表舊版未回報，後者代表新 build 讀不到父行程。binaries 只送 content hash，server 比 embedded bindist 算 `bin_status`，不埋版號。
 
 ## 3. TCC anchor 與 legacy migration

@@ -446,7 +446,7 @@ func TestRuntimeCapabilitiesShape(t *testing.T) {
 			return ""
 		}
 	}
-	got := collectRuntimeCapabilities(env, runtimeProbeRunner{}, map[string]any{})
+	got := collectRuntimeCapabilities(env, runtimeProbeRunner{}, map[string]any{}, nil)
 	codex := got["codex"].(map[string]any)
 	if installed, _ := codex["installed"].(bool); !installed {
 		t.Fatalf("executable Codex override must report installed: %#v", codex)

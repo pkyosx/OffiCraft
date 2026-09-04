@@ -513,7 +513,7 @@ func realHeartbeat(t *testing.T) map[string]any {
 		}
 		return ""
 	}
-	runtimes := collectRuntimeCapabilities(env, fakeRunner{out: probes}, claude)
+	runtimes := collectRuntimeCapabilities(env, fakeRunner{out: probes}, claude, nil)
 
 	// The shape verdict comes from the REAL collector too. The package-default
 	// cutover seam is blocked inside the test binary, so its `ps` fails and the

@@ -651,6 +651,23 @@ var identityGateLedger = map[string]string{
 		"the same refusal at the mint site — a warden token has no exp claim at all, " +
 		"so handing one to a non-machine row would be a permanent credential for an " +
 		"agent. Machine-vs-person axis.",
+	"api_auth.go :: noteTokenKeyObservation :: m.Kind != machineKind": "" +
+		"T-80. Machine-vs-person axis, and NOT the 正職／外包 one: the arms are " +
+		"'a row whose credential stands between the owner and a key removal' versus " +
+		"'every other row', and staff and outsource fall on the SAME side of it. " +
+		"WHY THE DIFFERENCE CANNOT BE DELETED (option (a)): the column this stamps " +
+		"answers exactly one question — is it safe to press remove — and that question " +
+		"is only ever about machines. An agent's or a worker's credential is short-lived " +
+		"and re-minted by the server on the next spawn, so it converges without anyone " +
+		"watching and has nothing to contribute to the count; recording it would put " +
+		"rows in the owner's denominator that he cannot act on and that would never read " +
+		"as converged for reasons unrelated to the ring. WHY NOT AN AppliesTo (option " +
+		"(b)): this is not a pre-decide lifecycle formality — it runs at SSE connect, " +
+		"reads no policy, and drives no spawn or stop. It is a projection, not a " +
+		"lifecycle decision, so lifecycleRosterPasses is the wrong home for it. " +
+		"⚠️ It also bounds the in-memory observation memo to the roster: keyed by sub " +
+		"with every kind admitted, the map would grow by one entry per outsource worker " +
+		"ever minted and never shrink.",
 	"domain.go :: ValidateMember :: m.Kind != KindStaff": "" +
 		"the closed-set validation itself (schema CHECK mirror): kind must be one of " +
 		"the three. Not a behavioural gate — this is the definition of the vocabulary " +

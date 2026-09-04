@@ -170,6 +170,47 @@ func (s *apiServer) HandleEventsApiEventsGet(w http.ResponseWriter, r *http.Requ
 		// freshness comes from the spawn/stop boundary clearing it
 		// (clearSessionBootTS), so a genuinely new session re-stamps here.
 		s.onFirstConnect(memberID)
+		// 🔴 T-80: THIS is where "which signing key is that machine on" is answered,
+		// and the reason is the difference between two things that look identical
+		// from inside the auth gate:
+		//
+		//	a machine PRESENTED this credential   ← any gated request proves this
+		//	a machine is RUNNING on this credential ← only this one proves it
+		//
+		// A warden renewing itself presents its CANDIDATE credential to a gated
+		// route before it writes it to disk (cli/ocwarden/renewapply.go probes,
+		// then writes, then execs). Recording at the gate therefore answered the
+		// FIRST question while the settings page asks the SECOND — so a probe whose
+		// write then failed left the station saying "converged" about a machine
+		// still running on the outgoing key, which is the number reading SAFE at the
+		// exact moment it must not. This connection cannot lie that way: the stream
+		// is opened with the credential this process actually loaded at startup, so
+		// "presented" and "running on" are the same event here by construction, not
+		// by anyone remembering to exclude the probe.
+		//
+		// It is deliberately NOT a list of endpoints-that-do-not-count. That shape
+		// needs every future "try the candidate first" path to remember to opt out,
+		// and the failure when someone forgets is silent and points at SAFE.
+		//
+		// 🔴 AND IT IS AFTER hub.Connect, WHICH IS LOAD-BEARING. The observation
+		// may enqueue a `renew` summons, and enqueueToWarden is fail-CLOSED on a
+		// machine the hub does not hold online. Placed before Connect this machine
+		// is not online yet, so its own summons is refused at the exact moment it
+		// arrives — the fleet would converge only for machines that happened to be
+		// asked while some OTHER connection was already up. Measured, not
+		// reasoned: the renew-summons tests went red on that ordering.
+		// After Connect the enqueue lands and the drain below writes it onto this
+		// very stream.
+		//
+		// ⚠️ IF YOU MOVED THIS LINE AND ARE READING THIS BECAUSE SOMETHING WENT
+		// RED: it is the ordering. Four tests die — TestAMachineStillOnAnOutgoing
+		// KeyIsToldToRenew, TestTheRenewFrameCarriesNoCredentialAtAll,
+		// TestAStaleMachineIsAskedOnceNoMatterHowOftenItCallsBack and
+		// TestAStaleMachineIsAskedAgainOnceTheIntervalHasPassed — and two of them
+		// report it as PREMISE FAILED, which points at their setup rather than at
+		// this line. The ordering is guarded (measured with that mutant), but no
+		// test NAMES it, so this note is the map from that red to this cause.
+		s.noteTokenKeyObservation(claimsFromContext(r.Context()), verifyingKeyFromContext(r.Context()))
 		// T-98f4 sticky placement: this connection is the PROOF that the session
 		// actually came up, and its token's machine claim names where. Record it
 		// so the next rebirth stays put instead of re-deriving placement from a

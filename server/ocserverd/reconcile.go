@@ -114,6 +114,18 @@ const (
 	// dispatched straight from POST /api/machines/{id}/upgrade — listed here
 	// so the warden-command verb vocabulary stays in one place.
 	reconcileCmdUpdate = "update"
+	// reconcileCmdRenew is likewise NOT a reconcile decision (T-80): it is the
+	// station telling ONE machine「去換一張憑證」after observing that the
+	// credential it keeps presenting is signed by a key that is no longer the
+	// signing one. Listed here so the warden-command verb vocabulary stays in
+	// one place.
+	//
+	// 🔴 IT CARRIES NOTHING BUT AN ADDRESS. The args are wardenTargetArgs, the
+	// same member_id-only shape STOP and UNINSTALL use, and that is owner ruling
+	// A: the station RECORDS and SUMMONS, it never writes a file on a machine
+	// and never pushes a credential down this pipe. A token in these args would
+	// be a credential handed to whoever can read the frame.
+	reconcileCmdRenew = "renew"
 )
 
 // spawnClobberReasonPrefix is the prefix of the warden SpawnOutcome.Reason

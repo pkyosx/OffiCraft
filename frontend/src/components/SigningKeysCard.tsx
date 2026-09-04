@@ -26,7 +26,7 @@ import { formatAbsolute } from "../lib/dateFormat";
  *    holds them. So it goes through a confirmation that spells out both, plus
  *    the thing nobody would guess: warden credentials carry no expiry, so
  *    "wait a few days and the old tokens will have lapsed" is FALSE for them.
- *    The question is whether every machine has reconnected.
+ *    The question is whether every machine has come back ON THE CURRENT KEY — reconnecting while still holding a credential the outgoing key signed is not convergence (T-80).
  *
  * The signing key has no 移除 button at all rather than one that errors: the
  * server refuses it with a 409, but a button that exists in order to fail is a

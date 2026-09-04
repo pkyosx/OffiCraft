@@ -96,6 +96,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -309,6 +310,21 @@ type updater struct {
 	// memory, find it still due, and renew again every poll — forever, on every
 	// machine in the fleet at once. See maybeRenewCredential (renewapply.go).
 	renewedAwaitingRestart bool
+	// renewDemanded is the station's "your credential is signed by a retired key,
+	// go and replace it" (T-80), raised by RenewNow off the `renew` warden-command.
+	//
+	// 🔴 IT IS ATOMIC BECAUSE IT IS WRITTEN AND READ BY DIFFERENT GOROUTINES: the
+	// SSE reader raises it, the poll loop consumes it. Every other field on this
+	// struct is touched only by the loop; this one is not, and a plain bool here
+	// is a data race the race detector would find and a reader would not.
+	//
+	// WHY IT IS NOT CLEARED WHEN THE ATTEMPT STARTS. A demand that is consumed on
+	// entry is lost the moment anything goes wrong — the station is unreachable,
+	// the probe refuses, the write fails — and the machine then sits on the
+	// retired key until somebody notices. It is cleared only once a replacement
+	// has actually been written, which is the same "keep trying, change nothing"
+	// shape every other failure on this path already has (renewapply.go).
+	renewDemanded atomic.Bool
 	// execPendingAfterRenewal is the SEPARATE question of whether the exec is still
 	// owed. It is not the same bit as the latch above and must not be merged with
 	// it: the "the credential just minted is already due" path deliberately latches
@@ -463,6 +479,27 @@ func (u *updater) Kick() {
 	case u.kick <- struct{}{}:
 	default: // a wake is already pending → coalesce (de-bounce, never stack)
 	}
+}
+
+// RenewNow records the station's demand that this machine replace its credential
+// and wakes the poll loop to act on it (T-80). It is what the `renew`
+// warden-command dispatches to.
+//
+// 🔴 IT RAISES A FLAG AND KICKS; IT DOES NOT RENEW. Everything that actually
+// happens — asking for the credential, checking the subject, presenting it to the
+// station, the atomic write, the exec — stays in maybeRenewCredential, on the
+// loop's own goroutine, where every one of those guards already lives. Doing the
+// work here would run it on the SSE reader's goroutine, concurrently with a poll
+// that may be doing the same thing, on a path whose failure mode is a host nobody
+// can reach again.
+//
+// THE ORDER MATTERS: the flag is raised BEFORE the kick, so the woken cycle is
+// guaranteed to see it. Kicking first admits a cycle that starts, finds no demand
+// and no expiry, returns false — and then the flag is raised with no wake behind
+// it, so the demand waits out a whole poll interval for no reason.
+func (u *updater) RenewNow() {
+	u.renewDemanded.Store(true)
+	u.Kick()
 }
 
 // checkOnce runs ONE reconcile cycle. Returns (wardenSwapped, error) — note only an

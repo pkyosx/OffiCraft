@@ -101,9 +101,17 @@ retired `var/jwt_secret` fallback file has no successor.
 | machine onboard / boot-command / bootstrap-here exec-token | `agent` / warden member id | **no expiry** (`exp` omitted; response `expires_in=0`) | none (warden tokens carry no placement claim) |
 | `POST /api/machines/claim` (public; redeems a one-time claim code) | `agent` / warden member id | **no expiry** (`exp` omitted; response `expires_in=0`) — the same permanent mint used by every warden install path | none (warden tokens carry no placement claim) |
 
-Warden credentials are revoked by removing their machine from the roster, which rejects the
-next gated request. Existing finite warden credentials remain finite until that machine is
-reinstalled and receives a newly minted permanent credential. The 400-day cap remains the
+Warden credentials are revoked two ways: removing that machine from the roster, which
+rejects its next gated request, and removing the KEY that signed it (§1.3 cut 4), which
+rejects every credential that key signed at once. The first is per machine and is the
+ordinary one; the second is the fleet-wide one and requires convergence first (§1.3).
+
+Existing finite warden credentials do NOT need a reinstall to become permanent ones: the
+warden renews itself through §1.4 once its credential is far enough into its life, and what
+it receives back is a permanent mint. (This paragraph used to say the opposite — that they
+"remain finite until that machine is reinstalled". That was already untrue before T-80,
+which is why it is corrected rather than updated: self-renewal predates this ticket, and
+the sentence has simply been describing a world without it.) The 400-day cap remains the
 ceiling for non-warden agent-token mints.
 
 - Login MUST verify the password against the DB-stored argon2id hash (`auth.password_hash`)
@@ -372,6 +380,45 @@ ceiling for non-warden agent-token mints.
   that has never reported waking — **expiry is not the only invalidation any more**: cut 4
   reaches them, and for a warden credential it is the only cut that does. Short of that,
   expiry remains the only one.
+
+  🔴 **Cut 4 was, until T-80, a cut nobody could afford to make.** It reaches warden
+  credentials and nothing got them out of its way: the renewal path (§1.4) existed and was
+  wired, but its only trigger was an approaching expiry and a warden credential has none,
+  so it never ran. Pressing remove therefore meant every machine in the fleet losing its
+  credential in the same instant, with no mechanism to give them new ones — which is why
+  no key had ever been removed, and why "we can revoke a credential" was a sentence with
+  no operation behind it.
+
+  What T-80 adds is not a new cut but the **convergence** that has to precede this one:
+
+  - The station records, per machine, WHICH ring key last verified that machine's
+    credential — observed at the auth gate from the key whose HMAC matched, never
+    reported by the machine. It is exposed as `token_key_id` / `token_key_current` on
+    `GET /api/machines`. An implementation MUST NOT accept this fact from the machine:
+    the answer gates an immediate, grace-period-free revocation, so an answer a machine
+    can assert is an answer a stale or hostile machine can assert.
+    ⚠️ **Its READERS are wider than the owner.** `GET /api/machines` sits on
+    `principalMachine`, the LOWEST rank, so every authenticated principal — every agent
+    and every warden, not just the cockpit — can read every machine's `token_key_id`.
+    That is not a leak: key ids are drawn from crypto/rand and are never derived from key
+    material (keyring.go states why deriving one would be a password oracle), so the id
+    discloses nothing about the key. What it DOES disclose is how many distinct keys the
+    ring is currently in use across. Accepted deliberately rather than overlooked; an
+    implementation MUST NOT respond to this by putting the ACTIVE key id on the wire as
+    well, which is the shortcut that would let a client compute `token_key_current`
+    itself and would give the same fact a second home.
+  - A machine observed on a key that is no longer signing is sent the `renew`
+    warden-command (spec/sse.md), which carries no credential and no target — the station
+    says GO, and the machine runs its own §1.4 renewal.
+  - Convergence is therefore COUNTABLE FROM OUTSIDE and is the precondition for a
+    removal: every active machine reading `token_key_current: true`. A machine that has
+    not authenticated since the rotation keeps its previous value, which reads honestly
+    as "nothing has proved this one moved" rather than as converged.
+
+  ⚠️ **What this does NOT change**: removal is still immediate, still has no grace period,
+  still takes every share-link `?sig=` produced under that key, and is still a human's
+  decision with no timer. Convergence makes the press SAFE for the fleet; it does not make
+  it reversible, and it says nothing about the links.
 
 ### 1.4 Credential renewal (`POST /api/machines/renew-credential`)
 

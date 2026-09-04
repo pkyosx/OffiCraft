@@ -512,6 +512,23 @@ data: {"topic":"warden-command","data":{"rpc":"start","args":{"member_id":"m-1a2
     warden's own connection). A warden build that predates this verb MUST treat it as any
     unknown rpc: log + skip, reader loop unharmed — which is what makes shipping the verb
     fleet-wide non-breaking.
+  - `renew` (T-80 — the station has observed this machine still presenting a credential
+    signed by a key that is no longer the signing key): `{member_id}` — the warden runs
+    its OWN credential renewal NOW (`POST /api/machines/renew-credential` → subject check
+    → present the candidate at a read-only endpoint → atomic 0600 write → exec-in-place)
+    instead of waiting for an expiry that will never arrive, because warden credentials
+    are minted without one.
+    🔴 **THE FRAME CARRIES NO CREDENTIAL AND MUST NEVER BE GIVEN ONE.** The server says
+    GO and nothing else; the machine asks for its own credential over its own
+    authenticated connection. A frame able to carry a credential would be a channel that
+    rewrites any host's identity on the server's say-so, and the whole point of this verb
+    is that no such channel exists (owner ruling, option A). `member_id` is informational
+    addressing only, as with `update`.
+    No receipt rides back, and that is not fire-and-forget carelessness but the stronger
+    evidence: what settles whether a machine converged is the KEY ID THE SERVER OBSERVES
+    on that machine's next authenticated request, which a warden that answered politely
+    and did nothing cannot forge. A warden build that predates this verb MUST treat it as
+    any unknown rpc: log + skip, reader loop unharmed.
   - **Outsource workers ride the SAME `start`/`stop` verbs** (A案 P5b naming
     convergence — the former `worker_start`/`worker_stop` verbs are RETIRED):
     a worker spawn is a plain `start` with `member_id == <ow-id>`,

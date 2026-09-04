@@ -288,6 +288,25 @@ func mfAgentIatFloor(v float64) memberField {
 	return memberField{col: "agent_iat_floor", val: v, insertOnly: true, forwardOnly: true}
 }
 
+// mfTokenKeyID — the station's own observation of WHICH signing key this
+// member's credential is signed by (T-80, migrations/00080). It is
+// insert-only for memberFromWorker's reason, the same one handover_noticed_ts
+// and agent_iat_floor carry: that function rebuilds a Member from zero and does
+// not know this column, so every PutOutsourceWorker would send "" — and ""
+// here does not mean "no key", it means "never observed", which is a fact the
+// owner reads directly ("that machine has not authenticated since the
+// rotation"). A whole-row writer blanking it would turn a machine that HAS been
+// seen back into one that has not, i.e. make the fleet look less migrated than
+// it is, and the owner would go on not pressing remove.
+//
+// NOT forwardOnly, deliberately: key ids have no order, and the value must be
+// free to move backwards when a machine comes back on an older credential.
+// Guarded by TestPutMemberNeverOverwritesSingleColumnOwnedFields: clearing
+// insertOnly here turns that test red NAMING this column.
+func mfTokenKeyID(v string) memberField {
+	return memberField{col: "token_key_id", val: v, insertOnly: true}
+}
+
 // mfRestartAfterStop — 「下線之後要不要起來」 (T-14 項目 7, migrations/00070),
 // and the ONE owner-intent column on this table that is deliberately NOT
 // insert-only: restart_after_stop IS carried by the whole-row upsert.
@@ -341,7 +360,7 @@ func memberWholeRow(m Member) []memberField {
 		mfActivatedTS(m.ActivatedTS),
 		mfAvatarAttachmentID(m.AvatarAttachmentID), mfForcedStopAt(m.ForcedStopAt),
 		mfHandoverNoticedTS(m.HandoverNoticedTS), mfAgentIatFloor(m.AgentIatFloor),
-		mfRestartAfterStop(m.RestartAfterStop),
+		mfRestartAfterStop(m.RestartAfterStop), mfTokenKeyID(m.TokenKeyID),
 	}
 }
 

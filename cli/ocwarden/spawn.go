@@ -817,6 +817,14 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 			return SpawnOutcome{OK: false, Reason: "warden_bin_unresolved: cannot launch codex-session sidecar"}
 		}
 		if _, err := d.Runner.Run(d.CodexBin, "login", "status"); err != nil {
+			// 2026-09-05 codex-probe incident: the Reason stays exactly as it was — it is rendered on the
+			// member row for the OWNER, and this err carries the subprocess's
+			// stderr, which is unvetted text we must not put on his screen.
+			// But it must not vanish either: the same call in runtimeprobe.go
+			// discarded its err for months and cost five members a night of
+			// being unstartable with nothing anywhere saying why. The log is
+			// the host-local channel that can hold it.
+			d.logf("codex gate: `%s login status` failed: %v", d.CodexBin, err)
 			return SpawnOutcome{OK: false, Reason: "codex_not_logged_in: `codex login status` failed on this host"}
 		}
 	}

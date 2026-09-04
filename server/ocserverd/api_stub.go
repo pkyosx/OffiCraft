@@ -45,6 +45,18 @@ type apiServer struct {
 	// restart. Read through keys.signingSecret() per mint — never cache the
 	// []byte it returns across requests.
 	keys *keyring
+	// tokenKeyObs is the process-local memo behind noteTokenKeyObservation
+	// (T-80): identity id → what this station last RECORDED and last ASKED FOR.
+	// It exists to keep work done on EVERY authenticated request off the write
+	// pool, which is one connection wide (server/CLAUDE.md §7), and off the
+	// warden command queue. Losing it on a restart costs one redundant write and
+	// at most one redundant renew per machine, which is why it is not durable.
+	tokenKeyObsMu sync.Mutex
+	tokenKeyObs   map[string]tokenKeyObservation
+	// keyRenewClock is the injectable clock for the renew re-ask interval. Nil —
+	// the production value — means time.Now; only this package's tests set it,
+	// so a test about the interval expiring does not have to spend the interval.
+	keyRenewClock func() time.Time
 	// settingsMu guards the LIVE settings snapshot below (passwordHash /
 	// passwordChangedAt / ownerTokenTTL / agentTokenTTL / ctxhigh): the boot-time DB snapshot is
 	// updated IN PLACE by the B3 owner endpoints (set-password /

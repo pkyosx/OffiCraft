@@ -386,6 +386,10 @@ func TestMemberColumnPropertiesAreDeclaredInOnePlace(t *testing.T) {
 		"last_op_reason": true, "last_op_at": true,
 		"avatar_attachment_id": true, "handover_noticed_ts": true,
 		"agent_iat_floor": true,
+		// T-80's observation column: written only by SetMemberTokenKeyID, and
+		// blanked by every whole-row writer that rebuilds a Member from zero
+		// (memberFromWorker), which is why it must not ride the update.
+		"token_key_id": true,
 		// The four wind-down anchors, moved out by T-55 batch C (#391) and
 		// carried through this refactor as flags rather than as an edit to a SET
 		// list — which is the whole point: a column joins or leaves the whole-row
@@ -454,8 +458,9 @@ func TestMemberColumnPropertiesAreDeclaredInOnePlace(t *testing.T) {
 	}
 
 	// The whole-row door's update set is derived from the flags, not from a
-	// hand-kept SET list. 35 columns minus the 14 insert-only ones is the 21 the
-	// old ON CONFLICT DO UPDATE SET wrote.
+	// hand-kept SET list. (The original carve-out, for the record: 35 columns
+	// minus the 14 insert-only ones was the 21 the old ON CONFLICT DO UPDATE SET
+	// wrote.)
 	// The SET of columns must equal memberColumns exactly. This is the assertion
 	// the comment on memberWholeRow points at: order is free (each column name is
 	// emitted beside its own placeholder), membership is not. A column added to
@@ -484,7 +489,7 @@ func TestMemberColumnPropertiesAreDeclaredInOnePlace(t *testing.T) {
 	if got, want := len(fields), len(wantCols); got != want {
 		t.Errorf("memberWholeRow projects %d columns, memberColumns has %d", got, want)
 	}
-	// 36 columns minus the 18 insert-only ones. The number moves whenever a
+	// 37 columns minus the 19 insert-only ones. The number moves whenever a
 	// column is migrated out (T-55 has been doing that in batches), and it is
 	// asserted rather than derived ON PURPOSE: a column silently joining or
 	// leaving the whole-row update is the failure this whole line of work exists

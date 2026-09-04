@@ -69,6 +69,28 @@ const (
 	// build that predates this verb refuses the frame as unknown-rpc below —
 	// logged + skipped, the reader loop unharmed (safe to send fleet-wide).
 	rpcUpdate = "update"
+	// rpcRenew (T-80) is the station saying "the credential you are holding was
+	// signed by a key that is no longer the one signing — go and replace it".
+	//
+	// IT CARRIES NO CREDENTIAL, AND THAT IS THE WHOLE POINT (owner ruling,
+	// rc-0572eaeb0f4d, option A). The station never writes a file on this
+	// machine; it only says GO. Everything that follows — asking for the new
+	// credential, checking the subject is this machine, presenting it to the
+	// station before touching anything, the atomic 0600 write, the exec — is the
+	// EXISTING renewal path in renewapply.go, unchanged. A frame that could
+	// carry a credential would be a channel that rewrites every host's identity
+	// on the server's say-so; this one cannot, however it is forged.
+	//
+	// WHY A VERB AND NOT A LONGER EXPIRY. The renewal path already exists and is
+	// wired; the only thing missing was a reason to run that is not "the
+	// credential is about to expire", because warden credentials are permanent
+	// (server mintWardenToken → mintJWTWithoutExpiry) and therefore never due.
+	// This is that reason.
+	//
+	// An older warden that predates this verb refuses the frame as unknown-rpc
+	// below — logged + skipped, the reader loop unharmed — so it is safe to send
+	// fleet-wide before the fleet has converged.
+	rpcRenew = "renew"
 	// rpcWorkerStop is the RETIRED worker kill verb (A案 P5b: outsource workers
 	// now ride the member start/stop verbs — one vocabulary, session
 	// member-<ow-id>). Kept accepted ONE transition window as a LEGACY alias so
@@ -151,7 +173,7 @@ func parseCommandFrame(payload []byte) (*Command, error) {
 		return nil, fmt.Errorf("command: malformed data body: %w", err)
 	}
 	switch body.RPC {
-	case rpcStart, rpcStop, rpcUninstall, rpcUpdate, rpcWorkerStop:
+	case rpcStart, rpcStop, rpcUninstall, rpcUpdate, rpcRenew, rpcWorkerStop:
 		// known verb (worker_stop is the legacy transition alias — see the const)
 	default:
 		return nil, fmt.Errorf("command: unknown or missing rpc %q", body.RPC)
@@ -217,6 +239,20 @@ type CommandDeps struct {
 	// fingerprints (bin_status), never a synchronous reply. nil ⇒ the verb is
 	// refused as unwired (a --once / test build degrades loudly in the log).
 	Update func()
+	// Renew is the credential-renewal demand seam (T-80): the `renew` verb calls
+	// it when the station has observed that this machine is still presenting a
+	// credential signed by a retired key. main.go wires it to updater.RenewNow,
+	// which raises the demand flag and Kicks the same poll loop `update` wakes.
+	//
+	// 🔴 IT TAKES NOTHING AND RETURNS NOTHING, and both halves are deliberate.
+	// Nothing comes IN because a credential arriving over this channel would make
+	// the station able to rewrite any host's identity — the ruling was explicitly
+	// that it must not (rc-0572eaeb0f4d option A). Nothing goes OUT because a
+	// warden's word about its own credential is worth nothing: the station counts
+	// convergence from the key id it sees on the next authenticated request, not
+	// from a receipt. nil ⇒ the verb is refused as unwired (a --once / test build
+	// degrades loudly in the log), matching Update.
+	Renew func()
 	// Report is the SYNCHRONOUS command_result reporter (fleet remote-ops stage 1).
 	// After a start/stop/uninstall EXECUTES, dispatchCommand hands it the computed
 	// outcome so the server can fold "this member's last op + result/log" into the
@@ -403,6 +439,18 @@ func dispatchCommand(cmd *Command, deps CommandDeps) error {
 			return fmt.Errorf("command: update refused: self-update kick seam not wired")
 		}
 		deps.Update()
+		return nil
+	case rpcRenew:
+		// One-shot credential-renewal demand. Like rpcUpdate it addresses THIS
+		// warden by connection, resolves no target and carries no receipt: what
+		// the station learns is not "you said ok" but the key id it OBSERVES on
+		// this machine's next authenticated request, which is the only evidence
+		// that cannot be forged by a warden that answered politely and did
+		// nothing.
+		if deps.Renew == nil {
+			return fmt.Errorf("command: renew refused: credential-renewal seam not wired")
+		}
+		deps.Renew()
 		return nil
 	case rpcStop:
 		session, err := stopSessionFromArgs(cmd.Args)

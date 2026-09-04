@@ -389,7 +389,7 @@ export interface paths {
          *
          *     The moment this returns, every token signed by that key is refused, and every attachment share link produced under it stops working: a share `?sig=` is an HMAC under a key derived from the signing key, so it is governed by the ring too (owner ruling, card rc-cf9c27c07442). There is no grace period and holders are not notified — which is why the timing is a person's decision and never a timer's.
          *
-         *     ⚠️ Warden credentials carry NO `exp`, so "wait for the old tokens to expire" is not a strategy for them: they are valid until their key leaves the ring. The question to answer before calling this is whether every machine has reconnected, not how many days have passed.
+         *     ⚠️ Warden credentials carry NO `exp`, so "wait for the old tokens to expire" is not a strategy for them: they are valid until their key leaves the ring. The question to answer before calling this is whether every machine has come back ON THE CURRENT KEY (`token_key_current` on GET /api/machines), not how many days have passed and not merely whether it reconnected: a machine that reconnected while still holding a credential this key signed drops off the moment this returns.
          *
          *     The key that is currently SIGNING cannot be removed (409) — rotate first, then remove the one that stepped down. An unknown `key_id` is a 404.
          */
@@ -6402,6 +6402,16 @@ export interface components {
             runtime_capabilities?: {
                 [key: string]: components["schemas"]["RuntimeCapabilityDTO"];
             };
+            /**
+             * Token Key Current
+             * @description Whether ``token_key_id`` is the key that is signing RIGHT NOW, i.e. whether this machine has already come back on the current signing key. null = never observed (the same condition as a null ``token_key_id``). Computed server-side against the live ring rather than left to the client, for ``hardware_stale``'s reason: a client comparing ids would need the active key id on the wire as well, and that is a second home for the same fact that can disagree with this one. It is a projection of an OBSERVATION, so it is only ever as fresh as the last time that machine opened its stream — false means "has not been seen on the current key", never "is broken".
+             */
+            token_key_current?: boolean | null;
+            /**
+             * Token Key Id
+             * @description Which signing key the station last VERIFIED a credential of this machine's with; null = it has never verified one. This is the station's OWN observation, taken from the key whose HMAC actually matched — a machine cannot CHOOSE THE VALUE, and there is deliberately no wire field through which it could report one. What a machine CAN still influence is WHICH CREDENTIAL IT PRESENTS: `renew-credential` is zero-argument self-service, so a warden can mint a fresh credential and present it once without ever writing it to disk. That is why the observation is taken at SSE connect — the credential the process is actually RUNNING ON — and not on every gated route, where presenting one once would have been enough to read as converged. It exists to answer the one question standing before a key REMOVAL, which is immediate and has no grace period: has every machine come back on the new key yet. A machine that has not opened a stream since a rotation keeps its previous value, which reads correctly as "nothing has proved this one moved". Key ids are random and carry no key material (they are never derived from the key), so publishing one is safe by construction.
+             */
+            token_key_id?: string | null;
             /**
              * Warden Shape
              * @description Which shape this machine's warden is actually running under, taken verbatim from its heartbeat (``anchor`` | ``legacy`` | ``unknown``; see ``AgentTelemetryIngestDTO.warden_shape``). null = this warden build does not report a shape at all, i.e. it has not received the anchor-cutover release yet — DISTINCT from ``unknown`` (new build ran, could not read its parent). The server never infers one from the other and never derives the verdict itself: unlike ``bin_status`` this is reported, not computed, because only the reporting process can see its own parent.
