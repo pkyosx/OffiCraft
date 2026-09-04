@@ -1,0 +1,313 @@
+package main
+
+// upgrade_notice_t79_test.go — guards for the post-upgrade migration notice
+// (T-79). The properties under test are the ones whose failure would be
+// SILENT in production: a message that reassures when it knows nothing, a
+// notice delivered by the process that never actually upgraded, and a FROM
+// side lost when two upgrades land back to back.
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
+
+func t79Server(t *testing.T) *apiServer {
+	t.Helper()
+	s := &apiServer{dal: newTestDAL(t), hub: NewHub()}
+	if err := s.dal.PutMember(Member{
+		ID: seedMiraID, Name: "銀月", Kind: KindStaff, RosterStatus: RosterStatusActive,
+	}); err != nil {
+		t.Fatalf("seed assistant: %v", err)
+	}
+	return s
+}
+
+// t79CompareServer stands in for GitHub's compare endpoint.
+func t79CompareServer(t *testing.T, files []string) *httptest.Server {
+	t.Helper()
+	type file struct {
+		Filename string `json:"filename"`
+		Status   string `json:"status"`
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body := struct {
+			Files []file `json:"files"`
+		}{}
+		for _, f := range files {
+			body.Files = append(body.Files, file{Filename: f, Status: "modified"})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(body)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// ─── the message ───────────────────────────────────────────────────────────
+
+// A failed lookup must not be reported in a way that reads like "nothing
+// important changed". The two states are opposite and the reader acts
+// differently on each, so the wording is load-bearing, not cosmetic.
+func TestUpgradeNoticeBody_ALookupFailureNeverReadsLikeAllClear(t *testing.T) {
+	n := pendingUpgradeNotice{FromVersion: "v0.5.310", FromSHA: "ad414a8c5be1", ToVersion: "v0.5.312", ToSHA: "e0920b5b57ba"}
+	body := upgradeNoticeBody(n, nil, false, errors.New("github answered 502"))
+
+	if !strings.Contains(body, "github answered 502") {
+		t.Errorf("the reason the list is missing is not in the message:\n%s", body)
+	}
+	if strings.Contains(body, "未動到") {
+		t.Errorf("a failed lookup claimed the shared layer was untouched:\n%s", body)
+	}
+	if !strings.Contains(body, "v0.5.310") || !strings.Contains(body, "v0.5.312") {
+		t.Errorf("both versions must survive a failed lookup:\n%s", body)
+	}
+	if !strings.Contains(body, upgradeCompareURL(n.FromSHA, n.ToSHA)) {
+		t.Errorf("the reader has no link to do the judging by hand:\n%s", body)
+	}
+}
+
+// The boring upgrade is the common case (six of eight measured in one day).
+// It has to stay short, or the reader learns to skip the whole channel.
+func TestUpgradeNoticeBody_AnUpgradeBelowTheSharedLayerStaysOneLine(t *testing.T) {
+	n := pendingUpgradeNotice{FromVersion: "v0.5.311", FromSHA: "b4253267", ToVersion: "v0.5.312", ToSHA: "e0920b5b"}
+	body := upgradeNoticeBody(n, []string{"server/ocserverd/upgrade.go", "frontend/src/App.tsx"}, false, nil)
+
+	if !strings.HasPrefix(body, "⚪") {
+		t.Errorf("the quiet case must be marked as quiet:\n%s", body)
+	}
+	if strings.Count(body, "\n") > 1 {
+		t.Errorf("the quiet case grew past one line:\n%s", body)
+	}
+	if !strings.Contains(body, "未動到") || !strings.Contains(body, "共 2 個檔案") {
+		t.Errorf("the quiet line must still say what it checked:\n%s", body)
+	}
+}
+
+// When the shared layer moves, the files that caused it lead — and they are
+// never elided, whatever else is in the diff.
+func TestUpgradeNoticeBody_ASharedLayerChangeLeadsWithTheFilesThatCausedIt(t *testing.T) {
+	files := []string{"server/ocserverd/api_chat.go", "seeds/system_interaction.md", "spec/mcp-catalog.json"}
+	n := pendingUpgradeNotice{FromVersion: "v0.5.309", FromSHA: "272d80b2", ToVersion: "v0.5.310", ToSHA: "ad414a8c"}
+	body := upgradeNoticeBody(n, files, false, nil)
+
+	if !strings.HasPrefix(body, "🔴") {
+		t.Errorf("a shared-layer change must be marked loudly:\n%s", body)
+	}
+	for _, want := range []string{"seeds/system_interaction.md", "spec/mcp-catalog.json"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing the shared-layer file %q:\n%s", want, body)
+		}
+	}
+	if !strings.Contains(body, "server/ocserverd/api_chat.go") {
+		t.Errorf("the rest of the diff is material too:\n%s", body)
+	}
+	if !strings.Contains(body, "請你判斷並執行") {
+		t.Errorf("the message must ask for a judgement, not state a conclusion:\n%s", body)
+	}
+}
+
+// A list that sits on GitHub's ceiling is a floor, not the whole set. Both
+// shapes must say so — the loud one AND the quiet one, because the quiet one
+// is the one that would otherwise assert "untouched" on partial evidence.
+func TestUpgradeNoticeBody_ATruncatedListIsDeclaredInBothShapes(t *testing.T) {
+	n := pendingUpgradeNotice{FromVersion: "v0.5.300", FromSHA: "aaaaaaaa", ToVersion: "v0.5.312", ToSHA: "bbbbbbbb"}
+
+	quiet := upgradeNoticeBody(n, []string{"server/ocserverd/x.go"}, true, nil)
+	if !strings.Contains(quiet, "上限") {
+		t.Errorf("the quiet shape asserted 未動到 on a truncated list without saying so:\n%s", quiet)
+	}
+
+	loud := upgradeNoticeBody(n, []string{"seeds/system_interaction.md"}, true, nil)
+	if !strings.Contains(loud, "這份清單不完整") {
+		t.Errorf("the loud shape hid the truncation:\n%s", loud)
+	}
+}
+
+// The long tail is capped, and the cap announces itself rather than quietly
+// ending the list.
+func TestUpgradeNoticeBody_TheLongTailIsCappedAndSaysHowManyItDropped(t *testing.T) {
+	files := []string{"seeds/system_interaction.md"}
+	for i := 0; i < upgradeNoticeMaxListed+7; i++ {
+		files = append(files, fmt.Sprintf("server/ocserverd/f%02d.go", i))
+	}
+	body := upgradeNoticeBody(pendingUpgradeNotice{FromSHA: "aaaaaaaa", ToSHA: "bbbbbbbb"}, files, false, nil)
+
+	if !strings.Contains(body, "另外 7 個") {
+		t.Errorf("the elided remainder was not counted out loud:\n%s", body)
+	}
+}
+
+// ─── which paths count as the shared layer ─────────────────────────────────
+
+func TestSharedLayerFiles_MatchesTheDirectoriesAndNotTheirLookalikes(t *testing.T) {
+	got := sharedLayerFiles([]string{
+		"seeds/system_interaction.md",
+		"spec/openapi.json",
+		"myseeds/thing.md",    // not the shared layer
+		"docs/seeds.md",       // documentation ABOUT it, not it
+		"server/spec_test.go", // substring, not a prefix
+	})
+	want := []string{"seeds/system_interaction.md", "spec/openapi.json"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("shared layer = %v, want %v", got, want)
+	}
+}
+
+// ─── the compare fetch ─────────────────────────────────────────────────────
+
+func TestFetchUpgradeChangedFiles_ReadsTheFilenamesAndReportsNoTruncation(t *testing.T) {
+	srv := t79CompareServer(t, []string{"a.go", "seeds/b.md"})
+	files, truncated, err := fetchUpgradeChangedFiles(srv.URL, "aaaa", "bbbb")
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if strings.Join(files, ",") != "a.go,seeds/b.md" {
+		t.Errorf("files = %v", files)
+	}
+	if truncated {
+		t.Error("a two-file compare was reported as truncated")
+	}
+}
+
+func TestFetchUpgradeChangedFiles_AFullPageIsReportedAsPossiblyIncomplete(t *testing.T) {
+	var many []string
+	for i := 0; i < githubCompareFileCeiling; i++ {
+		many = append(many, fmt.Sprintf("f%03d.go", i))
+	}
+	srv := t79CompareServer(t, many)
+	_, truncated, err := fetchUpgradeChangedFiles(srv.URL, "aaaa", "bbbb")
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if !truncated {
+		t.Error("a response sitting exactly on GitHub's ceiling was reported as complete")
+	}
+}
+
+func TestFetchUpgradeChangedFiles_RefusesRatherThanGuessWhenACommitIsMissing(t *testing.T) {
+	if _, _, err := fetchUpgradeChangedFiles("http://127.0.0.1:1", "", "bbbb"); err == nil {
+		t.Error("an empty base commit produced no error")
+	}
+}
+
+func TestFetchUpgradeChangedFiles_ANonOKAnswerIsAnError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+	if _, _, err := fetchUpgradeChangedFiles(srv.URL, "aaaa", "bbbb"); err == nil {
+		t.Error("a 403 was treated as an empty file list")
+	}
+}
+
+// ─── the durable marker ────────────────────────────────────────────────────
+
+// Two upgrades before a delivery must still describe the whole journey. If
+// the second record overwrote the FROM side, the surviving message would
+// compare the new build against the intermediate one nobody ever ran as a
+// station — and the file list would silently lose everything in the first hop.
+func TestRecordPendingUpgradeNotice_KeepsTheOriginalFromAcrossASecondUpgrade(t *testing.T) {
+	s := t79Server(t)
+	s.processSHA = "aaaaaaaaaaaa"
+	s.recordPendingUpgradeNotice("v0.5.311", "bbbbbbbbbbbb")
+	s.recordPendingUpgradeNotice("v0.5.312", "cccccccccccc")
+
+	got, err := s.readPendingUpgradeNotice()
+	if err != nil || got == nil {
+		t.Fatalf("read back: %v (notice=%v)", err, got)
+	}
+	if got.FromSHA != "aaaaaaaaaaaa" {
+		t.Errorf("FromSHA = %q, want the ORIGINAL station build", got.FromSHA)
+	}
+	if got.ToVersion != "v0.5.312" || got.ToSHA != "cccccccccccc" {
+		t.Errorf("TO side = %s/%s, want the latest", got.ToVersion, got.ToSHA)
+	}
+}
+
+// ─── delivery ──────────────────────────────────────────────────────────────
+
+func TestDeliverPendingUpgradeNotice_WithNothingPendingItSendsNothing(t *testing.T) {
+	s := t79Server(t)
+	if s.deliverPendingUpgradeNotice() {
+		t.Error("a station with no pending notice sent a message")
+	}
+}
+
+// 🔴 The property that makes the past tense honest. syscall.Exec can fail;
+// the OLD build then keeps serving with the marker still on disk. Announcing
+// "this station is now on X" from a process that is not on X is a lie, and
+// deleting the marker there would lose the story for the boot that really
+// does come up on X.
+func TestDeliverPendingUpgradeNotice_TheOldBuildDoesNotAnnounceAnUpgradeItDidNotTake(t *testing.T) {
+	s := t79Server(t)
+	s.processSHA = "aaaaaaaaaaaa"
+	s.recordPendingUpgradeNotice("v0.5.312", "cccccccccccc")
+
+	if s.deliverPendingUpgradeNotice() {
+		t.Fatal("the process still running the OLD build announced the upgrade")
+	}
+	got, err := s.readPendingUpgradeNotice()
+	if err != nil || got == nil {
+		t.Fatalf("the notice was dropped instead of left pending: %v (notice=%v)", err, got)
+	}
+}
+
+func TestDeliverPendingUpgradeNotice_TheNewBuildTellsTheAssistantAndClearsTheMarker(t *testing.T) {
+	srv := t79CompareServer(t, []string{"seeds/system_interaction.md", "server/ocserverd/upgrade.go"})
+	s := t79Server(t)
+	s.releaseAPIBase = srv.URL
+	s.processSHA = "aaaaaaaaaaaa"
+	s.recordPendingUpgradeNotice("v0.5.312", "cccccccccccc")
+	// The station is now the NEW build: same marker, different running sha.
+	s.processSHA = "cccccccccccc"
+
+	if !s.deliverPendingUpgradeNotice() {
+		t.Fatal("the upgraded build sent nothing")
+	}
+	msgs, err := s.dal.ListChatInvolving(seedMiraID, 10)
+	if err != nil {
+		t.Fatalf("list chat: %v", err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("assistant received %d messages, want 1", len(msgs))
+	}
+	if msgs[0].Sender != wireSystemSender || msgs[0].Recipient != seedMiraID {
+		t.Errorf("message routed as %s → %s", msgs[0].Sender, msgs[0].Recipient)
+	}
+	if !strings.Contains(msgs[0].Body, "seeds/system_interaction.md") {
+		t.Errorf("the material never reached the message:\n%s", msgs[0].Body)
+	}
+	got, err := s.readPendingUpgradeNotice()
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if got != nil {
+		t.Error("the marker survived delivery — the next boot would repeat the message")
+	}
+}
+
+// GitHub being unreachable must cost the file list, not the message: the
+// versions and the link alone still let the reader do the judging.
+func TestDeliverPendingUpgradeNotice_AnUnreachableGitHubStillGetsAMessageOut(t *testing.T) {
+	s := t79Server(t)
+	s.releaseAPIBase = "http://127.0.0.1:1"
+	s.processSHA = "aaaaaaaaaaaa"
+	s.recordPendingUpgradeNotice("v0.5.312", "cccccccccccc")
+	s.processSHA = "cccccccccccc"
+
+	if !s.deliverPendingUpgradeNotice() {
+		t.Fatal("an unreachable GitHub silenced the notice entirely")
+	}
+	msgs, err := s.dal.ListChatInvolving(seedMiraID, 10)
+	if err != nil || len(msgs) != 1 {
+		t.Fatalf("assistant received %d messages (err=%v), want 1", len(msgs), err)
+	}
+	if strings.Contains(msgs[0].Body, "未動到") {
+		t.Errorf("a message with no file list claimed the shared layer was untouched:\n%s", msgs[0].Body)
+	}
+}

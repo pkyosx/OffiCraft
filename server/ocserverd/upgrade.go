@@ -335,11 +335,14 @@ func smokeTestBinary(path string) *upgradeFailure {
 // executeUpgrade runs steps 1–6 (pin → checksums → download → verify →
 // extract → smoke → backup → swap). On success the NEW binary sits at exePath
 // and the OLD one at exePath+".bak"; on any failure the old binary is
-// untouched and still the one at exePath. Returns the pinned tag installed.
-func (s *apiServer) executeUpgrade() (string, *upgradeFailure) {
+// untouched and still the one at exePath. Returns the pinned tag installed and
+// the commit that tag was cut from (GitHub's target_commitish, already in the
+// release body this server was reading anyway — see upgrade_notice.go, which
+// needs the FROM/TO pair and would otherwise have to spend a second call).
+func (s *apiServer) executeUpgrade() (version, newSHA string, fail *upgradeFailure) {
 	rel, fail := s.pinUpgradeRelease()
 	if fail != nil {
-		return "", fail
+		return "", "", fail
 	}
 	// The honesty gate re-runs against the PINNED release: the cache that
 	// enabled the button may be stale (e.g. the release was deleted since).
@@ -347,41 +350,41 @@ func (s *apiServer) executeUpgrade() (string, *upgradeFailure) {
 	// ordering, T-9374) — a lagging release list can therefore never turn an
 	// upgrade into a downgrade, on the auto-update path or any other.
 	if !releaseIsNewer(rel.TagName, appVersion) {
-		return "", upgradeFail(http.StatusConflict,
+		return "", "", upgradeFail(http.StatusConflict,
 			"GitHub's current latest (%s) is not newer than the running build (%s) — nothing newer to install",
 			rel.TagName, appVersion)
 	}
 
 	asset, fail := findReleaseAsset(rel, releaseAssetName(rel.TagName))
 	if fail != nil {
-		return "", fail
+		return "", "", fail
 	}
 	expectedSHA, fail := fetchExpectedSHA(rel, asset.Name)
 	if fail != nil {
-		return "", fail
+		return "", "", fail
 	}
 
 	exePath, err := s.upgradeTargetPath()
 	if err != nil {
-		return "", upgradeFail(http.StatusInternalServerError,
+		return "", "", upgradeFail(http.StatusInternalServerError,
 			"cannot resolve the running binary's path — nothing was changed: %v", err)
 	}
 	dir := filepath.Dir(exePath)
 
 	tarPath, fail := downloadUpgradeTarball(asset, expectedSHA, dir)
 	if fail != nil {
-		return "", fail
+		return "", "", fail
 	}
 	defer os.Remove(tarPath)
 
 	tmpPath, fail := extractServerBinary(tarPath, dir)
 	if fail != nil {
-		return "", fail
+		return "", "", fail
 	}
 	defer os.Remove(tmpPath) // no-op after the success rename
 
 	if fail := smokeTestBinary(tmpPath); fail != nil {
-		return "", fail
+		return "", "", fail
 	}
 
 	// Backup (the manual rollback path — see the file header's step 5 for the
@@ -389,7 +392,7 @@ func (s *apiServer) executeUpgrade() (string, *upgradeFailure) {
 	// never auto-deleted).
 	bakPath := exePath + ".bak"
 	if err := os.Rename(exePath, bakPath); err != nil {
-		return "", upgradeFail(http.StatusInternalServerError,
+		return "", "", upgradeFail(http.StatusInternalServerError,
 			"cannot back up the running binary to %s — nothing was changed: %v", bakPath, err)
 	}
 	if err := os.Rename(tmpPath, exePath); err != nil {
@@ -399,13 +402,13 @@ func (s *apiServer) executeUpgrade() (string, *upgradeFailure) {
 		if restoreErr := os.Rename(bakPath, exePath); restoreErr != nil {
 			log.Printf("[upgrade] CRITICAL: swap failed (%v) AND restoring the backup failed (%v) — %s is missing; restore it manually from %s",
 				err, restoreErr, exePath, bakPath)
-			return "", upgradeFail(http.StatusInternalServerError,
+			return "", "", upgradeFail(http.StatusInternalServerError,
 				"the binary swap failed AND the automatic backup restore failed — manual attention needed (backup at %s): %v", bakPath, err)
 		}
-		return "", upgradeFail(http.StatusInternalServerError,
+		return "", "", upgradeFail(http.StatusInternalServerError,
 			"the binary swap failed — the old binary was restored and keeps serving: %v", err)
 	}
-	return rel.TagName, nil
+	return rel.TagName, rel.TargetCommitish, nil
 }
 
 // restartIntoUpgradedBinary re-execs the swapped binary after a short flush
@@ -441,7 +444,7 @@ func (s *apiServer) runUpgrade() (version, exePath string, fail *upgradeFailure)
 	}
 	defer s.upgradeMu.Unlock()
 
-	version, fail = s.executeUpgrade()
+	version, newSHA, fail := s.executeUpgrade()
 	if fail != nil {
 		return "", "", fail
 	}
@@ -451,6 +454,12 @@ func (s *apiServer) runUpgrade() (version, exePath string, fail *upgradeFailure)
 	}
 	log.Printf("[upgrade] release %s verified and swapped into %s (backup: %s.bak); restarting in %v",
 		version, exePath, exePath, upgradeRestartDelay)
+	// T-79: record the migration notice HERE — the one place both triggers
+	// (the owner's explicit POST and the armed auto-update cadence) pass
+	// through, and the last moment this process still knows where it came
+	// FROM. It is a local write and never fails the upgrade; the next boot
+	// delivers it (upgrade_notice.go explains why not before the re-exec).
+	s.recordPendingUpgradeNotice(version, newSHA)
 	return version, exePath, nil
 }
 
