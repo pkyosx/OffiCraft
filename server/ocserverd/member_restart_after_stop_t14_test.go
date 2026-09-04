@@ -309,8 +309,13 @@ func TestForceStopAfterAQueuedRestartStillLeavesTheMemberDown(t *testing.T) {
 //	    true for them; they pin the 上線 side only.
 //	22  contain a 下線 verb and end in 活化, which flips desired_state online
 //	    unconditionally; they pin that 活化 still wins, not that the queue works.
-//	66  put a 重啟 verb behind a 下線 and reach the new code — the queue being
-//	    set, carried, and spent. THIS is the matrix's real yield.
+//	66  put a 重啟 verb behind a 下線 and reach the new code. THIS is the matrix's
+//	    real yield — but read the label honestly: an independent review measured
+//	    the bucket and found 60 of the 66 actually END WITH restart_after_stop set.
+//	    The other 6 are 下線→活化→{重啟 verb} (and the 強制停止 variants): the
+//	    mid-sequence 活化 cancelled the stop outright, so they never touch the
+//	    queue. The bucket's own predicate is deliberately looser than "the queue
+//	    was used" — do not quote 66 as the number of queued restarts.
 //	84  end on a 下線 rung; they pin 後蓋前 in the cancelling direction.
 //
 // (Counted the overlapping way instead, 42 sequences end in 活化 — 20 of them are
