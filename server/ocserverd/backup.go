@@ -25,9 +25,13 @@ package main
 //	           by a human rather than only by a test.
 //	trigger ②  the serve cadence (startBackupCadence) — always mounted, same
 //	           shape as the auto-update cadence.
-//	trigger ③  before goose migrations run (cmdServe) — owner: "每次升級
-//	           server 前我們可以先備份在升級". Swapping the BINARY cannot hurt
-//	           the data; a schema migration can, so the hook belongs there.
+//	trigger ③  before goose migrations run — owner: "每次升級 server 前我們可
+//	           以先備份在升級". Swapping the BINARY cannot hurt the data; a
+//	           schema migration can, so the hook belongs there. It is mounted at
+//	           BOTH doors into goose: cmdServe (server.go) and `ocserverd
+//	           migrate` (cmdMigrate, migrate.go). It was on serve only until
+//	           T-74, which meant the upgrade path's own `migrate` invocation
+//	           carried the identical schema risk with no retreat point.
 //	trigger ④  (not in this file) the cockpit's manual-backup button, which
 //	           calls the same runDatabaseBackup.
 //
@@ -745,7 +749,27 @@ func backupTick(db *sql.DB, dbPath string, now time.Time, health *backupHealthMo
 	return err == nil && res.Skipped == ""
 }
 
-// backupBeforeMigrations is trigger ③. It runs BEFORE goose, and only when
+// backupBeforeMigrations is trigger ③. Both of its callers — cmdServe
+// (server.go) and cmdMigrate (migrate.go) — MUST call it before their goose
+// call: a snapshot taken after `goose up` has committed is a copy of the
+// outcome, not a retreat from it.
+//
+// 🔴 That MUST is not left as a norm. BOTH doors are pinned, by the same
+// criterion and the same helpers, so reordering either one turns something red:
+//
+//	TestServeTakesPreMigrationBackupBeforeGoose   (serve_backup_order_t74_test.go)
+//	TestMigrateTakesPreMigrationBackupBeforeGoose (migrate_backup_t74_test.go)
+//
+// Both read the SNAPSHOT'S OWN CONTENTS rather than merely checking that a file
+// appeared — an existence-only assertion is satisfied identically by both
+// orderings, so it has no power over the failure worth guarding. The snapshot
+// must not contain goose_db_version (goose creates that table, so its absence
+// is only possible if the copy predates goose), and the live database must
+// contain it afterwards so the first clause cannot pass vacuously against a
+// migration that never ran. A THIRD caller added later needs its own test:
+// these two guard their own call sites, not this function's every future user.
+//
+// It runs BEFORE goose, and only when
 // there is something to protect against — a database file that does not exist
 // yet has nothing to lose, and a first boot should not be slowed down by
 // snapshotting an empty file.

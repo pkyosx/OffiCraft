@@ -823,15 +823,10 @@ const envNewPassword = "OC_NEW_PASSWORD"
 // error is already printed; done is always safe to call.
 func openAuthDAL(name string, env func(string) string, out io.Writer) (d *DAL, auth authSettings, done func(), rc int) {
 	done = func() {}
-	cfg, warnings, err := loadConfig(configPath(env))
-	if err != nil {
-		fmt.Fprintf(out, "[ocserverd] FATAL: %v\n", err)
-		return nil, auth, done, 1
+	cfg, dsn, rc := announceResolution(name, env, out)
+	if rc != 0 {
+		return nil, auth, done, rc
 	}
-	for _, w := range warnings {
-		fmt.Fprintf(out, "[ocserverd] WARN: %s\n", w)
-	}
-	dsn := resolveDSN(env, cfg)
 	dbPath, ok := sqliteFilePath(dsn)
 	if !ok {
 		fmt.Fprintf(out, "[ocserverd] FATAL: %s supports sqlite DSNs only for now (got %q)\n", name, dsn)
