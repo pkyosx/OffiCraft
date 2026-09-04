@@ -209,12 +209,20 @@ func TestFetchUpgradeChangedFiles_ANonOKAnswerIsAnError(t *testing.T) {
 
 // Two upgrades before a delivery must still describe the whole journey. If
 // the second record overwrote the FROM side, the surviving message would
-// compare the new build against the intermediate one nobody ever ran as a
-// station — and the file list would silently lose everything in the first hop.
+// compare the new build against the intermediate one nobody ever heard about
+// — and the file list would silently lose everything in the first hop.
+//
+// The setup is the case that actually produces it: the station upgrades A→B,
+// comes up on B, and its delivery FAILS (the chat write is the one step that
+// can), so the A→B marker is deliberately kept. It then upgrades B→C, and by
+// now the running build is B, not A. Reading the FROM side off the running
+// process at that moment is what loses the first hop.
 func TestRecordPendingUpgradeNotice_KeepsTheOriginalFromAcrossASecondUpgrade(t *testing.T) {
 	s := t79Server(t)
 	s.processSHA = "aaaaaaaaaaaa"
 	s.recordPendingUpgradeNotice("v0.5.311", "bbbbbbbbbbbb")
+	// It came up on B; the notice is still pending because delivery failed.
+	s.processSHA = "bbbbbbbbbbbb"
 	s.recordPendingUpgradeNotice("v0.5.312", "cccccccccccc")
 
 	got, err := s.readPendingUpgradeNotice()
