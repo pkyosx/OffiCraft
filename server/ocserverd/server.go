@@ -750,7 +750,7 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 	// no toggle. With nothing pending its whole body is one indexed read, and
 	// an upgrade that lands while the toggle is off is exactly the upgrade
 	// nobody would be told about.
-	api.startUpgradeNoticeDelivery()
+	api.startUpgradeNoticeDelivery(out)
 	// Scheduled messages (scheduled_message.go, T-f059): ALWAYS mounted, no
 	// toggle. A tick with no armed schedules is one indexed read; the fire/skip
 	// test is slot identity, so nothing here depends on the process having been

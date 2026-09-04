@@ -141,8 +141,30 @@ func (s *apiServer) readPendingUpgradeNotice() (*pendingUpgradeNotice, error) {
 // unconditionally by cmdServe: with no pending marker its whole body is one
 // indexed read, and gating it behind a toggle would mean the first upgrade
 // after someone forgot to arm it is the one that goes unreported.
-func (s *apiServer) startUpgradeNoticeDelivery() {
-	go s.deliverPendingUpgradeNotice()
+//
+// 🔴 The LOOK is synchronous and the boot SAYS what it found; only the
+// delivery (which can sit on a GitHub round trip for upgradeCompareTimeout)
+// runs in the background. Two reasons, and neither is style:
+//   - A boot step that produces no output is not observable, so nothing can
+//     prove this is still wired in. An independent review deleted the one
+//     call site in cmdServe and the entire package still went green — the
+//     feature could be unplugged and CI would call it fine.
+//   - A marker that cannot be DECODED would otherwise be invisible forever:
+//     every boot would fail to read it, log into the outsource log, deliver
+//     nothing, and never clear it. Here it is said out loud at boot instead.
+func (s *apiServer) startUpgradeNoticeDelivery(out io.Writer) {
+	notice, err := s.readPendingUpgradeNotice()
+	switch {
+	case err != nil:
+		fmt.Fprintf(out, "[upgrade-notice] a pending upgrade notice is on disk but cannot be read "+
+			"(%v) — the assistant will NOT be told about that upgrade, and it will not clear itself\n", err)
+	case notice == nil:
+		// The overwhelmingly common boot. Nothing to say.
+	default:
+		fmt.Fprintf(out, "[upgrade-notice] pending notice for %s — delivering to the assistant in the background\n",
+			notice.ToVersion)
+		go s.deliverPendingUpgradeNotice()
+	}
 }
 
 // deliverPendingUpgradeNotice is ONE boot-time delivery attempt (split out so
@@ -161,7 +183,12 @@ func (s *apiServer) deliverPendingUpgradeNotice() (sent bool) {
 	// the OLD build is still serving". Both leave the marker in place; only
 	// the first one is a story worth telling, and telling it from the old
 	// process would be a lie in the past tense.
-	if notice.FromSHA != "" && notice.FromSHA == s.processSHA {
+	// Both sides must be KNOWN for the comparison to mean anything. On an
+	// unstamped build every sha is the same literal "unknown", and treating
+	// that as "we are still the old build" would silence this station's
+	// notices forever with nothing to show for it — so an unknown pair falls
+	// through and the message says the starting point is unknown instead.
+	if usableCommit(notice.FromSHA) && usableCommit(s.processSHA) && notice.FromSHA == s.processSHA {
 		outsourceLog("upgrade-notice: still running %s — the swap to %s has not taken "+
 			"effect in this process; leaving the notice pending", shortSHA(s.processSHA), notice.ToVersion)
 		return false
@@ -210,13 +237,45 @@ func (s *apiServer) deliverPendingUpgradeNotice() (sent bool) {
 		map[string]any{"id": msg.ID, "from": msg.Sender, "to": msg.Recipient},
 		audienceMembers(msg.Sender, msg.Recipient), triggerServer)
 
+	s.clearDeliveredUpgradeNotice(*notice)
+	return true
+}
+
+// clearDeliveredUpgradeNotice removes the marker we just delivered — and ONLY
+// that one.
+//
+// 🔴 A bare DeleteSetting here would be a silent data loss, not a tidy-up. The
+// delivery above can sit on a GitHub round trip for as long as
+// upgradeCompareTimeout, and the owner's explicit POST /api/update/upgrade
+// takes no part in this file's locking — so a swap can land, record its own
+// marker, and be wiped by the delete belonging to the PREVIOUS notice. That
+// upgrade would then never be announced to anyone, with nothing logged and no
+// way to notice afterwards. So the marker is re-read and compared first: a
+// marker that is no longer the one we delivered belongs to a newer upgrade
+// and is left exactly where it is, for the next boot to deliver.
+func (s *apiServer) clearDeliveredUpgradeNotice(delivered pendingUpgradeNotice) {
+	current, err := s.readPendingUpgradeNotice()
+	if err != nil {
+		outsourceLog("upgrade-notice: the notice for %s was delivered but the marker "+
+			"could not be re-read before clearing — it may be sent again on the next "+
+			"boot: %v", delivered.ToVersion, err)
+		return
+	}
+	if current == nil {
+		return
+	}
+	if current.ToSHA != delivered.ToSHA || current.RecordedTS != delivered.RecordedTS {
+		outsourceLog("upgrade-notice: a newer upgrade (%s) was recorded while the notice "+
+			"for %s was being delivered — leaving it for the next boot",
+			current.ToVersion, delivered.ToVersion)
+		return
+	}
 	if err := s.dal.DeleteSetting(pendingUpgradeNoticeKey); err != nil {
 		// The message IS delivered; failing to clear the marker would repeat
 		// it on the next boot, which is noisy but not wrong. Say so.
 		outsourceLog("upgrade-notice: the notice for %s was delivered but the marker "+
-			"could not be cleared — it may be sent again on the next boot: %v", notice.ToVersion, err)
+			"could not be cleared — it may be sent again on the next boot: %v", delivered.ToVersion, err)
 	}
-	return true
 }
 
 // githubCompare is the slice of GitHub's compare body this server reads.
@@ -234,8 +293,8 @@ type githubCompare struct {
 // the list is then a floor, not the whole set, and the message says so rather
 // than presenting a partial list as complete.
 func fetchUpgradeChangedFiles(base, fromSHA, toSHA string) (files []string, truncated bool, err error) {
-	if strings.TrimSpace(fromSHA) == "" || strings.TrimSpace(toSHA) == "" {
-		return nil, false, fmt.Errorf("both commits are needed (from=%q to=%q)", fromSHA, toSHA)
+	if !usableCommit(fromSHA) || !usableCommit(toSHA) {
+		return nil, false, fmt.Errorf("both commits must be known (from=%q to=%q)", fromSHA, toSHA)
 	}
 	req, err := http.NewRequest(http.MethodGet,
 		base+"/repos/"+releaseRepo+"/compare/"+fromSHA+"..."+toSHA, nil)
@@ -252,8 +311,17 @@ func fetchUpgradeChangedFiles(base, fromSHA, toSHA string) (files []string, trun
 	if resp.StatusCode != http.StatusOK {
 		return nil, false, fmt.Errorf("github answered %d", resp.StatusCode)
 	}
+	// LimitedReader rather than io.LimitReader so the CAP is distinguishable
+	// from a malformed body: both surface as a decode error, and "the answer
+	// was too big" is a different thing to tell the reader than "GitHub sent
+	// something I could not parse".
+	lr := &io.LimitedReader{R: resp.Body, N: upgradeCompareMaxBody + 1}
 	var cmp githubCompare
-	if err := json.NewDecoder(io.LimitReader(resp.Body, upgradeCompareMaxBody)).Decode(&cmp); err != nil {
+	if err := json.NewDecoder(lr).Decode(&cmp); err != nil {
+		if lr.N <= 0 {
+			return nil, false, fmt.Errorf("the compare answer exceeded %d bytes and was cut short",
+				int64(upgradeCompareMaxBody))
+		}
 		return nil, false, err
 	}
 	for _, f := range cmp.Files {
@@ -287,6 +355,31 @@ func sharedLayerFiles(files []string) []string {
 	return out
 }
 
+// usableCommit says whether a recorded commit can be handed to GitHub.
+//
+// 🔴 The value that makes this necessary is the literal string "unknown":
+// gitSHA() answers it whenever the build was not stamped AND `git rev-parse`
+// is unavailable (an installed binary outside a checkout), so it is a REAL
+// production value, not a test artefact. Passing it through produces a
+// compare URL of the form compare/unknown...<sha> — a link that 404s, in a
+// message whose entire value IS that link. An honest "I do not know where
+// this station came from" is worth more than a link that looks fine until
+// it is clicked.
+func usableCommit(sha string) bool {
+	sha = strings.TrimSpace(sha)
+	return sha != "" && sha != "unknown"
+}
+
+// describeCommit is what the READER sees where a commit belongs. It says so
+// in words when there is no commit to show, rather than printing the literal
+// "unknown" and leaving them to wonder whether that is a real sha.
+func describeCommit(sha string) string {
+	if !usableCommit(sha) {
+		return "commit 不明"
+	}
+	return shortSHA(sha)
+}
+
 // shortSHA is the 8-character form used in log lines and message text.
 func shortSHA(sha string) string {
 	sha = strings.TrimSpace(sha)
@@ -314,31 +407,45 @@ func upgradeCompareURL(fromSHA, toSHA string) string {
 //   - the shared layer moved → the full material, verdict first.
 func upgradeNoticeBody(n pendingUpgradeNotice, files []string, truncated bool, cmpErr error) string {
 	versions := fmt.Sprintf("%s (`%s`) → %s (`%s`)",
-		n.FromVersion, shortSHA(n.FromSHA), n.ToVersion, shortSHA(n.ToSHA))
+		n.FromVersion, describeCommit(n.FromSHA), n.ToVersion, describeCommit(n.ToSHA))
+	// A link is only offered when both ends are real commits. An unstamped
+	// build records "unknown", and compare/unknown...<sha> is a 404 dressed up
+	// as help — in a message whose whole value is that link.
+	linkLine := "**比對**：" + upgradeCompareURL(n.FromSHA, n.ToSHA)
 	link := upgradeCompareURL(n.FromSHA, n.ToSHA)
+	if !usableCommit(n.FromSHA) || !usableCommit(n.ToSHA) {
+		linkLine = "**比對**：這台站台沒有記下自己的 commit（版本沒有被標記），所以我給不出可以點的比對連結 —— 要看差異得自己從版本號去對。"
+		link = "（無法產生比對連結：這台站台沒有記下自己的 commit）"
+	}
 
 	if cmpErr != nil {
 		return "⚠️ **站台已經換版，但我查不到這次動了哪些檔案。**\n\n" +
 			"**版本**：" + versions + "\n" +
-			"**比對**：" + link + "\n\n" +
+			linkLine + "\n\n" +
 			"取得檔案清單失敗（" + cmpErr.Error() + "）⇒ **有沒有踩到 `seeds/`（全體開機會讀的共用層）或 `spec/`（工具面）我不知道**。" +
-			"這一則不能當成「沒事」，請自己點上面那條連結看過再判斷。"
+			"這一則不能當成「沒事」，請自己去看過再判斷。"
 	}
 
 	shared := sharedLayerFiles(files)
 	if len(shared) == 0 {
 		tail := fmt.Sprintf("，共 %d 個檔案", len(files))
+		if len(files) == 0 {
+			// Not the same sentence as "nothing important changed": GitHub
+			// says these two commits differ in no files at all, which for an
+			// upgrade is odd enough to be worth naming rather than printing
+			// a bare 0 the reader has to interpret.
+			tail = "，而且 GitHub 回報這兩顆 commit 之間沒有任何檔案差異（對一次換版來說這本身就不尋常，值得看一眼）"
+		}
 		if truncated {
 			tail = "，檔案數超過 GitHub 單次比對的上限（只回了 300 個），所以這句「未動到」只涵蓋回得來的那部分"
 		}
-		return "⚪ 站台換版：" + versions + "，**未動到 `seeds/`（共用層）或 `spec/`（工具面）**" + tail + "。\n" +
-			"多半不需要你做事；要自己看就點 " + link + "。"
+		return "⚪ 站台換版：" + versions + "，**未動到 `seeds/`（共用層）或 `spec/`（工具面）**" + tail + "。多半不需要你做事；要自己看就點 " + link + "。"
 	}
 
 	var b strings.Builder
 	b.WriteString("🔴 **站台已經換版，而且動到了全體共用的那一層 —— 這則需要你判斷。**\n\n")
 	b.WriteString("**版本**：" + versions + "\n")
-	b.WriteString("**比對**：" + link + "\n\n")
+	b.WriteString(linkLine + "\n\n")
 	b.WriteString("## 🔴 動到的共用層／工具面檔案\n")
 	for _, f := range shared {
 		b.WriteString("- `" + f + "`\n")

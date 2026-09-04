@@ -10,10 +10,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func t79Server(t *testing.T) *apiServer {
@@ -80,7 +84,7 @@ func TestUpgradeNoticeBody_AnUpgradeBelowTheSharedLayerStaysOneLine(t *testing.T
 	if !strings.HasPrefix(body, "⚪") {
 		t.Errorf("the quiet case must be marked as quiet:\n%s", body)
 	}
-	if strings.Count(body, "\n") > 1 {
+	if strings.Contains(body, "\n") {
 		t.Errorf("the quiet case grew past one line:\n%s", body)
 	}
 	if !strings.Contains(body, "未動到") || !strings.Contains(body, "共 2 個檔案") {
@@ -317,5 +321,233 @@ func TestDeliverPendingUpgradeNotice_AnUnreachableGitHubStillGetsAMessageOut(t *
 	}
 	if strings.Contains(msgs[0].Body, "未動到") {
 		t.Errorf("a message with no file list claimed the shared layer was untouched:\n%s", msgs[0].Body)
+	}
+}
+
+// ─── the wiring ────────────────────────────────────────────────────────────
+//
+// 🔴 These two exist because the independent review PROVED they were missing:
+// with both call sites deleted the whole package still went green, so the
+// feature could be unplugged entirely and CI would call it fine. Everything
+// above tests the machinery; these two test that anything calls it.
+
+// The upgrade path must LEAVE the marker behind. Delete the one line in
+// runUpgrade and this is the test that notices.
+func TestUpgradeRecordsAPendingNoticeForTheNextBoot(t *testing.T) {
+	api, srvURL, token, _, restarted := newUpgradeTestServer(t)
+	gh := githubWithRelease(t, "v0.9.0", smokePassingBinary, "", true)
+	pointAtGitHub(t, api, gh)
+
+	if before, err := api.readPendingUpgradeNotice(); err != nil || before != nil {
+		t.Fatalf("precondition: a marker exists before any upgrade (%v, %v)", before, err)
+	}
+	status, data := doJSON(t, "POST", srvURL+"/api/update/upgrade", token, "")
+	if status != 200 {
+		t.Fatalf("valid upgrade must 200: %d %v", status, data)
+	}
+	select {
+	case <-restarted:
+	case <-time.After(3 * time.Second):
+		t.Fatal("restart never fired — the upgrade did not complete")
+	}
+
+	got, err := api.readPendingUpgradeNotice()
+	if err != nil {
+		t.Fatalf("read marker: %v", err)
+	}
+	if got == nil {
+		t.Fatal("a completed upgrade left NO pending notice — nothing will ever tell the assistant it happened")
+	}
+	if got.ToVersion != "v0.9.0" {
+		t.Errorf("marker names %q as the new version, want v0.9.0", got.ToVersion)
+	}
+}
+
+// And boot must LOOK for it and say so. Delete the one line in cmdServe and
+// this notices.
+//
+// It asserts the boot LINE rather than the delivered message on purpose: the
+// held-port pattern makes serve exit right after the bind fails, which closes
+// the pools out from under any background work, so an assertion on the
+// message would be a race. The line is written synchronously, before the
+// goroutine exists — that is exactly why the look was made synchronous.
+func TestServeAnnouncesAPendingUpgradeNoticeOnBoot(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "oc.db")
+
+	seedDB, err := openSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("open seed db: %v", err)
+	}
+	if err := runMigrations(seedDB); err != nil {
+		t.Fatalf("goose up: %v", err)
+	}
+	seed := NewDAL(seedDB)
+	if err := seed.PutMember(Member{
+		ID: seedMiraID, Name: "\u9280\u6708", Kind: KindStaff, RosterStatus: RosterStatusActive,
+	}); err != nil {
+		t.Fatalf("seed assistant: %v", err)
+	}
+	blob, _ := json.Marshal(pendingUpgradeNotice{
+		FromVersion: "v0.5.311", FromSHA: "aaaaaaaaaaaa",
+		ToVersion: "v0.5.312", ToSHA: "cccccccccccc", RecordedTS: 1,
+	})
+	if err := seed.PutSetting(pendingUpgradeNoticeKey, string(blob)); err != nil {
+		t.Fatalf("seed marker: %v", err)
+	}
+	if err := seedDB.Close(); err != nil {
+		t.Fatalf("close seed db: %v", err)
+	}
+
+	// Hold the port so the boot runs and the bind is what ends it.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+	cfgPath := filepath.Join(dir, "oc.toml")
+	if err := os.WriteFile(cfgPath,
+		[]byte(fmt.Sprintf("[server]\nport = %d\n", ln.Addr().(*net.TCPAddr).Port)), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	var out strings.Builder
+	if rc := cmdServe(envOf(map[string]string{
+		"OC_CONFIG":       cfgPath,
+		"OC_DATABASE_URL": "sqlite:///" + dbPath,
+	}), true, true, &out); rc != 1 {
+		t.Fatalf("the held port must make serve exit 1 (boot ran, bind failed), got %d\n%s", rc, out.String())
+	}
+	if !strings.Contains(out.String(), "already in use") {
+		t.Fatalf("serve exited for some earlier reason, so the boot under test never happened:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "[upgrade-notice] pending notice for v0.5.312") {
+		t.Fatalf("serve booted with a pending upgrade notice and never looked at it — "+
+			"the boot mount is missing, so no upgrade will ever be announced:\n%s", out.String())
+	}
+}
+
+// A boot with nothing pending must stay quiet: this channel only works while
+// its lines mean something.
+func TestServeSaysNothingWhenNoUpgradeIsPending(t *testing.T) {
+	s := t79Server(t)
+	var out strings.Builder
+	s.startUpgradeNoticeDelivery(&out)
+	if out.String() != "" {
+		t.Errorf("an ordinary boot printed an upgrade notice line: %q", out.String())
+	}
+}
+
+// A marker that cannot be decoded would otherwise be invisible forever —
+// unreadable every boot, delivered never, cleared never.
+func TestServeSaysSoWhenThePendingNoticeCannotBeRead(t *testing.T) {
+	s := t79Server(t)
+	if err := s.dal.PutSetting(pendingUpgradeNoticeKey, "{not json"); err != nil {
+		t.Fatalf("seed corrupt marker: %v", err)
+	}
+	var out strings.Builder
+	s.startUpgradeNoticeDelivery(&out)
+	if !strings.Contains(out.String(), "cannot be read") {
+		t.Errorf("a corrupt marker booted silently: %q", out.String())
+	}
+	if s.deliverPendingUpgradeNotice() {
+		t.Error("a corrupt marker produced a message anyway")
+	}
+}
+
+// ─── what the independent review found ─────────────────────────────────────
+
+// 🔴 A bare DeleteSetting here loses an upgrade silently. Delivery can sit on
+// GitHub for upgradeCompareTimeout, and the owner's explicit upgrade takes no
+// part in this file's locking — so a swap can land, record its marker, and be
+// wiped by the delete belonging to the notice that was still being delivered.
+func TestClearDeliveredUpgradeNotice_ANewerUpgradeRecordedMidDeliverySurvives(t *testing.T) {
+	s := t79Server(t)
+	s.processSHA = "aaaaaaaaaaaa"
+	s.recordPendingUpgradeNotice("v0.5.311", "bbbbbbbbbbbb")
+	delivered, err := s.readPendingUpgradeNotice()
+	if err != nil || delivered == nil {
+		t.Fatalf("seed marker: %v (%v)", err, delivered)
+	}
+	// While that one is "being delivered", a newer upgrade lands.
+	s.recordPendingUpgradeNotice("v0.5.312", "cccccccccccc")
+
+	s.clearDeliveredUpgradeNotice(*delivered)
+
+	got, err := s.readPendingUpgradeNotice()
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if got == nil {
+		t.Fatal("the newer upgrade's marker was wiped by the older notice's delete — " +
+			"that upgrade will never be announced, and nothing records that it was lost")
+	}
+	if got.ToVersion != "v0.5.312" {
+		t.Errorf("surviving marker names %q, want the newer v0.5.312", got.ToVersion)
+	}
+}
+
+// An unstamped build records the literal "unknown" as its sha. A compare link
+// built from it 404s — in a message whose entire value IS that link.
+func TestUpgradeNoticeBody_AnUnstampedBuildIsNotHandedADeadLink(t *testing.T) {
+	n := pendingUpgradeNotice{FromVersion: "v0.5.311", FromSHA: "unknown", ToVersion: "v0.5.312", ToSHA: "cccccccccccc"}
+	for _, body := range []string{
+		upgradeNoticeBody(n, nil, false, errors.New("both commits must be known")),
+		upgradeNoticeBody(n, []string{"seeds/system_interaction.md"}, false, nil),
+		upgradeNoticeBody(n, []string{"server/x.go"}, false, nil),
+	} {
+		if strings.Contains(body, "compare/unknown") {
+			t.Errorf("handed out a link that 404s:\n%s", body)
+		}
+		if !strings.Contains(body, "commit 不明") {
+			t.Errorf("the reader is not told the starting point is unknown:\n%s", body)
+		}
+	}
+}
+
+// ...and the station must still SAY something. The "did the swap take" guard
+// compares two shas; on an unstamped build both are the same literal, and a
+// naive comparison would silence this station's notices forever.
+func TestDeliverPendingUpgradeNotice_AnUnstampedBuildIsNotSilencedForever(t *testing.T) {
+	s := t79Server(t)
+	s.processSHA = "unknown"
+	s.recordPendingUpgradeNotice("v0.5.312", "unknown")
+
+	if !s.deliverPendingUpgradeNotice() {
+		t.Fatal("an unstamped build never announces any upgrade at all")
+	}
+	msgs, err := s.dal.ListChatInvolving(seedMiraID, 10)
+	if err != nil || len(msgs) != 1 {
+		t.Fatalf("assistant received %d messages (err=%v), want 1", len(msgs), err)
+	}
+}
+
+// No assistant on the roster is not an error — but it must not consume the
+// notice either, or the upgrade is lost the moment she is re-hired.
+func TestDeliverPendingUpgradeNotice_WithNoAssistantTheNoticeIsKept(t *testing.T) {
+	s := &apiServer{dal: newTestDAL(t), hub: NewHub()} // deliberately no mira
+	s.releaseAPIBase = "http://127.0.0.1:1"
+	s.processSHA = "aaaaaaaaaaaa"
+	s.recordPendingUpgradeNotice("v0.5.312", "cccccccccccc")
+	s.processSHA = "cccccccccccc"
+
+	if s.deliverPendingUpgradeNotice() {
+		t.Fatal("claimed to have delivered a message with nobody to deliver it to")
+	}
+	got, err := s.readPendingUpgradeNotice()
+	if err != nil || got == nil {
+		t.Fatalf("the notice was consumed even though nobody received it: %v (%v)", err, got)
+	}
+}
+
+// A compare that reports no differing files at all is unusual for an upgrade.
+// Printing a bare "0 files" reads like "nothing happened"; it must be named.
+func TestUpgradeNoticeBody_AnEmptyDiffIsCalledOutRatherThanPrintedAsZero(t *testing.T) {
+	n := pendingUpgradeNotice{FromVersion: "v0.5.311", FromSHA: "aaaaaaaa", ToVersion: "v0.5.312", ToSHA: "bbbbbbbb"}
+	body := upgradeNoticeBody(n, nil, false, nil)
+	if strings.Contains(body, "共 0 個檔案") {
+		t.Errorf("an empty diff was printed as a bare zero:\n%s", body)
+	}
+	if !strings.Contains(body, "不尋常") {
+		t.Errorf("an empty diff was not flagged as unusual:\n%s", body)
 	}
 }
