@@ -1701,10 +1701,14 @@ type chatPostReceiptDTO struct {
 // globalContextReceiptDTO answers replace_global_context and
 // reset_global_context. The block measured 5,716 characters on the live station.
 type globalContextReceiptDTO struct {
-	// IsDefault is the one field here a caller cannot predict from the verb it
-	// called: reset always makes it true, but replace makes it false ONLY if
-	// the text actually differed from the seed. This is how a caller learns its
-	// write was a no-op against the shipped text.
+	// IsDefault is true when NOBODY HAS EDITED this block — no overlay exists
+	// over the shipped seed. reset removes the overlay and makes it true;
+	// replace creates one and clears it. It tracks whether an edit EXISTS, not
+	// whether the text differs: writing the seed back verbatim still clears it
+	// (FoldBootDocument sets isDefault=false for any non-tombstone overlay,
+	// without comparing text). It is still the one field a caller cannot
+	// predict from the verb alone, because reset on an already-default block
+	// and replace both answer without saying which state they came from.
 	IsDefault bool `json:"is_default"`
 	// SizeChars is new on this face — globalContextDTO never carried it,
 	// because the text was there to be counted.
@@ -2100,10 +2104,24 @@ type taskWriteReceiptDTO struct {
 	// the count, never the rows, exactly as taskArtifactReceiptDTO reports it.
 	// list_task_artifacts serves the rows.
 	ArtifactCount int `json:"artifact_count"`
-	// DescriptionSizeChars / DescriptionSha256 describe the description AS
-	// STORED after this write. The hash is present so a caller can confirm that
-	// what landed is what it sent WITHOUT the text riding back, which matters
-	// here because this write trims and create_task does not.
+	// DescriptionSizeChars / DescriptionSha256 describe the description this
+	// handler just wrote, WITHOUT the text riding back. What the caller can
+	// confirm with them is real and is the reason they are here: this write
+	// TRIMS and create_task does not, so the two faces can disagree about the
+	// same text, and the hash is how a caller learns which one it got.
+	//
+	// 🔴 BE PRECISE ABOUT WHAT THEY ARE COMPUTED FROM, because the obvious
+	// stronger reading is wrong. Both are taken from the in-memory Task the
+	// handler assigned a moment earlier (writeTaskDescription's
+	// `t.Description = description`), NOT from a read-back of the row. So they
+	// answer "the handler stored the text you sent, after its own trim" —
+	// they CANNOT answer "the storage layer wrote it unchanged", because the
+	// value hashed here never went through the storage layer and came back.
+	// Measured, not reasoned: making SetTaskDescriptionOn persist a DIFFERENT
+	// string leaves this receipt, and the whole conformance suite, green. The
+	// guard that does catch it is
+	// TestTaskDescriptionRestoreIsGatedLikeTheEdit, which reaches the stored
+	// row by another door.
 	DescriptionSizeChars int    `json:"description_size_chars"`
 	DescriptionSha256    string `json:"description_sha256"`
 }
