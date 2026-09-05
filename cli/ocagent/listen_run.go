@@ -243,7 +243,15 @@ func (l *listener) noteDisconnect(format string, args ...any) {
 		return // the agent has already been told; retries are its own business
 	}
 	l.inOutage = true
+	// 🔴 THE ORIGIN SEGMENT MUST BE ON THIS LINE TOO, and this is the half that is
+	// easy to miss. On a machine that is NOT the station host, an unconfigured
+	// listener never connects at all — it dials the invented loopback address, is
+	// refused, and the connect line above is never reached. This disconnect notice is
+	// then the ONLY transport line that member will ever print, and without the
+	// segment it reads as "the station is down" when the truth is "nobody told me
+	// which station". Same debounce as everything else here: once per outage.
 	l.logf(noticeDisconnected+" — "+format+
+		baseAddressOrigin(l.cfg.BaseConfigured)+
 		" (retrying on the same schedule, quietly; the next transport line you see "+
 		"is either the reconnect or a give-up)", args...)
 }
@@ -281,6 +289,45 @@ func stationVerdict(prev, cur string, firstConnect bool) string {
 		return " [same station]"
 	}
 	return " [new station — was " + prev + "]"
+}
+
+// baseAddressOrigin answers 「這個位址是誰決定的」 on the two transport lines a
+// misconfigured listener actually reaches, and it is the whole of T-89.
+//
+// 🔴 WHAT WAS WRONG. loadConfig falls back to defaultBase when OC_BASE is unset,
+// so cfg.Base is NEVER empty and the connect line printed the invented address in
+// exactly the bytes a correctly-configured member prints. Loopback is not itself the
+// tell: cli/ocwarden/testdata/golden_launch.txt line 1 is a spawn that EXPORTS
+// OC_BASE=http://127.0.0.1:7755 explicitly, i.e. a member that was TOLD to use the
+// address an unconfigured one would have invented. The failure was never a missing
+// line — it was a line that looks completely normal. Nothing on it
+// said the address had been invented, so a member joining whatever happens to be
+// listening on 127.0.0.1:7755 was indistinguishable, in the transcript, from a
+// member joining the station somebody chose for it.
+//
+// 🔴 WHAT THIS DELIBERATELY DOES NOT DO: refuse, exit, or shorten anything. The
+// two shapes the earlier deferral in cmdListen offered — folding this into the
+// debounced refusal policy, or making it a launch-time refusal — are BOTH refusals,
+// and the owner's ruling (rc-55a969718c98, option [1]) is that this must not become
+// one: a listener that exits is a member that goes quiet, and from outside a quiet
+// member is indistinguishable from a dead one. Worse, the debounced refusal policy
+// ENDS at selfTerminate(), which kills the tmux session the member lives in. So this
+// is a segment of text and nothing else. It reads cfg and returns a string; it holds
+// no state, cannot fail, and no control flow branches on it.
+//
+// 🔴 THE PREDICATE IS BaseConfigured, NOT `Base == defaultBase`. cli/CLAUDE.md:11
+// states the rule: BaseConfigured records whether the FALLBACK WAS TAKEN, which is
+// not the same question as what the resulting value looks like. A member on the
+// station host legitimately sets OC_BASE to loopback, and comparing against
+// defaultBase would accuse that member of guessing when it was told.
+//
+// Configured ⇒ "" ⇒ both lines are emitted byte-identical to what they were before
+// this existed, which is what keeps this change invisible on every healthy machine.
+func baseAddressOrigin(configured bool) string {
+	if configured {
+		return ""
+	}
+	return " [⚠ address GUESSED — OC_BASE is not set, so nobody chose this station]"
 }
 
 // dispatch is the bridge from ONE completed SSE data payload to the agent's downlink
@@ -560,8 +607,14 @@ func (l *listener) connectOnce(ctx context.Context) (opened, activity, selfExit 
 	// The stream is up: whatever outage was being announced is over, and the
 	// line below IS the second of the owner's two notices.
 	l.inOutage = false
-	l.logf(noticeConnected+" — streaming %s%s (⇒ online while held)%s%s%s",
-		l.cfg.Base, eventsPath, verdict, station, agent)
+	// ⚠️ POSITION: the origin segment goes HERE, not at the end. Four tests assert
+	// this line ENDS with " [station <sha>]" or " [agent <sha>]"
+	// (listen_agent_sha_test.go:62,106,138; listen_test.go:2726,2796,2828), so a
+	// trailing segment would break them. Anywhere after the head is equally safe for
+	// the three sidecar prefix consumers, which read column 0 only — and it belongs
+	// beside the address it is talking about rather than after two shas.
+	l.logf(noticeConnected+" — streaming %s%s%s (⇒ online while held)%s%s%s",
+		l.cfg.Base, eventsPath, baseAddressOrigin(l.cfg.BaseConfigured), verdict, station, agent)
 
 	// Connect drain: /api/events has no replay, so any reply_card delta
 	// fanned while this listener held no stream is lost — catch up from the
