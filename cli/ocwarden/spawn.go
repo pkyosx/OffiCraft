@@ -477,9 +477,36 @@ func tmuxDeliverNudge(r CmdRunner, sleep func(time.Duration), socket, session, n
 	//   non-nil no-op at the   → TestPerSpawnBinding_CarriesTheBaseClockThrough,
 	//   per-spawn seam           which pins that the per-spawn binding changes
 	//                            Pretrust/PurgeTrash and NOTHING else
-	// A third shape (mutating spawnDeps itself, or adding a knob to the per-spawn
-	// binding) is NOT guarded — it is only made VISIBLE, by there being no local
-	// copy in the closure to quietly assign to. Do not upgrade that to "guarded".
+	// A third shape — assigning to the captured spawnDeps inside transport.go's
+	// Spawn closure — is NOT GUARDED, AND NOT MADE VISIBLE EITHER. An earlier
+	// version of this comment claimed the second half ("only made VISIBLE, by
+	// there being no local copy to quietly assign to"); review round 4 measured
+	// that claim and it is false, in both directions:
+	//
+	//   * NOT visible. The closure ALREADY dereferences spawnDeps directly
+	//     (transport.go: agentWorkdir(spawnDeps.Home, …), purgeTrash(spawnDeps.Home, …)),
+	//     so one more `spawnDeps.X = …` line beside them reads like the others.
+	//     Adding it is one line, exactly as it was before this seam existed, and
+	//     `go test ./...` stays green at 522/522.
+	//   * WORSE, not neutral, in the failure it leads to. The shape this replaced
+	//     (`sd := spawnDeps` then `sd.X = …`) mutated a PER-CALL copy, so a mistake
+	//     cost one spawn. spawnDeps is captured by buildCommandDeps, so the same
+	//     mistake now persists for every later spawn of that warden process — and
+	//     is a data race if Spawn is ever called concurrently.
+	//
+	// WHAT THIS SEAM DOES BUY, stated at its real size: adding a per-spawn knob
+	// THE INTENDED WAY now requires editing withPerSpawn's signature, and
+	// spawn_clock_guard_t82_test.go fails on any non-per-spawn field that differs.
+	// That guard covers what withPerSpawn itself does. It cannot see what a caller
+	// does to the base before calling it.
+	//
+	// ⚠️ DELIBERATELY NOT FIXED HERE, and this is the reason rather than an
+	// oversight: three consecutive review rounds on this ticket each opened
+	// blockers that were created by the PREVIOUS round's fix, in a ticket whose
+	// stated scope was deleting a one-line function and its single call site. A
+	// fourth layer of machinery is how that continues. The residual is named and
+	// ticketed instead. buildCommandDeps also has no test of its own (grep:
+	// zero hits in *_test.go), which is the same gap one level up.
 	sleep = nudgeClock(sleep)
 	const buf = "oc-spawn-nudge"
 	_, _ = r.Run("tmux", "-L", socket, "set-buffer", "-b", buf, nudge)

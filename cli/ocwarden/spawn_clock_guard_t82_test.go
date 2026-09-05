@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"reflect"
 	"testing"
 	"time"
@@ -56,7 +57,20 @@ func TestNudgeClock_NonNilIsHandedBackUnchanged(t *testing.T) {
 // field other than the two named below that stops matching the base is reported.
 func TestPerSpawnBinding_CarriesTheBaseClockThrough(t *testing.T) {
 	ticks := 0
+	// EVERY field is populated, and the FUNC ones are populated for a reason that
+	// is easy to undo by accident: the structural half below compares func fields
+	// by POINTER, and nil == nil. A fixture that leaves a seam nil therefore cannot
+	// see `d.X = nil` — the whole "quietly clear a seam" family is invisible to a
+	// guard whose base already has nothing there.
+	//
+	// That is not hypothetical. Review round 4 measured it: with only Sleep set,
+	// `d.CaptureEnv = nil` (every agent silently loses the owner's shell env) and
+	// `d.ResolveOcAgentBin = nil` (T-81's defect, whole) both ran 522/522 GREEN.
+	//
+	// ⇒ ADDING A FUNC FIELD TO SpawnDeps MEANS ADDING IT HERE. There is no
+	// mechanical check that says you forgot; the symptom is silence.
 	base := SpawnDeps{
+		Runner:    fakeRunner{},
 		Base:      "https://station.example",
 		Socket:    "sock-fixture",
 		Home:      "/fixture/home",
@@ -68,6 +82,17 @@ func TestPerSpawnBinding_CarriesTheBaseClockThrough(t *testing.T) {
 		RepoRoot:  "/fixture/repo",
 		Nudge:     "fixture-nudge",
 		Sleep:     func(time.Duration) { ticks++ },
+
+		CaptureEnv:        func() (string, error) { return "", nil },
+		Logf:              func(string, ...any) {},
+		ClaudeCreds:       func() claudeCredStatus { return claudeCredStatus{} },
+		ResolveOcAgentBin: func() (string, bool) { return "", false },
+		WriteFile:         func(string, string, os.FileMode) error { return nil },
+		MkdirAll:          func(string, os.FileMode) error { return nil },
+		Symlink:           func(string, string) error { return nil },
+		Remove:            func(string) error { return nil },
+		Pretrust:          func() error { return nil },
+		PurgeTrash:        func() {},
 	}
 
 	got := base.withPerSpawn(func() error { return nil }, func() {})

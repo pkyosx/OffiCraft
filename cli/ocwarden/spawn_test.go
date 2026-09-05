@@ -1259,9 +1259,12 @@ func TestStart_PassesItsClockToTheNudge(t *testing.T) {
 
 	if len(slept) != nudgeMaxAttempts {
 		t.Fatalf("start() must hand ITS OWN clock to the boot nudge: expected %d settles, saw %d.\n"+
-			"Zero means the call site passed nil (or some other clock), and tmuxDeliverNudge's nil\n"+
-			"fallback is a TEST default that does not wait — so production fires every Enter in\n"+
-			"microseconds, which is materially the single-shot Enter this loop exists to avoid.",
+			"Zero means the call site passed nil, or some other clock. nil is NOT \"no wait\":\n"+
+			"nudgeClock turns a nil clock into a REAL time.Sleep, so a nil call site still\n"+
+			"paces — it just stops being THIS test's clock, and the 30 paced Enters become\n"+
+			"30 real seconds instead of 30 counted ticks. What a NON-NIL fake clock at the\n"+
+			"per-spawn seam would do is the actual regression: 30 Enters in microseconds,\n"+
+			"which is materially the single-shot Enter this loop exists to avoid.",
 			nudgeMaxAttempts, len(slept))
 	}
 	for i, d := range slept {
