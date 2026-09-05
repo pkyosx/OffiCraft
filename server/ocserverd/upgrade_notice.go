@@ -215,6 +215,17 @@ func (s *apiServer) deliverPendingUpgradeNotice() (sent bool) {
 			"fetched (%v) — sending the notice without it", shortSHA(notice.FromSHA), shortSHA(notice.ToSHA), cmpErr)
 	}
 
+	// The owner's open 換版交代單 ride the same message. Read them AFTER the
+	// compare so a slow GitHub cannot make this read look like the slow half,
+	// and treat a failure the way the compare failure is treated: degrade to
+	// less material, never to silence. An instruction the owner is waiting on
+	// must not disappear because a query failed.
+	openInstructions, instrErr := s.dal.ListOpenUpgradeInstructions()
+	if instrErr != nil {
+		outsourceLog("upgrade-notice: the open upgrade instructions could not be read "+
+			"(%v) — the assistant will be told that, not told there are none", instrErr)
+	}
+
 	recipient, err := s.resolveChatRecipient(seedMiraID)
 	if err != nil {
 		outsourceLog("upgrade-notice: no assistant to tell (%s): %v — nobody will be "+
@@ -225,7 +236,7 @@ func (s *apiServer) deliverPendingUpgradeNotice() (sent bool) {
 		ID:        "c-" + newHexID(12),
 		Sender:    wireSystemSender,
 		Recipient: recipient,
-		Body:      upgradeNoticeBody(*notice, files, truncated, cmpErr),
+		Body:      upgradeNoticeMessage(*notice, files, truncated, cmpErr, openInstructions, instrErr),
 		TS:        nowSecs(),
 		Meta: map[string]any{
 			"upgrade_notice": map[string]any{
@@ -235,6 +246,11 @@ func (s *apiServer) deliverPendingUpgradeNotice() (sent bool) {
 				"to_sha":       notice.ToSHA,
 				"shared_layer": len(sharedLayerFiles(files)) > 0,
 			},
+			// The ids the message spells out, so a reader that wants to act on
+			// one does not have to parse them back out of prose. It carries the
+			// COUNT the message was built from, which is the honest number even
+			// when the list itself was truncated for length.
+			"upgrade_instructions": upgradeInstructionIDs(openInstructions),
 		},
 	}
 	if err := s.dal.PutChat(msg); err != nil {
@@ -496,4 +512,77 @@ func upgradeNoticeBody(n pendingUpgradeNotice, files []string, truncated bool, c
 		"**誰需要重生才會讀到新的開機說明、誰手上的文件已經過期、有沒有人正在做的事被這次改動推翻**，" +
 		"然後直接去做（需要時自己發包）。")
 	return b.String()
+}
+
+// upgradeNoticeMaxInstructions bounds how many 換版交代單 one hand-over message
+// spells out. The rest are counted, not printed: the assistant is handed the
+// WHOLE open set at every upgrade, so a backlog that nobody ticks would
+// otherwise grow this message without limit — and a message too long to read is
+// the same outcome as no message at all, reached more expensively.
+const upgradeNoticeMaxInstructions = 20
+
+// upgradeInstructionsSection renders the owner's open 換版交代單 for the
+// hand-over message, or "" when there are none.
+//
+// 🔴 IT IS SILENT WHEN THERE IS NOTHING TO DO, and that is the whole reason the
+// quiet one-line shape of upgradeNoticeBody survives: a section that always
+// printed "0 張交代單" would turn every harmless upgrade into something with a
+// heading, which is exactly how a signal gets trained into noise.
+//
+// readErr is NOT folded into "no instructions". Those two are opposite facts —
+// "he asked for nothing" and "I could not find out what he asked for" — and a
+// reader who cannot tell them apart will read the second as the first.
+func upgradeInstructionsSection(open []UpgradeInstruction, readErr error) string {
+	if readErr != nil {
+		return "⚠️ **這次換版有沒有交代單，我讀不出來** —— " + readErr.Error() +
+			"\n\n**這不等於「沒有交代單」。** 請自己用 `list_upgrade_instructions` 查一次再往下做。"
+	}
+	if len(open) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "📌 **owner 留給你的交代單，還沒完成的有 %d 張。這一段是要你做事的，不是背景。**\n\n", len(open))
+	for i, u := range open {
+		if i >= upgradeNoticeMaxInstructions {
+			fmt.Fprintf(&b, "\n…另外還有 %d 張沒有列出來，用 `list_upgrade_instructions` 看完整清單。\n",
+				len(open)-upgradeNoticeMaxInstructions)
+			break
+		}
+		fmt.Fprintf(&b, "%d. %s\n", i+1, u.Body)
+		fmt.Fprintf(&b, "   （%s 寫的；做完用 `complete_upgrade_instruction` 打勾，id `%s`）\n",
+			resumeDisplayTime(u.CreatedTS), u.ID)
+	}
+	b.WriteString("\n**沒有打勾的，下一次換版還會再交給你一次** —— 所以漏掉一張不會靜靜消失，" +
+		"但也不會有人替你做。做不到或不該做的那張，回報 owner，不要打勾。")
+	return b.String()
+}
+
+// upgradeNoticeMessage is the whole hand-over message: what the owner asked
+// for, then what actually changed.
+//
+// 🔴 THE INSTRUCTIONS COME FIRST, AND NOT FOR EMPHASIS. The diff half is
+// context the reader may skim — most upgrades touch nothing she cares about,
+// and the quiet shape of upgradeNoticeBody exists so she CAN skim it. The
+// instructions are the half somebody is waiting on. Putting the skimmable part
+// first would put the actionable part below the fold of a message whose whole
+// design assumes most of it is skippable.
+func upgradeNoticeMessage(n pendingUpgradeNotice, files []string, truncated bool,
+	cmpErr error, open []UpgradeInstruction, readErr error) string {
+	body := upgradeNoticeBody(n, files, truncated, cmpErr)
+	section := upgradeInstructionsSection(open, readErr)
+	if section == "" {
+		return body
+	}
+	return section + "\n\n---\n\n" + body
+}
+
+// upgradeInstructionIDs is the id list the message's Meta carries. Always a
+// non-nil slice: a JSON null and an empty list read differently to a client,
+// and "there were none" is a fact worth stating rather than an absence.
+func upgradeInstructionIDs(open []UpgradeInstruction) []string {
+	ids := make([]string, 0, len(open))
+	for _, u := range open {
+		ids = append(ids, u.ID)
+	}
+	return ids
 }
