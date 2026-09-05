@@ -64,8 +64,13 @@ import {
  *     was one fact in two fields.
  *   · `backingAttachmentId` ← the tail of `url`, which for a file/image IS
  *     `/api/chat/attachment/{id}`. ⚠️ It is derived by PATH SHAPE, so a change
- *     to that route silently empties it — that is the cost of the id leaving
- *     the wire, and it is written down here rather than discovered later. */
+ *     to that route silently empties it.
+ *     🔴 THE PREMISE OF THAT DERIVATION IS GONE (owner rc-91e29b576ad8):
+ *     `attachment_id` came BACK to the wire, so this component is now computing
+ *     from `url` a value that arrives beside it. It is left as-is deliberately —
+ *     swapping it is a behaviour change on a path nothing here tests — but it is
+ *     NOT the cheapest correct thing any more, and the next person touching this
+ *     file should read `a.attachmentId` instead of parsing the path. */
 function asAttachmentView(a: TaskArtifactView): ChatAttachmentView {
   return {
     id: a.id,

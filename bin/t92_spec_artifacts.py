@@ -11,8 +11,13 @@ bin/t6cce_add_param_desc.py — same shape, earlier tickets.
 WHAT IT CHANGES (spec only — no Go, no generator run, no spec/mcp-catalog.json,
 which is a bin/gen-mcp-catalog OUTPUT and is regenerated, never hand-edited):
 
-  TaskArtifactDTO         label/attachment_id/filename/is_image OUT,
-                          name/description IN  → 9 fields.
+  TaskArtifactDTO         label/filename/is_image OUT, name/description IN
+                          → 10 fields. (⚠️ This script ran when the plan was
+                          "attachment_id OUT → 9 fields"; owner rc-91e29b576ad8
+                          later put attachment_id BACK, in a separate commit that
+                          this script never saw. The header is corrected to the
+                          landed shape so nobody reads a superseded plan as the
+                          record of what shipped.)
   TaskArtifactRefDTO      DELETED — nothing references it once a task response
                           carries no artifact rows.
   TaskArtifactListDTO     artifacts_detail_level KEPT and REDEFINED (ticket T-92

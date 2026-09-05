@@ -1715,8 +1715,16 @@ const taskArtifactsDetailLevelFull = "full"
 // taskArtifactDTO is one pinned deliverable on a task's artifact set (T-3dc5,
 // reshaped by T-92). URL has ONE meaning on every kind — where to go for this
 // deliverable's content: the blob serve path for a file/image, the external
-// address for a link (read out of that link's text/uri-list blob). The blob id
-// is no longer a field of its own; it is the tail of URL.
+// address for a link (read out of that link's text/uri-list blob).
+//
+// AttachmentID IS a field of its own again (owner rc-91e29b576ad8). This
+// paragraph used to say it was not — that it was only ever the tail of URL —
+// and that stopped being true eight lines below, where the field now is. For a
+// file/image it IS the tail of URL and the duplication is real; for a LINK it
+// is the ONLY way to reach the target's text/uri-list blob, because URL there
+// is the external address and the blob id appears nowhere in it. That LINK row
+// is why the field came back: `ocagent diff` takes a blob id, and members are
+// told to use the id rather than build a URL themselves.
 //
 // 🔴 Name is NEVER EMPTY here even though the COLUMN usually is: it is derived
 // read-time (see artifactDisplayName). Description is the prose half of the old
