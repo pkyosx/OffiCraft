@@ -103,7 +103,6 @@ subcommands:
   suicide         self-terminate: kill my own tmux session (OC_SESSION) → SSE drops → offline
   download        fetch a chat attachment blob to a local file (streaming; --out <dir>)
   upload          stream a local file into the attachment store (prints the att id; --mime <type>)
-  pin             pin a local file onto a task as a deliverable in one call (--task, --name; --replace <artifact-id>)
   diff            print a compare-screen URL for two attachment ids / document versions (--external mints a no-login link)
   clean           get rid of a file or folder I made: quarantines it under my workdir (never rm)
   version         print this build's identity: build.sha, VCS stamp when present, self-hash
