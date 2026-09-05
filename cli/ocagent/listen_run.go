@@ -748,6 +748,28 @@ func cmdListen(cfg Config, env func(string) string, once bool, out io.Writer) in
 	stamper := &eventStamper{clock: time.Now}
 	out = &stampWriter{inner: out, stamp: stamper.suffix}
 
+	// OC_BASE CLASSIFICATION: NOT GUARDED IN THIS PACKAGE, AND THIS IS THE
+	// ONE CASE WHERE THAT IS A DEFERRAL RATHER THAN AN EXEMPTION. Say so plainly,
+	// because listen is the subcommand with the MOST at stake here: cfg.Base is
+	// what the SSE connection below is opened against, holding it is what makes
+	// the server call this agent online, and nothing in this file asks whether
+	// that address was ever configured. suicide and clean are exempt because they
+	// reach no station at all; listen reaches one for as long as it runs.
+	//
+	// It was left alone for two reasons, neither of which is "it does not
+	// matter":
+	//   1. The refusal T-86 adds elsewhere is an exit. Here an exit is the
+	//      failure mode itself — a member that stops holding its downlink is
+	//      indistinguishable from a dead one — and this file's refusal policy is
+	//      already a deliberate, debounced one (cli/CLAUDE.md §5: tmux gone twice,
+	//      unknown eight times across ten minutes, 409 four times across two
+	//      minutes). A new immediate refusal would sit outside that policy.
+	//   2. T-86's own scope forbids changing what config_test.go pins about the
+	//      mis-wire arm directly below.
+	//
+	// What it would take: a ruling on whether an unconfigured OC_BASE belongs in
+	// the debounced refusal policy or is a launch-time refusal, which is a
+	// question about this file's contract rather than about the guard T-86 added.
 	if cfg.ID == "" || cfg.Token == "" {
 		fmt.Fprint(out, "[ocagent] listen: no OC_ID/OC_TOKEN — nothing to do; exiting.\n")
 		return 0
