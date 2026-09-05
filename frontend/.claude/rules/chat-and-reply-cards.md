@@ -20,6 +20,7 @@ paths:
   - "src/lib/autosize.ts"
   - "src/lib/chatDraftStore.ts"
   - "src/lib/hashRoute.ts"
+  - "src/lib/hashRoute.test.ts"
   - "src/api/mock.scheduled-messages.test.ts"
   # 🔴 THE WIRE LAYER IS IN SCOPE, and it was not. The T-4e95 rule below —
   # "the quote content is assembled by the SERVER; the mock says the same thing;

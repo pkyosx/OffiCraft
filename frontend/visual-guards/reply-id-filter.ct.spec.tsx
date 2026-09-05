@@ -235,8 +235,10 @@ for (const theme of ["dark", "light"] as const) {
     expect(
       parseFloat(colours.borderWidth),
       // NOTE: this half only asks that a border WIDTH is declared. A border
-      // painted `transparent` still passes it (measured: that mutant leaves all
-      // 5 cases green) — and that is correct, because the contract below is
+      // painted `transparent` still passes it (measured: that mutant leaves
+      // EVERY case in this file green — no count here on purpose, the same
+      // commit that wrote "5" added a sixth) — and that is correct, because
+      // the contract below is
       // "distinguishable by a border, a fill, or BOTH", and the fill alone
       // satisfies it. Do not read this line as a guard on the border's COLOUR.
       "the field must declare a border width"
