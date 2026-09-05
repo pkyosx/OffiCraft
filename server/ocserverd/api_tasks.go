@@ -266,14 +266,15 @@ func (s *apiServer) taskDTOOf(t Task) (taskDTO, error) {
 		return taskDTO{}, err
 	}
 	dto := newTaskDTO(t, steps, deps, s.replyCardStatusesForSteps(steps))
-	// INDEX rows only (T-66, owner c-cd063427fb2f). The full set — url,
-	// filename, mime, kind, is_image, attachment_id, created_by, created_ts —
-	// is served by taskArtifactDTOs through GET /api/tasks/{task_id}/artifacts.
-	artifacts, err := s.taskArtifactRefDTOs(t.ID)
+	// A COUNT only (T-92, owner rc-15016959ad4d:「只有 ID 好像也沒用」). Every
+	// artifact ROW — kind, name, description, url, mime, created_by, created_ts,
+	// version_count — is served by taskArtifactDTOs through
+	// GET /api/tasks/{task_id}/artifacts, one call for the whole ticket.
+	artifactCount, err := s.dal.CountTaskArtifacts(t.ID)
 	if err != nil {
 		return taskDTO{}, err
 	}
-	dto.Artifacts = artifacts
+	dto.ArtifactCount = artifactCount
 	blocking, err := s.blockingTasksOf(t.ID)
 	if err != nil {
 		return taskDTO{}, err
@@ -313,31 +314,12 @@ func (s *apiServer) blockingTasksOf(taskID string) ([]taskDepRefDTO, error) {
 	return out, nil
 }
 
-// taskArtifactRefDTOs lists one task's artifacts as INDEX rows (id + label) —
-// what the shared task projection serves since T-66. Never nil.
-//
-// 🔴 IT DOES NOT TOUCH chat_attachment AT ALL. taskArtifactDTOs below runs one
-// GetChatAttachment per file/image row; this runs exactly one query no matter
-// how many artifacts a task has pinned, because the index carries no blob
-// metadata to resolve. That is why the slimming is a latency change on the task
-// read and not only a payload one.
-func (s *apiServer) taskArtifactRefDTOs(taskID string) ([]taskArtifactRefDTO, error) {
-	arts, err := s.dal.ListTaskArtifacts(taskID)
-	if err != nil {
-		return nil, err
-	}
-	out := []taskArtifactRefDTO{}
-	for _, a := range arts {
-		out = append(out, newTaskArtifactRefDTO(a))
-	}
-	return out, nil
-}
-
 // taskArtifactDTOs lists one task's artifacts and projects them onto the wire,
-// resolving the referenced chat_attachment blob metadata for file/image kinds
-// (link kinds carry a bare url, no blob). A missing blob resolves to nil →
-// the DTO's mime/filename/is_image stay honest-empty (never fabricated); the
-// artifact row is still shown (its label/url survive a GC'd blob).
+// resolving the referenced chat_attachment for EVERY kind since T-92 — a link's
+// target now lives in a text/uri-list blob, so a link row needs its blob too,
+// and it needs the BYTES rather than only the metadata. A missing blob resolves
+// to nil → mime stays honest-empty and the derived name falls through to
+// "#"+id, never fabricated.
 func (s *apiServer) taskArtifactDTOs(taskID string) ([]taskArtifactDTO, error) {
 	arts, err := s.dal.ListTaskArtifacts(taskID)
 	if err != nil {
@@ -350,8 +332,8 @@ func (s *apiServer) taskArtifactDTOs(taskID string) ([]taskArtifactDTO, error) {
 	out := []taskArtifactDTO{}
 	for _, a := range arts {
 		var att *ChatAttachment
-		if a.Kind != ArtifactKindLink && a.AttachmentID != "" {
-			att, err = s.dal.GetChatAttachment(a.AttachmentID)
+		if a.AttachmentID != "" {
+			att, err = s.dal.GetTaskArtifactBlob(a.AttachmentID)
 			if err != nil {
 				return nil, err
 			}
@@ -2867,6 +2849,63 @@ func (s *apiServer) HandleReportTaskCloseoutApiTasksTaskIdCloseoutPost(w http.Re
 
 // ── C.4 artifact set (T-3dc5) ────────────────────────────────────────────────
 
+// artifactNameMaxChars / artifactDescriptionMaxChars are the two write caps the
+// owner set for a deliverable's split text (c-0d0a576f68af: 48 / 256, and
+// 「舊資料不截斷」in the same breath).
+//
+// 🔴 THEY BIND NEW WRITES ONLY, and everything downstream has to know it. 313
+// rows arrived from the migration with a description longer than 256 and nearly
+// every migrated row has an EMPTY name — so "capped at 256" is not a fact about
+// what you will read back, and "required" is not why a name is non-empty on the
+// wire (the read-time derivation is). This is the third field in this codebase
+// whose cap binds one direction only; the first one fooled us once already.
+const (
+	artifactNameMaxChars        = 48
+	artifactDescriptionMaxChars = 256
+)
+
+// artifactTextOrError validates the pair and writes the 400 itself, returning
+// ok=false when it did. Either pointer may be nil, which reads as "not sent" and
+// yields "" — the caller decides whether absent means required, blank, or
+// carried forward, because add and replace answer that differently.
+//
+// Over-length is REFUSED rather than truncated: a silently shortened name is a
+// deliverable that no longer says what its author said it was.
+func artifactTextOrError(w http.ResponseWriter, namePtr, descPtr *string) (string, string, bool) {
+	name := trimmedOrEmpty(namePtr)
+	if n := utf8.RuneCountInString(name); n > artifactNameMaxChars {
+		writeError(w, http.StatusBadRequest, "artifact name is "+
+			strconv.Itoa(n)+" chars, over the "+
+			strconv.Itoa(artifactNameMaxChars)+"-char limit")
+		return "", "", false
+	}
+	description := trimmedOrEmpty(descPtr)
+	if n := utf8.RuneCountInString(description); n > artifactDescriptionMaxChars {
+		writeError(w, http.StatusBadRequest, "artifact description is "+
+			strconv.Itoa(n)+" chars, over the "+
+			strconv.Itoa(artifactDescriptionMaxChars)+"-char limit")
+		return "", "", false
+	}
+	return name, description, true
+}
+
+// mintLinkTargetBlob turns a link target into the blob that will hold it, and
+// returns the id to point the artifact at. The bytes ARE the url — RFC 2483's
+// one-URI-per-line list — so the blob answers "what am I" without a second
+// field somewhere else answering for it.
+//
+// It only BUILDS the blob; the write happens in the same transaction as the pin
+// (PutTaskArtifactMintingBlob), which is what keeps an upload from existing
+// without the thing that references it.
+func mintLinkTargetBlob(url string) (string, *ChatAttachment) {
+	att := &ChatAttachment{
+		ID:   "att-" + newHexID(12),
+		Mime: linkTargetMime,
+		Data: []byte(url),
+	}
+	return att.ID, att
+}
+
 // POST /api/tasks/{task_id}/artifact — the executing agent pins one deliverable
 // onto the task's artifact set (MCP add_task_artifact). This verb only ADDS and
 // is repeatable; swapping what an existing pin points at is ReplaceTaskArtifact. file/image reference a chat_attachment blob (attachment_id from a
@@ -2884,16 +2923,20 @@ func (s *apiServer) HandleAddTaskArtifactApiTasksTaskIdArtifactPost(w http.Respo
 			"kind must be one of file, image, link")
 		return
 	}
-	// The label is a one-line NAME, so it is capped at shortLabelMaxChars runes
-	// (128 CJK characters pass — the count is not in bytes). It sits with the
-	// other body-shape 400s, ahead of the task/permission guards, because it is
-	// a fault in the request itself and does not depend on which task it names.
-	// Over-length is REFUSED, never truncated. Existing rows are untouched.
-	label := trimmedOrEmpty(body.Label)
-	if n := utf8.RuneCountInString(label); n > shortLabelMaxChars {
-		writeError(w, http.StatusBadRequest, "artifact label is "+
-			strconv.Itoa(n)+" chars, over the "+
-			strconv.Itoa(shortLabelMaxChars)+"-char limit")
+	// name is REQUIRED (owner rc-85b07ab98651:「現在開始任務產物都需要有個名字，舊的
+	// 不管」) and description is optional. Both sit with the other body-shape
+	// 400s, ahead of the task/permission guards, because they are faults in the
+	// request itself and do not depend on which task it names. Over-length is
+	// REFUSED, never truncated, and BOTH RULES BIND NEW WRITES ONLY — existing
+	// rows keep whatever they have, including an empty name and a description
+	// far longer than the cap.
+	name, description, ok := artifactTextOrError(w, &body.Name, body.Description)
+	if !ok {
+		return
+	}
+	if name == "" {
+		writeError(w, http.StatusBadRequest,
+			"name is required: give this deliverable a short display name")
 		return
 	}
 	t, err := s.resolveTask(taskId)
@@ -2910,14 +2953,19 @@ func (s *apiServer) HandleAddTaskArtifactApiTasksTaskIdArtifactPost(w http.Respo
 		return
 	}
 	art := TaskArtifact{
-		ID:        "ta-" + newHexID(12),
-		TaskID:    t.ID,
-		Kind:      kind,
-		Label:     label,
-		CreatedTS: nowSecs(),
+		ID:          "ta-" + newHexID(12),
+		TaskID:      t.ID,
+		Kind:        kind,
+		Name:        name,
+		Description: description,
+		CreatedTS:   nowSecs(),
 		// §14 caller-identity: the registrar is the verified token sub.
 		CreatedBy: currentActor(r),
 	}
+	// minted is the blob this call brings into existence, written in the SAME
+	// transaction as the pin so the two cannot come apart. nil = the content is
+	// already in the store and this call only references it.
+	var minted *ChatAttachment
 	if kind == ArtifactKindLink {
 		url := trimmedOrEmpty(body.Url)
 		if url == "" {
@@ -2925,7 +2973,11 @@ func (s *apiServer) HandleAddTaskArtifactApiTasksTaskIdArtifactPost(w http.Respo
 				"url is required for a link artifact")
 			return
 		}
-		art.URL = url
+		// T-92, owner c-59fc5834d967:「連結也走 attachment」. The caller never sees
+		// this — it gave a url — but from here down a link is content like any
+		// other, which is what lets `url` mean one thing on the wire and lets the
+		// existing blob collector count link references without a line changing.
+		art.AttachmentID, minted = mintLinkTargetBlob(url)
 	} else {
 		attID := trimmedOrEmpty(body.AttachmentId)
 		if attID == "" {
@@ -2950,7 +3002,7 @@ func (s *apiServer) HandleAddTaskArtifactApiTasksTaskIdArtifactPost(w http.Respo
 		}
 		art.AttachmentID = attID
 	}
-	if err := s.dal.PutTaskArtifact(art); err != nil {
+	if err := s.dal.PutTaskArtifactMintingBlob(art, minted); err != nil {
 		internalError(w, err)
 		return
 	}
@@ -3101,23 +3153,50 @@ func (s *apiServer) HandleReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdRep
 		writeError(w, http.StatusBadRequest, artifactKindRefusal(art.Kind, kind))
 		return
 	}
-	// An ABSENT label carries the pinned one forward (owner ruling 2026-09-05):
-	// a replacement is a corrected version of the same deliverable, so making
-	// the caller re-type the display name every time is how a named artifact
-	// silently loses its name. An EXPLICIT label still replaces it, and an
-	// explicit blank still clears it — absent and empty stay different.
-	label := art.Label
-	if body.Label != nil {
-		label = trimmedOrEmpty(body.Label)
+	// An ABSENT name or description carries the pinned one forward (owner ruling
+	// 2026-09-05): a replacement is a corrected version of the same deliverable,
+	// so making the caller re-type the display name every time is how a named
+	// artifact silently loses its name. An EXPLICIT value still replaces it.
+	//
+	// 🔴 THE CAPS ARE CHECKED ONLY AGAINST A VALUE ACTUALLY SENT. Omit the field
+	// and whatever is stored stands, however long — which is what keeps a
+	// content swap from refusing 313 rows whose migrated description is longer
+	// than a cap that never applied to them.
+	//
+	// ⚠️ A blank NAME is refused, because every deliverable has a name; a blank
+	// description clears it. Some clients serialise "" as an omitted field, so
+	// "omit to keep" is reliable and "send blank to clear" is not — nothing here
+	// is built on the latter.
+	name, description := art.Name, art.Description
+	if body.Name != nil {
+		v, _, ok := artifactTextOrError(w, body.Name, nil)
+		if !ok {
+			return
+		}
+		if v == "" {
+			writeError(w, http.StatusBadRequest,
+				"name cannot be blank: omit it to keep the name this deliverable already has")
+			return
+		}
+		name = v
+	}
+	if body.Description != nil {
+		_, v, ok := artifactTextOrError(w, nil, body.Description)
+		if !ok {
+			return
+		}
+		description = v
 	}
 	next := TaskArtifact{
-		ID:        art.ID,
-		TaskID:    art.TaskID,
-		Kind:      art.Kind,
-		Label:     label,
-		CreatedTS: nowSecs(),
-		CreatedBy: currentActor(r),
+		ID:          art.ID,
+		TaskID:      art.TaskID,
+		Kind:        art.Kind,
+		Name:        name,
+		Description: description,
+		CreatedTS:   nowSecs(),
+		CreatedBy:   currentActor(r),
 	}
+	var minted *ChatAttachment
 	url, attID := trimmedOrEmpty(body.Url), trimmedOrEmpty(body.AttachmentId)
 	if art.Kind == ArtifactKindLink {
 		if attID != "" {
@@ -3130,7 +3209,7 @@ func (s *apiServer) HandleReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdRep
 				"url is required for a link artifact")
 			return
 		}
-		next.URL = url
+		next.AttachmentID, minted = mintLinkTargetBlob(url)
 	} else {
 		if url != "" {
 			writeError(w, http.StatusBadRequest,
@@ -3159,7 +3238,7 @@ func (s *apiServer) HandleReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdRep
 		}
 		next.AttachmentID = attID
 	}
-	replaced, err := s.dal.ReplaceTaskArtifact(next)
+	replaced, err := s.dal.ReplaceTaskArtifactMintingBlob(next, minted)
 	if err != nil {
 		internalError(w, err)
 		return
@@ -3171,18 +3250,25 @@ func (s *apiServer) HandleReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdRep
 	// Same fan-out as add/remove: the artifact set rides the EXISTING task
 	// topic, and the task row itself is unchanged.
 	s.publishTask(*t, requestTrigger(r))
-	versions, err := s.dal.ListTaskArtifactHistory(art.ID)
+	s.writeTaskArtifactReplaceReceipt(w, *t, art.ID)
+}
+
+// writeTaskArtifactReplaceReceipt is the bounded answer BOTH replace doors give
+// — the JSON one and the raw-body one. Written once so the two transports
+// cannot drift into two receipts for one write.
+func (s *apiServer) writeTaskArtifactReplaceReceipt(w http.ResponseWriter, t Task, artifactID string) {
+	versions, err := s.dal.ListTaskArtifactHistory(artifactID)
 	if err != nil {
 		internalError(w, err)
 		return
 	}
-	arts, err := s.dal.ListTaskArtifacts(t.ID)
+	count, err := s.dal.CountTaskArtifacts(t.ID)
 	if err != nil {
 		internalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, taskArtifactReplaceReceiptDTO{
-		TaskID: t.ID, ArtifactID: art.ID, ArtifactCount: len(arts),
+		TaskID: t.ID, ArtifactID: artifactID, ArtifactCount: count,
 		VersionCount: len(versions) + 1,
 	})
 }

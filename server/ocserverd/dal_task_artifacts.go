@@ -4,34 +4,44 @@ package main
 // set (migrations/00022): task_artifact, the deliverables an agent pins onto a
 // task card (file / image / link). Same convention as dal_tasks.go — explicit
 // per-table methods, no generic repository; SSE fan-out stays a handler
-// concern. File/image rows reference the shared chat_attachment blob store by
-// attachment_id (one blob mechanism, not two); link rows carry a bare url.
+// concern. SINCE T-92 EVERY row references the shared chat_attachment blob
+// store by attachment_id — a link's target is stored as a text/uri-list blob,
+// so there is one content mechanism rather than a blob for two kinds and a
+// column for the third, and the `url` column is gone.
 
 import (
 	"database/sql"
 	"errors"
 )
 
-// TaskArtifact mirrors the task_artifact table. Exactly one of AttachmentID
-// (kind file/image) or URL (kind link) is meaningful — the other is "".
+// TaskArtifact mirrors the task_artifact table. AttachmentID is meaningful for
+// EVERY kind since T-92 — a link's target lives in a text/uri-list blob like any
+// other content — so there is no "exactly one of these two is set" rule left.
+//
+// 🔴 Name and Description are the two halves of the single `label` this table
+// used to carry, and neither is what a reader gets back unchanged. Name is
+// EMPTY on most migrated rows and the READ path derives a display name (the
+// blob's filename, the link target, then `#`+id); Description holds the whole
+// old label, which for 313 rows is longer than the 256-rune write cap — the cap
+// binds new writes only, so nothing here may assume it.
 type TaskArtifact struct {
 	ID           string
 	TaskID       string
 	Kind         string // closed set 'file' | 'image' | 'link'
-	AttachmentID string // chat_attachment.id for file/image; '' for link
-	URL          string // the link url; '' for file/image
-	Label        string // display label / link title; blob filename is the fallback
+	AttachmentID string // chat_attachment.id — every kind, never blank
+	Name         string // stored display name; '' means "derive one at read time"
+	Description  string // the prose half of the old label; may exceed 256 runes
 	CreatedTS    float64
 	CreatedBy    string // verified sub of the registrar (§14); '' on none
 }
 
-const taskArtifactColumns = `id, task_id, kind, attachment_id, url, label,
+const taskArtifactColumns = `id, task_id, kind, attachment_id, name, description,
 	created_ts, created_by`
 
 func scanTaskArtifact(row interface{ Scan(...any) error }) (TaskArtifact, error) {
 	var a TaskArtifact
 	err := row.Scan(
-		&a.ID, &a.TaskID, &a.Kind, &a.AttachmentID, &a.URL, &a.Label,
+		&a.ID, &a.TaskID, &a.Kind, &a.AttachmentID, &a.Name, &a.Description,
 		&a.CreatedTS, &a.CreatedBy,
 	)
 	return a, err
@@ -104,6 +114,57 @@ func (d *DAL) AllTaskArtifactCounts() (map[string]int, error) {
 	return out, rows.Err()
 }
 
+// CountTaskArtifacts counts ONE task's pinned deliverables — the only thing a
+// task response says about them since T-92. A COUNT(*) rather than
+// len(ListTaskArtifacts(...)) on purpose: the task read is on every接票 path,
+// and loading rows in order to throw them away is the cost this change exists
+// to remove.
+func (d *DAL) CountTaskArtifacts(taskID string) (int, error) {
+	var n int
+	err := d.rdb.QueryRow(
+		`SELECT COUNT(*) FROM task_artifact WHERE task_id = ?`, taskID).Scan(&n)
+	return n, err
+}
+
+// GetTaskArtifactBlob resolves the blob half of an artifact projection: the
+// mime and the filename always, and the DATA only when the blob is a link
+// target (mime text/uri-list).
+//
+// 🔴 IT IS NOT GetChatAttachment, AND THE DIFFERENCE IS THE POINT. That one
+// SELECTs `data` unconditionally, so listing a 120-artifact ticket read 120
+// files' bytes into memory to report their names. T-92 makes every kind — links
+// included — resolve a blob, which would have widened that from "every file" to
+// "every artifact". A link's target genuinely IS its bytes and is tens of
+// characters; a report's bytes are megabytes and nothing on this path reads
+// them. So the CASE below is what keeps a listing from paging the blob store.
+func (d *DAL) GetTaskArtifactBlob(id string) (*ChatAttachment, error) {
+	var a ChatAttachment
+	var filename sql.NullString
+	var data []byte
+	err := d.rdb.QueryRow(`
+		SELECT id, mime, filename,
+		       CASE WHEN mime = ? THEN data ELSE NULL END
+		  FROM chat_attachment WHERE id = ?`, linkTargetMime, id,
+	).Scan(&a.ID, &a.Mime, &filename, &data)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	a.Data = data
+	if filename.Valid {
+		a.Filename = &filename.String
+	}
+	return &a, nil
+}
+
+// linkTargetMime is the media type a link artifact's blob carries: RFC 2483's
+// one-URI-per-line list. It is a real registered type rather than an invented
+// marker so the blob can say what it is without a second field elsewhere saying
+// it for it.
+const linkTargetMime = "text/uri-list"
+
 // PutTaskArtifact inserts one artifact row (the SSE delta is the handler's
 // job). Registration mints an id per call, so this is an INSERT, not an upsert;
 // the update path for an existing pin is ReplaceTaskArtifact, which keeps the id.
@@ -111,10 +172,56 @@ func (d *DAL) PutTaskArtifact(a TaskArtifact) error {
 	_, err := d.wdb.Exec(`
 		INSERT INTO task_artifact (`+taskArtifactColumns+`)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.ID, a.TaskID, a.Kind, a.AttachmentID, a.URL, a.Label,
+		a.ID, a.TaskID, a.Kind, a.AttachmentID, a.Name, a.Description,
 		a.CreatedTS, a.CreatedBy,
 	)
 	return err
+}
+
+// PutTaskArtifactMintingBlob pins one artifact and, when the content arrives as
+// BYTES rather than as an id already in the store, mints the blob for it — both
+// in ONE transaction.
+//
+// 🔴 THAT IS THE WHOLE REASON THIS METHOD EXISTS. Uploading and then binding is
+// two writes with a gap in between, and a caller that takes the first and not
+// the second leaves a blob nothing references — the collector only revisits
+// blobs a delete already put on its candidate list, so nothing ever goes looking
+// for it. Every pin whose content is new bytes goes through here: the link path
+// (a text/uri-list blob minted from the url the caller gave) and the raw-body
+// upload path. A pin that REUSES an existing blob passes blob = nil and is one
+// insert, which has no gap to begin with.
+func (d *DAL) PutTaskArtifactMintingBlob(a TaskArtifact, blob *ChatAttachment) error {
+	return d.inTx(func(tx *sql.Tx) error {
+		if blob != nil {
+			if err := putChatAttachmentOn(tx, *blob); err != nil {
+				return err
+			}
+		}
+		_, err := tx.Exec(`
+			INSERT INTO task_artifact (`+taskArtifactColumns+`)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			a.ID, a.TaskID, a.Kind, a.AttachmentID, a.Name, a.Description,
+			a.CreatedTS, a.CreatedBy)
+		return err
+	})
+}
+
+// ReplaceTaskArtifactMintingBlob is the same guarantee on the replace side: the
+// new blob and the swap land together, or neither does.
+func (d *DAL) ReplaceTaskArtifactMintingBlob(next TaskArtifact, blob *ChatAttachment) (bool, error) {
+	if blob == nil {
+		return d.ReplaceTaskArtifact(next)
+	}
+	var replaced bool
+	err := d.inTx(func(tx *sql.Tx) error {
+		if err := putChatAttachmentOn(tx, *blob); err != nil {
+			return err
+		}
+		ok, err := replaceTaskArtifactOn(tx, next)
+		replaced = ok
+		return err
+	})
+	return replaced, err
 }
 
 // DeleteTaskArtifact hard-deletes one artifact by id (the owner's un-pin)
@@ -184,14 +291,14 @@ type TaskArtifactHistory struct {
 	ArtifactID   string
 	Kind         string
 	AttachmentID string
-	URL          string
-	Label        string
+	Name         string
+	Description  string
 	CreatedTS    float64
 	CreatedBy    string
 }
 
-const taskArtifactHistoryColumns = `id, artifact_id, kind, attachment_id, url,
-	label, created_ts, created_by`
+const taskArtifactHistoryColumns = `id, artifact_id, kind, attachment_id, name,
+	description, created_ts, created_by`
 
 // ReplaceTaskArtifact swaps ONE artifact's content while its id stays put, and
 // is the only writer of task_artifact_history. Three steps, one transaction:
@@ -221,6 +328,19 @@ const taskArtifactHistoryColumns = `id, artifact_id, kind, attachment_id, url,
 func (d *DAL) ReplaceTaskArtifact(next TaskArtifact) (bool, error) {
 	var replaced bool
 	err := d.inTx(func(tx *sql.Tx) error {
+		ok, err := replaceTaskArtifactOn(tx, next)
+		replaced = ok
+		return err
+	})
+	return replaced, err
+}
+
+// replaceTaskArtifactOn is the three-step swap itself, on a transaction the
+// caller already holds — so a replace that must ALSO mint a blob puts both
+// inside one transaction rather than two.
+func replaceTaskArtifactOn(tx *sql.Tx, next TaskArtifact) (bool, error) {
+	var replaced bool
+	err := func() error {
 		current, err := getTaskArtifactOn(tx, next.ID)
 		if err != nil {
 			return err
@@ -230,22 +350,22 @@ func (d *DAL) ReplaceTaskArtifact(next TaskArtifact) (bool, error) {
 		}
 		replaced = true
 		if _, err := tx.Exec(`INSERT INTO task_artifact_history
-			(artifact_id, kind, attachment_id, url, label, created_ts, created_by)
+			(artifact_id, kind, attachment_id, name, description, created_ts, created_by)
 			VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			current.ID, current.Kind, current.AttachmentID, current.URL,
-			current.Label, current.CreatedTS, current.CreatedBy); err != nil {
+			current.ID, current.Kind, current.AttachmentID, current.Name,
+			current.Description, current.CreatedTS, current.CreatedBy); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`UPDATE task_artifact
-			SET kind = ?, attachment_id = ?, url = ?, label = ?,
+			SET kind = ?, attachment_id = ?, name = ?, description = ?,
 			    created_ts = ?, created_by = ?
 			WHERE id = ?`,
-			next.Kind, next.AttachmentID, next.URL, next.Label,
+			next.Kind, next.AttachmentID, next.Name, next.Description,
 			next.CreatedTS, next.CreatedBy, next.ID); err != nil {
 			return err
 		}
 		return trimTaskArtifactHistory(tx, next.ID)
-	})
+	}()
 	return replaced, err
 }
 
@@ -308,7 +428,7 @@ func (d *DAL) ListTaskArtifactHistory(artifactID string) ([]TaskArtifactHistory,
 	for rows.Next() {
 		var h TaskArtifactHistory
 		if err := rows.Scan(&h.ID, &h.ArtifactID, &h.Kind, &h.AttachmentID,
-			&h.URL, &h.Label, &h.CreatedTS, &h.CreatedBy); err != nil {
+			&h.Name, &h.Description, &h.CreatedTS, &h.CreatedBy); err != nil {
 			return nil, err
 		}
 		out = append(out, h)
