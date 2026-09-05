@@ -150,16 +150,28 @@ jobs:
           # LOAD-BEARING (T-64, and since T-75 for a second check too). The
           # default shallow checkout leaves this job with exactly one ref —
           # refs/remotes/pull/N/merge — and `git rev-parse origin/main` exits
-          # 128, measured on this workflow rather than inferred. TWO checks read
-          # origin/main as their baseline and both stand down without it:
-          # TestAStationAtTheReleasedVersionCanUpgradeToThisTree (replays the
-          # ALREADY-RELEASED migration versions and boots a station on them) and
+          # 128, measured on this workflow rather than inferred. The check that
+          # reads origin/main as its baseline stands down without it:
           # TestMigrationLockGrowsOnlyAtItsTail (requires main's migration.lock
           # lines to be an exact PREFIX of this tree's — the only thing that
           # says NO when someone edits a released migration and then simply
           # regenerates the lock, which turns the tree-internal check green).
-          # Deleting this line does not go red; it silently removes the baseline
-          # from both.
+          # (T-75 removed the second reader of this baseline,
+          # TestAStationAtTheReleasedVersionCanUpgradeToThisTree. The claim that
+          # accompanied that removal -- that the lock had been "measured to cover
+          # every mutation it caught" -- was FALSE and is retracted: a Go
+          # migration registered under a computed name escaped the lock's AST
+          # scan entirely. gooseGoVersionCount now corroborates that scan against
+          # goose's own registry. See migration_lock_shared_test.go's header for
+          # what is and is not claimed.)
+          #
+          # Deleting this line DOES go red now, and that is new in T-75 -- it
+          # used to remove the baseline silently. TestMigrationLockGrowsOnlyAtIts
+          # Tail fatals when inCI() and origin/main will not resolve, instead of
+          # skipping. Measured with a git PATH shim that fails
+          # `rev-parse origin/main` with 128: GITHUB_ACTIONS=1 -> FAIL naming
+          # this very line; without it -> ok (a local checkout still skips, and
+          # a skip is NOT a pass).
           fetch-depth: 0
       # Pinned to what the repo develops against (go.mod says 1.26.4).
       # check-latest:false + an exact version keeps the runner from silently

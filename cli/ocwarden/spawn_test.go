@@ -226,6 +226,11 @@ func (r *recRunner) sawArgv(want ...string) bool {
 	return false
 }
 
+// fxOcAgentResolver is the T-81 seam every start() test needs now that it is required.
+// It answers the same path the pre-T-81 construction used and reports it present, so a
+// test that is not ABOUT ocagent resolution reads exactly as it did before.
+func fxOcAgentResolver() (string, bool) { return ocAgentSymlinkTarget(fxRepoRoot, ""), true }
+
 func newStartDeps(t *testing.T, run *recRunner, files map[string]string) SpawnDeps {
 	t.Helper()
 	return newStartDepsLinks(t, run, files, map[string]string{})
@@ -246,6 +251,8 @@ func newStartDepsLinks(t *testing.T, run *recRunner, files, links map[string]str
 		MkdirAll:  func(string, os.FileMode) error { return nil },
 		Symlink:   func(oldname, newname string) error { links[newname] = oldname; return nil },
 		Remove:    func(string) error { return nil },
+
+		ResolveOcAgentBin: fxOcAgentResolver,
 	}
 }
 
@@ -441,6 +448,8 @@ func TestStart_PublishesOcAgentSymlink(t *testing.T) {
 		MkdirAll:  func(string, os.FileMode) error { return nil },
 		Symlink:   func(oldname, newname string) error { links[newname] = oldname; return nil },
 		Remove:    func(name string) error { removed = append(removed, name); return nil },
+
+		ResolveOcAgentBin: fxOcAgentResolver,
 	}
 	out := deps.start(StartParams{MemberID: "alice", MemberToken: fxToken, SessionName: "member-alice"})
 	if !out.OK {
@@ -514,6 +523,8 @@ func TestStart_OcAgentSymlinkRemoveNotExistOK(t *testing.T) {
 		MkdirAll:  func(string, os.FileMode) error { return nil },
 		Symlink:   func(oldname, newname string) error { links[newname] = oldname; return nil },
 		Remove:    func(string) error { return os.ErrNotExist },
+
+		ResolveOcAgentBin: fxOcAgentResolver,
 	}
 	out := deps.start(StartParams{MemberID: "alice", MemberToken: fxToken, SessionName: "member-alice"})
 	if !out.OK {
@@ -546,19 +557,31 @@ func TestResolveOcAgentBin(t *testing.T) {
 	homeExe := func() (string, error) { return "/Users/seth/.officraft/warden/ocwarden", nil }
 	devExe := func() (string, error) { return repoRoot + "/cli/ocwarden/ocwarden", nil }
 
-	// Sibling exists → use it (the self-contained home-install layout).
+	// Sibling exists → use it (the self-contained home-install layout), and report it
+	// as present.
 	sibling := "/Users/seth/.officraft/warden/ocagent"
-	if got := resolveOcAgentBin(homeExe, func(p string) bool { return p == sibling }, repoRoot); got != sibling {
-		t.Errorf("home-install must exec the sibling ocagent, got %q want %q", got, sibling)
+	if got, ok := resolveOcAgentBin(homeExe, func(p string) bool { return p == sibling }, repoRoot); got != sibling || !ok {
+		t.Errorf("home-install must exec the sibling ocagent, got %q ok=%v want %q ok=true", got, ok, sibling)
 	}
 	// No sibling on disk → fall back to the repoRoot-relative dev path.
 	wantFallback := repoRoot + "/cli/ocagent/ocagent"
-	if got := resolveOcAgentBin(devExe, func(string) bool { return false }, repoRoot); got != wantFallback {
+	if got, _ := resolveOcAgentBin(devExe, func(string) bool { return false }, repoRoot); got != wantFallback {
 		t.Errorf("dev run must fall back to repoRoot-relative ocagent, got %q want %q", got, wantFallback)
 	}
 	// Unresolvable executable → still yields the repoRoot fallback (no panic).
-	if got := resolveOcAgentBin(func() (string, error) { return "", errString("no exe") }, func(string) bool { return true }, repoRoot); got != wantFallback {
+	if got, _ := resolveOcAgentBin(func() (string, error) { return "", errString("no exe") }, func(string) bool { return true }, repoRoot); got != wantFallback {
 		t.Errorf("unresolvable exe must yield the repoRoot fallback, got %q", got)
+	}
+
+	// T-81 — the half that did not exist before: the fallback branch now REPORTS
+	// whether the path it settled on is actually there. This is the whole difference
+	// between "deaf forever, silently" and one visible refusal: nothing on a fresh
+	// machine has $HOME/cli/ocagent/ocagent, and the old signature had no way to say so.
+	if got, ok := resolveOcAgentBin(devExe, func(p string) bool { return p == wantFallback }, repoRoot); got != wantFallback || !ok {
+		t.Errorf("fallback that EXISTS must report ok=true, got %q ok=%v", got, ok)
+	}
+	if got, ok := resolveOcAgentBin(devExe, func(string) bool { return false }, repoRoot); got != wantFallback || ok {
+		t.Errorf("fallback that does NOT exist must report ok=false, got %q ok=%v", got, ok)
 	}
 }
 

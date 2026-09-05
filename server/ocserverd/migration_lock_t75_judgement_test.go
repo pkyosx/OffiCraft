@@ -71,6 +71,11 @@ func TestMigrationLockJudgementNamesEachDefect(t *testing.T) {
 		// wantIn must appear in the tagged finding, so the message names the
 		// thing a reader has to go and look at.
 		wantIn []string
+		// wantOut must NOT appear in the tagged finding. It is for the arms where
+		// the defect is the message SAYING TOO MUCH — an unreachable arm printed
+		// beside a reachable one is not extra safety, it is a wrong instruction
+		// the reader cannot rule out.
+		wantOut []string
 	}{
 		{
 			// ① A MIGRATION ADDED (or a file RENAMED) WITHOUT UPDATING THE LOCK.
@@ -109,6 +114,76 @@ func TestMigrationLockJudgementNamesEachDefect(t *testing.T) {
 			wantIn:  []string{"migrations/00002_two.sql", strings.Repeat("b", 64), strings.Repeat("f", 64)},
 		},
 		{
+			// ⑤ CROSS-SOURCE COLLISION — main ships a Go migration at NNNNN, a
+			// branch that predates it adds a .sql at NNNNN, the merge is CLEAN
+			// (a branch with no lock of its own takes the other side's as a new
+			// file), and the tree ends up holding BOTH while the lock lists only
+			// main's.
+			//
+			// 🔴 THIS ARM EXISTS BECAUSE THE FIRST VERSION OF THE [lock:path]
+			// FINDING GOT IT BACKWARDS, and expensively. It printed a RENAME arm
+			// alongside the COLLISION arm and told the reader to settle it with
+			// `git log` on the lock's path — which here is main's Go migration and
+			// of course HAS commits, so the reader is sent to "put the file back",
+			// i.e. to overwrite a migration that has already shipped. Measured on
+			// a real two-branch fixture, not reasoned. The discriminator is that
+			// the lock's path is STILL IN THE TREE, so nothing was renamed.
+			//
+			// wantOut is therefore load-bearing: this arm is about what the
+			// finding must NOT say.
+			name: "cross-source collision: both files are in the tree",
+			mutate: func() (string, []migrationLockEntry) {
+				lock := renderMigrationLock(lockFixture())
+				// The lock's own file (migration_00003_go.go) stays; a second
+				// claimant on version 3 arrives from the other source.
+				tree := append(copyEntries(lockFixture()), migrationLockEntry{
+					version: 3, path: "migrations/00003_other_branch.sql", sha: strings.Repeat("e", 64)})
+				return lock, tree
+			},
+			wantTag: findPathMoved,
+			wantIn: []string{
+				"THIS IS A COLLISION, not a rename",
+				"migration_00003_go.go",
+				"migrations/00003_other_branch.sql",
+				"renumber THIS tree's newer file",
+				"DO NOT touch migration_00003_go.go",
+			},
+			wantOut: []string{
+				"RENAME —",
+				"put the file back",
+				"git log HEAD",
+			},
+		},
+		{
+			// ⑥ THE AMBIGUOUS SHAPE, which must still print BOTH arms: the lock's
+			// path is GONE from the tree, so the listing alone genuinely cannot
+			// tell a rename from a collision and the reader is handed the command
+			// that can. Without this arm, a "fix" that simply deleted the RENAME
+			// arm everywhere would pass ⑤ and lose the case ⑤ is not about.
+			name: "lock's path is gone from the tree: both arms, plus the command",
+			mutate: func() (string, []migrationLockEntry) {
+				lock := renderMigrationLock(lockFixture())
+				tree := copyEntries(lockFixture())
+				tree[3].path = "migrations/00004_four_renamed.sql" // 00004 moved
+				return lock, tree
+			},
+			wantTag: findPathMoved,
+			wantIn: []string{
+				"RENAME —",
+				"COLLISION —",
+				"put the file back",
+				"git log HEAD -- ':(top)server/ocserverd/migrations/00004_four.sql'",
+				// The ':(top)' prefix is asserted CHARACTER BY CHARACTER on purpose.
+				// It is the whole difference between a command that answers and one
+				// that silently returns nothing from this package's own directory —
+				// which is where the reader of this message is standing. Dropping it
+				// is a one-token edit that changes no behaviour any other assertion
+				// here can see, so this line is the only thing guarding it (T-64
+				// 4a6a537a shipped the un-anchored version and mis-diagnosed a rename).
+				"Commits ⇒ RENAME. Nothing ⇒ COLLISION.",
+			},
+		},
+		{
 			// ④ TWO MIGRATIONS ON ONE NUMBER — what a clean merge of two branches
 			// produced before this file existed.
 			name: "one version listed twice",
@@ -135,6 +210,55 @@ func TestMigrationLockJudgementNamesEachDefect(t *testing.T) {
 			},
 			wantTag: findOrder,
 			wantIn:  []string{"migrations/00003_gap.sql", "version 3 after version 4"},
+		},
+		{
+			// ⑧ A SHIPPED GO MIGRATION'S CONTENTS CHANGED — and the finding must
+			// carry the RENAME / FORMATTING fork.
+			//
+			// 🔴 THIS ARM EXISTS BECAUSE THAT WHOLE PARAGRAPH HAD NO GUARD. Its
+			// text was carried over from the torn-down T-64 guard word for word,
+			// and a mutant that short-circuits the `if !strings.HasSuffix(p,
+			// ".sql")` deletes every line of it while this package stays green:
+			// no judgement case fed a .go path whose sha had moved. That is
+			// exactly the shape 4a6a537a shipped — a paragraph a reader is meant
+			// to act on, with nothing standing on it.
+			//
+			// It matters more than most message text because ONE HALF OF IT HAS
+			// NO FIX. A formatting pass that reaches a shipped Go migration puts
+			// lint-go-fmt and this check in direct opposition, and the message is
+			// the only place anyone is told that reaching for a new migration is
+			// not the way out.
+			name: "a shipped Go migration's bytes moved: the finding must fork rename vs formatting",
+			mutate: func() (string, []migrationLockEntry) {
+				tree := copyEntries(lockFixture())
+				tree[2].sha = strings.Repeat("f", 64) // index 2 is migration_00003_go.go
+				return renderMigrationLock(lockFixture()), tree
+			},
+			wantTag: findContent,
+			wantIn: []string{
+				"migration_00003_go.go",
+				"This is a Go file",
+				"do NOT open a new migration",
+				"RENAME: keep the shipped file byte-for-byte",
+				"FORMATTING: there is no such out",
+				"a human has to break it",
+			},
+		},
+		{
+			// ⑨ THE SAME EVENT ON A .sql PATH must NOT carry that fork. Without
+			// this arm, "always print the paragraph" passes ⑧ and starts telling
+			// readers of a .sql finding to consider exempting the file from the Go
+			// formatter — advice that means nothing there. It is what pins the
+			// BRANCH rather than the string.
+			name: "a shipped .sql migration's bytes moved: no Go-formatting fork",
+			mutate: func() (string, []migrationLockEntry) {
+				tree := copyEntries(lockFixture())
+				tree[1].sha = strings.Repeat("f", 64) // index 1 is migrations/00002_two.sql
+				return renderMigrationLock(lockFixture()), tree
+			},
+			wantTag: findContent,
+			wantIn:  []string{"migrations/00002_two.sql", "the silent-schema-fork case"},
+			wantOut: []string{"This is a Go file", "FORMATTING: there is no such out"},
 		},
 		{
 			// ⑥ A LINE EDITED BY HAND (or half a merge resolution kept).
@@ -191,6 +315,14 @@ func TestMigrationLockJudgementNamesEachDefect(t *testing.T) {
 				if !strings.Contains(joined, want) {
 					t.Fatalf("the %s finding does not mention %q, so a reader cannot tell what to "+
 						"go and look at:\n%s", tc.wantTag, want, joined)
+				}
+			}
+			for _, unwanted := range tc.wantOut {
+				if strings.Contains(joined, unwanted) {
+					t.Fatalf("the %s finding still says %q. For this shape that arm is not just "+
+						"noise — it is the instruction that overwrites an already-shipped "+
+						"migration, and a reader with two arms in front of them cannot rule it "+
+						"out:\n%s", tc.wantTag, unwanted, joined)
 				}
 			}
 		})
