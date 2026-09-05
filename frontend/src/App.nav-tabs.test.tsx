@@ -4,9 +4,12 @@
 // (owner 2026-07-22:「user guide 改放在 tab 中,監控的右邊,不要放在 settings
 // 裡」). What is locked here is the part a screenshot conveys and a component
 // test otherwise cannot:
-//   1. ORDER — 辦公室 / 請示 / 任務 / 監控 / 使用說明, with 使用說明 LAST, i.e.
-//      immediately to the right of 監控. The owner's红框 was a position, so
-//      position is the requirement; "the tab exists somewhere" would not be.
+//   1. ORDER — 辦公室 / 請示 / 任務 / 傳承 / 監控 / 使用說明. Two rulings meet
+//      here and both are positions, so both are locked: 使用說明 immediately
+//      right of 監控 (2026-07-22), and 傳承 immediately right of 任務
+//      (2026-09-02, 逐字「傳承應該放在案件右邊不是指南右邊」—— 案件/指南 being
+//      what the active theme renames 任務/使用說明 to). "The tab exists
+//      somewhere" would satisfy neither.
 //   2. It routes: clicking it writes #guide and renders the guide page.
 //   3. It is a NAV tab, not a settings sub-page — opening Settings deactivates
 //      it, exactly like every sibling tab.
@@ -29,11 +32,21 @@ vi.mock("./components/OfficePage", () => ({ OfficePage: () => null }));
 vi.mock("./components/RepliesPage", () => ({ RepliesPage: () => null }));
 vi.mock("./components/TasksPage", () => ({ TasksPage: () => null }));
 vi.mock("./components/MonitorPage", () => ({ MonitorPage: () => null }));
+vi.mock("./components/LorePage", () => ({ LorePage: () => null }));
 vi.mock("./components/SettingsPage", () => ({ SettingsPage: () => null }));
 // The guide body itself is exercised in GuidePage.test.tsx; here we only need
 // to see WHICH page App mounted.
 vi.mock("./components/UserGuidePage", () => ({
   GuidePage: () => <div data-testid="guide-page" />,
+}));
+// 傳承 is behind the station-wide lore switch (T-33). This file is about the
+// ORDER of the strip, so it pins the switch ON — the tab has to exist for its
+// position to be assertable at all. Whether the switch itself works is
+// App.lore-toggle.test.tsx's job, and that file asserts BOTH states.
+vi.mock("./hooks/sharedServerSettings", () => ({
+  loadServerSettings: () => Promise.resolve({ loreEnabled: true }),
+  adoptServerSettings: () => {},
+  refreshServerSettings: () => Promise.resolve({ loreEnabled: true }),
 }));
 
 import App from "./App";
@@ -57,16 +70,22 @@ describe("主導覽分頁", () => {
     history.replaceState(null, "", window.location.pathname);
   });
 
-  it("使用說明 is the last tab, immediately right of 監控", () => {
+  it("傳承 sits right of 任務, and 使用說明 stays right of 監控", async () => {
     renderApp();
+    // The lore switch is fetched, so the tab arrives one microtask after mount.
+    await screen.findByText(zh.lore.title);
     const labels = tabLabels();
     expect(labels).toEqual([
       zh.nav.office,
       zh.nav.replies,
       zh.nav.tasks,
+      zh.lore.title,
       zh.nav.monitor,
       zh.nav.guide,
     ]);
+    expect(labels.indexOf(zh.lore.title)).toBe(
+      labels.indexOf(zh.nav.tasks) + 1,
+    );
     expect(labels.indexOf(zh.nav.guide)).toBe(
       labels.indexOf(zh.nav.monitor) + 1,
     );

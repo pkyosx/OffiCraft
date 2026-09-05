@@ -416,3 +416,70 @@ export type WireResumeMachines = components["schemas"]["ResumeMachinesDTO"];
  * `ai_pick`), EVERY circled index, the free text, and when. */
 export type WireChatInlineReplyCard =
   components["schemas"]["ChatInlineReplyCardDTO"];
+
+// ── T-33 傳承 (lore) ────────────────────────────────────────────────────────
+// The station serves TWELVE lore routes (counted on this branch against
+// server/ocserverd/routes.go: every row carrying `LoreGated: true`): write,
+// search, get-one, get-one-revision, retire, revive, propose, accept-proposal,
+// list-proposals, and the three ENTITY routes — pending, approve, merge.
+//
+// 🔴 THIS PARAGRAPH USED TO SAY "SIX … AND NO MORE", AND IT WAS LEFT BEHIND.
+// It claimed there was no route that lists a write's `pending` subjects and
+// none that approves or merges one, and it said so in the voice of something
+// verified. Both statements were false by the time anyone read them — the
+// entity routes landed on this branch, and `WireLorePendingEntity` /
+// `WireLoreEntityGovernance` are declared BELOW IN THIS SAME FILE.
+// (That reads "in this same file" and not a line count on purpose: the first
+// draft of this correction said "FORTY LINES BELOW", and writing the
+// correction pushed the real distance to 47 — a self-expiring number grown
+// inside the very paragraph that exists because a claim expired.) Nothing
+// went red for it: a comment has no test. It is corrected in place rather than
+// deleted so the next reader can see that a "verified against routes.go"
+// sentence is a DATED measurement, not a standing fact — re-count, do not
+// re-read.
+
+/** Mirrors `LoreSearchDTO` — the selection conditions as they go on the wire.
+ * Every field carries a server-side default, which the generator renders as
+ * REQUIRED even though the route accepts a body with none of them; senders
+ * build a `Partial` of this and only fill what the caller actually chose. */
+export type WireLoreSearchRequest = components["schemas"]["LoreSearchDTO"];
+
+/** Mirrors `LoreSearchResultDTO` — the retrieved entries plus everything that
+ * separates a real empty answer from a question that never got asked (`total`,
+ * `truncated`, `subject_resolved`, `applied`). */
+export type WireLoreSearchResult =
+  components["schemas"]["LoreSearchResultDTO"];
+
+/** Mirrors `LoreSearchHitDTO` — one retrieved entry plus WHY it is in the
+ * answer (`tier`, `tier_note`, `trust_scope`, `trust_fell_back`). */
+export type WireLoreSearchHit = components["schemas"]["LoreSearchHitDTO"];
+
+/** Mirrors `LoreEntryDetailDTO` — one entry in full, plus the preserved
+ * `original`, its `sha256` and the revision CATALOGUE (no text). */
+export type WireLoreEntryDetail = components["schemas"]["LoreEntryDetailDTO"];
+
+/** Mirrors `LoreEventDTO` — 第 5 格, ONE event of an entry: 時／事／人／地／物.
+ * 人／地／物 are plain strings that are EMPTY when nobody knew them; the wire
+ * does not distinguish 「unknown」 from 「not looked up」 with a sentinel, and
+ * nothing above this line may invent one. */
+export type WireLoreEvent = components["schemas"]["LoreEventDTO"];
+
+/** Mirrors `LoreRevisionRowDTO` — one catalogue line: who, when, and how many
+ * characters that write REMOVED. `shrink_chars` is the only place a rewrite
+ * that hollowed an entry out is visible at all; the entry count never moves. */
+export type WireLoreRevisionRow = components["schemas"]["LoreRevisionRowDTO"];
+
+/** Mirrors `LoreRevisionDTO` — ONE revision's exact stored text. */
+export type WireLoreRevision = components["schemas"]["LoreRevisionDTO"];
+
+/** Mirrors `LorePendingEntityRowDTO` — one row of the approval queue, carrying
+ * the existing subjects it resembles and the NAMED reason each was offered.
+ * (It also carried the server's own `suggestion` / `merge_target` until owner
+ * 2026-09-05 removed that rule; an AI judgement replaces it in another ticket.) */
+export type WireLorePendingEntity =
+  components["schemas"]["LorePendingEntityRowDTO"];
+
+/** Mirrors `LoreEntityGovernanceDTO` — the receipt an approve/merge answers
+ * with, so the caller can see the state it actually landed in. */
+export type WireLoreEntityGovernance =
+  components["schemas"]["LoreEntityGovernanceDTO"];

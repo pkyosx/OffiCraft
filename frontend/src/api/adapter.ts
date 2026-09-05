@@ -10,6 +10,11 @@
 import type { DiffParams } from "../lib/diffLink";
 import type { ThemeBundle } from "../lib/themeBundle";
 import type {
+  LoreSearchView,
+  LoreEntryDetailView,
+  LoreRevisionView,
+  LorePendingEntityView,
+  LoreEntityGovernanceView,
   Member,
   MemberLifecycle,
   MemberActivateResult,
@@ -1056,6 +1061,14 @@ export interface ServerSettingsView {
    * centred column, the shipped default. Same dual-layer contract as
    * displayTheme, but a plain bool — there is no "never set" third state. */
   displayWide: boolean;
+  /** Whether the LORE feature is switched on for this station (T-33;
+   * `lore.enabled`, default false = OFF). It is the ONE thing the cockpit
+   * needs from the server to decide whether the 傳承 tab exists at all.
+   *
+   * 🔴 A MISSING FIELD MAPS TO false, NOT true. An older server has no lore
+   * feature, and rendering a tab whose every request 404s or 403s is worse
+   * than not rendering it — see the mapper. */
+  loreEnabled: boolean;
   /** The automatic first-run onboarding report (T-ba62), or null when
    * onboarding never ran on this server (an install predating it, or a
    * database that already had a password). This is how the cockpit can say
@@ -1148,6 +1161,10 @@ export interface ServerSettingsPatch {
   /** Turn the WIDE cockpit layout on/off (T-756f). Omit to leave it
    * unchanged — a plain bool, so there is nothing to "clear" it to. */
   displayWide?: boolean;
+  /** Turn the LORE feature on/off for this station (T-33). Omit to leave it
+   * unchanged. Off never moves or deletes a stored entry — it only makes the
+   * feature unreachable. */
+  loreEnabled?: boolean;
   /** Dismiss (true) or un-dismiss (false) the first-run onboarding banner
    * (T-0648) — it stamps / clears `dismissedAt` on the ONE onboarding report,
    * so 「不再顯示」 outlives the tab it was pressed in. 409 when there is no
@@ -2517,7 +2534,7 @@ export interface Api {
   saveBootDoc(
     kind: BootDocKind,
     key: string,
-    body: string
+    body: string,
   ): Promise<BootDocView>;
   /**
    * Restore ONE boot-context block to its FACTORY version → the folded doc
@@ -2869,8 +2886,79 @@ export interface Api {
    * absent delta MUST be read as "something in this topic changed, refetch the
    * lot", never as "nothing changed".
    */
+  // ── T-33 傳承 (lore) — reads, plus two entity actions ──────────────────
+  //
+  // 🔴 THE TWO PARAGRAPHS THAT USED TO STAND HERE WERE FALSE, AND THEY WERE
+  // FALSE IN THE MOST EXPENSIVE WAY: they asserted a COUNT ("six lore routes")
+  // and an ABSENCE ("the station has no such route … nothing whose path
+  // contains `entit` exists at all"), both in the voice of something checked
+  // against routes.go on this branch. The station serves TWELVE lore routes,
+  // three of them entity routes, and this very interface declares
+  // `listPendingLoreEntities`, `approveLoreEntity` and `mergeLoreEntity`
+  // further down this same block.
+  //
+  // The correction is kept rather than swapped for a fresh count because the
+  // lesson is not the number: an absence claim is the one kind of comment that
+  // TURNS OFF the reader's own check — a wrong number invites re-counting,
+  // "there is no such route" invites nothing. Re-count against routes.go
+  // (`LoreGated: true`), do not trust this or any later paragraph's arithmetic.
+  //
+  // What the seam wraps is still a SUBSET of what the station serves, and that
+  // is a deliberate scope call rather than an inventory: the cockpit's 傳承 tab
+  // reads, and the write paths (`POST /api/lore/entries`, retire, revive) are
+  // not called from it this round. Declaring them on
+  // this interface would push the lie one layer down: the mock would answer
+  // them plausibly, the page would render numbers, and the only place the
+  // absence would show up is a 404 nobody runs.
+
+  /** Retrieve lore entries. Every selection condition rides in the BODY — an
+   * undeclared body key is refused 422 by name, while an undeclared QUERY
+   * parameter is silently ignored on every route this station serves. */
+  searchLore(input?: LoreSearchInput): Promise<LoreSearchView>;
+
+  /** Read ONE entry in full, with the preserved original and the revision
+   * CATALOGUE (identity + shrink counts, no text). */
+  getLoreEntry(entryId: string): Promise<LoreEntryDetailView>;
+
+  /** Read ONE revision's exact stored text. The entry id in the path is a
+   * CONSTRAINT, not decoration: revision ids are global, and a revision
+   * belonging to another entry 404s rather than handing over its text. */
+  getLoreRevision(
+    entryId: string,
+    revisionId: number,
+  ): Promise<LoreRevisionView>;
+
+  // ── T-33 對象審核 ────────────────────────────────────────────────────────
+  //
+  // 🔴 這三條是 owner 2026-09-02 圈的（`rc-55e3f5b13b42`）。核可與合併是
+  // admin 專屬（他 `rc-139a5ab99a19` 逐字:「待審,我跟 mira 有 admin 權限的才
+  // 行」）—— 一般成員拿到的是 403,不是一顆按不動的按鈕。
+  //
+  // 🔴 這裡沒有 `rejectLoreEntity`。「駁回」這個出口 owner 從來沒有裁定過,補一
+  // 個等於替他決定。
+
+  /** 待審佇列。每一列自己帶著審核要用的依據 —— 誰鑄的（`createdBy`）、底下現在
+   * 有幾條記憶、連退役都算進去是幾條（`entries` / `entriesEver`）、那些記憶逐條
+   * 是什麼（`entryRefs`）、第一條的樣本（`sampleShort`），以及像哪些既有名字、
+   * 每一個為什麼像（`similar`）。這條路由只給依據、不給判斷：owner 2026-09-05
+   * 裁掉了伺服器算出來的「你該按哪顆鈕」，裁決是人的事。 */
+  listPendingLoreEntities(): Promise<LorePendingEntityView[]>;
+
+  /** 核可一個待審對象。 */
+  approveLoreEntity(
+    entityId: string,
+    reason?: string,
+  ): Promise<LoreEntityGovernanceView>;
+
+  /** 把待審對象併進一個既有對象;`into` 是存活那一個的 id。 */
+  mergeLoreEntity(
+    entityId: string,
+    into: string,
+    reason?: string,
+  ): Promise<LoreEntityGovernanceView>;
+
   subscribeEvents(
-    onTopic: (topic: string, delta?: SseDelta) => void
+    onTopic: (topic: string, delta?: SseDelta) => void,
   ): () => void;
   /**
    * Watch the health of the delta downlink (see `SseConnectionState`). Fires
@@ -2882,7 +2970,30 @@ export interface Api {
    * reports "live" once and never calls back — a subscriber must therefore work
    * from a single synchronous call and never wait for a second one.
    */
-  subscribeConnection(
-    onState: (state: SseConnectionState) => void
-  ): () => void;
+  subscribeConnection(onState: (state: SseConnectionState) => void): () => void;
+}
+
+/**
+ * The selection conditions for `searchLore`. Every field is optional and every
+ * one goes in the request BODY (`LoreSearchDTO`); sending none asks for
+ * everything still retrievable.
+ *
+ * `limit` is 1..100 and OUT OF RANGE IS REFUSED rather than clamped — a caller
+ * that asked for 500 and silently received 100 believes it has seen
+ * everything. Omit it to take the server's default.
+ */
+export interface LoreSearchInput {
+  /** A subject key, `type:name`. A key that names nothing is NOT an error and
+   * NOT an empty result: the answer comes back `subjectResolved: false`. */
+  subject?: string;
+  actions?: string[];
+  /** A LITERAL, case-insensitive substring over 第 1 格 (`trigger`) and 第 2 格
+   * (`content`) — the two cells that took over the three 六格 scanned
+   * (label/short/symptoms), none of which exists any more. Not semantic — two
+   * entries describing the same situation in different words will not find
+   * each other. */
+  query?: string;
+  limit?: number;
+  /** Let `trust`-class entries appear in the analogy tier. */
+  forceTrustAnalogy?: boolean;
 }

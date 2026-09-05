@@ -67,6 +67,105 @@ export const en: Dict = {
     loadError: "Failed to load the user guide. Please try again.",
     empty: "No guide pages yet",
   },
+  // ── 傳承 / Lore (T-33) ──
+  // Half the copy on this tab says "there is nothing to put here, and here is
+  // the route that is missing". That is the ticket, not filler: the station
+  // serves six lore routes (write, search, read one, read one revision, retire,
+  // revive), and half the mockup's blocks need a subject CATALOGUE, a PENDING
+  // list, or APPROVE/MERGE — none of which exist. A 0 with no producer reads as
+  // "we looked, there is none", so those blocks name the missing route and
+  // print no number at all.
+  lore: {
+    pendingEmpty: "Nothing is waiting for you.",
+    pendingFailed: "Could not load the queue:",
+    pendingLoading: "Loading…",
+    pendingEntries: (n: number) => `${n} memories filed under it`,
+    pendingNoEntries: "No memories filed under it yet",
+    // 🔴 "0 filed" had two causes with opposite dispositions, so it is two
+    // sentences rather than one: never used at all (the shape of a typo) versus
+    // used and since emptied by retirement (which says nothing about the name).
+    pendingNeverUsed: "Nothing was ever filed under it — minted once and never used again",
+    pendingAllRetired: (n: number) => `${n} memories were filed under it; all of them are retired`,
+    pendingAlsoRetired: (n: number) => `(${n} more retired)`,
+    pendingMintedBy: (who: string) => `Minted by ${who}`,
+    pendingMintedByUnknown: "No record of who minted this name",
+    pendingEntryListLead: "Filed under it:",
+    pendingEntryStatusSuperseded: "superseded",
+    pendingEntryStatusUnderspecified: "underspecified",
+    pendingSimilarLead: "Close to:",
+    pendingApprove: "Approve",
+    pendingMerge: (name: string) => `Merge into ${name}`,
+    // The single merge entry point (owner 2026-09-05): one merge button per
+    // row, which lists the candidates, then a confirm step.
+    pendingMergeStart: (n: number) => `Merge… (${n} candidates)`,
+    pendingMergePickLead: (name: string) =>
+      `Merge “${name}” into which one? Pick a candidate:`,
+    pendingMergePickSubmit: (picked: string) =>
+      picked === "" ? "Pick a candidate first" : `Next: confirm merge into ${picked}`,
+    // 🔴 The reason this flow exists: the merge is one-way on the server, there
+    // is no unmerge route, so the confirm step says so in as many words.
+    pendingMergeConfirmBody: (from: string, into: string) =>
+      `“${from}” will be merged into “${into}”. This cannot be undone: there is no route back. The name “${from}” is not deleted — it becomes an alias of “${into}”, so later writes and searches naming “${from}” land on “${into}”, and everything filed under it counts as “${into}” from then on.`,
+    pendingBusy: "Working…",
+    pendingActionFailed: "That one did not go through:",
+    reasonSameNormalized: "identical once case and separators are normalised",
+    reasonEditDistance1: "one character apart",
+    reasonEditDistance2: "two characters apart",
+    reasonPrefix: "one starts the other",
+    reasonSubstring: "one contains the other",
+    listCount: (n: number) => `${n} memories`,
+    listTruncated: (n: number) => `Only the most recent ${n} are loaded — there are more.`,
+    listLoading: "Loading…",
+    listEmpty: "No memories have been written yet.",
+    listFailed: "Could not load the memories:",
+    listFilterPlaceholder: "Type to filter",
+    listFilterNoHit: "No memory matches that.",
+    listNoSubject: "Unfiled",
+    listGroupExpand: "Expand",
+    listGroupCollapse: "Collapse",
+    pendingTitle: "Waiting for you",
+    entriesTitle: "Memories",
+    title: "Lore",
+    entryOriginLabel: "From",
+    entryOpen: "Open this entry",
+    entryClose: "Close this entry",
+    entryLoading: "Loading…",
+    entryFailed: "Could not read this entry. This is what the server said:",
+
+    fieldTrigger: "Trigger · when you would want to remember this",
+    fieldContent: "Content · the only cell that enters an agent's memory",
+    fieldRetireWhen: "Retire when · when this stops being needed",
+    fieldProblem: "Problem · what went wrong before",
+    fieldEvents: "Events · when / what / who / where / what was touched",
+    fieldEmpty: "(blank — whoever wrote it left this empty)",
+    eventsEmpty: "No events are attached to this entry.",
+    eventWhen: "When",
+    eventActor: "Who",
+    eventPlace: "Where",
+    eventObject: "What was touched",
+    eventBlank: "(not recorded)",
+    fieldsNote:
+      "Every cell prints its name, blank ones included, and so does the events section when it is empty. “Blank” and “no such section” must not look the same. Inside an event, who / where / what-was-touched may legitimately be empty, so they are marked “not recorded” rather than filled in — “nobody could find out” and “nobody has looked yet” are different facts.",
+    detailStatusLabel: "Status",
+    detailWrittenByLabel: "Latest revision written by",
+    detailSupersedesLabel: "Supersedes",
+    originalTitle: "The original as written (latest revision)",
+    originalEmpty: "This entry has no original — it was written before the mechanism existed.",
+    shaLabel: "Digest",
+    shaEmpty: "(this response carries no digest, so nothing here can be checked against what was stored)",
+    revisionsTitle: "Revision timeline",
+    revisionsEmpty: "This entry has no revision rows.",
+    revisionLabel: "Revision ",
+    revisionLabelTail: " ",
+    revisionShrinkLead: "hollowed out by ",
+    revisionShrinkTail: " characters",
+    revisionNoShrink: "not shortened",
+    revisionView: "Read this revision",
+    revisionHide: "Hide this revision",
+    revisionFailed: "Could not read this revision. This is what the server said:",
+    revisionsNote:
+      "The “hollowed out by N characters” row is the most valuable cell on this tab: when an entry is emptied, the entry COUNT does not move, so no metric built on “how many are left” ever notices.",
+  },
   notifications: {
     dismiss: "Dismiss notification",
     title: "Turn on notifications",

@@ -1,0 +1,392 @@
+/* 傳承 Lore 分頁 (T-33) — 版面照 artifacts/lore-tab-mockup.html v8。
+   顏色一律走 styles/theme.css 的語意 token;帶透明度的用 color-mix,不寫死。 */
+
+.lore {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 12px;
+}
+
+/* ── 條目卡 ── */
+.lore-entry {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-card);
+  overflow: hidden;
+}
+.lore-entry__head {
+  display: block;
+  width: 100%;
+  padding: 13px 15px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.lore-entry__head:hover {
+  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
+}
+.lore-entry__title {
+  color: var(--color-text-strong);
+  font-weight: 600;
+}
+.lore-entry__axes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  align-items: center;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+.lore-entry__short {
+  margin-top: 6px;
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.lore-entry__body {
+  border-top: 1px solid var(--color-border);
+}
+.lore-entry__block {
+  padding: 15px;
+  border-bottom: 1px solid var(--color-border);
+}
+.lore-entry__block:last-child {
+  border-bottom: 0;
+}
+.lore-entry__field {
+  padding: 9px 0;
+  border-bottom: 1px dashed color-mix(in srgb, var(--color-text-muted) 18%, transparent);
+}
+.lore-entry__field:last-child {
+  border-bottom: 0;
+}
+.lore-entry__field-name {
+  margin-bottom: 3px;
+  color: var(--color-text-muted);
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+}
+.lore-entry__field-value {
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.lore-entry__field-value--empty {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+/* 第 5 格(事件)。人／地／物空著是合法的,所以三格永遠印出來,空的那一格用
+   `--blank` 標成「沒有記下」而不是塞一個「未知」——兩者是不同的事實。 */
+.lore-events {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+.lore-event {
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-surface-sunken) 18%, var(--color-bg));
+}
+.lore-event__what {
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.lore-event__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 5px;
+  font-size: 11.5px;
+}
+.lore-event__cell {
+  display: inline-flex;
+  gap: 5px;
+  align-items: baseline;
+}
+.lore-event__cell-name {
+  color: var(--color-text-muted);
+  letter-spacing: 0.06em;
+}
+.lore-event__cell-value {
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+.lore-event__cell-value--blank {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+.lore-entry__raw {
+  margin: 0;
+  padding: 12px;
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-surface-sunken) 22%, var(--color-bg));
+  color: var(--color-text);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+.lore-entry__rev {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 12px;
+  align-items: baseline;
+  padding: 8px 0;
+  border-bottom: 1px dashed color-mix(in srgb, var(--color-text-muted) 18%, transparent);
+}
+.lore-entry__rev:last-of-type {
+  border-bottom: 0;
+}
+.lore-entry__rev--shrunk {
+  margin: 0 -8px;
+  padding: 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-warn-bg) 60%, transparent);
+}
+.lore-entry__rev-meta {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.lore-entry__rev-shrink {
+  color: var(--color-warn-fg);
+  font-variant-numeric: tabular-nums;
+  font-size: 12.5px;
+}
+.lore-entry__rev-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.lore-entry__rev-btn:hover {
+  border-color: var(--color-text-muted);
+}
+
+/* ── 記憶清單(對象分群)── */
+.lore-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* 🔴 `.lore-list__quality*` 這一組拿掉了(owner 2026-09-03 裁定 rc-1e32c690018d
+   移除 degraded 這個概念,清單上那一排品質訊號跟著沒有東西可畫)。留著一組沒有
+   任何人 render 的樣式,下一個人會以為那一排還在。 */
+.lore-list__group-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+.lore-list__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+
+.lore-list__count {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.lore-list__filter {
+  flex: 1 1 220px;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-input, 8px);
+  background: var(--color-card);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.lore-list__group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lore-list__group-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-card);
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lore-list__group-name {
+  font-weight: 600;
+}
+
+.lore-list__group-count {
+  margin-inline-start: auto;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+/* ── 等你審核（待審佇列）──
+   每一列自己是一張卡:名字、樣本、建議、依據、按鈕,全部在同一層,不用點進去。 */
+.lore-pending {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lore-pending__row {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 13px 15px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-card);
+}
+
+.lore-pending__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.lore-pending__name {
+  font-weight: 600;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.lore-pending__sample {
+  color: var(--color-text-muted);
+}
+
+/* 底下那幾條。是一份**指路清單**,所以它不能長得像記憶本身 —— 字級與顏色都退
+   一階,重點在「有哪幾條、叫什麼」,不在讀它。 */
+.lore-pending__entries {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.lore-pending__entrylist {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lore-pending__entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.lore-pending__entry-trigger {
+  color: var(--color-text);
+}
+
+/* superseded / underspecified 要看得出來,但不能搶走第 1 格的位置:一列上真正
+   要讀的是「這一條是幹嘛的」,狀態是旁註。 */
+.lore-pending__entry-status {
+  font-size: 0.85em;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill, 999px);
+  padding: 0 6px;
+}
+
+/* 🔴 `.lore-pending__suggestion` / `--none` 曾經在這裡,是那一格伺服器建議的樣
+   式。整組建議在 owner 2026-09-05 被裁掉(改成 AI 判、人可回 comment 重判,另
+   一張票),樣式跟著走 —— 留著一條沒有元素會用到的規則,下一個人只會拿它去猜
+   一個已經不存在的畫面。 */
+
+.lore-pending__similar + .lore-pending__similar {
+  margin-inline-start: 10px;
+}
+
+/* 挑候選的那一步(round 4)。它是一塊**開在那一列裡面**的面板,不是彈窗:要挑
+   的東西(名字、幾條、誰鑄的、像誰)全在同一列上,把它蓋掉等於逼人憑記憶挑。 */
+.lore-pending__picker {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-bg);
+}
+
+.lore-pending__candidates {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lore-pending__candidate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  cursor: pointer;
+}
+
+/* 為什麼被判為相似。跟候選名字並排、退一階 —— 弱匹配(prefix / substring)跟
+   強匹配(same_normalized)長得一樣,是這一步最容易出事的地方。 */
+.lore-pending__candidate-reason {
+  font-size: 0.85em;
+  color: var(--color-text-muted);
+}
+
+.lore-pending__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-block-start: 3px;
+}
+
+.lore-pending__btn {
+  padding: 6px 13px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-input, 8px);
+  background: var(--color-card);
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.lore-pending__btn:disabled {
+  cursor: default;
+  opacity: 0.6;
+}

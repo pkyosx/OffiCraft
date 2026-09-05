@@ -25,6 +25,11 @@
 // no token query param) — it is pinned only by service/auth.py + these comments.
 
 import type {
+  LoreSearchView,
+  LoreEntryDetailView,
+  LoreRevisionView,
+  LorePendingEntityView,
+  LoreEntityGovernanceView,
   Member,
   MonitoringView,
   VersionView,
@@ -105,6 +110,7 @@ import type {
   ThemeWriteReceipt,
   ThemeDeleteResult,
   SseConnectionState,
+  LoreSearchInput,
   AccountCostResetReceipt,
   CostResetReceipt,
   TaskArtifactVersionView,
@@ -125,6 +131,11 @@ import {
   toDocumentHistory,
   toTaskArtifactVersion,
   toDocumentHistoryEntry,
+  toLoreSearch,
+  toLoreEntryDetail,
+  toLorePendingEntity,
+  toLoreEntityGovernance,
+  toLoreRevision,
   toDocumentRevision,
   toDocumentSeed,
   toRoleDef,
@@ -161,7 +172,7 @@ import {
 // The one wire type this seam names directly: GET /api/reply-cards serves a
 // UNION (light rows | full cards) and `?view=full` is what picks the second
 // arm, so listReplyCards has to narrow to it. See that function.
-import type { WireReplyCard } from "./wire";
+import type { WireLoreSearchRequest, WireReplyCard } from "./wire";
 import { ownerToken, setToken } from "./auth";
 import { ApiError, parseRetryAfter } from "./errors";
 import { fetchDiffPair } from "./diff";
@@ -914,7 +925,10 @@ export const httpApi: Api = {
       await client.PUT("/api/members/{member_id}/avatar", {
         params: {
           path: { member_id: id },
-          query: { filename: file.name || undefined, mime: file.type || undefined },
+          query: {
+            filename: file.name || undefined,
+            mime: file.type || undefined,
+          },
         },
         headers: { "Content-Type": "application/octet-stream" },
         // openapi-fetch defaults to JSON serialization. The spec types binary
@@ -1828,7 +1842,7 @@ export const httpApi: Api = {
       await client.POST("/api/tasks/{task_id}/reassign", {
         params: { path: { task_id: id } },
         body: fromTaskReassignInput(input),
-      })
+      }),
     );
     return toTask(wire);
   },
@@ -2438,16 +2452,23 @@ export const httpApi: Api = {
       display_theme?: string;
       display_language?: string;
       display_wide?: boolean;
+      lore_enabled?: boolean;
       onboarding_dismissed?: boolean;
     } = {};
-    if (patch.ownerTokenTtl !== undefined) body.owner_token_ttl = patch.ownerTokenTtl;
-    if (patch.agentTokenTtl !== undefined) body.agent_token_ttl = patch.agentTokenTtl;
+    if (patch.ownerTokenTtl !== undefined)
+      body.owner_token_ttl = patch.ownerTokenTtl;
+    if (patch.agentTokenTtl !== undefined)
+      body.agent_token_ttl = patch.agentTokenTtl;
     if (patch.handoverPct !== undefined) body.handover_pct = patch.handoverPct;
     if (patch.noticePct !== undefined) body.notice_pct = patch.noticePct;
-    if (patch.codexNoticeRound !== undefined) body.codex_notice_round = patch.codexNoticeRound;
-    if (patch.codexCompactionThreshold !== undefined) body.codex_compaction_threshold = patch.codexCompactionThreshold;
-    if (patch.monitoringRefreshSeconds !== undefined) body.monitoring_refresh_seconds = patch.monitoringRefreshSeconds;
-    if (patch.acceleratedGraceSecs !== undefined) body.accelerated_grace_secs = patch.acceleratedGraceSecs;
+    if (patch.codexNoticeRound !== undefined)
+      body.codex_notice_round = patch.codexNoticeRound;
+    if (patch.codexCompactionThreshold !== undefined)
+      body.codex_compaction_threshold = patch.codexCompactionThreshold;
+    if (patch.monitoringRefreshSeconds !== undefined)
+      body.monitoring_refresh_seconds = patch.monitoringRefreshSeconds;
+    if (patch.acceleratedGraceSecs !== undefined)
+      body.accelerated_grace_secs = patch.acceleratedGraceSecs;
     if (patch.outsourceMaxParallel !== undefined) {
       body.outsource_max_parallel = patch.outsourceMaxParallel;
     }
@@ -2467,7 +2488,8 @@ export const httpApi: Api = {
       body.doc_cap_chars_manual_learnings = patch.docCapCharsManualLearnings;
     }
     if (patch.docCapCharsSystemInteraction !== undefined) {
-      body.doc_cap_chars_system_interaction = patch.docCapCharsSystemInteraction;
+      body.doc_cap_chars_system_interaction =
+        patch.docCapCharsSystemInteraction;
     }
     if (patch.docCapCharsBootSequence !== undefined) {
       body.doc_cap_chars_boot_sequence = patch.docCapCharsBootSequence;
@@ -2489,13 +2511,18 @@ export const httpApi: Api = {
     }
     if (patch.orgName !== undefined) body.org_name = patch.orgName;
     if (patch.ownerName !== undefined) body.owner_name = patch.ownerName;
-    if (patch.pushContactEmail !== undefined) body.push_contact_email = patch.pushContactEmail;
-    if (patch.displayTheme !== undefined) body.display_theme = patch.displayTheme;
+    if (patch.pushContactEmail !== undefined)
+      body.push_contact_email = patch.pushContactEmail;
+    if (patch.displayTheme !== undefined)
+      body.display_theme = patch.displayTheme;
     if (patch.displayLanguage !== undefined) {
       body.display_language = patch.displayLanguage;
     }
     if (patch.displayWide !== undefined) {
       body.display_wide = patch.displayWide;
+    }
+    if (patch.loreEnabled !== undefined) {
+      body.lore_enabled = patch.loreEnabled;
     }
     if (patch.onboardingDismissed !== undefined) {
       body.onboarding_dismissed = patch.onboardingDismissed;
@@ -2514,7 +2541,9 @@ export const httpApi: Api = {
     // rule is the only one, and a stricter client rule would refuse links the
     // server accepts. 422 (bad url / too large / not a theme) and 502
     // (unreachable link) both throw via the client middleware.
-    const wire = unwrap(await client.POST("/api/theme/fetch", { body: { url } }));
+    const wire = unwrap(
+      await client.POST("/api/theme/fetch", { body: { url } }),
+    );
     return wire.content;
   },
 
@@ -2572,7 +2601,9 @@ export const httpApi: Api = {
     return wire.public_key;
   },
 
-  async savePushSubscription(subscription: PushSubscriptionInput): Promise<void> {
+  async savePushSubscription(
+    subscription: PushSubscriptionInput,
+  ): Promise<void> {
     unwrap(
       await client.POST("/api/push/subscription", {
         body: {
@@ -2585,7 +2616,9 @@ export const httpApi: Api = {
   },
 
   async removePushSubscription(endpoint: string): Promise<void> {
-    unwrap(await client.DELETE("/api/push/subscription", { body: { endpoint } }));
+    unwrap(
+      await client.DELETE("/api/push/subscription", { body: { endpoint } }),
+    );
   },
 
   async triggerUpgrade(): Promise<void> {
@@ -2968,7 +3001,7 @@ export const httpApi: Api = {
   },
 
   subscribeEvents(
-    onTopic: (topic: string, delta?: SseDelta) => void
+    onTopic: (topic: string, delta?: SseDelta) => void,
   ): () => void {
     // GET /api/events (SSE downlink). PERMANENTLY HAND-WRITTEN — an EventSource,
     // not a fetch, so no OpenAPI runtime client can generate it. EventSource
@@ -3012,7 +3045,10 @@ export const httpApi: Api = {
         // visibilitychange/focus never fans a resync onto an empty subscriber
         // set (and nothing leaks across a close→reopen cycle).
         if (sseVisibilityHandler && typeof document !== "undefined") {
-          document.removeEventListener("visibilitychange", sseVisibilityHandler);
+          document.removeEventListener(
+            "visibilitychange",
+            sseVisibilityHandler,
+          );
           if (typeof window !== "undefined") {
             window.removeEventListener("focus", sseVisibilityHandler);
           }
@@ -3023,8 +3059,115 @@ export const httpApi: Api = {
     };
   },
 
+  // ── T-33 傳承 (lore), read side ────────────────────────────────────────
+  async searchLore(input: LoreSearchInput = {}): Promise<LoreSearchView> {
+    // POST /api/lore/search -> LoreSearchResultDTO.
+    //
+    // 🔴 A POST for a READ, and that is the contract, not a slip: every
+    // selection condition is a BODY key, because an undeclared body key is
+    // refused 422 BY NAME while an undeclared query parameter is silently
+    // ignored on every route this station serves. A mistyped condition on the
+    // query side would hand back a plausible answer to a question nobody
+    // asked, and nothing would report it.
+    //
+    // Only the fields the caller actually set are sent. `limit` is 1..100 and
+    // out of range is REFUSED rather than clamped, so passing a caller's 0
+    // through would turn "I did not choose" into a rejected request.
+    const body: Partial<WireLoreSearchRequest> = {};
+    if (input.subject !== undefined) body.subject = input.subject;
+    if (input.actions !== undefined) body.actions = input.actions;
+    if (input.query !== undefined) body.query = input.query;
+    if (input.limit !== undefined) body.limit = input.limit;
+    if (input.forceTrustAnalogy !== undefined) {
+      body.force_trust_analogy = input.forceTrustAnalogy;
+    }
+    const wire = unwrap(
+      // The generator marks every defaulted field REQUIRED, so the partial
+      // body the route actually accepts does not fit the generated type. The
+      // cast is on the shape only — sending a filled-in default instead would
+      // change what is asked for, which is the one thing this hop must not do.
+      await client.POST("/api/lore/search", {
+        body: body as WireLoreSearchRequest,
+      }),
+    );
+    return toLoreSearch(wire);
+  },
+
+  async getLoreEntry(entryId: string): Promise<LoreEntryDetailView> {
+    // GET /api/lore/entries/{entry_id} -> LoreEntryDetailDTO. Addressing is
+    // ENTIRELY in the path and there are no query parameters, deliberately:
+    // `?revision=3` would otherwise have been a way to ask for one revision
+    // and quietly receive the latest. A wrong path is a 404, which is loud.
+    const wire = unwrap(
+      await client.GET("/api/lore/entries/{entry_id}", {
+        params: { path: { entry_id: entryId } },
+      }),
+    );
+    return toLoreEntryDetail(wire);
+  },
+
+  async getLoreRevision(
+    entryId: string,
+    revisionId: number,
+  ): Promise<LoreRevisionView> {
+    // GET /api/lore/entries/{entry_id}/revisions/{revision_id} ->
+    // LoreRevisionDTO. The entry id is a CONSTRAINT: revision ids are global,
+    // so a revision belonging to a DIFFERENT entry 404s here rather than
+    // being served — a mistyped entry id must not hand back somebody else's
+    // text with nothing to signal it.
+    const wire = unwrap(
+      await client.GET("/api/lore/entries/{entry_id}/revisions/{revision_id}", {
+        // `revision_id` is an integer everywhere in the DTOs and a STRING in
+        // the path parameter — a path segment has no other form. Stringify
+        // here rather than widening the domain type to match a URL detail.
+        params: {
+          path: { entry_id: entryId, revision_id: String(revisionId) },
+        },
+      }),
+    );
+    return toLoreRevision(wire);
+  },
+
+  // ── T-33 對象審核 ────────────────────────────────────────────────────────
+  async listPendingLoreEntities(): Promise<LorePendingEntityView[]> {
+    // GET /api/lore/entities/pending -> LorePendingEntityRowDTO[]。這條是唯一
+    // 一條看得到「待審」的路:待審資料本來就在 DB 裡,但在這條路存在之前沒有出
+    // 口,所以座艙畫得出佇列的那一天就是這條路落地的那一天。
+    const wire = unwrap(await client.GET("/api/lore/entities/pending", {}));
+    return (wire ?? []).map(toLorePendingEntity);
+  },
+
+  async approveLoreEntity(
+    entityId: string,
+    reason = "",
+  ): Promise<LoreEntityGovernanceView> {
+    // 回的是治理收據,不是 204:呼叫端要看得到它實際落在哪個狀態,而不是靠「沒
+    // 有報錯」推論。
+    const wire = unwrap(
+      await client.POST("/api/lore/entities/{entity_id}/approve", {
+        params: { path: { entity_id: entityId } },
+        body: { reason },
+      }),
+    );
+    return toLoreEntityGovernance(wire);
+  },
+
+  async mergeLoreEntity(
+    entityId: string,
+    into: string,
+    reason = "",
+  ): Promise<LoreEntityGovernanceView> {
+    const wire = unwrap(
+      await client.POST("/api/lore/entities/{entity_id}/merge", {
+        params: { path: { entity_id: entityId } },
+        body: { into, reason },
+      }),
+    );
+    return toLoreEntityGovernance(wire);
+  },
+
   subscribeConnection(
-    onState: (state: SseConnectionState) => void
+    onState: (state: SseConnectionState) => void,
   ): () => void {
     // A thin re-export of the module-level downlink health (the shared-downlink
     // block above owns it). It is on the Api seam rather than imported straight

@@ -1055,6 +1055,19 @@ var identityGateLedger = map[string]string{
 	"api_tasks.go :: HandleReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplacePost :: Kind: art.Kind": "" +
 		"NOT an identity gate — the replacement row carries the pinned artifact's own " +
 		"kind forward verbatim; that carry IS the immutability rule, not a population.",
+	"api_lore_governance.go :: writeLoreGovernanceReceipt :: Kind: event.Kind": "" +
+		"NOT an identity gate — LORE GOVERNANCE kind (`retire` / `revive`), the journal " +
+		"row's own vocabulary, copied to the receipt. Nothing here reads a member.",
+	"api_lore_entity.go :: writeLoreEntityReceipt :: Kind: event.Kind": "" +
+		"NOT an identity gate — the SAME lore governance vocabulary one file over " +
+		"(`entity-approve` / `entity-merge`), copied to the subject-review receipt.",
+	"api_lore_proposal.go :: HandleProposeLoreChangeApiLoreEntriesEntryIdProposalsPost :: Kind: body.Kind": "" +
+		"NOT an identity gate — LORE PROPOSAL kind (`update` / `remove`): what a " +
+		"proposal ASKS FOR, not who is asking. The caller identity on this route is " +
+		"currentActor(r), which the body cannot assert.",
+	"api_lore_proposal.go :: HandleListLoreProposalsApiLoreEntriesEntryIdProposalsGet :: Kind: p.Kind": "" +
+		"NOT an identity gate — the same proposal-kind vocabulary, copied to the DTO " +
+		"on the read side.",
 
 	// ── NOT identity gates at all ──────────────────────────────────────────
 	//
@@ -1087,6 +1100,21 @@ var identityGateLedger = map[string]string{
 		"NOT an identity gate — the same artifact kind read off a RETAINED VERSION " +
 		"row (T-60), deciding whether that version has a blob whose filename and mime " +
 		"the reader can resolve. The wire twin of the history handler's entry above.",
+	"dal_lore_proposal.go :: loreProposalShapeError :: p.Kind == \"remove\"": "" +
+		"NOT an identity gate — LORE PROPOSAL kind again, deciding whether a whole " +
+		"replacement version is expected. Reads no member.",
+	"dal_lore_proposal.go :: CreateLoreProposal :: p.Kind == \"update\"": "" +
+		"NOT an identity gate — the other arm of the same proposal-kind question, " +
+		"deciding whether there is a version to render and digest.",
+	"dal_lore_proposal.go :: ListLoreProposals :: out.Proposals[i].Kind != \"update\"": "" +
+		"NOT an identity gate — LORE PROPOSAL kind on the read side: a `remove` " +
+		"proposes no version, so it moves no events and its events_added / " +
+		"events_removed are empty rather than 「刪掉全部」. Reads no member.",
+	"dal_lore_proposal.go :: ApplyLoreProposal :: p.Kind != \"update\"": "" +
+		"NOT an identity gate — the same proposal-kind vocabulary deciding whether " +
+		"there is a version to apply at all; a `remove` asks for retire_lore_entry. " +
+		"⚠️ WHO MAY ACCEPT is not decided here and is not decided anywhere yet — " +
+		"arbitration policy is unruled, which is why this seam has no route.",
 	"api_tasks_handoff.go :: applyHandoffPlan :: plan.Kind switch case HandoffFollowUp": "" +
 		"NOT an identity gate — HANDOFF-PLAN kind (none / follow-up / return to " +
 		"creator). Caught by the switch shape, which exists for the member-kind switch " +

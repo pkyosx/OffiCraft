@@ -10,6 +10,14 @@ import { DOC_CAP_CHARS_DEFAULTS } from "./docCap";
 import { CHAT_BUDGET_CHARS_DEFAULT } from "./chatBudget";
 import { BACKUP_RETAIN_DEFAULT } from "./backupRetain";
 import type {
+  LoreEntrySummaryView,
+  LoreSearchView,
+  LoreRevisionRowView,
+  LoreEntryDetailView,
+  LoreEventView,
+  LoreRevisionView,
+  LorePendingEntityView,
+  LoreEntityGovernanceView,
   Member,
   MemberStatus,
   MemberLifecycle,
@@ -53,6 +61,14 @@ import type {
   WireChatMessage,
   WireMachine,
   WireMonSession,
+  WireLoreSearchResult,
+  WireLoreSearchHit,
+  WireLoreEntryDetail,
+  WireLoreEvent,
+  WireLoreRevisionRow,
+  WireLoreRevision,
+  WireLorePendingEntity,
+  WireLoreEntityGovernance,
   WireMonMachine,
   WireMonAccount,
   WireMonitoring,
@@ -748,7 +764,8 @@ export function toOutsourceWorker(w: WireOutsourceWorker): OutsourceWorkerView {
     // Lifecycle (T-32e1/T-f190): refocus_since 0 → null (no fabricated 換手中
     // time; member.refocus_since style); desired_state mirrors member ("" reads
     // as online — the stop/restart toggle only trips on an explicit "offline").
-    refocusSince: w.refocus_since && w.refocus_since > 0 ? w.refocus_since : null,
+    refocusSince:
+      w.refocus_since && w.refocus_since > 0 ? w.refocus_since : null,
     refocusOp: w.refocus_op ?? "",
     refocusDeadline:
       w.refocus_deadline && w.refocus_deadline > 0 ? w.refocus_deadline : null,
@@ -767,7 +784,7 @@ export function toOutsourceWorker(w: WireOutsourceWorker): OutsourceWorkerView {
  * DROPS fields/sop/learnings/assignee on purpose — the tasks page must not
  * grow a manual-editing surface (that is 設定 › 任務手冊's `toTaskManual`). */
 export function toTaskType(
-  w: WireTaskManualListItem | WireTaskManual
+  w: WireTaskManualListItem | WireTaskManual,
 ): TaskTypeView {
   return {
     typeKey: w.type_key,
@@ -887,7 +904,7 @@ export function fromTaskManualPatch(
  * axes go null rather than absent — the DTO defaults them and the server reads
  * only the ones its `kind` branch cares about. */
 export function fromTaskReassignInput(
-  input: TaskReassignInput
+  input: TaskReassignInput,
 ): WireTaskReassign {
   const target = input.target;
   return {
@@ -980,14 +997,16 @@ function toMonMachine(w: WireMonMachine): MonMachineView {
     claudeCredSource: toClaudeCredSource(w.claude_cred_source),
     claudeSubReadable: w.claude_sub_readable ?? null,
     runtimeCapabilities: Object.fromEntries(
-      Object.entries(w.runtime_capabilities ?? {}).map(([runtime, capability]) => [
-        runtime,
-        {
-          installed: capability.installed ?? null,
-          loggedIn: capability.logged_in ?? null,
-          version: capability.version ?? null,
-        },
-      ])
+      Object.entries(w.runtime_capabilities ?? {}).map(
+        ([runtime, capability]) => [
+          runtime,
+          {
+            installed: capability.installed ?? null,
+            loggedIn: capability.logged_in ?? null,
+            version: capability.version ?? null,
+          },
+        ],
+      ),
     ),
     // Freshness rides the same mapper as the values it qualifies, so a row can
     // never arrive carrying readiness with no verdict about how old it is.
@@ -1078,12 +1097,15 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     // caller. Duty has its own, smaller default; every other segment shares one
     // (T-ae38) — the numbers live in DOC_CAP_CHARS_DEFAULTS, not here.
     docCapCharsDuty: w.doc_cap_chars_duty ?? DOC_CAP_CHARS_DEFAULTS.duty,
-    docCapCharsInsight: w.doc_cap_chars_insight ?? DOC_CAP_CHARS_DEFAULTS.insight,
+    docCapCharsInsight:
+      w.doc_cap_chars_insight ?? DOC_CAP_CHARS_DEFAULTS.insight,
     docCapCharsLearning:
       w.doc_cap_chars_learning ?? DOC_CAP_CHARS_DEFAULTS.learning,
-    docCapCharsManualSop: w.doc_cap_chars_manual_sop ?? DOC_CAP_CHARS_DEFAULTS.manualSop,
+    docCapCharsManualSop:
+      w.doc_cap_chars_manual_sop ?? DOC_CAP_CHARS_DEFAULTS.manualSop,
     docCapCharsManualLearnings:
-      w.doc_cap_chars_manual_learnings ?? DOC_CAP_CHARS_DEFAULTS.manualLearnings,
+      w.doc_cap_chars_manual_learnings ??
+      DOC_CAP_CHARS_DEFAULTS.manualLearnings,
     // T-791e boot-context caps — same rule and same reason as the five above.
     docCapCharsSystemInteraction:
       w.doc_cap_chars_system_interaction ??
@@ -1122,6 +1144,11 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     // emits it). Absent maps to false, which is exactly the honest reading: an
     // older server has no wide layout, so the cockpit stays narrow.
     displayWide: w.display_wide ?? false,
+    // The station-wide lore switch (T-33). Absent maps to FALSE, and the
+    // direction matters: a server old enough not to send this field has no lore
+    // routes at all, so defaulting to true would draw a 傳承 tab whose every
+    // click fails. The safe default is the shipped default.
+    loreEnabled: w.lore_enabled ?? false,
     // The first-run onboarding report (T-ba62). Absent/null is the NORMAL
     // state (onboarding never ran on this database) and maps to null — the
     // mapper never manufactures a report, so "no report" can never be
@@ -1179,7 +1206,9 @@ export function toThemeListItem(w: WireThemeListItem): ThemeListItem {
 }
 
 /** ThemeWriteReceiptDTO → ThemeWriteReceipt (snake→camel passthrough). */
-export function toThemeWriteReceipt(w: WireThemeWriteReceipt): ThemeWriteReceipt {
+export function toThemeWriteReceipt(
+  w: WireThemeWriteReceipt,
+): ThemeWriteReceipt {
   return {
     id: w.id,
     created: w.created,
@@ -1192,7 +1221,9 @@ export function toThemeWriteReceipt(w: WireThemeWriteReceipt): ThemeWriteReceipt
  * `displayThemeReset` is passed through verbatim: it is the server's report
  * that the ACTIVE theme was the one deleted, and nothing on this side may
  * re-derive it. */
-export function toThemeDeleteResult(w: WireThemeDeleteResult): ThemeDeleteResult {
+export function toThemeDeleteResult(
+  w: WireThemeDeleteResult,
+): ThemeDeleteResult {
   return {
     id: w.id,
     deleted: w.deleted,
@@ -1205,7 +1236,7 @@ export function toThemeDeleteResult(w: WireThemeDeleteResult): ThemeDeleteResult
  * fallback is the honest reading of an absent value — never a fabricated
  * success (an unknown state stays "", it does not become "ok"). */
 export function toOnboardingReport(
-  w: NonNullable<WireServerSettings["onboarding"]>
+  w: NonNullable<WireServerSettings["onboarding"]>,
 ): OnboardingReportView {
   return {
     state: w.state,
@@ -1357,7 +1388,7 @@ export function toBootDoc(w: WireBootDoc): BootDocView {
  * carries actor+time alongside text; the list carries no text and the
  * named-revision read carries no actor (see `toDocumentRevision`). */
 export function toDocumentHistory(
-  w: WireDocumentHistoryRestore
+  w: WireDocumentHistoryRestore,
 ): DocumentHistoryView {
   return {
     id: w.id,
@@ -1375,7 +1406,7 @@ export function toDocumentHistory(
  * the text — everything else about the revision (when, who, tombstoned, sizes)
  * it already holds from the directory row it opened. */
 export function toDocumentRevision(
-  w: WireDocumentHistoryVersion
+  w: WireDocumentHistoryVersion,
 ): DocumentRevisionView {
   return { id: w.id, content: { ...w.content } };
 }
@@ -1401,7 +1432,7 @@ export function toDocumentRevision(
  * off the list" impossible rather than merely discouraged.
  */
 export function toDocumentHistoryEntry(
-  w: WireDocumentHistory
+  w: WireDocumentHistory,
 ): DocumentHistoryEntryView {
   return {
     id: w.id,
@@ -1432,7 +1463,7 @@ export function toDocumentSeed(w: WireDocumentSeed): DocumentSeedView {
  * reports 0, which the editor renders as an honest "not known" rather than as
  * a doc of length zero. */
 export function toRoleSummary(
-  w: WireRoleDefListItem | WireRoleDef
+  w: WireRoleDefListItem | WireRoleDef,
 ): RoleSummaryView {
   return {
     sizeChars: w.size_chars ?? 0,
@@ -1505,14 +1536,16 @@ export function toMachine(w: WireMachine): MachineView {
     claudeCredSource: toClaudeCredSource(w.claude_cred_source),
     claudeSubReadable: w.claude_sub_readable ?? null,
     runtimeCapabilities: Object.fromEntries(
-      Object.entries(w.runtime_capabilities ?? {}).map(([runtime, capability]) => [
-        runtime,
-        {
-          installed: capability.installed ?? null,
-          loggedIn: capability.logged_in ?? null,
-          version: capability.version ?? null,
-        },
-      ])
+      Object.entries(w.runtime_capabilities ?? {}).map(
+        ([runtime, capability]) => [
+          runtime,
+          {
+            installed: capability.installed ?? null,
+            loggedIn: capability.logged_in ?? null,
+            version: capability.version ?? null,
+          },
+        ],
+      ),
     ),
   };
 }
@@ -1818,9 +1851,7 @@ export function toResumeRosterMember(
 }
 
 /** Map the wire machine block of the wake snapshot → the view model. */
-export function toResumeMachines(
-  w: WireResumeMachines,
-): ResumeMachinesView {
+export function toResumeMachines(w: WireResumeMachines): ResumeMachinesView {
   return {
     list: (w.list ?? []).map((m) => ({
       machineId: m.machine_id,
@@ -1865,5 +1896,176 @@ export function toMemberResumeSummary(
     // panel never has to distinguish "no marker" from "marker down".
     roster: (w.roster ?? []).map(toResumeRosterMember),
     machines: w.machines ? toResumeMachines(w.machines) : null,
+  };
+}
+
+// ── T-33 傳承 (lore) ────────────────────────────────────────────────────────
+
+/** Map one search hit → the summary view (snake→camel, nothing derived).
+ *
+ * Every honesty marker the wire carries is carried through: `tier` WITHOUT
+ * `applied.tiered_by` means something different from what it says, and
+ * `trust_fell_back` is what separates a class the table KNEW from one that was
+ * guessed by failing closed. Dropping either here would leave the screen
+ * unable to tell the two apart, and nothing would throw. */
+export function toLoreEntrySummary(w: WireLoreSearchHit): LoreEntrySummaryView {
+  return {
+    entryId: w.entry_id,
+    trigger: w.trigger,
+    content: w.content,
+    subjects: [...w.subjects],
+    actions: [...w.actions],
+    origin: w.origin,
+    tier: w.tier,
+    tierNote: w.tier_note,
+    trustScope: w.trust_scope,
+    trustFellBack: w.trust_fell_back,
+  };
+}
+
+/** Map one search answer → the view model.
+ *
+ * 🔴 `total` is the server's count BEFORE the cap and is NOT re-derived from
+ * `entries.length`: a caller that read the page length as the total would show
+ * a capped page as the whole store, and the cap is silent. `subject_resolved`
+ * likewise survives instead of being folded into an empty list — 「this subject
+ * has nothing on it」 and 「this subject does not exist」 are different answers,
+ * and the second one is a typo somebody needs to see. */
+export function toLoreSearch(w: WireLoreSearchResult): LoreSearchView {
+  return {
+    entries: w.entries.map(toLoreEntrySummary),
+    total: w.total,
+    truncated: w.truncated,
+    subjectResolved: w.subject_resolved,
+    unresolvedSubject: w.unresolved_subject,
+    applied: {
+      subject: w.applied.subject,
+      actions: [...w.applied.actions],
+      query: w.applied.query,
+      queryMatch: w.applied.query_match,
+      limit: w.applied.limit,
+      tieredBy: [...w.applied.tiered_by],
+    },
+    unmappedActions: [...w.unmapped_actions],
+  };
+}
+
+/** Map one revision catalogue line → the view model. `shrink_chars` is the
+ * field the whole 版本時間軸 exists for; it is a COUNT from the server and is
+ * never derived here, because the catalogue carries no text to derive from. */
+export function toLoreRevisionRow(w: WireLoreRevisionRow): LoreRevisionRowView {
+  return {
+    revisionId: w.revision_id,
+    createdTs: w.created_ts,
+    actorId: w.actor_id,
+    sha256: w.sha256,
+    shrinkChars: w.shrink_chars,
+  };
+}
+
+/** Map one event → the view model. 人／地／物 are carried through EXACTLY as the
+ * wire sent them, empty string included: this is the seam where a placeholder
+ * would be cheapest to add and most damaging, because 「nobody could find out
+ * who」 and 「nobody has looked yet」 would render as the same word from here on
+ * and nothing downstream could tell them apart again. */
+export function toLoreEvent(w: WireLoreEvent): LoreEventView {
+  return {
+    happenedTs: w.happened_ts,
+    what: w.what,
+    actor: w.actor,
+    place: w.place,
+    object: w.object,
+  };
+}
+
+/** Map one entry detail → the view model.
+ *
+ * Every body cell is mapped verbatim, empty string included. 第 1、2 格
+ * (`trigger` / `content`) cannot be blank — the write path refuses them at the
+ * upsert seam — so a blank one here means the entry predates 五格. 第 3、4 格
+ * are optional and a blank one is ordinary, which is exactly why it is mapped
+ * rather than dropped.
+ *
+ * The surface prints an empty cell WITH its name; substituting a placeholder
+ * here would make 「the writer left this blank」 and 「this entry has no such
+ * section」 render identically.
+ *
+ * 🔴 `events` is mapped in the order the wire sent it, which is the order the
+ * events HAPPENED. Re-sorting here (by write order, say) would silently answer
+ * a different question than the one the route answers. */
+export function toLoreEntryDetail(w: WireLoreEntryDetail): LoreEntryDetailView {
+  return {
+    entryId: w.entry_id,
+    trigger: w.trigger,
+    content: w.content,
+    retireWhen: w.retire_when,
+    problem: w.problem,
+    events: w.events.map(toLoreEvent),
+    subjects: [...w.subjects],
+    actions: [...w.actions],
+    origin: w.origin,
+    status: w.status,
+    original: w.original,
+    sha256: w.sha256,
+    supersedes: w.supersedes,
+    writtenBy: w.written_by,
+    revisions: w.revisions.map(toLoreRevisionRow),
+  };
+}
+
+/** Map one revision's full text → the view model. */
+export function toLoreRevision(w: WireLoreRevision): LoreRevisionView {
+  return {
+    revisionId: w.revision_id,
+    entryId: w.entry_id,
+    body: w.body,
+    sha256: w.sha256,
+    createdTs: w.created_ts,
+    actorId: w.actor_id,
+    shrinkChars: w.shrink_chars,
+  };
+}
+
+/** 待審一列。`suggestion` / `merge_target` 在 owner 2026-09-05 裁定後從 wire 上
+ * 整組拿掉了(改由 AI 判、人可回 comment 重判,另一張票),所以這裡也沒有了。 */
+export function toLorePendingEntity(
+  w: WireLorePendingEntity,
+): LorePendingEntityView {
+  return {
+    entityId: w.entity_id,
+    canonical: w.canonical,
+    type: w.type,
+    name: w.name,
+    createdTs: w.created_ts,
+    createdBy: w.created_by,
+    entries: w.entries,
+    entriesEver: w.entries_ever,
+    entryRefs: (w.entry_refs ?? []).map((e) => ({
+      entryId: e.entry_id,
+      trigger: e.trigger,
+      status: e.status,
+    })),
+    similar: (w.similar ?? []).map((r) => ({
+      entityId: r.entity_id,
+      canonical: r.canonical,
+      reason: r.reason,
+    })),
+    sampleShort: w.sample_short,
+  };
+}
+
+/** 核可／合併的收據。 */
+export function toLoreEntityGovernance(
+  w: WireLoreEntityGovernance,
+): LoreEntityGovernanceView {
+  return {
+    entityId: w.entity_id,
+    canonical: w.canonical,
+    pending: w.pending,
+    mergedInto: w.merged_into,
+    kind: w.kind,
+    reason: w.reason,
+    actorId: w.actor_id,
+    createdTs: w.created_ts,
   };
 }

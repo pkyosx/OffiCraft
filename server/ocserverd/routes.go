@@ -45,6 +45,18 @@ type RouteSpec struct {
 	MCPExclude bool
 	// MCPTool is the explicit MCP tool name override (paths carrying a {param}).
 	MCPTool string
+	// LoreGated marks a row as belonging to the T-33 LORE feature, whose
+	// station-wide switch (settings `lore.enabled`, default OFF) decides whether
+	// the row answers at all.
+	//
+	// 🔴 IT IS A FLAG ON THE TABLE, NOT AN `if` IN TWELVE HANDLERS. The whole
+	// point of this file is that routing is a TABLE; a switch re-tested inside
+	// each lore handler would be twelve chances for one of them to be added
+	// later without it, and the twelfth would be a write that lands on a station
+	// whose owner believes the feature is off. specsFor (server.go) wraps every
+	// row carrying this flag with ONE gate, so a new lore row inherits it by
+	// declaring the flag and cannot inherit it by accident anywhere else.
+	LoreGated bool
 	// ShareSig admits a ?sig= share credential (sharesig.go) as a third auth
 	// path on THIS row only (precedence: Authorization header → ?token= →
 	// ?sig=), and IS the verifier: it reads its own subject out of the request
@@ -2307,6 +2319,329 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Requires: principalAdminAgent,
 			Summary:  "強制停止 an outsource worker: kill the session NOW and hold it down; says nothing to it. Third rung of 停止 -> 加速停止 -> 強制停止.",
 			MCPTool:  "force_stop_outsource_worker",
+		},
+		// ── T-33 lore 對象審核 (entity review) ────────────────────────────────
+		// 🔴 THESE THREE ROWS ARE THE EXIT FROM A QUEUE THAT HAD NONE. Every
+		// subject key an agent writes and nothing recognises is MINTED and parked
+		// `pending = 1` — deliberately, because gating the write is what pushes an
+		// agent into forcing a near-miss key onto an existing subject. The parked
+		// column was written on every such write and READ by nothing: the boot
+		// subject directory filters `pending = 0`, so an entry filed only against a
+		// pending subject exists, answers a direct read, and is invisible to every
+		// agent's wake. That is the ticket's own disease, one layer down.
+		//
+		// 🔴 THE FLOOR IS principalAdminAgent ON ALL THREE, AND ON THE TWO ACTS IT
+		// IS THE OWNER'S OWN WORDS (rc-139a5ab99a19): 「待審，我跟 mira 有 admin
+		// 權限的才行」. Approving publishes a name into EVERY agent's boot
+		// directory and merging rewrites which subject an entry belongs to; neither
+		// is an agent curating what it knows, which is what put retire at
+		// principalAgent. The owner outranks admin_agent on the ladder, so one row
+		// says both halves of his sentence.
+		//
+		// ⚠️ THE READ IS HELD TO THE SAME FLOOR, AND THAT HALF IS A READING RATHER
+		// THAN HIS WORDS — the precedent it follows is GET /api/settings, whose
+		// read sits at principalAdminAgent beside the PATCH that edits it (and GET
+		// /api/members/{member_id}/scheduled-messages, same shape). This station
+		// puts an admin-gated console's READ at the console's floor, not below it.
+		// The lore retrieval rows are NOT the precedent: they serve an agent its
+		// own store, whereas this list is a work queue whose every row names an act
+		// only an admin may perform. ⚠️ If that reading is wrong the cost is one
+		// 403 an ordinary agent can argue with; the reverse — the whole fleet
+		// reading a queue of names nobody has approved — is the thing the `pending`
+		// filter on the boot directory exists to prevent.
+		//
+		// 🔴 THERE IS NO REJECT ROW, AND ITS ABSENCE IS DELIBERATE. The owner has
+		// ruled on 核可 and on 合併. What becomes of a minted name nobody wants has
+		// never been decided, and shipping that exit would decide it here — in the
+		// direction that destroys rows.
+		{
+			Method:    "GET",
+			Path:      "/api/lore/entities/pending",
+			LoreGated: true,
+			Handler:   w.HandleListPendingLoreEntitiesApiLoreEntitiesPendingGet,
+			Auth:      authGated,
+			Requires:  principalAdminAgent,
+			Summary:   "List the subject entities parked for review, each with the homework already done — the `type:name` key it was minted under, its type, its name, when it was created, WHO MINTED IT (`created_by`), HOW MANY lore entries are filed under it (`entries`) and how many were EVER filed under it including retired ones (`entries_ever`), EVERY one of those entries by id and 第 1 格 (`entry_refs`), a SAMPLE of the first one's `content` (第 2 格; the wire field is still called `sample_short`), and the existing subjects it resembles WITH the reason each was offered. 🔴 A pending entity is a name an agent INVENTED while writing lore: minting is deliberately ungated (gating it is what pushes a writer into forcing a near-miss key onto an existing subject), so this queue is the only place a typo like `repo:offcraft` is caught before it becomes part of the ontology. `entries` is counted with the SAME predicate the boot subject directory and `search_lore_entries` use — retired entries are not counted — and `entry_refs` is exactly the list that count counted. 🔴 `entries: 0` MEANS TWO OPPOSITE THINGS AND `entries_ever` IS WHAT SEPARATES THEM: `0`/`0` is a name minted once and never used again, which is the shape of a typo the writer corrected on its next attempt; `0`/`2` is a name that was genuinely used and has since been emptied by retirement, which says nothing about the name at all. 🔴 THIS QUEUE OFFERS EVIDENCE AND NO VERDICT. It also carried `suggestion` / `merge_target` — a mechanical rule's answer to 「which button should I press」 — until the owner removed them on 2026-09-05: that rule's strongest signal was two names differing only in case, full/half width or `_`/`-`, and the writers minting these names do not in fact make that mistake. A judgement that EXPLAINS ITSELF and that a reviewer can send back for another pass replaces it in a later ticket; until then, reading `similar`, `entries`, `entries_ever`, `entry_refs` and `created_by` is the reviewer's own job, which is what they are all there for. Nothing here approves or merges anything — both acts stay behind the owner/admin floor and the verdict is the reviewer's. 🔴 A pending entity is INVISIBLE to the boot subject directory until it is approved, so a queue nobody works is a set of lore entries no agent can reach by subject.",
+			MCPTool:   "list_pending_lore_entities",
+		},
+		{
+			Method:    "POST",
+			Path:      "/api/lore/entities/{entity_id}/approve",
+			LoreGated: true,
+			Handler:   w.HandleApproveLoreEntityApiLoreEntitiesEntityIdApprovePost,
+			Auth:      authGated,
+			Requires:  principalAdminAgent,
+			Summary:   "Approve ONE pending subject entity — owner or admin agent only (owner ruling rc-139a5ab99a19: 「待審，我跟 mira 有 admin 權限的才行」). The entity stops being `pending` and starts appearing in the boot subject directory, which is what makes the lore entries filed under it reachable by subject at all. 404 when no entity carries that id; 409 when the entity is not pending, because answering `done` would confirm a belief about its state that is wrong. 🔴 THERE IS DELIBERATELY NO REJECT ROUTE BESIDE THIS ONE: nothing has been ruled about whether a pending name may be thrown away, and inventing that exit here would decide it. `reason` is optional prose recorded in the governance journal beside the approval.",
+			MCPTool:   "approve_lore_entity",
+		},
+		{
+			// The per-target refusals (unknown / still pending / already merged /
+			// itself) live in MergeLoreEntity, not here. `Requires` answers WHO may
+			// ask; which targets are legal is a fact about the rows, and a copy of
+			// it in this table would be a second answer that drifts the first time
+			// one of them is added.
+			Method:    "POST",
+			Path:      "/api/lore/entities/{entity_id}/merge",
+			LoreGated: true,
+			Handler:   w.HandleMergeLoreEntityApiLoreEntitiesEntityIdMergePost,
+			Auth:      authGated,
+			Requires:  principalAdminAgent,
+			Summary:   "Fold ONE pending subject entity into an existing APPROVED one — owner or admin agent only (owner ruling rc-139a5ab99a19). This is the repair approve cannot make: two names for one thing. The source keeps existing (nothing in this schema deletes) with `merged_into` pointing at the survivor, and its `type:name` key is registered as an ALIAS of the survivor — so every later write and search naming the old key resolves onto the surviving subject instead of minting it a second time. 404 when either id names nothing; 409 when the source is not pending; 422 when the target is itself still pending, has itself been merged away, or IS the source — each refused BY NAME rather than silently succeeding, because a merge into a subject the directory also hides parks the source somewhere no reader can follow. `reason` is optional prose recorded in the governance journal.",
+			MCPTool:   "merge_lore_entity",
+		},
+		// ── T-33 lore governance ─────────────────────────────────────────────
+		// 🔴 THESE TWO ROWS ARE WHY loreRetireNeedsOwner IS A GATE RATHER THAN A
+		// DESCRIPTION OF ONE. The DAL shipped the three reasons, the owner split
+		// and the journal with a full test suite and NOTHING calling it — so the
+		// only thing driving it was the tests that assert it.
+		//
+		// 🔴 THE FLOOR IS principalAgent, NOT principalAdminAgent, AND THAT IS
+		// THE OWNER'S RULING SHOWING UP IN THE TABLE (ta-c568dfd29844 D11). The
+		// general rule for governance acts on this surface is admin_agent+; this
+		// row is the written exception, because 'expired' and 'merged' claim
+		// nothing about truth — they are tidying, and if even those had to wait
+		// for the owner the tidying would never happen and the store would only
+		// ever grow, which is the exact opposite of 「精而非多」.
+		//
+		// 🔴 WHAT THE FLOOR CANNOT SAY, AND WHY IT IS NOT ASKED TO: the SAME
+		// route admits 'expired' from an ordinary agent and refuses 'falsified'
+		// from that same caller. `Requires` has no vocabulary for "it depends on
+		// a body field", so the per-reason half stays where it already lives —
+		// loreRetireNeedsOwner — and this table declares only the floor. Do not
+		// "finish the job" by raising this row to admin_agent: that would take
+		// the tidying away from every agent while leaving the falsified gate
+		// exactly where it is.
+		//
+		// ⚠️ The floor still earns its place: a machine (a warden) is not a
+		// governance principal, and this row is what refuses it at the door.
+		{
+			Method:    "POST",
+			Path:      "/api/lore/entries/{entry_id}/retire",
+			LoreGated: true,
+			Handler:   w.HandleRetireLoreEntryApiLoreEntriesEntryIdRetirePost,
+			Auth:      authGated,
+			Requires:  principalAgent,
+			Summary:   "Stop retrieving one lore entry and record WHY. Retirement is NOT a delete — the row stays and `revive_lore_entry` brings it back. `reason` is one of `expired` (the situation changed; it may come back), `merged` (folded into another entry — name it in `replaced_by`) or `falsified` (the claim was never true; it should not come back). An ordinary agent may file `expired` and `merged` itself; `falsified` is a judgement about truth and is refused 403 for anyone but the owner. An unrecognised reason is refused 422 rather than defaulted, so a typo cannot retire an entry as if it were merely stale. The reason is written to the governance journal, never onto the entry, because one entry can be retired, revived and retired again for a different reason and a column would only ever remember the last one.",
+			MCPTool:   "retire_lore_entry",
+		},
+		{
+			// principalOwner: reviving asserts the entry holds after all, which
+			// is the same class of judgement as overturning one. ⚠️ That is a
+			// DERIVATION, not the owner's words — recorded as such in
+			// dal_lore_governance.go, where the same rule is enforced a second
+			// time so the function is safe for callers this table does not know
+			// about.
+			//
+			// 🔴 MCPExclude, AND IT FOLLOWS FROM THE FLOOR RATHER THAN BEING A
+			// SECOND DECISION. Every owner-floor row this station serves is off
+			// the tool surface, because the owner does not drive MCP tools — the
+			// cockpit does, over REST. An owner-only tool in tools/list would be
+			// a name every agent can read and no agent can use, which is exactly
+			// the 「看得到、其實不存在」 this ticket exists to end. The owner's
+			// path to this route is the Lore tab's button (詳細設計 §6.4).
+			Method:     "POST",
+			Path:       "/api/lore/entries/{entry_id}/revive",
+			LoreGated:  true,
+			Handler:    w.HandleReviveLoreEntryApiLoreEntriesEntryIdRevivePost,
+			Auth:       authGated,
+			Requires:   principalOwner,
+			MCPExclude: true,
+			Summary:    "Bring a retired lore entry back into retrieval — owner only, and it is what makes retirement reversible rather than a delete. 404 when no entry carries that id; 409 when the entry is not retired, because answering `done` would confirm a belief about its state that is wrong. `reason` is optional prose recorded in the governance journal beside the revival.",
+		},
+		// ── T-33 lore write ──────────────────────────────────────────────────
+		// 🔴 THE ROUTE THE OTHER TWO WERE WAITING FOR. Retire and revive shipped
+		// first and could only ever act on entries a test had seeded, because
+		// this station served no way to create one. The visible symptom was not
+		// an error: the subject directory was empty, an empty directory is not
+		// rendered at all, and so the whole feature was invisible to every
+		// member while looking, from the outside, exactly like a feature nobody
+		// had used yet.
+		//
+		// 🔴 principalAgent, AND THE FLOOR IS THE POINT OF THE WHOLE TICKET.
+		// Writing lore is what an agent does with what it just learned; putting
+		// it any higher would put the owner back in the path of every write,
+		// which is the load this ticket exists to take OFF him (his ruling of
+		// 2026-09-01: 「可以先寫入 但是審核可以事後」). A machine is still
+		// refused at the door — a warden has no experience to record.
+		//
+		// ⚠️ WHAT THE FLOOR DOES NOT DO, said plainly: there is no review gate
+		// here. 欄位這一層有門檻——`symptoms`／`short`／`falsify`／`instance` 空白
+		// 一律拒絕（2026-09-02 裁定 rc-714eea33c6ed）——但擋的是欄位，不是內容：
+		// 沒有任何東西能分辨一格是真的填出來的還是硬掰的。審核仍然發生在寫入之後。
+		{
+			Method:    "POST",
+			Path:      "/api/lore/entries",
+			LoreGated: true,
+			Handler:   w.HandleWriteLoreEntryApiLoreEntriesPost,
+			Auth:      authGated,
+			Requires:  principalAgent,
+			Summary:   "Write ONE lore entry — 五格, the subjects it is filed under, the actions it is about, and the FULL ORIGINAL that outlives every later rewrite, all in one transaction. The five cells are `trigger` (什麼時候要記起來), `content` (內容), `retire_when` (什麼時候不需要了), `problem` (之前發生過什麼問題) and `events` (相關的完整資訊 — 0..N 筆 時／事／人／地／物). 🔴 `trigger` and `content` are the two that are REQUIRED: `content` is the only cell that ever enters a boot context and `trigger` is the axis a reader finds the entry by, so an entry missing either is not thin, it is unreachable. `trigger` also doubles as the entry's TITLE — there is no `label` field and no length cap on it (⚠️ 第 1 格兼任標題、因此拿掉 `label` 與 40 runes 上限 is an implementation judgement, not an owner ruling). `retire_when` and `problem` are OPTIONAL and nothing is invented for them; `problem` is optional as a field while being the substance of the entry, because a hard requirement pushes a writer who genuinely has none into inventing one and an invented case reads exactly like a real one. ⚠️ Owner ruling rc-714eea33c6ed (2026-09-02), which made `falsify` and `instance` purely required, has NO LANDING PLACE in this format — neither cell exists any more. It was not overturned; the format change left it with no field to apply to, and whether 五格 should carry a cell meaning either of those things is the owner's call. `events` is 第 5 格: every event needs `happened_ts` (when it HAPPENED, not when it was written down) and `what` (active voice, so the 人 is always the one doing it), while `actor` / `place` / `object` are sent only when you actually know them and are NEVER back-filled with 「未知」 — 「查不出是誰」 and 「還沒有人去查」 must not end up looking the same. Zero events is legal, and a bad event refuses the WHOLE write rather than leaving an entry half-written. `subjects` are subject keys shaped `type:name` (`repo:officraft`, `agent:Kyle`): an alias resolves, a merged-away subject follows to the survivor, an unapproved type prefix is refused BY NAME, and a key nobody has used yet MINTS a new subject parked for review and names it back to you in `pending_entities` — so a typo surfaces in this response instead of in the ontology a month later. `origin` says WHOSE knowledge this is (`human:Seth` for something the owner told you) and is not the same question as who is writing: the actor is taken from your verified token and cannot be asserted here. `supersedes` names the entry this one takes over from: it is re-statused `superseded` and the act is written to the governance journal, while an id that names nothing refuses the WHOLE write rather than leaving a pointer into empty space. ⚠️ There is NO `degraded` flag on the receipt any more: owner ruling rc-1e32c690018d (2026-09-03) removed it, because 第 1 格 is already a hard refusal at the door and a second, softer quality mark behind it earns nothing.",
+			MCPTool:   "write_lore_entry",
+		},
+		// ── T-33 lore retrieval ──────────────────────────────────────────────
+		// 🔴 EVERY SELECTION CONDITION IS IN THE BODY, AND THE REASON IS NOT THE
+		// VERB. This router ignores an undeclared QUERY parameter on every route
+		// it serves and answers 200 — pinned by a test that fires a real
+		// request. The body decoder refuses an undeclared key with a 422 naming
+		// it. So `POST …?typo=1` is exactly as silent as the GET would be: what
+		// protects this hop is which side the conditions sit on, and moving one
+		// to the query string would remove that while leaving the verb, and
+		// every test, unchanged.
+		//
+		// 🔴 principalAgent. Retrieval is what an agent does with the directory
+		// it woke up holding; a floor above that would mean an agent cannot read
+		// its own store, which is the whole point of the store. A machine is
+		// still refused at the door — a warden has nothing to recall.
+		//
+		// ⚠️ WHAT THIS ROUTE CANNOT DO, said here because a summary is where
+		// people look: 第 3、4、5 格 (`retire_when`, `problem` and the events)
+		// are NEITHER searched NOR returned on a hit — a hit carries `trigger`
+		// and `content`, and the rest is read with `get_lore_entry`. There is
+		// no table, no index and no parameter for them here, and
+		// de-duplication and conflict-finding both run on 第 4 格 (`problem`)
+		// — so neither is reachable through this route today. That is a known
+		// gap, not an oversight.
+		//
+		// ⚠️ This paragraph used to name `symptoms`, a 六格 cell that 五格
+		// removed. The cell is gone, the gap is not: it moved onto `problem`.
+		{
+			Method:    "POST",
+			Path:      "/api/lore/search",
+			LoreGated: true,
+			Handler:   w.HandleSearchLoreEntriesApiLoreSearchPost,
+			Auth:      authGated,
+			Requires:  principalAgent,
+			Summary:   "Retrieve lore entries — hop ② of the design: you have seen the subject directory at wake and now want what is actually filed under one of those subjects. 🔴 EVERY SELECTION CONDITION GOES IN THE REQUEST BODY AND NONE IN THE QUERY STRING, and that is load-bearing rather than stylistic: an undeclared body key is refused 422 by name, while an undeclared QUERY parameter is silently ignored on every route this station serves — so a mistyped condition on the query side would hand you a plausible answer that is not the one you asked for, and nothing would report it. All fields are optional; sending none asks for everything still retrievable. `subject` is a subject key (`repo:officraft`); an alias resolves and a merged-away subject follows to the survivor, and a key that names NOTHING comes back as `subject_resolved: false` rather than as an empty result — 「this subject has nothing on it」 and 「this subject does not exist」 are different answers and you need to tell them apart. Every entry carries a `tier`: `T1` matched every axis you asked on, `T2` (類比) reached you across an axis you did NOT ask about and is a guess rather than a rule for your case. 🔴 `tier` is meaningless without `applied.tiered_by`, which names the axes the tier was computed over — read them together. A `trust`-class entry (how far something can be relied on) is WITHHELD from the analogy tier unless you set `force_trust_analogy`, because 「X was reliable」 is a fact about X; when you do force it, the note says whose situation the entry actually describes. `trust_fell_back` on an entry means its class came from failing closed on an action name nothing recognised, not from the table — the class is a guess, and the names are listed in `unmapped_actions`. `query` is a LITERAL, case-insensitive substring over 第 1 格 (`trigger`) and 第 2 格 (`content`) and `applied.query_match` says so: it is not semantic, and two entries describing the same situation in different words will not find each other. 🔴 第 3、4、5 格 (`retire_when`, `problem` and the events) are NEITHER searched NOR returned on a hit — a hit carries `trigger` and `content`, and the rest is read with `get_lore_entry`. There is no parameter, table or index for them here, which is why de-duplication and conflict-finding cannot be done through this route yet.",
+			MCPTool:   "search_lore_entries",
+		},
+		// ── T-33 lore, hop ③: reading the original back ──────────────────────
+		// 🔴 THESE TWO ROWS ARE THE TICKET'S OWN OPENING SENTENCE. The owner
+		// asked for 「原始資訊可以保留讓我們可以重新判定一些東西」. The original
+		// was already being kept — entry and first revision are one transaction
+		// — and until these rows existed NO PATH SERVED IT. That state satisfies
+		// the database and no reader: every count agrees, and not one agent can
+		// act on any of it.
+		//
+		// 🔴 GET, AND EVERY ADDRESS IS A PATH PARAMETER. There is no `?revision=`
+		// and there must never be: an undeclared query parameter is silently
+		// ignored on every route this station serves, so that spelling would let
+		// a caller ask for one revision and quietly receive another, with the
+		// response looking exactly right. A path that does not match is a 404.
+		//
+		// 🔴 A RETIRED ENTRY IS STILL READABLE HERE. `retired` means "no longer
+		// RETRIEVED" — search and the boot directory exclude it — and nothing
+		// more. Refusing it here too would make retirement a delete through the
+		// back door, and the only path that can answer "what did the thing we
+		// stopped using actually say" would be the one that refuses.
+		{
+			Method:    "GET",
+			Path:      "/api/lore/entries/{entry_id}",
+			LoreGated: true,
+			Handler:   w.HandleGetLoreEntryApiLoreEntriesEntryIdGet,
+			Auth:      authGated,
+			Requires:  principalAgent,
+			Summary:   "Read ONE lore entry in full, together with the ORIGINAL that was preserved beside it — hop ③ of the design, and the reason 「原始資訊可以保留讓我們可以重新判定」 is a mechanism rather than a sentence. `content` (第 2 格) is the compressed line that enters a boot context; `original` is the complete text of the entry as it was last written — all four cells AND the `events:` block, each named, blank ones included — so an agent that has stopped believing the compressed version has somewhere to go, and so that 第 5 格 is inside `sha256` too. `events` comes back in the order the events HAPPENED (`happened_ts`), not in the order anybody wrote them down, and 人／地／物 that nobody knew come back EMPTY rather than filled in with 「未知」. `sha256` digests that original, so a reader can tell that what it is holding is what was stored. `revisions` is a CATALOGUE — id, when, who, and how many characters that write REMOVED — and carries no text at all, because a list is how you choose a revision and choosing does not need the prose; fetch one by id from `/api/lore/entries/{entry_id}/revisions/{revision_id}`. 🔴 ADDRESSING IS ENTIRELY IN THE PATH AND THERE ARE NO QUERY PARAMETERS, deliberately: an undeclared query parameter is silently ignored on every route this station serves, so `?revision=3` would have been a way to ask for a specific revision and quietly receive the latest one. A wrong path is a 404, which is loud. 404 when no entry carries that id.",
+			MCPTool:   "get_lore_entry",
+		},
+		{
+			// The revision lookup is SCOPED to the entry in the path, and that is
+			// enforced in the DAL rather than here: revision ids are global, so an
+			// unscoped read would serve any entry's text through any entry's
+			// address and a mistyped entry id would hand back somebody else's
+			// original with nothing to signal it.
+			Method:    "GET",
+			Path:      "/api/lore/entries/{entry_id}/revisions/{revision_id}",
+			LoreGated: true,
+			Handler:   w.HandleGetLoreRevisionApiLoreEntriesEntryIdRevisionsRevisionIdGet,
+			Auth:      authGated,
+			Requires:  principalAgent,
+			Summary:   "Read ONE revision of a lore entry in full — the exact text that was stored at that moment, plus its `sha256`. `shrink_chars` says how many characters that write removed compared with the one before it, which is how a compression that quietly hollowed an entry out becomes visible at all (the entry count does not move when an entry is emptied). 🔴 THE ENTRY ID IN THE PATH IS A CONSTRAINT, NOT DECORATION: revision ids are global, so a revision that belongs to a DIFFERENT entry is a 404 rather than being served through this address — a mistyped entry id must not hand you somebody else's text with nothing to signal it. 404 when the entry does not exist, or when it does and that revision is not one of its own.",
+			MCPTool:   "get_lore_revision",
+		},
+		// ── T-33 lore, 回饋與提案 ──────────────────────────────────────────────
+		// 🔴 APPENDED AT THE END OF THE TABLE, like every tool before them, and
+		// for the reason stated in full at the custom-themes block above: the MCP
+		// tool surface has ONE order shared by this table, spec/openapi.json's
+		// x-mcp.order and conformance/routes_manifest.json, and x-mcp.order must
+		// be the consecutive range 0..N-1. Inserting these beside the other lore
+		// rows — where they read better — would renumber every tool after them.
+		//
+		// 🔴 principalAgent ON BOTH, AND THAT IS THE POINT OF THE PAIR. Saying
+		// 「這條幫倒忙，我認為它應該長這樣」 is an agent's own act on knowledge it
+		// was handed; a floor above that would mean the only members who ever
+		// USE the store cannot report what it did to them, and the owner's ruling
+		// of 2026-09-01 (「可以先寫入 但是審核可以事後」) already put review after
+		// the act rather than in front of it. Nothing here decides anything: a
+		// proposal changes no entry, so an agent floor grants no authority over
+		// the store, only the ability to ask.
+		//
+		// ⚠️ THE READ IS AT THE SAME FLOOR AS THE WRITE, deliberately. A proposer
+		// has to be able to see whether somebody already filed the same thing,
+		// and — more to the point — whether his own proposal has gone stale since
+		// he filed it. Putting the read above the write would make a proposal
+		// something an agent can send and never see again.
+		//
+		// ⚠️ WHAT THESE TWO ROWS DO NOT DO: there is no accept, no decline, and
+		// no cross-entry queue. 仲裁 is separate work. What this pair owes it is
+		// the base digest, and that is recorded, checked at submit and recomputed
+		// on every read.
+		{
+			Method:    "POST",
+			Path:      "/api/lore/entries/{entry_id}/proposals",
+			LoreGated: true,
+			Handler:   w.HandleProposeLoreChangeApiLoreEntriesEntryIdProposalsPost,
+			Auth:      authGated,
+			Requires:  principalAgent,
+			Summary:   "Propose a change to ONE lore entry — a WHOLE replacement version, not a patch, plus the account of why. 🔴 YOU SEND THE FULL NEW VERSION AND THE DIFF IS COMPUTED FROM IT (owner ruling, 2026-09-02: 「讓 agent submit new full version 即可 / diff view 我們自己產出」). A patch would leave two artefacts — what you said you were changing and what applying it actually produces — and the gap between them looks completely normal to a reviewer. With a whole version there is no second artefact: the difference a reviewer reads is the bytes that would land. 🔴 `base_sha256` IS THE VERSION YOU ACTUALLY READ, taken from `sha256` on `GET /api/lore/entries/{entry_id}`, and it is REQUIRED. If the entry has been rewritten since you read it the proposal is refused 409 naming both digests — filing against the older text would silently discard whoever changed it, which is exactly the failure a stale pull request causes and it looks correct from every side. Re-read the entry and rebuild your version on what is there now. A proposal that was fine when filed and went stale AFTERWARDS is not refused — it comes back from the list route with `stale: true`, because at that point the reviewer, not you, is the one who has to know. 🔴 THE THREE ACCOUNT FIELDS ARE ALL REQUIRED, for the same reason a write refuses a blank cell instead of defaulting it: `encountered` says what you were doing when this entry reached you, `fault` says which of three things is wrong with it (`stale` — it was right and is not any more; `never-true` — the claim never held; `misled` — it is retrieved for situations it does not describe and it sent you the wrong way, so its `trigger` wants fixing), and `evidence` is what you actually SAW. ⚠️ The cost is the same one the write path accepts and has not solved: nothing here can tell a real account from an invented one; an empty cell is all it can refuse. `kind` is `update` (the four body cells — `trigger`, `content`, `retire_when`, `problem` — PLUS `events` carry the whole new version and are held to the SAME rules a write is, so a proposal nobody could ever accept is refused now rather than sitting in the queue looking acceptable) or `remove` (you are proposing this entry stop being retrieved and you send NO body cells and NO events; a removal that carried a version would put text on the reviewer's screen that no accept would ever write). 🔴 A PROPOSAL CARRIES 第 5 格 TOO, AND `events` IS REQUIRED ON AN `update` — the WHOLE list as it should stand afterwards, not a set of additions, because accepting replaces the entry's events wholesale (owner ruling rc-e5c34500face, 2026-09-03: 「改得動 —— 提案就該帶完整的新版本，包含所有事件」). The reasoning he overturned was 「第 5 格是機器串出來的事實，提案只是意見」, and its hole is that WHEN THE MACHINE STRINGS IT TOGETHER WRONG NOTHING CAN REPAIR IT: re-deriving washes away whatever a person filled in by hand, so a proposal that moves events is the only road that repairs one. Send `[]` to claim the entry should carry no events; OMITTING the key is a 422, never a shorthand for 「維持現狀」 — one forgotten field must not clear 第 5 格 where no reviewer can see it. Each event is held to the same rules a write is (時 and 事 required; 人／地／物 checked only when non-empty), and the order you send them in does not change the digest. Removal is not deletion — the existing act is `retire`, and `revive_lore_entry` undoes it. 🔴 NOTHING HERE ACCEPTS ANYTHING: this route files a proposal and no more.",
+			MCPTool:   "propose_lore_change",
+		},
+		{
+			Method:    "GET",
+			Path:      "/api/lore/entries/{entry_id}/proposals",
+			LoreGated: true,
+			Handler:   w.HandleListLoreProposalsApiLoreEntriesEntryIdProposalsGet,
+			Auth:      authGated,
+			Requires:  principalAgent,
+			Summary:   "List the change proposals filed against ONE lore entry, newest first, each carrying the WHOLE proposed version rather than a description of it — so what a reviewer compares is the bytes that would land. Each proposal carries 四格 AND its own 第 5 格, so each `body` was rendered against THE PROPOSAL'S events — the bytes that would actually land, since accepting replaces the entry's events wholesale (owner ruling rc-e5c34500face, 2026-09-03). 🔴 `events_added` / `events_removed` ON EVERY ROW SAY WHICH EVENTS THAT PROPOSAL MOVES, so a reviewer does not have to diff two lists by eye — and a deletion, which shows up only as an absence, is the half he would otherwise miss. Both sides are still on the wire (`events` per row, `current_events` on the response) so the difference can be recomputed rather than trusted; like `stale`, it is computed on every read and never stored. `current_sha256` and `current_revision_id` say what the entry stands at RIGHT NOW, and every proposal carries the `base_sha256` it was written against. 🔴 `stale: true` MEANS THE ENTRY WAS REWRITTEN AFTER THIS PROPOSAL WAS FILED — its author argued against text that is no longer there, and applying it would discard whoever changed it in between. It is COMPUTED on every read by comparing the two digests, never stored: a stored flag would be right the day it was written and wrong every day after. The digest it was compared against travels in the same response so the comparison can be checked rather than trusted. 🔴 THIS ROUTE DECIDES NOTHING. There is no accept or decline here; a proposal is a request for review and the verdict is a separate act.",
+			MCPTool:   "list_lore_proposals",
+		},
+		// ── T-33 lore 提案的核可 ───────────────────────────────────────────────
+		// 🔴 THIS ROW IS THE RULING ARRIVING, AND IT IS WHY THE PAIR ABOVE SAYS
+		// 「NOTHING HERE DECIDES ANYTHING」 AND THIS ONE DOES. ApplyLoreProposal
+		// has been able to land a proposal since the DAL shipped, with a full test
+		// suite and NO route — deliberately, because 「誰有資格核可」 is a policy
+		// and the DAL is not where a policy can be written. The owner closed that
+		// on rc-a896af93d4f9 by choosing 「你 ＋ 銀月（沿用現有前例）」, and
+		// principalAdminAgent below is that sentence: the owner outranks
+		// admin_agent on the ladder, so one row says both halves of it.
+		//
+		// 🔴 THE PRECEDENT HE 沿用 IS THE ENTITY REVIEW QUEUE (rc-139a5ab99a19),
+		// three blocks up. That is the same shape of act — a reviewer publishing
+		// something into what every agent reads — and accepting is the stronger
+		// of the two: it REWRITES an entry another agent wrote, and replaces 第 5
+		// 格 wholesale. An agent floor here would mean any member could rewrite
+		// any other member's memory by filing a proposal and accepting it himself.
+		//
+		// 🔴 THE FLOOR IS ABOVE THE PROPOSE/LIST PAIR, AND THAT ASYMMETRY IS THE
+		// WHOLE DESIGN. 提案 stays at principalAgent because asking changes
+		// nothing; 核可 is the act, and the two floors are what makes 「先寫入、
+		// 審核事後」 a review rather than a formality.
+		//
+		// 🔴 THERE IS NO DECLINE ROW AND NO 裁決紀錄, and both absences are
+		// deliberate in exactly the way the entity block's missing reject row is:
+		// the owner has ruled on WHO may accept and on nothing else. What a 退回
+		// looks like, and whether a verdict earns a journal row of its own, are
+		// still his to decide — shipping either here would decide it, in the
+		// direction that destroys somebody's filed proposal.
+		{
+			Method:    "POST",
+			Path:      "/api/lore/entries/{entry_id}/proposals/{proposal_id}/accept",
+			LoreGated: true,
+			Handler:   w.HandleAcceptLoreProposalApiLoreEntriesEntryIdProposalsProposalIdAcceptPost,
+			Auth:      authGated,
+			Requires:  principalAdminAgent,
+			Summary:   "Accept ONE filed proposal and write it onto its lore entry — owner or admin agent only (owner ruling rc-a896af93d4f9: 「你 ＋ 銀月（沿用現有前例）」, the same floor the subject-entity review queue already carries). The four cells are replaced, 第 5 格 is replaced WHOLESALE by the events the proposal carried — not merged, because a merge would let a proposal add events and never remove one, and repairing an event the machine strung together wrongly is the reason this road exists — and ONE new revision is written carrying the EXACT BYTES the proposal stored rather than a fresh rendering, with `actor_id` = YOU, the accepter, not the proposer. 🔴 THE ADDRESS IS THE WHOLE PAIR AND BOTH HALVES ARE CHECKED: proposal ids are global, so a proposal that belongs to a DIFFERENT entry is a 404 saying so by name rather than being applied through this address — a mistyped entry id must not rewrite somebody else's entry with nothing to signal it. 404 when no proposal carries that id, and 404 when it carries it under another entry. 409 when the proposal is a `remove` — it proposes no version to write at all, and the act it asks for is `retire_lore_entry`. 409, naming BOTH digests, when the entry was rewritten after the proposal was filed: accepting then would discard whoever changed it in between, silently, and the fix is to re-read the entry and have the version rebuilt on what is there now. That check is made HERE, at the moment you press accept, not only when the list was read — the entry can move between the two. 422 when the proposed version is identical to the one it was written against, because there is nothing to review. 🔴 THERE IS DELIBERATELY NO DECLINE ROUTE BESIDE THIS ONE, AND NO ARBITRATION RECORD BEYOND THAT NEW REVISION'S `actor_id`: the owner has ruled on WHO may accept and on nothing else, so inventing a 退回 exit or a verdict journal here would decide for him what he has not decided.",
+			MCPTool:   "accept_lore_proposal",
 		},
 	}
 }

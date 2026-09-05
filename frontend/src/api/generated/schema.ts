@@ -1667,6 +1667,286 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/lore/entities/pending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the subject entities parked for review, each with the homework already done — the `type:name` key it was minted under, its type, its name, when it was created, WHO MINTED IT (`created_by`), HOW MANY lore entries are filed under it (`entries`) and how many were EVER filed under it including retired ones (`entries_ever`), EVERY one of those entries by id and 第 1 格 (`entry_refs`), a SAMPLE of the first one's `content` (第 2 格; the wire field is still called `sample_short`), and the existing subjects it resembles WITH the reason each was offered. 🔴 A pending entity is a name an agent INVENTED while writing lore: minting is deliberately ungated (gating it is what pushes a writer into forcing a near-miss key onto an existing subject), so this queue is the only place a typo like `repo:offcraft` is caught before it becomes part of the ontology. `entries` is counted with the SAME predicate the boot subject directory and `search_lore_entries` use — retired entries are not counted — and `entry_refs` is exactly the list that count counted. 🔴 `entries: 0` MEANS TWO OPPOSITE THINGS AND `entries_ever` IS WHAT SEPARATES THEM: `0`/`0` is a name minted once and never used again, which is the shape of a typo the writer corrected on its next attempt; `0`/`2` is a name that was genuinely used and has since been emptied by retirement, which says nothing about the name at all. 🔴 THIS QUEUE OFFERS EVIDENCE AND NO VERDICT. It also carried `suggestion` / `merge_target` — a mechanical rule's answer to 「which button should I press」 — until the owner removed them on 2026-09-05: that rule's strongest signal was two names differing only in case, full/half width or `_`/`-`, and the writers minting these names do not in fact make that mistake. A judgement that EXPLAINS ITSELF and that a reviewer can send back for another pass replaces it in a later ticket; until then, reading `similar`, `entries`, `entries_ever`, `entry_refs` and `created_by` is the reviewer's own job, which is what they are all there for. Nothing here approves or merges anything — both acts stay behind the owner/admin floor and the verdict is the reviewer's. 🔴 A pending entity is INVISIBLE to the boot subject directory until it is approved, so a queue nobody works is a set of lore entries no agent can reach by subject.
+         * @description List the subject entities awaiting review, with the evidence a decision needs (T-33, owner rulings rc-139a5ab99a19 and 2026-09-02).
+         *
+         *     🔴 THE QUEUE EXISTS BECAUSE MINTING IS UNGATED. `write_lore_entry` creates any subject key it does not recognise and parks it `pending = 1`; that is deliberate (a gate there pushes a writer into forcing a near-miss key onto an existing subject), and it is exactly why the parked names need an exit. Until this route existed the review queue was a column nothing could read.
+         *
+         *     🔴 THE COUNT IS COUNTED, NOT ESTIMATED. `entries` comes from the same predicate the boot directory and search use, so a reviewer deciding whether a name is worth keeping is looking at the number that name actually serves.
+         *
+         *     🔴 THE HOMEWORK IS DONE HERE AND THE VERDICT IS NOT. The owner's ruling is 「我希望 agent 做完功課以後給建議並提出我一眼就可以判斷的資訊，我還是做最後的裁決」: a row that said only 「repo:offcraft, 2 entries」 sends the reviewer to two other screens to find out whether that name is a typo of something the ontology already carries, so `similar`, `sample_short`, `entry_refs`, `entries_ever` and `created_by` bring that comparison into the row. 🔴 A COMPUTED `suggestion` / `merge_target` PAIR ALSO STOOD IN THIS ROW AND WAS REMOVED (owner, 2026-09-05): the rule behind it keyed on names differing only in case, width or `_`/`-`, which is not a mistake these writers make. It returns in a later ticket as an AI judgement the reviewer can accept or send back by comment; this route deliberately serves no verdict in the meantime.
+         */
+        get: operations["handle_list_pending_lore_entities_api_lore_entities_pending_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lore/entities/{entity_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve ONE pending subject entity — owner or admin agent only (owner ruling rc-139a5ab99a19: 「待審，我跟 mira 有 admin 權限的才行」). The entity stops being `pending` and starts appearing in the boot subject directory, which is what makes the lore entries filed under it reachable by subject at all. 404 when no entity carries that id; 409 when the entity is not pending, because answering `done` would confirm a belief about its state that is wrong. 🔴 THERE IS DELIBERATELY NO REJECT ROUTE BESIDE THIS ONE: nothing has been ruled about whether a pending name may be thrown away, and inventing that exit here would decide it. `reason` is optional prose recorded in the governance journal beside the approval.
+         * @description Approve ONE pending subject entity (T-33, owner ruling rc-139a5ab99a19: 「待審，我跟 mira 有 admin 權限的才行」).
+         *
+         *     🔴 THE FLOOR IS admin_agent, AND IT IS THE OWNER'S WORDS RATHER THAN A DERIVATION. Approving a name publishes it into EVERY agent's boot subject directory, which is a statement to the whole fleet that this name is part of the ontology.
+         *
+         *     🔴 THE STATE CHANGE AND THE JOURNAL ROW ARE ONE TRANSACTION, for the same reason retirement's are: an approval nobody can attribute is the hole the governance journal exists to close.
+         *
+         *     🔴 THERE IS NO REJECT ROUTE. The owner has ruled on approving and on merging and on nothing else; a 「駁回」 exit would be this layer deciding for him what happens to a name nobody wants.
+         */
+        post: operations["handle_approve_lore_entity_api_lore_entities__entity_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lore/entities/{entity_id}/merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fold ONE pending subject entity into an existing APPROVED one — owner or admin agent only (owner ruling rc-139a5ab99a19). This is the repair approve cannot make: two names for one thing. The source keeps existing (nothing in this schema deletes) with `merged_into` pointing at the survivor, and its `type:name` key is registered as an ALIAS of the survivor — so every later write and search naming the old key resolves onto the surviving subject instead of minting it a second time. 404 when either id names nothing; 409 when the source is not pending; 422 when the target is itself still pending, has itself been merged away, or IS the source — each refused BY NAME rather than silently succeeding, because a merge into a subject the directory also hides parks the source somewhere no reader can follow. `reason` is optional prose recorded in the governance journal.
+         * @description Fold ONE pending subject entity into an existing approved one (T-33, owner ruling rc-139a5ab99a19).
+         *
+         *     🔴 IT USES THE MECHANISM THAT WAS ALREADY THERE, and adds no schema. `entity.merged_into` is already followed by the write and search resolvers, and `entity_alias` is already consulted before a key is minted — so a merge recorded through them repairs the ontology for every path at once, and a new table would have been a second answer to 「which subject is this really」. The merge also RE-FILES the source's `lore_subject` rows onto the survivor: resolution happens on the KEY, never on a stored entity id, so without that third write every entry already under the old name would stay attached to an entity no key reaches — present in the table, gone from every retrieval path, and reported as a repair.
+         *
+         *     🔴 THE TARGET IS CHECKED, AND THE REFUSALS ARE NAMED. A target that does not exist, one that is itself pending, one that has itself been merged away, and the source itself are four different mistakes and each says which it was. Merging into a hidden subject would leave the source pointing at a name the boot directory also refuses to show — a repair that reports success and loses the subject.
+         */
+        post: operations["handle_merge_lore_entity_api_lore_entities__entity_id__merge_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lore/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Write ONE lore entry — 五格, the subjects it is filed under, the actions it is about, and the FULL ORIGINAL that outlives every later rewrite, all in one transaction. The five cells are `trigger` (什麼時候要記起來), `content` (內容), `retire_when` (什麼時候不需要了), `problem` (之前發生過什麼問題) and `events` (相關的完整資訊 — 0..N 筆 時／事／人／地／物). 🔴 `trigger` and `content` are the two that are REQUIRED: `content` is the only cell that ever enters a boot context and `trigger` is the axis a reader finds the entry by, so an entry missing either is not thin, it is unreachable. `trigger` also doubles as the entry's TITLE — there is no `label` field and no length cap on it (⚠️ 第 1 格兼任標題、因此拿掉 `label` 與 40 runes 上限 is an implementation judgement, not an owner ruling). `retire_when` and `problem` are OPTIONAL and nothing is invented for them; `problem` is optional as a field while being the substance of the entry, because a hard requirement pushes a writer who genuinely has none into inventing one and an invented case reads exactly like a real one. ⚠️ Owner ruling rc-714eea33c6ed (2026-09-02), which made `falsify` and `instance` purely required, has NO LANDING PLACE in this format — neither cell exists any more. It was not overturned; the format change left it with no field to apply to, and whether 五格 should carry a cell meaning either of those things is the owner's call. `events` is 第 5 格: every event needs `happened_ts` (when it HAPPENED, not when it was written down) and `what` (active voice, so the 人 is always the one doing it), while `actor` / `place` / `object` are sent only when you actually know them and are NEVER back-filled with 「未知」 — 「查不出是誰」 and 「還沒有人去查」 must not end up looking the same. Zero events is legal, and a bad event refuses the WHOLE write rather than leaving an entry half-written. `subjects` are subject keys shaped `type:name` (`repo:officraft`, `agent:Kyle`): an alias resolves, a merged-away subject follows to the survivor, an unapproved type prefix is refused BY NAME, and a key nobody has used yet MINTS a new subject parked for review and names it back to you in `pending_entities` — so a typo surfaces in this response instead of in the ontology a month later. `origin` says WHOSE knowledge this is (`human:Seth` for something the owner told you) and is not the same question as who is writing: the actor is taken from your verified token and cannot be asserted here. `supersedes` names the entry this one takes over from: it is re-statused `superseded` and the act is written to the governance journal, while an id that names nothing refuses the WHOLE write rather than leaving a pointer into empty space. ⚠️ There is NO `degraded` flag on the receipt any more: owner ruling rc-1e32c690018d (2026-09-03) removed it, because 第 1 格 is already a hard refusal at the door and a second, softer quality mark behind it earns nothing.
+         * @description Create ONE lore entry (T-33). This is the door every ruling of 2026-09-01 was waiting for: until it existed the station served no way to put a single entry into lore, so the directory was empty, an empty directory is not rendered, and no member had ever seen it.
+         *
+         *     🔴 THE ENTRY AND ITS ORIGINAL ARE ONE TRANSACTION. `content` is what enters a context; the L0 revision is what an agent reads when it stops believing the compressed version. An entry written without one looks identical in every count, which is exactly the silent loss this ticket exists to end — so either both land or neither does.
+         *
+         *     🔴 WHO IS WRITING IS NOT A BODY FIELD. The actor is the verified token subject. `origin` is a different question — whose knowledge this is — and it IS yours to state.
+         */
+        post: operations["handle_write_lore_entry_api_lore_entries_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lore/entries/{entry_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read ONE lore entry in full, together with the ORIGINAL that was preserved beside it — hop ③ of the design, and the reason 「原始資訊可以保留讓我們可以重新判定」 is a mechanism rather than a sentence. `content` (第 2 格) is the compressed line that enters a boot context; `original` is the complete text of the entry as it was last written — all four cells AND the `events:` block, each named, blank ones included — so an agent that has stopped believing the compressed version has somewhere to go, and so that 第 5 格 is inside `sha256` too. `events` comes back in the order the events HAPPENED (`happened_ts`), not in the order anybody wrote them down, and 人／地／物 that nobody knew come back EMPTY rather than filled in with 「未知」. `sha256` digests that original, so a reader can tell that what it is holding is what was stored. `revisions` is a CATALOGUE — id, when, who, and how many characters that write REMOVED — and carries no text at all, because a list is how you choose a revision and choosing does not need the prose; fetch one by id from `/api/lore/entries/{entry_id}/revisions/{revision_id}`. 🔴 ADDRESSING IS ENTIRELY IN THE PATH AND THERE ARE NO QUERY PARAMETERS, deliberately: an undeclared query parameter is silently ignored on every route this station serves, so `?revision=3` would have been a way to ask for a specific revision and quietly receive the latest one. A wrong path is a 404, which is loud. 404 when no entry carries that id.
+         * @description Read ONE lore entry plus its preserved original (T-33, hop ③).
+         *
+         *     🔴 THIS IS THE HOP THE TICKET WAS OPENED FOR. Everything else in this feature compresses; this is the only route that hands back what was compressed AWAY. Without it, 「原始資訊可以保留」 is true of the database and false of every agent.
+         *
+         *     🔴 NO QUERY PARAMETERS, AND THAT IS THE DESIGN. An undeclared query parameter is silently ignored on every route this station serves, so `?revision=3` would let a caller ask for one revision and quietly receive another. Addressing is entirely in the path, where a mistake is a 404.
+         */
+        get: operations["handle_get_lore_entry_api_lore_entries__entry_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lore/entries/{entry_id}/revisions/{revision_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read ONE revision of a lore entry in full — the exact text that was stored at that moment, plus its `sha256`. `shrink_chars` says how many characters that write removed compared with the one before it, which is how a compression that quietly hollowed an entry out becomes visible at all (the entry count does not move when an entry is emptied). 🔴 THE ENTRY ID IN THE PATH IS A CONSTRAINT, NOT DECORATION: revision ids are global, so a revision that belongs to a DIFFERENT entry is a 404 rather than being served through this address — a mistyped entry id must not hand you somebody else's text with nothing to signal it. 404 when the entry does not exist, or when it does and that revision is not one of its own.
+         * @description Read ONE revision of a lore entry in full (T-33, hop ③).
+         *
+         *     🔴 SCOPED TO THE ENTRY IN THE PATH. Revision ids are global; a lookup by id alone would serve any entry's text through any entry's address, so a mistyped entry id would hand back somebody else's original with nothing to signal it. Here that is a 404.
+         */
+        get: operations["handle_get_lore_revision_api_lore_entries__entry_id__revisions__revision_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lore/entries/{entry_id}/retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop retrieving one lore entry and record WHY. Retirement is NOT a delete — the row stays and `revive_lore_entry` brings it back. `reason` is one of `expired` (the situation changed; it may come back), `merged` (folded into another entry — name it in `replaced_by`) or `falsified` (the claim was never true; it should not come back). An ordinary agent may file `expired` and `merged` itself; `falsified` is a judgement about truth and is refused 403 for anyone but the owner. An unrecognised reason is refused 422 rather than defaulted, so a typo cannot retire an entry as if it were merely stale. The reason is written to the governance journal, never onto the entry, because one entry can be retired, revived and retired again for a different reason and a column would only ever remember the last one.
+         * @description Retire ONE lore entry (T-33, owner ruling ta-c568dfd29844 D11).
+         *
+         *     The status change and the journal row are ONE transaction: an entry that is retired with no recorded reason is the exact hole this ticket was opened to close.
+         *
+         *     WHO MAY FILE WHICH REASON is decided by loreRetireNeedsOwner() in the DAL, and this route does not re-derive it. 'expired' and 'merged' claim nothing about truth — they are tidying, and if even those had to wait for the owner the tidying would never happen and the store would only ever grow. 'falsified' says the entry was WRONG, which is a judgement about truth, and the owner ruled that overturning a memory needs him.
+         *
+         *     Retiring an ALREADY-RETIRED entry is not an error, it is a second journal row: an entry parked as 'expired' can later be judged false, and both records survive.
+         */
+        post: operations["handle_retire_lore_entry_api_lore_entries__entry_id__retire_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lore/entries/{entry_id}/revive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bring a retired lore entry back into retrieval — owner only, and it is what makes retirement reversible rather than a delete. 404 when no entry carries that id; 409 when the entry is not retired, because answering `done` would confirm a belief about its state that is wrong. `reason` is optional prose recorded in the governance journal beside the revival.
+         * @description Un-retire ONE lore entry (T-33, owner ruling ta-c568dfd29844 D11).
+         *
+         *     Owner-only, and that placement is a DERIVATION rather than the owner's words: reviving asserts the entry holds after all, which is the same class of judgement as overturning one. If the reading is wrong the cost is one-directional — a revive that should have been an agent's is a message to the owner, while an agent quietly reviving something the owner retired as false is not.
+         *
+         *     This route is the reason retirement may be called reversible at all: until it existed, 'retire is not a delete, you can bring it back' was a claim with nothing behind it.
+         */
+        post: operations["handle_revive_lore_entry_api_lore_entries__entry_id__revive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lore/entries/{entry_id}/proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the change proposals filed against ONE lore entry, newest first, each carrying the WHOLE proposed version rather than a description of it — so what a reviewer compares is the bytes that would land. Each proposal carries 四格 AND its own 第 5 格, so each `body` was rendered against THE PROPOSAL'S events — the bytes that would actually land, since accepting replaces the entry's events wholesale (owner ruling rc-e5c34500face, 2026-09-03). 🔴 `events_added` / `events_removed` ON EVERY ROW SAY WHICH EVENTS THAT PROPOSAL MOVES, so a reviewer does not have to diff two lists by eye — and a deletion, which shows up only as an absence, is the half he would otherwise miss. Both sides are still on the wire (`events` per row, `current_events` on the response) so the difference can be recomputed rather than trusted; like `stale`, it is computed on every read and never stored. `current_sha256` and `current_revision_id` say what the entry stands at RIGHT NOW, and every proposal carries the `base_sha256` it was written against. 🔴 `stale: true` MEANS THE ENTRY WAS REWRITTEN AFTER THIS PROPOSAL WAS FILED — its author argued against text that is no longer there, and applying it would discard whoever changed it in between. It is COMPUTED on every read by comparing the two digests, never stored: a stored flag would be right the day it was written and wrong every day after. The digest it was compared against travels in the same response so the comparison can be checked rather than trusted. 🔴 THIS ROUTE DECIDES NOTHING. There is no accept or decline here; a proposal is a request for review and the verdict is a separate act.
+         * @description Read the change proposals filed against one lore entry (T-33).
+         *
+         *     Each row carries the WHOLE proposed version, so a reviewer compares texts rather than reading a description of a change. `stale` is computed on every read by comparing the proposal's base digest with the entry's current one — never stored, because a stored flag is correct on the day it is written and wrong every day after, which is the second-truth failure this ticket exists to kill. The digest it was compared against is served alongside, so the comparison can be re-derived by whoever reads it.
+         *
+         *     There is no verdict here: this route lists, and decides nothing.
+         */
+        get: operations["handle_list_lore_proposals_api_lore_entries__entry_id__proposals_get"];
+        put?: never;
+        /**
+         * Propose a change to ONE lore entry — a WHOLE replacement version, not a patch, plus the account of why. 🔴 YOU SEND THE FULL NEW VERSION AND THE DIFF IS COMPUTED FROM IT (owner ruling, 2026-09-02: 「讓 agent submit new full version 即可 / diff view 我們自己產出」). A patch would leave two artefacts — what you said you were changing and what applying it actually produces — and the gap between them looks completely normal to a reviewer. With a whole version there is no second artefact: the difference a reviewer reads is the bytes that would land. 🔴 `base_sha256` IS THE VERSION YOU ACTUALLY READ, taken from `sha256` on `GET /api/lore/entries/{entry_id}`, and it is REQUIRED. If the entry has been rewritten since you read it the proposal is refused 409 naming both digests — filing against the older text would silently discard whoever changed it, which is exactly the failure a stale pull request causes and it looks correct from every side. Re-read the entry and rebuild your version on what is there now. A proposal that was fine when filed and went stale AFTERWARDS is not refused — it comes back from the list route with `stale: true`, because at that point the reviewer, not you, is the one who has to know. 🔴 THE THREE ACCOUNT FIELDS ARE ALL REQUIRED, for the same reason a write refuses a blank cell instead of defaulting it: `encountered` says what you were doing when this entry reached you, `fault` says which of three things is wrong with it (`stale` — it was right and is not any more; `never-true` — the claim never held; `misled` — it is retrieved for situations it does not describe and it sent you the wrong way, so its `trigger` wants fixing), and `evidence` is what you actually SAW. ⚠️ The cost is the same one the write path accepts and has not solved: nothing here can tell a real account from an invented one; an empty cell is all it can refuse. `kind` is `update` (the four body cells — `trigger`, `content`, `retire_when`, `problem` — PLUS `events` carry the whole new version and are held to the SAME rules a write is, so a proposal nobody could ever accept is refused now rather than sitting in the queue looking acceptable) or `remove` (you are proposing this entry stop being retrieved and you send NO body cells and NO events; a removal that carried a version would put text on the reviewer's screen that no accept would ever write). 🔴 A PROPOSAL CARRIES 第 5 格 TOO, AND `events` IS REQUIRED ON AN `update` — the WHOLE list as it should stand afterwards, not a set of additions, because accepting replaces the entry's events wholesale (owner ruling rc-e5c34500face, 2026-09-03: 「改得動 —— 提案就該帶完整的新版本，包含所有事件」). The reasoning he overturned was 「第 5 格是機器串出來的事實，提案只是意見」, and its hole is that WHEN THE MACHINE STRINGS IT TOGETHER WRONG NOTHING CAN REPAIR IT: re-deriving washes away whatever a person filled in by hand, so a proposal that moves events is the only road that repairs one. Send `[]` to claim the entry should carry no events; OMITTING the key is a 422, never a shorthand for 「維持現狀」 — one forgotten field must not clear 第 5 格 where no reviewer can see it. Each event is held to the same rules a write is (時 and 事 required; 人／地／物 checked only when non-empty), and the order you send them in does not change the digest. Removal is not deletion — the existing act is `retire`, and `revive_lore_entry` undoes it. 🔴 NOTHING HERE ACCEPTS ANYTHING: this route files a proposal and no more.
+         * @description File one change proposal against a lore entry (T-33).
+         *
+         *     THE PROPOSAL IS A WHOLE VERSION, NOT A PATCH, and that is the owner's ruling of 2026-09-02 rather than a storage preference. A patch keeps two artefacts alive — the change as described and the change as applied — and a reviewer reading a plausible description has no way to see that they differ. Storing the whole version deletes the second artefact: the diff the cockpit renders is computed from the exact bytes an accept would write.
+         *
+         *     THE BASE DIGEST IS CHECKED HERE AND RE-CHECKED ON EVERY READ. A stale proposal is the same trap a stale pull request is: applied after somebody else edited the entry, it silently reverts their work, and nothing about the outcome looks wrong. Submitting against a digest that is no longer current is refused 409 with both digests named. Going stale later is not refusable and is reported instead, on the list route.
+         *
+         *     NOTHING IS ACCEPTED HERE. Filing a proposal changes no entry.
+         */
+        post: operations["handle_propose_lore_change_api_lore_entries__entry_id__proposals_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lore/entries/{entry_id}/proposals/{proposal_id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept ONE filed proposal and write it onto its lore entry — owner or admin agent only (owner ruling rc-a896af93d4f9: 「你 ＋ 銀月（沿用現有前例）」, the same floor the subject-entity review queue already carries). The four cells are replaced, 第 5 格 is replaced WHOLESALE by the events the proposal carried — not merged, because a merge would let a proposal add events and never remove one, and repairing an event the machine strung together wrongly is the reason this road exists — and ONE new revision is written carrying the EXACT BYTES the proposal stored rather than a fresh rendering, with `actor_id` = YOU, the accepter, not the proposer. 🔴 THE ADDRESS IS THE WHOLE PAIR AND BOTH HALVES ARE CHECKED: proposal ids are global, so a proposal that belongs to a DIFFERENT entry is a 404 saying so by name rather than being applied through this address — a mistyped entry id must not rewrite somebody else's entry with nothing to signal it. 404 when no proposal carries that id, and 404 when it carries it under another entry. 409 when the proposal is a `remove` — it proposes no version to write at all, and the act it asks for is `retire_lore_entry`. 409, naming BOTH digests, when the entry was rewritten after the proposal was filed: accepting then would discard whoever changed it in between, silently, and the fix is to re-read the entry and have the version rebuilt on what is there now. That check is made HERE, at the moment you press accept, not only when the list was read — the entry can move between the two. 422 when the proposed version is identical to the one it was written against, because there is nothing to review. 🔴 THERE IS DELIBERATELY NO DECLINE ROUTE BESIDE THIS ONE, AND NO ARBITRATION RECORD BEYOND THAT NEW REVISION'S `actor_id`: the owner has ruled on WHO may accept and on nothing else, so inventing a 退回 exit or a verdict journal here would decide for him what he has not decided.
+         * @description Accept ONE filed change proposal onto its lore entry (T-33, owner ruling rc-a896af93d4f9).
+         *
+         *     🔴 THIS LAYER HOLDS THE POLICY AND THE DAL HOLDS THE MECHANISM. ApplyLoreProposal has always known what happens when a proposal lands; who is allowed to make it land is a principal class, and the route table is the only place that can be said. The floor is admin_agent — the owner and the admin agents — which is the same floor the subject-entity review queue carries, and the owner chose it by that precedent.
+         *
+         *     🔴 THE STALENESS COMPARISON HAPPENS AT THE MOMENT OF ACCEPTANCE. It was made at submit and it is recomputed on every read, but neither of those is the instant the reviewer presses the button, and the entry can be rewritten in between. 409 with both digests is the answer; a proposer's version has to be rebuilt on what is there now.
+         *
+         *     🔴 NEITHER A DECLINE NOR AN ARBITRATION JOURNAL SHIPS BESIDE THIS. What a 退回 looks like, and whether a verdict deserves a row of its own, have not been ruled on; the whole record of an acceptance is the new revision's actor_id.
+         */
+        post: operations["handle_accept_lore_proposal_api_lore_entries__entry_id__proposals__proposal_id__accept_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lore/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retrieve lore entries — hop ② of the design: you have seen the subject directory at wake and now want what is actually filed under one of those subjects. 🔴 EVERY SELECTION CONDITION GOES IN THE REQUEST BODY AND NONE IN THE QUERY STRING, and that is load-bearing rather than stylistic: an undeclared body key is refused 422 by name, while an undeclared QUERY parameter is silently ignored on every route this station serves — so a mistyped condition on the query side would hand you a plausible answer that is not the one you asked for, and nothing would report it. All fields are optional; sending none asks for everything still retrievable. `subject` is a subject key (`repo:officraft`); an alias resolves and a merged-away subject follows to the survivor, and a key that names NOTHING comes back as `subject_resolved: false` rather than as an empty result — 「this subject has nothing on it」 and 「this subject does not exist」 are different answers and you need to tell them apart. Every entry carries a `tier`: `T1` matched every axis you asked on, `T2` (類比) reached you across an axis you did NOT ask about and is a guess rather than a rule for your case. 🔴 `tier` is meaningless without `applied.tiered_by`, which names the axes the tier was computed over — read them together. A `trust`-class entry (how far something can be relied on) is WITHHELD from the analogy tier unless you set `force_trust_analogy`, because 「X was reliable」 is a fact about X; when you do force it, the note says whose situation the entry actually describes. `trust_fell_back` on an entry means its class came from failing closed on an action name nothing recognised, not from the table — the class is a guess, and the names are listed in `unmapped_actions`. `query` is a LITERAL, case-insensitive substring over 第 1 格 (`trigger`) and 第 2 格 (`content`) and `applied.query_match` says so: it is not semantic, and two entries describing the same situation in different words will not find each other. 🔴 第 3、4、5 格 (`retire_when`, `problem` and the events) are NEITHER searched NOR returned on a hit — a hit carries `trigger` and `content`, and the rest is read with `get_lore_entry`. There is no parameter, table or index for them here, which is why de-duplication and conflict-finding cannot be done through this route yet.
+         * @description Retrieve lore entries (T-33, hop ②).
+         *
+         *     🔴 THE CONDITIONS ARE IN THE BODY BECAUSE OF WHERE THE SILENCE IS, NOT BECAUSE OF THE VERB. This station's router ignores an undeclared QUERY parameter on every route it serves and answers 200; the JSON body decoder refuses an undeclared key with a 422 naming it. `POST …?typo=1` is therefore just as silent as `GET …?typo=1` — what protects this hop is that the conditions live on the side that refuses, not that the verb is POST.
+         *
+         *     🔴 THIS IS THE HOP WHOSE WHOLE VALUE IS THE SELECTION, so getting it wrong does not raise: it hands an agent a plausible set of memories that is not the set it asked for, and the symptom is 「somebody forgot something today」.
+         */
+        post: operations["handle_search_lore_entries_api_lore_search_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/login": {
         parameters: {
             query?: never;
@@ -6209,6 +6489,982 @@ export interface components {
             text: string;
         };
         /**
+         * LoreEntryDetailDTO
+         * @description One lore entry in full — 五格 — plus the original preserved beside it.
+         */
+        LoreEntryDetailDTO: {
+            /**
+             * Actions
+             * @description The entry's action names.
+             */
+            actions: string[];
+            /**
+             * Content
+             * @description 第 2 格「內容」— the compressed body, and the only cell that enters a boot context.
+             */
+            content: string;
+            /**
+             * Entry Id
+             * @description The entry's id.
+             */
+            entry_id: string;
+            /**
+             * Events
+             * @description 第 5 格「相關的完整資訊」— the entry's events, IN THE ORDER THEY HAPPENED (`happened_ts`), not in the order anybody wrote them down: a back-filled event sorts into the place it really belongs. `[]` when the entry has none. 人／地／物 come back EMPTY when nobody knew them — they are not back-filled with 「未知」, so 「查不出是誰」 and 「還沒有人去查」 stay distinguishable.
+             */
+            events: components["schemas"]["LoreEventDTO"][];
+            /**
+             * Origin
+             * @description Whose knowledge this is (`human:Seth`, `agent:Kyle`).
+             */
+            origin: string;
+            /**
+             * Original
+             * @description 🔴 THE FULL TEXT OF THE ENTRY AS IT WAS LAST WRITTEN — all four cells AND the `events:` block, each named, blank ones included. This is what the whole ticket means by keeping the original: `content` is lossy by design, and without this an agent that doubts it has nowhere to go. The events are inside it, so they are inside `sha256` too. Empty ONLY for an entry written before this mechanism existed; a normal entry always has one, because the entry and its first revision are one transaction.
+             */
+            original: string;
+            /**
+             * Problem
+             * @description 第 4 格「之前發生過什麼問題」— may be empty; it is optional on write.
+             */
+            problem: string;
+            /**
+             * Retire When
+             * @description 第 3 格「什麼時候不需要了」— free text, may be empty. Blank means nobody has said, not 「永遠都需要」.
+             */
+            retire_when: string;
+            /**
+             * Revisions
+             * @description The revision catalogue, oldest first, without any text.
+             */
+            revisions: components["schemas"]["LoreRevisionRowDTO"][];
+            /**
+             * Sha256
+             * @description Digest of `original`, so a reader can tell it is holding what was stored.
+             */
+            sha256: string;
+            /**
+             * Status
+             * @description `active`, `superseded`, `retired` or `underspecified`.
+             */
+            status: string;
+            /**
+             * Subjects
+             * @description The subject keys this entry is filed under.
+             */
+            subjects: string[];
+            /**
+             * Supersedes
+             * @description The entry this one took over from, empty when none.
+             */
+            supersedes: string;
+            /**
+             * Trigger
+             * @description 第 1 格「什麼時候要記起來」— the situation this entry applies to, and the line that doubles as its title. There is no separate name field.
+             */
+            trigger: string;
+            /**
+             * Written By
+             * @description Who wrote the latest revision, from the verified token. 🔴 There is deliberately no `task_id` / `chat_id` beside it: the write request has no field that could say where the knowledge came from, so those two would be permanently empty — and an empty string reads as 「we looked and there was no source」 rather than 「no path could ever fill this」.
+             */
+            written_by: string;
+        };
+        /**
+         * LoreEventDTO
+         * @description ONE event under a lore entry — 第 5 格, 時／事／人／地／物. 🔴 THERE IS NO EVENT ID HERE, AND THAT IS NOT AN OVERSIGHT: nothing addresses a single event yet — no route edits one, no route deletes one — and an id nobody can use would be a handle that looks like a capability.
+         */
+        LoreEventDTO: {
+            /**
+             * Actor
+             * @description 人 — a `type:name` key (`human:Seth`, `agent:Kyle`). OPTIONAL: send it only when you know. A non-empty value must be `type:name` with a type prefix drawn from the SAME approved list `origin` and `subjects` use, refused BY NAME otherwise; an empty one is accepted as-is and never back-filled with a placeholder. Empty when nobody knew it.
+             */
+            actor: string;
+            /**
+             * Happened Ts
+             * @description REQUIRED. When the event HAPPENED, epoch seconds — not when this row was written. The two differ by days the moment somebody records last week's incident today, and a store that conflates them turns 第 5 格 into a record of the writing order rather than of what happened. Zero or negative is refused; there is no default, because 「now」 would be a claim nobody made.
+             */
+            happened_ts: number;
+            /**
+             * Object
+             * @description 物 — a `type:name` key (`service:ocserverd`). Semantically: what was acted upon. Same optional-but-validated rule as `actor`. Empty when nobody knew it.
+             */
+            object: string;
+            /**
+             * Place
+             * @description 地 — a `type:name` key (`machine:seth-m5`). Semantically: which machine this happened on. Same optional-but-validated rule as `actor`. Empty when nobody knew it.
+             */
+            place: string;
+            /**
+             * What
+             * @description REQUIRED. What happened, in the ACTIVE VOICE, so the 人 is always the one doing it. Nothing at this layer can enforce voice — no column can — so this is a rule rather than a constraint, and it is stated here rather than pretended into a check.
+             */
+            what: string;
+        };
+        /**
+         * LoreEventInputDTO
+         * @description ONE event to file under a lore entry — 第 5 格, 時／事／人／地／物. 時 and 事 are required; 人／地／物 are sent ONLY when you actually know them. Leaving one out is the correct way to say 「我不知道」 — do not write 「未知」 / `unknown` / `n/a` into it, because that makes 「查不出來」 and 「還沒有人去查」 permanently indistinguishable. The field set is CLOSED; an unknown key is a 422.
+         */
+        LoreEventInputDTO: {
+            /**
+             * Actor
+             * @description 人 — a `type:name` key (`human:Seth`, `agent:Kyle`). OPTIONAL: send it only when you know. A non-empty value must be `type:name` with a type prefix drawn from the SAME approved list `origin` and `subjects` use, refused BY NAME otherwise; an empty one is accepted as-is and never back-filled with a placeholder.
+             * @default
+             */
+            actor: string;
+            /**
+             * Happened Ts
+             * @description REQUIRED. When the event HAPPENED, epoch seconds — not when this row was written. The two differ by days the moment somebody records last week's incident today, and a store that conflates them turns 第 5 格 into a record of the writing order rather than of what happened. Zero or negative is refused; there is no default, because 「now」 would be a claim nobody made.
+             */
+            happened_ts: number;
+            /**
+             * Object
+             * @description 物 — a `type:name` key (`service:ocserverd`). Semantically: what was acted upon. Same optional-but-validated rule as `actor`.
+             * @default
+             */
+            object: string;
+            /**
+             * Place
+             * @description 地 — a `type:name` key (`machine:seth-m5`). Semantically: which machine this happened on. Same optional-but-validated rule as `actor`.
+             * @default
+             */
+            place: string;
+            /**
+             * What
+             * @description REQUIRED. What happened, in the ACTIVE VOICE, so the 人 is always the one doing it. Nothing at this layer can enforce voice — no column can — so this is a rule rather than a constraint, and it is stated here rather than pretended into a check.
+             */
+            what: string;
+        };
+        /**
+         * LoreGovernanceDTO
+         * @description One lore governance act, as it stands after the call: the entry, the state it is now in, and the journal row just written. `reason` is the row's reason, NOT a column on the entry — an entry retired, revived and retired again for a different reason keeps every row, and reading the latest is how 'why did this stop being used' is answered without a column that only remembers the last answer.
+         */
+        LoreGovernanceDTO: {
+            /** Entry Id */
+            entry_id: string;
+            /**
+             * Status
+             * @description The entry's status AFTER the act: `retired` after a retire, `active` after a revive.
+             */
+            status: string;
+            /**
+             * Kind
+             * @description `retire` or `revive` — which journal row this is.
+             */
+            kind: string;
+            /** Reason */
+            reason: string;
+            /** Replaced By */
+            replaced_by: string;
+            /**
+             * Actor Id
+             * @description The caller, taken from the VERIFIED token subject — never from the request body.
+             */
+            actor_id: string;
+            /** Created Ts */
+            created_ts: number;
+        };
+        /**
+         * LoreRevisionDTO
+         * @description One revision of a lore entry, in full.
+         */
+        LoreRevisionDTO: {
+            /**
+             * Actor Id
+             * @description Who wrote it.
+             */
+            actor_id: string;
+            /**
+             * Body
+             * @description The exact text stored at that moment.
+             */
+            body: string;
+            /**
+             * Created Ts
+             * @description When.
+             */
+            created_ts: number;
+            /**
+             * Entry Id
+             * @description The entry it belongs to.
+             */
+            entry_id: string;
+            /**
+             * Revision Id
+             * @description This revision's id.
+             */
+            revision_id: number;
+            /**
+             * Sha256
+             * @description Digest of `body`.
+             */
+            sha256: string;
+            /**
+             * Shrink Chars
+             * @description How many characters this write removed compared with the previous one.
+             */
+            shrink_chars: number;
+        };
+        /**
+         * LoreRevisionRowDTO
+         * @description One line of an entry's revision catalogue. It carries NO text: a list is how a reader chooses a revision, and the journal has no depth limit, so carrying every body here would put the whole history in one response.
+         */
+        LoreRevisionRowDTO: {
+            /**
+             * Actor Id
+             * @description Who wrote this revision — the verified token subject at the time.
+             */
+            actor_id: string;
+            /**
+             * Created Ts
+             * @description When it was written.
+             */
+            created_ts: number;
+            /**
+             * Revision Id
+             * @description Address this revision by this id under the same entry.
+             */
+            revision_id: number;
+            /**
+             * Sha256
+             * @description Digest of that revision's text.
+             */
+            sha256: string;
+            /**
+             * Shrink Chars
+             * @description How many characters this write REMOVED compared with the previous revision, 0 when it removed none. It is the only place a compression that hollowed an entry out shows up: the number of entries does not change when an entry is emptied.
+             */
+            shrink_chars: number;
+        };
+        /**
+         * LoreRetireDTO
+         * @description Retire one lore entry: `{reason, replaced_by}`. `reason` is REQUIRED and closed to `expired` / `merged` / `falsified` — an unrecognised value is refused rather than defaulted, because a typo defaulted to the permissive side would retire an entry as if it were merely stale.
+         */
+        LoreRetireDTO: {
+            /**
+             * Reason
+             * @description WHY this entry stops being retrieved, and it is the field that decides whether you are allowed to file it at all. Exactly one of: `expired` — the situation changed and this no longer applies (it MAY come back); `merged` — folded into another entry, whose id belongs in `replaced_by` (the content still exists over there); `falsified` — the entry's claim WAS NEVER TRUE (it should NOT come back), and only the owner may file this one. Anything else is refused 422 with the value named; there is no default, because defaulting a typo to the permissive side would retire an entry as if it were merely stale and nothing downstream could tell afterwards.
+             */
+            reason: string;
+            /**
+             * Replaced By
+             * @description The entry that takes over, meaningful above all for `merged`. Stored as sent and never validated as an id: the journal's job is to record what you said, not to re-derive it later.
+             * @default
+             */
+            replaced_by: string;
+        };
+        /**
+         * LoreReviveDTO
+         * @description Revive one retired lore entry: `{reason}`. `reason` is optional free prose recorded in the governance journal; unlike the retire reason it carries no permission consequence.
+         */
+        LoreReviveDTO: {
+            /**
+             * Reason
+             * @description Optional prose recorded in the governance journal beside the revival — why this entry is being brought back. Unlike the retire reason it is free text and carries no permission consequence.
+             * @default
+             */
+            reason: string;
+        };
+        /**
+         * LorePendingEntityDTO
+         * @description A subject key that named nothing and was therefore CREATED by this write, parked `pending` for review. It is reported rather than swallowed so a typo shows up here instead of quietly becoming part of the ontology.
+         */
+        LorePendingEntityDTO: {
+            /**
+             * Canonical
+             * @description The subject key exactly as you sent it.
+             */
+            canonical: string;
+            /**
+             * Entity Id
+             * @description The id the new subject was minted under.
+             */
+            entity_id: string;
+            /**
+             * Type
+             * @description The type prefix of the key.
+             */
+            type: string;
+        };
+        /**
+         * LorePendingEntityRowDTO
+         * @description ONE subject entity waiting for review: what it is, what it was minted as, when, and how much lore already depends on it. 🔴 `display` IS DELIBERATELY ABSENT. The column exists and no path in this tree writes it, so the field could only ever be empty — and an empty string reads as 「we looked and there was no name」 rather than 「nothing can fill this yet」. `name` is the name half of `canonical`, derived at read time, so there is no second copy to go stale.
+         */
+        LorePendingEntityRowDTO: {
+            /**
+             * Canonical
+             * @description The full `type:name` key the entity was minted under.
+             */
+            canonical: string;
+            /**
+             * Created Ts
+             * @description When the key was first written, which is when review became owed.
+             */
+            created_ts: number;
+            /**
+             * Created By
+             * @description The actor id that MINTED this key — whoever wrote the entry whose subject list first named it. 🔴 It is the second-most useful thing on the row after the name itself: the review question is 「is this a typo」, and who wrote it, in what company, is what a reviewer would otherwise open another screen to find. It is an actor id served RAW, never a resolved display name — resolving it here would be a second answer to 「who is m-…」 beside the member surfaces that already own it. Empty for a row minted before the column carried anything; empty is served as empty rather than as an invented 「unknown」.
+             */
+            created_by: string;
+            /**
+             * Entries
+             * @description How many lore entries are filed under this subject RIGHT NOW, counted with the same predicate the boot directory and search use — retired entries are excluded, so this number reconciles against what the subject would actually serve once approved.
+             */
+            entries: number;
+            /**
+             * Entries Ever
+             * @description The same count with the retired predicate REMOVED — every entry EVER filed under this subject. 🔴 IT EXISTS BECAUSE `entries: 0` HAD TWO MEANINGS AND ONE APPEARANCE, and they call for opposite dispositions: `entries: 0, entries_ever: 0` is a name that was minted once and never used again — the shape of a TYPO the writer corrected on its next attempt; `entries: 0, entries_ever: 2` is a name that was genuinely used and has since been emptied by retirement, where nothing suggests the name is wrong at all. A reviewer looking at 「底下 0 條」 could not tell which he was holding. It does NOT replace `entries`: that one is what the subject will actually serve after approval, and one number meaning either thing depending on the reader is what this pair exists to end.
+             */
+            entries_ever: number;
+            /**
+             * Entry Refs
+             * @description EVERY entry the `entries` count counted — same predicate, same order — one line each: the entry id, 第 1 格 (`trigger`, which is also the title), and the status. 🔴 IT IS WHAT `sample_short` COULD NOT BE. A 120-character sample of the FIRST entry answers 「what is one of these about」; the question a reviewer has is 「what is filed under this name」, and for a subject with five entries the sample showed one of them with no way to reach the rest. ⚠️ The BODIES are not here — the trigger says which entry to open, and opening it is the read path that already exists. Empty array when nothing is filed, which `entries: 0` also says.
+             */
+            entry_refs: components["schemas"]["LoreEntryRefDTO"][];
+            /**
+             * Entity Id
+             * @description The entity's id.
+             */
+            entity_id: string;
+            /**
+             * Name
+             * @description The name half of `canonical` — what the subject is called, without its type prefix.
+             */
+            name: string;
+            /**
+             * Sample Short
+             * @description 第 2 格 (`content`) of the FIRST lore entry filed under this subject (\u26a0\ufe0f the wire name `sample_short` is left over from the 六格 format and was NOT renamed in this round), trimmed to 120 characters with an ellipsis when it was cut. 🔴 IT IS A SAMPLE AND IT SAYS SO BY ENDING IN 「…」: it exists so a reviewer can see what the subject is actually about without opening it, and it is never the field to act on — read the entry for that. Empty when the subject carries no entry yet, which the `entries` count already says.
+             */
+            sample_short: string;
+            /**
+             * Similar
+             * @description The existing APPROVED subjects that resemble this one, each with the reason it was offered, strongest reason first per candidate. Empty means nothing in the ontology looks like this name — the single most useful thing this row can tell a reviewer, and since 2026-09-05 it is told to him rather than folded into a computed verdict.
+             */
+            similar: components["schemas"]["LoreEntitySimilarDTO"][];
+            /**
+             * Type
+             * @description The approved type prefix of the key (`repo`, `agent`, `human`, …).
+             */
+            type: string;
+        };
+        /**
+         * LoreEntityApproveDTO
+         * @description Approve one pending subject entity: `{reason}`. `reason` is optional free prose recorded in the governance journal; unlike the retire reason it carries no permission consequence.
+         */
+        LoreEntityApproveDTO: {
+            /**
+             * Reason
+             * @description Optional prose recorded in the governance journal beside the act. Unlike the retire reason it carries no permission consequence — it is there so 「why was this name accepted」 has somewhere to live.
+             * @default
+             */
+            reason: string;
+        };
+        /**
+         * LoreEntitySimilarDTO
+         * @description ONE existing subject that resembles a pending one, WITH the reason it was offered. 🔴 THE REASON IS THE PAYLOAD AND THERE IS DELIBERATELY NO SCORE. A number is a judgement wearing a number's clothes — nobody can check `0.87` — whereas `same_normalized` names the exact test that fired and can be checked at a glance, which is the whole point of the packet.
+         */
+        LoreEntitySimilarDTO: {
+            /**
+             * Canonical
+             * @description The existing subject's `type:name` key.
+             */
+            canonical: string;
+            /**
+             * Entity Id
+             * @description The existing subject's id — what `merge`'s `into` takes.
+             */
+            entity_id: string;
+            /**
+             * Reason
+             * @description WHICH test fired, one of: `same_normalized` — identical once case, full-width/half-width and `_`/`-` are folded (`repo:OffiCraft` vs `repo:officraft`), the strongest of the five; `edit_distance_1` / `edit_distance_2` — that many single-character edits apart; `prefix` — one name starts with the other; `substring` — one name contains the other. The fuzzy four are withheld for names shorter than 3 characters, where everything resembles everything. Comparison is WITHIN one type prefix, because the schema says an identical name under two prefixes is correct rather than a duplicate.
+             */
+            reason: string;
+        };
+        /**
+         * LoreEntryRefDTO
+         * @description ONE entry filed under a pending subject, reduced to what a review row can show: which entry it is, what it is for, and what state it is in. 🔴 IT IS A REFERENCE, NOT AN ENTRY, AND THE NAME SAYS SO — carrying `content` here would make the review queue a second reader of the memory table, with its own truncation rule and its own chance to disagree with the read path that already exists.
+         */
+        LoreEntryRefDTO: {
+            /**
+             * Entry Id
+             * @description The entry's id — what the entry read route takes to show the whole thing.
+             */
+            entry_id: string;
+            /**
+             * Status
+             * @description `active`, `superseded` or `underspecified`. NEVER `retired`: the list is built with the same predicate the boot directory and search use, so retired rows are absent. It rides along because a subject whose three entries are all `superseded` is a different thing to review from one with three active entries.
+             */
+            status: string;
+            /**
+             * Trigger
+             * @description 第 1 格 — 「什麼時候要記起來」, the cell that also serves as the entry's title. It is the cheapest thing that answers 「what is filed under this name」 because it was designed to be read alone, and it has no length cap.
+             */
+            trigger: string;
+        };
+        /**
+         * LoreEntityGovernanceDTO
+         * @description One subject-entity governance act, as it stands AFTER the call: the entity, the state it is now in, and the journal row just written. 🔴 Every field is read back off the tables rather than echoed from the request — an echo would report `pending: false` for a write that did not happen, which is the one thing a receipt exists to rule out.
+         */
+        LoreEntityGovernanceDTO: {
+            /**
+             * Actor Id
+             * @description The caller, taken from the VERIFIED token subject — never from the request body.
+             */
+            actor_id: string;
+            /**
+             * Canonical
+             * @description The entity's `type:name` key.
+             */
+            canonical: string;
+            /** Created Ts */
+            created_ts: number;
+            /** Entity Id */
+            entity_id: string;
+            /**
+             * Kind
+             * @description `entity-approve` or `entity-merge` — which journal row this is.
+             */
+            kind: string;
+            /**
+             * Merged Into
+             * @description The surviving entity this one was folded into, empty when it stands on its own. After an approve it is always empty; after a merge it names the survivor.
+             */
+            merged_into: string;
+            /**
+             * Pending
+             * @description Whether the entity is STILL awaiting review. Both acts clear it, so a `true` here after a 200 would mean the write did not take.
+             */
+            pending: boolean;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * LoreEntityMergeDTO
+         * @description Fold one pending subject entity into an existing approved one: `{into, reason}`. `into` is REQUIRED — there is no default survivor, and guessing one would silently attach a subject's whole history to a name nobody chose.
+         */
+        LoreEntityMergeDTO: {
+            /**
+             * Into
+             * @description The id of the SURVIVING entity this one is folded into. It must already be approved and must not itself have been merged away; either is refused 422 by name, because merging into a subject the boot directory hides would park the source somewhere no reader can follow.
+             */
+            into: string;
+            /**
+             * Reason
+             * @description Optional prose recorded in the governance journal beside the act. Unlike the retire reason it carries no permission consequence — it is there so 「why was this name accepted」 has somewhere to live.
+             * @default
+             */
+            reason: string;
+        };
+        /**
+         * LoreSearchAppliedDTO
+         * @description What the server ACTUALLY applied, echoed back condition by condition. 🔴 It is a required part of every answer, not an optional debugging extra: the tier labels mean 「matched every axis you asked on」, which is only interpretable beside the axes that were asked. A tier that travelled without its axes would be read under the older meaning (「both axes matched」) and quietly mean something else.
+         */
+        LoreSearchAppliedDTO: {
+            /**
+             * Actions
+             * @description The action filter applied.
+             */
+            actions: string[];
+            /**
+             * Force Trust Analogy
+             * @description Whether trust-class analogies were allowed through.
+             */
+            force_trust_analogy: boolean;
+            /**
+             * Limit
+             * @description The count cap applied, after defaulting.
+             */
+            limit: number;
+            /**
+             * Query
+             * @description The literal needle applied, empty when none.
+             */
+            query: string;
+            /**
+             * Query Match
+             * @description How `query` was matched. Today always `literal-substring`. It exists so that a caller never has to assume the match was semantic — and so that the day it becomes semantic, the answer says so rather than silently changing.
+             */
+            query_match: string;
+            /**
+             * Subject
+             * @description The subject key applied, empty when none.
+             */
+            subject: string;
+            /**
+             * Tiered By
+             * @description 🔴 The axes the tier was computed over — some subset of `subject` and `actions`. Empty means no axis was supplied, so nothing in the answer reached you across an axis you did not ask about.
+             */
+            tiered_by: string[];
+        };
+        /**
+         * LoreSearchDTO
+         * @description Retrieve lore entries: the selection conditions, all optional, all in the BODY. The field set is CLOSED — an unknown key is a 422 naming it, never a silent drop, because a selection condition that is quietly ignored produces a plausible wrong answer.
+         */
+        LoreSearchDTO: {
+            /**
+             * Actions
+             * @description Filter to entries carrying any of these action names. Combined with `subject` this is the second tiering axis: an entry matching both is `T1`, one matching only this axis is an analogy.
+             */
+            actions?: string[];
+            /**
+             * Force Trust Analogy
+             * @description Let `trust`-class entries appear in the analogy tier. Off by default because 「how far X could be relied on」 is a fact about X and does not travel to another subject; when on, each such entry's `tier_note` names whose situation it actually describes.
+             * @default false
+             */
+            force_trust_analogy: boolean;
+            /**
+             * Limit
+             * @description How many entries to return, 1..100, default 20. Out of range is REFUSED, never clamped: a caller that asked for 500 and silently got 100 believes it has seen everything. Entries whose origin is a `human:` key do not count against it.
+             * @default 0
+             */
+            limit: number;
+            /**
+             * Query
+             * @description A LITERAL, case-insensitive substring over 第 1 格 (`trigger`) and 第 2 格 (`content`) — the two cells that took over the three 六格 scanned (label / short / symptoms), none of which exists any more. Not semantic — `applied.query_match` reports which kind it was, so nothing has to guess. 🔴 第 3、4 格 (`retire_when`, `problem`) are deliberately NOT searched: widening what `query` answers is a decision nobody has made, and the symptom would be extra hits that look exactly like correct ones.
+             * @default
+             */
+            query: string;
+            /**
+             * Subject
+             * @description A subject key, `type:name`. An alias resolves onto its subject and a merged-away subject follows to the survivor. A key that names nothing is NOT an error and NOT an empty result: it comes back as `subject_resolved: false` with the key echoed.
+             * @default
+             */
+            subject: string;
+        };
+        /**
+         * LoreSearchHitDTO
+         * @description One retrieved entry, plus why it is in the answer.
+         */
+        LoreSearchHitDTO: {
+            /**
+             * Actions
+             * @description The entry's action names.
+             */
+            actions: string[];
+            /**
+             * Content
+             * @description 第 2 格「內容」— the mechanism and why. 🔴 A HIT CARRIES TWO OF THE FIVE CELLS, NOT ALL FIVE: 第 3、4、5 格 (`retire_when` / `problem` / the events) come back only from `get_lore_entry`, because a search answer is how you CHOOSE an entry and a result list that carried every entry's events in full would be a size nobody has decided on.
+             */
+            content: string;
+            /**
+             * Entry Id
+             * @description The entry's id — what `get_lore_entry` addresses.
+             */
+            entry_id: string;
+            /**
+             * Origin
+             * @description Whose knowledge this is (`human:Seth`, `agent:Kyle`). A `human:` origin sorts ahead within its tier and is exempt from `limit`.
+             */
+            origin: string;
+            /**
+             * Subjects
+             * @description The subject keys this entry is filed under.
+             */
+            subjects: string[];
+            /**
+             * Tier
+             * @description `T1` — this matched every axis you asked on. `T2` — 類比: it reached you across an axis you did NOT ask about, so it is a guess about your case rather than a rule for it. 🔴 Read this together with `applied.tiered_by`; alone it does not say what it matched.
+             */
+            tier: string;
+            /**
+             * Tier Note
+             * @description The tier in words, including — for a forced trust-class analogy — whose situation the entry actually describes.
+             */
+            tier_note: string;
+            /**
+             * Trigger
+             * @description 第 1 格「什麼時候要記起來」— the situation this entry applies to, and the line that doubles as its title (there is no separate name field). It and `content` are the two cells `query` matches against.
+             */
+            trigger: string;
+            /**
+             * Trust Fell Back
+             * @description 🔴 True when this entry's `trust_scope` was reached by FAILING CLOSED on an action name nothing recognised, rather than by the mapping table. The mapping table is hand-written and provisional (its own header says so), so a class that was guessed must not look identical to one that was known.
+             */
+            trust_fell_back: boolean;
+            /**
+             * Trust Scope
+             * @description `method` (how to do a thing — crosses subjects as an ordinary analogy), `trust` (how far something can be relied on — does not cross, and the fail-closed answer for anything unrecognised) or `cognitive` (a failure mode of thinking).
+             */
+            trust_scope: string;
+        };
+        /**
+         * LoreSearchResultDTO
+         * @description The retrieved entries plus everything needed to tell a real empty answer from a question that never got asked properly.
+         */
+        LoreSearchResultDTO: {
+            /** @description What the server actually applied. Always present. */
+            applied: components["schemas"]["LoreSearchAppliedDTO"];
+            /**
+             * Entries
+             * @description The entries, ordered T1 before T2, `human:` origins first within a tier.
+             */
+            entries: components["schemas"]["LoreSearchHitDTO"][];
+            /**
+             * Subject Resolved
+             * @description 🔴 False ONLY when a `subject` was given and named nothing. It is NOT folded into an empty `entries`: 「this subject has no entries」 is an answer and 「this subject does not exist」 is a typo, and a caller that cannot tell them apart will read one as the other.
+             */
+            subject_resolved: boolean;
+            /**
+             * Total
+             * @description How many entries matched before the count cap.
+             */
+            total: number;
+            /**
+             * Truncated
+             * @description True when the cap dropped some of them.
+             */
+            truncated: boolean;
+            /**
+             * Unmapped Actions
+             * @description Every action name in this answer that the trust table did not recognise. Non-empty means at least one entry was classified by failing closed — which changes what the trust filter did — so it rides back with the answer instead of only reaching a log.
+             */
+            unmapped_actions: string[];
+            /**
+             * Unresolved Subject
+             * @description The subject key that named nothing, echoed back so a typo is visible. Empty otherwise.
+             */
+            unresolved_subject: string;
+        };
+        /**
+         * LoreWriteDTO
+         * @description Create one lore entry: 五格 (four body cells plus 0..N events) and the axes it is filed under. The field set is CLOSED — an unknown key is a 422, never a silent drop.
+         */
+        LoreWriteDTO: {
+            /**
+             * Actions
+             * @description The action names this entry is about — an OPEN set, mint a new one whenever a new kind of experience turns up. They are not checked against a list here on purpose; the safety is at read time, where an unrecognised action fails closed and says so.
+             */
+            actions?: string[];
+            /**
+             * Content
+             * @description REQUIRED. 第 2 格「內容」— the mechanism, and why. THIS is the only cell that ever enters a boot context, so an entry with a blank `content` contributes literally nothing to anybody and is refused.
+             */
+            content: string;
+            /**
+             * Events
+             * @description 第 5 格「相關的完整資訊」— 0..N events, each 時／事／人／地／物. Zero events is legal, and 「沒有事件」 is a different fact from 「有事件但人地物空著」 — both stay visible. Every event needs `happened_ts` (when it HAPPENED, not when it was written down) and `what`; `actor` / `place` / `object` are sent only when you actually know them and are NEVER back-filled with 「未知」, because 「查不出是誰」 and 「還沒有人去查」 must not end up looking the same. A bad event refuses the WHOLE write — the entry body is never written half-way.
+             */
+            events?: components["schemas"]["LoreEventInputDTO"][];
+            /**
+             * Origin
+             * @description REQUIRED. A subject key, `type:name`, naming WHOSE knowledge this is — `human:Seth` for something the owner told you, `agent:Kyle` for something a member worked out. It is NOT who is writing: the actor comes from your verified token. The distinction is load-bearing — a `human:` origin sorts ahead within its tier and is exempt from the boot-directory count cap. A blank origin, or a type prefix nothing has approved, is refused: there is no default author.
+             */
+            origin: string;
+            /**
+             * Problem
+             * @description 第 4 格「之前發生過什麼問題」— optional as a FIELD and yet the substance of the entry: one with no problem behind it is a slogan. It is deliberately not made required, because a hard requirement pushes a writer who genuinely has none into inventing one, and an invented case reads exactly like a real one. ⚠️ Nothing flags an entry for leaving this blank: the `degraded` mark that once reported 「this cell is empty」 was removed entirely by owner ruling rc-1e32c690018d (2026-09-03), so an empty 第 4 格 is visible only by reading the entry.
+             * @default
+             */
+            problem: string;
+            /**
+             * Retire When
+             * @description 第 3 格「什麼時候不需要了」— FREE TEXT, deliberately not a date and not a closed vocabulary: the honest answers run from 「這個 bug 修好之後」 to 「等負責人裁定 X」, and a closed field would force every one of them into a shape that loses what it meant. Optional; blank means nobody has said, which is NOT the same as 「永遠都需要」 and is never filled in for you.
+             * @default
+             */
+            retire_when: string;
+            /**
+             * Subjects
+             * @description REQUIRED, at least one. The subject keys this entry is filed under, each shaped `type:name`. An alias resolves onto its subject; a merged-away subject follows to the survivor; a duplicate files one row. A key nobody has used yet is MINTED as a new subject parked `pending` for review and reported back in `pending_entities` — it does not reach anybody's boot directory until somebody approves it. An unapproved type prefix is refused by name rather than minted, and so is a key that is not `type:name` at all.
+             */
+            subjects: string[];
+            /**
+             * Supersedes
+             * @description The id of the entry this one takes over from. That entry is re-statused `superseded` (it is NOT deleted and it keeps its own original) and the act is written to the governance journal with you as the actor. An id that names no entry refuses the whole write: a pointer into empty space is a dead end that looks like a trail.
+             * @default
+             */
+            supersedes: string;
+            /**
+             * Trigger
+             * @description REQUIRED. 第 1 格「什麼時候要記起來」— the situation you would be IN when this entry applies, written as the sentence you could have written BEFORE you knew the answer. It is the axis a reader finds the entry by AND it doubles as the entry's title: there is no separate `label` field and no length cap, because the owner's own worked example writes the first cell as a full sentence far longer than the 40-rune cap `label` used to carry. Blank is REFUSED rather than defaulted — an entry without it sits in the table looking exactly like a finished one and nobody can retrieve it. ⚠️ 「第 1 格兼任標題，因此沒有 `label`、沒有長度上限」是實作判斷，不是負責人的裁定。
+             */
+            trigger: string;
+        };
+        /**
+         * LoreWriteReceiptDTO
+         * @description What the write actually did, read back from the tables rather than echoed from the request: the new entry's id, the digest of the original that was preserved beside it, the subjects it ended up filed against, and any subject it had to mint. ⚠️ There is no `degraded` field here any more — owner ruling rc-1e32c690018d (2026-09-03) removed the concept, because 第 1 格 is already refused blank at the door.
+         */
+        LoreWriteReceiptDTO: {
+            /**
+             * Entry Id
+             * @description The id of the entry that was created.
+             */
+            entry_id: string;
+            /**
+             * Pending Entities
+             * @description The subjects this write had to MINT because the key named nothing yet. Each is parked `pending` and reaches nobody's boot directory until it is approved. An empty list means every key you sent already named a subject.
+             */
+            pending_entities: components["schemas"]["LorePendingEntityDTO"][];
+            /**
+             * Revision Id
+             * @description The id of the L0 revision row holding the full original. It is not optional and never zero: an entry without one would look identical in every context and every count, and the loss would only surface when somebody went looking for the original.
+             */
+            revision_id: number;
+            /**
+             * Sha256
+             * @description The digest of the preserved original, so a later reader can tell that what it is holding is what was written.
+             */
+            sha256: string;
+            /**
+             * Subject Ids
+             * @description The entity ids the entry was actually filed against, after aliases resolved, merges were followed and duplicates collapsed. Compare it with what you sent when you want to know which of your keys were the same subject.
+             */
+            subject_ids: string[];
+            /**
+             * Superseded
+             * @description The id of the entry this one took over from, empty when it took over from nothing.
+             * @default
+             */
+            superseded: string;
+        };
+        /**
+         * LoreProposeDTO
+         * @description Propose one change to a lore entry: the account of what is wrong, and — for an `update` — the COMPLETE replacement version: 四格 AND 第 5 格, the whole event list. 🔴 A PROPOSAL CARRIES ITS OWN EVENTS, AND ACCEPTING IT REPLACES THE ENTRY'S WHOLESALE — not merged, not append-only. Owner ruling rc-e5c34500face (2026-09-03): 「改得動 —— 提案就該帶完整的新版本，包含所有事件」. The reasoning that ruling overturned was 「第 5 格是機器串出來的事實，提案只是意見，意見不該改得動事實」, and its hole is that WHEN THE MACHINE STRINGS IT TOGETHER WRONG NOTHING CAN REPAIR IT: re-deriving washes away whatever a person filled in by hand (an act that never went through the API cannot reach a recorder, so those cells can only be left empty), so a proposal that moves events is the only road that repairs one. 🔴 `events` IS REQUIRED ON AN `update` AND OMITTING IT IS A 422, NOT A SHORTHAND FOR 「維持現狀」: send `[]` to claim the entry should carry no events at all. If a missing key and an empty list meant the same thing, one forgotten field would clear 第 5 格 where no reviewer could see it — the exact description/result gap this whole shape exists to close. The field set is CLOSED; an unknown key is a 422, never a silent drop.
+         */
+        LoreProposeDTO: {
+            /**
+             * Base Sha256
+             * @description REQUIRED. The `sha256` of the entry version you actually read, copied from `GET /api/lore/entries/{entry_id}`. It is what binds this proposal to a specific text: if the entry has changed since, the submission is refused 409 naming both digests rather than stored against text nobody is looking at any more. It is caller-supplied on purpose — a value the server filled in for itself would always match and would prove nothing.
+             */
+            base_sha256: string;
+            /**
+             * Content
+             * @description The proposed 第 2 格「內容」— the one cell that ever enters a boot context. REQUIRED on an `update`, blank is refused, exactly as on a write. Sent only on an `update`, where the four together with `events` are the whole new version; on a `remove` it must be absent or empty.
+             * @default
+             */
+            content: string;
+            /**
+             * Encountered
+             * @description REQUIRED. What you were DOING when this entry reached you — the ticket, the task, the bucket you were working out of. A reviewer cannot judge 「這條幫倒忙」 without knowing what it was supposed to help with.
+             */
+            encountered: string;
+            /**
+             * Events
+             * @description The COMPLETE proposed 第 5 格 — the whole event list as it should stand AFTER this proposal is accepted, NOT a set of additions. REQUIRED on an `update`: send `[]` to say 「這條不該有事件」; omitting the key is refused 422, because a forgotten field and a deliberate clear must never look the same. MUST be absent or empty on a `remove`, which proposes no version at all. Each event is held to the SAME rules a write is — 時 and 事 required, 人／地／物 validated only when non-empty — so a proposal nobody could ever accept is refused now instead of sitting in the queue looking acceptable. The order you send them in does not change the digest: the renderer sorts by (happened_ts, what, actor, place, object), so one set sent in two orders is one version.
+             */
+            events?: components["schemas"]["LoreEventInputDTO"][];
+            /**
+             * Evidence
+             * @description REQUIRED. What you actually SAW — the output, the file, the failure — not what you think. ⚠️ Nothing at this layer can tell a real observation from an invented one; it refuses an empty cell, which is all a column can do.
+             */
+            evidence: string;
+            /**
+             * Fault
+             * @description REQUIRED. Which of three things is wrong with the entry, because the three want three different repairs: `stale` — it was right when it was written and is not any more (it wants rewriting against today); `never-true` — the claim never held (it wants retiring as `falsified`, which is the owner's call); `misled` — it is retrieved for situations it does not describe and it sent you the wrong way (its `trigger` wants fixing). An unrecognised value is refused 422 with the value named; there is no default, because an undifferentiated 「這條不好」 tells a reviewer nothing about what to do.
+             */
+            fault: string;
+            /**
+             * Kind
+             * @description REQUIRED. `update` — you are proposing the entry should say something else, and the four body cells below PLUS `events` carry the whole new version; accepting it replaces 第 5 格 wholesale with what you sent. `remove` — you are proposing it stop being retrieved, and you send NO body cells and NO events at all; a removal carrying a version would put text on a reviewer's screen that no accept would ever write. Anything else is refused 422 with the value named. Note that a removal is not a deletion: the act it asks for is `retire_lore_entry`, and `revive_lore_entry` undoes it.
+             */
+            kind: string;
+            /**
+             * Problem
+             * @description The proposed 第 4 格「之前發生過什麼問題」. Optional, exactly as on a write. Sent only on an `update`, where the four together with `events` are the whole new version; on a `remove` it must be absent or empty.
+             * @default
+             */
+            problem: string;
+            /**
+             * Retire When
+             * @description The proposed 第 3 格「什麼時候不需要了」— free text. Optional, exactly as on a write. Sent only on an `update`, where the four together with `events` are the whole new version; on a `remove` it must be absent or empty.
+             * @default
+             */
+            retire_when: string;
+            /**
+             * Trigger
+             * @description The proposed 第 1 格「什麼時候要記起來」— the axis a reader finds the entry by, doubling as its title. REQUIRED on an `update`, blank is refused, exactly as on a write — an `update` is held to the write's own field rules so that a proposal nobody could ever accept is refused now instead of sitting in the queue looking acceptable. Sent only on an `update`, where the four together with `events` are the whole new version; on a `remove` it must be absent or empty.
+             * @default
+             */
+            trigger: string;
+        };
+        /**
+         * LoreProposalReceiptDTO
+         * @description What the submission stored: the proposal's id, the revision it is bound to, and the digest of the version you proposed. Read back off what was rendered rather than echoed from the request.
+         */
+        LoreProposalReceiptDTO: {
+            /**
+             * Base Revision Id
+             * @description The L0 revision row this proposal is bound to — the entry as it stood when you submitted. The digest is the comparison; this makes the row findable.
+             */
+            base_revision_id: number;
+            /**
+             * Base Sha256
+             * @description The digest that was matched. Equal to what you sent, by definition — a mismatch is a 409 and nothing is stored.
+             */
+            base_sha256: string;
+            /**
+             * Proposal Id
+             * @description The id of the proposal that was filed.
+             */
+            proposal_id: string;
+            /**
+             * Sha256
+             * @description The digest of the version you proposed, rendered by the SAME renderer the L0 journal uses — which is what makes it comparable with a revision's digest at all. Empty on a `remove`, which proposes no version.
+             */
+            sha256: string;
+        };
+        /**
+         * LoreProposalAppliedDTO
+         * @description What an acceptance actually wrote: which proposal landed, on which entry, the ONE revision it produced, the digest of the version that is now current, and how many events 第 5 格 carries afterwards. 🔴 THE REVISION IS THE WHOLE RECORD OF THE VERDICT — its actor_id is the accepter — because nothing else is written down; there is no arbitration journal and none has been ruled on.
+         */
+        LoreProposalAppliedDTO: {
+            /**
+             * Entry Id
+             * @description The entry the version was written onto. It is the entry the proposal was filed against — a proposal reached through another entry's address is a 404, never applied.
+             */
+            entry_id: string;
+            /**
+             * Events After
+             * @description How many events 第 5 格 carries NOW. The list was replaced wholesale by the proposal's own, so this is that proposal's count rather than a sum — a smaller number than before means the acceptance removed events, which is exactly what a merge could never do.
+             */
+            events_after: number;
+            /**
+             * Proposal Id
+             * @description The proposal that was applied.
+             */
+            proposal_id: string;
+            /**
+             * Revision Id
+             * @description The L0 revision this acceptance appended. Its `actor_id` is YOU, the accepter, not the proposer — and that row is the only record the station keeps of who approved this.
+             */
+            revision_id: number;
+            /**
+             * Sha256
+             * @description The digest of the version that landed: the proposal's OWN digest, stored when it was filed and written back unchanged rather than re-rendered here, so 「what the reviewer approved」 and 「what was written」 are the same bytes rather than two renderings that can drift.
+             */
+            sha256: string;
+        };
+        /**
+         * LoreProposalDTO
+         * @description ONE filed proposal, in full: why it was filed, which version it was written against, whether that version is still the current one, and — on an `update` — the complete proposed version: 四格 plus the whole of 第 5 格. 🔴 A PROPOSAL CARRIES ITS OWN EVENTS (Owner ruling rc-e5c34500face (2026-09-03): 「改得動 —— 提案就該帶完整的新版本，包含所有事件」.), so `body` was rendered against THE PROPOSAL'S events rather than the entry's, and accepting it replaces the entry's events wholesale. 🔴 `events_added` / `events_removed` ARE HOW A REVIEWER SEES WHICH EVENTS THIS PROPOSAL MOVES without diffing two lists by eye — and both lists are still on the wire (`events` here, `current_events` on the enclosing response), so the difference can be RECOMPUTED rather than trusted.
+         */
+        LoreProposalDTO: {
+            /**
+             * Actor Id
+             * @description Who filed it — the verified token subject at the time.
+             */
+            actor_id: string;
+            /**
+             * Base Revision Id
+             * @description The L0 revision this proposal was written against.
+             */
+            base_revision_id: number;
+            /**
+             * Base Sha256
+             * @description The digest of that revision. Compare it with `current_sha256` on the enclosing response and you have recomputed `stale` yourself.
+             */
+            base_sha256: string;
+            /**
+             * Body
+             * @description The complete proposed version as rendered text — every cell present with its name, blank or not, plus the `events:` block, so a deleted section and a never-written one do not hash the same. 🔴 The events in it are THE PROPOSAL'S OWN, which is what makes this the bytes that would actually land: accepting replaces 第 5 格 with exactly this. Empty on a `remove`.
+             */
+            body: string;
+            /**
+             * Content
+             * @description The proposed 第 2 格「內容」. Empty on a `remove`.
+             */
+            content: string;
+            /**
+             * Created Ts
+             * @description When it was filed.
+             */
+            created_ts: number;
+            /**
+             * Encountered
+             * @description What the proposer was doing when this entry reached them.
+             */
+            encountered: string;
+            /**
+             * Events
+             * @description The COMPLETE proposed 第 5 格 — the event list this proposal says the entry should carry once it is accepted, in the order things HAPPENED (`happened_ts`), never the order anybody typed them. Empty on a `remove`, which proposes no version, and empty on an `update` claiming the entry should carry no events at all; `kind` tells the two apart, and on an `update` `events_removed` shows what that claim would delete.
+             */
+            events: components["schemas"]["LoreEventDTO"][];
+            /**
+             * Events Added
+             * @description The events this proposal ADDS: present in `events`, absent from the enclosing response's `current_events`. COMPUTED on every read and never stored — a stored difference is right the day it is written and wrong every day after, and a reviewer would be reading it against a 現況 that has since moved. Identity is the event's own five cells (happened_ts, what, actor, place, object), never a row id: a proposal's events carry no `lore_event` id at all, and re-typing the same fact would earn a different one — an id comparison would report an untouched event as one deletion plus one addition, and that noise is what stops people reading a diff. Always `[]` on a `remove`.
+             */
+            events_added: components["schemas"]["LoreEventDTO"][];
+            /**
+             * Events Removed
+             * @description The events this proposal DELETES: present in the enclosing response's `current_events`, absent from `events`. 🔴 THIS IS THE HALF A REVIEWER WOULD OTHERWISE MISS — an addition shows up in the proposed list, a deletion shows up only as an absence. Same key and same computed-not-stored rule as `events_added`. Always `[]` on a `remove`, which deletes no events: the act it asks for is `retire_lore_entry`, and retiring does not touch 第 5 格.
+             */
+            events_removed: components["schemas"]["LoreEventDTO"][];
+            /**
+             * Evidence
+             * @description What the proposer actually saw.
+             */
+            evidence: string;
+            /**
+             * Fault
+             * @description `stale`, `never-true` or `misled` — which of the three repairs this proposal is asking for.
+             */
+            fault: string;
+            /**
+             * Kind
+             * @description `update` or `remove`.
+             */
+            kind: string;
+            /**
+             * Problem
+             * @description The proposed 第 4 格「之前發生過什麼問題」. Empty on a `remove`.
+             */
+            problem: string;
+            /**
+             * Proposal Id
+             * @description This proposal's id.
+             */
+            proposal_id: string;
+            /**
+             * Retire When
+             * @description The proposed 第 3 格「什麼時候不需要了」. Empty on a `remove`.
+             */
+            retire_when: string;
+            /**
+             * Sha256
+             * @description The digest of the proposed version. Empty on a `remove`.
+             */
+            sha256: string;
+            /**
+             * Stale
+             * @description 🔴 TRUE MEANS THE ENTRY WAS REWRITTEN AFTER THIS WAS FILED. The proposer argued against text that is no longer there, so applying it as-is would discard whoever changed it in between — silently, and the result would look entirely correct. COMPUTED on every read from the two digests, never stored.
+             */
+            stale: boolean;
+            /**
+             * Trigger
+             * @description The proposed 第 1 格「什麼時候要記起來」. Empty on a `remove`.
+             */
+            trigger: string;
+        };
+        /**
+         * LoreProposalListDTO
+         * @description An entry's proposals together with the version they are all being compared against — both its digest and its CURRENT events. They travel WITH the list on purpose: `stale`, `events_added` and `events_removed` are all comparisons, and a comparison served without the thing it compared against cannot be checked by whoever reads it.
+         */
+        LoreProposalListDTO: {
+            /**
+             * Current Events
+             * @description The entry's 第 5 格 AS IT STANDS RIGHT NOW, in the order things happened — the other side of every proposal's `events_added` / `events_removed`. A reviewer holding both lists recomputes the difference instead of trusting it, which is the rule `current_sha256` already follows for `stale`.
+             */
+            current_events: components["schemas"]["LoreEventDTO"][];
+            /**
+             * Current Revision Id
+             * @description The entry's latest L0 revision id, right now.
+             */
+            current_revision_id: number;
+            /**
+             * Current Sha256
+             * @description The digest of that revision — what every proposal's `base_sha256` is compared against.
+             */
+            current_sha256: string;
+            /**
+             * Entry Id
+             * @description The entry these proposals are filed against.
+             */
+            entry_id: string;
+            /**
+             * Proposals
+             * @description The proposals, newest first. Empty when nobody has filed one.
+             */
+            proposals: components["schemas"]["LoreProposalDTO"][];
+        };
+        /**
          * LoginDTO
          * @description Owner login request: the password exchanged at `/api/login` for a JWT.
          *
@@ -8573,6 +9829,12 @@ export interface components {
              */
             display_wide: boolean;
             /**
+             * Lore Enabled
+             * @description Whether the LORE feature is ON for this station (T-33; DB `lore.enabled`, default false = OFF). 🔴 IT IS ONE SWITCH FOR THE WHOLE STATION, and OFF means the feature DOES NOT EXIST for an agent: every /api/lore/* route refuses 403 naming this setting, the wake boot context carries no 對象目錄 (subject directory) section, and the cockpit renders no 傳承 tab. 🔴 OFF DOES NOT MOVE ANY MEMORY ANYWHERE — nothing is copied into 長期筆記 / 教訓 and nothing is deleted. An agent that cannot write lore simply goes on using the learning / lesson tools it already had, which is the WHOLE of the fallback: there is no cross-store transfer, because a transfer can fail (the target has its own cap) and a half-moved memory is worse than one that stayed put. Turning it back on returns every stored entry untouched. Read LIVE on every call, so a change applies to the very next request with no restart — with ONE stated exception: a boot context is assembled once at wake, so an agent that already booted keeps the document it was handed until it boots again.
+             * @default false
+             */
+            lore_enabled: boolean;
+            /**
              * Backup Retain
              * @description How many database backup files rotation KEEPS — N. Everything past N is DELETED from disk, not moved aside: the retirement path used to be a move into `trash/` that nothing ever emptied, which is how this studio's trash reached 141.6 GiB / 278 files. Two things this number does NOT mean, both stated because both have already been misread: (1) N COUNTS VERSIONS, NOT DAYS — five is five FILES, and how much calendar that spans depends entirely on how busy the stretch was (this machine produced 19 backups on 2026-08-19 and 4 on 2026-08-24), so one N covers under three days on a busy day and over a week on a quiet one; (2) N IS PER POOL, NOT PER DIRECTORY — routine backups (scheduled + manual) and pre-migration backups hold separate quotas, so setting 5 keeps up to 10 files, not 5. The adjustable range is 1..20, and the ceiling is a disk budget rather than a round number (steady-state cost is 2 × N × one snapshot). Rotation only ever sees files it created itself (`officraft-`…`.db`), so hand-made snapshots, partial files and subdirectories are neither counted toward N nor deleted.
              * @default 5
@@ -8804,6 +10066,11 @@ export interface components {
              * @description Turn the WIDE cockpit layout on/off (T-756f) — true lifts the centred ~1040px content column (the side gutters stay), false restores it. A plain boolean with no unset state: omit the field to leave it unchanged.
              */
             display_wide?: boolean | null;
+            /**
+             * Lore Enabled
+             * @description Turn the LORE feature on/off for this station (T-33). true = /api/lore/* answers, the boot context folds in the 對象目錄, the cockpit shows the 傳承 tab; false (the default) = every lore route refuses 403, no directory in the boot context, no tab. Omit the field to leave it unchanged. 🔴 Turning it OFF never moves or deletes a stored entry — it only stops the feature being reachable, and an agent then goes on using the learning / lesson tools it already had; turning it back on returns everything as it was.
+             */
+            lore_enabled?: boolean | null;
             /**
              * Handover Pct
              * @description The SECOND offboard point: the FINAL notice, and where the automatic handover fires. 40..90, and strictly greater than notice_pct (the pair is validated together against the POST-patch values, so either one may be sent alone).
@@ -13190,6 +14457,618 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LessonsPatchResultDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_list_pending_lore_entities_api_lore_entities_pending_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LorePendingEntityRowDTO"][];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_approve_lore_entity_api_lore_entities__entity_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoreEntityApproveDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreEntityGovernanceDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_merge_lore_entity_api_lore_entities__entity_id__merge_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoreEntityMergeDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreEntityGovernanceDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_write_lore_entry_api_lore_entries_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoreWriteDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreWriteReceiptDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_get_lore_entry_api_lore_entries__entry_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreEntryDetailDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_get_lore_revision_api_lore_entries__entry_id__revisions__revision_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+                revision_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreRevisionDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_retire_lore_entry_api_lore_entries__entry_id__retire_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoreRetireDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreGovernanceDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_revive_lore_entry_api_lore_entries__entry_id__revive_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoreReviveDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreGovernanceDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_list_lore_proposals_api_lore_entries__entry_id__proposals_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreProposalListDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_propose_lore_change_api_lore_entries__entry_id__proposals_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoreProposeDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreProposalReceiptDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_accept_lore_proposal_api_lore_entries__entry_id__proposals__proposal_id__accept_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreProposalAppliedDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_search_lore_entries_api_lore_search_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoreSearchDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreSearchResultDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

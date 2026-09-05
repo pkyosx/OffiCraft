@@ -114,7 +114,14 @@ const (
 //  2. 使用者自訂 — the owner's additive block, skipped entirely when blank;
 //  3. the persona — staff read 角色說明 → 判準 → 長期筆記 here (the 判準 block is
 //     itself skipped when that role's insight folds blank). A worker has no role,
-//     so it reads NOTHING here. That is the entire difference.
+//     so it reads none of those three. That is the entire difference.
+//     🔴 SINCE T-33 THIS SLOT IS NO LONGER EMPTY FOR A WORKER: the lore
+//     對象目錄 sits at the tail of slot 3 on BOTH sides. It is not
+//     role-specific — it is the station's subject directory — so subtracting it
+//     from the worker would be writing (by omission) a document for outsource
+//     readers, which is the one thing T-4595 forbids. The invariant is therefore
+//     "staff MINUS the role-specific documents", not "staff minus slot 3"; see
+//     TestWorkerBootContextIsTheStaffFoldMinusThePersona.
 //  4. 啟動步驟   — the boot-sequence seed for the worker's OWN runtime, which
 //     carries that runtime's 執行環境 section. Recency-authoritative, LAST.
 //
@@ -153,21 +160,57 @@ const (
 //     staff does not have. Two copies of one instruction can only drift, and a
 //     tail written for outsource readers is exactly what "not one word" forbids.
 func (s *apiServer) buildWorkerBootContext(w OutsourceWorker, t Task, manual *TaskManual) (string, error) {
+	text, _, err := s.buildWorkerBootContextWithSurfacing(w, t, manual)
+	return text, err
+}
+
+// buildWorkerBootContextWithSurfacing is the assembly; buildWorkerBootContext
+// above is the thin wrapper for callers that only want the text. The second
+// return is the 對象目錄 receipt (T-33), handed up rather than filed here
+// because ONE of this fold's two callers is the cockpit preview endpoint
+// (api_outsource.go) — recording inside would journal a surfacing that never
+// reached a worker.
+func (s *apiServer) buildWorkerBootContextWithSurfacing(w OutsourceWorker, t Task, manual *TaskManual) (string, loreSurfacing, error) {
+	var lore loreSurfacing
 	head, err := s.workerSharedHead()
 	if err != nil {
-		return "", err
+		return "", lore, err
 	}
 	bootSeq, err := s.workerBootSequence(w.Runtime)
 	if err != nil {
-		return "", err
+		return "", lore, err
+	}
+
+	// 傳承（lore）對象目錄 (T-33) — the tail of slot 3, at the SAME
+	// relative position the staff fold puts it (assets.go, after 長期筆記 and
+	// before 啟動步驟). So slot 3 is no longer empty for a worker: it holds
+	// nothing ROLE-specific, and the directory is not role-specific — it is the
+	// station's, and both audiences read it.
+	//
+	// 🔴 THIS CALL BELONGS HERE, NOT IN workerSharedHead. That function returns
+	// the SHARED SEED head — bytes every reader gets identically — and this
+	// directory is per-actor (the `private` wall is filtered by the reader id
+	// passed below). Hanging it off the shared head would turn a per-person
+	// document into "the shared core"; TestDirectoryIsNotInTheSharedHead turns
+	// red when it does.
+	// ⚠️ Measured: TestWorkerSharedHeadMatchesUnfilteredSeedAssembly does NOT
+	// catch that move — its fixture has an empty ontology, so the section folds
+	// to "" and the equality never sees the difference.
+	memorySection, lore, err := s.foldLoreSectionWithSurfacing(w.ID)
+	if err != nil {
+		return "", lore, err
 	}
 
 	var b strings.Builder
 	b.WriteString(head)
 	b.WriteString("\n\n")
+	if memorySection != "" {
+		b.WriteString(memorySection)
+		b.WriteString("\n\n")
+	}
 	b.WriteString(bootSeq)
 	b.WriteString("\n")
-	return b.String(), nil
+	return b.String(), lore, nil
 }
 
 // ── warden targeting ─────────────────────────────────────────────────────────
@@ -775,7 +818,7 @@ func (s *apiServer) notifyWorkerSpawn(w OutsourceWorker, now float64) bool {
 		s.stampWorkerPlacementBlocked(&w, blocked, now)
 		return false
 	}
-	persona, err := s.buildWorkerBootContext(w, *t, manual)
+	persona, lore, err := s.buildWorkerBootContextWithSurfacing(w, *t, manual)
 	if err != nil {
 		s.stampWorkerPlacementBlocked(&w, spawnReasonBootContext+
 			": could not assemble the worker's boot context: "+err.Error(), now)
@@ -834,6 +877,12 @@ func (s *apiServer) notifyWorkerSpawn(w OutsourceWorker, now float64) bool {
 			"' went offline between the placement decision and the dispatch", now)
 		return false
 	}
+	// The START is on the machine's queue: this worker will read the directory
+	// we just folded, so it is now a real surfacing and gets journalled (T-33).
+	// It is recorded HERE and not at the fold because every step between the two
+	// can still refuse to dispatch — token mint, frame build, a warden that went
+	// offline — and each of those leaves a document nobody ever read.
+	s.recordLoreSurfacing(lore)
 	if s.workerStopPending[w.ID] == warden {
 		// A fresh START just landed on the machine the parked kill targeted:
 		// drop the parking so a late re-fire can never shoot the NEW session.

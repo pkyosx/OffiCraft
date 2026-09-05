@@ -175,6 +175,14 @@ type apiServer struct {
 	// default) = the centred ~1040px content column the cockpit ships with; true
 	// lifts that cap. NOT an agent read path.
 	displayWide bool
+	// loreEnabled is the station-wide LORE feature switch (DB lore.enabled;
+	// T-33), default false. 🔴 EVERY LORE-FACING PATH READS IT THROUGH
+	// loreEnabledSnapshot() ON EVERY CALL rather than capturing it once, because
+	// the owner was promised that flipping the switch applies immediately:
+	// 「你一開，他們當下就寫得進去」. The ONE place that cannot honour that is a
+	// boot context — it is assembled once at wake, so an already-booted agent
+	// keeps the document it was handed until it boots again.
+	loreEnabled bool
 	// selfBase is this server's OWN loopback base URL ("http://127.0.0.1:PORT"),
 	// stamped by cmdServe once the bind address is known. It exists for the ONE
 	// in-process caller that needs an OC_BASE with no HTTP request to derive it
@@ -704,6 +712,20 @@ func (s *apiServer) displayWideSnapshot() bool {
 	s.settingsMu.RLock()
 	defer s.settingsMu.RUnlock()
 	return s.displayWide
+}
+
+// loreEnabledSnapshot returns the LIVE station-wide lore switch (lore.enabled;
+// T-33). false (the default) = the lore feature does not exist for an agent:
+// no route answers, no boot-context directory, no cockpit tab.
+//
+// 🔴 CALL IT PER REQUEST, NEVER ONCE AT BOOT. PATCH /api/settings writes the DB
+// and then updates this field under the same settingsMu, so a read taken here
+// is the value as of this call — which is the whole reason the owner can turn
+// the feature on and have the next write land.
+func (s *apiServer) loreEnabledSnapshot() bool {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.loreEnabled
 }
 
 // ctxHighConfig returns the live context-high band config (by value — one
