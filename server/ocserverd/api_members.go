@@ -1357,8 +1357,12 @@ func clearMemberHandoverMarker(m *Member) {
 // whoever edited one of them remembered the other.
 //
 // 🔴 WHAT THIS BUYS, AND WHAT IT DOES NOT. It removes the drift where one side
-// gains or loses a write and the other does not: there is no second copy left to
-// forget. It does NOT make a MIS-WIRED adapter safe — stopVerbRowOfWorker could
+// gains or loses a write and the other does not: for THE 停止 VERB there is no
+// second copy left to forget. ⚠️ FOR 停止 ONLY — 強制停止 still writes four of
+// these five columns twice (api_members.go's force-stop against
+// api_outsource.go's), and its fifth, stopping_since, follows a DIFFERENT rule on
+// each side, so folding it in would be a behaviour change rather than a
+// convergence. That one belongs to 包④/包⑤. It does NOT make a MIS-WIRED adapter safe — stopVerbRowOfWorker could
 // hand back a pointer to the wrong field and applyStopVerbRow would faithfully
 // write the wrong column. That failure has to be caught one layer up, at the
 // handler seam, and it is: block ① of TestVerbPopulationParityMatrix drives the
@@ -1458,6 +1462,15 @@ func stopVerbRowOfWorker(w *OutsourceWorker) stopVerbRow {
 // offboardKindOf answers soft for desired-offline without consulting the
 // anchor's age.
 //
+// 🔴 THAT LAST SENTENCE IS STAFF-SCOPED, and it did not have to say so while it
+// lived at the staff call site. It does now: decideDown is the MEMBER reconcile
+// path, and a stopped WORKER never reaches a tick at all — runOutsourceTick
+// `continue`s on desired_state=offline, which is why the worker side collects
+// inline instead. See the 停止（離線起點）rows in the parity whitelist. Caught
+// by independent review, which is the failure mode this move creates: a
+// paragraph that was true where it stood becomes a claim about both
+// populations the moment it is hoisted into shared code.
+//
 // It writes NOTHING else, and in particular no stopped_since and no
 // forced_stop_at: this verb opens a close-out, it does not end one, and the two
 // populations end that close-out through machinery that is NOT converged here
@@ -1471,7 +1484,11 @@ func applyStopVerbRow(row stopVerbRow, snapshot Member, now float64) {
 }
 
 // POST /api/members/{member_id}/deactivate — desired_state=offline + an
-// UNCONDITIONAL stopping_since re-stamp (one exception, below).
+// UNCONDITIONAL stopping_since re-stamp, with ONE exception.
+//
+// ⚠️ THE EXCEPTION IS NO LONGER "BELOW", which is what this line used to say:
+// T-65 包③ moved the write, and the paragraph explaining it, UP into
+// applyStopVerbRow. Independent review caught the dangling pointer.
 //
 // The re-stamp does NOT restart a countdown: since rc-27d1710174dd the 下線 arm
 // runs no clock at all. What the anchor dates is the close-out epoch — which

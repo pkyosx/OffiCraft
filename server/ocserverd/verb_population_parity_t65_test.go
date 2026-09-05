@@ -645,10 +645,18 @@ var knownDivergences = []knownDivergence{
 			"resolve WHICH machine a kill goes to through different functions in " +
 			"different order — resolveWorkerKillTarget asks s.workerSpawnTarget first " +
 			"and falls back to hub.MachineOf (empty ⇒ dispatch NOTHING), while " +
-			"memberKillTargetWarden asks hub.MachineOf first and falls back to the " +
-			"PINNED machine. This fixture cannot see it: both seeds pin and connect the " +
-			"same machine, so both resolvers answer parityMachineA. Named here rather " +
-			"than left unwritten — it is 包⑤'s to settle.",
+			"memberKillTargetWarden asks hub.MachineOf first and falls back to " +
+			"wardenTargetOf, the PINNED machine — which has a THIRD outcome of its own: " +
+			"it also answers empty when the pin carries no active warden, so 「正職 always " +
+			"has a fallback」 would be too strong and is not what this says. This fixture " +
+			"cannot see any of it, and 🔴 NOT for the reason an earlier draft of this " +
+			"sentence gave: it said 「both seeds pin and CONNECT the same machine」, which " +
+			"is FALSE for this row — neither side is connected here, that is the whole " +
+			"point of the row, so hub.MachineOf is empty on both. They agree by two " +
+			"OTHER roads: 正職 through wardenTargetOf(DesiredMachineID) and 外包 through " +
+			"the workerSpawnTarget entry newActiveWorker writes unconditionally, online " +
+			"or not. Caught by independent review. Named here rather than left " +
+			"unwritten — it is 包⑤'s to settle.",
 	},
 	{
 		verb: "停止（離線起點）", field: "banked_cost",
@@ -1024,6 +1032,30 @@ func seedParityWorkerOffline(t *testing.T, api *apiServer, mutate func(*Outsourc
 	return id
 }
 
+// parityStopOffSeed is what the 停止（離線起點）row seeds ON TOP of "no session",
+// and every line of it is there to buy discrimination the row did not have.
+//
+// 🔴 WHY IT IS NOT `nil` (independent review, caught after the row shipped green).
+// With a nil mutate the three columns 停止 CLEARS start at their ZERO values —
+// refocus_since 0, refocus_op "", restart_after_stop false. A row seeded that way
+// can see 「the verb wrote the WRONG value」 but is blind to 「the verb failed to
+// CLEAR」, because not-clearing and correctly-clearing produce the same literal.
+// Measured both directions: mutating a shared write to a non-zero value reddened
+// all four cells, while mis-wiring an adapter so a clear never happened reddened
+// only the ONLINE 停止 row — this one stayed green. Seeding them non-zero is the
+// one-line fix, and the expected values do not move: the verb clears them, so the
+// terminal row is the same one it was. What changes is that it is now the same
+// for a REASON the test can tell apart from an accident.
+//
+// restart_after_stop=true is the sharpest of the three: leave the clear out and the
+// tick this handler kicks would consume the queued 起來 and bring an offline member
+// straight back up — the exact negative control the owner's 後蓋前 ruling turns on.
+func parityStopOffSeed(m *Member) {
+	m.RefocusSince = parityPast
+	m.RefocusOp = refocusOpRefocus
+	m.RestartAfterStop = true
+}
+
 // TestParityOfflineSeedIsActuallyOffline is the positive/negative control for
 // the two seeds above, on ONE server in ONE run: the offline seeds must read
 // offline and the online seeds must read online through the SAME predicate the
@@ -1228,7 +1260,7 @@ func parityCases() []verbCase {
 				"too — which has no divergences at all and must keep having none.",
 			runStaff: func(t *testing.T) terminalState {
 				api := newParityServer(t)
-				seedParityMemberOffline(t, api, "m-parity-stop-off", nil)
+				seedParityMemberOffline(t, api, "m-parity-stop-off", parityStopOffSeed)
 				notices := watchMemberDeltas(t, api)
 				code := postMember(t, api, "m-parity-stop-off", "deactivate", nil,
 					api.HandleDeactivateMemberApiMembersMemberIdDeactivatePost)
@@ -1236,7 +1268,11 @@ func parityCases() []verbCase {
 			},
 			runOutsource: func(t *testing.T) terminalState {
 				api := newParityServer(t)
-				id := seedParityWorkerOffline(t, api, nil)
+				id := seedParityWorkerOffline(t, api, func(w *OutsourceWorker) {
+					w.RefocusSince = parityPast
+					w.RefocusOp = refocusOpRefocus
+					w.RestartAfterStop = true
+				})
 				notices := watchMemberDeltas(t, api)
 				code := postWorker(t, api, id, "stop", nil,
 					api.HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost)
