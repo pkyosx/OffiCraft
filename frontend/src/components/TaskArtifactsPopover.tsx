@@ -52,36 +52,50 @@ import {
 
 /** Project a file/image artifact onto the ChatAttachmentView the shared
  * AttachmentStrip renders (id/url/filename/mime/isImage — the exact reuse
- * surface). */
+ * surface).
+ *
+ * 🔴 THREE OF THOSE FIELDS NO LONGER ARRIVE AS FIELDS (T-92), and each is
+ * derived here from one that does rather than dropped:
+ *   · `filename` ← `a.name`, which the SERVER now derives (from the blob's own
+ *     filename when the row has no stored name), so the `a.filename || a.label`
+ *     chain that used to live here has moved server-side and this is its result.
+ *   · `isImage` ← the mime's prefix. It was always exactly that; carrying both
+ *     was one fact in two fields.
+ *   · `backingAttachmentId` ← the tail of `url`, which for a file/image IS
+ *     `/api/chat/attachment/{id}`. ⚠️ It is derived by PATH SHAPE, so a change
+ *     to that route silently empties it — that is the cost of the id leaving
+ *     the wire, and it is written down here rather than discovered later. */
 function asAttachmentView(a: TaskArtifactView): ChatAttachmentView {
   return {
     id: a.id,
-    backingAttachmentId: a.attachmentId,
+    backingAttachmentId: a.url.startsWith(BLOB_SERVE_PREFIX)
+      ? a.url.slice(BLOB_SERVE_PREFIX.length)
+      : "",
     url: a.url,
-    filename: a.filename || a.label,
+    filename: a.name,
     mime: a.mime,
-    isImage: a.isImage,
+    isImage: a.mime.startsWith("image/"),
   };
 }
 
+/** The serve path every file/image artifact's `url` is built from. */
+const BLOB_SERVE_PREFIX = "/api/chat/attachment/";
+
 /** What a LINK row is called on screen.
  *
- * 🔴 IT CAN NEVER RETURN "", and that is the whole reason it exists. The
- * expression here was `a.label || a.url`, which held only because a link row was
- * assumed to always carry a url — and T-66 makes that assumption something this
- * component has to earn rather than inherit, since the rows now arrive from
- * `listTaskArtifacts` instead of riding the task read. If that fetch ever hands
- * back a row with neither (a label-less pin whose url did not survive), the old
- * chain rendered an anchor with NO TEXT: invisible, unclickable, and silently
- * one row short of the count the badge promised. The id tail is the same
- * identifier `artifactMetaLabel` already prints beneath the name, so the worst
- * case is a row named after itself rather than a row named nothing.
- *
- * The blob kinds do not come through here: `AttachmentStrip` already falls back
- * to 「下載附件」 for a nameless file and `renderExtra` to 「圖片」 for a nameless
- * image, and duplicating those here would mean two answers to one question. */
+ * 🔴 IT CAN NEVER RETURN "", and that is still the whole reason it exists —
+ * but since T-92 the fallback chain lives on the SERVER (`artifactDisplayName`
+ * in wire.go: stored name → blob filename → link target → id tail), so `a.name`
+ * is already non-empty on any current server. The tail kept here is not
+ * duplication of that: it is what this component does when the name arrives
+ * empty ANYWAY — an older server, a hand-built fixture, a field that got
+ * dropped somewhere in between. The old chain rendered an anchor with NO TEXT
+ * in that case: invisible, unclickable, and silently one row short of the count
+ * the badge promised. The id tail is the same identifier `artifactMetaLabel`
+ * already prints beneath the name, so the worst case is a row named after
+ * itself rather than a row named nothing. */
 function artifactDisplayName(a: TaskArtifactView): string {
-  return a.label || a.filename || a.url || `#${a.id.replace(/^ta-/, "")}`;
+  return a.name || a.url || `#${a.id.replace(/^ta-/, "")}`;
 }
 
 /** T-6338: two pinned artifacts can carry the IDENTICAL filename (the same

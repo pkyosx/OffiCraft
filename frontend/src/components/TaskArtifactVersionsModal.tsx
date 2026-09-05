@@ -260,8 +260,15 @@ export function TaskArtifactVersionsModal({
   // named more generously than the other: a label-less .md report is still a
   // .md on the older side. It is a fallback for the mime, never a substitute:
   // see loadArtifactPayload.
-  const versionName = (v: TaskArtifactVersionView) => v.filename || v.label;
-  const liveName = live ? live.filename || live.label : "";
+  //
+  // ⚠️ THE TWO SIDES READ DIFFERENT FIELDS SINCE T-92, and that asymmetry is
+  // real rather than an oversight: a VERSION still carries its own `filename`
+  // (this journal is a cockpit-only read of a bounded few rows and was not
+  // narrowed), while the LIVE artifact no longer does — its `name` IS the
+  // server's derivation from that filename, so reading it reads the same fact
+  // one step later.
+  const versionName = (v: TaskArtifactVersionView) => v.filename || v.name;
+  const liveName = live ? live.name : "";
   const selectedPayload = usePayload(
     selected === "live" ? live?.kind : selectedVersion?.kind,
     selected === "live" ? live?.url : selectedVersion?.url,
@@ -301,14 +308,18 @@ export function TaskArtifactVersionsModal({
   // rendered the whole older column as "unnamed" underneath a named live row,
   // and hid the one difference between two versions a reader most needs to see —
   // that the deliverable was re-filed under a new name.
+  //
+  // The live side needs no such chain since T-92 — the server guarantees a
+  // non-empty `name` — but the `||` tail stays for an older server or a fixture
+  // that sends none, so the column never reads "unnamed" for a reason that is
+  // about the payload rather than about the deliverable.
   const versionTitle = (v: TaskArtifactVersionView) =>
-    v.label ||
+    v.name ||
     v.filename ||
     (v.kind === "link" ? v.url : t.tasks.artifacts.versionsUnnamed);
   const liveTitle =
     live &&
-    (live.label ||
-      live.filename ||
+    (live.name ||
       (live.kind === "link" ? live.url : t.tasks.artifacts.versionsUnnamed));
 
   const rows = useMemo(

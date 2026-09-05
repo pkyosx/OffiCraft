@@ -557,40 +557,21 @@ export interface TaskView {
   progressDone: number;
   progressTotal: number;
   steps: TaskStepView[];
-  /** The task's curated deliverable set (T-3dc5), oldest→newest, as an INDEX:
-   * each entry is `{ id, label }` and NOTHING else.
-   *
-   * 🔴 THE ARTIFACT DETAIL IS NOT ON THIS VIEW MODEL (T-66, owner
-   * c-cd063427fb2f:「我覺得任務產物，只需要預設給標題跟ID, 有需要再透過另一隻去
-   * 拿就好了」). url / filename / mime / kind / isImage / attachmentId /
-   * createdTs / createdBy arrive from `listTaskArtifacts`, one call for the
-   * whole ticket. A component that wants to RENDER an artifact and finds only
-   * these two fields is being told, correctly, to go and fetch it.
-   *
-   * Only the FULL task (getTask) carries even the index; the LIGHT list leaves
-   * it [] (it carries only `artifactCount` for the collapsed card's 「產物 N」
-   * badge). OPTIONAL so hand-built test fixtures stay valid (the
-   * replyCardStatus precedent); the mapper always sets it. */
-  artifacts?: TaskArtifactRefView[];
   /** Number of pinned deliverables — the collapsed card's 「產物 N」 badge (0 ⇒
-   * badge hidden). On the light list it is the SERVER count (`artifact_count`);
-   * on a hydrated full task it equals `artifacts.length` (kept consistent so a
-   * post-hydrate card keeps the same badge). OPTIONAL so hand-built fixtures
-   * stay valid; the mapper always sets it. */
+   * badge hidden), and since T-92 the ONLY thing a task response says about
+   * them. BOTH projections now read it from the server's `artifact_count`: the
+   * light list always did, and the full task carries the same field instead of
+   * an array whose length the card had to take.
+   *
+   * 🔴 THERE ARE NO ARTIFACT ROWS ON THIS VIEW MODEL AT ALL (T-92, owner
+   * rc-15016959ad4d:「只有 ID 好像也沒用」). T-66 had already cut them to id +
+   * label; the ids went too, because a caller holding one is about to act on
+   * that artifact and needs the whole row anyway. `listTaskArtifacts` answers
+   * the whole ticket in one call — which is what `TaskArtifactsPopover` does the
+   * moment someone opens it, and has done since before this change.
+   *
+   * OPTIONAL so hand-built fixtures stay valid; the mapper always sets it. */
   artifactCount?: number;
-}
-
-/** ONE pinned deliverable as an INDEX ROW (T-66): which one it is and what it
- * is called, and nothing that would need a second read. This is what a
- * `TaskView.artifacts` entry is.
- *
- * `label` is honest-empty when the deliverable was pinned without one — it is
- * NOT backfilled from a filename or a url here, because those live on the full
- * row. Deciding what to SHOW for a nameless artifact is the renderer's job, on
- * the full row it fetched. */
-export interface TaskArtifactRefView {
-  id: string;
-  label: string;
 }
 
 /** ONE pinned deliverable on a task's artifact set (T-3dc5), in view-model
@@ -603,12 +584,21 @@ export interface TaskArtifactRefView {
 export interface TaskArtifactView {
   id: string;
   kind: "file" | "image" | "link";
+  /** Where the content is — ONE meaning on all three kinds since T-92: the blob
+   * serve path for a file/image, the external address for a link. */
   url: string;
-  label: string;
-  filename: string;
+  /** The display name. NEVER EMPTY on the wire — the server derives one from
+   * the blob's filename, the link target, or the id when the row has no stored
+   * name — so a renderer needs no fallback of its own any more. */
+  name: string;
+  /** The prose half of what used to be one `label`. May be empty, and MAY BE
+   * LONGER than the 256-rune write cap: that cap binds new writes only and
+   * never touched the migrated values, so never size anything on it. */
+  description: string;
+  /** The blob's content type. 🔴 LOAD-BEARING: `kind: "file"` covers .md, .pdf
+   * and .zip alike, so this is the only field the preview can tell them apart
+   * by — `MarkdownPreviewOverlay` makes four separate decisions with it. */
   mime: string;
-  isImage: boolean;
-  attachmentId: string;
   createdTs: number;
   createdBy: string;
   /** How many versions this deliverable has, the LIVE one INCLUDED (T-60) — 1
@@ -625,7 +615,8 @@ export interface TaskArtifactView {
 /** ONE retained PREVIOUS version of a pinned deliverable (T-60), in view-model
  * form — what the artifact pointed at before a replace, newest first.
  *
- * It carries the version WHOLE (a blob id or a url, plus a label); `id` is the
+ * It carries the version WHOLE (a blob id or a url, plus its name and prose);
+ * `id` is the
  * version's own row id and `kind` always equals the live artifact's, which
  * cannot change across versions. `url`, `mime`, `filename` and `isImage` are
  * that version's OWN facts, resolved by the server from the retained blob the
@@ -636,7 +627,15 @@ export interface TaskArtifactVersionView {
   id: number;
   kind: "file" | "image" | "link";
   url: string;
-  label: string;
+  /** This version's stored display name (T-92 split the old single `label`).
+   * ⚠️ UNLIKE the live artifact's `name`, this one is NOT derived and CAN be
+   * empty — it is the column as it was written, and a version written before
+   * names existed has none. That asymmetry is why this row still carries
+   * `filename` while the live one does not. */
+  name: string;
+  /** This version's prose (T-92). May be empty, and may exceed the write cap
+   * for the same reason the live artifact's description may. */
+  description: string;
   filename: string;
   mime: string;
   isImage: boolean;

@@ -196,27 +196,24 @@ export type WireTaskStep = components["schemas"]["TaskStepDTO"];
  * task, which is how a reader tells the two apart. */
 export type WireTaskStepDetail = components["schemas"]["TaskStepDetailDTO"];
 
-/** Mirrors `TaskArtifactRefDTO` (T-66): ONE pinned deliverable reduced to an
- * INDEX ROW — `id` + `label`, nothing else. This is what a task response's
- * `artifacts` array holds since owner c-cd063427fb2f:「我覺得任務產物，只需要
- * 預設給標題跟ID, 有需要再透過另一隻去拿就好了」. */
-export type WireTaskArtifactRef = components["schemas"]["TaskArtifactRefDTO"];
-
 /** Mirrors `TaskArtifactListDTO` (`GET /api/tasks/{task_id}/artifacts` / MCP
  * `list_task_artifacts`, T-66): ONE task's artifacts in FULL.
  *
- * 🔴 It exists because `WireTaskArtifact` rows no longer ride the task read.
- * `artifacts_detail_level` is `"full"` here and `"index"` on the task, which is
- * how a reader tells the two apart. It is per-TASK and not per-artifact on the
- * owner's ruling (c-f2d0fecb1168:「應該是指名任務？」) — the cockpit's panel
+ * 🔴 SINCE T-92 IT IS THE ONLY CALL THAT RETURNS AN ARTIFACT ROW AT ALL: a task
+ * response carries `artifact_count` and nothing else. `artifacts_detail_level`
+ * is still `"full"` here, but it no longer has an opposite to stand against —
+ * the task side used to declare `"index"`. It is per-TASK and not per-artifact
+ * on the owner's ruling (c-f2d0fecb1168:「應該是指名任務？」) — the cockpit's panel
  * opens onto the whole set, so a per-artifact door would cost one call a row. */
 export type WireTaskArtifactList = components["schemas"]["TaskArtifactListDTO"];
 
-/** Mirrors `TaskArtifactDTO` (T-3dc5): one pinned deliverable on a task's
- * artifact set. `kind` is file|image|link; file/image carry the blob serve
- * `url` + `mime`/`filename`/`is_image` (from the shared chat_attachment store),
- * link carries a bare external `url`. Folded into the full `WireTask.artifacts`
- * (get_task); the light list carries only `artifact_count`. */
+/** Mirrors `TaskArtifactDTO` (T-3dc5, reshaped by T-92): one pinned deliverable
+ * on a task's artifact set. `kind` is file|image|link and `url` means ONE thing
+ * on all three — where the content is: the blob serve path for a file/image, the
+ * external address for a link. `name` is never empty (the server derives one
+ * when the row has none); `description` may be empty AND may be longer than the
+ * 256-rune write cap, which binds new writes only. It arrives ONLY from
+ * `listTaskArtifacts` — no task response carries these rows. */
 export type WireTaskArtifact = components["schemas"]["TaskArtifactDTO"];
 
 /** Mirrors `TaskArtifactVersionDTO` (T-60): ONE retained PREVIOUS version of a

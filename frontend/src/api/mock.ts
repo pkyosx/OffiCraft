@@ -904,7 +904,7 @@ let replyCards: ReplyCard[] = [];
 // only the index could not answer the second read at all — which is exactly
 // how it came to `return []` and tell a reader 「還沒有產物」 about a task whose
 // badge had just said N.
-export type MockTaskRow = Omit<TaskView, "artifacts"> & { artifacts?: TaskArtifactView[] };
+export type MockTaskRow = TaskView & { artifacts?: TaskArtifactView[] };
 let tasks: MockTaskRow[] = [];
 
 // The retained PREVIOUS versions of a pinned deliverable (T-60), keyed by
@@ -3639,7 +3639,6 @@ export const mockApi: Api = {
       }),
       // Light list parity (T-3dc5): no artifact rows, only the count (the
       // server's grouped COUNT) — the collapsed card's 「產物 N」 badge.
-      artifacts: [],
       artifactCount: (t.artifacts ?? []).length,
     }));
   },
@@ -3648,7 +3647,14 @@ export const mockApi: Api = {
     // Mirrors GET /api/tasks/{id}: the FULL task (steps + description) the
     // light list omits — the per-card expand hydration path. reply_card_status
     // is a read-time join per step (server parity), never stored.
-    const task = structuredClone(findTask(id));
+    // 🔴 `stored` is PEELED OFF rather than spread. The mock's store row keeps
+    // each artifact whole; the wire has had NO artifact field on a task read
+    // since T-92, so spreading the row would make mock mode the one place a
+    // task read hands back artifact rows — the cockpit could render from it here
+    // and 404 against a real server. Peeling it is the narrowing the mapper does
+    // for real, and it is done by DESTRUCTURING rather than by assigning
+    // undefined so the type system, not a comment, is what enforces it.
+    const { artifacts: stored, ...task } = structuredClone(findTask(id));
     return {
       ...task,
       // TaskDTO carries no dep_tasks (T-a3e4 put the dep join on the LIGHT list
@@ -3658,18 +3664,8 @@ export const mockApi: Api = {
         ...st,
         replyCardStatus: mockReplyCardStatusOf(st.replyCardId || null),
       })),
-      // Full task carries the artifact INDEX (T-66: id + label per deliverable);
-      // count kept == length (server parity). The full rows are listTaskArtifacts.
-      //
-      // 🔴 PROJECTED, not passed through. The store row holds each artifact
-      // whole, and a `TaskArtifactView` is structurally a `TaskArtifactRefView`
-      // too — so handing the stored row straight back type-checks and would
-      // quietly make mock mode the ONE place a task read carries url / mime /
-      // filename. The cockpit would then render from the task read here and
-      // 404 against a real server. The mapper is the guard, so the mock has to
-      // narrow exactly like it does.
-      artifacts: (task.artifacts ?? []).map((a) => ({ id: a.id, label: a.label })),
-      artifactCount: (task.artifacts ?? []).length,
+      // A COUNT and nothing else (T-92) — server parity.
+      artifactCount: (stored ?? []).length,
     };
   },
 
