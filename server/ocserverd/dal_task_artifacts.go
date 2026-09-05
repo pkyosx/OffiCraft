@@ -247,6 +247,27 @@ func (d *DAL) ReplaceTaskArtifactMintingBlob(next TaskArtifact, blob *ChatAttach
 // is accepted; changing it means changing this function's contract, which is an
 // owner call, not a drive-by.
 //
+// 🔴 T-92 NARROWED THE PREMISE THAT EXEMPTION RESTS ON, AND FOR ONE KIND IT NO
+// LONGER HOLDS. The exemption's reason is "a blob may be shared with a chat
+// message / reply card". For file and image that is still true: the caller
+// uploaded the blob through POST /api/chat/attachments and may well have
+// attached it elsewhere. For a LINK it is not: mintLinkTargetBlob rents nothing
+// and reuses nothing — it mints a fresh text/uri-list blob for that one pin,
+// inside the pin's own transaction, so at creation time no other record can
+// name it. Un-pinning a link therefore leaves a GUARANTEED orphan, not a
+// possible one, and the survivor scan never revisits it.
+//
+// The change this argues for is one line — stop deleting the live id from
+// `candidates` when the artifact is a link — and it is not reckless, because
+// collectOrphanBlobs already asks collectSurvivingBlobRefs whether ANY still
+// stored record references the id and skips it if one does. A member who
+// copied the attachment_id out of list_task_artifacts into a chat message
+// would be protected by that scan, not by this exemption.
+//
+// It is still not done here: it is a behaviour change to a delete path, so it
+// is the owner's call. Written down so the next reader inherits the finding
+// rather than the silence.
+//
 // Returns true iff a row was removed.
 func (d *DAL) DeleteTaskArtifact(id string) (bool, error) {
 	var removed bool
