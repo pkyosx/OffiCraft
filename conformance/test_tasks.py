@@ -38,6 +38,7 @@ through test_rest_happy.
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 
 import pytest
@@ -66,10 +67,68 @@ def machine(fresh_machine) -> str:
 
 
 def _create_task(client, executor, title="conf task", **extra) -> dict:
+    """Create a task; answer ``{"task": <the task, read back>}``.
+
+    T-91: the create route no longer hands the whole task back beside
+    ``deduped`` — it answers ``taskCreateResultDTO``, a receipt naming the
+    ticket the call landed on. Two separate things happen here, and they are
+    separate on purpose:
+
+      * the RECEIPT's shape is pinned once, for every caller in this file, by
+        KEY-SET EQUALITY. Asserting only that ``task_id`` is present would stay
+        green if the route ever went back to serving the task, because a task
+        envelope would carry a task_id too;
+      * the task itself is then fetched from ``GET /api/tasks/{id}``, so every
+        behavioural assertion downstream still reads a real task — from the
+        read face, which is where a task has always been readable, and which
+        this create never claimed to be.
+    """
     body = {"title": title, "executor_member_id": executor.member_id, **extra}
     r = client.post("/api/tasks", json=body, headers=_auth(executor.token))
     assert r.status_code == 200, f"create failed: {r.status_code} {r.text}"
-    return r.json()
+    receipt = r.json()
+    # A fresh create carries exactly these three. A dedupe HIT adds the title
+    # and status of the ticket the caller landed on but never opened; a typed
+    # create may add non-blocking `warnings`. Nothing else may ride along.
+    assert set(receipt) <= {
+        "task_id", "task_no", "deduped", "title", "status", "warnings"
+    } and {"task_id", "task_no", "deduped"} <= set(receipt), receipt
+    if not receipt["deduped"]:
+        # Owner ruling 2026-09-05: a fresh create does not echo the caller's
+        # own sentence, nor the constant status this handler stamps.
+        assert "title" not in receipt and "status" not in receipt, receipt
+    g = client.get(
+        f"/api/tasks/{receipt['task_id']}", headers=_auth(executor.token)
+    )
+    assert g.status_code == 200, f"create read-back failed: {g.status_code} {g.text}"
+    return {"task": g.json(), "receipt": receipt}
+
+
+# T-91: POST /api/reply-cards answers replyCardCreateReceiptDTO — the ids the
+# caller cannot compute plus the attachment list the server resolved — not the
+# card it opened.
+_CARD_CREATE_RECEIPT_KEYS = {"id", "chat_message_id", "created_ts", "attachments"}
+
+
+def _card_opened(client, token, r) -> dict:
+    """Pin the create receipt's SHAPE, then answer the card from the read face.
+
+    Key-set equality, not key presence: asserting only that ``id`` is on the
+    response would stay green if the route went back to serving the whole
+    card, because a card carries an id too. The card the callers below then
+    assert against comes from ``GET /api/reply-cards/{id}`` — the face that
+    has always been the way to read a card.
+    """
+    assert r.status_code == 200, f"open card failed: {r.status_code} {r.text}"
+    receipt = r.json()
+    assert set(receipt) == _CARD_CREATE_RECEIPT_KEYS, receipt
+    g = client.get(f"/api/reply-cards/{receipt['id']}", headers=_auth(token))
+    assert g.status_code == 200, f"card read-back failed: {g.status_code} {g.text}"
+    card = g.json()
+    assert card["id"] == receipt["id"], (card, receipt)
+    assert card["chat_message_id"] == receipt["chat_message_id"], (card, receipt)
+    assert card["created_ts"] == receipt["created_ts"], (card, receipt)
+    return card
 
 
 def _plan(client, token, task_id, steps):
@@ -126,12 +185,47 @@ def _open_count(client, owner_token) -> int:
     return r.json()["open"]
 
 
+# T-91: create_task_manual and update_task_manual answer taskManualReceiptDTO.
+# The two document triples are POINTERS: learnings_* is on the response only
+# when this call wrote the learnings, sop_md_* only when it wrote the SOP, so
+# "not written" is expressible and is not spelled 0.
+_MANUAL_RECEIPT_ALWAYS = {"type_key", "updated_ts"}
+_MANUAL_RECEIPT_OPTIONAL = {
+    "learnings_chars", "learnings_cap_chars", "learnings_sha256",
+    "sop_md_chars", "sop_md_cap_chars", "sop_md_sha256",
+}
+
+
+def _manual_written(client, token, r) -> dict:
+    """Pin the write receipt's shape; answer the STORED manual.
+
+    The manual no longer rides home, so what the callers below assert about
+    purpose / fields / assignee is read off GET /api/task-manuals/{type_key}.
+    That is strictly stronger than the echo was: an echo assembled from what
+    the handler was about to write would look right even if nothing landed.
+    """
+    assert r.status_code == 200, f"manual write failed: {r.status_code} {r.text}"
+    receipt = r.json()
+    assert _MANUAL_RECEIPT_ALWAYS <= set(receipt), receipt
+    assert set(receipt) <= _MANUAL_RECEIPT_ALWAYS | _MANUAL_RECEIPT_OPTIONAL, receipt
+    g = client.get(f"/api/task-manuals/{receipt['type_key']}",
+                   headers=_auth(token))
+    assert g.status_code == 200, f"manual read-back: {g.status_code} {g.text}"
+    return g.json()
+
+
 def _new_manual(client, owner_token, **edits) -> str:
     type_key = f"conf-task-type-{uuid.uuid4().hex[:8]}"
     r = client.post(
         "/api/task-manuals", json={"type_key": type_key},
         headers=_auth(owner_token))
     assert r.status_code == 200, f"manual create failed: {r.status_code} {r.text}"
+    # T-91: the create answers taskManualReceiptDTO — the manual it wrote plus
+    # the documents THIS call wrote, and it wrote neither, so both optional
+    # triples are absent. Key-set equality: asserting only that type_key is
+    # present would stay green if the whole manual came back.
+    assert set(r.json()) == {"type_key", "updated_ts"}, r.text
+    assert r.json()["type_key"] == type_key, r.text
     if edits:
         r = client.post(
             f"/api/task-manuals/{type_key}", json=edits,
@@ -145,7 +239,7 @@ def _new_manual(client, owner_token, **edits) -> str:
 
 def test_full_task_loop(client, owner_token, executor):
     created = _create_task(client, executor, title="release v2")
-    assert created["deduped"] is False
+    assert created["receipt"]["deduped"] is False
     task = created["task"]
     assert task["status"] == "not_started"
     assert task["executor_kind"] == "member"
@@ -185,8 +279,7 @@ def test_full_task_loop(client, owner_token, executor):
               "options": [{"text": "ship it"}, {"text": "hold"}],
               "linked_task": {"task_id": task["id"], "step_id": gate["id"]}},
         headers=_auth(executor.token))
-    assert r.status_code == 200, r.text
-    card = r.json()
+    card = _card_opened(client, owner_token, r)
     assert card["status"] == "waiting"
     assert card["task"]["id"] == task["id"]  # 請示 → 任務 jump data
     view = _get_task(client, owner_token, task["id"])
@@ -270,8 +363,7 @@ def test_linked_task_arms_a_plain_non_gate_step(client, owner_token, executor):
               "linked_task": {"task_id": task["id"], "step_id": step["id"]},
               "options": [{"text": "aws"}, {"text": "gcp"}]},
         headers=_auth(executor.token))
-    assert r.status_code == 200, f"plain-step arm must 200: {r.status_code} {r.text}"
-    card = r.json()
+    card = _card_opened(client, owner_token, r)
     assert card["status"] == "waiting"
     assert card["task"]["id"] == task["id"]
 
@@ -569,18 +661,28 @@ def test_create_dedupes_open_tasks_and_reopens_after_terminal(
     )
     first = _create_task(client, executor, title="review 9",
                          type_key=type_key, inputs={"pr": "9"})
-    assert first["deduped"] is False
+    assert first["receipt"]["deduped"] is False
 
     # The same identity key against the OPEN task: the EXISTING task, 200.
     again = _create_task(client, executor, title="review 9 (again)",
                          type_key=type_key, inputs={"pr": "9"})
-    assert again["deduped"] is True
+    assert again["receipt"]["deduped"] is True
     assert again["task"]["id"] == first["task"]["id"]
+    # T-91: on a HIT — and only on a hit — the receipt also names the ticket
+    # the caller landed on but never opened, because the caller cannot know
+    # it. Key-set equality, not presence: a receipt that carried these two on
+    # a FRESH create would be echoing the caller's own sentence back, which is
+    # the thing this reshape removed.
+    assert set(again["receipt"]) == {
+        "task_id", "task_no", "deduped", "title", "status"
+    }, again["receipt"]
+    assert again["receipt"]["title"] == "review 9", again["receipt"]
+    assert again["receipt"]["status"] == first["task"]["status"], again["receipt"]
 
     # A different key never collides.
     other = _create_task(client, executor, title="review 10",
                          type_key=type_key, inputs={"pr": "10"})
-    assert other["deduped"] is False
+    assert other["receipt"]["deduped"] is False
     assert other["task"]["id"] != first["task"]["id"]
 
     # Close the first; the same key then mints FRESH (periodic reopen, H2).
@@ -589,7 +691,7 @@ def test_create_dedupes_open_tasks_and_reopens_after_terminal(
     assert r.status_code == 200, r.text
     reopened = _create_task(client, executor, title="review 9 (reopen)",
                             type_key=type_key, inputs={"pr": "9"})
-    assert reopened["deduped"] is False
+    assert reopened["receipt"]["deduped"] is False
     assert reopened["task"]["id"] != first["task"]["id"]
 
     # A missing required input is refused.
@@ -925,17 +1027,26 @@ def test_task_message_rides_chat_with_task_context(client, owner_token, executor
                     json={"body": "how is it going?"},
                     headers=_auth(owner_token))
     assert r.status_code == 200, r.text
-    msg = r.json()
+    # T-91: the post answers chatPostReceiptDTO — the minted id and ts plus the
+    # resolved attachments. The message it made is asserted on the chat stream,
+    # which this test read anyway; the read is now the ANCHOR rather than a
+    # corroboration, and `attachments` is pinned present-and-empty because a
+    # key that comes and goes makes "no files" and "no such concept" the same
+    # answer.
+    receipt = r.json()
+    assert set(receipt) == {"id", "ts", "attachments"}, receipt
+    assert receipt["attachments"] == [], receipt
+    # It IS an ordinary chat message — the stream lists it.
+    msgs = client.get(f"/api/chat?with={executor.member_id}&limit=-1",
+                      headers=_auth(owner_token)).json()["messages"]
+    msg = next((m for m in msgs if m["id"] == receipt["id"]), None)
+    assert msg is not None, "the task message is not on the chat stream"
     assert msg["from"] == "owner" and msg["to"] == executor.member_id
     assert msg["meta"]["task_id"] == task["id"]
     assert msg["meta"]["task_title"] == "msg target"
     # The visible body is prefixed with the task's display number so the
     # executor's message is self-identifying (owner 2026-07-14).
     assert msg["body"] == f"[{task['task_no']}] how is it going?"
-    # It IS an ordinary chat message — the stream lists it.
-    msgs = client.get(f"/api/chat?with={executor.member_id}&limit=-1",
-                      headers=_auth(owner_token)).json()["messages"]
-    assert any(m["id"] == msg["id"] for m in msgs)
     # An empty message is refused.
     assert client.post(f"/api/tasks/{task['id']}/message", json={},
                        headers=_auth(owner_token)).status_code == 400
@@ -1005,8 +1116,7 @@ def test_manual_create_assignee_machine_must_resolve(client, owner_token, machin
     assert create({"kind": "outsource", "machine": "auto"}).status_code == 400
     assert create({"kind": "outsource", "machine": "warden-mbp5"}).status_code == 404
     r = create({"kind": "outsource", "machine": machine})
-    assert r.status_code == 200, f"{r.status_code} {r.text}"
-    assert r.json()["assignee"]["machine"] == machine
+    assert _manual_written(client, owner_token, r)["assignee"]["machine"] == machine
 
 
 def test_settings_outsource_cap_unlimited(client, owner_token):
@@ -1054,7 +1164,19 @@ def test_manual_crud_and_delete_guard(client, owner_token, executor):
     r = client.post(f"/api/task-manuals/{type_key}/learnings",
                     json={"text": "always check CI first"},
                     headers=_auth(executor.token))
-    assert r.status_code == 200 and r.json()["learnings"] == "always check CI first"
+    assert r.status_code == 200, f"{r.status_code} {r.text}"
+    # T-91: taskLearningsWriteReceiptDTO — the doc does not ride home; its size
+    # and digest do. Key-set equality: asserting only that type_key is present
+    # would stay green if the whole manual came back.
+    got = r.json()
+    assert set(got) == {"type_key", "size_chars", "cap_chars", "sha256"}, got
+    assert got["size_chars"] == len("always check CI first"), got
+    assert got["sha256"] == hashlib.sha256(
+        "always check CI first".encode("utf-8")).hexdigest(), got
+    # …and it LANDED.
+    assert client.get(f"/api/task-manuals/{type_key}",
+                      headers=_auth(owner_token)
+                      ).json()["learnings"] == "always check CI first"
     # A duplicate create is a 409.
     assert client.post("/api/task-manuals", json={"type_key": type_key},
                        headers=_auth(owner_token)).status_code == 409
@@ -1085,8 +1207,7 @@ def test_agent_creates_manual_and_edits_content_fields(client, executor):
     # An agent creates a manual…
     r = client.post("/api/task-manuals", json={"type_key": type_key},
                     headers=_auth(executor.token))
-    assert r.status_code == 200, f"agent create failed: {r.status_code} {r.text}"
-    assert r.json()["assignee"] == {}
+    assert _manual_written(client, executor.token, r)["assignee"] == {}
     # …and edits the content fields (purpose / fields / sop_md / learnings).
     r = client.post(
         f"/api/task-manuals/{type_key}",
@@ -1095,8 +1216,7 @@ def test_agent_creates_manual_and_edits_content_fields(client, executor):
               "sop_md": "# SOP\n1. reproduce",
               "learnings": "check the version first"},
         headers=_auth(executor.token))
-    assert r.status_code == 200, f"agent content edit failed: {r.status_code} {r.text}"
-    manual = r.json()
+    manual = _manual_written(client, executor.token, r)
     assert manual["purpose"] == "triage inbound bug reports"
     assert manual["fields"][0]["name"] == "report"
     assert manual["sop_md"].startswith("# SOP")
@@ -1131,12 +1251,12 @@ def test_agent_supplied_assignee_is_403_on_create_and_edit(
     # The owner's assignee writes keep working on BOTH faces.
     r = client.post(f"/api/task-manuals/{existing}",
                     json={"assignee": assignee}, headers=_auth(owner_token))
-    assert r.status_code == 200 and r.json()["assignee"]["kind"] == "member"
+    assert _manual_written(client, owner_token, r)["assignee"]["kind"] == "member"
     owner_type = f"conf-gov-type-{uuid.uuid4().hex[:8]}"
     r = client.post("/api/task-manuals",
                     json={"type_key": owner_type, "assignee": assignee},
                     headers=_auth(owner_token))
-    assert r.status_code == 200 and r.json()["assignee"]["kind"] == "member"
+    assert _manual_written(client, owner_token, r)["assignee"]["kind"] == "member"
 
 
 def test_admin_agent_may_set_a_manual_assignee(
@@ -1150,13 +1270,13 @@ def test_admin_agent_may_set_a_manual_assignee(
     r = client.post("/api/task-manuals",
                     json={"type_key": type_key, "assignee": assignee},
                     headers=_auth(admin_agent.token))
-    assert r.status_code == 200, f"admin create+assignee: {r.status_code} {r.text}"
-    assert r.json()["assignee"]["member_id"] == executor.member_id, r.text
+    assert _manual_written(client, owner_token, r)["assignee"]["member_id"] == (
+        executor.member_id), r.text
     existing = _new_manual(client, owner_token)
     r = client.post(f"/api/task-manuals/{existing}",
                     json={"assignee": assignee}, headers=_auth(admin_agent.token))
-    assert r.status_code == 200, f"admin edit+assignee: {r.status_code} {r.text}"
-    assert r.json()["assignee"]["member_id"] == executor.member_id, r.text
+    assert _manual_written(client, owner_token, r)["assignee"]["member_id"] == (
+        executor.member_id), r.text
 
 
 def test_admin_agent_may_delete_a_manual(client, owner_token, admin_agent):
@@ -1200,7 +1320,16 @@ def test_agent_manual_authorship_via_mcp_tools(client, executor):
     assert r.status_code == 200, f"{r.status_code} {r.text}"
     result = r.json()["result"]
     assert result.get("isError") is not True, r.text
-    assert result["structuredContent"]["purpose"] == "mcp-authored purpose"
+    # T-91: update_task_manual answers a receipt naming the manual it wrote —
+    # the purpose the caller just sent does not ride home. Key-set equality
+    # over the structured content, then the stored value read back off the
+    # read face, so the claim "the edit LANDED" is not merely dropped.
+    assert set(result["structuredContent"]) == {"type_key", "updated_ts"}, result
+    assert result["structuredContent"]["type_key"] == type_key, result
+    stored = client.get(f"/api/task-manuals/{type_key}",
+                        headers=_auth(executor.token))
+    assert stored.status_code == 200, f"{stored.status_code} {stored.text}"
+    assert stored.json()["purpose"] == "mcp-authored purpose", stored.text
     # The governance boundary holds over MCP too: assignee → isError (403).
     r = _call("update_task_manual",
               {"type_key": type_key,
@@ -1721,8 +1850,7 @@ def test_create_reply_card_with_linked_task_arms_the_named_step(
         json={"kind": "decision", "summary": "which way?", "options": [{"text": "AI pick"}],
               "linked_task": {"task_id": task["id"], "step_id": build["id"]}},
         headers=_auth(token))
-    assert r.status_code == 200, r.text
-    card = r.json()
+    card = _card_opened(client, owner_token, r)
     assert card["task"] and card["task"]["id"] == task["id"]
 
     got = _get_task(client, owner_token, task["id"])
@@ -1779,8 +1907,7 @@ def test_create_reply_card_with_null_linked_task_opens_a_plain_card(
         json={"kind": "decision", "summary": "unrelated", "options": [{"text": "AI pick"}],
               "linked_task": None},
         headers=_auth(token))
-    assert r.status_code == 200, r.text
-    card = r.json()
+    card = _card_opened(client, owner_token, r)
     assert card["task"] is None, "linked_task=null must open a PLAIN card"
     got = _get_task(client, owner_token, task["id"])
     assert got["status"] == "in_progress", "an unbound card places no hold"
@@ -1869,11 +1996,11 @@ def test_create_task_dedupes_across_field_name_case(client, owner_token, executo
     )
     first = _create_task(client, executor, title="review",
                          type_key=type_key, inputs={"PR Link": "https://x/1"})
-    assert first["deduped"] is False
+    assert first["receipt"]["deduped"] is False
     # Lower-cased + padded key, same value → dedupe onto the same task.
     again = _create_task(client, executor, title="review again",
                          type_key=type_key, inputs={"  pr link ": "https://x/1"})
-    assert again["deduped"] is True
+    assert again["receipt"]["deduped"] is True
     assert again["task"]["id"] == first["task"]["id"]
 
 
@@ -1892,7 +2019,7 @@ def test_create_task_k1_rejects_empty_identity_key(client, owner_token, executor
     # A real value passes.
     assert _create_task(client, executor, title="has key",
                         type_key=type_key,
-                        inputs={"PR Link": "https://x/9"})["deduped"] is False
+                        inputs={"PR Link": "https://x/9"})["receipt"]["deduped"] is False
 
 
 def test_create_task_warns_on_undefined_fields(client, owner_token, executor):
@@ -1905,19 +2032,22 @@ def test_create_task_warns_on_undefined_fields(client, owner_token, executor):
     created = _create_task(client, executor, title="w1", type_key=type_key,
                            inputs={"pr link": "https://x/1",
                                    "slack thread": "https://s/1"})
-    warnings = created.get("warnings") or []
+    # T-91: `warnings` is optional on taskCreateResultDTO and present only when
+    # a typed create had something to advise about — so it is read off the
+    # receipt, which is where the advisory about THIS call belongs.
+    warnings = created["receipt"].get("warnings") or []
     assert any("slack thread" in w for w in warnings), warnings
     # All-defined inputs → no warnings key (or empty).
     clean = _create_task(client, executor, title="w2", type_key=type_key,
                          inputs={"PR Link": "https://x/2"})
-    assert not (clean.get("warnings") or [])
+    assert not (clean["receipt"].get("warnings") or [])
 
 
 def test_create_ad_hoc_never_warns(client, executor):
     # An ad-hoc task has no manual, so arbitrary inputs never warn.
     created = _create_task(client, executor, title="adhoc",
                            inputs={"anything": "goes"})
-    assert not (created.get("warnings") or [])
+    assert not (created["receipt"].get("warnings") or [])
 
 
 def test_manual_rejects_is_key_without_required(client, owner_token):
@@ -2037,15 +2167,25 @@ def test_reassign_hands_over_to_a_member_and_only_they_take_over(
                   {"kind": "member", "member_id": new_id}, note="接手備註")
     assert r.status_code == 200, r.text
     body = r.json()
+    # T-91: reassign answers taskWriteReceiptDTO — the task's CARD, not the
+    # task. Key-set equality: asserting only that `lock` is present would stay
+    # green if the whole task came back, because a task carries a lock too.
+    assert set(body) == {
+        "task_id", "title", "status", "executor_id", "executor_kind", "lock",
+        "closed_ts", "duplicate_of", "deps", "progress_done", "progress_total",
+        "artifact_count", "description_size_chars", "description_sha256",
+    }, body
     # reassigning is a LOCK now (T-9ca5), not a status; status stays DERIVED
     # (a done step + pending steps → in_progress).
     assert body["lock"] == "reassigning"
     assert body["status"] == "in_progress"
     assert body["executor_kind"] == "member"
     assert body["executor_id"] == new_id
-    # identity untouched
-    assert body["id"] == task["id"]
-    assert body["dedupe_key"] == task["dedupe_key"]
+    # identity untouched — `id` is spelled task_id on the receipt, and
+    # dedupe_key is not a card field, so it is checked where it lives.
+    assert body["task_id"] == task["id"]
+    assert _get_task(client, owner_token, task["id"])["dedupe_key"] == (
+        task["dedupe_key"])
 
     # the waiting gate card expired (server-side — the ask was the old
     # executor's); expired is terminal, the owner cannot answer it any more.
@@ -2130,7 +2270,11 @@ def test_dispatch_target_machine_must_resolve(
         assert r.status_code == 404, f"create {bad!r}: {r.status_code} {r.text}"
     r = create(machine)
     assert r.status_code == 200, r.text
-    assert r.json()["task"]["executor_kind"] == "outsource"
+    # T-91: create answers taskCreateResultDTO — the placement it produced is
+    # read off the task itself.
+    assert set(r.json()) == {"task_id", "task_no", "deduped"}, r.text
+    placed = _get_task(client, owner_token, r.json()["task_id"])
+    assert placed["executor_kind"] == "outsource"
     assert create(None).status_code == 200, "an omitted machine inherits, never 404s"
 
     for bad in ("auto", "warden-mbp5"):

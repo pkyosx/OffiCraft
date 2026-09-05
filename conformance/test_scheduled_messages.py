@@ -68,6 +68,41 @@ def _create(client, owner_token, recipient: AgentIdentity, **fields):
 
 _FULL_SETS = {"custom_days": [1], "custom_hours": [9], "custom_minutes": [0]}
 
+# T-91: the create/update receipt carries exactly these. 🔴 Only ONE of the
+# four custom sets is on it — ``custom_months``, the one the server RESOLVES
+# (an omitted month set means all twelve, and the caller cannot know that from
+# what it sent). The other three come back byte-identical to what was sent, so
+# echoing them told the caller nothing it did not already have. The
+# "always-present, honest-empty" convention below therefore binds the READ
+# face, which is the face a reader that did not make the write consults.
+_SCHEDULE_RECEIPT_KEYS = {
+    "id", "member_id", "label", "body_size_chars", "cadence", "custom_months",
+    "day_of_month", "day_of_week", "status", "last_fired_slot",
+    "last_fired_ts", "created_ts",
+}
+
+
+def _created(client, owner_token, recipient: AgentIdentity, r) -> dict:
+    """Pin the create receipt's shape; answer the schedule's stored ROW.
+
+    Key-set equality, not presence: asserting only that ``cadence`` is on the
+    response would stay green if the route went back to serving the whole
+    schedule, because a schedule carries a cadence too.
+    """
+    assert r.status_code == 200, f"want 200, got {r.status_code} {r.text}"
+    receipt = r.json()
+    assert set(receipt) == _SCHEDULE_RECEIPT_KEYS, receipt
+    g = client.get(
+        f"/api/members/{recipient.member_id}/scheduled-messages",
+        headers=_auth(owner_token),
+    )
+    assert g.status_code == 200, f"{g.status_code} {g.text}"
+    row = next((x for x in g.json() if x["id"] == receipt["id"]), None)
+    assert row is not None, f"the created schedule is not on the list face: {g.text}"
+    assert row["cadence"] == receipt["cadence"], (row, receipt)
+    assert row["status"] == receipt["status"], (row, receipt)
+    return row
+
 
 def _custom(**overrides):
     fields = {"cadence": "custom", **_FULL_SETS}
@@ -85,8 +120,11 @@ def test_custom_accepts_the_three_sets_without_hour_or_minute(
     as "validation works".
     """
     r = _create(client, owner_token, recipient, **_custom())
-    assert r.status_code == 200, f"want 200, got {r.status_code} {r.text}"
-    got = r.json()
+    # T-91 moved WHERE these are read, not whether they are read: three of the
+    # four sets, and hour/minute, left the write receipt and are asserted on
+    # the stored row instead. The claim — "custom took the three sets and did
+    # not read hour/minute" — is unchanged.
+    got = _created(client, owner_token, recipient, r)
     assert got["cadence"] == "custom"
     assert got["custom_days"] == [1]
     assert got["custom_hours"] == [9]
@@ -223,11 +261,14 @@ def test_custom_months_stated_are_stored_as_given(client, owner_token, recipient
     """
     r = _create(client, owner_token, recipient,
                 **_custom(custom_months=[9, 3, 12, 3]))
-    assert r.status_code == 200, r.text
+    # custom_months is the one set that stayed on the write receipt (T-91),
+    # precisely because it is RESOLVED — this canonicalisation is the reason.
+    row = _created(client, owner_token, recipient, r)
     assert r.json()["custom_months"] == [3, 9, 12], (
         f"stated months came back as {r.json()['custom_months']!r}, "
         "want the canonical [3, 9, 12] — sorted, deduplicated, and not widened"
     )
+    assert row["custom_months"] == [3, 9, 12], row
 
 
 def test_the_four_sets_are_always_on_the_response(client, owner_token, recipient):
@@ -236,11 +277,19 @@ def test_the_four_sets_are_always_on_the_response(client, owner_token, recipient
     A field that appears only sometimes forces every reader to distinguish
     "this schedule has no sets" from "this server does not know about sets",
     which are answers to two different questions.
+
+    🔴 T-91 narrowed this to the READ face, deliberately and not by accident.
+    The write receipt carries only ``custom_months`` — the set the server
+    RESOLVES — because the other three come home exactly as the caller sent
+    them and so answer no question the caller had. The convention still holds
+    everywhere a reader that did NOT make the write looks, which is the case
+    the sentence above is about; the write receipt's own set is pinned by
+    _created(), so it cannot drift silently either.
     """
     r = _create(client, owner_token, recipient,
                 cadence="daily", hour=9, minute=0)
-    assert r.status_code == 200, r.text
-    got = r.json()
+    got = _created(client, owner_token, recipient, r)
+    assert got["custom_months"] == [], got
     for field in ("custom_months", "custom_days", "custom_hours", "custom_minutes"):
-        assert field in got, f"{field} is absent from a daily schedule's response"
+        assert field in got, f"{field} is absent from a daily schedule's row"
         assert got[field] == [], f"{field} is {got[field]!r} on a daily schedule, want []"
