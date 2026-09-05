@@ -1650,10 +1650,12 @@ type bootDocumentReceiptDTO struct {
 	// in, not as news.
 	Kind string `json:"kind"`
 	Key  string `json:"key"`
-	// IsDefault is true when the stored document is the shipped seed — which is
-	// what a RESET makes it and what a REPLACE clears. Not predictable from the
-	// verb alone: writing the seed's own bytes back leaves it default, so this
-	// is how a caller learns its write was a no-op against the shipped text.
+	// IsDefault is true when NOBODY HAS EDITED this document — no overlay
+	// exists over the shipped seed. A RESET makes it true by removing the
+	// overlay; a REPLACE clears it by creating one. The flag tracks whether an
+	// edit EXISTS, not whether the text differs: writing the seed's own bytes
+	// back verbatim still clears it (FoldBootDocument sets isDefault=false for
+	// any non-tombstone overlay, without comparing text).
 	IsDefault bool `json:"is_default"`
 	// SizeChars is measured on the document AS STORED (the joined head+body,
 	// which is what the cap judges), in CHARACTERS — the unit the caps are
@@ -1717,8 +1719,10 @@ type insightReceiptDTO struct {
 	// parameter, kept as the document address because one shape serves both
 	// verbs.
 	RoleKey string `json:"role_key"`
-	// IsDefault: what reset makes true and replace clears. Not predictable from
-	// the verb — replacing with text identical to the seed leaves it default.
+	// IsDefault: true when NOBODY HAS EDITED this insight — reset removes the
+	// overlay and makes it true, replace creates one and clears it. It tracks
+	// whether an edit EXISTS, not whether the text differs: replacing with text
+	// identical to the seed still clears it (FoldInsight does not compare).
 	IsDefault bool `json:"is_default"`
 	// HasSeed is whether this role SHIPS a seed insight at all: a per-role
 	// registry fact the write does not decide, and what says whether
@@ -1853,9 +1857,11 @@ type roleDefReceiptDTO struct {
 	// ONLY place that says so — there is no error, no warning, and the request
 	// looked like it worked.
 	Name string `json:"name"`
-	// IsDefault: what reset_role makes true and update_role clears. Not
-	// predictable from the verb — writing text identical to the seed leaves it
-	// default.
+	// IsDefault: true when NOBODY HAS EDITED this duty document — reset_role
+	// removes the overlay and makes it true, update_role creates one and clears
+	// it. It tracks whether an edit EXISTS, not whether the text differs:
+	// writing text identical to the seed still clears it (FoldRoleDef does not
+	// compare).
 	IsDefault bool `json:"is_default"`
 	// IsSeed is whether this is a SHIPPED role rather than one somebody created.
 	// A registry fact the write does not decide, and the field that EXPLAINS the

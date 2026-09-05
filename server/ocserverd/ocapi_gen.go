@@ -1156,7 +1156,7 @@ type GlobalContextDTO struct {
 
 // GlobalContextReceiptDTO Bounded receipt returned after replace_global_context and reset_global_context (T-91). Measured on the live station the old shape answered 12,405 bytes, of which “text“ was 5,716 characters - text the replace caller just sent, or the seed a reset restores. There is deliberately NO “cap_chars“ here: unlike the boot documents and the role journals, the global-context block has no “doc_cap_chars_*“ knob, so reporting a ceiling would invent one. GET /api/global-context for the text. TWO KINDS OF FIELD WERE DROPPED HERE AND THEY ARE NOT THE SAME. The pure metadata (named in the sentence that follows this one) has NO consumer anywhere - searched across frontend, Go, conformance, e2e and the ocagent CLI, every zero-hit backed by a positive control on the same query shape. The CONTENT fields are the opposite: they have live consumers TODAY. The cockpit adopts these write responses straight into rendered state and conformance asserts on them, so dropping the content is NOT additive - those consumers must move to a follow-up read FIRST, which is why the frontend change is a hard prerequisite step of this package rather than a cleanup after it. Owner direction, 2026-09-05: a write answers with identity, the size numbers, and what the write itself decides. “org_name“ additionally belongs to another route's data and was never this write's news.
 type GlobalContextReceiptDTO struct {
-	// IsDefault True when the document is the shipped seed. It is the one field here the caller cannot predict from which verb it called: reset_global_context always makes it true, but replace_global_context makes it false ONLY if the text actually differed from the seed - writing the seed back leaves it default. This is how a caller learns its write was a no-op against the shipped text.
+	// IsDefault True when nobody has edited this document - no overlay exists over the shipped seed. reset_global_context makes it true by removing the overlay; replace_global_context clears it by creating one. The flag tracks whether an edit EXISTS, not whether the text differs: writing the seed back verbatim still clears it.
 	IsDefault *bool `json:"is_default,omitempty"`
 
 	// Sha256 Hex sha256 over the document AS STORED after this write. It is what replaces the text echo: hash what you sent and compare, at 64 characters instead of the whole global context - measured at 5,716 characters on the live station.
@@ -1246,7 +1246,7 @@ type InsightReceiptDTO struct {
 	// HasSeed Whether this role SHIPS a seed insight at all. It is a per-role registry fact, not something the write decides, and it is here because it is what says whether reset_insight is even available to this caller - a role with no seed has nothing to reset to.
 	HasSeed *bool `json:"has_seed,omitempty"`
 
-	// IsDefault True when the stored document is still the shipped seed - what reset_insight makes it and what replace_insight clears. Not predictable from the verb alone: replacing with text identical to the seed leaves it default, so this is how a caller learns nothing actually changed.
+	// IsDefault True when nobody has edited this document - no overlay exists over the shipped seed. reset_insight makes it true by removing the overlay; replace_insight clears it by creating one. The flag tracks whether an edit EXISTS, not whether the text differs: replacing with text identical to the seed still clears it.
 	IsDefault *bool `json:"is_default,omitempty"`
 
 	// RoleKey Whose insight this write landed on - the caller's own path parameter, kept as the document address (owner's ruling leaves ids in) because one shape serves both the replace and the reset verb.
@@ -2528,7 +2528,7 @@ type RoleDefReceiptDTO struct {
 	// CapChars The duty ceiling in force (settings key doc_cap_chars_duty). Paired with size_chars so a writer knows the room left without a second call.
 	CapChars *int `json:"cap_chars,omitempty"`
 
-	// IsDefault True when the stored duty document is still the shipped seed - what reset_role makes it and what update_role clears. Not predictable from the verb: writing text identical to the seed leaves it default.
+	// IsDefault True when nobody has edited this duty document - no overlay exists over the shipped seed. reset_role makes it true by removing the overlay; update_role clears it by creating one. The flag tracks whether an edit EXISTS, not whether the text differs: writing text identical to the seed still clears it.
 	IsDefault *bool `json:"is_default,omitempty"`
 
 	// IsSeed Whether this is a SHIPPED role rather than one somebody created. A registry fact the write does not decide, and the field that explains the one above: only a seed role can silently refuse a rename, and only a seed role has anything to reset to.

@@ -9138,7 +9138,7 @@ export interface components {
         GlobalContextReceiptDTO: {
             /**
              * Is Default
-             * @description True when the document is the shipped seed. It is the one field here the caller cannot predict from which verb it called: reset_global_context always makes it true, but replace_global_context makes it false ONLY if the text actually differed from the seed - writing the seed back leaves it default. This is how a caller learns its write was a no-op against the shipped text.
+             * @description True when nobody has edited this document - no overlay exists over the shipped seed. reset_global_context makes it true by removing the overlay; replace_global_context clears it by creating one. The flag tracks whether an edit EXISTS, not whether the text differs: writing the seed back verbatim still clears it.
              * @default true
              */
             is_default: boolean;
@@ -9168,7 +9168,7 @@ export interface components {
             role_key: string;
             /**
              * Is Default
-             * @description True when the stored document is still the shipped seed - what reset_insight makes it and what replace_insight clears. Not predictable from the verb alone: replacing with text identical to the seed leaves it default, so this is how a caller learns nothing actually changed.
+             * @description True when nobody has edited this document - no overlay exists over the shipped seed. reset_insight makes it true by removing the overlay; replace_insight clears it by creating one. The flag tracks whether an edit EXISTS, not whether the text differs: replacing with text identical to the seed still clears it.
              * @default true
              */
             is_default: boolean;
@@ -9245,7 +9245,7 @@ export interface components {
             name: string;
             /**
              * Is Default
-             * @description True when the stored duty document is still the shipped seed - what reset_role makes it and what update_role clears. Not predictable from the verb: writing text identical to the seed leaves it default.
+             * @description True when nobody has edited this duty document - no overlay exists over the shipped seed. reset_role makes it true by removing the overlay; update_role clears it by creating one. The flag tracks whether an edit EXISTS, not whether the text differs: writing text identical to the seed still clears it.
              * @default true
              */
             is_default: boolean;
