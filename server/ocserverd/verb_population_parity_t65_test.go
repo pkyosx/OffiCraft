@@ -62,6 +62,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -84,6 +85,10 @@ const (
 // worker is folded through memberFromWorker and the two are literally
 // comparable.
 type terminalState struct {
+	// ── the ROW, as both populations project it ──────────────────────────────
+	// GetMember and GetOutsourceWorker read the SAME table (migration 00025
+	// folded it), so a worker is folded through memberFromWorker and these
+	// fields are literally comparable.
 	Status           int
 	DesiredState     string
 	Stopping         anchorClass
@@ -93,7 +98,25 @@ type terminalState struct {
 	Waking           anchorClass
 	RestartAfterStop bool
 	DesiredMachineID string
+
+	// ── what the verb did OUTSIDE the row (T-65 包③) ─────────────────────────
+	// NOT read back from the database: observed from the warden's command FIFO
+	// after the handler returned. 包③ converges the STOP verbs, and a stop's
+	// whole point is a side effect — whether a kill was dispatched at all, and
+	// under which RPC. None of that appears on the row, so a matrix built from
+	// the row alone is green no matter what 包③ does to the dispatch.
+	Dispatched dispatchSet
 }
+
+// dispatchSet is every RPC this verb queued FOR THIS SUBJECT, sorted and joined
+// with "+", so a whole dispatch outcome is one writable literal: "" for
+// "dispatched nothing", "stop" for one frame, "stop+uninstall" for two. Sorted
+// rather than in emission order on purpose — the ORDER two frames leave in is
+// not a property this matrix is asserting, and making it one would turn an
+// unrelated refactor into a red cell.
+type dispatchSet string
+
+const dispatchedNothing dispatchSet = ""
 
 // parityFields is the compared field set, in a stable order so a failure names
 // the same field every run.
@@ -101,6 +124,10 @@ var parityFields = []string{
 	"http_status", "desired_state", "stopping_since", "stopped_since",
 	"refocus_since", "refocus_op", "waking_since", "restart_after_stop",
 	"desired_machine_id",
+	// T-65 包③ — the first column that is NOT a database column. Everything
+	// above is read back off the row; this one is observed from the warden
+	// FIFO. Kept LAST so an existing failure still names the same field.
+	"dispatched",
 }
 
 func (s terminalState) field(name string) any {
@@ -123,6 +150,8 @@ func (s terminalState) field(name string) any {
 		return s.RestartAfterStop
 	case "desired_machine_id":
 		return s.DesiredMachineID
+	case "dispatched":
+		return s.Dispatched
 	}
 	panic("unknown parity field " + name)
 }
@@ -176,6 +205,32 @@ var knownDivergences = []knownDivergence{
 		verb: "起來", field: "refocus_op",
 		why: "The cause travels with its epoch: 外包 restart zeroes worker.RefocusOp " +
 			"alongside RefocusSince; 正職 activate writes back what it read.",
+	},
+
+	{
+		verb: "起來", field: "dispatched",
+		why: "🔴 FIRST ROW ON A NON-DATABASE COLUMN (T-65 包③). The two sides send " +
+			"different frames for OPPOSITE REASONS, and only one of them is a decision: " +
+			"外包 restart DISPLACES the session by design — respawnWorkerForOwnerOpNow " +
+			"kills the old one and re-dispatches a fresh START (worker_spawn.go:1958-1963), " +
+			"and ownerOpRestart is the single op that skips the wind-down arm " +
+			"(:1595 with ownerOpDisplacesTheSession at :1678). 正職 activate dispatches " +
+			"its one STOP BY ACCIDENT: it clears stopping_since and waking_since and " +
+			"deliberately clears NEITHER refocus_since NOR stopped_since " +
+			"(api_members.go:1051-1057), so the reconcile it fires at :1086 walks into " +
+			"decideUp's recycle arm — online, an open refocus epoch, dump already done " +
+			"(reconcile.go:562, AgentStopped at :1235) — and kills the session it just " +
+			"told to come up. NOTHING IN 起來 ASKED FOR THAT FRAME; it is a consequence " +
+			"of the clear-set complement the three rows above already document, now " +
+			"visible one layer further out. " +
+			"⚠️ SCOPE: 包③ converges the STOP verbs; 起來 is not one of them, so this row " +
+			"is whitelisted rather than deleted. It is NOT a permanent difference and " +
+			"must not be read as one — whoever converges 起來 owns it, and the question " +
+			"to answer then is 「should activate clear the refocus epoch」, not 「should " +
+			"activate stop dispatching」. " +
+			"📌 THIS ROW IS WHY THE COLUMN EXISTS: the divergence is invisible to all nine " +
+			"database columns above it — both sides end desired=online with the same " +
+			"anchors — and no test in this package saw it before the column was added.",
 	},
 
 	// ── 重新聚焦 (refocus) — CONVERGED IN T-65 包②, no rows left ────────────
@@ -320,6 +375,40 @@ func classify(v, at float64) anchorClass {
 	}
 }
 
+// dispatchedFor drains the ONE warden both populations are placed on and reports
+// what this verb queued FOR THIS SUBJECT. Two things make one drain legitimate
+// for both sides, and both are asserted rather than assumed:
+//
+//   - the placement — TestVerbPopulationParityFixtureLandsBothPopulationsOnOneWarden
+//     pins that the two kill-target resolvers answer the same warden here, so a
+//     single FIFO sees both.
+//   - the subject key — a worker's stop frame is built by the SAME
+//     buildTargetFrame the member side uses (worker_spawn.go:1307), and its
+//     wardenTargetArgs carries exactly one field, `member_id`
+//     (reconcile.go:1094-1098: "the warden keys the kill/removal on member_id
+//     alone"). So ONE predicate covers both populations; there is no separate
+//     worker_id key to miss.
+//
+// Frames addressed at somebody else are dropped rather than counted: the fixture
+// seeds a second member and a worker on one machine, and a matrix that counted
+// the neighbour's kill would go red for a reason that has nothing to do with the
+// verb under test.
+//
+// DRAINING IS DESTRUCTIVE — the FIFO is emptied. Call this EXACTLY ONCE per
+// verb run, which is why it lives inside memberTerminal / workerTerminal (one
+// call each, at the end) rather than being available to case bodies.
+func dispatchedFor(t *testing.T, api *apiServer, subjectID string) dispatchSet {
+	t.Helper()
+	var rpcs []string
+	for _, f := range drainFrames(t, api, parityMachineA) {
+		if id, _ := f.Args["member_id"].(string); id == subjectID {
+			rpcs = append(rpcs, f.RPC)
+		}
+	}
+	sort.Strings(rpcs)
+	return dispatchSet(strings.Join(rpcs, "+"))
+}
+
 // memberTerminal / workerTerminal read the row back and bucket its anchors
 // against the instant the READ happens — deliberately AFTER the handler has
 // returned. Sampling `now` before the call instead makes every anchor the
@@ -342,6 +431,7 @@ func memberTerminal(t *testing.T, api *apiServer, id string, code int) terminalS
 		Waking:           classify(m.WakingSince, at),
 		RestartAfterStop: m.RestartAfterStop,
 		DesiredMachineID: m.DesiredMachineID,
+		Dispatched:       dispatchedFor(t, api, id),
 	}
 }
 
@@ -364,6 +454,7 @@ func workerTerminal(t *testing.T, api *apiServer, id string, code int) terminalS
 		Waking:           classify(m.WakingSince, at),
 		RestartAfterStop: m.RestartAfterStop,
 		DesiredMachineID: m.DesiredMachineID,
+		Dispatched:       dispatchedFor(t, api, id),
 	}
 }
 
@@ -420,6 +511,12 @@ func parityCases() []verbCase {
 				Refocus: anchorPast, RefocusOp: refocusOpRefocus,
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
+				// activate leaves refocus_since/stopped_since AS READ (api_members.go:1051-1057),
+				// so reconcileMemberNow (:1086) meets decideUp's recycle arm — online +
+				// an open refocus epoch whose dump is done (reconcile.go:562, AgentStopped
+				// at :1235) — and fires ONE stop. An ACCIDENT of what activate does not
+				// clear, not a designed part of 起來.
+				Dispatched: "stop",
 			},
 			// 外包 restart: worker.DesiredState = DesiredStateOnline;
 			// worker.RefocusSince = 0.0; worker.RefocusOp = "";
@@ -431,6 +528,11 @@ func parityCases() []verbCase {
 				Refocus: anchorZero, RefocusOp: "",
 				Waking: anchorPast, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
+				// restart DISPLACES the session by design: respawnWorkerForOwnerOpNow kills the
+				// old one and re-dispatches a fresh START (worker_spawn.go:1958-1963).
+				// ownerOpRestart is the one op that skips the wind-down arm (:1595, :1678).
+				// SORTED, so "start+stop" — the emission order is stop-then-start.
+				Dispatched: "start+stop",
 			},
 		},
 		{
@@ -467,6 +569,11 @@ func parityCases() []verbCase {
 				Refocus: anchorZero, RefocusOp: "",
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
+				// the member is SSE-online ⇒ deriveLiveness returns online, never waking
+				// (domain.go:194 tests Online BEFORE WakePending at :197) ⇒ cancellingWake
+				// is false ⇒ no dispatchRobustStopNow (api_members.go:1421). The tick then
+				// parks in decideDown's soft-offboard arm (reconcile.go:845).
+				Dispatched: dispatchedNothing,
 			},
 			// 外包: desired offline; RefocusSince = 0.0; RefocusOp = "";
 			// StoppingSince = stopEpochAnchor(memberFromWorker(...)) → the same now.
@@ -476,6 +583,10 @@ func parityCases() []verbCase {
 				Refocus: anchorZero, RefocusOp: "",
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
+				// openWorkerHandoverGrace's "if offline, kill now" arm is unreachable on a live
+				// worker (worker_spawn.go:2245-2258); the online path publishes a 預告 and
+				// dispatches nothing.
+				Dispatched: dispatchedNothing,
 			},
 		},
 		{
@@ -513,6 +624,10 @@ func parityCases() []verbCase {
 				Refocus: anchorZero, RefocusOp: refocusOpAcceleratedStop,
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
+				// the handler 409s an offline member (api_members.go:1540) and its own comment
+				// at :1580-1583 says the reconcile it fires "dispatches nothing on this pass —
+				// the deadline is in the future by construction" (reconcile.go:836-841).
+				Dispatched: dispatchedNothing,
 			},
 			wantOutsource: terminalState{
 				Status: http.StatusOK, DesiredState: DesiredStateOffline,
@@ -520,6 +635,9 @@ func parityCases() []verbCase {
 				Refocus: anchorZero, RefocusOp: refocusOpAcceleratedStop,
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
+				// same shape: 409 unless active+online (api_outsource.go:592), then the same
+				// online arm of openWorkerHandoverGrace.
+				Dispatched: dispatchedNothing,
 			},
 		},
 		{
@@ -552,6 +670,10 @@ func parityCases() []verbCase {
 				Refocus: anchorZero, RefocusOp: "",
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
+				// the ONLY unconditional dispatch on either side: dispatchRobustStopNow
+				// (api_members.go:1487 → reconcile.go:2919-2930) with no state test in front
+				// of it. This handler never calls reconcileMemberNow at all.
+				Dispatched: "stop",
 			},
 			// 外包: `if worker.StoppingSince <= 0.0 || worker.StoppingSince > forcedAt
 			// { worker.StoppingSince = forcedAt }` — the second arm pulls it back.
@@ -561,6 +683,11 @@ func parityCases() []verbCase {
 				Refocus: anchorZero, RefocusOp: "",
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
+				// stopWorkerNow → resolveWorkerKillTarget (worker_spawn.go:1979-1992). Same RPC
+				// and same count as 正職, but the FAIL MODE differs: an unresolvable target
+				// here skips the enqueue and only logs (:1988-1991), where 正職 enqueues
+				// anyway and arms a retry. The fixture resolves, so the cells agree.
+				Dispatched: "stop",
 			},
 		},
 		{
@@ -595,6 +722,9 @@ func parityCases() []verbCase {
 				Refocus: anchorZero, RefocusOp: "",
 				Waking: anchorZero, RestartAfterStop: true,
 				DesiredMachineID: parityMachineA,
+				// takes the queue-the-起來 branch (api_members.go:1608); the member is still
+				// online so the tick reaches decideDown's soft arm and spends nothing.
+				Dispatched: dispatchedNothing,
 			},
 			// 外包 (T-65 包②): the same branch, transcribed from the worker handler's
 			// own assignment — `queueWorkerRestartAfterStop(worker, refocusOpRefocus,
@@ -608,6 +738,9 @@ func parityCases() []verbCase {
 				Refocus: anchorZero, RefocusOp: "",
 				Waking: anchorZero, RestartAfterStop: true,
 				DesiredMachineID: parityMachineA,
+				// queues the 起來 (api_outsource.go:455) and its follow-up outsourceTickNow is
+				// gated off wholesale by noOutsource (outsource_sched.go:744-748).
+				Dispatched: dispatchedNothing,
 			},
 		},
 		{
@@ -640,6 +773,10 @@ func parityCases() []verbCase {
 				Refocus: anchorPast, RefocusOp: memberOpRelocate,
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineB,
+				// armMemberOwnerOpHandover stamps an UNCLOCKED epoch, so decideUp parks in
+				// "awaiting agent dump" (reconcile.go:562-602) and the relocation-STOP arm
+				// below it is never reached.
+				Dispatched: dispatchedNothing,
 			},
 			wantOutsource: terminalState{
 				Status: http.StatusOK, DesiredState: DesiredStateOnline,
@@ -647,6 +784,9 @@ func parityCases() []verbCase {
 				Refocus: anchorPast, RefocusOp: ownerOpRelocate,
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineB,
+				// relocate does not displace, and the worker has state to flush, so it takes
+				// openOwnerOpHandover (worker_spawn.go:1595-1603) — 預告 only.
+				Dispatched: dispatchedNothing,
 			},
 		},
 		{
@@ -680,6 +820,10 @@ func parityCases() []verbCase {
 				Refocus: anchorPast, RefocusOp: memberOpModel,
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
+				// 🔴 STRUCTURAL, not fixture-dependent: this handler body (api_members.go:820-1026)
+				// contains NO enqueue, no dispatchRobustStopNow and no reconcileMemberNow.
+				// NO fixture can make this cell non-empty.
+				Dispatched: dispatchedNothing,
 			},
 			wantOutsource: terminalState{
 				Status: http.StatusOK, DesiredState: DesiredStateOnline,
@@ -687,6 +831,11 @@ func parityCases() []verbCase {
 				Refocus: anchorPast, RefocusOp: ownerOpModel,
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
+				// reaches respawnWorkerForOwnerOp (api_outsource.go:1066) but comes out on the
+				// wind-down arm. ⚠️ ASYMMETRY THIS CELL HIDES: unlike 正職 above, this face
+				// DOES own a dispatch site — with an already-collected epoch it would send
+				// STOP+START (worker_spawn.go:1604). Equal here, not equal by construction.
+				Dispatched: dispatchedNothing,
 			},
 		},
 	}
@@ -837,5 +986,63 @@ func TestAcceleratedStopWorkerHasAnExtraLifecycleGate(t *testing.T) {
 		api2.HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost); rec.Code != http.StatusOK {
 		t.Fatalf("control: the SAME state with Status=active must be admitted, got %d %s",
 			rec.Code, rec.Body.String())
+	}
+}
+
+// ── T-65 包③: the fixture guard the side-effect columns stand on ─────────────
+
+// TestVerbPopulationParityFixtureLandsBothPopulationsOnOneWarden — 包③ reads the
+// stop verbs' SIDE EFFECTS (was a kill dispatched? to whom?) with
+// drainFrames(t, api, parityMachineA), and that drains exactly ONE warden's FIFO.
+// It sees BOTH populations only because the two placements are the same string
+// TODAY, by two independent routes that never reference each other:
+//
+//	seedParityMember  → DesiredMachineID = parityMachineA, connectOnlineMachine(…, parityMachineA)
+//	newActiveWorker   → DesiredMachineID = ServerSelfHost  (worker_lifecycle_test.go:96)
+//	                    workerSpawnTarget[id] = ServerSelfHost (worker_lifecycle_test.go:113)
+//	parityMachineA    = ServerSelfHost  (this file, :254)
+//
+// That is a COINCIDENCE, not a design, and it fails SILENTLY. Give parityMachineA
+// an id of its own — the obvious edit the moment anyone wants a cross-machine row
+// — and every outsource frame lands on a warden the matrix never drains. The
+// matrix then reports "外包什麼都沒派", which is a fixture artefact wearing the
+// costume of a real behavioural divergence, with nothing red anywhere.
+//
+// So this test asserts the coincidence itself, and it asserts it through the two
+// PRODUCTION resolvers rather than by comparing the constants: the constants
+// agreeing is not the property the matrix needs — the property it needs is that
+// the two populations' kill frames are ADDRESSED to the same warden, and that is
+// what these two functions answer.
+//
+// 🔴 The two resolvers are NOT the same function and do not agree in general
+// (this is a real, previously unmeasured divergence, T-65 包③ recon):
+//
+//	resolveWorkerKillTarget  workerSpawnTarget[id]  → hub.MachineOf(id) → ""
+//	memberKillTargetWarden   hub.MachineOf(id)      → wardenTargetOf(id)
+//
+// Different first choice, different last resort ("" = dispatch nothing, vs the
+// pin). They agree HERE because the fixture puts a live SSE claim and a spawn
+// target on one machine. Converging or whitelisting that divergence is 包③'s
+// job; keeping the fixture honest while that happens is this test's job.
+func TestVerbPopulationParityFixtureLandsBothPopulationsOnOneWarden(t *testing.T) {
+	api := newParityServer(t)
+	seedParityMember(t, api, "m-parity-placement", nil)
+	workerID := seedParityWorker(t, api, nil)
+
+	staffTarget := api.memberKillTargetWarden("m-parity-placement")
+	workerTarget := api.resolveWorkerKillTarget(workerID)
+
+	if staffTarget != parityMachineA {
+		t.Fatalf("staff kill frames are addressed to %q, but the matrix drains %q — "+
+			"drainFrames would miss every staff side effect", staffTarget, parityMachineA)
+	}
+	if workerTarget != parityMachineA {
+		t.Fatalf("outsource kill frames are addressed to %q, but the matrix drains %q — "+
+			"every outsource side effect would read as \"dispatched nothing\", which is a "+
+			"FIXTURE artefact, not a behavioural divergence", workerTarget, parityMachineA)
+	}
+	if staffTarget != workerTarget {
+		t.Fatalf("the two populations' kill frames go to different wardens (%q vs %q); "+
+			"a one-warden drain cannot compare them", staffTarget, workerTarget)
 	}
 }
