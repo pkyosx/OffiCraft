@@ -64,8 +64,10 @@ package main
 //
 //	The consequence, spelled out: regenerate the lock after editing a shipped
 //	migration and class A goes green — the lock now honestly describes the tree.
-//	Only class B (and the T-64 upgrade-path guard, which replays main's bytes)
-//	says that the edit was not allowed. Neither of them will ever say it on main.
+//	Only class B says that the edit was not allowed, and it will never say it on
+//	main. (Until T-75 there was a second sayer, the T-64 upgrade-path guard that
+//	replayed main's bytes into a station; it was removed once every mutation it
+//	caught was measured to be caught here too.)
 //
 // 🔴 THE ENUMERATION IS SHARED ON PURPOSE — this is the failure this file was
 // most likely to ship. If the generator listed migrations one way and the
@@ -117,8 +119,15 @@ const migrationLockFile = "migration.lock"
 // printing that it is enforced in CI, which is the exact shape this whole
 // change exists to kill.
 const (
-	migrationLockRepoPath      = "server/ocserverd/" + migrationLockFile
-	migrationLockGuardRepoPath = "server/ocserverd/migration_lock_t75_test.go"
+	// migrationLockPkgRepoPath is this package's directory FROM THE REPO ROOT.
+	// It is load-bearing in the [lock:path] diagnosis below: every path in the
+	// lock is relative to this directory, so a `git log … -- <lock path>` handed
+	// to a reader standing at the repo root silently finds NOTHING and turns
+	// every rename into a "collision" — measured on T-64, which hit exactly this
+	// and fixed it with a `:(top)` pathspec.
+	migrationLockPkgRepoPath   = "server/ocserverd/"
+	migrationLockRepoPath      = migrationLockPkgRepoPath + migrationLockFile
+	migrationLockGuardRepoPath = migrationLockPkgRepoPath + "migration_lock_t75_test.go"
 )
 
 // The header line's prefix, and the per-entry hash prefix. Both are constants
@@ -193,6 +202,32 @@ func migrationLockTreeEntries(t *testing.T) []migrationLockEntry {
 		t.Fatalf("the AST scan found %d Go migration registrations (floor %d) — this repo has had "+
 			"Go migrations since 00054, so a smaller answer means the scan went blind, not that "+
 			"they were removed", len(located), migrationLockMinGo)
+	}
+	// CORROBORATION, and it is not decoration. registrarLocations reads the
+	// SOURCE, so it can only see a registration whose name is a string literal;
+	// goose reads its own REGISTRY and sees every one. That gap is a measured
+	// escape hatch: register a Go migration as
+	// `goose.AddNamedMigrationContext(fmt.Sprintf(...), up, down)` and the parse
+	// misses it, the lock therefore never lists it, and — because
+	// migrationLockMinGo equals today's count — the floor above passes too. The
+	// version then exists for goose and not for this check, which is precisely
+	// the "two files, one number, discovered on a station during goose.Up" that
+	// the whole lock exists to prevent. Asking a SECOND, differently-derived
+	// source for the same count is what turns that silent omission into a red.
+	if goCount, refusal := gooseGoVersionCount(t, sqlFiles); refusal != "" {
+		t.Fatalf("goose refuses to enumerate this tree's migrations: %s\n"+
+			"That is goose's own duplicate-version panic, caught here instead of at goose.Up "+
+			"on a station. Two migrations share a version; find them and renumber the one that "+
+			"has NOT shipped, then run bin/gen-migration-lock.", refusal)
+	} else if goCount != len(located) {
+		t.Fatalf("goose holds %d Go migration(s), the AST scan located %d — they must agree.\n"+
+			"The likely cause is a registration whose name is COMPUTED rather than a literal "+
+			"(anything but a plain string as the first argument to AddNamedMigration*): goose "+
+			"sees it, this scan cannot, and so %s would never list it — the version would exist "+
+			"for goose and not for this check.\n"+
+			"FIX: pass a literal name. If a computed name is genuinely required, this check has "+
+			"to learn to read it; do not silence this by raising a floor.",
+			goCount, len(located), migrationLockFile)
 	}
 	for v, where := range located {
 		file := where
@@ -332,6 +367,11 @@ const (
 	findMissing = "[lock:missing]"
 	findExtra   = "[lock:extra]"
 	findContent = "[lock:content]"
+	// findPathMoved is the T-64 diagnosis, carried over here when this guard's
+	// teardown removed the file that used to make it: a version the lock and the
+	// tree BOTH hold, at two different paths. On the listing alone a RENAME and a
+	// COLLISION are identical, and the two need opposite fixes.
+	findPathMoved = "[lock:path]"
 )
 
 // migrationLockFindings is the whole class-A judgement: does this lock text
@@ -426,13 +466,39 @@ func migrationLockFindings(lockText string, tree []migrationLockEntry) []string 
 				"%d in %s.", findContent, p, te.version, le.version, migrationLockFile))
 		}
 		if le.sha != te.sha {
+			// 🔴 THE MECHANICAL-EDIT ARM, carried over verbatim in substance from
+			// the T-64 upgrade-path guard that used to say this and has been torn
+			// down. A Go migration shares a package with everything else in it, so
+			// a repo-wide rename or a formatting pass reaches it whether or not
+			// anyone meant to touch a shipped migration. This check cannot tell
+			// that apart from a behaviour change — so it must not pretend to, and
+			// it must say so, because ONE OF THE TWO CASES HAS NO OUT AT ALL.
+			mechanical := ""
+			if !strings.HasSuffix(p, ".sql") {
+				mechanical = "\nThis is a Go file, so a repo-wide rename or a formatting pass " +
+					"can reach it WITHOUT changing what the migration does. This check cannot " +
+					"tell that apart from a real edit, and does not try to. If that is what " +
+					"happened, do NOT open a new migration — an empty one fixes nothing. The " +
+					"two cases part ways here, and only one of them has an out.\n" +
+					"  RENAME: keep the shipped file byte-for-byte as it shipped (alias the " +
+					"identifier, or leave the old name standing in this file) so that what " +
+					"stations ran and what this tree says they ran remain the same text.\n" +
+					"  FORMATTING: there is no such out. lint-go-fmt is a required check and " +
+					"it demands the formatted text; this check demands the shipped text. Both " +
+					"cannot hold at once, so no edit you make here clears them both — it is a " +
+					"real deadlock and a human has to break it. Decide deliberately whether " +
+					"to exempt this file from the formatter or to accept the reformat and " +
+					"re-baseline this check, and say which in the PR. Do not pick one " +
+					"silently, and do not reach for a new migration to escape it."
+			}
 			findings = append(findings, fmt.Sprintf("%s the contents of %s changed: %s records "+
 				"sha256:%s, the tree has sha256:%s. If this migration has already SHIPPED, this is "+
 				"the silent-schema-fork case and the edit must be reverted: goose writes one row "+
 				"per version and never runs it again, so the new bytes reach fresh installs only "+
 				"— every station that already upgraded keeps the old schema and NOTHING ANYWHERE "+
 				"ERRORS. Add a new migration instead. If it has not shipped, regenerate with "+
-				"bin/gen-migration-lock.", findContent, p, migrationLockFile, le.sha, te.sha))
+				"bin/gen-migration-lock.%s", findContent, p, migrationLockFile, le.sha, te.sha,
+				mechanical))
 		}
 	}
 	var lockPaths []string
@@ -449,6 +515,119 @@ func migrationLockFindings(lockText string, tree []migrationLockEntry) []string 
 				"shipped) regenerate with bin/gen-migration-lock.",
 				findExtra, migrationLockFile, lockByPath[p].version, p))
 		}
+	}
+
+	// ── RENAME versus COLLISION ──────────────────────────────────────────────
+	// 🔴 Carried over from the T-64 upgrade-path guard (measured 2026-09-04),
+	// which is the file that used to say this and has been torn down. The two
+	// loops above have already reported the halves — the lock's path as
+	// [lock:extra], the tree's path as [lock:missing] — and for ONE of the two
+	// shapes below those two findings are the SAME LISTING for two events that
+	// need OPPOSITE FIXES:
+	//
+	//   RENAME — this tree once had the lock's file and moved it. goose
+	//   identifies a Go migration by the string passed to AddNamedMigration*
+	//   rather than by the filename, so a rename leaves the version declared
+	//   while the path the lock knows is gone. FIX: put the file back.
+	//
+	//   COLLISION — two branches independently took the same free number. FIX:
+	//   renumber THIS tree's file upward.
+	//
+	// 🔴 THE COST OF GUESSING IS NOT SYMMETRIC. "Put the file back where the lock
+	// has it" told at a COLLISION is an instruction to overwrite a migration
+	// somebody else has already shipped — the exact failure this whole mechanism
+	// exists to prevent. Guessing the other way only wastes a round trip.
+	//
+	// 🔴 SO THE FIRST JOB IS TO ASK WHETHER THE TWO ARE ACTUALLY AMBIGUOUS, AND
+	// USUALLY THEY ARE NOT. The discriminator is IS THE LOCK'S PATH STILL IN THE
+	// TREE?, and it is available right here without asking git:
+	//
+	//   lock's path IS in the tree  ⇒ nothing was moved, the file is sitting
+	//   right there. Both paths exist and both claim the number: this is a
+	//   COLLISION, stated flatly. No RENAME arm, because there is no rename.
+	//
+	//   lock's path is NOT in the tree ⇒ the file is gone from where the lock
+	//   says it is. NOW the two are genuinely indistinguishable from the listing
+	//   and both arms are printed, with the one command that separates them.
+	//
+	// ⚠️ MEASURED, and it is why the flat "print both" version of this was wrong:
+	// the reachable shape is a CROSS-SOURCE collision — main ships a Go migration
+	// at NNNNN, a branch that predates it adds a .sql at NNNNN, and the merge is
+	// CLEAN (a branch with no lock of its own takes main's as a new file, no
+	// conflict, nothing stops you). The tree then holds BOTH files and the lock
+	// lists only main's. "Print both arms" hands that reader a `git log` on main's
+	// Go file, which of course has commits, which reads as RENAME — i.e. as "put
+	// main's shipped migration back", the expensive wrong half.
+	//
+	// ⚠️ A version the lock lists MORE THAN ONCE is skipped here: [lock:dup] above
+	// already names both of its lines exactly, and a second finding built from a
+	// map that can only hold one path per version would pair the wrong two.
+	lockPathsByVersion := map[int64][]string{}
+	for _, e := range parsed.entries {
+		lockPathsByVersion[e.version] = append(lockPathsByVersion[e.version], e.path)
+	}
+	nextFree := int64(0)
+	for _, e := range parsed.entries {
+		if e.version >= nextFree {
+			nextFree = e.version + 1
+		}
+	}
+	for _, e := range tree {
+		if e.version >= nextFree {
+			nextFree = e.version + 1
+		}
+	}
+	for _, p := range treePaths {
+		te := treeByPath[p]
+		lps := lockPathsByVersion[te.version]
+		if len(lps) != 1 || lps[0] == te.path {
+			continue // not claimed twice, or claimed by this very path
+		}
+		lp := lps[0]
+		if _, lockPathStillHere := treeByPath[lp]; lockPathStillHere {
+			findings = append(findings, fmt.Sprintf("%s version %d is claimed TWICE in this tree: "+
+				"%s lists it at %s, that file is STILL HERE, and %s claims the same number. THIS "+
+				"IS A COLLISION, not a rename — nothing was moved, both files exist. It is what "+
+				"two branches taking the same free number looks like after they meet, and the "+
+				"merge that produced it can be completely clean: a branch with no lock of its own "+
+				"takes the other side's lock as a NEW FILE, so git never conflicts and nothing "+
+				"makes you stop and look.\n"+
+				"  FIX: renumber THIS tree's newer file (%s) to %d — above every number either "+
+				"side declares — and then run bin/gen-migration-lock.\n"+
+				"  DO NOT touch %s to resolve this. It is what the lock already records, which "+
+				"means it is what has already shipped; goose writes one row per version and never "+
+				"revisits it, so editing or moving it reaches nobody who has already upgraded and "+
+				"silently forks the schema. Left alone, the pair is worse: goose PANICS on a "+
+				"duplicate version from inside goose.Up — on a station, during an upgrade, as a "+
+				"stack trace about two files nobody there wrote.",
+				findPathMoved, te.version, migrationLockFile, lp, te.path, te.path, nextFree, lp))
+			continue
+		}
+		findings = append(findings, fmt.Sprintf("%s version %d is at %s in %s and at %s in this "+
+			"tree, AND %s is not in this tree at all. TWO DIFFERENT EVENTS LOOK LIKE THIS AND "+
+			"THEY NEED OPPOSITE FIXES, so this does not name one of them and stop.\n"+
+			"  RENAME — this tree once had %s and moved it. goose identifies a Go migration by "+
+			"the string passed to AddNamedMigration* rather than by the filename, so a rename "+
+			"leaves the version declared while the path the lock knows is gone. FIX: put the file "+
+			"back at %s. A released migration's path is part of what shipped; if the path "+
+			"genuinely has to change, that is a decision for a person, not something to route "+
+			"around here.\n"+
+			"  COLLISION — %s was NEVER in this tree: another branch took version %d and landed "+
+			"first. FIX: renumber THIS tree's file (%s) to %d and regenerate with "+
+			"bin/gen-migration-lock. DO NOT put %s 'back': it was never here, and writing your "+
+			"version of %d over a migration that has already shipped is the failure this whole "+
+			"check exists to prevent.\n"+
+			"  WHICH ONE THIS IS cannot be read off the listing once the lock's file is gone. "+
+			"Tell them apart by hand, from anywhere in the repo: `git log HEAD -- ':(top)%s'`. "+
+			"Commits ⇒ RENAME. Nothing ⇒ COLLISION.\n"+
+			"  The ':(top)' is LOAD-BEARING and the quotes are why it survives your shell. "+
+			"Without it git resolves the path against your CWD — and you are standing in this "+
+			"package's directory, because that is where this test just failed — so the lookup "+
+			"silently finds NOTHING and EVERY case reads as a COLLISION, renames included. That "+
+			"is not hypothetical: T-64 shipped exactly this bug (4a6a537a) and its rename arm "+
+			"reported that a file with two commits on it had NEVER existed in this tree.",
+			findPathMoved, te.version, lp, migrationLockFile, te.path, lp, lp, lp, lp,
+			te.version, te.path, nextFree, lp, te.version, migrationLockPkgRepoPath+lp))
 	}
 	return findings
 }
@@ -609,8 +788,22 @@ func TestMigrationLockGrowsOnlyAtItsTail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("this tree's %s does not parse: %v", migrationLockFile, err)
 	}
-	t.Logf("baseline: origin/main %s carries %d lock entries; this tree carries %d",
-		sha, len(mainParsed.lines), len(here.lines))
+	// The DATE, not just the sha. T-64 shipped this line without it, then shipped a
+	// note saying a stale baseline "can only make this check too permissive, never
+	// too strict", and be10ac8d had to correct BOTH: the skew goes both ways, and the
+	// direction that produces OUTPUT is the strict one. A reader looking at a red run
+	// cannot tell a real finding from a stale-ref artefact without knowing which world
+	// the verdict was reached in, and a sha alone does not say when.
+	when, _ := gitOut("show", "-s", "--format=%ci", "origin/main")
+	t.Logf("baseline: origin/main %s (%s) carries %d lock entries; this tree carries %d.\n"+
+		"If that date is older than main really is, `git fetch origin main` and re-run before "+
+		"believing anything below — a stale baseline skews this check BOTH WAYS, not one.\n"+
+		"  TOO PERMISSIVE, and silent: main's newer entries are simply absent from the "+
+		"baseline, so a prefix match succeeds against a shorter list than it should.\n"+
+		"  TOO STRICT, and loud: every entry main itself rewrote since that ref reads as THIS "+
+		"TREE having changed a shipped migration. That report names the line and the sha and "+
+		"is specific enough to be believed. Check the date FIRST.",
+		sha, when, len(mainParsed.lines), len(here.lines))
 	for _, f := range migrationLockPrefixFindings(mainParsed.lines, here.lines) {
 		t.Error(f)
 	}
