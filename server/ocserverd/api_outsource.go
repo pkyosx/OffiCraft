@@ -706,19 +706,20 @@ func (s *apiServer) HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(w htt
 		writeResolveError(w, errNotFound, "outsource worker", id)
 		return
 	}
-	worker.DesiredState = DesiredStateOffline // owner-explicit stop intent (member parity)
-	worker.RefocusSince = 0.0                 // see the 🔴 note above — mechanical, not semantic
-	worker.RefocusOp = ""                     // …and its cause goes with it
-	// 後蓋前 (T-65 包②): a 起來 queued by an earlier 重新聚焦 / 改機器 / 換 model
-	// is CANCELLED by this press. Without it the tick would bring the worker back
-	// up moments after this stop lands, which is the exact negative control the
-	// owner's ruling turns on.
-	clearWorkerRestartIntent(worker)
-	// The stop epoch's anchor. NOT "the member deactivate's rule verbatim" any
-	// more — it is that rule, the same function the staff deactivate calls
-	// (stopEpochAnchor, api_members.go), which is where the reason a forced
-	// epoch's anchor must not move is written down.
-	worker.StoppingSince = stopEpochAnchor(memberFromWorker(*worker), nowSecs())
+	// 🔴 THE ROW WRITES ARE NO LONGER WRITTEN OUT HERE (T-65 包③). All five —
+	// desired_state=offline, the two 換手 marker columns, 後蓋前's
+	// restart_after_stop, and the stop epoch's anchor — are applyStopVerbRow's
+	// body, which is the SAME body the staff deactivate runs. The reasons this
+	// verb has for each of them are still recorded there, including the one that
+	// is worker-specific: clearing refocus here is MECHANICAL, not semantic
+	// (see the 🔴 note above this handler) — autoHandoverWorker's in-flight arm
+	// collects a refocus epoch by kill+RESPAWN, which would revive a worker the
+	// owner just held down.
+	//
+	// memberFromWorker is the projection stopEpochAnchor reads the PRE-stop
+	// anchors off; the answer goes back onto the WORKER row through the pointers
+	// stopVerbRowOfWorker hands over, not onto the projection.
+	applyStopVerbRow(stopVerbRowOfWorker(worker), memberFromWorker(*worker), nowSecs())
 	if err := s.persistWorkerWindDownAnchors(*worker); err != nil {
 		s.outsourceMu.Unlock()
 		internalError(w, err)

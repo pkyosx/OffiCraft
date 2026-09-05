@@ -608,6 +608,60 @@ var knownDivergences = []knownDivergence{
 	},
 
 	// ── 強制停止 (force-stop) ──────────────────────────────────────────────
+	// ── 停止（離線起點）: what 包③ did NOT converge, and why ───────────────
+	//
+	// 🔴 ALL THREE ROWS BELOW ARE ONE FACT WEARING THREE HATS: on a subject with
+	// no session, the worker verb COLLECTS its own close-out on the spot
+	// (openWorkerHandoverGrace → collectWorkerStop) and the staff verb hands the
+	// subject to the reconcile tick instead. They are three rows and not one
+	// because the whitelist is keyed per FIELD, and a reader who converges one of
+	// them must be told which of the three they just changed.
+	//
+	// 包③ deliberately did NOT converge this. The collect funnel is 包⑤'s whole
+	// subject (worker_spawn.go's ~810 lines against member_ownerop_winddown.go's
+	// ~666), and pulling it forward would mean either giving the staff verb a
+	// collect it does not have — a behaviour change, not a convergence — or
+	// taking the worker's away, which recon坐實 would silently strand it:
+	// runOutsourceTick `continue`s on desired_state=offline, so a stopped worker
+	// NEVER REACHES THE FSM at all and nothing downstream would ever collect it.
+	{
+		verb: "停止（離線起點）", field: "stopped_since",
+		why: "外包 openWorkerHandoverGrace's `!hub.IsOnline` arm calls collectWorkerStop, " +
+			"which latches StoppedSince = nowSecs() before it kills. 正職 writes no " +
+			"stopped_since at all: decideDown's `!obs.Online ⇒ converged offline` branch " +
+			"is what ends a staff stop, and the tick reaches an offline member. The worker " +
+			"tick does not — runOutsourceTick skips desired_state=offline outright — which " +
+			"is WHY the worker side collects inline. Converging this belongs to 包⑤ " +
+			"(收口漏斗合一), where both funnels are on the table at once.",
+	},
+	{
+		verb: "停止（離線起點）", field: "dispatched",
+		why: "the same collect, seen from the warden FIFO: collectWorkerStop ends in " +
+			"stopWorkerNow, so ONE stop frame leaves for the worker's machine. 正職 " +
+			"dispatches nothing — cancellingWake is false for an offline member " +
+			"(waking_since is unset), so dispatchRobustStopNow is not called, and " +
+			"reconcileMemberNow's converged-offline branch queues no RPC. ⚠️ There is a " +
+			"SECOND, unmeasured divergence hiding under this cell: the two populations " +
+			"resolve WHICH machine a kill goes to through different functions in " +
+			"different order — resolveWorkerKillTarget asks s.workerSpawnTarget first " +
+			"and falls back to hub.MachineOf (empty ⇒ dispatch NOTHING), while " +
+			"memberKillTargetWarden asks hub.MachineOf first and falls back to the " +
+			"PINNED machine. This fixture cannot see it: both seeds pin and connect the " +
+			"same machine, so both resolvers answer parityMachineA. Named here rather " +
+			"than left unwritten — it is 包⑤'s to settle.",
+	},
+	{
+		verb: "停止（離線起點）", field: "banked_cost",
+		why: "collectWorkerStop's putMember runs the fold that pops the live telemetry " +
+			"figure into banked_cost; the staff verb's putMember does not, because a " +
+			"staff stop is not finished yet at this point — the money is banked when the " +
+			"session actually ends. 🔴 THIS IS THE ROW THAT WOULD BE READ WRONG IF THE " +
+			"OTHER TWO WERE CONVERGED CARELESSLY: recon on 包③ established that routing " +
+			"the worker through the staff dispatch (dispatchRobustStopNow) drops " +
+			"bankLiveCost entirely, which is a SILENT loss of owner-visible money — " +
+			"costLost exists as a distinct literal for exactly that outcome, and it must " +
+			"never become the answer here.",
+	},
 	{
 		verb: "強制停止", field: "banked_cost",
 		why: "🔴 THIS IS THE ONE 包③ IS ABOUT, AND IT IS THE ONLY ROW IN THIS WHITELIST " +
@@ -925,6 +979,78 @@ func workerTerminal(t *testing.T, api *apiServer, id string, code int, notices *
 	}
 }
 
+// seedParityMemberOffline / seedParityWorkerOffline are the online seeds with
+// the SESSION removed and nothing else changed — same row, same machine, same
+// live cost. 包③ needs them because every case above starts ONLINE, and 停止 is
+// the verb whose two implementations part company precisely on liveness: the
+// staff handler hands an offline subject to the reconcile tick, the worker
+// handler collects it on the spot.
+//
+// 🔴 THE SEED ITSELF NEEDS A POSITIVE CONTROL, and it has one:
+// TestParityOfflineSeedIsActuallyOffline below. Without it "the handler did
+// nothing because the subject was offline" and "I failed to make the subject
+// offline" are the same green.
+func seedParityMemberOffline(t *testing.T, api *apiServer, id string, mutate func(*Member)) {
+	t.Helper()
+	m := testAgent(id)
+	m.DesiredMachineID = parityMachineA
+	m.Model = "claude-sonnet-4-5"
+	if mutate != nil {
+		mutate(&m)
+	}
+	putTestMember(t, api, m)
+	// …and NO connectOnlineMachine. That one missing line is the whole seed.
+	seedParityLiveCost(t, api, id)
+}
+
+func seedParityWorkerOffline(t *testing.T, api *apiServer, mutate func(*OutsourceWorker)) string {
+	t.Helper()
+	// newActiveWorker's `online` parameter is the worker twin of the missing
+	// connect above — it is the helper newActiveOnlineWorker wraps, not a
+	// separate path minted here.
+	id := newActiveWorker(t, api, false)
+	w, err := api.dal.GetOutsourceWorker(id)
+	if err != nil || w == nil {
+		t.Fatalf("seed offline worker: %v", err)
+	}
+	if mutate != nil {
+		mutate(w)
+	}
+	if err := api.dal.PutOutsourceWorker(*w); err != nil {
+		t.Fatalf("put offline worker: %v", err)
+	}
+	seedWorkerAnchors(t, api, *w)
+	seedParityLiveCost(t, api, id)
+	return id
+}
+
+// TestParityOfflineSeedIsActuallyOffline is the positive/negative control for
+// the two seeds above, on ONE server in ONE run: the offline seeds must read
+// offline and the online seeds must read online through the SAME predicate the
+// handlers consult. It asserts nothing about 停止 — its whole job is to stop a
+// broken seed from being read as converged behaviour.
+func TestParityOfflineSeedIsActuallyOffline(t *testing.T) {
+	api := newParityServer(t)
+	seedParityMemberOffline(t, api, "m-seedctl-off", nil)
+	seedParityMember(t, api, "m-seedctl-on", nil)
+	offWorker := seedParityWorkerOffline(t, api, nil)
+	onWorker := seedParityWorker(t, api, nil)
+
+	for _, c := range []struct {
+		id   string
+		want bool
+	}{
+		{"m-seedctl-off", false},
+		{"m-seedctl-on", true},
+		{offWorker, false},
+		{onWorker, true},
+	} {
+		if got := api.hub.IsOnline(c.id); got != c.want {
+			t.Fatalf("hub.IsOnline(%s) = %v, want %v", c.id, got, c.want)
+		}
+	}
+}
+
 func postMember(t *testing.T, api *apiServer, id, op string, body any,
 	h func(http.ResponseWriter, *http.Request, string)) int {
 	t.Helper()
@@ -1088,6 +1214,69 @@ func parityCases() []verbCase {
 				// 預告 itself (worker_spawn.go:2259). The worker's row is the same
 				// graceful shape — stopEpochAnchor, no forced epoch — so the same soft
 				// notice is composed off it.
+				Noticed: noticedNotice,
+			},
+		},
+		{
+			verb: "停止（離線起點）",
+			note: "the SAME two handlers as 停止 above, on a subject with NO SESSION. " +
+				"包③ converged what the two write to the ROW (applyStopVerbRow); this row " +
+				"exists because that is NOT all a stop does, and liveness is exactly where " +
+				"the two halves that were NOT converged part company. 🔴 A SEPARATE verb " +
+				"label on purpose: the whitelist is keyed (verb, field), so folding this " +
+				"into 停止 would make its three rows read as excuses for the ONLINE row " +
+				"too — which has no divergences at all and must keep having none.",
+			runStaff: func(t *testing.T) terminalState {
+				api := newParityServer(t)
+				seedParityMemberOffline(t, api, "m-parity-stop-off", nil)
+				notices := watchMemberDeltas(t, api)
+				code := postMember(t, api, "m-parity-stop-off", "deactivate", nil,
+					api.HandleDeactivateMemberApiMembersMemberIdDeactivatePost)
+				return memberTerminal(t, api, "m-parity-stop-off", code, notices)
+			},
+			runOutsource: func(t *testing.T) terminalState {
+				api := newParityServer(t)
+				id := seedParityWorkerOffline(t, api, nil)
+				notices := watchMemberDeltas(t, api)
+				code := postWorker(t, api, id, "stop", nil,
+					api.HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost)
+				return workerTerminal(t, api, id, code.Code, notices)
+			},
+			// 正職: the five row writes are applyStopVerbRow's, same as the online
+			// row. cancellingWake is false (an offline member with waking_since=0
+			// is not waking), so no dispatchRobustStopNow; reconcileMemberNow then
+			// lands in decideDown's FIRST branch — `!obs.Online` ⇒ converged
+			// offline — which dispatches nothing and latches nothing.
+			wantStaff: terminalState{
+				Status: http.StatusOK, DesiredState: DesiredStateOffline,
+				Stopping: anchorPast, Stopped: anchorZero,
+				Refocus: anchorZero, RefocusOp: "",
+				Waking: anchorZero, RestartAfterStop: false,
+				DesiredMachineID: parityMachineA,
+				Dispatched:       dispatchedNothing,
+				Cost:             costUntouched,
+				// the notice rides the handler's own putMember, exactly as online.
+				Noticed: noticedNotice,
+			},
+			// 外包: the same five row writes, and then openWorkerHandoverGrace takes
+			// its `!hub.IsOnline` arm. desired_state is already offline (this verb
+			// just wrote it), so that arm routes to collectWorkerStop, which is
+			// THREE more things in one call: it latches stopped_since, it kills the
+			// session (one `stop` frame), and its putMember banks the live cost.
+			wantOutsource: terminalState{
+				Status: http.StatusOK, DesiredState: DesiredStateOffline,
+				Stopping: anchorPast, Stopped: anchorPast,
+				Refocus: anchorZero, RefocusOp: "",
+				Waking: anchorZero, RestartAfterStop: false,
+				DesiredMachineID: parityMachineA,
+				Dispatched:       dispatchSet(reconcileCmdStop),
+				Cost:             costBanked,
+				// 🔴 SAME VALUE, DIFFERENT ROAD — and the road matters for whoever
+				// converges this later. On the staff side the notice rides the
+				// handler's own putMember. Here openWorkerHandoverGrace's offline arm
+				// publishes NOTHING (it returns before the hub.Publish); the delta is
+				// fanned by collectWorkerStop's putMember, AFTER stopped_since is
+				// latched. Deleting that collect would take the notice with it.
 				Noticed: noticedNotice,
 			},
 		},
