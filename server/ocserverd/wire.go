@@ -1708,14 +1708,20 @@ type chatPostReceiptDTO struct {
 // globalContextReceiptDTO answers replace_global_context and
 // reset_global_context. The block measured 5,716 characters on the live station.
 type globalContextReceiptDTO struct {
-	// IsDefault is true when NOBODY HAS EDITED this block — no overlay exists
-	// over the shipped seed. reset removes the overlay and makes it true;
-	// replace creates one and clears it. It tracks whether an edit EXISTS, not
-	// whether the text differs: writing the seed back verbatim still clears it
-	// (FoldBootDocument sets isDefault=false for any non-tombstone overlay,
-	// without comparing text). It is still the one field a caller cannot
-	// predict from the verb alone, because reset on an already-default block
-	// and replace both answer without saying which state they came from.
+	// IsDefault is true when the owner has written NOTHING here — the row is
+	// absent or tombstoned. 🔴 THIS BLOCK HAS NO SHIPPED SEED, so do not read
+	// it as the boot-document family's "still the factory text": FoldUserContext
+	// (domain.go) folds an absent or tombstoned row to ""/true, and this is an
+	// ADDITIVE block, so default means the assembled boot context skips it
+	// entirely. reset tombstones it (true); replace stores a row (false). It
+	// tracks whether a row EXISTS, not what the text says — replacing with ""
+	// still stores a row and still clears the flag.
+	//
+	// An earlier version of this comment named FoldBootDocument and spoke of a
+	// shipped seed. Both were wrong, and it was written while correcting a
+	// DIFFERENT wrong version of the same sentence: the shape here is that one
+	// family's true sentence reads perfectly well over the neighbour that does
+	// not share its mechanism.
 	IsDefault bool `json:"is_default"`
 	// SizeChars is new on this face — globalContextDTO never carried it,
 	// because the text was there to be counted.
@@ -2573,9 +2579,19 @@ type taskCreateResultDTO struct {
 	// and the EXISTING ticket's id on a dedupe hit. The one field the caller can
 	// never compute, and the handle every other task call takes.
 	TaskID string `json:"task_id"`
-	// TaskNo is the human-facing number for that same ticket (T-91 style),
-	// server-minted alongside TaskID. Kept because it is what a person is told
-	// to look at and cannot be derived from the id by the caller.
+	// TaskNo IS THE SAME STRING AS TaskID, byte for byte. T-5291 made TaskNo
+	// the identity function (domain.go: `return taskID`), so there is no short
+	// code, no conversion and nothing here a caller could not already read one
+	// field up. An earlier version of this comment claimed the opposite and was
+	// caught by the retired-sentence guard, which is the third time that same
+	// claim has grown back.
+	//
+	// 🔴 IT IS ALSO INCONSISTENT WITH ITS SIBLING: taskWriteReceiptDTO leaves
+	// task_no OFF for exactly this reason, in its own words, "the same string
+	// twice in one answer". Keeping it here is not a decision T-91 is entitled
+	// to reverse on its own — the create receipt's shape was reviewed and
+	// approved by the owner at rc-b49af6ee9712 with this field on it, so
+	// dropping it is a wire change that goes back to him. Raised on the ticket.
 	TaskNo string `json:"task_no"`
 	// Deduped is false when this call CREATED the task; true when a dedupe-key
 	// hit folded it onto an existing non-terminal task, in which case every

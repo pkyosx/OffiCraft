@@ -9138,7 +9138,7 @@ export interface components {
         GlobalContextReceiptDTO: {
             /**
              * Is Default
-             * @description True when nobody has edited this document - no overlay exists over the shipped seed. reset_global_context makes it true by removing the overlay; replace_global_context clears it by creating one. The flag tracks whether an edit EXISTS, not whether the text differs: writing the seed back verbatim still clears it.
+             * @description True when the owner has written NOTHING in this block - the row is absent or tombstoned. This block has NO shipped seed (unlike the boot documents): it is ADDITIVE, so default means the assembled boot context skips the block entirely, not that you are reading factory text. reset_global_context tombstones the row and makes it true; replace_global_context stores a row and clears it. The flag tracks whether a row EXISTS, not what the text says - replacing with an empty string still stores a row and still clears it.
              * @default true
              */
             is_default: boolean;
@@ -9761,7 +9761,7 @@ export interface components {
             task_id: string;
             /**
              * Task No
-             * @description The human-facing number for that same ticket (T-91 style), server-minted alongside ``task_id``. Kept because it is what a person is told to look at; the caller cannot derive it from the id.
+             * @description The SAME STRING as ``task_id``, byte for byte: T-5291 made the task number the identity of the id (there is no short code and no conversion step), so this field repeats the value above. It is kept because the create face was reviewed and approved carrying it; note that ``TaskWriteReceiptDTO`` deliberately omits it as the same string twice in one answer, so the two faces disagree.
              */
             task_no: string;
             /**

@@ -283,8 +283,17 @@ test.describe('B9 · unread — badge, entry divider anchor, 進房 mark-read, f
       },
     });
     expect(cardRes.status(), 'seeding the waiting reply card must succeed').toBe(200);
+    // 🔴 T-91: the create answers a RECEIPT (id / chat_message_id / created_ts),
+    // not the card — `status` is not on it, and reading it off the write would
+    // make this control assert `undefined === 'waiting'`. Read the card back.
+    const seededCardId = (await cardRes.json()).id;
+    expect(seededCardId, 'the create receipt must name the card it minted').toBeTruthy();
+    const seededCard = await request.get(`${BASE}/api/reply-cards/${seededCardId}`, {
+      headers: authHeaders(tokM),
+    });
+    expect(seededCard.status(), 'reading the seeded card back must succeed').toBe(200);
     expect(
-      (await cardRes.json()).status,
+      (await seededCard.json()).status,
       'the control must really be a WAITING card — the last kind that used to grow',
     ).toBe('waiting');
 

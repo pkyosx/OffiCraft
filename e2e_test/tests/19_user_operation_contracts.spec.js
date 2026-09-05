@@ -29,13 +29,22 @@ function chip(scope, idx) {
   );
 }
 
+// 🔴 T-91: THE CREATE ANSWERS A RECEIPT, NOT THE CARD. POST /api/reply-cards
+// used to hand back the whole ReplyCardDTO; it now answers
+// {id, chat_message_id, created_ts, attachments} — every field the handler
+// MINTED, and nothing the caller sent. So this helper creates, then READS THE
+// CARD BACK, which is the same "write then re-read" the cockpit itself moved to
+// in this package. Returning the receipt directly would make every downstream
+// `.status` / `.options` / `.select_mode` assertion silently `undefined`.
 async function createReplyCardAs(request, agentToken, card) {
   const res = await request.post(`${BASE}/api/reply-cards`, {
     headers: authHeaders(agentToken),
     data: { linked_task: null, ...card },
   });
   expect(res.status(), 'creating a reply card must succeed').toBe(200);
-  return res.json();
+  const receipt = await res.json();
+  expect(receipt.id, 'the create receipt must name the card it minted').toBeTruthy();
+  return readReplyCardAs(request, agentToken, receipt.id);
 }
 
 async function readReplyCardAs(request, token, cardId) {
@@ -46,15 +55,23 @@ async function readReplyCardAs(request, token, cardId) {
   return res.json();
 }
 
+// 🔴 T-91: THE CREATE ANSWERS A RECEIPT, NOT THE TASK. POST /api/tasks used to
+// answer {task: {...}, deduped}; it now answers
+// {task_id, task_no, title, status, deduped} with no `task` key at all. This
+// helper therefore creates, takes the minted id off the receipt, and READS THE
+// TASK BACK, so callers keep getting a real TaskDTO.
 async function createTaskAs(request, token, title, executorId) {
   const res = await request.post(`${BASE}/api/tasks`, {
     headers: authHeaders(token),
     data: { title, executor_member_id: executorId },
   });
   expect(res.status(), 'creating a task must succeed').toBe(200);
-  const payload = await res.json();
-  expect(payload.task, 'task create must return a task').toBeTruthy();
-  return payload.task;
+  const receipt = await res.json();
+  expect(
+    receipt.task_id,
+    'task create must name the ticket it minted (task_id, top level)',
+  ).toBeTruthy();
+  return readTaskAs(request, token, receipt.task_id);
 }
 
 async function submitPlanAs(request, token, taskId) {
