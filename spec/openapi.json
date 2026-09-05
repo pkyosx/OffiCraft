@@ -6476,25 +6476,45 @@
         "additionalProperties": false,
         "type": "object"
       },
-      "TaskManualReceiptDTO": {
-        "description": "Bounded receipt returned after create_task_manual, update_task_manual and write_task_learnings (T-91). This is the most expensive echo in the family: measured on the live station GET /api/task-manuals/{type_key} answers 74,402 bytes, of which ``learnings`` is 17,114 characters and ``sop_md`` a further 16,016 - two documents that are each written wholesale by a caller already holding them. Both are replaced here by their own size + cap + sha256 trio, one per document, because they answer to SEPARATE caps (``doc_cap_chars_manual_learnings`` and ``doc_cap_chars_manual_sop``) and a writer of one must not read the other's room as its own. ``fields``, ``assignee``, ``display_name`` and ``purpose`` stay: they are the manual's configuration rather than its documents, they are small, and a create answers with the defaults the server filled in. The deprecated top-level ``cap_chars`` is carried unchanged - it mirrors the LEARNINGS cap only, and retiring it is a separate change. GET /api/task-manuals/{type_key} for the documents.",
+      "TaskLearningsWriteReceiptDTO": {
+        "description": "Bounded receipt returned after write_task_learnings (T-91). This route writes ONE document wholesale, so it answers with that document's numbers and nothing else - deliberately the same four fields as TaskLearningsPatchResultDTO minus ``applied_edits``, so the wholesale writer and the patch writer of the same document answer in the same vocabulary. It does NOT reuse TaskManualReceiptDTO: that face can carry the SOP group too, and a learnings write has no business reporting on a document it did not touch (owner direction, 2026-09-05). ``size_chars``/``cap_chars`` are CHARACTERS (Unicode code points), the unit the cap is enforced in; get_task_manual serves the text.",
         "properties": {
-          "type_key": {"title": "Type Key", "type": "string"},
-          "display_name": {"default": "", "title": "Display Name", "type": "string"},
-          "purpose": {"default": "", "title": "Purpose", "type": "string"},
-          "assignee": {"additionalProperties": true, "title": "Assignee", "type": "object"},
-          "fields": {"items": {"$ref": "#/components/schemas/TaskManualFieldDTO"}, "title": "Fields", "type": "array"},
-          "updated_ts": {"default": 0.0, "title": "Updated Ts", "type": "number"},
-          "learnings_chars": {"default": 0, "title": "Learnings Chars", "type": "integer"},
-          "learnings_cap_chars": {"default": 0, "title": "Learnings Cap Chars", "type": "integer"},
-          "learnings_sha256": {"default": "", "description": "Hex sha256 over the LEARNINGS document as stored after this write. New in T-91, and the anchor that lets the learnings text stop riding back.", "title": "Learnings Sha256", "type": "string"},
-          "sop_md_chars": {"default": 0, "title": "Sop Md Chars", "type": "integer"},
-          "sop_md_cap_chars": {"default": 0, "title": "Sop Md Cap Chars", "type": "integer"},
-          "sop_md_sha256": {"default": "", "description": "Hex sha256 over the SOP document as stored after this write. Separate from learnings_sha256 on purpose: the two documents are written independently and judged against independent caps.", "title": "Sop Md Sha256", "type": "string"},
-          "cap_chars": {"default": 0, "description": "DEPRECATED. Carries the LEARNINGS cap only and says nothing about the SOP; read learnings_cap_chars and sop_md_cap_chars instead. Kept unchanged here so this package does not also retire a field.", "title": "Cap Chars", "type": "integer"}
+          "type_key": {"default": "", "description": "The manual this write landed on.", "title": "Type Key", "type": "string"},
+          "size_chars": {"default": 0, "description": "Size of the learnings document as stored after this write. The field a writer actually reads - it says how much room is left, which the text it just sent does not.", "title": "Size Chars", "type": "integer"},
+          "cap_chars": {"default": 0, "description": "The learnings ceiling this write was judged against (settings key doc_cap_chars_manual_learnings).", "title": "Cap Chars", "type": "integer"},
+          "sha256": {"default": "", "description": "Hex sha256 over the learnings document as stored after this write.", "title": "Sha256", "type": "string"}
         },
-        "required": ["type_key", "fields", "assignee", "display_name"],
+        "required": [],
+        "title": "TaskLearningsWriteReceiptDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "TaskManualReceiptDTO": {
+        "description": "Bounded receipt returned after create_task_manual and update_task_manual (T-91). update_task_manual is a PARTIAL write - every field of its body is nullable and the handler acts only on the ones present - so this receipt reports ONLY the documents THIS call actually wrote. Send just ``sop_md`` and the three ``sop_md_*`` fields come back and the three ``learnings_*`` fields are ABSENT; send just ``learnings`` and the reverse; send neither (a create, or an update of display_name alone) and neither group appears. That absence is the answer, not a gap: reporting numbers for a document this call did not touch is the shape owner rejected verbatim on 2026-09-05 (\"\u70ba\u4ec0\u9ebc\u9084\u662f\u8981\u56de\u9019\u9ebc\u591a\u8a0a\u606f\"). The manual's configuration - display_name, purpose, assignee, fields - is NOT here either: the caller just sent it, and get_task_manual serves it. ``type_key`` always rides back because create MINTS it server-side, so it is the one thing the caller cannot know. Measured before this change, the old whole-manual answer was 74,402 bytes with learnings at 17,114 characters and sop_md at 16,016.",
+        "properties": {
+          "type_key": {"description": "The manual this write landed on. Always present - create mints it server-side, so it is the part the caller cannot predict.", "title": "Type Key", "type": "string"},
+          "updated_ts": {"default": 0.0, "description": "When the manual was stamped by this write. Server-derived.", "title": "Updated Ts", "type": "number"},
+          "learnings_chars": {"default": 0, "description": "Size of the LEARNINGS document as stored, in CHARACTERS (Unicode code points). Present ONLY when this call wrote the learnings document; absent otherwise.", "title": "Learnings Chars", "type": "integer"},
+          "learnings_cap_chars": {"default": 0, "description": "The learnings ceiling in force (settings key doc_cap_chars_manual_learnings). Present ONLY when this call wrote the learnings document.", "title": "Learnings Cap Chars", "type": "integer"},
+          "learnings_sha256": {"default": "", "description": "Hex sha256 over the learnings document as stored. Present ONLY when this call wrote it. This is what replaces the text echo: hash what you sent and compare, at 64 characters instead of the document.", "title": "Learnings Sha256", "type": "string"},
+          "sop_md_chars": {"default": 0, "description": "Size of the SOP document as stored, in CHARACTERS. Present ONLY when this call wrote the SOP document; absent otherwise.", "title": "Sop Md Chars", "type": "integer"},
+          "sop_md_cap_chars": {"default": 0, "description": "The SOP ceiling in force (settings key doc_cap_chars_manual_sop). Separate from the learnings cap on purpose: the two documents are judged against independent budgets, so one must never be read as evidence about the other.", "title": "Sop Md Cap Chars", "type": "integer"},
+          "sop_md_sha256": {"default": "", "description": "Hex sha256 over the SOP document as stored. Present ONLY when this call wrote it.", "title": "Sop Md Sha256", "type": "string"}
+        },
+        "required": ["type_key"],
         "title": "TaskManualReceiptDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "ScheduledMessageDeleteReceiptDTO": {
+        "description": "Bounded receipt returned after deleting a scheduled message (T-91). A delete's entire news is that it happened, so this answers identity plus that bit - the same shape TaskManualDeleteResultDTO has always had, applied here because owner stated the rule for deletes verbatim on 2026-09-05 (\"delete \u53ea\u9700\u8981\u77e5\u9053\u6210\u529f\u6216\u5931\u6557\u5c31\u597d\"). The old answer was the whole row including the message body, which describes a schedule that no longer exists.",
+        "properties": {
+          "id": {"title": "Id", "type": "string"},
+          "member_id": {"title": "Member Id", "type": "string"},
+          "deleted": {"description": "True when this call removed the schedule. The route 404s when the member or the schedule is absent, so a 200 with false is not a state this endpoint reaches - the field is here to say plainly what the write did rather than leaving an empty 200 to be interpreted.", "title": "Deleted", "type": "boolean"}
+        },
+        "required": ["id", "member_id", "deleted"],
+        "title": "ScheduledMessageDeleteReceiptDTO",
         "additionalProperties": false,
         "type": "object"
       },
@@ -14668,7 +14688,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ScheduledMessageReceiptDTO"
+                  "$ref": "#/components/schemas/ScheduledMessageDeleteReceiptDTO"
                 }
               }
             },
@@ -18397,7 +18417,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TaskManualReceiptDTO"
+                  "$ref": "#/components/schemas/TaskLearningsWriteReceiptDTO"
                 }
               }
             },
