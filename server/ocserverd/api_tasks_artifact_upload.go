@@ -19,12 +19,19 @@ package main
 // They are deliberately OFF the MCP surface (x-mcp include:false), for the same
 // reason POST /api/chat/attachments is: the request body is raw bytes, which
 // cannot ride inside a JSON tool call without a 4/3× base64 detour through an
-// LLM's context. NOTHING SHIPPED IN THIS REPO REACHES THEM: there is no MCP
-// tool and no `ocagent` subcommand, so today only a client written directly
-// against the REST API — and the conformance suite — can take this door. That
-// is the owner's ruling (rc-6c3c7debcd05), not an oversight: a CLI subcommand
-// was written for them and then removed. This line used to name ocagent as the
-// client, which was never true and is the reason it is spelled out here now.
+// LLM's context. NO PRODUCTION CLIENT REACHES THEM: there is no MCP tool and no
+// `ocagent` subcommand, so the only thing in this repo that calls them is the
+// conformance suite, and the only other way in is a client written directly
+// against the REST API. That is the owner's ruling (rc-6c3c7debcd05), not an
+// oversight: a CLI subcommand was written for them and then removed. ⚠️ Their
+// sole executable coverage therefore lives in conformance, which `go test` does
+// not run.
+//
+// This sentence is spelled out because the one it replaces said "ocagent is the
+// client". That was false when it was written, TRUE for the life of the
+// subcommand, and false again the moment it was reverted — the kind of claim
+// that reads as settled fact while quietly tracking a decision that moved twice.
+//
 // add_task_artifact stays the JSON door for a link, and for pinning a blob that
 // is ALREADY in the store — that two-step path (ocagent upload, then
 // add_task_artifact with the id it prints) is how a local file becomes a
