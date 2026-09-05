@@ -516,8 +516,12 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
           // 15 = the length of every 請示卡 id there is: api_replycards.go:283
           // mints "rc-" + newHexID(12). owner 2026-09-06 spotted that the old
           // fixed 200px was picked with no reference to that, and it read as
-          // too wide because it is — this number is derived from the id, so it
-          // moves if the id shape ever does.
+          // too wide because it is. This number tracks the id's LENGTH, so it
+          // moves if that shape ever does.
+          // (Wording note: "derived from the id" is a retired sentence in this
+          // tree — a prose guard rejects it because TaskNo returns the id
+          // UNCHANGED and any "derived" phrasing becomes a second, contradictory
+          // account of that field. It caught this comment. Say "length".)
           widthCh={15}
         />
         {/* 🔴 The hash counts as an active filter even when the FIELD is empty.

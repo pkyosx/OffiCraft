@@ -208,7 +208,7 @@ describe("任務頁 ID 篩選", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it("the field's width is DERIVED from the id it holds, not a literal", async () => {
+  it("the field's width comes from the id's LENGTH, not from a literal", async () => {
     // owner 2026-09-06: the old field was a flat 200px chosen with no reference
     // to its content, which is why it read as too wide. This asserts the
     // MECHANISM (a ch-based width the caller supplies), not a pixel count —
