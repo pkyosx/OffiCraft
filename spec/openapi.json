@@ -4119,6 +4119,42 @@
         "additionalProperties": false,
         "type": "object"
       },
+      "ReplyCardCreateReceiptDTO": {
+        "description": "Bounded receipt for ``POST /api/reply-cards`` (create_reply_card) (T-91). It used to answer with the whole ReplyCardDTO, so the summary, the body, every option's wording, the select mode and the bound task came home to the agent that had just written them. Measured over 24 hours of real agent sessions: 124 calls, 220,000 characters returned, 1,772 per call - the second-largest agent-facing echo on the station after post_chat. Owner ruling 2026-09-05: what the caller sent does not ride home; only ids and what the write itself decides.\n\nEVERY FIELD HERE IS MINTED OR STAMPED BY THE HANDLER, none is an echo. What is dropped: ``from`` (the verified caller, which is the caller), ``kind``, ``summary``, ``body``, ``options``, ``select_mode`` and ``task`` (all sent in this request), plus ``status``, ``answer``, ``answered_ts`` and ``expired_ts``, which on a CREATE are constants - a new card is always ``waiting`` with no answer and no expiry (api_replycards.go:305, ``Status: replyCardStatusWaiting``). ``get_reply_card`` serves the card.",
+        "properties": {
+          "id": {
+            "description": "The card id, MINTED HERE (api_replycards.go:283, ``\"rc-\" + newHexID(12)``). The handle answer_reply_card, reanswer_reply_card, expire_reply_card and get_reply_card all take, and the one thing the caller cannot compute.",
+            "title": "Id",
+            "type": "string"
+          },
+          "chat_message_id": {
+            "description": "The COMPANION chat message the card opened alongside itself, id minted in the same transaction (api_replycards.go:292, ``\"c-\" + newHexID(12)``). A second server-minted id, and the only way the asker learns which line in the owner's stream carries its ask - the card and the message are written together precisely so neither can dangle without the other.",
+            "title": "Chat Message Id",
+            "type": "string"
+          },
+          "created_ts": {
+            "description": "The SERVER's stamp for the card, epoch seconds (api_replycards.go:282, ``now := nowSecs()``). The caller does not send it and cannot compute it.",
+            "title": "Created Ts",
+            "type": "number"
+          },
+          "attachments": {
+            "description": "One entry per attachment that actually LANDED on the card. Here for the same reason as on ChatPostReceiptDTO and not as an echo: an attachment sent inline has no id until the server mints one, so a caller that uploaded inline learns the handle for its own file here or nowhere, and this is the only field that can reveal an attachment silently failing to land.",
+            "items": {
+              "$ref": "#/components/schemas/ChatAttachmentDTO"
+            },
+            "title": "Attachments",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "chat_message_id",
+          "created_ts"
+        ],
+        "title": "ReplyCardCreateReceiptDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
       "ReplyCardDTO": {
         "description": "One reply card (等我回覆卡). ``from`` is the initiating member (the verified JWT sub at create time). ``status`` is the closed set ``waiting`` | ``answered`` | ``expired`` — the only transitions are waiting→answered via an answer (the owner's positive close) and waiting→expired via the expire action (the card's own author, the owner, or an admin agent — T-6020 opened it to the admin floor, T-1b88 widened it to the author) (標為過期 — NOT an answer: the ask went stale and the owner declined it; terminal, no reopen); a revised answer (PUT) keeps ``answered``. ``chat_message_id`` links the chat message the card rides in (the jump-to-origin anchor); ``answered_ts``/``answer`` are null unless answered; ``expired_ts`` is null unless expired. Each entry of ``options`` carries its own ``ai_pick`` flag (position means nothing) and ``select_mode`` (``single``|``multi``) says how many of them the owner may circle. ``attachments`` are the QUESTION-side attachments the initiator opened the card with (served refs incl. download url; always an array, ``[]`` when none).",
         "properties": {
@@ -4893,24 +4929,34 @@
         "type": "object"
       },
       "RoleCreateResultDTO": {
-        "description": "The created pair: the folded custom role doc (``is_seed=False``, template\ndefinition_md) + the founding member (initially OFFLINE — creating never\nspawns a runtime; the member surfaces on the office roster immediately).",
+        "description": "Bounded receipt for ``POST /api/roles`` (create_role) (T-91). It used to answer with the created PAIR - the whole RoleDefDTO and the whole MemberDTO - which is two top-level fields and 41 once the nesting is flattened, including ``definition_md``, the founding role document in full. That flattening is why this route was missed for most of this ticket: the denominator classified receipts by TOP-LEVEL field count, and by that measure a two-field answer looked like it was already small. It was the same failure as post_chat, in a different disguise. Owner ruling 2026-09-05: what the caller sent, and anything it can read back, does not ride home on the write.\n\nWhat is dropped is the pair itself. ``get_role`` serves the role document and ``get_member`` serves the member row; ``list_roles`` serves the roster. What is kept is the three things this handler MINTS OR PICKS, which exist nowhere until it runs. Note the cockpit adopts this answer straight into rendered state today (useRoles.ts:106-108 pushes ``result.role`` into the roster list), so this route belongs to the same frontend prerequisite as the six document families - it must move to write-then-re-read FIRST.",
         "properties": {
-          "member": {
-            "$ref": "#/components/schemas/MemberDTO"
+          "role_key": {
+            "description": "The role key, MINTED HERE (api_roles.go:204, ``\"r-\" + newHexID(12)``). Every later role call takes it and the caller cannot compute it.",
+            "title": "Role Key",
+            "type": "string"
           },
-          "role": {
-            "$ref": "#/components/schemas/RoleDefDTO"
+          "member_id": {
+            "description": "The founding member's id, MINTED HERE (api_roles.go:220, ``\"m-\" + newHexID(12)``). Creating a role always creates the member that holds it, so the write produces two identities and both are news.",
+            "title": "Member Id",
+            "type": "string"
+          },
+          "member_name": {
+            "description": "The founding member's name. It rides back because the server may have CHOSEN it: when the request leaves ``member_name`` blank the handler picks one against every name ever taken, removed rows included (api_roles.go:198-202, ``PickMemberName``). On a request that named the member it is an echo of one short string, kept rather than made conditional because a caller cannot otherwise tell which of the two paths it took - and the name is how a person refers to the member from then on.",
+            "title": "Member Name",
+            "type": "string"
           }
         },
         "required": [
-          "role",
-          "member"
+          "role_key",
+          "member_id",
+          "member_name"
         ],
         "title": "RoleCreateResultDTO",
         "additionalProperties": false,
         "type": "object"
       },
-      "RuntimeCapabilityDTO": {
+            "RuntimeCapabilityDTO": {
         "description": "Value-free readiness of one AI CLI runtime on a machine. ``installed`` means the exact binary the warden would launch resolved and passed its version probe. ``logged_in`` is true/false when a safe provider login probe concluded, null when unknown. ``version`` is null when unresolved or probing failed. No credential value or path is exposed.",
         "properties": {
           "installed": {
@@ -16385,7 +16431,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ReplyCardDTO"
+                  "$ref": "#/components/schemas/ReplyCardCreateReceiptDTO"
                 }
               }
             },
