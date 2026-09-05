@@ -857,7 +857,7 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 	// warden still starts, and it starts talking to whatever answers on the
 	// guessed address — which is the entire defect. basegate_reached_test.go
 	// exists solely to make that deletion red.
-	if rc, stop := stationAddressGate(renv, out, *once, time.Now, blockUntilSignal); stop {
+	if rc, stop := stationAddressGate(renv, out, *once, time.Now, gateBlock); stop {
 		return rc
 	}
 

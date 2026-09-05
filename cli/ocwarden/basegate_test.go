@@ -116,6 +116,46 @@ func TestStationAddressGateHaltsRatherThanExits(t *testing.T) {
 	}
 }
 
+// TestRealMainHaltsRatherThanExitsOnTheLaunchdPath (T-88) is the guard for the
+// CALL SITE'S ARGUMENT, which is a different thing from the call site existing.
+//
+// basegate_reached_test.go proves realMain CALLS the gate. It drives `run --once`,
+// so it only ever exercises the returning branch — and independent review turned
+// that gap into a live defeat: change the ONE token `*once` to `true` at the call
+// site and an unconfigured warden EXITS instead of halting. It compiles, and the
+// entire package stayed green pass-for-pass, because no test could reach the
+// branch that changed.
+//
+// This drives the real forever path (`run`, no --once) with the block seam
+// swapped, so the halt is observable without parking the test.
+//
+// DEFEATED BY: passing anything but *once at the call site, or replacing the halt
+// with a return.
+func TestRealMainHaltsRatherThanExitsOnTheLaunchdPath(t *testing.T) {
+	blocked := 0
+	orig := gateBlock
+	gateBlock = func() { blocked++ }
+	t.Cleanup(func() { gateBlock = orig })
+
+	var out bytes.Buffer
+	env := envFn(map[string]string{"HOME": t.TempDir()})
+
+	rc := realMain([]string{"run"}, env, &out)
+
+	if blocked != 1 {
+		t.Fatalf("the launchd path must HALT (block exactly once), not exit; block called %d times.\n"+
+			"An exiting warden under the plist's unconditional KeepAlive is a silent relaunch loop —\n"+
+			"the outcome this file's header calls strictly worse than the bug being fixed.\n"+
+			"output was:\n%s", blocked, out.String())
+	}
+	if rc == 0 {
+		t.Errorf("exit code must be non-zero after the halt is signalled away; got %d", rc)
+	}
+	if strings.Contains(out.String(), "--once") {
+		t.Error("the launchd path must not print the --once branch's wording")
+	}
+}
+
 // TestNoBaseMessageIsReadableByAPerson. The failures on this path have
 // historically all been silent, so the message is part of the fix, not
 // decoration around it. In particular it must say that setting the variable is
@@ -126,10 +166,18 @@ func TestStationAddressGateHaltsRatherThanExits(t *testing.T) {
 func TestNoBaseMessageIsReadableByAPerson(t *testing.T) {
 	msg := noBaseMessage(noBaseSentinelName)
 	for _, want := range []string{
-		"OC_BASE",                  // the name of the thing to set
-		"ocwarden install",         // what to actually do
-		"restart",                  // ...and that setting it alone is not enough
-		"not appear on the roster", // where the absence will show up
+		"OC_BASE",          // the name of the thing to set
+		"ocwarden install", // what to actually do
+		"restart",          // ...and that setting it alone is not enough
+		// 🔴 THIS ONE REPLACES A PIN ON A FALSE FACT. The first draft required
+		// "not appear on the roster", which is backwards — the roster row exists
+		// before the install runs, so the machine IS listed and simply stays
+		// offline. Pinning that sentence meant CORRECTING it would have turned
+		// this test red, i.e. the guard was holding the wrong answer in place.
+		// Independent review caught it. Pin what a reader must not conclude
+		// instead.
+		"never come online",
+		"Do not read its presence in the list",
 	} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("the message a person finds must contain %q; got:\n%s", want, msg)

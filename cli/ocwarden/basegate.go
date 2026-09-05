@@ -19,35 +19,46 @@ package main
 // OC_BASE while this process waits. Retrying would be a loop that can never
 // succeed, and its only effect would be noise.
 //
-// 🔴 WHY IT DOES NOT EXIT, AND WHY THAT REASON IS NOT THE ONE YOU WILL EXPECT.
-// There are two accounts in this repo of what launchd does with a warden that
-// exits, and they contradict each other:
+// 🔴 WHY IT DOES NOT EXIT. This repo holds THREE accounts of what launchd does
+// with a warden that exits, and they do not agree:
 //
-//   - The plist this installer writes (install.go) sets `KeepAlive` to an
-//     unconditional <true/> with ThrottleInterval 10. Read straight, an exiting
-//     warden is relaunched every 10 seconds forever, with its message going to
+//  1. The plist this installer writes sets `KeepAlive` to an unconditional
+//     <true/> with ThrottleInterval 10. Read straight: an exiting warden is
+//     relaunched every 10 seconds forever, its message going to
 //     ocwarden.err.log, which nobody reads — a SILENT CRASHLOOP, strictly worse
 //     than the bug being fixed.
-//   - selfupdate.go records the opposite as an OBSERVATION, twice and
-//     reproducibly, on real macOS hosts: "launchd does NOT relaunch — the
+//  2. install.go's own verify() DEPENDS on relaunch happening. It requires the
+//     same pid to hold across a settle window precisely because "a bad-token /
+//     unreachable-server warden is respawned by KeepAlive under a DIFFERENT
+//     pid". That is not a comment about theory; it is the check that decides
+//     whether an install is declared healthy, today.
+//  3. selfupdate.go records the opposite as an OBSERVATION, twice and
+//     reproducibly on real macOS hosts: "launchd does NOT relaunch — the
 //     gui-domain LaunchAgent job sits 'not running, last exit 0' until a manual
 //     launchctl kickstart". Its whole exec-in-place design rests on that.
 //
-// Both cannot be right, and this ticket did not settle which is — settling it
-// means killing a warden on a machine that is currently carrying live agents,
-// which is not a price this change is worth. So the halt below is chosen
-// BECAUSE IT IS CORRECT UNDER EITHER ONE:
+// ⚠️ (1)+(2) and (3) may not even be about the same thing. Today the launchd job
+// leader is the `officraft` TCC anchor, which forks ocwarden as a CHILD and exits
+// with the child's status (cli/officraft/main.go — it starts the child once and
+// never re-forks). (3) predates that shape as far as this ticket knows, and
+// NOBODY HAS CHECKED. Settling it means killing a warden on a machine currently
+// carrying live agents, which this change is not worth.
+//
+// So the halt below is chosen BECAUSE IT IS CORRECT UNDER ALL THREE:
 //
 //   - if launchd relaunches, staying alive means there is no crashloop to hide
 //     the signal in;
 //   - if launchd does not relaunch, staying alive costs nothing that exiting
 //     would have saved — the machine is out of service either way.
 //
-// And under both, the signal that actually reaches a human is the same one: this
-// machine never appears on the roster, because it has nowhere to report to.
-// A halted warden and an exited one are indistinguishable from the server's
-// side; the halted one additionally leaves a live process and a sentinel file
-// on the box saying why.
+// ⚠️ WHAT THE SIGNAL ACTUALLY IS, corrected. An earlier draft of this file said
+// the machine "never appears on the roster". THAT IS WRONG and it would have
+// sent a reader the wrong way: the roster row is created BEFORE the install runs
+// (the boot command is minted against an already-created machine), so the machine
+// DOES appear — it simply never comes online. The server already reports that in
+// the reader's own language: onboarding's `wake_undispatched` step says the
+// assistant is set to come online but no start command was dispatched, "most
+// often this machine's warden has not connected back to the server".
 //
 // ⚠️ THE COST, NAMED. A halted warden does not heal. Setting OC_BASE afterwards
 // does nothing until somebody restarts it. That is deliberate: this ticket asks
@@ -109,7 +120,16 @@ func noBaseMessage(where string) string {
 		"[ocwarden]   Guessing would be worse than stopping: something else may well be listening on\n" +
 		"[ocwarden]   " + defaultBase + " (a station host, a trial station), and members started against it\n" +
 		"[ocwarden]   would quietly join the WRONG station while every screen looked normal.\n" +
-		"[ocwarden]   This machine will therefore not appear on the roster at all — that absence is the signal.\n" +
+		// ⚠️ WHAT THIS MACHINE LOOKS LIKE FROM THE SERVER, stated precisely because an
+		// earlier draft of this line got it backwards and would have sent the reader
+		// the wrong way. The roster row is created BEFORE the install runs — the boot
+		// command is minted against an already-created machine — so the machine DOES
+		// appear. It simply never comes online, and the server's own onboarding report
+		// already says so in the reader's language (wake_undispatched: "the assistant
+		// is set to come online, but no start command has been dispatched … most often
+		// this machine's warden has not connected back to the server").
+		"[ocwarden]   This machine WILL still be listed, and will simply never come online.\n" +
+		"[ocwarden]   Do not read its presence in the list as evidence that this is not the problem.\n" +
 		"[ocwarden]   To fix: re-run `ocwarden install` with OC_BASE set to the station URL.\n" +
 		"[ocwarden]   Setting OC_BASE alone is not enough — this process must be restarted to pick it up.\n" +
 		"[ocwarden]   Halting here (staying alive, doing nothing) rather than exiting; see " + where + "\n"
@@ -172,11 +192,15 @@ func stationAddressGate(env func(string) string, out io.Writer, once bool,
 	if _, configured := baseFromEnv(env); configured {
 		return 0, false
 	}
-	// --once is a TEST HOOK, never a launchd job, and a hook that parks forever is
-	// a hook nobody can use. It still refuses — loudly, non-zero — it just returns
-	// instead of halting.
+	// (branch documented at its implementation below)
+
+	// --once is a TEST HOOK, never a launchd job. It refuses the same way but
+	// RETURNS instead of parking, because a hook that parks forever is a hook
+	// nobody can use. Its message says so rather than repeating the halting
+	// wording, which would point the reader at a sentinel this branch never wrote.
 	if once {
 		fmt.Fprint(out, noBaseMessage(noBaseSentinelName))
+		fmt.Fprintln(out, "[ocwarden] --once: refusing and exiting non-zero (no sentinel written; the launchd path halts instead)")
 		return 1, true
 	}
 	return haltNoBase(env, out, now, block), true
@@ -200,6 +224,23 @@ func haltNoBase(env func(string) string, out io.Writer, now func() time.Time, bl
 	// installed to do ever happened.
 	return 1
 }
+
+// gateBlock is the seam realMain hands the gate, and it exists so a TEST CAN
+// ENTER THE HALTING PATH AT ALL.
+//
+// 🔴 WHY A PACKAGE VARIABLE RATHER THAN A PARAMETER. The halting branch is the
+// one realMain takes in production, and it parks forever by design — so no test
+// could drive realMain through it, and every guard on this file ran only through
+// the `--once` branch. Independent review turned that into a live defeat: change
+// the ONE token `*once` to `true` at the call site and an unconfigured warden
+// exits instead of halting, which under the plist's unconditional KeepAlive is
+// the silent crashloop this file's header calls "strictly worse than the bug
+// being fixed" — and the whole package stayed green, pass for pass, because
+// nothing could reach the branch that changed.
+//
+// Swapping this seam lets a test take the real branch and return, so the call
+// site's ARGUMENT is asserted rather than only the gate's logic.
+var gateBlock = blockUntilSignal
 
 // blockUntilSignal parks until SIGINT/SIGTERM. This is what "stays alive, does
 // nothing" means concretely: launchd sees a healthy long-lived job, no member is
