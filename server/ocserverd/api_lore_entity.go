@@ -17,14 +17,21 @@ package main
 // This layer supplies the one fact only it can know (WHO is asking, from the
 // verified token) and maps named errors onto status codes.
 //
-// 🔴 THE QUEUE ROW CARRIES A SUGGESTION AND NOTHING ACTS ON IT. The owner's
-// second ruling (2026-09-02) asked for the homework, not for an automatic
-// verdict: 「我還是做最後的裁決」. So the list route computes `suggestion` /
-// `similar` / `sample_short` / `entries_ever` / `entry_refs`, and the two act
-// routes below never read any of them —
-// approving still needs a human on an admin token, and a row suggesting `merge`
-// changes nothing until somebody calls merge. A suggestion that could act would
-// be an auto-approve wearing a recommendation's clothes.
+// 🔴 THE QUEUE ROW CARRIES EVIDENCE AND NOTHING ACTS ON IT. The owner's second
+// ruling (2026-09-02) asked for the homework, not for an automatic verdict:
+// 「我還是做最後的裁決」. So the list route computes `similar` / `sample_short` /
+// `entries_ever` / `entry_refs` / `created_by`, and the two act routes below
+// never read any of them — approving still needs a human on an admin token.
+//
+// 🔴 IT ALSO CARRIED `suggestion` / `merge_target` AND NO LONGER DOES (owner
+// ruling 2026-09-05). Those two said which button the mechanical rule would
+// press; he ruled the rule itself pointless — 「ai 會笨到產生大小寫不一樣的對象
+// 嗎」 — and asked for it to come back as an AI judgement he can agree with or
+// send back by comment. THAT IS ANOTHER TICKET, and until it lands this route
+// serves evidence with no verdict attached. The invariant the removed pair was
+// protecting is unchanged and is the reason the removal is safe: nothing on this
+// row has ever been readable by the act routes, so taking a field off it cannot
+// weaken a gate.
 //
 // 🔴 ROUND 3 (owner 2026-09-04: 「為什麼核可的可見內容這麼少 我根本無從審核
 // 起」) ADDED THREE FACTS TO THE ROW AND NO NEW ROUTE. `created_by` (who minted
@@ -130,9 +137,11 @@ func (s *apiServer) HandleListPendingLoreEntitiesApiLoreEntitiesPendingGet(w htt
 	out := make([]LorePendingEntityRowDTO, 0, len(rows))
 	for _, row := range rows {
 		// `similar` is non-nil for the same reason the outer slice is, and it
-		// carries the extra weight here: an EMPTY similar list is what makes
-		// `suggestion: approve` readable — 「nothing in the ontology looks like
-		// this」 — and `null` would leave that as something to infer.
+		// carries the extra weight here: an EMPTY similar list is itself the
+		// finding — 「nothing in the ontology looks like this」 — and `null` would
+		// leave that as something to infer. (It used to be phrased as what makes
+		// `suggestion: approve` readable; the suggestion went away 2026-09-05 and
+		// the emptiness is still the fact, now read by a person instead.)
 		similar := make([]LoreEntitySimilarDTO, 0, len(row.Similar))
 		for _, s := range row.Similar {
 			similar = append(similar, LoreEntitySimilarDTO{
@@ -160,8 +169,6 @@ func (s *apiServer) HandleListPendingLoreEntitiesApiLoreEntitiesPendingGet(w htt
 			Entries:     row.Entries,
 			EntriesEver: row.EntriesEver,
 			EntryRefs:   refs,
-			Suggestion:  row.Suggestion,
-			MergeTarget: row.MergeTarget,
 			Similar:     similar,
 			SampleShort: row.SampleShort,
 		})

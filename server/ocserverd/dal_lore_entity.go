@@ -120,7 +120,13 @@ type LorePendingEntity struct {
 	//     strength of a 0 would merge a real subject into another one.
 	//
 	// Two dispositions that rendered as one line. This is the number that splits
-	// them, and loreSuggestionFor reads it.
+	// them.
+	//
+	// ⚠️ IT USED TO HAVE A SECOND READER: loreSuggestionFor fed on it. That rule
+	// is gone (owner 2026-09-05, see the tombstone below), and this field stays
+	// anyway — it was always evidence FOR THE REVIEWER first, and splitting those
+	// two dispositions on the row is exactly the 「一眼就可以判斷的資訊」 half of
+	// the ask that survived.
 	//
 	// 🔴 IT DELIBERATELY DOES NOT REPLACE `Entries`. `Entries` is what the subject
 	// will actually SERVE after approval and stays counted with the boot
@@ -168,12 +174,26 @@ type LorePendingEntity struct {
 
 	// ── the 功課 the owner asked for (round 2, 2026-09-02) ──────────────────
 	//
-	// Suggestion is "approve", "merge" or "" — and "" is a real answer, not a
-	// missing one. See loreSuggestionFor for the rule and for why it refuses to
-	// fill the blank.
-	Suggestion  string
-	MergeTarget string // the entity Suggestion=="merge" points at; empty otherwise
-	Similar     []LoreEntitySimilar
+	// 🔴 `Suggestion` / `MergeTarget` STOOD HERE AND WERE REMOVED (owner ruling
+	// 2026-09-05). They carried the mechanical rule's verdict — 「approve」,
+	// 「merge into that id」, or empty. The owner's objection was to the RULE, not
+	// to the packet: 「ai 會笨到產生大小寫不一樣的對象嗎」 — the case/width/`_-`
+	// fold was solving a mistake the writers do not actually make, so the column
+	// spent a queue slot telling him which button to press on evidence he could
+	// read faster himself.
+	//
+	// 🔴 IT IS COMING BACK, DIFFERENTLY, AND THAT IS WHY THIS SAYS SO INSTEAD OF
+	// VANISHING. The replacement he ruled for is 「請 AI 判一輪、人可以同意或回
+	// comment 讓它重判」 — a judgement with a reason attached and a way to argue
+	// back, not a fold. That is ANOTHER TICKET; this package only removes, so
+	// that the queue is never carrying two answers to 「what should I press」 at
+	// once. Whoever lands that ticket should read the removed rule in this file's
+	// history before rebuilding it — the parts worth keeping are the refusal to
+	// guess (empty was a real answer) and the named evidence, not the fold.
+	//
+	// ⚠️ `Similar` STAYS, AND IS THE POINT. 「像哪些既有名字，以及每一個為什麼像」
+	// is the homework; 「你該按哪顆鈕」 is what left.
+	Similar []LoreEntitySimilar
 	// SampleShort is the FIRST entry's 第 2 格 (`content`), trimmed — a sample,
 	// never the field.
 	//
@@ -274,8 +294,9 @@ func (d *DAL) ListPendingLoreEntities() ([]LorePendingEntity, error) {
 				})
 			}
 		}
-		out[i].Suggestion, out[i].MergeTarget = loreSuggestionFor(
-			out[i].Similar, out[i].EntriesEver > 0)
+		// The suggestion was computed HERE, from `Similar` plus `EntriesEver > 0`.
+		// Removed with the field (owner 2026-09-05); the evidence it read is still
+		// gathered above and still served, because that is the half he wanted.
 		refs, err := d.loreEntryRefsForSubject(out[i].ID)
 		if err != nil {
 			return nil, err
@@ -326,8 +347,11 @@ func (d *DAL) loreEntryRefsForSubject(entityID string) ([]LorePendingEntryRef, e
 //
 // 🔴 IT IS THE SAME PREDICATE THE BOOT DIRECTORY USES — `pending = 0` AND an
 // empty `merged_into`. Offering a merged-away subject as a merge target would
-// produce a suggestion the merge route itself refuses 422, which is worse than
-// no suggestion: it reads as homework and it is a dead end.
+// offer as a merge candidate a subject the merge route itself refuses 422,
+// which is worse than offering nothing: it reads as homework and it is a dead
+// end. (This held when the candidate came with a computed suggestion attached;
+// it holds just as hard now that the reviewer is the only one choosing, because
+// he is the one who would spend the click.)
 func (d *DAL) listApprovedLoreEntities() ([]LoreEntity, error) {
 	rows, err := d.rdb.Query(`
 		SELECT id, type, canonical FROM entity
@@ -566,16 +590,21 @@ func (d *DAL) GetLoreEntity(id string) (*LoreEntity, error) {
 //   - the homework is DONE HERE, not by the reviewer. A queue row that says only
 //     「repo:offcraft, 2 entries」 makes the owner open two other screens to find
 //     out whether that name is a typo of something the ontology already carries.
-//   - the VERDICT is still his. Nothing below approves or merges anything; it
-//     produces a suggestion, and the two acts stay behind the admin floor.
+//   - the VERDICT is still his. Nothing below approves or merges anything, and
+//     the two acts stay behind the admin floor.
 //
-// 🔴 THE SUGGESTION IS A RULE, NOT A JUDGEMENT, AND IT REFUSES TO GUESS. When
-// the rule reaches no clear conclusion the suggestion is EMPTY — never a
-// plausible-looking default. A guessed suggestion is indistinguishable from a
-// computed one at a glance, and「something was decided and nothing said so」is
-// the disease this whole ticket treats. The reasons are named for the same
-// reason a score would not do: 「0.87」 tells a reviewer nothing he can check,
-// whereas 「same_normalized」 tells him exactly what to look at.
+// 🔴 THE 「給建議」 HALF WAS BUILT AS A MECHANICAL RULE AND THE OWNER TOOK IT
+// BACK OUT (2026-09-05): 「ai 會笨到產生大小寫不一樣的對象嗎」. What remains of
+// his sentence is the OTHER half — 「提出我一眼就可以判斷的資訊」 — and that is
+// what everything below now serves: who minted it, when, how many entries, how
+// many ever, every entry by 第 1 格, a sample, and which existing names resemble
+// it WITH the reason each was offered. A suggestion returns in another ticket as
+// an AI judgement he can agree with or send back by comment.
+//
+// 🔴 THE REASONS ARE STILL NAMED, AND THAT SURVIVES THE REMOVAL INTACT: 「0.87」
+// tells a reviewer nothing he can check, whereas 「same_normalized」 tells him
+// exactly what to look at. That was always the argument for the evidence, not
+// for the verdict, which is why it outlived the verdict.
 
 // The similarity reasons. They are NAMES OF EVIDENCE, and the vocabulary is
 // closed here because the cockpit and the MCP surface both render them.
@@ -587,13 +616,12 @@ const (
 	LoreSimilarSubstring      = "substring" // one name contains the other
 )
 
-// The two suggestions. There is deliberately no third value for 「I do not
-// know」: that is the EMPTY string, so a reader that forgets to handle it gets
-// nothing rather than a verdict.
-const (
-	LoreSuggestApprove = "approve"
-	LoreSuggestMerge   = "merge"
-)
+// 🔴 `LoreSuggestApprove` / `LoreSuggestMerge` STOOD HERE (removed 2026-09-05).
+// They were the closed vocabulary of the mechanical suggestion — see the
+// tombstone on LorePendingEntity for the owner's ruling and for the AI-judgement
+// ticket that replaces it. Nothing else in the package spoke those two words, so
+// they left with the rule rather than lingering as a vocabulary for a field that
+// no longer exists.
 
 // loreFuzzyMinRunes is the floor under which the fuzzy reasons are not reported
 // at all. Below it every short name is 「similar」 to every other: `agent:Al`
@@ -633,8 +661,12 @@ type LoreEntitySimilar struct {
 //
 // 🔴 THE THREE FOLDS ARE THE OWNER'S OWN LIST (大小寫／全半形／底線連字號) and
 // nothing else is folded. Stripping punctuation or spaces in general would make
-// two genuinely different names collide, and a collision here produces a MERGE
-// suggestion — the one suggestion that moves knowledge under a different name.
+// two genuinely different names collide, and a collision here puts a name in
+// front of the reviewer as a MERGE candidate — the act that moves knowledge
+// under a different name. (It used to also PRODUCE a merge suggestion outright;
+// that rule was removed 2026-09-05. Folding too eagerly is cheaper now that a
+// human reads every candidate, but it is still the fold that decides what he is
+// shown, so the list stays the owner's own three and nothing more.)
 func loreFoldKey(s string) string {
 	var b strings.Builder
 	for _, r := range s {
@@ -707,9 +739,9 @@ func loreEditDistance(a, b string, max int) int {
 // toward merging two things the design says are two things.
 // ⚠️ The cost is stated rather than hidden: a name genuinely minted under the
 // WRONG prefix (`agent:Seth` for the person the ontology carries as
-// `human:Seth`) will NOT be suggested. The merge route still accepts it — the
-// suggestion is silent there, which is the direction that leaves the decision
-// with the reviewer instead of aiming it.
+// `human:Seth`) will NOT be offered as a candidate. The merge route still
+// accepts it — this function is simply silent there, which is the direction that
+// leaves the decision with the reviewer instead of aiming it.
 //
 // The precedence is strongest-first and only ONE reason is returned: a row that
 // listed every way two names resemble each other would bury the one that
@@ -745,108 +777,29 @@ func loreSimilarReason(pendingKey, existingKey string) string {
 	return ""
 }
 
-// loreSuggestionFor turns the evidence into the rule's verdict, or into "".
+// 🔴 loreSuggestionFor STOOD HERE, AND IT WAS THE WHOLE MECHANICAL RULE
+// (removed by owner ruling 2026-09-05). It read two facts — the named similarity
+// evidence and whether the subject had EVER carried an entry — and returned
+// 「approve」, 「merge into that id」, or "" when the two facts disagreed.
 //
-// THE RULE, in full, so that nobody has to read the code to know what the
-// suggestion means. It now reads TWO facts — the similarity evidence, and
-// whether this subject was EVER used (`EntriesEver > 0`, retired entries
-// included):
+// 🔴 WHY IT WENT: 「ai 會笨到產生大小寫不一樣的對象嗎」. The rule's strongest
+// signal was `same_normalized`, i.e. two names identical once case, full/half
+// width and `_`/`-` were folded — and the owner's judgement is that the writers
+// minting these names do not in fact make that mistake, so the rule's confident
+// half was answering a question nobody asks and its careful half (the empty
+// string) was work the reviewer had to redo anyway.
 //
-//	ever used, no similar candidate      → approve  (nothing looks like it, and it carries lore)
-//	ever used, EXACTLY ONE same_normalized → merge   (it is that subject, spelled differently)
-//	ever used, anything else             → ""       (the owner decides)
+// 🔴 WHAT REPLACES IT IS NOT A BETTER FOLD: 「請 AI 判一輪、人可以同意或回
+// comment 讓它重判」 — a judgement that explains itself and can be argued with.
+// That is a separate ticket. This package deliberately ships the queue with NO
+// automatic verdict rather than shipping two.
 //
-//	NEVER USED, no similar candidate     → ""       (see 「THE SECOND FACT」 below)
-//	NEVER USED, EXACTLY ONE same_normalized → merge
-//	NEVER USED, EXACTLY ONE candidate and it is edit_distance_1/2 → merge
-//	NEVER USED, anything else            → ""
-//
-// 🔴 THE 「EXACTLY ONE」 IS NOT PEDANTRY. `canonical` is unique but the FOLD is
-// not: `repo:OffiCraft` and `repo:offi-craft` both fold onto `repo:officraft`,
-// so two existing subjects can be equally strong candidates. Picking the first
-// would be a coin toss rendered as a recommendation.
-//
-// ── THE SECOND FACT (T-33 round 3, owner 2026-09-04 「我根本無從審核起」) ─────
-//
-// 🔴 A NEVER-USED NAME IS EVIDENCE, AND THE FILE ALREADY SAID SO BEFORE THIS
-// FUNCTION COULD READ IT. ListPendingLoreEntities' comment: 「a subject key that
-// was minted and never used is a typo the writer corrected on its next
-// attempt」. That claim was load-bearing enough to shape the QUERY (a correlated
-// subquery instead of a join, so the row survives) and it was then thrown away
-// at the moment a verdict was formed. These are my two judgements about how it
-// enters the rule, and both are reversible in this one function:
-//
-//  1. NEVER USED + exactly one FUZZY candidate ⇒ merge, where 「used」 would
-//     withhold. The withholding rule for fuzzy evidence is right and stays right
-//     for a name that carries lore: one edit apart is how a typo looks AND how
-//     two different names look (`repo:ocagent` / `repo:ocwarden`), so the
-//     evidence is shown and the verdict withheld. What flips it is the COST of
-//     being wrong, not the strength of the evidence. Merging a subject with
-//     entries RELOCATES those entries under another name; merging a subject
-//     that never carried one moves nothing — all it writes is an alias saying
-//     「this spelling means that subject」, which is exactly the repair a typo
-//     needs and is what stops the same misspelling being minted again tomorrow.
-//     Evidence that is too weak to move knowledge is strong enough to spell a
-//     dead key onto a live one.
-//     ⚠️ AND ONLY THE EDIT-DISTANCE REASONS PROMOTE. `prefix` and `substring`
-//     are NOT typo-shaped: 「one name starts the other」 is how a FAMILY of real
-//     names looks (`repo:officraft` / `repo:officraft-web`), and a rule that
-//     suggested folding those together would be aiming the reviewer at a merge
-//     that destroys a distinction. `same_normalized` needs no promotion — it
-//     already suggests merge on its own, used or not.
-//     ⚠️ AND IT IS STILL 「EXACTLY ONE」, counted over ALL candidates rather than
-//     over the fuzzy ones: with two things it might be a typo of, which one it
-//     is remains a coin toss, and 「it carries nothing」 does not break the tie.
-//
-//  2. NEVER USED + nothing similar at all ⇒ "" where the old rule said approve.
-//     This one REMOVES a suggestion, so it is the one to argue for. `approve`
-//     was computed from a single fact — 「nothing in the ontology looks like
-//     it」 — which is evidence about DUPLICATION and says nothing about whether
-//     the name deserves publishing. Approving here writes a name into the boot
-//     subject directory that serves zero entries and can serve zero entries,
-//     and that directory is TRUNCATED: the empty name eats a slot a real
-//     subject needed, which is the identical cost api_lore_entity.go names for
-//     approving a duplicate. So the two facts now point opposite ways, and when
-//     they do this rule says so by going quiet — 「品質優於數量」 and 「我還是做
-//     最後的裁決」 both land on the same side. The row still shows him
-//     everything: zero entries, zero ever, who minted it, nothing resembling it.
-//     ⚠️ THE COST IS REAL AND IS NOT HIDDEN: he now sees a blank on rows that
-//     used to say approve, i.e. more rows to think about. That is the direction
-//     that leaves the verdict with him; the opposite direction spends his
-//     ontology to save him a click.
-func loreSuggestionFor(similar []LoreEntitySimilar, everUsed bool) (string, string) {
-	if len(similar) == 0 {
-		// Nothing resembles it. Whether that is 「a genuinely new subject」 or
-		// 「a name that was never used and never will be」 is the second fact's
-		// question, and the two answers are opposite.
-		if !everUsed {
-			return "", ""
-		}
-		return LoreSuggestApprove, ""
-	}
-	target := ""
-	for _, s := range similar {
-		if s.Reason != LoreSimilarSameNormalized {
-			continue
-		}
-		if target != "" {
-			return "", "" // two equally exact candidates — a coin toss is not a suggestion
-		}
-		target = s.EntityID
-	}
-	if target != "" {
-		return LoreSuggestMerge, target
-	}
-	// The fuzzy promotion. It fires ONLY on a name that carries nothing, only
-	// on the two edit-distance reasons, and only when there is exactly one
-	// candidate to point at — see judgement (1) above for each of the three.
-	if !everUsed && len(similar) == 1 &&
-		(similar[0].Reason == LoreSimilarEditDistance1 ||
-			similar[0].Reason == LoreSimilarEditDistance2) {
-		return LoreSuggestMerge, similar[0].EntityID
-	}
-	return "", ""
-}
+// ⚠️ WHAT SURVIVED ON PURPOSE, because it is evidence and not a verdict:
+// loreSimilarReason, the five reason constants, loreFoldKey, loreEditDistance
+// and loreFuzzyMinRunes. The queue still tells the reviewer WHICH existing names
+// resemble a pending one and WHY each was offered. Only 「and therefore press
+// this」 is gone. The fold that lost its argument as a SUGGESTION is still the
+// right way to surface a candidate for a human to look at.
 
 // loreSampleShort trims one entry's 第 2 格 (`content`) to the sample cap, announcing the
 // trim with an ellipsis so it cannot be mistaken for the whole field.

@@ -270,10 +270,17 @@ func TestLoreEntityRoutesRefuseAMachine(t *testing.T) {
 	}
 }
 
-// TestLoreEntityPendingRouteCarriesTheReviewPacket is the owner's second ruling
-// on the wire: 「我希望 agent 做完功課以後給建議並提出我一眼就可以判斷的資訊，我
-// 還是做最後的裁決」. The suggestion has to REACH him, and it has to change
-// nothing on its own.
+// TestLoreEntityPendingRouteCarriesTheReviewPacket is the surviving half of the
+// owner's second ruling on the wire: 「我希望 agent 做完功課以後給建議並提出我一
+// 眼就可以判斷的資訊，我還是做最後的裁決」. The EVIDENCE has to reach him, and
+// reading it has to change nothing on its own.
+//
+// ⚠️ 「給建議」 was built as a computed `suggestion` / `merge_target` pair and the
+// owner removed it on 2026-09-05 (「ai 會笨到產生大小寫不一樣的對象嗎」), so the
+// assertions on those two fields are gone. 「我還是做最後的裁決」 is asserted
+// BELOW and is untouched — it was never a property of the suggestion, it is a
+// property of the LIST ROUTE, and that is exactly why removing the suggestion
+// could not weaken it.
 func TestLoreEntityPendingRouteCarriesTheReviewPacket(t *testing.T) {
 	url, dal, _, adminTok, _ := loreEntityStack(t)
 	t33Entity(t, dal, "en-real", "repo", "repo:officraft")
@@ -289,9 +296,6 @@ func TestLoreEntityPendingRouteCarriesTheReviewPacket(t *testing.T) {
 		t.Fatalf("queue = %+v", rows)
 	}
 	row := rows[0]
-	if row.Suggestion != LoreSuggestMerge || row.MergeTarget != "en-real" {
-		t.Fatalf("suggestion = %q → %q, want merge → en-real", row.Suggestion, row.MergeTarget)
-	}
 	if len(row.Similar) != 1 || row.Similar[0].Reason != LoreSimilarSameNormalized ||
 		row.Similar[0].EntityId != "en-real" {
 		t.Fatalf("similar = %+v — the REASON is the payload; a candidate without one is a "+
@@ -301,10 +305,10 @@ func TestLoreEntityPendingRouteCarriesTheReviewPacket(t *testing.T) {
 		t.Fatalf("sample_short = %q", row.SampleShort)
 	}
 
-	// 🔴 THE SUGGESTION ACTS ON NOTHING. The entity is still pending after the
-	// list that recommended merging it, and the recommended merge still has to
-	// be called by a human on an admin token. A version that acted on its own
-	// suggestion would answer this same list with an empty queue.
+	// 🔴 READING THE QUEUE ACTS ON NOTHING. The entity is still pending after a
+	// list that showed an exact fold of an existing name, and the merge still has
+	// to be called by a human on an admin token. A version that acted on its own
+	// evidence would answer this same list with an empty queue.
 	entity, err := dal.GetLoreEntity(row.EntityId)
 	if err != nil || entity == nil {
 		t.Fatalf("get entity: %v %v", entity, err)
@@ -313,16 +317,23 @@ func TestLoreEntityPendingRouteCarriesTheReviewPacket(t *testing.T) {
 		t.Fatalf("reading the queue CHANGED the entity: %+v — the verdict is the reviewer's", entity)
 	}
 
-	// An approve-suggested row reads the same way over the wire: empty
-	// `similar` is what makes the suggestion legible, so it must be `[]`.
+	// A row nothing resembles reads the same way over the wire: 「nothing in the
+	// ontology looks like this」 is a FINDING, so it must arrive as `[]` and never
+	// as `null` — a reader that has to treat the two alike eventually treats one
+	// of them wrongly.
 	t33Mint(t, dal, "human:Seth")
+	seen := false
 	for _, r := range loreEntityQueue(t, url, adminTok) {
 		if r.Canonical != "human:Seth" {
 			continue
 		}
-		if r.Suggestion != LoreSuggestApprove || len(r.Similar) != 0 {
-			t.Fatalf("human:Seth row = %+v, want approve with an empty candidate list", r)
+		seen = true
+		if r.Similar == nil || len(r.Similar) != 0 {
+			t.Fatalf("human:Seth row = %+v, want an EMPTY, non-null candidate list", r)
 		}
+	}
+	if !seen {
+		t.Fatalf("human:Seth never appeared in the queue — the loop below asserted nothing")
 	}
 }
 
@@ -397,8 +408,9 @@ func TestLoreEntityPendingRouteCarriesTheEmptinessAndTheEntries(t *testing.T) {
 			"reader to treat 「nothing filed」 and 「not answered」 as the same thing",
 			never.EntryRefs)
 	}
-	if never.Suggestion != "" {
-		t.Fatalf("repo:orphan suggestion = %q, want empty — nothing resembles it AND nothing "+
-			"ever used it, and those two facts point opposite ways", never.Suggestion)
-	}
+	// 🔴 `never.Suggestion` WAS ASSERTED HERE — empty, because nothing resembled
+	// the name AND nothing ever used it, and those two facts pointed opposite
+	// ways. The field went with the rule (owner 2026-09-05). The two facts it
+	// weighed are both still asserted immediately above, which is the half of
+	// this test that was ever about serving 「可見內容」.
 }

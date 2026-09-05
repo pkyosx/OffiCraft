@@ -2026,7 +2026,8 @@ export function toLoreRevision(w: WireLoreRevision): LoreRevisionView {
   };
 }
 
-/** 待審一列。`suggestion` 是空字串就原樣留空 —— 不在這裡補一個預設建議。 */
+/** 待審一列。`suggestion` / `merge_target` 在 owner 2026-09-05 裁定後從 wire 上
+ * 整組拿掉了(改由 AI 判、人可回 comment 重判,另一張票),所以這裡也沒有了。 */
 export function toLorePendingEntity(
   w: WireLorePendingEntity,
 ): LorePendingEntityView {
@@ -2044,8 +2045,6 @@ export function toLorePendingEntity(
       trigger: e.trigger,
       status: e.status,
     })),
-    suggestion: w.suggestion,
-    mergeTarget: w.merge_target,
     similar: (w.similar ?? []).map((r) => ({
       entityId: r.entity_id,
       canonical: r.canonical,

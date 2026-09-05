@@ -215,8 +215,6 @@ export const MESSAGE_KEYS: readonly string[] = [
   "lore.pendingNeverUsed",
   "lore.pendingNoEntries",
   "lore.pendingSimilarLead",
-  "lore.pendingSuggestApprove",
-  "lore.pendingSuggestNone",
   "lore.pendingTitle",
   "lore.reasonEditDistance1",
   "lore.reasonEditDistance2",

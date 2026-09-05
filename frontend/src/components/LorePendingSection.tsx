@@ -5,14 +5,18 @@
 //    決,lore 的品質優於數量」
 //
 // 這一塊就是那句話變成的畫面,三件事各自對應:
-//   ① **功課**:每一列的建議與依據是伺服器算的,不是這裡湊的。
+//   ① **功課**:每一列的依據是伺服器算的,不是這裡湊的。
 //   ② **一眼可判斷**:名字、底下有幾條、底下第一條在講什麼、跟誰像、像在哪裡
 //      —— 全部攤在同一列上,不用點進去第二層。
 //   ③ **他做最後裁決**:沒有自動核可。他 `rc-139a5ab99a19` 逐字裁過「待審,我
 //      跟 mira 有 admin 權限的才行」,我問過要不要放寬,他選了不放寬。
 //
-// 🔴 `suggestion` 是空字串就**照實留白**,畫面上不補一個。硬給的建議跟算得出來
-// 的長得一模一樣 —— 那正是這張票在治的病。
+// 🔴 那句「給建議」曾經被做成一格伺服器算的 `suggestion`,owner 2026-09-05 把它
+// 整組裁掉了:「ai 會笨到產生大小寫不一樣的對象嗎」—— 那個機械規則最強的訊號是
+// 兩個名字只差大小寫／全半形／底線連字號,而寫的人根本不犯這種錯。他要的替代品
+// 是「請 AI 判一輪、人可以同意或回 comment 讓它重判」,那是**另一張票**。在它落
+// 地以前這一塊只給證據、不給結論 —— 留一個舊規則會比留白更糟,因為畫面上看不出
+// 那是誰的判斷。
 // 🔴 沒有「駁回」。那個出口 owner 從來沒有裁定過,補一個等於替他決定。
 // 🔴 沒有事情等他的時候整塊不出現(回 null),因為「常態就有一排等你按」本身就
 // 是設計失敗。
@@ -27,8 +31,10 @@
 //      沒被端出來 ⇒ 現在印在名字底下。
 //   ③ 底下不只一條的時候,只看得到第一條的前 120 字 ⇒ 現在**每一條**的第 1 格
 //      都列出來,而第 1 格本來就是那一條的標題。
-// 🔴 這三件都是**多給資訊**,不是多給出口:按鈕還是那兩顆,建議還是伺服器算
-// 的,裁決還是他的。
+// 🔴 這三件都是**多給資訊**,不是多給出口:出口還是那兩個(核可、合併),裁決
+// 還是他的。(原句還有一截「建議還是伺服器算的」—— 2026-09-05 之後不再成立,
+// 見上面那條。合併鈕現在掛在 `similar` 每一個候選上,由他挑;能不能按還是由後
+// 端的 owner/admin 閘門決定,那一格一個字都沒動。)
 
 import { useEffect, useState } from "react";
 import { useI18n } from "../i18n";
@@ -109,8 +115,6 @@ function PendingRow({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const target = row.similar.find((s) => s.entityId === row.mergeTarget);
-
   async function run(action: () => Promise<unknown>) {
     setBusy(true);
     setError(null);
@@ -176,23 +180,30 @@ function PendingRow({
         </div>
       )}
 
-      <div className="lore-pending__suggestion">
-        {row.suggestion === "approve" && t.lore.pendingSuggestApprove}
-        {row.suggestion === "merge" &&
-          t.lore.pendingSuggestMerge(target?.canonical ?? row.mergeTarget)}
-        {row.suggestion === "" && (
-          <span className="lore-pending__suggestion--none">
-            {t.lore.pendingSuggestNone}
-          </span>
-        )}
-      </div>
-
+      {/* 🔴 這裡原本還有一塊 `lore-pending__suggestion`,印伺服器算出來的
+          「建議:核可 / 建議:併進 X / 沒有明確的建議」。owner 2026-09-05 裁掉
+          了整組建議 ——「ai 會笨到產生大小寫不一樣的對象嗎」—— 所以畫面上現在
+          只剩證據,沒有結論。之後會換成 AI 判一輪、人可以同意或回 comment 讓它
+          重判,那是另一張票;在它落地以前這一列刻意留白,而不是留一個舊規則。 */}
       {row.similar.length > 0 && (
         <div className="lore__note">
           {t.lore.pendingSimilarLead}{" "}
           {row.similar.map((s) => (
             <span className="lore-pending__similar" key={s.entityId}>
-              {s.canonical}（{reasonText(t, s.reason)}）
+              {s.canonical}（{reasonText(t, s.reason)}）{" "}
+              {/* 合併鈕從「伺服器指定的那一個」變成「這一排裡他自己挑」。少掉
+                  建議不能連合併一起少掉:那條路由還在,權限閘門也還在,只是現在
+                  由讀得懂證據的人決定併去哪,而不是由折大小寫的規則決定。 */}
+              <button
+                type="button"
+                className="lore-pending__btn"
+                disabled={busy}
+                onClick={() =>
+                  run(() => api.mergeLoreEntity(row.entityId, s.entityId))
+                }
+              >
+                {busy ? t.lore.pendingBusy : t.lore.pendingMerge(s.canonical)}
+              </button>
             </span>
           ))}
         </div>
@@ -207,20 +218,9 @@ function PendingRow({
         >
           {busy ? t.lore.pendingBusy : t.lore.pendingApprove}
         </button>
-        {/* 合併按鈕只在伺服器算得出一個目標時出現。沒有目標卻給一顆按鈕,等於要
-            他自己去想併到哪 —— 那正是這一塊要替他做掉的功課。 */}
-        {row.mergeTarget !== "" && (
-          <button
-            type="button"
-            className="lore-pending__btn"
-            disabled={busy}
-            onClick={() =>
-              run(() => api.mergeLoreEntity(row.entityId, row.mergeTarget))
-            }
-          >
-            {t.lore.pendingMerge(target?.canonical ?? row.mergeTarget)}
-          </button>
-        )}
+        {/* 合併鈕不在這裡了。它以前掛在 `row.mergeTarget`(伺服器算出來的唯一
+            目標)上,那一格隨建議一起被裁掉(owner 2026-09-05),所以合併鈕搬到
+            上面 `similar` 那一排,每一個候選各一顆。核可還是這裡的唯一一顆。 */}
       </div>
 
       {error !== null && (

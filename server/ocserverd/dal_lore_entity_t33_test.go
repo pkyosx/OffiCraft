@@ -319,68 +319,77 @@ func TestApprovedLoreEntityReachesTheBootSubjectDirectory(t *testing.T) {
 
 // ── the review packet (round 2) ──────────────────────────────────────────────
 
-// TestPendingLoreEntitySuggestsMergeOnlyOnAnExactFold is the owner's rule as
-// three cases, and the middle one — the blank — is the one that matters most:
-// 「算不出明確結論時要回空字串」. A version that filled it with a plausible guess
-// would pass the other two.
-func TestPendingLoreEntitySuggestsMergeOnlyOnAnExactFold(t *testing.T) {
+// TestPendingLoreEntityNamesTheReasonEachCandidateWasOffered is what is left of
+// the owner's round-2 rule after he removed the verdict half (2026-09-05): the
+// three cases still have to produce three DIFFERENT pieces of evidence, and the
+// reasons have to be named rather than scored. 「same_normalized」 is checkable;
+// 「0.87」 is not.
+//
+// ⚠️ IT USED TO ALSO ASSERT `Suggestion` / `MergeTarget` on each of the three —
+// merge / empty / approve. Those fields are gone with the rule that filled them
+// (see the tombstone in dal_lore_entity.go), and the assertions went with them
+// rather than being weakened into something vacuous. What the fuzzy case was
+// really protecting — 「withholding the verdict must not mean withholding the
+// evidence」 — is now the WHOLE point of this test rather than a rider on it.
+func TestPendingLoreEntityNamesTheReasonEachCandidateWasOffered(t *testing.T) {
 	d := newTestDAL(t)
 	t33Entity(t, d, "en-real", "repo", "repo:officraft")
 	t33Entity(t, d, "en-agent", "agent", "agent:ocwarden")
 
-	// ① identical once case / width / `_`-`-` are folded ⇒ merge, named target.
-	// ② one edit away from an existing name ⇒ evidence, NO suggestion.
-	// ③ nothing resembles it ⇒ approve.
+	// ① identical once case / width / `_`-`-` are folded ⇒ same_normalized.
+	// ② one edit away from an existing name ⇒ edit_distance_1.
+	// ③ nothing resembles it ⇒ no candidate at all.
 	t33Mint(t, d, "repo:OffiCraft", "agent:ocwardn", "human:Seth")
 
 	exact := t33PendingByKey(t, d, "repo:OffiCraft")
-	if exact.Suggestion != LoreSuggestMerge || exact.MergeTarget != "en-real" {
-		t.Fatalf("repo:OffiCraft suggestion = %q → %q, want merge → en-real",
-			exact.Suggestion, exact.MergeTarget)
-	}
 	if len(exact.Similar) != 1 || exact.Similar[0].Reason != LoreSimilarSameNormalized ||
-		exact.Similar[0].Canonical != "repo:officraft" {
-		t.Fatalf("repo:OffiCraft similar = %+v", exact.Similar)
+		exact.Similar[0].Canonical != "repo:officraft" ||
+		exact.Similar[0].EntityID != "en-real" {
+		t.Fatalf("repo:OffiCraft similar = %+v, want the exact fold named and ADDRESSED — "+
+			"the reviewer merges by the id in this row, so a candidate without one is "+
+			"a name he has to go and look up", exact.Similar)
 	}
 
 	fuzzy := t33PendingByKey(t, d, "agent:ocwardn")
-	if fuzzy.Suggestion != "" || fuzzy.MergeTarget != "" {
-		t.Fatalf("agent:ocwardn suggestion = %q → %q, want the EMPTY string — one edit apart "+
-			"is how a typo looks AND how two different names look, so it is evidence for "+
-			"the reviewer and never a verdict", fuzzy.Suggestion, fuzzy.MergeTarget)
-	}
 	if len(fuzzy.Similar) != 1 || fuzzy.Similar[0].Canonical != "agent:ocwarden" ||
 		fuzzy.Similar[0].Reason != LoreSimilarEditDistance1 {
-		t.Fatalf("agent:ocwardn similar = %+v, want the fuzzy candidate reported anyway — "+
-			"withholding the verdict must not mean withholding the evidence", fuzzy.Similar)
+		t.Fatalf("agent:ocwardn similar = %+v, want the fuzzy candidate reported with its "+
+			"OWN reason — one edit apart is how a typo looks AND how two different names "+
+			"look, and telling the reviewer which test fired is what lets him tell them "+
+			"apart himself", fuzzy.Similar)
 	}
 
 	alone := t33PendingByKey(t, d, "human:Seth")
-	if alone.Suggestion != LoreSuggestApprove || alone.MergeTarget != "" {
-		t.Fatalf("human:Seth suggestion = %q → %q, want approve", alone.Suggestion, alone.MergeTarget)
-	}
 	if len(alone.Similar) != 0 {
 		t.Fatalf("human:Seth similar = %+v, want none", alone.Similar)
 	}
 }
 
-// TestPendingLoreEntityWithholdsASuggestionOnTwoExactCandidates is the case
+// TestPendingLoreEntityShowsEveryCandidateWhenTwoFoldOntoOneName is the case
 // `canonical`'s uniqueness does NOT rule out: two DIFFERENT existing keys can
-// fold onto the same string, and picking the first would be a coin toss served
-// as a recommendation.
-func TestPendingLoreEntityWithholdsASuggestionOnTwoExactCandidates(t *testing.T) {
+// fold onto the same string.
+//
+// ⚠️ It used to assert that the RULE went quiet here, because picking the first
+// would have been a coin toss served as a recommendation. There is no rule to go
+// quiet any more (owner 2026-09-05), and the surviving half is the stronger one:
+// BOTH candidates must reach the reviewer, because a row that showed him one of
+// two equally exact matches would be making the coin toss silently.
+func TestPendingLoreEntityShowsEveryCandidateWhenTwoFoldOntoOneName(t *testing.T) {
 	d := newTestDAL(t)
 	t33Entity(t, d, "en-a", "repo", "repo:offi-craft")
 	t33Entity(t, d, "en-b", "repo", "repo:offi_craft")
 	t33Mint(t, d, "repo:OFFI-CRAFT")
 
 	row := t33PendingByKey(t, d, "repo:OFFI-CRAFT")
-	if row.Suggestion != "" || row.MergeTarget != "" {
-		t.Fatalf("suggestion = %q → %q, want empty: two existing subjects fold onto this "+
-			"name and the rule cannot choose between them", row.Suggestion, row.MergeTarget)
-	}
 	if len(row.Similar) != 2 {
-		t.Fatalf("similar = %+v, want both candidates shown", row.Similar)
+		t.Fatalf("similar = %+v, want BOTH candidates shown — they fold onto the same "+
+			"string, so showing one of them is a choice made where nobody can see it",
+			row.Similar)
+	}
+	for _, c := range row.Similar {
+		if c.Reason != LoreSimilarSameNormalized {
+			t.Fatalf("similar = %+v, want both offered as same_normalized", row.Similar)
+		}
 	}
 }
 
@@ -397,9 +406,6 @@ func TestPendingLoreEntityDoesNotCompareAcrossTypes(t *testing.T) {
 	row := t33PendingByKey(t, d, "agent:Kyle")
 	if len(row.Similar) != 0 {
 		t.Fatalf("similar = %+v, want none across type prefixes", row.Similar)
-	}
-	if row.Suggestion != LoreSuggestApprove {
-		t.Fatalf("suggestion = %q, want approve", row.Suggestion)
 	}
 }
 
@@ -422,9 +428,12 @@ func TestPendingLoreEntityIgnoresSubjectsAReviewerCouldNotMergeInto(t *testing.T
 	t33Mint(t, d, "repo:officraft")
 
 	row := t33PendingByKey(t, d, "repo:officraft")
-	if len(row.Similar) != 0 || row.Suggestion != LoreSuggestApprove {
-		t.Fatalf("similar = %+v, suggestion = %q — neither a PENDING nor a MERGED-AWAY subject "+
-			"is a legal merge target, so neither may be offered as one", row.Similar, row.Suggestion)
+	if len(row.Similar) != 0 {
+		t.Fatalf("similar = %+v — neither a PENDING nor a MERGED-AWAY subject is a legal "+
+			"merge target, so neither may be offered as one. This matters MORE since the "+
+			"computed suggestion was removed (2026-09-05): the reviewer now picks the "+
+			"target off this very list, so an illegal candidate here is a button that "+
+			"422s in his hand.", row.Similar)
 	}
 }
 
@@ -531,46 +540,32 @@ func TestPendingLoreEntitySeparatesNeverUsedFromEmptiedByRetirement(t *testing.T
 	}
 }
 
-// TestPendingLoreEntitySuggestsMergeOnANeverUsedNearMiss pins the ONE place the
-// second fact changes a verdict rather than only a display.
+// 🔴 TestPendingLoreEntitySuggestsMergeOnANeverUsedNearMiss STOOD HERE AND WAS
+// DELETED WITH THE RULE IT LOCKED (owner 2026-09-05). It paired two rows with
+// IDENTICAL evidence — one candidate, one edit apart — and required OPPOSITE
+// verdicts, which was the only way to prove the rule read `entries_ever` and not
+// the evidence twice. With no verdict to produce there is nothing left for it to
+// separate: both rows now render the same evidence, and that they do is already
+// asserted by TestPendingLoreEntityNamesTheReasonEachCandidateWasOffered.
 //
-// The two rows carry IDENTICAL evidence — one candidate, one edit apart — and
-// get opposite answers, which is the only way to show the rule is reading
-// `entries_ever` and not the evidence twice.
-func TestPendingLoreEntitySuggestsMergeOnANeverUsedNearMiss(t *testing.T) {
-	d := newTestDAL(t)
-	t33Entity(t, d, "en-repo", "repo", "repo:ocwarden")
-	t33Entity(t, d, "en-agent", "agent", "agent:ocwarden")
+// ⚠️ IT IS NOT REPLACED BY A WEAKER VERSION ON PURPOSE. A test that kept the
+// two-row setup and asserted only 「both report edit_distance_1」 would look like
+// coverage while checking something the test above already checks on one row.
+// The behaviour it guarded — 「never used」 changing a decision — should come back
+// with the AI judgement that replaces the rule, and it should be written against
+// THAT, not left here half-alive.
 
-	dead := t33Mint(t, d, "repo:ocwardn")
-	t33Unfile(t, d, dead.EntryID)
-	t33Mint(t, d, "agent:ocwardn")
-
-	never := t33PendingByKey(t, d, "repo:ocwardn")
-	if never.Suggestion != LoreSuggestMerge || never.MergeTarget != "en-repo" {
-		t.Fatalf("repo:ocwardn suggestion = %q → %q, want merge → en-repo: the name never "+
-			"carried an entry, so folding it costs no knowledge and buys an alias that "+
-			"stops the same misspelling being minted again", never.Suggestion, never.MergeTarget)
-	}
-
-	used := t33PendingByKey(t, d, "agent:ocwardn")
-	if used.Suggestion != "" || used.MergeTarget != "" {
-		t.Fatalf("agent:ocwardn suggestion = %q → %q, want the EMPTY string on the SAME "+
-			"evidence: this one carries lore, and merging it RELOCATES that lore under "+
-			"another name — one edit apart is not enough for that",
-			used.Suggestion, used.MergeTarget)
-	}
-	if len(used.Similar) != 1 || used.Similar[0].Reason != LoreSimilarEditDistance1 {
-		t.Fatalf("agent:ocwardn similar = %+v — withholding the verdict must not withhold "+
-			"the evidence", used.Similar)
-	}
-}
-
-// TestPendingLoreEntityDoesNotPromoteAFamilyResemblance keeps the promotion to
-// the typo-shaped reasons. `prefix` and `substring` are how a FAMILY of real
-// names looks, and suggesting a merge there aims the reviewer at destroying a
-// distinction the ontology meant to make.
-func TestPendingLoreEntityDoesNotPromoteAFamilyResemblance(t *testing.T) {
+// TestPendingLoreEntityReportsAFamilyResemblanceWithItsOwnReason keeps `prefix`
+// DISTINGUISHABLE from a typo. `repo:officraft` and `repo:officraft-web` are how
+// a FAMILY of real names looks, and a row that offered that candidate under the
+// same label as an exact fold would aim the reviewer at destroying a distinction
+// the ontology meant to make.
+//
+// ⚠️ It used to assert that the rule REFUSED to promote a prefix to a merge
+// suggestion. The rule is gone (owner 2026-09-05) and the reason name is what now
+// carries that whole judgement to the human — which is why the candidate must
+// still be shown, and must still be shown as `prefix`.
+func TestPendingLoreEntityReportsAFamilyResemblanceWithItsOwnReason(t *testing.T) {
 	d := newTestDAL(t)
 	t33Entity(t, d, "en-web", "repo", "repo:officraft-web")
 	unused := t33Mint(t, d, "repo:officraft")
@@ -578,43 +573,24 @@ func TestPendingLoreEntityDoesNotPromoteAFamilyResemblance(t *testing.T) {
 
 	row := t33PendingByKey(t, d, "repo:officraft")
 	if len(row.Similar) != 1 || row.Similar[0].Reason != LoreSimilarPrefix {
-		t.Fatalf("similar = %+v, want the prefix candidate reported", row.Similar)
-	}
-	if row.Suggestion != "" || row.MergeTarget != "" {
-		t.Fatalf("suggestion = %q → %q, want empty — 「one name starts the other」 is how "+
-			"repo:officraft and repo:officraft-web look, and they are two things",
-			row.Suggestion, row.MergeTarget)
+		t.Fatalf("similar = %+v, want the candidate reported AS `prefix` — 「one name "+
+			"starts the other」 is how repo:officraft and repo:officraft-web look, and "+
+			"they are two things; the reason name is the only thing telling the reviewer "+
+			"that before he merges them", row.Similar)
 	}
 }
 
-// TestPendingLoreEntityWithholdsApproveOnANameNothingEverUsed is the judgement
-// that REMOVES a suggestion, so it gets the contrast case in the same test: the
-// evidence half is identical (nothing resembles either name) and only 「was it
-// ever used」 differs.
-func TestPendingLoreEntityWithholdsApproveOnANameNothingEverUsed(t *testing.T) {
-	d := newTestDAL(t)
-	orphan := t33Mint(t, d, "repo:orphan")
-	t33Unfile(t, d, orphan.EntryID)
-	t33Mint(t, d, "repo:carrier")
-
-	dead := t33PendingByKey(t, d, "repo:orphan")
-	if len(dead.Similar) != 0 {
-		t.Fatalf("repo:orphan similar = %+v, want none", dead.Similar)
-	}
-	if dead.Suggestion != "" || dead.MergeTarget != "" {
-		t.Fatalf("repo:orphan suggestion = %q → %q, want the EMPTY string: 「nothing looks "+
-			"like it」 is evidence about DUPLICATION and says nothing about whether a name "+
-			"that serves zero entries deserves a slot in a truncated boot directory",
-			dead.Suggestion, dead.MergeTarget)
-	}
-
-	live := t33PendingByKey(t, d, "repo:carrier")
-	if live.Suggestion != LoreSuggestApprove {
-		t.Fatalf("repo:carrier suggestion = %q, want approve — the withholding above must "+
-			"be about 「never used」 and NOT a blanket retreat from suggesting anything",
-			live.Suggestion)
-	}
-}
+// 🔴 TestPendingLoreEntityWithholdsApproveOnANameNothingEverUsed STOOD HERE AND
+// WAS DELETED WITH THE RULE IT LOCKED (owner 2026-09-05). It was the guard on the
+// judgement that REMOVED a suggestion — 「nothing resembles it」 is evidence about
+// duplication and says nothing about whether a name serving zero entries deserves
+// a slot in a truncated boot directory — and it proved that by contrasting a
+// never-used name against a carrier with identical (empty) evidence.
+//
+// ⚠️ THE FACT IT WAS BUILT ON IS STILL SERVED AND STILL TESTED: `entries` vs
+// `entries_ever` separating 「never used」 from 「emptied by retirement」 is
+// TestPendingLoreEntitySeparatesNeverUsedFromEmptiedByRetirement, above, which is
+// untouched. What died is only the part that turned that fact into a verdict.
 
 // TestListPendingLoreEntitiesNamesWhoMintedTheKey — the column has been written
 // since 00081 and nothing served it. 「誰在什麼情況下鑄出這個名字」 is the most

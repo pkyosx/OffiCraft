@@ -2666,8 +2666,6 @@ let mockPendingEntities: LorePendingEntityView[] = [
         status: "superseded",
       },
     ],
-    suggestion: "merge",
-    mergeTarget: "en-mock-live",
     similar: [
       {
         entityId: "en-mock-live",
@@ -2703,8 +2701,6 @@ let mockPendingEntities: LorePendingEntityView[] = [
         status: "underspecified",
       },
     ],
-    suggestion: "approve",
-    mergeTarget: "",
     similar: [],
     sampleShort: "複製資料庫等於複製設定 —— 開關存在資料裡,跟著資料走。",
   },
@@ -2726,8 +2722,6 @@ let mockPendingEntities: LorePendingEntityView[] = [
     ],
     // 只有模糊相似,而且**底下真的有記憶** ⇒ 伺服器算不出明確結論 ⇒ 這一格就是
     // 空的。合併會把那條記憶搬到另一個名字底下,一個字的證據不夠付這個代價。
-    suggestion: "",
-    mergeTarget: "",
     similar: [
       {
         entityId: "en-mock-4",
@@ -2749,8 +2743,6 @@ let mockPendingEntities: LorePendingEntityView[] = [
     entries: 0,
     entriesEver: 0,
     entryRefs: [],
-    suggestion: "merge",
-    mergeTarget: "en-mock-live",
     similar: [
       {
         entityId: "en-mock-live",
@@ -2772,8 +2764,6 @@ let mockPendingEntities: LorePendingEntityView[] = [
     entries: 0,
     entriesEver: 2,
     entryRefs: [],
-    suggestion: "approve",
-    mergeTarget: "",
     similar: [],
     sampleShort: "",
   },

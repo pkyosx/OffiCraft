@@ -287,10 +287,6 @@
   color: var(--color-text-muted);
 }
 
-.lore-pending__suggestion {
-  font-weight: 600;
-}
-
 /* 底下那幾條。是一份**指路清單**,所以它不能長得像記憶本身 —— 字級與顏色都退
    一階,重點在「有哪幾條、叫什麼」,不在讀它。 */
 .lore-pending__entries {
@@ -328,11 +324,10 @@
   padding: 0 6px;
 }
 
-/* 算不出建議的那一格:看起來就不能跟算得出來的一樣。 */
-.lore-pending__suggestion--none {
-  font-weight: 400;
-  color: var(--color-text-muted);
-}
+/* 🔴 `.lore-pending__suggestion` / `--none` 曾經在這裡,是那一格伺服器建議的樣
+   式。整組建議在 owner 2026-09-05 被裁掉(改成 AI 判、人可回 comment 重判,另
+   一張票),樣式跟著走 —— 留著一條沒有元素會用到的規則,下一個人只會拿它去猜
+   一個已經不存在的畫面。 */
 
 .lore-pending__similar + .lore-pending__similar {
   margin-inline-start: 10px;

@@ -1250,11 +1250,14 @@ export interface LorePendingEntityView {
   entriesEver: number;
   /** `entries` 數到的**每一條**,不是只有第一條的前 120 字。 */
   entryRefs: LoreEntryRefView[];
-  /** `approve` / `merge` / **空字串 ＝ 算不出明確結論**。空的時候畫面不准補一
-   * 個 —— 硬給的建議跟算得出來的長得一模一樣。 */
-  suggestion: string;
-  /** `suggestion` 是 merge 時,建議併進哪一個。 */
-  mergeTarget: string;
+  /** 🔴 `suggestion` / `mergeTarget` 原本在這裡,owner 2026-09-05 裁掉了。那一
+   * 組是伺服器用機械規則算出來的「你該按哪顆鈕」;他的理由是那個規則本身沒有
+   * 意義 ——「ai 會笨到產生大小寫不一樣的對象嗎」。之後會換成「請 AI 判一輪、
+   * 人可以同意或回 comment 讓它重判」,那是**另一張票**;在那之前這一列刻意不
+   * 給任何自動判斷。
+   * ⚠️ `similar` 留著,而且它才是重點:owner 要拿掉的是「系統建議你按哪個鈕」,
+   * 不是「像哪些既有名字、每一個為什麼像」。合併的目標現在由他從這一排裡自己
+   * 挑 —— 少掉的是那個代他挑的規則,不是合併這件事。 */
   similar: LoreEntitySimilarView[];
   /** 這個對象底下第一條記憶的**第 2 格 `content`**,截斷過。空 ⇒ 底下還沒有記憶。
    * ⚠️ `sampleShort` / wire 上的 `sample_short` 是六格時代 `short` 留下的名字,

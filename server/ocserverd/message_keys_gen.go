@@ -216,8 +216,6 @@ var messageKeys = map[string]bool{
 	"lore.pendingNeverUsed":                            true,
 	"lore.pendingNoEntries":                            true,
 	"lore.pendingSimilarLead":                          true,
-	"lore.pendingSuggestApprove":                       true,
-	"lore.pendingSuggestNone":                          true,
 	"lore.pendingTitle":                                true,
 	"lore.reasonEditDistance1":                         true,
 	"lore.reasonEditDistance2":                         true,

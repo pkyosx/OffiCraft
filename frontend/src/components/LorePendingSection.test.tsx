@@ -11,8 +11,11 @@
 //      讓人以為系統沒查。
 //   ③ 底下不只一條的時候,每一條都要看得到,不是只有第一條的前 120 字。
 //
-// 🔴 這三件都是**多給資訊**,不是多給出口。最後一個 it 就是在鎖這個:按鈕還是
-// 只有那兩顆,建議還是伺服器算的。
+// 🔴 這三件都是**多給資訊**,不是多給出口。最後一個 it 就是在鎖這個。
+// ⚠️ 它原本還鎖「建議還是伺服器算的」;owner 2026-09-05 把整組 `suggestion` /
+// `mergeTarget` 裁掉了(改成 AI 判一輪、人可回 comment 重判,另一張票),所以那
+// 半句連同斷言一起拿掉。剩下的那半句沒有變弱:一列**沒有相似候選**的時候仍然
+// 只有「核可」一顆鈕,「駁回」還是不存在。
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
@@ -32,8 +35,6 @@ function row(over: Partial<LorePendingEntityView> = {}): LorePendingEntityView {
     entries: 0,
     entriesEver: 0,
     entryRefs: [],
-    suggestion: "",
-    mergeTarget: "",
     similar: [],
     sampleShort: "",
     ...over,
@@ -164,10 +165,8 @@ describe("LorePendingSection — 一列上看得到的東西", () => {
     renderSection();
 
     await waitFor(() => screen.getByTestId("lore-pending-row"));
-    // 建議是空的就留白 —— 這一列上不准補一個。
-    expect(screen.getByText(zh.lore.pendingSuggestNone)).toBeTruthy();
-    // 只有「核可」一顆:沒有 mergeTarget 就沒有合併鈕,而「駁回」從來沒有存在
-    // 過,列出底下有幾條也不會讓它長出來。
+    // 只有「核可」一顆:這一列 `similar` 是空的 ⇒ 沒有可以併進去的候選 ⇒ 沒有
+    // 合併鈕,而「駁回」從來沒有存在過,列出底下有幾條也不會讓它長出來。
     expect(screen.getAllByRole("button")).toHaveLength(1);
     expect(screen.getByText(zh.lore.pendingApprove)).toBeTruthy();
   });

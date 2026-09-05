@@ -469,7 +469,9 @@ export type WireLoreRevisionRow = components["schemas"]["LoreRevisionRowDTO"];
 export type WireLoreRevision = components["schemas"]["LoreRevisionDTO"];
 
 /** Mirrors `LorePendingEntityRowDTO` — one row of the approval queue, carrying
- * the server's own suggestion and the NAMED reason behind it. */
+ * the existing subjects it resembles and the NAMED reason each was offered.
+ * (It also carried the server's own `suggestion` / `merge_target` until owner
+ * 2026-09-05 removed that rule; an AI judgement replaces it in another ticket.) */
 export type WireLorePendingEntity =
   components["schemas"]["LorePendingEntityRowDTO"];
 
