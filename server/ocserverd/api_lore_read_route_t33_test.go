@@ -71,12 +71,16 @@ func TestLoreReadRouteHandsBackWhatContentCompressedAway(t *testing.T) {
 	if got.Reviewed {
 		t.Fatal("一條剛寫進來的條目讀回來就是 reviewed —— 蓋章的那一欄被寫入路徑碰到了")
 	}
-	// 🔴 標題**不在原文裡**，而這是被知道的洞（見 loreRevisionBody 上的說明）。
-	// 釘在這裡是因為它是線上看得見的那一面：讀的人拿到 original 之後，會以為
-	// 那就是這條條目當初寫下的全部。
-	if strings.Contains(got.Original, "heading:") {
-		t.Fatalf("原文現在帶了標題格 —— 先讀 loreRevisionBody 上面那段，"+
-			"核可路徑會讓它變成一份說謊的原文:\n%s", got.Original)
+	// 🔴 標題**在**原文裡，而這是線上看得見的那一面：讀的人拿到 original 之後，
+	// 會以為那就是這條條目當初寫下的全部 —— 所以少一格，就是那份「全部」在說謊。
+	// 這一段以前釘的是相反的事（標題不在原文裡，是一個已知的洞）；洞被填掉的
+	// 方式是讓提案帶得動它（owner rc-bbccbeb3d9e6「任何修改都是提案的一環」）。
+	if !strings.Contains(got.Original, "heading:\n"+got.Heading+"\n") {
+		t.Fatalf("原文裡沒有標題格，或它記的不是條目上那一句（%q）:\n%s",
+			got.Heading, got.Original)
+	}
+	if !strings.Contains(got.Original, "impact_stars:\n") {
+		t.Fatalf("原文裡沒有星等這一格:\n%s", got.Original)
 	}
 	if got.WrittenBy != "m-lore-agent" {
 		t.Fatalf("written_by = %q, want the verified token subject", got.WrittenBy)

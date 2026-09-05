@@ -27,6 +27,7 @@ func loreProposalSeed(t *testing.T, url, tok string) (string, string) {
 	t.Helper()
 	st, body := rosterREST(t, url, tok, "POST", "/api/lore/entries", `{
 		"heading":"two blocks disagreed and nobody noticed for a week",
+		"heading":"兩個區塊對同一件事給了不同答案","impact_stars":2,
 		"trigger":"two blocks disagree about the same fact",
 		"content":"the fold happens in one place",
 		"retire_when":"等只剩一個組裝器",
@@ -62,6 +63,7 @@ func loreProposalBody(base string) string {
 		"encountered":"T-33 slot 4, wiring the proposal route",
 		"fault":"stale",
 		"evidence":"the entry names a file that moved in 8282fdef",
+		"heading":"兩個區塊對同一件事給了不同答案","impact_stars":2,
 		"trigger":"two blocks disagree about the same fact",
 		"content":"the fold happens in lore_fold.go and nowhere else",
 		"retire_when":"等只剩一個組裝器",
@@ -292,7 +294,8 @@ func TestLoreProposalRouteCarriesEventsAndSaysWhichOnesMoved(t *testing.T) {
 		"/api/lore/entries/"+entryID+"/proposals", `{
 			"kind":"update","base_sha256":"`+sha+`",
 			"encountered":"讀到它的時候","fault":"stale","evidence":"第 5 格串錯了",
-			"trigger":"two blocks disagree about the same fact",
+			"heading":"兩個區塊對同一件事給了不同答案","impact_stars":2,
+		"trigger":"two blocks disagree about the same fact",
 			"content":"the fold happens in lore_fold.go and nowhere else"}`); st != 422 {
 		t.Fatalf("一份沒帶 events 的 update：want 422, got %d %s", st, body)
 	}
@@ -301,7 +304,8 @@ func TestLoreProposalRouteCarriesEventsAndSaysWhichOnesMoved(t *testing.T) {
 		"/api/lore/entries/"+entryID+"/proposals", `{
 			"kind":"update","base_sha256":"`+sha+`",
 			"encountered":"讀到它的時候","fault":"stale","evidence":"第 5 格串錯了",
-			"trigger":"two blocks disagree about the same fact",
+			"heading":"兩個區塊對同一件事給了不同答案","impact_stars":2,
+		"trigger":"two blocks disagree about the same fact",
 			"content":"the fold happens in lore_fold.go and nowhere else",
 			"retire_when":"等只剩一個組裝器","impact":"T-33 slot 3",
 			"events":[

@@ -116,21 +116,32 @@ func TestLoreRevisionBodyNamesEveryFieldEvenWhenBlank(t *testing.T) {
 			t.Fatalf("the rendered original drops the %q section:\n%s", name, body)
 		}
 	}
-	// 🔴 這一段釘的是一個**已知的洞**，不是一個想要的性質：標題格與星等不在
-	// 原文裡。渲染器那段註解說明了為什麼（提案帶不動這兩格，印進去會讓每一次
-	// 核可留下一份宣稱「這條沒有標題」的原文）。釘住它是因為兩件事：改渲染器的
-	// 人會在這裡撞到這個決定並被送去讀那段理由，而不是自己重新推一遍；以及
-	// 「這一格沒被記錄下來」這件事本身要有人看得見，不能只活在註解裡。
+	// 🔴 標題與星等**在**原文裡，而這一段以前釘的是相反的事（「它們不在，那是
+	// 一個已知的洞」）。洞被填掉的方式不是把它們從渲染器拿掉，是讓提案帶得動
+	// 它們（owner rc-bbccbeb3d9e6 逐字「任何修改都是提案的一環」，00084 補了
+	// lore_proposal 的兩欄）。
+	// 少了這兩格的後果不是「少記一格」：核可寫進 lore_revision 的是提案渲染出來
+	// 的那串 body，所以每一次核可都會留下一份宣稱「這條沒有標題」的原文，而條目
+	// 上的標題其實還在 —— 一份主動說謊的原文，比一份沒答案的更糟。
 	full := loreRevisionBody(LoreEntry{Heading: "H", ImpactStars: 3}, nil)
 	for _, name := range []string{"heading", "impact_stars"} {
-		if strings.Contains(full, name+":\n") {
-			t.Fatalf("原文現在印了 %q。這不是壞事，但它會讓每一次核可（提案帶不動這一格）"+
-				"寫下一份把它記成空的原文——先讀 loreRevisionBody 上面那段，"+
-				"再決定要不要一起解掉提案那一側:\n%s", name, full)
+		if !strings.Contains(full, name+":\n") {
+			t.Fatalf("原文漏了 %q 這一格 —— 核可之後它會被記成不存在:\n%s", name, full)
 		}
 	}
-	if strings.Contains(full, "H") {
-		t.Fatal("標題的內容漏進了原文，但它的欄名沒有——那是最糟的一種：摘要會因為標題而變，讀的人卻不知道是哪一格變了")
+	// 🔴 值也要在，不只是欄名。只斷言欄名的話，一個把值換成空字串的改動會通過，
+	// 而那正是這一段原本在防的失效形狀（摘要因為標題而變，讀的人卻不知道哪一格變了）。
+	if !strings.Contains(full, "heading:\nH\n") || !strings.Contains(full, "impact_stars:\n3\n") {
+		t.Fatalf("欄名在但值沒進去:\n%s", full)
+	}
+	// 🔴 換掉標題必須換掉摘要。這一條是 base_sha256 那整套機制對標題成立的唯一
+	// 保證：不成立的話，一份基於舊標題寫的提案會顯示成「還是最新的」，而審核者
+	// 按下核可時，那條的標題已經不是他讀過的那一個。星等同理。
+	if loreSHA256(full) == loreSHA256(loreRevisionBody(LoreEntry{Heading: "H2", ImpactStars: 3}, nil)) {
+		t.Fatal("換掉標題之後摘要一個位元組都沒變 —— 標題不在雜湊裡")
+	}
+	if loreSHA256(full) == loreSHA256(loreRevisionBody(LoreEntry{Heading: "H", ImpactStars: 1}, nil)) {
+		t.Fatal("換掉星等之後摘要一個位元組都沒變 —— 星等不在雜湊裡")
 	}
 	if loreSHA256(body) == loreSHA256(loreRevisionBody(LoreEntry{}, nil)) {
 		t.Fatal("an entry with a body and an entirely empty one hash the same")

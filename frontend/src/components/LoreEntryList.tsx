@@ -114,7 +114,9 @@ export function LoreEntryList() {
         (e) =>
           needle === "" ||
           e.trigger.toLowerCase().includes(needle) ||
-          e.content.toLowerCase().includes(needle) ||
+          // 🔴 篩的是標題，不是內容 —— 清單這一層拿到的就是標題（深度②），
+          // 內容要點開那一條才讀得到。拿沒有的東西去篩會篩掉本來該中的。
+          e.heading.toLowerCase().includes(needle) ||
           e.subjects.some((s) => s.toLowerCase().includes(needle))
       ),
     [entries, needle]

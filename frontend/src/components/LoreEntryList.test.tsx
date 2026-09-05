@@ -19,8 +19,11 @@ import { LoreEntryList } from "./LoreEntryList";
 function entry(over: Partial<LoreEntrySummaryView> = {}): LoreEntrySummaryView {
   return {
     entryId: "lore-1",
+    // 標題與第 1 格刻意不是同一句話：一個把兩格接反的元件，兩邊值相同時會看起來
+    // 完全正確。
+    heading: "整套測試綠燈，而它跑過的分母是零",
+    impactStars: 2,
     trigger: "整套測試回 PASS，而我正要拿這個結果去說這一包沒問題。",
-    content: "綠燈只證明它看得到的那些東西沒問題。",
     subjects: ["repo:officraft"],
     actions: [],
     origin: "agent:Kyle",

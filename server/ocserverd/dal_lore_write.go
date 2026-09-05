@@ -155,32 +155,42 @@ type LoreWriteResult struct {
 // 重新渲染再跟它存下的 sha256 比對（核可寫的是提案存下來的那串 body），所以這次
 // 改名不會讓任何既有條目變成「過期」。
 //
-// ⚠️ 這個渲染器**沒有**印 v8 的 `heading` 與 `impact_stars`，而這是一個被知道的
-// 洞，不是漏掉。理由是核可路徑：ApplyLoreProposal 寫進 lore_revision 的是提案
-// **存下來的**那串 body，而 lore_proposal 沒有 heading／impact_stars 兩欄（見
-// migration 00083／00084：這一批不動提案那張表），所以一份提案渲染得出來的標題
-// 只能是空的。把它們印進去，就會在每一次核可之後留下一份「標題是空的」的原文，
-// 而條目上的標題其實好端端地還在 —— 一份**主動說謊**的原文，比一份不提這一格的
-// 原文更糟：前者會被讀成事實，後者只是沒答案。
-// ⚠️ 我考慮過也否決了的另一條路：讓提案在渲染時去把條目**現在**的標題借過來填。
-// 那會讓摘要涵蓋標題、而且不說謊，代價是這個純函式從此要讀資料庫，而且審核者的
-// diff 裡會出現一行他沒有送、也改不動的內容。那是提案能不能帶標題這張卡的事。
-// 🔴 `heading` 進 body，是這一版改的，理由跟這個渲染器自己下面那條「空事件也照印」
-// 完全一樣：**一條標題被換掉的條目，不可以跟換掉之前雜湊出同一串。**
+// 🔴 `heading` 與 `impact_stars` 都在渲染器裡，而它們是同一條裁定的兩半。owner
+// 2026-09-05 於 `rc-bbccbeb3d9e6` 逐字：「**任何修改都是提案的一環**」。理由跟
+// 下面那條「空事件也照印」完全一樣：**一條標題（或星等）被換掉的條目，不可以跟
+// 換掉之前雜湊出同一串。**
+//
+// ⚠️ 這一段之前寫的是相反的話（「這個渲染器沒有印那兩格，而這是一個被知道的
+// 洞」）。那句話在 heading 被加進來的那一刻就變成假的，而沒有人回頭改它 —— 同一
+// 份檔案對同一件事給了兩個答案，讀的人只會挑一句信，而且不知道自己挑了。
+//
+// 舊的理由本身是對的，而且它預言的事**真的發生了**：lore_proposal 當時沒有那兩
+// 欄 ⇒ 核可寫下的原文會宣稱這條沒有標題 —— 一份**主動說謊**的原文，比一份不提
+// 這一格的原文更糟：前者會被讀成事實，後者只是沒答案。
+// 🔴 但解法不是把它們從渲染器拿掉，是**讓提案帶得動它們**（00084 的兩支
+// ALTER TABLE），因為 owner 要的是「條目上改得動的每一格都由提案主張」。
 //
 // 前一版把 heading 排除在外，理由寫的是「今天沒有任何一條路改得動 heading（只有
 // 建立時寫一次）」。**那個理由是假的**：`dal_lore.go` 的 PutLoreEntry 在
-// DO UPDATE SET 裡就有 `heading = excluded.heading`。它今天確實沒有產品碼呼叫者
-// （建立走的是 CreateLoreEntry），所以那個洞是潛伏的、不是活的 —— 但下一個人要接
-// 「改條目」那條路時，最自然的動作就是呼叫 PutLoreEntry，然後靜靜繼承它。
+// DO UPDATE SET 裡就有 `heading = excluded.heading`。
+//
+// ⚠️ 我考慮過也否決了的另一條路：讓提案在渲染時去把條目**現在**的標題借過來填。
+// 那會讓摘要涵蓋標題、而且不說謊，代價是這個純函式從此要讀資料庫，而且審核者的
+// diff 裡會出現一行他沒有送、也改不動的內容。owner 的裁定讓它整個變成錯的方向：
+// 借過來的標題不是提案主張的，正是「他沒有修改它」的意思。
 //
 // ⚠️ 這個改動會讓所有既有 revision 的 digest 變掉。**那個集合依構造是空的**：
 // `origin/main` 上 lore 的檔案數是 0，沒有任何已發版的程式碼寫過一條 lore 條目。
 // 換句話說代價是量得到的零，不是「應該還好」。
 //
-// 🔴 這是我（O-197）自己下的設計決定，不是誰的裁定。「標題算不算提案的版本內容」
-// 沒有人裁過；我選了「算」，因為審核者看到的 base digest 必須涵蓋他讀到的東西。
-// 已開卡讓 owner 推翻。守衛在 dal_lore_write_t33_test.go 的 heading/digest 那一支。
+// 🔴 守衛有四支，而且它們是**被紅燈找出來的、不是被這段註解擋住的**（註解不是
+// 守衛）：TestLoreRevisionBodyNamesEveryFieldEvenWhenBlank ／
+// TestLoreReadRouteHandsBackWhatContentCompressedAway ／
+// TestLoreProposalRefusesAVersionIdenticalToTheBase ／
+// TestLoreProposalThatOnlyMovesEventsIsNotNoChange。
+// 🔴 後兩支是最值得記的一格：「什麼都沒改的提案要被拒絕」是比兩串 digest，提案
+// 那一串少一格 ⇒ 兩串永遠不等 ⇒ **那道守衛不是壞掉，是變成恆真**，而恆真的守衛
+// 在畫面上跟「真的沒有人送重複提案」長得一模一樣。
 func loreRevisionBody(e LoreEntry, events []LoreEvent) string {
 	var b strings.Builder
 	for _, f := range []struct{ name, value string }{
@@ -189,6 +199,13 @@ func loreRevisionBody(e LoreEntry, events []LoreEvent) string {
 		{"content", e.Content},
 		{"retire_when", e.RetireWhen},
 		{"impact", e.Impact},
+		// 🔴 星等進 body，理由跟 heading 一模一樣，而且 owner 的裁定同時涵蓋
+		// 兩者：「任何修改都是提案的一環」(rc-bbccbeb3d9e6)。一條星等被從 1 改
+		// 成 3 的條目，不可以跟改之前雜湊出同一串 —— 否則一份基於舊星等寫的
+		// 提案會顯示成「還是最新的」，而審核者按下去時那一格已經不是他讀到的
+		// 那個數字。owner 2026-09-05 另補：星等就是重要性本身（評分那一軸作廢，
+		// 「用星等取代 因為 impact 本就是重要性」）⇒ 它是條目的權重，不是註腳。
+		{"impact_stars", strconv.Itoa(e.ImpactStars)},
 	} {
 		b.WriteString(f.name)
 		b.WriteString(":\n")

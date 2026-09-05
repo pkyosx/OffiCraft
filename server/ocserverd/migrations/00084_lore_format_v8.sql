@@ -100,7 +100,60 @@ ALTER TABLE lore_entry ADD COLUMN impact_stars INTEGER NOT NULL DEFAULT 0
 ALTER TABLE lore_entry ADD COLUMN reviewed INTEGER NOT NULL DEFAULT 0
     CHECK (reviewed IN (0, 1));
 
+-- ── 🔴 提案也要帶得動標題與星等，否則核可會寫出一份說謊的原文 ────────────────
+--
+-- owner 2026-09-05 於 `rc-bbccbeb3d9e6` 逐字：「**任何修改都是提案的一環**」。
+-- 卡上問的只有「標題算不算提案的版本內容」；他的答案比那一格大 —— 條目上改得動
+-- 的每一格，都要能由提案主張。
+--
+-- 🔴 而在這兩欄之前，那不只是「少了兩格」，它會產生一份**主動說謊的原文**。
+-- 實測（重現測試，配陽性對照，2026-09-05）：
+--   entry.Heading after accept = "開機脈絡在兩個地方各組了一次，兩份內容不一樣"
+--   journal body after accept  = "heading:\n\n\ntrigger:\n…"     ← 標題是空的
+-- 成因是三行接在一起：`loreRevisionBody` 印 heading；`loreProposalEntry` 回傳的
+-- Heading 是零值（因為這張表沒有那一欄）；`ApplyLoreProposal` 把提案**存下來的**
+-- 那串 body 原封不動寫進 lore_revision，而 UPDATE lore_entry 只動四格。
+-- ⇒ 核可之後條目上的標題還在，原文層卻宣稱這條沒有標題 —— 而原文層存在的唯一
+-- 理由，就是讓 agent 在不再相信壓縮版時回去看當初寫了什麼（本票硬條件 4）。
+-- ⚠️ 陽性對照是這份證據的關鍵：同一支測試在提案之前先問一次，那時候原文層
+-- **有**標題 ⇒ 不是量法看不到標題，是核可那一步把它換掉了。
+--
+-- ── 為什麼寫在這一支，而不是補進 00083（建 lore_proposal 的那一支）─────────
+--
+-- 🔴 Kyle（`c-5f576ae65f3d`）裁定並指名這個陷阱：`81/82/83` 在正式庫已經
+-- `is_applied=1`（唯讀查證，配陽性／陰性對照）。goose **不會重跑一支已套用的
+-- migration** ⇒ 把欄位補進 00083 等於什麼都沒發生，而且**沒有任何訊號**：本機
+-- 的拋棄式 DB 會正確、正式庫會缺欄位、測試全綠。
+-- ⇒ 新欄位一律走這一支的 ALTER TABLE，即使那看起來比較醜。
+--
+-- ── 為什麼不另開 00085 ──────────────────────────────────────────────────────
+-- 同一個變更的兩半。Kyle 已把 `00085` 許給 T-79，而排序約束（T-33 先、T-79 後）
+-- 兩案相同、不構成判準。⚠️ 那個排序是硬約束不是偏好：T-79 承包者實測
+-- 「檔在、號比當前版本小、未套用 → exit 1，且 DB 停在原處、每次啟動都撞同一個
+-- 錯、不會自己好」。
+-- ⚠️ 改這一支會動 migration.lock 的中段，而 Kyle 的判準是「中段變動永遠不是
+-- 誤報」—— 這裡不衝突：`TestMigrationLockGrowsOnlyAtItsTail` 比的是 origin/main
+-- 的 lock 是不是本樹的**前綴**，而 00084 不在 main 上。
+
+-- 空字串 = 這份提案沒有主張標題（既有的 27 份提案會落在這一格上，它們是在標題
+-- 這一格存在之前送的）。「拒絕空標題」放在 DAL 不放在 CHECK，理由同上面標題那
+-- 一段；而拒絕的時機有**兩個**：送出時的形狀檢查，以及**核可時**——後者是為了
+-- 那 27 份：形狀檢查沒看過它們，核可它們會把條目上的標題清成空的。
+ALTER TABLE lore_proposal ADD COLUMN heading TEXT NOT NULL DEFAULT '';
+
+-- 刻度與上面 lore_entry.impact_stars **必須**相同：核可會把這個值寫進那一欄，
+-- 兩邊合法區間不一樣的話，一份存得下的提案會在核可那一刻撞上另一張表的 CHECK，
+-- 而失敗的位置離送出的人很遠。
+-- ⚠️ 照實說的代價：0 既是「還沒判」，也是一份沒填這一格的提案會存下來的值 ⇒ 一份
+-- 提案有可能把條目從 2 降回 0。**但那不是靜默的**：這一批同時把 impact_stars 印進
+-- `loreRevisionBody` ⇒ 它進了 body、進了 sha256、也進了審核者眼前那份 diff。
+-- 看得見的降級是一個主張，看不見的才是 bug。
+ALTER TABLE lore_proposal ADD COLUMN impact_stars INTEGER NOT NULL DEFAULT 0
+    CHECK (impact_stars BETWEEN 0 AND 3);
+
 -- +goose Down
+ALTER TABLE lore_proposal DROP COLUMN impact_stars;
+ALTER TABLE lore_proposal DROP COLUMN heading;
 ALTER TABLE lore_entry DROP COLUMN reviewed;
 ALTER TABLE lore_entry DROP COLUMN impact_stars;
 ALTER TABLE lore_entry RENAME COLUMN impact TO problem;

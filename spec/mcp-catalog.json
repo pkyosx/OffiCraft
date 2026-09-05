@@ -4701,6 +4701,14 @@
                 "$ref": "#/$defs/LoreEventInputDTO"
               },
               "type": "array"
+            },
+            "heading": {
+              "type": "string",
+              "description": "The proposed 標題格 — 這一次實際發生了什麼。REQUIRED on an `update`, exactly as on a write and for the same reason: accepting a proposal writes a version through the ordinary write path, so a proposal that path would refuse can never be accepted while sitting in the queue looking exactly like one that could. 🔴 It MUST travel on the proposal, because what an accept writes into the L0 journal is the proposal's OWN rendered body: while a proposal could not carry 標題, every accept left behind an original claiming the entry had no title while the entry's title was still sitting there — an 原文 that actively lies is worse than one that is silent. owner 2026-09-05 ruling rc-bbccbeb3d9e6, verbatim: 「任何修改都是提案的一環」. Sent only on an `update`; a `remove` carrying it is refused."
+            },
+            "impact_stars": {
+              "type": "integer",
+              "description": "The proposed 星等 for 第 4 格 — 0..3, the same scale as on a write (0 = 還沒判、1 = 沒弄壞任何東西、2 = 弄壞的只有你動的那個、3 = 弄壞的包含你沒動的; the three are NOT cumulative — the only boundary is whether what broke was inside what you touched). 🔴 It is part of the proposed version and therefore part of the digest: an entry whose stars went from 1 to 3 must not hash to what it hashed before, or a proposal written against the old number would still read as current. ⚠️ Omitting it yields 0, and 0 means 還沒判 — so a proposal that leaves this cell out puts the entry's stars back to 0. That is a CLAIM rather than a silent wipe: it is rendered into `body` and hashed into `sha256`, so it is in the diff the reviewer reads. Sent only on an `update`; a non-zero value on a `remove` is refused."
             }
           },
           "required": [

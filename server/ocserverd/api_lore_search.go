@@ -107,11 +107,30 @@ func (s *apiServer) HandleSearchLoreEntriesApiLoreSearchPost(w http.ResponseWrit
 		}
 		entries = append(entries, LoreSearchHitDTO{
 			EntryId: h.Entry.ID,
-			// 🔴 一筆 hit 只帶第 1、2 格。第 3、4、5 格要用 get_lore_entry 讀——
-			// 搜尋的答案是拿來「挑」的，把每一條的事件整包塞進結果列表是一個沒有
-			// 人做過的大小決定。
-			Trigger:       h.Entry.Trigger,
-			Content:       h.Entry.Content,
+			// 🔴 一筆 hit 帶的是**標題**，不是內容 —— 這是 owner 2026-09-05 定的
+			// 四層深度的第 ② 層，他逐字：
+			//   「agent 在 resume summary 看到 target list，在做跟 target 有關的
+			//     事情時查一下有跟該 target 相關的什麼記憶 (list of titles)，然後
+			//     覺得有相關的或是重要的就自己再去 read 讀進來 content。」
+			// 以及「title 應該就是 agent 透過 target 會看到的列表 因為這會決定
+			// 他們要不要看內容」。
+			//
+			// 🔴 `content` 從這裡拿掉了，而那是這一層存在的**全部理由**：帶著它，
+			// 一次查詢就把每一條的整段內容倒進 agent 的 context —— 那正是這張票
+			// 要治的病（開機無條件整份載入）。量過：27 條標題全列出來是 512 字元
+			// ≈ 130 tokens；同樣 27 條的 content 是兩個數量級以上。
+			// ⚠️ 破壞性改變。射程內沒有真的使用者（origin/main 上 lore 的檔案數
+			// 是 0），所以代價是量得到的零，不是「應該還好」。
+			//
+			// ⚠️ `trigger` 留著是我的判斷，不是他講的：它是這條被撈出來的**理由**
+			// （對象 × 活動），少了它，一串標題說不出自己為什麼在這裡。它很短，
+			// 跟 content 不同一個量級。可以推翻。
+			Trigger: h.Entry.Trigger,
+			Heading: h.Entry.Heading,
+			// 星等要在這一層，因為它就是重要性（owner：「評分也改了不用 用星等
+			// 取代 因為 impact 本就是重要性」）—— 一串標題如果不帶重要性，agent
+			// 只能照順序看，而順序不是重要性。
+			ImpactStars:   h.Entry.ImpactStars,
 			Origin:        h.Entry.Origin,
 			Subjects:      subjects,
 			Actions:       actions,

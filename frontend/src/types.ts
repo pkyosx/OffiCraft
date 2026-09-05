@@ -1046,18 +1046,23 @@ export type BackupHealthCode = "" | "never_ran" | "stale" | "failed";
 
 /** One retrieved entry, as `POST /api/lore/search` answers it.
  *
- * 🔴 A HIT CARRIES ONLY 第 1、2 格. 第 3、4、5 格 are reached with
- * `getLoreEntry`, because a search answer is what you PICK from — putting every
- * entry's events into the list would be a size decision nobody has made. */
+ * 🔴 A HIT CARRIES THE TITLE, NOT THE BODY — depth ② of the four owner ruled on
+ * 2026-09-05: subject list (boot) → titles (looking something up) → content and
+ * impact (having decided it is worth loading) → events (the raw material). A
+ * search answer is what you PICK FROM, so it carries what a decision needs and
+ * nothing else; `getLoreEntry` is what you call once you have decided. */
 export interface LoreEntrySummaryView {
   entryId: string;
-  /** 第 1 格「什麼時候要記起來」— when you would want to remember this. It is
-   * REQUIRED on write, and it doubles as the entry's TITLE: 五格 has no `label`
-   * cell and this one carries no length cap. */
+  /** 🔴 標題 — the one line this list is FOR. owner 2026-09-05: 「title 應該就是
+   * agent 透過 target 會看到的列表 因為這會決定他們要不要看內容」. */
+  heading: string;
+  /** 🔴 星等 0..3 — the entry's importance, so a list of titles can be read by
+   * weight rather than by order. 0 is 還沒判, not 「lightest」. */
+  impactStars: number;
+  /** 第 1 格「什麼時候要記起來」— 對象 × 活動, the axis this entry was found by.
+   * ⚠️ It no longer doubles as the title: v8 pulled 標題 out into its own cell,
+   * which overturned the earlier implementation judgement that said it did. */
   trigger: string;
-  /** 第 2 格「內容」— the compressed body, and the only cell that ever enters a
-   * boot context. Also required on write. */
-  content: string;
   /** Subject keys (`repo:officraft`) this entry is filed under. */
   subjects: string[];
   actions: string[];
@@ -1160,12 +1165,22 @@ export interface LoreEntryDetailView {
   retireWhen: string;
   /** 第 4 格「impact」— 原本想達成什麼、實際變成什麼。v8 之前這一格叫
    * `problem`，問的是起因。Optional as a field while being the substance of
-   * the entry. May be empty, same rendering rule.
-   *
-   * ⚠️ v8 的標題格 (`heading`)、星等 (`impact_stars`) 與審核旗標 (`reviewed`)
-   * 線上都送得到，而這個 view model 還沒有它們——那是傳承分頁自己的一批，不是
-   * 這裡漏了。少了它們，畫面上會看不出一條條目有沒有標題、判過幾顆星。 */
+   * the entry. May be empty, same rendering rule. */
   impact: string;
+  /** 🔴 標題格 (v8) — 這條在講的是「發生了什麼」。它不是裝飾：它是「列出來」
+   * 那一層唯一被讀到的東西，決定一個 agent 要不要載入 `content`
+   * (owner 2026-09-05:「title 應該就是 agent 透過 target 會看到的列表
+   * 因為這會決定他們要不要看內容」)。空字串代表這條是在標題成為一格之前寫的。 */
+  heading: string;
+  /** 🔴 第 4 格的星等 0..3 — **它就是這條條目的重要性**
+   * (owner 2026-09-05:「評分也改了不用 用星等取代 因為 impact 本就是重要性」)。
+   * 1 = 沒弄壞任何東西｜2 = 弄壞的只有你動的那個｜3 = 弄壞的包含你沒動的。
+   * ⚠️ 0 是「還沒判」，不是「最輕」——畫面上必須跟 1 分得開，否則沒有人查得出
+   * 誰漏填了。 */
+  impactStars: number;
+  /** 有沒有人蓋過章。⚠️ 今天沒有任何路由寫得動它，所以它一律是 false —— 那是
+   * 「還沒有 writer」的結果，不是「沒有人審核過」的事實。 */
+  reviewed: boolean;
   /** 第 5 格, IN THE ORDER THE EVENTS HAPPENED — empty array when the entry
    * carries none, which the surface states rather than omits. */
   events: LoreEventView[];

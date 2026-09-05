@@ -32,8 +32,11 @@ function summary(
 ): LoreEntrySummaryView {
   return {
     entryId: "lore-1",
+    // 標題與第 1 格刻意不是同一句話：一個把兩格接反的元件，兩邊值相同時會看起來
+    // 完全正確。
+    heading: "整套測試綠燈，而它跑過的分母是零",
+    impactStars: 2,
     trigger: "整套測試回 PASS，而我正要拿這個結果去說這一包沒問題。",
-    content: "綠燈只證明它看得到的那些東西沒問題。",
     subjects: ["repo:officraft"],
     actions: [],
     origin: "agent:Kyle",
@@ -48,6 +51,9 @@ function summary(
 function detail(over: Partial<LoreEntryDetailView> = {}): LoreEntryDetailView {
   return {
     entryId: "lore-1",
+    heading: "整套測試綠燈，而它跑過的分母是零",
+    impactStars: 2,
+    reviewed: false,
     trigger: "整套測試回 PASS，而我正要拿這個結果去說這一包沒問題。",
     content: "綠燈只證明它看得到的那些東西沒問題。",
     retireWhen: "",
@@ -90,10 +96,12 @@ describe("LoreEntryCard 五格", () => {
     await open();
 
     for (const name of [
+      zh.lore.fieldHeading,
       zh.lore.fieldTrigger,
       zh.lore.fieldContent,
       zh.lore.fieldRetireWhen,
-      zh.lore.fieldProblem,
+      zh.lore.fieldImpact,
+      zh.lore.fieldImpactStars,
       zh.lore.fieldEvents,
     ]) {
       expect(screen.getByText(name)).toBeTruthy();
@@ -165,12 +173,23 @@ describe("LoreEntryCard 五格", () => {
     ]);
   });
 
-  it("摺起來那一列的標題是第 1 格，摘要是第 2 格，而且沒有 degraded 徽章", async () => {
+  // 🔴 這支以前叫「摺起來那一列的標題是第 1 格，摘要是第 2 格」，而那是 v7 的
+  // 行為。v8 把標題拉出來成獨立的一格，owner 2026-09-05 逐字定了它的職責：
+  // 「title 應該就是 agent 透過 target 會看到的列表 因為這會決定他們要不要看內容」。
+  // ⇒ 摺起來那一列印的是**標題**，內容要點開才讀得到。
+  it("摺起來那一列印的是標題，不是內容 —— 內容要點開才拿得到", async () => {
     renderCard();
+    expect(screen.getByText("整套測試綠燈，而它跑過的分母是零")).toBeTruthy();
+    // 🔴 陰性對照，而它是這支測試的重點：內容**不可以**出現在摺起來的那一列。
+    // 少了這一句，一個把標題與內容都印出來的元件也會通過 —— 而那正是這一層要
+    // 省掉的東西（清單那一層倒出整段內容，就是這張票在治的病）。
+    expect(
+      screen.queryByText("綠燈只證明它看得到的那些東西沒問題。"),
+    ).toBeNull();
+    // 第 1 格在副標的位置：它說的是這條**為什麼在這份清單裡**。
     expect(
       screen.getByText("整套測試回 PASS，而我正要拿這個結果去說這一包沒問題。"),
     ).toBeTruthy();
-    expect(screen.getByText("綠燈只證明它看得到的那些東西沒問題。")).toBeTruthy();
     expect(screen.queryByText("證偽條件與實例都空")).toBeNull();
   });
 });

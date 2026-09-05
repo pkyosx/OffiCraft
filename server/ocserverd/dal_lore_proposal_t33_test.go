@@ -25,9 +25,16 @@ import (
 // this baseline proposes exactly the fifth cell that is already there.
 func t33Propose(entryID string) LoreProposal {
 	return LoreProposal{
-		Events:      []LoreEvent{},
-		EntryID:     entryID,
-		Kind:        "update",
+		Events:  []LoreEvent{},
+		EntryID: entryID,
+		Kind:    "update",
+		// 🔴 標題與第 1 格刻意不是同一句話，跟 t33Write() 同樣的理由：v8 的標題
+		// 寫「發生了什麼」，第 1 格寫「我要做 X」。寫成同一句，一個把兩格接反的
+		// 錯誤就沒有任何測試看得見。
+		// ⚠️ 它也刻意跟 t33Write() 的標題**不一樣**：核可之後條目上的標題必須
+		// 變成這一句，而如果兩邊一樣，「核可有沒有寫回標題」就無從分辨。
+		Heading:     "組裝器搬過家，而條目還指著舊檔名",
+		ImpactStars: 3,
 		Encountered: "T-33 slot 4, wiring the proposal route",
 		Fault:       "stale",
 		Evidence:    "the entry names dal_lore.go, and the function moved to dal_lore_write.go in 8282fdef",
@@ -192,8 +199,8 @@ func TestLoreProposalStoresTheWholeVersionUnderTheSharedRenderer(t *testing.T) {
 		t.Fatalf("list events: %v", evErr)
 	}
 	want := loreRevisionBody(LoreEntry{
-		Trigger: p.Trigger, Content: p.Content,
-		RetireWhen: p.RetireWhen, Impact: p.Impact,
+		Heading: p.Heading, Trigger: p.Trigger, Content: p.Content,
+		RetireWhen: p.RetireWhen, Impact: p.Impact, ImpactStars: p.ImpactStars,
 	}, seededEvents)
 	if row.Body != want {
 		t.Fatalf("stored body is not what the shared renderer produces:\n got %q\nwant %q", row.Body, want)
@@ -302,8 +309,12 @@ func TestLoreProposalRefusesAVersionIdenticalToTheBase(t *testing.T) {
 	entry := t33Get(t, d, entryID)
 	same := t33Propose(entryID)
 	same.BaseSHA256 = sha
-	same.Trigger, same.Content = entry.Trigger, entry.Content
+	same.Heading, same.Trigger, same.Content = entry.Heading, entry.Trigger, entry.Content
 	same.RetireWhen, same.Impact = entry.RetireWhen, entry.Impact
+	// 🔴 星等也要抄過來，而它是這一批新加的一格。漏抄它的話這份提案就**不是**
+	// 「一模一樣」了，摘要會不同、ErrLoreProposalNoChange 不會觸發，而測試會紅
+	// 在一個看起來像「守衛失效」的地方 —— 那正是這一格加進摘要要防的事。
+	same.ImpactStars = entry.ImpactStars
 	if _, err := d.CreateLoreProposal(same, 2000); !errors.Is(err, ErrLoreProposalNoChange) {
 		t.Fatalf("a proposal that changes nothing was filed: %v", err)
 	}
@@ -488,7 +499,8 @@ func TestLoreProposalThatOnlyMovesEventsIsNotNoChange(t *testing.T) {
 		EntryID: seeded.EntryID, Kind: "update", BaseSHA256: seeded.SHA256,
 		Encountered: "在讀這條的時候發現第 5 格串錯了", Fault: "never-true",
 		Evidence: "那台機器當天根本沒有被碰過",
-		Trigger:  w.Trigger, Content: w.Content, RetireWhen: w.RetireWhen, Impact: w.Impact,
+		Heading:  w.Heading, Trigger: w.Trigger, Content: w.Content,
+		RetireWhen: w.RetireWhen, Impact: w.Impact, ImpactStars: w.ImpactStars,
 		Events:  []LoreEvent{t33Event(1700000000, "人工修好的那一筆")},
 		ActorID: "ow-e27260b9ed05",
 	}

@@ -233,13 +233,30 @@ func TestMigration00083DownRetreatsExactlyOneStage(t *testing.T) {
 		"body", "sha", "ow-e27260b9ed05"); err != nil {
 		t.Fatalf("file a proposal against an entry written BEFORE this migration: %v", err)
 	}
-	list, err := dal.ListLoreProposals(written.EntryID)
-	if err != nil {
-		t.Fatalf("list: %v", err)
+	// 🔴 這裡讀的是原始 SQL，不是 ListLoreProposals，而理由跟上面那一段完全一樣、
+	// 只是晚了一階發現：`ListLoreProposals` 名的也是 HEAD 那一階的欄位（00084 給
+	// lore_proposal 補的 heading / impact_stars），而這個資料庫停在 00083。走 DAL
+	// 只會撞到「沒有這個欄位」，那跟這支測的東西無關。
+	// ⚠️ 因此這一段量到的縮水又多一格：它現在只證明「這一列存得進去，而且它指向
+	// 一條比這張表更老的條目」，**不再**證明「新的讀取路徑讀得懂它」。後者在這一
+	// 階已經量不到了 —— 那不是遺憾，是事實：DAL 永遠是照 HEAD 寫的。
+	var filedRows int
+	var filedBase string
+	if err := db.QueryRow(
+		`SELECT COUNT(*), COALESCE(MAX(base_sha256), '') FROM lore_proposal WHERE entry_id = ?`,
+		written.EntryID).Scan(&filedRows, &filedBase); err != nil {
+		t.Fatalf("read the filed proposal back at stage %d: %v", mine, err)
 	}
-	if len(list.Proposals) != 1 || list.Proposals[0].Stale {
-		t.Fatalf("a pre-migration entry reads wrong under the new path: %+v", list)
+	if filedRows != 1 {
+		t.Fatalf("the proposal against a pre-migration entry did not survive: %d rows", filedRows)
 	}
+	// 陽性對照：它存下來的 base digest 就是那條**更老的**條目當時的原文摘要 ——
+	// 不比對這一格的話，「這一列存進去了」跟「它指向的東西是對的」分不開。
+	if filedBase != written.SHA256 {
+		t.Fatalf("the filed proposal points at %q, but the pre-migration entry stood at %q",
+			filedBase, written.SHA256)
+	}
+	_ = dal
 
 	// ── DOWN: exactly one stage ──────────────────────────────────────────────
 	m83Goose(t)
@@ -280,12 +297,21 @@ func TestMigration00083DownRetreatsExactlyOneStage(t *testing.T) {
 	// of the Down rather than a surprise. Asserting it is what keeps 「有損」 an
 	// observed fact instead of a sentence in a comment.
 	m83UpTo(t, db, mine)
-	after, err := dal.ListLoreProposals(written.EntryID)
-	if err != nil {
-		t.Fatalf("list after re-up: %v", err)
+	// 原始 SQL，同上：DAL 是照 HEAD 寫的，而這個資料庫停在 00083。
+	var afterRows int
+	if err := db.QueryRow(
+		`SELECT COUNT(*) FROM lore_proposal WHERE entry_id = ?`, written.EntryID).
+		Scan(&afterRows); err != nil {
+		t.Fatalf("count proposals after re-up: %v", err)
 	}
-	if len(after.Proposals) != 0 {
-		t.Fatalf("a proposal survived a retreat past the table that holds it: %+v", after)
+	if afterRows != 0 {
+		t.Fatalf("a proposal survived a retreat past the table that holds it: %d rows", afterRows)
+	}
+	// 陽性對照：那張表**在**（空的表跟不存在的表在 COUNT 上都會出事，但方式不同
+	// —— 不存在會是錯誤，這裡拿到的是 0 列）。少了這一句，一個把表整個刪掉的
+	// Down 也會讓上面那一格通過。
+	if !m83HasTable(t, db, "lore_proposal") {
+		t.Fatal("the table did not come back on re-up, so the 0 above measures nothing")
 	}
 	if filedID == "" {
 		t.Fatal("nothing was ever filed, so the loss above is not a loss")

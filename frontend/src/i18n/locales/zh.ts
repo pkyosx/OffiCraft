@@ -140,10 +140,17 @@ export const zh = {
     entryFailed: "讀不到這一條，這是伺服器回的：",
 
     // ── 條目詳情 ──
-    fieldTrigger: "什麼時候要記起來 · 這一格也是這條的標題",
+    // 🔴 v8 把標題拉出來成為獨立的一格，這一句以前寫著「這一格也是這條的標題」
+    // —— 那是 v7 的說法，而 v8 明文推翻它。留著會讓讀的人照著做錯：他會把
+    // 「發生了什麼」寫進第 1 格，而第 1 格是索引鍵，寫成事實敘述就撈不到了。
+    fieldHeading: "標題 · 發生了什麼（清單上只看得到這一行）",
+    fieldTrigger: "什麼時候要記起來 · 對象 × 活動，這是別人找到這條的唯一路徑",
     fieldContent: "內容 · 只有這一段會進 agent 的記憶",
     fieldRetireWhen: "什麼時候不需要了",
-    fieldProblem: "之前發生過什麼問題",
+    // 🔴 v8 把第 4 格從 problem（之前發生過什麼問題）改成 impact，因為問的東西
+    // 換了：前者問起因，這一格問後果。
+    fieldImpact: "impact · 原本想達成什麼，實際變成什麼",
+    fieldImpactStars: "重要性 · 弄壞了什麼",
     fieldEvents: "相關的完整資訊 · 時／事／人／地／物",
     fieldEmpty: "（空白 —— 寫的人沒有填）",
     eventsEmpty: "這一條沒有掛任何事件。",

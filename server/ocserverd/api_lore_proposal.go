@@ -69,6 +69,13 @@ func writeLoreProposalError(w http.ResponseWriter, err error) {
 		// 錯誤值而不是提案專屬的新錯誤：接受一份提案等於走一次普通寫入，所以寫入
 		// 會拒絕的東西在這裡就要被拒絕，否則它會躺在佇列裡，看起來跟一份可以被
 		// 接受的提案一模一樣。
+		// 🔴 標題與星等走同一條路，而它們是這一批新加的：一份 heading 空白的
+		// 提案是**呼叫者改得掉**的錯（他補一句就好），所以是 422。漏掉這兩行的
+		// 代價不是「錯誤碼難看」—— 沒有被列舉的錯誤會掉到最後的 internalError，
+		// 呼叫者收到 500，而 500 的意思是「伺服器壞了，你重試」，那會讓一個
+		// 補得好的提案永遠不被補。
+		errors.Is(err, ErrLoreHeadingBlank),
+		errors.Is(err, ErrLoreImpactStarsRange),
 		errors.Is(err, ErrLoreTriggerBlank),
 		errors.Is(err, ErrLoreContentBlank):
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
@@ -97,17 +104,19 @@ func (s *apiServer) HandleProposeLoreChangeApiLoreEntriesEntryIdProposalsPost(w 
 		Encountered: body.Encountered,
 		Fault:       body.Fault,
 		Evidence:    body.Evidence,
-		// 提案帶的是**完整的新版本**：四格 + 第 5 格的整份事件清單（負責人
-		// 2026-09-03 裁定，卡 rc-e5c34500face）。
-		// ⚠️ 「完整」在 v8 之後對整條條目已經不成立：標題格與星等這裡收不到，
-		// 因為 lore_proposal 沒有那兩欄，核可時它們原封不動留在條目上。線上的
-		// 欄位說明（LoreProposeDTO）把這件事寫給了提案人，這裡寫給改這支的人。
-		Trigger:    strOrEmpty(body.Trigger),
-		Content:    strOrEmpty(body.Content),
-		RetireWhen: strOrEmpty(body.RetireWhen),
-		Impact:     strOrEmpty(body.Impact),
-		Events:     loreProposeEvents(body.Events),
-		ActorID:    currentActor(r),
+		// 提案帶的是**完整的新版本**：六格 + 第 5 格的整份事件清單（負責人
+		// 2026-09-03 裁定，卡 rc-e5c34500face；2026-09-05 rc-bbccbeb3d9e6 逐字
+		// 「任何修改都是提案的一環」把標題與星等一併收進來）。
+		// 🔴「完整」現在對整條條目是真的成立的，而在此之前它不是：標題與星等收
+		// 不到，核可寫下的原文因此宣稱條目沒有標題。
+		Heading:     strOrEmpty(body.Heading),
+		Trigger:     strOrEmpty(body.Trigger),
+		Content:     strOrEmpty(body.Content),
+		RetireWhen:  strOrEmpty(body.RetireWhen),
+		Impact:      strOrEmpty(body.Impact),
+		ImpactStars: intOr(body.ImpactStars, 0),
+		Events:      loreProposeEvents(body.Events),
+		ActorID:     currentActor(r),
 	}, nowSecs())
 	if err != nil {
 		writeLoreProposalError(w, err)
@@ -163,10 +172,12 @@ func (s *apiServer) HandleListLoreProposalsApiLoreEntriesEntryIdProposalsGet(w h
 			BaseRevisionId: int(p.BaseRevisionID),
 			BaseSha256:     p.BaseSHA256,
 			Stale:          p.Stale,
+			Heading:        p.Heading,
 			Trigger:        p.Trigger,
 			Content:        p.Content,
 			RetireWhen:     p.RetireWhen,
 			Impact:         p.Impact,
+			ImpactStars:    p.ImpactStars,
 			Events:         loreEventDTOs(p.Events),
 			EventsAdded:    loreEventDTOs(p.EventsAdded),
 			EventsRemoved:  loreEventDTOs(p.EventsRemoved),

@@ -2471,7 +2471,21 @@ let relocationDeferredNext = false;
 // cannot produce.
 interface MockLoreEntry {
   entryId: string;
-  /** 第 1 格, and the entry's title — no length cap. */
+  /** 🔴 標題格 (v8). BLANK ON ALL FIVE, and that is the honest value rather than
+   * a gap: these five were written by the owner before 標題 became a cell, so
+   * the real station has nothing there either. Inventing a title here would put
+   * words on a screen the station cannot produce — the rule this whole fixture
+   * is written under. What it demonstrates instead is the real thing a reader
+   * will meet on a pre-v8 entry: a named, empty field. */
+  heading: string;
+  /** 🔴 星等 0..3. 0 on all five = 還沒判, which is again what the station holds:
+   * nobody has judged these. It is NOT 「lightest」. */
+  impactStars: number;
+  /** false on all five, and it is false for EVERY entry on every station today:
+   * no route can write it. */
+  reviewed: boolean;
+  /** 第 1 格 — 對象 × 活動, the axis a reader finds this by.
+   * ⚠️ It no longer doubles as the title (v8 pulled 標題 out into its own cell). */
   trigger: string;
   /** 第 2 格 — the only cell that enters a boot context. */
   content: string;
@@ -2492,6 +2506,9 @@ interface MockLoreEntry {
 const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
   {
     entryId: "lore-31274bbb892c",
+    heading: "",
+    impactStars: 0,
+    reviewed: false,
     trigger: "整套測試回 PASS／ok，而我正要拿這個結果去說「這一包沒問題」。",
     content:
       "綠燈只證明「它看得到的那些東西沒問題」。go test -run 配一個匹配不到任何東西的正則，輸出跟真的全部通過逐字相同（唯一訊號 no tests to run 常被 grep 濾掉）。⇒ 跑完之後要問的是「這一次的量法，看得到的範圍是什麼」——而且要在跑過之後問，不是在寫的時候。",
@@ -2508,6 +2525,9 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
   },
   {
     entryId: "lore-3a8f02e14c10",
+    heading: "",
+    impactStars: 0,
+    reviewed: false,
     trigger:
       "我正要拿「它有自動備份／有守衛／有檢查」去對別人保證這一次是安全的。",
     content:
@@ -2525,6 +2545,9 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
   },
   {
     entryId: "lore-b97ced3313a6",
+    heading: "",
+    impactStars: 0,
+    reviewed: false,
     trigger: "我剛驗完一台機器的狀態，正要把結果當成「現在就是這樣」回報出去。",
     content:
       "對一台會自己動的機器（有更新器、有排程、有 KeepAlive），驗證是瞬時的而狀態不是。⇒ 驗完要多問一句「有什麼東西會在我不看的時候改變它」，並把答案變成可觀察的（掛一個定期查、或關掉那個會動的東西）。",
@@ -2541,6 +2564,9 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
   },
   {
     entryId: "lore-dab4e84475b4",
+    heading: "",
+    impactStars: 0,
+    reviewed: false,
     trigger:
       "我把一個站的 DB 複製到另一個站，然後預期新站會照我在新站上做的設定跑。",
     content:
@@ -2558,6 +2584,9 @@ const MOCK_LORE_ENTRIES: MockLoreEntry[] = [
   },
   {
     entryId: "lore-76fba702e52a",
+    heading: "",
+    impactStars: 0,
+    reviewed: false,
     trigger: "我剛說完「我收回那句話」，覺得這件事已經處理完了。",
     content:
       "收回只對聽到的人生效，幾秒鐘；真正的工作是把那句話從每一個會被再讀一次的地方拔掉（記憶檔、步驟筆記、票面、已送出的卡、產物、PR 描述）。⇒ 真正會發生的失敗不是不願意更正，是只做了便宜的那一半，而做完那半的人主觀上覺得自己已經更正過了。",
@@ -6702,7 +6731,8 @@ export const mockApi: Api = {
           // question than the route does.
           return (
             e.trigger.toLowerCase().includes(needle) ||
-            e.content.toLowerCase().includes(needle)
+            e.content.toLowerCase().includes(needle) ||
+            e.heading.toLowerCase().includes(needle)
           );
         });
     const limit = input.limit ?? 20;
@@ -6710,11 +6740,13 @@ export const mockApi: Api = {
       .slice(0, limit)
       .map((e) => ({
         entryId: e.entryId,
-        // 🔴 A hit carries 第 1、2 格 ONLY, exactly as the route serves it.
-        // 第 3、4、5 格 are reached with getLoreEntry — a mock that handed the
-        // list everything would let a screen render events it can never get.
+        // 🔴 A hit carries the TITLE, exactly as the route serves it (depth ②).
+        // content / impact are reached with getLoreEntry — a mock that handed
+        // the list the body would let a screen render, for free, the thing the
+        // real route deliberately makes you ask for.
+        heading: e.heading,
+        impactStars: e.impactStars,
         trigger: e.trigger,
-        content: e.content,
         subjects: [...e.subjects],
         actions: [...e.actions],
         origin: e.origin,
@@ -6757,6 +6789,9 @@ export const mockApi: Api = {
     const original = mockLoreOriginal(e);
     return {
       entryId: e.entryId,
+      heading: e.heading,
+      impactStars: e.impactStars,
+      reviewed: e.reviewed,
       trigger: e.trigger,
       content: e.content,
       retireWhen: e.retireWhen,

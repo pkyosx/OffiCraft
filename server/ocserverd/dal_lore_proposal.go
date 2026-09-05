@@ -129,8 +129,15 @@ type LoreProposal struct {
 	// ⚠️ 代價寫在這裡而不是靠人記得：讀這幾段 SQL 的人會看到欄名與欄位對不上，
 	// 而那不是 bug。線上的名字（spec 與 DTO）已經全部是 `impact`。
 	//
-	// ⚠️ 沒有 Heading、沒有 ImpactStars，而那不是漏掉：提案表沒有那兩欄，所以
-	// 一份提案帶不動 v8 的標題與星等。後果寫在 ApplyLoreProposal 上。
+	// 🔴 Heading 與 ImpactStars 現在**在**提案上，而它們是同一個裁定的兩半。
+	// owner 2026-09-05 於 rc-bbccbeb3d9e6 逐字：「任何修改都是提案的一環」。
+	// 在此之前提案表沒有這兩欄，後果不是「少了兩格」而是一份**主動說謊的原文**：
+	// loreRevisionBody 印 heading，loreProposalEntry 給它零值，核可寫下的原文
+	// 就宣稱這條沒有標題 —— 實測配陽性對照坐實過（見 00084 檔內那一段）。
+	// 而第二個後果更難看見：「什麼都沒改的提案要被拒絕」是比兩串 digest，提案
+	// 那一串永遠少一格 ⇒ 兩串永遠不等 ⇒ **那道守衛恆真、永遠不擋任何東西**。
+	Heading     string
+	ImpactStars int
 
 	// Events 是提案主張的**整份**第 5 格，不是增量。核可時 lore_event 會被整批
 	// 換成這一份。
@@ -166,10 +173,12 @@ type LoreProposalRow struct {
 	Encountered    string
 	Fault          string
 	Evidence       string
+	Heading        string
 	Trigger        string
 	Content        string
 	RetireWhen     string
 	Impact         string
+	ImpactStars    int
 	Body           string
 	SHA256         string
 	ActorID        string
@@ -230,16 +239,18 @@ type LoreProposalList struct {
 // compared with a revision's — and 「這份提案就是那一版」 would stop being an
 // answerable question the moment the two drifted by one newline.
 //
-// ⚠️ 回傳的 LoreEntry 的 Heading 與 ImpactStars 是零值，而這**不會**污染摘要：
-// loreRevisionBody 根本不印那兩格（它自己那段註解說明了為什麼）。這兩件事是綁在
-// 一起的 —— 哪一天有人讓渲染器印標題，這裡就會開始把空標題摘要進去，而核可之後
-// 留下的原文會宣稱這條條目沒有標題。要動其中一邊，先讀另一邊。
+// 🔴 Heading 與 ImpactStars 都在這裡，而那正是上面那段「一個渲染器」的意思：
+// 渲染器印哪幾格，提案就必須帶得動哪幾格。前一版把這兩格留成零值，並在註解裡
+// 寫下「哪一天有人讓渲染器印標題，這裡就會開始把空標題摘要進去」—— 那一天到了，
+// 而它是被四支測試抓到的，不是被這段註解擋住的。註解不是守衛。
 func loreProposalEntry(p LoreProposal) LoreEntry {
 	return LoreEntry{
-		Trigger:    p.Trigger,
-		Content:    p.Content,
-		RetireWhen: p.RetireWhen,
-		Impact:     p.Impact,
+		Heading:     p.Heading,
+		Trigger:     p.Trigger,
+		Content:     p.Content,
+		RetireWhen:  p.RetireWhen,
+		Impact:      p.Impact,
+		ImpactStars: p.ImpactStars,
 	}
 }
 
@@ -274,10 +285,15 @@ func loreProposalShapeError(p LoreProposal) error {
 		// A removal proposes no new version. Carrying one would put a version on
 		// the reviewer's screen that no accept path would ever write — the
 		// description/result gap in miniature, inside the shape built to close it.
-		for _, f := range []string{p.Trigger, p.Content, p.RetireWhen, p.Impact} {
+		for _, f := range []string{p.Heading, p.Trigger, p.Content, p.RetireWhen, p.Impact} {
 			if strings.TrimSpace(f) != "" {
 				return ErrLoreProposalRemoveBody
 			}
+		}
+		// 星等同理：一份 `remove` 不主張任何版本，帶一個星等等於在審核者眼前
+		// 放一個沒有任何核可路徑會寫下去的數字。
+		if p.ImpactStars != 0 {
+			return ErrLoreProposalRemoveBody
 		}
 		// 第 5 格同理。一份 `remove` 帶著事件，會讓審核者看到一份沒有任何核可
 		// 路徑會寫下去的第 5 格。⚠️ 這裡拒絕的是**非空**，不是 nil：`remove`
@@ -292,11 +308,19 @@ func loreProposalShapeError(p LoreProposal) error {
 	// writing a version through the ordinary write path, so a proposal that path
 	// would refuse is a proposal that can never be accepted — and it would sit in
 	// the queue looking exactly like one that could.
+	// 🔴 標題與星等現在也走寫入路徑自己的檢查，理由跟下面兩格一模一樣：核可
+	// 一份提案等於走一次普通寫入，寫入會拒絕的東西在這裡就要被拒絕。
+	if err := loreHeadingError(p.Heading); err != nil {
+		return err
+	}
 	if err := loreTriggerError(p.Trigger); err != nil {
 		return err
 	}
 	if strings.TrimSpace(p.Content) == "" {
 		return ErrLoreContentBlank
+	}
+	if err := loreImpactStarsError(p.ImpactStars); err != nil {
+		return err
 	}
 	// 🔴 第 5 格在 `update` 上是**必填**，而空陣列就滿足它。理由跟上面那兩格
 	// 「空白就拒絕」不一樣：這一格不是不能空，是不能**沒說**。提案帶的是完整的
@@ -387,12 +411,12 @@ func (d *DAL) CreateLoreProposal(p LoreProposal, nowTS float64) (LoreProposalRes
 			INSERT INTO lore_proposal (
 				id, entry_id, kind, base_revision_id, base_sha256,
 				encountered, fault, evidence,
-				trigger, content, retire_when, problem,
+				heading, trigger, content, retire_when, problem, impact_stars,
 				body, sha256, actor_id, created_ts)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			out.ProposalID, p.EntryID, p.Kind, base.ID, base.SHA256,
 			p.Encountered, p.Fault, p.Evidence,
-			p.Trigger, p.Content, p.RetireWhen, p.Impact,
+			p.Heading, p.Trigger, p.Content, p.RetireWhen, p.Impact, p.ImpactStars,
 			body, sum, p.ActorID, nowTS); err != nil {
 			return err
 		}
@@ -454,7 +478,7 @@ func (d *DAL) ListLoreProposals(entryID string) (LoreProposalList, error) {
 	rows, err := d.rdb.Query(`
 		SELECT id, entry_id, kind, base_revision_id, base_sha256,
 		       encountered, fault, evidence,
-		       trigger, content, retire_when, problem,
+		       heading, trigger, content, retire_when, problem, impact_stars,
 		       body, sha256, actor_id, created_ts
 		FROM lore_proposal WHERE entry_id = ? ORDER BY created_ts DESC, id DESC`, entryID)
 	if err != nil {
@@ -466,7 +490,7 @@ func (d *DAL) ListLoreProposals(entryID string) (LoreProposalList, error) {
 		if err := rows.Scan(
 			&p.ID, &p.EntryID, &p.Kind, &p.BaseRevisionID, &p.BaseSHA256,
 			&p.Encountered, &p.Fault, &p.Evidence,
-			&p.Trigger, &p.Content, &p.RetireWhen, &p.Impact,
+			&p.Heading, &p.Trigger, &p.Content, &p.RetireWhen, &p.Impact, &p.ImpactStars,
 			&p.Body, &p.SHA256, &p.ActorID, &p.CreatedTS,
 		); err != nil {
 			return LoreProposalList{}, err
@@ -582,12 +606,12 @@ func (d *DAL) GetLoreProposal(proposalID string) (*LoreProposalRow, error) {
 	err := d.rdb.QueryRow(`
 		SELECT id, entry_id, kind, base_revision_id, base_sha256,
 		       encountered, fault, evidence,
-		       trigger, content, retire_when, problem,
+		       heading, trigger, content, retire_when, problem, impact_stars,
 		       body, sha256, actor_id, created_ts
 		FROM lore_proposal WHERE id = ?`, proposalID).Scan(
 		&p.ID, &p.EntryID, &p.Kind, &p.BaseRevisionID, &p.BaseSHA256,
 		&p.Encountered, &p.Fault, &p.Evidence,
-		&p.Trigger, &p.Content, &p.RetireWhen, &p.Impact,
+		&p.Heading, &p.Trigger, &p.Content, &p.RetireWhen, &p.Impact, &p.ImpactStars,
 		&p.Body, &p.SHA256, &p.ActorID, &p.CreatedTS)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -637,11 +661,10 @@ func (d *DAL) GetLoreProposal(proposalID string) (*LoreProposalRow, error) {
 //
 // 🔴 「完整的新版本」這句話在 v8 之後**不再涵蓋整條條目**，而這是這個函式現在
 // 最容易被誤讀的地方：UPDATE 只碰四格，`heading` 與 `impact_stars` 原封不動留在
-// 條目上。原因是 lore_proposal 沒有那兩欄（見 LoreProposal 上的說明），所以提案
-// 從一開始就沒有主張過它們 —— 這裡不動它們是唯一誠實的選擇，把它們清成空值才是
-// 用「沒有人送」冒充「有人主張要清掉」。
-// ⚠️ 這代表 v8 的標題與星等**沒有任何修改路徑**：寫錯了只能新寫一條去 supersede。
-// 那不是這一批決定的事，但讀這個函式的人必須知道。
+// 條目上。**這一版起不再是這樣**：owner 2026-09-05 於 rc-bbccbeb3d9e6 逐字裁
+// 「任何修改都是提案的一環」⇒ lore_proposal 補上了 heading 與 impact_stars
+// （00084 的兩支 ALTER TABLE），而這裡把它們一起寫回條目。
+// ⇒ v8 的標題與星等**現在有修改路徑了**；在此之前寫錯只能新寫一條去 supersede。
 func (d *DAL) ApplyLoreProposal(proposalID, actorID string, nowTS float64) (LoreProposalApplied, error) {
 	var out LoreProposalApplied
 	if actorID == "" {
@@ -672,6 +695,18 @@ func (d *DAL) ApplyLoreProposal(proposalID, actorID string, nowTS float64) (Lore
 			ErrLoreProposalStale, p.EntryID, p.ID, p.BaseSHA256, current.SHA256, current.ID)
 	}
 
+	// 🔴 標題在**核可時**再擋一次，而這不是重複的檢查。形狀檢查只看得到走過它
+	// 的提案；在 heading 這一欄存在**之前**送出的提案（試用站上就有 27 份）從來
+	// 沒有經過那道門，而它們的 heading 讀回來是空字串。核可它們會把條目上好端端
+	// 的標題清成空的 —— 用「沒有人送」冒充「有人主張要清掉」。
+	// ⚠️ 這一道擋的是既有資料，不是使用者的輸入，所以它會永遠存在而不是過渡措施：
+	// 只要 lore_proposal 留著那 27 列，這條路就永遠可能被走到。
+	if err := loreHeadingError(p.Heading); err != nil {
+		return out, fmt.Errorf("%w — proposal %s carries no 標題, so accepting it would blank "+
+			"the entry's own. It was filed before 標題 became a cell; rewrite it against the "+
+			"current version instead", err, p.ID)
+	}
+
 	// shrink_chars records how much a rewrite REMOVED, measured in runes against
 	// the revision it replaces. ⚠️ 這是實作判斷，不是裁定：欄位叫 chars，而 Go 的
 	// len() 數的是位元組 —— 一段中文用位元組數會報出三倍的「縮短」。負數夾成 0，
@@ -684,9 +719,11 @@ func (d *DAL) ApplyLoreProposal(proposalID, actorID string, nowTS float64) (Lore
 	err = d.inTx(func(tx *sql.Tx) error {
 		res, err := tx.Exec(`
 			UPDATE lore_entry
-			SET trigger = ?, content = ?, retire_when = ?, impact = ?, updated_ts = ?
+			SET heading = ?, trigger = ?, content = ?, retire_when = ?,
+			    impact = ?, impact_stars = ?, updated_ts = ?
 			WHERE id = ?`,
-			p.Trigger, p.Content, p.RetireWhen, p.Impact, nowTS, p.EntryID)
+			p.Heading, p.Trigger, p.Content, p.RetireWhen,
+			p.Impact, p.ImpactStars, nowTS, p.EntryID)
 		if err != nil {
 			return err
 		}

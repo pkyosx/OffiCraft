@@ -7056,10 +7056,15 @@ export interface components {
              */
             actions: string[];
             /**
-             * Content
-             * @description 第 2 格「內容」— the mechanism and why. 🔴 A HIT CARRIES TWO OF THE SIX CELLS, NOT ALL SIX: 第 3、4、5 格 (`retire_when` / `impact` / the events) and v8 的標題格 (`heading`) come back only from `get_lore_entry`, because a search answer is how you CHOOSE an entry and a result list that carried every entry's events in full would be a size nobody has decided on.
+             * Heading
+             * @description 🔴 THE TITLE, AND THE POINT OF THIS HOP. A hit carries the 標題 rather than the 內容. owner 2026-09-05, verbatim: 「agent 在 resume summary 看到 target list，在做跟 target 有關的事情時查一下有跟該 target 相關的什麼記憶 (list of titles)，然後覺得有相關的或是重要的就自己再去 read 讀進來 content。」 So this list is what an agent DECIDES ON, and `GET /api/lore/entries/{entry_id}` is what it decides to load. ⚠️ `content` USED TO BE ON THIS ROW AND IS NOT ANY MORE. Carrying it made one lookup pour every matching entry's whole body into the caller's context — the very thing this ticket exists to stop. Measured: 27 real headings list in 512 characters (~130 tokens); the same 27 bodies are two orders of magnitude more.
              */
-            content: string;
+            heading: string;
+            /**
+             * Impact Stars
+             * @description 第 4 格的星等 0..3 — **the entry's importance** (owner 2026-09-05: 「評分也改了不用 用星等取代 因為 impact 本就是重要性」). It travels on this row because a list of titles with no importance can only be read in order, and order is not importance. 0 means 還沒判, not 「lightest」.
+             */
+            impact_stars: number;
             /**
              * Entry Id
              * @description The entry's id — what `get_lore_entry` addresses.
@@ -7172,7 +7177,7 @@ export interface components {
             impact: string;
             /**
              * Impact Stars
-             * @description 第 4 格的星等，而它是**你的提案**，不是裁定：蓋章的是另一欄（`reviewed`），只有 owner 與 admin 動得了 —— 兩件事合成一欄，就等於讓 agent 自己蓋自己的章。判法只有一個問題「弄壞了什麼？」：1 = 沒弄壞任何東西（做白工）｜2 = 弄壞的只有你動的那個｜3 = 弄壞的包含你沒動的。⚠️ 三級之間不是累加，分界只有一條：弄壞的東西在不在你動的範圍內。🔴 省略它得到 0，而 0 不是「最輕」，是「還沒判」—— 0 與 1 必須分得開，否則沒有人查得出誰漏填。0..3 以外的值是 422。
+             * @description 第 4 格的星等 —— **它就是這條條目的重要性**（owner 2026-09-05 逐字：「評分也改了不用 用星等取代 因為 impact 本就是重要性」，所以先前那個 0–5 的權重分數作廢，不要再去找它）。判法只有一個問題「弄壞了什麼？」：1 = 沒弄壞任何東西（做白工）｜2 = 弄壞的只有你動的那個｜3 = 弄壞的包含你沒動的。⚠️ 三級之間不是累加，分界只有一條：弄壞的東西在不在你動的範圍內。🔴 省略它得到 0，而 0 不是「最輕」，是「還沒判」—— 0 與 1 必須分得開，否則沒有人查得出誰漏填。0..3 以外的值是 422。⚠️ 這一段先前寫著「蓋章的是另一欄（`reviewed`），只有 owner 與 admin 動得了」——那句話宣稱了一個當時沒有人做過的決定，而 owner 後來裁的方向與它相反。它被改掉而不是靜默刪除，是為了讓引用過它的人看得見它已經死了。
              * @default 0
              */
             impact_stars: number;
@@ -7278,11 +7283,23 @@ export interface components {
              */
             fault: string;
             /**
+             * Heading
+             * @description The proposed 標題格 — 這一次實際發生了什麼。REQUIRED on an `update`, exactly as on a write and for the same reason: accepting a proposal writes a version through the ordinary write path, so a proposal that path would refuse can never be accepted while sitting in the queue looking exactly like one that could. 🔴 It MUST travel on the proposal, because what an accept writes into the L0 journal is the proposal's OWN rendered body: while a proposal could not carry 標題, every accept left behind an original claiming the entry had no title while the entry's title was still sitting there — an 原文 that actively lies is worse than one that is silent. owner 2026-09-05 ruling rc-bbccbeb3d9e6, verbatim: 「任何修改都是提案的一環」. Sent only on an `update`; a `remove` carrying it is refused.
+             * @default
+             */
+            heading: string;
+            /**
              * Impact
              * @description The proposed 第 4 格「impact」（原本想達成什麼、實際變成什麼）. Optional, exactly as on a write. Sent only on an `update`, where the four together with `events` are the whole new version; on a `remove` it must be absent or empty.
              * @default
              */
             impact: string;
+            /**
+             * Impact Stars
+             * @description The proposed 星等 for 第 4 格 — 0..3, the same scale as on a write (0 = 還沒判、1 = 沒弄壞任何東西、2 = 弄壞的只有你動的那個、3 = 弄壞的包含你沒動的; the three are NOT cumulative — the only boundary is whether what broke was inside what you touched). 🔴 It is part of the proposed version and therefore part of the digest: an entry whose stars went from 1 to 3 must not hash to what it hashed before, or a proposal written against the old number would still read as current. ⚠️ Omitting it yields 0, and 0 means 還沒判 — so a proposal that leaves this cell out puts the entry's stars back to 0. That is a CLAIM rather than a silent wipe: it is rendered into `body` and hashed into `sha256`, so it is in the diff the reviewer reads. Sent only on an `update`; a non-zero value on a `remove` is refused.
+             * @default 0
+             */
+            impact_stars: number;
             /**
              * Kind
              * @description REQUIRED. `update` — you are proposing the entry should say something else, and the four body cells below PLUS `events` carry the whole new version; accepting it replaces 第 5 格 wholesale with what you sent. `remove` — you are proposing it stop being retrieved, and you send NO body cells and NO events at all; a removal carrying a version would put text on a reviewer's screen that no accept would ever write. Anything else is refused 422 with the value named. Note that a removal is not a deletion: the act it asks for is `retire_lore_entry`, and `revive_lore_entry` undoes it.
@@ -7424,10 +7441,20 @@ export interface components {
              */
             fault: string;
             /**
+             * Heading
+             * @description The proposed 標題格 — what a reader sees in a list and decides on. Empty on a `remove`.
+             */
+            heading: string;
+            /**
              * Impact
              * @description The proposed 第 4 格「impact」. Empty on a `remove`.
              */
             impact: string;
+            /**
+             * Impact Stars
+             * @description The proposed 星等 (0..3) for 第 4 格 — the entry's importance. 0 on a `remove`, and 0 on an `update` means 還沒判.
+             */
+            impact_stars: number;
             /**
              * Kind
              * @description `update` or `remove`.

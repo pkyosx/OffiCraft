@@ -1911,8 +1911,9 @@ export function toMemberResumeSummary(
 export function toLoreEntrySummary(w: WireLoreSearchHit): LoreEntrySummaryView {
   return {
     entryId: w.entry_id,
+    heading: w.heading,
+    impactStars: w.impact_stars,
     trigger: w.trigger,
-    content: w.content,
     subjects: [...w.subjects],
     actions: [...w.actions],
     origin: w.origin,
@@ -2000,6 +2001,9 @@ export function toLoreEntryDetail(w: WireLoreEntryDetail): LoreEntryDetailView {
     content: w.content,
     retireWhen: w.retire_when,
     impact: w.impact,
+    heading: w.heading,
+    impactStars: w.impact_stars,
+    reviewed: w.reviewed,
     events: w.events.map(toLoreEvent),
     subjects: [...w.subjects],
     actions: [...w.actions],

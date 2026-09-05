@@ -208,7 +208,11 @@ export function LoreEntryCard({ entry }: { entry: LoreEntrySummaryView }) {
         {/* 第 1 格兼任標題。它在寫入路徑上是硬性必填(擋在 PutLoreEntry 這個
             原始 upsert 縫上),所以這裡沒有「這條沒有名字」的退路 —— 那個退路
             存在的前提(label 選填)已經沒有了。長度也沒有上限。 */}
-        <div className="lore-entry__title">{entry.trigger}</div>
+        {/* 🔴 標題坐在標題的位置，而它以前坐的是第 1 格。v8 把兩者分開之後，
+            這一行就是 owner 說的那個「決定要不要看內容」的指標
+            （2026-09-05:「title 應該就是 agent 透過 target 會看到的列表
+            因為這會決定他們要不要看內容」）。 */}
+        <div className="lore-entry__title">{entry.heading}</div>
         <div className="lore-entry__axes">
           {entry.subjects.map((s) => (
             <span className="lore__badge lore__badge--subject" key={s}>
@@ -224,7 +228,11 @@ export function LoreEntryCard({ entry }: { entry: LoreEntrySummaryView }) {
             {t.lore.entryOriginLabel} {entry.origin}
           </span>
         </div>
-        <div className="lore-entry__short">{entry.content}</div>
+        {/* 第 1 格坐在副標的位置：它是這條**為什麼在這份清單裡**的理由（對象 ×
+            活動），不是給人讀的那一行。
+            🔴 這裡以前印的是第 2 格「內容」。拿掉它是這一層存在的理由：清單那一
+            層倒出整段內容，正是這張票在治的病。內容要點開才讀得到（深度③）。 */}
+        <div className="lore-entry__short">{entry.trigger}</div>
       </button>
 
       {open && (
@@ -242,16 +250,31 @@ export function LoreEntryCard({ entry }: { entry: LoreEntrySummaryView }) {
           {detail !== null && (
             <>
               <div className="lore-entry__block">
+                {/* 🔴 標題排在最前面，而那不是版面偏好：它是「列出來」那一層唯一
+                    被讀到的東西（owner 2026-09-05:「title 應該就是 agent 透過
+                    target 會看到的列表 因為這會決定他們要不要看內容」）。畫面上
+                    把它排在第 1 格後面，會讓讀的人以為第 1 格才是這條的名字 ——
+                    那正是 v8 推翻掉的 v7 說法。 */}
+                <Field name={t.lore.fieldHeading} value={detail.heading} />
                 <Field name={t.lore.fieldTrigger} value={detail.trigger} />
                 <Field name={t.lore.fieldContent} value={detail.content} />
                 <Field
                   name={t.lore.fieldRetireWhen}
                   value={detail.retireWhen}
                 />
-                {/* ⚠️ 標籤還叫 fieldProblem，而它印的已經是 v8 的 impact
-                    （原本想達成什麼、實際變成什麼）。改名是傳承分頁那一批的事，
-                    寫在這裡是因為現在畫面上那個字是錯的，不是因為它無所謂。 */}
-                <Field name={t.lore.fieldProblem} value={detail.impact} />
+                <Field name={t.lore.fieldImpact} value={detail.impact} />
+                {/* 星等：owner 2026-09-05「評分也改了不用 用星等取代 因為 impact
+                    本就是重要性」⇒ 這一格就是這條條目的重要性，不是註腳。
+                    🔴 0 印成「還沒判」而不是 0 顆星：0 與 1（沒弄壞任何東西）
+                    必須分得開，否則沒有人查得出誰漏填。 */}
+                <Field
+                  name={t.lore.fieldImpactStars}
+                  value={
+                    detail.impactStars === 0
+                      ? ""
+                      : "★".repeat(detail.impactStars)
+                  }
+                />
 
                 {/* 第 5 格。一筆都沒有的時候這一節照樣在,並且說出來 —— 跟後端
                     永遠渲染 `events:` 是同一條規則。 */}
