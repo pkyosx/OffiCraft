@@ -69,9 +69,12 @@ import {
 function asAttachmentView(a: TaskArtifactView): ChatAttachmentView {
   return {
     id: a.id,
+    // undefined, NOT "": both readers fall back with `?? att.id`, and `??` does
+    // not fire on an empty string. Emitting "" here would take a fallback that
+    // works today and silently kill it — the field has always been optional.
     backingAttachmentId: a.url.startsWith(BLOB_SERVE_PREFIX)
       ? a.url.slice(BLOB_SERVE_PREFIX.length)
-      : "",
+      : undefined,
     url: a.url,
     filename: a.name,
     mime: a.mime,

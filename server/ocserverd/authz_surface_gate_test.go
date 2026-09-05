@@ -618,9 +618,11 @@ var nonCallerKindPredicates = map[string]string{
 	"api_tasks.go :: HandleReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplacePost :: art.Kind == ArtifactKindLink": "" +
 		"the same artifact content kind, picking which content rules apply (a link " +
 		"carries a url, a file carries an attachment). Not a caller classification.",
-	"api_tasks.go :: HandleListTaskArtifactHistoryApiTasksTaskIdArtifactArtifactIdHistoryGet :: v.Kind != ArtifactKindLink": "" +
-		"a retained artifact VERSION's content kind, deciding whether the version has a " +
-		"blob to resolve a filename from. Same non-caller kind, read off the history row.",
+	// T-92 removed the history handler's `v.Kind != ArtifactKindLink` guard: a
+	// retained LINK version's url now lives in a blob like every other kind, so
+	// the handler resolves the blob unconditionally and the predicate is gone.
+	// The entry is dropped rather than re-keyed — nothing replaced it. Leaving it
+	// would inflate the mis-fire count this map exists to report honestly.
 	"api_tasks_artifact_upload.go :: HandleUploadReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplaceUploadPost :: art.Kind == ArtifactKindLink": "" +
 		"the pinned artifact's CONTENT kind on the raw-body replace door: a link's " +
 		"content is a url rather than bytes, so that door is closed to one explicitly " +
