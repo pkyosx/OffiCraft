@@ -317,17 +317,17 @@ func attachmentFaces() []attachmentFace {
 				if status != 200 {
 					t.Fatalf("create task: %d %s", status, resp)
 				}
-				// The create response wraps the row: {"task":{…},"deduped":…}.
+				// T-91: the create response is a RECEIPT — {"task_id":…,
+				// "task_no":…,"deduped":…} — not the wrapped row it used to be
+				// ({"task":{…},"deduped":…}). This test only ever wanted the id.
 				var created struct {
-					Task struct {
-						ID string `json:"id"`
-					} `json:"task"`
+					TaskID string `json:"task_id"`
 				}
 				if err := json.Unmarshal([]byte(resp), &created); err != nil ||
-					created.Task.ID == "" {
+					created.TaskID == "" {
 					t.Fatalf("decode task: %v %s", err, resp)
 				}
-				return created.Task.ID
+				return created.TaskID
 			},
 			send: func(t *testing.T, srv *httptest.Server, secret []byte, taskID string) (int, string) {
 				now := time.Now().Unix()

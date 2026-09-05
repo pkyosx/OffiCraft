@@ -16,6 +16,8 @@ package main
 // Python single-tenant runtime always produced ("owner" / 3).
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -956,9 +958,26 @@ func newRoleDefListItemDTO(d roleDefDTO) roleDefListItemDTO {
 	}
 }
 
+// roleCreateResultDTO is the create_role receipt (T-91 reshaped it). Creating a
+// role always creates the member that holds it, so the write mints TWO
+// identities — and those two ids, plus the name, are the whole of what the
+// caller could not have computed. The former shape answered with the entire
+// roleDefDTO (definition_md and all) plus the entire memberDTO; both are
+// readable through get_role / get_member by anyone who wants them.
 type roleCreateResultDTO struct {
-	Role   roleDefDTO `json:"role"`
-	Member memberDTO  `json:"member"`
+	// RoleKey is minted here ("r-" + newHexID(12)). Every later role call takes
+	// it and the caller cannot compute it.
+	RoleKey string `json:"role_key"`
+	// MemberID is minted here ("m-" + newHexID(12)) — the second identity this
+	// one write produces.
+	MemberID string `json:"member_id"`
+	// MemberName rides back because the SERVER MAY HAVE CHOSEN IT: a request
+	// that leaves member_name blank gets a name picked against every name ever
+	// taken, removed rows included (PickMemberName). On a request that named
+	// the member it is an echo of one short string, kept rather than made
+	// conditional because a caller cannot otherwise tell which of the two paths
+	// it took — and the name is how a person refers to the member from then on.
+	MemberName string `json:"member_name"`
 }
 
 // docSizeDTO is ONE capped document reduced to its two numbers (peek_doc_sizes).
@@ -1147,19 +1166,26 @@ type taskSopPatchResultDTO struct {
 	Sha256       string `json:"sha256"`
 }
 
-// taskStepNotePatchResultDTO is the patch_step_note receipt (T-1667). It is the
-// UNION of the two receipt shapes it sits between, and deliberately so: the
-// patch family's applied_edits/size_chars/cap_chars/sha256, plus the note as
-// STORED, which taskStepNoteReceiptDTO echoes for a reason that does not stop
-// applying here — a step note is bounded and the whole point of the field is
-// that a later session reads it back, so the write stays verifiable at the
-// write. The larger documents' patch receipts omit their text because echoing
-// 30k chars would defeat the purpose of patching; a step note cannot get there.
+// taskStepNotePatchResultDTO is the patch_step_note receipt (T-1667). It is now
+// exactly the patch family's shape — applied_edits/size_chars/cap_chars/sha256
+// over the document address — and nothing more.
+//
+// 🔴 T-91 REMOVED THE `note` ECHO. The old justification was that a step note
+// is bounded, so echoing it "stays verifiable at the write" where the larger
+// documents' patch receipts cannot afford to. Bounded is not the same as free:
+// the sha256 beside it already answers the verification question in 64
+// characters, and this face is now shaped like every other patch receipt
+// instead of being the one exception that had to be explained. A caller that
+// wants the TEXT reads get_task_step — which is what the anchor-miss message
+// has pointed at since T-66.
+//
+// CapChars here is a server CONSTANT (chatBodyMaxChars), NOT a settings key —
+// unlike the cap_chars on the manual patch receipts, which report the
+// adjustable doc.cap_chars.* values. Same field name, different source.
 type taskStepNotePatchResultDTO struct {
 	TaskID       string `json:"task_id"`
 	StepID       string `json:"step_id"`
 	StepStatus   string `json:"step_status"`
-	Note         string `json:"note"`
 	AppliedEdits int    `json:"applied_edits"`
 	SizeChars    int    `json:"size_chars"`
 	CapChars     int    `json:"cap_chars"`
@@ -1564,14 +1590,19 @@ type taskCloseoutReceiptDTO struct {
 }
 
 // taskStepNoteReceiptDTO is the bounded receipt for a step-note write (T-cc3e).
-// It echoes the note as STORED rather than as sent: the whole point of the
-// field is that a later session reads it back, so the write is verifiable at
-// the write instead of needing a follow-up GET.
+//
+// 🔴 T-91 REMOVED THE `note` ECHO AND PUT `sha256` IN ITS PLACE. The earlier
+// justification for echoing the note ("a later session reads it back, so the
+// write is verifiable at the write") named a real need and then answered it
+// with the most expensive possible payload: the caller had just SENT that text.
+// What it actually wanted was a way to confirm the stored bytes are the bytes
+// it sent, and a 64-character hash answers exactly that question without the
+// document riding home. get_task_step still serves the text to anyone who
+// genuinely needs to READ it — which is a different caller from this one.
 type taskStepNoteReceiptDTO struct {
 	TaskID     string `json:"task_id"`
 	StepID     string `json:"step_id"`
 	StepStatus string `json:"step_status"`
-	Note       string `json:"note"`
 	// SizeChars / CapChars close the gap T-6bd2 measured: the PATCH face's
 	// receipt has carried this pair since T-1667, and this wholesale one did
 	// not — so the writer that replaces a note outright (the common case, and
@@ -1580,6 +1611,493 @@ type taskStepNoteReceiptDTO struct {
 	// pair, same names, same ceiling as taskStepNotePatchResultDTO.
 	SizeChars int `json:"size_chars"`
 	CapChars  int `json:"cap_chars"`
+	// Sha256 over the note AS STORED after this write (T-91) — the same
+	// verification anchor patch_step_note, patch_lessons, patch_insight and
+	// patch_task_sop already carry. It arrives in the SAME change that removes
+	// `note`, deliberately: dropping the echo first and adding the hash later
+	// would leave a window in which a caller could neither read the stored text
+	// back nor verify it.
+	Sha256 string `json:"sha256"`
+}
+
+// ── T-91 write receipts ──────────────────────────────────────────────────────
+//
+// 🔴 THE RULE THESE SHAPES IMPLEMENT, owner 2026-09-05: 「自己發送出去的內容 …
+// 不應該再回傳回來」. A write answers with what the write DID and with what the
+// caller could not have known — ids the server minted, stamps only the server's
+// clock can make, values the server DERIVED or DEFAULTED or silently declined
+// to change — and not with the document it was just handed. Every read face
+// these replaced is still there and still serves the whole object to a caller
+// that actually wants to READ it; that is a different caller from this one.
+//
+// The verification need that echoing the text used to serve is answered by
+// `sha256` over the text AS STORED: hash what you sent, compare 64 characters.
+// It is also the only way to notice a server-side trim.
+//
+// Every field below carries its own reason to exist. A field that cannot state
+// one does not belong on a receipt.
+
+// bootDocumentReceiptDTO answers the EIGHT boot-document write faces
+// (replace/reset × boot-docs, boot-sequence, system-interaction, offboard).
+// bootDocDTO's `text`, `body` and `read_only_head` — three keys describing one
+// document — are the READ face's redundancy, and the write face is exactly
+// where owner's ruling bites.
+type bootDocumentReceiptDTO struct {
+	// Kind + Key are the ADDRESS of the document, and the address is what a
+	// receipt must carry: eight tools answer with this one shape, so without it
+	// a caller holding two receipts cannot tell them apart. Both are the
+	// caller's own path parameters — kept as ids, which owner's ruling leaves
+	// in, not as news.
+	Kind string `json:"kind"`
+	Key  string `json:"key"`
+	// IsDefault is true when the stored document is the shipped seed — which is
+	// what a RESET makes it and what a REPLACE clears. Not predictable from the
+	// verb alone: writing the seed's own bytes back leaves it default, so this
+	// is how a caller learns its write was a no-op against the shipped text.
+	IsDefault bool `json:"is_default"`
+	// SizeChars is measured on the document AS STORED (the joined head+body,
+	// which is what the cap judges), in CHARACTERS — the unit the caps are
+	// expressed in. CapChars is the ceiling in force for THIS family: the pair
+	// is the whole point of the numbers, because a size alone does not say
+	// whether the next write will fit, and doc_cap_chars_boot_sequence,
+	// doc_cap_chars_duty and the rest are independent settings keys.
+	SizeChars int `json:"size_chars"`
+	CapChars  int `json:"cap_chars"`
+	// Sha256 over the document AS STORED — what replaces the text/body echo.
+	Sha256 string `json:"sha256"`
+}
+
+// chatPostReceiptDTO answers post_chat and post_task_message. The message the
+// caller just composed is the single largest thing these two writes could echo,
+// and the caller is holding it.
+type chatPostReceiptDTO struct {
+	// ID is the message id, MINTED HERE — the handle every later read,
+	// quote-reply and by-id fetch takes, and the one thing the caller cannot
+	// know.
+	ID string `json:"id"`
+	// TS is the SERVER's stamp, epoch seconds. The caller does not send it and
+	// cannot backdate it, and it is what orders this message against everything
+	// else in the room.
+	TS float64 `json:"ts"`
+	// Attachments is one entry per attachment that actually LANDED, and it is
+	// here because the IDS ARE NEWS, not as an echo: an attachment sent inline
+	// as data_b64 has no id until the server mints one ("att-" + newHexID(12)),
+	// and one sent by reference has its mime and filename overwritten by the
+	// stored blob, which is authoritative. A caller that uploaded inline learns
+	// the handle for its own file HERE OR NOWHERE. It is also the only field on
+	// this receipt that can tell a caller its attachment silently did not land.
+	Attachments []chatAttachmentDTO `json:"attachments,omitempty"`
+}
+
+// globalContextReceiptDTO answers replace_global_context and
+// reset_global_context. The block measured 5,716 characters on the live station.
+type globalContextReceiptDTO struct {
+	// IsDefault is the one field here a caller cannot predict from the verb it
+	// called: reset always makes it true, but replace makes it false ONLY if
+	// the text actually differed from the seed. This is how a caller learns its
+	// write was a no-op against the shipped text.
+	IsDefault bool `json:"is_default"`
+	// SizeChars is new on this face — globalContextDTO never carried it,
+	// because the text was there to be counted.
+	SizeChars int `json:"size_chars"`
+	// Sha256 over the block AS STORED, replacing the text echo.
+	Sha256 string `json:"sha256"`
+}
+
+// insightReceiptDTO answers replace_insight and reset_insight.
+type insightReceiptDTO struct {
+	// RoleKey is whose insight this write landed on — the caller's own path
+	// parameter, kept as the document address because one shape serves both
+	// verbs.
+	RoleKey string `json:"role_key"`
+	// IsDefault: what reset makes true and replace clears. Not predictable from
+	// the verb — replacing with text identical to the seed leaves it default.
+	IsDefault bool `json:"is_default"`
+	// HasSeed is whether this role SHIPS a seed insight at all: a per-role
+	// registry fact the write does not decide, and what says whether
+	// reset_insight is even available to this caller — a role with no seed has
+	// nothing to reset to.
+	HasSeed bool `json:"has_seed"`
+	// SizeChars is server-derived (the handler trims before storing, so it can
+	// differ from what was sent); CapChars is doc_cap_chars_insight.
+	SizeChars int `json:"size_chars"`
+	CapChars  int `json:"cap_chars"`
+	// Sha256 over the insight AS STORED — and the only way to notice the trim.
+	Sha256 string `json:"sha256"`
+}
+
+// lessonsReceiptDTO answers replace_lessons.
+//
+// `is_default` was on an earlier draft and is deliberately ABSENT: this receipt
+// serves replace_lessons only, and that path stamps IsDefault false
+// unconditionally, so the field could never have carried anything but false.
+type lessonsReceiptDTO struct {
+	// RoleKey is the address of the document — the caller's own path parameter.
+	RoleKey string `json:"role_key"`
+	// SizeChars is server-derived (the handler trims before storing); CapChars
+	// is doc_cap_chars_learning. Paired so a writer knows how much room is left
+	// without a second call — the question every lessons write actually has.
+	SizeChars int `json:"size_chars"`
+	CapChars  int `json:"cap_chars"`
+	// Sha256 over the document AS STORED — also the only way to notice the trim.
+	Sha256 string `json:"sha256"`
+}
+
+// outsourceRestartReceiptDTO answers restart_outsource_worker. The whole
+// OutsourceWorkerDTO used to ride back for a write whose news is one bit and
+// one sentence.
+type outsourceRestartReceiptDTO struct {
+	// ID is the worker this restart was aimed at — the caller's own path
+	// parameter, kept because a receipt that cannot say which worker it acted
+	// on is unreadable next to a log of several.
+	ID string `json:"id"`
+	// ActivationPending is true when the restart was DECIDED but could not be
+	// DELIVERED — no live SSE downstream to the target warden. The intent is
+	// stored and the reconcile cadence will retry, but nothing has been
+	// dispatched yet. Omitted when the restart actually landed. It is here or
+	// nowhere: this flag is set only on responses of this kind and is absent or
+	// null on every other read of the worker, so a caller that drops it cannot
+	// ask again.
+	ActivationPending bool `json:"activation_pending,omitempty"`
+	// LastOpReason is WHICH cause, as a structured "<code>: <detail>" line. It
+	// rides beside ActivationPending because that flag is one bit and at least
+	// four different states reach it. Empty when there is no refusal to report.
+	LastOpReason string `json:"last_op_reason,omitempty"`
+}
+
+// replyCardCreateReceiptDTO answers create_reply_card.
+type replyCardCreateReceiptDTO struct {
+	// ID is the card id, MINTED HERE ("rc-" + newHexID(12)) — the handle
+	// answer_reply_card, reanswer_reply_card, expire_reply_card and
+	// get_reply_card all take, and the one thing the caller cannot compute.
+	ID string `json:"id"`
+	// ChatMessageID is the COMPANION chat message the card opened alongside
+	// itself, id minted in the same transaction ("c-" + newHexID(12)). A second
+	// server-minted id, and the only way the asker learns which line in the
+	// owner's stream carries its ask — the card and the message are written
+	// together precisely so neither can dangle without the other.
+	ChatMessageID string `json:"chat_message_id"`
+	// CreatedTS is the SERVER's stamp, epoch seconds. Not sent, not computable.
+	CreatedTS float64 `json:"created_ts"`
+	// Attachments: one entry per attachment that actually LANDED on the card,
+	// here for the same reason as on chatPostReceiptDTO and not as an echo —
+	// an inline attachment has no id until the server mints one, so a caller
+	// that uploaded inline learns the handle for its own file here or nowhere,
+	// and this is the only field that can reveal one silently failing to land.
+	Attachments []chatAttachmentDTO `json:"attachments,omitempty"`
+}
+
+// replyCardReceiptDTO answers the three card TRANSITIONS — answer, reanswer and
+// expire.
+type replyCardReceiptDTO struct {
+	// ID is which card this transition landed on — the caller's own id, kept as
+	// the address because one shape serves three verbs. Note the typical caller
+	// here is NOT the owner: answer and reanswer are floored at an admin agent
+	// and expire at any agent with an author exception, so the agent that
+	// opened the card is the ordinary caller of expire.
+	ID string `json:"id"`
+	// Status is what the card BECAME, and it is the whole news of the write:
+	// all three verbs can decline to move a card that is already answered or
+	// already expired, so having called expire_reply_card is not evidence the
+	// card expired.
+	Status string `json:"status"`
+	// AnsweredTS / ExpiredTS are a MUTUALLY EXCLUSIVE PAIR, both server-stamped
+	// and both nullable: on answer and reanswer the first carries the stamp and
+	// the second is null; on expire it is the reverse. Both are on the shape
+	// because one shape serves all three verbs — not because either write fills
+	// both.
+	AnsweredTS *float64 `json:"answered_ts"`
+	ExpiredTS  *float64 `json:"expired_ts"`
+	// Answer is the answer as STORED after this write — the news of an
+	// answer/reanswer and null after an expire. It is what the write PRODUCED,
+	// not what it was handed: the server normalises the option indices,
+	// deduplicating them and sorting them ascending. There is no answering
+	// identity anywhere on this wire.
+	Answer *replyCardAnswerDTO `json:"answer"`
+	// TaskID / StepID are empty for an unbound chat 請示. They are present
+	// because answering or expiring a BOUND card RELEASES that task's step from
+	// waiting_owner — that release is what the write DID, and it is the caller's
+	// next place to act. The release is per-STEP, not per-task: the card stores
+	// a task_step_id and releaseCardHold acts on that one step. The shape this
+	// replaced carried a task ref with id/title/type_key, which named the task
+	// but NOT the step, so it could not actually say what the write had released
+	// (owner caught this on rc-bf25374aa0e8 asking why a card answer returns a
+	// task title).
+	TaskID string `json:"task_id"`
+	StepID string `json:"step_id"`
+}
+
+// roleDefReceiptDTO answers update_role and reset_role.
+type roleDefReceiptDTO struct {
+	// Key is which role this write landed on — the caller's own path parameter,
+	// kept as the document address because one shape serves both verbs.
+	Key string `json:"key"`
+	// Name is the role's name AFTER this write, and it is here for one specific
+	// reason: 🔴 A RENAME OF A SEED ROLE IS SILENTLY IGNORED. The handler keeps
+	// the current name unless the role has no seed name, so a caller that sent
+	// a new name for a shipped role gets 200 and no rename. This field is the
+	// ONLY place that says so — there is no error, no warning, and the request
+	// looked like it worked.
+	Name string `json:"name"`
+	// IsDefault: what reset_role makes true and update_role clears. Not
+	// predictable from the verb — writing text identical to the seed leaves it
+	// default.
+	IsDefault bool `json:"is_default"`
+	// IsSeed is whether this is a SHIPPED role rather than one somebody created.
+	// A registry fact the write does not decide, and the field that EXPLAINS the
+	// one above: only a seed role can silently refuse a rename, and only a seed
+	// role has anything to reset to.
+	IsSeed bool `json:"is_seed"`
+	// SizeChars is server-derived (the handler trims before storing); CapChars
+	// is doc_cap_chars_duty. Paired so a writer knows the room left without a
+	// second call.
+	SizeChars int `json:"size_chars"`
+	CapChars  int `json:"cap_chars"`
+	// Sha256 over definition_md AS STORED after this write.
+	Sha256 string `json:"sha256"`
+}
+
+// scheduledMessageDeleteReceiptDTO answers delete_scheduled_message, which used
+// to answer with the whole row it had just removed.
+type scheduledMessageDeleteReceiptDTO struct {
+	// ID + MemberID are the address: every scheduled-message path is nested
+	// under a member, so the id alone is not one, and a receipt in a log of
+	// several deletions has to be readable at all.
+	ID       string `json:"id"`
+	MemberID string `json:"member_id"`
+	// Deleted is true when this call removed the schedule. The route 404s when
+	// the member or the schedule is absent, so a 200 with false is not a state
+	// this endpoint reaches — the field is here to say plainly what the write
+	// did rather than leaving an empty 200 to be interpreted.
+	Deleted bool `json:"deleted"`
+}
+
+// scheduledMessageReceiptDTO answers create_scheduled_message and
+// update_scheduled_message. It drops the message BODY and the three custom_*
+// sets the server stores exactly as sent (intSliceOrNil) — those were the
+// caller's own bytes coming home — and keeps what the server decided.
+type scheduledMessageReceiptDTO struct {
+	// ID is minted server-side on create, and it is news in the strongest sense
+	// here: there is NO single-schedule read on this API, only
+	// list_scheduled_messages, so a caller that drops it has to list the
+	// member's whole set and guess which row it just made.
+	ID string `json:"id"`
+	// MemberID is the other half of the address — a schedule id alone cannot be
+	// fed back into any route.
+	MemberID string `json:"member_id"`
+	// Label is an echo on create; on update it is whatever is STORED, because
+	// update is a PATCH and a caller that changed only the hour never sent it.
+	// Kept because it is the only human-readable thing on this receipt — the id
+	// is a hex string, and a person reading a log of several schedule writes
+	// cannot tell them apart without it.
+	Label string `json:"label"`
+	// BodySizeChars is the stored body's size in CHARACTERS after this write —
+	// what replaces the body itself.
+	BodySizeChars int `json:"body_size_chars"`
+	// Cadence after this write. On a PATCH this is the ASSEMBLED value, not what
+	// was sent, and it is what decides which of the remaining fields mean
+	// anything: only `custom` reads the custom_* set, only the dated cadences
+	// read DayOfWeek / DayOfMonth. A caller that flipped the cadence learns here
+	// what the whole row now is.
+	Cadence string `json:"cadence"`
+	// CustomMonths is the ONE custom set the server RESOLVES rather than copies:
+	// omitting it on a custom create means all twelve, decided in
+	// resolveCustomMonths and not by the caller. That is why it survived while
+	// custom_days, custom_hours and custom_minutes were dropped from this
+	// receipt. Always emitted (never omitted) for the same reason the read face
+	// always emits it — an absence must not have to be read as "all twelve".
+	CustomMonths []int `json:"custom_months"`
+	// DayOfMonth / DayOfWeek are server-DEFAULTED, which is why they stay: a
+	// create that omits them stores 1 and 0 rather than nothing, so that a
+	// daily schedule PATCHed to monthly (or weekly) later already has a defined
+	// day to land on. The caller never sent those values and would not
+	// otherwise know they are there.
+	DayOfMonth int `json:"day_of_month"`
+	DayOfWeek  int `json:"day_of_week"`
+	// Status is a constant on create — the handler stamps `enabled`
+	// unconditionally — but a real answer on update, where it is the field that
+	// says whether the row the caller just edited is actually live. Kept for the
+	// update path.
+	Status string `json:"status"`
+	// LastFiredSlot / LastFiredTS are the SCHEDULER's own cursor: server state
+	// the caller has no other cheap read for, and the pair that answers the
+	// question an edit actually raises — did I just change a schedule that has
+	// already gone out today, or one that has not fired yet. LastFiredTS is 0
+	// when it never has, which is also how a caller recognises that case.
+	LastFiredSlot string  `json:"last_fired_slot"`
+	LastFiredTS   float64 `json:"last_fired_ts"`
+	// CreatedTS is server-stamped; on update it is the ORIGINAL creation time,
+	// not this write's.
+	CreatedTS float64 `json:"created_ts"`
+}
+
+// selfReportReceiptDTO answers the four self-report faces — report_waking,
+// report_stopping, report_stopped and restart_self — which all used to answer
+// with the whole MemberDTO.
+type selfReportReceiptDTO struct {
+	// ID is the roster row the server credited this report to, resolved from
+	// the VERIFIED TOKEN (resolveSelf) rather than from the body. An agent knows
+	// its own id, so this is confirmation rather than news — kept for the same
+	// reason the telemetry receipt keeps it, and because it is an id, which
+	// owner's ruling explicitly leaves in.
+	ID string `json:"id"`
+	// DesiredState is 🔴 THE FIELD THIS RECEIPT EXISTS FOR: the owner's standing
+	// intent for this member, `online` or `offline`, and the answer to a
+	// question the agent cannot ask any other way at this moment — is this boot
+	// still wanted. A cancellation that lands mid-boot leaves the wake in
+	// flight, and this field is what tells the agent apart from a member that
+	// should come up green; at the other end the stopped-report handler says it
+	// alone decides whether a new generation follows. An agent that wakes to
+	// `offline` should wind down, not start work.
+	DesiredState string `json:"desired_state"`
+	// RefocusOp is which wind-down or handover is in flight, empty when none is.
+	// It says WHICH rung of the ladder (下線 → 加速 → 強制) the agent is on, and
+	// the handlers refuse to walk that ladder backwards — so an agent that
+	// reports stopping while already further along learns here that the slower
+	// procedure is not available to it.
+	RefocusOp string `json:"refocus_op"`
+	// RefocusDeadline is the epoch second by which an in-flight wind-down is
+	// force-collected, 0 when none is. The agent is counting to this number and
+	// cannot compute it: it is the server's anchor plus the reconcile grace.
+	// This is the one number that says how much time is left to close out.
+	RefocusDeadline float64 `json:"refocus_deadline"`
+}
+
+// taskLearningsWriteReceiptDTO answers write_task_learnings. The whole
+// taskManualDTO — SOP included, a document this write never touched — used to
+// ride back.
+type taskLearningsWriteReceiptDTO struct {
+	// TypeKey is the manual this write landed on.
+	TypeKey string `json:"type_key"`
+	// SizeChars is the field a writer actually reads — it says how much room is
+	// left, which the text it just sent does not. CapChars is the ceiling this
+	// write was judged against (doc_cap_chars_manual_learnings).
+	SizeChars int `json:"size_chars"`
+	CapChars  int `json:"cap_chars"`
+	// Sha256 over the learnings document as stored after this write.
+	Sha256 string `json:"sha256"`
+}
+
+// taskManualReceiptDTO answers create_task_manual and update_task_manual — three
+// faces onto one shape.
+//
+// 🔴 THE OPTIONAL PAIRS ARE POINTERS ON PURPOSE. learnings_* is present ONLY
+// when this call wrote the learnings document and sop_md_* ONLY when it wrote
+// the SOP. A value type would serialise 0 (or "") for a document this call
+// never touched, and 0 is indistinguishable from an empty document that WAS
+// written. The station already spells absence this way in 18 places (e.g.
+// chatListDTO.next_cursor).
+type taskManualReceiptDTO struct {
+	// TypeKey is always present. It is only NEWS on one of the three faces: the
+	// display_name create path MINTS it server-side. On the legacy create path
+	// the caller's own type_key is taken verbatim, and on update it is the
+	// caller's own URL path parameter — on those two it is an echo, kept
+	// because a receipt that cannot say which manual it wrote is useless.
+	TypeKey string `json:"type_key"`
+	// UpdatedTS is when the manual was stamped by this write. Server-derived.
+	UpdatedTS float64 `json:"updated_ts"`
+	// The learnings triple. Sha256 is what replaces the text echo.
+	LearningsChars    *int    `json:"learnings_chars,omitempty"`
+	LearningsCapChars *int    `json:"learnings_cap_chars,omitempty"`
+	LearningsSha256   *string `json:"learnings_sha256,omitempty"`
+	// The SOP triple. Its cap is SEPARATE from the learnings cap on purpose —
+	// the two documents are judged against independent budgets
+	// (doc_cap_chars_manual_sop vs doc_cap_chars_manual_learnings), so one must
+	// never be read as evidence about the other.
+	SopMdChars    *int    `json:"sop_md_chars,omitempty"`
+	SopMdCapChars *int    `json:"sop_md_cap_chars,omitempty"`
+	SopMdSha256   *string `json:"sop_md_sha256,omitempty"`
+}
+
+// taskWriteReceiptDTO answers the NINE task-driving writes that used to hand
+// back the whole taskDTO — update_task, the title and description twins, claim,
+// reassign, terminate, mark_duplicate and set_task_deps.
+type taskWriteReceiptDTO struct {
+	// TaskID is which ticket this write landed on — the caller's own id, kept
+	// as the address (owner's ruling leaves ids in) and because so many tools
+	// answer with this one shape. `task_no` is deliberately ABSENT:
+	// TaskNo(taskID) returns taskID, so it would be the same string twice in
+	// one answer.
+	TaskID string `json:"task_id"`
+	// Title is the ticket's title AFTER this write. It is NEWS on most of these
+	// verbs and an echo on one, and the split is worth stating because owner
+	// asked exactly this question on rc-bf25374aa0e8: claim, reassign,
+	// terminate, mark_duplicate and set_task_deps are all called with a task id
+	// and no title, so the caller may never have seen the ticket it just acted
+	// on — the title is how a person recognises which one. update_task (and the
+	// title twin) is the exception: there the caller sent it, and the handler
+	// TRIMS what it sent, so even there the value can differ from what was
+	// posted. `waiting_reason` was on an earlier draft and is deliberately
+	// ABSENT: reassign and mark_duplicate stamp it empty unconditionally, the
+	// others never touch it so it is a stale read, and no caller anywhere reads
+	// it off a write.
+	Title string `json:"title"`
+	// Status is DERIVED FROM THE STEPS rather than set by the caller — which is
+	// exactly why it rides back. A caller that terminates, claims or reassigns
+	// cannot compute what the status became; it is the single field that says
+	// whether the write moved the ticket.
+	Status string `json:"status"`
+	// ExecutorID is who holds the ticket after this write. On claim it is the
+	// verified caller and on reassign it is what the caller named, but on the
+	// others it is a stored value the caller may not know — and it is what
+	// decides whether the caller is still allowed to drive this task at all,
+	// since every task-driving write is gated on being the executor.
+	ExecutorID string `json:"executor_id"`
+	// ExecutorKind is whether that executor is staff or a contractor.
+	// Server-derived from the roster rather than sent, and it changes how a
+	// caller addresses them — a contractor is bound to one task and goes away
+	// with it.
+	ExecutorKind string `json:"executor_kind"`
+	// Lock is the handover lock, `reassigning` while a transfer waits to be
+	// claimed and empty otherwise. Only reassign sets it and only claim clears
+	// it, so on the other verbs it answers a question with no other cheap
+	// source: Status is derived from the steps and does NOT move when a lock is
+	// placed, so a caller reading status alone cannot see that the ticket is
+	// mid-transfer.
+	Lock string `json:"lock"`
+	// ClosedTS is when the task reached a terminal state, null while it is still
+	// open. Server-stamped, and the one field that answers "did this write
+	// actually close it" — terminate and mark_duplicate both aim at closure and
+	// both can DECLINE to close, so the caller cannot infer this from having
+	// called them.
+	ClosedTS *float64 `json:"closed_ts"`
+	// DuplicateOf is the ticket this one was folded onto, empty when it stands
+	// alone. News on mark_duplicate only in the sense that it confirms the fold
+	// landed; on the others it is a stored value telling a caller it just acted
+	// on a ticket somebody had already marked duplicate — which changes what it
+	// does next.
+	DuplicateOf string `json:"duplicate_of"`
+	// Deps are the blocking task IDS after this write. Ids only — the dep_tasks
+	// display rows are not here, and they are not on get_task either: they are
+	// folded in by list_tasks.
+	Deps []string `json:"deps"`
+	// ProgressDone / ProgressTotal are what replace the step ROWS: a caller
+	// learns the plan is intact and how far along it is, in two integers
+	// instead of fifteen fields per step.
+	ProgressDone  int `json:"progress_done"`
+	ProgressTotal int `json:"progress_total"`
+	// ArtifactCount is how many deliverables the task carries AFTER this write —
+	// the count, never the rows, exactly as taskArtifactReceiptDTO reports it.
+	// list_task_artifacts serves the rows.
+	ArtifactCount int `json:"artifact_count"`
+	// DescriptionSizeChars / DescriptionSha256 describe the description AS
+	// STORED after this write. The hash is present so a caller can confirm that
+	// what landed is what it sent WITHOUT the text riding back, which matters
+	// here because this write trims and create_task does not.
+	DescriptionSizeChars int    `json:"description_size_chars"`
+	DescriptionSha256    string `json:"description_sha256"`
+}
+
+// receiptSha256 is the one spelling of the receipt hash. Every T-91 receipt that
+// carries a sha256 goes through here so the four existing hand-rolled copies
+// (api_insight.go, api_roles.go, api_taskmanuals.go, api_tasks_note.go) now
+// call it too and cannot drift from the new ones.
+//
+// Named receiptSha256 rather than sha256Hex because migration_lock_t75_test.go
+// already owns that name in this package for a []byte helper.
+func receiptSha256(text string) string {
+	sum := sha256.Sum256([]byte(text))
+	return hex.EncodeToString(sum[:])
 }
 
 type bootstrapDTO struct {
@@ -2003,12 +2521,43 @@ type taskDepRefDTO struct {
 	Status string `json:"status"`
 }
 
+// taskCreateResultDTO is the create_task receipt (T-91 reshaped it: the whole
+// taskDTO used to ride home beside `deduped`).
 type taskCreateResultDTO struct {
-	Task    taskDTO `json:"task"`
-	Deduped bool    `json:"deduped"`
+	// TaskID is the ticket this call landed on — minted here on a fresh create,
+	// and the EXISTING ticket's id on a dedupe hit. The one field the caller can
+	// never compute, and the handle every other task call takes.
+	TaskID string `json:"task_id"`
+	// TaskNo is the human-facing number for that same ticket (T-91 style),
+	// server-minted alongside TaskID. Kept because it is what a person is told
+	// to look at and cannot be derived from the id by the caller.
+	TaskNo string `json:"task_no"`
+	// Deduped is false when this call CREATED the task; true when a dedupe-key
+	// hit folded it onto an existing non-terminal task, in which case every
+	// other field describes THAT ticket and not what was sent.
+	Deduped bool `json:"deduped"`
+	// Title and Status are PRESENT ONLY ON A DEDUPE HIT, and pointers so that
+	// absence is expressible rather than serialised as an empty string.
+	//
+	//   - On a hit the caller landed on a ticket it did not open and has never
+	//     seen: the title is the row the task list shows, and the status is the
+	//     one thing that decides what it does next (it may have landed on a
+	//     ticket that is already in_progress or waiting_owner).
+	//   - On a fresh create the title is the caller's own sentence coming
+	//     straight back — ruled out verbatim by owner on 2026-09-05
+	//     (「自己發送出去的內容 … 不應該再回傳回來」) — and the status is the
+	//     constant `not_started` this handler stamps unconditionally.
+	//
+	// A `default` on either would make "no title here" indistinguishable from
+	// "a ticket with a blank title".
+	Title  *string `json:"title,omitempty"`
+	Status *string `json:"status,omitempty"`
 	// Warnings: non-blocking advisories on a typed create — input field names
 	// the manual does not define, or ambiguous keys that fold onto another.
-	// Omitted when none (optional, back-compatible — §12 DTO convention).
+	// Quality findings the server DERIVED from what was sent, never an echo of
+	// it, and they ride back because nothing else surfaces them: no later read
+	// recomputes them, so a warning not carried here is a warning nobody ever
+	// sees. Omitted when none (optional, back-compatible — §12 DTO convention).
 	Warnings []string `json:"warnings,omitempty"`
 }
 
@@ -3040,6 +3589,33 @@ func newScheduledMessageDTO(m ScheduledMessage) scheduledMessageDTO {
 		CustomHours:   intSetOrEmpty(m.CustomHours),
 		CustomMinutes: intSetOrEmpty(m.CustomMinutes),
 		Timezone:      m.Timezone,
+		Status:        m.Status,
+		LastFiredSlot: m.LastFiredSlot,
+		LastFiredTS:   m.LastFiredTS,
+		CreatedTS:     m.CreatedTS,
+	}
+}
+
+// scheduledMessageReceiptOf projects a stored schedule onto the T-91 write
+// receipt, shared by create and update so the two cannot answer with two shapes.
+//
+// 🔴 IT TAKES newScheduledMessageDTO's INPUT, NOT ITS OUTPUT, and the read face
+// is untouched: list_scheduled_messages still serves the body, the timezone and
+// all four custom_* sets. What is dropped here is what the caller sent —
+// Body (reported as a size instead), Hour, Minute, Timezone, and the three
+// custom sets the server stores exactly as they arrived (intSliceOrNil).
+// custom_months survives BECAUSE the server resolves it: omitting it on a
+// custom create means all twelve, and that decision is the server's.
+func scheduledMessageReceiptOf(m ScheduledMessage) scheduledMessageReceiptDTO {
+	return scheduledMessageReceiptDTO{
+		ID:            m.ID,
+		MemberID:      m.MemberID,
+		Label:         m.Label,
+		BodySizeChars: utf8.RuneCountInString(m.Body),
+		Cadence:       m.Cadence,
+		CustomMonths:  intSetOrEmpty(m.CustomMonths),
+		DayOfMonth:    m.DayOfMonth,
+		DayOfWeek:     m.DayOfWeek,
 		Status:        m.Status,
 		LastFiredSlot: m.LastFiredSlot,
 		LastFiredTS:   m.LastFiredTS,

@@ -19,6 +19,7 @@ package main
 // wording changed here; no assertion in this file was touched.
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -597,9 +598,17 @@ func TestPatchCustomSetsReAimOnlyOnARealChange(t *testing.T) {
 	id, _ := created["id"].(string)
 	path := srv.URL + "/api/members/mira/scheduled-messages/" + id
 
-	// The response already carries the canonical order, whatever was sent.
-	if got := created["custom_minutes"]; !reflect.DeepEqual(got, []any{0.0, 20.0, 40.0}) {
-		t.Fatalf("create echoed custom_minutes as %v, want the canonical [0 20 40]", got)
+	// T-91: custom_minutes is stored exactly as sent (intSliceOrNil), so it is
+	// the caller's own bytes and no longer rides the create receipt — only
+	// custom_months does, because that one the server RESOLVES. The canonical
+	// order is therefore asserted where it is decided: on the stored row.
+	if _, present := created["custom_minutes"]; present {
+		t.Fatalf("the create receipt must not echo custom_minutes back: %v", created)
+	}
+	if stored, err := api.dal.GetScheduledMessage(id); err != nil || stored == nil {
+		t.Fatalf("load the created schedule: %v %v", stored, err)
+	} else if !reflect.DeepEqual(stored.CustomMinutes, []int{0, 20, 40}) {
+		t.Fatalf("stored custom_minutes = %v, want the canonical [0 20 40]", stored.CustomMinutes)
 	}
 
 	plant := func() {
@@ -837,6 +846,16 @@ func TestPatchAwayFromCustomKeepsTheStoredSets(t *testing.T) {
 // Red when: they are omitted (or null) for non-custom rows. A reader then cannot
 // tell "this schedule has no sets" from "this server does not know about sets",
 // which are answers to two different questions.
+// 🔴 T-91 MOVED THIS TEST OFF THE CREATE RESPONSE AND ONTO THE LIST READ, and
+// the claim is unchanged: the four fields are present, as honest-empty arrays,
+// for EVERY cadence. What changed is which surface has to keep the promise.
+// list_scheduled_messages is the only READ this API has for a schedule, so it is
+// the surface a reader distinguishing "no sets" from "this server does not know
+// about sets" is actually looking at. The create/update RECEIPT deliberately
+// carries only custom_months — the one set the server RESOLVES rather than
+// copies — so the honest-empty rule does not apply to the other three there:
+// they are not empty on that shape, they are ABSENT, which is a third answer
+// and the correct one for a value the caller just sent.
 func TestScheduledMessageDTOAlwaysCarriesTheSets(t *testing.T) {
 	srv, secret, _ := scheduledStack(t)
 	ownerTok, _ := mintJWT("owner", "owner", 300, secret, time.Now().Unix(), "")
@@ -845,13 +864,47 @@ func TestScheduledMessageDTOAlwaysCarriesTheSets(t *testing.T) {
 	if status != 200 {
 		t.Fatalf("create: %d %v", status, created)
 	}
+	id, _ := created["id"].(string)
+	if id == "" {
+		t.Fatalf("create receipt carried no id: %v", created)
+	}
+	lstatus, listed := doRaw(t, "GET",
+		srv.URL+"/api/members/mira/scheduled-messages", ownerTok, "", nil)
+	if lstatus != 200 {
+		t.Fatalf("list: %d %s", lstatus, listed)
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal([]byte(listed), &rows); err != nil {
+		t.Fatalf("decode listing: %v — %s", err, listed)
+	}
+	var row map[string]any
+	for _, r := range rows {
+		if r["id"] == id {
+			row = r
+		}
+	}
+	if row == nil {
+		t.Fatalf("the schedule just created is not in the listing: %s", listed)
+	}
 	for _, field := range []string{"custom_months", "custom_days", "custom_hours", "custom_minutes"} {
-		got, present := created[field]
+		got, present := row[field]
 		if !present {
-			t.Fatalf("%s is absent from a daily schedule's response", field)
+			t.Fatalf("%s is absent from a daily schedule's served row", field)
 		}
 		if !reflect.DeepEqual(got, []any{}) {
 			t.Fatalf("%s is %v on a daily schedule, want an empty array", field, got)
+		}
+	}
+	// The receipt's OWN rule, pinned in the same test so the two shapes cannot
+	// be confused for one: it carries the resolved set and none of the copied
+	// ones.
+	if _, present := created["custom_months"]; !present {
+		t.Fatalf("the create receipt must carry the RESOLVED custom_months: %v", created)
+	}
+	for _, copied := range []string{"custom_days", "custom_hours", "custom_minutes"} {
+		if _, present := created[copied]; present {
+			t.Fatalf("the create receipt must not echo %q — the caller sent it: %v",
+				copied, created)
 		}
 	}
 }

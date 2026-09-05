@@ -94,18 +94,17 @@ func mcpTaskFixture(t *testing.T, srv, ownerTok string) (taskID string) {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
+	// T-91: create_task answers a receipt whose id is top-level `task_id`.
 	var out struct {
-		Task struct {
-			ID string `json:"id"`
-		} `json:"task"`
+		TaskID string `json:"task_id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		t.Fatal(err)
 	}
-	if resp.StatusCode != 200 || out.Task.ID == "" {
+	if resp.StatusCode != 200 || out.TaskID == "" {
 		t.Fatalf("create task through REST: %d", resp.StatusCode)
 	}
-	return out.Task.ID
+	return out.TaskID
 }
 
 // readTaskTextOverREST reads both fields back through a SECOND, independent call
@@ -170,10 +169,21 @@ func TestToolsCallUpdateTaskAcceptsTheExecutor(t *testing.T) {
 	if isError {
 		t.Fatalf("the executor's own tool call must be accepted: %s", text)
 	}
-	// The receipt is the task itself — and it must carry BOTH new values, so this
-	// cannot pass on a call that was merely routed and did nothing.
-	if !strings.Contains(text, "透過 MCP 更正的標題") || !strings.Contains(text, "透過 MCP 更正的敘述") {
-		t.Fatalf("tool result must echo both stored values: %s", text)
+	// T-91: the receipt is no longer the task itself, so "a call that was merely
+	// routed and did nothing" is caught differently — and better. The title is
+	// still on the receipt (it is news on five of the six verbs that share this
+	// shape), and the description rides as a HASH, which pins the exact stored
+	// bytes rather than a substring of a big blob. Both halves are checked here,
+	// and the independent REST read below is unchanged.
+	if !strings.Contains(text, "透過 MCP 更正的標題") {
+		t.Fatalf("tool result must carry the stored title: %s", text)
+	}
+	if want := receiptSha256("透過 MCP 更正的敘述"); !strings.Contains(text, want) {
+		t.Fatalf("tool result must carry the stored description's sha256 (%s): %s", want, text)
+	}
+	if strings.Contains(text, "透過 MCP 更正的敘述") {
+		t.Fatalf("the description text itself must NOT ride home — the caller sent "+
+			"it one call ago (owner 2026-09-05): %s", text)
 	}
 	title, description := readTaskTextOverREST(t, srv.URL, ownerTok, taskID)
 	if title != "透過 MCP 更正的標題" {

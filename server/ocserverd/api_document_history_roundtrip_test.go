@@ -580,7 +580,7 @@ func TestRoleNameIsNotVersionedAndRestoreLeavesItAlone(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
 		t.Fatal(err)
 	}
-	role := created.Role.Key
+	role := created.RoleKey
 
 	update := func(body map[string]any) {
 		t.Helper()

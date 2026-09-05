@@ -1003,6 +1003,13 @@ var identityGateLedger = map[string]string{
 		"executes the task. No decision here.",
 	"wire.go :: newTaskDTO :: ReassignedFromKind: t.ReassignedFromKind": "" +
 		"same wire projection for the predecessor's kind; no decision here.",
+	"api_tasks.go :: writeTaskWriteReceipt :: ExecutorKind: t.ExecutorKind": "" +
+		"T-91: the WRITE-RECEIPT twin of newTaskDTO's straight copy. The eight " +
+		"task-driving writes stopped answering with the whole taskDTO, and this " +
+		"field rides the receipt for the same reason it rides the DTO — a " +
+		"contractor is bound to one task and goes away with it, so the caller " +
+		"addresses them differently. Server-derived from the roster, not sent; " +
+		"no decision here.",
 	"wire.go :: newTaskListItemDTO :: ExecutorKind: t.ExecutorKind": "" +
 		"the list-item twin of newTaskDTO's copy; no decision here.",
 	"wire.go :: newTaskListItemDTO :: ReassignedFromKind: t.ReassignedFromKind": "" +
@@ -1038,6 +1045,11 @@ var identityGateLedger = map[string]string{
 		"closeout…), an unrelated vocabulary reusing the field name.",
 	"api_bootdocs.go :: foldBootDocDTO :: Kind: spec.Kind": "" +
 		"NOT an identity gate — the same document-kind vocabulary, at the DTO fold.",
+	"api_bootdocs.go :: bootDocReceiptOf :: Kind: dto.Kind": "" +
+		"NOT an identity gate — the same document-kind vocabulary, at the T-91 " +
+		"WRITE RECEIPT fold. It reads the value foldBootDocDTO (listed above) " +
+		"already put on the DTO; the receipt reports the document's address, " +
+		"and nothing about it asks who the caller is.",
 	"api_bootdocs.go :: replaceBootDoc :: Kind: spec.Kind": "" +
 		"NOT an identity gate — the same document-kind vocabulary, at the write path.",
 	"api_bootdocs.go :: resetBootDoc :: Kind: spec.Kind": "" +

@@ -50,7 +50,7 @@ func createRole(t *testing.T, s *apiServer, body map[string]any) string {
 	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
 		t.Fatalf("decode role result: %v", err)
 	}
-	return created.Member.ID
+	return created.MemberID
 }
 
 // TestHireMember_LeavesRuntimeUnsetWhenCallerNamesNone pins the hire seam

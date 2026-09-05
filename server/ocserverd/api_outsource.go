@@ -965,11 +965,18 @@ func (s *apiServer) HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost
 	// it, an unbuildable frame) answered a clean 200 with zero signal, which is
 	// the shape T-ba62 called 「整個 bug」 when it fixed the staff twin. WHICH
 	// cause is on last_op_reason, in the shared reason-code family (#14).
-	s.writeWorkerProjectionWith(w, r, *worker, func(dto *outsourceWorkerDTO) {
-		if outcome.Pending() {
-			pending := true
-			dto.ActivationPending = &pending
-		}
+	//
+	// T-91: it rides a RECEIPT now instead of the whole OutsourceWorkerDTO. The
+	// three fields here are the entire news of this write — which worker, whether
+	// the restart was decided but not delivered, and which cause. Everything else
+	// that projection carried (placement, telemetry, cost, the bound task) is
+	// readable through get_outsource_worker / list_outsource_workers, and none of
+	// it is what this write produced. activation_pending is omitted when the
+	// restart actually landed, so its presence is the signal.
+	writeJSON(w, http.StatusOK, outsourceRestartReceiptDTO{
+		ID:                worker.ID,
+		ActivationPending: outcome.Pending(),
+		LastOpReason:      worker.LastOpReason,
 	})
 }
 

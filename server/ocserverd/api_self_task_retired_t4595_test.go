@@ -113,11 +113,11 @@ func TestWorkerReadsItsWholePlanThroughGetTask(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("create: %d", code)
 	}
-	seedAssignedWorker(t, api, "ow-reader", created.Task.ID)
+	seedAssignedWorker(t, api, "ow-reader", created.TaskID)
 	if rec := reportWaking(t, api, "ow-reader", "sonnet"); rec.Code != http.StatusOK {
 		t.Fatalf("report_waking: %d %s", rec.Code, rec.Body.String())
 	}
-	submitPlan(t, api, created.Task.ID, "m-exec", []map[string]any{
+	submitPlan(t, api, created.TaskID, "m-exec", []map[string]any{
 		{"name": "gather", "dod": "DODONE", "parallel_group": "lane"},
 		{"name": "sift", "dod": "DODTHREE", "parallel_group": "lane"},
 		{"name": "build", "dod": "DODTWO", "is_gate": true},
@@ -126,14 +126,14 @@ func TestWorkerReadsItsWholePlanThroughGetTask(t *testing.T) {
 	// The worker's own token, through the face it is now told to use.
 	rec := httptest.NewRecorder()
 	api.HandleGetTaskApiTasksTaskIdGet(rec,
-		taskReq(t, "GET", "/api/tasks/"+created.Task.ID, nil, "ow-reader", "agent"),
-		created.Task.ID)
+		taskReq(t, "GET", "/api/tasks/"+created.TaskID, nil, "ow-reader", "agent"),
+		created.TaskID)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("a worker must be able to read its own task: %d %s",
 			rec.Code, rec.Body.String())
 	}
 	got := decodeBody[taskDTO](t, rec)
-	if got.ID != created.Task.ID {
+	if got.ID != created.TaskID {
 		t.Fatalf("read the wrong task: %+v", got)
 	}
 	if len(got.Steps) != 3 {

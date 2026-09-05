@@ -202,13 +202,20 @@ func TestLearningsOnlyFacesQuoteTheLearningsCap(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &manual); err != nil {
 		t.Fatalf("decode write_task_learnings response: %v", err)
 	}
-	if got, _ := manual["learnings_cap_chars"].(float64); int(got) != learningsCap {
-		t.Fatalf("write_task_learnings must echo the learnings cap %d, got %v",
-			learningsCap, manual["learnings_cap_chars"])
+	// T-91: write_task_learnings answers its OWN receipt now, not the whole
+	// manual — so the cap it quotes is a bare `cap_chars`, and there is no
+	// sop_md_cap_chars beside it. That absence is the ticket's point restated,
+	// not a loss of coverage: this write never looked at the SOP document, and a
+	// response that reported the SOP's cap invited the exact cross-reading the
+	// T-30f1 split exists to prevent. The SOP cap is still asserted on the two
+	// faces that DO write the SOP, below and in the update_task_manual case.
+	if got, _ := manual["cap_chars"].(float64); int(got) != learningsCap {
+		t.Fatalf("write_task_learnings must quote the learnings cap %d, got %v",
+			learningsCap, manual["cap_chars"])
 	}
-	if got, _ := manual["sop_md_cap_chars"].(float64); int(got) != sopCap {
-		t.Fatalf("the same response still reports the SOP cap %d for sop_md, got %v",
-			sopCap, manual["sop_md_cap_chars"])
+	if _, present := manual["sop_md_cap_chars"]; present {
+		t.Fatalf("a learnings-only write must not report the SOP cap at all: %v",
+			manual["sop_md_cap_chars"])
 	}
 
 	// patch_task_learnings: the receipt quotes the cap the write was judged

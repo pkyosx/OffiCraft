@@ -681,35 +681,36 @@ func (s *apiServer) HandlePostChatApiChatPost(w http.ResponseWriter, r *http.Req
 			Body: "你有一則新訊息。",
 		})
 	}
-	// 🔴 THIS internalError RUNS AFTER THE MESSAGE IS ALREADY COMMITTED, PUBLISHED
-	// AND PUSHED. PutChatWithAttachments, hub.Publish and enqueueWebPush have all
-	// happened by the time this line can fire, so a 500 here is a 500 about a
-	// message that IS in the database, IS on every open SSE stream, and HAS been
-	// pushed to the owner's phone. The browser's send path catches the failure
-	// and restores the draft — so the owner would see a message sitting in the
-	// thread AND still sitting in the composer, and pressing Enter would send it
-	// a second time.
+	// T-91: the receipt, not the message. The caller composed the body and
+	// addressed the recipient; what it could not know is the minted id, the
+	// server's stamp, and which attachment ids actually landed.
 	//
-	// TODAY IT CANNOT FIRE, for exactly one reason: servedChatMessageDTO's only
-	// error is the reply-quote read, and the reply_to EXISTENCE GATE above
-	// already read that same single id through the same ListChatByIDs before
-	// anything was stored. A row that cannot be read fails there, at a point
-	// where nothing has been committed.
-	//
-	// ⚠️ THAT IS A COINCIDENCE OF THE CURRENT SHAPE, AND IT IS THE FIRST THING A
-	// BATCHING CHANGE WOULD BREAK. Batch the quote reads (the note on
-	// resumeChatBlock names that as a future change), or relax the gate to a
-	// cheaper existence check, and this branch becomes reachable — with the write
-	// already durable behind it. WHOEVER MAKES THAT CHANGE MUST FIX THIS FIRST:
-	// either build the DTO BEFORE the commit, or answer 200 with the quote
-	// omitted here (the message really was accepted; the echo is the only thing
-	// that failed). Do not leave a post-commit 500 on a path that can reach it.
-	dto, err := s.servedChatMessageDTO(msg)
-	if err != nil {
-		internalError(w, err)
-		return
+	// 🔴 THIS ALSO RETIRED A POST-COMMIT 500. The old answer went through
+	// servedChatMessageDTO, whose reply-quote read returns an error — and it ran
+	// AFTER PutChatWithAttachments, hub.Publish and enqueueWebPush, so a failure
+	// there would have been a 500 about a message that IS in the database, IS on
+	// every open SSE stream and HAS been pushed to the owner's phone (the
+	// browser's send path restores the draft on failure, so the owner would see
+	// the message in the thread AND still in the composer). It could not fire
+	// today only because the reply_to existence gate above had already read that
+	// same id — a coincidence of the current shape that a batching change would
+	// have broken. The receipt reads nothing, so the branch is gone rather than
+	// merely unreachable. Do not reintroduce a post-commit read here.
+	writeJSON(w, http.StatusOK, chatPostReceiptOf(msg))
+}
+
+// chatPostReceiptOf projects a just-written chat message onto the T-91 write
+// receipt. Shared by post_chat and post_task_message so the two write faces
+// onto one table cannot answer with two shapes.
+//
+// It reads NOTHING: every value comes off the row this request just built, so
+// it cannot fail after the commit (see the note at its first caller).
+func chatPostReceiptOf(m ChatMessage) chatPostReceiptDTO {
+	return chatPostReceiptDTO{
+		ID:          m.ID,
+		TS:          m.TS,
+		Attachments: newChatMessageDTO(m).Attachments,
 	}
-	writeJSON(w, http.StatusOK, dto)
 }
 
 // servedChatMessageDTO builds the chat-message view AND joins the live reply

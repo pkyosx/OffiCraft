@@ -26,7 +26,11 @@ func openUnboundCard(t *testing.T, api *apiServer, selectMode string,
 	if rec.Code != http.StatusOK {
 		t.Fatalf("open card: %d %s", rec.Code, rec.Body.String())
 	}
-	return decodeBody[replyCardDTO](t, rec)
+	// T-91: create_reply_card answers a receipt, so the card comes back through
+	// get_reply_card. That is the right read for these cases anyway — every
+	// claim below is about what the server STORED and serves (the resolved
+	// select_mode, the per-option ai_pick flags), never about the create echo.
+	return createdCardView(t, api, rec)
 }
 
 func threeOptions() []map[string]any {
