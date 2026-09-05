@@ -430,10 +430,12 @@ func gracefulStopEpochOpen(m Member) bool {
 // and must not be folded into it.
 //
 // The two faces that stamp a stop epoch are the staff deactivate and the worker
-// /stop, and this is the whole of what they used to write out identically. It
-// takes and returns a VALUE rather than mutating, because the worker face holds
-// an OutsourceWorker and only projects a Member to ask the question — the
-// answer goes back onto the worker row, not onto the projection.
+// /stop. Since T-65 包③ they no longer write it out identically — they reach
+// this function through ONE body, applyStopVerbRow, which is where the rest of
+// 停止's row writes now live too. It still takes and returns a VALUE rather
+// than mutating, because the worker face holds an OutsourceWorker and only
+// projects a Member to ask the question — the answer goes back onto the worker
+// row, not onto the projection.
 func stopEpochAnchor(m Member, now float64) float64 {
 	if forcedEpochLive(m) {
 		return m.StoppingSince
@@ -1340,8 +1342,153 @@ func clearMemberHandoverMarker(m *Member) {
 	m.RefocusOp = ""
 }
 
+// ── 停止: ONE body, both populations (T-65 包③) ──────────────────────────────
+//
+// stopVerbRow names the five columns the 停止 verb writes, BY POINTER. It exists
+// so those writes have exactly ONE body instead of two hand-kept copies.
+//
+// The two populations already live in the SAME table — DAL.PutOutsourceWorker IS
+// PutMember(memberFromWorker(w)), and migration 00025 folded the rows — so these
+// are not five member columns and five worker columns, they are five columns.
+// What was still doubled was the Go: 正職 wrote them through
+// clearMemberHandoverMarker + clearRestartIntent + two assignments, and 外包
+// hand-copied the same five writes with clearWorkerRestartIntent in the middle.
+// Nothing mechanical held the copies equal; the only thing that did was that
+// whoever edited one of them remembered the other.
+//
+// 🔴 WHAT THIS BUYS, AND WHAT IT DOES NOT. It removes the drift where one side
+// gains or loses a write and the other does not: for THE 停止 VERB there is no
+// second copy left to forget. ⚠️ FOR 停止 ONLY — 強制停止 still writes four of
+// these five columns twice (api_members.go's force-stop against
+// api_outsource.go's), and its fifth, stopping_since, follows a DIFFERENT rule on
+// each side, so folding it in would be a behaviour change rather than a
+// convergence. That one belongs to 包④/包⑤. It does NOT make a MIS-WIRED adapter safe — stopVerbRowOfWorker could
+// hand back a pointer to the wrong field and applyStopVerbRow would faithfully
+// write the wrong column. That failure has to be caught one layer up, at the
+// handler seam, and it is: block ① of TestVerbPopulationParityMatrix drives the
+// real routes.go handler for both populations and compares the terminal rows.
+// This is the same split T-14 PR ① paid for the hard way — a parity test over
+// the pure helper left BOTH call sites deletable with the whole suite still
+// green — so the helper is deliberately NOT where the guard lives.
+type stopVerbRow struct {
+	DesiredState     *string
+	RefocusSince     *float64
+	RefocusOp        *string
+	RestartAfterStop *bool
+	StoppingSince    *float64
+}
+
+// stopVerbRowOfMember / stopVerbRowOfWorker are pure address-taking adapters and
+// must stay that way: any logic here would be logic that exists twice again,
+// which is the thing this file just deleted.
+func stopVerbRowOfMember(m *Member) stopVerbRow {
+	return stopVerbRow{
+		DesiredState:     &m.DesiredState,
+		RefocusSince:     &m.RefocusSince,
+		RefocusOp:        &m.RefocusOp,
+		RestartAfterStop: &m.RestartAfterStop,
+		StoppingSince:    &m.StoppingSince,
+	}
+}
+
+func stopVerbRowOfWorker(w *OutsourceWorker) stopVerbRow {
+	return stopVerbRow{
+		DesiredState:     &w.DesiredState,
+		RefocusSince:     &w.RefocusSince,
+		RefocusOp:        &w.RefocusOp,
+		RestartAfterStop: &w.RestartAfterStop,
+		StoppingSince:    &w.StoppingSince,
+	}
+}
+
+// applyStopVerbRow is THE body of 停止, for both populations. `snapshot` is the
+// row as it stood BEFORE this call — stopEpochAnchor reads forced_stop_at and
+// stopping_since off it to decide whether a FORCE-stop's epoch is live and must
+// not be re-stamped into a softer one, and reading that off a row this function
+// has already begun mutating would answer a different question.
+//
+// Each write below is here because BOTH populations made it, and the comment
+// says which rule it is carrying:
+//
+//   - desired_state=offline — the owner saying DOWN. It is what makes every
+//     auto-spawn branch skip the subject, on both sides.
+//   - refocus_since / refocus_op cleared — 換手 marker. Two different sentences
+//     arrive at the same two lines: on the staff side it is the destructive
+//     reader armRefocusEpoch describes; on the worker side it is mechanical,
+//     because autoHandoverWorker's in-flight arm collects a refocus epoch by
+//     kill+RESPAWN, which would revive a worker the owner just held down.
+//     🔴 THE TWO REASONS ARE BOTH STILL TRUE AND NEITHER IS REDUNDANT — this
+//     函式 carries the write, not the justification, and removing either
+//     population's reason from its handler would lose a fact.
+//   - restart_after_stop cleared — 後蓋前: 下線 is the softest rung of the
+//     ladder but it is the same statement about 「要不要起來」 as the hardest,
+//     so a 起來 queued by an earlier 重新聚焦 / 改機器 / 換 model is CANCELLED.
+//   - stopping_since = stopEpochAnchor(snapshot, now) — the stop epoch's anchor,
+//     re-stamped UNLESS a live forced epoch owns it.
+//
+// 🔴 THE stopping_since WRITE IS THE ONE THAT IS NOT UNCONDITIONAL, and the
+// reasoning below used to live at the staff call site. It moved here with the
+// write itself (T-65 包③) — leaving it behind would have left a comment whose
+// subject is no longer underneath it.
+//
+// …UNCONDITIONAL with ONE exception: a stop epoch that a FORCE-stop opened
+// must not be re-stamped into a softer one. The SSE stop gate separates
+// "close-out in flight" (admit the reconnect) from "cut off deliberately"
+// (refuse it) by comparing the two anchors — forced_stop_at >= this epoch's
+// stopping_since means forced — so re-stamping stopping_since to now would
+// move a force-stopped member to the ADMIT side, and the 下線 arm runs no
+// clock, so nothing would collect it afterwards. Found by independent
+// review; reachable through the API/MCP surface (the cockpit offers no 下線
+// button in stopping/stopped, but that is a UI fact, not a gate).
+//
+// The three conditions are each load-bearing. `stopping_since > 0` is what
+// keeps this narrow to a LIVE forced epoch: activate clears stopping_since
+// and waking_since but deliberately KEEPS forced_stop_at (it is the durable
+// record that a past session was cut off), so testing forced_stop_at alone
+// would strip the soft-offboard admission from every member that was ever
+// force-stopped.
+//
+// 🔴 "the stop anchors", which is what this used to say, is one anchor too
+// many: activate does NOT clear stopped_since. That is not a nit — it is the
+// reason a brand-new session can come up ONLINE carrying the PREVIOUS
+// generation's report with no epoch (下線 → 活化), which is exactly the state
+// stampContextHighRecycle's boot_ts test exists to tell apart from a live
+// session's own report. A reader who believes the shorter sentence will
+// conclude that state is unreachable and write the wrong guard.
+//
+// Consequence, deliberate: a forced epoch's anchor stops moving, so this
+// call no longer restarts the grace clock for it. Nothing reads it that way
+// — the 下線 arm returns decisionNone while the soft grace is on, and
+// offboardKindOf answers soft for desired-offline without consulting the
+// anchor's age.
+//
+// 🔴 THAT LAST SENTENCE IS STAFF-SCOPED, and it did not have to say so while it
+// lived at the staff call site. It does now: decideDown is the MEMBER reconcile
+// path, and a stopped WORKER never reaches a tick at all — runOutsourceTick
+// `continue`s on desired_state=offline, which is why the worker side collects
+// inline instead. See the 停止（離線起點）rows in the parity whitelist. Caught
+// by independent review, which is the failure mode this move creates: a
+// paragraph that was true where it stood becomes a claim about both
+// populations the moment it is hoisted into shared code.
+//
+// It writes NOTHING else, and in particular no stopped_since and no
+// forced_stop_at: this verb opens a close-out, it does not end one, and the two
+// populations end that close-out through machinery that is NOT converged here
+// (see the whitelist rows for 停止 in verb_population_parity_t65_test.go).
+func applyStopVerbRow(row stopVerbRow, snapshot Member, now float64) {
+	*row.DesiredState = DesiredStateOffline
+	*row.RefocusSince = 0.0
+	*row.RefocusOp = ""
+	*row.RestartAfterStop = false
+	*row.StoppingSince = stopEpochAnchor(snapshot, now)
+}
+
 // POST /api/members/{member_id}/deactivate — desired_state=offline + an
-// UNCONDITIONAL stopping_since re-stamp (one exception, below).
+// UNCONDITIONAL stopping_since re-stamp, with ONE exception.
+//
+// ⚠️ THE EXCEPTION IS NO LONGER "BELOW", which is what this line used to say:
+// T-65 包③ moved the write, and the paragraph explaining it, UP into
+// applyStopVerbRow. Independent review caught the dangling pointer.
 //
 // The re-stamp does NOT restart a countdown: since rc-27d1710174dd the 下線 arm
 // runs no clock at all. What the anchor dates is the close-out epoch — which
@@ -1375,42 +1522,18 @@ func (s *apiServer) HandleDeactivateMemberApiMembersMemberIdDeactivatePost(w htt
 	// taken no work, so the grace window it cannot enter would buy nothing.
 	cancellingWake := PresenceState(*m, nowSecs(), s.hub.IsOnline(m.ID)) ==
 		MemberPresenceWaking
-	m.DesiredState = DesiredStateOffline
-	clearMemberHandoverMarker(m)
-	// 後蓋前 (T-14 項目 7): 下線 is the owner saying DOWN — the softest rung of
-	// the ladder, but the same statement about 「要不要起來」 as the hardest.
-	clearRestartIntent(m)
-	// …UNCONDITIONAL with ONE exception: a stop epoch that a FORCE-stop opened
-	// must not be re-stamped into a softer one. The SSE stop gate separates
-	// "close-out in flight" (admit the reconnect) from "cut off deliberately"
-	// (refuse it) by comparing the two anchors — forced_stop_at >= this epoch's
-	// stopping_since means forced — so re-stamping stopping_since to now would
-	// move a force-stopped member to the ADMIT side, and the 下線 arm runs no
-	// clock, so nothing would collect it afterwards. Found by independent
-	// review; reachable through the API/MCP surface (the cockpit offers no 下線
-	// button in stopping/stopped, but that is a UI fact, not a gate).
+	// 🔴 THE ROW WRITES LIVE IN applyStopVerbRow AND ARE SHARED WITH
+	// HandleStopOutsourceWorker… (T-65 包③). The snapshot is taken BEFORE the
+	// mutation on purpose: stopEpochAnchor has to read the PRE-stop
+	// stopping_since / forced_stop_at to tell a live forced epoch from a soft
+	// one, and this call is the last moment those are still the old values.
 	//
-	// The three conditions are each load-bearing. `stopping_since > 0` is what
-	// keeps this narrow to a LIVE forced epoch: activate clears stopping_since
-	// and waking_since but deliberately KEEPS forced_stop_at (it is the durable
-	// record that a past session was cut off), so testing forced_stop_at alone
-	// would strip the soft-offboard admission from every member that was ever
-	// force-stopped.
-	//
-	// 🔴 "the stop anchors", which is what this used to say, is one anchor too
-	// many: activate does NOT clear stopped_since. That is not a nit — it is the
-	// reason a brand-new session can come up ONLINE carrying the PREVIOUS
-	// generation's report with no epoch (下線 → 活化), which is exactly the state
-	// stampContextHighRecycle's boot_ts test exists to tell apart from a live
-	// session's own report. A reader who believes the shorter sentence will
-	// conclude that state is unreachable and write the wrong guard.
-	//
-	// Consequence, deliberate: a forced epoch's anchor stops moving, so this
-	// call no longer restarts the grace clock for it. Nothing reads it that way
-	// — the 下線 arm returns decisionNone while the soft grace is on, and
-	// offboardKindOf answers soft for desired-offline without consulting the
-	// anchor's age.
-	m.StoppingSince = stopEpochAnchor(*m, nowSecs())
+	// What used to be written here, and the two rules that came with it, are
+	// written down where the writes now are — including 後蓋前 (T-14 項目 7,
+	// clearRestartIntent) and the 換手 marker (clearMemberHandoverMarker). Both
+	// helpers still exist and are still called from the OTHER verbs; what is
+	// gone is this verb's second copy of them.
+	applyStopVerbRow(stopVerbRowOfMember(m), *m, nowSecs())
 	if err := s.persistMemberWindDownAnchors(*m); err != nil {
 		internalError(w, err)
 		return

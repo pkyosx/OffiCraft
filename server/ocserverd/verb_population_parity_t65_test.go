@@ -62,6 +62,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -79,11 +80,36 @@ const (
 	anchorFuture anchorClass = "future" // still ahead of it (an untouched future stamp)
 )
 
-// terminalState is the row as both populations project it. GetMember and
-// GetOutsourceWorker read the SAME table (migration 00025 folded it), so a
-// worker is folded through memberFromWorker and the two are literally
-// comparable.
+// terminalState is TWO things, and after T-65 包③ it is worth saying which is
+// which before reading a failure message. An earlier version of this comment
+// said only the first half — 「the row as both populations project it」 — and
+// that sentence was already false when `dispatched` was added; a third
+// non-database column makes it false three times over.
+//
+//	(a) THE ROW READ BACK. The nine fields in the first block below. GetMember
+//	    and GetOutsourceWorker read the SAME table (migration 00025 folded it),
+//	    so a worker is folded through memberFromWorker and the two are literally
+//	    comparable, column by column.
+//
+//	(b) WHAT THIS VERB DID OUTSIDE THE ROW, observed after the handler returned.
+//	    `Dispatched` (the warden FIFO), `Cost` (a fold of live telemetry and the
+//	    durable banked_cost) and `Noticed` (the member-topic SSE frame) are not
+//	    columns of the row this struct's first block reads back — nothing in a
+//	    GetMember can see any of them. They are here because a stop's whole
+//	    point is a side effect: converge every column above and the two
+//	    populations can still send a different kill, bank different money, and
+//	    say a different thing to the agent, with the matrix green.
+//
+// The two halves fail differently and must be debugged differently. A mismatch
+// in (a) means a handler wrote a different value; a mismatch in (b) means a
+// handler CALLED something different — and the call may be several frames away
+// from the handler (起來's staff `stop` frame comes out of a reconcile the
+// handler fired, not out of the handler).
 type terminalState struct {
+	// ── the ROW, as both populations project it ──────────────────────────────
+	// GetMember and GetOutsourceWorker read the SAME table (migration 00025
+	// folded it), so a worker is folded through memberFromWorker and these
+	// fields are literally comparable.
 	Status           int
 	DesiredState     string
 	Stopping         anchorClass
@@ -93,6 +119,252 @@ type terminalState struct {
 	Waking           anchorClass
 	RestartAfterStop bool
 	DesiredMachineID string
+
+	// ── what the verb did OUTSIDE the row (T-65 包③) ─────────────────────────
+	// NOT read back from the database: observed from the warden's command FIFO
+	// after the handler returned. 包③ converges the STOP verbs, and a stop's
+	// whole point is a side effect — whether a kill was dispatched at all, and
+	// under which RPC. None of that appears on the row, so a matrix built from
+	// the row alone is green no matter what 包③ does to the dispatch.
+	Dispatched dispatchSet
+
+	// ── what the verb did to the MONEY (T-65 包③) ────────────────────────────
+	// Also not a database column in the sense the nine above are: it is a fold
+	// of TWO independently-read facts — the live telemetry figure (in-memory,
+	// s.telemetry) and the durable banked_cost — taken after the handler
+	// returned. A stop's other side effect is that it BANKS the dying session's
+	// spend, and that is invisible to every column above: 強制停止 ends with the
+	// same desired_state, the same anchors and the same one `stop` frame on both
+	// sides, while only ONE of them has moved the owner-visible money.
+	Cost costFold
+
+	// ── what the verb SAID to the subject (T-65 包③) ─────────────────────────
+	// The THIRD non-database column, and the only one whose reader is the AGENT
+	// rather than the warden or the owner. Observed from a cockpit SSE
+	// connection opened after the seeding and drained after the handler
+	// returned. A verb can converge on all nine row columns, on the dispatch and
+	// on the money, and still differ on whether the session about to end was
+	// TOLD to close out — which is the difference between a hand-off and a
+	// yank, and it appears in no column above.
+	Noticed noticeSet
+}
+
+// dispatchSet is every RPC this verb queued FOR THIS SUBJECT, sorted and joined
+// with "+", so a whole dispatch outcome is one writable literal: "" for
+// "dispatched nothing", "stop" for one frame, "stop+uninstall" for two. Sorted
+// rather than in emission order on purpose — the ORDER two frames leave in is
+// not a property this matrix is asserting, and making it one would turn an
+// unrelated refactor into a red cell.
+type dispatchSet string
+
+const dispatchedNothing dispatchSet = ""
+
+// costFold is what the verb did to the subject's LIVE telemetry cost, as one
+// writable literal. It is a fold of two facts read back INDEPENDENTLY after the
+// handler returned — whether the live figure is still in s.telemetry, and what
+// the durable banked_cost says — because the failure this column exists to see
+// is precisely the two disagreeing: bankLiveCost's own comment names "the old
+// member-only fold silently destroyed a worker's cost here" (api_infra.go:906),
+// and a column that only asked "did the live figure go away" would score that
+// destruction as a successful bank.
+type costFold string
+
+const (
+	// costUntouched — the live figure is still there. No fold ran.
+	costUntouched costFold = "live"
+	// costBanked — the live figure was popped AND banked_cost took exactly it.
+	costBanked costFold = "banked"
+	// costLost — the live figure was popped and banked_cost did NOT take it.
+	// 🔴 No cell is expected to be this today; it is here so that the shape has
+	// a NAME rather than being folded into "banked". Double-banking lands here
+	// too (banked == 2×), which is the other half of the same accounting bug.
+	costLost costFold = "lost"
+)
+
+// parityLiveCost is the live telemetry cost both seeders plant on the subject.
+//
+// 🔴 IT MUST BE NON-ZERO, and the reason is NARROWER than it first looks. The
+// four-cell control below was actually run (T-65 包③); the first draft of this
+// comment claimed 0.0 makes the column inert, and MEASURING IT PROVED THAT
+// WRONG, so what is written here is the measurement and not the intuition:
+//
+//	seed  mutant                                            matrix
+//	3.25  worker_spawn.go:1983 bankLiveCost dropped         RED
+//	0.0   worker_spawn.go:1983 bankLiveCost dropped         RED
+//	3.25  api_infra.go:939 banks 0 instead of cost          RED
+//	0.0   api_infra.go:939 banks 0 instead of cost          GREEN  ← blind
+//
+// So a zero seed still catches "the fold never ran" — liveCostPresent keys on
+// the KEY being there, not on its value. What it goes blind to is the costLost
+// class: the pop happened and the money did not arrive. With banked==0 and
+// parityLiveCost==0 that is indistinguishable from a correct bank. And that
+// class is not hypothetical — it is the one bankLiveCost's own comment says
+// already happened once ("the old member-only fold silently destroyed a
+// worker's cost here", api_infra.go:906).
+//
+// Deleting the seeder calls outright is NOT a silent failure, also measured:
+// every cell then reads costLost and the matrix fails loudly on all seven verbs,
+// because banked(0) != parityLiveCost(3.25). That is the tripwire the exact
+// comparison in classifyCost buys, and it is why this is == and not >=.
+// 3.25 is exactly representable in float64, so a double-bank (6.5) also lands
+// in costLost rather than rounding into costBanked.
+const parityLiveCost = 3.25
+
+// classifyCost folds the two reads. `liveStillPresent` is read from s.telemetry
+// and `banked` off the row the terminal read already had in hand, so this adds
+// no third database round-trip and — like every other expectation in this file —
+// calls no production code to decide what production code should have produced.
+func classifyCost(banked float64, liveStillPresent bool) costFold {
+	switch {
+	case liveStillPresent:
+		return costUntouched
+	case banked == parityLiveCost:
+		return costBanked
+	default:
+		return costLost
+	}
+}
+
+// liveCostPresent reports whether the subject's live telemetry cost survived the
+// verb. memStore.Get returns a COPY (hub.go:1095-1108), so this is a read with
+// no side effect and may be called in any order relative to dispatchedFor.
+func liveCostPresent(api *apiServer, subjectID string) bool {
+	_, ok := api.telemetry.Get(subjectID)["cost"]
+	return ok
+}
+
+// noticeSet is what this verb SAID to the subject on its own SSE stream, as one
+// writable literal. It folds every member-topic frame addressed to the subject
+// that the verb fanned, into three answers.
+//
+// 🔴 THREE CLASSES, NOT FOUR, AND THE REASON IS NAMED. The obvious fourth shape
+// is soft-vs-final — 「你有 N 秒」 versus 「照自己的節奏收尾」 — and this column
+// deliberately does NOT distinguish them. Telling them apart without breaking
+// this file's rule 2 (every expectation is a hand-transcribed LITERAL, nothing
+// calls production code to decide what production code should produce) would
+// need a FINAL-only substring written out here by hand. There is no such
+// substring in Go to transcribe: winddownNoticeText (api_bootdocs.go:572-604)
+// picks a DOCUMENT — s.offboardSpec() for soft, s.acceleratedStopSpec() for
+// final — and the words come out of the seeded 〈停止〉 / 〈加速停止〉 documents,
+// which the owner can edit at runtime (api_bootdocs.go's whole point, T-3201:
+// 「the owner went looking for the words an agent is sent and could not find
+// them」). A literal copied out of a seed file is not a literal transcribed
+// from an assignment: the owner rewording one sentence of 〈加速停止〉 would
+// redden this matrix for a reason that is not a behaviour change on either
+// handler. So the column asks the question that IS decided in Go — does a
+// notice ride this frame at all (offboardKindOf's `carries`, api_members.go:227)
+// — and leaves the wording to the tests that own it
+// (offboard_selfdriven_ta9d6_test.go, offboard_discriminator_t0974_test.go).
+type noticeSet string
+
+const (
+	// noticedNothing — the verb fanned NO member-topic frame for this subject.
+	// This is the whole outsource side of the file today: PutOutsourceWorker
+	// deliberately fans no member patch (dal.go:512), so a worker's only
+	// member-topic frame in the entire package is openWorkerHandoverGrace's
+	// (worker_spawn.go:2259).
+	noticedNothing noticeSet = ""
+	// noticedPlain — a member-topic frame arrived and carried no
+	// offboard_notice. 🔴 NO CELL IS EXPECTED TO BE THIS TODAY; it is here so
+	// that the shape has a NAME rather than collapsing into noticedNothing,
+	// which is the same reason costLost exists above. The two are wildly
+	// different facts about a stop — 「the cockpit was told and the agent was
+	// told nothing」 versus 「nobody was told anything」 — and a column that
+	// folded them together would score a lost 預告 as a lost connection.
+	noticedPlain noticeSet = "delta"
+	// noticedNotice — at least one member-topic frame carried offboard_notice:
+	// the subject was shown the wind-down sequence.
+	noticedNotice noticeSet = "notice"
+)
+
+// watchMemberDeltas opens the COCKPIT connection the `noticed` column is read
+// from, and it is called AFTER the seeding and BEFORE the handler on purpose:
+// the buffer then holds exactly the frames the verb under test fanned, with no
+// drain step that could swallow one of them (the same ordering
+// api_bootdocs_offboard_tc9c0_test.go:51 uses, and for the same reason).
+//
+// 🔴 WHY THE OWNER LISTENER RATHER THAN THE SUBJECT'S OWN. Two candidates were
+// on the table and one of them perturbs the fixture:
+//
+//   - the subject's own listener. seedParityMember's connectOnlineMachine
+//     already makes one and throws it away, so the staff side could just catch
+//     it — but seedParityWorker cannot: newActiveWorker discards the listener
+//     inside itself (worker_lifecycle_test.go:108) and getting one back means
+//     either changing a helper a dozen other tests share, or a second
+//     hub.Connect on the same id, which is a TAKEOVER: Connect (hub.go:186)
+//     kicks the incumbent (deletes it from the map and closes its `kicked`
+//     channel) and spends one of the member's takeoverBurst stamps. It would
+//     NOT move IsOnline (the new listener is inserted in the same critical
+//     section the old one leaves, so the member is online throughout) and it
+//     would not move MachineOf as long as the takeover passed the same
+//     machineID — the worker's is "" — but 「would not move it as long as you
+//     remember to pass the right string」 is exactly the silent fixture coupling
+//     TestVerbPopulationParityFixtureLandsBothPopulationsOnOneWarden exists to
+//     complain about.
+//
+//   - the OWNER/cockpit connection (MemberID == ""), which is what this is. It
+//     is 全量 by contract (hub.go:503-508: an empty MemberID takes every frame),
+//     so ONE connection sees both populations and the two arms of a row are read
+//     through the same seam. And it is INERT with respect to every projection
+//     this matrix asserts: Connect's takeover block is skipped outright for an
+//     empty memberID (hub.go:192), IsOnline / OnlineMembers / MachineOf all skip
+//     blank-id listeners, and Disconnect reports false for them, so no
+//     last-disconnect edge fires. It cannot move a single one of the other ten
+//     columns.
+func watchMemberDeltas(t *testing.T, api *apiServer) *hubListener {
+	t.Helper()
+	l, err := api.hub.Connect("", "")
+	if err != nil {
+		t.Fatalf("open the cockpit connection the noticed column reads: %v", err)
+	}
+	t.Cleanup(func() { api.hub.Disconnect(l) })
+	return l
+}
+
+// noticedFor drains the cockpit connection and folds what this verb said TO THIS
+// SUBJECT. Frames addressed at somebody else are dropped rather than counted,
+// for the same reason dispatchedFor drops them: the fixture holds a warden and a
+// neighbour, and a matrix that counted their deltas would go red for a reason
+// that has nothing to do with the verb under test.
+//
+// 🔴 IT IS AN OBSERVATION, NOT A RE-DERIVATION. This file's rule 1 forbids
+// calling the helpers underneath the handler seam, and there is a ready-made
+// temptation here: `api.offboardDeltaPayload(m)["offboard_notice"]` is how
+// worker_forced_stop_parity_tc996_test.go:75/113/143 asks this question. That is
+// legitimate THERE and forbidden HERE — it asks 「what WOULD this row be told if
+// somebody fanned a delta now」, which is a different question from 「what WAS
+// this subject told」, and the two come apart at exactly the interesting place:
+// a verb that stamps a notice-bearing row and never publishes reads as a full
+// 預告 through the helper and as noticedNothing through the wire. The mutant in
+// this column's commit message is precisely that shape.
+//
+// DRAINING IS DESTRUCTIVE. Called EXACTLY ONCE per verb run, from inside
+// memberTerminal / workerTerminal, for the same reason dispatchedFor is.
+func noticedFor(t *testing.T, l *hubListener, subjectID string) noticeSet {
+	t.Helper()
+	out := noticedNothing
+	key := wireOwnerID + "::" + subjectID
+	for raw := l.pop(); raw != nil; raw = l.pop() {
+		_, envelope := parseSSEFrame(t, raw)
+		if envelope["topic"] != "member" {
+			continue
+		}
+		data, _ := envelope["data"].(map[string]any)
+		if data == nil || data["key"] != key {
+			continue
+		}
+		if out == noticedNothing {
+			out = noticedPlain
+		}
+		payload, _ := data["payload"].(map[string]any)
+		if payload == nil {
+			continue
+		}
+		if _, carries := payload["offboard_notice"]; carries {
+			return noticedNotice
+		}
+	}
+	return out
 }
 
 // parityFields is the compared field set, in a stable order so a failure names
@@ -101,6 +373,23 @@ var parityFields = []string{
 	"http_status", "desired_state", "stopping_since", "stopped_since",
 	"refocus_since", "refocus_op", "waking_since", "restart_after_stop",
 	"desired_machine_id",
+	// T-65 包③ — the first column that is NOT a database column. Everything
+	// above is read back off the row; this one is observed from the warden
+	// FIFO. Kept LAST so an existing failure still names the same field.
+	"dispatched",
+	// T-65 包③ — the SECOND non-database column, appended for the same reason
+	// `dispatched` was: a field added in the middle would renumber nothing but
+	// would change which name an existing failure prints first.
+	"banked_cost",
+	// T-65 包③ — the THIRD non-database column, appended last for the third
+	// time and for the same reason. ⚠️ THE ORDER OF THIS LIST IS NOT THE ORDER
+	// OF terminalState's fields and does not have to be: what it fixes is which
+	// field name a failure prints FIRST, so that a pre-existing red cell keeps
+	// reading the way it read yesterday when a column is added. The nine
+	// database columns come first, then the three observed side effects in the
+	// order they were added — dispatched (the FIFO), banked_cost (the money),
+	// noticed (the sentence).
+	"noticed",
 }
 
 func (s terminalState) field(name string) any {
@@ -123,6 +412,12 @@ func (s terminalState) field(name string) any {
 		return s.RestartAfterStop
 	case "desired_machine_id":
 		return s.DesiredMachineID
+	case "dispatched":
+		return s.Dispatched
+	case "banked_cost":
+		return s.Cost
+	case "noticed":
+		return s.Noticed
 	}
 	panic("unknown parity field " + name)
 }
@@ -178,7 +473,102 @@ var knownDivergences = []knownDivergence{
 			"alongside RefocusSince; 正職 activate writes back what it read.",
 	},
 
-	// ── 重新聚焦 (refocus) — CONVERGED IN T-65 包②, no rows left ────────────
+	{
+		verb: "起來", field: "dispatched",
+		why: "🔴 FIRST ROW ON A NON-DATABASE COLUMN (T-65 包③). The two sides send " +
+			"different frames for OPPOSITE REASONS, and only one of them is a decision: " +
+			"外包 restart DISPLACES the session by design — respawnWorkerForOwnerOpNow " +
+			"kills the old one and re-dispatches a fresh START (worker_spawn.go:1958-1963), " +
+			"and ownerOpRestart is the single op that skips the wind-down arm " +
+			"(:1595 with ownerOpDisplacesTheSession at :1678). 正職 activate dispatches " +
+			"its one STOP BY ACCIDENT: it clears stopping_since and waking_since and " +
+			"deliberately clears NEITHER refocus_since NOR stopped_since " +
+			"(api_members.go:1051-1057), so the reconcile it fires at :1086 walks into " +
+			"decideUp's recycle arm — online, an open refocus epoch, dump already done " +
+			"(reconcile.go:562, AgentStopped at :1235) — and kills the session it just " +
+			"told to come up. NOTHING IN 起來 ASKED FOR THAT FRAME; it is a consequence " +
+			"of the clear-set complement the three rows above already document, now " +
+			"visible one layer further out. " +
+			"⚠️ SCOPE: 包③ converges the STOP verbs; 起來 is not one of them, so this row " +
+			"is whitelisted rather than deleted. It is NOT a permanent difference and " +
+			"must not be read as one — whoever converges 起來 owns it, and the question " +
+			"to answer then is 「should activate clear the refocus epoch」, not 「should " +
+			"activate stop dispatching」. " +
+			"📌 THIS ROW IS WHY THE COLUMN EXISTS: the divergence is invisible to all nine " +
+			"database columns above it — both sides end desired=online with the same " +
+			"anchors — and no test in this package saw it before the column was added.",
+	},
+
+	{
+		verb: "起來", field: "banked_cost",
+		why: "SAME ROOT AS THE `dispatched` ROW ABOVE, one column further out: 外包 " +
+			"restart displaces the session, so respawnWorkerForOwnerOpNow reaches " +
+			"respawnWorkerNow, which banks the dying session's live cost BEFORE the kill " +
+			"(worker_spawn.go:1954, 「so the respawn never zeroes the visible spend」). " +
+			"正職 activate ends no session of its own — the one STOP frame it emits is the " +
+			"reconcile recycle arm's, dispatched by dispatchRobustStopNow, and THAT " +
+			"function banks nothing (reconcile.go:2916-2941 is six statements and " +
+			"bankLiveCost is not one of them). ⚠️ SCOPE: 包③ converges the STOP verbs and " +
+			"起來 is not one of them, so this row is whitelisted, not deleted. It is NOT a " +
+			"permanent difference: whoever converges 起來 owns it.",
+	},
+
+	{
+		verb: "起來", field: "noticed",
+		why: "🔴 THE THIRD ROW ON THE SAME ROOT, and the one that reaches the AGENT. " +
+			"正職 activate leaves refocus_since AS READ (api_members.go:1051-1057), so " +
+			"the row its putMember fans at :1071 is still inside a refocus epoch — and " +
+			"offboardKindOf's ONLINE arm carries a notice on refocus_since > 0 alone " +
+			"(api_members.go:300-303), with winddownKindFor answering soft for 重新聚焦. " +
+			"So the 起來 press ends by handing the agent 「work the sequence, then call " +
+			"report_stopped yourself」: the member was told to come UP and, in the same " +
+			"breath, shown a wind-down. 外包 restart says nothing at all — ownerOpRestart " +
+			"skips the wind-down arm (worker_spawn.go:1595, :1678), so " +
+			"openWorkerHandoverGrace (the worker's ONLY member-topic publisher, :2259) is " +
+			"never called, and PutOutsourceWorker deliberately fans no member patch " +
+			"(dal.go:512). ⚠️ SCOPE: 包③ converges the STOP verbs and 起來 is not one of " +
+			"them, so this is whitelisted, not deleted — the same scope the two rows above " +
+			"carry. It is NOT a permanent difference, and the question whoever converges " +
+			"起來 has to answer is still the ONE question all three rows ask: 「should " +
+			"activate clear the refocus epoch」. Answer it yes and the dispatch, the bank " +
+			"and this sentence all fall out together; answer it per-column and you will " +
+			"fix three symptoms of one cause three times.",
+	},
+
+	// ── 停止 / 加速停止 / 重新聚焦 / 改機器 / 換 model on banked_cost ────────
+	// NO ROWS. The RESULT is measured — the three parity tests are green, so both
+	// cells really do read costUntouched on all five. The MECHANISM behind it is
+	// NOT one story, and an earlier draft of this comment told it as one. Split:
+	//
+	//  停止 / 加速停止 / 重新聚焦 — structural. The handler calls
+	//  openWorkerHandoverGrace directly (api_outsource.go:736 / :643 / :529) and
+	//  its ONLINE arm publishes a 預告 and returns without reaching either kill
+	//  funnel, so no fold can run on either population.
+	//
+	//  🔴 改機器 / 換 model — NOT structural, and do not read this row as if it
+	//  were. They never touch openWorkerHandoverGrace directly: they enter the
+	//  owner-op funnel at worker_spawn.go:1595-1604, which has THREE exits that
+	//  DO bank — workerHasStateToFlush false (:1604 → respawnWorkerForOwnerOpNow
+	//  → respawnWorkerNow → bankLiveCost at :1954), and openOwnerOpHandover's two
+	//  persist-failure fallbacks (:1836, :1842, the same respawn). The ladder
+	//  refusal (:1827) reaches no fold either way. So these two cells are
+	//  costUntouched because TODAY'S FIXTURE lands on the happy path, not because
+	//  banking is unreachable — change what workerHasStateToFlush answers and
+	//  they start banking, silently, with this comment still claiming they cannot.
+	//
+	// 🔴 AND DO NOT RE-DERIVE THIS FROM `dispatched`. An earlier draft offered the
+	// `dispatchedNothing` literals on these five as corroboration — "no kill left,
+	// so no kill banked". That inference is BACKWARDS: stopWorkerNow banks BEFORE
+	// the kill and skips the enqueue entirely when the target is empty
+	// (worker_spawn.go:1983 then :1985-1994), which is a banked-but-dispatched-
+	// nothing path. An empty dispatch cell is evidence about the FIFO and nothing
+	// at all about the money — which is the whole reason this column exists.
+	//
+	// ⚠️ Nothing mechanical guards the paragraph above: TestVerbPopulationParity-
+	// WhitelistIsExplained checks that each divergence ROW carries a why, and this
+	// is prose, not a row. It is a universal negative maintained by hand.
+
+	// ── 重新聚焦 (refocus) — THE ROW CONVERGED IN T-65 包②; THE SENTENCE DID NOT ──
 	// Both rows that stood here are DELETED rather than widened: 「重新聚焦｜
 	// http_status」 (200 vs 409) and 「重新聚焦｜restart_after_stop」 (staff-only
 	// column). The worker face now takes the same aStopWasEverAskedFor branch the
@@ -186,8 +576,130 @@ var knownDivergences = []knownDivergence{
 	// and the 🔴 block in the worker refocus handler. Block ① is what proves it:
 	// the two literals for this verb are now identical, so a regression on either
 	// side reddens the matrix rather than being absorbed by a whitelist row.
+	//
+	// ⚠️ AND THIS HEADER USED TO END 「no rows left」, WHICH IS NO LONGER TRUE. 包②
+	// converged every DATABASE column of this verb and the two sides still say
+	// different things on the wire — which is the whole argument for a
+	// non-database column existing at all, restated by the verb that was already
+	// declared finished.
+	{
+		verb: "重新聚焦", field: "noticed",
+		why: "包② CONVERGED THE ROW AND THE SENTENCE DID NOT COME WITH IT. Both faces " +
+			"now answer 200 through the same queue-the-起來 branch and write the same " +
+			"restart_after_stop; what differs is that the 正職 branch writes the row TWICE " +
+			"through publishers that fan (putMember at api_members.go:1613 and " +
+			"persistMemberOpReceipt at :1619, both reaching publishMemberPatch at :129), " +
+			"and the row is desired-offline with stopping_since in the past and no forced " +
+			"epoch — so gracefulStopEpochOpen is true and EVERY one of those deltas carries " +
+			"the soft 預告 of the stop ALREADY in flight. The 外包 branch returns at " +
+			"api_outsource.go:455 after persistWorkerRestartIntent + publishOutsourceWorker, " +
+			"and publishOutsourceWorker is owner-audience with a {id, codename, status} " +
+			"payload — it carries offboard_notice never (the handler's own 🔴 block at " +
+			":632-635 says exactly this), so the :529 openWorkerHandoverGrace on the OTHER " +
+			"branch is the only thing that could have spoken and it is not on this path. " +
+			"⚠️ WHAT THIS ROW IS AND IS NOT: it is NOT 「the worker should be told too」. " +
+			"Neither side OPENED anything here — both queued a 起來 behind a stop that was " +
+			"already running — so the honest reading is that 正職 RE-announces a sentence " +
+			"the agent has already had, on a press that changed nothing it describes, and " +
+			"the client de-duplicates by keying on the text (api_members.go:160-164). The " +
+			"defensible convergence is therefore in EITHER direction and nobody has ruled " +
+			"which; this row exists so that the next person to look does not have to " +
+			"rediscover that 包② left a difference behind.",
+	},
 
 	// ── 強制停止 (force-stop) ──────────────────────────────────────────────
+	// ── 停止（離線起點）: what 包③ did NOT converge, and why ───────────────
+	//
+	// 🔴 ALL THREE ROWS BELOW ARE ONE FACT WEARING THREE HATS: on a subject with
+	// no session, the worker verb COLLECTS its own close-out on the spot
+	// (openWorkerHandoverGrace → collectWorkerStop) and the staff verb hands the
+	// subject to the reconcile tick instead. They are three rows and not one
+	// because the whitelist is keyed per FIELD, and a reader who converges one of
+	// them must be told which of the three they just changed.
+	//
+	// 包③ deliberately did NOT converge this. The collect funnel is 包⑤'s whole
+	// subject (worker_spawn.go's ~810 lines against member_ownerop_winddown.go's
+	// ~666), and pulling it forward would mean either giving the staff verb a
+	// collect it does not have — a behaviour change, not a convergence — or
+	// taking the worker's away, which recon坐實 would silently strand it:
+	// runOutsourceTick `continue`s on desired_state=offline, so a stopped worker
+	// NEVER REACHES THE FSM at all and nothing downstream would ever collect it.
+	{
+		verb: "停止（離線起點）", field: "stopped_since",
+		why: "外包 openWorkerHandoverGrace's `!hub.IsOnline` arm calls collectWorkerStop, " +
+			"which latches StoppedSince = nowSecs() before it kills. 正職 writes no " +
+			"stopped_since at all: decideDown's `!obs.Online ⇒ converged offline` branch " +
+			"is what ends a staff stop, and the tick reaches an offline member. The worker " +
+			"tick does not — runOutsourceTick skips desired_state=offline outright — which " +
+			"is WHY the worker side collects inline. Converging this belongs to 包⑤ " +
+			"(收口漏斗合一), where both funnels are on the table at once.",
+	},
+	{
+		verb: "停止（離線起點）", field: "dispatched",
+		why: "the same collect, seen from the warden FIFO: collectWorkerStop ends in " +
+			"stopWorkerNow, so ONE stop frame leaves for the worker's machine. 正職 " +
+			"dispatches nothing — cancellingWake is false for an offline member " +
+			"(waking_since is unset), so dispatchRobustStopNow is not called, and " +
+			"reconcileMemberNow's converged-offline branch queues no RPC. ⚠️ There is a " +
+			"SECOND, unmeasured divergence hiding under this cell: the two populations " +
+			"resolve WHICH machine a kill goes to through different functions in " +
+			"different order — resolveWorkerKillTarget asks s.workerSpawnTarget first " +
+			"and falls back to hub.MachineOf (empty ⇒ dispatch NOTHING), while " +
+			"memberKillTargetWarden asks hub.MachineOf first and falls back to " +
+			"wardenTargetOf, the PINNED machine — which has a THIRD outcome of its own: " +
+			"it also answers empty when the pin carries no active warden, so 「正職 always " +
+			"has a fallback」 would be too strong and is not what this says. This fixture " +
+			"cannot see any of it, and 🔴 NOT for the reason an earlier draft of this " +
+			"sentence gave: it said 「both seeds pin and CONNECT the same machine」, which " +
+			"is FALSE for this row — neither side is connected here, that is the whole " +
+			"point of the row, so hub.MachineOf is empty on both. They agree by two " +
+			"OTHER roads: 正職 through wardenTargetOf(DesiredMachineID) and 外包 through " +
+			"the workerSpawnTarget entry newActiveWorker writes unconditionally, online " +
+			"or not. Caught by independent review. Named here rather than left " +
+			"unwritten — it is 包⑤'s to settle.",
+	},
+	{
+		verb: "停止（離線起點）", field: "banked_cost",
+		why: "collectWorkerStop's putMember runs the fold that pops the live telemetry " +
+			"figure into banked_cost; the staff verb's putMember does not, because a " +
+			"staff stop is not finished yet at this point — the money is banked when the " +
+			"session actually ends. 🔴 THIS IS THE ROW THAT WOULD BE READ WRONG IF THE " +
+			"OTHER TWO WERE CONVERGED CARELESSLY: recon on 包③ established that routing " +
+			"the worker through the staff dispatch (dispatchRobustStopNow) drops " +
+			"bankLiveCost entirely, which is a SILENT loss of owner-visible money — " +
+			"costLost exists as a distinct literal for exactly that outcome, and it must " +
+			"never become the answer here.",
+	},
+	{
+		verb: "強制停止", field: "banked_cost",
+		why: "🔴 THIS IS THE ONE 包③ IS ABOUT, AND IT IS THE ONLY ROW IN THIS WHITELIST " +
+			"THAT COSTS THE OWNER MONEY RATHER THAN CORRECTNESS. Both sides end with the " +
+			"same desired_state, the same anchors and the SAME single `stop` frame — the " +
+			"nine row columns and `dispatched` all agree — and only the money differs. " +
+			"外包 force-stop goes through stopWorkerNow, which banks the dying session's " +
+			"live cost before the kill (worker_spawn.go:1983). 正職 force-stop calls " +
+			"dispatchRobustStopNow (api_members.go:1488), which banks nothing; the staff " +
+			"figure is folded LATER, and only if an SSE last-disconnect edge arrives " +
+			"(api_infra.go:879-882, the sole member-side call site). " +
+			"⚠️ SCOPE — READ THIS BEFORE 「CONVERGING」 IT: the safe direction is NOT " +
+			"free. Moving 外包 onto dispatchRobustStopNow would delete the ONLY " +
+			"unconditional bank on a stop and leave the money to the disconnect edge — " +
+			"which never arrives for a subject that is ALREADY offline, and that is " +
+			"precisely the population openWorkerHandoverGrace's offline arm serves. " +
+			"That direction turns a visible divergence into a silent, conditional loss. " +
+			"📌 MEASURED, not reasoned (T-65 包③ recon): commenting out worker_spawn.go:1983 " +
+			"leaves `go test -run '(?i)(stop|bank|cost|kill)'` at 133/133 GREEN while a " +
+			"probe shows banked_cost=0 with the live figure stranded in telemetry. " +
+			"Nothing in this repository was watching that line before this column. " +
+			"⚠️ DO NOT REUSE THAT `-run` AS THIS COLUMN'S VERIFICATION SCOPE — it is " +
+			"quoted here as the BLINDNESS being fixed, not as the command that checks " +
+			"the fix. TestVerbPopulationParity* carries none of stop/bank/cost/kill in " +
+			"its NAME, so that pattern never runs this matrix at all: with :1983 " +
+			"commented out it prints `ok` over 133 tests while the very cell below is " +
+			"the one that would have failed (measured 2026-09-06, T-65 包③). Verify " +
+			"this column with a pattern that matches `parity` — 136 tests, and the " +
+			"mutant then fails as 強制停止 want Cost:banked / got Cost:live.",
+	},
 	{
 		verb: "強制停止", field: "stopping_since",
 		why: "外包 force-stop pulls a FUTURE anchor back: `if worker.StoppingSince <= 0.0 " +
@@ -217,6 +729,39 @@ var knownDivergences = []knownDivergence{
 			"stopping_since. That is the reach of one grep, not a proof of impossibility. " +
 			"So today the divergence is unreachable in effect; if a path is ever found or " +
 			"added, the fix belongs on the 正職 side (give it the second arm), not here.",
+	},
+	{
+		verb: "強制停止", field: "noticed",
+		why: "🔴 THIS ROW IS NOT A DESIGN DIFFERENCE — IT IS A RULED INVARIANT BEING " +
+			"VIOLATED ON THE 正職 SIDE, and it is the SAME missing arm the stopping_since " +
+			"row above describes, now visible as something an agent actually receives. " +
+			"The ruling is that force-stop SAYS NOTHING (api_members.go:249-276: 「the " +
+			"recipient is about to stop existing, so a sentence meant to change its " +
+			"behaviour has no one to change」; reconfirmed 2026-08-18 after the owner " +
+			"nearly reversed it, c-7b2163781ee2 → c-5c8bc3d7362d). Its enforcement is " +
+			"forcedEpochLive = ForcedStopAt > 0 && StoppingSince > 0 && ForcedStopAt >= " +
+			"StoppingSince. This case seeds stopping_since in the FUTURE and the staff " +
+			"handler has only `if m.StoppingSince <= 0.0 { m.StoppingSince = nowSecs() }` " +
+			"(api_members.go:1458), so the future stamp survives while ForcedStopAt is " +
+			"stamped at nowSecs() — the third term is FALSE, forcedEpochLive is false, " +
+			"gracefulStopEpochOpen is TRUE, and the putMember at :1479 hands the session " +
+			"it is about to kill the full soft sequence. 外包 is silent by TWO independent " +
+			"guards: its force-stop reaches no member-topic publisher at all (the only " +
+			"openWorkerHandoverGrace call sites are api_outsource.go:529/:643/:736 and " +
+			"worker_spawn.go:1846/:2560, none on this path), and its pull-back keeps " +
+			"forcedEpochLive true so a frame would carry nothing anyway. " +
+			"⚠️ WHY IT IS WHITELISTED RATHER THAN FIXED HERE: the fix is a production " +
+			"change on the 正職 handler (give it the pull-back arm), which is what the " +
+			"stopping_since row already says the fix is — ONE edit closes BOTH rows, and " +
+			"it belongs to whoever takes that decision, not to the column that found it. " +
+			"⚠️ AND THE REACHABILITY CAVEAT ON THE ROW ABOVE APPLIES VERBATIM AND IS NOT " +
+			"A DISMISSAL: independent review's grep found no production path that stamps " +
+			"a FUTURE staff stopping_since, so today this is reachable through the " +
+			"fixture and not known to be reachable in production. That is the reach of " +
+			"one grep. What THIS row adds is the cost if it ever is: the stopping_since " +
+			"row could be read as a cosmetic anchor difference, and it is not — the same " +
+			"missing arm makes a killed staff session receive a 預告 telling it to work " +
+			"its close-out, which is precisely the frame T-a9d6 removed.",
 	},
 }
 
@@ -286,6 +831,33 @@ func seedParityMember(t *testing.T, api *apiServer, id string, mutate func(*Memb
 	}
 	putTestMember(t, api, m)
 	connectOnlineMachine(t, api, id, parityMachineA)
+	seedParityLiveCost(t, api, id)
+}
+
+// seedParityLiveCost plants the live telemetry cost the banked_cost column is
+// measured against, on BOTH populations, through the same one writer.
+//
+// 🔴 READ-MODIFY-WRITE, not a bare Set — and read WHY carefully, because the
+// reason is a FORECAST, not a fact on the ground. memStore.Set REPLACES the
+// whole entry (hub.go:1111-1115). Today NO fixture in this file puts any other
+// key on either subject's telemetry: measured — both populations' entries are
+// nil at the moment this helper runs, so the `entry == nil` arm is currently
+// always taken and the Get result is never used. Replacing the whole body with
+// a bare Set is green today (measured too).
+//
+// It is written this way so that the day a fixture DOES seed telemetry, this
+// helper does not silently overwrite it — that would move what the gauge-driven
+// passes see, i.e. move the OTHER nine columns from inside a helper that is
+// only supposed to be about money. Do not "simplify" it back to a bare Set on
+// the strength of the green: the green is what this shape is buying.
+func seedParityLiveCost(t *testing.T, api *apiServer, id string) {
+	t.Helper()
+	entry := api.telemetry.Get(id)
+	if entry == nil {
+		entry = map[string]any{}
+	}
+	entry["cost"] = parityLiveCost
+	api.telemetry.Set(id, entry)
 }
 
 // seedParityWorker plants the outsource twin. newActiveOnlineWorker already
@@ -306,6 +878,7 @@ func seedParityWorker(t *testing.T, api *apiServer, mutate func(*OutsourceWorker
 		t.Fatalf("put worker: %v", err)
 	}
 	seedWorkerAnchors(t, api, *w)
+	seedParityLiveCost(t, api, id)
 	return id
 }
 
@@ -320,12 +893,46 @@ func classify(v, at float64) anchorClass {
 	}
 }
 
+// dispatchedFor drains the ONE warden both populations are placed on and reports
+// what this verb queued FOR THIS SUBJECT. Two things make one drain legitimate
+// for both sides, and both are asserted rather than assumed:
+//
+//   - the placement — TestVerbPopulationParityFixtureLandsBothPopulationsOnOneWarden
+//     pins that the two kill-target resolvers answer the same warden here, so a
+//     single FIFO sees both.
+//   - the subject key — a worker's stop frame is built by the SAME
+//     buildTargetFrame the member side uses (worker_spawn.go:1307), and its
+//     wardenTargetArgs carries exactly one field, `member_id`
+//     (reconcile.go:1094-1098: "the warden keys the kill/removal on member_id
+//     alone"). So ONE predicate covers both populations; there is no separate
+//     worker_id key to miss.
+//
+// Frames addressed at somebody else are dropped rather than counted: the fixture
+// seeds a second member and a worker on one machine, and a matrix that counted
+// the neighbour's kill would go red for a reason that has nothing to do with the
+// verb under test.
+//
+// DRAINING IS DESTRUCTIVE — the FIFO is emptied. Call this EXACTLY ONCE per
+// verb run, which is why it lives inside memberTerminal / workerTerminal (one
+// call each, at the end) rather than being available to case bodies.
+func dispatchedFor(t *testing.T, api *apiServer, subjectID string) dispatchSet {
+	t.Helper()
+	var rpcs []string
+	for _, f := range drainFrames(t, api, parityMachineA) {
+		if id, _ := f.Args["member_id"].(string); id == subjectID {
+			rpcs = append(rpcs, f.RPC)
+		}
+	}
+	sort.Strings(rpcs)
+	return dispatchSet(strings.Join(rpcs, "+"))
+}
+
 // memberTerminal / workerTerminal read the row back and bucket its anchors
 // against the instant the READ happens — deliberately AFTER the handler has
 // returned. Sampling `now` before the call instead makes every anchor the
 // handler stamps land in the FUTURE bucket, which is a harness artefact that
 // looks exactly like a behaviour change.
-func memberTerminal(t *testing.T, api *apiServer, id string, code int) terminalState {
+func memberTerminal(t *testing.T, api *apiServer, id string, code int, notices *hubListener) terminalState {
 	t.Helper()
 	at := nowSecs()
 	m, err := api.dal.GetMember(id)
@@ -342,10 +949,13 @@ func memberTerminal(t *testing.T, api *apiServer, id string, code int) terminalS
 		Waking:           classify(m.WakingSince, at),
 		RestartAfterStop: m.RestartAfterStop,
 		DesiredMachineID: m.DesiredMachineID,
+		Dispatched:       dispatchedFor(t, api, id),
+		Cost:             classifyCost(m.BankedCost, liveCostPresent(api, id)),
+		Noticed:          noticedFor(t, notices, id),
 	}
 }
 
-func workerTerminal(t *testing.T, api *apiServer, id string, code int) terminalState {
+func workerTerminal(t *testing.T, api *apiServer, id string, code int, notices *hubListener) terminalState {
 	t.Helper()
 	at := nowSecs()
 	w, err := api.dal.GetOutsourceWorker(id)
@@ -364,6 +974,112 @@ func workerTerminal(t *testing.T, api *apiServer, id string, code int) terminalS
 		Waking:           classify(m.WakingSince, at),
 		RestartAfterStop: m.RestartAfterStop,
 		DesiredMachineID: m.DesiredMachineID,
+		Dispatched:       dispatchedFor(t, api, id),
+		// memberFromWorker folds banked_cost the same way it folds the anchors —
+		// migration 00025 made it the SAME column — so the two populations'
+		// money is literally comparable, exactly as the nine row fields are.
+		Cost: classifyCost(m.BankedCost, liveCostPresent(api, id)),
+		// The subject key is the WORKER id, not a member id derived from it:
+		// worker_spawn.go:2259 addresses the frame at wireOwnerID+"::"+w.ID, the
+		// same shape publishMemberPatch uses for a staff row, so one predicate
+		// covers both populations here exactly as it does in dispatchedFor.
+		Noticed: noticedFor(t, notices, id),
+	}
+}
+
+// seedParityMemberOffline / seedParityWorkerOffline are the online seeds with
+// the SESSION removed and nothing else changed — same row, same machine, same
+// live cost. 包③ needs them because every case above starts ONLINE, and 停止 is
+// the verb whose two implementations part company precisely on liveness: the
+// staff handler hands an offline subject to the reconcile tick, the worker
+// handler collects it on the spot.
+//
+// 🔴 THE SEED ITSELF NEEDS A POSITIVE CONTROL, and it has one:
+// TestParityOfflineSeedIsActuallyOffline below. Without it "the handler did
+// nothing because the subject was offline" and "I failed to make the subject
+// offline" are the same green.
+func seedParityMemberOffline(t *testing.T, api *apiServer, id string, mutate func(*Member)) {
+	t.Helper()
+	m := testAgent(id)
+	m.DesiredMachineID = parityMachineA
+	m.Model = "claude-sonnet-4-5"
+	if mutate != nil {
+		mutate(&m)
+	}
+	putTestMember(t, api, m)
+	// …and NO connectOnlineMachine. That one missing line is the whole seed.
+	seedParityLiveCost(t, api, id)
+}
+
+func seedParityWorkerOffline(t *testing.T, api *apiServer, mutate func(*OutsourceWorker)) string {
+	t.Helper()
+	// newActiveWorker's `online` parameter is the worker twin of the missing
+	// connect above — it is the helper newActiveOnlineWorker wraps, not a
+	// separate path minted here.
+	id := newActiveWorker(t, api, false)
+	w, err := api.dal.GetOutsourceWorker(id)
+	if err != nil || w == nil {
+		t.Fatalf("seed offline worker: %v", err)
+	}
+	if mutate != nil {
+		mutate(w)
+	}
+	if err := api.dal.PutOutsourceWorker(*w); err != nil {
+		t.Fatalf("put offline worker: %v", err)
+	}
+	seedWorkerAnchors(t, api, *w)
+	seedParityLiveCost(t, api, id)
+	return id
+}
+
+// parityStopOffSeed is what the 停止（離線起點）row seeds ON TOP of "no session",
+// and every line of it is there to buy discrimination the row did not have.
+//
+// 🔴 WHY IT IS NOT `nil` (independent review, caught after the row shipped green).
+// With a nil mutate the three columns 停止 CLEARS start at their ZERO values —
+// refocus_since 0, refocus_op "", restart_after_stop false. A row seeded that way
+// can see 「the verb wrote the WRONG value」 but is blind to 「the verb failed to
+// CLEAR」, because not-clearing and correctly-clearing produce the same literal.
+// Measured both directions: mutating a shared write to a non-zero value reddened
+// all four cells, while mis-wiring an adapter so a clear never happened reddened
+// only the ONLINE 停止 row — this one stayed green. Seeding them non-zero is the
+// one-line fix, and the expected values do not move: the verb clears them, so the
+// terminal row is the same one it was. What changes is that it is now the same
+// for a REASON the test can tell apart from an accident.
+//
+// restart_after_stop=true is the sharpest of the three: leave the clear out and the
+// tick this handler kicks would consume the queued 起來 and bring an offline member
+// straight back up — the exact negative control the owner's 後蓋前 ruling turns on.
+func parityStopOffSeed(m *Member) {
+	m.RefocusSince = parityPast
+	m.RefocusOp = refocusOpRefocus
+	m.RestartAfterStop = true
+}
+
+// TestParityOfflineSeedIsActuallyOffline is the positive/negative control for
+// the two seeds above, on ONE server in ONE run: the offline seeds must read
+// offline and the online seeds must read online through the SAME predicate the
+// handlers consult. It asserts nothing about 停止 — its whole job is to stop a
+// broken seed from being read as converged behaviour.
+func TestParityOfflineSeedIsActuallyOffline(t *testing.T) {
+	api := newParityServer(t)
+	seedParityMemberOffline(t, api, "m-seedctl-off", nil)
+	seedParityMember(t, api, "m-seedctl-on", nil)
+	offWorker := seedParityWorkerOffline(t, api, nil)
+	onWorker := seedParityWorker(t, api, nil)
+
+	for _, c := range []struct {
+		id   string
+		want bool
+	}{
+		{"m-seedctl-off", false},
+		{"m-seedctl-on", true},
+		{offWorker, false},
+		{onWorker, true},
+	} {
+		if got := api.hub.IsOnline(c.id); got != c.want {
+			t.Fatalf("hub.IsOnline(%s) = %v, want %v", c.id, got, c.want)
+		}
 	}
 }
 
@@ -393,9 +1109,10 @@ func parityCases() []verbCase {
 					m.RefocusOp = refocusOpRefocus
 					m.WakingSince = parityPast
 				})
+				notices := watchMemberDeltas(t, api)
 				code := postMember(t, api, "m-parity-up", "activate", nil,
 					api.HandleActivateMemberApiMembersMemberIdActivatePost)
-				return memberTerminal(t, api, "m-parity-up", code)
+				return memberTerminal(t, api, "m-parity-up", code, notices)
 			},
 			runOutsource: func(t *testing.T) terminalState {
 				api := newParityServer(t)
@@ -407,9 +1124,10 @@ func parityCases() []verbCase {
 					w.RefocusOp = refocusOpRefocus
 					w.WakingSince = parityPast
 				})
+				notices := watchMemberDeltas(t, api)
 				code := postWorker(t, api, id, "restart", nil,
 					api.HandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost)
-				return workerTerminal(t, api, id, code.Code)
+				return workerTerminal(t, api, id, code.Code, notices)
 			},
 			// 正職 activate: m.StoppingSince = 0.0; m.WakingSince = 0.0;
 			// m.DesiredState = DesiredStateOnline; clearRestartIntent(m).
@@ -420,6 +1138,21 @@ func parityCases() []verbCase {
 				Refocus: anchorPast, RefocusOp: refocusOpRefocus,
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
+				// activate leaves refocus_since/stopped_since AS READ (api_members.go:1051-1057),
+				// so reconcileMemberNow (:1086) meets decideUp's recycle arm — online +
+				// an open refocus epoch whose dump is done (reconcile.go:562, AgentStopped
+				// at :1235) — and fires ONE stop. An ACCIDENT of what activate does not
+				// clear, not a designed part of 起來.
+				Dispatched: "stop",
+				Cost:       costUntouched,
+				// activate clears stopping_since and waking_since and leaves
+				// refocus_since AS READ (api_members.go:1051-1057), so the row putMember
+				// fans at :1071 is still inside a refocus epoch. offboardKindOf's ONLINE
+				// arm carries a notice on refocus_since > 0 alone (api_members.go:300-303),
+				// and winddownKindFor(重新聚焦) answers soft — so 起來 ends by handing the
+				// agent the wind-down sequence. Same clear-set complement as the four
+				// whitelist rows on this verb, one layer further out again.
+				Noticed: noticedNotice,
 			},
 			// 外包 restart: worker.DesiredState = DesiredStateOnline;
 			// worker.RefocusSince = 0.0; worker.RefocusOp = "";
@@ -431,6 +1164,20 @@ func parityCases() []verbCase {
 				Refocus: anchorZero, RefocusOp: "",
 				Waking: anchorPast, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
+				// restart DISPLACES the session by design: respawnWorkerForOwnerOpNow kills the
+				// old one and re-dispatches a fresh START (worker_spawn.go:1958-1963).
+				// ownerOpRestart is the one op that skips the wind-down arm (:1595, :1678).
+				// SORTED, so "start+stop" — the emission order is stop-then-start.
+				Dispatched: "start+stop",
+				// respawnWorkerForOwnerOpNow → respawnWorkerNow banks BEFORE the kill
+				// (worker_spawn.go:1954); the start+stop above is the same call's evidence.
+				Cost: costBanked,
+				// NOTHING is said. ownerOpRestart skips the wind-down arm
+				// (worker_spawn.go:1595 with ownerOpDisplacesTheSession at :1678), so
+				// openWorkerHandoverGrace — the worker's ONLY member-topic publisher
+				// (worker_spawn.go:2259) — is never called, and PutOutsourceWorker
+				// deliberately fans no member patch (dal.go:512).
+				Noticed: noticedNothing,
 			},
 		},
 		{
@@ -445,9 +1192,10 @@ func parityCases() []verbCase {
 					m.RefocusSince = parityPast
 					m.RefocusOp = refocusOpRefocus
 				})
+				notices := watchMemberDeltas(t, api)
 				code := postMember(t, api, "m-parity-stop", "deactivate", nil,
 					api.HandleDeactivateMemberApiMembersMemberIdDeactivatePost)
-				return memberTerminal(t, api, "m-parity-stop", code)
+				return memberTerminal(t, api, "m-parity-stop", code, notices)
 			},
 			runOutsource: func(t *testing.T) terminalState {
 				api := newParityServer(t)
@@ -455,9 +1203,10 @@ func parityCases() []verbCase {
 					w.RefocusSince = parityPast
 					w.RefocusOp = refocusOpRefocus
 				})
+				notices := watchMemberDeltas(t, api)
 				code := postWorker(t, api, id, "stop", nil,
 					api.HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost)
-				return workerTerminal(t, api, id, code.Code)
+				return workerTerminal(t, api, id, code.Code, notices)
 			},
 			// 正職: desired offline + clearMemberHandoverMarker + clearRestartIntent
 			// + StoppingSince = stopEpochAnchor(...) → now (no forced epoch live).
@@ -467,6 +1216,17 @@ func parityCases() []verbCase {
 				Refocus: anchorZero, RefocusOp: "",
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
+				// the member is SSE-online ⇒ deriveLiveness returns online, never waking
+				// (domain.go:194 tests Online BEFORE WakePending at :197) ⇒ cancellingWake
+				// is false ⇒ no dispatchRobustStopNow (api_members.go:1421). The tick then
+				// parks in decideDown's soft-offboard arm (reconcile.go:845).
+				Dispatched: dispatchedNothing,
+				Cost:       costUntouched,
+				// desired offline + stopping_since = stopEpochAnchor -> now, and no forced
+				// epoch, so gracefulStopEpochOpen (api_members.go:412) is true and
+				// offboardKindOf's offline arm hands back soft. The 預告 rides the
+				// putMember at :1416.
+				Noticed: noticedNotice,
 			},
 			// 外包: desired offline; RefocusSince = 0.0; RefocusOp = "";
 			// StoppingSince = stopEpochAnchor(memberFromWorker(...)) → the same now.
@@ -476,6 +1236,84 @@ func parityCases() []verbCase {
 				Refocus: anchorZero, RefocusOp: "",
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
+				// openWorkerHandoverGrace's "if offline, kill now" arm is unreachable on a live
+				// worker (worker_spawn.go:2245-2258); the online path publishes a 預告 and
+				// dispatches nothing.
+				Dispatched: dispatchedNothing,
+				Cost:       costUntouched,
+				// the same sentence by a different road: the online arm of
+				// openWorkerHandoverGrace (api_outsource.go:736) publishes the member-topic
+				// 預告 itself (worker_spawn.go:2259). The worker's row is the same
+				// graceful shape — stopEpochAnchor, no forced epoch — so the same soft
+				// notice is composed off it.
+				Noticed: noticedNotice,
+			},
+		},
+		{
+			verb: "停止（離線起點）",
+			note: "the SAME two handlers as 停止 above, on a subject with NO SESSION. " +
+				"包③ converged what the two write to the ROW (applyStopVerbRow); this row " +
+				"exists because that is NOT all a stop does, and liveness is exactly where " +
+				"the two halves that were NOT converged part company. 🔴 A SEPARATE verb " +
+				"label on purpose: the whitelist is keyed (verb, field), so folding this " +
+				"into 停止 would make its three rows read as excuses for the ONLINE row " +
+				"too — which has no divergences at all and must keep having none.",
+			runStaff: func(t *testing.T) terminalState {
+				api := newParityServer(t)
+				seedParityMemberOffline(t, api, "m-parity-stop-off", parityStopOffSeed)
+				notices := watchMemberDeltas(t, api)
+				code := postMember(t, api, "m-parity-stop-off", "deactivate", nil,
+					api.HandleDeactivateMemberApiMembersMemberIdDeactivatePost)
+				return memberTerminal(t, api, "m-parity-stop-off", code, notices)
+			},
+			runOutsource: func(t *testing.T) terminalState {
+				api := newParityServer(t)
+				id := seedParityWorkerOffline(t, api, func(w *OutsourceWorker) {
+					w.RefocusSince = parityPast
+					w.RefocusOp = refocusOpRefocus
+					w.RestartAfterStop = true
+				})
+				notices := watchMemberDeltas(t, api)
+				code := postWorker(t, api, id, "stop", nil,
+					api.HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost)
+				return workerTerminal(t, api, id, code.Code, notices)
+			},
+			// 正職: the five row writes are applyStopVerbRow's, same as the online
+			// row. cancellingWake is false (an offline member with waking_since=0
+			// is not waking), so no dispatchRobustStopNow; reconcileMemberNow then
+			// lands in decideDown's FIRST branch — `!obs.Online` ⇒ converged
+			// offline — which dispatches nothing and latches nothing.
+			wantStaff: terminalState{
+				Status: http.StatusOK, DesiredState: DesiredStateOffline,
+				Stopping: anchorPast, Stopped: anchorZero,
+				Refocus: anchorZero, RefocusOp: "",
+				Waking: anchorZero, RestartAfterStop: false,
+				DesiredMachineID: parityMachineA,
+				Dispatched:       dispatchedNothing,
+				Cost:             costUntouched,
+				// the notice rides the handler's own putMember, exactly as online.
+				Noticed: noticedNotice,
+			},
+			// 外包: the same five row writes, and then openWorkerHandoverGrace takes
+			// its `!hub.IsOnline` arm. desired_state is already offline (this verb
+			// just wrote it), so that arm routes to collectWorkerStop, which is
+			// THREE more things in one call: it latches stopped_since, it kills the
+			// session (one `stop` frame), and its putMember banks the live cost.
+			wantOutsource: terminalState{
+				Status: http.StatusOK, DesiredState: DesiredStateOffline,
+				Stopping: anchorPast, Stopped: anchorPast,
+				Refocus: anchorZero, RefocusOp: "",
+				Waking: anchorZero, RestartAfterStop: false,
+				DesiredMachineID: parityMachineA,
+				Dispatched:       dispatchSet(reconcileCmdStop),
+				Cost:             costBanked,
+				// 🔴 SAME VALUE, DIFFERENT ROAD — and the road matters for whoever
+				// converges this later. On the staff side the notice rides the
+				// handler's own putMember. Here openWorkerHandoverGrace's offline arm
+				// publishes NOTHING (it returns before the hub.Publish); the delta is
+				// fanned by collectWorkerStop's putMember, AFTER stopped_since is
+				// latched. Deleting that collect would take the notice with it.
+				Noticed: noticedNotice,
 			},
 		},
 		{
@@ -488,9 +1326,10 @@ func parityCases() []verbCase {
 					m.DesiredState = DesiredStateOffline
 					m.StoppingSince = parityPast
 				})
+				notices := watchMemberDeltas(t, api)
 				code := postMember(t, api, "m-parity-accel", "accelerated-stop", nil,
 					api.HandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost)
-				return memberTerminal(t, api, "m-parity-accel", code)
+				return memberTerminal(t, api, "m-parity-accel", code, notices)
 			},
 			runOutsource: func(t *testing.T) terminalState {
 				api := newParityServer(t)
@@ -498,9 +1337,10 @@ func parityCases() []verbCase {
 					w.DesiredState = DesiredStateOffline
 					w.StoppingSince = parityPast
 				})
+				notices := watchMemberDeltas(t, api)
 				code := postWorker(t, api, id, "accelerated-stop", nil,
 					api.HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost)
-				return workerTerminal(t, api, id, code.Code)
+				return workerTerminal(t, api, id, code.Code, notices)
 			},
 			// Both: the desired-offline arm re-stamps its anchor from THIS press
 			// (m.StoppingSince = now / worker.StoppingSince = nowSecs()) and writes
@@ -513,6 +1353,15 @@ func parityCases() []verbCase {
 				Refocus: anchorZero, RefocusOp: refocusOpAcceleratedStop,
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
+				// the handler 409s an offline member (api_members.go:1540) and its own comment
+				// at :1580-1583 says the reconcile it fires "dispatches nothing on this pass —
+				// the deadline is in the future by construction" (reconcile.go:836-841).
+				Dispatched: dispatchedNothing,
+				Cost:       costUntouched,
+				// the escalation's whole point is that the sentence quotes the clock the
+				// owner just started: refocus_op = 加速停止 makes winddownKindFor answer
+				// final+clocked, so the putMember at :1573 carries a notice.
+				Noticed: noticedNotice,
 			},
 			wantOutsource: terminalState{
 				Status: http.StatusOK, DesiredState: DesiredStateOffline,
@@ -520,6 +1369,15 @@ func parityCases() []verbCase {
 				Refocus: anchorZero, RefocusOp: refocusOpAcceleratedStop,
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
+				// same shape: 409 unless active+online (api_outsource.go:592), then the same
+				// online arm of openWorkerHandoverGrace.
+				Dispatched: dispatchedNothing,
+				Cost:       costUntouched,
+				// api_outsource.go:643, and its own 🔴 block says why the call is there:
+				// publishOutsourceWorker is owner-only and carries offboard_notice never,
+				// so without this one call the press would start the collect clock while
+				// the last thing the worker heard was the 停止 sentence.
+				Noticed: noticedNotice,
 			},
 		},
 		{
@@ -531,18 +1389,20 @@ func parityCases() []verbCase {
 				seedParityMember(t, api, "m-parity-force", func(m *Member) {
 					m.StoppingSince = parityFuture
 				})
+				notices := watchMemberDeltas(t, api)
 				code := postMember(t, api, "m-parity-force", "force-stop", nil,
 					api.HandleForceStopMemberApiMembersMemberIdForceStopPost)
-				return memberTerminal(t, api, "m-parity-force", code)
+				return memberTerminal(t, api, "m-parity-force", code, notices)
 			},
 			runOutsource: func(t *testing.T) terminalState {
 				api := newParityServer(t)
 				id := seedParityWorker(t, api, func(w *OutsourceWorker) {
 					w.StoppingSince = parityFuture
 				})
+				notices := watchMemberDeltas(t, api)
 				code := postWorker(t, api, id, "force-stop", nil,
 					api.HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost)
-				return workerTerminal(t, api, id, code.Code)
+				return workerTerminal(t, api, id, code.Code, notices)
 			},
 			// 正職: `if m.StoppingSince <= 0.0 { m.StoppingSince = nowSecs() }` —
 			// the future stamp is NOT touched.
@@ -552,6 +1412,26 @@ func parityCases() []verbCase {
 				Refocus: anchorZero, RefocusOp: "",
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
+				// the ONLY unconditional dispatch on either side: dispatchRobustStopNow
+				// (api_members.go:1487 → reconcile.go:2919-2930) with no state test in front
+				// of it. This handler never calls reconcileMemberNow at all.
+				Dispatched: "stop",
+				Cost:       costUntouched,
+				// 🔴 A SOFT 預告 IS FANNED AT A MEMBER BEING KILLED, AND THAT IS A REAL
+				// DEFECT THIS COLUMN FOUND — not a property anybody chose. force-stop is
+				// ruled SILENT (api_members.go:249-276, reconfirmed 2026-08-18 after the
+				// owner nearly reversed it), and the enforcement is forcedEpochLive:
+				// ForcedStopAt > 0 && StoppingSince > 0 && ForcedStopAt >= StoppingSince.
+				// This case seeds stopping_since in the FUTURE (parityFuture = 4.0e9) and
+				// the staff handler has only `if m.StoppingSince <= 0.0 { … }`
+				// (api_members.go:1458), so the future stamp survives while ForcedStopAt is
+				// stamped at nowSecs() — the third term is FALSE, forcedEpochLive is false,
+				// gracefulStopEpochOpen is TRUE, and the putMember at :1479 hands the
+				// dying session the full 「work the sequence, then call report_stopped
+				// yourself」 text. ⚠️ The literal is what the handler DOES today, not what
+				// it should do — see the 強制停止|noticed whitelist row, which is where the
+				// direction of the fix is argued.
+				Noticed: noticedNotice,
 			},
 			// 外包: `if worker.StoppingSince <= 0.0 || worker.StoppingSince > forcedAt
 			// { worker.StoppingSince = forcedAt }` — the second arm pulls it back.
@@ -561,6 +1441,21 @@ func parityCases() []verbCase {
 				Refocus: anchorZero, RefocusOp: "",
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
+				// stopWorkerNow → resolveWorkerKillTarget (worker_spawn.go:1979-1992). Same RPC
+				// and same count as 正職, but the FAIL MODE differs: an unresolvable target
+				// here skips the enqueue and only logs (:1988-1991), where 正職 enqueues
+				// anyway and arms a retry. The fixture resolves, so the cells agree.
+				Dispatched: "stop",
+				// stopWorkerNow banks BEFORE the kill (worker_spawn.go:1983).
+				Cost: costBanked,
+				// silent, and by TWO independent guards rather than one — which is what
+				// makes the staff cell above a defect rather than a coin-flip. The worker
+				// force-stop reaches no member-topic publisher at all (grep: the only
+				// openWorkerHandoverGrace call sites are api_outsource.go:529/:643/:736 and
+				// worker_spawn.go:1846/:2560, none of them on this path), AND the
+				// stopping_since pull-back keeps forcedEpochLive true, so even a frame
+				// would carry nothing.
+				Noticed: noticedNothing,
 			},
 		},
 		{
@@ -573,9 +1468,10 @@ func parityCases() []verbCase {
 					m.DesiredState = DesiredStateOffline
 					m.StoppingSince = parityPast
 				})
+				notices := watchMemberDeltas(t, api)
 				code := postMember(t, api, "m-parity-refocus", "refocus", nil,
 					api.HandleRefocusMemberApiMembersMemberIdRefocusPost)
-				return memberTerminal(t, api, "m-parity-refocus", code)
+				return memberTerminal(t, api, "m-parity-refocus", code, notices)
 			},
 			runOutsource: func(t *testing.T) terminalState {
 				api := newParityServer(t)
@@ -583,9 +1479,10 @@ func parityCases() []verbCase {
 					w.DesiredState = DesiredStateOffline
 					w.StoppingSince = parityPast
 				})
+				notices := watchMemberDeltas(t, api)
 				code := postWorker(t, api, id, "refocus", nil,
 					api.HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost)
-				return workerTerminal(t, api, id, code.Code)
+				return workerTerminal(t, api, id, code.Code, notices)
 			},
 			// 正職: !aRefocusStampWouldReachTheAgent && aStopWasEverAskedFor →
 			// stampRestartIntent(m) and a 200. The stop keeps its stage and anchors.
@@ -595,6 +1492,17 @@ func parityCases() []verbCase {
 				Refocus: anchorZero, RefocusOp: "",
 				Waking: anchorZero, RestartAfterStop: true,
 				DesiredMachineID: parityMachineA,
+				// takes the queue-the-起來 branch (api_members.go:1608); the member is still
+				// online so the tick reaches decideDown's soft arm and spends nothing.
+				Dispatched: dispatchedNothing,
+				Cost:       costUntouched,
+				// the queue-the-起來 branch still writes the row twice — putMember at
+				// api_members.go:1613 and persistMemberOpReceipt at :1619, both of which
+				// fan through publishMemberPatch. The row is desired-offline with
+				// stopping_since in the past and no forced epoch, so each delta carries
+				// the soft 預告 of the stop ALREADY in flight. 重新聚焦 opened no epoch
+				// here (that is the 包② convergence) — it re-announced the old one.
+				Noticed: noticedNotice,
 			},
 			// 外包 (T-65 包②): the same branch, transcribed from the worker handler's
 			// own assignment — `queueWorkerRestartAfterStop(worker, refocusOpRefocus,
@@ -608,6 +1516,16 @@ func parityCases() []verbCase {
 				Refocus: anchorZero, RefocusOp: "",
 				Waking: anchorZero, RestartAfterStop: true,
 				DesiredMachineID: parityMachineA,
+				// queues the 起來 (api_outsource.go:455) and its follow-up outsourceTickNow is
+				// gated off wholesale by noOutsource (outsource_sched.go:744-748).
+				Dispatched: dispatchedNothing,
+				Cost:       costUntouched,
+				// the worker face answers the same 200 through the same branch and says
+				// NOTHING: api_outsource.go:455 returns after queueWorkerRestartAfterStop
+				// and persistWorkerRestartIntent, so the :529 openWorkerHandoverGrace on
+				// the other branch is never reached, and publishOutsourceWorker is
+				// owner-only. 包② converged the ROW here; the sentence did not come with it.
+				Noticed: noticedNothing,
 			},
 		},
 		{
@@ -618,18 +1536,20 @@ func parityCases() []verbCase {
 			runStaff: func(t *testing.T) terminalState {
 				api := newParityServer(t)
 				seedParityMember(t, api, "m-parity-move", nil)
+				notices := watchMemberDeltas(t, api)
 				code := postMember(t, api, "m-parity-move", "relocate",
 					map[string]any{"machine_id": parityMachineB},
 					api.HandleRelocateMemberApiMembersMemberIdRelocatePost)
-				return memberTerminal(t, api, "m-parity-move", code)
+				return memberTerminal(t, api, "m-parity-move", code, notices)
 			},
 			runOutsource: func(t *testing.T) terminalState {
 				api := newParityServer(t)
 				id := seedParityWorker(t, api, nil)
+				notices := watchMemberDeltas(t, api)
 				code := postWorker(t, api, id, "relocate",
 					map[string]any{"machine_id": parityMachineB},
 					api.HandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost)
-				return workerTerminal(t, api, id, code.Code)
+				return workerTerminal(t, api, id, code.Code, notices)
 			},
 			// Both arm the wind-down through the SAME predicate
 			// (hasUncollectedOnlineOwnerOpState: online ∧ ¬(refocus>0 ∧ stopped>0)) and
@@ -640,6 +1560,16 @@ func parityCases() []verbCase {
 				Refocus: anchorPast, RefocusOp: memberOpRelocate,
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineB,
+				// armMemberOwnerOpHandover stamps an UNCLOCKED epoch, so decideUp parks in
+				// "awaiting agent dump" (reconcile.go:562-602) and the relocation-STOP arm
+				// below it is never reached.
+				Dispatched: dispatchedNothing,
+				Cost:       costUntouched,
+				// armMemberOwnerOpHandover stamped refocus_since with op=relocate and the
+				// member stays desired-online, so offboardKindOf's online arm carries a
+				// soft notice on the putMember at :1235 — 「a handover is being opened,
+				// work the sequence」, which is exactly what an unclocked epoch means.
+				Noticed: noticedNotice,
 			},
 			wantOutsource: terminalState{
 				Status: http.StatusOK, DesiredState: DesiredStateOnline,
@@ -647,6 +1577,14 @@ func parityCases() []verbCase {
 				Refocus: anchorPast, RefocusOp: ownerOpRelocate,
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineB,
+				// relocate does not displace, and the worker has state to flush, so it takes
+				// openOwnerOpHandover (worker_spawn.go:1595-1603) — 預告 only.
+				Dispatched: dispatchedNothing,
+				Cost:       costUntouched,
+				// the wind-down arm ends in openOwnerOpHandover -> openWorkerHandoverGrace
+				// (worker_spawn.go:1846), whose online arm publishes the member-topic 預告.
+				// Same op (relocate), same soft answer out of winddownKindFor.
+				Noticed: noticedNotice,
 			},
 		},
 		{
@@ -657,20 +1595,22 @@ func parityCases() []verbCase {
 			runStaff: func(t *testing.T) terminalState {
 				api := newParityServer(t)
 				seedParityMember(t, api, "m-parity-model", nil)
+				notices := watchMemberDeltas(t, api)
 				rec := httptest.NewRecorder()
 				api.HandleUpdateMemberApiMembersMemberIdPatch(rec,
 					taskReq(t, "PATCH", "/api/members/m-parity-model",
 						map[string]any{"model": "claude-opus-4-8"}, wireOwnerID, "owner"),
 					"m-parity-model")
-				return memberTerminal(t, api, "m-parity-model", rec.Code)
+				return memberTerminal(t, api, "m-parity-model", rec.Code, notices)
 			},
 			runOutsource: func(t *testing.T) terminalState {
 				api := newParityServer(t)
 				id := seedParityWorker(t, api, nil)
+				notices := watchMemberDeltas(t, api)
 				code := postWorker(t, api, id, "model",
 					map[string]any{"model": "claude-opus-4-8"},
 					api.HandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost)
-				return workerTerminal(t, api, id, code.Code)
+				return workerTerminal(t, api, id, code.Code, notices)
 			},
 			// Both gate on 「a launch intent actually changed」 and then open the same
 			// wind-down with op = "runtime/model" (memberOpModel == ownerOpModel).
@@ -680,6 +1620,18 @@ func parityCases() []verbCase {
 				Refocus: anchorPast, RefocusOp: memberOpModel,
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
+				// 🔴 STRUCTURAL, not fixture-dependent: this handler body (api_members.go:820-1026)
+				// contains NO enqueue, no dispatchRobustStopNow and no reconcileMemberNow.
+				// NO fixture can make this cell non-empty.
+				Dispatched: dispatchedNothing,
+				Cost:       costUntouched,
+				// ⚠️ NOT structural the way `dispatched` is on this cell. That literal is
+				// empty because the handler body contains no enqueue at all; this one is
+				// non-empty because the SAME body ends in putMember (api_members.go:940),
+				// and putMember's fan is offboardDeltaPayload — so the refocus epoch
+				// armMemberOwnerOpHandover just stamped (op=model, desired online) puts a
+				// soft notice on the wire without this handler mentioning notices at all.
+				Noticed: noticedNotice,
 			},
 			wantOutsource: terminalState{
 				Status: http.StatusOK, DesiredState: DesiredStateOnline,
@@ -687,6 +1639,15 @@ func parityCases() []verbCase {
 				Refocus: anchorPast, RefocusOp: ownerOpModel,
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
+				// reaches respawnWorkerForOwnerOp (api_outsource.go:1066) but comes out on the
+				// wind-down arm. ⚠️ ASYMMETRY THIS CELL HIDES: unlike 正職 above, this face
+				// DOES own a dispatch site — with an already-collected epoch it would send
+				// STOP+START (worker_spawn.go:1604). Equal here, not equal by construction.
+				Dispatched: dispatchedNothing,
+				Cost:       costUntouched,
+				// same road as 改機器 above: respawnWorkerForOwnerOp comes out on the
+				// wind-down arm and openWorkerHandoverGrace publishes the 預告.
+				Noticed: noticedNotice,
 			},
 		},
 	}
@@ -837,5 +1798,63 @@ func TestAcceleratedStopWorkerHasAnExtraLifecycleGate(t *testing.T) {
 		api2.HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost); rec.Code != http.StatusOK {
 		t.Fatalf("control: the SAME state with Status=active must be admitted, got %d %s",
 			rec.Code, rec.Body.String())
+	}
+}
+
+// ── T-65 包③: the fixture guard the side-effect columns stand on ─────────────
+
+// TestVerbPopulationParityFixtureLandsBothPopulationsOnOneWarden — 包③ reads the
+// stop verbs' SIDE EFFECTS (was a kill dispatched? to whom?) with
+// drainFrames(t, api, parityMachineA), and that drains exactly ONE warden's FIFO.
+// It sees BOTH populations only because the two placements are the same string
+// TODAY, by two independent routes that never reference each other:
+//
+//	seedParityMember  → DesiredMachineID = parityMachineA, connectOnlineMachine(…, parityMachineA)
+//	newActiveWorker   → DesiredMachineID = ServerSelfHost  (worker_lifecycle_test.go:96)
+//	                    workerSpawnTarget[id] = ServerSelfHost (worker_lifecycle_test.go:113)
+//	parityMachineA    = ServerSelfHost  (this file, :254)
+//
+// That is a COINCIDENCE, not a design, and it fails SILENTLY. Give parityMachineA
+// an id of its own — the obvious edit the moment anyone wants a cross-machine row
+// — and every outsource frame lands on a warden the matrix never drains. The
+// matrix then reports "外包什麼都沒派", which is a fixture artefact wearing the
+// costume of a real behavioural divergence, with nothing red anywhere.
+//
+// So this test asserts the coincidence itself, and it asserts it through the two
+// PRODUCTION resolvers rather than by comparing the constants: the constants
+// agreeing is not the property the matrix needs — the property it needs is that
+// the two populations' kill frames are ADDRESSED to the same warden, and that is
+// what these two functions answer.
+//
+// 🔴 The two resolvers are NOT the same function and do not agree in general
+// (this is a real, previously unmeasured divergence, T-65 包③ recon):
+//
+//	resolveWorkerKillTarget  workerSpawnTarget[id]  → hub.MachineOf(id) → ""
+//	memberKillTargetWarden   hub.MachineOf(id)      → wardenTargetOf(id)
+//
+// Different first choice, different last resort ("" = dispatch nothing, vs the
+// pin). They agree HERE because the fixture puts a live SSE claim and a spawn
+// target on one machine. Converging or whitelisting that divergence is 包③'s
+// job; keeping the fixture honest while that happens is this test's job.
+func TestVerbPopulationParityFixtureLandsBothPopulationsOnOneWarden(t *testing.T) {
+	api := newParityServer(t)
+	seedParityMember(t, api, "m-parity-placement", nil)
+	workerID := seedParityWorker(t, api, nil)
+
+	staffTarget := api.memberKillTargetWarden("m-parity-placement")
+	workerTarget := api.resolveWorkerKillTarget(workerID)
+
+	if staffTarget != parityMachineA {
+		t.Fatalf("staff kill frames are addressed to %q, but the matrix drains %q — "+
+			"drainFrames would miss every staff side effect", staffTarget, parityMachineA)
+	}
+	if workerTarget != parityMachineA {
+		t.Fatalf("outsource kill frames are addressed to %q, but the matrix drains %q — "+
+			"every outsource side effect would read as \"dispatched nothing\", which is a "+
+			"FIXTURE artefact, not a behavioural divergence", workerTarget, parityMachineA)
+	}
+	if staffTarget != workerTarget {
+		t.Fatalf("the two populations' kill frames go to different wardens (%q vs %q); "+
+			"a one-warden drain cannot compare them", staffTarget, workerTarget)
 	}
 }
