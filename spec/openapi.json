@@ -79,41 +79,28 @@
         "type": "object"
       },
       "AgentContextDTO": {
-        "description": "Echo of a stored gauge entry (``POST /api/agent/context`` response).",
+        "description": "Bounded receipt for ``POST /api/agent/context`` (T-91). It used to answer with the whole stored gauge entry; ``context_pct``, ``compaction_count`` and ``rate_limits`` were the three numbers the caller had just sent, coming straight back. Owner ruling 2026-09-05, verbatim: content the caller sent does not ride home on the write, only ids and what the write itself decides. Nothing on the agent side ever read them - cli/ocagent/contextreport.go:260-271 (reportPost) looks at the status code and never decodes the body, and cli/ocwarden/codex_session.go:608-622 closes the body without reading it. What is left is the pair that was already ``required``: which roster row the report landed on, and the SERVER's stamp for when. ``get_monitoring`` serves the gauge.",
         "properties": {
           "agent_id": {
+            "description": "The roster row this report landed on, resolved SERVER-side from the verified token (currentActor) rather than taken from the body. It rides back so a caller can see which identity the server credited - the one thing a reporter posting under a machine token cannot assume.",
             "title": "Agent Id",
             "type": "string"
           },
-          "context_pct": {
-            "title": "Context Pct",
-            "type": "number"
-          },
-          "compaction_count": {
-            "description": "Codex App Server context compactions in this live session; null for runtimes that do not report it.",
-            "title": "Compaction Count",
-            "type": "integer"
-          },
-          "rate_limits": {
-            "additionalProperties": true,
-            "title": "Rate Limits",
-            "type": "object"
-          },
           "ts": {
+            "description": "The SERVER's stamp for this report, in epoch seconds. News rather than echo: the caller does not send it and does not know the server's clock.",
             "title": "Ts",
             "type": "number"
           }
         },
         "required": [
           "agent_id",
-          "context_pct",
           "ts"
         ],
         "title": "AgentContextDTO",
         "additionalProperties": false,
         "type": "object"
       },
-      "AgentContextIngestDTO": {
+            "AgentContextIngestDTO": {
         "description": "Inbound agent context-gauge report (``POST /api/agent/context``). The gauge\nkey is the CALLER (the verified JWT ``sub``), NEVER a self-reported ``agent_id``\n(identity-from-token audit) — the field was removed, so an agent can only ever\nreport its OWN context. ``context_pct`` is permissive so the handler returns a\nclean 400 (not a Pydantic 422) on a non-numeric value.",
         "properties": {
           "context_pct": {
@@ -134,197 +121,17 @@
         "type": "object"
       },
       "AgentTelemetryDTO": {
-        "description": "Echo of a stored telemetry entry (``POST /api/monitoring/telemetry``).",
+        "description": "Bounded receipt for ``POST /api/monitoring/telemetry`` (T-91). It used to answer with the whole stored telemetry entry - fifteen optional blocks (rate_limits, tokens, hardware, binaries, claude, cost, effort, runtime, runtimes, self_update, command_result, warden_shape, cutover_effect, machine, account) on top of the two required scalars. This is the station's HIGHEST-FREQUENCY write: cli/ocwarden/selfupdate.go:114-120 records that the same endpoint carries a 30-SECOND hardware loop, so the echo was paid once per warden per half minute. NOT ONE CALLER READ IT: cli/ocagent/contextreport.go:260-271 checks the status code and never decodes, cli/ocwarden/codex_session.go:608-622 closes the body unread, and cli/ocwarden/selfupdate.go:673 discards it (``status, _ := u.post(...)``). Owner ruling 2026-09-05: what the caller sent does not come home on the write. Note the dropped blocks were not a pure echo - the handler MERGES the report onto the stored entry, so a report carrying only self_update used to get the other blocks back too; that merged view is what get_monitoring serves, and serving it from a write nobody reads was the waste. What is left is the pair that was already ``required``.",
         "properties": {
-          "account": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Account"
-          },
           "agent_id": {
+            "description": "The roster row this report landed on, resolved SERVER-side from the verified token (api_monitoring.go: ``agentID := currentActor(r)``) rather than taken from the body. It rides back so a reporter can see which identity the server credited.",
             "title": "Agent Id",
             "type": "string"
           },
-          "binaries": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Binaries"
-          },
-          "claude": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Echo of the stored claude CLI probe (see ``AgentTelemetryIngestDTO.claude`` — T-97ee); null when never reported.",
-            "title": "Claude"
-          },
-          "command_result": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Command Result"
-          },
-          "cost": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Cost"
-          },
-          "cutover_effect": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Echo of the stored cutover-effect verdict (see ``AgentTelemetryIngestDTO.cutover_effect``); null when never reported.",
-            "title": "Cutover Effect"
-          },
-          "effort": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Effort"
-          },
-          "hardware": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Hardware"
-          },
-          "machine": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Machine"
-          },
-          "rate_limits": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rate Limits"
-          },
-          "runtime": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/AgentRuntime"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The provider runtime that produced this session telemetry. null when an older reporter did not identify it.",
-            "title": "Runtime Key"
-          },
-          "runtimes": {
-            "anyOf": [
-              {
-                "additionalProperties": {
-                  "$ref": "#/components/schemas/RuntimeCapabilityDTO"
-                },
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Warden heartbeats only — provider-neutral machine runtime capabilities keyed by runtime name. null when never reported.",
-            "title": "Runtimes"
-          },
-          "self_update": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Self Update"
-          },
-          "tokens": {
-            "anyOf": [
-              {
-                "additionalProperties": {
-                  "type": "integer"
-                },
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Tokens"
-          },
           "ts": {
+            "description": "The SERVER's stamp for the merged entry, epoch seconds - the handler sets ``entry[\"ts\"] = nowSecs()`` and answers with that. News rather than echo: the caller neither sends it nor knows the server's clock.",
             "title": "Ts",
             "type": "number"
-          },
-          "warden_shape": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Echo of the stored warden shape verdict (see ``AgentTelemetryIngestDTO.warden_shape``); null when never reported.",
-            "title": "Warden Shape"
           }
         },
         "required": [
@@ -335,7 +142,7 @@
         "additionalProperties": false,
         "type": "object"
       },
-      "AgentTelemetryIngestDTO": {
+            "AgentTelemetryIngestDTO": {
         "description": "Inbound warden/agent telemetry report (``POST /api/monitoring/telemetry``).\n\nThe reporter pushes what the model can't reliably read about itself: the\naccount-wide ``rate_limits`` (5h/7d windows), this session's own ``tokens``,\nthe host ``hardware`` snapshot (cpu/ram/battery/ac), the harness-computed\ncumulative ``cost``, the session ``runtime``, and the ``model`` / ``effort`` pair the\nsession is LIVE running under (reported state, never the launch configuration —\nsee those two fields). Warden heartbeats additionally\ncarry ``binaries`` plus provider-neutral ``runtimes`` capability probes; the\nserver compares binary fingerprints against its embedded prebuilts and uses\nruntime readiness for placement. ``machine`` / ``account`` are merge tags\n(quota is per-account; hardware is per-host). Fields are permissive so a bad\nbody is a flat 400 (not a Pydantic 422); at least one telemetry field must be\npresent. EXCEPTION (T-90be): ``hardware`` / ``claude`` / ``runtimes`` now declare\ntheir nested shape and are typed as objects, so a non-object THERE is a\ndecode-time 422 instead of a 400; their CONTENTS stay permissive\n(``additionalProperties`` true) — no producer has ever sent a non-object, and no\nknown or future nested KEY is refused.\n\nThe reporting identity is the CALLER (the verified JWT ``sub``), NEVER a\nself-reported ``agent_id`` (identity-from-token audit) — that field was removed,\nso an agent can only ever report its OWN telemetry. NOTE: ``command_result.\nmember_id`` inside the body is a legit TARGET (the member a warden executed a\ncommand against) and is UNTOUCHED — it is not the caller's self-identity.",
         "properties": {
           "account": {
