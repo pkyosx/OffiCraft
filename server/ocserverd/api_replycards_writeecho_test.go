@@ -19,6 +19,20 @@ import (
 // partial one — and the client's own tests could not tell, since they run
 // against api/mock, which returns whole cards by construction.
 //
+// AND THE COCKPIT NO LONGER SWAPS THE CARD — IT MERGES INTO IT. That is the
+// new premise this file rests on, and it is a FRONTEND fact, so it is named
+// here rather than assumed: `adoptWrite` (frontend/src/hooks/useReplyCards.tsx)
+// used to store the write's answer AS the card, which is why a narrower
+// projection would have blanked the question, its options, its attachments and
+// its task ref the day the receipt landed. It now folds only the transition
+// into the card that pane had ALREADY read (`mergeReplyCardWrite`), keeping
+// everything the receipt does not speak about. So the original need — the pane
+// converges from the write instead of waiting for a `reply_card` frame that may
+// never arrive, which is what once left an answered card showing 待回覆 until
+// the next click hit a 409 — is met by a receipt that reports the transition
+// and nothing else. If that merge ever goes back to being a replace, the
+// receipt's narrowness becomes a data loss again; the two are one contract.
+//
 // WHAT T-91 CHANGED IS THE ANSWER TO THAT NEED, NOT THE NEED. Owner ruled on
 // 2026-09-05 that a write must not hand back the content it was just given
 // (「自己發送出去的內容 … 不應該再回傳回來」), and the card's summary, body and
