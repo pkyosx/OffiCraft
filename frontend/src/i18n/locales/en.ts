@@ -105,7 +105,7 @@ export const en: Dict = {
     // 🔴 The reason this flow exists: the merge is one-way on the server, there
     // is no unmerge route, so the confirm step says so in as many words.
     pendingMergeConfirmBody: (from: string, into: string) =>
-      `“${from}” will be merged into “${into}”. This cannot be undone: there is no route back, the name “${from}” disappears, and everything filed under it counts as “${into}” from then on.`,
+      `“${from}” will be merged into “${into}”. This cannot be undone: there is no route back. The name “${from}” is not deleted — it becomes an alias of “${into}”, so later writes and searches naming “${from}” land on “${into}”, and everything filed under it counts as “${into}” from then on.`,
     pendingBusy: "Working…",
     pendingActionFailed: "That one did not go through:",
     reasonSameNormalized: "identical once case and separators are normalised",

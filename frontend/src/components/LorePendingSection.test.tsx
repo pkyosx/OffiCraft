@@ -21,6 +21,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
+import { en } from "../i18n/locales/en";
 import type { LorePendingEntityView } from "../types";
 import { LorePendingSection } from "./LorePendingSection";
 
@@ -189,10 +190,15 @@ describe("LorePendingSection — 一列上看得到的東西", () => {
 // 所以「確認畫面明寫無法還原」跟「確認之前一次 API 都不打」不是體驗問題,是這一
 // 輪存在的理由。
 describe("LorePendingSection — 合併走單一入口", () => {
+  // 🔴 五種 reason 全部種進來,不是三種。`reasonText` 有五個 case,fixture 只
+  // 蓋三種的話,「每個候選都帶著理由」這句話的射程比測試寬 —— 少掉的那兩種
+  // 印成空白也不會有人知道。
   const CANDIDATES = [
     { entityId: "en-a", canonical: "repo:offcraft", reason: "same_normalized" },
     { entityId: "en-b", canonical: "repo:offcraft-cli", reason: "prefix" },
     { entityId: "en-c", canonical: "repo:craft", reason: "substring" },
+    { entityId: "en-d", canonical: "repo:offcraf", reason: "edit_distance_1" },
+    { entityId: "en-e", canonical: "repo:offcra", reason: "edit_distance_2" },
   ];
 
   function rowWithCandidates() {
@@ -231,27 +237,35 @@ describe("LorePendingSection — 合併走單一入口", () => {
     fireEvent.click(screen.getByTestId("lore-pending-merge-start"));
 
     const picked = screen.getAllByTestId("lore-pending-merge-candidate");
-    expect(picked).toHaveLength(3);
+    expect(picked).toHaveLength(5);
     expect(picked[0].textContent).toContain("repo:offcraft");
     // 🔴 理由必須跟候選一起出現。強匹配跟弱匹配長得一樣的話,這一步等於在猜。
+    // 五種 reason 一種都不能漏 —— 漏掉的那一種會印成空白,而空白讀起來像
+    // 「這個候選沒有理由」,不像「這個畫面不認得這種理由」。
     expect(picked[0].textContent).toContain(zh.lore.reasonSameNormalized);
     expect(picked[1].textContent).toContain(zh.lore.reasonPrefix);
     expect(picked[2].textContent).toContain(zh.lore.reasonSubstring);
-    // 三個理由不可以印成同一句話,否則「看得出弱匹配」就是假的。
-    expect(picked[1].textContent).not.toContain(zh.lore.reasonSameNormalized);
+    expect(picked[3].textContent).toContain(zh.lore.reasonEditDistance1);
+    expect(picked[4].textContent).toContain(zh.lore.reasonEditDistance2);
+    // 五個理由不可以印成同一句話,否則「看得出弱匹配」就是假的。
+    expect(new Set(picked.map((p) => p.textContent)).size).toBe(5);
   });
 
-  it("沒有挑候選就送不出去,而且鈕上說得出為什麼", async () => {
+  // ⚠️ 這支的名字刻意寫窄。它守住的是**送出鈕停用**,不是「送不出去」——
+  // jsdom 對 disabled 的 button 本來就不派發 click,所以「點下去沒有打 API」
+  // 在這裡是恆真的,寫了也擋不住任何東西。恆真的斷言比沒有斷言更貴:它會讓
+  // 下一個人以為那一格有人守。真正擋住「不挑也能送」的是 `disabled` 那一格,
+  // 以及下一支測試裡「挑完之後 disabled 才變 false」的對照。
+  it("沒有挑候選的時候,送出鈕是停用的,而且鈕上說得出為什麼停用", async () => {
     await openPicker();
 
     const next = screen.getByTestId("lore-pending-merge-next");
     expect((next as HTMLButtonElement).disabled).toBe(true);
-    expect(next.textContent).toBe(zh.lore.pendingMergePickSubmit(""));
-
-    fireEvent.click(next);
-    // 沒有進到確認,更沒有打 API。
+    // 字面斷言,不是字典比字典:字典比字典只證明這句話沒被改掉,不證明它說了
+    // 什麼。這裡要的是鈕上真的叫人去挑一個。
+    expect(next.textContent).toContain("挑一個候選");
+    // 還沒到確認那一步。
     expect(screen.queryByTestId("lore-pending-merge-confirm")).toBeNull();
-    expect(mergeLoreEntity).not.toHaveBeenCalled();
   });
 
   it("挑完之後還有一個確認步驟,而且明寫這個動作無法還原", async () => {
@@ -272,6 +286,23 @@ describe("LorePendingSection — 合併走單一入口", () => {
     // 🔴 這一句是這整輪存在的理由:後端沒有 unmerge,按錯救不回來,所以畫面上
     // 必須明寫。鎖字典的字串是不夠的 —— 這裡鎖的是「畫面上真的讀得到」。
     expect(body.textContent).toContain("無法還原");
+    // 🔴 這一句在 2026-09-05 的第三輪審查裡被抓到是**假的**:它原本寫「這個名
+    // 字會就此消失」,而 `MergeLoreEntity` 的交易做的是把來源的 canonical 寫成
+    // 存活者的 alias、並把 lore_subject 也掛一份給存活者 —— 名字沒有消失,是
+    // 降級成別名。假話的方向很具體:相信名字會消失的人不敢按合併,會改去按核
+    // 可,而核可才是把重複名字送進開機目錄、且之後再也 merge 不動的那個動作。
+    expect(body.textContent).toContain("別名");
+    expect(body.textContent).not.toContain("消失");
+    // 🔴 英文那句也要有字面斷言。只鎖中文的話,刪掉 `en.ts` 裡的
+    // "This cannot be undone" 是一個 token 的編輯,而 vitest / tsc / drift gate
+    // 全綠、零訊號 —— 全樹沒有第二個東西碰這個畫面。
+    expect(en.lore.pendingMergeConfirmBody("a", "b")).toContain(
+      "This cannot be undone",
+    );
+    expect(en.lore.pendingMergeConfirmBody("a", "b")).toContain("alias");
+    expect(en.lore.pendingMergeConfirmBody("a", "b")).not.toContain(
+      "disappears",
+    );
     expect(mergeLoreEntity).not.toHaveBeenCalled();
   });
 

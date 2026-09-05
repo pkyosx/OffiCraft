@@ -112,7 +112,7 @@ export const zh = {
     // 🔴 確認那一步的正文。這整個改動存在的理由就在第二句:後端的合併是單向
     // 的,沒有 unmerge 路徑,按錯救不回來,所以畫面上必須明寫。
     pendingMergeConfirmBody: (from: string, into: string) =>
-      `要把「${from}」併進「${into}」。這個動作無法還原：合併之後沒有拆回來的路，「${from}」這個名字會就此消失，底下的記憶都算到「${into}」頭上。`,
+      `要把「${from}」併進「${into}」。這個動作無法還原：合併之後沒有拆回來的路。「${from}」這個名字不會被刪掉，它會變成「${into}」的別名 —— 之後用「${from}」寫入或搜尋都會落到「${into}」身上，底下的記憶也都算到「${into}」頭上。`,
     pendingBusy: "處理中…",
     pendingActionFailed: "這一筆沒有成功：",
     reasonSameNormalized: "大小寫／符號正規化後完全相同",
