@@ -56,6 +56,17 @@ type LoreEntry struct {
 	// （而不是默默做掉）等著被推翻的。Trigger 仍然是讀者找到這條的那一軸，
 	// 但它不再是這條的名字：v8 對標題有 Trigger 沒有的要求（寫「發生了什麼」、
 	// 不得是祈使句），兩格說的不是同一句話。
+	//
+	// 🔴 而 `00081_lore.sql` 裡那段話**沒有被就地更正，而且不會被更正**。它現在是
+	// 假的，但那支 migration 不能改：`migration.lock` 對每支 migration 的檔案內容做
+	// sha256，更重要的是**它很可能已經被一個真的資料庫套用過**（正式庫那 14 張表
+	// ＝ 00081 的 12 張 ＋ 00083 的 2 張，數字逐一對上）。改它的內容，那個庫就對不上
+	// 一份它跑過的 migration。
+	// ⇒ **更正寫在 `00084_lore_format_v8.sql`，而 00081 沒有任何回鏈。**
+	// ⚠️ 這個洞是**知情留著的**，不是漏掉的：打開 00081 讀到那段的人，會停在一句
+	// 假話上，而檔案裡沒有東西會告訴他往哪裡走。留著的理由是上面那句——用一個
+	// 可讀性的改善去換「正式庫對不上一支跑過的 migration」的風險，不划算。
+	// **這一行就是那個補償，而它只在這裡，不在他會打開的那個檔案裡。**
 	Heading    string // 標題：發生了什麼。必填，無長度上限
 	Trigger    string // 什麼時候要記起來；形狀是「我要做 X」。無長度上限
 	Content    string // 內容 — THIS is what enters a context
@@ -96,11 +107,17 @@ type LoreEntry struct {
 // 那是一張新卡。⚠️ v8 的 `impact_stars = 0`（還沒判）**不是**那個標記借屍還魂：
 // 它說的是「沒有人判過」，不是「判過而且品質可疑」。
 
-// 🔴 `reviewed` 在這裡，也就是說它會被 PutLoreEntry 的 upsert 覆寫。這一欄是
-// 別人蓋的章，而唯一寫得到它的路徑（PutLoreEntry / CreateLoreEntry）永遠帶著
-// false 進來——所以它今天恆為 false。這是照實的：v8 要的是一個旗標，「誰能蓋、
-// 蓋了要不要留紀錄」還沒有人裁定，而在裁定之前先開一道門，等於讓實作把那個
-// 決定偷偷做掉。它被讀出來、不被寫進去，這件事在 spec 的欄位說明裡也寫著。
+// 🔴 `reviewed` 在這裡，也就是說它會被 PutLoreEntry 的 upsert 覆寫。
+//
+// ⚠️ 射程要講準（前一版寫寬了）：**沒有任何 HTTP route 帶得出 true**，因為
+// `reviewed` 不在任何請求 DTO 裡。但這一層**不是**恆為 false —— 它忠實寫入呼叫者
+// 給的值，`dal_lore_t33_test.go` 就有一個呼叫者帶 `Reviewed: true` 並要求讀回
+// true。「沒有路由寫得到」跟「這一層寫不進去」是兩件事，把後者寫成前者會讓下一個
+// 人以為這裡自帶一道門 —— 它沒有。
+//
+// 🔴 所以真正的狀況是：**這一欄今天沒有守衛。** v8 要的是一個旗標，「誰能蓋、蓋了
+// 要不要留紀錄」還沒有人裁定（卡在 rc-37f10fec50d1）。等有人裁定了，**那道門要有人
+// 在這一層或它上面補上**，不能靠「反正沒有路由送得進來」。
 const loreEntryColumns = `id, heading, trigger, content, retire_when, impact,
 	impact_stars, reviewed,
 	status, supersedes, editable_by, origin,
@@ -349,8 +366,10 @@ func (d *DAL) PutLoreEntry(e LoreEntry) error {
 	}
 	// 🔴 `reviewed` 出現在 DO UPDATE SET 裡，跟其他每一格一樣，而這是刻意的：
 	// 這個函式的語意是「用這一份取代那一列」，把某一欄從取代裡挑掉會讓它在
-	// 「整列覆寫」的外表下悄悄保留舊值。今天沒有呼叫者帶得出 true，所以效果是
-	// 恆為 false；等有人裁定了誰能蓋章，那條路要面對的就是這裡的取代語意。
+	// 「整列覆寫」的外表下悄悄保留舊值。
+	// ⚠️ 今天沒有 HTTP route 送得進 true，但**這裡不會擋**：呼叫者給 true 就寫
+	// true。等有人裁定了誰能蓋章，那道門要加在有身分可看的那一層，這裡的取代語意
+	// 不會替它擋。
 	_, err := d.wdb.Exec(`
 		INSERT INTO lore_entry (`+loreEntryColumns+`)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

@@ -684,3 +684,46 @@ func TestLoreEventKeyPrefixesAreCheckedOnlyWhenTheCellIsFilled(t *testing.T) {
 		t.Fatalf("人/地/物 全空的事件必須被接受: %v", err)
 	}
 }
+
+// TestHeadingChangeMovesTheRevisionDigest is the OUTCOME guard for the hole the
+// v8 pack found and closed: `heading` was writable through PutLoreEntry's upsert
+// while loreRevisionBody left it out, so an entry could have its title replaced
+// and still hash to the same revision — a proposal built on the old title would
+// keep looking current to whoever was about to approve it.
+//
+// 🔴 IT ASSERTS THE OUTCOME, NOT A SPELLING. It changes ONE field through the
+// same seam a future "edit this entry" route would reach for, then asks the
+// renderer whether the digest moved. An AST scan naming PutLoreEntry would pin a
+// spelling instead, and this tree already learned where that ends —— see the
+// warning at the top of api_chat_attachment_wiring_test.go: 「Enumerating ways of
+// writing something has no end… never treat its green as evidence.」
+//
+// ⚠️ WHAT IT DOES NOT COVER: `impact_stars` is in the same position — writable
+// through the same upsert, absent from the body. It is left out on purpose, not
+// missed: whether a star rating is part of the version a reviewer approved is
+// the same undecided question as the heading was, and it is on the card. When
+// that comes back, this test is where the answer lands.
+func TestHeadingChangeMovesTheRevisionDigest(t *testing.T) {
+	base := LoreEntry{
+		ID:      "le-heading-digest",
+		Heading: "遷移在沒有設定檔的情況下打到了正式庫",
+		Trigger: "我要在工作目錄裡跑一個 server 的執行檔",
+		Content: "零參數等於 serve，serve 啟動就跑 migration。",
+		Impact:  "14 張表進了正式庫。",
+		Origin:  "agent:O-197",
+	}
+	before := loreRevisionBody(base, nil)
+
+	renamed := base
+	renamed.Heading = "在工作目錄裡跑執行檔會靜默套用遷移"
+	after := loreRevisionBody(renamed, nil)
+
+	if before == after {
+		t.Fatalf("換掉標題之後，渲染出來的 body 一個位元組都沒變 —— "+
+			"digest 不會動，一份基於舊標題的提案不會變 stale，而審核者看到的 "+
+			"base digest 仍然「是最新的」。\nbody:\n%s", before)
+	}
+	if !strings.Contains(before, base.Heading) {
+		t.Fatalf("body 裡找不到標題本身；這一支就不是在量標題有沒有進 body:\n%s", before)
+	}
+}

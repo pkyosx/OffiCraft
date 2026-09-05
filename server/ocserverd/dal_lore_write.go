@@ -165,11 +165,26 @@ type LoreWriteResult struct {
 // ⚠️ 我考慮過也否決了的另一條路：讓提案在渲染時去把條目**現在**的標題借過來填。
 // 那會讓摘要涵蓋標題、而且不說謊，代價是這個純函式從此要讀資料庫，而且審核者的
 // diff 裡會出現一行他沒有送、也改不動的內容。那是提案能不能帶標題這張卡的事。
-// 🔴 今天沒有任何一條路改得動 `heading`（只有建立時寫一次），所以這個洞還沒有
-// 東西可以吃。等有了那條路，它就會開始吃 —— 而且不會有人看見。
+// 🔴 `heading` 進 body，是這一版改的，理由跟這個渲染器自己下面那條「空事件也照印」
+// 完全一樣：**一條標題被換掉的條目，不可以跟換掉之前雜湊出同一串。**
+//
+// 前一版把 heading 排除在外，理由寫的是「今天沒有任何一條路改得動 heading（只有
+// 建立時寫一次）」。**那個理由是假的**：`dal_lore.go` 的 PutLoreEntry 在
+// DO UPDATE SET 裡就有 `heading = excluded.heading`。它今天確實沒有產品碼呼叫者
+// （建立走的是 CreateLoreEntry），所以那個洞是潛伏的、不是活的 —— 但下一個人要接
+// 「改條目」那條路時，最自然的動作就是呼叫 PutLoreEntry，然後靜靜繼承它。
+//
+// ⚠️ 這個改動會讓所有既有 revision 的 digest 變掉。**那個集合依構造是空的**：
+// `origin/main` 上 lore 的檔案數是 0，沒有任何已發版的程式碼寫過一條 lore 條目。
+// 換句話說代價是量得到的零，不是「應該還好」。
+//
+// 🔴 這是我（O-197）自己下的設計決定，不是誰的裁定。「標題算不算提案的版本內容」
+// 沒有人裁過；我選了「算」，因為審核者看到的 base digest 必須涵蓋他讀到的東西。
+// 已開卡讓 owner 推翻。守衛在 dal_lore_write_t33_test.go 的 heading/digest 那一支。
 func loreRevisionBody(e LoreEntry, events []LoreEvent) string {
 	var b strings.Builder
 	for _, f := range []struct{ name, value string }{
+		{"heading", e.Heading},
 		{"trigger", e.Trigger},
 		{"content", e.Content},
 		{"retire_when", e.RetireWhen},

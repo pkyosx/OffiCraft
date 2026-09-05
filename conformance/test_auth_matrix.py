@@ -1291,7 +1291,7 @@ MATRIX: dict[str, Route] = {
             "trigger": "the authz matrix is probing this row",
             "content": "a floor is decided before the body is ever read",
             "retire_when": "a cell answers 200 without the floor ever being consulted",
-            "problem": "this very row, run against every identity in the matrix",
+            "impact": "this very row, run against every identity in the matrix",
             "origin": "agent:conformance-authz",
             "subjects": ["agent:conformance-authz"],
         },
