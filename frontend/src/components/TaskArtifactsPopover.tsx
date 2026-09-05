@@ -303,10 +303,13 @@ function ArtifactsPopover({
     // here rather than inside AttachmentStrip so the image branch (and its
     // click-to-preview) stays untouched. It gives the image row the SAME
     // three-part shape as a file/link row, and the same hover-for-full-name.
-    // The chip reads the blob's filename, which is optional server-side (the
-    // live row's `name` is never empty, but the filename this strip carries can
-    // be), so fall back the way the file branch does — an image row must never
-    // lose its chip, or it stops matching the other two kinds.
+    // The chip reads `att.filename`, which on this strip is NOT a blob
+    // filename: `asAttachmentView` fills it from the artifact's `name`, the
+    // only name a live row still carries since T-92. The server guarantees that
+    // name is non-empty (`artifactDisplayName` derives one when the column is
+    // blank), so the `||` below is a guard for an older server or a fixture
+    // that sends none, not for the normal case — kept because an image row must
+    // never lose its chip, or it stops matching the other two kinds.
     const imageName =
       art?.kind === "image" ? att.filename || t.tasks.artifacts.imageName : "";
     return (

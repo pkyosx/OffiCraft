@@ -82,6 +82,6 @@ TaskArtifactVersionsModal 是任務產物「被換過幾次、換掉的是什麼
 
 版本 wire 的 `url`／`mime`／`filename`／`is_image` 都由 server 從那一版自己的 blob 解出，跟 live 產物走同一條解析：file/image 版本的 `url` 是 blob 端點；link 版本的 `url` 是從它自己的 `text/uri-list` blob 讀出來的目標。兩張產物表的 `url` 欄都已被 00086 移除（T-92），沒有欄可抄——當年照抄那一欄（對 file/image 是空字串）會讓每個檔案版本在前端讀成 gone。
 
-🔴 但 mime 不是唯一判準：`text/*` 是文字、`image/*` 是圖片，兩者皆非時再看檔名副檔名（兩側同一條：filename 優先、name 次之——T-92 把舊的單一 `label` 拆成 name＋description；版本的 filename 由 wire 從它自己的 attachment_id 解出，是那一版自己的事實，live 產物則已無 filename，它的 name 就是 server 從那個 filename 導出的結果），命中一份封閉的文字副檔名清單就當文字讀。理由是 agent 上傳的報告回來是 `application/octet-stream`——那是上傳端「不知道」，不是「這是二進位」；只信 mime 會把報告、log、spec 這些最常見的產物全部推去前後切換，永遠 diff 不到。清單是封閉的，不在清單上的仍然不讀 body。
+🔴 但 mime 不是唯一判準：`text/*` 是文字、`image/*` 是圖片，兩者皆非時再看檔名副檔名，命中一份封閉的文字副檔名清單就當文字讀。副檔名要從哪裡拿，兩側不對稱：版本的 `filename` 由 wire 從它自己的 attachment_id 解出，是那一版自己的事實；live 產物在 T-92 之後**沒有 filename 欄**，而它的 `name` 是**作者寫的標題**（`artifactDisplayName` 第一順位就回 stored name，T-92 又讓寫入必填），常態上根本沒有副檔名——只讀 `name` 會讓一份 `.md` 報告的 live 側判成 opaque，差異分頁整個消失。所以 live 側的檔名改從**下載回應自己的 `Content-Disposition`** 取（`filename*=UTF-8''…` 優先、`filename="…"` 次之；那個 header 是 server 對每個非圖片附件都會寫的），兩邊任一看起來是文字就當文字。清單本身仍是封閉的，不因此放寬。理由是 agent 上傳的報告回來是 `application/octet-stream`——那是上傳端「不知道」，不是「這是二進位」；只信 mime 會把報告、log、spec 這些最常見的產物全部推去前後切換，永遠 diff 不到。清單是封閉的，不在清單上的仍然不讀 body。
 
 沒有還原面，server 也沒有還原動詞；舊版要回來是往前 replace。

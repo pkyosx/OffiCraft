@@ -83,8 +83,15 @@ function mkArtifacts(artifacts: TaskArtifactView[]): TaskArtifactView[] {
 }
 
 /** A fetch that answers per blob path with a declared content type. `cancel`
- * records that a body was dropped unread; `text` records that one was read. */
-function stubFetch(blobs: Record<string, { mime: string; text?: string }>) {
+ * records that a body was dropped unread; `text` records that one was read.
+ *
+ * `disposition` is the `Content-Disposition` the real server writes on every
+ * non-image attachment (api_chat.go) — the ONLY place the live side can still
+ * read the blob's actual filename, now that T-92 took `filename` off the live
+ * row and left an author-chosen title in `name`. */
+function stubFetch(
+  blobs: Record<string, { mime: string; text?: string; disposition?: string }>,
+) {
   const cancel = vi.fn(async () => {});
   const readText = vi.fn();
   globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
@@ -96,7 +103,10 @@ function stubFetch(blobs: Record<string, { mime: string; text?: string }>) {
     return {
       ok: true,
       status: 200,
-      headers: new Headers({ "content-type": blob.mime }),
+      headers: new Headers({
+        "content-type": blob.mime,
+        ...(blob.disposition ? { "content-disposition": blob.disposition } : {}),
+      }),
       text: async () => {
         readText(path);
         return blob.text ?? "";
@@ -250,6 +260,44 @@ describe("TaskArtifactVersionsModal", () => {
       "/api/chat/attachment/att-live": {
         mime: "application/octet-stream",
         text: "alpha\ngamma\n",
+      },
+    });
+    openModal();
+
+    fireEvent.click(await screen.findByTestId("ta-versions-pane-diff"));
+    await waitFor(() => expect(screen.getByTestId("ta-versions-diff")).toBeTruthy());
+    expect(diffLinesOnScreen()).toEqual(["alpha", "beta", "gamma"]);
+  });
+
+  // 🔴 THE NORMAL SHAPE SINCE T-92, and the one every other fixture in this
+  // file misses: each of those gives the LIVE row a `name` that still happens to
+  // carry an extension (spec.txt, recon.md, report.md, core.bin), which is a
+  // pre-T-92 name. T-92 made `name` a REQUIRED author-chosen title and
+  // `artifactDisplayName` returns that stored title FIRST — so the live name of
+  // a pinned .md report is 「週報 v3」, with no extension at all, while the mime
+  // is the octet-stream an un-`--mime`d upload gets. Judged on the JSON alone
+  // the live side is opaque, and the 差異 tab — which needs BOTH sides textual —
+  // disappears on exactly the deliverable the owner asked the tab for. The
+  // filename is not lost: it rides the bytes response's Content-Disposition.
+  it("diffs a live artifact whose name is a title, using the response's filename", async () => {
+    mockedApi.listTaskArtifactVersions.mockResolvedValue([
+      mkVersion({ name: "", filename: "report.md", mime: "application/octet-stream" }),
+    ]);
+    mockedApi.listTaskArtifacts.mockResolvedValue(
+      mkArtifacts([mkArtifact({ name: "週報 v3", mime: "application/octet-stream" })]),
+    );
+    stubFetch({
+      "/api/chat/attachment/att-old": {
+        mime: "application/octet-stream",
+        text: "alpha\nbeta\n",
+      },
+      "/api/chat/attachment/att-live": {
+        mime: "application/octet-stream",
+        text: "alpha\ngamma\n",
+        // Byte-for-byte the header api_chat.go writes: the ASCII-stripped
+        // `filename`, then the percent-encoded `filename*` that survives 週報.
+        disposition:
+          `attachment; filename="report.md"; filename*=UTF-8''report.md`,
       },
     });
     openModal();

@@ -295,11 +295,12 @@ export const zh = {
       badge: "產物",
       open: "查看產物",
       panelTitle: "產物",
-      // T-49fb: the three tabs are gone (one list). What is left of the trio
-      // is the image row's name fallback — the blob an image artifact points at
-      // may carry no filename of its own, and its chip must never render
-      // empty. (T-92 took `filename` and `label` off the artifact row itself;
-      // the fallback now guards the blob's filename as the strip reads it.)
+      // T-49fb: the three tabs are gone (one list). What is left of the trio is
+      // the image row's name fallback, and since T-92 it is a BACKSTOP rather
+      // than a normal path: the strip's `filename` is filled from the
+      // artifact's `name`, which the server guarantees non-empty. This word
+      // shows only against an older server or a fixture that sends none — the
+      // chip must never render empty.
       imageName: "圖片",
       empty: "還沒有產物",
       close: "關閉產物",

@@ -623,10 +623,15 @@ export interface TaskArtifactView {
  * `id` is the
  * version's own row id and `kind` always equals the live artifact's, which
  * cannot change across versions. `url`, `mime`, `filename` and `isImage` are
- * that version's OWN facts, resolved by the server from the retained blob the
- * same way the live artifact's are — a file/image version's `url` is the blob
- * serve path (never empty while the blob is alive), and the mime is this
- * version's, never the live row's. */
+ * that version's OWN facts, resolved by the server from the retained blob — a
+ * file/image version's `url` is the blob serve path (never empty while the blob
+ * is alive), and the mime is this version's, never the live row's.
+ *
+ * ⚠️ NOT the same resolution the live artifact gets, on ONE kind: for a LINK
+ * version the server reads only the blob's BYTES (the uri-list target, into
+ * `url`) and leaves `mime`/`filename`/`isImage` empty, whereas the live link
+ * artifact does report `text/uri-list`. Never size a link comparison on those
+ * three. */
 export interface TaskArtifactVersionView {
   id: number;
   kind: "file" | "image" | "link";
@@ -2103,12 +2108,14 @@ export interface Api {
   /**
    * Fetch ONE task's pinned deliverables in full
    * (`GET /api/tasks/{task_id}/artifacts`, T-66) — the only read that carries
-   * an artifact's url / filename / mime / kind / isImage / attachmentId /
-   * createdTs / createdBy.
+   * an artifact ROW at all: kind / url / name / description / mime /
+   * createdTs / createdBy / versionCount.
    *
-   * 🔴 It exists because `getTask` stopped carrying them: a task's `artifacts`
-   * are an id+label INDEX now (owner c-cd063427fb2f), so anything that DRAWS an
-   * artifact calls this. ONE call answers the WHOLE ticket — there is
+   * 🔴 It exists because `getTask` stopped carrying them, and T-92 finished the
+   * job: a task response has no `artifacts` field of any kind now, only
+   * `artifactCount` (owner c-cd063427fb2f started this as an id+label index;
+   * T-92 removed even the index). So anything that DRAWS an artifact — or that
+   * needs one artifact's id — calls this. ONE call answers the WHOLE ticket — there is
    * deliberately no per-artifact read (owner c-f2d0fecb1168:「應該是指名任務？」),
    * because the cockpit's deliverables panel opens onto the entire set and a
    * per-artifact door would cost one call per row.
