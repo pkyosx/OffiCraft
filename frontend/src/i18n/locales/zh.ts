@@ -93,6 +93,26 @@ export const zh = {
     pendingSimilarLead: "像：",
     pendingApprove: "核可",
     pendingMerge: (name: string) => `併進 ${name}`,
+    // ── 合併的單一入口(owner 2026-09-05 逐字:「改成單一入口:只留一顆合併
+    // 鈕,按了列出候選讓你挑,再確認」)────────────────────────────────
+    // 🔴 這四句刻意都是插值函式而不是靜態字串,原因不是文法:靜態字串葉會進
+    // `messageKeys.generated.ts` 與 `server/ocserverd/message_keys_gen.go`,而
+    // 這一輪的界線是「只改前端、不動產生檔」。四句都真的有東西要插,所以這不是
+    // 為了繞閘門把靜態字硬折成函式 —— 但下一句要是插不出東西,就該去重新產生
+    // 那兩個檔,而不是硬折。
+    // 入口鈕上印候選數:按下去會看到幾個,按之前就知道。
+    pendingMergeStart: (n: number) => `合併…（${n} 個候選）`,
+    // 挑的那一步。這裡要說清楚「誰」要被併走,因為消失的是它。
+    pendingMergePickLead: (name: string) =>
+      `要把「${name}」併進哪一個？挑一個候選：`,
+    // 送出鈕。沒挑的時候它是死的,而且要說得出為什麼死 —— 一顆沒有理由的灰鈕
+    // 會被當成壞掉。
+    pendingMergePickSubmit: (picked: string) =>
+      picked === "" ? "先挑一個候選" : `下一步：確認併進 ${picked}`,
+    // 🔴 確認那一步的正文。這整個改動存在的理由就在第二句:後端的合併是單向
+    // 的,沒有 unmerge 路徑,按錯救不回來,所以畫面上必須明寫。
+    pendingMergeConfirmBody: (from: string, into: string) =>
+      `要把「${from}」併進「${into}」。這個動作無法還原：合併之後沒有拆回來的路，「${from}」這個名字會就此消失，底下的記憶都算到「${into}」頭上。`,
     pendingBusy: "處理中…",
     pendingActionFailed: "這一筆沒有成功：",
     reasonSameNormalized: "大小寫／符號正規化後完全相同",

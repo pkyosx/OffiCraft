@@ -333,6 +333,42 @@
   margin-inline-start: 10px;
 }
 
+/* 挑候選的那一步(round 4)。它是一塊**開在那一列裡面**的面板,不是彈窗:要挑
+   的東西(名字、幾條、誰鑄的、像誰)全在同一列上,把它蓋掉等於逼人憑記憶挑。 */
+.lore-pending__picker {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-bg);
+}
+
+.lore-pending__candidates {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lore-pending__candidate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  cursor: pointer;
+}
+
+/* 為什麼被判為相似。跟候選名字並排、退一階 —— 弱匹配(prefix / substring)跟
+   強匹配(same_normalized)長得一樣,是這一步最容易出事的地方。 */
+.lore-pending__candidate-reason {
+  font-size: 0.85em;
+  color: var(--color-text-muted);
+}
+
 .lore-pending__actions {
   display: flex;
   flex-wrap: wrap;

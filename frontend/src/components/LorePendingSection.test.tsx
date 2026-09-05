@@ -18,7 +18,7 @@
 // 只有「核可」一顆鈕,「駁回」還是不存在。
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import type { LorePendingEntityView } from "../types";
@@ -42,12 +42,14 @@ function row(over: Partial<LorePendingEntityView> = {}): LorePendingEntityView {
 }
 
 const listPendingLoreEntities = vi.fn();
+const mergeLoreEntity = vi.fn();
+const approveLoreEntity = vi.fn();
 
 vi.mock("../api", () => ({
   api: {
     listPendingLoreEntities: () => listPendingLoreEntities(),
-    approveLoreEntity: vi.fn(),
-    mergeLoreEntity: vi.fn(),
+    approveLoreEntity: (...a: unknown[]) => approveLoreEntity(...a),
+    mergeLoreEntity: (...a: unknown[]) => mergeLoreEntity(...a),
   },
 }));
 
@@ -61,6 +63,10 @@ function renderSection() {
 
 beforeEach(() => {
   listPendingLoreEntities.mockReset();
+  mergeLoreEntity.mockReset();
+  mergeLoreEntity.mockResolvedValue({});
+  approveLoreEntity.mockReset();
+  approveLoreEntity.mockResolvedValue({});
 });
 
 describe("LorePendingSection — 一列上看得到的東西", () => {
@@ -169,5 +175,122 @@ describe("LorePendingSection — 一列上看得到的東西", () => {
     // 合併鈕,而「駁回」從來沒有存在過,列出底下有幾條也不會讓它長出來。
     expect(screen.getAllByRole("button")).toHaveLength(1);
     expect(screen.getByText(zh.lore.pendingApprove)).toBeTruthy();
+  });
+});
+
+// ── round 4:合併的單一入口 ────────────────────────────────────────────────
+//
+// owner 2026-09-05 逐字:「改成單一入口:只留一顆合併鈕,按了列出候選讓你挑,再
+// 確認」。上一輪每一個 `similar` 候選旁邊各一顆合併鈕,一按就送出 —— 而 `similar`
+// 裡有 `prefix` / `substring` 這種弱匹配,所以那是一排長得一樣、其中幾顆按下去
+// 就錯的不可逆按鈕。
+//
+// 🔴 這一組裡最重的是最後兩個 it:後端的合併是**單向**的(沒有 unmerge 路由),
+// 所以「確認畫面明寫無法還原」跟「確認之前一次 API 都不打」不是體驗問題,是這一
+// 輪存在的理由。
+describe("LorePendingSection — 合併走單一入口", () => {
+  const CANDIDATES = [
+    { entityId: "en-a", canonical: "repo:offcraft", reason: "same_normalized" },
+    { entityId: "en-b", canonical: "repo:offcraft-cli", reason: "prefix" },
+    { entityId: "en-c", canonical: "repo:craft", reason: "substring" },
+  ];
+
+  function rowWithCandidates() {
+    return row({ entityId: "en-1", canonical: "repo:Offcraft", similar: CANDIDATES });
+  }
+
+  async function openPicker() {
+    listPendingLoreEntities.mockResolvedValue([rowWithCandidates()]);
+    renderSection();
+    fireEvent.click(await screen.findByTestId("lore-pending-merge-start"));
+  }
+
+  it("一列上只有一顆合併鈕,不是每個候選各一顆", async () => {
+    listPendingLoreEntities.mockResolvedValue([rowWithCandidates()]);
+    renderSection();
+
+    await waitFor(() => screen.getByTestId("lore-pending-row"));
+    // 🔴 三個候選,但合併鈕只有一顆。
+    expect(screen.getAllByTestId("lore-pending-merge-start")).toHaveLength(1);
+    // 整列的出口還是兩個:核可 + 合併。三個候選不可以變成三個出口。
+    expect(screen.getAllByRole("button")).toHaveLength(2);
+    // 「像誰」那一排還在 —— 它是證據,只是不再兼任按鈕。
+    expect(
+      screen.queryByText(zh.lore.pendingMerge("repo:offcraft")),
+    ).toBeNull();
+  });
+
+  it("按下去才列出候選,而且每個候選都帶著它被判為相似的理由", async () => {
+    listPendingLoreEntities.mockResolvedValue([rowWithCandidates()]);
+    renderSection();
+
+    await waitFor(() => screen.getByTestId("lore-pending-row"));
+    // 按之前沒有清單:單一入口的意思是候選藏在鈕後面。
+    expect(screen.queryByTestId("lore-pending-merge-picker")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("lore-pending-merge-start"));
+
+    const picked = screen.getAllByTestId("lore-pending-merge-candidate");
+    expect(picked).toHaveLength(3);
+    expect(picked[0].textContent).toContain("repo:offcraft");
+    // 🔴 理由必須跟候選一起出現。強匹配跟弱匹配長得一樣的話,這一步等於在猜。
+    expect(picked[0].textContent).toContain(zh.lore.reasonSameNormalized);
+    expect(picked[1].textContent).toContain(zh.lore.reasonPrefix);
+    expect(picked[2].textContent).toContain(zh.lore.reasonSubstring);
+    // 三個理由不可以印成同一句話,否則「看得出弱匹配」就是假的。
+    expect(picked[1].textContent).not.toContain(zh.lore.reasonSameNormalized);
+  });
+
+  it("沒有挑候選就送不出去,而且鈕上說得出為什麼", async () => {
+    await openPicker();
+
+    const next = screen.getByTestId("lore-pending-merge-next");
+    expect((next as HTMLButtonElement).disabled).toBe(true);
+    expect(next.textContent).toBe(zh.lore.pendingMergePickSubmit(""));
+
+    fireEvent.click(next);
+    // 沒有進到確認,更沒有打 API。
+    expect(screen.queryByTestId("lore-pending-merge-confirm")).toBeNull();
+    expect(mergeLoreEntity).not.toHaveBeenCalled();
+  });
+
+  it("挑完之後還有一個確認步驟,而且明寫這個動作無法還原", async () => {
+    await openPicker();
+
+    fireEvent.click(screen.getAllByRole("radio")[1]);
+    const next = screen.getByTestId("lore-pending-merge-next");
+    expect((next as HTMLButtonElement).disabled).toBe(false);
+    // 挑完了但還沒確認 ⇒ 一次 API 都還沒打。
+    expect(mergeLoreEntity).not.toHaveBeenCalled();
+
+    fireEvent.click(next);
+
+    const body = screen.getByTestId("lore-pending-merge-confirm-body");
+    expect(body.textContent).toBe(
+      zh.lore.pendingMergeConfirmBody("repo:Offcraft", "repo:offcraft-cli"),
+    );
+    // 🔴 這一句是這整輪存在的理由:後端沒有 unmerge,按錯救不回來,所以畫面上
+    // 必須明寫。鎖字典的字串是不夠的 —— 這裡鎖的是「畫面上真的讀得到」。
+    expect(body.textContent).toContain("無法還原");
+    expect(mergeLoreEntity).not.toHaveBeenCalled();
+  });
+
+  it("確認之後才真的送出;取消一次 API 都不打", async () => {
+    await openPicker();
+    fireEvent.click(screen.getAllByRole("radio")[0]);
+    fireEvent.click(screen.getByTestId("lore-pending-merge-next"));
+
+    // 先取消:確認框關掉,而且沒有送出。
+    fireEvent.click(screen.getByText(zh.common.cancel));
+    expect(screen.queryByTestId("lore-pending-merge-confirm")).toBeNull();
+    expect(mergeLoreEntity).not.toHaveBeenCalled();
+
+    // 再走一次,這次按確認。
+    fireEvent.click(screen.getByTestId("lore-pending-merge-next"));
+    fireEvent.click(screen.getByTestId("lore-pending-merge-confirm-ok"));
+
+    await waitFor(() => expect(mergeLoreEntity).toHaveBeenCalledTimes(1));
+    // 併的是**他挑的那一個**,不是清單上的第一個或伺服器指定的那一個。
+    expect(mergeLoreEntity).toHaveBeenCalledWith("en-1", "en-a");
   });
 });

@@ -95,6 +95,17 @@ export const en: Dict = {
     pendingSimilarLead: "Close to:",
     pendingApprove: "Approve",
     pendingMerge: (name: string) => `Merge into ${name}`,
+    // The single merge entry point (owner 2026-09-05): one merge button per
+    // row, which lists the candidates, then a confirm step.
+    pendingMergeStart: (n: number) => `Merge… (${n} candidates)`,
+    pendingMergePickLead: (name: string) =>
+      `Merge “${name}” into which one? Pick a candidate:`,
+    pendingMergePickSubmit: (picked: string) =>
+      picked === "" ? "Pick a candidate first" : `Next: confirm merge into ${picked}`,
+    // 🔴 The reason this flow exists: the merge is one-way on the server, there
+    // is no unmerge route, so the confirm step says so in as many words.
+    pendingMergeConfirmBody: (from: string, into: string) =>
+      `“${from}” will be merged into “${into}”. This cannot be undone: there is no route back, the name “${from}” disappears, and everything filed under it counts as “${into}” from then on.`,
     pendingBusy: "Working…",
     pendingActionFailed: "That one did not go through:",
     reasonSameNormalized: "identical once case and separators are normalised",

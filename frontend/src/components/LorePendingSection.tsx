@@ -33,13 +33,24 @@
 //      都列出來,而第 1 格本來就是那一條的標題。
 // 🔴 這三件都是**多給資訊**,不是多給出口:出口還是那兩個(核可、合併),裁決
 // 還是他的。(原句還有一截「建議還是伺服器算的」—— 2026-09-05 之後不再成立,
-// 見上面那條。合併鈕現在掛在 `similar` 每一個候選上,由他挑;能不能按還是由後
-// 端的 owner/admin 閘門決定,那一格一個字都沒動。)
+// 見上面那條。能不能按還是由後端的 owner/admin 閘門決定,那一格一個字都沒動。)
+//
+// ── round 4(owner 2026-09-05 逐字:「改成單一入口:只留一顆合併鈕,按了列出
+// 候選讓你挑,再確認」)──────────────────────────────────────────────────
+// 上一輪把合併鈕掛在 `similar` 的**每一個**候選上。那是一排一按就送出的不可逆
+// 動作,而 `similar` 裡有 `prefix` / `substring` 這種弱匹配 —— 一列上並排著五
+// 顆長得一樣的鈕,其中四顆按下去是錯的,而且救不回來。現在是三步:
+//   ① 一列**一顆**合併鈕(沒有候選就沒有這一顆)。
+//   ② 按了列出候選,每一個候選旁邊印**它為什麼被判為相似**;沒挑就送不出去。
+//   ③ 再一個確認步驟,而且 🔴 確認畫面明寫**這個動作無法還原** —— 後端的合併
+//      是單向的,沒有 unmerge 路由,這是這一輪存在的理由。
+// 出口的數量沒有變多(核可、合併,還是兩個),變的是走到不可逆那一步要幾下。
 
 import { useEffect, useState } from "react";
 import { useI18n } from "../i18n";
 import { api } from "../api";
 import { serverMessageOf } from "../api/errors";
+import { ConfirmModal } from "./ConfirmModal";
 import type { LorePendingEntityView } from "../types";
 import "./lore.css";
 
@@ -114,6 +125,17 @@ function PendingRow({
   const { t } = useI18n();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 合併的三步:idle ⇒ 挑一個候選 ⇒ 確認。核可不走這條路,它一步就到底,因為
+  // 核可是可以回頭的(名字還在,底下的記憶還是它的),而合併不是。
+  const [step, setStep] = useState<"idle" | "pick" | "confirm">("idle");
+  const [pickedId, setPickedId] = useState("");
+  const picked = row.similar.find((s) => s.entityId === pickedId) ?? null;
+
+  function closeMerge() {
+    setStep("idle");
+    setPickedId("");
+    setError(null);
+  }
 
   async function run(action: () => Promise<unknown>) {
     setBusy(true);
@@ -185,25 +207,16 @@ function PendingRow({
           了整組建議 ——「ai 會笨到產生大小寫不一樣的對象嗎」—— 所以畫面上現在
           只剩證據,沒有結論。之後會換成 AI 判一輪、人可以同意或回 comment 讓它
           重判,那是另一張票;在它落地以前這一列刻意留白,而不是留一個舊規則。 */}
+      {/* 「像誰」這一排還是**證據**,不再是出口:每一個候選旁邊各一顆合併鈕的
+          做法在 owner 2026-09-05 被裁掉了(逐字:「改成單一入口:只留一顆合併
+          鈕,按了列出候選讓你挑,再確認」)。一排鈕代表一排一按就送出的不可逆
+          動作,而其中有些候選只是 prefix / substring 的弱匹配。 */}
       {row.similar.length > 0 && (
         <div className="lore__note">
           {t.lore.pendingSimilarLead}{" "}
           {row.similar.map((s) => (
             <span className="lore-pending__similar" key={s.entityId}>
-              {s.canonical}（{reasonText(t, s.reason)}）{" "}
-              {/* 合併鈕從「伺服器指定的那一個」變成「這一排裡他自己挑」。少掉
-                  建議不能連合併一起少掉:那條路由還在,權限閘門也還在,只是現在
-                  由讀得懂證據的人決定併去哪,而不是由折大小寫的規則決定。 */}
-              <button
-                type="button"
-                className="lore-pending__btn"
-                disabled={busy}
-                onClick={() =>
-                  run(() => api.mergeLoreEntity(row.entityId, s.entityId))
-                }
-              >
-                {busy ? t.lore.pendingBusy : t.lore.pendingMerge(s.canonical)}
-              </button>
+              {s.canonical}（{reasonText(t, s.reason)}）
             </span>
           ))}
         </div>
@@ -218,12 +231,114 @@ function PendingRow({
         >
           {busy ? t.lore.pendingBusy : t.lore.pendingApprove}
         </button>
-        {/* 合併鈕不在這裡了。它以前掛在 `row.mergeTarget`(伺服器算出來的唯一
-            目標)上,那一格隨建議一起被裁掉(owner 2026-09-05),所以合併鈕搬到
-            上面 `similar` 那一排,每一個候選各一顆。核可還是這裡的唯一一顆。 */}
+        {/* 🔴 一列一顆合併鈕。沒有候選就沒有這一顆 —— 一顆按下去只會告訴你
+            「沒得挑」的鈕,是一個假的出口。 */}
+        {row.similar.length > 0 && (
+          <button
+            type="button"
+            className="lore-pending__btn"
+            data-testid="lore-pending-merge-start"
+            disabled={busy || step !== "idle"}
+            onClick={() => {
+              setError(null);
+              setStep("pick");
+            }}
+          >
+            {t.lore.pendingMergeStart(row.similar.length)}
+          </button>
+        )}
       </div>
 
-      {error !== null && (
+      {/* ── 第二步:挑一個候選 ────────────────────────────────────────────
+          每一個候選都印**它為什麼被判為相似**。這不是裝飾:`same_normalized`
+          幾乎一定是同一個東西,而 `prefix` / `substring` 常常是兩個真的不同的
+          名字,不把理由攤出來,使用者就是在猜。 */}
+      {step === "pick" && (
+        <div
+          className="lore-pending__picker"
+          data-testid="lore-pending-merge-picker"
+        >
+          <div className="lore__note">
+            {t.lore.pendingMergePickLead(row.canonical)}
+          </div>
+          <ul className="lore-pending__candidates">
+            {row.similar.map((s) => (
+              <li key={s.entityId}>
+                <label
+                  className="lore-pending__candidate"
+                  data-testid="lore-pending-merge-candidate"
+                >
+                  <input
+                    type="radio"
+                    name={`lore-merge-${row.entityId}`}
+                    value={s.entityId}
+                    checked={pickedId === s.entityId}
+                    onChange={() => setPickedId(s.entityId)}
+                  />
+                  <span className="lore-pending__name">{s.canonical}</span>
+                  {/* 🔴 理由跟候選同一列,不是 tooltip:要比較的就是它。 */}
+                  <span className="lore-pending__candidate-reason">
+                    {reasonText(t, s.reason)}
+                  </span>
+                </label>
+              </li>
+            ))}
+          </ul>
+          <div className="lore-pending__actions">
+            <button
+              type="button"
+              className="lore-pending__btn"
+              data-testid="lore-pending-merge-next"
+              // 🔴 沒挑就送不出去。鈕上的字自己說得出為什麼是死的。
+              disabled={picked === null}
+              onClick={() => setStep("confirm")}
+            >
+              {t.lore.pendingMergePickSubmit(picked?.canonical ?? "")}
+            </button>
+            <button
+              type="button"
+              className="lore-pending__btn"
+              data-testid="lore-pending-merge-cancel"
+              onClick={closeMerge}
+            >
+              {t.common.cancel}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── 第三步:確認,而且明寫這一步無法還原 ──────────────────────────
+          🔴 這一步存在的唯一理由。後端的合併是單向的:沒有 unmerge 路由,按錯
+          了沒有任何一條路把那個名字拿回來。所以確認畫面不只問「確定嗎」,它把
+          「無法還原」印在正文裡。 */}
+      {step === "confirm" && picked !== null && (
+        <ConfirmModal
+          testId="lore-pending-merge-confirm"
+          confirmTestId="lore-pending-merge-confirm-ok"
+          danger
+          busy={busy}
+          cancelLabel={t.common.cancel}
+          confirmLabel={t.lore.pendingMerge(picked.canonical)}
+          body={
+            <div data-testid="lore-pending-merge-confirm-body">
+              {t.lore.pendingMergeConfirmBody(row.canonical, picked.canonical)}
+            </div>
+          }
+          error={error}
+          // 取消退回挑的那一步,不是退回原地:他已經挑過了,把那個選擇丟掉等於
+          // 罰他再挑一次。這一條路上一次 API 都沒有打。
+          onCancel={() => {
+            setError(null);
+            setStep("pick");
+          }}
+          onConfirm={() =>
+            run(() => api.mergeLoreEntity(row.entityId, picked.entityId))
+          }
+        />
+      )}
+
+      {/* 確認框自己會印失敗;這一行是核可那條路的失敗出口。 */}
+      {error !== null && step !== "confirm" && (
         <div className="lore-subjects__error">
           {t.lore.pendingActionFailed} {error}
         </div>
