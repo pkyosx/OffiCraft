@@ -6390,6 +6390,161 @@
         "additionalProperties": false,
         "type": "object"
       },
+      "BootDocumentReceiptDTO": {
+        "description": "Bounded receipt returned after the eight BOOT-DOCUMENT writes - replace and reset for boot docs, boot sequence, offboard and system interaction (T-91). BootDocumentDTO carries the document text TWICE, in ``text`` and again in ``body``, so this family's echo was double: measured on the live station GET /api/system-interaction answers 77,849 bytes with text=17,166 characters and body the same 17,166, and GET /api/boot-sequence/claude answers 10,648 bytes with text=2,519 = body. A replace writes text the caller is holding and a reset writes the seed, which is fetchable; neither needs it back. ``size_chars`` against ``cap_chars`` gives the room left and ``sha256`` makes the write verifiable at the write - the same anchor trio patch_lessons and patch_insight already answer with. Every other scalar is kept because the write DERIVES it: ``is_default`` flips on reset, ``read_only`` / ``read_only_head`` are decided per document, ``schema_version`` is stamped by the server. GET the same path for the text.",
+        "properties": {
+          "kind": {"allOf": [{"$ref": "#/components/schemas/BootDocKind"}], "title": "Kind"},
+          "key": {"default": "", "title": "Key", "type": "string"},
+          "owner_id": {"default": "", "title": "Owner Id", "type": "string"},
+          "schema_version": {"default": 0, "title": "Schema Version", "type": "integer"},
+          "is_default": {"default": true, "description": "True when the document is the shipped seed - which is what a RESET makes it, and what a REPLACE clears. The caller cannot predict it from the request alone, so it stays on the receipt.", "title": "Is Default", "type": "boolean"},
+          "has_seed": {"default": false, "title": "Has Seed", "type": "boolean"},
+          "read_only": {"default": false, "title": "Read Only", "type": "boolean"},
+          "read_only_head": {"default": "", "title": "Read Only Head", "type": "string"},
+          "size_chars": {"default": 0, "description": "Size of the document AS STORED after this write, in CHARACTERS (Unicode code points) - the unit the caps are expressed in. Note the wire cost is roughly three times this number in bytes for CJK text, which is escaped as \\uXXXX on the way out.", "title": "Size Chars", "type": "integer"},
+          "cap_chars": {"default": 0, "title": "Cap Chars", "type": "integer"},
+          "sha256": {"default": "", "description": "Hex sha256 over the document AS STORED after this write. It is what replaces the ``text``/``body`` echo: a caller that wants to confirm the exact bytes landed hashes what it sent and compares, at 64 characters instead of the document.", "title": "Sha256", "type": "string"}
+        },
+        "required": ["kind"],
+        "title": "BootDocumentReceiptDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "GlobalContextReceiptDTO": {
+        "description": "Bounded receipt returned after replace_global_context and reset_global_context (T-91). Measured on the live station the old shape answered 12,405 bytes, of which ``text`` was 5,716 characters - text the replace caller just sent, or the seed a reset restores. There is deliberately NO ``cap_chars`` here: unlike the boot documents and the role journals, the global-context block has no ``doc_cap_chars_*`` knob, so reporting a ceiling would invent one. GET /api/global-context for the text.",
+        "properties": {
+          "owner_id": {"default": "", "title": "Owner Id", "type": "string"},
+          "org_name": {"default": "", "title": "Org Name", "type": "string"},
+          "is_default": {"default": true, "title": "Is Default", "type": "boolean"},
+          "schema_version": {"default": 3, "title": "Schema Version", "type": "integer"},
+          "size_chars": {"default": 0, "description": "Size of the block AS STORED after this write, in CHARACTERS (Unicode code points). New on this face - GlobalContextDTO never carried it, because the text was there to be counted.", "title": "Size Chars", "type": "integer"},
+          "sha256": {"default": "", "title": "Sha256", "type": "string"}
+        },
+        "required": [],
+        "title": "GlobalContextReceiptDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "InsightReceiptDTO": {
+        "description": "Bounded receipt returned after replace_insight and reset_insight (T-91). Shape-identical to InsightPatchResultDTO minus ``applied_edits``, which is the point: patch_insight has answered without the text since it existed, and leaving the two whole-document writes echoing it would have kept one document with two answer shapes. Note this particular document is SMALL on the station measured (GET /api/insight/{role_key} answered 150 bytes) - the reason to converge it is that it shares its cap and its writers with the journals that are not small, not the bytes saved today. GET /api/insight/{role_key} for the text.",
+        "properties": {
+          "owner_id": {"default": "", "title": "Owner Id", "type": "string"},
+          "role_key": {"default": "", "title": "Role Key", "type": "string"},
+          "is_default": {"default": true, "title": "Is Default", "type": "boolean"},
+          "has_seed": {"default": false, "title": "Has Seed", "type": "boolean"},
+          "schema_version": {"default": 3, "title": "Schema Version", "type": "integer"},
+          "size_chars": {"default": 0, "title": "Size Chars", "type": "integer"},
+          "cap_chars": {"default": 0, "title": "Cap Chars", "type": "integer"},
+          "sha256": {"default": "", "title": "Sha256", "type": "string"}
+        },
+        "required": [],
+        "title": "InsightReceiptDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "LessonsReceiptDTO": {
+        "description": "Bounded receipt returned after replace_lessons (T-91). Shape-identical to LessonsPatchResultDTO minus ``applied_edits`` - patch_lessons is the template this whole package copies, and it has never echoed the journal. The role lessons doc is one of the two that actually fill up (its cap is the adjustable ``doc_cap_chars_learning``), so ``size_chars`` against ``cap_chars`` is the field a writer reads, not the text it just sent. There is no reset twin for this document. GET /api/lessons/{role_key} for the text.",
+        "properties": {
+          "owner_id": {"default": "", "title": "Owner Id", "type": "string"},
+          "role_key": {"default": "", "title": "Role Key", "type": "string"},
+          "is_default": {"default": true, "title": "Is Default", "type": "boolean"},
+          "schema_version": {"default": 3, "title": "Schema Version", "type": "integer"},
+          "size_chars": {"default": 0, "title": "Size Chars", "type": "integer"},
+          "cap_chars": {"default": 0, "title": "Cap Chars", "type": "integer"},
+          "sha256": {"default": "", "title": "Sha256", "type": "string"}
+        },
+        "required": [],
+        "title": "LessonsReceiptDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "RoleDefReceiptDTO": {
+        "description": "Bounded receipt returned after update_role and reset_role (T-91). Drops the ``definition_md`` echo - the duty text a caller just sent, or the seed a reset restores - and answers with the same identity + size + cap + sha256 anchor set the journal writes use. ``name`` rides back in full because it is ONE LINE and it is the label the roster shows. GET /api/roles/{role} for the duty text.",
+        "properties": {
+          "key": {"title": "Key", "type": "string"},
+          "name": {"default": "", "title": "Name", "type": "string"},
+          "owner_id": {"default": "", "title": "Owner Id", "type": "string"},
+          "is_default": {"default": true, "title": "Is Default", "type": "boolean"},
+          "is_seed": {"default": true, "title": "Is Seed", "type": "boolean"},
+          "schema_version": {"default": 3, "title": "Schema Version", "type": "integer"},
+          "size_chars": {"default": 0, "title": "Size Chars", "type": "integer"},
+          "cap_chars": {"default": 0, "title": "Cap Chars", "type": "integer"},
+          "sha256": {"default": "", "description": "Hex sha256 over ``definition_md`` AS STORED after this write.", "title": "Sha256", "type": "string"}
+        },
+        "required": ["key"],
+        "title": "RoleDefReceiptDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "TaskManualReceiptDTO": {
+        "description": "Bounded receipt returned after create_task_manual, update_task_manual and write_task_learnings (T-91). This is the most expensive echo in the family: measured on the live station GET /api/task-manuals/{type_key} answers 74,402 bytes, of which ``learnings`` is 17,114 characters and ``sop_md`` a further 16,016 - two documents that are each written wholesale by a caller already holding them. Both are replaced here by their own size + cap + sha256 trio, one per document, because they answer to SEPARATE caps (``doc_cap_chars_manual_learnings`` and ``doc_cap_chars_manual_sop``) and a writer of one must not read the other's room as its own. ``fields``, ``assignee``, ``display_name`` and ``purpose`` stay: they are the manual's configuration rather than its documents, they are small, and a create answers with the defaults the server filled in. The deprecated top-level ``cap_chars`` is carried unchanged - it mirrors the LEARNINGS cap only, and retiring it is a separate change. GET /api/task-manuals/{type_key} for the documents.",
+        "properties": {
+          "type_key": {"title": "Type Key", "type": "string"},
+          "display_name": {"default": "", "title": "Display Name", "type": "string"},
+          "purpose": {"default": "", "title": "Purpose", "type": "string"},
+          "assignee": {"additionalProperties": true, "title": "Assignee", "type": "object"},
+          "fields": {"items": {"$ref": "#/components/schemas/TaskManualFieldDTO"}, "title": "Fields", "type": "array"},
+          "updated_ts": {"default": 0.0, "title": "Updated Ts", "type": "number"},
+          "learnings_chars": {"default": 0, "title": "Learnings Chars", "type": "integer"},
+          "learnings_cap_chars": {"default": 0, "title": "Learnings Cap Chars", "type": "integer"},
+          "learnings_sha256": {"default": "", "description": "Hex sha256 over the LEARNINGS document as stored after this write. New in T-91, and the anchor that lets the learnings text stop riding back.", "title": "Learnings Sha256", "type": "string"},
+          "sop_md_chars": {"default": 0, "title": "Sop Md Chars", "type": "integer"},
+          "sop_md_cap_chars": {"default": 0, "title": "Sop Md Cap Chars", "type": "integer"},
+          "sop_md_sha256": {"default": "", "description": "Hex sha256 over the SOP document as stored after this write. Separate from learnings_sha256 on purpose: the two documents are written independently and judged against independent caps.", "title": "Sop Md Sha256", "type": "string"},
+          "cap_chars": {"default": 0, "description": "DEPRECATED. Carries the LEARNINGS cap only and says nothing about the SOP; read learnings_cap_chars and sop_md_cap_chars instead. Kept unchanged here so this package does not also retire a field.", "title": "Cap Chars", "type": "integer"}
+        },
+        "required": ["type_key", "fields", "assignee", "display_name"],
+        "title": "TaskManualReceiptDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "ScheduledMessageReceiptDTO": {
+        "description": "Bounded receipt returned after create, update and delete of a member's scheduled message (T-91). Drops ``body`` - the message text the caller just sent, and on a delete the text of a schedule that no longer exists - and keeps everything the write DERIVES: the resolved cadence fields, ``status``, ``last_fired_slot`` / ``last_fired_ts``, ``created_ts``. ``label`` stays because it is one line and it is how the schedule is named in the list. ``body_size_chars`` replaces the echo so a caller can confirm the text landed at the size it sent. GET the member's scheduled-messages list for the bodies.",
+        "properties": {
+          "id": {"title": "Id", "type": "string"},
+          "member_id": {"title": "Member Id", "type": "string"},
+          "label": {"title": "Label", "type": "string"},
+          "body_size_chars": {"default": 0, "description": "Size of the stored message body in CHARACTERS (Unicode code points) after this write; 0 after a delete.", "title": "Body Size Chars", "type": "integer"},
+          "cadence": {"enum": ["daily", "weekly", "monthly", "custom"], "title": "Cadence", "type": "string"},
+          "custom_days": {"items": {"type": "integer"}, "title": "Custom Days", "type": "array"},
+          "custom_hours": {"items": {"type": "integer"}, "title": "Custom Hours", "type": "array"},
+          "custom_minutes": {"items": {"type": "integer"}, "title": "Custom Minutes", "type": "array"},
+          "custom_months": {"items": {"type": "integer"}, "title": "Custom Months", "type": "array"},
+          "day_of_month": {"title": "Day Of Month", "type": "integer"},
+          "day_of_week": {"title": "Day Of Week", "type": "integer"},
+          "hour": {"title": "Hour", "type": "integer"},
+          "minute": {"title": "Minute", "type": "integer"},
+          "timezone": {"default": "Asia/Taipei", "title": "Timezone", "type": "string"},
+          "status": {"default": "enabled", "enum": ["enabled", "disabled"], "title": "Status", "type": "string"},
+          "last_fired_slot": {"title": "Last Fired Slot", "type": "string"},
+          "last_fired_ts": {"default": 0.0, "title": "Last Fired Ts", "type": "number"},
+          "created_ts": {"default": 0.0, "title": "Created Ts", "type": "number"}
+        },
+        "required": ["id", "member_id", "label", "cadence", "day_of_week", "day_of_month", "hour", "minute", "timezone", "status", "last_fired_slot", "last_fired_ts", "created_ts"],
+        "title": "ScheduledMessageReceiptDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "ReplyCardReceiptDTO": {
+        "description": "Bounded receipt returned after answer_reply_card, reanswer_reply_card and expire_reply_card (T-91). These three verbs ACT on a card that already exists; the question, its options and its attachments were written by whoever opened it and are unchanged by the act, so echoing them back is the whole card to report one transition. What the write decides is kept: ``status``, ``answered_ts`` / ``expired_ts``, and ``answer`` - the answer these verbs just recorded, which the expire verb leaves null. ``task`` stays because the transition RELEASES the step the card was holding, and that binding is what a caller acts on next. NOTE create_reply_card is NOT on this shape: it still answers ReplyCardDTO. Fetch get_reply_card(card_id) for the question, options and attachments; the cockpit reads the card back that way rather than from the write.",
+        "properties": {
+          "id": {"title": "Id", "type": "string"},
+          "from": {"title": "From", "type": "string"},
+          "kind": {"title": "Kind", "type": "string"},
+          "select_mode": {"enum": ["single", "multi"], "title": "Select Mode", "type": "string"},
+          "status": {"title": "Status", "type": "string"},
+          "chat_message_id": {"title": "Chat Message Id", "type": "string"},
+          "created_ts": {"default": 0.0, "title": "Created Ts", "type": "number"},
+          "answered_ts": {"anyOf": [{"type": "number"}, {"type": "null"}], "title": "Answered Ts"},
+          "expired_ts": {"anyOf": [{"type": "number"}, {"type": "null"}], "title": "Expired Ts"},
+          "answer": {"anyOf": [{"$ref": "#/components/schemas/ReplyCardAnswerDTO"}, {"type": "null"}], "description": "The answer as STORED after this write - the news of an answer/reanswer, and null after an expire. It is what the write produced, not what it was handed: the server normalises the option indices and stamps the answering identity.", "title": "Answer"},
+          "task": {"anyOf": [{"$ref": "#/components/schemas/TaskRefDTO"}, {"type": "null"}], "description": "The task/step this card was bound to, null for an unbound card. Kept because answering or expiring a bound card RELEASES that step from waiting_owner, and the caller's next action is on that step.", "title": "Task"}
+        },
+        "required": ["id", "from", "kind", "status", "select_mode", "chat_message_id", "answered_ts", "expired_ts", "answer"],
+        "title": "ReplyCardReceiptDTO",
+        "additionalProperties": false,
+        "type": "object"
+      },
       "TaskWriteReceiptDTO": {
         "description": "Bounded receipt returned after the task WRITE verbs that used to answer with the whole ticket - update_task (and its HTTP-only title / description twins), claim_task, reassign_task, terminate_task, mark_duplicate and set_task_deps. Same posture as TaskPriorityReceiptDTO and TaskArtifactReceiptDTO: the write answers with what the write DID and with the parts the caller cannot predict, not with the task. Measured on one real ticket the old shape was 12,666 characters, of which the step rows were 5,676 and the description another 5,668, leaving 822 for everything a caller actually reads back - so the step rows are reported here as progress_done / progress_total and the artifact set as artifact_count, the same index-not-rows split T-66 made on get_task. ``description_size_chars`` / ``description_sha256`` replace the description ECHO for a reason that is not size alone: this write TRIMS what it stores while create_task does not, so the stored text can differ from the text that was sent, and a size + hash pair answers exactly that question - the same anchor pair patch_lessons, patch_insight and patch_task_sop already carry. ``title`` rides back in full because it is ONE LINE, it is the row the task list shows, and it is trimmed by this same write. GET the task itself when full detail is needed; the artifacts route serves the artifact rows. NOTE the GET on this same path is UNCHANGED and still answers TaskDTO - only the write verbs moved.",
         "properties": {
@@ -6747,34 +6902,16 @@
         "type": "object"
       },
       "TaskCreateResultDTO": {
-        "description": "The create_task answer: the task (fresh, or the existing non-terminal task on a dedupe-key hit) plus the explicit ``deduped`` bit. ``warnings`` (typed tasks only) carries non-blocking advisories — input field names the manual does not define, or ambiguous keys that fold onto another; absent when there are none.",
+        "description": "The create_task answer (whole-task echo removed in T-91). A fresh create returns a task the caller just described, so echoing the ticket back is the least useful payload on the wire - the same reason taskPlanReceiptDTO stopped echoing the plan. What the caller CANNOT predict is kept: ``deduped`` says whether this was a create or a dedupe-key hit, and on a hit ``task_id``/``task_no``/``title``/``status`` identify the EXISTING ticket it folded onto, which is not the one the caller described. ``warnings`` (typed tasks only) carries non-blocking advisories - input field names the manual does not define, or ambiguous keys that fold onto another; absent when there are none. GET /api/tasks/{task_id} for full detail.",
         "properties": {
-          "deduped": {
-            "title": "Deduped",
-            "type": "boolean"
-          },
-          "task": {
-            "$ref": "#/components/schemas/TaskDTO"
-          },
-          "warnings": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Warnings"
-          }
+          "task_id": {"title": "Task Id", "type": "string"},
+          "task_no": {"title": "Task No", "type": "string"},
+          "deduped": {"description": "False when this call CREATED the task; true when a dedupe-key hit folded it onto an existing non-terminal task, in which case every other field describes THAT ticket and not what was sent.", "title": "Deduped", "type": "boolean"},
+          "title": {"default": "", "description": "One line, and it rides back for the dedupe case: on a hit the caller needs to see WHICH existing ticket it landed on, and the title is the row the task list shows.", "title": "Title", "type": "string"},
+          "status": {"default": "", "title": "Status", "type": "string"},
+          "warnings": {"anyOf": [{"items": {"type": "string"}, "type": "array"}, {"type": "null"}], "title": "Warnings"}
         },
-        "required": [
-          "task",
-          "deduped"
-        ],
+        "required": ["task_id", "task_no", "deduped"],
         "title": "TaskCreateResultDTO",
         "additionalProperties": false,
         "type": "object"
@@ -8250,26 +8387,16 @@
         "type": "object"
       },
       "TaskStepNoteReceiptDTO": {
-        "description": "Bounded receipt returned after writing one step's working note (T-cc3e). Echoes the note as STORED, so the caller can confirm what actually landed without a follow-up GET — the point of the field is that the next session reads it back, so the write must be verifiable at the write. Fetch GET /api/tasks/{task_id} when full task detail is needed.",
+        "description": "Bounded receipt returned after writing one step's working note (T-cc3e; note echo removed in T-91). The note itself no longer rides back: this write is wholesale, so the text the caller just SENT is the text that landed, and echoing it back doubles a payload capped at 4,000 characters to say nothing the caller did not already hold. What it cannot predict is carried instead - ``size_chars`` against ``cap_chars`` for the room left, and ``sha256`` over the note AS STORED so the write stays verifiable AT the write without a follow-up read. ``sha256`` is new here in T-91 and is not cosmetic: the patch twin has carried it since T-1667 and this wholesale one did not, so dropping the echo without adding it would have left update_step_note as the one note writer with no way to confirm its own write. Fetch get_task_step(task_id, step_id) for the note text.",
         "properties": {
-          "note": {"title": "Note", "type": "string"},
+          "task_id": {"title": "Task Id", "type": "string"},
           "step_id": {"title": "Step Id", "type": "string"},
           "step_status": {"title": "Step Status", "type": "string"},
-          "task_id": {"title": "Task Id", "type": "string"},
-          "size_chars": {
-            "default": 0,
-            "description": "The stored note's size in CHARACTERS. Additive-optional (T-6bd2): the PATCH receipt has carried this pair since T-1667 and this wholesale one did not, so the writer that replaces a note outright — the common case, and the one that has just deleted the previous session's hand-off to make room — was the one writer told nothing about the room left.",
-            "title": "Size Chars",
-            "type": "integer"
-          },
-          "cap_chars": {
-            "default": 0,
-            "description": "The step-note ceiling in force; same value and same meaning as on the patch receipt. Additive-optional (T-6bd2).",
-            "title": "Cap Chars",
-            "type": "integer"
-          }
+          "size_chars": {"default": 0, "description": "The stored note's size in CHARACTERS (Unicode code points). Additive-optional (T-6bd2): the PATCH receipt has carried this pair since T-1667 and this wholesale one did not, so the writer that replaces a note outright - the common case, and the one that has just deleted the previous session's hand-off to make room - was the one writer told nothing about the room left.", "title": "Size Chars", "type": "integer"},
+          "cap_chars": {"default": 0, "description": "The step-note ceiling in force; same value and same meaning as on the patch receipt. Additive-optional (T-6bd2).", "title": "Cap Chars", "type": "integer"},
+          "sha256": {"default": "", "description": "Hex sha256 over the note AS STORED after this write (T-91). Present so a caller can confirm what landed WITHOUT the text riding back - the same verification anchor patch_step_note, patch_lessons, patch_insight and patch_task_sop already carry.", "title": "Sha256", "type": "string"}
         },
-        "required": ["task_id", "step_id", "step_status", "note"],
+        "required": ["task_id", "step_id", "step_status"],
         "title": "TaskStepNoteReceiptDTO",
         "additionalProperties": false,
         "type": "object"
@@ -8298,18 +8425,17 @@
         "type": "object"
       },
       "TaskStepNotePatchResultDTO": {
-        "description": "Receipt of a step-note PATCH (MCP ``patch_step_note``). Echoes the note as STORED — the same posture as the wholesale receipt, since the whole point of the field is that a later session reads it back — plus ``applied_edits`` (the edits that changed the text THEY were handed, so \"0 applied\" is expressible and a silent no-op cannot masquerade as success — it is not a report on whether the note ended up different from where it started: a batch whose edits undo one another (``anchor → middle`` then ``middle → anchor``) reports the full count over a note that never moved, and in that case the stored note, the task's ``updated_ts`` and every open cockpit card are left exactly as they stood, so compare ``sha256`` against the value you held before the call to decide that) and ``size_chars``/``cap_chars``/``sha256`` verification anchors over the resulting note. ``size_chars`` and ``cap_chars`` are CHARACTERS (Unicode code points), the unit the note's limit is enforced in.",
+        "description": "Receipt of a step-note PATCH (MCP ``patch_step_note``; note echo removed in T-91). The resulting note no longer rides back - compare ``sha256`` against the value you held before the call to decide whether the text actually moved, and call get_task_step(task_id, step_id) when you need to read it. ``applied_edits`` counts the edits that changed the text THEY were handed, so \"0 applied\" is expressible and a silent no-op cannot masquerade as success; it is NOT a report on whether the note ended up different from where it started - a batch whose edits undo one another (``anchor -> middle`` then ``middle -> anchor``) reports the full count over a note that never moved, leaving the stored note, the task's ``updated_ts`` and every open cockpit card exactly as they stood. ``size_chars`` and ``cap_chars`` are CHARACTERS (Unicode code points), the unit the note's limit is enforced in.",
         "properties": {
-          "applied_edits": {"default": 0, "title": "Applied Edits", "type": "integer"},
-          "cap_chars": {"default": 0, "description": "The step-note ceiling this write was judged against, in CHARACTERS — the same limit ``update_step_note`` enforces, shared with the task-level handover note. NOT a setting: unlike the ``cap_chars`` on the manual patch receipts (which report the adjustable ``doc.cap_chars.*`` values), this one is a server CONSTANT and no settings key moves it. Same field name, different source — do not read one as evidence about the other.", "title": "Cap Chars", "type": "integer"},
-          "note": {"title": "Note", "type": "string"},
-          "sha256": {"default": "", "title": "Sha256", "type": "string"},
-          "size_chars": {"default": 0, "title": "Size Chars", "type": "integer"},
+          "task_id": {"title": "Task Id", "type": "string"},
           "step_id": {"title": "Step Id", "type": "string"},
           "step_status": {"title": "Step Status", "type": "string"},
-          "task_id": {"title": "Task Id", "type": "string"}
+          "applied_edits": {"default": 0, "title": "Applied Edits", "type": "integer"},
+          "size_chars": {"default": 0, "title": "Size Chars", "type": "integer"},
+          "cap_chars": {"default": 0, "description": "The step-note ceiling this write was judged against, in CHARACTERS - the same limit ``update_step_note`` enforces, shared with the task-level handover note. NOT a setting: unlike the ``cap_chars`` on the manual patch receipts (which report the adjustable ``doc.cap_chars.*`` values), this one is a server CONSTANT and no settings key moves it. Same field name, different source - do not read one as evidence about the other.", "title": "Cap Chars", "type": "integer"},
+          "sha256": {"default": "", "title": "Sha256", "type": "string"}
         },
-        "required": ["task_id", "step_id", "step_status", "note"],
+        "required": ["task_id", "step_id", "step_status"],
         "title": "TaskStepNotePatchResultDTO",
         "additionalProperties": false,
         "type": "object"
@@ -9974,7 +10100,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BootDocumentDTO"
+                  "$ref": "#/components/schemas/BootDocumentReceiptDTO"
                 }
               }
             },
@@ -10051,7 +10177,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BootDocumentDTO"
+                  "$ref": "#/components/schemas/BootDocumentReceiptDTO"
                 }
               }
             },
@@ -10197,7 +10323,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BootDocumentDTO"
+                  "$ref": "#/components/schemas/BootDocumentReceiptDTO"
                 }
               }
             },
@@ -10266,7 +10392,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BootDocumentDTO"
+                  "$ref": "#/components/schemas/BootDocumentReceiptDTO"
                 }
               }
             },
@@ -11836,7 +11962,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GlobalContextDTO"
+                  "$ref": "#/components/schemas/GlobalContextReceiptDTO"
                 }
               }
             },
@@ -11894,7 +12020,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GlobalContextDTO"
+                  "$ref": "#/components/schemas/GlobalContextReceiptDTO"
                 }
               }
             },
@@ -12092,7 +12218,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/InsightDTO"
+                  "$ref": "#/components/schemas/InsightReceiptDTO"
                 }
               }
             },
@@ -12240,7 +12366,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/InsightDTO"
+                  "$ref": "#/components/schemas/InsightReceiptDTO"
                 }
               }
             },
@@ -12386,7 +12512,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/LessonsDTO"
+                  "$ref": "#/components/schemas/LessonsReceiptDTO"
                 }
               }
             },
@@ -14464,7 +14590,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ScheduledMessageDTO"
+                  "$ref": "#/components/schemas/ScheduledMessageReceiptDTO"
                 }
               }
             },
@@ -14542,7 +14668,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ScheduledMessageDTO"
+                  "$ref": "#/components/schemas/ScheduledMessageReceiptDTO"
                 }
               }
             },
@@ -14628,7 +14754,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ScheduledMessageDTO"
+                  "$ref": "#/components/schemas/ScheduledMessageReceiptDTO"
                 }
               }
             },
@@ -15381,7 +15507,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BootDocumentDTO"
+                  "$ref": "#/components/schemas/BootDocumentReceiptDTO"
                 }
               }
             },
@@ -15439,7 +15565,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BootDocumentDTO"
+                  "$ref": "#/components/schemas/BootDocumentReceiptDTO"
                 }
               }
             },
@@ -16621,7 +16747,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ReplyCardDTO"
+                  "$ref": "#/components/schemas/ReplyCardReceiptDTO"
                 }
               }
             },
@@ -16698,7 +16824,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ReplyCardDTO"
+                  "$ref": "#/components/schemas/ReplyCardReceiptDTO"
                 }
               }
             },
@@ -16767,7 +16893,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ReplyCardDTO"
+                  "$ref": "#/components/schemas/ReplyCardReceiptDTO"
                 }
               }
             },
@@ -17224,7 +17350,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RoleDefDTO"
+                  "$ref": "#/components/schemas/RoleDefReceiptDTO"
                 }
               }
             },
@@ -17293,7 +17419,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RoleDefDTO"
+                  "$ref": "#/components/schemas/RoleDefReceiptDTO"
                 }
               }
             },
@@ -17793,7 +17919,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BootDocumentDTO"
+                  "$ref": "#/components/schemas/BootDocumentReceiptDTO"
                 }
               }
             },
@@ -17851,7 +17977,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BootDocumentDTO"
+                  "$ref": "#/components/schemas/BootDocumentReceiptDTO"
                 }
               }
             },
@@ -17979,7 +18105,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TaskManualDTO"
+                  "$ref": "#/components/schemas/TaskManualReceiptDTO"
                 }
               }
             },
@@ -18192,7 +18318,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TaskManualDTO"
+                  "$ref": "#/components/schemas/TaskManualReceiptDTO"
                 }
               }
             },
@@ -18271,7 +18397,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TaskManualDTO"
+                  "$ref": "#/components/schemas/TaskManualReceiptDTO"
                 }
               }
             },
