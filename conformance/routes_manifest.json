@@ -946,6 +946,20 @@
   },
   {
     "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/tasks/{task_id}/artifacts/upload",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/tasks/{task_id}/artifact/{artifact_id}/replace/upload",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
     "mcp_tool": "list_task_artifacts",
     "method": "GET",
     "path": "/api/tasks/{task_id}/artifacts",
