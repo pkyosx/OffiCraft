@@ -106,6 +106,16 @@ type terminalState struct {
 	// under which RPC. None of that appears on the row, so a matrix built from
 	// the row alone is green no matter what 包③ does to the dispatch.
 	Dispatched dispatchSet
+
+	// ── what the verb did to the MONEY (T-65 包③) ────────────────────────────
+	// Also not a database column in the sense the nine above are: it is a fold
+	// of TWO independently-read facts — the live telemetry figure (in-memory,
+	// s.telemetry) and the durable banked_cost — taken after the handler
+	// returned. A stop's other side effect is that it BANKS the dying session's
+	// spend, and that is invisible to every column above: 強制停止 ends with the
+	// same desired_state, the same anchors and the same one `stop` frame on both
+	// sides, while only ONE of them has moved the owner-visible money.
+	Cost costFold
 }
 
 // dispatchSet is every RPC this verb queued FOR THIS SUBJECT, sorted and joined
@@ -118,6 +128,80 @@ type dispatchSet string
 
 const dispatchedNothing dispatchSet = ""
 
+// costFold is what the verb did to the subject's LIVE telemetry cost, as one
+// writable literal. It is a fold of two facts read back INDEPENDENTLY after the
+// handler returned — whether the live figure is still in s.telemetry, and what
+// the durable banked_cost says — because the failure this column exists to see
+// is precisely the two disagreeing: bankLiveCost's own comment names "the old
+// member-only fold silently destroyed a worker's cost here" (api_infra.go:906),
+// and a column that only asked "did the live figure go away" would score that
+// destruction as a successful bank.
+type costFold string
+
+const (
+	// costUntouched — the live figure is still there. No fold ran.
+	costUntouched costFold = "live"
+	// costBanked — the live figure was popped AND banked_cost took exactly it.
+	costBanked costFold = "banked"
+	// costLost — the live figure was popped and banked_cost did NOT take it.
+	// 🔴 No cell is expected to be this today; it is here so that the shape has
+	// a NAME rather than being folded into "banked". Double-banking lands here
+	// too (banked == 2×), which is the other half of the same accounting bug.
+	costLost costFold = "lost"
+)
+
+// parityLiveCost is the live telemetry cost both seeders plant on the subject.
+//
+// 🔴 IT MUST BE NON-ZERO, and the reason is NARROWER than it first looks. The
+// four-cell control below was actually run (T-65 包③); the first draft of this
+// comment claimed 0.0 makes the column inert, and MEASURING IT PROVED THAT
+// WRONG, so what is written here is the measurement and not the intuition:
+//
+//	seed  mutant                                            matrix
+//	3.25  worker_spawn.go:1983 bankLiveCost dropped         RED
+//	0.0   worker_spawn.go:1983 bankLiveCost dropped         RED
+//	3.25  api_infra.go:939 banks 0 instead of cost          RED
+//	0.0   api_infra.go:939 banks 0 instead of cost          GREEN  ← blind
+//
+// So a zero seed still catches "the fold never ran" — liveCostPresent keys on
+// the KEY being there, not on its value. What it goes blind to is the costLost
+// class: the pop happened and the money did not arrive. With banked==0 and
+// parityLiveCost==0 that is indistinguishable from a correct bank. And that
+// class is not hypothetical — it is the one bankLiveCost's own comment says
+// already happened once ("the old member-only fold silently destroyed a
+// worker's cost here", api_infra.go:906).
+//
+// Deleting the seeder calls outright is NOT a silent failure, also measured:
+// every cell then reads costLost and the matrix fails loudly on all seven verbs,
+// because banked(0) != parityLiveCost(3.25). That is the tripwire the exact
+// comparison in classifyCost buys, and it is why this is == and not >=.
+// 3.25 is exactly representable in float64, so a double-bank (6.5) also lands
+// in costLost rather than rounding into costBanked.
+const parityLiveCost = 3.25
+
+// classifyCost folds the two reads. `liveStillPresent` is read from s.telemetry
+// and `banked` off the row the terminal read already had in hand, so this adds
+// no third database round-trip and — like every other expectation in this file —
+// calls no production code to decide what production code should have produced.
+func classifyCost(banked float64, liveStillPresent bool) costFold {
+	switch {
+	case liveStillPresent:
+		return costUntouched
+	case banked == parityLiveCost:
+		return costBanked
+	default:
+		return costLost
+	}
+}
+
+// liveCostPresent reports whether the subject's live telemetry cost survived the
+// verb. memStore.Get returns a COPY (hub.go:1095-1108), so this is a read with
+// no side effect and may be called in any order relative to dispatchedFor.
+func liveCostPresent(api *apiServer, subjectID string) bool {
+	_, ok := api.telemetry.Get(subjectID)["cost"]
+	return ok
+}
+
 // parityFields is the compared field set, in a stable order so a failure names
 // the same field every run.
 var parityFields = []string{
@@ -128,6 +212,10 @@ var parityFields = []string{
 	// above is read back off the row; this one is observed from the warden
 	// FIFO. Kept LAST so an existing failure still names the same field.
 	"dispatched",
+	// T-65 包③ — the SECOND non-database column, appended for the same reason
+	// `dispatched` was: a field added in the middle would renumber nothing but
+	// would change which name an existing failure prints first.
+	"banked_cost",
 }
 
 func (s terminalState) field(name string) any {
@@ -152,6 +240,8 @@ func (s terminalState) field(name string) any {
 		return s.DesiredMachineID
 	case "dispatched":
 		return s.Dispatched
+	case "banked_cost":
+		return s.Cost
 	}
 	panic("unknown parity field " + name)
 }
@@ -233,6 +323,28 @@ var knownDivergences = []knownDivergence{
 			"anchors — and no test in this package saw it before the column was added.",
 	},
 
+	{
+		verb: "起來", field: "banked_cost",
+		why: "SAME ROOT AS THE `dispatched` ROW ABOVE, one column further out: 外包 " +
+			"restart displaces the session, so respawnWorkerForOwnerOpNow reaches " +
+			"respawnWorkerNow, which banks the dying session's live cost BEFORE the kill " +
+			"(worker_spawn.go:1954, 「so the respawn never zeroes the visible spend」). " +
+			"正職 activate ends no session of its own — the one STOP frame it emits is the " +
+			"reconcile recycle arm's, dispatched by dispatchRobustStopNow, and THAT " +
+			"function banks nothing (reconcile.go:2916-2941 is six statements and " +
+			"bankLiveCost is not one of them). ⚠️ SCOPE: 包③ converges the STOP verbs and " +
+			"起來 is not one of them, so this row is whitelisted, not deleted. It is NOT a " +
+			"permanent difference: whoever converges 起來 owns it.",
+	},
+
+	// ── 停止 / 加速停止 / 重新聚焦 / 改機器 / 換 model on banked_cost ────────
+	// NO ROWS, and that is a measured claim rather than an omission: on all five
+	// the outsource side takes openWorkerHandoverGrace's ONLINE arm, which fans a
+	// 預告 and returns without reaching either kill funnel (worker_spawn.go:2244-
+	// 2258), so no fold runs on either population and both cells read
+	// costUntouched. The `dispatched: dispatchedNothing` literals on those same
+	// five cases are the corroborating evidence: no kill left, so no kill banked.
+
 	// ── 重新聚焦 (refocus) — CONVERGED IN T-65 包②, no rows left ────────────
 	// Both rows that stood here are DELETED rather than widened: 「重新聚焦｜
 	// http_status」 (200 vs 409) and 「重新聚焦｜restart_after_stop」 (staff-only
@@ -243,6 +355,36 @@ var knownDivergences = []knownDivergence{
 	// side reddens the matrix rather than being absorbed by a whitelist row.
 
 	// ── 強制停止 (force-stop) ──────────────────────────────────────────────
+	{
+		verb: "強制停止", field: "banked_cost",
+		why: "🔴 THIS IS THE ONE 包③ IS ABOUT, AND IT IS THE ONLY ROW IN THIS WHITELIST " +
+			"THAT COSTS THE OWNER MONEY RATHER THAN CORRECTNESS. Both sides end with the " +
+			"same desired_state, the same anchors and the SAME single `stop` frame — the " +
+			"nine row columns and `dispatched` all agree — and only the money differs. " +
+			"外包 force-stop goes through stopWorkerNow, which banks the dying session's " +
+			"live cost before the kill (worker_spawn.go:1983). 正職 force-stop calls " +
+			"dispatchRobustStopNow (api_members.go:1488), which banks nothing; the staff " +
+			"figure is folded LATER, and only if an SSE last-disconnect edge arrives " +
+			"(api_infra.go:879-882, the sole member-side call site). " +
+			"⚠️ SCOPE — READ THIS BEFORE 「CONVERGING」 IT: the safe direction is NOT " +
+			"free. Moving 外包 onto dispatchRobustStopNow would delete the ONLY " +
+			"unconditional bank on a stop and leave the money to the disconnect edge — " +
+			"which never arrives for a subject that is ALREADY offline, and that is " +
+			"precisely the population openWorkerHandoverGrace's offline arm serves. " +
+			"That direction turns a visible divergence into a silent, conditional loss. " +
+			"📌 MEASURED, not reasoned (T-65 包③ recon): commenting out worker_spawn.go:1983 " +
+			"leaves `go test -run '(?i)(stop|bank|cost|kill)'` at 133/133 GREEN while a " +
+			"probe shows banked_cost=0 with the live figure stranded in telemetry. " +
+			"Nothing in this repository was watching that line before this column. " +
+			"⚠️ DO NOT REUSE THAT `-run` AS THIS COLUMN'S VERIFICATION SCOPE — it is " +
+			"quoted here as the BLINDNESS being fixed, not as the command that checks " +
+			"the fix. TestVerbPopulationParity* carries none of stop/bank/cost/kill in " +
+			"its NAME, so that pattern never runs this matrix at all: with :1983 " +
+			"commented out it prints `ok` over 133 tests while the very cell below is " +
+			"the one that would have failed (measured 2026-09-06, T-65 包③). Verify " +
+			"this column with a pattern that matches `parity` — 136 tests, and the " +
+			"mutant then fails as 強制停止 want Cost:banked / got Cost:live.",
+	},
 	{
 		verb: "強制停止", field: "stopping_since",
 		why: "外包 force-stop pulls a FUTURE anchor back: `if worker.StoppingSince <= 0.0 " +
@@ -341,6 +483,25 @@ func seedParityMember(t *testing.T, api *apiServer, id string, mutate func(*Memb
 	}
 	putTestMember(t, api, m)
 	connectOnlineMachine(t, api, id, parityMachineA)
+	seedParityLiveCost(t, api, id)
+}
+
+// seedParityLiveCost plants the live telemetry cost the banked_cost column is
+// measured against, on BOTH populations, through the same one writer.
+//
+// 🔴 READ-MODIFY-WRITE, not a bare Set: memStore.Set REPLACES the whole entry
+// (hub.go:1111-1115), and the fixtures put other keys on the subject's
+// telemetry. Overwriting the entry wholesale would silently change what the
+// gauge-driven passes see, which is a way to move the OTHER nine columns from
+// inside a helper that is only supposed to be about money.
+func seedParityLiveCost(t *testing.T, api *apiServer, id string) {
+	t.Helper()
+	entry := api.telemetry.Get(id)
+	if entry == nil {
+		entry = map[string]any{}
+	}
+	entry["cost"] = parityLiveCost
+	api.telemetry.Set(id, entry)
 }
 
 // seedParityWorker plants the outsource twin. newActiveOnlineWorker already
@@ -361,6 +522,7 @@ func seedParityWorker(t *testing.T, api *apiServer, mutate func(*OutsourceWorker
 		t.Fatalf("put worker: %v", err)
 	}
 	seedWorkerAnchors(t, api, *w)
+	seedParityLiveCost(t, api, id)
 	return id
 }
 
@@ -432,6 +594,7 @@ func memberTerminal(t *testing.T, api *apiServer, id string, code int) terminalS
 		RestartAfterStop: m.RestartAfterStop,
 		DesiredMachineID: m.DesiredMachineID,
 		Dispatched:       dispatchedFor(t, api, id),
+		Cost:             classifyCost(m.BankedCost, liveCostPresent(api, id)),
 	}
 }
 
@@ -455,6 +618,10 @@ func workerTerminal(t *testing.T, api *apiServer, id string, code int) terminalS
 		RestartAfterStop: m.RestartAfterStop,
 		DesiredMachineID: m.DesiredMachineID,
 		Dispatched:       dispatchedFor(t, api, id),
+		// memberFromWorker folds banked_cost the same way it folds the anchors —
+		// migration 00025 made it the SAME column — so the two populations'
+		// money is literally comparable, exactly as the nine row fields are.
+		Cost: classifyCost(m.BankedCost, liveCostPresent(api, id)),
 	}
 }
 
@@ -517,6 +684,7 @@ func parityCases() []verbCase {
 				// at :1235) — and fires ONE stop. An ACCIDENT of what activate does not
 				// clear, not a designed part of 起來.
 				Dispatched: "stop",
+				Cost:       costUntouched,
 			},
 			// 外包 restart: worker.DesiredState = DesiredStateOnline;
 			// worker.RefocusSince = 0.0; worker.RefocusOp = "";
@@ -533,6 +701,9 @@ func parityCases() []verbCase {
 				// ownerOpRestart is the one op that skips the wind-down arm (:1595, :1678).
 				// SORTED, so "start+stop" — the emission order is stop-then-start.
 				Dispatched: "start+stop",
+				// respawnWorkerForOwnerOpNow → respawnWorkerNow banks BEFORE the kill
+				// (worker_spawn.go:1954); the start+stop above is the same call's evidence.
+				Cost: costBanked,
 			},
 		},
 		{
@@ -574,6 +745,7 @@ func parityCases() []verbCase {
 				// is false ⇒ no dispatchRobustStopNow (api_members.go:1421). The tick then
 				// parks in decideDown's soft-offboard arm (reconcile.go:845).
 				Dispatched: dispatchedNothing,
+				Cost:       costUntouched,
 			},
 			// 外包: desired offline; RefocusSince = 0.0; RefocusOp = "";
 			// StoppingSince = stopEpochAnchor(memberFromWorker(...)) → the same now.
@@ -587,6 +759,7 @@ func parityCases() []verbCase {
 				// worker (worker_spawn.go:2245-2258); the online path publishes a 預告 and
 				// dispatches nothing.
 				Dispatched: dispatchedNothing,
+				Cost:       costUntouched,
 			},
 		},
 		{
@@ -628,6 +801,7 @@ func parityCases() []verbCase {
 				// at :1580-1583 says the reconcile it fires "dispatches nothing on this pass —
 				// the deadline is in the future by construction" (reconcile.go:836-841).
 				Dispatched: dispatchedNothing,
+				Cost:       costUntouched,
 			},
 			wantOutsource: terminalState{
 				Status: http.StatusOK, DesiredState: DesiredStateOffline,
@@ -638,6 +812,7 @@ func parityCases() []verbCase {
 				// same shape: 409 unless active+online (api_outsource.go:592), then the same
 				// online arm of openWorkerHandoverGrace.
 				Dispatched: dispatchedNothing,
+				Cost:       costUntouched,
 			},
 		},
 		{
@@ -674,6 +849,7 @@ func parityCases() []verbCase {
 				// (api_members.go:1487 → reconcile.go:2919-2930) with no state test in front
 				// of it. This handler never calls reconcileMemberNow at all.
 				Dispatched: "stop",
+				Cost:       costUntouched,
 			},
 			// 外包: `if worker.StoppingSince <= 0.0 || worker.StoppingSince > forcedAt
 			// { worker.StoppingSince = forcedAt }` — the second arm pulls it back.
@@ -688,6 +864,8 @@ func parityCases() []verbCase {
 				// here skips the enqueue and only logs (:1988-1991), where 正職 enqueues
 				// anyway and arms a retry. The fixture resolves, so the cells agree.
 				Dispatched: "stop",
+				// stopWorkerNow banks BEFORE the kill (worker_spawn.go:1983).
+				Cost: costBanked,
 			},
 		},
 		{
@@ -725,6 +903,7 @@ func parityCases() []verbCase {
 				// takes the queue-the-起來 branch (api_members.go:1608); the member is still
 				// online so the tick reaches decideDown's soft arm and spends nothing.
 				Dispatched: dispatchedNothing,
+				Cost:       costUntouched,
 			},
 			// 外包 (T-65 包②): the same branch, transcribed from the worker handler's
 			// own assignment — `queueWorkerRestartAfterStop(worker, refocusOpRefocus,
@@ -741,6 +920,7 @@ func parityCases() []verbCase {
 				// queues the 起來 (api_outsource.go:455) and its follow-up outsourceTickNow is
 				// gated off wholesale by noOutsource (outsource_sched.go:744-748).
 				Dispatched: dispatchedNothing,
+				Cost:       costUntouched,
 			},
 		},
 		{
@@ -777,6 +957,7 @@ func parityCases() []verbCase {
 				// "awaiting agent dump" (reconcile.go:562-602) and the relocation-STOP arm
 				// below it is never reached.
 				Dispatched: dispatchedNothing,
+				Cost:       costUntouched,
 			},
 			wantOutsource: terminalState{
 				Status: http.StatusOK, DesiredState: DesiredStateOnline,
@@ -787,6 +968,7 @@ func parityCases() []verbCase {
 				// relocate does not displace, and the worker has state to flush, so it takes
 				// openOwnerOpHandover (worker_spawn.go:1595-1603) — 預告 only.
 				Dispatched: dispatchedNothing,
+				Cost:       costUntouched,
 			},
 		},
 		{
@@ -824,6 +1006,7 @@ func parityCases() []verbCase {
 				// contains NO enqueue, no dispatchRobustStopNow and no reconcileMemberNow.
 				// NO fixture can make this cell non-empty.
 				Dispatched: dispatchedNothing,
+				Cost:       costUntouched,
 			},
 			wantOutsource: terminalState{
 				Status: http.StatusOK, DesiredState: DesiredStateOnline,
@@ -836,6 +1019,7 @@ func parityCases() []verbCase {
 				// DOES own a dispatch site — with an already-collected epoch it would send
 				// STOP+START (worker_spawn.go:1604). Equal here, not equal by construction.
 				Dispatched: dispatchedNothing,
+				Cost:       costUntouched,
 			},
 		},
 	}
